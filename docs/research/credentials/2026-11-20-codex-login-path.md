@@ -122,22 +122,22 @@ refresh implementation. OMP, OpenClaw, and OpenCode show what independent
 harnesses do with that client id. OpenAI's docs give the policy boundary and
 the sanctioned alternative.
 
-| Surface | Revision | Role |
-| --- | --- | --- |
-| `openai/codex` | `e58bf8f5` | Client id, authorize parameters, refresh, App Server auth |
-| `can1357/oh-my-pi` | `de397d59` | Browser and device flows, refresh lease |
-| `openclaw/openclaw` | `5d8c2510` | Browser flow, refresh error mapping |
-| `anomalyco/opencode` | `cdd0585e` | Browser and device flows, originator |
-| `leon0399/llame` | `3cc5b427` | Existing Codex provider and execution route |
+| Surface              | Revision   | Role                                                      |
+| -------------------- | ---------- | --------------------------------------------------------- |
+| `openai/codex`       | `e58bf8f5` | Client id, authorize parameters, refresh, App Server auth |
+| `can1357/oh-my-pi`   | `de397d59` | Browser and device flows, refresh lease                   |
+| `openclaw/openclaw`  | `5d8c2510` | Browser flow, refresh error mapping                       |
+| `anomalyco/opencode` | `cdd0585e` | Browser and device flows, originator                      |
+| `leon0399/llame`     | `3cc5b427` | Existing Codex provider and execution route               |
 
 ## Login paths
 
-| Path | Credential owner | Refresh owner | Execution owner | Status |
-| --- | --- | --- | --- | --- |
-| Direct OAuth, Codex client id | llame | llame | llame | Undocumented, tolerated for local and open-source apps |
-| App Server `chatgptAuthTokens` | llame, supplied per session | llame, on App Server request | Codex App Server | Internal, marked do not use |
-| Managed App Server | Codex, in `CODEX_HOME` or keyring | Codex | Codex App Server | Supported for local and open-source apps |
-| SIWC open-source client | llame | llame | llame or App Server | Sanctioned, Responses API only |
+| Path                           | Credential owner                  | Refresh owner                | Execution owner     | Status                                                 |
+| ------------------------------ | --------------------------------- | ---------------------------- | ------------------- | ------------------------------------------------------ |
+| Direct OAuth, Codex client id  | llame                             | llame                        | llame               | Undocumented, tolerated for local and open-source apps |
+| App Server `chatgptAuthTokens` | llame, supplied per session       | llame, on App Server request | Codex App Server    | Internal, marked do not use                            |
+| Managed App Server             | Codex, in `CODEX_HOME` or keyring | Codex                        | Codex App Server    | Supported for local and open-source apps               |
+| SIWC open-source client        | llame                             | llame                        | llame or App Server | Sanctioned, Responses API only                         |
 
 ### Direct OAuth with the Codex public client id
 
@@ -221,11 +221,11 @@ a #1826 change.
 
 ### Lifetimes
 
-| Token | Codex client id | Sanctioned open-source route |
-| --- | --- | --- |
-| Access token | JWT with `exp`, refreshed 5 minutes before expiry | 1 hour (`expires_in: 3600`) [^siwc-tokens] |
-| Refresh token | Replaced when the response returns a new value, no documented lifetime | 30 days, renewed on each successful refresh [^siwc-tokens] |
-| ID token | Returned at login, not used for refresh | Returned at login, retained for `id_token_hint` [^siwc-sign-in] |
+| Token         | Codex client id                                                        | Sanctioned open-source route                                    |
+| ------------- | ---------------------------------------------------------------------- | --------------------------------------------------------------- |
+| Access token  | JWT with `exp`, refreshed 5 minutes before expiry                      | 1 hour (`expires_in: 3600`) [^siwc-tokens]                      |
+| Refresh token | Replaced when the response returns a new value, no documented lifetime | 30 days, renewed on each successful refresh [^siwc-tokens]      |
+| ID token      | Returned at login, not used for refresh                                | Returned at login, retained for `id_token_hint` [^siwc-sign-in] |
 
 Codex does not store an access-token lifetime. It parses the JWT `exp` and
 refreshes inside a 5-minute window. When `exp` is unreadable, it refreshes after
@@ -261,12 +261,12 @@ stricter case.
 
 Codex classifies these codes as permanent:
 
-| Code | Meaning | Operator action |
-| --- | --- | --- |
-| `refresh_token_expired` | Refresh token lifetime ended | Log in again |
-| `refresh_token_reused` | Token was already spent | Log in again |
-| `refresh_token_invalidated` | Session revoked or account changed | Log in again |
-| `invalid_grant` on `400` | Grant rejected | Log in again |
+| Code                        | Meaning                            | Operator action |
+| --------------------------- | ---------------------------------- | --------------- |
+| `refresh_token_expired`     | Refresh token lifetime ended       | Log in again    |
+| `refresh_token_reused`      | Token was already spent            | Log in again    |
+| `refresh_token_invalidated` | Session revoked or account changed | Log in again    |
+| `invalid_grant` on `400`    | Grant rejected                     | Log in again    |
 
 Other `401` responses are permanent. An unknown code on a non-`400` response is
 transient and retried [^codex-manager]. OpenClaw maps the same codes and keeps
@@ -422,26 +422,49 @@ Revisit the decision if any of these change:
    pasted input, and OMP supports device code.
 
 [^codex-manager]: Codex auth manager, `codex-rs/login/src/auth/manager.rs:232-246, 1758-1798, 1861-1885, 1895, 1965-1975, 2248, 3658-3675`. <https://github.com/openai/codex/blob/e58bf8f5233b51e7cd1679d947e3028c1ed91b06/codex-rs/login/src/auth/manager.rs#L232-L246>
+
 [^codex-server]: Codex login server, `codex-rs/login/src/server.rs:193-197, 590-614, 641-671`. <https://github.com/openai/codex/blob/e58bf8f5233b51e7cd1679d947e3028c1ed91b06/codex-rs/login/src/server.rs#L193-L197>
+
 [^codex-oauth-client]: Codex OAuth client, `codex-rs/login/src/oauth/client.rs:17-33, 128-136`. <https://github.com/openai/codex/blob/e58bf8f5233b51e7cd1679d947e3028c1ed91b06/codex-rs/login/src/oauth/client.rs#L17-L33>
+
 [^codex-account-protocol]: Codex App Server account protocol, `codex-rs/app-server-protocol/src/protocol/v2/account.rs:98-115, 301-331`. <https://github.com/openai/codex/blob/e58bf8f5233b51e7cd1679d947e3028c1ed91b06/codex-rs/app-server-protocol/src/protocol/v2/account.rs#L98-L115>
+
 [^codex-external-auth]: Codex App Server external auth bridge, `codex-rs/app-server/src/external_auth.rs:18, 44-46`. <https://github.com/openai/codex/blob/e58bf8f5233b51e7cd1679d947e3028c1ed91b06/codex-rs/app-server/src/external_auth.rs#L18>
+
 [^codex-auth-doc]: Codex authentication, "Login on headless devices". <https://learn.chatgpt.com/docs/auth.md>
+
 [^app-server-doc]: Codex App Server, "Auth endpoints" at `app-server.md:2242-2266`. <https://learn.chatgpt.com/docs/app-server.md>
+
 [^siwc-overview]: Sign in with ChatGPT plan usage. <https://developers.openai.com/siwc/token-sharing-open-source.md>
+
 [^siwc-tokens]: Sign in with ChatGPT token reference, "Token lifetimes" at `token-reference.md:7-15`. <https://developers.openai.com/siwc/token-sharing-open-source/token-reference.md#token-lifetimes>
+
 [^siwc-refresh]: Sign in with ChatGPT accounts and sessions, "Refreshing tokens" at `profiles-and-sessions.md:36-38`. <https://developers.openai.com/siwc/token-sharing-open-source/profiles-and-sessions#refreshing-tokens>
+
 [^siwc-errors]: Sign in with ChatGPT errors and recovery, "Refresh errors" at `errors-and-recovery.md:46-52`. <https://developers.openai.com/siwc/token-sharing-open-source/errors-and-recovery#refresh-errors>
+
 [^siwc-models]: Sign in with ChatGPT models and inference, "Supported endpoint" at `models-and-inference.md:24`. <https://developers.openai.com/siwc/token-sharing-open-source/models-and-inference>
+
 [^siwc-app-server]: Sign in with ChatGPT and Codex App Server at `codex-app-server.md:9-32`. <https://developers.openai.com/siwc/token-sharing-open-source/codex-app-server>
+
 [^siwc-sign-in]: Sign in with ChatGPT registration and sign-in at `sign-in.md:5, 20-30, 59`. <https://developers.openai.com/siwc/token-sharing-open-source/sign-in>
+
 [^siwc-preview]: Sign in with ChatGPT preview limitations at `preview-limitations.md:8-22`. <https://developers.openai.com/siwc/token-sharing-open-source/preview-limitations>
+
 [^issue-originator]: Codex issue 31967, originator-dependent model routing. <https://github.com/openai/codex/issues/31967>
+
 [^issue-siwc-live]: Codex issue 53003, SIWC token and Codex Live. <https://github.com/openai/codex/issues/53003>
+
 [^omp-codex]: OMP Codex OAuth, `packages/ai/src/registry/oauth/openai-codex.ts:12-24, 186-205, 210-260`. <https://github.com/can1357/oh-my-pi/blob/de397d59d3aea002ebd2acb52ffeac64644f7cf7/packages/ai/src/registry/oauth/openai-codex.ts#L12-L24>
+
 [^omp-refresh]: OMP refresh coordinator, `packages/ai/src/auth/refresh.ts:40-70, 305`. <https://github.com/can1357/oh-my-pi/blob/de397d59d3aea002ebd2acb52ffeac64644f7cf7/packages/ai/src/auth/refresh.ts#L40-L70>
+
 [^omp-policy]: OMP Codex auth policy, `packages/catalog/src/compat/rules/auth/openai-codex.kdl:5-17, 25-26`. <https://github.com/can1357/oh-my-pi/blob/de397d59d3aea002ebd2acb52ffeac64644f7cf7/packages/catalog/src/compat/rules/auth/openai-codex.kdl#L5-L17>
+
 [^openclaw-auth]: OpenClaw Codex authorization, `extensions/openai/openai-chatgpt-oauth-authorization.runtime.ts:3-9, 40-48`. <https://github.com/openclaw/openclaw/blob/5d8c25101e6726d64348ec014a3e2e8e7467884e/extensions/openai/openai-chatgpt-oauth-authorization.runtime.ts#L3-L9>
+
 [^openclaw-token]: OpenClaw Codex token exchange and refresh, `extensions/openai/openai-chatgpt-oauth-token.runtime.ts:22, 35-38, 311-313`. <https://github.com/openclaw/openclaw/blob/5d8c25101e6726d64348ec014a3e2e8e7467884e/extensions/openai/openai-chatgpt-oauth-token.runtime.ts#L35-L38>
+
 [^opencode]: OpenCode Codex provider, `packages/core/src/plugin/provider/openai.ts:18, 277, 363, 393`. <https://github.com/anomalyco/opencode/blob/cdd0585e048b08d85df1f854b7deb3fa52b8dac4/packages/core/src/plugin/provider/openai.ts#L18>
+
 [^llame-codex]: llame Codex model client, `apps/api/src/models/openai-codex-model-client.ts:15, 104`. <https://github.com/leon0399/llame/blob/3cc5b4272/apps/api/src/models/openai-codex-model-client.ts#L15>

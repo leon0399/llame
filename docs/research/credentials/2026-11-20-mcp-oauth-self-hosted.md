@@ -99,20 +99,20 @@ The earlier llame transport study ruled OAuth out of scope for #215 and named th
 
 The spec makes OAuth 2.1 with PKCE the standard path. It lists twelve client obligations that matter here.
 
-| Obligation | What the client must do | Source |
-| --- | --- | --- |
-| Protected resource metadata | Use the `resource_metadata` URL from `WWW-Authenticate`, else probe the two well-known URIs in order | [^mcp-discovery] |
-| Authorization server metadata | Try RFC 8414 and both OIDC discovery endpoints in the stated priority | [^mcp-discovery] |
-| Metadata identity | Reject a metadata document whose `issuer` differs from the URL it was fetched from | [^mcp-discovery] |
-| Client registration | Obtain a `client_id` by pre-registration, CIMD or DCR, in that priority | [^mcp-registration] |
-| DCR body | Send `application_type`, `native` for a local app and `web` for a hosted one | [^mcp-registration] |
-| PKCE | Always `S256`, and refuse to proceed when `code_challenge_methods_supported` is absent | [^mcp-security] |
-| Resource indicator | Send `resource` in the authorization and token requests, whether or not the server supports it | [^mcp-auth] |
-| Mix-up defense | Compare the callback `iss` with the recorded issuer before redeeming the code | [^mcp-auth] |
-| Redirect URI | Use `localhost` or HTTPS, and register the exact value | [^mcp-security] |
-| Authorization server binding | Keep client credentials and tokens per issuer, never present them to another | [^mcp-registration] |
-| Refresh | Store refresh tokens confidentially, list `refresh_token` in `grant_types`, expect rotation | [^mcp-auth] |
-| Step-up | On `403 insufficient_scope`, re-authorize with the union of the granted and challenged scopes | [^mcp-auth] |
+| Obligation                    | What the client must do                                                                              | Source              |
+| ----------------------------- | ---------------------------------------------------------------------------------------------------- | ------------------- |
+| Protected resource metadata   | Use the `resource_metadata` URL from `WWW-Authenticate`, else probe the two well-known URIs in order | [^mcp-discovery]    |
+| Authorization server metadata | Try RFC 8414 and both OIDC discovery endpoints in the stated priority                                | [^mcp-discovery]    |
+| Metadata identity             | Reject a metadata document whose `issuer` differs from the URL it was fetched from                   | [^mcp-discovery]    |
+| Client registration           | Obtain a `client_id` by pre-registration, CIMD or DCR, in that priority                              | [^mcp-registration] |
+| DCR body                      | Send `application_type`, `native` for a local app and `web` for a hosted one                         | [^mcp-registration] |
+| PKCE                          | Always `S256`, and refuse to proceed when `code_challenge_methods_supported` is absent               | [^mcp-security]     |
+| Resource indicator            | Send `resource` in the authorization and token requests, whether or not the server supports it       | [^mcp-auth]         |
+| Mix-up defense                | Compare the callback `iss` with the recorded issuer before redeeming the code                        | [^mcp-auth]         |
+| Redirect URI                  | Use `localhost` or HTTPS, and register the exact value                                               | [^mcp-security]     |
+| Authorization server binding  | Keep client credentials and tokens per issuer, never present them to another                         | [^mcp-registration] |
+| Refresh                       | Store refresh tokens confidentially, list `refresh_token` in `grant_types`, expect rotation          | [^mcp-auth]         |
+| Step-up                       | On `403 insufficient_scope`, re-authorize with the union of the granted and challenged scopes        | [^mcp-auth]         |
 
 Two constraints shape every deployment decision. Clients must record the issuer before the redirect and validate `iss` after it.[^mcp-auth] A client with no public URL cannot satisfy the CIMD requirement, which demands an HTTPS document with a path.[^mcp-registration]
 
@@ -122,20 +122,20 @@ llame pins two different client libraries. The hub talks to MCP servers through 
 
 Their OAuth coverage is not the same, and the difference decides how much llame must supply.
 
-| Requirement | `@ai-sdk/mcp` 1.0.71 | `@modelcontextprotocol/sdk` 1.32.0 |
-| --- | --- | --- |
-| Resource metadata discovery | Yes, with a fallback to the server origin | Yes, with the same fallback[^sdk-auth] |
-| Server metadata discovery | Yes, both families | Yes, both families[^sdk-auth] |
-| Metadata `issuer` check | No | No, and the source says so[^sdk-auth] |
-| CIMD | No, the provider has no `clientMetadataUrl`[^ai-sdk-types] | Yes, when advertised and the URL is HTTPS with a path[^sdk-auth] |
-| DCR | Yes, without `application_type`[^ai-sdk-auth] | Yes, without `application_type`[^sdk-auth] |
-| PKCE | Yes, `S256` | Yes, `S256`, but only refuses when the field is present and wrong[^sdk-auth] |
-| `resource` in both requests | Yes when resource metadata exists | Yes when it exists, else only via `validateResourceURL`[^sdk-auth] |
-| `iss` validation | No | No, and v2 adds it[^sdk2-auth-types] |
-| Refresh | Yes, bound to the stored server information[^ai-sdk-auth] | Yes, stamps the issuer and drops a mismatch[^sdk-auth] |
-| Discovery cache | No | Optional, through `discoveryState`[^sdk-auth-types] |
-| `403` step-up | No | Yes, at the transport with a loop breaker[^sdk-transport] |
-| Re-auth on `401` | One attempt per response[^ai-sdk-auth] | Yes, with a loop breaker[^sdk-transport] |
+| Requirement                 | `@ai-sdk/mcp` 1.0.71                                       | `@modelcontextprotocol/sdk` 1.32.0                                           |
+| --------------------------- | ---------------------------------------------------------- | ---------------------------------------------------------------------------- |
+| Resource metadata discovery | Yes, with a fallback to the server origin                  | Yes, with the same fallback[^sdk-auth]                                       |
+| Server metadata discovery   | Yes, both families                                         | Yes, both families[^sdk-auth]                                                |
+| Metadata `issuer` check     | No                                                         | No, and the source says so[^sdk-auth]                                        |
+| CIMD                        | No, the provider has no `clientMetadataUrl`[^ai-sdk-types] | Yes, when advertised and the URL is HTTPS with a path[^sdk-auth]             |
+| DCR                         | Yes, without `application_type`[^ai-sdk-auth]              | Yes, without `application_type`[^sdk-auth]                                   |
+| PKCE                        | Yes, `S256`                                                | Yes, `S256`, but only refuses when the field is present and wrong[^sdk-auth] |
+| `resource` in both requests | Yes when resource metadata exists                          | Yes when it exists, else only via `validateResourceURL`[^sdk-auth]           |
+| `iss` validation            | No                                                         | No, and v2 adds it[^sdk2-auth-types]                                         |
+| Refresh                     | Yes, bound to the stored server information[^ai-sdk-auth]  | Yes, stamps the issuer and drops a mismatch[^sdk-auth]                       |
+| Discovery cache             | No                                                         | Optional, through `discoveryState`[^sdk-auth-types]                          |
+| `403` step-up               | No                                                         | Yes, at the transport with a loop breaker[^sdk-transport]                    |
+| Re-auth on `401`            | One attempt per response[^ai-sdk-auth]                     | Yes, with a loop breaker[^sdk-transport]                                     |
 
 Both libraries keep the interactive flow behind the same seam. The provider answers `tokens`, `saveTokens`, `clientInformation`, `saveClientInformation`, `codeVerifier`, `saveCodeVerifier`, `redirectToAuthorization`, `redirectUrl` and `clientMetadata`.[^sdk-auth-types][^ai-sdk-types] That seam is the storage llame's Credential store would fill.
 
@@ -149,11 +149,11 @@ OpenCode already uses the newer client. It pins `@modelcontextprotocol/client` 2
 
 The spec ranks three mechanisms. Pre-registered credentials come first, CIMD second, DCR third.[^mcp-registration] A self-hosted installation can use each, with different costs.
 
-| Mechanism | What it needs | Verdict for a self-hosted install |
-| --- | --- | --- |
-| Pre-registered | The operator creates the client at the server, then pastes `client_id` and secret into configuration | Works with no public URL, and works when DCR is closed. It costs a manual step per server. |
-| CIMD | An HTTPS document with a path that the authorization server can fetch, listing the exact redirect URIs | Works only when the installation's origin is reachable from the authorization server. |
-| DCR | A `registration_endpoint`, and a client that stores the result per issuer | Works with no public URL. It is deprecated, and servers may restrict it. |
+| Mechanism      | What it needs                                                                                          | Verdict for a self-hosted install                                                          |
+| -------------- | ------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------ |
+| Pre-registered | The operator creates the client at the server, then pastes `client_id` and secret into configuration   | Works with no public URL, and works when DCR is closed. It costs a manual step per server. |
+| CIMD           | An HTTPS document with a path that the authorization server can fetch, listing the exact redirect URIs | Works only when the installation's origin is reachable from the authorization server.      |
+| DCR            | A `registration_endpoint`, and a client that stores the result per issuer                              | Works with no public URL. It is deprecated, and servers may restrict it.                   |
 
 CIMD does not require the vendor to host the document. Each installation can serve its own at, for example, `https://llame.example.com/oauth/client-metadata.json`. The document must name the same URL as `client_id`, list the callback, and stay reachable for as long as the grant lives.[^mcp-registration]
 
@@ -175,12 +175,12 @@ Both reserve a manual path. OMP's generic flow can skip its listener and take a 
 
 The spec allows `localhost` or HTTPS, and requires exact registration.[^mcp-security] Four shapes fit llame, and only the first suits a server install.
 
-| Shape | When it works | Cost |
-| --- | --- | --- |
-| Callback on the installation origin | Always, because the operator's browser already reaches that origin | Needs a new HTTP route, and an origin llame can name |
-| Loopback listener on the llame host | Only when the browser runs on that host, as on a laptop or a published container port | Not reachable from an operator's desktop when llame runs on a server |
-| Pasted redirect URL | When the browser lands somewhere llame cannot read | One extra operator step, and the same `state` check |
-| Device authorization grant | Never, as things stand | Absent from the spec, from both pinned libraries, and from both harnesses |
+| Shape                               | When it works                                                                         | Cost                                                                      |
+| ----------------------------------- | ------------------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
+| Callback on the installation origin | Always, because the operator's browser already reaches that origin                    | Needs a new HTTP route, and an origin llame can name                      |
+| Loopback listener on the llame host | Only when the browser runs on that host, as on a laptop or a published container port | Not reachable from an operator's desktop when llame runs on a server      |
+| Pasted redirect URL                 | When the browser lands somewhere llame cannot read                                    | One extra operator step, and the same `state` check                       |
+| Device authorization grant          | Never, as things stand                                                                | Absent from the spec, from both pinned libraries, and from both harnesses |
 
 The stable authorization extensions are `enterprise-managed-authorization` and `oauth-client-credentials`.[^ext-auth] Neither is a device grant. A device flow would be llame-specific and impossible to negotiate with a server.
 
@@ -204,12 +204,12 @@ The hub cannot supply a header either. `mcp.open` names a root and a server, and
 
 The options below follow from those facts. None is free.
 
-| Option | What it means | Cost |
-| --- | --- | --- |
-| OAuth only for hub-reachable servers | A remote server in a hub-local Workspace gets a login. A Machine-relayed server keeps headers. | Splits one Operator surface into two behaviors |
-| Flow and store on the Machine | The Machine runs the login and keeps the Credential, and the hub keeps only non-secret state | Contradicts installation-scope storage, and needs a Machine-side store and encryption |
-| Hub-orchestrated, delivered to the Machine | The hub runs the flow, then hands the access token to the relay | No such channel exists, and the value would cross the wire the config layer avoids |
-| Challenge through the relay | `mcp.open` reports a `401` with the challenge, and the hub drives `auth()` | A protocol change, and the token still has to return to the Machine |
+| Option                                     | What it means                                                                                  | Cost                                                                                  |
+| ------------------------------------------ | ---------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| OAuth only for hub-reachable servers       | A remote server in a hub-local Workspace gets a login. A Machine-relayed server keeps headers. | Splits one Operator surface into two behaviors                                        |
+| Flow and store on the Machine              | The Machine runs the login and keeps the Credential, and the hub keeps only non-secret state   | Contradicts installation-scope storage, and needs a Machine-side store and encryption |
+| Hub-orchestrated, delivered to the Machine | The hub runs the flow, then hands the access token to the relay                                | No such channel exists, and the value would cross the wire the config layer avoids    |
+| Challenge through the relay                | `mcp.open` reports a `401` with the challenge, and the hub drives `auth()`                     | A protocol change, and the token still has to return to the Machine                   |
 
 The first option matches the shipped architecture. The other three each need a decision before #1844 can cover Machine-relayed servers.
 

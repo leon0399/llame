@@ -90,7 +90,7 @@ rather than fall back to the shared login.
 
 ## OpenAI
 
-### Consumer plans
+### OpenAI consumer plans
 
 ChatGPT Plus and Pro fall under the Terms of Use for individuals. Both the
 non-EEA and the Europe versions forbid sharing in the same words. [^openai-tou-row][^openai-tou-eu]
@@ -116,7 +116,7 @@ and similar business services. It is explicit about sharing and seats.
 
 > Customer will not share Account access credentials or individual login
 > credentials between multiple users.
-
+>
 > End User Accounts may only be provisioned to, registered for, and used by, a
 > single End User.
 
@@ -151,7 +151,7 @@ terms. Confidence that OpenAI permits a separate client is medium
 
 ## Anthropic
 
-### Consumer plans
+### Anthropic consumer plans
 
 The Consumer Terms state the sharing rule for Claude.ai, Pro, Max and Ultra
 accounts. [^anthropic-consumer-terms]
@@ -192,7 +192,7 @@ Terms. The seat article is the operative rule for plan credentials.
 
 > Each seat on a Team plan is assigned to one named individual, and only that
 > person may use it.
-
+>
 > Users can't route their work through another user's account to use that
 > user's remaining usage.
 

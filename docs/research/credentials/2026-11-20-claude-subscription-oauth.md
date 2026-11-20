@@ -188,18 +188,18 @@ carries the proof, and no client secret exists. The client id is
 `9d1c250a-e61b-44d9-88ed-5944d1962f5e`, stored base64 in OMP and in clear text in
 the other three.[^omp-auth-kdl][^openclaw-oauth][^hermes-credentials][^pi-oauth]
 
-| Element | Value | Cited in |
-| --- | --- | --- |
-| Authorize endpoint | `https://claude.ai/oauth/authorize` | OMP, OpenClaw, Pi, Hermes |
-| Token endpoint | `https://api.anthropic.com/v1/oauth/token` | OMP |
-| Token endpoint | `https://platform.claude.com/v1/oauth/token` | OpenClaw, Pi, Hermes |
-| Token endpoint fallback | `https://console.anthropic.com/v1/oauth/token` | Hermes |
-| Redirect, loopback | `http://localhost:54545/callback` | OMP |
-| Redirect, loopback | `http://localhost:53692/callback` | OpenClaw, Pi |
-| Redirect, copy code | `https://platform.claude.com/oauth/code/callback` | Pi |
-| Redirect, copy code | `https://console.anthropic.com/oauth/code/callback` | Hermes |
-| Scopes, full set | `org:create_api_key user:profile user:inference user:sessions:claude_code user:mcp_servers user:file_upload` | OMP, OpenClaw, Pi |
-| Scopes, minimal | `org:create_api_key user:profile user:inference` | Hermes |
+| Element                 | Value                                                                                                        | Cited in                  |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------ | ------------------------- |
+| Authorize endpoint      | `https://claude.ai/oauth/authorize`                                                                          | OMP, OpenClaw, Pi, Hermes |
+| Token endpoint          | `https://api.anthropic.com/v1/oauth/token`                                                                   | OMP                       |
+| Token endpoint          | `https://platform.claude.com/v1/oauth/token`                                                                 | OpenClaw, Pi, Hermes      |
+| Token endpoint fallback | `https://console.anthropic.com/v1/oauth/token`                                                               | Hermes                    |
+| Redirect, loopback      | `http://localhost:54545/callback`                                                                            | OMP                       |
+| Redirect, loopback      | `http://localhost:53692/callback`                                                                            | OpenClaw, Pi              |
+| Redirect, copy code     | `https://platform.claude.com/oauth/code/callback`                                                            | Pi                        |
+| Redirect, copy code     | `https://console.anthropic.com/oauth/code/callback`                                                          | Hermes                    |
+| Scopes, full set        | `org:create_api_key user:profile user:inference user:sessions:claude_code user:mcp_servers user:file_upload` | OMP, OpenClaw, Pi         |
+| Scopes, minimal         | `org:create_api_key user:profile user:inference`                                                             | Hermes                    |
 
 Every implementation sends `code=true` as an authorize parameter on top of the
 standard set, and every implementation sends PKCE with `S256`. OMP builds the
@@ -213,7 +213,7 @@ the `claude.ai` endpoint is required for direct inference access.[^omp-auth-kdl]
 That comment does not match the field. OpenClaw, Pi and Hermes mint
 `sk-ant-oat01-` tokens from `platform.claude.com` and then call
 `api.anthropic.com` with them.[^openclaw-oauth][^pi-oauth][^hermes-credentials]
-The comment is best read as a warning about the *authorize* host and the
+The comment is best read as a warning about the _authorize_ host and the
 `user:inference` scope, not about the token host. That reading is [INFERENCE, medium
 confidence], because OMP states the claim as a comment without evidence.
 
@@ -360,13 +360,13 @@ Claude Code. Every implementation reproduces a fingerprint, and each reproduces 
 different subset of it. The pieces are the User-Agent, the beta list, the first
 system block, `x-app`, the optional billing header, and the tool names.
 
-| Piece | OMP | OpenClaw | Pi | Hermes |
-| --- | --- | --- | --- | --- |
-| User-Agent | `claude-cli/<2.1.321> (external, cli)` | `claude-cli/<2.1.280>` | `claude-cli/<2.1.322>` | `claude-code/<detected> (external, cli)` |
-| `x-app` | `cli` | `cli` | `cli` | `cli` |
-| Beta list | `claude-code-20250219,oauth-2025-04-20,interleaved-thinking-2025-05-14,thinking-token-count-2026-05-13,context-management-2025-06-27,prompt-caching-scope-2026-01-05` plus `effort-2025-11-24` and `fallback-credit-2026-06-01` for agent requests | `claude-code-20250219,oauth-2025-04-20` plus conditional streaming betas | `claude-code-20250219,oauth-2025-04-20` plus per-model betas | `claude-code-20250219,oauth-2025-04-20,interleaved-thinking-2025-05-14,fine-grained-tool-streaming-2025-05-14` |
-| First system block | billing header, then `You are Claude Code, Anthropic's official CLI for Claude.` | billing header, then the identity sentence | identity sentence | identity sentence |
-| Tool names | single-underscore prefix on non-built-in tools | unchanged | Claude Code canonical casing | `mcp__` prefix and two aliases |
+| Piece              | OMP                                                                                                                                                                                                                                                | OpenClaw                                                                 | Pi                                                           | Hermes                                                                                                         |
+| ------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ | ------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------- |
+| User-Agent         | `claude-cli/<2.1.321> (external, cli)`                                                                                                                                                                                                             | `claude-cli/<2.1.280>`                                                   | `claude-cli/<2.1.322>`                                       | `claude-code/<detected> (external, cli)`                                                                       |
+| `x-app`            | `cli`                                                                                                                                                                                                                                              | `cli`                                                                    | `cli`                                                        | `cli`                                                                                                          |
+| Beta list          | `claude-code-20250219,oauth-2025-04-20,interleaved-thinking-2025-05-14,thinking-token-count-2026-05-13,context-management-2025-06-27,prompt-caching-scope-2026-01-05` plus `effort-2025-11-24` and `fallback-credit-2026-06-01` for agent requests | `claude-code-20250219,oauth-2025-04-20` plus conditional streaming betas | `claude-code-20250219,oauth-2025-04-20` plus per-model betas | `claude-code-20250219,oauth-2025-04-20,interleaved-thinking-2025-05-14,fine-grained-tool-streaming-2025-05-14` |
+| First system block | billing header, then `You are Claude Code, Anthropic's official CLI for Claude.`                                                                                                                                                                   | billing header, then the identity sentence                               | identity sentence                                            | identity sentence                                                                                              |
+| Tool names         | single-underscore prefix on non-built-in tools                                                                                                                                                                                                     | unchanged                                                                | Claude Code canonical casing                                 | `mcp__` prefix and two aliases                                                                                 |
 
 The beta list is the most harness-specific piece. OpenClaw and Pi both build it
 from `claude-code-20250219` and `oauth-2025-04-20`, then append only the betas
@@ -416,15 +416,15 @@ sent, so concurrent first requests all retry once.[^omp-fingerprint]
 
 The failures are specific, and they are not uniform.
 
-| Missing piece | Observed result | Source |
-| --- | --- | --- |
-| `oauth-2025-04-20` beta and the current SDK fingerprint | HTTP 403 on `claude-opus-5` while the same account worked in `claude` | [^omp-pr-9801] |
-| Claude Code identity on a bare bearer | HTTP 429 `rate_limit_error` with the message `Error` | [^hermes-adapter-headers] |
-| Claude Code identity, intermittently | HTTP 500 | [^hermes-adapter] |
-| User-Agent version behind the release | 400 `claude_code_version_too_old`, message names the minimum version | [^omp-fingerprint][^openclaw-contract] |
-| `oauth-2025-04-20` beta on a token refresh | HTTP 429 from the token endpoint | [^onwatch-145] |
-| Identity prefix plus a harness identity prompt | 400 `invalid_request_error`, `Third-party apps now draw from your extra usage, not your plan limits.` | [^hermes-issue-79758] |
-| `context-1m-2025-08-07` beta on a subscription bearer | 429 `rate_limit_error`, `Usage credits are required for long context requests.` | [^omp-issue-7238] |
+| Missing piece                                           | Observed result                                                                                       | Source                                 |
+| ------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- | -------------------------------------- |
+| `oauth-2025-04-20` beta and the current SDK fingerprint | HTTP 403 on `claude-opus-5` while the same account worked in `claude`                                 | [^omp-pr-9801]                         |
+| Claude Code identity on a bare bearer                   | HTTP 429 `rate_limit_error` with the message `Error`                                                  | [^hermes-adapter-headers]              |
+| Claude Code identity, intermittently                    | HTTP 500                                                                                              | [^hermes-adapter]                      |
+| User-Agent version behind the release                   | 400 `claude_code_version_too_old`, message names the minimum version                                  | [^omp-fingerprint][^openclaw-contract] |
+| `oauth-2025-04-20` beta on a token refresh              | HTTP 429 from the token endpoint                                                                      | [^onwatch-145]                         |
+| Identity prefix plus a harness identity prompt          | 400 `invalid_request_error`, `Third-party apps now draw from your extra usage, not your plan limits.` | [^hermes-issue-79758]                  |
+| `context-1m-2025-08-07` beta on a subscription bearer   | 429 `rate_limit_error`, `Usage credits are required for long context requests.`                       | [^omp-issue-7238]                      |
 
 The Hermes replay is the most informative single experiment. Stripping tools and
 lowering `max_tokens` changed nothing. Sending only the Claude Code identity
