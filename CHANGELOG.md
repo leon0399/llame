@@ -2,6 +2,10 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-11-20
 
+- Add prose rules for pages under `docs/` and vendor an adapted `unslop` skill
+  for generated-prose patterns. `pnpm lint:markdown` now fails an ADR that
+  uses semicolons, dashes as punctuation, curly quotes, flagged vocabulary, or
+  a sentence over 35 words.
 - Strengthen summary quota-wake regressions for durable checkpoint recovery,
   claim ownership, original execution context, and completed reply retention.
 - Retain a redelivered summary wake's saved answer when terminal settlement
