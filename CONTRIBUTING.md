@@ -28,7 +28,9 @@ a successful command does not grant approval.
 
 1. Features start with an issue and OpenSpec proposal.
 2. Implementation waits for proposal approval.
-3. Feature work is a linear stack: proposal, implementation layer(s), finalize.
+3. Feature work is one dependency graph of layers: proposal, implementation
+   layers, finalize. Layers are stacked unless `tasks.md` justifies a parallel
+   branch.
 4. Every PR is reviewable, verified, self-reviewed before ready, and monitored.
 5. Merge requires Leo's explicit permission.
 
@@ -102,6 +104,105 @@ fails, report the unsynchronized transition in the handoff; do not claim it was
 updated. Keep live status in the Project rather than duplicating it in task
 files or issue bodies. OpenSpec checkboxes continue to record completed tasks.
 
+## Issues and handoff
+
+An issue is the whole input for whoever picks it up, person or agent. The
+procedure lives in `$issue-handoff`; this section owns the policy.
+
+### Hierarchy
+
+| Level   | What it is                                                                       | Labels                    | Children                   |
+| ------- | -------------------------------------------------------------------------------- | ------------------------- | -------------------------- |
+| Tracker | A capability that spans several features, such as subagents                      | `type:tracking`, `area:*` | feature issues             |
+| Feature | One deliverable. It owns at most one OpenSpec change                             | `type:*`, `area:*`        | cutovers, when it has some |
+| Cutover | One slice that merges alone and leaves `master` working without the later slices | `type:*`, `area:*`        | none                       |
+
+Children are native sub-issues. A feature that ships in one merge has no
+cutovers. A slice that cannot merge alone is a layer, not an issue. The layer
+that completes a cutover puts `Closes #<cutover>` on its PR, and the proposal
+PR says `Refs #<feature>`.
+
+One OpenSpec change covers a feature and all of its cutovers. A cutover gets
+its own proposal only when it touches specs that no sibling touches, or when it
+is deferred past its siblings; it then becomes a feature of its own. Two changes
+that modify the same requirement overwrite each other at sync, so a shared
+requirement keeps one owning change.
+
+Wayfinding maps and their tickets stay outside this tree; see
+[wayfinding](docs/development/wayfinding.md).
+
+### What the body carries
+
+- **Spec brief**, on a feature that needs an OpenSpec change: outcome, decisions
+  with links to the closed tickets or comments that hold them, ADRs, glossary
+  terms, prior art, constraints against parallel changes, and open questions.
+  The brief gists and links. A canonical spec, an ADR, and a ticket resolution
+  each win over it, in that order.
+- **Spec**, added once a proposal is approved: the change name, the proposal PR,
+  and the cutover that each layer closes.
+- **Acceptance**, on work that skips OpenSpec: a reproducer or a test that fails
+  without the fix, or the check that shows a chore is done.
+
+Decision comments stay as the record. The body is the current brief, not a
+status: live status stays in the Project.
+
+### Handoff
+
+An approved spec does not start work. Project Status Ready means nobody holds
+the item. Handing it off is an explicit action:
+
+- assign a person; or
+- add a trigger label for an agent.
+
+| Label             | Goes on                                                     | Requires                                |
+| ----------------- | ----------------------------------------------------------- | --------------------------------------- |
+| `agent:spec`      | a feature that needs a spec                                 | a complete Spec brief                   |
+| `agent:implement` | a cutover, a feature without cutovers, or work with no spec | an approved Spec section, or Acceptance |
+| `needs:human`     | any issue                                                   | a comment that says what is missing     |
+
+Trigger labels start work. Only a trusted person adds `agent:*`. The automation
+that picks a trigger up removes it when it starts, so applying it again is a
+clean retry. An agent never adds or removes `agent:*`. It stops by adding
+`needs:human` with a comment, for example when a brief is incomplete, a spec
+contradicts itself, or a fix turns out to change a documented contract.
+
+Agents often act under the same GitHub identity as the person who runs them, so
+the platform cannot tell their labels apart. Each setup enforces the rule in its
+own way: a separate bot identity, a guard that blocks label edits from agents,
+or none for a contributor who works alone. Do not claim more protection than the
+setup has.
+
+### Pickup and release
+
+Whoever starts work on an issue, person or agent, marks it in two
+machine-readable ways:
+
+- a `working:spec`, `working:implement`, or `working:triage` label for the
+  stage, and an assignee;
+- one comment that opens with a marker, followed by a plain sentence:
+
+  ```html
+  <!-- llame:pickup {"stage":"implement","by":"agent","harness":"omp","session":"w2P:p2","change":"continue-after-broken-send","started":"2026-11-20T21:40Z"} -->
+  ```
+
+  `stage` matches the label. `by` is `person` or `agent`, and an agent adds its
+  `harness` and `session`. `change` names the OpenSpec change when there is one.
+
+Finishing or stopping removes the `working:*` label and posts a release marker:
+`<!-- llame:release {"stage":"implement","outcome":"published|stopped|done"} -->`.
+A `working:*` label whose session is gone, or with no marker or PR activity for
+24 hours, is stale. A reconciler, or a person, removes it and posts a release
+marker with outcome `stale`.
+
+The marker shows who holds the work, which a shared GitHub identity cannot. The
+claim is the branches of the work where they exist: a cutover resolves to its
+feature's change, and at most one implementer works each dependency chain of
+that change. Work without a branch, such as a triage, is claimed by its live
+`working:*` label and marker. Work that finds a live claim stops.
+`agent:implement` on a cutover whose earlier cutovers are neither done nor
+handed off stops with `needs:human`. A spec writer that needs answers posts one
+grilling round on the issue and waits for a reply from a person.
+
 ## Feature delivery
 
 Run stack operations through `$gh-stack`; it owns command syntax and failure
@@ -112,9 +213,10 @@ those reminders cannot enforce.
 
 ### 1. Issue and evidence
 
-Before editing, read the issue, dependencies, current code, shipped specs,
-`SPEC.md`, and relevant recent commits. Resolve material product/security
-ambiguity. Data/auth/tenancy work states threats and includes a negative test.
+Before editing, read the issue body (its Spec brief, Spec, or Acceptance
+section), dependencies, current code, shipped specs, `SPEC.md`, and relevant
+recent commits. Resolve material product/security ambiguity. Data/auth/tenancy
+work states threats and includes a negative test.
 
 Reference the issue from every stack PR. Put `Closes #N` on the PR whose merge
 satisfies that issue's acceptance criteria, even if later implementation or
@@ -137,9 +239,15 @@ Split implementation by dependency and reviewable responsibility. Prefer
 independently mergeable layers and identify intermediate merge boundaries;
 keep inseparable behavior together. Give each layer one sentence of ownership
 and an authored size estimate against the [review target](#review-budget).
-`tasks.md` must contain:
+A layer's parent is the layer below it. A layer whose files and spec
+requirements are disjoint from its siblings may take the proposal branch as its
+parent instead, as a parallel branch; `tasks.md` states why it is independent,
+and finalize depends on every leaf. Confirm, create, or merge the feature's
+cutover sub-issues when the proposal is written; approving the proposal
+approves that split. `tasks.md` must contain:
 
-- the exact delivery stack;
+- the delivery graph: each layer's branch, its parent, and the cutover it
+  closes, if any;
 - safe intermediate merge boundaries and any layers that must merge together;
 - `$gh-stack` and `$openspec-apply-change` requirements;
 - every task assigned to one layer with focused verification;

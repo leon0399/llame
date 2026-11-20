@@ -13,8 +13,10 @@ rules:
   proposal:
     - >-
       Confirm the proposal branch was initialized with $gh-stack before any
-      change artifacts were written. Read the issue, native dependencies,
-      relevant specs, code, and prior decisions before proposing scope.
+      change artifacts were written. Read the issue body (its Spec brief), the
+      closed tickets and ADRs it links, native dependencies, relevant specs,
+      code, and prior decisions before proposing scope. Ask open questions as
+      one grilling round before writing; never guess an answer.
     - >-
       Capture sourced intent, observable acceptance, non-goals, assumptions,
       and unresolved decisions in the proposal; link raw evidence instead of
@@ -73,12 +75,16 @@ rules:
       relax the linear delivery stack or approval boundaries.
   tasks:
     - >-
-      Plan one linear stack: master <- <change>/proposal <- implementation
-      layers <- <change>/finalize. Use $gh-stack and $openspec-apply-change.
-      Prefer layers that are independently mergeable after their parents.
-      Identify safe intermediate merge boundaries and any inseparable layers.
-      Give each layer its exact branch, parent, one-sentence ownership,
-      estimated changed lines, exit evidence, and issue-closing responsibility.
+      Plan one dependency graph: master <- <change>/proposal <- implementation
+      layers <- <change>/finalize. Each layer's parent is the layer below it,
+      or the proposal branch for a parallel layer whose files and spec
+      requirements are disjoint from its siblings; state why it is
+      independent. Finalize depends on every leaf. Use $gh-stack and
+      $openspec-apply-change. Prefer layers that are independently mergeable
+      after their parents. Identify safe intermediate merge boundaries and any
+      inseparable layers. Give each layer its exact branch, parent,
+      one-sentence ownership, estimated changed lines, exit evidence, and the
+      cutover sub-issue it closes (CONTRIBUTING.md, "Issues and handoff").
     - >-
       Prefer about 2,000 authored added-plus-deleted lines per layer against
       its immediate parent, not master; this is a review target, not a limit.
