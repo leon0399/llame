@@ -1,5 +1,35 @@
 ## MODIFIED Requirements
 
+### Requirement: Native mutations have a durable pre-effect fence
+
+Before an alpha native `edit` or `write` changes bytes on any scheme, the trusted runtime MUST durably record a stable mutation attempt identity and target operation metadata. The recorded target MUST be the canonical locator: a `machine://` locator for a Machine mutation and the `kb://` locator for a Knowledge mutation, never a resolved host path. A mutation MUST NOT bind the Run to a worker. A retry on another worker MUST find the open attempt by its identity.
+
+If a retry or recovery observes an unsettled attempt, it MUST return an unknown outcome and MUST NOT invoke the mutation again. A known result MUST be settled before the model advances. Client replay MUST return the stored result without the filesystem operation.
+
+#### Scenario: Retry finds an open native mutation
+
+- **WHEN** a worker dies after it records a native mutation attempt but before it settles its result
+- **THEN** recovery reports `outcome_unknown`
+- **AND** a queue retry does not execute the same edit or write again
+
+#### Scenario: Knowledge mutation is fenced on any worker
+
+- **WHEN** a worker dies after it records a `kb://` edit attempt and a different worker retries the Run
+- **THEN** recovery reports `outcome_unknown` on that worker
+- **AND** the retry does not execute the edit again and does not fail with `executor_unavailable`
+
+#### Scenario: Settled native mutation replays safely
+
+- **WHEN** a client reconnects after a native mutation result was durably settled
+- **THEN** replay returns the stored result
+- **AND** the filesystem operation is not repeated
+
+#### Scenario: A Machine mutation is fenced on any worker
+
+- **WHEN** a worker dies after it records an `edit` attempt on `machine://devl/srv/app/a.ts` and a different worker that reaches `devl` retries the Run
+- **THEN** recovery reports `outcome_unknown` on that worker
+- **AND** the retry does not execute the edit again
+
 ### Requirement: Native tools operate on absolute local regular files
 
 The native `read`, `edit`, and `write` tools MUST accept absolute paths and equivalent `file:` locators. They MUST run each such call on the current Machine through its Machine daemon, with the OS authority of that Machine user. They MUST also accept `kb://` locators under the Knowledge locator requirement. `read` MUST also accept read-only skill locators under the Skill locator requirement and read-only web locators under the Web locator requirements.
@@ -34,7 +64,7 @@ A `read` that misses a regular file MUST offer bounded sibling-name suggestions 
 
 A web locator MUST NOT give sibling suggestions, because a failed web read has no directory to list. The tools MUST accept a trailing path separator on a directory path. A trailing separator on any other target MUST fail as `not_found`. In a web locator, a trailing separator MUST stay part of the URL, and the tool MUST NOT read it as a directory request.
 
-Only the path can select a Machine. A model argument MUST NOT select a different owner, tenant, permission mode, or remote authority. The candidate resolver MUST advertise `edit` and `write` when `machines.default` or a Knowledge root is configured. `read` MUST be eligible for advertisement whenever `tools.allowed` names it. When the current Machine is unreachable, an absolute path or a valid `file:` locator on it MUST fail closed with `machine_unavailable`.
+Only the path can select a Machine. A model argument MUST NOT select a different owner, tenant, permission mode, or remote authority. The candidate resolver MUST advertise `edit` and `write` whenever `tools.allowed` names them, as `tool-calling` states. `read` MUST be eligible for advertisement whenever `tools.allowed` names it. When the current Machine is unreachable, an absolute path or a valid `file:` locator on it MUST fail closed with `machine_unavailable`.
 
 It MUST NOT resolve through Knowledge, another Machine, or the worker process. A path operation MUST target the current Machine of its attempt. A `kb://` or web operation MUST NOT need a Machine. A successful `file:` result MUST report the canonical `machine://` locator of the decoded path, not the submitted URL.
 
@@ -59,8 +89,10 @@ It MUST NOT resolve through Knowledge, another Machine, or the worker process. A
 #### Scenario: A missed read suggests sibling names
 
 - **WHEN** `read` targets a missing regular file, named without a trailing separator, whose parent directory exists, on any scheme that resolves a directory
-- **THEN** the `not_found` result also lists at most five entry names from that directory that score as plausible spellings of the requested name, as bare names without any path
-- **AND** a miss with no plausible sibling, a trailing separator, or scoring work past its bound returns the bare `not_found`, and the suggestion list is never produced for `edit` or `write`
+- **THEN** the `not_found` result also lists at most five plausible entry names from that directory
+- **AND** each listed entry is a bare name without any path
+- **AND** a miss with no plausible sibling, a trailing separator, or scoring work past its bound returns the bare `not_found`
+- **AND** `edit` and `write` never produce the suggestion list
 
 #### Scenario: A missed read under a missing parent says so
 
@@ -302,7 +334,8 @@ Each remaining refusal MUST name the spelling that works, not the rule that the 
 
 - **WHEN** the model reads `https://g%72okipedia.com/page`, `HTTPS://Example.test/guide`, `https://example.test:443/guide`, or `https://example.test./guide`
 - **THEN** the read requests the normalized locator (`https://grokipedia.com/page`, `https://example.test/guide`) without a refusal first
-- **AND** a reject clause written against the canonical spelling still refuses every one of those variants, because the decision is taken over the submitted text and the normalized text alike
+- **AND** a reject clause written against the canonical spelling still refuses every one of those variants
+- **AND** the decision examines the submitted text and the normalized text
 - **AND** a reject clause written against the submitted spelling, such as one naming `%72`, also refuses
 
 #### Scenario: An encoded unreserved character cannot slip past a path reject

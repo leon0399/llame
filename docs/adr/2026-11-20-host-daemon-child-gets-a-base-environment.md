@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 ---
 
 # The host Machine daemon child gets a base environment
@@ -29,7 +29,7 @@ A host Workspace MCP declaration that reads a variable only the worker
 defines becomes unavailable with the unset-variable diagnostic. The operator
 moves that variable into the daemon's own environment.
 
-This is specified in the OpenSpec change
-[host-as-machine](../../openspec/changes/host-as-machine/proposal.md) and
-waits for confirmation in the review of
-[feat(machines): the host as a Machine](https://github.com/leon0399/llame/issues/1831).
+This was decided in the grilling session for
+[feat(machines): the host as a Machine](https://github.com/leon0399/llame/issues/1831)
+and is specified in the OpenSpec change
+[host-as-machine](../../openspec/changes/host-as-machine/proposal.md).

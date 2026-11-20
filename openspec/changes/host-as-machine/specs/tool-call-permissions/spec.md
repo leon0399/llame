@@ -2,7 +2,7 @@
 
 ### Requirement: A path rule anchored at a bare root fails startup
 
-A regex clause on a path parameter MUST NOT start with `^/`. The path parameters are `read`, `edit`, and `write` `path`, `grep` `scopes`, `enter_workspace` `path`, and `bash` `cwd`. Startup MUST fail and name the group, the list, and the clause index of such a clause. A literal clause stays a substring match.
+A regex clause on a path parameter MUST NOT start with `^/`. The path parameters are `read`, `edit`, and `write` `path`, `grep` `scopes`, `enter_workspace` `path`, and `bash` `cwd`. Startup MUST fail and name the group, the list, and the clause index of such a clause. A literal clause stays a substring match. A reject in another spelling, such as `^\/etc\/`, loads and keeps its effect, because rejects also see the projected path.
 
 #### Scenario: A bare root regex fails startup
 
@@ -21,6 +21,16 @@ A regex clause on a path parameter MUST NOT start with `^/`. The path parameters
 - **WHEN** the `read` group rejects `path` with literal `/opt/secret/` and the model reads `/opt/secret/key` on the current Machine `devl`
 - **THEN** the literal matches `machine://devl/opt/secret/key` and the call is refused
 
+#### Scenario: A reject in another bare spelling still refuses
+
+- **WHEN** the `read` group rejects `path` with regex `^\/etc\/` and the model reads `/etc/passwd` on the current Machine `devl`
+- **THEN** the reject matches the projected path `/etc/passwd` and the call is refused
+
+#### Scenario: An all-fields reject sees the projected path
+
+- **WHEN** an all-fields `read` reject matches `^/home/u/\.ssh/` and the model reads `.ssh/id_rsa` in a Workspace at `machine://devl/home/u`
+- **THEN** the reject matches the projected path `/home/u/.ssh/id_rsa` and the call is refused
+
 ### Requirement: A path allow for one Machine does not admit another Machine
 
 The evaluator MUST decide an allow for a path parameter on the canonical locator, with the Machine name. A rule that names one Machine MUST NOT admit the same path on another Machine.
@@ -37,13 +47,13 @@ The evaluator MUST decide an allow for a path parameter on the canonical locator
 
 After the evaluator validates the call schema, it MUST match the parsed argument values as submitted, except for the native Workspace and locator projections below. It MUST NOT match trusted context, inserted defaults, object keys, JSON serialization syntax, or non-string values converted to strings. The SDK validation adapter MUST keep the submitted values unchanged for admission, and the tool receives separately validated arguments with their defaults. A selected field MUST match only an own top-level string property.
 
-An omitted or non-string field MUST NOT match, except for an omitted `bash.cwd` while a Workspace is entered. All-fields rejection MUST examine every submitted string value in nested objects and arrays separately, without concatenation. For a native path parameter, all-fields rejection MUST examine the projected canonical locator in place of the submitted bare or relative text.
+An omitted or non-string field MUST NOT match, except for an omitted `bash.cwd` while a Workspace is entered. All-fields rejection MUST examine every submitted string value in nested objects and arrays separately, without concatenation. For a native path parameter, all-fields rejection MUST examine the projected path and the canonical locator in place of the submitted bare or relative text.
 
-Native `read`, `edit`, and `write` `path` values and `bash` `cwd` values MUST project to a canonical `machine://` locator on the current Machine. An absolute path `p` projects to `machine://<name>p`. While a Workspace is entered, a relative path MUST first resolve from the canonical Workspace root. Resolution MUST be lexical like POSIX `path.posix.resolve`, it MUST keep a trailing separator, and `..` can leave the root.
+Native `read`, `edit`, and `write` `path` values, `enter_workspace` `path` values, and `bash` `cwd` values MUST project to a canonical `machine://` locator on the current Machine. An absolute path `p` projects to `machine://<name>p`. The projected path is `p` itself. While a Workspace is entered, a relative path MUST first resolve from the canonical Workspace root. Resolution MUST be lexical like POSIX `path.posix.resolve`, it MUST keep a trailing separator, and `..` can leave the root.
 
 For `read`, the evaluator MUST remove the split-off read selector after resolution. The tool MUST receive exactly the projected path, with that trailing separator. Projection MUST NOT resolve symbolic links. The OS follows symbolic links in the projected path as for any absolute path.
 
-Here, a relative value does not start with `/`. It also has no `scheme:` prefix that the shared locator parser or the `file:` classifier knows. An unknown scheme MUST stay `invalid_path` and MUST NOT become a relative path. A `file:` locator is always absolute, and the classifier runs before Workspace projection. The evaluator MUST NOT match a submitted bare or relative path text.
+Here, a relative value does not start with `/`. It also has no `scheme:` prefix that the shared locator parser or the `file:` classifier knows. An unknown scheme MUST stay `invalid_path` and MUST NOT become a relative path. A `file:` locator is always absolute, and the classifier runs before Workspace projection. A reject clause MUST match the projected path or the canonical locator, and either match refuses the call. An existing reject written against a bare path thus keeps its effect on every Machine. An allow clause MUST match only the canonical locator.
 
 The evaluator MUST evaluate a `bash` call that omits `cwd` while a Workspace is entered as if it submitted the canonical Workspace root as `cwd`. This is the one exception to the rule that inserted defaults are not matched. `kb://`, `skill://`, and web locators MUST stay unchanged by Workspace projection. The evaluator MUST match `bash.command` only as the submitted text.
 
@@ -121,7 +131,8 @@ The per-file evaluation of a `grep` call is a sixth named exception. The `read` 
 - **AND** a call submits `https://docs.example.com/guide:raw`
 - **THEN** the allow matches and the call proceeds, because the submitted text is judged without its `:raw` selector
 - **AND** a call that submits `https://DOCS.example.com/guide` also proceeds, because the allow is decided on the locator that the request uses
-- **AND** a reject for that host refuses every spelling of it, `https://DOCS.example.com/guide` and `https://docs%2Eexample.com/guide` included, because a reject that matches the submitted or the requested text refuses the call
+- **AND** a reject for that host refuses every spelling of it, `https://DOCS.example.com/guide` and `https://docs%2Eexample.com/guide` included
+- **AND** a reject that matches the submitted or the requested text refuses the call
 
 #### Scenario: A redirect hop is evaluated as a submitted locator
 
@@ -270,7 +281,7 @@ The per-file evaluation of a `grep` call is a sixth named exception. The `read` 
 
 For native Knowledge file locators, a shared pure parser and formatter MUST project the selected `path` to a canonical logical resource identity. A Knowledge resource MUST keep the Space ID and the canonically encoded relative path. Configured roots and resolved paths of Knowledge resources MUST NOT enter policy matching. Supported Knowledge read selectors MUST NOT enter resource matching.
 
-The evaluator MUST match a path on a Machine as its canonical `machine://` locator, with its trailing separator and its `.` and `..` segments kept. This includes a bare absolute path and a `file:` locator on the current Machine. For `read`, the evaluator MUST remove a split-off read selector. Projection MUST NOT probe the filesystem or resolve symbolic links. An `edit` or `write` path MUST keep a suffix that looks like a selector, because a mutation takes its path literally.
+The evaluator MUST decide an allow for a path on a Machine on its canonical `machine://` locator, with its trailing separator and its `.` and `..` segments kept. A reject also sees the projected path without the scheme and the Machine name. This includes a bare absolute path and a `file:` locator on the current Machine. For `read`, the evaluator MUST remove a split-off read selector. Projection MUST NOT probe the filesystem or resolve symbolic links. An `edit` or `write` path MUST keep a suffix that looks like a selector, because a mutation takes its path literally.
 
 The evaluator MUST match a web locator as its canonical URL without a split-off read selector, as it matches Knowledge and skill locators. The evaluator MUST match a `media://` locator as its canonical text: the lower-case `media://` scheme and the lower-case UUID, without a split-off read selector. Owner resolution and stored media metadata MUST NOT enter policy matching. An invalid media locator MUST stay unchanged, and native locator validation MUST refuse it.
 
@@ -294,7 +305,8 @@ The projection MUST NOT bypass Knowledge ownership or symbolic-link checks, and 
 
 - **WHEN** only an anchored exact allow for `machine://devl/tmp/file` exists and a read on the current Machine `devl` submits `/tmp/file:1-2`
 - **THEN** the projected text `machine://devl/tmp/file` matches the allow and the call is admitted, whether that literal filename exists or the suffix is a selector
-- **AND** permission evaluation performs no filesystem probe, so a literal filename that ends in the removed suffix is the same text-only gap that the policy already accepts when a `write` reject names an alias in the repository
+- **AND** permission evaluation performs no filesystem probe
+- **AND** a literal filename that ends in the removed suffix is a known text-only gap, the same gap as a `write` reject that names an alias in the repository
 
 #### Scenario: Encoded spelling resolves to the same identity
 

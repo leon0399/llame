@@ -32,7 +32,7 @@ This change adds three ADRs from the grilling session:
 - [Installation resources stay in the installation](../../../docs/adr/2026-11-20-installation-resources-stay-in-the-installation.md)
   (H6)
 - [The host Machine daemon child gets a base environment](../../../docs/adr/2026-11-20-host-daemon-child-gets-a-base-environment.md)
-  (H18, `proposed` until Leo confirms)
+  (H18)
 
 The other H decisions sequence work or can be reversed cheaply, so they have no ADR. H4 is the
 closest call. Relaxing it later costs one boot check, so it is recorded in design D3.
@@ -132,7 +132,7 @@ Decisions from the grilling session of 2026-11-20, cited as H:
 - **H9 (A).** The Workspace snapshot names where tools resolve paths, in both the bound and unbound
   states, and never names the worker.
 - **H10.** `file:/abs` stays, because RFC 8089 section 2 allows the `local-path` form.
-- **H11 (A).** The `remote-machines` capability becomes `machines`.
+- **H11 (A).** The `remote-machines` capability becomes `machines`. A chore PR after the archive moves it (design D13).
 - **H12 (B).** Between layers, each Machine keeps one authority: `machine://<local>/...` and the
   bare form are served in process until the layer that moves their family.
 - **H13 (A).** A new feature issue, [#1831](https://github.com/leon0399/llame/issues/1831), covers
@@ -158,12 +158,12 @@ Assumptions that follow and that Leo did not object to:
 
 ## Unresolved
 
-- **H18.** The host daemon child receives only a base environment (design D4), so from layer 5 a
-  host Workspace MCP declaration can no longer interpolate a variable that only the worker
-  defines. This keeps database and provider credentials out of the daemon and matches the remote
-  Machine rule. The alternative is to pass the full worker environment, which keeps today's
-  behavior and gives every host Workspace MCP server a path to those credentials. The deltas assume
-  the base environment. Leo to confirm.
+- **H18 (decided on the recommendation).** The host daemon child receives only a base environment
+  (design D4), so from layer 5 a host Workspace MCP declaration can no longer interpolate a
+  variable that only the worker defines. This keeps database and provider credentials out of the
+  daemon and matches the remote Machine rule. Leo asked for ADRs to ship without a further
+  question, so the ADR is `accepted`. Leo can still overturn it in review, and the alternative is
+  the full worker environment.
 - **H19.** The deltas show that H4 A costs more than the grilling round stated. Canonical scenarios
   describe four deployments without a host executor: Knowledge only (`native-files.md`, "Native
   tools are admitted by Knowledge root alone"), web and media `read` only ("Read is admitted by the
@@ -184,18 +184,20 @@ None.
 - `remote-machines`: the host as a configured Machine, `machines.local` and `machines.default`, the
   local child transport and its base environment, the instance id, the handshake facts,
   `machine_identity_mismatch` and `machines:forget`, the listing line, one locator rule, canonical
-  locators in results, the host in Workspace skills, Workspace MCP, and instruction files, and one
-  requirement that maps host-path wording in other capabilities to the current Machine. The
-  finalize layer moves the capability to `machines` (H11).
+  locators in results, the host in Workspace skills, Workspace MCP, and instruction files, the in-process
+  identity check, and two requirements that map host-path wording in the seven tool capabilities
+  to the current Machine. A chore PR after the archive moves the capability to `machines` (H11).
 - `native-file-tools`: the central locator requirement serves every path on the current Machine
-  through its daemon, and the web-locator requirement drops its `^/` example.
+  through its daemon, the fence no longer pins a Run to a worker, and the web-locator requirement
+  drops its `^/` example.
 - `grep-tool`: host scopes run through `fs.grep`, and `grep` is advertised whenever it is
   allowlisted.
 - `tool-call-permissions`: path parameters project to canonical locators, a `^/` path regex fails
   startup, an allow for one Machine does not admit another, and the recommended policy is rewritten
   in canonical form.
-- `workspace-entry`: the gate is `machines.default`, the binding stores the Machine name, and the
-  re-check detaches on `executor_absent` or `executor_mismatch` as Q40 states.
+- `workspace-entry`: the gate is `machines.default`, the submitted path is decided in its
+  projected form, the binding stores the Machine name, and the re-check detaches on
+  `executor_absent` or `executor_mismatch` as Q40 states.
 - `repositories`: every checkout stores a Machine name and a canonical locator, and git runs only
   through a Machine daemon.
 - `instruction-files`: the host chain starts at the containing registered root.
@@ -209,15 +211,18 @@ None.
   `machines.default`.
 - `tool-artifacts`: artifact files stay on the `machines.local` Machine, and the notice says so.
 - `ssh-locator`: scenarios no longer depend on `tools.nativeExecutorId` or a `^/` rule.
+- `mcp-tools`: Workspace MCP interpolation resolves against the Machine daemon of the Workspace,
+  so a host Workspace no longer reads the worker environment (H18).
+- `tool-result-rendering`: the artifact notice names a `machine://` directory, or the Machine that
+  holds the files.
 
-Deliberately unchanged, with the reading under which each holds. "Host-path wording in other
+Deliberately unchanged, with the reading under which each holds. "Host-path wording in tool
 capabilities names the current Machine" in `remote-machines` gives that reading:
 
 - `prompt-imports`: a bare or `file:` target resolves as native `read` resolves it, so it follows
   the current Machine. "A native executor is available" means the current Machine is reachable.
-- `agent-skills`, `mcp-tools`: the `remote-machines` requirements for Workspace skills and Workspace
-  MCP now name the host Machine. The `mcp-tools` interpolation rule resolves against the executing
-  process, which is the Machine daemon (H18).
+- `agent-skills`: the `remote-machines` requirement for Workspace skills now names the host
+  Machine.
 - `instance-config`: `machines` is validated in `remote-machines`, and `tools.nativeExecutorId` was
   never part of the setting surface.
 - `background-jobs`: `chat_jobs.executor` holds the tool name, not an executor id, and jobs stay

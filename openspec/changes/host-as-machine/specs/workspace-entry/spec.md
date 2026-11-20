@@ -1,5 +1,55 @@
 ## MODIFIED Requirements
 
+### Requirement: Workspace entry validates and authorizes both submitted and canonical paths
+
+`enter_workspace` MUST accept only an absolute path or a `machine://` locator. It MUST reject any other path, or a path that contains NUL, as `invalid_path`. An absolute path resolves on the current Machine. Before any filesystem probe, the `enter_workspace` group MUST evaluate the submitted path in its projected form, the canonical locator on its Machine without symbolic-link resolution. That value MUST get an allow and MUST NOT match a reject.
+
+Only after that decision allows the submitted path can the tool canonicalize the path on its Machine. The canonical target MUST be an existing directory. The group MUST then evaluate the canonical locator of that directory, which MUST also get an allow and MUST NOT match a reject. A rejection or a missing allow for either value MUST stop the entry. The system MUST record the canonical-path decision with policy provenance, as a derived-locator decision.
+
+A successful entry result MUST contain the canonical root locator and the Workspace skill list. It MUST also state the state of each Workspace MCP server. It MUST state that a Workspace selects a working root but does not confine the authority of the Machine user.
+
+#### Scenario: Relative path is rejected
+
+- **WHEN** the model calls `enter_workspace` with a relative `path`
+- **THEN** the call returns `invalid_path`
+- **AND** it does not establish a Workspace binding
+
+#### Scenario: Non-directory target is rejected
+
+- **WHEN** the model calls `enter_workspace` with an absolute path whose canonical target is not a directory
+- **THEN** entry is refused
+- **AND** the path is not established as the Chat's Workspace root
+
+#### Scenario: Canonical path is reported with host authority
+
+- **WHEN** the submitted absolute path resolves to an existing directory and both path permission checks allow entry
+- **THEN** the result identifies the canonical root locator, lists the Workspace skills, and reports the state of each Workspace MCP server
+- **AND** the result states that a Workspace is not filesystem confinement and that operations keep the authority of the Machine user
+
+#### Scenario: Symlink target rejection vetoes entry
+
+- **WHEN** the submitted absolute path is a symbolic link whose canonical directory target is rejected by the `enter_workspace` permission group, even though the submitted spelling is allowed
+- **THEN** entry is refused
+- **AND** no binding to the submitted path or its canonical target is established
+
+#### Scenario: Submitted path rejection vetoes entry
+
+- **WHEN** the submitted absolute path is rejected by the `enter_workspace` permission group, even though its canonical target would be allowed
+- **THEN** entry is refused
+- **AND** the canonical target is not established as the Workspace root
+
+#### Scenario: Submitted path is evaluated before any filesystem probe
+
+- **WHEN** the `enter_workspace` permission group rejects the submitted absolute path
+- **THEN** the rejection is returned before canonicalization or any filesystem existence check
+- **AND** the result does not disclose whether the submitted path exists
+
+#### Scenario: Canonical path with no allow does not bind
+
+- **WHEN** the submitted absolute path obtains an allow with no reject, its canonical target is an existing directory, and the canonical path matches no allow
+- **THEN** entry returns `no_allow`
+- **AND** no Workspace binding is established and no Workspace MCP server is started
+
 ### Requirement: Workspace tools require native authority, allowlisting, and their own permission gates
 
 `enter_workspace` and `exit_workspace` MUST be available only when `tools.allowed` contains the id of each tool. Startup MUST fail when either tool is allowlisted and `machines.default` is absent. The `tools.permissions` group of each tool MUST evaluate every call of that tool. Allowlisting or the permission group of the other tool MUST NOT authorize it. `enter_workspace` MUST have the `execute_code` classification, because it can start processes on its Machine. `exit_workspace` MUST have the `write_low_risk` classification. A successful call MUST bind a configured Machine. A denied call MUST have no effect on the binding.
@@ -73,8 +123,8 @@ permission mode.
 
 #### Scenario: Binding persists into a later Run
 
-- **WHEN** a later Run for the same owner and Chat starts on a worker that can
-  reach the bound Machine, with no exit, switch, or detach between the Runs
+- **WHEN** a later Run for the same owner and Chat starts on a worker that can reach the bound Machine
+- **AND** no exit, switch, or detach occurs between the Runs
 - **THEN** the Workspace root of the Chat stays bound across the Run boundary
 - **AND** the later Run re-checks that bound root before it uses it
 
@@ -172,7 +222,7 @@ This includes an accepted-turn `instructions` item. They MUST replay as stored t
 
 #### Scenario: Executor mismatch or absence detaches the binding
 
-- **WHEN** a Run attempt starts and the configuration no longer declares the bound Machine, or the bound Machine has no `destination` and is not the `machines.local` of this worker
+- **WHEN** a Run attempt starts, and the configuration no longer declares the bound Machine or this worker cannot reach it
 - **THEN** the attempt detaches the Workspace before it uses it
 - **AND** the triggering user message receives a notice that names `executor_absent` or `executor_mismatch`
 
@@ -184,7 +234,8 @@ This includes an accepted-turn `instructions` item. They MUST replay as stored t
 
 #### Scenario: Root moved via symlink replacement detaches the binding
 
-- **WHEN** the bound root path is replaced with a symbolic link to a different directory before a Run attempt starts, so its `realpath` no longer equals the stored canonical root
+- **WHEN** a symbolic link to a different directory replaces the bound root path before a Run attempt starts
+- **AND** its `realpath` no longer equals the stored canonical root
 - **THEN** the attempt detaches the Workspace before it uses it
 - **AND** the triggering user message receives a notice that names `root_moved`
 
@@ -203,7 +254,8 @@ This includes an accepted-turn `instructions` item. They MUST replay as stored t
 #### Scenario: Detach completes before Workspace sources and tools are resolved
 
 - **WHEN** a binding fails any re-check during attempt preparation
-- **THEN** the owner-scoped detach commit completes before effective skills, `$skill` activation, Workspace MCP clients or catalog entries, the `workspace` item, or the accepted-turn `instructions` load are resolved
+- **THEN** the owner-scoped detach commit completes first
+- **AND** effective skills, `$skill` activation, Workspace MCP, the `workspace` item, and the accepted-turn `instructions` load resolve after it
 - **AND** the attempt has no Workspace skill activation, no `skill://` resolution, no newly loaded accepted-turn `instructions` item, and no Workspace tools, and it narrates the detach reason. A skill-catalog baseline that is already frozen can still list Workspace skills
 
 #### Scenario: Detach-then-fail retry stays unbound
@@ -226,7 +278,8 @@ This includes an accepted-turn `instructions` item. They MUST replay as stored t
 
 #### Scenario: Detaching attempt without a persisted item leaves markers as prose
 
-- **WHEN** the Workspace binding re-check fails during attempt preparation, the prompt contains an import marker, and no `prompt-imports` item from an earlier attempt of the Run is persisted
+- **WHEN** the Workspace binding re-check fails during attempt preparation, and the prompt contains an import marker
+- **AND** no `prompt-imports` item from an earlier attempt of the Run is persisted
 - **THEN** the attempt detaches before it resolves prompt imports, performs no prompt import, and stages no prompt-import instruction trigger
 - **AND** the marker stays prose for that attempt
 

@@ -24,8 +24,10 @@ The state thus takes effect for that request and not on a later turn. That snaps
 #### Scenario: Changed binding is narrated on the rail
 
 - **WHEN** an accepted turn observes a current Machine or a Workspace binding different from the last state narrated to the Chat
-- **THEN** a rail-resident `workspace` snapshot names the canonical root and its Machine when the turn has a bound root, or states that no Workspace is entered and names the current Machine when it has none
-- **AND** if preparation detached the binding, a separate rail-resident `workspace` notice consumes the persisted detach reason, and the Workspace state is not added to the system prompt
+- **THEN** a rail-resident `workspace` snapshot names the canonical root and its Machine when the turn has a bound root
+- **AND** with no bound root, the snapshot states that no Workspace is entered and names the current Machine
+- **AND** if preparation detached the binding, a separate rail-resident `workspace` notice consumes the persisted detach reason
+- **AND** the system prompt does not contain the Workspace state
 
 #### Scenario: Unchanged binding is not repeated
 
@@ -41,16 +43,20 @@ The state thus takes effect for that request and not on a later turn. That snaps
 
 #### Scenario: A detaching retry after a dispatched attempt narrates the detach once
 
-- **WHEN** an earlier attempt of a Run stored a `workspace` snapshot for root R and an `instructions` item, dispatched, and failed, and the preparation of the retry detaches the binding
-- **THEN** the retry keeps both stored items unchanged and in place, and it stores its detach notice and the snapshot of the unbound state after them in its own dispatch transaction
+- **WHEN** an earlier attempt of a Run stored a `workspace` snapshot for root R and an `instructions` item, dispatched, and failed
+- **AND** the preparation of the retry detaches the binding
+- **THEN** the retry keeps both stored items unchanged and in place
+- **AND** it stores its detach notice and the snapshot of the unbound state after them in its own dispatch transaction
 - **AND** that transaction records the unbound state as told and clears the detach reason, so the next turn emits neither item again
 
 #### Scenario: Compaction re-establishes Workspace state
 
 - **WHEN** a checkpoint becomes active for a Chat and its stored `workspace_told_from` names an earlier checkpoint message or is null
-- **THEN** the first request after the checkpoint counts the told state as absent for the comparison and carries a snapshot of the current Machine and Workspace state
+- **THEN** the first request after the checkpoint counts the told state as absent
+- **AND** that request carries a snapshot of the current Machine and Workspace state
 - **AND** the snapshot stays rail-resident and does not change the system prompt
-- **AND** the transaction that dispatches that request records that state against the identity of the checkpoint, whatever the outcome of the Run, so the next turn emits no second snapshot for the same state
+- **AND** the transaction that dispatches that request records that state against the identity of the checkpoint, whatever the outcome of the Run
+- **AND** the next turn emits no second snapshot for the same state
 
 #### Scenario: A never-bound Chat receives no Workspace notice
 
@@ -85,7 +91,8 @@ The state thus takes effect for that request and not on a later turn. That snaps
 
 #### Scenario: Detaching attempt without a persisted item leaves markers as prose
 
-- **WHEN** attempt preparation detaches a Workspace binding before prompt imports run, the user text contains an import marker, and no `prompt-imports` item from an earlier attempt of the Run is persisted
+- **WHEN** attempt preparation detaches a Workspace binding before prompt imports run, and the user text contains an import marker
+- **AND** no `prompt-imports` item from an earlier attempt of the Run is persisted
 - **THEN** no prompt import is produced for that attempt and no prompt-import instruction trigger is staged
 - **AND** the marker stays prose for that attempt
 

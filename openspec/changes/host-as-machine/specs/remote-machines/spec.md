@@ -15,6 +15,12 @@ The host MUST be an ordinary entry in `machines.hosts`. `machines.local` MUST na
 - **WHEN** the entry `devl` has a `destination` and a worker with `machines.local` set to `gpu` reads `machine://devl/etc/hostname`
 - **THEN** that worker reads the file through SSH to `devl`
 
+#### Scenario: The child and the SSH login share one daemon configuration
+
+- **WHEN** the entry `devl` has a `destination`, and the worker on `devl` starts its child with another configuration directory than the SSH login uses
+- **THEN** the second path to answer for `devl` gets `machine_identity_mismatch`
+- **AND** the operator documentation requires one configuration directory for both paths
+
 #### Scenario: A crashed child starts again at the next call
 
 - **WHEN** the child process for `devl` exits and the model then reads a file on `devl`
@@ -22,12 +28,17 @@ The host MUST be an ordinary entry in `machines.hosts`. `machines.local` MUST na
 
 ### Requirement: The default Machine is the current Machine of an unbound Chat
 
-`machines.default` MUST name the Machine that serves an unbound Chat. It MUST be the same Machine on every worker of one configuration. A worker that does not host the default Machine MUST reach it through its `destination`.
+`machines.default` MUST name the Machine that serves an unbound Chat. The operator MUST configure the same default for every worker. A worker that does not host the default Machine MUST reach it through its `destination`. The snapshot of each attempt names the Machine that the attempt used, so a divergence is visible.
 
 #### Scenario: An unbound Chat uses the default Machine
 
 - **WHEN** `machines.default` is `devl`, no Workspace is bound, and the model reads `/etc/hostname`
 - **THEN** the tool reads `machine://devl/etc/hostname`
+
+#### Scenario: A divergent default is narrated
+
+- **WHEN** one worker resolves `machines.default` to `devl`, another resolves it to `gpu`, and both serve attempts of one unbound Chat
+- **THEN** each attempt carries a `workspace` snapshot that names the Machine that it used
 
 #### Scenario: Two workers serve one unbound Chat on one Machine
 
@@ -51,13 +62,18 @@ The API MUST start when the host Machine daemon cannot start. Each operation on 
 
 ### Requirement: The host Machine daemon receives only a base environment
 
-The host Machine daemon child MUST receive only these variables when they are set: `PATH`, `LANG`, `TERM`, `HOME`, `TMPDIR`, `USER`, `LOGNAME`, `LLAME_MACHINE_CONFIG_DIR`, `XDG_CONFIG_HOME`, and `SENTRY_*`. It MUST NOT receive other variables of the worker environment.
+The host Machine daemon child MUST receive only these variables when they are set: `PATH`, `LANG`, `TERM`, `HOME`, `TMPDIR`, `USER`, `LOGNAME`, `LLAME_MACHINE_CONFIG_DIR`, `XDG_CONFIG_HOME`, `SENTRY_DSN`, `SENTRY_ENVIRONMENT`, and `SENTRY_RELEASE`. It MUST NOT receive other variables of the worker environment.
 
 #### Scenario: A database credential does not reach the daemon
 
 - **WHEN** the worker environment sets `POSTGRES_URL` and the process starts the host Machine daemon
 - **THEN** the daemon environment does not contain `POSTGRES_URL`
 - **AND** no process that the daemon starts can read it
+
+#### Scenario: A Sentry token does not reach the daemon
+
+- **WHEN** the worker environment sets `SENTRY_AUTH_TOKEN` and `SENTRY_DSN`
+- **THEN** the daemon environment contains `SENTRY_DSN` and does not contain `SENTRY_AUTH_TOKEN`
 
 ### Requirement: Each Machine daemon reports a persistent instance id
 
@@ -84,7 +100,7 @@ The handshake MUST report these facts of the Machine: OS, architecture, kernel, 
 
 ### Requirement: The installation binds each Machine name to one instance id
 
-At the first successful handshake for a Machine name, the hub MUST record its instance id. When a later handshake reports a different id, the hub MUST end the session before any request. Each operation on that Machine MUST then return `machine_identity_mismatch`. The binding MUST stay when the operator removes the entry.
+At the first successful handshake for a Machine name, the hub MUST record its instance id before the session accepts a request. When a later handshake reports a different id, the hub MUST end the session before any request. Each operation on that Machine MUST then return `machine_identity_mismatch`. When the hub cannot read or write the binding, the session MUST fail with `machine_unavailable`. The binding MUST stay when the operator removes the entry or the status is pruned.
 
 #### Scenario: A second computer under one name is refused
 
@@ -93,10 +109,30 @@ At the first successful handshake for a Machine name, the hub MUST record its in
 - **AND** every `devl` operation returns `machine_identity_mismatch`
 - **AND** the Machines list shows `devl` offline with reason `identity_mismatch`
 
+#### Scenario: A removed and re-added name keeps its binding
+
+- **WHEN** the operator removes `devl` from the configuration, the hub prunes its status, and the operator adds `devl` again with another computer
+- **THEN** the first handshake of that computer gets `machine_identity_mismatch`
+
+#### Scenario: An unreadable binding fails closed
+
+- **WHEN** the database is unreachable at a handshake for `devl`
+- **THEN** the session fails with `machine_unavailable` and no request reaches the daemon
+
 #### Scenario: Co-located processes share one host Machine
 
 - **WHEN** an API process and a worker process on one computer both set `machines.local` to `devl` and each starts its own daemon child
 - **THEN** both children report the same instance id and both processes use `devl`
+
+### Requirement: In-process host operations need a verified host Machine daemon
+
+Before a process runs a host operation in process for its `machines.local` Machine, it MUST complete an identity-checked handshake with that daemon in its current session. When the handshake fails, the operation MUST fail with the same result as a daemon operation on that Machine.
+
+#### Scenario: A wrong local name is refused before host bash
+
+- **WHEN** a worker on computer A sets `machines.local` to `gpu`, `gpu` is bound to the instance id of computer B, and the model calls `bash` on `gpu`
+- **THEN** the call returns `machine_identity_mismatch`
+- **AND** no command starts on computer A
 
 ### Requirement: An operator command rebinds a Machine name
 
@@ -146,14 +182,34 @@ The handshake result MUST list the git methods that the daemon answers. The hub 
 - **WHEN** the handshake lists `git.inspect` and `git.status` but not `git.state`, and the hub calls `git.state`
 - **THEN** the call fails as `machine_update_required` and no request reaches the daemon
 
-### Requirement: Host-path wording in other capabilities names the current Machine
+### Requirement: Host-path wording in tool capabilities names the current Machine
 
-Other capabilities MUST be read with these rules. "Host path", "local path", and "absolute local path" mean a path on the current Machine. "Native host", "native executor", and "trusted host executor" mean the current Machine, reached through its Machine daemon. "Local executor" means the `machines.local` Machine of the process. The executing process of a Workspace MCP server is the Machine daemon of its Machine. A result that reports an absolute or host path MUST report its canonical `machine://` locator.
+This rule covers `native-file-tools`, `grep-tool`, `bash-execution`, `workspace-entry`, `instruction-files`, `prompt-imports`, and `repositories`. There, "host path" and "local path" for a tool argument mean a path on the current Machine. "Native host", "native executor", and "trusted host executor" MUST mean the current Machine through its daemon. "Local executor" means the `machines.local` Machine.
+
+#### Scenario: A host path argument resolves on the current Machine
+
+- **WHEN** `prompt-imports` resolves an absolute host target in a Chat bound to `machine://gpu/srv/app`
+- **THEN** the target resolves on `gpu`
+
+#### Scenario: A missing executor condition means no local Machine
+
+- **WHEN** a scenario in those capabilities states that the process has no `tools.nativeExecutorId`
+- **THEN** it holds for a process that has no `machines.local`
+
+### Requirement: Tool results in those capabilities report Machine locators
+
+A result in the capabilities of the previous requirement that reports an absolute or host path MUST report its canonical `machine://` locator. Installation configuration, such as prompt files and operator MCP commands, and non-disclosure rules MUST keep their meaning: the filesystem of the serving process.
 
 #### Scenario: A host-path result is a Machine locator
 
 - **WHEN** a capability states that a result reports the absolute path used, and the model reads `/work/project/a.md` on the current Machine `devl`
 - **THEN** the result reports `machine://devl/work/project/a.md`
+
+#### Scenario: A prompt file path stays private
+
+- **WHEN** a model entry sets `systemPromptFile` to an absolute path
+- **THEN** the API process reads that file from its own filesystem
+- **AND** no Machine daemon reads it, and no surface discloses the path
 
 ## MODIFIED Requirements
 
@@ -163,9 +219,9 @@ The configuration can contain a `machines` section under the closed published sc
 
 #### Scenario: Feature absent without configuration
 
-- **WHEN** the configuration has no `machines` section and allowlists no native tool, and a Run reads `machine://devl/etc/hostname` through another surface
-- **THEN** the locator is an unknown scheme and the result is the existing `invalid_path` error
-- **AND** no SSH process or daemon child starts and the settings Machines list is not offered
+- **WHEN** the configuration has no `machines` section and allowlists no native tool
+- **THEN** `GET /api/v1/machines` returns no Machine and the settings Machines list is not offered
+- **AND** no SSH process or daemon child starts
 
 #### Scenario: Configured Machine is addressable by any eligible user
 
@@ -417,12 +473,17 @@ The hub MUST record these data for each Machine:
 
 The failure reason MUST be one of `unreachable`, `host_key_mismatch`, `auth_failed`, `incompatible_version`, `session_lost`, or `identity_mismatch`.
 
-The status MUST be online when the last contact is within the inactivity window and after the last failure. The hub MUST retry in the background.
+The status MUST be online when the last contact is within the inactivity window and after the last failure. The hub MUST retry in the background. A process MUST probe and record status only for an entry that it can reach: its `machines.local` entry or an entry with a `destination`.
 
 #### Scenario: Offline Machine shows its failure reason
 
 - **WHEN** `devl`'s host key no longer matches the pinned file
 - **THEN** the Machines list shows `devl` offline with reason `host_key_mismatch` and its last-seen time
+
+#### Scenario: A worker that cannot reach a host entry records nothing
+
+- **WHEN** the entry `devl` has no `destination` and a worker with `machines.local` set to `gpu` runs the probe
+- **THEN** that worker records no contact and no failure for `devl`
 
 #### Scenario: Crashed holder does not leave a Machine online
 
@@ -478,7 +539,7 @@ Tool descriptions and Workspace narration MUST state these facts for every Machi
 
 **Reason**: No argument form is local only. The host is a Machine, and "One locator rule addresses every Machine" states one rule for every Machine.
 
-**Migration**: Use "One locator rule addresses every Machine" and "Host-path wording in other capabilities names the current Machine". A host path is a path on the current Machine or a `machine://<host>/...` locator.
+**Migration**: Use "One locator rule addresses every Machine" and "Host-path wording in tool capabilities names the current Machine". A host path is a path on the current Machine or a `machine://<host>/...` locator.
 
 ### Requirement: Git methods are additive to the Machine protocol
 

@@ -21,7 +21,7 @@ An entry trigger, and a native `read`, `edit`, or `write` whose `path` is on a M
 
 ### Requirement: A Machine-path trigger loads the chain from the containing registered root
 
-The load MUST consider each directory from the registered root that contains `D` down to `D`, in that order, on the Machine of `D`. It MUST include ancestors above a Workspace root or a repository boundary inside that registered root. It MUST NOT read above that registered root. The walk MUST NOT go into siblings or children of `D`.
+The load MUST consider each directory from the registered root that contains `D` down to `D`, in that order, on the Machine of `D`. It MUST include ancestors above a Workspace root or a repository boundary inside that registered root. It MUST NOT read above that registered root. When no registered root contains `D`, the load MUST read no file. The walk MUST NOT go into siblings or children of `D`.
 
 #### Scenario: Entry loads the root and its ancestors
 

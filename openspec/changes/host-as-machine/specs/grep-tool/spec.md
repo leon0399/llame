@@ -108,6 +108,6 @@ An unreachable or unknown Machine MUST fail the call with the Machine failure re
 
 ### Requirement: The tool is advertised when a backend can serve
 
-**Reason**: Startup now fails when a native tool is allowlisted without `machines.default`, so a Machine backend always exists when `grep` is allowlisted. The scenario "Knowledge root alone admits grep" can no longer occur.
+**Reason**: Startup now fails when a native tool is allowlisted without `machines.default`, so a Machine backend always exists when `grep` is allowlisted. The scenarios "Knowledge root alone admits grep" and "No backend leaves grep unavailable" can no longer occur. The startup failure in "Grep without a default Machine fails startup" replaces the second.
 
 **Migration**: Use "The tool is advertised whenever it is allowlisted". Set `machines.default` on a process that allowlists `grep`.

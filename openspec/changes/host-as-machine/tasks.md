@@ -33,20 +33,23 @@ Every implementation layer is a safe intermediate merge boundary, and the host w
 - `workspace-context`: host Workspace MCP, instruction files, Workspace skills, and prompt imports
   run through the daemon. Only host `bash` and background jobs stay in process.
 
-| Layer               | Parent              | Ownership                                                                                                                                                         | Authored estimate | Closes |
-| ------------------- | ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------- | ------ |
-| `proposal`          | `master`            | Proposal, design, deltas, and this task list.                                                                                                                     | ~4,500            | none   |
-| `daemon-identity`   | `proposal`          | The instance id, the `hello` facts, protocol version 2, the binding and `machines:forget`, the status API and settings view, and the listing line.                | ~1,600            | none   |
-| `host-machine`      | `daemon-identity`   | `machines.local` and `machines.default`, the local child transport, boot validation, the locator rule, permission normalization, the migration, and the snapshot. | ~2,800            | none   |
-| `file-tools`        | `host-machine`      | Host file tools and grep through the daemon, and the deletion of their host branches.                                                                             | ~1,500            | none   |
-| `git`               | `file-tools`        | Host git and worktrees through the daemon, and the deletion of the `ExecutorGit` local surface.                                                                   | ~1,200            | none   |
-| `workspace-context` | `git`               | Host Workspace MCP, instruction files, Workspace skills, and prompt imports through the daemon, and the deletion of their host scopes.                            | ~1,800            | #1831  |
-| `finalize`          | `workspace-context` | Spec sync, the `remote-machines` to `machines` move, task records, and archive movement only.                                                                     | ~3,000            | none   |
+| Layer               | Parent              | Ownership                                                                                                                                                                                                             | Authored estimate | Closes |
+| ------------------- | ------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------- | ------ |
+| `proposal`          | `master`            | Proposal, design, deltas, and this task list.                                                                                                                                                                         | ~4,500            | none   |
+| `daemon-identity`   | `proposal`          | The instance id, the `hello` facts, protocol version 2, the binding and `machines:forget`, the status API and settings view, and the listing line.                                                                    | ~1,600            | none   |
+| `host-machine`      | `daemon-identity`   | `machines.local` and `machines.default`, the local child transport, boot validation, the locator rule, the layer-2 interceptions, permission normalization, the migration, the web executor labels, and the snapshot. | ~3,800            | none   |
+| `file-tools`        | `host-machine`      | Host file tools and grep through the daemon, and the deletion of their host branches.                                                                                                                                 | ~1,500            | none   |
+| `git`               | `file-tools`        | Host git and worktrees through the daemon, and the deletion of the `ExecutorGit` local surface.                                                                                                                       | ~1,200            | none   |
+| `workspace-context` | `git`               | Host Workspace MCP, instruction files, Workspace skills, and prompt imports through the daemon, and the deletion of their host scopes.                                                                                | ~1,800            | #1831  |
+| `finalize`          | `workspace-context` | Spec sync, task records, and archive movement only.                                                                                                                                                                   | ~2,500            | none   |
 
 Estimates are low confidence. `host-machine` exceeds the ~2,000-line target because deleting
 `tools.nativeExecutorId` changes the config, the stored ids, the locator rule, and permission
-projection at once, and no subset leaves the host working. The `finalize` estimate is mostly the
-rename, which rename detection measures as a move. Drizzle snapshots, regenerated OpenAPI and
+projection at once, and no subset leaves the host working. About 88 files reference
+`nativeExecutorId`, the `machine:` prefix, or its parse helpers, and the web app reads the prefix.
+Re-measure before publication, and split the web labels into their own layer if they push it past
+~4,000. The `remote-machines` to `machines` move is a separate chore PR after the archive (design
+D13). Drizzle snapshots, regenerated OpenAPI and
 orval clients, and lockfiles count zero. Report their churn in the PR, and re-measure each layer
 against its parent before publication.
 
@@ -73,11 +76,14 @@ against its parent before publication.
       `packages/machine-protocol`. Verify that a version 1 peer fails with
       `incompatible_version` and every operation on it returns `machine_unavailable` with that
       reason.
-- [ ] 2.3 Binding: add `instance_id`, `facts`, and `facts_captured_at` to `machines_status`, bind
-      on first contact, refuse a different id with `machine_identity_mismatch` and the
-      `identity_mismatch` reason, and add `pnpm --filter api machines:forget <name>` (design D2).
-      Verify the `remote-machines` identity scenarios in an API integration test, including that no
-      tool request reaches a mismatched daemon.
+- [ ] 2.3 Binding: add the `machine_bindings` table with forced RLS, and `facts` and
+      `facts_captured_at` to `machines_status`. Bind or compare in the awaited session-open path,
+      refuse a different id with `machine_identity_mismatch` and the `identity_mismatch` reason,
+      fail with `machine_unavailable` when the binding cannot be read, and add
+      `pnpm --filter api machines:forget <name>` under the system marker (design D2). Verify the
+      `remote-machines` identity scenarios in an API integration test: no tool request reaches a
+      mismatched daemon, an unreadable binding fails closed, and a removed and re-added name keeps
+      its binding after the status prune.
 - [ ] 2.4 Status and listing: return the facts and their capture time from
       `GET /api/v1/machines`, show OS, architecture, and daemon version in the settings Machines
       section, and add OS and architecture to each `machine://` listing line. Regenerate the
@@ -97,21 +103,29 @@ against its parent before publication.
       `destination` optional, delete `tools.nativeExecutorId`, and add the boot failures of
       design D3. Verify each boot failure in config-loader tests, with the error naming the field.
 - [ ] 3.2 Local transport: spawn `LLAME_MACHINE_COMMAND serve --stdio` for the `machines.local`
-      entry with the base environment (design D4). Verify that a database URL in the worker
-      environment does not reach the child, that a missing command reports `machine_unavailable`,
-      and that no call falls back to in-process execution.
+      entry with the base environment (design D4), and probe only reachable entries. Verify that a
+      database URL and `SENTRY_AUTH_TOKEN` in the worker environment do not reach the child, that a
+      missing command reports `machine_unavailable`, that no call falls back to in-process
+      execution, and "A worker that cannot reach a host entry records nothing".
 - [ ] 3.3 Locator rule: one resolution for bare, relative, `file:`, and `machine://` paths on the
-      current Machine, and the `file://<other>` refusal (design D6). Route
-      `machine://<local>/...` to the in-process target until each family moves (design D8). Verify
-      the `native-file-tools` and `remote-machines` locator scenarios.
+      current Machine, and the `file://<other>` refusal (design D6). Intercept
+      `machine://<local>/...` at every dispatch point that D8 lists, and route it to the in-process
+      target until each family moves. Require the identity-checked handshake before any in-process
+      host operation. Verify the `native-file-tools` and `remote-machines` locator scenarios, "A
+      wrong local name is refused before host bash", and a test that a host-bound Chat reaches no
+      `MachineConnector` method for the families that have not moved.
 - [ ] 3.4 Canonical results and permissions: report canonical `machine://` locators for host
-      results, normalize every path parameter and `bash` `cwd` before matching, and fail startup on
+      results and in the artifact notice (`tool-artifacts`, `tool-result-rendering`), normalize every path parameter and `bash` `cwd` before matching, and fail startup on
       a `^/` path regex (design D7). Verify the `tool-call-permissions` scenarios, including the
-      negative scenario that an allow for one Machine does not admit another.
+      negative scenario that an allow for one Machine does not admit another, the reject in another
+      bare spelling, and the all-fields reject, and the `workspace-entry` submitted-path decision.
 - [ ] 3.5 Migration: the custom migration of design D5 under the P2 wrapping. Verify in an
       integration test that a host-bound Chat keeps its binding as `machine://<id>/...`, that
-      `machine:<name>` loses its prefix, that an invalid id fails the migration and changes nothing,
-      and that `chat_jobs.executor` is untouched.
+      `machine:<name>` loses its prefix, that an invalid id or a unique-index collision fails the
+      migration with a named error and changes nothing, that `workspace_told` and
+      `chat_creation_records` worktree directories are rewritten, that the SQL root encoding equals
+      `formatMachineLocator` for each encoded character, and that `chat_jobs.executor` is
+      untouched.
 - [ ] 3.6 Binding and detach: bind Workspace entry to the Machine name, detach a Chat bound to an
       unreachable entry with `executor_mismatch`, and resolve chat-creation executors by Machine
       name. Verify the `workspace-entry` and `chat-creation` scenarios.
@@ -127,18 +141,23 @@ against its parent before publication.
       set `LLAME_MACHINE_COMMAND` and `LLAME_MACHINE_CONFIG_DIR` in development, and write the
       development roots file (design D12). Verify that `pnpm dev` starts and serves a host read
       through the daemon child.
-- [ ] 3.11 Prompts: update `read.md`, `edit.md`, `write.md`, `grep.md`, `bash.md`,
+- [ ] 3.11 Web: replace the `machine:` prefix logic in `start-location.ts` and
+      `project-repository-policy.ts` with Machine names from `GET /api/v1/machines`, update the DTO
+      descriptions in `checkoutResponse` and `startLocationResponse`, regenerate the OpenAPI
+      document and the orval client, and update the stories. Verify the start-location tests and
+      the Storybook story tests.
+- [ ] 3.12 Prompts: update `read.md`, `edit.md`, `write.md`, `grep.md`, `bash.md`,
       `enter_workspace.md`, and `exit_workspace.md` for the current Machine and canonical results,
       and update `llame.config.jsonc.example` to the canonical recommended policy (design D7).
-- [ ] 3.12 Docs: update `SPEC.md` sections 1.1, 13.7, 13.9, and 15 (H16), the glossary ("Default
+- [ ] 3.13 Docs: update `SPEC.md` sections 1.1, 13.7, 13.9, and 15 (H16), the glossary ("Default
       Machine"), the operator runbooks (`machines.md`, `native-files.md`, `chat-creation.md`,
       `repositories.md`, `knowledge.md`, `ssh.md`, `web-read.md`, `skills.md`, `index.md`), the
       tool reference pages, `apps/api/llame.config.jsonc.example`, and a dated `CHANGELOG.md` entry
       with the upgrade steps of the design migration plan.
-- [ ] 3.13 Focused checks: `pnpm --filter api lint`, `pnpm --filter api typecheck`, the changed
+- [ ] 3.14 Focused checks: `pnpm --filter api lint`, `pnpm --filter api typecheck`, the changed
       test files, the API integration suite for the migration, `pnpm lint:markdown`,
       `pnpm format:check`, `git diff --check`.
-- [ ] 3.14 SR before ready; GR per [CONTRIBUTING.md](../../../CONTRIBUTING.md#ready-pr-monitoring).
+- [ ] 3.15 SR before ready; GR per [CONTRIBUTING.md](../../../CONTRIBUTING.md#ready-pr-monitoring).
 
 ## 4. file-tools
 
@@ -148,10 +167,12 @@ against its parent before publication.
       the call with `machine_unavailable`.
 - [ ] 4.2 Route host grep scopes through `fs.grep` and delete the host walk port. Keep the
       Knowledge and skill walk ports. Verify the `grep-tool` scenarios.
-- [ ] 4.3 Move host file and grep integration tests to a real daemon child.
+- [ ] 4.3 Move host file and grep integration tests to a real daemon child, and stop file
+      mutations and Workspace entry from pinning `runs.worker_id` (design D15). Keep the pin for
+      in-process host `bash`. Verify "A Machine mutation is fenced on any worker".
 - [ ] 4.4 Docs: `native-files.md` and the tool reference pages, and a dated `CHANGELOG.md` entry
       that names the newly refused host calls.
-- [ ] 4.5 Focused checks as in 3.13.
+- [ ] 4.5 Focused checks as in 3.14.
 - [ ] 4.6 SR before ready; GR per [CONTRIBUTING.md](../../../CONTRIBUTING.md#ready-pr-monitoring).
 
 ## 5. git
@@ -161,14 +182,15 @@ against its parent before publication.
       daemon child.
 - [ ] 5.2 Docs: `repositories.md`, the Workspace entry reference, and a dated `CHANGELOG.md`
       entry.
-- [ ] 5.3 Focused checks as in 3.13.
+- [ ] 5.3 Focused checks as in 3.14.
 - [ ] 5.4 SR before ready; GR per [CONTRIBUTING.md](../../../CONTRIBUTING.md#ready-pr-monitoring).
 
 ## 6. workspace-context
 
 - [ ] 6.1 Host Workspace MCP through `mcp.open`, with interpolation against the daemon child's
-      environment (H18). Verify "Worker secrets do not reach a host Workspace server" and the
-      `remote-machines` Workspace MCP scenarios against a real daemon child.
+      environment (H18). Verify "Worker secrets do not reach a host Workspace server", the
+      `mcp-tools` interpolation scenarios, and the `remote-machines` Workspace MCP scenarios against
+      a real daemon child.
 - [ ] 6.2 Host instruction files and Workspace skills through the daemon, and the deletion of the
       host scopes. Keep operator skill directories in process. Verify the `instruction-files`
       registered-root scenarios and "Host Workspace skills come from the host Machine daemon".
@@ -179,7 +201,7 @@ against its parent before publication.
       jobs are the only in-process host families.
 - [ ] 6.5 Docs: `skills.md`, `mcp-tools.md`, the instruction-file and prompt-import references,
       and a dated `CHANGELOG.md` entry.
-- [ ] 6.6 Focused checks as in 3.13.
+- [ ] 6.6 Focused checks as in 3.14.
 - [ ] 6.7 SR before ready; GR per [CONTRIBUTING.md](../../../CONTRIBUTING.md#ready-pr-monitoring).
       This PR carries `Closes #1831`.
 
@@ -190,12 +212,12 @@ Enter `host-as-machine/finalize` from `host-as-machine/workspace-context` with `
 
 - [ ] 7.1 Run `$openspec-sync-specs`, inspect `openspec status --change host-as-machine --json`
       and this file, and stop on any incomplete artifact or unchecked task.
-- [ ] 7.2 Move `openspec/specs/remote-machines` to `openspec/specs/machines`, rewrite its Purpose so
-      it covers the host Machine, and update every link to the old path in specs and docs (design
-      D13).
-- [ ] 7.3 Check MODIFIED requirements and cross-capability wording for semantic consistency, then
+
+- [ ] 7.2 Check MODIFIED requirements and cross-capability wording for semantic consistency, then
       run `pnpm exec openspec validate --specs --strict` and
       `pnpm exec openspec validate --all --strict`.
-- [ ] 7.4 Run `$openspec-archive-change` after readiness is proved.
+- [ ] 7.3 Run `$openspec-archive-change` after readiness is proved.
 
-SR and GR for finalize follow archive movement, as post-archive gates.
+SR and GR for finalize follow archive movement, as post-archive gates. After the merge, a separate
+chore PR moves `openspec/specs/remote-machines` to `openspec/specs/machines`, rewrites its Purpose
+for the host Machine, and updates every link (design D13).
