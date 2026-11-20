@@ -2,7 +2,7 @@
 
 ## 1. Proposal layer
 
-Branch `project-discovery/proposal` has parent `master`. It owns planning artifacts and the two proposed ADRs. Estimated authored churn is 1200 to 1700 lines, with no generated output. This layer closes no feature issue.
+Branch `project-discovery/proposal` has parent `master`. It owns planning artifacts, the Project instructions glossary clarification, and the two proposed ADRs. Estimated authored churn is 1200 to 1700 lines, with no generated output. This layer closes no feature issue.
 
 The exact delivery stack is:
 
@@ -32,7 +32,7 @@ Use `$gh-stack` for branch, publication, and merge operations. After published p
 Branch `project-discovery/instructions-api` has parent `project-discovery/proposal`. It owns literal instruction persistence and the owner API. Estimated authored churn is 700 to 1100 lines. Generated migration metadata, OpenAPI, and client output are separate. This layer references #1329 without closing it.
 
 - [ ] 2.1 Add nullable instructions through a generated additive migration. Preserve enabled and forced owner RLS. Prove existing Projects receive null and cross-owner direct SQL changes fail.
-- [ ] 2.2 Extend PATCH and explicit Project responses with save, replace, omission, clear, whitespace, length, and archive semantics from `projects`. Prove focused API integration cases, including missing identity and non-BMP bounds.
+- [ ] 2.2 Extend PATCH and explicit Project responses with save, replace, omission, clear, length-before-whitespace normalization, and archive semantics from `projects`. Prove focused API integration cases, including missing identity, non-BMP bounds, and both whitespace boundary scenarios.
 - [ ] 2.3 Regenerate OpenAPI and the web client through the existing commands. Prove OpenAPI lint and a clean second generation of owned outputs.
 - [ ] 2.4 Update API/operator documentation and the dated changelog for the shipped contract. Remove only completed roadmap entries. Run affected API lint, typecheck, focused tests, build, Markdown lint, formatting, and diff checks.
 - [ ] 2.5 Publish draft and complete layer SR before ready. Complete GR, current-head CI, and delivery Project updates before the next layer.
@@ -58,7 +58,7 @@ Branch `project-discovery/context` has parent `project-discovery/locator`. It ow
 - [ ] 4.3 Derive told state from own text-bearing items in reconstructed active-epoch context. Include surviving in-Run items and exclude replaced reply items. Prove no duplicate, no told-state column, explicit move/clear/unfile supersession, and no reminder for never-filed Chats.
 - [ ] 4.4 Restore the Run selection across attempts, segments, quota wake, and compaction. Exclude Project snapshots from summaries and re-establish guidance for the first post-checkpoint request. Prove live edits, unfiling, and deletion cannot change a bound selection. Prove a new null selection retires guidance that a summary can retain.
 - [ ] 4.5 Cover Continue, Regenerate, steer, interrupt, owner forks, shared forks, and Project deletion. Prove new Runs resolve current context and old private history stays literal without public/share/export/search disclosure.
-- [ ] 4.6 Integrate private selection-event handling and exact Project context inspection without changing system-only receipts. Prove owner stream compatibility, malformed recovery failure, and negative cross-owner reads.
+- [ ] 4.6 Integrate private selection-event handling and exact Project context inspection without changing system-only receipts. Prove [no assistant output from selection events](specs/project-context/spec.md#scenario-a-selection-event-produces-no-assistant-output) and [private payload exclusion](specs/project-context/spec.md#scenario-selection-payload-stays-outside-public-projections-and-receipts). Prove malformed recovery failure and negative cross-owner reads.
 - [ ] 4.7 Document the worker revision boundary, provider sharing, historical retention, and additive guidance. Prove the cutover inventory includes parked dispatched Runs and blocks until settlement or an explicit operator decision. Update affected architecture/reference/operator pages, the dated changelog, and completed roadmap entries.
 - [ ] 4.8 Run focused worker/serializer/integration checks, affected API lint and typecheck, the workspace build, Markdown lint, formatting, and diff checks. Publish draft and complete SR before ready, then GR and current-head CI before the next layer.
 

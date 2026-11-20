@@ -508,6 +508,10 @@ The profile the owner writes for the assistant: name, about text, and response
 preferences. It is never inferred.
 _Avoid_: memory
 
+**Project instructions**:
+The literal guidance an owner authors for the Chats of one Project.
+An instruction file instead belongs to a directory on an executor.
+
 **Episodic memory**:
 The durable record of an owner's Chats, Runs, and messages that recall
 searches.
@@ -515,7 +519,8 @@ searches.
 **Instruction file**:
 A per-directory `LLAME.md`, `AGENTS.md`, or `CLAUDE.md` file, or one of its
 override and local variants, whose content llame adds to the model's context.
-_Avoid_: project instructions
+An instruction file is directory-scoped, distinct from owner-authored Project
+instructions.
 
 **Instruction chain**:
 The instruction files loaded from a root down to the directory being worked

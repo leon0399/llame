@@ -23,7 +23,7 @@ A Project MUST store optional owner-authored instructions as literal plain text.
 
 ### Requirement: Instruction updates use the owner Project resource
 
-The Project response MUST include nullable `instructions`. `PATCH /api/v1/projects/:id` MUST accept `instructions`. Omission MUST preserve the value. `null` or whitespace-only text MUST clear it. The API MUST reject text above 16000 Unicode code points with status 400, without a change. Archived Projects MUST reject instruction edits with status 409.
+The Project response MUST include nullable `instructions`. `PATCH /api/v1/projects/:id` MUST accept `instructions`. Omission MUST preserve the value. The API MUST reject text above 16000 Unicode code points with status 400 before whitespace normalization, without a change. `null` or in-bound whitespace-only text MUST clear it. Archived Projects MUST reject instruction edits with status 409.
 
 #### Scenario: An omitted field preserves instructions
 
@@ -35,6 +35,17 @@ The Project response MUST include nullable `instructions`. `PATCH /api/v1/projec
 - **WHEN** the owner saves 16000 non-BMP characters as instructions
 - **THEN** the request succeeds
 - **AND** 16001 such characters fail with status 400 without a change
+
+#### Scenario: Overlong whitespace does not clear instructions
+
+- **WHEN** the owner submits 16001 spaces to a Project that has instructions
+- **THEN** the API returns status 400
+- **AND** the stored instructions remain unchanged
+
+#### Scenario: In-bound whitespace clears instructions
+
+- **WHEN** the owner submits 16000 spaces to a Project that has instructions
+- **THEN** the update succeeds and clears the instructions
 
 #### Scenario: An archived Project rejects an instruction update
 

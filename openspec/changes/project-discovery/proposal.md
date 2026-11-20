@@ -36,7 +36,7 @@ The API adds one nullable instructions field and regenerates its OpenAPI documen
 
 This change deliberately exposes owner-registered checkout locations to the model through admitted Project detail reads. It does not expose daemon configuration, SSH credentials, prompt source paths, or Knowledge bindings. Automatic reminders and Project listings contain no checkout paths.
 
-The proposal branch is `project-discovery/proposal`, initialized through `gh stack` before artifact creation. This PR contains planning artifacts and two proposed ADRs only. Implementation waits for approval of the published revision.
+The proposal branch is `project-discovery/proposal`, initialized through `gh stack` before artifact creation. This PR contains planning artifacts, a glossary clarification, and two proposed ADRs. The glossary distinguishes owner-authored Project instructions from directory-scoped instruction files. Implementation waits for approval of the published revision.
 
 ## Intent and evidence
 

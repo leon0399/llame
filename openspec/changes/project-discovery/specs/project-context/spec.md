@@ -203,3 +203,19 @@ After compaction, a Run with a null selection and durable Project history MUST r
 - **WHEN** a Run selects A and dispatches before the owner unfiles its Chat or deletes A
 - **AND** that same Run then compacts
 - **THEN** the next request re-establishes A's selected context without an absence snapshot
+
+### Requirement: Selection events remain private control metadata
+
+The `run.project_bound` event MUST remain owner-only control metadata. Owner SSE consumers MUST accept it without assistant text, reasoning, or tool chunks. Public projections, shared forks, ordinary exports, search, and system-only prompt receipts MUST omit its payload. The event MUST NOT add model-visible content outside the normal `project` snapshot.
+
+#### Scenario: A selection event produces no assistant output
+
+- **WHEN** an owner SSE consumer receives a Run stream with a committed `run.project_bound` event
+- **THEN** the consumer continues without an assistant text, reasoning, or tool chunk from that event
+- **AND** the Project snapshot remains the only model-visible contribution of that selection
+
+#### Scenario: Selection payload stays outside public projections and receipts
+
+- **WHEN** a Run has a committed selection event and the owner reads its system-only prompt receipt
+- **THEN** that receipt contains no selection-event payload
+- **AND** public projections, shared forks, exports, and search contain none of that payload
