@@ -3,8 +3,8 @@
 Rules for writing under `docs/`. [index.md](index.md) is the map of the tree
 and says which subtrees are served to the assistant and which source wins a
 disagreement. `research/` follows its own [AGENTS.md](research/AGENTS.md) in
-addition to the placement rule below; the other rules here govern `product/`
-and `development/`.
+addition to the placement and prose rules below. The other rules here govern
+`product/` and `development/`.
 
 ## Placement
 
@@ -47,6 +47,33 @@ and `development/`.
 - **Links are relative Markdown links with the `.md` extension.** Anchors are
   GitHub heading slugs. Renaming a heading breaks inbound anchors; search for
   them first.
+
+## Prose
+
+These rules apply to every page that you write or edit under `docs/`. The
+check in `scripts/check-prose.mjs` enforces the mechanical rules on `adr/`.
+Older pages in other directories follow the rules as they are edited.
+
+- **One mode per page, set by its directory.** `product/reference/` is
+  reference: dry, complete, and without opinion. `product/operator/` is
+  how-to: steps toward a goal. `adr/` and `research/` are explanation:
+  context, trade-offs, and the reason for a choice.
+- **One idea per sentence.** Aim for about 25 words. The check fails a
+  sentence of more than 35 words.
+- **Name the actor.** Use the active voice unless the actor is unknown or
+  does not matter.
+- **Name the real thing.** Write the actual symbol, file, flag, or command in
+  code font. Call each concept by its glossary name, and only that name.
+- **Plain punctuation.** End a sentence with a period. Do not use semicolons,
+  em dashes, or en dashes. Use straight quotes.
+- **No generated-prose patterns.** Apply the
+  [unslop](../.agents/skills/unslop/SKILL.md) skill. Glossary and README terms
+  override its word lists.
+
+OpenSpec requirement and scenario text follows Simplified Technical English,
+as `openspec/config.yaml` states. Do not apply it to pages under `docs/`. Its
+restricted vocabulary and its ban on "would" and "may" do not fit
+explanation.
 
 ## Changing behavior
 
