@@ -122,6 +122,8 @@ None.
   `provider-failure` producer second.
 - `durable-runs`: MODIFIED "A Run that waits holds no worker", so a `wait` call of a failed send
   does not open (A7).
+- `run-steering`: MODIFIED "An interrupted reply keeps its complete output", so an interrupt during
+  the wait keeps the cut out of the reply.
 
 Deliberately unchanged, with the reading this change relies on:
 
@@ -132,9 +134,7 @@ Deliberately unchanged, with the reading this change relies on:
   each send that a `model.superseded` event names". The ADDED keep requirement states that the
   event names the cut and no kept part. A superseded window already makes usage incomplete. A
   redelivery keeps its shipped behavior (grilling Q5).
-- `run-steering` "An interrupted reply keeps its complete output": the cut is not output of the
-  interrupted segment that its reply keeps. The keep requirement supersedes it before the interrupt
-  applies.
+
 - `tool-calling` "Termination settles in-flight tool activity": the failed send's calls settle
   before the Run fails, so termination finds them settled. It still settles every other open call.
 - `context-injection` "Server-authored context is injected as discrete items on one rail": the
@@ -150,7 +150,7 @@ Deliberately unchanged, with the reading this change relies on:
   request (A3), so the cap of four holds across it. "The web shows a quota wait above the composer"
   says the Run sends its request again; after a started call, that request is the next step.
 - `provider-failures` "A failed hosted-search request keeps the engine classes" and
-  `run-steering` (Stop, interrupt fates, steer delivery): unchanged (grilling Q3, Q6).
+  the rest of `run-steering` (Stop, interrupt fates, steer delivery): unchanged (grilling Q3, Q6).
 
 ## Impact
 

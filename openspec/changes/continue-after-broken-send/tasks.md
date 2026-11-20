@@ -74,7 +74,8 @@ focused test files only; CI owns the full suites.
       unchanged "A hosted search breaks after its search tool call". Re-verify the unchanged
       scenarios of "A Run that waits holds no worker".
 - [ ] 2.4 Capture the cut anchor at the last tool-call part (design D3). Verify "The text after the
-      last tool call is not kept" and "Text between two kept calls stays", in
+      last tool call is not kept" and "Text between two kept calls stays", including a short
+      buffered text prefix before the tool call, in
       `run-stream-bridge.test.ts` and in the `assistant-transcript` rebuild tests.
 - [ ] 2.5 Add the `provider-failure` producer, template, labels, and precedence (design D5). Verify
       "A broken stream has a label" and "The next request carries the notice" in
@@ -87,8 +88,9 @@ focused test files only; CI owns the full suites.
       no retry does not deliver a pending steer", "A worker stops before the next step starts", and
       "A worker stops during the delay of the next step".
 - [ ] 2.7 Store the cut and the notice in the terminal and interrupt writes (design D6). Verify "An
-      authentication failure after a tool call", "Owner Continue keeps the notice", and "An
-      interrupt during the wait keeps the notice". Verify that the `tool-calling` scenario "Failure
+      authentication failure after a tool call", "Owner Continue keeps the notice", "An interrupt
+      during the wait keeps the notice", and the `run-steering` scenario "An interrupt during the
+      wait of a failed send", and re-verify "The cut reasoning part never replays". Verify that the `tool-calling` scenario "Failure
       settles in-flight calls" still holds for a call outside the failed send.
 - [ ] 2.8 Update [SPEC.md](../../../SPEC.md) (failure paragraph),
       [provider routing](../../../docs/product/operator/providers/routing.md) (failure after a tool

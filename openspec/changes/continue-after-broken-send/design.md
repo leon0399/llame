@@ -133,8 +133,10 @@ in an `afterCut` mode that accepts the started call.
 ### D3: The cut anchor is captured at each tool-call part
 
 At each complete `tool-call` part (`onToolCall`) and each refused call (`onUnavailableToolCall`),
-the Run chains a `latestSequence() + 1` read onto `deltaWrites` synchronously, as
-`persistStepStartSequence` does (`:2788-2809`), and records the collector length. Deltas that arrive
+the Run first flushes both delta buffers synchronously (`persistReasoning(reasoningDeltas.flush())`,
+`persistDelta(deltas.flush())`), because a short prefix can still sit in `deltas` (`:5017`) until
+`executeBoundTool` flushes it (`:3669-3670`). It then chains a `latestSequence() + 1` read onto
+`deltaWrites`, as `persistStepStartSequence` does (`:2788-2809`), and records the collector length. Deltas that arrive
 later queue behind that read, so the order holds. `onStepStart` resets the anchor. The cut uses the
 last anchor of the failed step:
 
@@ -280,3 +282,7 @@ None.
   open, which MODIFIES `durable-runs` "A Run that waits holds no worker"; the quota refusal stays on
   the shipped path; a woken next step delivers pending steers before it; one name per item ("wait
   count", "the cut"). Rejected: none.
+- **GitHub review** (Codex: 1 P1; pullfrog: 1 finding). Accepted both after verification: D3 flushes
+  both delta buffers before it reads the anchor sequence, so a buffered prefix before a tool call
+  stays; `run-steering` "An interrupted reply keeps its complete output" is MODIFIED to exclude the
+  cut, in place of a reading.
