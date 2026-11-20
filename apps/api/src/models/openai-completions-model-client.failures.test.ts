@@ -5,9 +5,10 @@
  * the transport is stubbed, through the client's own `fetch` setting, so an
  * adapter upgrade that changes how a failure is delivered fails here.
  */
-import type { ModelMessage } from 'ai';
 
+import type { ModelMessage } from 'ai';
 import type { ChatIdentity, ModelClient } from './model-client';
+import { ProviderFailure } from './provider-failure/provider-failure';
 import { createOpenAICompletionsModelClient } from './openai-completions-model-client';
 import {
   ModelStreamIdleError,
@@ -114,6 +115,107 @@ function surfaces(error: Error): string {
 }
 
 describe('createOpenAICompletionsModelClient — bounded stream failures', () => {
+  it('classifies an authentication failure when usage is consumed before text', async () => {
+    const client = buildClient(
+      serve(
+        () =>
+          new Response(
+            JSON.stringify({
+              error: {
+                message: 'Authentication failed',
+                code: 'invalid_api_key',
+              },
+            }),
+            { status: 401, headers: { 'content-type': 'application/json' } },
+          ),
+      ),
+    );
+
+    const result = client.streamText({
+      chat: CHAT,
+      messages,
+      onError: () => undefined,
+    });
+
+    await expect(result.usage).rejects.toMatchObject({
+      code: 'auth',
+      statusCode: 401,
+    });
+  });
+
+  it.each(['text', 'consumeStream'] as const)(
+    'preserves a rejected owner error callback through %s',
+    async (channel) => {
+      const ownerError = new Error('Owner persistence failed');
+
+      const client = buildClient(
+        serve(
+          () =>
+            new Response(
+              JSON.stringify({
+                error: {
+                  message: 'Authentication failed',
+                  code: 'invalid_api_key',
+                },
+              }),
+              { status: 401, headers: { 'content-type': 'application/json' } },
+            ),
+        ),
+      );
+
+      const result = client.streamText({
+        chat: CHAT,
+        messages,
+        onError: () => Promise.reject(ownerError),
+      });
+
+      await expect(
+        channel === 'text' ? result.text : result.consumeStream(),
+      ).rejects.toBe(ownerError);
+    },
+  );
+
+  it.each(['text', 'consumeStream'] as const)(
+    'preserves abort-persistence failure identity through %s',
+    async (channel) => {
+      const requested = Promise.withResolvers<void>();
+      const controller = new AbortController();
+      const abortReason = new DOMException('Stopped', 'AbortError');
+      const ownerError = new Error('Owner persistence failed');
+
+      const client = buildClient(
+        (_input: RequestInfo | URL, init?: RequestInit) =>
+          new Promise<Response>((_resolve, reject) => {
+            init?.signal?.addEventListener('abort', () => reject(abortReason), {
+              once: true,
+            });
+            requested.resolve();
+          }),
+      );
+
+      const result = client.streamText({
+        chat: CHAT,
+        messages,
+        abortSignal: controller.signal,
+        onError: () => {
+          throw ownerError;
+        },
+      });
+
+      const pending = channel === 'text' ? result.text : result.consumeStream();
+
+      const failure = pending.then(
+        () => undefined,
+        (error: unknown) => error,
+      );
+
+      await requested.promise;
+      controller.abort(abortReason);
+
+      expect(await failure).toBe(ownerError);
+    },
+  );
+
   it('reports an unparseable and a schema-mismatched event with one fixed text and none of either event', async () => {
     const notJson = await reportedError(
       buildClient(
@@ -219,17 +321,28 @@ describe('createOpenAICompletionsModelClient — bounded stream failures', () =>
     expect(error.cause).toBeUndefined();
   });
 
-  it('passes a transport failure through unchanged', async () => {
-    const transportFailure = new TypeError('network unreachable');
+  it('classifies a transport failure without retaining its error graph', async () => {
+    const transportFailure = new TypeError('fetch failed', {
+      cause: Object.assign(new Error(`unreachable ${CANARY}`), {
+        code: 'ECONNREFUSED',
+      }),
+    });
 
     const fetch = vi.fn<typeof globalThis.fetch>(() =>
       Promise.reject(transportFailure),
     );
 
-    await expect(reportedError(buildClient(fetch))).resolves.toBe(
-      transportFailure,
-    );
-  });
+    const error = await reportedError(buildClient(fetch));
+
+    expect(error).toBeInstanceOf(ProviderFailure);
+    expect(error).toMatchObject({
+      code: 'unreachable',
+    });
+    expect(error.cause).toBeUndefined();
+    expect(error).not.toHaveProperty('responseBody');
+    expect(error).not.toHaveProperty('responseHeaders');
+    expect(error).not.toHaveProperty('requestBodyValues');
+  }, 15_000);
 
   it("keeps the stream's drain waiting on the caller's asynchronous handler", async () => {
     // The worker drains the stream and then requires the run's terminal

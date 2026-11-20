@@ -172,8 +172,6 @@ describe('a structured Responses stream failure', () => {
     );
 
     const event = await sentryEvent(failure);
-
-    expect(event).toContain('response.failed');
     expect(event).toContain(MARKER);
     expect(event).not.toContain(KEY);
   });

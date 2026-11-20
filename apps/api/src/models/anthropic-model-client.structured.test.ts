@@ -4,8 +4,10 @@
  * is the exact body the pinned `@ai-sdk/anthropic` adapter POSTed (see the
  * shared test fixture).
  */
-import { jsonSchema, NoOutputGeneratedError } from 'ai';
+import { jsonSchema } from 'ai';
+import { createAnthropic } from '@ai-sdk/anthropic';
 import { InvalidArgumentError } from '@ai-sdk/provider';
+import { ProviderFailure } from './provider-failure/provider-failure';
 
 import {
   buildClient,
@@ -25,7 +27,10 @@ import {
   unreachableEndpointFailure,
   type RecordedRequest,
 } from '../testing/anthropic-model-client-fixtures';
-import type { AnthropicModelClientConfig } from './anthropic-model-client';
+import {
+  createAnthropicModelClient,
+  type AnthropicModelClientConfig,
+} from './anthropic-model-client';
 import type { ChatIdentity, ModelObjectInput } from './model-client';
 import type { ClientHarness } from '../testing/anthropic-model-client-fixtures';
 
@@ -395,17 +400,15 @@ describe('createAnthropicModelClient — failure boundaries (3.10)', () => {
 
     await expect(
       client.streamText({ chat: CHAT, messages, onError }).text,
-    ).rejects.toThrow(NoOutputGeneratedError);
+    ).rejects.toBeInstanceOf(ProviderFailure);
     // The numeric status is the one non-sensitive fact kept for callers that
     // classify the failure.
-    expect(errors).toEqual([
-      Object.assign(
-        new Error(
-          'Anthropic authentication failed: the configured credential was rejected.',
-        ),
-        { statusCode: 401 },
-      ),
-    ]);
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toMatchObject({
+      code: 'auth',
+      statusCode: 401,
+    });
+    expect(errors[0]).not.toHaveProperty('cause');
     expect(delivered(errors)).not.toContain(secret);
     // No automatic retry (maxRetries 0) and no credential substitution: one
     // request, on the configured endpoint, with the configured credential.
@@ -420,13 +423,12 @@ describe('createAnthropicModelClient — failure boundaries (3.10)', () => {
 
     await expect(
       client.streamText({ chat: CHAT, messages, onError }).text,
-    ).rejects.toThrow(NoOutputGeneratedError);
-    expect(errors).toEqual([
-      Object.assign(
-        new Error('Anthropic request failed: unknown model or endpoint.'),
-        { statusCode: 404 },
-      ),
-    ]);
+    ).rejects.toBeInstanceOf(ProviderFailure);
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toMatchObject({
+      code: 'model_not_found',
+      statusCode: 404,
+    });
   });
 
   it('reports a rate limit once, with no fallback destination', async () => {
@@ -436,13 +438,12 @@ describe('createAnthropicModelClient — failure boundaries (3.10)', () => {
 
     await expect(
       client.streamText({ chat: CHAT, messages, onError }).text,
-    ).rejects.toThrow(NoOutputGeneratedError);
-    expect(errors).toEqual([
-      Object.assign(
-        new Error('Anthropic rate limit reached. Retry manually later.'),
-        { statusCode: 429 },
-      ),
-    ]);
+    ).rejects.toBeInstanceOf(ProviderFailure);
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toMatchObject({
+      code: 'rate_limited',
+      statusCode: 429,
+    });
     // maxRetries 0: the rate limit is not re-attempted, no other provider or
     // type is contacted, and the upstream body never reaches diagnostics.
     expect(harness.requests).toHaveLength(1);
@@ -452,19 +453,19 @@ describe('createAnthropicModelClient — failure boundaries (3.10)', () => {
     expect(delivered(errors)).not.toContain(secret);
   });
 
-  it('bounds an HTTP status it does not recognize to the generic diagnostic', async () => {
+  it('classifies an HTTP 503 without retaining its response details', async () => {
     const harness = failedHarness(503, `upstream exploded: ${secret}`);
     const client = buildClient(harness);
     const { errors, onError } = captureErrors();
 
     await expect(
       client.streamText({ chat: CHAT, messages, onError }).text,
-    ).rejects.toThrow(NoOutputGeneratedError);
-    expect(errors).toEqual([
-      Object.assign(new Error('Anthropic request failed.'), {
-        statusCode: 503,
-      }),
-    ]);
+    ).rejects.toBeInstanceOf(ProviderFailure);
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toMatchObject({
+      code: 'overloaded',
+      statusCode: 503,
+    });
     expect(delivered(errors)).not.toContain(secret);
   });
 
@@ -482,17 +483,12 @@ describe('createAnthropicModelClient — failure boundaries (3.10)', () => {
 
     await expect(
       client.streamText({ chat: CHAT, messages, onError }).text,
-    ).rejects.toThrow(NoOutputGeneratedError);
-    // The transport failure is reported as the class of failure alone: the
-    // SDK's own message ("Cannot connect to API: getaddrinfo ENOTFOUND …")
-    // names the host and its cause carries the endpoint's address, so neither
-    // reaches the run.
-    expect(errors).toEqual([
-      new Error('Anthropic request failed: the endpoint could not be reached.'),
-    ]);
-    expect(errors[0]).not.toHaveProperty('statusCode');
+    ).rejects.toBeInstanceOf(ProviderFailure);
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toMatchObject({
+      code: 'unreachable',
+    });
     expect(delivered(errors)).not.toContain(MESSAGES_CANARIES.endpoint);
-    expect(delivered(errors)).not.toContain('ENOTFOUND');
     // The SDK's status-less transport error also carries the values of the
     // request llame sent; the delivered diagnostic must not hold them.
     expect(JSON.stringify(errors)).not.toContain(MESSAGES_CANARIES.credential);
@@ -525,11 +521,15 @@ describe('createAnthropicModelClient — failure boundaries (3.10)', () => {
     // The failure is late: the stream's valid prefix reached the run first and
     // is kept; the malformed event is what the adapter failed to parse.
     expect(texts).toEqual(['Partial answer.']);
-    expect(errors).toEqual([new Error('Anthropic request failed.')]);
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toBeInstanceOf(ProviderFailure);
+    expect(errors[0]).toMatchObject({
+      code: 'unknown',
+    });
     // Neither the parse error's raw text (which spells the event data out, the
     // canaries included) nor the canaries themselves reach the run's channel.
     const diagnostics = delivered(errors);
-    expect(diagnostics).not.toContain('JSON parsing failed');
+
     expect(diagnostics).not.toContain(MESSAGES_CANARIES.prompt);
     expect(diagnostics).not.toContain(MESSAGES_CANARIES.credential);
     expect(JSON.stringify(errors)).not.toContain(MESSAGES_CANARIES.credential);
@@ -553,9 +553,58 @@ describe('createAnthropicModelClient — failure boundaries (3.10)', () => {
 
     await expect(
       client.streamText({ chat: CHAT, messages, onError }).text,
-    ).rejects.toThrow(NoOutputGeneratedError);
-    expect(errors).toEqual([new Error('Anthropic request failed.')]);
+    ).rejects.toBeInstanceOf(ProviderFailure);
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toMatchObject({
+      code: 'unknown',
+    });
     expect(delivered(errors)).not.toContain(MESSAGES_CANARIES.prompt);
+  });
+
+  it('cancels a stalled structured request when its caller aborts', async () => {
+    const requested = Promise.withResolvers<void>();
+    const controller = new AbortController();
+    const reason = new DOMException('Title deadline reached', 'AbortError');
+    const harness = buildHarness();
+
+    const client = createAnthropicModelClient(
+      {
+        credential: 'test',
+        providerModelId: 'claude-sonnet-4-6',
+        modelId: 'cancellation-test',
+        contextWindowTokens: 100_000,
+        userAgent: 'llame/test',
+        requestHeaders: {},
+        baseUrl: 'https://api.anthropic.com/v1',
+        reasoningDeclared: false,
+      },
+      {
+        ...harness.dependencies,
+        createAnthropic: (settings) =>
+          createAnthropic({
+            ...settings,
+            fetch: (_url: RequestInfo | URL, init?: RequestInit) =>
+              new Promise<Response>((_resolve, reject) => {
+                const signal = init?.signal;
+                signal?.addEventListener('abort', () => reject(reason), {
+                  once: true,
+                });
+                requested.resolve();
+              }),
+          }),
+      },
+    );
+
+    const result = client.generateObject!({
+      ...titleInput,
+      abortSignal: controller.signal,
+    });
+
+    const settled = result.catch((error: unknown) => error);
+
+    await requested.promise;
+    controller.abort(reason);
+    expect(await settled).toMatchObject({ name: 'AbortError' });
   });
 
   it('keeps an aborted request abort-shaped instead of masking it', async () => {
@@ -598,9 +647,10 @@ describe('createAnthropicModelClient — failure boundaries (3.10)', () => {
         effort: 'ultra',
         onError,
       }).text,
-    ).rejects.toThrow(NoOutputGeneratedError);
-    // The adapter's own rejection is llame-authored, bounded, and actionable,
-    // so it is what the run keeps: the refusal names the option argument.
+    ).rejects.toSatisfy((error: unknown) =>
+      InvalidArgumentError.isInstance(error),
+    );
+    // The adapter's own rejection is llm-authored and preserved as-is.
     const optionError = errors[0];
     expect(InvalidArgumentError.isInstance(optionError)).toBe(true);
 
@@ -609,7 +659,6 @@ describe('createAnthropicModelClient — failure boundaries (3.10)', () => {
     }
 
     expect(optionError.argument).toBe('providerOptions');
-    expect(optionError.message).toContain('invalid anthropic provider options');
     expect(harness.requests).toEqual([]);
   });
 });

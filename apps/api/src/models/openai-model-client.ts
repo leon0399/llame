@@ -1,6 +1,14 @@
 import { createOpenAI, type OpenAIProvider } from '@ai-sdk/openai';
 import type { LanguageModelV3 } from '@ai-sdk/provider';
-import { generateText, streamText, tool, type ToolSet } from 'ai';
+import { streamText, type ToolSet } from 'ai';
+import { classifyResponses } from './provider-failure/classify-responses';
+import {
+  captureRequestFailure,
+  classifiedFailure,
+  withProviderFailures,
+  promiseFailureOverrides,
+  type ProviderFailureMiddlewareOptions,
+} from './provider-failure-middleware';
 
 import {
   agentTelemetry,
@@ -8,10 +16,12 @@ import {
   type ChatIdentity,
   createModelStreamFinishCallback,
   type ModelClient,
+  type ModelFailureSanitizer,
   type ModelObjectInput,
   type ModelStreamInput,
   type ModelStreamResult,
 } from './model-client';
+import { generateToolBoundObject } from './model-object-generation';
 import {
   withRequestHeaders,
   type RequestHeaderTemplates,
@@ -32,10 +42,7 @@ import {
   type ToolCallGate,
 } from './tool-call-gate';
 import { wrapStreamTextResult } from './stream-text-result-proxy';
-import {
-  applyStreamIdleWatchdog,
-  ModelStreamIdleError,
-} from './stream-idle-watchdog';
+import { applyStreamIdleWatchdog } from './stream-idle-watchdog';
 
 /**
  * Non-empty placeholder credential for a keyless provider (#162): a genuinely
@@ -76,20 +83,26 @@ function disableStrictToolSchemas(tools: ToolSet): ToolSet {
   );
 }
 
-/**
- * The configured error sanitizer with llame's own stream-idle failure exempt
- * (design D4): its message is authored here, so replacing it would destroy
- * the diagnostic the run keeps.
- */
+/** Builds the provider-failure classifier and bounded sanitizer for one call. */
+function providerFailureOptions(
+  config: OpenAIModelClientConfig,
+  abortSignal?: AbortSignal,
+): ProviderFailureMiddlewareOptions {
+  return {
+    provider: config.providerType ?? config.provider ?? 'openai',
+    classify: classifyResponses,
+    sanitize: config.sanitizeError,
+    abortSignal,
+  };
+}
+
 function streamSanitizer(
   config: OpenAIModelClientConfig,
-): OpenAIModelClientConfig['sanitizeError'] {
-  const sanitize = config.sanitizeError;
+  abortSignal?: AbortSignal,
+): ModelFailureSanitizer {
+  const options = providerFailureOptions(config, abortSignal);
 
-  if (sanitize === undefined) return undefined;
-
-  return (error) =>
-    error instanceof ModelStreamIdleError ? error : sanitize(error);
+  return (error) => classifiedFailure(error, options);
 }
 
 /**
@@ -209,11 +222,8 @@ export function hasStreamChannel(input: ModelStreamInput): boolean {
  */
 export function deferTerminalCallbacks(
   streamOptions: TerminalCallbackOptions,
-  input: ModelStreamInput,
 ): DeferredTerminals {
   const terminals = createDeferredTerminals();
-
-  if (!hasStreamChannel(input)) return terminals;
 
   const onFinish = streamOptions.onFinish;
 
@@ -292,50 +302,33 @@ export function trackAbortSettlement(
 async function throwAfterTerminalCompletion(
   terminals: DeferredTerminals,
   error: unknown,
-  sanitizeError?: (error: unknown) => Error,
+  sanitizeError?: ModelFailureSanitizer,
 ): Promise<never> {
   await terminals.wait();
   throw sanitizeError?.(error) ?? error;
-}
-
-async function awaitTextAndAbortSettlement(
-  text: PromiseLike<string>,
-  settlement: AbortSettlement,
-  terminals: DeferredTerminals,
-  sanitizeError?: (error: unknown) => Error,
-): Promise<string> {
-  try {
-    const value = await text;
-    await settlement.wait();
-
-    return value;
-  } catch (error) {
-    try {
-      await settlement.wait();
-    } catch (settlementError) {
-      await throwAfterTerminalCompletion(
-        terminals,
-        settlementError,
-        sanitizeError,
-      );
-    }
-
-    return throwAfterTerminalCompletion(terminals, error, sanitizeError);
-  }
 }
 
 async function awaitTextAfterSettlement(
   text: PromiseLike<string>,
   settlement: AbortSettlement,
   terminals: DeferredTerminals,
-  sanitizeError?: (error: unknown) => Error,
+  sanitizeError?: ModelFailureSanitizer,
 ): Promise<string> {
-  const value = await awaitTextAndAbortSettlement(
-    text,
-    settlement,
-    terminals,
-    sanitizeError,
-  );
+  let value: string;
+
+  try {
+    value = await text;
+    await settlement.wait();
+  } catch (error) {
+    try {
+      await settlement.wait();
+    } catch (settlementError) {
+      await terminals.wait();
+      throw settlementError;
+    }
+
+    return throwAfterTerminalCompletion(terminals, error, sanitizeError);
+  }
 
   await terminals.wait();
 
@@ -364,19 +357,24 @@ async function awaitTextAfterSettlement(
 export function awaitSettlementAfter(
   result: ModelStreamResult,
   settlement: AbortSettlement,
-  sanitizeError?: (error: unknown) => Error,
+  sanitizeError?: ModelFailureSanitizer,
   terminals: DeferredTerminals = createDeferredTerminals(),
 ): ModelStreamResult {
+  // These channels can reject before deferred onError capture runs. Normalize
+  // at their rejection boundary; awaiting terminals here can deadlock the
+  // stream consumer that releases those callbacks.
   return wrapStreamTextResult(result, {
+    ...promiseFailureOverrides(sanitizeError),
     consumeStream: (target) => ({
       value: async (...args: Parameters<typeof target.consumeStream>) => {
         try {
           await target.consumeStream(...args);
-          await settlement.wait();
         } catch (error) {
+          await settlement.wait();
           await throwAfterTerminalCompletion(terminals, error, sanitizeError);
         }
 
+        await settlement.wait();
         await terminals.wait();
       },
     }),
@@ -405,19 +403,20 @@ export function runStreamChannel(run: {
   input: ModelStreamInput;
   gate: ToolCallGate;
   runStreamText: (options: StreamOptions) => ModelStreamResult;
-  sanitizeError?: (error: unknown) => Error;
+  sanitizeError?: ModelFailureSanitizer;
 }): ModelStreamResult {
   const { streamOptions, input, gate, runStreamText, sanitizeError } = run;
   // SDK callbacks return immediately so the `fullStream` stream branch can
   // close; the run's callbacks and abort persistence then execute in order
   // behind that branch (D15/D18).
-  const terminals = deferTerminalCallbacks(streamOptions, input);
+  const terminals = deferTerminalCallbacks(streamOptions);
+  const requestSanitizer = captureRequestFailure(streamOptions, sanitizeError);
   const settlement = trackAbortSettlement(input, terminals);
   streamOptions.onAbort = settlement.onAbort;
   const result = runStreamText(streamOptions);
   bindStreamChannel(terminals, result, input, gate);
 
-  return awaitSettlementAfter(result, settlement, sanitizeError, terminals);
+  return awaitSettlementAfter(result, settlement, requestSanitizer, terminals);
 }
 
 export type OpenAIModelClientConfig = {
@@ -474,6 +473,8 @@ export type OpenAIModelClientConfig = {
   maxOutputTokens?: number;
   /** Public provider identifier exposed by this client. */
   provider?: string;
+  /** Original provider type, preserved when a wire adapter is selected. */
+  providerType?: string;
   /** Replaces provider errors before they enter the run lifecycle. */
   sanitizeError?: (error: unknown) => Error;
   pricing?: TokenPrice;
@@ -658,23 +659,21 @@ function buildOpenAIStreamOptions(
   gate: ToolCallGate,
 ): Parameters<typeof streamText>[0] & { model: LanguageModelV3 } {
   const { openai, config, invariants } = context;
-  const sanitize = streamSanitizer(config);
+  const sanitize = streamSanitizer(config, input.abortSignal);
 
   const streamOptions: Parameters<typeof streamText>[0] & {
     model: LanguageModelV3;
   } = {
-    model: openai(config.providerModelId),
+    model: withProviderFailures(
+      openai(config.providerModelId),
+      providerFailureOptions(config, input.abortSignal),
+    ),
     messages: input.messages,
     system: input.system,
     abortSignal: input.abortSignal,
-    onError:
-      sanitize === undefined
-        ? input.onError
-        : ({ error }) => input.onError?.({ error: sanitize(error) }),
+    onError: ({ error }) => input.onError?.({ error: sanitize(error) }),
     onFinish: createModelStreamFinishCallback(input.onFinish),
-    ...(config.maxOutputTokens !== undefined && {
-      maxOutputTokens: config.maxOutputTokens,
-    }),
+    maxOutputTokens: config.maxOutputTokens,
   };
 
   applyRequestOptions(streamOptions, config, input, invariants);
@@ -699,72 +698,8 @@ function runOpenAIStream(
     input,
     gate,
     runStreamText: dependencies.streamText,
-    sanitizeError: streamSanitizer(context.config),
+    sanitizeError: streamSanitizer(context.config, input.abortSignal),
   });
-}
-
-/**
- * Forced tool call (toolChoice pins the named tool — OpenAI
- * `tool_choice: {type: 'function', ...}`): the API requires the model to
- * call the tool, so the output can't ramble the way free text can. Chosen
- * over generateObject's response_format json_schema because tool calling is
- * more widely implemented across OpenAI-compatible backends. The SDK
- * validates the call's input against the schema; a backend that can't comply
- * throws (or returns no call) — callers keep a fallback.
- *
- * `model` is the caller's declared wire's model (design D1/D4): a
- * Responses-typed provider's structured generation — chat titles included —
- * runs on Responses, a completions-typed provider's on Chat Completions.
- * Never a hardcoded wire.
- *
- * `callSettings` carries the wire's own request options, already composed by
- * the client whose wire `model` belongs to: its `providerOptions` — that
- * client owns its namespace, its reserved paths, and which layers a
- * structured request takes — its `headers` (llame's per-call `user-agent`
- * among them, design D6), and the catalog entry's `maxOutputTokens` cap
- * (design D17), which is a call setting rather than a provider option. This
- * shared path stays wire-agnostic and composes nothing itself, so a caller
- * that composes no options sets neither option key.
- */
-export async function generateToolBoundObject<OBJECT>(
-  model: LanguageModelV3,
-  input: ModelObjectInput<OBJECT>,
-  callSettings: Pick<
-    Parameters<typeof streamText>[0],
-    'maxOutputTokens' | 'providerOptions'
-  > &
-    // Required, not picked optionally: llame's identity must reach every
-    // structured request, and the compiler — not convention — enforces it
-    // for the clients composed over this helper (design D6).
-    Required<Pick<Parameters<typeof streamText>[0], 'headers'>>,
-): Promise<OBJECT> {
-  const toolName = input.schemaName ?? 'output';
-
-  const result = await generateText({
-    model,
-    messages: input.messages,
-    system: input.system,
-    abortSignal: input.abortSignal,
-    experimental_telemetry: agentTelemetry(input.chat),
-    ...callSettings,
-    tools: {
-      [toolName]: tool({
-        description: input.schemaDescription,
-        inputSchema: input.schema,
-      }),
-    },
-    toolChoice: { type: 'tool', toolName },
-  });
-
-  // `dynamic` is the discriminant: unparsable/invalid calls surface as
-  // dynamic, valid static calls carry the schema-typed input.
-  const call = result.toolCalls[0];
-
-  if (!call || call.dynamic) {
-    throw new Error(`Model did not produce a valid '${toolName}' tool call`);
-  }
-
-  return call.input;
 }
 
 /**
@@ -789,6 +724,29 @@ function createResponsesClientContext(
   };
 }
 
+function createStructuredObjectGenerator(context: ResponsesClientContext) {
+  const { config } = context;
+
+  return async <OBJECT>(input: ModelObjectInput<OBJECT>) => {
+    try {
+      return await generateToolBoundObject(
+        context.openai(config.providerModelId),
+        input,
+        {
+          headers: perCallHeaders(config, input.chat),
+          ...composeStructuredProviderOptions(context),
+          maxOutputTokens: config.maxOutputTokens,
+        },
+      );
+    } catch (error) {
+      throw classifiedFailure(
+        error,
+        providerFailureOptions(config, input.abortSignal),
+      );
+    }
+  };
+}
+
 /**
  * Creates a model client that executes the Responses wire for an
  * `openai-responses` provider entry, at its configured `baseUrl` (default:
@@ -805,7 +763,6 @@ export function createOpenAIModelClient(
   dependencies: OpenAIModelClientDependencies = { createOpenAI, streamText },
 ): ModelClient {
   const context = createResponsesClientContext(config, dependencies);
-  const { openai } = context;
 
   return {
     model: config.modelId,
@@ -821,18 +778,14 @@ export function createOpenAIModelClient(
       try {
         return runOpenAIStream(context, dependencies, input);
       } catch (error) {
-        throw config.sanitizeError?.(error) ?? error;
+        throw classifiedFailure(
+          error,
+          providerFailureOptions(config, input.abortSignal),
+        );
       }
     },
     ...(config.generateObject !== false && {
-      generateObject: <OBJECT>(input: ModelObjectInput<OBJECT>) =>
-        generateToolBoundObject(openai(config.providerModelId), input, {
-          headers: perCallHeaders(config, input.chat),
-          ...composeStructuredProviderOptions(context),
-          ...(config.maxOutputTokens !== undefined && {
-            maxOutputTokens: config.maxOutputTokens,
-          }),
-        }),
+      generateObject: createStructuredObjectGenerator(context),
     }),
   };
 }

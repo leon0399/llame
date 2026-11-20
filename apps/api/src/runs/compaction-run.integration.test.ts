@@ -1,7 +1,9 @@
 import { randomUUID } from 'node:crypto';
 
+import { ProviderFailure } from '../models/provider-failure/provider-failure';
 import { CompactionService } from '../compaction/compaction.service';
 import { ModelsService } from '../models/models.service';
+import type { ModelClient } from '../models/model-client';
 import { MessagesRepository } from '../chats/messages-repository';
 
 import { ChatDeliveriesRepository } from '../chats/chat-deliveries.repository';
@@ -43,7 +45,7 @@ async function waitForRun(
   harness: WorkerHarness,
   userId: string,
   runId: string,
-  status: 'completed' | 'cancelled',
+  status: 'completed' | 'cancelled' | 'failed',
 ): Promise<void> {
   await waitFor(
     async () => {
@@ -528,6 +530,79 @@ describe('Compaction Run execution', () => {
     expect(
       messages.filter((message) => message.role === 'checkpoint'),
     ).toHaveLength(0);
+  });
+
+  it('persists a typed provider failure on a failed compaction Run', async () => {
+    const sourceModel = `compact-auth-source-${randomUUID()}`;
+    const compactModel = `compact-auth-run-${randomUUID()}`;
+    harness.models.register(sourceModel, { kind: 'complete', text: 'reply' });
+    harness.models.register(compactModel, {
+      kind: 'complete',
+      text: 'summary',
+    });
+
+    const source = await completeSourceTurn(
+      harness,
+      userId,
+      sourceModel,
+      'history requiring compaction',
+    );
+
+    const compact = await createCompactionRun(
+      harness.tenantDb,
+      source.chatId,
+      userId,
+      compactModel,
+    );
+
+    const failure = new ProviderFailure('authentication failed', {
+      code: 'auth',
+    });
+
+    const client = harness.models.createClient(compactModel);
+
+    const clientSpy = vi
+      .spyOn(harness.models, 'createClient')
+      .mockImplementation((): ModelClient => {
+        return {
+          ...client,
+          streamText: (input) => {
+            void input.onError?.({ error: failure });
+
+            return client.streamText(input);
+          },
+        };
+      });
+
+    try {
+      await harness.dispatch.dispatch({
+        runId: compact.id,
+        chatId: source.chatId,
+        userId,
+        modelId: compactModel,
+      });
+      await waitForRun(harness, userId, compact.id, 'failed');
+    } finally {
+      clientSpy.mockRestore();
+    }
+
+    const persisted = await harness.tenantDb.runAs(userId, async (tx) => ({
+      run: await new RunsRepository(tx).findById(compact.id, userId),
+      events: await new RunEventsRepository(tx).listByRunId(compact.id, userId),
+    }));
+
+    expect(persisted.run?.error).toMatchObject({
+      message: failure.message,
+      code: 'auth',
+    });
+    expect(
+      persisted.events.find((event) => event.eventType === 'run.failed')
+        ?.payload,
+    ).toMatchObject({
+      status: 'failed',
+      message: failure.message,
+      code: 'auth',
+    });
   });
 
   it('A compaction Run survives a worker restart', async () => {

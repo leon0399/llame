@@ -175,3 +175,30 @@ Credentials keep their existing interpolation and redaction rules. Static
 account headers also reach embeddings and ranking requests. Headers containing
 `{session:id}` are omitted for those calls because they have no Chat identity;
 Chat, title generation, and compaction retain their existing identity rules.
+
+## Diagnosing failed model requests
+
+A failed Run records the model request's failure class in `error.code` and its
+`run.failed` event. Existing context incompatibility codes remain unchanged.
+The class survives credential redaction; messages keep their wire-specific bounds.
+The existing stream-idle watchdog still records `model_stream_idle`.
+
+| Failure class                               | Operator action                                                                                                                      |
+| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| `quota_exhausted`                           | Check the account's usage window or spend cap. `error.resetsAt`, when present, is the provider's reset instant in Unix milliseconds. |
+| `billing`                                   | Restore credits or model entitlement; waiting does not clear the rejection.                                                          |
+| `rate_limited`                              | Reduce request pressure or honor the provider's stated delay.                                                                        |
+| `overloaded`, `server_error`, `unreachable` | Check provider health and connectivity.                                                                                              |
+| `first_token_timeout`, `stream_broken`      | Check whether the provider can finish a response within the stream windows.                                                          |
+| `model_not_found`                           | Correct the provider model identifier or endpoint.                                                                                   |
+| `auth`                                      | Check the configured credential and its permissions.                                                                                 |
+| `context_overflow`                          | Check the model's context limit and compaction settings.                                                                             |
+| `invalid_request`                           | Check model options against the selected wire.                                                                                       |
+| `content_policy`                            | Inspect the provider's rejection without changing credentials or routes.                                                             |
+| `unknown`                                   | Use the bounded failure message; llame recognized no more specific class.                                                            |
+
+This classification does not infer a reset from calendar rules or provider prose.
+A bare `Retry-After` is a delay hint. Codex resets name an exhausted usage window;
+Anthropic and OpenAI resets name an exhausted request or token bucket; OpenRouter
+budget resets come from its structured budget metadata. OpenCode Go's typed usage
+limit can supply a reset through `Retry-After` on any of its supported wires.

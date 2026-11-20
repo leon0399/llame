@@ -69,34 +69,46 @@ before publication.
     review has not converged; the GitHub review loop is the next round.
 - [ ] 1.3 Self-review the published draft PR (SR), mark it ready, and run the GitHub review loop
       (GR) per [CONTRIBUTING.md](../../../CONTRIBUTING.md#pr-contract).
-- [ ] 1.4 Obtain Leo's approval of the published revision, including the deviation that the
+- [x] 1.4 Obtain Leo's approval of the published revision, including the deviation that the
       proposal lists.
+  - Evidence: Leo approved the published specification in the implementation handoff on
+    2026-11-18, including the recorded deviations. His delivery override allows the next layer's
+    development after focused verification and ordinary CI, while reviews and mutations continue.
 
 ## 2. failure-classes
 
-- [ ] 2.1 Add `ProviderFailure` and the classifier modules (design D1, D2) with a fixture test per
+- [x] 2.1 Add `ProviderFailure` and the classifier modules (design D1, D2) with a fixture test per
       row of the D2 table. Verify "An unknown failure has a class", "No other class value exists" (the
       watchdog error is out of its scope until layer 3), "An overloaded Anthropic endpoint", "A body
       code wins over a synthetic status", "An OpenRouter budget block", "An OpenRouter lifetime budget",
       "Exhausted prepaid credits", and "A bare 429".
-- [ ] 2.2 Add the reset signals per wire. Verify "An Anthropic spend limit has no reset time", "A
+- [x] 2.2 Add the reset signals per wire. Verify "An Anthropic spend limit has no reset time", "A
       bare Retry-After is a hint", "Both Codex windows are exhausted", "An unspent window does not give
       a reset time", "An exhausted Anthropic bucket", and "A weekly Go limit" in classifier tests.
-- [ ] 2.3 Classify in each client before its sanitizer, and keep `code`, `resetsAt`, and `hintMs`
+- [x] 2.3 Classify in each client before its sanitizer, and keep `code`, `resetsAt`, and `hintMs`
       through `sanitizeCodexError`, `sanitizeAnthropicError`, the Chat Completions bounds, and
       `redactModelFailure`. Verify "The Codex client classifies before it sanitizes" and the
       `provider-api-selection` scenario "Classification survives redaction" in client tests.
-- [ ] 2.4 Record the class as `error.code` and in `run.failed` for every provider failure, and keep
+- [x] 2.4 Record the class as `error.code` and in `run.failed` for every provider failure, and keep
       the `ModelContextExecutionError` codes, in `RunExecutionService` and in the compaction Run
       settlement. Verify "A Run fails on a removed model" and "A compaction Run fails on auth" in API
       integration tests.
-- [ ] 2.5 Map the class to the engine classes in `model-hosted.ts`. Verify "A hosted-search model is
+- [x] 2.5 Map the class to the engine classes in `model-hosted.ts`. Verify "A hosted-search model is
       out of quota".
-- [ ] 2.6 Add "Failure class" to `docs/product/glossary.md`, add the classes to the provider
+- [x] 2.6 Add "Failure class" to `docs/product/glossary.md`, add the classes to the provider
       runbooks under `docs/product/operator/providers/`, and add a dated `CHANGELOG.md` entry.
-- [ ] 2.7 Focused checks: `pnpm --filter api lint`, `pnpm --filter api typecheck`, the changed test
+- [x] 2.7 Focused checks: `pnpm --filter api lint`, `pnpm --filter api typecheck`, the changed test
       files, `pnpm format:check`, `git diff --check`.
 - [ ] 2.8 SR before ready; GR per [CONTRIBUTING.md](../../../CONTRIBUTING.md#ready-pr-monitoring).
+
+Local evidence: focused classifier, real-wire, redaction, hosted-search, and Run-settlement tests;
+API lint/typecheck; Markdown/link lint; repository format check; strict change validation.
+A real local HTTP endpoint proved class/reset preservation across three wires and no raw error graph
+on callback/fullStream surfaces. Published head `61d481ea` passed all ordinary CI checks, including
+the API test shards and their integration cases for 2.4. Mutation testing remains separate and is
+being strengthened without gating development of the next layer.
+SR used independent correctness/security reviewers plus reuse, quality, efficiency, and ponytail
+reviews. Accepted findings were verified and fixed; GR remains non-gating under Leo's override.
 
 ## 3. request-retries
 

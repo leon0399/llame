@@ -89,7 +89,6 @@ import {
 } from '../models/model-catalog';
 import { type ModelClient, type SdkRefusal } from '../models/model-client';
 import { wrapStreamTextResult } from '../models/stream-text-result-proxy';
-import { ModelStreamIdleError } from '../models/stream-idle-watchdog';
 import { ChatsRepository, MessagesRepository } from '../chats/chats-repository';
 import { createJobNoticeContext } from './job-notice-context';
 import {
@@ -365,6 +364,7 @@ import {
   ContextIncompatibleError,
   ModelContextExecutionError,
 } from './model-context-errors';
+import { modelRequestFailure } from './model-request-failure';
 import {
   composeAttemptToolCatalog,
   finalizeEffectiveContext,
@@ -4409,8 +4409,7 @@ export class RunExecutionService {
             // ends the run terminally `failed` under its own error code so the
             // cause survives on the run and its event (the same treatment
             // `outcome_unknown` gets), and the job succeeds without a retry.
-            const idleCode =
-              error instanceof ModelStreamIdleError ? error.code : undefined;
+            const failure = modelRequestFailure(error);
 
             const message =
               status === 'expired'
@@ -4450,11 +4449,21 @@ export class RunExecutionService {
               runPayload: {
                 status,
                 message,
-                ...(idleCode !== undefined && { code: idleCode }),
+                ...(status === 'failed' && {
+                  code: failure.code,
+                  ...(failure.resetsAt !== undefined && {
+                    resetsAt: failure.resetsAt,
+                  }),
+                }),
               },
               error: {
                 message,
-                ...(idleCode !== undefined && { code: idleCode }),
+                ...(status === 'failed' && {
+                  code: failure.code,
+                  ...(failure.resetsAt !== undefined && {
+                    resetsAt: failure.resetsAt,
+                  }),
+                }),
               },
               assistantTurn: turn,
             });
@@ -4806,6 +4815,7 @@ export class RunExecutionService {
         await this.settleIfAborted(input, attemptId);
 
         const message = errorMessageWithoutParams(error);
+        const failure = modelRequestFailure(error);
         // This attempt holds the claim; a reclaim during the synchronous throw
         // must reject this write rather than let the superseded attempt publish.
         await this.finishRunWithoutCollector({
@@ -4813,8 +4823,21 @@ export class RunExecutionService {
           runId: input.runId,
           status: 'failed',
           attemptId,
-          runPayload: { status: 'failed', message },
-          error: { message },
+          runPayload: {
+            status: 'failed',
+            message,
+            code: failure.code,
+            ...(failure.resetsAt !== undefined && {
+              resetsAt: failure.resetsAt,
+            }),
+          },
+          error: {
+            message,
+            code: failure.code,
+            ...(failure.resetsAt !== undefined && {
+              resetsAt: failure.resetsAt,
+            }),
+          },
         });
         throw error;
       }

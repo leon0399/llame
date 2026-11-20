@@ -1,3 +1,4 @@
+import type { ModelFailure } from './model-client';
 import { createAnthropic, type AnthropicProvider } from '@ai-sdk/anthropic';
 import {
   APICallError,
@@ -38,6 +39,12 @@ import {
   applyStreamIdleWatchdog,
   ModelStreamIdleError,
 } from './stream-idle-watchdog';
+import { ProviderFailure } from './provider-failure/provider-failure';
+import { classifyAnthropic } from './provider-failure/classify-anthropic';
+import {
+  classifiedFailure,
+  withProviderFailures,
+} from './provider-failure-middleware';
 
 /**
  * The default Messages endpoint, the `baseURL` the adapter falls back to when
@@ -131,6 +138,8 @@ export type AnthropicModelClientConfig = {
   baseUrl: string;
   providerModelId: string;
   modelId: string;
+  /** Original configured provider type used for failure classification. */
+  providerType?: string;
   contextWindowTokens: number;
   /**
    * llame's product token and version (`llame/<version>`), read once at boot
@@ -307,7 +316,7 @@ const ABORT_ERROR_NAMES: ReadonlyArray<string> = [
  * event data out in `.text` as well as its message), and is bounded by the
  * caller.
  */
-function isLocalFailure(error: unknown): error is Error {
+function isLocalFailure(error: ModelFailure): error is Error {
   return (
     InvalidArgumentError.isInstance(error) ||
     NoOutputGeneratedError.isInstance(error) ||
@@ -331,6 +340,8 @@ function isLocalFailure(error: unknown): error is Error {
  * SDK authored their text.
  */
 function sanitizeAnthropicError(error: unknown): Error {
+  if (error instanceof ProviderFailure) return error;
+
   const statusCode = directHttpStatus(error);
 
   if (statusCode === undefined) {
@@ -368,6 +379,28 @@ function anthropicStatusMessage(statusCode: number): string {
   }
 }
 
+function anthropicFailureOptions(
+  config: AnthropicModelClientConfig,
+  abortSignal: AbortSignal | undefined,
+) {
+  return {
+    provider: config.providerType ?? 'anthropic',
+    classify: classifyAnthropic,
+    sanitize: sanitizeAnthropicError,
+    abortSignal,
+  };
+}
+
+function classifiedAnthropicFailure(
+  error: ModelFailure,
+  config: AnthropicModelClientConfig,
+  abortSignal: AbortSignal | undefined,
+): ModelFailure {
+  if (isLocalFailure(error)) return error;
+
+  return classifiedFailure(error, anthropicFailureOptions(config, abortSignal));
+}
+
 /**
  * Builds one streaming request: the declared Messages wire (anthropic-provider
  * D1), the caller's message/system/abort plumbing, the composed options, the
@@ -389,7 +422,10 @@ function buildStreamOptions(
   const streamOptions: Parameters<typeof streamText>[0] & {
     model: LanguageModelV3;
   } = {
-    model: provider(config.providerModelId),
+    model: withProviderFailures(
+      provider(config.providerModelId),
+      anthropicFailureOptions(config, input.abortSignal),
+    ),
     messages: input.messages,
     system: input.system,
     abortSignal: input.abortSignal,
@@ -432,7 +468,9 @@ function runAnthropicStream(
     onError === undefined
       ? undefined
       : ({ error }: { error: unknown }) =>
-          onError({ error: sanitizeAnthropicError(error) }),
+          onError({
+            error: classifiedAnthropicFailure(error, config, input.abortSignal),
+          }),
   );
 
   streamOptions.onFinish = createModelStreamFinishCallback(input.onFinish);
@@ -442,7 +480,8 @@ function runAnthropicStream(
     input,
     gate,
     runStreamText: dependencies.streamText,
-    sanitizeError: sanitizeAnthropicError,
+    sanitizeError: (error) =>
+      classifiedAnthropicFailure(error, config, input.abortSignal),
   });
 }
 
@@ -489,7 +528,7 @@ async function runAnthropicObject<OBJECT>(
       }),
     })
     .catch((error: unknown) => {
-      throw sanitizeAnthropicError(error);
+      throw classifiedAnthropicFailure(error, config, input.abortSignal);
     });
 
   return result.object;

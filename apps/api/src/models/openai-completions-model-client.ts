@@ -38,12 +38,13 @@ import {
 import {
   applyToolCallingOptions,
   awaitSettlementAfter,
-  generateToolBoundObject,
+  deferTerminalCallbacks,
   hasStreamChannel,
   KEYLESS_PLACEHOLDER_API_KEY,
   productUserAgentHeaders,
   trackAbortSettlement,
 } from './openai-model-client';
+import { generateToolBoundObject } from './model-object-generation';
 import {
   withRequestHeaders,
   type RequestHeaderTemplates,
@@ -52,6 +53,14 @@ import { applyRequestUsageCallback } from './request-usage';
 import { applyStreamIdleWatchdog } from './stream-idle-watchdog';
 import { forwardChunk } from './stream-parts';
 import { createToolCallGate, type ToolCallGate } from './tool-call-gate';
+
+import { ProviderFailure } from './provider-failure/provider-failure';
+import { classifyCompletions } from './provider-failure/classify-completions';
+import {
+  classifiedFailure,
+  captureRequestFailure,
+  withProviderFailures,
+} from './provider-failure-middleware';
 
 /**
  * Wire identity of this adapter: `@ai-sdk/openai-compatible` is Chat
@@ -91,6 +100,8 @@ export type OpenAICompletionsModelClientConfig = {
    * record is composed under. Absent means the wire's own name.
    */
   provider?: string;
+  /** Original configured provider type used for failure classification. */
+  providerType?: string;
   /**
    * Fixed transport headers, forwarded to the adapter provider exactly as the
    * Responses client forwards its own (design D2): constant for the client's
@@ -296,6 +307,8 @@ function redirectStatus(error: unknown): number | undefined {
  * summary, or a transport failure's, all of which the contract keeps.
  */
 function boundCompletionsFailure(error: unknown): Error {
+  if (error instanceof ProviderFailure) return error;
+
   const status = redirectStatus(error);
 
   if (status !== undefined) {
@@ -331,9 +344,10 @@ function boundCompletionsFailure(error: unknown): Error {
  */
 function reportBoundedFailure(
   onError: StreamTextOnErrorCallback | undefined,
+  failureOptions: Parameters<typeof classifiedFailure>[1],
 ): StreamTextOnErrorCallback {
   return ({ error }) => {
-    const bounded = boundCompletionsFailure(error);
+    const bounded = classifiedFailure(error, failureOptions);
 
     if (onError === undefined) {
       console.error(bounded);
@@ -454,39 +468,15 @@ function applyToolCallReasoningReplay(
   });
 }
 
-function runOpenAICompatibleStream(
-  provider: OpenAICompatibleProvider,
-  config: OpenAICompletionsModelClientConfig,
-  dependencies: OpenAICompletionsModelClientDependencies,
+function prepareOpenAICompatibleStream(
+  streamOptions: StreamOptions,
   input: ModelStreamInput,
+  config: OpenAICompletionsModelClientConfig,
+  gate: ToolCallGate,
 ) {
-  const settlement = trackAbortSettlement(input);
-  const providerOptions = composeCompletionsOptions(config, input);
-
-  const streamOptions: StreamOptions = {
-    // The entry's declared wire, at its required base URL (design D1).
-    model: provider(config.providerModelId),
-    messages: input.messages,
-    system: input.system,
-    abortSignal: input.abortSignal,
-    onError: reportBoundedFailure(input.onError),
-    onAbort: settlement.onAbort,
-    onFinish: createModelStreamFinishCallback(input.onFinish),
-    // llame's identity, per call (design D6).
-    headers: perCallHeaders(config, input.chat),
-    experimental_telemetry: agentTelemetry(input.chat),
-    ...providerOptions,
-    ...(config.maxOutputTokens !== undefined && {
-      maxOutputTokens: config.maxOutputTokens,
-    }),
-  };
-
-  // The shared tool loop: without it `streamText` stops after one step.
-  const gate = createToolCallGate();
   applyToolCallingOptions(streamOptions, input, gate);
   // The adapter serializes tool content as text, so tool-result images move
-  // into a user message here and on opencode-go, which composes over this
-  // client (vision-media D6).
+  // into a user message here and on opencode-go (vision-media D6).
   installStepPreparation(streamOptions, input, config, {
     moveToolMedia: true,
   });
@@ -495,22 +485,111 @@ function runOpenAICompatibleStream(
   applyStreamIdleWatchdog(streamOptions, input);
   applyChunkDelivery(streamOptions, input, gate);
 
+  return deferTerminalCallbacks(streamOptions);
+}
+
+function completionsFailureOptions(
+  config: OpenAICompletionsModelClientConfig,
+  abortSignal?: AbortSignal,
+) {
+  return {
+    provider:
+      config.providerType ?? config.provider ?? COMPATIBLE_PROVIDER_NAME,
+    classify: classifyCompletions,
+    sanitize: boundCompletionsFailure,
+    abortSignal,
+  };
+}
+
+function runOpenAICompatibleStream(
+  provider: OpenAICompatibleProvider,
+  config: OpenAICompletionsModelClientConfig,
+  dependencies: OpenAICompletionsModelClientDependencies,
+  input: ModelStreamInput,
+) {
+  const settlement = trackAbortSettlement(input);
+
+  const failureOptions = completionsFailureOptions(config, input.abortSignal);
+
+  const streamOptions: StreamOptions = {
+    // The entry's declared wire, at its required base URL (design D1).
+    model: withProviderFailures(
+      provider(config.providerModelId),
+      failureOptions,
+    ),
+    messages: input.messages,
+    system: input.system,
+    abortSignal: input.abortSignal,
+    onError: reportBoundedFailure(input.onError, failureOptions),
+    onAbort: settlement.onAbort,
+    onFinish: createModelStreamFinishCallback(input.onFinish),
+    // llame's identity, per call (design D6).
+    headers: perCallHeaders(config, input.chat),
+    experimental_telemetry: agentTelemetry(input.chat),
+    ...composeCompletionsOptions(config, input),
+    maxOutputTokens: config.maxOutputTokens,
+  };
+
+  const terminals = prepareOpenAICompatibleStream(
+    streamOptions,
+    input,
+    config,
+    createToolCallGate(),
+  );
+
+  const sanitize = captureRequestFailure(streamOptions, (error) =>
+    classifiedFailure(error, failureOptions),
+  );
+
   return awaitSettlementAfter(
     dependencies.streamText(streamOptions),
     settlement,
+    sanitize,
+    terminals,
   );
 }
 
+function createOpenAICompatibleProvider(
+  config: OpenAICompletionsModelClientConfig,
+  dependencies: OpenAICompletionsModelClientDependencies,
+): OpenAICompatibleProvider {
+  return dependencies.createOpenAICompatible({
+    name: configuredProviderName(config),
+    baseURL: config.baseUrl,
+    // A keyless provider still needs a non-empty apiKey passed through —
+    // see KEYLESS_PLACEHOLDER_API_KEY.
+    apiKey: config.credential || KEYLESS_PLACEHOLDER_API_KEY,
+    // Chat Completions servers report a streaming request's usage only when
+    // the request asks (`stream_options.include_usage`).
+    includeUsage: config.includeUsage ?? true,
+    ...(config.headers && { headers: config.headers }),
+    ...(config.fetch && { fetch: config.fetch }),
+  });
+}
+
+/** Builds structured generation against the Completions wire. */
+function createCompletionsObjectGenerator(
+  provider: OpenAICompatibleProvider,
+  config: OpenAICompletionsModelClientConfig,
+) {
+  return <OBJECT>(input: ModelObjectInput<OBJECT>) => {
+    const failureOptions = completionsFailureOptions(config, input.abortSignal);
+
+    return generateToolBoundObject(provider(config.providerModelId), input, {
+      headers: perCallHeaders(config, input.chat),
+      ...composeStructuredProviderOptions(config),
+      ...(config.maxOutputTokens !== undefined && {
+        maxOutputTokens: config.maxOutputTokens,
+      }),
+    }).catch((error: unknown) => {
+      throw classifiedFailure(error, failureOptions);
+    });
+  };
+}
+
 /**
- * Creates a model client for streaming text against the Chat Completions
- * wire through `@ai-sdk/openai-compatible` — the declared wire of a
- * `type: 'openai-completions'` provider entry, at its required `baseUrl` —
- * and, with `provider` configured, the wire a transport composed over it
- * (the Go client) presents itself as.
- *
- * `modelId` is the opaque llame id used for telemetry and API events.
- * `providerModelId` is the server-only model id sent to the provider.
- * @returns A model client that streams text using the configured model
+ * Creates the declared Chat Completions wire client for an OpenAI-compatible
+ * provider entry, or the wire client composed over it by OpenCode Go.
  */
 export function createOpenAICompletionsModelClient(
   config: OpenAICompletionsModelClientConfig,
@@ -520,20 +599,7 @@ export function createOpenAICompletionsModelClient(
   },
 ): ModelClient {
   const providerName = configuredProviderName(config);
-
-  const provider = dependencies.createOpenAICompatible({
-    name: providerName,
-    baseURL: config.baseUrl,
-    // A keyless provider still needs a non-empty apiKey passed through —
-    // see KEYLESS_PLACEHOLDER_API_KEY.
-    apiKey: config.credential || KEYLESS_PLACEHOLDER_API_KEY,
-    // Chat Completions servers report a streaming request's usage only when
-    // the request asks (`stream_options.include_usage`). The adapter does not
-    // ask by default, which leaves run usage accounting nothing to record.
-    includeUsage: config.includeUsage ?? true,
-    ...(config.headers && { headers: config.headers }),
-    ...(config.fetch && { fetch: config.fetch }),
-  });
+  const provider = createOpenAICompatibleProvider(config, dependencies);
 
   return {
     model: config.modelId,
@@ -547,14 +613,6 @@ export function createOpenAICompletionsModelClient(
     ...(config.input !== undefined && { input: config.input }),
     streamText: (input: ModelStreamInput) =>
       runOpenAICompatibleStream(provider, config, dependencies, input),
-    generateObject: <OBJECT>(input: ModelObjectInput<OBJECT>) => {
-      return generateToolBoundObject(provider(config.providerModelId), input, {
-        headers: perCallHeaders(config, input.chat),
-        ...composeStructuredProviderOptions(config),
-        ...(config.maxOutputTokens !== undefined && {
-          maxOutputTokens: config.maxOutputTokens,
-        }),
-      });
-    },
+    generateObject: createCompletionsObjectGenerator(provider, config),
   };
 }

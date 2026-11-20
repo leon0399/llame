@@ -1,7 +1,9 @@
 import { anthropic } from '@ai-sdk/anthropic';
 import { openai } from '@ai-sdk/openai';
-import { isRecord, isString } from '@workspace/runtime-safety';
-import { RetryError, type ModelMessage, type ToolSet } from 'ai';
+import { isString } from '@workspace/runtime-safety';
+import { type ModelMessage, type ToolSet } from 'ai';
+
+import { ProviderFailure } from '../../models/provider-failure/provider-failure';
 
 import { type WebSearchEngineConfig } from '../../instance-config/web-search-config';
 import {
@@ -175,18 +177,21 @@ function hostedMessages(request: EngineRequest): Array<ModelMessage> {
   ];
 }
 
-/**
- * Classifies a provider failure by the HTTP status it carries, unwrapping the
- * SDK's retry wrapper. Nothing else of the error is read, so no upstream text,
- * header, or body can reach a note, a log, or a Run event.
- */
+/** Maps only the typed provider classification; the upstream message stays private. */
 function providerFailure(error: unknown): EngineFailure {
-  const response = RetryError.isInstance(error) ? error.lastError : error;
-  const status = isRecord(response) ? response['statusCode'] : undefined;
+  if (!(error instanceof ProviderFailure))
+    return new EngineFailure('upstream_error');
 
-  if (status === 401 || status === 403) return new EngineFailure('auth');
-
-  return new EngineFailure(status === 429 ? 'rate_limited' : 'upstream_error');
+  switch (error.code) {
+    case 'quota_exhausted':
+    case 'rate_limited':
+      return new EngineFailure('rate_limited');
+    case 'billing':
+    case 'auth':
+      return new EngineFailure('auth');
+    default:
+      return new EngineFailure('upstream_error');
+  }
 }
 
 /**
@@ -205,10 +210,10 @@ async function requestHostedAnswer(
   if (modelClients?.createClient === undefined)
     throw new EngineFailure('upstream_error');
   const wire = WIRES[config.wire];
-  // The AI SDK reports a provider failure through `onError`; the result's
-  // `text` then rejects with a generic "no output" error that carries none of
-  // it. The callback also replaces the SDK's default, which logs the raw error.
+  // The AI SDK reports provider failures through `onError`; retain a direct
+  // rejection too for clients that do not invoke that callback.
   const failures: Array<unknown> = [];
+  let rejected: unknown;
 
   try {
     const result = modelClients.createClient(config.model).streamText({
@@ -230,12 +235,12 @@ async function requestHostedAnswer(
     const sources = await result.sources;
 
     if (failures.length === 0) return { text, sources };
-  } catch {
-    // Classified below from what `onError` reported, else as an upstream error.
+  } catch (error) {
+    rejected = error;
   }
 
   if (request.signal.aborted) throwAbort(request.signal);
-  throw providerFailure(failures[0]);
+  throw providerFailure(failures[0] ?? rejected);
 }
 
 /**

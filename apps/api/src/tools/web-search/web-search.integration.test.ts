@@ -55,6 +55,7 @@ import type {
   SystemModelCatalogEntry,
   TokenPrice,
 } from '../../models/model-catalog';
+import { ProviderFailure } from '../../models/provider-failure/provider-failure';
 import type { OpenAIModelClientConfig } from '../../models/openai-model-client';
 import { applyRequestUsageCallback } from '../../models/request-usage';
 import { noopEmbedDispatch } from '../../search/search-embed-dispatch.stub';
@@ -662,6 +663,8 @@ type HostedSide = {
   readonly built: Array<OpenAIModelClientConfig>;
   /** Every request that reached the hosted model's client, in order. */
   readonly requests: Array<ModelStreamInput>;
+  /** Optional scripted failure for hosted-engine fallback scenarios. */
+  readonly script?: HostedStreamScript;
 };
 
 const hostedProviderScript: HostedStreamScript = () =>
@@ -681,7 +684,10 @@ function hostedModelFactory(hosted: HostedSide): typeof createModelClient {
       createOpenAIModelClient: (config) => {
         hosted.built.push(config);
 
-        return scriptedModelClient(hostedProviderScript, hosted.requests);
+        return scriptedModelClient(
+          hosted.script ?? hostedProviderScript,
+          hosted.requests,
+        );
       },
     });
 }
@@ -1508,6 +1514,142 @@ describeIfDb('web search through the real tool loop', () => {
       totalTokens: 2700,
       contextTokens: 1500,
       costUsd: 0.0057,
+    });
+  });
+  it('keeps Brave results when the hosted sibling fails inside an aggregate', async () => {
+    fixture.configure('success');
+    const seeded = await seedRun('hosted-fallback');
+
+    const hosted: HostedSide = {
+      built: [],
+      requests: [],
+      script: () =>
+        Promise.resolve(
+          answerStream(
+            '',
+            [],
+            new ProviderFailure('private hosted failure', {
+              code: 'rate_limited',
+            }),
+          ),
+        ),
+    };
+
+    const webSearch: WebSearchConfig = {
+      engines: [
+        ...HOSTED_SEARCH_CONFIG.engines,
+        {
+          id: 'brave',
+          type: 'brave',
+          key: SENTINEL_KEY,
+          timeoutSeconds: 60,
+        },
+        { id: 'combined', type: 'aggregate', engines: ['hosted', 'brave'] },
+      ],
+      chain: ['combined'],
+    };
+
+    const model = modelFor((turn) =>
+      turn === 1
+        ? toolResponse('hosted-fallback-call', 'web_search', {
+            query: FIXTURE_QUERY,
+          })
+        : textResponse('Search completed.'),
+    );
+
+    await execute(
+      seeded,
+      service({
+        allowed: ['web_search'],
+        permissionPolicy: ALLOW_SEARCH,
+        hosted,
+        webSearch,
+      }),
+      model,
+    );
+    await waitStatus(seeded.run.id, 'completed');
+
+    expect(hosted.requests).toHaveLength(1);
+    expect(fixture.requests).toHaveLength(1);
+    expect(fixture.requests.at(0)).toContain('q=fixture+query');
+    const part = partOf(await assistantParts(seeded.chatId), 'tool-web_search');
+    expect(part).toMatchObject({
+      toolCallId: 'hosted-fallback-call',
+      state: 'output-available',
+      outcome: 'success',
+    });
+    expect(resultSchema.parse(part?.['output'])).toMatchObject({
+      kind: 'results',
+      engine: 'combined',
+      query: FIXTURE_QUERY,
+      results: [{ url: 'https://example.test/results/page' }],
+    });
+  });
+  it('advances to Brave after a hosted quota failure in the configured chain', async () => {
+    fixture.configure('success');
+    const seeded = await seedRun('hosted-quota-fallback');
+
+    const hosted: HostedSide = {
+      built: [],
+      requests: [],
+      script: () =>
+        Promise.resolve(
+          answerStream(
+            '',
+            [],
+            new ProviderFailure('private hosted quota failure', {
+              code: 'quota_exhausted',
+            }),
+          ),
+        ),
+    };
+
+    const webSearch: WebSearchConfig = {
+      engines: [
+        ...HOSTED_SEARCH_CONFIG.engines,
+        {
+          id: 'brave',
+          type: 'brave',
+          key: SENTINEL_KEY,
+          timeoutSeconds: 60,
+        },
+      ],
+      chain: ['hosted', 'brave'],
+    };
+
+    const model = modelFor((turn) =>
+      turn === 1
+        ? toolResponse('hosted-quota-fallback-call', 'web_search', {
+            query: FIXTURE_QUERY,
+          })
+        : textResponse('Search completed.'),
+    );
+
+    await execute(
+      seeded,
+      service({
+        allowed: ['web_search'],
+        permissionPolicy: ALLOW_SEARCH,
+        hosted,
+        webSearch,
+      }),
+      model,
+    );
+    await waitStatus(seeded.run.id, 'completed');
+
+    expect(hosted.requests).toHaveLength(1);
+    expect(fixture.requests).toHaveLength(1);
+    const part = partOf(await assistantParts(seeded.chatId), 'tool-web_search');
+    expect(part).toMatchObject({
+      toolCallId: 'hosted-quota-fallback-call',
+      state: 'output-available',
+      outcome: 'success',
+    });
+    expect(resultSchema.parse(part?.['output'])).toMatchObject({
+      kind: 'results',
+      engine: 'brave',
+      query: FIXTURE_QUERY,
+      results: [{ url: 'https://example.test/results/page' }],
     });
   });
   it('declares the web_search description as its template followed by the engine catalog', async () => {

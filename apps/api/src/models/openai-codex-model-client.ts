@@ -10,6 +10,7 @@ import type { BillingMode, ModelClient } from './model-client';
 import type { ModelInput, TokenPrice } from './model-catalog';
 import type { ProviderOptionRecord } from './provider-options';
 import type { RequestHeaderTemplates } from './request-headers';
+import { ProviderFailure } from './provider-failure/provider-failure';
 
 export const CODEX_RESPONSES_BASE_URL = 'https://chatgpt.com/backend-api/codex';
 
@@ -87,6 +88,8 @@ function codexStatusMessage(statusCode: number | undefined): string {
 }
 
 function sanitizeCodexError(error: unknown): Error {
+  if (error instanceof ProviderFailure) return error;
+
   const statusCode = httpStatus(error);
   const bounded = new Error(codexStatusMessage(statusCode));
 

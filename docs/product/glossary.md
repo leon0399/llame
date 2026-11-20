@@ -538,6 +538,10 @@ The protocol a model entry is called through, such as Responses, Chat
 Completions, or Anthropic Messages.
 _Avoid_: API, transport
 
+**Failure class**:
+The provider-neutral code of a failed model request, retained on a failed Run.
+It distinguishes usage limits, billing, temporary failures, and rejected requests.
+
 **Effort**:
 The reasoning level a Run asks a model for, chosen from the levels that model
 declares.
