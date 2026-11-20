@@ -365,6 +365,12 @@ describe('RunWaitService.suspendForQuota', () => {
       },
     };
 
+    const preparedContext = {
+      ...baselines,
+      historyRows: [{ parts: [{ type: 'text', text: 'private history' }] }],
+      system: 'private prepared prompt',
+    };
+
     const boundaryInput: SuspendRunQuotaInput = {
       ...quotaInput,
       awaiting: { ...quotaAwaiting, resumeAt: 'boundary' },
@@ -376,9 +382,10 @@ describe('RunWaitService.suspendForQuota', () => {
       stoppedCalls: [{ toolName: 'bash', toolCallId: 'bash-1' }],
       stepBudgetUsed: 0,
       boundaryMode: 'owner',
+      compactionSet: { ids: ['original-command'], focus: 'original focus' },
       summaryAttemptId: 'summary-attempt',
       summaryPrefixFingerprint: 'a'.repeat(64),
-      baselines,
+      baselines: preparedContext,
     };
 
     await expect(
@@ -387,11 +394,14 @@ describe('RunWaitService.suspendForQuota', () => {
 
     const { attemptId, events } = replayedSuspension(fixture.append);
 
+    expect(events[0]?.payload).toHaveProperty('baselines', baselines);
+
     expect(quotaRequestFromEvents(events)).toEqual({
       resumeAt: 'boundary',
       waitCount: 1,
       generation: 5,
       boundaryMode: 'owner',
+      compactionSet: { ids: ['original-command'], focus: 'original focus' },
       stepBudgetUsed: 0,
       summaryAttemptId: 'summary-attempt',
       summaryPrefixFingerprint: 'a'.repeat(64),

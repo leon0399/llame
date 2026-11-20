@@ -151,21 +151,19 @@ function quotaSuspensionPayload(
     waitCount: awaiting.waitCount,
     parts: input.parts,
     steps: input.steps,
-    ...(input.stoppedCalls !== undefined && {
-      stoppedCalls: input.stoppedCalls,
-    }),
-    ...(input.stepBudgetUsed !== undefined && {
-      stepBudgetUsed: input.stepBudgetUsed,
-    }),
-    ...(input.boundaryMode !== undefined && {
-      boundaryMode: input.boundaryMode,
-    }),
-    ...(input.summaryAttemptId !== undefined && {
-      summaryAttemptId: input.summaryAttemptId,
-    }),
-    ...(input.summaryPrefixFingerprint !== undefined && {
-      summaryPrefixFingerprint: input.summaryPrefixFingerprint,
-    }),
-    ...(input.baselines !== undefined && { baselines: input.baselines }),
+    stoppedCalls: input.stoppedCalls,
+    stepBudgetUsed: input.stepBudgetUsed,
+    boundaryMode: input.boundaryMode,
+    summaryAttemptId: input.summaryAttemptId,
+    summaryPrefixFingerprint: input.summaryPrefixFingerprint,
+    compactionSet: input.compactionSet,
+    baselines:
+      input.baselines === undefined
+        ? undefined
+        : {
+            recencyDigestInitialization:
+              input.baselines.recencyDigestInitialization,
+            skillCatalogFreeze: input.baselines.skillCatalogFreeze,
+          },
   };
 }

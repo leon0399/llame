@@ -6,6 +6,11 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   claim ownership, original execution context, and completed reply retention.
 - Retain a redelivered summary wake's saved answer when terminal settlement
   closes quota recovery before persisting the reply.
+- Preserve the suspended summary's command set and focus, exclude undispatched
+  context from its replay, and settle final answers without target-request
+  admission. Durable baseline metadata stores only its declared fields.
+- Give API mutation shards a 90-minute execution deadline after the largest
+  changed-file shard exceeded 45 minutes; scoring and mutation scope are unchanged.
 
 # 2026-11-19
 

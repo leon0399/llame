@@ -1050,8 +1050,12 @@ function summaryReceiptRow(systemPrompt: string) {
 function serveSummaryReceipt(systemPrompt: () => string) {
   return vi
     .spyOn(SystemPromptReceiptsRepository.prototype, 'findByAttempt')
-    .mockImplementation(() =>
-      Promise.resolve(summaryReceiptRow(systemPrompt())),
+    .mockImplementation((_runId, attemptId) =>
+      Promise.resolve(
+        attemptId === testAttemptId
+          ? summaryReceiptRow(systemPrompt())
+          : undefined,
+      ),
     );
 }
 
@@ -13922,15 +13926,7 @@ describe('RunExecutionService executeRun — pre-step compaction trigger', () =>
       }),
     );
 
-    // The wake attempt's own render stands in for the suspended attempt's
-    // prefix: this fixture resumes a stable wait, so both are the same text.
-    let preparedSystem = '';
-
-    spies.createReceipt.mockImplementation((input) => {
-      preparedSystem = input.systemPrompt;
-
-      return Promise.resolve(summaryReceiptRow(input.systemPrompt));
-    });
+    const preparedSystem = 'original boundary summary prompt';
     serveSummaryReceipt(() => preparedSystem);
 
     vi.spyOn(execution.service, 'claimRun').mockResolvedValue({
@@ -13944,17 +13940,7 @@ describe('RunExecutionService executeRun — pre-step compaction trigger', () =>
         generation: 13,
         resumeAt: 'boundary',
         waitCount: 1,
-        get summaryAttemptId() {
-          return testAttemptId;
-        },
-        get summaryPrefixFingerprint() {
-          return preparedSystem.length === 0
-            ? undefined
-            : compactionSummaryPrefixFingerprint({
-                system: preparedSystem,
-                toolDeclarations: [],
-              });
-        },
+        ...resumedSummaryWait({ system: preparedSystem, toolDeclarations: [] }),
       },
       quotaWake: true,
     });
@@ -23567,7 +23553,7 @@ describe('RunExecutionService executeRun — run segments', () => {
 
     expect(suspendForQuota).toHaveBeenCalledTimes(2);
     expect(suspendForQuota.mock.lastCall?.[0]).toMatchObject({
-      awaiting: { resumeAt: 'finalAnswer' },
+      awaiting: { resumeAt: 'finalAnswer', waitCount: 2 },
       // Two charged steps came from the compaction delivery; this wake keeps
       // the four it had charged rather than refunding the offset twice.
       stepBudgetUsed: 4,
@@ -23577,146 +23563,155 @@ describe('RunExecutionService executeRun — run segments', () => {
     expect(realClient.requests).toHaveLength(1);
   });
 
-  it('reuses the original receipt prefix when personalization changes during a final-answer wait', async () => {
-    const spies = mockNormalExecutionRepositories();
-    spies.findById.mockResolvedValue({
-      ...run,
-      activeAttemptId: testAttemptId,
-    });
-    vi.spyOn(MessagesRepository.prototype, 'findByChatId').mockResolvedValue([
-      { ...userMessage, seq: 1 },
-      {
-        ...assistantMessage,
-        id: committedTurnReplyId,
-        seq: 2,
-        inReplyTo: userMessage.id,
-      },
-    ]);
-
-    const compact = {
-      ...pendingItem,
-      parts: [{ type: 'text', text: '/compact keep the requested details' }],
-    };
-
-    vi.spyOn(
-      ChatDeliveriesRepository.prototype,
-      'listPending',
-    ).mockResolvedValue([compact]);
-    vi.spyOn(MessagesRepository.prototype, 'create').mockResolvedValue(
-      deliveredMessage,
-    );
-    vi.spyOn(
-      ChatDeliveriesRepository.prototype,
-      'stepEndSignal',
-    ).mockResolvedValue('delivery');
-    const appended = recordAppendedEvents();
-    const publication = serveCheckpointPublication();
-
-    const realClient = createToolLoopClient([
-      providerText('The final answer.'),
-    ]);
-
-    const suspendForQuota = vi
-      .fn<RunWaitService['suspendForQuota']>()
-      .mockResolvedValue({ kind: 'suspended' });
-
-    const execution = makeExecutionService(
-      realClient.client,
-      undefined,
-      undefined,
-      {
-        runWait: asDouble<RunWaitService>({ suspendForQuota }),
-        promptUser: { preferredName: 'Before' },
-        model: {
-          ...testModelEntry,
-          systemPromptTemplate: 'Owner {{user.personalization.preferredName}}',
+  it.each([128_000, 1])(
+    'reuses the original final-answer receipt without target admission (window: %s)',
+    async (wakeWindow) => {
+      const spies = mockNormalExecutionRepositories();
+      spies.findById.mockResolvedValue({
+        ...run,
+        activeAttemptId: testAttemptId,
+      });
+      vi.spyOn(MessagesRepository.prototype, 'findByChatId').mockResolvedValue([
+        { ...userMessage, seq: 1 },
+        {
+          ...assistantMessage,
+          id: committedTurnReplyId,
+          seq: 2,
+          inReplyTo: userMessage.id,
         },
-      },
-    );
+      ]);
 
-    const summarize = vi.spyOn(execution.compaction, 'computeBoundarySummary');
-    summarize
-      .mockRejectedValueOnce(
-        new ProviderFailure('The provider quota is exhausted.', {
-          code: 'quota_exhausted',
-          resetsAt: Date.now() + 120_000,
-          statusCode: 429,
-        }),
-      )
-      .mockResolvedValue(checkpointSummary(2));
+      const compact = {
+        ...pendingItem,
+        parts: [{ type: 'text', text: '/compact keep the requested details' }],
+      };
 
-    const input = executionInput(realClient.client);
+      vi.spyOn(
+        ChatDeliveriesRepository.prototype,
+        'listPending',
+      ).mockResolvedValue([compact]);
+      vi.spyOn(MessagesRepository.prototype, 'create').mockResolvedValue(
+        deliveredMessage,
+      );
+      vi.spyOn(
+        ChatDeliveriesRepository.prototype,
+        'stepEndSignal',
+      ).mockResolvedValue('delivery');
+      const appended = recordAppendedEvents();
+      const publication = serveCheckpointPublication();
 
-    const request = {
-      ...input,
-      userMessage: { ...input.userMessage, seq: 3 },
-    };
+      const realClient = createToolLoopClient([
+        providerText('The final answer.'),
+      ]);
 
-    const result = await execution.service.executeRun(request);
+      const suspendForQuota = vi
+        .fn<RunWaitService['suspendForQuota']>()
+        .mockResolvedValue({ kind: 'suspended' });
 
-    serveDelivery([compact]);
+      const execution = makeExecutionService(
+        realClient.client,
+        undefined,
+        undefined,
+        {
+          runWait: asDouble<RunWaitService>({ suspendForQuota }),
+          promptUser: { preferredName: 'Before' },
+          model: {
+            ...testModelEntry,
+            systemPromptTemplate:
+              'Owner {{user.personalization.preferredName}}',
+          },
+        },
+      );
 
-    try {
-      await result.consumeStream();
-    } catch (error) {
-      expect(error).toBeInstanceOf(RunNotRunnableError);
-    }
+      const summarize = vi.spyOn(
+        execution.compaction,
+        'computeBoundarySummary',
+      );
 
-    const firstSummary = summarize.mock.calls[0]?.[0];
+      summarize
+        .mockRejectedValueOnce(
+          new ProviderFailure('The provider quota is exhausted.', {
+            code: 'quota_exhausted',
+            resetsAt: Date.now() + 120_000,
+            statusCode: 429,
+          }),
+        )
+        .mockResolvedValue(checkpointSummary(2));
 
-    if (firstSummary === undefined)
-      throw new Error('The suspended summary request is absent.');
+      const input = executionInput(realClient.client);
 
-    expect(firstSummary.system).toContain('Before');
+      const request = {
+        ...input,
+        userMessage: { ...input.userMessage, seq: 3 },
+      };
 
-    // The owner edits personalization while the Run waits, so this attempt
-    // renders a different prefix than the one the answer did.
-    execution.promptUser.mockResolvedValue({ preferredName: 'After' });
-    serveSummaryReceipt(() => firstSummary.system);
-    replayAppendedEvents(appended);
+      const result = await execution.service.executeRun(request);
 
-    vi.spyOn(execution.service, 'claimRun').mockResolvedValue({
-      attemptId: testAttemptId,
-      effort: undefined,
-      messageId,
-      nativeDeliverySequence: 1,
-      permissionMode: 'default',
-      wakeState: {
-        parts: toMessageParts(suspendForQuota.mock.lastCall?.[0].parts ?? []),
-      },
-      quotaRequest: {
-        generation: 8,
-        resumeAt: 'finalAnswer',
-        waitCount: 1,
-        ...resumedSummaryWait(firstSummary),
-      },
-      quotaWake: true,
-    });
-    await expect(execution.service.executeRun(request)).rejects.toBeInstanceOf(
-      RunNotRunnableError,
-    );
+      serveDelivery([compact]);
 
-    expect(summarize).toHaveBeenCalledTimes(2);
-    expect(summarize.mock.calls[1]?.[0].system).toBe(firstSummary.system);
-    expect(summarize.mock.calls[1]?.[0].system).toContain('Before');
-    // The wake did render the edited personalization; only the summary keeps
-    // the original receipt.
-    expect(spies.createReceipt.mock.calls.at(-1)?.[0].systemPrompt).toContain(
-      'After',
-    );
-    expect(publication.create).toHaveBeenCalledOnce();
-    expect(spies.markFinished).toHaveBeenCalledWith(
-      runId,
-      userId,
-      'completed',
-      expect.objectContaining({ attemptId: testAttemptId }),
-    );
-    expect(
-      spies.createAssistantReplyIfAbsent.mock.calls.at(-1)?.[0].parts,
-    ).toContainEqual(
-      expect.objectContaining({ type: 'text', text: 'The final answer.' }),
-    );
-  });
+      try {
+        await result.consumeStream();
+      } catch (error) {
+        expect(error).toBeInstanceOf(RunNotRunnableError);
+      }
+
+      const firstSummary = summarize.mock.calls[0]?.[0];
+
+      if (firstSummary === undefined)
+        throw new Error('The suspended summary request is absent.');
+
+      expect(firstSummary.system).toContain('Before');
+
+      // The owner edits personalization while the Run waits, so this attempt
+      // renders a different prefix than the one the answer did.
+      execution.promptUser.mockResolvedValue({ preferredName: 'After' });
+      Object.assign(realClient.client, { contextWindowTokens: wakeWindow });
+      serveSummaryReceipt(() => firstSummary.system);
+      replayAppendedEvents(appended);
+
+      vi.spyOn(execution.service, 'claimRun').mockResolvedValue({
+        attemptId: testAttemptId,
+        effort: undefined,
+        messageId,
+        nativeDeliverySequence: 1,
+        permissionMode: 'default',
+        wakeState: {
+          parts: toMessageParts(suspendForQuota.mock.lastCall?.[0].parts ?? []),
+        },
+        quotaRequest: {
+          generation: 8,
+          resumeAt: 'finalAnswer',
+          waitCount: 1,
+          ...resumedSummaryWait(firstSummary),
+        },
+        quotaWake: true,
+      });
+      await expect(
+        execution.service.executeRun(request),
+      ).rejects.toBeInstanceOf(RunNotRunnableError);
+
+      expect(summarize).toHaveBeenCalledTimes(2);
+      expect(summarize.mock.calls[1]?.[0].system).toBe(firstSummary.system);
+      expect(summarize.mock.calls[1]?.[0].system).toContain('Before');
+      // The wake did render the edited personalization; only the summary keeps
+      // the original receipt.
+      expect(spies.createReceipt.mock.calls.at(-1)?.[0].systemPrompt).toContain(
+        'After',
+      );
+      expect(publication.create).toHaveBeenCalledOnce();
+      expect(spies.markFinished).toHaveBeenCalledWith(
+        runId,
+        userId,
+        'completed',
+        expect.objectContaining({ attemptId: testAttemptId }),
+      );
+      expect(
+        spies.createAssistantReplyIfAbsent.mock.calls.at(-1)?.[0].parts,
+      ).toContainEqual(
+        expect.objectContaining({ type: 'text', text: 'The final answer.' }),
+      );
+    },
+  );
 
   it('refuses a resumed final-answer summary whose tool declarations changed during the wait', async () => {
     const spies = mockNormalExecutionRepositories();
@@ -24006,13 +24001,7 @@ describe('RunExecutionService executeRun — run segments', () => {
       .fn<RunWaitService['suspendForQuota']>()
       .mockResolvedValue({ kind: 'suspended' });
 
-    let preparedSystem = '';
-
-    spies.createReceipt.mockImplementation((input) => {
-      preparedSystem = input.systemPrompt;
-
-      return Promise.resolve(summaryReceiptRow(input.systemPrompt));
-    });
+    const preparedSystem = 'original automatic summary prompt';
     serveSummaryReceipt(() => preparedSystem);
 
     const execution = makeExecutionService(
@@ -24038,17 +24027,7 @@ describe('RunExecutionService executeRun — run segments', () => {
         resumeAt: 'boundary',
         waitCount: 1,
         boundaryMode: 'automatic',
-        get summaryAttemptId() {
-          return testAttemptId;
-        },
-        get summaryPrefixFingerprint() {
-          return preparedSystem.length === 0
-            ? undefined
-            : compactionSummaryPrefixFingerprint({
-                system: preparedSystem,
-                toolDeclarations: [],
-              });
-        },
+        ...resumedSummaryWait({ system: preparedSystem, toolDeclarations: [] }),
       },
       quotaWake: true,
     });
@@ -26045,9 +26024,6 @@ describe('RunExecutionService executeRun — run segments', () => {
       expect(computeBoundarySummary).toHaveBeenCalledOnce();
       expect(prepareBoundary).toHaveBeenCalledWith(
         expect.objectContaining({ automatic: true }),
-      );
-      expect(prepareBoundary.mock.calls[0]?.[0]).not.toHaveProperty(
-        'compactionSet',
       );
       expect(listByRunId).toHaveBeenCalledWith(runId, userId, {
         eventTypes: ['run.delivered'],
@@ -29224,6 +29200,128 @@ describe('RunExecutionService quota resume boundaries', () => {
       expect.objectContaining({ system: 'original rendered prompt' }),
     );
   });
+
+  it.each([true, false])(
+    'uses stored replay and the still-pending saved command set (original pending: %s)',
+    async (originalPending) => {
+      const repositories = mockNormalExecutionRepositories();
+      repositories.findById.mockResolvedValue({
+        ...run,
+        activeAttemptId: testAttemptId,
+      });
+      const execution = makeExecutionService();
+      const saved = toMessageParts([{ type: 'text', text: 'saved answer' }]);
+
+      const unstored = createContextItemPart({
+        producer: 'workspace',
+        form: 'notice',
+        runId,
+        payload: {},
+        text: '<system-reminder producer="workspace" form="notice">unstored notice</system-reminder>',
+      });
+
+      const compactionSet = {
+        ids: ['original-command'],
+        focus: 'original focus',
+      };
+
+      const quotaRequest: QuotaRequestState = {
+        generation: 5,
+        resumeAt: 'boundary',
+        waitCount: 1,
+        boundaryMode: 'owner',
+        compactionSet,
+        summaryAttemptId: testAttemptId,
+        summaryPrefixFingerprint: compactionSummaryPrefixFingerprint({
+          system: prepared.system,
+          toolDeclarations: [],
+        }),
+      };
+
+      vi.spyOn(
+        ChatDeliveriesRepository.prototype,
+        'listPending',
+      ).mockResolvedValue([
+        ...(originalPending
+          ? [
+              {
+                ...chatDeliveryRow({
+                  mode: 'steer',
+                  parts: [{ type: 'text', text: '/compact original focus' }],
+                }),
+                id: 'original-command',
+                position: 1,
+              },
+            ]
+          : []),
+        {
+          ...chatDeliveryRow({
+            mode: 'steer',
+            parts: [{ type: 'text', text: '/compact new focus' }],
+          }),
+          id: 'new-command',
+          position: 2,
+        },
+      ]);
+      serveSummaryReceipt(() => prepared.system);
+      execution.computeBoundarySummary.mockResolvedValue(checkpointSummary(2));
+
+      const deliver = vi
+        .spyOn(segmentDelivery, 'deliverPendingSteering')
+        .mockResolvedValue({ kind: 'nothing-pending' });
+
+      await execution.service['resumeQuotaBoundary']({
+        ...boundaryInput(execution, { quotaRequest }),
+        context: {
+          ...boundaryContext,
+          messages: [{ role: 'user', content: 'stored request' }],
+          triggerParts: toMessageParts([
+            { type: 'text', text: 'stored request' },
+          ]),
+          stagedParts: [unstored],
+        },
+        prepared: {
+          ...prepared,
+          messages: [
+            { role: 'user', content: 'stored request and unstored notice' },
+            {
+              role: 'assistant',
+              content: [{ type: 'text', text: 'saved answer' }],
+            },
+          ],
+        },
+        resumeAt: 'boundary',
+        quotaParts: () => saved,
+        telemetry,
+        createdMessage: {
+          id: messageId,
+          seq: 1,
+          parts: toMessageParts(userMessage.parts),
+        },
+      });
+
+      if (!originalPending) {
+        expect(execution.computeBoundarySummary).not.toHaveBeenCalled();
+        expect(deliver.mock.lastCall?.[1].boundaryCompaction).toBeUndefined();
+
+        return;
+      }
+
+      expect(deliver.mock.lastCall?.[1].boundaryCompaction?.ids).toEqual([
+        'original-command',
+      ]);
+
+      const summary = execution.computeBoundarySummary.mock.lastCall?.[0];
+      expect(summary?.focus).toBe('original focus');
+      expect(summary?.closedReply).toEqual([
+        { role: 'user', content: [{ type: 'text', text: 'stored request' }] },
+        {
+          role: 'assistant',
+          content: [{ type: 'text', text: 'saved answer' }],
+        },
+      ]);
+    },
+  );
 
   it('refuses a resumed summary when the stored prefix no longer matches', async () => {
     const execution = makeExecutionService();

@@ -13,6 +13,7 @@ import { toMessageParts } from '../chats/chat-message-parts';
 import { type QuotaResumeAt, type RunEvent } from '../db/schema';
 import { stoppedCallsOf, type StoppedCall } from '../chats/interrupted-notice';
 import type { FirstEpochBaselines } from './segment-delivery';
+import type { CompactionSet } from '../compaction/boundary-compaction';
 
 /** The boundary mode a boundary summary was requested in, frozen across waits. */
 export type QuotaBoundaryMode = 'automatic' | 'owner';
@@ -27,6 +28,7 @@ export type QuotaRequestState = {
    * flip the original request's failure class.
    */
   readonly boundaryMode?: QuotaBoundaryMode;
+  readonly compactionSet?: CompactionSet;
   /**
    * Step budget this Run had already charged before the wait, across every
    * segment. It excludes a Continue Run's inherited display numbering, and it
@@ -312,6 +314,7 @@ function parseQuotaRequest(
     summaryAttemptId,
     summaryPrefixFingerprint,
     baselines,
+    compactionSet,
   } = parsed.data;
 
   return {
@@ -323,6 +326,7 @@ function parseQuotaRequest(
     ...(stepBudgetUsed !== undefined && { stepBudgetUsed }),
     ...(summaryAttemptId !== undefined && { summaryAttemptId }),
     ...(summaryPrefixFingerprint !== undefined && { summaryPrefixFingerprint }),
+    ...(compactionSet !== undefined && { compactionSet }),
     ...(baselines !== undefined && { baselines }),
     ...(payload['resumeAt'] === 'boundary' &&
       Array.isArray(payload['stoppedCalls']) && {
@@ -403,6 +407,10 @@ const quotaPayloadSchema = z.object({
     .or(omittedCheckpointField)
     .optional(),
   summaryAttemptId: z.string().min(1).or(omittedCheckpointField).optional(),
+  compactionSet: z
+    .object({ ids: z.array(z.string()), focus: z.string().nullable() })
+    .or(omittedCheckpointField)
+    .optional(),
   summaryPrefixFingerprint: z
     .string()
     .min(1)

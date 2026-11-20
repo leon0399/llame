@@ -24,6 +24,7 @@ import { retryRunTransaction } from './run-transaction';
 import { type AssistantTurnTelemetry } from './run-reply-finalizer';
 import type { StoppedCall } from '../chats/interrupted-notice';
 import type { FirstEpochBaselines } from './segment-delivery';
+import type { CompactionSet } from '../compaction/boundary-compaction';
 
 export type RunWaitCause = 'settled' | 'interrupted' | 'timeout' | 'cancelled';
 
@@ -58,6 +59,7 @@ export type SuspendRunQuotaInput = {
   stepBudgetUsed?: number;
   /** The boundary summary mode this wait belongs to, frozen for its resume. */
   boundaryMode?: 'automatic' | 'owner';
+  compactionSet?: CompactionSet;
   /** The attempt whose receipt owns the suspended summary's prefix. */
   summaryAttemptId?: string;
   /** The summary prefix this attempt rendered, frozen for its resume. */

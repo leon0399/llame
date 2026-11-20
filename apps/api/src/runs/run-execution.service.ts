@@ -1981,6 +1981,7 @@ export class RunExecutionService {
     stoppedCalls?: ReadonlyArray<StoppedCall>;
     stepBudgetUsed?: number;
     boundaryMode?: 'automatic' | 'owner';
+    compactionSet?: CompactionSet;
     summaryAttemptId?: string;
     summaryPrefixFingerprint?: string;
     baselines?: FirstEpochBaselines;
@@ -2008,6 +2009,9 @@ export class RunExecutionService {
       }),
       ...(input.boundaryMode !== undefined && {
         boundaryMode: input.boundaryMode,
+      }),
+      ...(input.compactionSet !== undefined && {
+        compactionSet: input.compactionSet,
       }),
       ...(input.summaryAttemptId !== undefined && {
         summaryAttemptId: input.summaryAttemptId,
@@ -8064,7 +8068,7 @@ export class RunExecutionService {
     replyParts: ReadonlyArray<MessagePart>;
     keptPartCount: number;
     stepBudgetUsed: number;
-    compactionSet?: Awaited<ReturnType<typeof readCompactionSet>>;
+    compactionSet: CompactionSet;
     automatic?: true;
     finalAnswer?: true;
     quotaRequest?: QuotaRequestState;
@@ -8075,13 +8079,7 @@ export class RunExecutionService {
 
     if (activeRun?.activeAttemptId !== input.attemptId) return undefined;
 
-    const compactionSet =
-      input.compactionSet ??
-      (await readCompactionSet({
-        tenantDb: this.tenantDb,
-        chatId: input.run.chatId,
-        userId: input.run.userId,
-      }));
+    const compactionSet = input.compactionSet;
 
     if (compactionSet.ids.length === 0 && input.automatic !== true) {
       return undefined;
@@ -8216,7 +8214,11 @@ export class RunExecutionService {
   }
 
   private async prepareQuotaBoundary(
-    input: Parameters<RunExecutionService['prepareBoundaryCompaction']>[0] & {
+    input: Omit<
+      Parameters<RunExecutionService['prepareBoundaryCompaction']>[0],
+      'compactionSet'
+    > & {
+      compactionSet?: CompactionSet;
       resumeAt: AwaitingQuota['resumeAt'];
       quotaParts: () => Array<MessagePart>;
       quotaAssistantTurn?: () => AssistantTurnWrite;
@@ -8228,8 +8230,16 @@ export class RunExecutionService {
       baselines?: FirstEpochBaselines;
     },
   ): Promise<DeliveryInput['boundaryCompaction'] | 'quota'> {
+    const compactionSet =
+      input.compactionSet ??
+      (await readCompactionSet({
+        tenantDb: this.tenantDb,
+        chatId: input.run.chatId,
+        userId: input.run.userId,
+      }));
+
     try {
-      return await this.prepareBoundaryCompaction(input);
+      return await this.prepareBoundaryCompaction({ ...input, compactionSet });
     } catch (error) {
       if (input.run.abortSignal?.aborted) throw error;
 
@@ -8253,6 +8263,7 @@ export class RunExecutionService {
         }),
         ...((input.resumeAt === 'boundary' ||
           input.resumeAt === 'finalAnswer') && {
+          compactionSet,
           // The attempt that first suspended this summary owns the prefix the
           // resume must reuse; a re-wait carries that identity, never its own.
           summaryAttemptId:
@@ -8348,11 +8359,21 @@ export class RunExecutionService {
       })
     | 'stopped'
   > {
-    const compactionSet = await readCompactionSet({
+    const pending = await readCompactionSet({
       tenantDb: this.tenantDb,
       chatId: input.run.chatId,
       userId: input.run.userId,
     });
+
+    const saved = input.quotaRequest?.compactionSet;
+
+    const compactionSet =
+      saved === undefined
+        ? pending
+        : {
+            ids: saved.ids.filter((id) => pending.ids.includes(id)),
+            focus: saved.focus,
+          };
 
     const finalAnswer = input.resumeAt === 'finalAnswer';
 
@@ -8366,14 +8387,24 @@ export class RunExecutionService {
         ? compactionSet.ids.length === 0
         : input.quotaRequest.boundaryMode === 'automatic';
 
-    // The terminal write freezes the baselines the answering target rendered,
-    // never ones this wake resolved; their absence stays absent.
-    const { recencyDigestInitialization, skillCatalogFreeze } =
-      input.quotaRequest?.baselines ?? {};
+    const parts = input.quotaParts();
+
+    const kept = projectStoredReplyParts(parts, {
+      privateParts: true,
+      mediaKey: continuedMediaKey,
+    });
+    // This summary wake has not dispatched the items it just staged.
 
     const boundaryCompaction = await this.prepareQuotaBoundary({
       ...input,
       compactionSet,
+      prepared: {
+        ...input.prepared,
+        messages: [
+          ...requestMessages({ ...input.context, stagedParts: [] }, []),
+          ...kept.messages,
+        ],
+      },
       ...(finalAnswer
         ? { finalAnswer: true as const }
         : automaticMode === true
@@ -8385,50 +8416,9 @@ export class RunExecutionService {
     });
 
     if (boundaryCompaction === 'quota') return 'stopped';
-    const parts = input.quotaParts();
 
-    if (finalAnswer) {
-      const finish = await this.finishRun({
-        userId: input.run.userId,
-        runId: input.run.runId,
-        attemptId: input.attemptId,
-        status: 'completed',
-        boundaryCompaction,
-        quotaRequest: input.quotaRequest,
-        stepBudgetUsed: input.stepBudgetUsed,
-        modelCompleted: { finishReason: null, telemetry: input.telemetry },
-        assistantTurn: {
-          chatId: input.run.chatId,
-          inReplyTo: input.run.userMessage.id,
-          parts,
-          telemetry: input.telemetry,
-        },
-        ...(recencyDigestInitialization !== undefined && {
-          recencyDigestInitialization,
-        }),
-        ...(skillCatalogFreeze !== undefined && { skillCatalogFreeze }),
-      });
-
-      if (finish.outcome === 'delivered') return finish.delivery;
-
-      if (!hasNoCommittedAssistantTurn(finish)) {
-        await this.afterAssistantTurn(
-          finish.assistantMessage,
-          input.run.userId,
-        );
-        await this.postCompletedRunWork({
-          chatId: input.run.chatId,
-          userId: input.run.userId,
-          untitled: input.prepared.untitled,
-          userMessage: input.createdMessage,
-        });
-      }
-
-      if (finish.outcome === 'errored')
-        throw new Error('Failed to finish resumed quota reply.');
-
-      return 'stopped';
-    }
+    if (finalAnswer)
+      return this.finishQuotaFinalAnswer(input, boundaryCompaction, parts);
 
     const boundary = await this.deliverQuotaBoundary({
       run: { runId: input.run.runId, userId: input.run.userId },
@@ -8457,6 +8447,54 @@ export class RunExecutionService {
       boundaryCompaction?.automatic === true
       ? { ...boundary, automaticCompactionFailed: true }
       : boundary;
+  }
+
+  private async finishQuotaFinalAnswer(
+    input: Parameters<RunExecutionService['resumeQuotaBoundary']>[0],
+    boundaryCompaction: DeliveryInput['boundaryCompaction'],
+    parts: Array<MessagePart>,
+  ): Promise<BoundaryDelivery | 'stopped'> {
+    // The terminal write freezes the baselines the answering target rendered.
+    const { recencyDigestInitialization, skillCatalogFreeze } =
+      input.quotaRequest?.baselines ?? {};
+
+    const finish = await this.finishRun({
+      userId: input.run.userId,
+      runId: input.run.runId,
+      attemptId: input.attemptId,
+      status: 'completed',
+      boundaryCompaction,
+      quotaRequest: input.quotaRequest,
+      stepBudgetUsed: input.stepBudgetUsed,
+      modelCompleted: { finishReason: null, telemetry: input.telemetry },
+      assistantTurn: {
+        chatId: input.run.chatId,
+        inReplyTo: input.run.userMessage.id,
+        parts,
+        telemetry: input.telemetry,
+      },
+      ...(recencyDigestInitialization !== undefined && {
+        recencyDigestInitialization,
+      }),
+      ...(skillCatalogFreeze !== undefined && { skillCatalogFreeze }),
+    });
+
+    if (finish.outcome === 'delivered') return finish.delivery;
+
+    if (!hasNoCommittedAssistantTurn(finish)) {
+      await this.afterAssistantTurn(finish.assistantMessage, input.run.userId);
+      await this.postCompletedRunWork({
+        chatId: input.run.chatId,
+        userId: input.run.userId,
+        untitled: input.prepared.untitled,
+        userMessage: input.createdMessage,
+      });
+    }
+
+    if (finish.outcome === 'errored')
+      throw new Error('Failed to finish resumed quota reply.');
+
+    return 'stopped';
   }
 
   private async finishWakeCompactionBoundary(input: {
@@ -8975,6 +9013,7 @@ export class RunExecutionService {
     }
 
     if (
+      input.quotaRequest?.resumeAt !== 'finalAnswer' &&
       !requestFitsContextWindow({
         system: request.system,
         messages: request.messages,
