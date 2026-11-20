@@ -42,6 +42,7 @@ export const projectResponseSchema = z.object({
   ownerUserId: z.string(),
   name: z.string(),
   description: z.string().nullable(),
+  instructions: z.string().nullable(),
   createdAt: z.string().datetime({ offset: true }),
   updatedAt: z.string().datetime({ offset: true }),
   archivedAt: z.string().datetime({ offset: true }).nullable(),

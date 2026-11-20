@@ -29,6 +29,7 @@ function projectRow(overrides: Partial<Project> = {}): Project {
     ownerUserId: 'owner',
     name: 'Project',
     description: null,
+    instructions: null,
     createdAt: now,
     updatedAt: now,
     archivedAt: null,
@@ -268,6 +269,106 @@ describe('ProjectsRepository update', () => {
 
     expect(lastQuery(queries).sql).toContain('"default_executor_id" = $');
     expect(lastQuery(queries).params).toContain(null);
+  });
+
+  it('writes literal instructions exactly and bumps updatedAt', async () => {
+    const { db, queries } = makeMockDb();
+    const current = projectRow();
+    vi.spyOn(ProjectsRepository.prototype, 'findById').mockResolvedValue(
+      current,
+    );
+
+    const literal = '  Read @policy.md.\nNever run $review.\t';
+
+    await new ProjectsRepository(db)
+      .update(current.id, current.ownerUserId, { instructions: literal })
+      .catch(() => null);
+
+    expect(lastQuery(queries).sql).toContain('"instructions" = $');
+    // Literal data, not a normalized form: whitespace and import markers are
+    // bound as-is. Whitespace-only → null is the service's decision, proven at
+    // the service/HTTP boundary, so this layer must not re-trim.
+    expect(lastQuery(queries).params).toContain(literal);
+    expect(lastQuery(queries).sql).toContain('"updated_at" = $');
+  });
+
+  it('clears instructions with an explicit null and still bumps updatedAt', async () => {
+    const { db, queries } = makeMockDb();
+    const current = projectRow({ instructions: 'Old guidance.' });
+    vi.spyOn(ProjectsRepository.prototype, 'findById').mockResolvedValue(
+      current,
+    );
+
+    await new ProjectsRepository(db)
+      .update(current.id, current.ownerUserId, { instructions: null })
+      .catch(() => null);
+
+    expect(lastQuery(queries).sql).toContain('"instructions" = $');
+    expect(lastQuery(queries).params).toContain(null);
+    expect(lastQuery(queries).sql).toContain('"updated_at" = $');
+  });
+
+  it('leaves instructions out of the SET list when the patch omits them', async () => {
+    const { db, queries } = makeMockDb();
+    const current = projectRow({ instructions: 'Keep me.' });
+    vi.spyOn(ProjectsRepository.prototype, 'findById').mockResolvedValue(
+      current,
+    );
+
+    await new ProjectsRepository(db)
+      .update(current.id, current.ownerUserId, { name: 'Renamed' })
+      .catch(() => null);
+
+    expect(lastQuery(queries).sql).not.toContain('"instructions" = $');
+  });
+
+  it('refuses instruction writes of either kind on an archived project', async () => {
+    const { db, queries } = makeMockDb();
+
+    const current = projectRow({
+      archivedAt: new Date('2026-09-01T00:00:00.000Z'),
+      instructions: 'Frozen guidance.',
+    });
+
+    vi.spyOn(ProjectsRepository.prototype, 'findById').mockResolvedValue(
+      current,
+    );
+    const repository = new ProjectsRepository(db);
+
+    // Clearing is an instruction edit.
+    await expect(
+      repository.update(current.id, current.ownerUserId, {
+        instructions: null,
+      }),
+    ).rejects.toBeInstanceOf(ConflictException);
+
+    // Any defined instruction value is project content to this layer, so even
+    // a whitespace payload is refused rather than allowed to overwrite the
+    // frozen text.
+    await expect(
+      repository.update(current.id, current.ownerUserId, {
+        instructions: '   ',
+      }),
+    ).rejects.toBeInstanceOf(ConflictException);
+
+    // An archive transition carrying instructions is not a pure transition.
+    await expect(
+      repository.update(current.id, current.ownerUserId, {
+        archived: false,
+        instructions: 'Changed',
+      }),
+    ).rejects.toBeInstanceOf(ConflictException);
+
+    // A pure unarchive is still allowed: archive state alone and no content,
+    // so it writes no instruction column and does not bump updatedAt. The
+    // RETURNING list legitimately names both columns, so only the SET
+    // assignment form proves absence.
+    await repository
+      .update(current.id, current.ownerUserId, { archived: false })
+      .catch(() => null);
+    expect(lastQuery(queries).sql).toContain('"archived_at" = $');
+    expect(lastQuery(queries).sql).not.toContain('"instructions" = $');
+    expect(lastQuery(queries).sql).not.toContain('"updated_at" = $');
   });
 
   it('bumps updatedAt for a rename alone', async () => {

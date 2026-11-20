@@ -59,6 +59,7 @@ function project(overrides: Partial<ProjectResponse> = {}): ProjectResponse {
     updatedAt: "2026-10-02T00:00:00.000Z",
     archivedAt: null,
     defaultExecutorId: null,
+    instructions: null,
     ...overrides,
   };
 }

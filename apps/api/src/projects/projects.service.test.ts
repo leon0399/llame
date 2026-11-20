@@ -9,6 +9,7 @@ const project = {
   ownerUserId: 'verified-user',
   name: 'Project',
   description: null,
+  instructions: null,
   createdAt: new Date('2026-08-01T00:00:00.000Z'),
   updatedAt: new Date('2026-08-01T00:00:00.000Z'),
   archivedAt: null,
@@ -117,6 +118,70 @@ describe('ProjectsService', () => {
       [project.ownerUserId, expect.any(Function)],
       [project.ownerUserId, expect.any(Function)],
     ]);
+  });
+
+  it('clears all-whitespace instructions before the repository write', async () => {
+    const { service } = makeService();
+
+    const update = vi
+      .spyOn(ProjectsRepository.prototype, 'update')
+      .mockResolvedValue(project);
+
+    await service.updateProject(project.id, project.ownerUserId, {
+      name: 'Renamed',
+      instructions: ' \t\n\r ',
+    });
+
+    // The DTO bound already ran; normalization is this service's only job, so
+    // the repository receives an explicit null (the documented clear) rather
+    // than whitespace it would have to interpret.
+    expect(update).toHaveBeenCalledWith(project.id, project.ownerUserId, {
+      name: 'Renamed',
+      instructions: null,
+    });
+  });
+
+  it('passes nonblank instructions through exactly, surrounding whitespace included', async () => {
+    const { service } = makeService();
+
+    const update = vi
+      .spyOn(ProjectsRepository.prototype, 'update')
+      .mockResolvedValue(project);
+
+    const literal = '  Read @policy.md.\nNever run $review.\t';
+
+    await service.updateProject(project.id, project.ownerUserId, {
+      instructions: literal,
+    });
+
+    expect(update).toHaveBeenCalledWith(project.id, project.ownerUserId, {
+      instructions: literal,
+    });
+  });
+
+  it('passes an explicit null through but keeps an omitted field undefined', async () => {
+    const { service } = makeService();
+
+    const update = vi
+      .spyOn(ProjectsRepository.prototype, 'update')
+      .mockResolvedValue(project);
+
+    await service.updateProject(project.id, project.ownerUserId, {
+      instructions: null,
+    });
+    await service.updateProject(project.id, project.ownerUserId, {
+      name: 'Renamed',
+    });
+
+    expect(update).toHaveBeenNthCalledWith(1, project.id, project.ownerUserId, {
+      instructions: null,
+    });
+
+    // Omission is not a clear: the repository must see `undefined`, which it
+    // skips, or every rename would silently delete the instructions.
+    const omittedPatch = update.mock.calls[1]?.[2];
+
+    expect(omittedPatch?.instructions).toBeUndefined();
   });
 
   it('defaults a missing list filter to an empty object', async () => {

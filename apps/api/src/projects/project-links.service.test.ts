@@ -27,6 +27,7 @@ function projectRow(overrides: Partial<Project> = {}): Project {
     ownerUserId: OWNER,
     name: 'Project',
     description: null,
+    instructions: null,
     createdAt: INSTANT,
     updatedAt: INSTANT,
     archivedAt: null,

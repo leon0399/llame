@@ -77,6 +77,7 @@ const acme: ProjectResponse = {
   updatedAt: "2026-01-01T00:00:00.000Z",
   archivedAt: null,
   defaultExecutorId: null,
+  instructions: null,
 };
 
 /** "METHOD /path?query" a fetch call targets. */

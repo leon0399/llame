@@ -19,6 +19,12 @@ export interface UpdateProjectDto {
    * @nullable
    */
   description?: string | null;
+  /**
+   * Literal instructions for chats filed here. Pass null to clear them; omit to leave them unchanged.
+   * @maxLength 16000
+   * @nullable
+   */
+  instructions?: string | null;
   /** Archive (true) or unarchive (false) the project. Omit to leave unchanged. */
   archived?: boolean;
   /**

@@ -100,6 +100,7 @@ function projectRow(overrides: Partial<Project> = {}): Project {
     ownerUserId: OWNER,
     name: 'llame',
     description: null,
+    instructions: null,
     createdAt: CREATED_AT,
     updatedAt: CREATED_AT,
     archivedAt: null,

@@ -20,6 +20,13 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-11-20
 
+- Persist owner-authored Project instructions as one nullable Project field.
+  `PATCH /api/v1/projects/:id` accepts literal `instructions` up to 16000
+  Unicode code points counted before whitespace normalization. An omitted field
+  leaves the text unchanged, `null` or in-bound whitespace clears it, and
+  nonblank text is stored as entered. Archived Projects answer `409`, another
+  owner answers `404`, and validation errors carry no submitted text. No Run
+  reads the instructions.
 - Add prose rules for pages under `docs/` and vendor an adapted `unslop` skill
   for generated-prose patterns. `pnpm lint:markdown` now fails an ADR that
   uses semicolons, dashes as punctuation, curly quotes, flagged vocabulary, or

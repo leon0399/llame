@@ -25,16 +25,16 @@ Use `$gh-stack` for branch, publication, and merge operations. After published p
 - [x] 1.3 Run independent iterative review round two with at least two reviewers. Verify findings and commit the author's accepted revisions separately.
 - [x] 1.4 Complete proposal SR against the actual parent-relative diff and `REVIEW_GUIDE.md`. Prove Markdown lint, formatting, strict OpenSpec validation, and `git diff --check`.
 - [x] 1.5 Publish this layer as a draft through `$gh-stack`. Verify its immediate base, draft state, issue references, and delivery Project fields.
-- [ ] 1.6 Before implementation, complete the ready proposal's GR and current-head CI gates and obtain approval of its published revision. Keep draft publication distinct from scope approval.
+- [x] 1.6 Reconcile merged proposal approval and ready-proposal review evidence before implementation. Normal current-head CI passed or skipped. Leo merged the approved revision after actionable threads were resolved. The merged proposal's failed pullfrog job is recorded rather than represented as passing.
 
 ## 2. Instructions API layer
 
 Branch `project-discovery/instructions-api` has parent `project-discovery/proposal`. It owns literal instruction persistence and the owner API. Estimated authored churn is 700 to 1100 lines. Generated migration metadata, OpenAPI, and client output are separate. This layer references #1329 without closing it.
 
-- [ ] 2.1 Add nullable instructions through a generated additive migration. Preserve enabled and forced owner RLS. Prove existing Projects receive null and cross-owner direct SQL changes fail.
-- [ ] 2.2 Extend PATCH and explicit Project responses with save, replace, omission, clear, length-before-whitespace normalization, and archive semantics from `projects`. Prove focused API integration cases, including missing identity, non-BMP bounds, and both whitespace boundary scenarios.
-- [ ] 2.3 Regenerate OpenAPI and the web client through the existing commands. Prove OpenAPI lint and a clean second generation of owned outputs.
-- [ ] 2.4 Update API/operator documentation and the dated changelog for the shipped contract. Remove only completed roadmap entries. Run affected API lint, typecheck, focused tests, build, Markdown lint, formatting, and diff checks.
+- [x] 2.1 Add nullable instructions through a generated additive migration. Preserve enabled and forced owner RLS. Prove existing Projects receive null and cross-owner direct SQL changes fail.
+- [x] 2.2 Extend PATCH and explicit Project responses with save, replace, omission, clear, length-before-whitespace normalization, and archive semantics from `projects`. Prove focused API integration cases, including missing identity, non-BMP bounds, and both whitespace boundary scenarios.
+- [x] 2.3 Regenerate OpenAPI and the web client through the existing commands. Prove OpenAPI lint and a clean second generation of owned outputs.
+- [x] 2.4 Update API/operator documentation and the dated changelog for the shipped contract. Remove only completed roadmap entries. Run affected API lint, typecheck, focused tests, build, Markdown lint, formatting, and diff checks.
 - [ ] 2.5 Publish draft and complete layer SR before ready. Complete GR, current-head CI, and delivery Project updates before the next layer.
 
 ## 3. Project locator layer

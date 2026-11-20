@@ -122,12 +122,7 @@ export class ProjectsRepository {
   async update(
     projectId: string,
     ownerUserId: string,
-    patch: {
-      name?: string;
-      description?: string | null;
-      archived?: boolean;
-      defaultExecutorId?: string | null;
-    },
+    patch: ProjectPatch,
   ): Promise<Project | undefined> {
     const current = await this.findById(projectId, ownerUserId);
 
@@ -139,6 +134,7 @@ export class ProjectsRepository {
     const hasContentFields =
       patch.name !== undefined ||
       patch.description !== undefined ||
+      patch.instructions !== undefined ||
       patch.defaultExecutorId !== undefined;
 
     if (current.archivedAt !== null) {
@@ -198,9 +194,10 @@ function projectPinCondition(ownerUserId: string) {
   );
 }
 
-type ProjectPatch = {
+export type ProjectPatch = {
   name?: string;
   description?: string | null;
+  instructions?: string | null;
   archived?: boolean;
   defaultExecutorId?: string | null;
 };
@@ -218,6 +215,9 @@ function projectPatchFields(patch: ProjectPatch, current: Project) {
 
   if (patch.description !== undefined) fields.description = patch.description;
 
+  if (patch.instructions !== undefined)
+    fields.instructions = patch.instructions;
+
   if (patch.defaultExecutorId !== undefined) {
     fields.defaultExecutorId = patch.defaultExecutorId;
   }
@@ -233,6 +233,7 @@ function projectPatchFields(patch: ProjectPatch, current: Project) {
     contentChanged:
       patch.name !== undefined ||
       patch.description !== undefined ||
+      patch.instructions !== undefined ||
       patch.defaultExecutorId !== undefined,
   };
 }

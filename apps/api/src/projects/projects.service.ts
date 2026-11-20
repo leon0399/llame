@@ -19,7 +19,7 @@ import {
   ProjectLinksRepository,
   type ProjectLinkWithDefaults,
 } from './project-links.repository';
-import { ProjectsRepository } from './projects-repository';
+import { ProjectsRepository, type ProjectPatch } from './projects-repository';
 import {
   resolveStartLocation,
   type StartLocation,
@@ -64,15 +64,19 @@ export class ProjectsService {
   async updateProject(
     projectId: string,
     ownerUserId: string,
-    patch: {
-      name?: string;
-      description?: string | null;
-      archived?: boolean;
-      defaultExecutorId?: string | null;
-    },
+    patch: ProjectPatch,
   ): Promise<Project | undefined> {
+    // Raw DTO text: validation has already applied the code-point bound, so
+    // only in-bound input reaches this normalization. All-whitespace clears;
+    // null and omission pass through, and nonblank text stays exact.
+    const instructions =
+      patch.instructions?.trim() === '' ? null : patch.instructions;
+
     return this.tenantDb.runAs(ownerUserId, (tx) =>
-      new ProjectsRepository(tx).update(projectId, ownerUserId, patch),
+      new ProjectsRepository(tx).update(projectId, ownerUserId, {
+        ...patch,
+        instructions,
+      }),
     );
   }
 
