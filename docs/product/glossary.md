@@ -113,6 +113,12 @@ Where a Run is in its life: active (`queued`, `running_model`), waiting
 (`awaiting_jobs`, `awaiting_quota`), or terminal (`completed`, `failed`, `cancelled`, `expired`).
 A terminal status never changes.
 
+**Run origin**:
+What started a Run: the owner (`owner`, for a send, Continue, Regenerate, or
+queued item), another Run (`agent`), or, once automations ship, a schedule or
+an event. A job-notice Run takes the origin of the Run that started the job.
+_Avoid_: trigger, initiator
+
 **Quota wait**:
 A Run's durable pause until an authoritative model usage-limit reset, during
 which no worker executes it and its Chat remains in single-flight.
@@ -592,6 +598,29 @@ Run attempt. A send is one provider call of that request. A request retry does
 not replay a completed tool call.
 _Avoid_: retry (when the model request is meant)
 
+**Model role**:
+An operator-named, ordered list of model entries that a send can name instead
+of one model, written `@name`. Each entry is a candidate, and the first is the
+primary.
+_Avoid_: role (unqualified, where a membership role could be meant), alias,
+profile
+
+**Failover**:
+A model switch to the next candidate of a Run's model role after a model
+request fails. The owner starts it, or it happens automatically where the
+failover policy allows it.
+_Avoid_: fallback (for the act), reroute
+
+**Failover policy**:
+The operator's matrix, per model role, of which failure groups fail over
+automatically for which Run origins. Its failure groups are `availability`,
+`access`, and `quota`. A cell is off unless the operator sets it.
+
+**Fallback hold**:
+The record that keeps a Chat on the candidate it failed over to, until a set
+time passes or the owner picks again.
+_Avoid_: pin (a pin is a list marker)
+
 **Effort**:
 The reasoning level a Run asks a model for, chosen from the levels that model
 declares.
@@ -609,7 +638,8 @@ The provider-reported tokens of one reply and the cost computed from the
 configured pricing, with its billing mode and whether it is complete.
 
 **Billing mode**:
-Whether a model's usage is billed per token or covered by a subscription.
+Whether a model's usage is billed per token or covered by a subscription. Once
+model roles ship, a model can also be free: never billed.
 
 **Side call**:
 A model request made for housekeeping or a tool, such as a title or a ranking,
