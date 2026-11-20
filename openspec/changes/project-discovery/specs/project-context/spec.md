@@ -53,7 +53,7 @@ The system MUST supply automatic context for the selected Project even when nati
 
 ### Requirement: The project snapshot carries identity and additive guidance
 
-The `project` producer MUST emit rail-only `snapshot` items. A bound item MUST contain the Project ID, name, description, literal instructions, and `projects://<id>`. It MUST label metadata as data and instructions as owner guidance additive with personalization. It MUST NOT include repository inventories or checkout paths. It MUST distinguish Project affiliation from a Workspace binding.
+The `project` producer MUST emit rail-only `snapshot` items. A bound item MUST contain the Project ID, name, description, literal instructions, and `projects://<id>`. It MUST label metadata as data and instructions as owner guidance additive with personalization. It MUST NOT derive repository inventories or checkout paths from registrations. It MUST distinguish Project affiliation from a Workspace binding.
 
 #### Scenario: A Project needs no Workspace
 
@@ -99,7 +99,7 @@ A changed snapshot MUST replace the authority of earlier Project guidance, not r
 #### Scenario: A Chat moves between Projects
 
 - **WHEN** a new Run selects B after earlier context supplied A
-- **THEN** its snapshot names B and states that A's Project guidance no longer applies
+- **THEN** its snapshot names B and states that all earlier Project guidance no longer applies
 
 #### Scenario: Instructions are cleared
 
@@ -114,7 +114,7 @@ A changed snapshot MUST replace the authority of earlier Project guidance, not r
 
 #### Scenario: A never-filed Chat gets no reminder
 
-- **WHEN** a Chat has no Project and its reconstructed context contains no Project snapshot
+- **WHEN** a Chat has no Project and its durable history contains no Project context
 - **THEN** the producer emits nothing
 
 ### Requirement: Compaction re-establishes the applicable Project context
@@ -181,7 +181,7 @@ First dispatch MUST atomically record the complete Project selection, even when 
 
 #### Scenario: Recovery data is invalid
 
-- **WHEN** a dispatched Run's recorded Project selection is invalid or absent after the deployment boundary
+- **WHEN** an existing dispatch record proves that the Run dispatched and its selected Project data is invalid or absent
 - **THEN** preparation fails without a model request or a current-row substitute
 
 ### Requirement: Absence after compaction retires earlier Project guidance

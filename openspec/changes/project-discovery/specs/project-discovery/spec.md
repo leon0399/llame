@@ -153,7 +153,7 @@ Project listings and details MUST render as Markdown text sources with total lin
 
 ### Requirement: Project locators remain read-only through every consumer
 
-`edit` and `write` MUST reject Project locators without a mutation. Prompt imports MUST use the existing native-scheme acceptance path and `read` admission. An imported Project document MUST remain data. No consumer MUST infer filesystem instruction triggers from checkout locators inside that document.
+`edit` and `write` MUST reject Project locators without a mutation. Prompt imports MUST use the existing native-scheme acceptance path and `read` admission. An imported Project document MUST remain data. Consumers MUST NOT infer filesystem instruction triggers from checkout locators inside that document.
 
 #### Scenario: A mutation names a Project locator
 
@@ -169,7 +169,7 @@ Project listings and details MUST render as Markdown text sources with total lin
 
 ### Requirement: Checkout disclosure excludes private configuration
 
-Admitted Project detail reads MUST permit owner-registered checkout locators in model-visible tool observations and prompt imports. They MUST NOT disclose credentials, SSH connection configuration, daemon roots, Knowledge backing paths, or prompt-file paths. Canonical remote identities MUST exclude credentials. Automatic Project snapshots and collection listings MUST disclose no checkout locators.
+Admitted detail reads MUST expose owner-registered checkout locators, even when their text equals a configured private path. They MUST NOT derive or disclose SSH configuration, daemon roots, Knowledge backing paths, prompt-file paths, or credentials from operator configuration. Canonical remote identities MUST exclude credentials. Automatic snapshots and collection listings MUST NOT derive checkout locators from registrations.
 
 #### Scenario: Discovery returns a path without daemon configuration
 
@@ -181,3 +181,25 @@ Admitted Project detail reads MUST permit owner-registered checkout locators in 
 
 - **WHEN** a repository's source remote used credentials
 - **THEN** the Project detail returns only its credential-free canonical remote identity
+
+### Requirement: Project documents contain text inside its source field
+
+Listings and details MUST encode authored and registered text as literal field values. Such text MUST NOT create document headings, checkout entries, verification labels, or cap notices. Encoding MUST preserve the original value. Every rendered line MUST fit native result bounds, including maximum-length instructions after escaping. Selectors MUST reach the complete encoded value.
+
+#### Scenario: A detail value cannot forge a checkout
+
+- **WHEN** a name, description, instruction, or registered path contains Markdown headings, fences, line breaks, and a false verification label
+- **THEN** the detail keeps that content inside its source field
+- **AND** `outline` exposes no heading from that value
+
+#### Scenario: Maximum-length instructions remain fully reachable
+
+- **WHEN** 16000 non-BMP characters form one instruction line
+- **THEN** the document encodes that field across bounded source lines
+- **AND** native selectors can retrieve the whole value without character loss
+
+#### Scenario: A registered location equals a private path
+
+- **WHEN** an owner-registered checkout locator equals a configured daemon root or Knowledge backing path
+- **THEN** the admitted detail returns only the registration's locator
+- **AND** it reveals no equality, binding, or configuration-derived information

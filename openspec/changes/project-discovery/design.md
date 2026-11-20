@@ -48,7 +48,7 @@ Before first dispatch, resolve the current `chats.project_id` and Project fields
 
 Append `run.project_bound` in the same fenced transaction that stores first-dispatch context and appends `model.requested`. Its versioned payload contains the complete selection, including null. Reuse `findFirstByType` to recover it. Append it only when no event exists for that Run, under the existing attempt fence. It is not a `model.requested` field because later segments append that event again.
 
-On subsequent steps, segments, worker recovery, quota wake, and compaction continuation, use the event selection. If a legacy Run already dispatched without the event, do not invent a historic selection from current rows. The rollout drains those Runs before new workers execute them. Invalid stored selection data fails closed before a model request.
+On subsequent steps, segments, worker recovery, quota wake, and compaction continuation, use the event selection. Determine prior dispatch from the existing dispatch record, never from event absence. If a legacy Run already dispatched without the event, do not invent a historic selection from current rows. Block worker cutover until every such nonterminal Run settles, including `awaiting_jobs` and `awaiting_quota`. Do not cancel or expire them automatically. Invalid stored selection data fails closed before a model request.
 
 The event records an input decision, not a told cache. It never suppresses reminder emission. Only reconstructed text-bearing Project items do that. It stays in the existing Run event store, so there is no new column, table, or per-producer schema ownership. Owner SSE consumers must tolerate the event without treating it as assistant output or copying it to public projections.
 
@@ -64,7 +64,7 @@ Add the bundled `project` producer after `tool-availability` and before `workspa
 
 Use a packaged Handlebars body under the existing Chat prompt directory. Values come from the selected context, not raw database records. Persist its final text and a versioned payload through the existing dispatch transaction. Payload fields contain the neutralized selected values needed for comparison, not repository rows, checkout locations, or unrelated owner data.
 
-A bound snapshot states the Project ID, name, description, literal instructions, and locator. It labels identity and description as data. It labels instructions as additive owner guidance. It retires all earlier Project guidance, including instructions that were cleared. It makes no statement that the agent must enter or leave a Workspace.
+A bound snapshot states the Project ID, name, description, literal instructions, and locator. It labels identity and description as data. It labels instructions as additive owner guidance. Generic supersession text retires all earlier Project guidance, including instructions that were cleared. It never names a predecessor, so unchanged selection produces identical text. It makes no statement that the agent must enter or leave a Workspace.
 
 Compare canonical rendered content with the latest own text-bearing item in reconstructed context after the active checkpoint. Ignore mere row timestamps and Run IDs during comparison. A payload version change requires an explicit comparison policy rather than treating unknown data as absent. Unchanged selected text emits no item.
 
@@ -100,6 +100,8 @@ Each listing entry contains only ID, name, description, archive state, and detai
 
 A detail contains the current Project metadata and instructions. Sort repository links by alias and repository ID. Sort checkouts by executor identity, canonical locator, then checkout ID. Return each repository's ID, alias, display name, canonical remote, and primary flag. Return each owner's checkout ID, kind, parent ID, executor identity, and canonical location. Explicit nulls and empty sections describe absence without invented paths.
 
+Contain every authored or registered scalar inside its field. Use JSON string encoding to escape controls and line breaks. For a long value, render a fenced JSON array of chunks with an explicit instruction to concatenate without separators. Bound each chunk to 1000 code points, preserve all characters, and use a fence longer than every fence run in its encoded content. This makes the 16000-code-unit native result ceiling compatible with a maximum-length instruction line. Generated headings, location labels, and cap notices cannot come from field text. The document's source lines, not the original instruction lines, define selector coordinates.
+
 Render these sources as Markdown text rather than filesystem directory listings. Reuse native text representations, line count, ranges, context lines, raw reads, outline reads, output bounds, and advancing continuation notices. Every entry remains reachable. A later page observes current rows again, so there is no cross-read snapshot promise.
 
 Use existing repositories inside one tenant transaction. Do not call an application service that opens a second transaction. Project detail reads join only repositories linked to that owned Project and checkouts owned by the same owner. A foreign Project and a missing Project both return `not_found`.
@@ -111,6 +113,10 @@ The owner explicitly asked to expose registered locations so the agent can decid
 Local checkout locations are the stored absolute paths. Machine checkouts retain canonical `machine://<name>/<path>` locators and their executor identities. Never strip Machine authority into a host path. Return both main and worktree records, without a recommendation. Do not include other Chats' IDs, worktree lease owners, SSH connection parameters, daemon root configuration, or the worktree-base setting.
 
 Mark the location section as registered and unverified. Read no directory, run no git command, and contact no Machine. Tool admission applies to the Project resource. Later location reads and Workspace entries undergo their own existing admission. Do not filter registrations by whether a future tool call can access them. Their presence grants nothing.
+
+The exclusion of private paths concerns configuration-derived data, not a string-equality blacklist. If the owner registered a checkout at a configured root, return its stored locator without consulting or identifying that configuration. Never disclose that it is a Knowledge directory or daemon root. Registration is the provenance of this intentional disclosure.
+
+These exclusions concern system-derived fields. They do not strip paths the owner deliberately wrote into a Project name, description, or instruction. Literal owner text retains its ordinary sanitization and authority. Automatic context and listings do not join checkout registrations to add locations.
 
 The renderer says that a Project association is separate from the Chat's current Workspace. It does not direct the agent to enter, stay, switch, ask for confirmation, or create a worktree. Existing tools and the operator policy remain the approval boundary.
 
@@ -140,10 +146,10 @@ Automatic Project context deliberately shares instructions with the configured m
 ## Migration plan
 
 1. Generate the additive nullable instructions migration and preserve existing enabled and forced RLS. Add no told-state storage or selection column.
-2. Deploy API persistence and generated client changes. Old workers ignore the new instructions until the context layer ships.
-3. Drain executing Runs before the worker cutover. Deploy workers that understand `run.project_bound`, the Project producer, and its private stream handling together. Queued but never-dispatched Runs select current state normally.
-4. Deploy the real editor and remove the Context demo. Deploy the locator with its parser, permission projection, prompt-import coverage, and documentation as one layer.
-5. Roll back workers only after new-revision Runs drain. Do not delete the added field, Run events, or stored context to roll back application code. Historical unknown producer text retains verbatim replay.
+2. Deploy API persistence and generated client changes. Old workers ignore the new instructions until the context layer ships. Deploy the complete locator layer before any reminder advertises `projects://`.
+3. During maintenance, stop new Run admission while old workers drain already admitted Runs. Keep execution, job settlement, and wake processing active until all dispatched nonterminal Runs settle. Include parked `awaiting_jobs` and `awaiting_quota` Runs. A long quota wait can delay this boundary. Require an explicit operator decision if normal settlement is impractical. Never silently cancel a Run or bind current Project state to a legacy dispatched Run.
+4. Deploy workers that understand `run.project_bound`, the Project producer, and private stream handling together. Queued but never-dispatched Runs select current state normally. Deploy the real editor and remove the Context demo after this boundary.
+5. Block rollback until all new-revision dispatched nonterminal Runs settle, including parked waits. Retain the added field, Run events, and stored context. Historical unknown producer text retains verbatim replay.
 
 The implementation records one API/worker revision boundary for the new selection event. It does not reset databases or rewrite old migrations. No populated Chat is discarded.
 
@@ -160,3 +166,4 @@ The implementation records one API/worker revision boundary for the new selectio
 ## Revision history
 
 - v1, 2026-11-20. Initial proposal from confirmed grilling decisions. Two proposed ADRs record execution binding and transcript-derived told state.
+- v2, 2026-11-20. Round one accepted six P2 findings. F1 includes parked Runs in both cutover directions. F2 moves the locator before context in the stack. F3 makes supersession text independent of the predecessor. F4 changes the trigger prohibition to `MUST NOT`. F5 contains detail fields and handles escaped maximum-length values within native line bounds. F6 distinguishes registration-derived locators from private configuration-derived paths. Sources checked include `run-status.ts`, `dispatchAttempt`, the native result ceiling, and repository DTO grammar. Neither reviewer found P0 or P1 issues.

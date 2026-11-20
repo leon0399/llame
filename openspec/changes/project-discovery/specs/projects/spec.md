@@ -44,7 +44,7 @@ The Project response MUST include nullable `instructions`. `PATCH /api/v1/projec
 
 ### Requirement: Project instructions retain owner isolation
 
-Only the owner MUST read or change a Project's instructions. The datastore MUST enforce this boundary with enabled and forced RLS. A request without authenticated identity MUST fail closed. A request for another owner's Project MUST return not found without its instructions. Instruction text MUST NOT enter operator logs or diagnostic errors.
+The system MUST permit only the owner to read or change a Project's instructions. The datastore MUST enforce this boundary with enabled and forced RLS. A request without authenticated identity MUST fail closed. A request for another owner's Project MUST return not found without its instructions. Instruction text MUST NOT enter operator logs or diagnostic errors.
 
 #### Scenario: Another owner cannot read instructions
 
