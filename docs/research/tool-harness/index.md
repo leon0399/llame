@@ -15,11 +15,13 @@ and extraction models.
 - [System One extraction models](./2026-10-27-system-one-extraction.md) - Cloudflare's Clairic: typed spans, values, estimates and forecasts in one input-priced pass, composition with decision models, decision-gated RAG, and llame applications U32-U39 including a future bundled mail client.
 - [The decision-model landscape](./2026-11-05-decision-model-landscape.md) - Decision models as one model class with many hosted members, open-weight releases, wrappers and local serving options, their licences and measured limits, and the provider-neutral decision lane llame would need to use any of them.
 - [Objective-ranked results with offloaded artifacts](./2026-11-02-objective-rerank-engine.md) - Whether every search tool should rank its whole result by a model-supplied objective, show the most suitable findings inline, and offload the rest to an `artifact://` snapshot instead of a cursor: prior art, costs, and a shared engine design.
+- [Per-call overhead of Machine daemon tools](./2026-11-18-daemon-call-overhead.md) - Measures today's Node daemon process boundary and JSON serialization cost for `fs.read` and `fs.grep`, without predicting Rust/gRPC performance.
 
 ## Research bundles
 
 - [System One and Jev](./2026-09-23-system-one-jev/index.md) - TypeSafe Jev, OMP's JUDGE role, extractive compaction, community implementations and applicability to llame.
 - [Question-directed reads](./2026-09-23-question-directed-read/index.md) - Issue #849: Apple LensVLM, interchangeable local and hosted reader models, and explicitly scoped read-only investigation.
 - [Permission classifier cascade](./2026-09-24-permission-classifier-cascade/index.md) - Live Jev experiments across ten llame application families, plus Claude Code, Codex Guardian and eve permission-classifier comparisons for #778.
+- [Process-level confinement for the Machine daemon](./2026-11-18-daemon-process-confinement.md) - Compares Landlock, seccomp, bubblewrap/user namespaces, Seatbelt and proxy-enforced egress, including Docker/AppArmor failure modes and agent harness prior art.
 - [Semantic find and JUDGE](./2026-09-24-semantic-find-judge/index.md) - OMP's semantic find cascade and jegrep, with failure, coverage and benchmark limits.
 - [web_search objective spike](./2026-10-26-web-search-objective-spike/index.md) - Query and objective lengths written by three models for a drafted `web_search` tool, and the measured effect of DeepSeek Search's `ori_question`.

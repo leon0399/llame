@@ -8,10 +8,9 @@ read_when:
 # llame glossary
 
 The domain language of llame. Terms here are definitions, not behavior:
-OpenSpec owns what each one does and wins any disagreement. Terms that are
-only planned are left out until they ship.
+OpenSpec owns what each one does and wins any disagreement.
 
-Chat, Run, Project, Workspace, Machine, Knowledge Space, Continue, and
+Chat, Run, Project, Workspace, Machine, Sandbox, Knowledge Space, Continue, and
 Regenerate are llame's proper names: write them capitalized. Write every other
 term in lowercase in running text, as the definitions here do.
 
@@ -241,9 +240,10 @@ The recorded result of one tool call, as the model receives it in history.
 _Avoid_: tool output
 
 **Locator**:
-The URI-like name a tool's path argument accepts: a host path, or a scheme
-such as `machine://`, `ssh://`, `kb://`, `skill://`, `media://`, `job://`,
-`artifact://`, or an `http(s)://` URL.
+The URI-like name a tool's path argument accepts: a path on the current
+Machine, a `machine://` locator naming one Machine, or a scheme such as
+`ssh://`, `kb://`, `skill://`, `media://`, `job://`, `artifact://`, or an
+`http(s)://` URL.
 _Avoid_: address
 
 **Selector**:
@@ -343,18 +343,49 @@ Distinct from authorization, which a permission group decides per call.
 ## Location
 
 **Host**:
-The llame installation's own machine and filesystem, where native tools run
-as the worker's user.
+The computer a llame process runs on. Its Machine is the host Machine.
 _Avoid_: local, server
 
 **Executor**:
-The place a file or shell tool runs: the host or one Machine.
+The Machine on which a file or shell tool runs.
 _Avoid_: runner, node
 
+**Current Machine**:
+The Machine that a bare or relative path and a `file:` locator refer to: the
+Machine of the Chat's Workspace, or the installation's default Machine when no
+Workspace is bound.
+
 **Machine**:
-An operator-configured remote computer running the llame machine daemon,
-reached from the installation.
+A computer or execution environment running the Machine daemon and reached by
+the installation, including the host and recipe instances.
 _Avoid_: node, server
+
+**Machine daemon**:
+The llame program that runs on a Machine and serves its native tools. Each
+Machine runs one.
+_Avoid_: agent, server, runner
+
+**Configured Machine**:
+A Machine declared by the operator rather than created by llame. The host
+Machine is a configured Machine on the serving process's own computer.
+
+**Provisioned Machine**:
+A Machine llame creates and destroys. A recipe instance is a provisioned
+Machine placed on another Machine, with its own daemon.
+
+**Machine class**:
+The operator's named configuration for provisioning computers, combining a
+Machine driver with its settings and limits.
+_Avoid_: provisioner, provider, pool, backend
+
+**Machine driver**:
+The mechanism a Machine class uses to create and destroy computers.
+_Avoid_: provider, backend
+
+**Recipe**:
+A definition of the toolchain for an optional Workspace execution environment,
+independent of where that environment runs or how it is confined.
+_Avoid_: image, template
 
 **Machine root**:
 A directory a Machine declares addressable. It bounds addressing, not
@@ -363,6 +394,15 @@ authority.
 **SSH host**:
 A remote computer reached directly through an `ssh://` locator. It is not a
 Machine.
+
+**Sandbox**:
+The confinement boundary llame enforces around an executor's processes: which
+files, network destinations, and system calls they can reach. Its strength
+ranges from confinement on the host's own kernel to a container, a microVM, or
+a separate computer. It names isolation only; how long the executor lives and
+which tools are installed in it are separate concerns. Without a Sandbox, a
+tool has the full authority of the executor's OS user.
+_Avoid_: jail, container (for the boundary itself)
 
 **Workspace**:
 The binding of a Chat to one directory tree on one executor, where relative
