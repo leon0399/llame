@@ -12,6 +12,15 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 - Give API mutation shards a 90-minute execution deadline after the largest
   changed-file shard exceeded 45 minutes; scoring and mutation scope are unchanged.
 
+- The `typescript-best-practices` agent skill, vendored from `cursor/plugins`,
+  states the type rules for `.ts` and `.tsx` work: discriminated unions over
+  optional-field bags, a brand built by a verifying guard rather than `as`,
+  `unknown` for external data, `satisfies` to validate without widening, and an
+  inline `never` assertion in every default arm. `references/patterns.md`
+  carries the worked examples. Upstream `disable-model-invocation: true` is
+  kept, so the skill loads through `/skill:typescript-best-practices` or a
+  `skill://` read instead of on its own.
+
 # 2026-11-19
 
 - Refresh authoritative Chat history when a new Run enters quota wait, and
