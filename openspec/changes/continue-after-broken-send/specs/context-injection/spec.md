@@ -145,6 +145,6 @@ rule of a retry after a dispatch.
 
 #### Scenario: A provider-failure notice comes first in its step
 
-- **WHEN** a send fails after a settled `read` call, and the next step also yields a `tool-availability` in-Run item
+- **WHEN** a send fails after a settled `read` call, and the same step boundary yields a `tool-availability` in-Run item for the `read` result
 - **THEN** the `provider-failure` item comes directly after the `read` part
 - **AND** the `tool-availability` item comes after the `provider-failure` item

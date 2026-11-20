@@ -4,9 +4,10 @@
 
 A send whose tool call started MUST NOT get a request retry, for any failure class. That send MUST
 NOT get a quota wait of its own. A tool call MUST count as started when the send has streamed its
-complete tool-call part. When the send is a step of a Run, the Run MUST then wait, keep, and
-continue or fail, as the requirements below state. For another caller, the request MUST fail with
-that failure class, and the failure rule of its caller applies.
+complete tool-call part. When the send is a step of a Run, the Run MUST wait for its started calls.
+It MUST then continue, wait for a quota reset, or fail, as the requirements below state. For
+another caller, the request MUST fail with that failure class, and the failure rule of its caller
+applies.
 
 #### Scenario: The stream breaks after a tool call
 
@@ -42,20 +43,21 @@ that failure class, and the failure rule of its caller applies.
 
 When a send of a Run step fails after a started tool call, the Run MUST wait until each started call
 of that send settles. A call settles with success, an error, or `outcome_unknown`. The Run MUST NOT
-cancel a started call because the send failed. The Run MUST decide by the failure class only after
-that wait. This rule MUST apply to each failure class.
+cancel a started call because the send failed. The Run MUST NOT send another request during the
+wait. It MUST decide by the failure class only after the wait. This rule MUST apply to each failure
+class.
 
 #### Scenario: One call still runs when the send breaks
 
 - **WHEN** a send streams complete `read` and `bash` tool-call parts, and it breaks while the `bash` call runs
-- **THEN** the Run waits until the `bash` call returns its result
+- **THEN** the Run sends no request until the `bash` call returns its result
 - **AND** the next step carries the `read` result and the `bash` result
 
 #### Scenario: The owner stops the Run during the wait
 
 - **WHEN** the owner stops the Run while it waits for a started `bash` call of a failed send
 - **THEN** the Run is cancelled, and termination settles the `bash` call
-- **AND** the reply holds the `provider-failure` notice after the last settled tool part
+- **AND** the reply does not hold the text after the last tool part, and it holds the `provider-failure` notice
 
 #### Scenario: A rejected call does not cause a second send
 
@@ -65,10 +67,11 @@ that wait. This rule MUST apply to each failure class.
 
 ### Requirement: The next step keeps the settled parts of the failed send
 
-A settled tool part is a tool part with a result. The Run MUST keep the parts of the failed send
-through its last settled tool part, and the context items directly after it. Before the Run
-continues, waits, or fails, a `model.superseded` event MUST name the parts of that send after them.
-The next request MUST carry the kept parts. It MUST NOT carry a superseded part.
+The Run MUST keep the parts of the failed send through its last settled tool part, as `turn-actions`
+defines that part. It MUST also keep the context items directly after it. A `model.superseded`
+event MUST name the later parts of that send, in each outcome of the wait. That event names only
+the parts after its window start, and the kept parts stay. The next request MUST carry the kept
+parts, and no superseded part.
 
 #### Scenario: The text after the last tool call is not kept
 
@@ -77,23 +80,36 @@ The next request MUST carry the kept parts. It MUST NOT carry a superseded part.
 - **AND** the live view removes the text after the `read` part, and a reload shows the same parts
 - **AND** the next request does not carry the text after the `read` part
 
+#### Scenario: Text between two kept calls stays
+
+- **WHEN** a send streams a `read` tool-call part, text, a `grep` tool-call part, more text, and then breaks
+- **THEN** the reply keeps the `read` part, the text after it, and the `grep` part
+- **AND** only the text after the `grep` part is superseded
+
+### Requirement: The cut and the notice are stored together
+
+The Run MUST append the `model.superseded` event of the cut and store the `provider-failure` notice
+in one fenced write. A worker that stops before that write MUST leave neither of them. The
+redelivery rules of `durable-runs` then apply to the Run.
+
+#### Scenario: A worker stops during the delay of the next step
+
+- **WHEN** a send breaks after a settled `read` call, and the worker stops during the delay before the next step
+- **THEN** the reply holds neither the cut nor the notice
+- **AND** the redelivered attempt follows the shipped redelivery rules
+
 ### Requirement: The next step uses the budgets of the failed request
 
 The next step MUST continue the request-retry count and the quota-wait count of the failed request.
-When the failure class gets a request retry, the first send of the next step MUST use the next
-retry of that count. It MUST wait the delay of that retry and append its `model.retrying` event.
-The web MUST show the line of that retry. A send that ends without failure MUST end both counts.
+Its first send is a new request, not a request retry. When the failure class gets a request retry,
+that send MUST still count as one. It MUST wait the delay of that retry number and append one
+`model.retrying` event with it. The web MUST show the line of that retry.
 
 #### Scenario: A provider breaks after each tool call
 
 - **WHEN** a provider breaks after a complete `read` tool-call part on each of 11 sends in a row
 - **THEN** the Run fails with `error.code` `stream_broken` after 11 sends
 - **AND** each `read` call executes once
-
-#### Scenario: A send without failure ends the count
-
-- **WHEN** a send breaks after a tool call, the next step ends without failure, and a later send breaks after a tool call
-- **THEN** the transcript shows "Retrying after a broken stream (1/10)" before the step after that later send
 
 #### Scenario: A reload during the delay of the next step
 
@@ -105,12 +121,35 @@ The web MUST show the line of that retry. A send that ends without failure MUST 
 - **WHEN** a send breaks after a tool call, and its request already used 10 request retries
 - **THEN** the Run fails with `error.code` `stream_broken` after the call settles
 
+#### Scenario: A second usage limit after a woken tool call
+
+- **WHEN** a woken next step streams a complete `bash` tool-call part, and then fails with `usage_limit_reached` and a reset in range
+- **THEN** the Run enters `awaiting_quota` with a wait count of 2
+
+### Requirement: Some events end the counts of the next step
+
+A later step send of the Run that ends without failure MUST end both counts. A quota wait MUST end
+the request-retry count, as for every woken request. A steer or an interrupt can reach the Run at
+the step boundary before the next step. It then starts a segment, and that segment MUST start with
+no carried count. Its first send MUST NOT wait a retry delay.
+
+#### Scenario: A send without failure ends the count
+
+- **WHEN** a send breaks after a tool call, the next step ends without failure, and a later send breaks after a tool call
+- **THEN** the transcript shows "Retrying after a broken stream (1/10)" before the step after that later send
+
+#### Scenario: A steer at the boundary starts a new count
+
+- **WHEN** a send breaks after a tool call on its fifth send, and the owner sent a steer before the calls settled
+- **THEN** the steer starts a segment, and its first send goes out with no retry delay and no `model.retrying` event
+
 ### Requirement: A provider-failure notice follows the last settled tool part
 
 After the wait, the reply MUST hold one context item with producer `provider-failure` and form
-`notice`. It MUST be directly after the last settled tool part of the failed send. This MUST be
-true when the Run continues, waits for a quota reset, fails, or is cancelled during the wait. Each
-later request that carries that tool part MUST also carry the notice.
+`notice`. It MUST be directly after the last settled tool part of the failed send. This MUST be true
+when the Run continues, waits for a quota reset, fails, or expires. It MUST also be true when an
+interrupt or a cancellation ends the wait. Each later request that carries that tool part MUST also
+carry the notice.
 
 #### Scenario: The next request carries the notice
 
@@ -121,6 +160,11 @@ later request that carries that tool part MUST also carry the notice.
 
 - **WHEN** a Run fails with `auth` after a `read` call, and the owner continues the reply
 - **THEN** the first request of the Continue Run carries the `read` result, and then the notice
+
+#### Scenario: An interrupt during the wait keeps the notice
+
+- **WHEN** the owner interrupts the Run while it waits for a started `bash` call of a failed send
+- **THEN** the reply of the closed segment holds the `bash` part and then the notice
 
 ### Requirement: The provider-failure notice has a fixed text
 

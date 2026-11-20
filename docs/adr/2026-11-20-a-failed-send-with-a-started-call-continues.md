@@ -16,7 +16,7 @@ or an MCP request sent twice cannot be undone by the harness. Continuing
 cannot repeat an effect, because the next request carries every result.
 
 The Run also waits for every started call before it fails. An `auth` failure
-during a ten-minute build therefore fails the Run only after the build ends.
+during a long MCP call therefore fails the Run only after that call returns.
 The failed reply then holds real results instead of `outcome_unknown`, so an
 owner Continue resumes from what actually happened.
 
@@ -39,8 +39,9 @@ owner Continue resumes from what actually happened.
   step uses the request-retry budget of the failed request.
 - A worker restart during the wait follows the shipped redelivery rules, and
   the retry count starts again.
-- A model role that fails over to its next candidate continues the same way,
-  in a new segment.
+- [Model roles with fallback chains](https://github.com/leon0399/llame/issues/1772)
+  must keep this rule when a role moves a Run to its next candidate: it
+  continues from the kept parts and never sends the failed request again.
 
 This was decided in
 [Failing over a request whose stream broke mid-output](https://github.com/leon0399/llame/issues/1777)

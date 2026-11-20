@@ -48,10 +48,10 @@ of that send. It MUST store the `provider-failure` notice of `provider-failures`
 ### Requirement: A woken Run sends the same request again
 
 When the deadline job wakes the Run, the next claim MUST rebuild the stored steps. It MUST then send
-the request that waits, on the same model and effort. When no tool call of the failed send started,
-that is the request that failed. It MUST NOT carry a part that the failed send streamed. When a
-tool call of the failed send started, that is the next step, with the kept parts and the notice.
-Pending steers and interrupts MUST then reach the Run at its first step boundary.
+one request on the same model and effort. When no tool call of the failed send started, that request
+MUST be the failed request. In that case, it MUST NOT carry a part that the failed send streamed. Otherwise,
+the request MUST be the next step, with the kept parts and the notice. Pending steers and interrupts
+MUST then reach the Run at the first step boundary after that request.
 
 #### Scenario: A steer after the reset
 
