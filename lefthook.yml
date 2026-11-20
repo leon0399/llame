@@ -48,12 +48,16 @@ pre-commit:
       run: pnpm exec markdownlint-cli2 --no-globs {staged_files}
 
     - name: markdown lint config
-      glob: &markdown-config-glob "{.markdownlint-cli2.jsonc,scripts/check-markdown-links.mjs}"
+      glob: &markdown-config-glob "{.markdownlint-cli2.jsonc,scripts/check-markdown-links.mjs,scripts/check-prose.mjs}"
       run: pnpm lint:markdown
 
     - name: markdown links
       glob: *markdown-glob
       run: node scripts/check-markdown-links.mjs
+
+    - name: prose
+      glob: &prose-glob "docs/adr/*.md"
+      run: node scripts/check-prose.mjs {staged_files}
 
     - name: format
       glob: &format-glob "*.{ts,tsx,mts,cts,js,jsx,mjs,cjs,md,mdx,json,jsonc,css,scss,yaml,yml,html}"
@@ -82,6 +86,10 @@ pre-push:
     - name: markdown links
       glob: *markdown-glob
       run: node scripts/check-markdown-links.mjs
+
+    - name: prose
+      glob: *prose-glob
+      run: node scripts/check-prose.mjs {push_files}
 
     - name: code lint
       glob: [*code-glob, "{pnpm-workspace.yaml,**/turbo.json}"]
