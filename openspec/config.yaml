@@ -72,14 +72,16 @@ rules:
     - >-
       Define independent work ownership and interfaces before delegation.
       Keep shared-file integration with one owner; parallel execution does not
-      relax the linear delivery stack or approval boundaries.
+      relax the delivery graph or approval boundaries.
   tasks:
     - >-
       Plan one dependency graph: master <- <change>/proposal <- implementation
-      layers <- <change>/finalize. Each layer's parent is the layer below it,
-      or the proposal branch for a parallel layer whose files and spec
-      requirements are disjoint from its siblings; state why it is
-      independent. Finalize depends on every leaf. Use $gh-stack and
+      layers <- <change>/finalize. Before the proposal merges, layers form one
+      linear stack. After it merges, a layer whose files and spec requirements
+      are disjoint from its siblings may start from master as a parallel
+      branch in its own stack; state why it is independent. Finalize starts
+      from the implementation top, or from master after every parallel leaf
+      merged. Use $gh-stack and
       $openspec-apply-change. Prefer layers that are independently mergeable
       after their parents. Identify safe intermediate merge boundaries and any
       inseparable layers. Give each layer its exact branch, parent,

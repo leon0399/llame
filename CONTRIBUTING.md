@@ -124,9 +124,10 @@ PR says `Refs #<feature>`.
 
 One OpenSpec change covers a feature and all of its cutovers. A cutover gets
 its own proposal only when it touches specs that no sibling touches, or when it
-is deferred past its siblings; it then becomes a feature of its own. Two changes
-that modify the same requirement overwrite each other at sync, so a shared
-requirement keeps one owning change.
+is deferred past its siblings; it then becomes a feature of its own. When two
+open changes modify the same requirement, the one archived second can drop the
+other's scenarios ([research](docs/research/product-vision/2026-11-20-agentic-sdlc-automation.md),
+F7), so a shared requirement keeps one owning change.
 
 Wayfinding maps and their tickets stay outside this tree; see
 [wayfinding](docs/development/wayfinding.md).
@@ -186,31 +187,40 @@ machine-readable ways:
   ```
 
   `stage` matches the label. `by` is `person` or `agent`, and an agent adds its
-  `harness` and `session`. `change` names the OpenSpec change when there is one.
+  `harness` and `session`. `session` is `issue` when the worker has no session
+  interface and talks through issue comments. `change` names the OpenSpec
+  change when there is one.
 
-A stage ends when the item waits only on a person. Then the worker removes the
-`working:*` label and posts a release marker:
-`<!-- llame:release {"stage":"implement","outcome":"handed-back"} -->`.
+While the worker waits on a person, for an answer to a grilling round or a
+missing input, it adds `needs:human` and keeps its `working:*` label. That pair
+means "held, waiting on a person", and it pauses the stale clock. The person
+answers where the comment says, and the worker removes `needs:human` when it
+resumes.
+
+A stage ends when the item waits only on a person and the worker has nothing
+left to do. Then the worker removes the `working:*` label and posts a release
+marker: `<!-- llame:release {"stage":"implement","outcome":"handed-back"} -->`.
 
 | Stage     | Release when                                                                                  | Outcome       |
 | --------- | --------------------------------------------------------------------------------------------- | ------------- |
 | spec      | the proposal PR is ready and its [Ready-PR monitoring](#ready-pr-monitoring) loop exits clean | `handed-back` |
 | implement | every PR of the cutover is ready and its monitoring loop exits clean                          | `handed-back` |
 | triage    | the finding is posted on the issue                                                            | `done`        |
-| any       | the worker stops with `needs:human`                                                           | `stopped`     |
+| any       | the worker ends its run without finishing, leaving `needs:human` and its reason               | `stopped`     |
+| any       | a reconciler or a person finds the claim stale                                                | `stale`       |
 
 Work that resumes after a release, such as fixing review feedback, posts a new
-pickup marker. A `working:*` label whose session is gone, or with no marker or
-PR activity for 24 hours, is stale. A reconciler, or a person, removes it and
-posts a release marker with outcome `stale`.
+pickup marker. A claim is stale when the session it names is gone, or when it
+has no `needs:human` and no marker or PR activity for 24 hours. A reconciler,
+or a person, then removes its `working:*` label and posts the `stale` release.
 
-The marker shows who holds the work, which a shared GitHub identity cannot. The
-claim is the branches of the work where they exist: a cutover resolves to its
-feature's change, and at most one implementer works each dependency chain of
-that change. Work without a branch, such as a triage, is claimed by its live
-`working:*` label and marker. Work that finds a live claim stops.
-`agent:implement` on a cutover whose earlier cutovers are neither done nor
-handed off stops with `needs:human`.
+**The claim is the live `working:*` label with its pickup marker**, on the work
+unit: a cutover resolves to its feature's change, and at most one worker holds
+each dependency chain of that change. Branches and PRs left by a released
+worker, including an approved proposal PR that implementation builds on, are
+not claims. Work that finds a live claim stops. `agent:implement` on a cutover
+whose earlier cutovers are neither done nor handed off stops with
+`needs:human`.
 
 ### Talking to the worker
 
@@ -260,10 +270,12 @@ Split implementation by dependency and reviewable responsibility. Prefer
 independently mergeable layers and identify intermediate merge boundaries;
 keep inseparable behavior together. Give each layer one sentence of ownership
 and an authored size estimate against the [review target](#review-budget).
-A layer's parent is the layer below it. A layer whose files and spec
-requirements are disjoint from its siblings may take the proposal branch as its
-parent instead, as a parallel branch; `tasks.md` states why it is independent,
-and finalize depends on every leaf. Confirm, create, or merge the feature's
+A layer's parent is the layer below it. Once the proposal has merged, a layer
+whose files and spec requirements are disjoint from its siblings may start from
+`master` as a parallel branch, in its own `$gh-stack` stack; `tasks.md` states
+why it is independent. Before the proposal merges, every layer stays in one
+linear stack. Finalize starts from `master` after every parallel leaf has
+merged. Confirm, create, or merge the feature's
 cutover sub-issues when the proposal is written; approving the proposal
 approves that split. `tasks.md` must contain:
 
@@ -311,7 +323,8 @@ suffices. A local commit on a proposal branch alone is not approval.
 ### 4. Implementation layers
 
 After proposal approval, create only the next layer with `$gh-stack` from the
-current stack top.
+top of its stack: the current stack top, or `master` for a parallel branch
+after the proposal merged.
 
 For each layer:
 
@@ -333,7 +346,8 @@ stack upward; never repair a lower concern in the top PR.
 ### 5. Finalize
 
 After every implementation layer is published, verified, and checked, enter
-`<change>/finalize` from the implementation top with `$gh-stack`. Do this
+`<change>/finalize` with `$gh-stack` from the implementation top, or from
+`master` once every parallel leaf has merged. Do this
 **before** `$openspec-sync-specs` writes canonical specs: a separate sync
 invocation can run before archive guidance is read. The finalize layer owns
 only spec synchronization, task records, and archive movement — never
