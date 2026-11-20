@@ -82,8 +82,9 @@ against its parent before publication.
       fail with `machine_unavailable` when the binding cannot be read, and add
       `pnpm --filter api machines:forget <name>` under the system marker (design D2). Verify the
       `remote-machines` identity scenarios in an API integration test: no tool request reaches a
-      mismatched daemon, an unreadable binding fails closed, and a removed and re-added name keeps
-      its binding after the status prune.
+      mismatched daemon, a concurrent call during the bind gets no unverified session, an unreadable
+      binding fails closed, and a removed and re-added name keeps its binding after the status
+      prune.
 - [ ] 2.4 Status and listing: return the facts and their capture time from
       `GET /api/v1/machines`, show OS, architecture, and daemon version in the settings Machines
       section, and add OS and architecture to each `machine://` listing line. Regenerate the
@@ -128,7 +129,7 @@ against its parent before publication.
       untouched.
 - [ ] 3.6 Binding and detach: bind Workspace entry to the Machine name, detach a Chat bound to an
       unreachable entry with `executor_mismatch`, and resolve chat-creation executors by Machine
-      name. Verify the `workspace-entry` and `chat-creation` scenarios.
+      name. Accept a canonical `machine://<checkout executor>/` worktree base in `checkouts.service.ts`. Verify the `workspace-entry` and `chat-creation` scenarios and that a bare worktree base on a remote Machine checkout is stored on that Machine.
 - [ ] 3.7 `bash` routing: run in process for this process's `machines.local`, run daemon
       `proc.bash` elsewhere, and refuse `async` with the placement-neutral hint (design D9). Verify
       the `bash-execution` scenarios.
@@ -139,8 +140,7 @@ against its parent before publication.
       D10). Verify the `context-injection` scenarios.
 - [ ] 3.10 Development and tests: make `dev` and the integration suites depend on `machine#build`,
       set `LLAME_MACHINE_COMMAND` and `LLAME_MACHINE_CONFIG_DIR` in development, and write the
-      development roots file (design D12). Verify that `pnpm dev` starts and serves a host read
-      through the daemon child.
+      development roots file (design D12). Verify that `pnpm dev` starts, completes an identity handshake with the development daemon child, and serves a host read in process.
 - [ ] 3.11 Web: replace the `machine:` prefix logic in `start-location.ts` and
       `project-repository-policy.ts` with Machine names from `GET /api/v1/machines`, update the DTO
       descriptions in `checkoutResponse` and `startLocationResponse`, regenerate the OpenAPI
@@ -169,7 +169,8 @@ against its parent before publication.
       Knowledge and skill walk ports. Verify the `grep-tool` scenarios.
 - [ ] 4.3 Move host file and grep integration tests to a real daemon child, and stop file
       mutations and Workspace entry from pinning `runs.worker_id` (design D15). Keep the pin for
-      in-process host `bash`. Verify "A Machine mutation is fenced on any worker".
+      in-process host `bash`. Verify "A Machine mutation is fenced on any worker" and that `pnpm dev`
+      serves a host read through the daemon child.
 - [ ] 4.4 Docs: `native-files.md` and the tool reference pages, and a dated `CHANGELOG.md` entry
       that names the newly refused host calls.
 - [ ] 4.5 Focused checks as in 3.14.

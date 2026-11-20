@@ -6,7 +6,7 @@ status: accepted
 
 The API and worker processes start the host Machine daemon with only a base
 environment: `PATH`, `LANG`, `TERM`, `HOME`, `TMPDIR`, `USER`, `LOGNAME`,
-`LLAME_MACHINE_CONFIG_DIR`, `XDG_CONFIG_HOME`, and the `SENTRY_*` variables.
+`LLAME_MACHINE_CONFIG_DIR`, `XDG_CONFIG_HOME`, `SENTRY_DSN`, `SENTRY_ENVIRONMENT`, and `SENTRY_RELEASE`.
 The rest of the worker environment, with its database and provider
 credentials, never reaches the daemon or anything that it starts.
 
@@ -26,8 +26,7 @@ them.
 ## Consequences
 
 A host Workspace MCP declaration that reads a variable only the worker
-defines becomes unavailable with the unset-variable diagnostic. The operator
-moves that variable into the daemon's own environment.
+defines becomes unavailable with the unset-variable diagnostic. The operator sets that variable in a wrapper script and names the script in `LLAME_MACHINE_COMMAND`, so the choice of each variable is explicit.
 
 This was decided in the grilling session for
 [feat(machines): the host as a Machine](https://github.com/leon0399/llame/issues/1831)

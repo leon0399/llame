@@ -99,7 +99,7 @@ It is installation state with forced RLS and the same system marker as `machines
 status prune never touches it, so a removed and re-added name is still checked. `machines_status`
 gains `facts` (bounded jsonb) and `facts_captured_at` only.
 
-The bind-or-compare runs in the session-open path, awaited, before `session.ready()` resolves. It
+The bind-or-compare runs in the session-open path, awaited, after the handshake and before the session can serve a request. Today `startSession` caches the session before the handshake finishes, and `session()` hands out any cached session whose `isReady` is true (`machine-connector.service.ts:262`, `machine-session.ts:240`). The session therefore joins the cache, or turns `isReady`, only after the bind succeeds, so a concurrent `request` or `reachable` never gets an unverified session. It
 inserts with `ON CONFLICT (name) DO NOTHING` and then reads the stored id. The fire-and-forget
 `recordContact` path in `MachineConnector` stays for status only. A different id ends the session
 before any request. The session error is `MachineIdentityMismatchError`, the failure reason is
@@ -231,10 +231,7 @@ Results, permission projection, and binding all use `formatMachineLocator` for t
 
 Before evaluation, the runner normalizes every path parameter (`read`, `edit`, `write` `path`,
 `grep` scope, `enter_workspace` `path`, `exit_workspace` has none) and `bash` `cwd` to its
-canonical locator through D6. An allow is decided only on the canonical locator. A reject is
-matched against the projected path (the absolute path on the Machine, without scheme and name)
-and the canonical locator, and for a `file:` or `machine://` locator also against the submitted
-text, so either match refuses. Existing rejects written as bare paths, in any regex spelling,
+canonical locator through D6. An allow is decided only on the canonical locator. A reject is matched against the submitted text, the projected path (the decoded absolute path on the Machine, without scheme and name), and the canonical locator, so any match refuses. Every Machine value has a projected path: bare, `file:`, and `machine://` paths, `grep` scope prefixes, and derived or stored values such as the canonical root, the main clone, the worktree directory, and the re-checked root. Existing rejects written as bare paths, in any regex spelling,
 keep working on every Machine and fail toward refusal. A bare-path allow can only fail closed.
 Installation resources keep their existing canonical forms. `bash` `command` is matched as
 written. A literal clause stays a substring match, so `"/opt/secret"` still matches
@@ -252,13 +249,14 @@ to one target. Until the layer that moves its family, the in-process library ser
 `machine://<machines.local>` root in layer 2, because the migration rewrites host roots to that
 form:
 
-- files and grep: `native-files.ts`, `machine-files.ts`, `grep.ts`, `grep-ports.ts`;
-- git: `executor-git.service.ts` (`locate`, `locateMachine`) and
-  `run-execution.service.ts` (`parseMachineExecutorId` at the Machine Workspace decision);
+- files and grep: `native-files.ts`, `machine-files.ts`, and `grep-scopes.ts` (the `MACHINE_SCHEME` case and placed scopes);
+- git: `ExecutorGit`'s per-method `target.machine` check, because `workspace-worktree-target.ts` and `chat-creation-executors.ts` build targets without `locate`, plus `run-execution.service.ts` (`parseMachineExecutorId` at the Machine Workspace decision) and `checkouts.service.ts` (`worktreeBaseFor`, which tests the literal `machine:` prefix and must accept a canonical `machine://<checkout executor>/` base or resolve a bare base on the checkout's Machine);
 - skills: `machine-skill-sources.ts` (`MACHINE_SKILL_PATH`) and `workspace-skill-sources.ts`;
 - Workspace MCP: `mcp/machine-workspace-servers.ts`;
 - instructions: `instruction-imports.ts` and `instructions-producer.ts`;
-- bash: `bash-target.ts`.
+- prompt imports: `prompt-imports.ts` (`planMachineTarget`) and `prompt-import-triggers.ts`;
+- Workspace entry: `tools/workspace.ts` (`enterMachineEntry`);
+- bash: `bash-target.ts` and `bash.ts` (`machineBashExecution`).
 
 Each later layer replaces the in-process call for its family with a `MachineConnector.request` on
 the same target and deletes the interception and the in-process branch. A layer-2 test asserts
@@ -303,8 +301,7 @@ is advertised with `bash`. The catalog stays the same on every worker of one con
 `apps/api/turbo.json` already makes `test:integration` and `test:coverage` depend on
 `machine#build`. `dev` gains the same dependency. The `apps/api` dev script sets
 `LLAME_MACHINE_COMMAND` to `node ../machine/dist/llame-machine.cjs` and
-`LLAME_MACHINE_CONFIG_DIR` to `.llame-dev/machine-host`. Before it starts the API, it runs
-`llame-machine roots add` for the repository root and the operating system's temporary directory.
+`LLAME_MACHINE_CONFIG_DIR` to `.llame-dev/machine-host`. Before it starts the API, it runs `llame-machine roots add` for the parent directory of the repository, so the default `.llame-worktrees` directory beside the clone is inside a root, and for the operating system's temporary directory.
 `pnpm db:up` is `docker compose up -d` and cannot do this. The development compose Machine keeps
 its own directory and is a separate Machine. Integration tests that exercise the host spawn the
 real bundle through `LLAME_MACHINE_COMMAND` with a per-test `LLAME_MACHINE_CONFIG_DIR` fixture.
@@ -388,6 +385,8 @@ its writer for `bash`. The file-mutation and Workspace-entry writers stop settin
    layer 2, because a host Chat served by another worker over SSH is already root-bounded.
 3. Layers 3-5 need no config change.
 
+An old `tools.nativeExecutorId` such as `personal_host` or `Host-A` is outside the Machine name grammar, and the migration stops on it. The `CHANGELOG.md` entry of layer 2 gives the SQL that renames such an id in the four executor columns before the upgrade, and the operator names the host entry after the new id.
+
 Rollback before layer 2 is a redeploy. From layer 2, a rollback restores the database backup taken
 before the migration.
 
@@ -409,3 +408,13 @@ before the migration.
   variables are named exactly. Rejected: refusing `{env:...}` for `machines.default`, which would
   reverse H4. The divergence is narrated instead. All findings were checked against the code at
   `83f094448`.
+- v3, 2026-11-20: review round 2 (spec reviewer 1 P1 and 1 P2, feasibility reviewer 7 P2). Every
+  Machine value has a projected path, so a bare-spelling reject also catches `file:`,
+  `machine://`, `grep` scope, derived, and stored values. The `^/` startup failure stays for allows
+  and rejects, as Q37 decided, and the wording no longer claims that such a reject keeps working.
+  D8 gains `grep-scopes.ts`, prompt imports, Workspace entry, `bash.ts`, the per-method git check,
+  and `worktreeBaseFor`. D2 admits a session to the cache only after the bind. The development roots
+  cover the default worktree directory. The migration plan explains how to rename an executor id
+  outside the name grammar. The base-environment ADR names the three Sentry variables and the
+  wrapper route. Round 2 still changed substance, so the review has not converged. The GitHub review
+  loop is the next round.

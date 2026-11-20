@@ -74,8 +74,7 @@ closest call. Relaxing it later costs one boot check, so it is recorded in desig
   bound or unbound.
 - **Permission rules.** A rule matches the tool's own parameters after normalization. For path
   parameters and `bash` `cwd`, the normalized value is the canonical locator. **BREAKING**: a bare
-  `^/...` regex on a path parameter fails startup and names the rule. Allow and reject keep one
-  language.
+  `^/...` regex on a path parameter fails startup and names the rule. Allow and reject keep one canonical language. A reject also sees the projected path, so a rule in a bare spelling that the startup check cannot detect still refuses.
 - **Stored ids.** One forward-only migration strips the `machine:` prefix from executor ids and
   rewrites bare host roots to `machine://<id>/...`. A host id keeps its value, so the operator
   names the host entry after the old `tools.nativeExecutorId`. An id outside the Machine name

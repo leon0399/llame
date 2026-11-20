@@ -62,7 +62,7 @@ The API MUST start when the host Machine daemon cannot start. Each operation on 
 
 ### Requirement: The host Machine daemon receives only a base environment
 
-The host Machine daemon child MUST receive only these variables when they are set: `PATH`, `LANG`, `TERM`, `HOME`, `TMPDIR`, `USER`, `LOGNAME`, `LLAME_MACHINE_CONFIG_DIR`, `XDG_CONFIG_HOME`, `SENTRY_DSN`, `SENTRY_ENVIRONMENT`, and `SENTRY_RELEASE`. It MUST NOT receive other variables of the worker environment.
+The process MUST start the host Machine daemon child with only these variables when they are set: `PATH`, `LANG`, `TERM`, `HOME`, `TMPDIR`, `USER`, `LOGNAME`, `LLAME_MACHINE_CONFIG_DIR`, `XDG_CONFIG_HOME`, `SENTRY_DSN`, `SENTRY_ENVIRONMENT`, and `SENTRY_RELEASE`. It MUST NOT pass other variables of the worker environment. A command that `LLAME_MACHINE_COMMAND` names can set more variables for the daemon, under operator control.
 
 #### Scenario: A database credential does not reach the daemon
 
@@ -416,7 +416,7 @@ The Machine MUST read the Workspace MCP files of a Workspace on it, the host Mac
 
 ### Requirement: Permission rules match canonical Machine locators
 
-The hub MUST match every Machine operation as its canonical locator text, on every Machine, the host Machine included. The hub MUST decode the path once, keep `.`, `..`, and trailing separators, and remove a `read` selector. This includes `bash` `cwd`, both `enter_workspace` spellings, and Workspace skill reads. A reject that matches the submitted or the canonical text MUST refuse. The hub MUST decide an allow on the canonical text.
+The hub MUST match every Machine operation as its canonical locator text, on every Machine, the host Machine included. The hub MUST decode the path once, keep `.`, `..`, and trailing separators, and remove a `read` selector. This includes `bash` `cwd`, both `enter_workspace` spellings, and Workspace skill reads. A reject that matches the submitted text, the canonical text, or the projected path MUST refuse. The projected path is the decoded path without the scheme and the Machine name. The hub MUST decide an allow on the canonical text.
 
 #### Scenario: Encoded spelling cannot bypass a reject
 
