@@ -10,10 +10,12 @@ the next request is an ordinary next step, and nothing runs twice. This was deci
 (resolution, Q2 A and Q2b A), and it ships before
 [model roles with fallback chains](https://github.com/leon0399/llame/issues/1772), which inherits it.
 
-The code also does less than the shipped rule says. The SDK turns the failure into an `error` part,
-waits for the started calls, and then sends the next step by itself, with the broken trailing text
-in context. The Run fails only afterwards, when the deferred `onError` runs (design, Context).
-[INFERENCE] from source; the first `continue` task proves the order on the production client path.
+The code also differs from the shipped rule (design, Context). On the Responses and Anthropic
+clients, the SDK turns the failure into an `error` part, waits for the started calls, and sends the
+next step by itself, with the broken trailing text in context. The Run fails only afterwards, in the
+deferred `onError`. On the Chat Completions client, `onError` fails the Run at the `error` part and
+gives the running calls termination results. [INFERENCE] from source; the first `continue` task
+proves the order on both client shapes.
 
 ## What Changes
 
@@ -83,14 +85,18 @@ Assumptions that follow from these answers but were never asked:
   for a failed reply, and later requests replay that text after the notice.
 - **A3. The next step also keeps the quota-wait count of the failed request**, by the same rule as
   the retry count (grilling Q1). The failed step therefore records no quota recovery.
-- **A4. The cut and the notice are stored in one write.** A worker that stops before it, for
-  example during the retry delay, leaves neither, and the redelivery rules of grilling Q5 apply.
+- **A4. The cut and the notice are stored in one write.** When the Run continues, that write comes
+  before the retry delay. A worker that stops before it, after the calls settle and before the next
+  step starts, leaves neither, and the redelivery rules of grilling Q5 apply.
 - **A5. A quota wait ends the retry count.** A woken request starts its retry count at 0, as every
   woken request does today. Keeping it would need a persisted count (grilling Q5).
-- **A6. A steer or interrupt at the boundary ends the retry count.** It starts a segment, as the
-  shipped steering rules say, so its first send gets no retry delay and no `model.retrying` event.
-- **A7. A `wait` call of the failed send does not suspend the Run.** It settles as "did not run",
-  and the next step can call it again.
+- **A6. A delivery at the boundary ends the retry count.** A steer, interrupt, or notice delivery
+  starts a segment, as the shipped steering rules say, so its first send gets no retry delay and no
+  `model.retrying` event. The Run decides by the failure class first, so a Run that fails delivers
+  nothing.
+- **A7. A `wait` call of the failed send does not open.** It settles with a result that states that
+  the wait did not start, the Run does not enter `awaiting_jobs`, and the next step can call `wait`
+  again. This MODIFIES `durable-runs` "A Run that waits holds no worker".
 
 ## Capabilities
 
@@ -103,33 +109,39 @@ None.
 - `provider-failures`:
   - MODIFIED "A request with a started tool call is not sent again". It owns this requirement
     and its scenarios; the model-roles change references it and does not modify it.
-  - ADDED "A failed send waits for its started tool calls", "The next step keeps the settled
-    parts of the failed send", "The cut and the notice are stored together", "The next step uses
-    the budgets of the failed request", "Some events end the counts of the next step", "A
-    provider-failure notice follows the last settled tool part", and "The provider-failure notice
-    has a fixed text".
+    - ADDED "A failed send waits for its started tool calls", "The Run keeps the parts of the failed
+      send through its last settled tool part", "The cut and the notice are stored together", "The
+      next step uses the budgets of the failed request", "Some events end the counts of the next
+      step", "A wait call of a failed send does not open", "A provider-failure notice follows the last
+      settled tool part", and "The provider-failure notice has a fixed text".
 - `quota-wait`: MODIFIED "A Run that waits for a quota reset holds no worker", "The entry to a
   quota wait is one fenced transaction", "A woken Run sends the same request again", and "A quota
   wait and its wake are Run events". Each one excluded a send with a started tool call, or excluded
   all parts of the failed send.
 - `context-injection`: MODIFIED "Co-occurring items have a total author-time order", to add the
   `provider-failure` producer second.
+- `durable-runs`: MODIFIED "A Run that waits holds no worker", so a `wait` call of a failed send
+  does not open (A7).
 
 Deliberately unchanged, with the reading this change relies on:
 
 - `turn-actions` "Continue keeps the completed steps of the reply": the notice is a context item
   directly after the last settled tool part, so owner Continue keeps it as written.
-- `durable-runs` "Final assistant-message projection preserves replay order" and
-  `run-usage-accounting`: they speak of "the parts of each send that a `model.superseded` event
-  names". The ADDED keep requirement states that the event names only the parts after its window
-  start, so the kept parts are not among them. A superseded window already makes usage incomplete.
-  A redelivery keeps its shipped behavior (grilling Q5).
+- `durable-runs` "Final assistant-message projection preserves replay order", "Received reasoning
+  is durable before browser delivery", and `run-usage-accounting`: they speak of "the parts of
+  each send that a `model.superseded` event names". The ADDED keep requirement states that the
+  event names the cut and no kept part. A superseded window already makes usage incomplete. A
+  redelivery keeps its shipped behavior (grilling Q5).
+- `run-steering` "An interrupted reply keeps its complete output": the cut is not output of the
+  interrupted segment that its reply keeps. The keep requirement supersedes it before the interrupt
+  applies.
 - `tool-calling` "Termination settles in-flight tool activity": the failed send's calls settle
   before the Run fails, so termination finds them settled. It still settles every other open call.
 - `context-injection` "Server-authored context is injected as discrete items on one rail": the
   notice is an in-Run item. When the Run continues, the in-Run snapshot write at the start of the
-  next step stores it. When no request carries it, the quota entry transaction or the
-  terminal settlement stores it, as they already store the parts of the attempt.
+  next step stores it. When no request
+  carries it, the quota entry transaction, the terminal settlement, or the write that closes the
+  segment at a delivery stores it, as they already store the parts of the attempt.
 - `provider-failures` "Transient failures get request retries", "A request retry sends the same
   request", "Each request retry of a Run is a Run event", and "The web shows a request retry": the
   first send of the next step is a new request, not a request retry. The ADDED budget requirement
@@ -142,10 +154,12 @@ Deliberately unchanged, with the reading this change relies on:
 
 ## Impact
 
-- `apps/api/src/models/request-recovery.ts`: a send with a complete tool-call part is marked
-  `toolCallStarted` for every class and carries its send count.
-- `apps/api/src/runs/run-execution.service.ts`: a stop condition at a failed step, the cut anchor,
-  the decision before teardown, the next step with the carried count, and the snapshot write.
+- `apps/api/src/models/`: a send with a complete tool-call part is marked `toolCallStarted` for
+  every class and carries its send count; a synchronous `onSendFailed` seam in
+  `captureRequestFailure`; a pending failure for the first send of the next step.
+- `apps/api/src/runs/run-execution.service.ts`: the stop at a failed step, the cut anchor, the
+  decision in `onFinish`, the cut in the Stop, expiry, and interrupt writers, the next step with the
+  carried count, and the snapshot write.
 - `apps/api/src/runs/quota-wait.ts`, `run-suspension.ts`: park after a started call with the cut.
 - `apps/api/src/chats/`: the `provider-failure` producer, its packaged template, and its
   precedence.

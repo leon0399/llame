@@ -30,9 +30,10 @@ its Chat.
 The move to `awaiting_quota` MUST be one attempt-fenced transaction. It MUST store the completed
 steps and parts of the attempt, the failure class, the reset time, and the wake time. It MUST record
 the deadline job as the next queue job of the Run, with a new wake generation. Before this move, a
-`model.superseded` event MUST name each stored output part of the failed send that the Run does not
-keep. When a tool call of the failed send started, the transaction MUST also store the kept parts
-of that send. It MUST store the `provider-failure` notice of `provider-failures` with them.
+`model.superseded` event MUST name each stored output part of the failed send. When a tool call of
+the failed send started, the transaction MUST instead append the `model.superseded` event of the
+cut. It MUST also store the kept parts of that send and the `provider-failure` notice, as
+`provider-failures` defines.
 
 #### Scenario: A worker crash after the entry
 
@@ -49,14 +50,20 @@ of that send. It MUST store the `provider-failure` notice of `provider-failures`
 
 When the deadline job wakes the Run, the next claim MUST rebuild the stored steps. It MUST then send
 one request on the same model and effort. When no tool call of the failed send started, that request
-MUST be the failed request. In that case, it MUST NOT carry a part that the failed send streamed. Otherwise,
-the request MUST be the next step, with the kept parts and the notice. Pending steers and interrupts
-MUST then reach the Run at the first step boundary after that request.
+MUST be the failed request. In that case, it MUST NOT carry a part that the failed send streamed. Pending steers and
+interrupts MUST then reach the Run at the first step boundary after that request. Otherwise, the
+request MUST be the next step, with the kept parts and the notice. Pending steers and interrupts
+MUST then reach the Run at the step boundary before that request.
 
 #### Scenario: A steer after the reset
 
 - **WHEN** the owner sent a steer during a quota wait, and the deadline job wakes the Run
 - **THEN** the Run sends the failed request again, and the steer is delivered at the next step boundary
+
+#### Scenario: A steer during a wait after a tool call
+
+- **WHEN** a send with a started `bash` call caused a quota wait, the owner sent a steer, and the deadline job wakes the Run
+- **THEN** the steer is delivered at the step boundary before the next step
 
 #### Scenario: A woken Run continues after a tool call
 

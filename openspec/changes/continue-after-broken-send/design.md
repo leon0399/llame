@@ -15,18 +15,33 @@ first read. The SDK is `ai@6.0.256` (`node_modules/.pnpm/ai@6.0.256_*/node_modul
   started tool execution resolves. It then starts the next step whenever every client call has an
   output and no stop condition holds, whatever the finish reason (`index.mjs:8043-8047`,
   `:8180-8197`). That next request carries the broken send's trailing text.
-- **`onError` comes after the whole SDK loop.** Production clients defer `onError` and `onFinish`
-  behind the single `fullStream` consumer (`openai-model-client.ts:168-244`), which reads every later
-  step (`stream-parts.ts:54-84`). The Anthropic and Chat Completions clients share that path. Today a
-  send that fails after a tool call therefore runs on through SDK steps with the broken text in
-  context, and the Run fails only when the deferred `onError` runs. [INFERENCE] from source; the
-  fake client (`fake-model-client.ts:90-93`) calls `onError` at once and hides this order.
+- **The terminal callbacks.** The Responses and Anthropic clients defer `onError` and `onFinish`
+  behind the single `fullStream` consumer (`openai-model-client.ts:168-244`, `runStreamChannel`
+  `:400-418`), which reads every later step (`stream-parts.ts:54-84`). The Chat Completions client,
+  and OpenCode Go on top of it, never binds that queue (`openai-completions-model-client.ts:484`,
+  `:508-548`), so its callbacks run as soon as the SDK calls them: `onError` at the `error` part,
+  while the calls still run. The SDK calls `onFinish` once, after the whole loop, on every client
+  (`index.mjs:7352-7400`). `captureRequestFailure` (`provider-failure-middleware.ts:42-58`) wraps
+  `onError` on every client and runs synchronously at the `error` part (`openai-model-client.ts:412`,
+  `openai-completions-model-client.ts:535`). [INFERENCE] from source: today the bound clients run
+  on through SDK steps with the broken text in context and fail the Run only in the deferred
+  `onError`; the fake client (`fake-model-client.ts:90-93`) calls `onError` at once and hides this.
+- **`onFinish` settles the Run.** It ends the Workspace MCP attempt, the Stop listener, and the
+  segment (`run-execution.service.ts:5244-5251`), returns early only for the stop causes
+  `superseded` and `quota` (`:5255`), and otherwise settles by `terminalStatus`, which is `failed`
+  for `finishReason: 'error'` (`:1004-1013`).
+- **The `wait` tool** has no `execute`. It runs from `onToolCall` into `deferredWaitCalls`
+  (`:3890-3897`, `:4935-4960`), so the SDK counts it as a call with no output and never evaluates
+  its stop conditions for that step (`index.mjs:8180-8189`).
 - **The step-end hook.** `stopWhenExtra` (`run-execution.service.ts:4107-4137`) first records
   `run.quota_recovered` (`recordQuotaRecovery('completed')`), then reads cancellation, suspension,
   and pending deliveries, and returns `true` to stop the SDK loop.
 - **The terminal path.** `onError` (`:5094-5291`) first ends the Workspace MCP attempt, removes the
   Stop listener, and closes the segment (`:5096-5106`), then settles open calls
-  (`settleOpenToolsAndDrain`) and fails the Run.
+  (`settleOpenToolsAndDrain`) and fails the Run. A Stop or expiry settles at once through
+  `settleToolsOnParentAbort` (`:4000-4040`); an interrupt persists the reply in `deliverInterrupt`
+  (`:4400-4424`). `onToolCall` runs before the call's collector part exists (`stream-parts.ts:91-108`,
+  `run-execution.service.ts:3111-3112`), and it is synchronous.
 - **A live restart inside a step.** `recoverSupersededSend` (`:4531-4630`) truncates the collector
   to `stepModelOutputStart`, appends `model.superseded {fromSequence, step}` and `model.retrying`,
   waits, checks the fence, and calls `callStream` again with `superseded.retry`. `requestRetriesUsed`
@@ -74,67 +89,89 @@ carry no Run tool calls and keep their rules.
 
 ## Decisions
 
-### D1: A stop condition ends the SDK loop after a failed step
+### D1: The Run learns of the failure at the `error` part
 
-`stopWhenExtra` receives the SDK's `steps`. When the last step finished with `error`, it returns
-`true` with a new `stopCause: 'failed-send'` and records no quota recovery. The SDK has already kept
-that step open until every started execution resolved, so the stop needs no wait of its own. Stop,
-expiry, and an owner interrupt reach the open calls through the shipped listeners, because
-`onError` has not torn them down yet.
+A new `ModelStreamInput.onSendFailed(failure)` is called from the `captureRequestFailure` wrapper,
+synchronously at the `error` part, on every client. When the failure is `toolCallStarted` on a Run
+step, the Run records `sendFailure = { failure, step, anchor }` (D3). `StreamRecovery.failedSend`
+keeps `canRetry: false` for a send with a complete tool-call part, so nothing re-sends it. It marks the
+`ProviderFailure` `toolCallStarted` for every class and adds `sends`, the prior sends of that
+request, to `ProviderFailureDetails` and to both rebuilds in `request-recovery.ts:330-362`.
 
-`failedSend` keeps `canRetry: false` for a send with a complete tool-call part, so nothing re-sends
-it. It marks the `ProviderFailure` `toolCallStarted` for every class and attaches `sends`, the prior
-sends of that request.
+`stopWhenExtra` receives the SDK `steps`. When `sendFailure` is set, it records no quota recovery,
+keeps its delivery and compaction checks in their own variables, and returns `true`. When a step
+has a call with no output (a `wait` call), the SDK ends the loop without asking; the result is the
+same. In both cases the SDK has already kept the step open until every started execution resolved,
+so the wait of grilling Q3 needs no code of its own. Stop, expiry, and an interrupt reach the open
+calls through the shipped listeners, which are still in place.
 
-_Alternative:_ accept the SDK's own next step and repair it in `onStepStart` (trim the trailing
-text from `messages`, delay, append `model.retrying`, park). Rejected: the SDK would decide the next
-step before the Run knows the failure class, and a quota park from inside `prepareStep` has no
-shipped path.
+_Alternative:_ accept the SDK's own next step and repair it in `onStepStart`. Rejected: the SDK
+would choose the next step before the Run knows the failure class, and a quota park from inside
+`prepareStep` has no shipped path.
 
-### D2: The Run decides in the deferred terminal path, before teardown
+### D2: `onFinish` decides, after the whole SDK loop, on every client
 
-When `onError` sees `stopCause: 'failed-send'` and a `toolCallStarted` failure on a step request, it
-skips the shipped teardown and runs D3 to D6. The teardown (Workspace MCP attempt, Stop listener,
-segment) moves after the decision, and only the failure outcome performs it. Every other caller and
-every other failure keeps the shipped path.
+`onError` with `sendFailure` set returns at once, with no teardown and no settlement, whichever
+client called it and whenever. `onFinish` runs once after the SDK loop on every client. With
+`sendFailure` set, it awaits `deferredWaitCalls`, performs the shipped teardown, and decides (D4, D6).
+It returns before `terminalStatus`, as it does for `superseded` and `quota`. A spike covers both
+callback orders (tasks 2.1). If `onFinish` does not run, the shipped `onError` failure path applies.
 
-An open call of the failed step with no result at this point never reached its executor. D2 counts
-only calls with `origin === undefined` and `step` equal to the failed step (`openToolCalls`,
-`:3102-3107`). Such a call settles with a new provider-failure result: "This call did not run,
-because the provider failed before it started. Run it again if you still need it." The interrupt
-text, which blames the owner, is not reused.
+Open calls of the failed step without a result at this point are of two kinds, both limited to
+`origin === undefined` and `step === stepOffset + failedStep` (`openToolCalls`, `:3102-3107`):
 
-A `wait` call in the failed send resolves `done` with a suspension and no result (`:3856-3870`). D2
-settles it with the same "did not run" result before the decision, so the Run never parks on a
-send it has cut (proposal A7).
+- a `wait` call: it settles with "The wait did not start, because the provider failed. Call `wait`
+  again if you still need it.", clears `pendingWait` and `waitRequest`, and the Run does not enter
+  `awaiting_jobs` (proposal A7);
+- a call whose `execute` rejected before it recorded a result: it may have run, so it settles with
+  the shipped `toolTerminationResult`.
 
-### D3: The cut anchor is captured at the last tool-call part
+`quotaWaitForFailure` keeps refusing `toolCallStarted` on the shipped path, so a hosted-search send
+that breaks after its provider tool call still ends as it does today. Only the D2 decision calls it
+in an `afterCut` mode that accepts the started call.
 
-When the consumer reaches a complete `tool-call` part (`onToolCall`, `:4935`), the Run flushes both
-delta buffers and records `latestSequence() + 1` and the collector length, as
-`persistStepStartSequence` does (`:2788-2809`). The last record of the failed step is the cut. The
-collector is truncated at that length, and the `model.superseded` window starts at that sequence;
-its `step` is the failed step. Text and reasoning between two kept calls precede the anchor and
-stay. The trailing text and reasoning follow it and go, in the rebuild and in the bridge. The reply
-usage becomes `complete: false`, which is correct: the failed send reported no usage.
+### D3: The cut anchor is captured at each tool-call part
+
+At each complete `tool-call` part (`onToolCall`) and each refused call (`onUnavailableToolCall`),
+the Run chains a `latestSequence() + 1` read onto `deltaWrites` synchronously, as
+`persistStepStartSequence` does (`:2788-2809`), and records the collector length. Deltas that arrive
+later queue behind that read, so the order holds. `onStepStart` resets the anchor. The cut uses the
+last anchor of the failed step:
+
+- the collector drops only `text` and `reasoning` parts at or after the recorded length, and keeps
+  tool and context-item parts, because a call's own part is added after `onToolCall`;
+- the `model.superseded` window starts at the recorded sequence, with `step` the failed step.
+
+Text and reasoning between two kept calls precede the last anchor and stay; the trailing text and
+reasoning follow it and go, in the rebuild and in the bridge. The reply usage becomes
+`complete: false`, which is correct: the failed send reported no usage.
 
 ### D4: The cut, the notice, and the next step
 
-1. The Run stages the `provider-failure` notice (D5) as an in-Run item after the last kept tool part,
-   after the `inRunItems` reset that every `nextCall` path performs.
-2. It calls `deliverAtBoundary`, as the interrupt path does. A pending steer or interrupt starts a
-   segment there; the segment starts with no carried count and no retry delay (proposal A6). The
-   write that closes the earlier segment persists the collector with the cut and the notice, and
-   appends the `model.superseded` event in the same transaction. A due step-boundary compaction runs.
-3. Without a delivery, it calls `callStream([...callMessages, ...projectStoredReplyParts(kept).messages],
-   failedStep + 1, failure.sends, false)`. `restoreRetries` takes the pending failure: the first send
-   waits the delay of retry `sends`, reports `retry: sends` to `onRetry`, and the request fails with
-   the class when `sends` has reached `MAX_SENDS`. A provider delay of up to 60 seconds replaces the
-   jittered delay, as the shipped rule does.
-4. The `onStepStart` of that first send stores the snapshot with the notice through
-   `storeInRunSnapshot`, and appends the `model.superseded` event in the same fenced transaction.
-   A worker that stops before that write leaves neither the cut nor the notice, and the shipped
-   redelivery rules apply.
+1. After the cut, `onFinish` adds the `provider-failure` notice (D5) to the collector directly
+   after the last kept tool part.
+2. A quota class with a reset more than 60 seconds away and in range parks the Run (D6). A class
+   with no retry, a spent count, or a reset out of range fails the Run (D6). Only a Run that
+   continues reaches step 3, so the Run decides by the class before it delivers.
+3. It calls `deliverAtBoundary` with the delivery and compaction causes that `stopWhenExtra`
+   recorded, as the interrupt path does. A steer, interrupt, or notice delivery starts a segment
+   there, with no carried retry count and no retry delay (proposal A6). The write that closes the
+   earlier segment persists the collector with the cut and the notice, and appends the
+   `model.superseded` event in the same transaction. A reply that a steer closes records usage
+   status `completed` with `complete: false`. A due step-boundary compaction runs.
+4. Without a delivery, it calls `callStream([...callMessages, ...projectStoredReplyParts(kept).messages],
+   failedStep + 1, failure.sends, false)`, with `kept` excluding the notice, and passes the notice
+   and the failure as new `pendingNotice` and `pendingFailure` inputs. `wrapStream` runs
+   `restoreRetries(sends)` and then `retry(pendingFailure)` before `open()`, on the first step only:
+   the first send waits the larger of the jittered delay and the provider delay, reports
+   `retry: sends` to `onRetry`, and the request fails with the class at `MAX_SENDS`.
+5. The `onStepStart` of that first step stages `pendingNotice` after `beginStep`, without adding it
+   to the collector again. A notice staged at step 0 stays directly after the carried messages on
+   every later step (`in-run-context-items.ts:175-180`). Its `storeInRunSnapshot` write stores it
+   and appends the `model.superseded` event in the same fenced transaction
+   (`RunsRepository.updateForAttempt`, `:10189-10196`; `RunEventsRepository.append` is a plain
+   `INSERT`). That write commits before the retry delay, because `prepareStep` runs before
+   `doStream`. A worker that stops before it leaves neither the cut nor the notice.
 
 A send that ends without failure already zeroes the count for the next step
 (`request-recovery.ts:527-537`).
@@ -169,31 +206,39 @@ with no retry are new.
 
 - `quota_exhausted` or `rate_limited` with a reset more than 60 seconds away and in range:
   `suspendQuotaSend` with the D3 cut in place of `stepModelOutputStart`. Its entry transaction
-  appends the `model.superseded` event and stores the kept parts and the notice in the checkpoint
-  `parts`. `stepBudgetUsed` includes the failed step, whose kept part is a completed step.
-  `quotaWaitForFailure` stops refusing `toolCallStarted`. The wake rebuilds the request from the
-  checkpoint parts, so the woken request is the next step. Because D1 records no quota recovery at
-  the failed step, the wait count carries over (proposal A3). The woken request starts its retry
-  count at 0, as every woken request does today (proposal A5).
-- Every other class, a spent count, a reset out of range, cancellation, and expiry: the terminal
-  settlement persists the collector, which holds the cut and the staged notice, and the
-  `model.superseded` event is appended in that settlement transaction. Termination then finds the
-  failed send's calls settled.
-- An owner interrupt during the wait closes the segment through `settleOnInterrupt`, which persists
-  the collector with the cut and the notice in the same way.
+  (`waitService().suspendForQuota`) appends the `model.superseded` event and stores the kept parts
+  and the notice in the checkpoint `parts`. Today the shipped path appends that event in an earlier,
+  separate fenced write (`:4652-4660`); the started-call path moves it into the entry transaction.
+  `stepBudgetUsed` includes the failed step, whose kept part is a completed step. The wake rebuilds
+  the request from the checkpoint parts, so the woken request is the next step, and pending steers
+  reach the boundary before it. Because D1 records no quota recovery at the failed step, the wait
+  count carries over (proposal A3). The woken request starts its retry count at 0, as every woken
+  request does today (proposal A5).
+- Every other class, a spent count, or a reset out of range: `onFinish` settles the Run as failed
+  with the cut and the notice in the collector. `finishRun` gains the `model.superseded` input and
+  appends it in its terminal transaction. Termination then finds the failed send's calls settled.
+- A Stop or expiry during the wait: `settleToolsOnParentAbort` sees `sendFailure`, applies the cut,
+  adds the notice, and passes the `model.superseded` input to `settleTerminalRun`.
+- An owner interrupt during the wait: `deliverInterrupt` sees `sendFailure` and does the same
+  through `DeliveryInput` of `closeSegmentAndStore`, before `markInterrupted()`. The `settlePendingAbort`
+  branch of `onError` runs after the cut for the same reason.
 
 ### D7: Web and API surfaces stay as they are
 
 `model.retrying` and `model.superseded` already reach the live view, and the retry line renders.
-The trailing text stays visible until the write of D4 step 4 or D6, then disappears. The notice is
+The trailing text stays visible until the write of D4 step 3 or 5, or of D6, then disappears. The notice is
 a context item with the shipped transcript styling. No OpenAPI or live-protocol regeneration.
 
 ## Risks / Trade-offs
 
-- [The production order differs from the fake client] → The first task is a spike through
-  `runStreamChannel` with `applyRequestRecovery` and a `MockLanguageModelV3` that streams a
-  `tool-call` part and then fails. It asserts when `onError` runs, how many `doStream` calls occur,
-  and that no step N+1 is sent before the Run decides.
+- [The production order differs from the fake client, and between clients] → The first task is a
+  spike through `runStreamChannel` and through the Chat Completions client, each with
+  `applyRequestRecovery` and a `MockLanguageModelV3` that streams a `tool-call` part and then
+  fails. It asserts when `onError` and `onFinish` run, how many `doStream` calls occur, and that no
+  step N+1 is sent before the Run decides. It also covers a Stop and an interrupt during the wait.
+- [A relative provider delay is applied again after the wait] → The first send waits the larger of
+  the jittered delay and the provider delay, measured from the decision. The extra wait is at most
+  60 seconds, and the shipped in-process rule has the same bound.
 - [A long tool call holds the worker before the next send] → The same hold as an ordinary step
   that runs that call. Each tool's own timeout, host `bash` backgrounding, the execution ceiling,
   and Stop bound it (grilling Q3).
@@ -226,3 +271,12 @@ None.
   failed step records no quota recovery; a delivery at the boundary and a quota wait end the
   retry count; the narrowed transparency ADR; the ADRs stay in this layer by Leo's request; the
   `runtime` layer splits into `continue` and `quota-wait`. Rejected: none.
+- **Round 2** (spec consistency: 0 P0, 3 P1, 9 P2; feasibility: 2 P0, 5 P1, 6 P2). Accepted all
+  after verification. Main changes: `onFinish` decides, because it runs after the SDK loop on every
+  client, while the Chat Completions client calls `onError` at the `error` part; a synchronous
+  `onSendFailed` seam lets Stop, expiry, and interrupt apply the cut; the anchor is chained onto
+  the delta writes and the cut keeps tool parts; the notice is a pending item of the next call; the
+  stop condition keeps its delivery and compaction checks; a `wait` call of the failed send does not
+  open, which MODIFIES `durable-runs` "A Run that waits holds no worker"; the quota refusal stays on
+  the shipped path; a woken next step delivers pending steers before it; one name per item ("wait
+  count", "the cut"). Rejected: none.

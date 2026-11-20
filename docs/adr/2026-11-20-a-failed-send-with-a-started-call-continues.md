@@ -47,3 +47,5 @@ This was decided in
 [Failing over a request whose stream broke mid-output](https://github.com/leon0399/llame/issues/1777)
 and in the grilling for
 [continue a Run after a send that broke with started tool calls](https://github.com/leon0399/llame/issues/1828).
+It shaped the started-call rules of
+[`provider-failures`](../../openspec/specs/provider-failures/spec.md).

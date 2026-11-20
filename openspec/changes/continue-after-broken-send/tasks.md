@@ -19,23 +19,26 @@ Each implementation layer is a safe merge boundary. The state after each layer:
 
 - `continue`: a Run step that fails after a started tool call stops the SDK, waits for its calls,
   cuts, stores the notice, and continues with the carried count, or fails with real results and
-  the notice. A `quota_exhausted` or `rate_limited` failure after a started call fails the Run in
-  this state, as a class with no retry does; it gets the notice.
+  the notice. A `quota_exhausted` or `rate_limited` failure after a started call with a reset more
+  than 60 seconds away, or with no reset, fails the Run in this state; it gets the notice. A reset
+  of 60 seconds or less is a request retry and continues.
 - `quota-wait`: that failure parks the Run after the calls settle, and the woken Run sends the next
   step.
 
 The proposal layer carries two ADRs as a named exception to the proposal-only file rule of
 CONTRIBUTING.md, because Leo asked for them in this PR (2026-11-20).
 
-| Layer        | Parent       | Ownership                                                                                                                          | Authored estimate | Closes |
-| ------------ | ------------ | ---------------------------------------------------------------------------------------------------------------------------------- | ----------------- | ------ |
-| `proposal`   | `master`     | Proposal, design, deltas, this task list, and two ADRs under `docs/adr/`.                                                          | ~1,100            | none   |
-| `continue`   | `proposal`   | The stop at a failed step, the decision before teardown, the cut, the notice producer, the next step with the carried count, docs. | ~2,000            | none   |
-| `quota-wait` | `continue`   | The park after a started call with the cut, the quota-recovery guard, the wake into the next step, docs, and changelog.            | ~900              | #1828  |
-| `finalize`   | `quota-wait` | Spec sync, task records, and archive movement only.                                                                                | ~700              | none   |
+| Layer        | Parent       | Ownership                                                                                                                                                                                                                                 | Authored estimate | Closes |
+| ------------ | ------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------- | ------ |
+| `proposal`   | `master`     | Proposal, design, deltas, this task list, and two ADRs under `docs/adr/`.                                                                                                                                                                 | ~1,100            | none   |
+| `continue`   | `proposal`   | The failure seam, the stop at a failed step and its quota-recovery guard, the decision in `onFinish`, the cut, the notice producer, the next step with the carried count, the Stop, expiry, and interrupt writers, the `wait` rule, docs. | ~2,800            | none   |
+| `quota-wait` | `continue`   | The park after a started call with the cut, the wake into the next step, docs, and changelog.                                                                                                                                             | ~1,000            | #1828  |
+| `finalize`   | `quota-wait` | Spec sync, task records, and archive movement only.                                                                                                                                                                                       | ~700              | none   |
 
-Estimates are low confidence; the feasibility review put the whole runtime at 2,200 to 3,000
-lines. No generated OpenAPI, orval, live-protocol, or Drizzle file changes. Re-measure each layer
+Estimates are low confidence; the round 2 feasibility review put `continue` at 2,600 to 3,200
+lines. `continue` can exceed the ~2,000-line target: the seam, the stop, the decision, the cut,
+and the notice are one behavior, and none of them is mergeable alone without a Run that cuts output
+it does not explain. No generated OpenAPI, orval, live-protocol, or Drizzle file changes. Re-measure each layer
 against its parent before publication.
 
 ## 1. proposal
@@ -54,19 +57,22 @@ against its parent before publication.
 Enter `continue-after-broken-send/continue` with `$gh-stack` from the approved proposal. Run
 focused test files only; CI owns the full suites.
 
-- [ ] 2.1 Spike first (design Risks): drive `runStreamChannel` with `applyRequestRecovery` and a
-      `MockLanguageModelV3` that streams a complete `tool-call` part and then fails, with a tool
-      that resolves later. Record when `onError` runs and how many `doStream` calls occur today.
-      Stop the layer and return to review if the order differs from design Context.
+- [ ] 2.1 Spike first (design Risks): drive `runStreamChannel` and the Chat Completions client,
+      each with `applyRequestRecovery` and a `MockLanguageModelV3` that streams a complete
+      `tool-call` part and then fails, with a tool that resolves later. Record when `onError` and
+      `onFinish` run and how many `doStream` calls occur today, also with a Stop and an interrupt
+      during the wait. Stop the layer and return to review if the order differs from design Context.
 - [ ] 2.2 `request-recovery.ts` marks every class `toolCallStarted` after a complete tool-call part
       and attaches the prior send count (design D1). Verify in `request-recovery.test.ts` that such
       a send is not sent again, and that a restored recovery with a pending failure waits the delay
       of retry `sends`, reports `retry: sends`, and fails at `MAX_SENDS`.
-- [ ] 2.3 Stop the SDK at a failed step and decide before teardown (design D1, D2), on the
-      production client path of 2.1. Verify "One call still runs when the send breaks", "The owner
-      stops the Run during the wait", "A rejected call does not cause a second send", "An overload
-      after a tool call", and the unchanged "A hosted search breaks after its search tool call".
-      Verify that a `wait` call of the failed send settles as "did not run" (A7).
+- [ ] 2.3 Add the `onSendFailed` seam, stop the SDK at a failed step with no quota recovery, and
+      decide in `onFinish` (design D1, D2), on both client shapes of 2.1. Verify "One call still
+      runs when the send breaks", "The owner stops the Run during the wait", "A rejected call does
+      not cause a second send", "An overload after a tool call", "A wait call in a broken send", the
+      `durable-runs` scenario "A wait call of a failed send does not suspend the Run", and the
+      unchanged "A hosted search breaks after its search tool call". Re-verify the unchanged
+      scenarios of "A Run that waits holds no worker".
 - [ ] 2.4 Capture the cut anchor at the last tool-call part (design D3). Verify "The text after the
       last tool call is not kept" and "Text between two kept calls stays", in
       `run-stream-bridge.test.ts` and in the `assistant-transcript` rebuild tests.
@@ -77,8 +83,9 @@ focused test files only; CI owns the full suites.
 - [ ] 2.6 Continue with the next step, the boundary delivery, and the carried count (design D4).
       Verify "The stream breaks after a tool call", "A provider breaks after each tool call", "A
       reload during the delay of the next step", "No retry is left for the next step", "A send
-      without failure ends the count", "A steer at the boundary starts a new count", and "A worker
-      stops during the delay of the next step".
+      without failure ends the count", "A steer at the boundary starts a new count", "A failure with
+      no retry does not deliver a pending steer", "A worker stops before the next step starts", and
+      "A worker stops during the delay of the next step".
 - [ ] 2.7 Store the cut and the notice in the terminal and interrupt writes (design D6). Verify "An
       authentication failure after a tool call", "Owner Continue keeps the notice", and "An
       interrupt during the wait keeps the notice". Verify that the `tool-calling` scenario "Failure
@@ -97,12 +104,12 @@ focused test files only; CI owns the full suites.
 
 Enter `continue-after-broken-send/quota-wait` with `$gh-stack` from `continue`.
 
-- [ ] 3.1 Park after a started call with the cut, and record no quota recovery at a failed step
-      (design D1, D6). Verify the `provider-failures` scenarios "A usage limit after a tool call"
+- [ ] 3.1 Park after a started call with the cut, with the quota refusal kept on the shipped path
+      (design D2, D6). Verify the `provider-failures` scenarios "A usage limit after a tool call"
       and "A second usage limit after a woken tool call", and the `quota-wait` scenarios "A limit
       after a tool call parks the Run after the call settles", "The kept parts of a failed send
-      survive the wait", "A woken Run continues after a tool call", and "A checkpoint holds the
-      settled tool part", in `quota-wait.test.ts` and `quota-wait.integration.test.ts`. Re-verify
+      survive the wait", "A steer during a wait after a tool call", "A woken Run continues after a
+      tool call", and "A checkpoint holds the settled tool part", in `quota-wait.test.ts` and `quota-wait.integration.test.ts`. Re-verify
       the unchanged scenarios of the four MODIFIED requirements.
 - [ ] 3.2 Update [scaling](../../../docs/product/operator/scaling.md) (quota wait after a started
       call) and the quota sentences of [provider routing](../../../docs/product/operator/providers/routing.md).

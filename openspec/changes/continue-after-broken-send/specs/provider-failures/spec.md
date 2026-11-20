@@ -43,8 +43,7 @@ applies.
 
 When a send of a Run step fails after a started tool call, the Run MUST wait until each started call
 of that send settles. A call settles with success, an error, or `outcome_unknown`. The Run MUST NOT
-cancel a started call because the send failed. The Run MUST NOT send another request during the
-wait. It MUST decide by the failure class only after the wait. This rule MUST apply to each failure
+cancel a started call because the send failed. The Run MUST NOT send a step request during the wait. It MUST decide by the failure class only after the wait. This rule MUST apply to each failure
 class.
 
 #### Scenario: One call still runs when the send breaks
@@ -65,13 +64,12 @@ class.
 - **THEN** the request is not sent again, and the Run continues with the next step
 - **AND** that step carries the rejection result of the call
 
-### Requirement: The next step keeps the settled parts of the failed send
+### Requirement: The Run keeps the parts of the failed send through its last settled tool part
 
 The Run MUST keep the parts of the failed send through its last settled tool part, as `turn-actions`
-defines that part. It MUST also keep the context items directly after it. A `model.superseded`
-event MUST name the later parts of that send, in each outcome of the wait. That event names only
-the parts after its window start, and the kept parts stay. The next request MUST carry the kept
-parts, and no superseded part.
+defines that part. It MUST also keep the context items directly after it. The later parts of that
+send are the cut. A `model.superseded` event MUST name the cut, in each outcome of the wait. That
+event names no kept part. The next request MUST carry the kept parts, and no part of the cut.
 
 #### Scenario: The text after the last tool call is not kept
 
@@ -89,18 +87,23 @@ parts, and no superseded part.
 ### Requirement: The cut and the notice are stored together
 
 The Run MUST append the `model.superseded` event of the cut and store the `provider-failure` notice
-in one fenced write. A worker that stops before that write MUST leave neither of them. The
-redelivery rules of `durable-runs` then apply to the Run.
+in one fenced write. When the Run continues, that write MUST come before the retry delay of the
+next step. A worker that stops before that write MUST leave neither of them.
+
+#### Scenario: A worker stops before the next step starts
+
+- **WHEN** a send breaks after a settled `read` call, and the worker stops after the call settles and before the next step starts
+- **THEN** the reply holds neither the cut nor the notice
 
 #### Scenario: A worker stops during the delay of the next step
 
-- **WHEN** a send breaks after a settled `read` call, and the worker stops during the delay before the next step
-- **THEN** the reply holds neither the cut nor the notice
-- **AND** the redelivered attempt follows the shipped redelivery rules
+- **WHEN** a send breaks after a settled `edit` call, and the worker stops during the delay before the first send of the next step
+- **THEN** the redelivered attempt fails the Run with `error.code` `outcome_unknown`
+- **AND** the reply holds the cut and the notice
 
 ### Requirement: The next step uses the budgets of the failed request
 
-The next step MUST continue the request-retry count and the quota-wait count of the failed request.
+The next step MUST continue the request-retry count and the wait count of the failed request.
 Its first send is a new request, not a request retry. When the failure class gets a request retry,
 that send MUST still count as one. It MUST wait the delay of that retry number and append one
 `model.retrying` event with it. The web MUST show the line of that retry.
@@ -129,9 +132,9 @@ that send MUST still count as one. It MUST wait the delay of that retry number a
 ### Requirement: Some events end the counts of the next step
 
 A later step send of the Run that ends without failure MUST end both counts. A quota wait MUST end
-the request-retry count, as for every woken request. A steer or an interrupt can reach the Run at
-the step boundary before the next step. It then starts a segment, and that segment MUST start with
-no carried count. Its first send MUST NOT wait a retry delay.
+the request-retry count, as for every woken request. The Run MUST decide by the failure class
+before it delivers at the step boundary before the next step. A delivery there starts a segment.
+That segment MUST start with no carried request-retry count and no retry delay.
 
 #### Scenario: A send without failure ends the count
 
@@ -140,8 +143,24 @@ no carried count. Its first send MUST NOT wait a retry delay.
 
 #### Scenario: A steer at the boundary starts a new count
 
-- **WHEN** a send breaks after a tool call on its fifth send, and the owner sent a steer before the calls settled
+- **WHEN** a send breaks with `stream_broken` after a tool call on its fifth send, and the owner sent a steer before the calls settled
 - **THEN** the steer starts a segment, and its first send goes out with no retry delay and no `model.retrying` event
+
+#### Scenario: A failure with no retry does not deliver a pending steer
+
+- **WHEN** a send fails with `auth` after a tool call, and the owner sent a steer before the calls settled
+- **THEN** the Run fails with `error.code` `auth`, and no segment of that Run delivers the steer
+
+### Requirement: A wait call of a failed send does not open
+
+A `wait` call of a send that failed after a started tool call MUST NOT open. It MUST settle with a
+result that states that the wait did not start. The Run MUST NOT enter `awaiting_jobs` for it.
+
+#### Scenario: A wait call in a broken send
+
+- **WHEN** a send streams a complete `bash` tool-call part and a `wait` tool-call part, and then breaks
+- **THEN** the Run does not enter `awaiting_jobs`, and the `wait` part holds a result that states that the wait did not start
+- **AND** the Run continues with the next step
 
 ### Requirement: A provider-failure notice follows the last settled tool part
 

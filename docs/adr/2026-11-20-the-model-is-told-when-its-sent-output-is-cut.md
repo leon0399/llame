@@ -17,9 +17,11 @@ sees a reply that simply stopped there. It may then repeat work, or claim
 progress it never reported. llame already tells the model when an owner
 interrupt stops its step.
 
-The notice is stored in the reply in every outcome: when the Run continues,
-waits for a quota reset, fails, expires, or is interrupted or cancelled. An
-owner Continue, and every later turn that replays the reply, carries it.
+The notice is stored in the reply in every outcome that the Run decides: when
+the Run continues, waits for a quota reset, fails, expires, or is interrupted
+or cancelled. A worker that stops before that write leaves neither the cut nor
+the notice. An owner Continue, and every later turn that replays the reply,
+carries it.
 
 Two shipped cuts get no notice, because the model sees no gap. A request retry
 replaces a whole send whose tool calls never started, so history reads as if
@@ -44,4 +46,6 @@ the model does not receive again.
   `context-injection`.
 
 This was decided in the grilling for
-[continue a Run after a send that broke with started tool calls](https://github.com/leon0399/llame/issues/1828).
+[continue a Run after a send that broke with started tool calls](https://github.com/leon0399/llame/issues/1828),
+and shaped the started-call rules of
+[`provider-failures`](../../openspec/specs/provider-failures/spec.md).
