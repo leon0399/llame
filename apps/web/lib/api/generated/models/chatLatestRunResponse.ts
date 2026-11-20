@@ -9,6 +9,7 @@ import type { ChatLatestRunResponseFollowUpAction } from "./chatLatestRunRespons
 import type { ChatLatestRunResponseKind } from "./chatLatestRunResponseKind";
 import type { ChatLatestRunResponsePermissionMode } from "./chatLatestRunResponsePermissionMode";
 import type { ChatLatestRunResponseStatus } from "./chatLatestRunResponseStatus";
+import type { QuotaWaitResponse } from "./quotaWaitResponse";
 
 export interface ChatLatestRunResponse {
   id: string;
@@ -36,4 +37,10 @@ export interface ChatLatestRunResponse {
    * @nullable
    */
   error: string | null;
+  /** @nullable */
+  errorCode: string | null;
+  /** @nullable */
+  errorResetsAt: number | null;
+  /** @nullable */
+  quotaWait: QuotaWaitResponse | null;
 }

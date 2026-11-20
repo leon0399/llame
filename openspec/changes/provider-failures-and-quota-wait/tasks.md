@@ -269,14 +269,24 @@ unchecked until CI executes it. GR and mutation work do not gate the next layer 
 - [ ] 7.1 Add `quotaWait`, `errorCode`, and `errorResetsAt` to the Run DTOs, and regenerate OpenAPI,
       the orval models, and both live-protocol files. Verify "Another owner cannot read the wait" as a
       negative isolation test, and a second generation with a clean diff.
-- [ ] 7.2 Add the box above the composer (design D8). Verify "A Codex weekly limit" in a story test
+- [x] 7.2 Add the box above the composer (design D8). Verify "A Codex weekly limit" in a story test
       with a fixed clock, including the change to "Sending again…" after the wake time.
-- [ ] 7.3 Show the reset time on the failed turn and on the error row of a compaction Run. Verify "A
+- [x] 7.3 Show the reset time on the failed turn and on the error row of a compaction Run. Verify "A
       reset beyond the cap" in a story test.
-- [ ] 7.4 Update the owner docs for a waiting Chat and add a dated `CHANGELOG.md` entry. Put
+- [x] 7.4 Update the owner docs for a waiting Chat and add a dated `CHANGELOG.md` entry. Put
       `Closes #1774` on this PR.
-- [ ] 7.5 Focused checks as in 3.9, the OpenAPI lint, and the Storybook story tests.
+- [x] 7.5 Focused checks as in 3.9, the OpenAPI lint, and the Storybook story tests.
 - [ ] 7.6 SR before ready; GR per [CONTRIBUTING.md](../../../CONTRIBUTING.md#ready-pr-monitoring).
+
+Local evidence: 90 API DTO cases and 134 web state cases passed; API/web lint and typechecks
+passed. Ten Storybook MCP cases passed with accessibility checks, including the weekly-limit
+countdown, wake crossing, Stop with a pending steer, failed turn/compaction/partial reply, and a new
+send hiding an earlier quota failure. Chromium inspection confirmed composer placement and local
+reset display. A failing-before/passing-after hydration smoke verified browser-local timestamps.
+OpenAPI and AsyncAPI validation, strict change validation, Markdown/link lint, and repository
+format checks passed. A second generation preserved all 238 generated outputs byte for byte.
+Five independent reviewers covered reuse, quality, efficiency, ponytail, and security; accepted
+findings were fixed. HTTP owner/foreign isolation cases await CI; no local database suite was run.
 
 ## 8. finalize
 

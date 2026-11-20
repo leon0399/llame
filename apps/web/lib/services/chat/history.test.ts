@@ -1701,6 +1701,9 @@ describe("replacementContext", () => {
       effort: null,
       permissionMode: "default",
       error: null,
+      errorCode: null,
+      errorResetsAt: null,
+      quotaWait: null,
       ...overrides,
     }) as const;
 

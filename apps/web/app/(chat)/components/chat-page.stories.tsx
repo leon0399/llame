@@ -2581,6 +2581,8 @@ export const PastWorkspaceEntryKeepsCard: Story = {
 
 const TURN_RUN_ID = "11111111-1111-4111-8111-111111111111";
 const NEXT_TURN_RUN_ID = "22222222-2222-4222-8222-222222222222";
+const QUOTA_STORY_NOW = Date.parse("2026-11-19T09:00:00.000Z");
+const FAILED_QUOTA_RESET_AT = QUOTA_STORY_NOW + 20 * 86_400_000;
 
 const COMPACTION_RUN_ID = "44444444-4444-4444-8444-444444444444";
 
@@ -2609,6 +2611,9 @@ function latestTurnRun(
     effort: null,
     permissionMode: "default",
     error: null,
+    errorCode: null,
+    errorResetsAt: null,
+    quotaWait: null,
     ...overrides,
   };
 }
@@ -2777,6 +2782,46 @@ function resumedFollowUpStream(messageId = NEXT_TURN_RUN_ID) {
     await new Promise<void>(() => {});
   });
 }
+
+export const NewSendHidesPreviousQuotaFailure: Story = {
+  tags: ["ai-generated"],
+  parameters: {
+    history: [TURN_USER_ROW, TURN_REPLY_ROW],
+    latestRun: latestTurnRun({
+      error: "The previous request exhausted its quota.",
+      errorCode: "quota_exhausted",
+      errorResetsAt: FAILED_QUOTA_RESET_AT,
+    }),
+  } satisfies ChatPageParameters,
+  beforeEach: () => {
+    routeAlso({
+      [SEND_ROUTE]: () => Promise.resolve(resumedFollowUpStream()),
+    });
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = await settledTurnChat(
+      canvasElement,
+      OPEN_CHAT_ROUTES.length,
+      "Search my conversations for budget notes.",
+    );
+
+    expect(
+      canvas.getByText("The previous request exhausted its quota."),
+    ).toBeVisible();
+    const input = await readyComposer(canvasElement);
+    await userEvent.type(input, "Try a new request.");
+    const send = canvas.getByRole("button", { name: "Send message" });
+    await waitFor(() => expect(send).toBeEnabled());
+    await userEvent.click(send);
+    await waitFor(() =>
+      expect(canvas.getByText("resumed stream")).toBeVisible(),
+    );
+    expect(
+      canvas.queryByText("The previous request exhausted its quota."),
+    ).toBeNull();
+    expect(canvas.queryByText(/Resets at/)).toBeNull();
+  },
+};
 
 /**
  * A reload while a follow-up Run of the latest turn is still queued shows one
@@ -4565,7 +4610,15 @@ export const SupersededSendStaysAbsentOnReplay: Story = {
 export const QuotaWaitStopPreservesPendingSteer: Story = {
   tags: ["ai-generated"],
   parameters: {
-    latestRun: { ...liveRun(), status: "awaiting_quota" },
+    latestRun: {
+      ...liveRun(),
+      status: "awaiting_quota",
+      quotaWait: {
+        failureClass: "quota_exhausted",
+        resetsAt: new Date(QUOTA_STORY_NOW + 183_600_000).toISOString(),
+        wakeAt: new Date(QUOTA_STORY_NOW + 183_675_000).toISOString(),
+      },
+    },
     pending: [
       pendingItem("quota-steer", "steer", "check the restored provider"),
     ],
@@ -4573,6 +4626,12 @@ export const QuotaWaitStopPreservesPendingSteer: Story = {
   beforeEach: () => {
     setChatMarkdownLoadForTests(() => Promise.resolve(RENDERERS));
     cancelRun.mockResolvedValue(undefined);
+    const original = Date.now;
+    Date.now = () => QUOTA_STORY_NOW;
+
+    return () => {
+      Date.now = original;
+    };
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
@@ -4580,7 +4639,7 @@ export const QuotaWaitStopPreservesPendingSteer: Story = {
     const pending = await canvas.findByRole("region", PENDING_REGION);
     await userEvent.type(composer(canvasElement), "draft for later");
     await userEvent.click(
-      canvas.getByRole("button", { name: "Stop generation" }),
+      canvas.getByRole("button", { name: "Stop waiting for quota reset" }),
     );
     await expect(cancelRun).toHaveBeenCalledWith(LIVE_RUN_ID);
     await expect(
@@ -4590,5 +4649,88 @@ export const QuotaWaitStopPreservesPendingSteer: Story = {
     await expect(chatRoutes()).not.toContain(
       `PATCH ${DELIVERY_ROUTE("quota-steer")}`,
     );
+  },
+};
+
+export const FailedTurnWithQuotaReset: Story = {
+  parameters: {
+    history: [TURN_USER_ROW],
+    latestRun: latestTurnRun({
+      error: "The provider quota is exhausted.",
+      errorCode: "quota_exhausted",
+      errorResetsAt: FAILED_QUOTA_RESET_AT,
+    }),
+  } satisfies ChatPageParameters,
+  play: async ({ canvasElement }) => {
+    const canvas = await settledTurnChat(
+      canvasElement,
+      OPEN_CHAT_ROUTES.length,
+      "Search my conversations for budget notes.",
+    );
+
+    await expect(
+      canvas.getByText("The provider quota is exhausted."),
+    ).toBeVisible();
+    await expect(
+      canvas.getByText(new Date(FAILED_QUOTA_RESET_AT).toLocaleString()),
+    ).toBeVisible();
+    await expect(
+      canvas.getByRole("button", { name: "Regenerate" }),
+    ).toBeVisible();
+  },
+};
+
+export const FailedCompactionWithQuotaReset: Story = {
+  parameters: {
+    history: [TURN_USER_ROW, TURN_REPLY_ROW],
+    latestRun: compactionRun({
+      status: "failed",
+      error: "The summary provider quota is exhausted.",
+      errorCode: "quota_exhausted",
+      errorResetsAt: FAILED_QUOTA_RESET_AT,
+    }),
+  } satisfies ChatPageParameters,
+  play: async ({ canvasElement }) => {
+    const canvas = await settledTurnChat(
+      canvasElement,
+      OPEN_CHAT_ROUTES.length,
+      "Search my conversations for budget notes.",
+    );
+
+    await expect(canvas.getByText("Compaction failed")).toBeVisible();
+    await expect(
+      canvas.getByText("The summary provider quota is exhausted."),
+    ).toBeVisible();
+    await expect(
+      canvas.getByText(new Date(FAILED_QUOTA_RESET_AT).toLocaleString()),
+    ).toBeVisible();
+    await expect(
+      canvas.queryByRole("button", { name: "Regenerate" }),
+    ).toBeNull();
+  },
+};
+
+export const FailedPartialReplyWithQuotaReset: Story = {
+  parameters: {
+    history: [TURN_USER_ROW, TURN_REPLY_ROW],
+    latestRun: latestTurnRun({
+      error: "The provider quota is exhausted.",
+      errorCode: "quota_exhausted",
+      errorResetsAt: FAILED_QUOTA_RESET_AT,
+    }),
+  } satisfies ChatPageParameters,
+  play: async ({ canvasElement }) => {
+    const canvas = await settledTurnChat(
+      canvasElement,
+      OPEN_CHAT_ROUTES.length,
+      "Search my conversations for budget notes.",
+    );
+
+    await expect(
+      canvas.getByText("The provider quota is exhausted."),
+    ).toBeVisible();
+    await expect(
+      canvas.getByText(new Date(FAILED_QUOTA_RESET_AT).toLocaleString()),
+    ).toBeVisible();
   },
 };

@@ -338,6 +338,28 @@ components:
               permissionMode: default
               status: running_model
               error: null
+              quotaWait: null
+              createdAt: '2026-10-16T09:12:04.231Z'
+              startedAt: '2026-10-16T09:12:04.402Z'
+              finishedAt: null
+
+        - name: awaitingQuota
+          summary: A quota wait exposes only its reset and wake instants.
+          payload:
+            type: run.updated
+            run:
+              id: 9c3a7e14-2b6d-4f80-a5c9-1e7d3b8f2a06
+              kind: turn
+              chatId: 0b7e6c1a-3f52-4d8e-9a41-6c2d5e8f1b37
+              messageId: 3e8b1f6c-9a24-4d7e-b05a-7c2f9d1e4b83
+              modelId: gpt-5.5
+              permissionMode: default
+              status: awaiting_quota
+              error: null
+              quotaWait:
+                failureClass: rate_limited
+                resetsAt: '2026-10-16T10:00:00.000Z'
+                wakeAt: '2026-10-16T10:01:00.000Z'
               createdAt: '2026-10-16T09:12:04.231Z'
               startedAt: '2026-10-16T09:12:04.402Z'
               finishedAt: null

@@ -54,4 +54,27 @@ describe('toContextReceiptResponse', () => {
       'bypass',
     );
   });
+
+  it('includes only the public quota wait fields on an awaiting Run', () => {
+    const response = toRunResponse({
+      ...run,
+      status: 'awaiting_quota',
+      awaiting: {
+        kind: 'quota',
+        failureClass: 'quota_exhausted',
+        resetsAt: '2026-11-20T12:00:00.000Z',
+        wakeAt: '2026-11-20T12:01:00.000Z',
+        resumeAt: 'request',
+        waitCount: 2,
+      },
+    });
+
+    expect(response.quotaWait).toEqual({
+      failureClass: 'quota_exhausted',
+      resetsAt: '2026-11-20T12:00:00.000Z',
+      wakeAt: '2026-11-20T12:01:00.000Z',
+    });
+    expect(response).not.toHaveProperty('resumeAt');
+    expect(response).not.toHaveProperty('waitCount');
+  });
 });

@@ -5,6 +5,7 @@ read_when:
   - you need to know what a continued or regenerated Run sends to the model and what it keeps
   - you need to know when a discarded attempt leaves a notice on the turn
   - you need to know where the web offers the actions and what each click sends
+  - you need to distinguish a live provider quota wait from a failed turn
 spec: turn-actions
 ---
 
@@ -16,6 +17,24 @@ Continue keeps the steps the earlier Run completed and asks the model for the
 next one; the model receives every kept tool result again, and no kept call
 runs a second time. Regenerate discards the turn's answer and asks the model for
 a new one from the user message alone.
+
+## Waiting for a provider reset
+
+A Run waiting for its model's quota reset is still live. It resumes
+automatically; Continue and Regenerate apply only after it ends.
+
+The box above the prompt composer names the model and shows the provider's
+reset time and the later send time, both in your browser's local time. A
+countdown tracks the send time; after it arrives, the box says `Sending
+again…` until the worker resumes the request.
+
+Stop cancels the waiting Run. It preserves your draft and pending deliveries,
+including a pending steer. Pending deliveries remain held while the request
+waits rather than interrupting its recovery.
+
+A failed Run with a known quota reset shows that local reset time beside its
+error. A reset time does not promise automatic recovery after the Run ends;
+use the available turn actions to start a follow-up Run.
 
 ## The request
 

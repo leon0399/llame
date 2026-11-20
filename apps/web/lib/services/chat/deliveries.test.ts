@@ -62,6 +62,9 @@ function run(status: ChatLatestRunResponse["status"]): ChatLatestRunResponse {
     effort: null,
     permissionMode: "default",
     error: null,
+    errorCode: null,
+    errorResetsAt: null,
+    quotaWait: null,
   };
 }
 

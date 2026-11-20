@@ -9,6 +9,7 @@ import { useChatContext } from "@/contexts/chat-context";
 import { useActiveRuns } from "@/contexts/active-runs-context";
 import { compactionBoundaryIndex } from "@/lib/services/chat/compaction";
 import type { ChatLatestRunResponse } from "@/lib/api/generated/models";
+import { modelDisplayName } from "@/lib/services/models/queries";
 import type { FollowUpRunRequest } from "@/lib/services/chat/transport";
 import {
   useStreamInterruption,
@@ -383,8 +384,15 @@ function buildComposerState(
   setup: ReturnType<typeof useChatSetup>,
   actions: ReturnType<typeof useChatActions>,
   delivery: ReturnType<typeof useChatDelivery>,
+  latestRun: ChatLatestRunResponse | null,
 ) {
   return {
+    quotaWait:
+      latestRun?.status === "awaiting_quota" ? latestRun.quotaWait : null,
+    quotaModelName:
+      latestRun === null
+        ? ""
+        : modelDisplayName(latestRun.modelId, setup.availableModels),
     input: actions.input,
     setInput: actions.setInput,
     // Only an existing Chat can recognize slash commands. On the draft page
@@ -530,7 +538,7 @@ export function useChatConversation(args: UseChatConversationArgs) {
 
   return {
     status: engineState.engine.status,
-    composer: buildComposerState(setup, actions, delivery),
+    composer: buildComposerState(setup, actions, delivery, args.latestRun),
     pending: buildPendingState(delivery),
     transcript: {
       ...buildTranscriptState(setup, actions, engineState),

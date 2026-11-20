@@ -21,11 +21,10 @@ import {
   type QueryClient,
 } from "@tanstack/react-query";
 
-import { toast } from "@workspace/ui/components/sonner";
-
 import {
   activeRunsQueryKeys,
   activeRunsToTrackArgs,
+  syncRunHistory,
   fetchActiveRuns,
   type Run,
 } from "@/lib/services/chat/active-runs";
@@ -35,6 +34,9 @@ import {
   resolveTerminalRun,
 } from "@/lib/services/chat/run-notifications";
 import type { RunMessage, RunPhase } from "@/lib/services/live/live-messages";
+
+import { toast } from "@workspace/ui/components/sonner";
+
 import {
   useActiveRunQueries,
   useOptionalLiveUpdates,
@@ -380,10 +382,17 @@ function notifyTerminalRun(
 function processRunQueries(
   activeEntries: ReadonlyArray<ActiveEntry>,
   runQueries: ReadonlyArray<ActiveRunQuery>,
-  deps: TerminalRunHandlerDeps,
+  deps: TerminalRunHandlerDeps & { syncedRuns: WeakSet<Run> },
 ): void {
   activeEntries.forEach(([runId, meta], index) => {
-    handleTerminalRun(runId, meta, runQueries[index]?.data, deps);
+    const run = runQueries[index]?.data;
+
+    if (run && !isTerminalRunStatus(run.status) && !deps.syncedRuns.has(run)) {
+      deps.syncedRuns.add(run);
+      syncRunHistory(deps.queryClient, meta.chatId, run);
+    }
+
+    handleTerminalRun(runId, meta, run, deps);
   });
 }
 
@@ -406,13 +415,14 @@ function useRunCompletionEffects(params: {
   } = params;
 
   const runQueries = useActiveRunQueries(activeEntries);
-  const runStatusByChatId = useRunStatusesByChat(activeEntries, runQueries);
 
   const handledRunIds = useRef(new Set<string>());
+  const syncedRuns = useRef(new WeakSet<Run>());
 
   useEffect(() => {
     processRunQueries(activeEntries, runQueries, {
       handledRunIds,
+      syncedRuns: syncedRuns.current,
       drop,
       queryClient,
       setOutcomes,
@@ -429,7 +439,7 @@ function useRunCompletionEffects(params: {
     routerRef,
   ]);
 
-  return runStatusByChatId;
+  return useRunStatusesByChat(activeEntries, runQueries);
 }
 
 function useRouterRef(): MutableRefObject<ReturnType<typeof useRouter>> {
@@ -511,10 +521,10 @@ export function nextRunPhases(
 /**
  * Applies live run messages. `run.updated` carries the Run record: a Run
  * started elsewhere is tracked (so the sidebar shows it processing and its
- * completion notifies), and the record is written into the run's query cache
- * so the existing terminal handling fires without a poll; a terminal cached
- * status is never overwritten by a later non-terminal one. `run.progress`
- * keeps the per-chat phase.
+ * completion notifies), and the event updates both the matching latest-history
+ * entry and the run query cache so waiting and terminal state need no poll.
+ * A terminal cached status is never overwritten by a later non-terminal one.
+ * `run.progress` keeps the per-chat phase.
  */
 function useLiveRunProgress(
   trackRun: ActiveRunsContextValue["trackRun"],
@@ -539,10 +549,15 @@ function useLiveRunProgress(
       // Terminal too: coalescing can deliver a Run's first message already
       // finished, and its completion must still notify this tab.
       trackRun(run.id, run.chatId, cachedChatTitle(queryClient, run.chatId));
+      void queryClient.cancelQueries({
+        queryKey: activeRunsQueryKeys.run(run.id),
+        exact: true,
+      });
       queryClient.setQueryData<Run | null>(
         activeRunsQueryKeys.run(run.id),
         (prev) => (prev && isTerminalRunStatus(prev.status) ? prev : run),
       );
+      syncRunHistory(queryClient, run.chatId, run);
     });
   }, [subscribe, trackRun, queryClient]);
 
