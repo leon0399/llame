@@ -35,7 +35,7 @@ Done when the issue has an assignee or a trigger, and its readiness check passed
 4. Check the **claim**: a live branch, open PR, or `working:*` label with a live `llame:pickup` marker on the same unit belongs to someone else, so stop.
 5. For `agent:implement` on a cutover, every earlier cutover in the change's graph is done or handed off; otherwise stop.
 6. **Mark the pickup**: add the `working:*` label for your stage, assign the issue, and post the `llame:pickup` marker comment that CONTRIBUTING.md shows.
-7. For `agent:spec`, post open questions as one grilling round on the issue, wait for a person's reply, then follow CONTRIBUTING.md "Proposal layer".
+7. For `agent:spec`, grill on the open questions in your own session, write each settled decision onto the issue (body or one decision comment), then follow CONTRIBUTING.md "Proposal layer". Use issue comments for the grilling only when you have no session a person can reach.
 8. For `agent:implement`, follow CONTRIBUTING.md "Implementation layers".
 9. **Release** when the item waits only on a person (the release table in CONTRIBUTING.md): remove the `working:*` label and post the `llame:release` marker with outcome `handed-back` or `done`. Resuming later, for example on review feedback, starts again at step 6.
 
@@ -43,6 +43,6 @@ Done when the release marker is posted and the Project item matches the PRs.
 
 ## Stop
 
-Add `needs:human` and one comment that names what is missing and the options you see. Remove your `working:*` label, post the `llame:release` marker with outcome `stopped`, then end the run. Typical causes: a brief that fails the stranger test, a spec that contradicts itself, a held claim, an earlier cutover not handed off, or a fix that changes a documented contract.
+Add `needs:human` and one comment that names what is missing, the options you see, and the session to answer in. Remove your `working:*` label, post the `llame:release` marker with outcome `stopped`, then end the run. Typical causes: a brief that fails the stranger test, a spec that contradicts itself, a held claim, an earlier cutover not handed off, or a fix that changes a documented contract.
 
 Done when the comment lets a person decide without asking you anything.

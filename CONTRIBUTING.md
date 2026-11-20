@@ -210,8 +210,19 @@ feature's change, and at most one implementer works each dependency chain of
 that change. Work without a branch, such as a triage, is claimed by its live
 `working:*` label and marker. Work that finds a live claim stops.
 `agent:implement` on a cutover whose earlier cutovers are neither done nor
-handed off stops with `needs:human`. A spec writer that needs answers posts one
-grilling round on the issue and waits for a reply from a person.
+handed off stops with `needs:human`.
+
+### Talking to the worker
+
+Conversation with an agent happens in its own session: a terminal pane, a cloud
+session, or a llame Chat. The pickup marker's `session` field says where to
+find it, and a `needs:human` comment names the session to answer in. Issue
+comments carry the conversation only for an engine that has no session
+interface.
+
+The issue carries the record. When a grilling round settles, the agent writes
+each decision into the issue body, or into one decision comment, as a gist plus
+its reason, so the next worker starts from the issue without the transcript.
 
 ## Feature delivery
 
