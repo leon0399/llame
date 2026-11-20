@@ -1,3 +1,5 @@
+import { isRecord } from '@workspace/runtime-safety';
+
 import { ChatsRepository } from '../chats/chats-repository';
 import { ChatDeliveriesRepository } from '../chats/chat-deliveries.repository';
 import { MessagesRepository } from '../chats/messages-repository';
@@ -13,6 +15,10 @@ import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
 import { type InstanceConfigReader } from '../instance-config/instance-config.service';
 import { ChatJobsRepository } from '../jobs/chat-jobs.repository';
 import { asDouble } from '../testing/support';
+import {
+  quotaRequestFromEvents,
+  quotaWakeStateFromEvents,
+} from './quota-wake-projection';
 import { type RunDispatchService } from './run-dispatch.service';
 import { RunEventsRepository, RunsRepository } from './runs-repository';
 import {
@@ -20,6 +26,7 @@ import {
   type SuspendRunQuotaInput,
   type SuspendRunWaitInput,
 } from './run-wait.service';
+import { type FirstEpochBaselines } from './segment-delivery';
 
 const now = new Date('2026-11-14T00:00:00.000Z');
 
@@ -181,6 +188,56 @@ function makeFixture(
 
 afterEach(() => vi.restoreAllMocks());
 
+/**
+ * Decodes the suspension checkpoint the service durably appended, the way the
+ * `run_events.payload` jsonb column would give it back, and replays it through
+ * the quota wake projection as a claimed resume boundary.
+ */
+function replayedSuspension(append: {
+  mock: { calls: ReadonlyArray<[string, string, unknown?]> };
+}) {
+  const appended = append.mock.calls.find(
+    ([, eventType]) => eventType === 'run.suspended',
+  );
+
+  if (appended === undefined)
+    throw new Error('The Run appended no suspension checkpoint.');
+
+  const parsed: unknown = JSON.parse(JSON.stringify(appended[2]));
+
+  if (!isRecord(parsed))
+    throw new Error('The suspension checkpoint is not an object.');
+
+  const attemptId = 'wake-attempt';
+  const generation = 5;
+
+  const events: Array<RunEvent> = [
+    {
+      sequence: 1,
+      runId: quotaInput.runId,
+      eventType: 'run.suspended',
+      payload: parsed,
+      createdAt: now,
+    },
+    {
+      sequence: 2,
+      runId: quotaInput.runId,
+      eventType: 'run.resumed',
+      payload: { kind: 'quota', attemptId, generation },
+      createdAt: now,
+    },
+    {
+      sequence: 3,
+      runId: quotaInput.runId,
+      eventType: 'run.started',
+      payload: { attemptId },
+      createdAt: now,
+    },
+  ];
+
+  return { attemptId, events };
+}
+
 describe('RunWaitService.suspendForQuota', () => {
   it('fences and queues a quota checkpoint for its persisted wake time', async () => {
     const fixture = makeFixture();
@@ -236,6 +293,116 @@ describe('RunWaitService.suspendForQuota', () => {
     );
 
     expect(fixture.enqueueInTransaction).not.toHaveBeenCalled();
+  });
+
+  it('rejects an ordinary Run whose triggering message id is missing', async () => {
+    const fixture = makeFixture({
+      run: makeRun({ kind: 'turn', messageId: null }),
+    });
+
+    await expect(fixture.service.suspendForQuota(quotaInput)).rejects.toThrow(
+      quotaInput.runId,
+    );
+
+    expect(fixture.findMessage).not.toHaveBeenCalled();
+    expect(fixture.enqueueInTransaction).not.toHaveBeenCalled();
+  });
+
+  it('queues a message-less compaction without a triggering message', async () => {
+    const fixture = makeFixture({
+      run: makeRun({ kind: 'compaction', messageId: null }),
+    });
+
+    await expect(fixture.service.suspendForQuota(quotaInput)).resolves.toEqual({
+      kind: 'suspended',
+    });
+
+    expect(fixture.findMessage).not.toHaveBeenCalled();
+
+    const [, dispatchInput, options] =
+      fixture.enqueueInTransaction.mock.calls[0] ?? [];
+
+    expect(dispatchInput).toMatchObject({
+      runId: quotaInput.runId,
+      wake: { generation: 5 },
+    });
+    expect(dispatchInput).not.toHaveProperty('userMessage');
+    expect(options?.id).toBe(
+      fixture.updateForAttempt.mock.lastCall?.[3]?.currentJobId,
+    );
+  });
+
+  it('rehydrates every frozen boundary field from its persisted checkpoint', async () => {
+    const fixture = makeFixture();
+
+    const baselines: FirstEpochBaselines = {
+      recencyDigestInitialization: {
+        baseline: {
+          pinned: [{ title: 'pinned', date: '2026-11-01', messageCount: 2 }],
+          recent: [
+            {
+              title: 'recent',
+              date: '2026-11-02',
+              messageCount: 3,
+              excerpt: 'excerpt',
+            },
+          ],
+          pinnedShown: 1,
+          pinnedTotal: 1,
+          recentShown: 1,
+          recentTotal: 1,
+          compiledOn: '2026-11-14T00:00:00.000Z',
+        },
+        told: [{ chatId: quotaInput.chatId, pinned: true }],
+      },
+      skillCatalogFreeze: {
+        baseline: {
+          entries: [{ name: 'skill-a', description: 'does a' }],
+          omitted: 0,
+        },
+        rebakedFrom: null,
+        told: ['skill-a'],
+      },
+    };
+
+    const boundaryInput: SuspendRunQuotaInput = {
+      ...quotaInput,
+      awaiting: { ...quotaAwaiting, resumeAt: 'boundary' },
+      parts: [
+        { type: 'tool-read', toolCallId: 'call-a' },
+        { type: 'text', text: 'after the call' },
+      ],
+      steps: { 'call-a': 0 },
+      stoppedCalls: [{ toolName: 'bash', toolCallId: 'bash-1' }],
+      stepBudgetUsed: 0,
+      boundaryMode: 'owner',
+      summaryAttemptId: 'summary-attempt',
+      summaryPrefixFingerprint: 'a'.repeat(64),
+      baselines,
+    };
+
+    await expect(
+      fixture.service.suspendForQuota(boundaryInput),
+    ).resolves.toEqual({ kind: 'suspended' });
+
+    const { attemptId, events } = replayedSuspension(fixture.append);
+
+    expect(quotaRequestFromEvents(events)).toEqual({
+      resumeAt: 'boundary',
+      waitCount: 1,
+      generation: 5,
+      boundaryMode: 'owner',
+      stepBudgetUsed: 0,
+      summaryAttemptId: 'summary-attempt',
+      summaryPrefixFingerprint: 'a'.repeat(64),
+      baselines,
+      stoppedCalls: [{ toolName: 'bash', toolCallId: 'bash-1' }],
+    });
+
+    expect(quotaWakeStateFromEvents(events, attemptId)?.parts).toEqual([
+      { type: 'tool-read', toolCallId: 'call-a', step: 0 },
+      { type: 'text', text: 'after the call', step: 0 },
+    ]);
   });
 
   it('does not suspend when cancellation was already requested', async () => {

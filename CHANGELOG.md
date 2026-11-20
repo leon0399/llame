@@ -1,5 +1,10 @@
 _Reverse-chronological record of shipped work — features, fixes, and chores. Newest first._
 
+# 2026-11-20
+
+- Strengthen summary quota-wake regressions for durable checkpoint recovery,
+  claim ownership, original execution context, and completed reply retention.
+
 # 2026-11-19
 
 - Preserve completed replies exactly once when summary quota waits are

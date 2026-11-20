@@ -4,6 +4,7 @@ import {
   quotaCompactionStateFromEvents,
   quotaRequestFromEvents,
   quotaResumeAttemptId,
+  quotaSummaryWakeFromEvents,
   quotaWakeStateFromEvents,
 } from './quota-wake-projection';
 
@@ -597,5 +598,239 @@ describe('quota wake projection', () => {
         ]),
       ).toBeUndefined();
     }
+  });
+});
+
+const digestBaseline = {
+  pinned: [],
+  recent: [
+    {
+      title: 'Earlier chat',
+      date: '2026-10-01',
+      messageCount: 4,
+      excerpt: 'A prior turn',
+    },
+  ],
+  pinnedShown: 0,
+  pinnedTotal: 0,
+  recentShown: 1,
+  recentTotal: 1,
+  compiledOn: '2026-10-01T00:00:00.000Z',
+};
+
+const recencyBaseline = {
+  baseline: digestBaseline,
+  told: [{ chatId: 'chat-a', pinned: false, title: 'Earlier chat' }],
+};
+
+const skillBaseline = {
+  baseline: {
+    entries: [{ name: 'review', description: 'Reviews a diff' }],
+    omitted: 2,
+  },
+  rebakedFrom: '2026-09-01T00:00:00.000Z',
+  told: ['review'],
+};
+
+function resumedClaim(
+  sequence: number,
+  attemptId: string,
+  generation: number,
+): RunEvent {
+  return event(sequence, 'run.resumed', {
+    kind: 'quota',
+    attemptId,
+    generation,
+    cause: 'timeout',
+  });
+}
+
+function startedAttempt(sequence: number, attemptId: string): RunEvent {
+  return event(sequence, 'run.started', { attemptId });
+}
+
+describe('quota summary wake ownership', () => {
+  it.each(['boundary', 'finalAnswer'])(
+    'keeps the saved %s summary reply after its own recovery commits',
+    (resumeAt) => {
+      const events = [
+        quotaSuspension(3, 3, resumeAt),
+        resumedClaim(2, 'wake-attempt', 3),
+        startedAttempt(3, 'wake-attempt'),
+        event(4, 'run.quota_recovered', { generation: 3, resumeAt }),
+      ];
+
+      expect(quotaRequestFromEvents(events)).toBeUndefined();
+      expect(quotaSummaryWakeFromEvents(events, 'wake-attempt')).toBe(true);
+      expect(
+        quotaSummaryWakeFromEvents(
+          [...events, startedAttempt(5, 'redelivery')],
+          'redelivery',
+        ),
+      ).toBe(false);
+    },
+  );
+
+  it('refuses summary ownership to ordinary and foreign wake claims', () => {
+    const legacyJobWait = [
+      event(1, 'run.suspended', {
+        attemptId: 'suspended-attempt',
+        generation: 3,
+        toolCallId: 'tool-1',
+        parts: [{ type: 'text', text: 'legacy jobs', step: 0 }],
+        steps: {},
+        awaiting: {},
+      }),
+      resumedClaim(2, 'wake-attempt', 3),
+      startedAttempt(3, 'wake-attempt'),
+    ];
+
+    expect(quotaSummaryWakeFromEvents(legacyJobWait, 'wake-attempt')).toBe(
+      false,
+    );
+
+    expect(
+      quotaSummaryWakeFromEvents(
+        [
+          quotaSuspension(3, 2, 'preDispatch'),
+          resumedClaim(2, 'wake-attempt', 3),
+          startedAttempt(3, 'wake-attempt'),
+        ],
+        'wake-attempt',
+      ),
+    ).toBe(false);
+
+    expect(
+      quotaSummaryWakeFromEvents(
+        [
+          quotaSuspension(3, 2, 'compactionRun'),
+          resumedClaim(2, 'wake-attempt', 3),
+          startedAttempt(3, 'wake-attempt'),
+        ],
+        'wake-attempt',
+      ),
+    ).toBe(false);
+
+    expect(
+      quotaSummaryWakeFromEvents(
+        [quotaSuspension(3, 2, 'boundary'), startedAttempt(2, 'other-attempt')],
+        'wake-attempt',
+      ),
+    ).toBe(false);
+
+    expect(
+      quotaSummaryWakeFromEvents(
+        [
+          quotaSuspension(3, 2, 'boundary'),
+          startedAttempt(2, 'wake-attempt'),
+          startedAttempt(3, 'redelivery'),
+        ],
+        'wake-attempt',
+      ),
+    ).toBe(false);
+  });
+
+  it('keeps an open summary with the latest attempt after redelivery', () => {
+    const events = [
+      quotaSuspension(3, 2, 'boundary'),
+      resumedClaim(2, 'wake-attempt', 3),
+      startedAttempt(3, 'wake-attempt'),
+      startedAttempt(4, 'retry-attempt'),
+    ];
+
+    expect(quotaSummaryWakeFromEvents(events, 'retry-attempt')).toBe(true);
+  });
+});
+
+describe('quota summary checkpoint attribution', () => {
+  it('preserves the last readable checkpoint when a later record is malformed', () => {
+    const events = [
+      event(1, 'run.suspended', {
+        ...quotaPayload(1, 1, 'boundary'),
+        parts: [{ type: 'text', text: 'saved boundary reply', step: 0 }],
+        steps: {},
+      }),
+      resumedClaim(2, 'wake-attempt', 1),
+      startedAttempt(3, 'wake-attempt'),
+      event(4, 'run.suspended', {
+        ...quotaPayload(2, 2, 'boundary'),
+        failureClass: 'unknown',
+        parts: [{ type: 'text', text: 'unreadable reply', step: 1 }],
+        steps: {},
+      }),
+    ];
+
+    const request = quotaRequestFromEvents(events);
+
+    expect(request?.generation).toBe(1);
+    expect(quotaCompactionStateFromEvents(events, request)).toEqual({
+      parts: [{ type: 'text', text: 'saved boundary reply', step: 0 }],
+    });
+  });
+});
+
+describe('quota checkpoint metadata projection', () => {
+  const summaryCheckpoint = {
+    ...quotaPayload(5, 2, 'boundary'),
+    boundaryMode: 'automatic',
+    stepBudgetUsed: 12,
+    summaryAttemptId: 'summary-attempt',
+    summaryPrefixFingerprint: 'sha256:prefix',
+    baselines: { recencyDigestInitialization: recencyBaseline },
+    stoppedCalls: [{ toolName: 'bash', toolCallId: 'call-1' }],
+  };
+
+  it('carries every boundary checkpoint field of the open request', () => {
+    expect(
+      quotaRequestFromEvents([event(1, 'run.suspended', summaryCheckpoint)]),
+    ).toEqual({
+      resumeAt: 'boundary',
+      waitCount: 2,
+      generation: 5,
+      boundaryMode: 'automatic',
+      stepBudgetUsed: 12,
+      summaryAttemptId: 'summary-attempt',
+      summaryPrefixFingerprint: 'sha256:prefix',
+      baselines: { recencyDigestInitialization: recencyBaseline },
+      stoppedCalls: [{ toolName: 'bash', toolCallId: 'call-1' }],
+    });
+  });
+
+  it('drops the boundary-only mode and stop list from a final-answer request', () => {
+    expect(
+      quotaRequestFromEvents([
+        event(1, 'run.suspended', {
+          ...summaryCheckpoint,
+          resumeAt: 'finalAnswer',
+          boundaryMode: 'owner',
+        }),
+      ]),
+    ).toEqual({
+      resumeAt: 'finalAnswer',
+      waitCount: 2,
+      generation: 5,
+      stepBudgetUsed: 12,
+      summaryAttemptId: 'summary-attempt',
+      summaryPrefixFingerprint: 'sha256:prefix',
+      baselines: { recencyDigestInitialization: recencyBaseline },
+    });
+  });
+
+  it('keeps a skill catalog freeze without a recency digest baseline', () => {
+    const baselines = { skillCatalogFreeze: skillBaseline };
+
+    expect(
+      quotaRequestFromEvents([
+        event(1, 'run.suspended', {
+          ...quotaPayload(3, 2, 'boundary'),
+          baselines,
+        }),
+      ]),
+    ).toEqual({
+      resumeAt: 'boundary',
+      waitCount: 2,
+      generation: 3,
+      baselines,
+    });
   });
 });

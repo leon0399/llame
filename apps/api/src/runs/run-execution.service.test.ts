@@ -71,7 +71,10 @@ import { chatDeliveryRow } from '../testing/chat-delivery-rows';
 import { toMessageParts } from '../chats/chat-message-parts';
 import { asDouble } from '../testing/support';
 import type { JobNoticeRunService } from './job-notice-run.service';
-import { type RunDispatcher } from './run-dispatch.service';
+import {
+  type RunDispatcher,
+  type RunDispatchService,
+} from './run-dispatch.service';
 import {
   RunAbortRegistry,
   type RunSegmentRegistrar,
@@ -197,6 +200,7 @@ import {
 import { NativeReceiptsRepository } from './native-receipts-repository';
 import { RunRowFenceRepository } from './run-row-fence.repository';
 import {
+  createAssistantPartCollector,
   reconstructDurableAssistant,
   toolActivityPart,
 } from './assistant-transcript';
@@ -204,6 +208,7 @@ import type {
   CompactionCapability,
   CompactionSummary,
 } from '../compaction/compaction.service';
+import { CompactionQuotaWait } from '../compaction/compaction-quota-wait';
 import {
   estimateContinuationTokens,
   estimateModelRequestTokens,
@@ -265,6 +270,11 @@ import {
   unregisterTestOnlyTool,
 } from '../tools/registry';
 import { RunWaitService } from './run-wait.service';
+import * as segmentDelivery from './segment-delivery';
+import {
+  quotaRequestFromEvents,
+  type QuotaRequestState,
+} from './quota-wake-projection';
 import { waitTool } from '../tools/wait';
 import { WAIT_SUSPENSION } from '../tools/wait-suspension';
 
@@ -3417,6 +3427,110 @@ describe('RunExecutionService executeRun', () => {
         );
       },
     );
+
+    it('charges only the steps completed before a mid-wake quota suspension', async () => {
+      const spies = mockNormalExecutionRepositories();
+      spies.findById.mockResolvedValue({
+        ...run,
+        activeAttemptId: testAttemptId,
+      });
+      vi.spyOn(
+        RunRowFenceRepository.prototype,
+        'lockForDelivery',
+      ).mockResolvedValue({ ...run, activeAttemptId: testAttemptId });
+      // This wake inherited two charged steps from the compaction that
+      // delivered it, and its suspended reply already carries one that cost
+      // nothing.
+      vi.spyOn(RunEventsRepository.prototype, 'listByRunId').mockImplementation(
+        (_runId, _userId, options) =>
+          Promise.resolve(
+            options?.eventTypes?.includes('run.delivered') === true
+              ? [
+                  {
+                    ...event,
+                    eventType: 'run.delivered' as const,
+                    payload: { cause: 'compaction', stepBudgetUsed: 2 },
+                  },
+                ]
+              : [],
+          ),
+      );
+
+      const failure = new ProviderFailure('Usage limit', {
+        code: 'quota_exhausted',
+        resetsAt: Date.now() + 7_200_000,
+      });
+
+      const { client } = createToolLoopClient([
+        providerResponse(
+          [
+            {
+              type: 'tool-call',
+              toolCallId: 'charged-1',
+              toolName: toolDeclaration.id,
+              input: '{"q":"first"}',
+            },
+            {
+              type: 'tool-call',
+              toolCallId: 'charged-2',
+              toolName: toolDeclaration.id,
+              input: '{"q":"second"}',
+            },
+          ],
+          'tool-calls',
+        ),
+        providerResponse([{ type: 'error', error: failure }], 'stop'),
+      ]);
+
+      const suspendForQuota = vi
+        .fn<RunWaitService['suspendForQuota']>()
+        .mockResolvedValue({ kind: 'suspended' });
+
+      const execution = makeExecutionService(
+        client,
+        makeDynamicResolver({
+          id: toolDeclaration.id,
+          description: toolDeclaration.description,
+          classification: 'unverified',
+          inputSchema: toolDeclaration.inputSchema,
+          execute: () => Promise.resolve({ status: 'success' as const }),
+        }),
+        undefined,
+        {
+          ...withDeclaredTool(),
+          runWait: asDouble<RunWaitService>({ suspendForQuota }),
+        },
+      );
+
+      vi.spyOn(execution.service, 'claimRun').mockResolvedValue({
+        attemptId: testAttemptId,
+        effort: undefined,
+        messageId,
+        nativeDeliverySequence: 1,
+        permissionMode: 'default',
+        wakeState: {
+          parts: toMessageParts([{ type: 'text', text: 'inherited step' }]),
+        },
+        quotaRequest: {
+          generation: 13,
+          resumeAt: 'request',
+          waitCount: 3,
+          stepBudgetUsed: 5,
+        },
+        quotaWake: true,
+      });
+
+      const result = await execution.service.executeRun(executionInput(client));
+      await Promise.allSettled([result.text, result.consumeStream()]);
+
+      expect(suspendForQuota).toHaveBeenCalledOnce();
+      expect(suspendForQuota.mock.lastCall?.[0]).toMatchObject({
+        awaiting: { resumeAt: 'request', waitCount: 1 },
+        // Two inherited charged steps, three more from this wake, and the one
+        // completed step here; the failed send itself costs nothing.
+        stepBudgetUsed: 6,
+      });
+    });
 
     it('publishes a staged in-Run item after the step tool part on completion', async () => {
       const notice = workspaceNotice(runId);
@@ -23302,6 +23416,165 @@ describe('RunExecutionService executeRun — run segments', () => {
       generation: 8,
       resumeAt: 'finalAnswer',
     });
+    // One summary resumed from this wait, so the recovery is recorded once.
+    expect(
+      appended.filter(({ type }) => type === 'run.quota_recovered'),
+    ).toHaveLength(1);
+  });
+
+  it('re-parks a final-answer summary with its accumulated charge and original prefix', async () => {
+    const spies = mockNormalExecutionRepositories();
+    spies.findById.mockResolvedValue({
+      ...run,
+      activeAttemptId: testAttemptId,
+    });
+    vi.spyOn(MessagesRepository.prototype, 'findByChatId').mockResolvedValue([
+      { ...userMessage, seq: 1 },
+      {
+        ...assistantMessage,
+        id: committedTurnReplyId,
+        seq: 2,
+        inReplyTo: userMessage.id,
+      },
+    ]);
+
+    const compact = {
+      ...pendingItem,
+      parts: [{ type: 'text', text: '/compact keep the requested details' }],
+    };
+
+    vi.spyOn(
+      ChatDeliveriesRepository.prototype,
+      'listPending',
+    ).mockResolvedValue([compact]);
+    vi.spyOn(MessagesRepository.prototype, 'create').mockResolvedValue(
+      deliveredMessage,
+    );
+    vi.spyOn(
+      ChatDeliveriesRepository.prototype,
+      'stepEndSignal',
+    ).mockResolvedValue('delivery');
+    const appended = recordAppendedEvents();
+    serveCheckpointPublication();
+
+    const realClient = createToolLoopClient([
+      providerText('The final answer.'),
+    ]);
+
+    const suspendForQuota = vi
+      .fn<RunWaitService['suspendForQuota']>()
+      .mockResolvedValue({ kind: 'suspended' });
+
+    const execution = toolService(
+      realClient.client,
+      asDouble<RunWaitService>({ suspendForQuota }),
+    );
+
+    const quota = () =>
+      new ProviderFailure('The provider quota is exhausted.', {
+        code: 'quota_exhausted',
+        resetsAt: Date.now() + 120_000,
+        statusCode: 429,
+      });
+
+    const summarize = vi.spyOn(execution.compaction, 'computeBoundarySummary');
+    summarize.mockRejectedValueOnce(quota()).mockRejectedValueOnce(quota());
+
+    const input = executionInput(realClient.client);
+
+    const request = {
+      ...input,
+      userMessage: { ...input.userMessage, seq: 3 },
+    };
+
+    const result = await execution.service.executeRun(request);
+    serveDelivery([compact]);
+
+    try {
+      await result.consumeStream();
+    } catch (error) {
+      expect(error).toBeInstanceOf(RunNotRunnableError);
+    }
+
+    const firstSummary = summarize.mock.calls[0]?.[0];
+
+    if (firstSummary === undefined)
+      throw new Error('The suspended summary request is absent.');
+
+    const firstSuspension = suspendForQuota.mock.lastCall?.[0];
+
+    if (firstSuspension === undefined)
+      throw new Error('The quota checkpoint is absent.');
+
+    // This wake starts two charged steps behind a compaction delivery.
+    appended.push(
+      {
+        type: 'run.delivered',
+        payload: { cause: 'compaction', stepBudgetUsed: 2 },
+      },
+      {
+        type: 'run.suspended',
+        payload: {
+          ...firstSuspension,
+          ...firstSuspension.awaiting,
+          generation: 8,
+          stepBudgetUsed: 4,
+        },
+      },
+      {
+        type: 'run.resumed',
+        payload: {
+          kind: 'quota',
+          generation: 8,
+          attemptId: 'summary-wake-attempt',
+          cause: 'timeout',
+        },
+      },
+      {
+        type: 'run.started',
+        payload: { attemptId: 'summary-wake-attempt' },
+      },
+    );
+    serveSummaryReceipt(() => firstSummary.system);
+    replayAppendedEvents(appended);
+
+    spies.findById.mockResolvedValue({
+      ...run,
+      activeAttemptId: 'summary-wake-attempt',
+    });
+    vi.spyOn(execution.service, 'claimRun').mockResolvedValue({
+      attemptId: 'summary-wake-attempt',
+      effort: undefined,
+      messageId,
+      nativeDeliverySequence: 1,
+      permissionMode: 'default',
+      wakeState: {
+        parts: toMessageParts(firstSuspension.parts ?? []),
+      },
+      quotaRequest: {
+        generation: 8,
+        resumeAt: 'finalAnswer',
+        waitCount: 1,
+        stepBudgetUsed: 4,
+        ...resumedSummaryWait(firstSummary),
+      },
+      quotaWake: true,
+    });
+
+    await expect(execution.service.executeRun(request)).rejects.toBeInstanceOf(
+      RunNotRunnableError,
+    );
+
+    expect(suspendForQuota).toHaveBeenCalledTimes(2);
+    expect(suspendForQuota.mock.lastCall?.[0]).toMatchObject({
+      awaiting: { resumeAt: 'finalAnswer' },
+      // Two charged steps came from the compaction delivery; this wake keeps
+      // the four it had charged rather than refunding the offset twice.
+      stepBudgetUsed: 4,
+      summaryAttemptId: testAttemptId,
+      summaryPrefixFingerprint: firstSuspension.summaryPrefixFingerprint,
+    });
+    expect(realClient.requests).toHaveLength(1);
   });
 
   it('reuses the original receipt prefix when personalization changes during a final-answer wait', async () => {
@@ -23596,6 +23869,11 @@ describe('RunExecutionService executeRun — run segments', () => {
     expect(appended.some(({ type }) => type === 'run.compaction_failed')).toBe(
       true,
     );
+    // The refused summary never published, so the final answer still closes
+    // the wait exactly once.
+    expect(
+      appended.filter(({ type }) => type === 'run.quota_recovered'),
+    ).toHaveLength(1);
   });
 
   it('keeps the whole step cap after a pre-dispatch quota wake on a continued reply', async () => {
@@ -23651,11 +23929,30 @@ describe('RunExecutionService executeRun — run segments', () => {
       quotaWake: true,
     });
 
+    const appended = recordAppendedEvents();
+
     const resumed = await execution.service.executeRun(
       executionInput(realClient.client),
     );
 
     await resumed.consumeStream();
+
+    // The pre-dispatch wait closes when this attempt's own request is about to
+    // be dispatched, exactly once.
+    const recoveries = appended.filter(
+      ({ type }) => type === 'run.quota_recovered',
+    );
+
+    expect(recoveries).toHaveLength(1);
+    expect(recoveries[0]?.payload).toMatchObject({
+      generation: 9,
+      resumeAt: 'preDispatch',
+    });
+    expect(
+      appended.findIndex(({ type }) => type === 'run.quota_recovered'),
+    ).toBeLessThan(
+      appended.findIndex(({ type }) => type === 'model.requested'),
+    );
 
     expect(realClient.requests).toHaveLength(6);
     expect(
@@ -28188,6 +28485,8 @@ describe('RunExecutionService executeRun — owner interrupt settlement', () => 
 });
 
 describe('RunExecutionService compaction completion', () => {
+  afterEach(() => vi.restoreAllMocks());
+
   it.each([
     ['a successful attempt', false, 'completed'],
     ['a cancellation requested before completion', true, 'cancelled'],
@@ -28222,6 +28521,11 @@ describe('RunExecutionService compaction completion', () => {
         abortSignal: new AbortController().signal,
         expectedQueueIdentity: { currentJobId: null, wakeGeneration: 0 },
         focus: null,
+        quotaRequest: {
+          generation: 4,
+          resumeAt: 'compactionRun',
+          waitCount: 2,
+        },
       });
 
       expect(repositories.updateForAttempt).toHaveBeenCalledWith(
@@ -28247,6 +28551,24 @@ describe('RunExecutionService compaction completion', () => {
         `run.${expectedStatus}`,
         { status: expectedStatus },
       );
+
+      // A compaction Run finishing after a quota wait records that recovery
+      // exactly when it reaches the completed terminal state.
+      const recoveries = repositories.appendEvent.mock.calls.filter(
+        ([, eventType]) => eventType === 'run.quota_recovered',
+      );
+
+      if (expectedStatus === 'completed') {
+        expect(recoveries).toEqual([
+          [
+            runId,
+            'run.quota_recovered',
+            { generation: 4, resumeAt: 'compactionRun' },
+          ],
+        ]);
+      } else {
+        expect(recoveries).toEqual([]);
+      }
     },
   );
 
@@ -28568,6 +28890,825 @@ describe('RunExecutionService claimRun', () => {
     expect(Object.hasOwn(finishOptions ?? {}, 'expectedQueueIdentity')).toBe(
       false,
     );
+  });
+});
+
+describe('RunExecutionService suspendCompactionForQuota', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  function quotaFailure() {
+    return new ProviderFailure('The provider quota is exhausted.', {
+      code: 'quota_exhausted',
+      resetsAt: Date.now() + 120_000,
+      statusCode: 429,
+    });
+  }
+
+  it('rehydrates the suspended summary through the durable wait service', async () => {
+    mockNormalExecutionRepositories();
+    const appended = recordAppendedEvents();
+    const db: Db = drizzle.mock();
+
+    const tenantDb = new TenantDbService({
+      transaction: async <T>(work: (tx: Db) => Promise<T>) => work(db),
+    });
+
+    vi.spyOn(tenantDb, 'runAs').mockImplementation(
+      async <T>(_owner: string, work: (tx: Db) => Promise<T>) => work(db),
+    );
+
+    const enqueueInTransaction = vi
+      .fn<RunDispatchService['enqueueInTransaction']>()
+      .mockResolvedValue(undefined);
+
+    const wait = new RunWaitService(
+      tenantDb,
+      { enqueueInTransaction },
+      { config: BUILT_IN_DEFAULTS },
+    );
+
+    const execution = makeExecutionService(undefined, undefined, undefined, {
+      runWait: wait,
+    });
+
+    mockCompactionCompletionFence(
+      { db },
+      { ...run, activeAttemptId: testAttemptId, wakeGeneration: 4 },
+    );
+    vi.spyOn(MessagesRepository.prototype, 'findById').mockResolvedValue(
+      userMessage,
+    );
+
+    const baselines = {
+      recencyDigestInitialization: { baseline: digestBaseline, told: [] },
+    };
+
+    const parts = [{ type: 'text' as const, text: 'kept answer prefix' }];
+
+    const stoppedCalls = [
+      { toolName: 'mcp__demo__lookup', toolCallId: 'stopped-call' },
+    ];
+
+    const resetsAt = Date.now() + 120_000;
+
+    expect(
+      await execution.service.suspendCompactionForQuota({
+        run: { runId, chatId, userId },
+        attemptId: testAttemptId,
+        error: new ProviderFailure('The provider quota is exhausted.', {
+          code: 'quota_exhausted',
+          resetsAt,
+          statusCode: 429,
+        }),
+        request: { generation: 4, resumeAt: 'boundary', waitCount: 1 },
+        resumeAt: 'boundary',
+        parts,
+        stoppedCalls,
+        stepBudgetUsed: 3,
+        boundaryMode: 'owner',
+        summaryAttemptId: 'source-summary-attempt',
+        summaryPrefixFingerprint: 'source-prefix-fingerprint',
+        baselines,
+      }),
+    ).toBe(true);
+
+    const log: Array<RunEvent> = appended.map(({ type, payload }, index) => {
+      const serialized: unknown = JSON.parse(JSON.stringify(payload));
+
+      return {
+        ...event,
+        sequence: index + 1,
+        eventType: type,
+        payload: serialized,
+      };
+    });
+
+    expect(quotaRequestFromEvents(log)).toEqual({
+      generation: 5,
+      resumeAt: 'boundary',
+      waitCount: 2,
+      stoppedCalls,
+      stepBudgetUsed: 3,
+      boundaryMode: 'owner',
+      summaryAttemptId: 'source-summary-attempt',
+      summaryPrefixFingerprint: 'source-prefix-fingerprint',
+      baselines,
+    });
+    const wakeAt = enqueueInTransaction.mock.lastCall?.[2]?.startAfter;
+
+    if (!(wakeAt instanceof Date))
+      throw new Error('The wake deadline is absent.');
+    expect(wakeAt.getTime()).toBeGreaterThanOrEqual(resetsAt + 60_000);
+    expect(wakeAt.getTime()).toBeLessThanOrEqual(resetsAt + 78_000);
+  });
+
+  it('reports no suspension for an error that is not a quota wait', async () => {
+    mockNormalExecutionRepositories();
+    const suspendForQuota = vi.fn<RunWaitService['suspendForQuota']>();
+
+    const execution = makeExecutionService(undefined, undefined, undefined, {
+      runWait: asDouble<RunWaitService>({ suspendForQuota }),
+    });
+
+    const suspended = await execution.service.suspendCompactionForQuota({
+      run: { runId, chatId, userId },
+      attemptId: testAttemptId,
+      error: new ProviderFailure('Provider unavailable', {
+        code: 'server_error',
+      }),
+      request: undefined,
+      resumeAt: 'boundary',
+      parts: [],
+    });
+
+    expect(suspended).toBe(false);
+    expect(suspendForQuota).not.toHaveBeenCalled();
+  });
+
+  it('settles a hard cancellation with the durable cancelled run payload', async () => {
+    const spies = mockNormalExecutionRepositories();
+    const appended = recordAppendedEvents();
+    spies.findById.mockResolvedValue({
+      ...run,
+      activeAttemptId: testAttemptId,
+      cancelRequestedAt: now,
+    });
+
+    const suspendForQuota = vi
+      .fn<RunWaitService['suspendForQuota']>()
+      .mockResolvedValue({ kind: 'ready', cause: 'cancelled' });
+
+    const execution = makeExecutionService(undefined, undefined, undefined, {
+      runWait: asDouble<RunWaitService>({ suspendForQuota }),
+    });
+
+    await execution.service.suspendCompactionForQuota({
+      run: { runId, chatId, userId },
+      attemptId: testAttemptId,
+      error: quotaFailure(),
+      request: undefined,
+      resumeAt: 'boundary',
+      parts: [{ type: 'text', text: 'checkpoint' }],
+    });
+
+    expect(spies.markFinished).toHaveBeenCalledWith(
+      runId,
+      userId,
+      'cancelled',
+      expect.objectContaining({ attemptId: testAttemptId }),
+    );
+    expect(appended.at(-1)).toMatchObject({
+      type: 'run.cancelled',
+      payload: { status: 'cancelled' },
+    });
+  });
+
+  it.each([
+    {
+      name: 'another attempt still owns the Run',
+      current: { activeAttemptId: 'other-attempt', cancelRequestedAt: now },
+      result: { kind: 'ready' as const, cause: 'cancelled' as const },
+    },
+    {
+      name: 'the owner never requested cancellation',
+      current: { activeAttemptId: testAttemptId, cancelRequestedAt: null },
+      result: { kind: 'ready' as const, cause: 'cancelled' as const },
+    },
+    {
+      name: 'the suspension stays a durable wait',
+      current: { activeAttemptId: testAttemptId, cancelRequestedAt: now },
+      result: { kind: 'suspended' as const },
+    },
+  ])(
+    'does not settle a cancellation when $name',
+    async ({ current, result }) => {
+      const spies = mockNormalExecutionRepositories();
+      spies.findById.mockResolvedValue({ ...run, ...current });
+
+      const suspendForQuota = vi
+        .fn<RunWaitService['suspendForQuota']>()
+        .mockResolvedValue(result);
+
+      const execution = makeExecutionService(undefined, undefined, undefined, {
+        runWait: asDouble<RunWaitService>({ suspendForQuota }),
+      });
+
+      await execution.service.suspendCompactionForQuota({
+        run: { runId, chatId, userId },
+        attemptId: testAttemptId,
+        error: quotaFailure(),
+        request: undefined,
+        resumeAt: 'boundary',
+        parts: [],
+      });
+
+      expect(suspendForQuota).toHaveBeenCalledOnce();
+      expect(spies.markFinished).not.toHaveBeenCalled();
+    },
+  );
+});
+
+describe('RunExecutionService quota resume boundaries', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  const boundaryContext = {
+    system: '',
+    messages: [],
+    retainedMedia: new Map(),
+    effectiveContext: {
+      promptHash: 'prompt-hash',
+      source: 'project_default' as const,
+      systemPrompt: '',
+    },
+    model: testModelEntry,
+    toolCatalog: {
+      availabilityManifest: { version: 1 as const, entries: [] },
+      declarations: [],
+      admittedIds: [],
+    },
+    stagedParts: [],
+    placement: 'append' as const,
+    removesModelSwitch: false,
+    triggerParts: undefined,
+    historyRows: committedTurn(),
+    latestCheckpoint: undefined,
+    seenInstructionPaths: new Set<string>(),
+    toldGit: { text: undefined, root: undefined },
+    untitled: false,
+  };
+
+  const prepared = {
+    messages: [],
+    system: 'wake attempt system prompt',
+    untitled: false,
+    toolDeclarations: [],
+    tools: [],
+  };
+
+  const telemetry = {
+    runId,
+    attemptId: testAttemptId,
+    modelId: 'fake-model',
+    status: 'completed' as const,
+    latencyMs: 0,
+    finishReason: null,
+  };
+
+  const quotaFailure = () =>
+    new ProviderFailure('The provider quota is exhausted.', {
+      code: 'quota_exhausted',
+      resetsAt: Date.now() + 120_000,
+      statusCode: 429,
+    });
+
+  function boundaryInput(
+    execution: ReturnType<typeof makeExecutionService>,
+    overrides: {
+      run?: ReturnType<typeof executionInput>;
+      quotaRequest?: QuotaRequestState;
+      automatic?: true;
+      finalAnswer?: true;
+    } = {},
+  ) {
+    return {
+      run: executionInput(execution.client),
+      attemptId: testAttemptId,
+      context: boundaryContext,
+      prepared,
+      effort: undefined,
+      media: createRunMediaResolver(execution.tenantDb, userId),
+      workspaceRoot: createWorkspaceRootCell('/workspace'),
+      replyParts: [],
+      keptPartCount: 0,
+      stepBudgetUsed: 1,
+      compactionSet: { ids: ['compact-id'], focus: null },
+      ...overrides,
+    };
+  }
+
+  it("continues a resumed summary under the suspended attempt's receipt prefix", async () => {
+    const execution = makeExecutionService();
+    vi.spyOn(RunsRepository.prototype, 'findById').mockResolvedValue({
+      ...run,
+      activeAttemptId: testAttemptId,
+    });
+    vi.spyOn(
+      SystemPromptReceiptsRepository.prototype,
+      'findByAttempt',
+    ).mockResolvedValue(summaryReceiptRow('original rendered prompt'));
+    execution.computeBoundarySummary.mockResolvedValue(checkpointSummary(2));
+
+    const boundary = await execution.service['prepareBoundaryCompaction'](
+      boundaryInput(execution, {
+        quotaRequest: {
+          generation: 5,
+          resumeAt: 'boundary',
+          waitCount: 1,
+          summaryAttemptId: testAttemptId,
+          summaryPrefixFingerprint: compactionSummaryPrefixFingerprint({
+            system: 'original rendered prompt',
+            toolDeclarations: [],
+          }),
+        },
+      }),
+    );
+
+    if (boundary === undefined) throw new Error('Boundary was not prepared.');
+
+    expect(boundary.summary).not.toBeNull();
+    expect(execution.computeBoundarySummary).toHaveBeenCalledWith(
+      expect.objectContaining({ system: 'original rendered prompt' }),
+    );
+  });
+
+  it('refuses a resumed summary when the stored prefix no longer matches', async () => {
+    const execution = makeExecutionService();
+    vi.spyOn(RunsRepository.prototype, 'findById').mockResolvedValue({
+      ...run,
+      activeAttemptId: testAttemptId,
+    });
+    vi.spyOn(
+      SystemPromptReceiptsRepository.prototype,
+      'findByAttempt',
+    ).mockResolvedValue(summaryReceiptRow('original rendered prompt'));
+    execution.computeBoundarySummary.mockResolvedValue(checkpointSummary(2));
+
+    const boundary = await execution.service['prepareBoundaryCompaction'](
+      boundaryInput(execution, {
+        quotaRequest: {
+          generation: 5,
+          resumeAt: 'boundary',
+          waitCount: 1,
+          summaryAttemptId: testAttemptId,
+          summaryPrefixFingerprint: 'a-different-prefix',
+        },
+      }),
+    );
+
+    if (boundary === undefined) throw new Error('Boundary was not prepared.');
+
+    expect(execution.computeBoundarySummary).not.toHaveBeenCalled();
+    expect(boundary.summary).toBeNull();
+  });
+
+  it('rethrows instead of suspending when the attempt already aborted', async () => {
+    const suspendForQuota = vi
+      .fn<RunWaitService['suspendForQuota']>()
+      .mockResolvedValue({ kind: 'suspended' });
+
+    const execution = makeExecutionService(undefined, undefined, undefined, {
+      runWait: asDouble<RunWaitService>({ suspendForQuota }),
+    });
+
+    vi.spyOn(RunsRepository.prototype, 'findById').mockResolvedValue({
+      ...run,
+      activeAttemptId: testAttemptId,
+    });
+    execution.computeBoundarySummary.mockRejectedValue(quotaFailure());
+
+    const abort = new AbortController();
+    abort.abort();
+    const runInput = executionInput(execution.client, abort.signal);
+
+    await expect(
+      execution.service['prepareQuotaBoundary']({
+        ...boundaryInput(execution, { run: runInput }),
+        resumeAt: 'boundary',
+        quotaParts: () => [],
+      }),
+    ).rejects.toBeInstanceOf(CompactionQuotaWait);
+    expect(suspendForQuota).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['an automatic boundary', true, 'automatic'],
+    ['an owner boundary', false, 'owner'],
+  ] as const)(
+    'records %s mode in the suspension it parks',
+    async (_label, automatic, expectedMode) => {
+      const suspendForQuota = vi
+        .fn<RunWaitService['suspendForQuota']>()
+        .mockResolvedValue({ kind: 'suspended' });
+
+      const execution = makeExecutionService(undefined, undefined, undefined, {
+        runWait: asDouble<RunWaitService>({ suspendForQuota }),
+      });
+
+      vi.spyOn(RunsRepository.prototype, 'findById').mockResolvedValue({
+        ...run,
+        activeAttemptId: testAttemptId,
+      });
+      execution.computeBoundarySummary.mockRejectedValue(quotaFailure());
+
+      const result = await execution.service['prepareQuotaBoundary']({
+        ...boundaryInput(execution, {
+          ...(automatic && { automatic: true as const }),
+        }),
+        resumeAt: 'boundary',
+        quotaParts: () => [],
+      });
+
+      expect(result).toBe('quota');
+      expect(suspendForQuota.mock.lastCall?.[0].boundaryMode).toBe(
+        expectedMode,
+      );
+    },
+  );
+
+  it.each([
+    {
+      name: 'legacy automatic when no compact command is queued',
+      pending: [],
+      quotaRequest: { generation: 1, resumeAt: 'boundary', waitCount: 1 },
+      automatic: true,
+    },
+    {
+      name: 'legacy owner when a compact command is queued',
+      pending: 'compact',
+      quotaRequest: { generation: 1, resumeAt: 'boundary', waitCount: 1 },
+      automatic: false,
+    },
+    {
+      name: 'the recorded owner mode even without a queued command',
+      pending: [],
+      quotaRequest: {
+        generation: 1,
+        resumeAt: 'boundary',
+        waitCount: 1,
+        boundaryMode: 'owner',
+      },
+      automatic: false,
+    },
+  ] as const)('resumes $name', async ({ pending, quotaRequest, automatic }) => {
+    mockNormalExecutionRepositories();
+    const execution = makeExecutionService();
+
+    if (pending === 'compact') {
+      vi.spyOn(
+        ChatDeliveriesRepository.prototype,
+        'listPending',
+      ).mockResolvedValue([
+        chatDeliveryRow({
+          mode: 'steer',
+          parts: [{ type: 'text', text: '/compact keep this' }],
+        }),
+      ]);
+    }
+
+    const prepare = vi
+      .spyOn(Object.getPrototypeOf(execution.service), 'prepareQuotaBoundary')
+      .mockResolvedValue('quota');
+
+    const result = await execution.service['resumeQuotaBoundary']({
+      ...boundaryInput(execution, { quotaRequest }),
+      resumeAt: 'boundary',
+      quotaParts: () => [],
+      telemetry,
+      createdMessage: {
+        id: messageId,
+        seq: 1,
+        parts: toMessageParts(userMessage.parts),
+      },
+    });
+
+    expect(result).toBe('stopped');
+    expect(prepare).toHaveBeenCalledOnce();
+    const preparedBoundary = prepare.mock.calls[0]?.[0];
+
+    if (automatic) {
+      expect(preparedBoundary).toMatchObject({ automatic: true });
+    } else {
+      expect(preparedBoundary).not.toHaveProperty('automatic');
+    }
+  });
+
+  it.each([
+    {
+      name: 'keeps an automatic failure class',
+      compactionFailed: true,
+      boundaryCompaction: { automatic: true as const },
+      expected: true,
+    },
+    {
+      name: 'does not turn a non-failure into an automatic failure',
+      compactionFailed: false,
+      boundaryCompaction: { automatic: true as const },
+      expected: false,
+    },
+    {
+      name: 'leaves an owner failure manual',
+      compactionFailed: true,
+      boundaryCompaction: {},
+      expected: false,
+    },
+  ] as const)(
+    'classifies a stopped boundary delivery: $name',
+    async ({ compactionFailed, boundaryCompaction, expected }) => {
+      mockNormalExecutionRepositories();
+      const execution = makeExecutionService();
+      vi.spyOn(
+        Object.getPrototypeOf(execution.service),
+        'prepareQuotaBoundary',
+      ).mockResolvedValue({
+        ids: [],
+        summary: checkpointSummary(2),
+        quote: null,
+        stepBudgetUsed: 1,
+        ...boundaryCompaction,
+        publishCheckpoint: vi.fn(),
+      });
+      vi.spyOn(
+        Object.getPrototypeOf(execution.service),
+        'deliverQuotaBoundary',
+      ).mockResolvedValue({
+        kind: 'nothing-pending',
+        compactionFailed,
+      });
+
+      const result = await execution.service['resumeQuotaBoundary']({
+        ...boundaryInput(execution, {
+          quotaRequest: {
+            generation: 7,
+            resumeAt: 'boundary',
+            waitCount: 1,
+          },
+        }),
+        resumeAt: 'boundary',
+        quotaParts: () => [],
+        telemetry,
+        createdMessage: {
+          id: messageId,
+          seq: 1,
+          parts: toMessageParts(userMessage.parts),
+        },
+      });
+
+      expect(
+        result !== 'stopped' &&
+          'automaticCompactionFailed' in result &&
+          result.automaticCompactionFailed === true,
+      ).toBe(expected);
+    },
+  );
+
+  it.each([
+    {
+      name: 'automatic',
+      resumed: {
+        kind: 'nothing-pending' as const,
+        compactionFailed: true,
+        automaticCompactionFailed: true as const,
+      },
+      expected: 'automatic',
+    },
+    {
+      name: 'manual',
+      resumed: {
+        kind: 'nothing-pending' as const,
+        compactionFailed: true,
+      },
+      expected: 'manual',
+    },
+    {
+      name: 'none',
+      resumed: {
+        kind: 'nothing-pending' as const,
+        compactionFailed: false,
+      },
+      expected: undefined,
+    },
+  ] as const)(
+    'reports a $name compaction failure after the resumed summary',
+    async ({ resumed, expected }) => {
+      mockNormalExecutionRepositories();
+      const execution = makeExecutionService();
+      vi.spyOn(
+        Object.getPrototypeOf(execution.service),
+        'resumeQuotaBoundary',
+      ).mockResolvedValue(resumed);
+
+      const finish = vi
+        .spyOn(
+          Object.getPrototypeOf(execution.service),
+          'finishWakeCompactionBoundary',
+        )
+        .mockResolvedValue(undefined);
+
+      const result = await execution.service['resumeQuotaAttempt']({
+        ...boundaryInput(execution, {
+          quotaRequest: {
+            generation: 8,
+            resumeAt: 'boundary',
+            waitCount: 1,
+          },
+        }),
+        resumeAt: 'boundary',
+        quotaParts: () => [],
+        userId,
+        runId,
+        startDelivered: vi.fn(),
+        telemetry,
+        createdMessage: {
+          id: messageId,
+          seq: 1,
+          parts: toMessageParts(userMessage.parts),
+        },
+      });
+
+      expect(finish).toHaveBeenCalledOnce();
+      expect(result).toEqual({ kind: 'continue', compactionFailure: expected });
+    },
+  );
+
+  it.each([
+    {
+      name: 'a cancelled delivery',
+      delivery: { kind: 'cancelled' as const },
+      summary: null,
+      recovered: false,
+    },
+    {
+      name: 'a fenced delivery',
+      delivery: { kind: 'fenced' as const },
+      summary: null,
+      recovered: false,
+    },
+    {
+      name: 'a delivered checkpoint that already recorded recovery',
+      delivery: {
+        kind: 'delivered' as const,
+        message: userMessage,
+        attemptId: 'delivered-attempt',
+        cause: 'compaction' as const,
+      },
+      summary: checkpointSummary(2),
+      recovered: false,
+    },
+    {
+      name: 'a stopped boundary summary that recorded nothing',
+      delivery: {
+        kind: 'nothing-pending' as const,
+        compactionFailed: true,
+      },
+      summary: checkpointSummary(2),
+      recovered: true,
+    },
+    {
+      name: 'a delivery without a boundary summary',
+      delivery: {
+        kind: 'delivered' as const,
+        message: userMessage,
+        attemptId: 'delivered-attempt',
+        cause: 'steer' as const,
+      },
+      summary: null,
+      recovered: true,
+    },
+  ] as const)(
+    'records quota recovery after $name only when nothing published it',
+    async ({ delivery, summary, recovered }) => {
+      mockNormalExecutionRepositories();
+      const appended = recordAppendedEvents();
+      const execution = makeExecutionService();
+      vi.spyOn(segmentDelivery, 'deliverPendingSteering').mockResolvedValue(
+        delivery,
+      );
+
+      await execution.service['deliverQuotaBoundary']({
+        run: { runId, userId },
+        attemptId: testAttemptId,
+        models: [testModelEntry],
+        deadWorkerAfterSeconds: 60,
+        boundaryCompaction: {
+          ids: [],
+          summary,
+          quote: null,
+          stepBudgetUsed: 1,
+          publishCheckpoint: vi.fn(),
+        },
+        quotaRequest: {
+          generation: 3,
+          resumeAt: 'boundary',
+          waitCount: 1,
+        },
+      });
+
+      expect(
+        appended.filter(({ type }) => type === 'run.quota_recovered'),
+      ).toHaveLength(recovered ? 1 : 0);
+    },
+  );
+
+  it('applies the failure class the summary reported', () => {
+    const execution = makeExecutionService();
+
+    const disableAutomaticCompaction = vi.fn();
+    const collector = createAssistantPartCollector();
+    execution.service['applyCompactionFailure']({
+      failure: 'automatic',
+      assistantPartCollector: collector,
+      disableAutomaticCompaction,
+    });
+    expect(disableAutomaticCompaction).toHaveBeenCalledOnce();
+    expect(collector.parts()).toEqual([]);
+
+    execution.service['applyCompactionFailure']({
+      failure: 'manual',
+      assistantPartCollector: collector,
+      disableAutomaticCompaction,
+    });
+    expect(collector.parts()).toEqual([
+      { type: 'data-compaction-failed', data: {} },
+    ]);
+    expect(disableAutomaticCompaction).toHaveBeenCalledOnce();
+  });
+
+  it('runs post-turn work for a committed resumed final answer', async () => {
+    mockNormalExecutionRepositories();
+    const execution = makeExecutionService();
+    vi.spyOn(
+      Object.getPrototypeOf(execution.service),
+      'prepareQuotaBoundary',
+    ).mockResolvedValue({
+      ids: [],
+      summary: checkpointSummary(2),
+      quote: null,
+      stepBudgetUsed: 1,
+      finalAnswer: true,
+      publishCheckpoint: vi.fn(),
+    });
+    const reply = { ...assistantMessage, id: 'resumed-final-reply' };
+    vi.spyOn(
+      Object.getPrototypeOf(execution.service),
+      'finishRun',
+    ).mockResolvedValue({ outcome: 'won', assistantMessage: reply });
+
+    const result = await execution.service['resumeQuotaBoundary']({
+      ...boundaryInput(execution, {
+        quotaRequest: {
+          generation: 9,
+          resumeAt: 'finalAnswer',
+          waitCount: 1,
+        },
+      }),
+      resumeAt: 'finalAnswer',
+      finalAnswer: true,
+      quotaParts: () => [],
+      telemetry,
+      createdMessage: {
+        id: messageId,
+        seq: 1,
+        parts: toMessageParts(userMessage.parts),
+      },
+    });
+
+    expect(result).toBe('stopped');
+    expect(execution.reindexChat).toHaveBeenCalledWith(chatId, userId);
+  });
+
+  it('fails when the resumed final answer cannot be finished', async () => {
+    mockNormalExecutionRepositories();
+    const execution = makeExecutionService();
+    vi.spyOn(
+      Object.getPrototypeOf(execution.service),
+      'prepareQuotaBoundary',
+    ).mockResolvedValue({
+      ids: [],
+      summary: checkpointSummary(2),
+      quote: null,
+      stepBudgetUsed: 1,
+      finalAnswer: true,
+      publishCheckpoint: vi.fn(),
+    });
+    vi.spyOn(
+      Object.getPrototypeOf(execution.service),
+      'finishRun',
+    ).mockResolvedValue({ outcome: 'errored', assistantMessage: undefined });
+
+    await expect(
+      execution.service['resumeQuotaBoundary']({
+        ...boundaryInput(execution, {
+          quotaRequest: {
+            generation: 9,
+            resumeAt: 'finalAnswer',
+            waitCount: 1,
+          },
+        }),
+        resumeAt: 'finalAnswer',
+        finalAnswer: true,
+        quotaParts: () => [],
+        telemetry,
+        createdMessage: {
+          id: messageId,
+          seq: 1,
+          parts: toMessageParts(userMessage.parts),
+        },
+      }),
+    ).rejects.toThrow(Error);
   });
 });
 

@@ -173,6 +173,7 @@ describe('attemptWindow', () => {
       5, 6,
     ]);
     expect(attemptWindow(log, 'unknown')).toEqual([]);
+    expect(attemptWindow(log.slice(4), 'unknown')).toEqual([]);
   });
 });
 
