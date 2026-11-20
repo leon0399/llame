@@ -26,6 +26,7 @@ export const LLAME_CUSTOM_EVENT = {
   capNotice: 'llame.cap-notice',
   compactionFailed: 'llame.compaction-failed',
   compactionDisabled: 'llame.compaction-disabled',
+  modelRetrying: 'llame.model-retrying',
   /** The segment ended at a delivered message; the Run goes on. */
   runDelivered: 'llame.run-delivered',
 } as const;
@@ -51,6 +52,7 @@ const NOTICE_EVENT_NAME = {
   'data-cap-notice': LLAME_CUSTOM_EVENT.capNotice,
   'data-compaction-failed': LLAME_CUSTOM_EVENT.compactionFailed,
   'data-compaction-disabled': LLAME_CUSTOM_EVENT.compactionDisabled,
+  'data-model-retrying': LLAME_CUSTOM_EVENT.modelRetrying,
   'data-run-delivered': LLAME_CUSTOM_EVENT.runDelivered,
 } as const;
 
@@ -238,6 +240,7 @@ export function createAgUiEncoder(identity: RunIdentity): AgUiEncoder {
         case 'data-cap-notice':
         case 'data-compaction-failed':
         case 'data-compaction-disabled':
+        case 'data-model-retrying':
         case 'data-run-delivered':
           return encodeCustom(chunk);
       }

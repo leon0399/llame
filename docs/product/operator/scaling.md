@@ -166,8 +166,24 @@ first queue job uses the Run id; later wake jobs use the Run's recorded
 86,399 s, so pg-boss never expires a live Run at its 900 s default. Without an
 operator budget, the worker ends an executing attempt after 23 h 55 m. With
 `runs.timeoutSeconds`, the budget starts at the first claim and includes time
-spent waiting. A model request that streams nothing for 300 s fails its Run
-with `model_stream_idle`.
+spent waiting. Model requests have separate stream windows: the first-token
+timeout is 300 s by default and covers response headers and metadata until
+content starts; after content starts, 300 s without a stream part fails the
+request. These are model-request timeouts, not a Run-wide execution ceiling.
+Set `models[].firstTokenTimeoutSeconds` to a positive integer to override the
+300 s first-content window. This server-only setting is not returned in the
+owner's model catalog.
+
+Eligible model requests can be retried up to 10 times after the initial send,
+using full jitter from 500 ms with exponential backoff capped at 8 s. Short
+provider delay hints and authoritative reset times up to 60 s are honored.
+Long rate-limit hints fail the request; long non-rate-limit delay hints are
+ignored; long authoritative resets fail rather than parking the Run. A retry
+does not replay a completed tool call. Buffered title and summary requests
+discard failed output before retrying. `model.retrying` events record the
+failure class, retry number, and delay, and the owner sees a retry line.
+Failed first-token windows use `first_token_timeout`; broken streams use
+`stream_broken`. The removed `model_stream_idle` code is not emitted.
 
 Admission judges a blocking Run by its current queue job: queued, retrying, or
 active blocks with 409. An absent recorded wake job is stuck immediately; the

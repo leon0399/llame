@@ -3385,13 +3385,17 @@ function resolveContextWindowTokens(
 
 /**
  * Resolve one optional per-model numeric setting (`compactionThresholdTokens`,
- * `maxOutputTokens`): absent stays absent, otherwise the shared
- * literal-or-whole-value-token resolution with the positive-integer bound
- * applied after interpolation — exactly like `contextWindowTokens`.
+ * `maxOutputTokens`, `firstTokenTimeoutSeconds`): absent stays absent,
+ * otherwise the shared literal-or-whole-value-token resolution with the
+ * positive-integer bound applied after interpolation — exactly like
+ * `contextWindowTokens`.
  */
 function resolveOptionalModelNumber(
   entry: RawModelEntry,
-  field: 'compactionThresholdTokens' | 'maxOutputTokens',
+  field:
+    | 'compactionThresholdTokens'
+    | 'maxOutputTokens'
+    | 'firstTokenTimeoutSeconds',
   env: NodeJS.ProcessEnv,
 ): number | undefined {
   const raw = entry[field];
@@ -3511,6 +3515,7 @@ function resolveModelEntry(
     billing: _rawBilling,
     contextWindowTokens: _rawContextWindowTokens,
     compactionThresholdTokens: _rawCompactionThresholdTokens,
+    firstTokenTimeoutSeconds: _rawFirstTokenTimeoutSeconds,
     input: _rawInput,
     maxOutputTokens: _rawMaxOutputTokens,
     providerOptions: _rawProviderOptions,
@@ -3538,6 +3543,11 @@ function resolveModelScalars(entry: RawModelEntry, env: NodeJS.ProcessEnv) {
       env,
     ),
     maxOutputTokens: resolveOptionalModelNumber(entry, 'maxOutputTokens', env),
+    firstTokenTimeoutSeconds: resolveOptionalModelNumber(
+      entry,
+      'firstTokenTimeoutSeconds',
+      env,
+    ),
   };
 }
 
@@ -3553,6 +3563,7 @@ type ModelDisplayFields = Omit<
   | 'compactionThresholdTokens'
   | 'input'
   | 'maxOutputTokens'
+  | 'firstTokenTimeoutSeconds'
   | 'providerOptions'
   | 'reasoning'
   | 'systemPromptFile'
@@ -3573,6 +3584,7 @@ function buildModelCatalogEntry(
     contextWindowTokens,
     compactionThresholdTokens,
     maxOutputTokens,
+    firstTokenTimeoutSeconds,
   } = resolveModelScalars(entry, env);
 
   const prompt = promptLoader.resolve(entry);
@@ -3598,6 +3610,9 @@ function buildModelCatalogEntry(
       compactionThresholdTokens,
     }),
     ...(maxOutputTokens !== undefined && { maxOutputTokens }),
+    ...(firstTokenTimeoutSeconds !== undefined && {
+      firstTokenTimeoutSeconds,
+    }),
     ...(providerOptions !== undefined && { providerOptions }),
     ...(reasoning !== undefined && { reasoning }),
     ...resolveToolPromptFilesEntry(entry.toolPromptFiles),

@@ -1,3 +1,4 @@
+import type * as TimerPromises from 'node:timers/promises';
 import type { LanguageModelV3StreamPart } from '@ai-sdk/provider';
 import { isString } from '@workspace/runtime-safety';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -39,6 +40,11 @@ import {
   HOSTED_SEARCH_INSTRUCTIONS,
   createModelHostedEngine,
 } from './model-hosted';
+
+vi.mock('node:timers/promises', async (importOriginal) => ({
+  ...(await importOriginal<typeof TimerPromises>()),
+  setTimeout: () => Promise.resolve(),
+}));
 
 type HostedConfig = Extract<
   WebSearchEngineConfig,
@@ -634,7 +640,6 @@ describe('provider failures through the real clients', () => {
 
       expect(failure).toMatchObject({ failureClass });
       expect(JSON.stringify(failure)).not.toContain(secret);
-      expect(harness.requests).toHaveLength(1);
     },
   );
 

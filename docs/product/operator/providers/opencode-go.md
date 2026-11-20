@@ -113,25 +113,29 @@ reuse.
 
 ## Accepted upstream failures
 
-Failures surface under the selected wire's existing failure contract. On the
-Chat Completions route, the gateway's parsed error message, whether it arrives
-on a failure response or inside the stream,
-becomes the Run's failure, shown to the owner whose Run failed and recorded on
-the Run, after the SDK's own retry rules for retryable statuses. The failure
-response's body and headers, the request body, and the credential reach no
-owner output, persisted Run, log, or telemetry; a non-redirect failure body
-that is not the gateway's envelope surfaces as the HTTP status text. Two
-failures surface as fixed texts that quote nothing from the response: a
-redirect, which is never followed, names only its status code, and a stream
-event the adapter cannot read is reported as unreadable without its content.
-The parsed message may echo request values the gateway chose to name, except a
-configured credential: a value llame knows to be a credential, such as the
-entry's `key` or a resolved header substitution, is replaced with `[REDACTED]`
-before the failure reaches the Run's stored error, its terminal event, or its
-log line, and a caller that supplies no error handler logs only the redacted
-failure. llame adds no Go-specific error type or sanitizer, keeps no quota
-ledger, and never retries against or falls back to another provider, wire, or
-model because a request failed.
+Failures surface under the selected wire's existing failure contract. llame
+disables the SDK's internal retries and applies its own bounded request retries:
+after the initial send, up to 10 retries with full jitter (500 ms exponential
+base, capped at 8 s). Short delay hints and authoritative resets up to 60 s are
+honored; a long rate-limit hint fails this layer instead of parking the Run.
+The parsed gateway error message, whether it arrives on a failure response or
+inside the stream, remains the Run's failure if retries are exhausted. A
+completed tool call is never replayed; no retry switches provider, wire, or
+model. See [provider routing](routing.md#diagnosing-failed-model-requests) for
+the retry and stream-timeout policy. The failure response's body and headers,
+the request body, and the credential reach no owner output, persisted Run, log,
+or telemetry; a non-redirect failure body that is not the gateway's envelope
+surfaces as the HTTP status text. Two failures surface as fixed texts that
+quote nothing from the response: a redirect, which is never followed, names
+only its status code, and a stream event the adapter cannot read is reported
+as unreadable without its content. The parsed message may echo request values
+the gateway chose to name, except a configured credential: a value llame knows
+to be a credential, such as the entry's `key` or a resolved header
+substitution, is replaced with `[REDACTED]` before the failure reaches the
+Run's stored error, its terminal event, or its log line, and a caller that
+supplies no error handler logs only the redacted failure. llame adds no
+Go-specific error type or sanitizer and keeps no quota ledger. It does not
+retry against or fall back to another provider, wire, or model.
 
 These shapes were observed by driving the shipped client against the live
 gateway on 2026-09-22, except where noted:
@@ -140,12 +144,15 @@ gateway on 2026-09-22, except where noted:
   format-gate rejection with HTTP 401 and the body
   `{"type":"error","error":{"type":"ModelError","message":"Model <id> is not supported for format oa-compat"}}`
   (or `"Model <id> is not supported"`). The deployed gateway did not return
-  that text for `grok-4.6` on this route: the failure surfaced after the SDK's
-  own three retries as `RetryError: Failed after 3 attempts. Last error: Upstream request failed: Endpoint is unavailable.`
-  Match on that message. Because a model id the route does not serve is the
-  likeliest operator error, check this first: choose a model the selected
-  route accepts, or set the model's `wire` to the protocol the gateway
-  documents for it (for example `openai-responses` for `/responses`).
+  that text for `grok-4.6` on this route. At the time of this live proof, the
+  failure surfaced after the SDK's then configured retries as
+  `RetryError: Failed after 3 attempts. Last error: Upstream request failed:
+  Endpoint is unavailable.` That retry count describes the historical client,
+  not current llame behavior; match on the message. Because a model id the
+  route does not serve is the likeliest operator error, check this first:
+  choose a model the selected route accepts, or set the model's `wire` to the
+  protocol the gateway documents for it (for example `openai-responses` for
+  `/responses`).
 - **An invalid credential.** HTTP 401 with the gateway's envelope
   (`{"type":"error","error":{"type":"AuthError","message":"Invalid API key."}}`);
   the Run's failure is exactly `Invalid API key.`, and nothing else — no
@@ -155,17 +162,16 @@ gateway on 2026-09-22, except where noted:
   the parsed message alone.
 - **An exhausted usage limit (the gateway's documented behavior, not observed
   in llame's live proof).** Quota exhaustion is documented as HTTP 429 with
-  `retry-after` and body type `GoUsageLimitError`, and a 429 is retryable, so
-  such a request is attempted up to the SDK's retry limit with backoff before
-  the last gateway message would surface as the affected Run's failure; llame
-  reports no quota state of its own and claims no cost, and no paid fallback
-  is attempted. No usage-limit rejection occurred during llame's live proof on
-  2026-09-22, so this remains the gateway's documented behavior rather than
-  something llame has seen. Whether an exhausted monthly window returns that
-  class or a 401 `MonthlyLimitError` is unverified, and the body's `metadata`,
-  which names the workspace and the limit, is stripped from the message before
-  it reaches any surface; whether the message text itself names a workspace is
-  unverified.
+  `retry-after` and body type `GoUsageLimitError`. llame uses its own bounded
+  retry policy rather than SDK status retries; a long rate-limit hint fails
+  this layer instead of parking the Run. llame reports no quota state of its
+  own and claims no cost, and no paid fallback is attempted. No usage-limit
+  rejection occurred during llame's live proof on 2026-09-22, so this remains
+  the gateway's documented behavior rather than something llame has seen.
+  Whether an exhausted monthly window returns that class or a 401
+  `MonthlyLimitError` is unverified, and the body's `metadata`, which names
+  the workspace and the limit, is stripped from the message before it reaches
+  any surface; whether the message text itself names a workspace is unverified.
 - **A missing session header in a hand-made request.** Third-party clients
   have reported a request without a session header surfacing on some models as
   a generic 400 rather than a named session error. That report is unverified

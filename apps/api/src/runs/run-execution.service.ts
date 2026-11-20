@@ -87,7 +87,11 @@ import {
   type PromptUserInput,
   type SystemModelCatalogEntry,
 } from '../models/model-catalog';
-import { type ModelClient, type SdkRefusal } from '../models/model-client';
+import {
+  type ModelClient,
+  type ModelRequestRetry,
+  type SdkRefusal,
+} from '../models/model-client';
 import { wrapStreamTextResult } from '../models/stream-text-result-proxy';
 import { ChatsRepository, MessagesRepository } from '../chats/chats-repository';
 import { createJobNoticeContext } from './job-notice-context';
@@ -324,6 +328,7 @@ import {
   type CompletedRunWithTrigger,
   type RunEventType,
 } from './runs-repository';
+import { RunRowFenceRepository } from './run-row-fence.repository';
 import {
   IN_RUN_CONTEXT_PRODUCER,
   createInRunContextItems,
@@ -1562,6 +1567,33 @@ export class RunExecutionService {
     });
   }
 
+  async recordModelRetry(
+    input: { runId: string; chatId: string; userId: string; attemptId: string },
+    retry: ModelRequestRetry,
+  ): Promise<void> {
+    await retryRunTransaction(() =>
+      this.tenantDb.runAs(input.userId, async (tx) => {
+        if (
+          !(await new RunRowFenceRepository(tx).lockForDelivery(
+            input.runId,
+            input.userId,
+            input.attemptId,
+          ))
+        )
+          throw new RunNotRunnableError(input.runId);
+
+        if (!(await new ChatsRepository(tx).lock(input.chatId, input.userId)))
+          throw new RunNotRunnableError(input.runId);
+
+        await new RunEventsRepository(tx).append(
+          input.runId,
+          'model.retrying',
+          retry,
+        );
+      }),
+    );
+  }
+
   async claimRun(input: RunClaimInput): Promise<RunClaimResult> {
     return retryRunTransaction(() =>
       this.tenantDb.runAs(input.userId, async (tx) => {
@@ -2157,6 +2189,7 @@ export class RunExecutionService {
 
     const streamStartedAt = Date.now();
     const requestUsageReceipts: Array<LanguageModelUsage> = [];
+    let discardedSend = false;
     // Stream performance for the turn (#155): the first streamed output delta's
     // offset, how many arrived, and the generation time the throughput divides
     // by. The first two are stamped from the SAME baseline `streamStartedAt`
@@ -2182,8 +2215,8 @@ export class RunExecutionService {
       finishReason: TurnTelemetry['finishReason'],
       status: TurnTelemetry['status'],
       stepCount?: number,
-    ): AssistantTurnTelemetry => ({
-      ...aggregateTurnTelemetry({
+    ): AssistantTurnTelemetry => {
+      const telemetry = aggregateTurnTelemetry({
         receipts: requestUsageReceipts,
         finishReason,
         status,
@@ -2197,10 +2230,15 @@ export class RunExecutionService {
         price: client.pricing,
         billing: client.billing,
         stepCount,
-      }),
-      runId: input.runId,
-      attemptId,
-    });
+      });
+
+      if (discardedSend) {
+        telemetry.complete = false;
+        delete telemetry.tokensPerSecond;
+      }
+
+      return { ...telemetry, runId: input.runId, attemptId };
+    };
 
     const assistantPartCollector = createAssistantPartCollector();
 
@@ -4011,6 +4049,38 @@ export class RunExecutionService {
         }
 
         const result = client.streamText({
+          onRetry: async (retry) => {
+            persistReasoning(reasoningDeltas.flush());
+            discardedSend = true;
+            persistDelta(deltas.flush());
+            enqueueEvent('model.retrying', retry, async (tx) => {
+              if (
+                !(await new RunRowFenceRepository(tx).lockForDelivery(
+                  input.runId,
+                  input.userId,
+                  attemptId,
+                ))
+              )
+                throw new RunNotRunnableError(input.runId);
+
+              if (
+                !(await new ChatsRepository(tx).lock(
+                  input.chatId,
+                  input.userId,
+                ))
+              )
+                throw new RunNotRunnableError(input.runId);
+
+              return retry;
+            });
+            await deltaWrites;
+
+            if (progressWriteFailed) {
+              throw new Error(
+                'Failed to persist the model retry before its delay.',
+              );
+            }
+          },
           onRequestUsage: (usage, requestGenerationMs) => {
             const firstReceipt = requestUsageReceipts.length === 0;
             requestUsageReceipts.push(usage);
@@ -7313,6 +7383,11 @@ export class RunExecutionService {
           ...(input.effort !== undefined && { effort: input.effort }),
           reservedOutputTokens: this.instanceConfig.config.runs.maxOutputTokens,
           abortSignal: input.run.abortSignal,
+          onRetry: (retry) =>
+            this.recordModelRetry(
+              { ...input.run, attemptId: input.attemptId },
+              retry,
+            ),
           media: input.media,
         });
       } catch {
@@ -7632,6 +7707,11 @@ export class RunExecutionService {
                   reservedOutputTokens:
                     this.instanceConfig.config.runs.maxOutputTokens,
                   abortSignal: input.run.abortSignal,
+                  onRetry: (retry) =>
+                    this.recordModelRetry(
+                      { ...input.run, attemptId: input.attemptId },
+                      retry,
+                    ),
                   media: input.media,
                 },
           );

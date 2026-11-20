@@ -1,5 +1,5 @@
 import { createOpenAI } from '@ai-sdk/openai';
-import { RetryError, streamText } from 'ai';
+import { streamText } from 'ai';
 import { isNumber, isRecord } from '@workspace/runtime-safety';
 
 import {
@@ -37,6 +37,7 @@ type OpenAICodexModelClientConfig = {
   providerOptions?: ProviderOptionRecord;
   /** Catalog `models[].maxOutputTokens`, forwarded to every request. */
   maxOutputTokens?: number;
+  firstTokenTimeoutSeconds?: number;
   pricing?: TokenPrice;
   billing?: BillingMode;
   compactionThresholdTokens?: number;
@@ -63,18 +64,6 @@ function directHttpStatus(error: unknown): number | undefined {
   return isNumber(statusCode) ? statusCode : undefined;
 }
 
-function httpStatus(error: unknown): number | undefined {
-  const statusCode = directHttpStatus(error);
-
-  if (statusCode !== undefined) return statusCode;
-
-  if (!RetryError.isInstance(error)) return undefined;
-
-  return error.errors
-    .map(directHttpStatus)
-    .find((status): status is number => status !== undefined);
-}
-
 function codexStatusMessage(statusCode: number | undefined): string {
   if (statusCode === 401 || statusCode === 403) {
     return 'Codex subscription authentication failed. Re-login and restart llame.';
@@ -90,7 +79,7 @@ function codexStatusMessage(statusCode: number | undefined): string {
 function sanitizeCodexError(error: unknown): Error {
   if (error instanceof ProviderFailure) return error;
 
-  const statusCode = httpStatus(error);
+  const statusCode = directHttpStatus(error);
   const bounded = new Error(codexStatusMessage(statusCode));
 
   // The numeric status is not sensitive, and callers that classify a failure
@@ -125,12 +114,9 @@ export function createOpenAICodexModelClient(
       // that text. No operator value — `null` included — can remove or
       // replace it. The Responses wire adds `store: false` itself (D12).
       providerOptionInvariants: { reasoningSummary: 'auto' },
-      ...(config.providerOptions !== undefined && {
-        providerOptions: config.providerOptions,
-      }),
-      ...(config.maxOutputTokens !== undefined && {
-        maxOutputTokens: config.maxOutputTokens,
-      }),
+      providerOptions: config.providerOptions,
+      maxOutputTokens: config.maxOutputTokens,
+      firstTokenTimeoutSeconds: config.firstTokenTimeoutSeconds,
       generateObject: false,
       provider: 'openai-codex',
       sanitizeError: sanitizeCodexError,

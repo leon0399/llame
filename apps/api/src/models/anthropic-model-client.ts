@@ -35,16 +35,10 @@ import {
 } from './openai-model-client';
 import { createToolCallGate } from './tool-call-gate';
 import { applyRequestUsageCallback } from './request-usage';
-import {
-  applyStreamIdleWatchdog,
-  ModelStreamIdleError,
-} from './stream-idle-watchdog';
+import { applyRequestRecovery, withRequestRecovery } from './request-recovery';
 import { ProviderFailure } from './provider-failure/provider-failure';
 import { classifyAnthropic } from './provider-failure/classify-anthropic';
-import {
-  classifiedFailure,
-  withProviderFailures,
-} from './provider-failure-middleware';
+import { classifiedFailure } from './provider-failure-middleware';
 
 /**
  * The default Messages endpoint, the `baseURL` the adapter falls back to when
@@ -176,6 +170,7 @@ export type AnthropicModelClientConfig = {
   reasoningDeclared: boolean;
   /** Optional catalog output limit, forwarded as the request's `maxOutputTokens` setting. */
   maxOutputTokens?: number;
+  firstTokenTimeoutSeconds?: number;
 };
 
 /**
@@ -305,8 +300,6 @@ const ABORT_ERROR_NAMES: ReadonlyArray<string> = [
  *   surfaces. The SDK builds its fixed text ("No output generated…") itself,
  *   never from response bytes, and it is the marker every wire's client
  *   surfaces on the result's `text` channel.
- * - `ModelStreamIdleError`: llame's own stream-idle watchdog (design D4) —
- *   llame's own text, and the code the run records depends on it.
  * - an abort-shaped rejection: see {@link ABORT_ERROR_NAMES}.
  *
  * Everything else status-less — a transport failure, a malformed (or
@@ -320,7 +313,6 @@ function isLocalFailure(error: ModelFailure): error is Error {
   return (
     InvalidArgumentError.isInstance(error) ||
     NoOutputGeneratedError.isInstance(error) ||
-    error instanceof ModelStreamIdleError ||
     (error instanceof Error && ABORT_ERROR_NAMES.includes(error.name))
   );
 }
@@ -422,10 +414,7 @@ function buildStreamOptions(
   const streamOptions: Parameters<typeof streamText>[0] & {
     model: LanguageModelV3;
   } = {
-    model: withProviderFailures(
-      provider(config.providerModelId),
-      anthropicFailureOptions(config, input.abortSignal),
-    ),
+    model: provider(config.providerModelId),
     messages: input.messages,
     system: input.system,
     abortSignal: input.abortSignal,
@@ -447,8 +436,11 @@ function buildStreamOptions(
 
   applyToolCallingOptions(streamOptions, input, gate);
   installStepPreparation(streamOptions, input, config);
+  applyRequestRecovery(streamOptions, input, {
+    ...anthropicFailureOptions(config, input.abortSignal),
+    firstTokenTimeoutSeconds: config.firstTokenTimeoutSeconds,
+  });
   applyRequestUsageCallback(streamOptions, input);
-  applyStreamIdleWatchdog(streamOptions, input);
 
   return { streamOptions, gate };
 }
@@ -503,7 +495,11 @@ async function runAnthropicObject<OBJECT>(
 ): Promise<OBJECT> {
   const result = await dependencies
     .generateObject({
-      model: provider(config.providerModelId),
+      model: withRequestRecovery(provider(config.providerModelId), {
+        ...anthropicFailureOptions(config, input.abortSignal),
+        firstTokenTimeoutSeconds: config.firstTokenTimeoutSeconds,
+        bufferWholeSend: true,
+      }),
       output: 'object',
       schema: input.schema,
       messages: input.messages,

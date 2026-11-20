@@ -1,3 +1,4 @@
+import type * as TimerPromises from 'node:timers/promises';
 import { afterEach } from 'vitest';
 import type { ModelMessage } from 'ai';
 
@@ -13,6 +14,11 @@ import {
   buildHarness,
 } from '../testing/anthropic-model-client-fixtures';
 import { ProviderFailure } from './provider-failure/provider-failure';
+
+vi.mock('node:timers/promises', async (importOriginal) => ({
+  ...(await importOriginal<typeof TimerPromises>()),
+  setTimeout: () => Promise.resolve(),
+}));
 
 afterEach(() => vi.unstubAllGlobals());
 

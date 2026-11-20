@@ -1,5 +1,6 @@
 import {
   RUN_TIMEOUT_ABORT_REASON,
+  RunNotRunnableError,
   type RunExecutionService,
 } from './run-execution.service';
 import type { Db, TenantDbService } from '../db/tenant-db.service';
@@ -10,7 +11,7 @@ import type {
 import { MessagesRepository } from '../chats/messages-repository';
 import type { InstanceConfigReader } from '../instance-config/instance-config.service';
 import { asDouble } from '../testing/support';
-import type { ModelClient } from '../models/model-client';
+import type { ModelClient, ModelRequestRetry } from '../models/model-client';
 import { RunEventsRepository } from './runs-repository';
 import { CompactionRunService } from './compaction-run.service';
 import type { RunJob } from './run-queues';
@@ -50,6 +51,9 @@ function makeService(
   options: {
     summary?: CompactionSummary | null;
     summarizeError?: Error;
+    retry?: ModelRequestRetry;
+    recordRetryError?: Error;
+    attemptId?: string;
     focus?: string | null;
   } = {},
 ) {
@@ -74,6 +78,15 @@ function makeService(
 
   if (options.summarizeError) {
     summarizeCheckpoint.mockRejectedValue(options.summarizeError);
+  } else if (options.retry) {
+    const retry = options.retry;
+    summarizeCheckpoint.mockImplementation(async (input) => {
+      if (input.variant === 'window')
+        throw new Error('Expected an owner-model summary');
+      await input.onRetry?.(retry);
+
+      return options.summary === undefined ? summary : options.summary;
+    });
   }
 
   const completeCompactionRun = vi
@@ -85,11 +98,19 @@ function makeService(
     .mockResolvedValue({ outcome: 'won' });
 
   const claimRun = vi.fn<RunExecutionService['claimRun']>().mockResolvedValue({
-    attemptId: 'attempt-1',
+    attemptId: options.attemptId ?? 'attempt-1',
     messageId: null,
     permissionMode: 'default',
     nativeDeliverySequence: 0,
   });
+
+  const recordModelRetry = vi
+    .fn<RunExecutionService['recordModelRetry']>()
+    .mockImplementation(() =>
+      options.recordRetryError
+        ? Promise.reject(options.recordRetryError)
+        : Promise.resolve(),
+    );
 
   const service = new CompactionRunService(
     tenantDb,
@@ -102,9 +123,17 @@ function makeService(
     asDouble<
       Pick<
         RunExecutionService,
-        'claimRun' | 'completeCompactionRun' | 'settleTerminalRun'
+        | 'claimRun'
+        | 'completeCompactionRun'
+        | 'settleTerminalRun'
+        | 'recordModelRetry'
       >
-    >({ claimRun, completeCompactionRun, settleTerminalRun }),
+    >({
+      claimRun,
+      completeCompactionRun,
+      settleTerminalRun,
+      recordModelRetry,
+    }),
   );
 
   return {
@@ -113,6 +142,7 @@ function makeService(
     completeCompactionRun,
     settleTerminalRun,
     claimRun,
+    recordModelRetry,
   };
 }
 
@@ -279,6 +309,84 @@ describe('CompactionRunService.execute', () => {
         },
       }),
     );
+    expect(made.completeCompactionRun).not.toHaveBeenCalled();
+  });
+
+  it('fails without a provider code when retry persistence fails', async () => {
+    vi.spyOn(
+      MessagesRepository.prototype,
+      'findActiveCheckpoint',
+    ).mockResolvedValue(undefined);
+    vi.spyOn(MessagesRepository.prototype, 'findByChatId').mockResolvedValue([
+      message(1),
+    ]);
+
+    const retry: ModelRequestRetry = {
+      code: 'rate_limited',
+      retry: 1,
+      delayMs: 750,
+    };
+
+    const made = makeService({
+      retry,
+      recordRetryError: new Error('database detail must not escape'),
+    });
+
+    await made.service.execute(
+      job,
+      modelClient,
+      new AbortController().signal,
+      queueIdentity,
+    );
+
+    expect(made.settleTerminalRun).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: 'failed',
+        error: {
+          message: 'Failed to persist the model retry before its delay.',
+        },
+        runPayload: {
+          status: 'failed',
+          message: 'Failed to persist the model retry before its delay.',
+        },
+      }),
+    );
+    expect(made.completeCompactionRun).not.toHaveBeenCalled();
+  });
+
+  it('ignores a no-longer-runnable retry without settling the attempt', async () => {
+    vi.spyOn(
+      MessagesRepository.prototype,
+      'findActiveCheckpoint',
+    ).mockResolvedValue(undefined);
+    vi.spyOn(MessagesRepository.prototype, 'findByChatId').mockResolvedValue([
+      message(1),
+    ]);
+
+    const retry: ModelRequestRetry = {
+      code: 'rate_limited',
+      retry: 1,
+      delayMs: 750,
+    };
+
+    const made = makeService({
+      retry,
+      recordRetryError: new RunNotRunnableError(job.runId),
+      attemptId: 'current-attempt',
+    });
+
+    await made.service.execute(
+      job,
+      modelClient,
+      new AbortController().signal,
+      queueIdentity,
+    );
+
+    expect(made.recordModelRetry).toHaveBeenCalledWith(
+      expect.objectContaining({ attemptId: 'current-attempt' }),
+      retry,
+    );
+    expect(made.settleTerminalRun).not.toHaveBeenCalled();
     expect(made.completeCompactionRun).not.toHaveBeenCalled();
   });
 

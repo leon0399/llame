@@ -383,6 +383,13 @@ export type RawModelEntry = {
    */
   maxOutputTokens?: unknown;
   /**
+   * Per-model first-token timeout (request-retries D10): still unresolved —
+   * a literal positive integer or a whole-value `{env:}`/`{path:}` token,
+   * resolved and re-bounded after interpolation. Optional; the recovery
+   * middleware owns its 300-second default.
+   */
+  firstTokenTimeoutSeconds?: unknown;
+  /**
    * The operator's provider-native request options for the adapter this
    * entry's resolved wire selects. Stays `unknown` because the loader proves
    * it itself: it must be a JSON record at every depth, any `{env:…}`/

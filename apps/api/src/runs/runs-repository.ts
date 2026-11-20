@@ -568,6 +568,7 @@ export type RunEventType =
   | 'run.created'
   | 'run.started'
   | 'model.requested'
+  | 'model.retrying'
   | 'model.delta'
   | 'model.completed'
   | 'run.completed'

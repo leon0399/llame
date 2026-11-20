@@ -1,4 +1,5 @@
-import type { UIMessage } from "ai";
+import type { ChatStatus, UIMessage } from "ai";
+import { z } from "zod";
 
 import {
   isInstructionsPart,
@@ -44,6 +45,8 @@ export function isVisibleSegment(segment: GroupedAssistantPart): boolean {
 
   if (segment.part.type === "data-run-delivered") return false;
 
+  if (segment.part.type === "data-model-retrying") return false;
+
   if (segment.part.type === "data-context") {
     return (
       isInstructionsPart(segment.part) || isPromptImportsPart(segment.part)
@@ -62,4 +65,38 @@ export function isVisibleSegment(segment: GroupedAssistantPart): boolean {
  */
 export function hasVisibleContent(parts: UIMessage["parts"]): boolean {
   return groupAssistantParts(parts).some(isVisibleSegment);
+}
+
+const RETRY_LABELS = {
+  overloaded: "provider overload",
+  server_error: "a provider error",
+  unreachable: "a connection failure",
+  rate_limited: "a rate limit",
+  quota_exhausted: "a usage limit",
+  first_token_timeout: "a first-token timeout",
+  stream_broken: "a broken stream",
+};
+
+const retryNoticeSchema = z.object({
+  code: z.string(),
+  retry: z.number().int().min(1).max(10),
+});
+
+function isRetryCode(code: string): code is keyof typeof RETRY_LABELS {
+  return Object.hasOwn(RETRY_LABELS, code);
+}
+
+export function requestRetryLabel(
+  part: UIMessage["parts"][number] | undefined,
+  status: ChatStatus,
+): string | undefined {
+  if (status !== "submitted" && status !== "streaming") return undefined;
+
+  if (part?.type !== "data-model-retrying") return undefined;
+
+  const parsed = retryNoticeSchema.safeParse(part.data);
+
+  if (!parsed.success || !isRetryCode(parsed.data.code)) return undefined;
+
+  return `Retrying after ${RETRY_LABELS[parsed.data.code]} (${parsed.data.retry}/10)`;
 }

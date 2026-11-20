@@ -16,7 +16,11 @@ import {
   type PlainPart,
 } from "./group-assistant-parts";
 import { StepsBlock } from "./message-steps";
-import { hasVisibleContent, isVisibleSegment } from "./message-visibility";
+import {
+  hasVisibleContent,
+  isVisibleSegment,
+  requestRetryLabel,
+} from "./message-visibility";
 import { InstructionsPart } from "./instructions-part";
 import { HostNoticePart } from "./job-notice-part";
 import { HostMessageRow } from "./host-message-row";
@@ -388,6 +392,7 @@ function MessageBubble({
   renderKey,
   renderers,
   streaming,
+  retry,
 }: {
   from: UIMessage["role"];
   mode: MessageRowMode;
@@ -395,8 +400,11 @@ function MessageBubble({
   renderKey: string;
   renderers: ChatMarkdownRenderers;
   streaming: boolean;
+  retry?: string;
 }) {
-  if (mode === "pending") return <Shimmer as="span">Thinking…</Shimmer>;
+  if (mode === "pending") {
+    return <Shimmer as="span">{retry ?? "Thinking…"}</Shimmer>;
+  }
 
   if (!hasVisibleContent(parts)) return null;
 
@@ -414,7 +422,10 @@ function MessageBubble({
       <BubbleContent>{segments}</BubbleContent>
     </Bubble>
   ) : (
-    segments
+    <>
+      {segments}
+      {retry ? <Shimmer as="span">{retry}</Shimmer> : null}
+    </>
   );
 }
 
@@ -436,7 +447,6 @@ function hostMessageRow(
 
 type VisibleChatMessageProps = {
   message: UIMessage;
-  messageSeq: number | null;
   mode: MessageRowMode;
   renderKey: string;
   renderers: ChatMarkdownRenderers;
@@ -445,7 +455,8 @@ type VisibleChatMessageProps = {
 };
 
 function VisibleChatMessage(props: VisibleChatMessageProps) {
-  const { message, messageSeq, renderKey, footerProps, isLast } = props;
+  const { message, mode, renderKey, renderers, footerProps, isLast } = props;
+  const messageSeq = messageSeqFromMetadata(message.metadata);
   const { status } = footerProps;
 
   return (
@@ -461,12 +472,17 @@ function VisibleChatMessage(props: VisibleChatMessageProps) {
         <MessageNotice message={message} />
         <MessageBubble
           from={message.role}
-          mode={props.mode}
+          mode={mode}
           parts={message.parts}
           renderKey={renderKey}
-          renderers={props.renderers}
+          renderers={renderers}
           streaming={
             isLast && (status === "submitted" || status === "streaming")
+          }
+          retry={
+            message.role === "assistant" && isLast
+              ? requestRetryLabel(message.parts.at(-1), status)
+              : undefined
           }
         />
         <ChatMessageFooter {...footerProps} isLast={isLast} />
@@ -483,7 +499,6 @@ export function ChatMessageRow({
   ...footerProps
 }: ChatMessageRowProps) {
   const { message, status } = footerProps;
-  const messageSeq = messageSeqFromMetadata(message.metadata);
   const renderers = useChatMarkdownRenderers();
 
   // Parent gates the transcript on renderers !== null; fail closed if a row
@@ -503,7 +518,6 @@ export function ChatMessageRow({
       {mode === "hidden" ? null : (
         <VisibleChatMessage
           message={message}
-          messageSeq={messageSeq}
           mode={mode}
           renderKey={renderKey}
           renderers={renderers}

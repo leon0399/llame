@@ -46,6 +46,10 @@ export type UiChunk =
     }
   | { type: 'data-compaction-failed'; data: Record<string, never> }
   | { type: 'data-compaction-disabled'; data: Record<string, never> }
+  | {
+      type: 'data-model-retrying';
+      data: { code: string; retry: number; delayMs: number };
+    }
   | { type: 'data-run-delivered'; data: { messageId: string } }
   | { type: 'error'; errorText: string }
   | { type: 'finish'; finishReason: 'stop'; cancelled?: true };

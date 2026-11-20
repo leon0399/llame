@@ -148,6 +148,8 @@ class RunEventTranslatorImpl implements RunEventTranslator {
         return this.onModelDelta(event);
       case 'reasoning.delta':
         return this.onReasoningDelta(event);
+      case 'model.retrying':
+        return this.onModelRetrying(event);
       case 'model.completed':
         return this.onModelCompleted(event);
       case 'tool.requested':
@@ -181,6 +183,31 @@ class RunEventTranslatorImpl implements RunEventTranslator {
       default:
         return [];
     }
+  }
+
+  private onModelRetrying(event: RunEventLike): Array<UiChunk> {
+    const code = payloadString(event.payload, 'code');
+    const retry = payloadNumber(event.payload, 'retry');
+    const delayMs = payloadNumber(event.payload, 'delayMs');
+
+    if (
+      code === undefined ||
+      retry === undefined ||
+      !Number.isInteger(retry) ||
+      retry < 1 ||
+      retry > 10 ||
+      delayMs === undefined ||
+      !Number.isFinite(delayMs) ||
+      delayMs < 0
+    )
+      return [];
+
+    return [
+      ...this.prelude(),
+      ...this.closeReasoning(),
+      ...this.closeText(),
+      { type: 'data-model-retrying', data: { code, retry, delayMs } },
+    ];
   }
 
   /**

@@ -3,7 +3,6 @@ import { isRecord, isString } from '@workspace/runtime-safety';
 import {
   APICallError,
   NoOutputGeneratedError,
-  RetryError,
   type StreamTextOnErrorCallback,
 } from 'ai';
 
@@ -183,9 +182,7 @@ function normalizeStreamFailure(
   context: FailureContext,
 ): ModelFailure {
   return state.failure &&
-    (NoOutputGeneratedError.isInstance(error) ||
-      APICallError.isInstance(error) ||
-      RetryError.isInstance(error))
+    (NoOutputGeneratedError.isInstance(error) || APICallError.isInstance(error))
     ? state.failure.error
     : (redactedFailure(error, context) ?? error);
 }

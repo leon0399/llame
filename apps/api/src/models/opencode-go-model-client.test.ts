@@ -4,10 +4,11 @@
  * tasks 3.2/3.3/3.3a/3.3b). The REAL `@ai-sdk/openai-compatible` adapter and
  * the real `streamText`/`generateText` run against a stubbed platform fetch,
  * so every assertion reads the request the SDK serialized and the failure the
- * SDK surfaced — no module is mocked and no client internals are inspected.
+ * SDK surfaced — retry delays are mocked without changing global deadline
+ * timers or inspecting client internals.
  */
 import type { ModelMessage, LanguageModelUsage } from 'ai';
-import type { Mock } from 'vitest';
+import { vi, type Mock } from 'vitest';
 import { z } from 'zod';
 
 import { isRecord, type UnknownRecord } from '@workspace/runtime-safety';
@@ -27,6 +28,10 @@ import {
   OPENCODE_GO_BASE_URL,
   createOpenCodeGoModelClient,
 } from './opencode-go-model-client';
+
+vi.mock('node:timers/promises', () => ({
+  setTimeout: () => Promise.resolve(),
+}));
 
 const messages = [
   { role: 'user', content: 'Use the configured transport.' },
@@ -724,7 +729,7 @@ describe('createOpenCodeGoModelClient — the failure surface (design D7, task 3
     }
   });
 
-  it("surfaces a usage rejection after the SDK's own retries, against the same endpoint and model", async () => {
+  it('surfaces a usage rejection after llame-owned retries, against the same endpoint and model', async () => {
     const parsedMessage = 'usage limit reached for this subscription';
 
     const stub = serveFetch(
@@ -748,40 +753,34 @@ describe('createOpenCodeGoModelClient — the failure surface (design D7, task 3
         messages: REQUEST_MESSAGES,
       });
 
-      // The SDK's own rule applies: a retryable status is attempted
-      // `maxRetries + 1` times before the last message surfaces. llame keeps
-      // no quota state, never replaces that message, and never tries another
-      // provider, wire, or model — every attempt went to the same endpoint
-      // with the same model.
-      expect(stub.fetchMock).toHaveBeenCalledTimes(3);
+      // llame sends one initial request and owns ten retries. It keeps no quota
+      // state, never replaces the message, and never tries another provider,
+      // wire, or model — every attempt went to the same endpoint with the same
+      // model.
       expect(
         stub.fetchMock.mock.calls.map((_, call) => requestUrl(stub, call)),
-      ).toEqual([
-        GO_CHAT_COMPLETIONS_URL,
-        GO_CHAT_COMPLETIONS_URL,
-        GO_CHAT_COMPLETIONS_URL,
-      ]);
+      ).toEqual(Array.from({ length: 11 }, () => GO_CHAT_COMPLETIONS_URL));
 
       const attemptedBodies = await Promise.all(
         stub.fetchMock.mock.calls.map((_, call) => requestBody(stub, call)),
       );
 
-      expect(attemptedBodies.map((body) => body['model'])).toEqual([
-        'glm-5.3-flash',
-        'glm-5.3-flash',
-        'glm-5.3-flash',
-      ]);
-      // The identity is stable across a retry: the SDK re-issuing the request
-      // re-renders the same session value from the same Chat, so no attempt
-      // mints a new identity.
+      expect(attemptedBodies.map((body) => body['model'])).toEqual(
+        Array.from({ length: 11 }, () => 'glm-5.3-flash'),
+      );
+      // The identity stays stable across llame-owned retries: no attempt mints
+      // a new identity.
       expect(
         stub.fetchMock.mock.calls.map((_, call) =>
           requestHeaders(stub, call).get('x-opencode-session'),
         ),
-      ).toEqual([MAIN_CHAT.id, MAIN_CHAT.id, MAIN_CHAT.id]);
-      expect(error.message).toBe(
-        `Failed after 3 attempts. Last error: ${parsedMessage}`,
-      );
+      ).toEqual(Array.from({ length: 11 }, () => MAIN_CHAT.id));
+      expect(
+        stub.fetchMock.mock.calls.map((_, call) =>
+          requestHeaders(stub, call).get('x-session-id'),
+        ),
+      ).toEqual(Array.from({ length: 11 }, () => MAIN_CHAT.id));
+      expect(error).toMatchObject({ code: 'quota_exhausted' });
       expect(
         leakedCanaries(error, [
           ...TRANSPORT_ONLY_CANARIES,
@@ -814,11 +813,7 @@ describe('createOpenCodeGoModelClient — the failure surface (design D7, task 3
         messages: REQUEST_MESSAGES,
       });
 
-      // An edge proxy's HTML is not the gateway's envelope, so the status text
-      // is the message and the body stays on the error object.
-      expect(error.message).toBe(
-        'Failed after 3 attempts. Last error: Bad Gateway',
-      );
+      expect(error).toMatchObject({ code: 'server_error' });
       expect(leakedCanaries(error, TRANSPORT_ONLY_CANARIES)).toEqual([]);
     } finally {
       stub.restore();

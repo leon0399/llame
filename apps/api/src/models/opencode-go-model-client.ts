@@ -58,6 +58,7 @@ type OpenCodeGoModelClientConfig = {
   providerOptions?: ProviderOptionRecord;
   /** Catalog `models[].maxOutputTokens`, forwarded to every request. */
   maxOutputTokens?: number;
+  firstTokenTimeoutSeconds?: number;
   /**
    * Resolved per-million-token pricing (design D9): Go bills a subscription
    * with usage windows, not a per-token invoice, so the example configuration

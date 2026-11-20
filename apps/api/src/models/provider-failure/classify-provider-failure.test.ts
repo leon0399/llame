@@ -436,21 +436,7 @@ describe('wire provider failure classifiers', () => {
     expect(failure).not.toHaveProperty('cause');
   });
 
-  it('unwraps SDK RetryError by shape and reads a nested response error', () => {
-    const lastError = apiError(429, {}, { 'retry-after': '4' });
-
-    const classified = classifyCompletions({
-      provider: 'openai',
-      error: Object.assign(new Error('retry wrapper'), {
-        name: 'RetryError',
-        lastError,
-      }),
-    });
-
-    expect(classified.message).toBe('wire failure');
-    expect(classified.code).toBe('rate_limited');
-    expect(classified.hintMs).toBe(4000);
-
+  it('reads a nested response error', () => {
     const nested = classifyResponses({
       provider: 'openai',
       error: Object.assign(new Error('nested'), {
