@@ -1,0 +1,508 @@
+CHANGELOG.md
+  a76c3aca748f4bf7 5-7
+apps/api/src/queue/pgboss-queue.service.test.ts
+  a76c3aca748f4bf7 26,43-45,54-56
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.6",
+  "base_commit_sha": "5b8eedcb62294e2a7400f3520d5c9376087ac706",
+  "prompts": {
+    "a76c3aca748f4bf7": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "980627c1-ea4f-4d85-a331-28cfc25677d1",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Leonid Meleshin <leonid.meleshin@webpros.com>",
+      "messages": [
+        {
+          "type": "user",
+          "text": "<command-message>migrate-to-shoehorn</command-message>\n<command-name>/migrate-to-shoehorn</command-name>\n<command-args>Analyze applicability of migrating to the https://github.com/total-typescript/shoehorn for our partial mocks</command-args>",
+          "timestamp": "2026-11-20T15:38:56.239Z"
+        },
+        {
+          "type": "user",
+          "text": "Base directory for this skill: /home/leon0399/.herdr/worktrees/llame/shoehorn-analysis/.claude/skills/migrate-to-shoehorn\n\n# Migrate to Shoehorn\n\n## Why shoehorn?\n\n`shoehorn` lets you pass partial data in tests while keeping TypeScript happy. It replaces `as` assertions with type-safe alternatives.\n\n**Test code only.** Never use shoehorn in production code.\n\nProblems with `as` in tests:\n\n- Trained not to use it\n- Must manually specify target type\n- Double-as (`as unknown as Type`) for intentionally wrong data\n\n## Install\n\n```bash\nnpm i @total-typescript/shoehorn\n```\n\n## Migration patterns\n\n### Large objects with few needed properties\n\nBefore:\n\n```ts\ntype Request = {\n  body: { id: string };\n  headers: Record<string, string>;\n  cookies: Record<string, string>;\n  // ...20 more properties\n};\n\nit(\"gets user by id\", () => {\n  // Only care about body.id but must fake entire Request\n  getUser({\n    body: { id: \"123\" },\n    headers: {},\n    cookies: {},\n    // ...fake all 20 properties\n  });\n});\n```\n\nAfter:\n\n```ts\nimport { fromPartial } from \"@total-typescript/shoehorn\";\n\nit(\"gets user by id\", () => {\n  getUser(\n    fromPartial({\n      body: { id: \"123\" },\n    }),\n  );\n});\n```\n\n### `as Type` → `fromPartial()`\n\nBefore:\n\n```ts\ngetUser({ body: { id: \"123\" } } as Request);\n```\n\nAfter:\n\n```ts\nimport { fromPartial } from \"@total-typescript/shoehorn\";\n\ngetUser(fromPartial({ body: { id: \"123\" } }));\n```\n\n### `as unknown as Type` → `fromAny()`\n\nBefore:\n\n```ts\ngetUser({ body: { id: 123 } } as unknown as Request); // wrong type on purpose\n```\n\nAfter:\n\n```ts\nimport { fromAny } from \"@total-typescript/shoehorn\";\n\ngetUser(fromAny({ body: { id: 123 } }));\n```\n\n## When to use each\n\n| Function        | Use case                                           |\n| --------------- | -------------------------------------------------- |\n| `fromPartial()` | Pass partial data that still type-checks           |\n| `fromAny()`     | Pass intentionally wrong data (keeps autocomplete) |\n| `fromExact()`   | Force full object (swap with fromPartial later)    |\n\n## Workflow\n\n1. **Gather requirements** - ask user:\n   - What test files have `as` assertions causing problems?\n   - Are they dealing with large objects where only some properties matter?\n   - Do they need to pass intentionally wrong data for error testing?\n\n2. **Install and migrate**:\n   - [ ] Install: `npm i @total-typescript/shoehorn`\n   - [ ] Find test files with `as` assertions: `grep -r \" as [A-Z]\" --include=\"*.test.ts\" --include=\"*.spec.ts\"`\n   - [ ] Replace `as Type` with `fromPartial()`\n   - [ ] Replace `as unknown as Type` with `fromAny()`\n   - [ ] Add imports from `@total-typescript/shoehorn`\n   - [ ] Run type check to verify\n\n\nARGUMENTS: Analyze applicability of migrating to the https://github.com/total-typescript/shoehorn for our partial mocks",
+          "timestamp": "2026-11-20T15:38:56.239Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "cd /home/leon0399/.herdr/worktrees/llame/shoehorn-analysis\necho \"== test files ==\"; fd -e ts -e tsx '\\.(test|spec|e2e-spec|int-spec)\\.' --exclude node_modules | wc -l\necho \"== 'as unknown as' in tests ==\"; rg -c 'as unknown as' -g '*.{test,spec}.{ts,tsx}' -g '!node_modules' | awk -F: '{s+=$2} END {print s}'\necho \"== ' as [A-Z]' in tests (non-const) ==\"; rg -n ' as [A-Z][A-Za-z<]' -g '*.{test,spec}.{ts,tsx}' -g 'e2e/**' -g 'test/**' -g '!node_modules' > /tmp/claude-1000/-home-leon0399--herdr-worktrees-llame-shoehorn-analysis/980627c1-ea4f-4d85-a331-28cfc25677d1/scratchpad/as.txt; wc -l < /tmp/claude-1000/-home-leon0399--herdr-worktrees-llame-shoehorn-analysis/980627c1-ea4f-4d85-a331-28cfc25677d1/scratchpad/as.txt\necho \"== 'as never' / 'as any' ==\"; rg -c ' as (never|any)\\b' -g '*.{ts,tsx}' -g '!node_modules' | awk -F: '{s+=$2; f++} END {print s\" in \"f\" files\"}'\necho \"== Partial<> in tests ==\"; rg -c 'Partial<' -g '*.{test,spec}.{ts,tsx}' -g '!node_modules' | awk -F: '{s+=$2; f++} END {print s\" in \"f\" files\"}'\necho \"== existing helpers ==\"; rg -n 'fromPartial|shoehorn|createMock|mockDeep|DeepPartial|jest-mock-extended|vitest-mock-extended' -g '!node_modules' -g '!pnpm-lock.yaml' | head -20\necho \"== lint rules on assertions ==\"; rg -n 'assertion|as-unknown|consistent-type-assertions|no-unsafe' .oxlintrc.json apps/*/.oxlintrc.json packages/*/.oxlintrc.json 2>/dev/null | head -20\necho \"== test runner ==\"; rg -n '\"(vitest|jest|@nestjs/testing)\"' apps/*/package.json packages/*/package.json package.json | head"
+          },
+          "timestamp": "2026-11-20T15:39:05.297Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "ToolSearch",
+          "input": {
+            "max_results": 1,
+            "query": "select:TaskStop"
+          },
+          "timestamp": "2026-11-20T15:41:09.673Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "TaskStop",
+          "input": {
+            "task_id": "behv4s241"
+          },
+          "timestamp": "2026-11-20T15:41:11.097Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "cd /home/leon0399/.herdr/worktrees/llame/shoehorn-analysis\nS=/tmp/claude-1000/-home-leon0399--herdr-worktrees-llame-shoehorn-analysis/980627c1-ea4f-4d85-a331-28cfc25677d1/scratchpad\nT=(-g '*.{test,spec}.{ts,tsx}' -g '*-spec.ts')\necho \"== 'as unknown as' in tests ==\"; rg -c 'as unknown as' $T . </dev/null | awk -F: '{s+=$2;f++} END {print s\" in \"f\" files\"}'\necho \"== ' as Type' in tests ==\"; rg -n ' as [A-Z][A-Za-z<.]*' $T . </dev/null > $S/as.txt; wc -l < $S/as.txt; cut -d: -f1 $S/as.txt | sort -u | wc -l\necho \"== 'as never' / 'as any' in tests ==\"; rg -o ' as (never|any|unknown)\\b' $T . </dev/null | awk -F: '{print $NF}' | sort | uniq -c\necho \"== Partial< in tests ==\"; rg -c 'Partial<' $T . </dev/null | awk -F: '{s+=$2; f++} END {print s\" in \"f\" files\"}'\necho \"== existing helpers ==\"; rg -n 'fromPartial|shoehorn|mockDeep|DeepPartial|mock-extended|createMock' -g '!pnpm-lock.yaml' . </dev/null | head -15\necho \"== lint rules ==\"; rg -n 'assertion|as-unknown|no-unsafe|chained' .oxlintrc.json $(fd -H .oxlintrc.json apps packages) </dev/null | head -20\necho \"== runner ==\"; rg -n '\"(vitest|jest)\"' $(fd package.json apps packages -d 2) package.json </dev/null"
+          },
+          "timestamp": "2026-11-20T15:41:16.562Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "cd /home/leon0399/.herdr/worktrees/llame/shoehorn-analysis\nS=/tmp/claude-1000/-home-leon0399--herdr-worktrees-llame-shoehorn-analysis/980627c1-ea4f-4d85-a331-28cfc25677d1/scratchpad\nT=(-g '*.{test,spec}.{ts,tsx}' -g '*-spec.ts')\necho \"== rule files ==\"; fd 'chained|safety-comment' packages/oxlint-plugin-anti-slop </dev/null\necho \"== overrides touching tests in root oxlintrc ==\"; rg -n -B2 -A12 'test|spec' .oxlintrc.json </dev/null | rg -n 'files|assertion|chained|test' | head -20\necho \"== as Type target types (top) ==\"; rg -o ' as [A-Z][A-Za-z.]*' $T . </dev/null | awk -F' as ' '{print $NF}' | sort | uniq -c | sort -rn | head -25\necho \"== as never samples ==\"; rg -n ' as never\\b' $T . </dev/null | shuf -n 8 --random-source=/dev/zero | cut -c1-200\necho \"== as never per workspace ==\"; rg -c ' as never\\b' $T . </dev/null | awk -F/ '{print $2\"/\"$3}' | sort | uniq -c\necho \"== safety comments near assertions in tests (sample) ==\"; rg -n -B1 ' as [A-Z]' $T . </dev/null | rg -i 'safety|SAFETY' | head -5"
+          },
+          "timestamp": "2026-11-20T15:41:24.028Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "cd /home/leon0399/.herdr/worktrees/llame/shoehorn-analysis\nsed -n 260,300p .oxlintrc.json; echo ==== ; sed -n 1,80p packages/oxlint-plugin-anti-slop/rules/require-safety-comment-for-type-assertion.ts"
+          },
+          "timestamp": "2026-11-20T15:41:27.681Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Measuring how the codebase does partial mocks today; next checking how the lint rules treat `as never` in tests.",
+          "timestamp": "2026-11-20T15:41:29.605Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "cd /home/leon0399/.herdr/worktrees/llame/shoehorn-analysis\nsed -n 1,90p packages/oxlint-plugin-anti-slop/rules/require-safety-comment-for-type-assertion.ts"
+          },
+          "timestamp": "2026-11-20T15:41:30.418Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "cd /home/leon0399/.herdr/worktrees/llame/shoehorn-analysis\nsed -n 100,130p .oxlintrc.json\necho ==== ; sed -n 45,65p apps/api/src/queue/pgboss-queue.service.test.ts\necho ==== ; sed -n 40,62p apps/api/src/auth/sessions.repository.test.ts\necho ==== ; sed -n 25,32p apps/api/src/tools/bash-async-runtime.test.ts\necho \"== total non-const assertions in tests ==\"; rg -o ' as [A-Za-z][A-Za-z.<>]*' -g '*.{test,spec}.{ts,tsx}' -g '*-spec.ts' . </dev/null | rg -v ' as const' | wc -l\necho \"== SAFETY comments in tests ==\"; rg -c 'SAFETY:' -g '*.{test,spec}.{ts,tsx}' -g '*-spec.ts' . </dev/null | awk -F: '{s+=$2} END {print s}'\necho \"== vi.mocked / satisfies Partial ==\"; rg -c 'satisfies Partial|vi\\.mocked' -g '*.{test,spec}.{ts,tsx}' . </dev/null | awk -F: '{s+=$2} END {print s}'"
+          },
+          "timestamp": "2026-11-20T15:41:37.939Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "cd /home/leon0399/.herdr/worktrees/llame/shoehorn-analysis\necho '--- pgboss'; sed -n 45,60p apps/api/src/queue/pgboss-queue.service.test.ts\necho '--- sessions'; sed -n 44,62p apps/api/src/auth/sessions.repository.test.ts\necho '--- bash-async'; sed -n 25,32p apps/api/src/tools/bash-async-runtime.test.ts\necho '--- total non-const assertions in tests'; rg -o ' as [A-Za-z][A-Za-z.<>]*' -g '*.{test,spec}.{ts,tsx}' -g '*-spec.ts' . </dev/null | rg -v ' as const' | wc -l\necho '--- SAFETY comments in tests'; rg -c 'SAFETY:' -g '*.{test,spec}.{ts,tsx}' -g '*-spec.ts' . </dev/null | awk -F: '{s+=$2} END {print s}'\necho '--- satisfies Partial / vi.mocked'; rg -c 'satisfies Partial|vi\\.mocked' -g '*.{test,spec}.{ts,tsx}' . </dev/null | awk -F: '{s+=$2} END {print s}'\necho '--- no-module-mocking rule head'; sed -n 1,30p packages/oxlint-plugin-anti-slop/rules/no-module-mocking.ts | rg -n 'message|description' | head"
+          },
+          "timestamp": "2026-11-20T15:41:43.153Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "cd /home/leon0399/.herdr/worktrees/llame/shoehorn-analysis\nS=/tmp/claude-1000/-home-leon0399--herdr-worktrees-llame-shoehorn-analysis/980627c1-ea4f-4d85-a331-28cfc25677d1/scratchpad\necho '--- unsafe-type-assertion disables: tests vs prod'\nrg -c 'no-unsafe-type-assertion' -g '*.{test,spec}.{ts,tsx}' -g '*-spec.ts' -g '*.test-fixture.ts' . </dev/null | awk -F: '{s+=$2;f++} END {print \"tests: \"s\" in \"f\" files\"}'\nrg -c 'no-unsafe-type-assertion' -g '*.{ts,tsx}' -g '!*.{test,spec}.{ts,tsx}' -g '!*-spec.ts' -g '!*.test-fixture.ts' . </dev/null | awk -F: '{s+=$2;f++} END {print \"non-test: \"s\" in \"f\" files\"}'\necho '--- is rule enabled in root config'; rg -n 'no-unsafe-type-assertion' .oxlintrc.json </dev/null\necho '--- AST as-expressions in test files (excluding const)'\nfd -e ts -e tsx '(\\.test\\.|\\.spec\\.|-spec\\.|\\.test-fixture\\.)' . -E node_modules </dev/null > $S/testfiles.txt; wc -l < $S/testfiles.txt\nast-grep run --pattern '$E as $T' --lang tsx --json=stream $(cat $S/testfiles.txt) 2>/dev/null > $S/asexpr.jsonl\njq -r '.metaVariables.single.T.text' $S/asexpr.jsonl | awk '{ if ($0==\"const\") c++; else if ($0==\"never\") n++; else if ($0==\"unknown\") u++; else o++ } END {print \"const=\"c\" never=\"n\" unknown=\"u\" other=\"o}'\necho '--- top other targets'; jq -r '.metaVariables.single.T.text' $S/asexpr.jsonl | rg -v '^(const|never|unknown)$' | sort | uniq -c | sort -rn | head -15"
+          },
+          "timestamp": "2026-11-20T15:41:54.016Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "cd /home/leon0399/.herdr/worktrees/llame/shoehorn-analysis\nS=/tmp/claude-1000/-home-leon0399--herdr-worktrees-llame-shoehorn-analysis/980627c1-ea4f-4d85-a331-28cfc25677d1/scratchpad\n: > $S/as.txt\nfor lang in ts tsx; do\n  rg \"\\.$lang\\$\" $S/testfiles.txt </dev/null | xargs ast-grep scan --inline-rules \"{id: a, language: $lang, rule: {kind: as_expression}}\" --json=stream 2>/dev/null | jq -r '.text | split(\" as \") | last' >> $S/as.txt\ndone\nwc -l < $S/as.txt\nawk '{ if ($0==\"const\") c++; else if ($0==\"never\") n++; else if ($0==\"unknown\") u++; else o++ } END {print \"const=\"c\" never=\"n\" unknown=\"u\" other=\"o}' $S/as.txt\nrg -v '^(const|never|unknown)$' $S/as.txt | sort | uniq -c | sort -rn | head -20"
+          },
+          "timestamp": "2026-11-20T15:42:01.405Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "cd /home/leon0399/.herdr/worktrees/llame/shoehorn-analysis\nnpm view @total-typescript/shoehorn version time.modified dependencies peerDependencies 2>&1 | head -12\necho '--- as never shapes'\nrg -o '[^ (,]+ as never' -g '*.{test,spec}.{ts,tsx}' -g '*-spec.ts' . </dev/null | awk -F: '{print $NF}' | sed -E 's/^(undefined|null|\\{\\}|\\[\\]).*/\\1 as never/; s/^[A-Za-z_]+ as never$/<ident> as never/' | sort | uniq -c | sort -rn | head"
+          },
+          "timestamp": "2026-11-20T15:42:14.728Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Not worth a migration. At most, take a narrow trial that lint keeps out of production code. The skill assumes your tests are full of `as Type` and `as unknown as Type`, and llame's tests aren't. Confidence: high on the counts, moderate on the recommendation.\n\n**What the 921 test files contain (counted by syntax, not text search):**\n\n| Assertion | Count | Note |\n|---|---|---|\n| `as const` | 1209 | not a mock; out of scope |\n| `as never` | 90 | your actual partial-mock pattern, about 43 files, mostly `apps/api` |\n| `as unknown` | 14 | mostly narrowing parsed JSON |\n| `as <Type>` | 55 | branded IDs, JSON responses, DOM globals; few are partial objects |\n| `as unknown as T` | 3 | your lint rule already bans this pattern |\n\nLint already requires every non-`const` cast in tests to be justified: `typescript/no-unsafe-type-assertion` plus `anti-slop/require-safety-comment-for-type-assertion`. That's why the tests carry 81 `eslint-disable` lines and 177 `SAFETY:` comments, and it's the real cost: each partial double costs about 3 lines of boilerplate (see `apps/api/src/queue/pgboss-queue.service.test.ts:53-56`).\n\n**Against adopting it (the strongest objections):**\n- R1. `fromPartial` contains the cast inside the library, so both lint rules stop seeing it. That quietly gets around a policy you enforce on purpose, and CLAUDE.md treats that as metric gaming (\"no metric gaming or inline disables\"). If you adopt it, make it an explicit policy exception rather than a refactor.\n- R2. `fromAny` is strictly worse than `as never`. It removes the `SAFETY:` justification and adds no checking. Don't adopt it.\n- R3. The package is effectively dormant: `0.1.2`, last published 2024-02-26. It's tiny, so the risk is low, but you'd effectively be maintaining it.\n- R4. The skill's install step is `npm i`. This repo uses pnpm 12 with catalogs, so ignore that step.\n\n**For adopting it (the one real gain):**\n- `as never` checks nothing. `fromPartial` infers the target type from context, so it type-checks every property you do provide: a typo or wrong-typed field becomes a compile error. That's real safety, not just tidier code, for about 73 sites (40 `<ident> as never` plus 33 object literals). The 8 `{} as never` and the `undefined as never` placeholder arguments gain nothing.\n- Drizzle query doubles (`sessions.repository.test.ts:57-61`) would need an explicit `fromPartial<T>()` because they return through `never`. Moderate confidence they type-check at all, given the fluent builder types.\n\n**Options:**\n- O1 — do nothing. The `SAFETY:` comments are noisy but honest, and the noise costs little.\n- O2 — narrow trial: add `fromPartial` only, as a dev dependency of `apps/api`. Use `no-restricted-imports` to block it outside test files and ban `fromAny`. Convert one file, e.g. `pgboss-queue.service.test.ts`, and see whether it catches anything `as never` hid. Roughly 30 authored lines. This is the only version I'd do.\n- O3 — full migration of all 90 `as never` sites. Low value per line, and it weakens the assertion policy across the board. Rejected.\n\nI've made no changes. If you take O2, it's a chore PR. It needs an explicit decision recorded somewhere, because it changes what the safety-comment rule covers.",
+          "timestamp": "2026-11-20T15:42:33.640Z"
+        },
+        {
+          "type": "user",
+          "text": "<command-message>migrate-to-shoehorn</command-message>\n<command-name>/migrate-to-shoehorn</command-name>\n<command-args>let's do O2 as a trial, and decide O3 based on it</command-args>",
+          "timestamp": "2026-11-20T15:47:52.148Z"
+        },
+        {
+          "type": "user",
+          "text": "Base directory for this skill: /home/leon0399/.herdr/worktrees/llame/shoehorn-analysis/.claude/skills/migrate-to-shoehorn\n\n# Migrate to Shoehorn\n\n## Why shoehorn?\n\n`shoehorn` lets you pass partial data in tests while keeping TypeScript happy. It replaces `as` assertions with type-safe alternatives.\n\n**Test code only.** Never use shoehorn in production code.\n\nProblems with `as` in tests:\n\n- Trained not to use it\n- Must manually specify target type\n- Double-as (`as unknown as Type`) for intentionally wrong data\n\n## Install\n\n```bash\nnpm i @total-typescript/shoehorn\n```\n\n## Migration patterns\n\n### Large objects with few needed properties\n\nBefore:\n\n```ts\ntype Request = {\n  body: { id: string };\n  headers: Record<string, string>;\n  cookies: Record<string, string>;\n  // ...20 more properties\n};\n\nit(\"gets user by id\", () => {\n  // Only care about body.id but must fake entire Request\n  getUser({\n    body: { id: \"123\" },\n    headers: {},\n    cookies: {},\n    // ...fake all 20 properties\n  });\n});\n```\n\nAfter:\n\n```ts\nimport { fromPartial } from \"@total-typescript/shoehorn\";\n\nit(\"gets user by id\", () => {\n  getUser(\n    fromPartial({\n      body: { id: \"123\" },\n    }),\n  );\n});\n```\n\n### `as Type` → `fromPartial()`\n\nBefore:\n\n```ts\ngetUser({ body: { id: \"123\" } } as Request);\n```\n\nAfter:\n\n```ts\nimport { fromPartial } from \"@total-typescript/shoehorn\";\n\ngetUser(fromPartial({ body: { id: \"123\" } }));\n```\n\n### `as unknown as Type` → `fromAny()`\n\nBefore:\n\n```ts\ngetUser({ body: { id: 123 } } as unknown as Request); // wrong type on purpose\n```\n\nAfter:\n\n```ts\nimport { fromAny } from \"@total-typescript/shoehorn\";\n\ngetUser(fromAny({ body: { id: 123 } }));\n```\n\n## When to use each\n\n| Function        | Use case                                           |\n| --------------- | -------------------------------------------------- |\n| `fromPartial()` | Pass partial data that still type-checks           |\n| `fromAny()`     | Pass intentionally wrong data (keeps autocomplete) |\n| `fromExact()`   | Force full object (swap with fromPartial later)    |\n\n## Workflow\n\n1. **Gather requirements** - ask user:\n   - What test files have `as` assertions causing problems?\n   - Are they dealing with large objects where only some properties matter?\n   - Do they need to pass intentionally wrong data for error testing?\n\n2. **Install and migrate**:\n   - [ ] Install: `npm i @total-typescript/shoehorn`\n   - [ ] Find test files with `as` assertions: `grep -r \" as [A-Z]\" --include=\"*.test.ts\" --include=\"*.spec.ts\"`\n   - [ ] Replace `as Type` with `fromPartial()`\n   - [ ] Replace `as unknown as Type` with `fromAny()`\n   - [ ] Add imports from `@total-typescript/shoehorn`\n   - [ ] Run type check to verify\n\n\nARGUMENTS: let's do O2 as a trial, and decide O3 based on it",
+          "timestamp": "2026-11-20T15:47:52.148Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "cd /home/leon0399/.herdr/worktrees/llame/shoehorn-analysis\ngit branch --show-current; git status --short\necho '--- catalog'; rg -n -A3 '^catalog' pnpm-workspace.yaml | head -20; rg -n 'vitest' pnpm-workspace.yaml\necho '--- api devDeps'; jq '.devDependencies' apps/api/package.json | head -40\necho '--- api scripts'; jq -r '.scripts | to_entries[] | select(.key|test(\"lint|typecheck|test\")) | \"\\(.key): \\(.value)\"' apps/api/package.json\necho '--- restricted-imports existing'; rg -n -A12 'no-restricted-imports' .oxlintrc.json apps/api/.oxlintrc.json | head -50"
+          },
+          "timestamp": "2026-11-20T15:47:59.860Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "cd /home/leon0399/.herdr/worktrees/llame/shoehorn-analysis\nrg -n 'extraneous|\"plugins\"|import/' .oxlintrc.json apps/api/.oxlintrc.json | head; echo '---'; cat apps/api/.oxlintrc.json | head -60; echo '--- pgboss test full'; cat apps/api/src/queue/pgboss-queue.service.test.ts | head -70; echo '--- ctor'; rg -n 'constructor' -A4 apps/api/src/queue/pgboss-queue.service.ts"
+          },
+          "timestamp": "2026-11-20T15:48:14.499Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "cd /home/leon0399/.herdr/worktrees/llame/shoehorn-analysis\nS=/tmp/claude-1000/-home-leon0399--herdr-worktrees-llame-shoehorn-analysis/980627c1-ea4f-4d85-a331-28cfc25677d1/scratchpad\npnpm --filter api add -D --save-exact @total-typescript/shoehorn@0.1.2 > $S/install.log 2>&1; echo exit=$?; tail -5 $S/install.log\ngit status --short; git diff --stat\nfd -a 'index.d.ts' apps/api/node_modules/@total-typescript/shoehorn/ | head; cat $(fd -a 'index.d.ts' -L apps/api/node_modules/@total-typescript/shoehorn/ | head -1)"
+          },
+          "timestamp": "2026-11-20T15:49:14.465Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "cd /home/leon0399/.herdr/worktrees/llame/shoehorn-analysis\nS=/tmp/claude-1000/-home-leon0399--herdr-worktrees-llame-shoehorn-analysis/980627c1-ea4f-4d85-a331-28cfc25677d1/scratchpad\ngit diff apps/api/package.json; git diff --text pnpm-lock.yaml | head -40\nD=$(readlink -f apps/api/node_modules/@total-typescript/shoehorn); ls $D $D/dist; cat $D/dist/index.d.ts"
+          },
+          "timestamp": "2026-11-20T15:49:50.773Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Installed version 0.1.2 with zero dependencies. Its type declarations mean method signatures aren't checked, only key names and non-function values; next I'm checking how oxlint merges an override of no-restricted-imports.\n\n",
+          "timestamp": "2026-11-20T15:49:57.414Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "cd /home/leon0399/.herdr/worktrees/llame/shoehorn-analysis\nsed -n 85,101p .oxlintrc.json; echo '---'; sed -n 255,285p .oxlintrc.json; rg -n '\"overrides\"' .oxlintrc.json; rg -ln 'permissions/evaluator' apps/api/src | head"
+          },
+          "timestamp": "2026-11-20T15:49:58.046Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "cd /home/leon0399/.herdr/worktrees/llame/shoehorn-analysis\npython3 - <<'EOF'\np='.oxlintrc.json'\ns=open(p).read()\nold='''          {\n            \"regex\": \"(^|/)permissions/evaluator$\",\n            \"message\": \"Decide permissions through decidePermission or admitPermission in tools/permissions/admit; the evaluator ignores the permission mode.\"\n          }\n        ]\n      }\n    ],\n'''\nnew='''          {\n            \"regex\": \"(^|/)permissions/evaluator$\",\n            \"message\": \"Decide permissions through decidePermission or admitPermission in tools/permissions/admit; the evaluator ignores the permission mode.\"\n          }\n        ],\n        \"paths\": [\n          {\n            \"name\": \"@total-typescript/shoehorn\",\n            \"message\": \"shoehorn hides a type assertion from the assertion rules; it is permitted only in test files.\"\n          }\n        ]\n      }\n    ],\n'''\nassert s.count(old)==1; s=s.replace(old,new)\nold2='''    {\n      // Tests favor readable scenarios over production size limits.'''\nnew2='''    {\n      // Reviewed exception (shoehorn trial): fromPartial may replace a partial\n      // test double's `as never` without a SAFETY comment, because it checks\n      // the supplied keys. fromAny and fromExact add nothing over a justified\n      // assertion. Overrides replace this rule's options, so the evaluator\n      // pattern is repeated here.\n      \"files\": [\n        \"**/*.spec.ts\",\n        \"**/*.test-fixture.ts\",\n        \"**/*.test.ts\",\n        \"**/*.test.tsx\"\n      ],\n      \"rules\": {\n        \"no-restricted-imports\": [\n          \"error\",\n          {\n            \"patterns\": [\n              {\n                \"regex\": \"(^|/)permissions/evaluator$\",\n                \"message\": \"Decide permissions through decidePermission or admitPermission in tools/permissions/admit; the evaluator ignores the permission mode.\"\n              }\n            ],\n            \"paths\": [\n              {\n                \"name\": \"@total-typescript/shoehorn\",\n                \"importNames\": [\"fromAny\", \"fromExact\"],\n                \"message\": \"Use fromPartial, or a typed assertion with a SAFETY comment.\"\n              }\n            ]\n          }\n        ]\n      }\n    },\n    {\n      // Tests favor readable scenarios over production size limits.'''\nassert s.count(old2)==1; s=s.replace(old2,new2)\nopen(p,'w').write(s)\nEOF\nP=apps/api/src/queue\ncat > $P/zz-probe-prod.ts <<'EOF'\nimport { fromPartial } from '@total-typescript/shoehorn';\nexport const probe = fromPartial<{ a: number }>({});\nEOF\ncat > $P/zz-probe-banned.test.ts <<'EOF'\nimport { fromAny, fromExact } from '@total-typescript/shoehorn';\ntest('p', () => { expect([fromAny<number, string>('x'), fromExact<number>(1)]).toBeDefined(); });\nEOF\ncat > $P/zz-probe-evaluator.test.ts <<'EOF'\nimport * as ev from '../tools/permissions/evaluator';\ntest('p', () => { expect(ev).toBeDefined(); });\nEOF\ncat > $P/zz-probe-allowed.test.ts <<'EOF'\nimport { fromPartial } from '@total-typescript/shoehorn';\ntest('p', () => { expect(fromPartial<{ a: number }>({})).toEqual({}); });\nEOF\nS=/tmp/claude-1000/-home-leon0399--herdr-worktrees-llame-shoehorn-analysis/980627c1-ea4f-4d85-a331-28cfc25677d1/scratchpad\ncd apps/api; for f in prod banned evaluator allowed; do echo \"--- $f\"; ls src/queue/zz-probe-$f* ; pnpm exec oxlint --deny-warnings src/queue/zz-probe-$f*.ts > $S/probe-$f.log 2>&1; echo exit=$?; rg -o 'no-restricted-imports[^\\n]*|.*(Found|warning|error).*' $S/probe-$f.log | head -4; done"
+          },
+          "timestamp": "2026-11-20T15:50:12.500Z"
+        },
+        {
+          "type": "assistant",
+          "text": "The guard works on all four probes; \"allowed\" fails only on probe formatting. Checking whether the duplicated evaluator pattern is actually needed.",
+          "timestamp": "2026-11-20T15:50:25.381Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "cd /home/leon0399/.herdr/worktrees/llame/shoehorn-analysis\nS=/tmp/claude-1000/-home-leon0399--herdr-worktrees-llame-shoehorn-analysis/980627c1-ea4f-4d85-a331-28cfc25677d1/scratchpad\ncp .oxlintrc.json $S/oxlintrc.bak\npython3 - <<'EOF'\np='.oxlintrc.json'; s=open(p).read()\ni=s.index('Reviewed exception (shoehorn trial)')\nj=s.index('\"patterns\": [', i); k=s.index('\"paths\": [', j)\ns=s[:j]+s[k:]; open(p,'w').write(s)\nEOF\npnpm --dir apps/api exec oxlint apps/api/src/queue/zz-probe-evaluator.test.ts > $S/probe-dup.log 2>&1; rg -c 'no-restricted-imports' $S/probe-dup.log || echo 'no restricted-import error -> override replaces options; duplication required'\ncp $S/oxlintrc.bak .oxlintrc.json; rm apps/api/src/queue/zz-probe-*; git status --short"
+          },
+          "timestamp": "2026-11-20T15:50:29.034Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "cat /tmp/claude-1000/-home-leon0399--herdr-worktrees-llame-shoehorn-analysis/980627c1-ea4f-4d85-a331-28cfc25677d1/scratchpad/probe-dup.log | head"
+          },
+          "timestamp": "2026-11-20T15:50:34.047Z"
+        },
+        {
+          "type": "assistant",
+          "text": "The probe I just ran was invalid: it pointed at a path that didn't exist, so it linted nothing. Re-running it correctly.",
+          "timestamp": "2026-11-20T15:50:36.310Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "cd /home/leon0399/.herdr/worktrees/llame/shoehorn-analysis\nS=/tmp/claude-1000/-home-leon0399--herdr-worktrees-llame-shoehorn-analysis/980627c1-ea4f-4d85-a331-28cfc25677d1/scratchpad\ncp .oxlintrc.json $S/oxlintrc.bak\npython3 - <<'EOF'\np='.oxlintrc.json'; s=open(p).read()\ni=s.index('Reviewed exception (shoehorn trial)')\nj=s.index('\"patterns\": [', i); k=s.index('\"paths\": [', j)\ns=s[:j]+s[k:]; open(p,'w').write(s)\nEOF\nprintf \"import * as ev from '../tools/permissions/evaluator';\\n\\ntest('p', () => {\\n  expect(ev).toBeDefined();\\n});\\n\" > apps/api/src/queue/zz-probe-evaluator.test.ts\npnpm --dir apps/api exec oxlint src/queue/zz-probe-evaluator.test.ts > $S/probe-dup.log 2>&1; cat $S/probe-dup.log | head -5\ncp $S/oxlintrc.bak .oxlintrc.json; rm apps/api/src/queue/zz-probe-*; git status --short"
+          },
+          "timestamp": "2026-11-20T15:50:40.082Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "cd /home/leon0399/.herdr/worktrees/llame/shoehorn-analysis/apps/api"
+          },
+          "timestamp": "2026-11-20T15:50:46.619Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "R=/home/leon0399/.herdr/worktrees/llame/shoehorn-analysis; S=/tmp/claude-1000/-home-leon0399--herdr-worktrees-llame-shoehorn-analysis/980627c1-ea4f-4d85-a331-28cfc25677d1/scratchpad\npwd; cp $R/.oxlintrc.json $S/oxlintrc.bak\npython3 - <<'EOF'\np='/home/leon0399/.herdr/worktrees/llame/shoehorn-analysis/.oxlintrc.json'; s=open(p).read()\ni=s.index('Reviewed exception (shoehorn trial)')\nj=s.index('\"patterns\": [', i); k=s.index('\"paths\": [', j)\ns=s[:j]+s[k:]; open(p,'w').write(s)\nEOF\nprintf \"import * as ev from '../tools/permissions/evaluator';\\n\\ntest('p', () => {\\n  expect(ev).toBeDefined();\\n});\\n\" > src/queue/zz-probe-evaluator.test.ts\npnpm exec oxlint src/queue/zz-probe-evaluator.test.ts > $S/probe-dup.log 2>&1; echo exit=$?; head -5 $S/probe-dup.log\ncp $S/oxlintrc.bak $R/.oxlintrc.json; rm src/queue/zz-probe-*; git -C $R status --short"
+          },
+          "timestamp": "2026-11-20T15:50:50.484Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "S=/tmp/claude-1000/-home-leon0399--herdr-worktrees-llame-shoehorn-analysis/980627c1-ea4f-4d85-a331-28cfc25677d1/scratchpad\nprintf \"import * as ev from '../tools/permissions/evaluator';\\n\\ntest('p', () => {\\n  expect(ev).toBeDefined();\\n});\\n\" > src/queue/zz-probe-evaluator.test.ts\npnpm exec oxlint src/queue/zz-probe-evaluator.test.ts > $S/probe-ctrl.log 2>&1; echo exit=$?; head -3 $S/probe-ctrl.log; rm src/queue/zz-probe-*"
+          },
+          "timestamp": "2026-11-20T15:50:58.702Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Confirmed with a control run: an override replaces the rule's options rather than merging them, so the evaluator pattern has to appear in both places. Now converting the pgboss test.",
+          "timestamp": "2026-11-20T15:51:04.025Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Edit",
+          "input": {
+            "file_path": "/home/leon0399/.herdr/worktrees/llame/shoehorn-analysis/apps/api/src/queue/pgboss-queue.service.test.ts",
+            "new_string": "  const service = new PgBossQueueService(\n    fromPartial({\n      boss: {\n        createQueue,\n        updateQueue,\n        send,\n        work,\n        schedule,\n        unschedule,\n        cancel,\n        getJobById,\n      },\n    }),\n  );",
+            "old_string": "  const boss = {\n    createQueue,\n    updateQueue,\n    send,\n    work,\n    schedule,\n    unschedule,\n    cancel,\n    getJobById,\n  };\n\n  const pgBoss = { boss };\n  // SAFETY: PgBossQueueService only reads `boss` from this double, and every\n  // method it calls is represented by a resolving spy above.\n  // eslint-disable-next-line typescript/no-unsafe-type-assertion -- the test double implements the service's one consumed property\n  const service = new PgBossQueueService(pgBoss as never);",
+            "replace_all": false
+          },
+          "timestamp": "2026-11-20T15:51:06.646Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Edit",
+          "input": {
+            "file_path": "/home/leon0399/.herdr/worktrees/llame/shoehorn-analysis/apps/api/src/queue/pgboss-queue.service.test.ts",
+            "new_string": "import { fromPartial } from '@total-typescript/shoehorn';\nimport { PgBossService } from '@wavezync/nestjs-pgboss';\n",
+            "old_string": "import { PgBossService } from '@wavezync/nestjs-pgboss';\n",
+            "replace_all": false
+          },
+          "timestamp": "2026-11-20T15:51:08.050Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "S=/tmp/claude-1000/-home-leon0399--herdr-worktrees-llame-shoehorn-analysis/980627c1-ea4f-4d85-a331-28cfc25677d1/scratchpad\npnpm exec oxlint --deny-warnings --report-unused-disable-directives src/queue/pgboss-queue.service.test.ts > $S/lint1.log 2>&1; echo lint=$?; head -5 $S/lint1.log\npnpm exec tsgo --noEmit > $S/tc1.log 2>&1; echo tc=$?; head -5 $S/tc1.log\npnpm exec vitest run --project unit src/queue/pgboss-queue.service.test.ts > $S/test1.log 2>&1; echo test=$?; rg 'Tests|passed|failed' $S/test1.log | head -3"
+          },
+          "timestamp": "2026-11-20T15:51:18.760Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Tests pass (14/14). Typecheck and lint fail across the workspace because the `@workspace/*` packages aren't built in this worktree; building them now, one at a time.",
+          "timestamp": "2026-11-20T15:51:34.191Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "S=/tmp/claude-1000/-home-leon0399--herdr-worktrees-llame-shoehorn-analysis/980627c1-ea4f-4d85-a331-28cfc25677d1/scratchpad\npnpm --filter 'api^...' --workspace-concurrency=1 -r build > $S/deps-build.log 2>&1; echo build=$?; tail -3 $S/deps-build.log\npnpm exec tsgo --noEmit > $S/tc1.log 2>&1; echo tc=$?; head -5 $S/tc1.log\npnpm exec oxlint --deny-warnings --report-unused-disable-directives src/queue/pgboss-queue.service.test.ts > $S/lint1.log 2>&1; echo lint=$?; head -5 $S/lint1.log",
+            "timeout": 600000
+          },
+          "timestamp": "2026-11-20T15:51:36.887Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Lint, typecheck and the test are all green. Next, temporary probes to measure what `fromPartial` actually catches; each will be reverted.",
+          "timestamp": "2026-11-20T15:52:08.300Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "rg -n -B6 '\\} as never' src --glob '*.test.ts' | rg -n 'as never' | head -8; echo ---; rg -n '(undefined|\\{\\}) as never' src --glob '*.test.ts' | head -6"
+          },
+          "timestamp": "2026-11-20T15:52:09.292Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "sed -n 2172,2182p src/models/step-composer.test.ts; echo ---; sed -n 14,20p src/models/fake-model-client.test.ts; echo ---; sed -n 30,37p src/auth/session-cleanup.service.test.ts; echo ---; sed -n 172,176p src/jobs/bash-job-lifecycle.test.ts"
+          },
+          "timestamp": "2026-11-20T15:52:12.141Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "S=/tmp/claude-1000/-home-leon0399--herdr-worktrees-llame-shoehorn-analysis/980627c1-ea4f-4d85-a331-28cfc25677d1/scratchpad\ncat > $S/probe-shapes.py <<'EOF'\nimport subprocess, shutil, sys\nIMP = \"import { fromPartial } from '@total-typescript/shoehorn';\\n\"\nprobes = [\n (\"A pgboss typo key\", \"src/queue/pgboss-queue.service.test.ts\", \"        send,\\n\", \"        sendd: send,\\n\", False),\n (\"B pgboss wrong-typed method\", \"src/queue/pgboss-queue.service.test.ts\", \"        send,\\n\", \"        send: 42,\\n\", False),\n (\"C pgboss wrong method signature\", \"src/queue/pgboss-queue.service.test.ts\", \"        send,\\n\", \"        send: (n: number) => n * 2,\\n\", False),\n (\"D step-composer literal\", \"src/models/step-composer.test.ts\", \"condition({ steps } as never)\", \"condition(fromPartial({ steps }))\", True),\n (\"D2 step-composer literal typo\", \"src/models/step-composer.test.ts\", \"condition({ steps } as never)\", \"condition(fromPartial({ stepz: steps }))\", True),\n (\"E drizzle never-return\", \"src/auth/sessions.repository.test.ts\", \"return query as never;\", \"return fromPartial(query);\", True),\n (\"F undefined placeholder\", \"src/auth/session-cleanup.service.test.ts\", \"handler(undefined as never, undefined as never)\", \"handler(fromPartial(undefined), fromPartial(undefined))\", True),\n (\"G {} placeholder in mockResolvedValue\", \"src/jobs/bash-job-lifecycle.test.ts\", \"mockResolvedValue({} as never)\", \"mockResolvedValue(fromPartial({}))\", True),\n (\"H intentionally wrong data\", \"src/models/fake-model-client.test.ts\", \"{ bad_tool: { description: 'bad', inputSchema: 42 } } as never\", \"fromPartial({ bad_tool: { description: 'bad', inputSchema: 42 } })\", True),\n]\nfor name, f, old, new, imp in probes:\n    bak = f + \".probe-bak\"; shutil.copy(f, bak)\n    try:\n        s = open(f).read(); assert s.count(old) >= 1, (name, \"pattern missing\")\n        s = s.replace(old, new, 1)\n        if imp: s = IMP + s\n        open(f, \"w\").write(s)\n        r = subprocess.run([\"pnpm\", \"exec\", \"tsgo\", \"--noEmit\"], capture_output=True, text=True)\n        errs = [l for l in (r.stdout + r.stderr).splitlines() if l.startswith(f)]\n        print(f\"=== {name}: {'TYPE ERROR' if errs else 'compiles'}\")\n        for l in errs[:2]: print(\"   \", l[:300])\n    finally:\n        shutil.move(bak, f)\nEOF\npython3 $S/probe-shapes.py > $S/probe-shapes.log 2>&1; cat $S/probe-shapes.log; git -C ../.. status --short",
+            "timeout": 600000
+          },
+          "timestamp": "2026-11-20T15:52:27.472Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Probes reverted; the tree holds only the trial changes. Running the final checks.",
+          "timestamp": "2026-11-20T15:52:44.870Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "S=/tmp/claude-1000/-home-leon0399--herdr-worktrees-llame-shoehorn-analysis/980627c1-ea4f-4d85-a331-28cfc25677d1/scratchpad\nR=/home/leon0399/.herdr/worktrees/llame/shoehorn-analysis\npnpm --filter api lint > $S/api-lint.log 2>&1; echo api-lint=$?; tail -3 $S/api-lint.log\npnpm --filter api typecheck > $S/api-tc.log 2>&1; echo api-tc=$?\npnpm -C $R format:check > $S/fmt.log 2>&1; echo fmt=$?; tail -3 $S/fmt.log\ngit -C $R diff --check; echo diffcheck=$?\ngit -C $R diff --numstat -- apps/api/src .oxlintrc.json apps/api/package.json",
+            "timeout": 600000
+          },
+          "timestamp": "2026-11-20T15:52:48.171Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "S=/tmp/claude-1000/-home-leon0399--herdr-worktrees-llame-shoehorn-analysis/980627c1-ea4f-4d85-a331-28cfc25677d1/scratchpad\nR=/home/leon0399/.herdr/worktrees/llame/shoehorn-analysis\nF=src/queue/pgboss-queue.service.test.ts; cp $F $S/pgboss.bak\npython3 - <<'EOF'\nf='src/queue/pgboss-queue.service.test.ts'; s=open(f).read()\nold=s[s.index('  const service = new PgBossQueueService(\\n    fromPartial({'):s.index('  return {\\n    service,')]\nnew='''  const pgBoss = {\n    boss: {\n      createQueue,\n      updateQueue,\n      sendd: send,\n      work,\n      schedule,\n      unschedule,\n      cancel,\n      getJobById,\n    },\n  };\n  const service = new PgBossQueueService(fromPartial(pgBoss));\n\n'''\nopen(f,'w').write(s.replace(old,new))\nEOF\npnpm exec tsgo --noEmit > $S/probe-var.log 2>&1; echo \"var-typo tc=$?\"; rg \"^$F\" $S/probe-var.log | head -2 | cut -c1-250\ncp $S/pgboss.bak $F\nprintf \"import * as s from '@total-typescript/shoehorn';\\n\\ntest('p', () => {\\n  expect(s.fromAny<number, string>('x')).toBe('x');\\n});\\n\" > src/queue/zz-probe-ns.test.ts\npnpm exec oxlint src/queue/zz-probe-ns.test.ts > $S/probe-ns.log 2>&1; echo \"namespace-import lint=$?\"; head -2 $S/probe-ns.log\nrm src/queue/zz-probe-ns.test.ts; git -C $R status --short\npnpm -C $R lint > $S/root-lint.log 2>&1; echo root-lint=$?; tail -5 $S/root-lint.log",
+            "timeout": 600000
+          },
+          "timestamp": "2026-11-20T15:54:40.041Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "S=/tmp/claude-1000/-home-leon0399--herdr-worktrees-llame-shoehorn-analysis/980627c1-ea4f-4d85-a331-28cfc25677d1/scratchpad\nrg -n 'error|@workspace/ui:lint' $S/root-lint.log | rg -v 'ELIFECYCLE' | head -15"
+          },
+          "timestamp": "2026-11-20T15:54:59.317Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "S=/tmp/claude-1000/-home-leon0399--herdr-worktrees-llame-shoehorn-analysis/980627c1-ea4f-4d85-a331-28cfc25677d1/scratchpad\nrg -n 'Tasks:|Found [0-9]+ warnings' $S/root-lint.log; rg -c 'no-restricted-imports' $S/root-lint.log"
+          },
+          "timestamp": "2026-11-20T15:55:04.389Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "S=/tmp/claude-1000/-home-leon0399--herdr-worktrees-llame-shoehorn-analysis/980627c1-ea4f-4d85-a331-28cfc25677d1/scratchpad\nR=/home/leon0399/.herdr/worktrees/llame/shoehorn-analysis\npnpm -C $R exec turbo run lint --continue --filter='!@workspace/ui' > $S/root-lint2.log 2>&1; echo exit=$?; rg -n 'Tasks:|Failed:|errors\\.' $S/root-lint2.log | tail -25",
+            "timeout": 600000
+          },
+          "timestamp": "2026-11-20T15:55:10.022Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "S=/tmp/claude-1000/-home-leon0399--herdr-worktrees-llame-shoehorn-analysis/980627c1-ea4f-4d85-a331-28cfc25677d1/scratchpad\nrg -o 'web:lint:\\s+x [a-z@/-]+\\([a-z-]+\\)' $S/root-lint2.log | sort | uniq -c"
+          },
+          "timestamp": "2026-11-20T15:55:49.030Z"
+        },
+        {
+          "type": "assistant",
+          "text": "O2 is in place and green, but the trial points against O3. `fromPartial` checks key names only, and only when the object literal is written inline. It never checks values, so it is weaker than I told you in my first answer.\n\nI need to retract part of that answer. I said a wrong-typed field becomes a compile error and that about 73 sites gain real safety. The probes show otherwise:\n- **Methods aren't checked.** shoehorn's own type definition maps function members to an empty object type, so a wrong method type or signature compiles.\n- **Bad data passes.** H is the worst result: the deliberately wrong `inputSchema: 42` in `fake-model-client.test.ts` compiles under `fromPartial`, and with no `SAFETY:` comment. I didn't read the `ToolSet` type, so the exact cause is unconfirmed.\n\n**What changed (uncommitted):**\n- `apps/api/package.json` and the lockfile: `@total-typescript/shoehorn` pinned to `0.1.2`, test-only (dev) dependency of `apps/api`, no dependencies of its own.\n- `.oxlintrc.json`, +39 lines:\n  - The root `no-restricted-imports` now bans the package outside tests.\n  - A test-file override allows `fromPartial` and bans `fromAny` and `fromExact`.\n  - Probed with throwaway files: a production import fails, `fromAny`/`fromExact` fail even through `import * as s`, `fromPartial` in a test passes.\n- `apps/api/src/queue/pgboss-queue.service.test.ts`, +15/−16: `as never` and its SAFETY/disable lines replaced by an inline `fromPartial({ boss: {...} })`. The dropped comment said every method the service calls has a spy; nothing checks that now.\n\n**Shape probes (temporary edits, all reverted):**\n\n| Probe | Result |\n|---|---|\n| A — inline literal, typo key `sendd` | caught |\n| B — `send: 42` | compiles |\n| C — `send: (n: number) => n * 2` | compiles |\n| D2 — step-composer literal, typo key | caught |\n| P — typo key in a variable passed as `fromPartial(pgBoss)` (40/90 sites use variables) | compiles |\n| E — Drizzle `never`-returning helper | type error, unusable |\n| F — `undefined as never` placeholder | type error, unusable |\n| G — `{} as never` | compiles, adds nothing |\n| H — deliberately wrong data | compiles; worse than a SAFETY assertion |\n\n**Checks:**\n- Passing: `api` lint and typecheck, the converted test (14/14), `format:check`, `git diff --check`.\n- Root lint: 19 of 20 workspace tasks pass. `web` fails on 17 shadcn Tailwind class errors, and a first root `pnpm lint` run also failed `@workspace/ui` on 91 of the same kind. The ui log says tailwindcss v4 can't be resolved in this worktree, so I believe this is an environment problem, not the config change, but I haven't checked it against `master`. No `no-restricted-imports` errors anywhere.\n- I had to build the `@workspace/*` packages first, because they weren't built in this worktree.\n\n**Costs:**\n- R5: the override restates `no-restricted-imports`. Overrides replace the rule's options rather than merging them (confirmed with a control run), so the permission-evaluator pattern now lives in two places. That breaks the \"root declares each rule once\" rule and the two copies can drift.\n- R6: the gain is key-name typos in inline literals only. Most sites hold the double in a variable or are placeholders, so converting them gains nothing unless each one is rewritten inline.\n\n**O3 options:**\n- D1 — reject O3 and revert O2. The result is a 1-line net saving in the test against a 39-line lint exception and a rule declared twice.\n- D2 — keep O2 as-is and make no further conversions. Not recommended: the exception stays forever for one file.\n- D3 — the alternative `apps********E.md` already prescribes: narrow each consumer's dependency to an exported `Pick<>` type, so the double type-checks with no cast at all. This checks method signatures, which shoehorn can't. The catch is that it changes production signatures, so it suits sites like `PgBossQueueService` but not Drizzle builders or deliberately wrong data.\n\nMy recommendation is D1, plus D3 opportunistically when a test is touched anyway. Moderate-to-high confidence. Nothing is committed; if you keep O2 anyway, its PR needs a `CHANGELOG.md` entry.",
+          "timestamp": "2026-11-20T15:56:05.679Z"
+        },
+        {
+          "type": "user",
+          "text": "open a draft PR for me to just check it",
+          "timestamp": "2026-11-20T16:00:21.733Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Skill",
+          "input": {
+            "args": "draft PR for shoehorn trial (O2) on branch shoehorn-analysis",
+            "skill": "open-pull-request"
+          },
+          "timestamp": "2026-11-20T16:00:24.749Z"
+        },
+        {
+          "type": "user",
+          "text": "Base directory for this skill: /home/leon0399/.herdr/worktrees/llame/shoehorn-analysis/.claude/skills/open-pull-request\n\n# Open a pull request\n\n[CONTRIBUTING.md](../../../CONTRIBUTING.md#pr-contract) owns the PR contract;\n[`.github/pull_request_template.md`](../../../.github/pull_request_template.md)\nis its fill-in form. This skill is the procedure, for a single PR or one layer\nof a stack.\n\n## 1. One PR or a stack\n\nDecide from the change, not by default:\n\n|Use a single PR against `master` when…|Use a `$gh-stack` stack when…|\n|---|---|\n|the change is one reviewable concern|it splits into dependent, separately reviewable layers|\n|a fix, chore, dependency bump, or tooling change fits one PR|feature delivery requires proposal → implementation → finalize|\n|nothing else is in flight on top of it|later work must build on it before it merges|\n\nA stack layer's branch, base, rebase, and publish commands go through\n`$gh-stack`; a single PR uses plain `git` and `gh` (below). Prefer independently\nmergeable layers and safe intermediate merge points. Split a concern when it\nimproves review or enables a safe merge, not merely to meet a line count.\n\n## 2. Before writing\n\n- Confirm the branch, its immediate base, and that the base is current:\n  `git fetch origin && git merge-base --is-ancestor origin/<base> HEAD`.\n  Mergeability is judged against the PR's own base, not the stack against\n  `master`; rebase a layer that conflicts with its parent.\n- Commit only owned paths (`git commit -- <paths>`). Other work in the tree is\n  someone else's.\n- Size the layer: authored added+deleted lines against the parent, with\n  generated churn counted separately (see\n  [review budget](../../../CONTRIBUTING.md#review-budget)).\n- Run the narrow evidence for the touched surface\n  ([verification table](../../../CONTRIBUTING.md#verification)) and keep the\n  exact commands and results for the body.\n\n## 3. Write the body\n\nWrite the body to a file (`/tmp/pr-<branch>.md`) from the template: fill every\nsection from the diff, delete the sections and checklist items that do not\napply, verify each remaining item before ticking it, and delete the template's\ncomment blocks.\n\n- **Concern** first, in 1–3 sentences: what and why.\n- **One visual when the change has a shape.** Pick the smallest form that\n  makes the point, put the explanation beside it, and never repeat the same\n  content as both a visual and a list. Use `$show-me` when available. Forms:\n\n  |The point is…|Use|\n  |---|---|\n  |files added, moved, merged, or deleted|a diff-style file tree (` ```diff ` with `├──`, `+`/`-` lines and `#` comments)|\n  |runtime order of calls|a call tree (` ```text `)|\n  |UI structure|a component tree with file paths|\n  |who calls what, data flow, states|` ```mermaid ` flowchart or sequence diagram|\n  |numbers to compare|a table with a delta column (before, after, Δ, Δ %, ratio)|\n  |the exact new shape of a small block|a ` ```diff ` of that block only|\n\n  Check Mermaid syntax before publishing\n  (`npx -y -p @mermaid-js/mermaid-cli@11 mmdc -i x.mmd -o x.svg`). Keep\n  visuals at the top level: a fence nested in a list item renders unreliably.\n- **Measurements** report both sides and the delta, and name the machine and\n  base commit. A ratio alone is hard to judge.\n- **Decisions to review** lists rejected alternatives and accepted limits, so a\n  reviewer can challenge them without reconstructing them.\n- **Commands run** lists only what ran, with results. CI owns the full suites;\n  say what was left to CI.\n- Never add a \"Test plan\" section, and never mention the agent, model, or tool\n  that wrote the change.\n- Follow the repository's prose rules: answer first, each fact once, no filler.\n\n## 4. Publish\n\nA single PR:\n\n```bash\ngit push -u origin <branch>\ngh pr create --repo leon0399/llame --draft --base <base> --head <branch> \\\n  --title \"<conventional commit title>\" --body-file /tmp/pr-<branch>.md\n```\n\nA stack layer publishes with `gh stack push` instead. New PRs open as drafts. Rewrite a body later with\n`gh pr edit <N> --body-file /tmp/pr-<branch>.md`.\n\nAdd the PR to the delivery Project with Status, Priority, Workstream, and Next\naction, then read the fields back ([Project tracking](../../../CONTRIBUTING.md#project-tracking)\nmaps each PR state to a Status). A draft implementation or chore PR is\n`In progress`.\n\n## 5. Self-review and green CI, then ready\n\nMark a PR ready only when both hold for its current head:\n\n- **Self-review is done.** Review the actual parent-relative diff against\n  [REVI********E.md](../../../REVIEW_GUIDE.md) and the approved scope. Fix\n  findings with new commits, rerun affected checks, and update the body.\n- **CI is green.** Watch the draft's checks to a terminal state\n  (`npx -y pullfrog watch leon0399/llame --pr <N>`, then\n  `gh pr checks <N>`). Fix a failure the PR caused and wait again. A check\n  that also fails on `master`, or a known flake, does not block; name it in a\n  PR comment.\n\nA push during either step restarts both. Then `gh pr ready <N>`, move the\nProject item to `In review` (proposals: `Awaiting approval`), and run\n[Ready-PR monitoring](../../../CONTRIBUTING.md#ready-pr-monitoring), reading\nfeedback with `$fetch-pr-reviews`.\n\nNever toggle draft state to retrigger reviews, and never merge without Leo's\nexplicit permission.\n\n\nARGUMENTS: draft PR for shoehorn trial (O2) on branch shoehorn-analysis",
+          "timestamp": "2026-11-20T16:00:25.333Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "R=/home/leon0399/.herdr/worktrees/llame/shoehorn-analysis\ngit -C $R fetch origin master > /dev/null 2>&1; git -C $R merge-base --is-ancestor origin/master HEAD && echo base-current || echo base-behind\ngit -C $R log --oneline -1 origin/master; git -C $R remote -v | head -1\necho '--- template'; cat $R/.github/pull_request_template.md\necho '--- changelog head'; sed -n 1,30p $R/CHANGELOG.md"
+          },
+          "timestamp": "2026-11-20T16:00:29.339Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Edit",
+          "input": {
+            "file_path": "/home/leon0399/.herdr/worktrees/llame/shoehorn-analysis/CHANGELOG.md",
+            "new_string": "# 2026-11-20\n\n- Trial `@total-typescript/shoehorn` in API tests: `fromPartial` replaces one\n  partial test double's `as never`, lint confines the package to test files,\n  and `fromAny` and `fromExact` stay banned.\n",
+            "old_string": "# 2026-11-20\n\n",
+            "replace_all": false
+          },
+          "timestamp": "2026-11-20T16:00:40.846Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "R=/home/leon0399/.herdr/worktrees/llame/shoehorn-analysis\npnpm -C $R exec oxfmt --check CHANGELOG.md > /dev/null 2>&1; echo fmt=$?\npnpm -C $R lint:markdown > /tmp/claude-1000/-home-leon0399--herdr-worktrees-llame-shoehorn-analysis/980627c1-ea4f-4d85-a331-28cfc25677d1/scratchpad/md.log 2>&1; echo md=$?; tail -2 /tmp/claude-1000/-home-leon0399--herdr-worktrees-llame-shoehorn-analysis/980627c1-ea4f-4d85-a331-28cfc25677d1/scratchpad/md.log\ngit -C $R add -- .oxlintrc.json CHANGELOG.md apps/api/package.json pnpm-lock.yaml apps/api/src/queue/pgboss-queue.service.test.ts\ngit -C $R commit -q -F - <<'EOF'\nchore(api): trial shoehorn fromPartial for one partial test double\n\nReplace the `as never` cast in the pg-boss queue service test with an\ninline `fromPartial` literal. Lint restricts @total-typescript/shoehorn to\ntest files and bans fromAny and fromExact there; the test-file override\nrepeats the permission-evaluator pattern because overrides replace the\nrule's options.\n\nCo-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>\nEOF\ngit -C $R log --oneline -1; git -C $R status --short"
+          },
+          "timestamp": "2026-11-20T16:00:45.705Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "R=/home/leon0399/.herdr/worktrees/llame/shoehorn-analysis\nF=/home/leon0399/.claude/projects/-home-leon0399--herdr-worktrees-llame-shoehorn-analysis/980627c1-ea4f-4d85-a331-28cfc25677d1/tool-results/bb41itksm.txt\nsed 's/\\x1b\\[[0-9;]*m//g' $F | rg -n '✔|✗|🥊|error|failed|summary' | tail -20\ngit -C $R log --oneline -2; git -C $R status --short"
+          },
+          "timestamp": "2026-11-20T16:01:27.774Z"
+        },
+        {
+          "type": "assistant",
+          "text": "The pre-commit hook blocked the commit. Code lint failed on the known `@workspace/ui` Tailwind environment errors; checking why dead-code lint failed.",
+          "timestamp": "2026-11-20T16:01:31.273Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "F=/home/leon0399/.claude/projects/-home-leon0399--herdr-worktrees-llame-shoehorn-analysis/980627c1-ea4f-4d85-a331-28cfc25677d1/tool-results/bb41itksm.txt\nsed 's/\\x1b\\[[0-9;]*m//g' $F | sed -n 848,900p | rg -v '^\\s*$' | head -40\nrg -n 'dead-code' -A4 /home/leon0399/.herdr/worktrees/llame/shoehorn-analysis/lefthook.yml | head"
+          },
+          "timestamp": "2026-11-20T16:01:33.216Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Both pre-commit hook failures come from missing modules in this worktree's node_modules, not from the code. I'm running a full pnpm install against the lockfile and then retrying the commit.\n\n",
+          "timestamp": "2026-11-20T16:01:38.596Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "R=/home/leon0399/.herdr/worktrees/llame/shoehorn-analysis; S=/tmp/claude-1000/-home-leon0399--herdr-worktrees-llame-shoehorn-analysis/980627c1-ea4f-4d85-a331-28cfc25677d1/scratchpad\npnpm -C $R install --frozen-lockfile > $S/install-full.log 2>&1; echo install=$?; tail -3 $S/install-full.log\nls -d $R/node_modules/.pnpm/@storybook+addon-vitest* $R/packages/ui/node_modules/tailwindcss 2>&1 | head -3\ngit -C $R status --short",
+            "timeout": 600000
+          },
+          "timestamp": "2026-11-20T16:01:40.328Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "R=/home/leon0399/.herdr/worktrees/llame/shoehorn-analysis; S=/tmp/claude-1000/-home-leon0399--herdr-worktrees-llame-shoehorn-analysis/980627c1-ea4f-4d85-a331-28cfc25677d1/scratchpad\npnpm -C $R --filter @workspace/ui lint > $S/ui-lint.log 2>&1; echo ui=$?; rg -o 'Found .*|could not be resolved.*' $S/ui-lint.log | head -2\npnpm -C $R lint:dead-code > $S/knip.log 2>&1; echo knip=$?; rg -n 'ERROR' $S/knip.log | head -3\nls -la $R/node_modules/@storybook/ 2>&1 | head; ls $R/apps/web/node_modules/@storybook 2>&1 | head",
+            "timeout": 300000
+          },
+          "timestamp": "2026-11-20T16:01:49.504Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Both pass after the full install; the filtered `pnpm add` had evidently left the other workspaces' links incomplete. Retrying the commit.",
+          "timestamp": "2026-11-20T16:02:02.308Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "R=/home/leon0399/.herdr/worktrees/llame/shoehorn-analysis; S=/tmp/claude-1000/-home-leon0399--herdr-worktrees-llame-shoehorn-analysis/980627c1-ea4f-4d85-a331-28cfc25677d1/scratchpad\ngit -C $R commit -q -F - > $S/commit.log 2>&1 <<'EOF'\nchore(api): trial shoehorn fromPartial for one partial test double\n\nReplace the `as never` cast in the pg-boss queue service test with an\ninline `fromPartial` literal. Lint restricts @total-typescript/shoehorn to\ntest files and bans fromAny and fromExact there; the test-file override\nrepeats the permission-evaluator pattern because overrides replace the\nrule's options.\n\nCo-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>\nEOF\necho commit=$?; sed 's/\\x1b\\[[0-9;]*m//g' $S/commit.log | rg '✔|🥊' | head -20\ngit -C $R log --oneline -1; git -C $R status --short",
+            "timeout": 600000
+          },
+          "timestamp": "2026-11-20T16:02:05.713Z"
+        }
+      ],
+      "total_additions": 18,
+      "total_deletions": 16,
+      "accepted_lines": 10,
+      "overriden_lines": 0
+    }
+  }
+}
