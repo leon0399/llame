@@ -96,6 +96,12 @@
             "regex": "(^|/)permissions/evaluator$",
             "message": "Decide permissions through decidePermission or admitPermission in tools/permissions/admit; the evaluator ignores the permission mode."
           }
+        ],
+        "paths": [
+          {
+            "name": "@total-typescript/shoehorn",
+            "message": "shoehorn hides a type assertion from the assertion rules; it is permitted only in test files."
+          }
         ]
       }
     ],
@@ -260,6 +266,39 @@
         "max-lines": "off",
         "max-lines-per-function": "off",
         "typescript/no-explicit-any": "off"
+      }
+    },
+    {
+      // Reviewed exception (shoehorn trial): fromPartial may replace a partial
+      // test double's `as never` without a SAFETY comment, because it checks
+      // the supplied keys. fromAny and fromExact add nothing over a justified
+      // assertion. Overrides replace this rule's options, so the evaluator
+      // pattern is repeated here.
+      "files": [
+        "**/*.spec.ts",
+        "**/*.test-fixture.ts",
+        "**/*.test.ts",
+        "**/*.test.tsx"
+      ],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "patterns": [
+              {
+                "regex": "(^|/)permissions/evaluator$",
+                "message": "Decide permissions through decidePermission or admitPermission in tools/permissions/admit; the evaluator ignores the permission mode."
+              }
+            ],
+            "paths": [
+              {
+                "name": "@total-typescript/shoehorn",
+                "importNames": ["fromAny", "fromExact"],
+                "message": "Use fromPartial, or a typed assertion with a SAFETY comment."
+              }
+            ]
+          }
+        ]
       }
     },
     {

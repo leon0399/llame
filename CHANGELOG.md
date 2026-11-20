@@ -2,6 +2,9 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-11-20
 
+- Trial `@total-typescript/shoehorn` in API tests: `fromPartial` replaces one
+  partial test double's `as never`, lint confines the package to test files,
+  and `fromAny` and `fromExact` stay banned.
 - Strengthen summary quota-wake regressions for durable checkpoint recovery,
   claim ownership, original execution context, and completed reply retention.
 - Retain a redelivered summary wake's saved answer when terminal settlement

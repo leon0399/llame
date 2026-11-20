@@ -23,6 +23,7 @@
 
 import 'reflect-metadata';
 
+import { fromPartial } from '@total-typescript/shoehorn';
 import { PgBossService } from '@wavezync/nestjs-pgboss';
 
 import { isRecord } from '@workspace/runtime-safety';
@@ -39,22 +40,20 @@ function makeQueueService() {
   const cancel = vi.fn().mockResolvedValue(undefined);
   const getJobById = vi.fn().mockResolvedValue(null);
 
-  const boss = {
-    createQueue,
-    updateQueue,
-    send,
-    work,
-    schedule,
-    unschedule,
-    cancel,
-    getJobById,
-  };
-
-  const pgBoss = { boss };
-  // SAFETY: PgBossQueueService only reads `boss` from this double, and every
-  // method it calls is represented by a resolving spy above.
-  // eslint-disable-next-line typescript/no-unsafe-type-assertion -- the test double implements the service's one consumed property
-  const service = new PgBossQueueService(pgBoss as never);
+  const service = new PgBossQueueService(
+    fromPartial({
+      boss: {
+        createQueue,
+        updateQueue,
+        send,
+        work,
+        schedule,
+        unschedule,
+        cancel,
+        getJobById,
+      },
+    }),
+  );
 
   return {
     service,

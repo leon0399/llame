@@ -597,6 +597,9 @@ importers:
       '@testcontainers/postgresql':
         specifier: 12.0.4
         version: 12.0.4(supports-color@8.1.1)
+      '@total-typescript/shoehorn':
+        specifier: 0.1.2
+        version: 0.1.2
       '@types/express':
         specifier: ^5.0.3
         version: 5.0.3
@@ -5361,6 +5364,9 @@ packages:
 
   '@toon-format/toon@2.3.1':
     resolution: {integrity: sha512-sWqEMeAJGMda9qRrfPKrX3C4c33CO9SJuvJzzrcBEn5sbDB+k6pSLkDsfN0rVnLQwR97MV3sDgVbcxQNsq8xVw==}
+
+  '@total-typescript/shoehorn@0.1.2':
+    resolution: {integrity: sha512-p7nNZbOZIofpDNyP0u1BctFbjxD44Qc+oO5jufgQdFdGIXJLc33QRloJpq7k5T59CTgLWfQSUxsuqLcmeurYRw==}
 
   '@ts-morph/common@0.27.0':
     resolution: {integrity: sha512-Wf29UqxWDpc+i61k3oIOzcUfQt79PIT9y/MWfAGlrkjg6lBC1hwDECLXPVJAhWjiGbfBCxZd65F/LIZF3+jeJQ==}
@@ -14895,6 +14901,8 @@ snapshots:
   '@tokenizer/token@0.3.0': {}
 
   '@toon-format/toon@2.3.1': {}
+
+  '@total-typescript/shoehorn@0.1.2': {}
 
   '@ts-morph/common@0.27.0':
     dependencies:
