@@ -1,12 +1,12 @@
 ---
-status: proposed
+status: accepted
 ---
 
 # Project reminders derive told state from reconstructed context
 
 The Project reminder compares its selected text with its own latest item in
-the reconstructed context of the active compaction epoch. Its comparison keys
-belong in that item's payload. It adds no Project-specific told-state columns.
+the reconstructed context of the active compaction epoch. Its comparison uses
+stored item text. It adds no Project-specific told-state columns.
 
 ## Considered options
 

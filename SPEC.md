@@ -26,7 +26,10 @@ When prose conflicts with code or a capability spec, treat the prose as stale an
 
 llame currently provides authenticated multi-user Chats, durable agentic Runs, operator-configured models, owner-only Projects, hybrid Chat search, owner-scoped personal Markdown Knowledge reads, and a bounded tool loop over Chats, Knowledge, configured native file, and operator-configured remote MCP tools.
 
-A Project currently groups one owner's Chats. It does not grant shared membership, own knowledge, attach tools, or provide a filesystem Workspace. See [`openspec/specs/projects`](openspec/specs/projects/spec.md).
+A Project currently groups one owner's Chats and supplies its literal
+owner-authored instructions to their Runs at execution time. It does not grant
+shared membership, own knowledge, attach tools, or provide a filesystem
+Workspace. See [`openspec/specs/projects`](openspec/specs/projects/spec.md).
 
 Future behavior belongs in [VISION.md](VISION.md) until sequenced in the roadmap and specified through an OpenSpec change.
 
@@ -206,6 +209,8 @@ Persisted event families currently cover Run lifecycle (`run.created`, `run.star
 
 `run_events` is installation-local execution and reconnect state. It is not a cross-node protocol, Personal Realm replication journal, portable synchronization cursor, or grant of authority to resume execution elsewhere.
 
+`run.project_bound` records one Run's immutable Project selection, including a null selection. It is owner-only control metadata, not model output or told state. Owner SSE consumers accept it without an assistant text, reasoning, or tool chunk. Public projections, shared forks, exports, search, and system-only prompt receipts omit its payload.
+
 ### 9.5 Execution boundary
 
 Every Chat message executes through pg-boss and `RunExecutionService`; there is no inline request-thread mode. A no-HTTP worker entrypoint ships, and worker profiles support co-located consumers. See [`durable-runs`](openspec/specs/durable-runs/spec.md), [`job-queue`](openspec/specs/job-queue/spec.md), and [docs/product/operator/scaling.md](docs/product/operator/scaling.md).
@@ -225,6 +230,12 @@ Prompt preparation happens in the executing worker, per attempt, inside that att
 ### 9.8 Context injection
 
 Every server-authored contribution to a chat's model-visible conversation that is not part of the system prompt is a **context item** on one rail: a single `<system-reminder producer="…" form="…">` envelope carrying a one-line provenance statement no operator prompt can remove, rendered as its own text block inside the triggering user message, in a fixed producer precedence order that preserves emission order within a producer. An item authored between the model steps of one Run has no triggering user message to carry it: it is stored as a `data-context` part on that Run's assistant message immediately after the last tool part of the step whose results triggered it, and replayed as one user-role message directly after that tool result on every later step of the same Run. `producer` says who authored an item; `form` (`notice`, `snapshot`, `checkpoint`) says what kind of content it is. An unrecognized `form` is read as absent and an unrecognized `producer` renders nothing while still being stored, so an older reader degrades rather than rejecting a newer writer's part. That tolerance removes the rejection, not the deploy ordering: producer-aware workers still ship before any API authors that producer, because a worker that does not know one silently omits its item for the life of that Run. The `instructions` producer loads per-directory project instruction files — from the host filesystem, or from a Knowledge Space a `kb://` locator named, in which case each file is labelled and keyed by its locator — and sits after `workspace` in that precedence order (see [`instruction-files`](openspec/specs/instruction-files/spec.md)).
+
+Project context binds at execution preparation, not message admission. Before the first model request, the worker resolves the Chat's current Project under the owner identity. It commits one versioned `run.project_bound` event in the same fenced transaction that writes the attempt context and `model.requested`. The event records the input selection, including a real null. Later attempts, segments, quota wakes, recovery, and compaction reuse it, and a new Run resolves current state again.
+
+Selection is not told state. The `project` producer sits after `tool-availability` and before `workspace`. It compares its canonical rendering with its own latest text-bearing item in reconstructed context of the active compaction epoch, including a surviving in-Run item, and suppresses only equal text. A null selection with durable earlier Project context emits an absence snapshot. A never-filed Chat with no own item emits nothing. The compaction instruction excludes Project snapshots, and each replacement or absence item explicitly retires earlier Project guidance.
+
+The item labels identity and description as data and instructions as additive owner guidance beside personalization. It grants no tool, permission, or Workspace navigation authority, and it is delivered independently of `read` eligibility. The owner's context display exposes the exact persisted text, while the system-only prompt receipt contains no Project context. An owner fork inherits copied items but no affiliation, so its next Run emits absence. Shared forks receive neither. Project metadata and instructions are model input shared with the configured provider, and editing or deleting a Project rewrites neither earlier stored items nor provider copies.
 
 A segment is a new attempt: its own part collector, in-Run staging, and Run boundary. An in-Run item stays on the reply of the segment that authored it, and a later segment reads it as history.
 

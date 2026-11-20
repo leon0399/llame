@@ -5,6 +5,7 @@ behavior:
 read_when:
   - you are sizing API and worker replicas or choosing a worker profile
   - you are planning the database pool and job-group coverage
+  - you are deploying or rolling back the Project context worker revision
 ---
 
 # Horizontal scaling
@@ -127,6 +128,107 @@ statements or grant `app` membership in `app_rls`. See
 [`apps/api/src/db/AGENTS.md`](../../../apps/api/src/db/AGENTS.md) for the
 migration and provisioning invariants.
 
+## Project context revision boundary
+
+The Project context release adds a write-once `run.project_bound` selection
+event and a `project` context producer. An older worker that dispatches a Run
+writes neither. A newer worker must not substitute the Chat's current Project
+for such a Run. Its recovery fails closed before a model request when a
+dispatched Run lacks a valid recorded selection. Treat the worker switch as one
+revision boundary.
+
+1. Stop new Run admission, and keep the existing API and worker processes
+   running. They must continue execution, job settlement, and wake processing.
+   Do not delete, expire, or cancel a Run to shorten this step.
+2. Run the inventory below as a role that is a superuser or has `BYPASSRLS`.
+   The application role with no tenant identity matches no row under forced RLS
+   and would report a false zero.
+3. Keep execution, settlement, and wake processing alive until the inventory
+   returns no row. This includes `awaiting_jobs` and `awaiting_quota`. A parked
+   quota wait can last until its reset and deadline job, so the boundary can
+   take much longer than a deploy. If normal settlement is impractical, require
+   an explicit operator decision instead of silently cancelling a Run.
+4. Run the settlement gate below. Start the API and every worker on the new
+   revision only after both checks pass. A queued Run that never dispatched may
+   select current state normally.
+
+The inventory lists every nonterminal Run whose dispatch is already proven.
+`turn_tool_availability` is the primary proof. A `model.requested` event is
+additional evidence. A missing `run.project_bound` row is not proof that a Run
+never dispatched. Parked waits sort first so they are visible.
+
+```sql
+DO $$
+DECLARE
+  privileged boolean;
+BEGIN
+  SELECT rolsuper OR rolbypassrls INTO privileged
+  FROM pg_roles
+  WHERE rolname = current_user;
+  IF privileged IS NOT TRUE THEN
+    RAISE EXCEPTION 'Project context inventory requires a superuser or BYPASSRLS role';
+  END IF;
+END
+$$;
+
+SELECT r.id,
+       r.chat_id,
+       r.status,
+       r.created_at,
+       r.current_job_id,
+       r.status IN ('awaiting_jobs', 'awaiting_quota') AS parked,
+       r.turn_tool_availability IS NOT NULL AS availability_recorded,
+       EXISTS (
+         SELECT 1 FROM run_events e
+         WHERE e.run_id = r.id AND e.event_type = 'model.requested'
+       ) AS request_recorded,
+       EXISTS (
+         SELECT 1 FROM run_events e
+         WHERE e.run_id = r.id AND e.event_type = 'run.project_bound'
+       ) AS selection_recorded
+FROM runs r
+WHERE r.status NOT IN ('completed', 'failed', 'cancelled', 'expired')
+  AND (
+    r.turn_tool_availability IS NOT NULL
+    OR EXISTS (
+      SELECT 1 FROM run_events e
+      WHERE e.run_id = r.id AND e.event_type = 'model.requested'
+    )
+  )
+ORDER BY parked DESC, r.created_at;
+```
+
+After the list is empty, this gate also fails when a Run dispatches during the
+check:
+
+```sql
+DO $$
+DECLARE
+  remaining integer;
+BEGIN
+  SELECT count(*) INTO remaining
+  FROM runs r
+  WHERE r.status NOT IN ('completed', 'failed', 'cancelled', 'expired')
+    AND (
+      r.turn_tool_availability IS NOT NULL
+      OR EXISTS (
+        SELECT 1 FROM run_events e
+        WHERE e.run_id = r.id AND e.event_type = 'model.requested'
+      )
+    );
+  IF remaining <> 0 THEN
+    RAISE EXCEPTION 'Project context boundary: % dispatched nonterminal Runs remain', remaining;
+  END IF;
+END
+$$;
+```
+
+Before a rollback, stop new admission and repeat the same inventory and gate on
+the newer revision. Keep `projects.instructions`, every `run.project_bound`
+event, and all stored context and messages. Do not delete, rewrite, or backfill
+them, and do not bind current Project state to a Run that dispatched under an
+older revision. Historical Project items replay as stored text.
+
 ## Capacity
 
 A Run holds an application-pool connection during each `runAs` transaction.
@@ -199,7 +301,9 @@ first job retains its one-heartbeat enqueue grace. Owner-started first enqueue
 is not transactional with the Run row: failure marks the Run failed
 best-effort, and a crash between row commit and enqueue leaves a job-less Run
 that the next message expires. Host-started first enqueue is transactional.
-A deploy stops workers after a 30 s drain, and pg-boss retries their Runs.
+An ordinary deploy stops workers after a 30 s drain, and pg-boss retries their
+Runs. That drain is not sufficient for the Project context revision boundary
+below.
 
 The internal suspension service persists `awaiting_jobs` and its delayed
 deadline job together, then releases the Run worker slot. Suspension keeps the
