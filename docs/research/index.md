@@ -25,6 +25,7 @@ shipped code win any disagreement. Authoring rules are in [AGENTS.md](./AGENTS.m
 - [Database migrations](./database-migrations/index.md) - Migration-history and query-layer alternatives evaluated against llame's PostgreSQL and tenant-isolation requirements.
 - [Testing](./testing/index.md) - Test harness and tooling research.
 - [Realtime updates](./realtime/index.md) - Server-to-client push for record changes: change signal, transport, and AsyncAPI contracts for the WebSocket, job queue and NOTIFY wires.
+- [Credentials](./credentials/index.md) - Login, storage, and refresh of credentials that llame owns, starting with the Codex subscription path.
 
 ## Records
 
