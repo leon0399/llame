@@ -30,19 +30,19 @@ A body mention does not create the link.
 
 ## Map documentation
 
-Each map has one documentation branch, `docs/<map-slug>`, with one draft PR
+Each map has one documentation branch, `docs/<map-slug>`, with an open PR
 against `master`. Research studies (under `docs/research/<topic>/`), ADRs, and
-glossary changes that a ticket produces are committed there, so a map's
-written output is tracked and reviewed in one place.
+glossary changes that the map's tickets produce are committed there, so the
+map's written output is tracked and reviewed in one place.
 
-The PR is merged when its contents are worth keeping on `master`: a batch of
-ADRs and terms that a proposal will cite, or studies that outlive the map. It
-can be merged more than once as the map advances, stay open, or close unmerged.
+The PR merges when its contents are worth keeping on `master`, such as ADRs and
+terms that a proposal will cite, or studies that outlive the map. Later output
+then goes to a new PR from a fresh branch. The PR may also stay open for the
+life of the map, or close unmerged.
 
-A ticket's resolution links a file at a commit
-(`blob/<sha>/<path>`), never at a branch, so the link survives a merge, a
-rebase, or deletion of the branch. GitHub keeps a PR's commits reachable after
-the branch is gone.
+A ticket's resolution links a file at a commit (`blob/<sha>/<path>`), never at
+a branch, so the link survives a merge, a rebase, or deletion of the branch.
+GitHub keeps a PR's commits reachable after its branch is gone.
 
 ## Maps and delivery issues
 
