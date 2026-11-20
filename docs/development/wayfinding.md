@@ -21,12 +21,28 @@ authoritative.
 | Frontier          | The map's open, unassigned sub-issues with no open blocker. List them with `gh issue view <map> --json subIssues` and each candidate's `blockedBy`.                                   |
 | Resolve           | Post the answer as a comment, close the ticket (`gh issue close <n> --reason completed`), and add one line to the map's Decisions so far.                                             |
 | Out of scope      | Close the ticket as not planned and add one line to the map's Out of scope.                                                                                                           |
-| Research findings | Pushed to a throwaway `research/<name>` branch that is never merged; the ticket links to it.                                                                                          |
+| Map documentation | Research studies, ADRs, and glossary changes go on the map's documentation branch and PR; see [Map documentation](#map-documentation).                                                |
 
 Implementation issues a map or ticket informs are linked with GitHub's native
 "relates to" relationship (the `addRelatesTo` GraphQL mutation; `gh` has no
 flag for it), never as sub-issues: the map's children are its decisions only.
 A body mention does not create the link.
+
+## Map documentation
+
+Each map has one documentation branch, `docs/<map-slug>`, with one draft PR
+against `master`. Research studies (under `docs/research/<topic>/`), ADRs, and
+glossary changes that a ticket produces are committed there, so a map's
+written output is tracked and reviewed in one place.
+
+The PR is merged when its contents are worth keeping on `master`: a batch of
+ADRs and terms that a proposal will cite, or studies that outlive the map. It
+can be merged more than once as the map advances, stay open, or close unmerged.
+
+A ticket's resolution links a file at a commit
+(`blob/<sha>/<path>`), never at a branch, so the link survives a merge, a
+rebase, or deletion of the branch. GitHub keeps a PR's commits reachable after
+the branch is gone.
 
 ## Maps and delivery issues
 
