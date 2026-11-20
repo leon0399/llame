@@ -13,9 +13,9 @@ We chose this knowing it conflicts with Anthropic's stated terms. The
 [legal and compliance page](https://code.claude.com/docs/en/legal-and-compliance#authentication-and-credential-use),
 read on 2026-11-20, says developers "may not collect, store, or intermediate
 Claude.ai credentials or session tokens", and enforcement may come without
-notice. Leo accepted that risk for his own subscription. The rejected
-alternative changes what the model sees and how a Run fails, which is the
-larger cost for a personal installation.
+notice. Leo chose this path because reference harnesses, oh-my-pi first among
+them, ship the same login, and he accepted the enforcement risk for his own
+subscription.
 
 ## Considered options
 
