@@ -55,13 +55,21 @@ against its parent before publication.
 
 ## 1. proposal
 
-- [ ] 1.1 Validate: `pnpm exec openspec validate host-as-machine --strict`, `pnpm lint:markdown`
+- [x] 1.1 Validate: `pnpm exec openspec validate host-as-machine --strict`, `pnpm lint:markdown`
       (which runs the ADR prose check on the three new ADRs), `pnpm format:check`,
       `git diff --check`, and the STE check on every delta.
-- [ ] 1.2 Run two review rounds with two independent reviewers each, verify each finding against
+  - Evidence: OpenSpec reports the change valid under `--strict`. markdownlint reports 0 issues on
+    the change and `docs/adr`, and the link check, `scripts/check-prose.mjs`, `oxfmt --check`, and
+    `git diff --check` are clean. The STE checker reports no error in added or rewritten
+    requirement prose. Some scenario sentences copied from canonical specs stay above 25 words.
+- [x] 1.2 Run two review rounds with two independent reviewers each, verify each finding against
       code or primary sources, and commit each round separately. Record each round in the design
       revision history.
-- [ ] 1.3 Resolve H18 with Leo and update the deltas if his answer differs from the draft.
+  - Evidence: round 1 (spec 7 P1, 6 P2; feasibility 10 P1, 7 P2) fixed in `c8644cc00`. Round 2
+    (spec 1 P1, 1 P2; feasibility 7 P2) fixed in `d827c21ac`. Design revision history v2 and v3
+    record them. Round 2 still changed substance, so the review has not converged, and the GitHub
+    review loop is the next round.
+- [ ] 1.3 Resolve H19 with Leo, and update the deltas if he switches H4 or overturns H18.
 - [ ] 1.4 Self-review the published draft PR (SR), mark it ready, and run the GitHub review loop
       (GR) per [CONTRIBUTING.md](../../../CONTRIBUTING.md#pr-contract).
 - [ ] 1.5 Obtain Leo's approval of the published revision.
