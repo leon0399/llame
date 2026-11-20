@@ -1,6 +1,25 @@
 _Reverse-chronological record of shipped work — features, fixes, and chores. Newest first._
 
+# 2026-11-20
+
+- Strengthen summary quota-wake regressions for durable checkpoint recovery,
+  claim ownership, original execution context, and completed reply retention.
+- Retain a redelivered summary wake's saved answer when terminal settlement
+  closes quota recovery before persisting the reply.
+- Preserve the suspended summary's command set and focus, exclude undispatched
+  context from its replay, and settle final answers without target-request
+  admission. Durable baseline metadata stores only its declared fields.
+- Give API mutation shards a 90-minute execution deadline after the largest
+  changed-file shard exceeded 45 minutes; scoring and mutation scope are unchanged.
+
 # 2026-11-19
+
+- Preserve completed replies exactly once when summary quota waits are
+  cancelled or resumed. Summary-only wakes keep the saved reply's original
+  attempt ownership and retain their original prompt, first-epoch
+  disclosures, boundary mode, and charged step allowance without publishing a
+  target request that was never sent. Window summaries on the same configured
+  model now use the Run's quota-wait policy.
 
 - Preserve completed tool results when a repeated quota wake expires before
   claim. Terminal recovery replays only after the saved checkpoint and does
@@ -25,6 +44,12 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   allowance as streaming sends. Retry events take the active Run's row lock
   before the Chat lock, so a terminal commit cannot be followed by a retry
   notice. Resumed text starts after the retry marker and clears its label.
+- Extend quota waits to compaction summaries on the Run's model, including
+  manual compaction Runs with no triggering message. Wakes retain the logical
+  request's allowance through replanning, and successful checkpoint publication
+  closes it atomically. Final-answer wakes preserve the stored reply without
+  another main model request. Model-switch summaries remain side calls.
+
 - Persist eligible step requests as `awaiting_quota` until an authoritative model
   usage-limit reset, without occupying a worker or spending the Run budget.
   `runs.quotaWaitMaxSeconds` defaults to eight days; each request gets its first

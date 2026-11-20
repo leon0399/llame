@@ -228,6 +228,28 @@ items reach its next step boundary. Stop cancels rather than promoting a
 pending steer. The API stream stays open, polling every two seconds while the
 Run waits and sending a keepalive comment after 15 quiet seconds.
 
+Compaction summaries on the Run's own model use the same quota wait, including
+pre-dispatch, step-boundary, final-answer, and manual compaction Runs. This
+includes a context-window summary when it selects that same configured model
+entry. A wake replans the summary with its existing wait count, original
+automatic or owner-requested mode, original command set and focus, and remaining
+segment step allowance. Commands queued during the summary wait remain for the
+next boundary; final-answer settlement still consumes commands pending at its
+terminal lock. Successful checkpoint publication ends that request's allowance
+in the same transaction; a later request starts a new allowance.
+
+A final-answer wake summarizes and settles the stored reply without sending
+or admitting its main request again. Its first-epoch baselines remain those the
+answering request received. Resumed step-boundary summaries use stored replay,
+not items the wake staged but never dispatched, reuse the original system-prompt
+receipt, and require matching tool declarations. An unavailable or changed
+prefix records a compaction failure without sending a substituted summary
+request or publishing a checkpoint.
+An in-Run summary whose reset exceeds the cap still continues without a
+checkpoint. A context-window summary that selects another configured model
+remains a side call: it fails `context_incompatible` rather than waiting on
+that other model.
+
 Per-Chat ordering is exclusivity, not queueing: one nonterminal Run per Chat;
 concurrent new messages get 409 and same-message retry supersedes.
 

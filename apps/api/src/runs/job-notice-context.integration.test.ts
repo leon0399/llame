@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 
-import { toStoredMessages } from '../compaction/compaction.service';
+import { toStoredMessages } from '../compaction/compaction';
 
 import { chatDeliveries } from '../db/schema/chat-deliveries';
 import { ChatDeliveriesRepository } from '../chats/chat-deliveries.repository';

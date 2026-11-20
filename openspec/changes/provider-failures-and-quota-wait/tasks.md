@@ -248,11 +248,21 @@ and GitHub review remain non-gating for development of the next layer under Leo'
       "A step-boundary summary beyond the cap", a final-answer summary that hits a usage limit and
       completes after the wake, "A successful summary starts a new allowance for the next request",
       and "A compaction wait count survives replanning" in API integration tests.
-- [ ] 6.2 Keep a model-switch compaction a side call. Verify "A model-switch compaction hits a usage
+- [x] 6.2 Keep a model-switch compaction a side call. Verify "A model-switch compaction hits a usage
       limit".
-- [ ] 6.3 Update `docs/product/operator/scaling.md` and add a dated `CHANGELOG.md` entry.
-- [ ] 6.4 Focused checks as in 2.7.
+- [x] 6.3 Update `docs/product/operator/scaling.md` and add a dated `CHANGELOG.md` entry.
+- [x] 6.4 Focused checks as in 2.7.
 - [ ] 6.5 SR before ready; GR per [CONTRIBUTING.md](../../../CONTRIBUTING.md#ready-pr-monitoring).
+
+Local evidence: 669 focused compaction, quota projection, and execution cases passed; API lint and
+typecheck, repository format check, strict change validation, Markdown lint, and diff whitespace
+checks passed. Real SDK cases retain the original pre-dispatch request ahead of a pending steer,
+complete the final answer without another main request, preserve stopped-call identity and aborted
+closure through a summary wait, and retain the restored prefix when cancellation wins. A separate
+projection smoke preserved a count-four summary through claim redelivery and stopped replay after
+recovery. Independent reuse, quality, efficiency, ponytail, and security reviews informed SR; accepted
+lifecycle findings were fixed and exercised. The real queue/database compaction acceptance remains
+unchecked until CI executes it. GR and mutation work do not gate the next layer under Leo's override.
 
 ## 7. quota-wait-web
 

@@ -30,6 +30,29 @@ import { PDF_PAGE_TOKENS, type MediaSizing } from '../media/epoch-admission';
 import { projectSizedText } from '../models/step-composer';
 
 /**
+ * Narrows a read history's `unknown[]` JSONB `parts` to `MessagePart[]`: each
+ * part must be an object (the union's `Record<string, unknown>` fallback
+ * arm), matching every other JSON-record boundary in this codebase. Malformed
+ * (non-object) parts fail closed rather than silently coercing.
+ */
+export function toStoredMessages(
+  history: ReadonlyArray<Message>,
+): Array<StoredMessage> {
+  return history.map((message) => ({
+    ...message,
+    parts: message.parts.map((part) => {
+      if (!isRecord(part)) {
+        throw new Error(
+          `Malformed message part in message ${message.id}: expected an object`,
+        );
+      }
+
+      return part;
+    }),
+  }));
+}
+
+/**
  * When the model's context window is known (MODEL_CONTEXT_WINDOW_TOKENS),
  * compact at this fraction of it — the remaining headroom absorbs the next
  * turns, the model's output, and estimation error. Same shape as the

@@ -13,6 +13,8 @@ import {
   RunNotRunnableError,
   type RunClaimResult,
 } from './run-execution.service';
+import { ProviderFailure } from '../models/provider-failure/provider-failure';
+import type { QuotaRequestState } from './quota-wake-projection';
 import { type RunJob } from './run-queues';
 import {
   renderCompactionInstruction,
@@ -61,6 +63,7 @@ export class CompactionRunService {
       | 'completeCompactionRun'
       | 'settleTerminalRun'
       | 'recordModelRetry'
+      | 'suspendCompactionForQuota'
     >,
   ) {}
 
@@ -148,6 +151,7 @@ export class CompactionRunService {
       expectedQueueIdentity: input.expectedQueueIdentity,
       focus,
       abortSignal: input.abortSignal,
+      quotaRequest: input.claim.quotaRequest,
     });
   }
   private async finishWithoutSummary(
@@ -169,6 +173,7 @@ export class CompactionRunService {
       expectedQueueIdentity: input.expectedQueueIdentity,
       focus,
       abortSignal: input.abortSignal,
+      quotaRequest: input.claim.quotaRequest,
     });
   }
 
@@ -200,7 +205,7 @@ export class CompactionRunService {
       focus: string | null;
     },
   ): Promise<CompactionSummary | undefined> {
-    let retryWriteError: { error: unknown } | undefined;
+    let retryWriteError: unknown;
 
     try {
       const summary = await this.summarize(input, (retry) =>
@@ -210,7 +215,7 @@ export class CompactionRunService {
             retry,
           )
           .catch((error: unknown) => {
-            retryWriteError = { error };
+            retryWriteError = error;
             throw error;
           }),
       );
@@ -222,17 +227,47 @@ export class CompactionRunService {
     } catch (error) {
       if (input.abortSignal.aborted) throw error;
 
-      if (retryWriteError?.error instanceof RunNotRunnableError)
-        return undefined;
+      if (retryWriteError instanceof RunNotRunnableError) return undefined;
 
-      await this.failSummary(
-        { ...input, attemptId: input.claim.attemptId },
+      await this.handleSummaryFailure(
+        input,
         error,
         retryWriteError !== undefined,
       );
 
       return undefined;
     }
+  }
+
+  private async handleSummaryFailure(
+    input: CompactionRunAttempt,
+    error: unknown,
+    retryWriteFailed: boolean,
+  ): Promise<void> {
+    if (
+      !retryWriteFailed &&
+      error instanceof ProviderFailure &&
+      (await this.execution.suspendCompactionForQuota({
+        run: {
+          runId: input.job.runId,
+          chatId: input.job.chatId,
+          userId: input.job.userId,
+        },
+        attemptId: input.claim.attemptId,
+        error,
+        request: input.claim.quotaRequest,
+        resumeAt: 'compactionRun',
+        parts: [],
+      }))
+    ) {
+      return;
+    }
+
+    await this.failSummary(
+      { ...input, attemptId: input.claim.attemptId },
+      error,
+      retryWriteFailed,
+    );
   }
 
   private async failSummary(
@@ -320,6 +355,7 @@ export class CompactionRunService {
     };
     focus: string | null;
     abortSignal: AbortSignal;
+    quotaRequest?: QuotaRequestState;
   }): Promise<void> {
     await this.execution.completeCompactionRun({
       runId: input.job.runId,
@@ -330,6 +366,7 @@ export class CompactionRunService {
       summary: input.summary,
       abortSignal: input.abortSignal,
       focus: input.focus,
+      ...(input.quotaRequest && { quotaRequest: input.quotaRequest }),
     });
   }
 }

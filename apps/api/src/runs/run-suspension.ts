@@ -83,7 +83,8 @@ export async function enqueueSuspendedRun(
           run.messageId,
         );
 
-  if (!message) throw new Error(`Run ${run.id} has no triggering message`);
+  if (!message && !(run.kind === 'compaction' && run.messageId === null))
+    throw new Error(`Run ${run.id} has no triggering message`);
   const options: Omit<EnqueueOptions, 'tx'> = { id: jobId };
 
   if (data.deadline !== undefined) options.startAfter = new Date(data.deadline);
@@ -94,7 +95,7 @@ export async function enqueueSuspendedRun(
       chatId: run.chatId,
       userId: run.userId,
       modelId: run.modelId,
-      userMessage: toRunUserMessage(message),
+      ...(message && { userMessage: toRunUserMessage(message) }),
       wake: { generation, jobId },
     },
     options,
@@ -109,23 +110,15 @@ async function appendSuspensionEvents(
 ): Promise<void> {
   const events = new RunEventsRepository(tx);
 
-  if (data.kind === 'quota') {
-    const { input, awaiting } = data;
-    await events.append(run.id, 'run.suspended', {
-      kind: 'quota',
-      attemptId: input.attemptId,
-      generation,
-      failureClass: awaiting.failureClass,
-      resetsAt: awaiting.resetsAt,
-      wakeAt: awaiting.wakeAt,
-      resumeAt: awaiting.resumeAt,
-      waitCount: awaiting.waitCount,
-      parts: input.parts,
-      steps: input.steps,
-    });
-  } else {
-    const { input, awaiting } = data;
+  const { kind, input, awaiting } = data;
 
+  if (kind === 'quota') {
+    await events.append(
+      run.id,
+      'run.suspended',
+      quotaSuspensionPayload(input, awaiting, generation),
+    );
+  } else {
     if (input.telemetry !== undefined)
       await events.append(run.id, 'model.completed', {
         finishReason: input.telemetry.finishReason,
@@ -140,4 +133,37 @@ async function appendSuspensionEvents(
       awaiting,
     });
   }
+}
+
+function quotaSuspensionPayload(
+  input: SuspendRunQuotaInput,
+  awaiting: AwaitingQuota,
+  generation: number,
+) {
+  return {
+    kind: 'quota',
+    attemptId: input.attemptId,
+    generation,
+    failureClass: awaiting.failureClass,
+    resetsAt: awaiting.resetsAt,
+    wakeAt: awaiting.wakeAt,
+    resumeAt: awaiting.resumeAt,
+    waitCount: awaiting.waitCount,
+    parts: input.parts,
+    steps: input.steps,
+    stoppedCalls: input.stoppedCalls,
+    stepBudgetUsed: input.stepBudgetUsed,
+    boundaryMode: input.boundaryMode,
+    summaryAttemptId: input.summaryAttemptId,
+    summaryPrefixFingerprint: input.summaryPrefixFingerprint,
+    compactionSet: input.compactionSet,
+    baselines:
+      input.baselines === undefined
+        ? undefined
+        : {
+            recencyDigestInitialization:
+              input.baselines.recencyDigestInitialization,
+            skillCatalogFreeze: input.baselines.skillCatalogFreeze,
+          },
+  };
 }
