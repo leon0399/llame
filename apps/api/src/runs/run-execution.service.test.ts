@@ -33269,7 +33269,7 @@ describe('a send that breaks after a started tool call', () => {
   );
 
   it.each<Wire>(['responses', 'completions'])(
-    '%s wire: A delivery counts the segment’s steps against its receipts',
+    '%s wire: A delivery closes the failed send’s reply without a context size',
     async (wire) => {
       const lookup = echoTool(LOOKUP_TOOL);
 
@@ -33281,40 +33281,56 @@ describe('a send that breaks after a started tool call', () => {
             ChatDeliveriesRepository.prototype,
             'stepEndSignal',
           ).mockResolvedValue('delivery');
-          serveDelivery(
+
+          const { lockPending } = serveDelivery(
             repositories,
             [ownerItem('steer', 'steer now')],
             deliveredMessageOf('steer now'),
           );
+
+          // Two more boundaries: the second attempt's first step finds
+          // nothing (its call continues to the step that breaks), and the
+          // failed send delivers the steer whose reply its cut closes.
+          lockPending.mockResolvedValueOnce([]).mockResolvedValueOnce([
+            {
+              ...ownerItem('steer', 'steer again'),
+              id: '77777777-7777-4777-8777-777777777777',
+            },
+          ]);
         },
         responses: [
-          // The failed send's first step reports usage; its second breaks. The
-          // closed reply must not claim the turn completed when two steps were
-          // charged and only one reported.
           providerResponse(
             [...textParts('seed '), lookupCall('read-call-1', 'a')],
             'tool-calls',
             { usage: providerCounts(80, 20), chunkDelayInMs: 5 },
           ),
-          brokenSend([lookupCall('read-call-2', 'b')]),
+          // The step that broke reported nothing, but the step before it in
+          // the same segment did: only the cut keeps the reply incomplete.
+          providerResponse([lookupCall('read-call-2', 'b')], 'tool-calls', {
+            usage: providerCounts(50, 10),
+          }),
+          brokenSend([lookupCall('read-call-3', 'c')]),
           providerText('final answer'),
         ],
       });
 
       await drained;
 
-      const closed = eventsOf(appended, 'model.completed')[0];
+      // Events: the first step's delivery, the failed send's delivery, the
+      // final answer.
+      const closed = eventsOf(appended, 'model.completed')[1];
       const payload: unknown = closed?.payload;
 
       const telemetry = isRecord(payload) ? payload['telemetry'] : undefined;
 
-      // The segment's steps count from the attempt's own numbering: with one
-      // of the two charged steps reporting, the final request's context is not
-      // the attempt's last receipt, so no context size is claimed.
-      expect(telemetry).toMatchObject({ status: 'completed' });
+      expect(telemetry).toMatchObject({
+        status: 'completed',
+        complete: false,
+      });
+      // The reply names no step count, so it claims no context size either.
       expect(
         isRecord(telemetry) ? telemetry['contextTokens'] : undefined,
-      ).toEqual(expect.any(Number));
+      ).toBeUndefined();
       expectFinished(spies, 'completed');
     },
   );

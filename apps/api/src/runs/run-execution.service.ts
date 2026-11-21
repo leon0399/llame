@@ -4899,23 +4899,23 @@ export class RunExecutionService {
         cut: FailedSendCut,
         cause: FailedStepCause,
         finishReason: TurnTelemetry['finishReason'],
-        stepCount: number,
       ): Promise<void> => {
         const failure = sendFailure;
 
         if (failure === undefined) return;
-        const segmentSteps = stepBase + stepCount;
 
         if (cause === 'delivery' || automaticCompactionAtBoundary) {
           stopCause = cause;
 
           const boundaryKind = await deliverAtBoundary(
             {
+              // The reply closes with the cut, so `discardedSend` already
+              // makes its usage incomplete; the failed send reported no
+              // receipt, so a step count would name no context size either.
               finishReason,
               telemetry: buildAssistantTelemetry(
                 finishReason,
                 turnStatusForTerminalRun('completed'),
-                segmentSteps,
               ),
             },
             // The closed reply is a successful turn: it establishes the
@@ -4969,7 +4969,6 @@ export class RunExecutionService {
       /** The one decision of a failed send, after its calls settled (D2/D4). */
       const decideFailedSend = async (
         finishReason: TurnTelemetry['finishReason'],
-        stepCount: number,
       ): Promise<void> => {
         const failure = sendFailure;
 
@@ -5006,7 +5005,7 @@ export class RunExecutionService {
           return;
         }
 
-        await continueFailedSend(cut, cause, finishReason, stepCount);
+        await continueFailedSend(cut, cause, finishReason);
       };
 
       const deliverInterrupt = async (): Promise<void> => {
@@ -5888,7 +5887,7 @@ export class RunExecutionService {
             // A send that broke after a started call: settle its wait, cut its
             // output, and continue or fail — before any terminal status (D2).
             if (sendFailure !== undefined) {
-              await decideFailedSend(finishReason, stepCount);
+              await decideFailedSend(finishReason);
 
               return;
             }
