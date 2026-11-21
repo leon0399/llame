@@ -12,16 +12,10 @@
  * provider's own message, header, or body never reaches the notice.
  */
 
-import {
-  FAILURE_CLASSES,
-  type FailureClass,
-} from '../models/provider-failure/provider-failure';
+import { type FailureClass } from '../models/provider-failure/provider-failure';
 import { loadPackagedTemplate } from '../prompts/template-engine';
 import { type AuthoredContextItemPart } from './context-item';
-import {
-  createRenderedContextItem,
-  isExactRecord,
-} from './context-item-shared';
+import { createRenderedContextItem } from './context-item-shared';
 
 export interface ProviderFailurePayload extends Record<string, unknown> {
   readonly failureClass: FailureClass;
@@ -48,19 +42,6 @@ const FAILURE_CLASS_LABELS: Record<FailureClass, string> = {
   content_policy: 'a content policy refusal',
   unknown: 'an unknown failure',
 };
-
-function isFailureClass(value: unknown): value is FailureClass {
-  return FAILURE_CLASSES.some((known) => known === value);
-}
-
-export function isProviderFailurePayload(
-  value: unknown,
-): value is ProviderFailurePayload {
-  return (
-    isExactRecord(value, ['failureClass']) &&
-    isFailureClass(value['failureClass'])
-  );
-}
 
 const renderProviderFailureNotice = loadPackagedTemplate<{
   readonly label: string;

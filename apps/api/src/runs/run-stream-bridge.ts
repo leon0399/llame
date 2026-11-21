@@ -86,6 +86,13 @@ class RunEventTranslatorImpl implements RunEventTranslator {
   // these: `tool-input-available` renders as "running", so finishing without
   // closing them leaves the UI spinning on a call that will never complete.
   private readonly openToolCallIds = new Set<string>();
+  // Where each text/reasoning part of the current step started, by UI id. A
+  // superseded window removes the parts opened at or after its `fromSequence`
+  // (design D3). A successful tool call must NOT forget the parts behind it: a
+  // failed send's cut starts before the call and can end after it settles, so
+  // the send's tail may already be durable when the cut event arrives. Only
+  // `model.completed` ends the step; a later step's windows start after every
+  // sequence it can see, so its parts are pruned there.
   private readonly unsettledPartSequences = new Map<string, number>();
 
   constructor(private readonly messageId: string) {}
@@ -336,6 +343,10 @@ class RunEventTranslatorImpl implements RunEventTranslator {
   }
 
   private onModelCompleted(event: RunEventLike): Array<UiChunk> {
+    // The step's response is done: nothing it streamed can be superseded by a
+    // later window, so its part starts are pruned here (design D3 windows stay
+    // inside one step). A failed send's terminal write appends its
+    // `model.superseded` before this event, so the cut's parts are still tracked.
     this.unsettledPartSequences.clear();
     // Surface per-turn usage as message metadata after closing the open part.
     const telemetry = payloadField(event.payload, 'telemetry');
@@ -412,8 +423,8 @@ class RunEventTranslatorImpl implements RunEventTranslator {
       isRecord(event.payload) && event.payload['interrupted'] === true;
 
     if (status !== 'error') {
-      this.unsettledPartSequences.clear();
-
+      // Deliberately keeps this step's part starts tracked: the failed send's
+      // cut can open before this call and close after it (design D3).
       return [
         ...this.prelude(),
         { type: 'tool-output-available', toolCallId, output, dynamic: true },

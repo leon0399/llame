@@ -1,16 +1,13 @@
 /**
  * The `provider-failure` producer (continue-after-broken-send D5): its fixed
- * text, the plain-language label of every failure class, its payload guard,
- * and its precedence in a step.
+ * text, the plain-language label of every failure class, and its precedence
+ * in a step.
  */
 
 import { placeAcceptedTurnItems } from './accepted-turn-parts.repository';
 import { CONTEXT_ITEM_PRODUCERS, isContextItemPart } from './context-item';
 import { createToolAvailabilityItem } from './context-item-producers';
-import {
-  createProviderFailureItem,
-  isProviderFailurePayload,
-} from './provider-failure-notice';
+import { createProviderFailureItem } from './provider-failure-notice';
 import { type FailureClass } from '../models/provider-failure/provider-failure';
 
 const RUN_ID = '11111111-1111-4111-8111-111111111111';
@@ -66,20 +63,6 @@ describe('createProviderFailureItem', () => {
       expect(item.data.text).toContain(SECOND_PARAGRAPH);
     },
   );
-});
-
-describe('the provider-failure payload', () => {
-  it('accepts only the exact key set and a failure class of the closed union', () => {
-    expect(isProviderFailurePayload({ failureClass: 'auth' })).toBe(true);
-    expect(isProviderFailurePayload({ failureClass: 'auth', extra: 1 })).toBe(
-      false,
-    );
-    expect(isProviderFailurePayload({ failureClass: 'no_such_class' })).toBe(
-      false,
-    );
-    expect(isProviderFailurePayload({ failureClass: 7 })).toBe(false);
-    expect(isProviderFailurePayload({})).toBe(false);
-  });
 });
 
 describe('the provider-failure notice in a step', () => {

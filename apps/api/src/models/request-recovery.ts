@@ -22,9 +22,10 @@ import {
 import {
   ProviderFailure,
   type FailureClass,
+  type ProviderFailureDetails,
 } from './provider-failure/provider-failure';
 
-const MAX_SENDS = 11;
+export const MAX_SENDS = 11;
 const STREAM_WINDOW_MS = 300_000;
 
 export type RequestRecoveryOptions = ProviderFailureMiddlewareOptions & {
@@ -53,7 +54,8 @@ type Send = {
   receivedAt: number;
 };
 
-function retryable(failure: ProviderFailure, now: number): boolean {
+/** Whether a request of this class is retried now, by the shipped rule. */
+export function retryable(failure: ProviderFailure, now: number): boolean {
   if (failure.resetsAt !== undefined && failure.resetsAt - now > 60_000)
     return false;
 
@@ -70,6 +72,24 @@ function retryable(failure: ProviderFailure, now: number): boolean {
     failure.code === 'first_token_timeout' ||
     failure.code === 'stream_broken'
   );
+}
+
+/** `failure` with its class and safe metadata carried over, plus `extra`. */
+function rebuilt(
+  failure: ProviderFailure,
+  extra: Partial<ProviderFailureDetails>,
+): ProviderFailure {
+  // The constructor drops an undefined detail, so every field can be assigned
+  // unconditionally; `extra` is spread last so a caller can override one.
+  return new ProviderFailure(failure.message, {
+    code: failure.code,
+    resetsAt: failure.resetsAt,
+    hintMs: failure.hintMs,
+    statusCode: failure.statusCode,
+    toolCallStarted: failure.toolCallStarted,
+    sends: failure.sends,
+    ...extra,
+  });
 }
 
 function retryDelay(
@@ -329,17 +349,7 @@ class StreamRecovery {
       : failure;
   }
   private supersededFailure(failure: ProviderFailure): ProviderFailure {
-    return new ProviderFailure(failure.message, {
-      code: failure.code,
-      ...(failure.resetsAt !== undefined && { resetsAt: failure.resetsAt }),
-      ...(failure.hintMs !== undefined && { hintMs: failure.hintMs }),
-      ...(failure.statusCode !== undefined && {
-        statusCode: failure.statusCode,
-      }),
-      ...(failure.toolCallStarted !== undefined && {
-        toolCallStarted: failure.toolCallStarted,
-      }),
-      ...(failure.sends !== undefined && { sends: failure.sends }),
+    return rebuilt(failure, {
       superseded: {
         retry: this.sends,
         delayMs: retryDelay(failure, this.sends, this.clock),
@@ -355,18 +365,7 @@ class StreamRecovery {
     const classified = this.streamFailure(error, send, output.content);
 
     const failure = output.completeTool
-      ? new ProviderFailure(classified.message, {
-          code: classified.code,
-          ...(classified.resetsAt !== undefined && {
-            resetsAt: classified.resetsAt,
-          }),
-          ...(classified.hintMs !== undefined && { hintMs: classified.hintMs }),
-          ...(classified.statusCode !== undefined && {
-            statusCode: classified.statusCode,
-          }),
-          toolCallStarted: true,
-          sends: this.sends,
-        })
+      ? rebuilt(classified, { toolCallStarted: true, sends: this.sends })
       : classified;
 
     const liveRetry =

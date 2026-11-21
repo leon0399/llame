@@ -409,7 +409,13 @@ export function runStreamChannel(run: {
   // close; the run's callbacks and abort persistence then execute in order
   // behind that branch (D15/D18).
   const terminals = deferTerminalCallbacks(streamOptions);
-  const requestSanitizer = captureRequestFailure(streamOptions, sanitizeError);
+
+  const requestSanitizer = captureRequestFailure(
+    streamOptions,
+    sanitizeError,
+    input.onSendFailed,
+  );
+
   const settlement = trackAbortSettlement(input, terminals);
   streamOptions.onAbort = settlement.onAbort;
   const result = runStreamText(streamOptions);

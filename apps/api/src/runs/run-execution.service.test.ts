@@ -80,6 +80,7 @@ import {
   type RunSegmentRegistrar,
 } from './run-abort-registry';
 import { createRunEventTranslator } from './run-stream-bridge';
+import { type TerminalRunStatus } from './run-status';
 
 function interruptCurrent(aborts: RunAbortRegistry, runId: string): boolean {
   const segment = aborts.segmentOf(runId);
@@ -121,6 +122,8 @@ import { createFakeModelClient, ZERO_USAGE } from '../models/fake-model-client';
 import type { ModelClient } from '../models/model-client';
 import { ProviderFailure } from '../models/provider-failure/provider-failure';
 import { createOpenAICompletionsModelClient } from '../models/openai-completions-model-client';
+import { createOpenAIModelClient } from '../models/openai-model-client';
+import type { OpenAIProvider } from '@ai-sdk/openai';
 import { McpRuntimeService } from '../mcp/mcp-runtime.service';
 import { WorkspaceMcpClients } from '../mcp/workspace-mcp-clients';
 import type {
@@ -30916,4 +30919,1480 @@ describe('RunExecutionService disabled automatic compaction state', () => {
 
     await expect(options.stopWhenExtra?.()).resolves.toBe(true);
   });
+});
+
+/**
+ * A Run step whose send breaks after it streamed a complete tool-call part
+ * (continue-after-broken-send, tasks.md 2.3-2.7). The Run waits for the calls
+ * that send started, cuts the send's trailing output, tells the model through
+ * the `provider-failure` notice, and continues under the shared request count —
+ * or fails, stops, or is interrupted with the cut and the notice kept.
+ *
+ * Both production client orders are covered: the Responses client reports the
+ * failure at the `error` part and defers the report behind its stream consumer,
+ * the Chat Completions client reports it there while the call still runs. A
+ * client that reports the failure before the stream reaches the call hides the
+ * deadline this behavior protects.
+ */
+describe('a send that breaks after a started tool call', () => {
+  const LOOKUP_TOOL = 'mcp__demo__lookup';
+  const GREP_TOOL = 'mcp__demo__grep';
+
+  type Wire = 'responses' | 'completions';
+
+  /** The notice body every later request carries after a broken send. */
+  const NOTICE_PREFIX = 'Your previous response stopped because the provider';
+
+  function toolDeclarationOf(id: string): ModelToolDeclaration {
+    return {
+      id,
+      description: `Call ${id}.`,
+      inputSchema: {
+        type: 'object',
+        properties: { q: { type: 'string' } },
+        required: ['q'],
+        additionalProperties: false,
+      },
+    };
+  }
+
+  /** The `{ q }` a deferred call was admitted with, or a test bug. */
+  function deferredCallArgs(submitted: UnknownRecord) {
+    if (!isString(submitted['q'])) {
+      throw new TypeError('A deferred call carries no string q.');
+    }
+
+    return { q: submitted['q'] };
+  }
+
+  /** A declared tool whose every call the test settles by its own `q`. */
+  function deferredTool(id: string) {
+    const pending = new Map<string, (result: ToolResult) => void>();
+
+    const calls: Array<string> = [];
+
+    const tool: Tool = {
+      id,
+      description: `Call ${id}.`,
+      classification: 'unverified',
+      inputSchema: z.strictObject({ q: z.string() }),
+      execute: (_context, submitted) => {
+        const args = deferredCallArgs(submitted);
+        calls.push(args.q);
+        const settlement = Promise.withResolvers<ToolResult>();
+        pending.set(args.q, settlement.resolve);
+
+        return settlement.promise;
+      },
+    };
+
+    return {
+      tool,
+      calls,
+      /** Settles the call whose input is `q` with a distinguishable result. */
+      settle: (q: string) => {
+        const resolve = pending.get(q);
+
+        if (resolve === undefined) throw new Error(`No pending call for ${q}`);
+
+        pending.delete(q);
+        resolve({ status: 'success', echo: q });
+      },
+      settleAll: () => {
+        // A Map iterator tolerates deleting the entry it is on.
+        for (const q of pending.keys()) {
+          pending.get(q)?.({ status: 'success', echo: q });
+          pending.delete(q);
+        }
+      },
+    };
+  }
+
+  /**
+   * One case's declared tools. Settling all of them releases every Run a case
+   * left pending, so a failing assertion cannot leak a run into the next case.
+   */
+  function toolset(
+    ...deferred: Array<{ readonly tool: Tool; settleAll: () => void }>
+  ) {
+    return {
+      executors: deferred.map((entry) => entry.tool),
+      settleAll: () => {
+        for (const entry of deferred) entry.settleAll();
+      },
+    };
+  }
+
+  /** A declared tool that settles every call at once, with its own `q`. */
+  function echoTool(id: string) {
+    const calls: Array<string> = [];
+
+    const tool: Tool = {
+      id,
+      description: `Call ${id}.`,
+      classification: 'unverified',
+      inputSchema: z.strictObject({ q: z.string() }),
+      execute: (_context, submitted) => {
+        const args = deferredCallArgs(submitted);
+        calls.push(args.q);
+
+        return Promise.resolve({ status: 'success' as const, echo: args.q });
+      },
+    };
+
+    return { tool, calls, settleAll: () => undefined };
+  }
+
+  type CaseToolset = ReturnType<typeof toolset>;
+
+  function resolverOf(
+    executors: ReadonlyArray<Tool>,
+  ): DynamicToolExecutorResolver {
+    return {
+      resolveDynamicTool: (id) => {
+        const executor = executors.find((candidate) => candidate.id === id);
+
+        if (executor === undefined) return { state: 'not_dynamic' };
+
+        return {
+          state: 'available',
+          declarationHash: hashToolDeclaration(toolDeclarationOf(id)),
+          executor,
+        };
+      },
+    };
+  }
+
+  function catalogOf(
+    executors: ReadonlyArray<Tool>,
+  ): Pick<
+    ExecutionServiceOptions,
+    'allowed' | 'dynamicCandidates' | 'permissionPolicy'
+  > {
+    return {
+      allowed: executors.map((executor) => executor.id),
+      permissionPolicy: compileTestPermissionPolicy(
+        executors.map((executor) => executor.id),
+      ),
+      dynamicCandidates: executors.map((executor) => ({
+        source: { type: 'mcp' as const, serverId: 'demo' },
+        state: 'available' as const,
+        tool: {
+          id: executor.id,
+          description: executor.description,
+          classification: executor.classification,
+          inputSchema: toolDeclarationOf(executor.id).inputSchema,
+          execute: (context, submitted) => executor.execute(context, submitted),
+        },
+      })),
+    };
+  }
+
+  /** The Responses wire's client over a scripted provider. */
+  function responsesRunClient(
+    responses: ReadonlyArray<ReturnType<typeof providerResponse>>,
+  ) {
+    let responseIndex = 0;
+    const requests: Array<ReadonlyArray<LanguageModelV3Message>> = [];
+
+    const model = new MockLanguageModelV3({
+      provider: 'openai.test',
+      modelId: 'test-model',
+      doStream: (options) => {
+        requests.push(options.prompt);
+        const response = responses[responseIndex++];
+
+        if (response === undefined) {
+          throw new Error('Missing scripted response.');
+        }
+
+        return Promise.resolve(response);
+      },
+    });
+
+    const provider = vi.fn<OpenAIProvider>();
+    provider.mockReturnValue(model);
+
+    const client = createOpenAIModelClient(
+      {
+        providerModelId: 'test-model',
+        modelId: 'fake-model',
+        contextWindowTokens: 128_000,
+        userAgent: 'llame/test',
+        requestHeaders: {},
+      },
+      { createOpenAI: () => provider, streamText },
+    );
+
+    return { client, requests };
+  }
+
+  /** One production wire, its scripted stream, and the requests it saw. */
+  function wireClient(
+    wire: Wire,
+    responses: ReadonlyArray<ReturnType<typeof providerResponse>>,
+  ) {
+    if (wire === 'completions') {
+      const { client, requests } = createToolLoopClient(responses);
+
+      return { client, requests };
+    }
+
+    const { client, requests } = responsesRunClient(responses);
+
+    return { client, requests };
+  }
+
+  /**
+   * One scripted send that broke, optionally with the provider's retry hint —
+   * a real delay the next step's first send waits out.
+   */
+  function brokenSend(
+    parts: ReadonlyArray<LanguageModelV3StreamPart>,
+    code: 'stream_broken' | 'overloaded' | 'auth' = 'stream_broken',
+    hintMs?: number,
+  ) {
+    return providerResponse(
+      [
+        ...parts,
+        {
+          type: 'error',
+          error: new ProviderFailure('the provider stream broke', {
+            code,
+            ...(hintMs !== undefined && { hintMs }),
+          }),
+        },
+      ],
+      'tool-calls',
+    );
+  }
+
+  function toolCall(
+    toolName: string,
+    toolCallId: string,
+    input: UnknownRecord,
+  ): LanguageModelV3StreamPart {
+    return {
+      type: 'tool-call',
+      toolCallId,
+      toolName,
+      input: JSON.stringify(input),
+    };
+  }
+
+  function lookupCall(
+    toolCallId: string,
+    q: string,
+  ): LanguageModelV3StreamPart {
+    return toolCall(LOOKUP_TOOL, toolCallId, { q });
+  }
+
+  function grepCall(toolCallId: string, q: string): LanguageModelV3StreamPart {
+    return toolCall(GREP_TOOL, toolCallId, { q });
+  }
+
+  function textParts(parts: string): Array<LanguageModelV3StreamPart> {
+    return [
+      { type: 'text-start', id: 'answer' },
+      { type: 'text-delta', id: 'answer', delta: parts },
+      { type: 'text-end', id: 'answer' },
+    ];
+  }
+
+  /** Every reply part the persisted turn holds, in order. */
+  function replyPartsOf(spies: RepositorySpies): Array<MessagePart> {
+    const write = spies.createAssistantReplyIfAbsent.mock.calls.at(-1)?.[0];
+
+    if (write === undefined) throw new Error('No assistant reply was written.');
+
+    // Persisted parts are jsonb: the records are the parts.
+    return write.parts.filter(isRecord);
+  }
+
+  function textOf(parts: ReadonlyArray<MessagePart>): string {
+    return parts
+      .flatMap((part) =>
+        isRecord(part) && part['type'] === 'text' && isString(part['text'])
+          ? [part['text']]
+          : [],
+      )
+      .join('');
+  }
+
+  function noticesOf(parts: ReadonlyArray<MessagePart>): Array<MessagePart> {
+    return parts.filter(
+      (part) =>
+        isContextItemPart(part) && part.data.producer === 'provider-failure',
+    );
+  }
+
+  /** The reply part a call settled into, whatever its outcome. */
+  function partOf(
+    parts: ReadonlyArray<MessagePart>,
+    toolCallId: string,
+  ): MessagePart | undefined {
+    return parts.find(
+      (part) => isRecord(part) && part['toolCallId'] === toolCallId,
+    );
+  }
+
+  /** Every in-Run reply snapshot the attempt stored, in order. */
+  function snapshotsOf(
+    spies: RepositorySpies,
+  ): Array<ReadonlyArray<MessagePart>> {
+    return spies.updateRunningReplyParts.mock.calls.map(([snapshot]) =>
+      snapshot.parts.filter(isRecord),
+    );
+  }
+
+  /**
+   * The message right after the tool result of this call — where the notice
+   * sits when it follows the last kept result directly.
+   */
+  function afterToolResult(
+    messages: ReadonlyArray<LanguageModelV3Message>,
+    toolCallId: string,
+  ): LanguageModelV3Message | undefined {
+    const index = messages.findLastIndex(
+      (message) =>
+        message.role === 'tool' && JSON.stringify(message).includes(toolCallId),
+    );
+
+    return index === -1 ? undefined : messages[index + 1];
+  }
+
+  /**
+   * The Run's terminal write: its owner, its status, and — when given — the
+   * failure class it names.
+   */
+  function expectFinished(
+    spies: RepositorySpies,
+    status: TerminalRunStatus,
+    code?: string,
+  ): void {
+    const finish = spies.markFinished.mock.calls.at(-1);
+
+    expect(finish?.[0]).toBe(runId);
+    expect(finish?.[1]).toBe(userId);
+    expect(finish?.[2]).toBe(status);
+
+    if (code !== undefined) {
+      expect(finish?.[3]).toMatchObject({ error: { code } });
+    }
+  }
+
+  /** The `model.retrying` payloads the attempt appended, in order. */
+  function retryingEvents(
+    appended: ReadonlyArray<{ type: RunEventType; payload: unknown }>,
+  ): Array<UnknownRecord> {
+    return appended.flatMap(({ type, payload }) =>
+      type === 'model.retrying' && isRecord(payload) ? [payload] : [],
+    );
+  }
+
+  type RepositorySpies = ReturnType<typeof mockNormalExecutionRepositories>;
+
+  type RunOptions = {
+    readonly wire: Wire;
+    readonly responses: ReadonlyArray<ReturnType<typeof providerResponse>>;
+    readonly tools: CaseToolset;
+    readonly abortSignal?: AbortSignal;
+    readonly runWait?: RunWaitService;
+    /** Service options a case adds: extra tools, the abort registry, a policy. */
+    readonly catalog?: Partial<ExecutionServiceOptions>;
+    /** Mocks that must land after the standard ones and before the Run. */
+    readonly arrange?: (spies: RepositorySpies) => void;
+  };
+
+  /**
+   * One scripted Run: the mocked repositories, the appended event log, and the
+   * client the attempt streams through.
+   */
+  function startFailedSendRun(options: RunOptions) {
+    const spies = mockNormalExecutionRepositories();
+    spies.findById.mockResolvedValue({
+      ...run,
+      activeAttemptId: testAttemptId,
+    });
+    vi.spyOn(
+      RunRowFenceRepository.prototype,
+      'lockForDelivery',
+    ).mockResolvedValue({ ...run, activeAttemptId: testAttemptId });
+    options.arrange?.(spies);
+    const appended = recordAppendedEvents();
+
+    const { client: wire, requests } = wireClient(
+      options.wire,
+      options.responses,
+    );
+
+    const client: ModelClient = wire;
+
+    const execution = makeExecutionService(
+      client,
+      resolverOf(options.tools.executors),
+      undefined,
+      {
+        ...catalogOf(options.tools.executors),
+        ...options.catalog,
+        ...(options.runWait !== undefined && { runWait: options.runWait }),
+      },
+    );
+
+    const started = execution.service.executeRun(
+      executionInput(client, options.abortSignal),
+    );
+
+    return { spies, appended, requests, started };
+  }
+
+  /** Drains the Run without deciding whether it succeeded. */
+  async function drain(
+    started: Awaited<ReturnType<RunExecutionService['executeRun']>>,
+  ): Promise<void> {
+    await Promise.allSettled([started.text, started.consumeStream()]);
+  }
+
+  /**
+   * The Run starts and is consumed at once: the Chat Completions wire begins
+   * streaming only when its result is read, so every case drains while it
+   * waits for the Run's own observable state.
+   */
+  async function startAndDrain(options: RunOptions) {
+    const harness = startFailedSendRun(options);
+    const running = await harness.started;
+    const drained = drain(running);
+
+    runningRuns.push({ drained, settleCalls: options.tools.settleAll });
+
+    return { ...harness, drained };
+  }
+
+  /** The Runs a case started, so a failing assertion cannot leak one. */
+  const runningRuns: Array<{
+    readonly drained: Promise<void>;
+    readonly settleCalls: () => void;
+  }> = [];
+
+  const DELIVERED_MESSAGE_ID = '77777777-7777-4777-8777-777777777777';
+
+  /** The owner message a boundary delivery creates. */
+  function deliveredMessageOf(text: string): Message {
+    return {
+      ...userMessage,
+      id: DELIVERED_MESSAGE_ID,
+      seq: 3,
+      parts: [{ type: 'text', text }],
+    };
+  }
+
+  /** A pending owner item, as the owner sent it before the calls settled. */
+  function ownerItem(mode: 'steer' | 'interrupt', text: string): ChatDelivery {
+    return {
+      id: '88888888-8888-4888-8888-888888888888',
+      chatId,
+      ownerUserId: userId,
+      producer: 'owner',
+      senderRef: null,
+      mode,
+      parts: [{ type: 'text', text }],
+      settings: { modelId: 'fake-model', permissionMode: 'default' },
+      state: 'pending',
+      position: 1,
+      deliveredMessageId: null,
+      runId: null,
+      createdAt: now,
+      updatedAt: now,
+    };
+  }
+
+  /**
+   * Serves `items` as the boundary delivery the failed send reaches: the
+   * repositories a delivery locks, marks, and creates the owner message with.
+   */
+  function serveDelivery(
+    spies: RepositorySpies,
+    items: ReadonlyArray<ChatDelivery>,
+    delivered: Message,
+  ) {
+    // One boundary carries the items: the segment they start is theirs.
+    const lockPending = vi
+      .spyOn(ChatDeliveriesRepository.prototype, 'lockPendingBoundary')
+      .mockResolvedValueOnce([...items])
+      .mockResolvedValue([]);
+
+    const markDelivered = vi
+      .spyOn(ChatDeliveriesRepository.prototype, 'markDelivered')
+      .mockResolvedValue(items[0]);
+
+    vi.spyOn(
+      MessagesRepository.prototype,
+      'createUserMessageIfAbsent',
+    ).mockResolvedValue(delivered);
+    vi.spyOn(MessagesRepository.prototype, 'findById').mockResolvedValue(
+      delivered,
+    );
+    // The delivered turn's history: the closed reply the delivery stored,
+    // then the owner's message that starts the new segment.
+    vi.spyOn(MessagesRepository.prototype, 'findByChatId').mockImplementation(
+      () =>
+        Promise.resolve([
+          userMessage,
+          ...spies.createAssistantReplyIfAbsent.mock.calls
+            .slice(0, 1)
+            .map(([write]) => ({ ...assistantMessage, ...write })),
+          delivered,
+        ]),
+    );
+    vi.spyOn(
+      ChatDeliveriesRepository.prototype,
+      'consumeJobNotices',
+    ).mockResolvedValue([]);
+
+    return { lockPending, markDelivered };
+  }
+
+  /** The reply a delivery closed: the Run's own write, not the next segment. */
+  function closedReplyParts(spies: RepositorySpies): Array<MessagePart> {
+    const write = spies.createAssistantReplyIfAbsent.mock.calls[0]?.[0];
+
+    if (write === undefined) throw new Error('No assistant reply was written.');
+
+    return write.parts.filter(isRecord);
+  }
+
+  /**
+   * A failed send's Run that also streamed a `wait` call, over a running job:
+   * the wait never opens, so the Run cannot suspend for it.
+   */
+  async function startWaitCallRun(wire: Wire) {
+    registerTestOnlyTool(waitTool);
+    vi.spyOn(ChatJobsRepository.prototype, 'findByLocator').mockResolvedValue({
+      ...settledBashJob(44),
+      state: 'running' as const,
+      settledAt: null,
+      result: null,
+      outputs: [],
+    });
+
+    const suspend = vi.fn<RunWaitService['suspend']>();
+    const lookup = deferredTool(LOOKUP_TOOL);
+
+    const harness = await startAndDrain({
+      wire,
+      tools: toolset(lookup),
+      runWait: asDouble<RunWaitService>({ suspend }),
+      catalog: {
+        allowed: [LOOKUP_TOOL, 'wait'],
+        permissionPolicy: compileTestPermissionPolicy([LOOKUP_TOOL, 'wait']),
+      },
+      responses: [
+        brokenSend([
+          lookupCall('bash-call', 'a'),
+          toolCall('wait', 'wait-call', {
+            i: 'Wait for the build.',
+            jobs: ['job://bash-44'],
+            timeout: 30,
+          }),
+        ]),
+        providerText('final answer'),
+      ],
+    });
+
+    return { ...harness, lookup, suspend };
+  }
+
+  /**
+   * A Continue Run over `parts` — the failed reply the owner continued — and
+   * the requests it sends.
+   */
+  async function startContinueRun(
+    wire: Wire,
+    parts: ReadonlyArray<MessagePart>,
+  ) {
+    const spies = mockNormalExecutionRepositories();
+    spies.findById.mockResolvedValue({
+      ...run,
+      activeAttemptId: testAttemptId,
+    });
+    recordAppendedEvents();
+    vi.spyOn(
+      RunEventsRepository.prototype,
+      'findFirstByType',
+    ).mockImplementation((_runId, _userId, eventType) =>
+      Promise.resolve(
+        eventType === 'run.created'
+          ? {
+              ...event,
+              sequence: 1,
+              eventType,
+              payload: { chatId, messageId, replacesUsage: true },
+            }
+          : eventType === 'run.continued'
+            ? {
+                ...event,
+                sequence: 2,
+                eventType,
+                payload: {
+                  sourceRunId: runId,
+                  parts,
+                  steps: {},
+                  results: {},
+                },
+              }
+            : undefined,
+      ),
+    );
+    vi.spyOn(
+      RunsRepository.prototype,
+      'findDispatchedBaselineForTurn',
+    ).mockResolvedValue(undefined);
+
+    const { client, requests } = wireClient(wire, [
+      providerText('continued answer'),
+    ]);
+
+    const execution = makeExecutionService(client);
+
+    const running = await execution.service.executeRun({
+      ...executionInput(client),
+      userMessage: {
+        id: messageId,
+        seq: 2,
+        parts: [{ type: 'text', text: 'hello' }],
+      },
+      followUpAction: 'continue',
+    });
+
+    const drained = drain(running);
+
+    runningRuns.push({ drained, settleCalls: () => undefined });
+
+    return { spies, requests, drained };
+  }
+
+  beforeEach(() => {
+    // No jitter: a retry's wait is then the provider's own delay, which these
+    // classes carry none of, so a continued send goes out at once.
+    vi.spyOn(Math, 'random').mockReturnValue(0);
+  });
+
+  afterEach(async () => {
+    for (const run of runningRuns.splice(0)) {
+      run.settleCalls();
+      await run.drained;
+    }
+
+    unregisterTestOnlyTool('wait');
+    vi.restoreAllMocks();
+  });
+
+  it.each<Wire>(['responses', 'completions'])(
+    '%s wire: One call still runs when the send breaks',
+    async (wire) => {
+      const lookup = deferredTool(LOOKUP_TOOL);
+      const grep = deferredTool(GREP_TOOL);
+
+      const { spies, requests, drained } = await startAndDrain({
+        wire,
+        tools: toolset(lookup, grep),
+        responses: [
+          brokenSend([
+            lookupCall('read-call', 'a'),
+            grepCall('grep-call', 'b'),
+          ]),
+          providerText('final answer'),
+        ],
+      });
+
+      await vi.waitFor(() => expect(grep.calls).toEqual(['b']));
+      await vi.waitFor(() => expect(lookup.calls).toEqual(['a']));
+
+      // The second call still runs: no request goes out behind a broken send.
+      lookup.settle('a');
+      await vi.waitFor(() => expect(requests).toHaveLength(1));
+
+      grep.settle('b');
+      await drained;
+
+      expect(requests).toHaveLength(2);
+      expect(lookup.calls).toEqual(['a']);
+      expect(grep.calls).toEqual(['b']);
+      const next = JSON.stringify(requests[1]);
+      expect(next).toContain('"a"');
+      expect(next).toContain('"b"');
+      expect(next).toContain(NOTICE_PREFIX);
+      expect(spies.markFinished).toHaveBeenCalledWith(
+        runId,
+        userId,
+        'completed',
+        expect.anything(),
+      );
+    },
+  );
+
+  it.each<Wire>(['responses', 'completions'])(
+    '%s wire: The text after the last tool call is not kept',
+    async (wire) => {
+      const lookup = deferredTool(LOOKUP_TOOL);
+
+      const { spies, requests, drained } = await startAndDrain({
+        wire,
+        tools: toolset(lookup),
+        responses: [
+          brokenSend([
+            ...textParts('Before the call. '),
+            lookupCall('read-call', 'a'),
+            ...textParts('TRAILING TEXT MUST NOT SURVIVE'),
+          ]),
+          providerText('final answer'),
+        ],
+      });
+
+      await vi.waitFor(() => expect(lookup.calls).toEqual(['a']));
+      lookup.settle('a');
+      await drained;
+
+      const parts = replyPartsOf(spies);
+      expect(textOf(parts)).toBe('Before the call. final answer');
+      expect(noticesOf(parts)).toHaveLength(1);
+      // The next request carries the kept prefix and the notice, never the
+      // send's trailing text.
+      const next = JSON.stringify(requests[1]);
+      expect(next).toContain('Before the call. ');
+      expect(next).not.toContain('TRAILING TEXT MUST NOT SURVIVE');
+    },
+  );
+
+  it.each<Wire>(['responses', 'completions'])(
+    '%s wire: An authentication failure after a tool call',
+    async (wire) => {
+      const lookup = deferredTool(LOOKUP_TOOL);
+
+      const { spies, appended, requests, drained } = await startAndDrain({
+        wire,
+        tools: toolset(lookup),
+        responses: [
+          brokenSend([lookupCall('read-call', 'a')], 'auth'),
+          providerText('never sent'),
+        ],
+      });
+
+      await vi.waitFor(() => expect(lookup.calls).toEqual(['a']));
+      lookup.settle('a');
+      await drained;
+
+      expect(requests).toHaveLength(1);
+      expectFinished(spies, 'failed', 'auth');
+      const parts = replyPartsOf(spies);
+      expect(noticesOf(parts)).toHaveLength(1);
+      // The reply holds the read's own result, not a termination result.
+      expect(
+        parts.filter(
+          (part) => isRecord(part) && part['toolCallId'] === 'read-call',
+        ),
+      ).toHaveLength(1);
+      // The cut and the terminal write share one transaction.
+      expect(
+        appended.filter(({ type }) => type === 'model.superseded'),
+      ).toHaveLength(1);
+      expect(
+        appended.filter(({ type }) => type === 'model.superseded')[0]?.payload,
+      ).toMatchObject({ step: 0 });
+      expect(appended.map(({ type }) => type)).toContain('run.failed');
+    },
+  );
+
+  it.each<Wire>(['responses', 'completions'])(
+    '%s wire: The owner stops the Run during the wait',
+    async (wire) => {
+      const controller = new AbortController();
+      const lookup = deferredTool(LOOKUP_TOOL);
+
+      const { spies, requests, drained } = await startAndDrain({
+        wire,
+        tools: toolset(lookup),
+        abortSignal: controller.signal,
+        responses: [
+          brokenSend([
+            ...textParts('Before the call. '),
+            lookupCall('read-call', 'a'),
+            ...textParts('TRAILING TEXT MUST NOT SURVIVE'),
+          ]),
+          providerText('never sent'),
+        ],
+      });
+
+      await vi.waitFor(() => expect(lookup.calls).toEqual(['a']));
+      controller.abort();
+      await drained;
+
+      expect(requests).toHaveLength(1);
+      expect(spies.markFinished).toHaveBeenCalledWith(
+        runId,
+        userId,
+        'cancelled',
+        expect.anything(),
+      );
+      const parts = replyPartsOf(spies);
+      expect(textOf(parts)).toBe('Before the call. ');
+      expect(noticesOf(parts)).toHaveLength(1);
+    },
+  );
+
+  it.each<Wire>(['responses', 'completions'])(
+    '%s wire: A rejected call does not cause a second send',
+    async (wire) => {
+      const lookup = deferredTool(LOOKUP_TOOL);
+      const grep = deferredTool(GREP_TOOL);
+
+      const { requests, drained } = await startAndDrain({
+        wire,
+        tools: toolset(lookup, grep),
+        // The policy permits the second call only; the first is refused
+        // before it executes, as a rejection the model reads.
+        catalog: { permissionPolicy: compileTestPermissionPolicy([GREP_TOOL]) },
+        responses: [
+          brokenSend([
+            lookupCall('rejected-call', 'a'),
+            grepCall('kept-call', 'b'),
+          ]),
+          providerText('final answer'),
+        ],
+      });
+
+      await vi.waitFor(() => expect(grep.calls).toEqual(['b']));
+      grep.settle('b');
+      await drained;
+
+      // The refused call never ran, and the send was not sent again.
+      expect(lookup.calls).toEqual([]);
+      expect(requests).toHaveLength(2);
+      const next = JSON.stringify(requests[1]);
+      expect(next).toContain(
+        'rejected before execution by operator permissions',
+      );
+      expect(next).toContain('kept-call');
+    },
+  );
+
+  it.each<Wire>(['responses', 'completions'])(
+    '%s wire: An overload after a tool call',
+    async (wire) => {
+      const lookup = deferredTool(LOOKUP_TOOL);
+
+      const { spies, appended, requests, drained } = await startAndDrain({
+        wire,
+        tools: toolset(lookup),
+        responses: [
+          brokenSend([lookupCall('read-call', 'a')], 'overloaded'),
+          providerText('final answer'),
+        ],
+      });
+
+      await vi.waitFor(() => expect(lookup.calls).toEqual(['a']));
+      lookup.settle('a');
+      await drained;
+
+      // The Run continues after the call settled, and the call ran once.
+      expect(lookup.calls).toEqual(['a']);
+      expect(requests).toHaveLength(2);
+      expect(
+        appended
+          .filter(({ type }) => type === 'model.retrying')
+          .map(({ payload }) => payload),
+      ).toEqual([expect.objectContaining({ code: 'overloaded', retry: 1 })]);
+      expect(spies.markFinished).toHaveBeenCalledWith(
+        runId,
+        userId,
+        'completed',
+        expect.anything(),
+      );
+    },
+  );
+
+  it.each<Wire>(['responses', 'completions'])(
+    '%s wire: A wait call in a broken send',
+    async (wire) => {
+      const { spies, lookup, requests, suspend, drained } =
+        await startWaitCallRun(wire);
+
+      await vi.waitFor(() => expect(lookup.calls).toEqual(['a']));
+      lookup.settle('a');
+      await drained;
+
+      // The wait never opened: the Run did not enter `awaiting_jobs`, and the
+      // wait part states so.
+      expect(suspend).not.toHaveBeenCalled();
+      const parts = replyPartsOf(spies);
+      const waitPart = partOf(parts, 'wait-call');
+      expect(waitPart).toMatchObject({
+        state: 'output-error',
+        errorText:
+          'The wait did not start, because the provider failed. Call `wait` again if you still need it.',
+      });
+      // The Run continues with the next step.
+      expect(requests).toHaveLength(2);
+    },
+  );
+
+  it.each<Wire>(['responses', 'completions'])(
+    '%s wire: A wait call of a failed send does not suspend the Run',
+    async (wire) => {
+      const { appended, lookup, suspend, drained } =
+        await startWaitCallRun(wire);
+
+      await vi.waitFor(() => expect(lookup.calls).toEqual(['a']));
+      lookup.settle('a');
+      await drained;
+
+      expect(suspend).not.toHaveBeenCalled();
+      expect(appended.filter(({ type }) => type === 'run.suspended')).toEqual(
+        [],
+      );
+    },
+  );
+
+  it.each<Wire>(['responses', 'completions'])(
+    '%s wire: The stream breaks after a tool call',
+    async (wire) => {
+      const lookup = deferredTool(LOOKUP_TOOL);
+
+      const { requests, drained } = await startAndDrain({
+        wire,
+        tools: toolset(lookup),
+        responses: [
+          brokenSend([
+            ...textParts('I will read it. '),
+            lookupCall('read-call', 'a'),
+            ...textParts('TRAILING TEXT MUST NOT SURVIVE'),
+          ]),
+          providerText('final answer'),
+        ],
+      });
+
+      await vi.waitFor(() => expect(lookup.calls).toEqual(['a']));
+      lookup.settle('a');
+      await drained;
+
+      // The request is not sent again, and the read executes once.
+      expect(lookup.calls).toEqual(['a']);
+      expect(requests).toHaveLength(2);
+      // The next step carries the read result and the notice, and no part of
+      // the cut.
+      const next = JSON.stringify(requests[1]);
+      expect(next).toContain('I will read it. ');
+      expect(next).toContain('read-call');
+      expect(next).toContain(NOTICE_PREFIX);
+      expect(next).not.toContain('TRAILING TEXT MUST NOT SURVIVE');
+    },
+  );
+
+  it.each<Wire>(['responses', 'completions'])(
+    '%s wire: The next request carries the notice',
+    async (wire) => {
+      const lookup = deferredTool(LOOKUP_TOOL);
+      const grep = deferredTool(GREP_TOOL);
+
+      const { requests, drained } = await startAndDrain({
+        wire,
+        tools: toolset(lookup, grep),
+        responses: [
+          brokenSend([
+            lookupCall('read-call', 'a'),
+            grepCall('grep-call', 'b'),
+            ...textParts('TRAILING TEXT MUST NOT SURVIVE'),
+          ]),
+          providerText('final answer'),
+        ],
+      });
+
+      await vi.waitFor(() => expect(lookup.calls).toEqual(['a']));
+      await vi.waitFor(() => expect(grep.calls).toEqual(['b']));
+      lookup.settle('a');
+      grep.settle('b');
+      await drained;
+
+      const next = requests[1] ?? [];
+      // Both results travel in the tool message; the notice is the user-role
+      // message directly after it, so it follows the last tool result.
+      const afterLast = afterToolResult(next, 'grep-call');
+      expect(afterLast).toMatchObject({ role: 'user' });
+      expect(JSON.stringify(afterLast)).toContain(NOTICE_PREFIX);
+
+      const resultMessage = next
+        .filter((message) => JSON.stringify(message).includes('grep-call'))
+        .at(-1);
+
+      expect(JSON.stringify(resultMessage)).toContain('read-call');
+    },
+  );
+
+  it.each<Wire>(['responses', 'completions'])(
+    '%s wire: A provider breaks after each tool call',
+    async (wire) => {
+      const lookup = echoTool(LOOKUP_TOOL);
+      const sends = 11;
+
+      const responses = Array.from({ length: sends }, (_, index) =>
+        brokenSend([lookupCall(`read-call-${index}`, `q${index}`)]),
+      );
+
+      const { spies, appended, requests, drained } = await startAndDrain({
+        wire,
+        tools: toolset(lookup),
+        responses,
+      });
+
+      await drained;
+
+      // The count ends the Run after the eleventh send; no send follows it.
+      expect(requests).toHaveLength(sends);
+      expect(lookup.calls).toHaveLength(sends);
+      expect(new Set(lookup.calls).size).toBe(sends);
+      expectFinished(spies, 'failed', 'stream_broken');
+      const retrying = retryingEvents(appended);
+      expect(retrying.map((entry) => entry['retry'])).toEqual(
+        Array.from({ length: sends - 1 }, (_, index) => index + 1),
+      );
+      expect(retrying.every((entry) => entry['code'] === 'stream_broken')).toBe(
+        true,
+      );
+      // The reply holds the last cut and its notice.
+      const parts = replyPartsOf(spies);
+      expect(textOf(parts)).toBe('');
+      expect(noticesOf(parts).length).toBeGreaterThan(0);
+      expect(partOf(parts, `read-call-${sends - 1}`)).toMatchObject({
+        state: 'output-available',
+      });
+    },
+  );
+
+  it.each<Wire>(['responses', 'completions'])(
+    '%s wire: A reload during the delay of the next step',
+    async (wire) => {
+      const lookup = echoTool(LOOKUP_TOOL);
+
+      const { spies, appended, requests, drained } = await startAndDrain({
+        wire,
+        tools: toolset(lookup),
+        responses: [
+          brokenSend([lookupCall('read-call-1', 'a')]),
+          brokenSend([lookupCall('read-call-2', 'b')]),
+          // The third break carries the provider's own delay, so the write
+          // that precedes the next send is observable before that send.
+          brokenSend([lookupCall('read-call-3', 'c')], 'stream_broken', 1500),
+          providerText('final answer'),
+        ],
+      });
+
+      await vi.waitFor(() =>
+        expect(
+          snapshotsOf(spies).filter(
+            (snapshot) => noticesOf(snapshot).length > 0,
+          ),
+        ).toHaveLength(3),
+      );
+
+      // A reload replays the retrying event of the delay it is in, and the
+      // stored reply already holds the cut and the notice.
+      expect(requests).toHaveLength(3);
+      const retrying = retryingEvents(appended);
+      expect(retrying.map((entry) => entry['retry'])).toEqual([1, 2, 3]);
+      expect(retrying.every((entry) => entry['code'] === 'stream_broken')).toBe(
+        true,
+      );
+      expect(
+        appended.filter(({ type }) => type === 'model.superseded'),
+      ).toHaveLength(3);
+
+      await drained;
+      expect(requests).toHaveLength(4);
+    },
+  );
+
+  it.each<Wire>(['responses', 'completions'])(
+    '%s wire: No retry is left for the next step',
+    async (wire) => {
+      const lookup = echoTool(LOOKUP_TOOL);
+
+      // Ten sends with no content are retried in-process, so the eleventh
+      // send streams its tool call under a request that already spent its
+      // count.
+      const { spies, appended, requests, drained } = await startAndDrain({
+        wire,
+        tools: toolset(lookup),
+        responses: [
+          ...Array.from({ length: 10 }, () => brokenSend([])),
+          brokenSend([lookupCall('read-call', 'a')]),
+          providerText('never sent'),
+        ],
+      });
+
+      await drained;
+
+      // The send is not retried and no next step is sent: the Run fails.
+      expect(requests).toHaveLength(11);
+      expect(lookup.calls).toEqual(['a']);
+      expectFinished(spies, 'failed', 'stream_broken');
+      // One cut and one notice: the carried failure starts no second send.
+      expect(snapshotsOf(spies).length).toBe(0);
+      expect(
+        appended.filter(({ type }) => type === 'model.superseded'),
+      ).toHaveLength(1);
+      expect(noticesOf(replyPartsOf(spies))).toHaveLength(1);
+    },
+  );
+
+  it.each<Wire>(['responses', 'completions'])(
+    '%s wire: A send without failure ends the count',
+    async (wire) => {
+      const lookup = echoTool(LOOKUP_TOOL);
+
+      const { appended, requests, drained } = await startAndDrain({
+        wire,
+        tools: toolset(lookup),
+        responses: [
+          brokenSend([lookupCall('read-call-1', 'a')]),
+          // This step ends without failure inside the continued request.
+          providerResponse(
+            [toolCall(LOOKUP_TOOL, 'read-call-2', { q: 'b' })],
+            'tool-calls',
+          ),
+          brokenSend([lookupCall('read-call-3', 'c')]),
+          providerText('final answer'),
+        ],
+      });
+
+      await drained;
+
+      expect(requests).toHaveLength(4);
+      expect(lookup.calls).toEqual(['a', 'b', 'c']);
+      // The later break starts its own count: retry 1, as the transcript's
+      // "Retrying after a broken stream (1/10)" line reads.
+      const retrying = retryingEvents(appended);
+      expect(retrying.map((entry) => entry['retry'])).toEqual([1, 1]);
+      expect(retrying.every((entry) => entry['code'] === 'stream_broken')).toBe(
+        true,
+      );
+    },
+  );
+
+  it.each<Wire>(['responses', 'completions'])(
+    '%s wire: A steer at the boundary starts a new count',
+    async (wire) => {
+      const lookup = deferredTool(LOOKUP_TOOL);
+
+      const { appended, requests, drained } = await startAndDrain({
+        wire,
+        tools: toolset(lookup),
+        arrange: (repositories) => {
+          vi.spyOn(
+            ChatDeliveriesRepository.prototype,
+            'stepEndSignal',
+          ).mockResolvedValue('delivery');
+          serveDelivery(
+            repositories,
+            [ownerItem('steer', 'steer now')],
+            deliveredMessageOf('steer now'),
+          );
+        },
+        // A delay the delivered segment must never wait.
+        responses: [
+          brokenSend(
+            [
+              lookupCall('read-call', 'a'),
+              ...textParts('TRAILING TEXT MUST NOT SURVIVE'),
+            ],
+            'stream_broken',
+            1500,
+          ),
+          providerText('final answer'),
+        ],
+      });
+
+      await vi.waitFor(() => expect(lookup.calls).toEqual(['a']));
+      lookup.settle('a');
+      await vi.waitFor(() =>
+        expect(
+          appended.filter(({ type }) => type === 'run.delivered'),
+        ).toHaveLength(1),
+      );
+      await vi.waitFor(() => expect(requests).toHaveLength(2));
+      await drained;
+
+      // The steer starts a segment: its first send carries no retry at all,
+      // so no retry event and no carried delay.
+      expect(appended.filter(({ type }) => type === 'model.retrying')).toEqual(
+        [],
+      );
+      expect(
+        appended.filter(({ type }) => type === 'run.delivered'),
+      ).toHaveLength(1);
+      const delivered = requests[1] ?? [];
+      expect(JSON.stringify(delivered)).toContain('steer now');
+      // The closed reply's cut and notice still reach the delivered request.
+      expect(JSON.stringify(delivered)).toContain('read-call');
+      expect(JSON.stringify(delivered)).toContain(NOTICE_PREFIX);
+      expect(JSON.stringify(delivered)).not.toContain(
+        'TRAILING TEXT MUST NOT SURVIVE',
+      );
+    },
+  );
+
+  it.each<Wire>(['responses', 'completions'])(
+    '%s wire: A failure with no retry does not deliver a pending steer',
+    async (wire) => {
+      const lookup = deferredTool(LOOKUP_TOOL);
+
+      const { spies, appended, requests, drained } = await startAndDrain({
+        wire,
+        tools: toolset(lookup),
+        arrange: (repositories) => {
+          vi.spyOn(
+            ChatDeliveriesRepository.prototype,
+            'stepEndSignal',
+          ).mockResolvedValue('delivery');
+          serveDelivery(
+            repositories,
+            [ownerItem('steer', 'steer now')],
+            deliveredMessageOf('steer now'),
+          );
+        },
+        responses: [
+          brokenSend([lookupCall('read-call', 'a')], 'auth'),
+          providerText('never sent'),
+        ],
+      });
+
+      await vi.waitFor(() => expect(lookup.calls).toEqual(['a']));
+      lookup.settle('a');
+      await drained;
+
+      // The class decides before the boundary: the Run fails, and no segment
+      // delivers the steer.
+      expectFinished(spies, 'failed', 'auth');
+      expect(appended.filter(({ type }) => type === 'run.delivered')).toEqual(
+        [],
+      );
+      expect(requests).toHaveLength(1);
+      expect(noticesOf(replyPartsOf(spies))).toHaveLength(1);
+    },
+  );
+
+  it.each<Wire>(['responses', 'completions'])(
+    '%s wire: A worker stops before the next step starts',
+    async (wire) => {
+      const lookup = deferredTool(LOOKUP_TOOL);
+
+      const { spies, appended, requests, drained } = await startAndDrain({
+        wire,
+        tools: toolset(lookup),
+        responses: [
+          brokenSend([lookupCall('read-call', 'a')], 'stream_broken', 1500),
+          providerText('final answer'),
+        ],
+      });
+
+      // The send broke and its call still runs: nothing of the cut or the
+      // notice is written yet, so a worker that stops here leaves neither.
+      await vi.waitFor(() => expect(lookup.calls).toEqual(['a']));
+      expect(spies.updateRunningReplyParts).not.toHaveBeenCalled();
+      expect(spies.createAssistantReplyIfAbsent).not.toHaveBeenCalled();
+      expect(
+        appended.filter(({ type }) => type === 'model.superseded'),
+      ).toEqual([]);
+
+      lookup.settle('a');
+
+      // The next step's preparation is the one write: the cut, the notice,
+      // and its superseded event land before that step's send goes out.
+      await vi.waitFor(() =>
+        expect(
+          snapshotsOf(spies).filter(
+            (snapshot) => noticesOf(snapshot).length > 0,
+          ),
+        ).toHaveLength(1),
+      );
+      expect(requests).toHaveLength(1);
+      expect(
+        appended.filter(({ type }) => type === 'model.superseded'),
+      ).toHaveLength(1);
+
+      await drained;
+      expect(requests).toHaveLength(2);
+    },
+  );
+
+  it.each<Wire>(['responses', 'completions'])(
+    '%s wire: A worker stops during the delay of the next step',
+    async (wire) => {
+      const lookup = deferredTool(LOOKUP_TOOL);
+
+      const { spies, appended, requests, drained } = await startAndDrain({
+        wire,
+        tools: toolset(lookup),
+        responses: [
+          brokenSend([lookupCall('edit-call', 'a')], 'stream_broken', 1500),
+          providerText('final answer'),
+        ],
+      });
+
+      await vi.waitFor(() => expect(lookup.calls).toEqual(['a']));
+      lookup.settle('a');
+
+      // During the delay the stored reply already holds the cut and the
+      // notice, so a redelivered attempt that fails keeps them.
+      await vi.waitFor(() =>
+        expect(
+          snapshotsOf(spies).filter(
+            (snapshot) => noticesOf(snapshot).length > 0,
+          ),
+        ).toHaveLength(1),
+      );
+      expect(requests).toHaveLength(1);
+
+      const stored = snapshotsOf(spies).filter(
+        (snapshot) => noticesOf(snapshot).length > 0,
+      )[0];
+
+      expect(partOf(stored ?? [], 'edit-call')).toMatchObject({
+        state: 'output-available',
+      });
+      expect(
+        appended.filter(({ type }) => type === 'model.superseded'),
+      ).toHaveLength(1);
+
+      await drained;
+    },
+  );
+
+  it.each<Wire>(['responses', 'completions'])(
+    '%s wire: Owner Continue keeps the notice',
+    async (wire) => {
+      const lookup = deferredTool(LOOKUP_TOOL);
+
+      const failed = await startAndDrain({
+        wire,
+        tools: toolset(lookup),
+        responses: [
+          brokenSend([lookupCall('read-call', 'a')], 'auth'),
+          providerText('never sent'),
+        ],
+      });
+
+      await vi.waitFor(() => expect(lookup.calls).toEqual(['a']));
+      lookup.settle('a');
+      await failed.drained;
+
+      const stored = replyPartsOf(failed.spies);
+      expect(noticesOf(stored)).toHaveLength(1);
+
+      const continuation = await startContinueRun(wire, stored);
+      await continuation.drained;
+
+      // The Continue Run's first request carries the read result and then
+      // the notice, as the user-role item the model reads.
+      const first = continuation.requests[0] ?? [];
+      const after = afterToolResult(first, 'read-call');
+      expect(after).toMatchObject({ role: 'user' });
+      expect(JSON.stringify(after)).toContain(NOTICE_PREFIX);
+    },
+  );
+
+  it.each<Wire>(['responses', 'completions'])(
+    '%s wire: An interrupt during the wait keeps the notice',
+    async (wire) => {
+      const aborts = new RunAbortRegistry();
+      aborts.register(runId, userId);
+      const lookup = deferredTool(LOOKUP_TOOL);
+      const interrupt = ownerItem('interrupt', 'change course');
+
+      const { spies, drained } = await startAndDrain({
+        wire,
+        tools: toolset(lookup),
+        catalog: { segmentAborts: aborts },
+        arrange: (repositories) =>
+          serveDelivery(
+            repositories,
+            [interrupt],
+            deliveredMessageOf('change course'),
+          ),
+        responses: [
+          brokenSend([
+            lookupCall('bash-call', 'a'),
+            ...textParts('TRAILING TEXT MUST NOT SURVIVE'),
+          ]),
+          providerText('continued answer'),
+        ],
+      });
+
+      await vi.waitFor(() => expect(lookup.calls).toEqual(['a']));
+      expect(interruptCurrent(aborts, runId)).toBe(true);
+      // The abort reaches the Run once the started call settles.
+      lookup.settle('a');
+      await drained;
+
+      // The closed segment's reply holds the call and then the notice.
+      const parts = closedReplyParts(spies);
+
+      const callIndex = parts.findIndex(
+        (part) => isRecord(part) && part['toolCallId'] === 'bash-call',
+      );
+
+      expect(callIndex).toBeGreaterThanOrEqual(0);
+      expect(parts[callIndex + 1]).toMatchObject({
+        type: 'data-context',
+        data: { producer: 'provider-failure', form: 'notice' },
+      });
+      expect(textOf(parts)).toBe('');
+    },
+  );
+
+  it.each<Wire>(['responses', 'completions'])(
+    '%s wire: An interrupt during the wait of a failed send',
+    async (wire) => {
+      const aborts = new RunAbortRegistry();
+      aborts.register(runId, userId);
+      const lookup = deferredTool(LOOKUP_TOOL);
+
+      const { spies, requests, drained } = await startAndDrain({
+        wire,
+        tools: toolset(lookup),
+        catalog: { segmentAborts: aborts },
+        arrange: (repositories) =>
+          serveDelivery(
+            repositories,
+            [ownerItem('interrupt', 'change course')],
+            deliveredMessageOf('change course'),
+          ),
+        responses: [
+          brokenSend([
+            ...textParts('Before the call. '),
+            lookupCall('bash-call', 'a'),
+            ...textParts('TRAILING TEXT MUST NOT SURVIVE'),
+          ]),
+          providerText('continued answer'),
+        ],
+      });
+
+      await vi.waitFor(() => expect(lookup.calls).toEqual(['a']));
+      expect(interruptCurrent(aborts, runId)).toBe(true);
+      lookup.settle('a');
+      await drained;
+
+      // The reply keeps the first text and the call; later requests do not
+      // carry the text after the call, and they keep the notice.
+      const parts = closedReplyParts(spies);
+      expect(textOf(parts)).toBe('Before the call. ');
+      expect(partOf(parts, 'bash-call')).toBeDefined();
+      expect(noticesOf(parts)).toHaveLength(1);
+      const next = requests[1] ?? [];
+      expect(JSON.stringify(next)).toContain('Before the call. ');
+      expect(JSON.stringify(next)).not.toContain(
+        'TRAILING TEXT MUST NOT SURVIVE',
+      );
+      expect(JSON.stringify(next)).toContain(NOTICE_PREFIX);
+    },
+  );
 });

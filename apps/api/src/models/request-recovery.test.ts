@@ -1232,6 +1232,46 @@ describe('withRequestRecovery', () => {
     expect(fixture.sends()).toBe(0);
   });
 
+  it('aborts a pending-failure delay without a provider send', async () => {
+    const fixture = scriptedModel([complete]);
+    const entered = Promise.withResolvers<void>();
+    const controller = new AbortController();
+    const reason = new Error('Owner stopped the pending delay');
+
+    const model = withRequestRecovery(
+      fixture.model,
+      {
+        ...options,
+        pendingFailure: overloaded(),
+      },
+      {
+        random: () => 0,
+        delay: (_milliseconds, signal) => {
+          const settled = Promise.withResolvers<never>();
+
+          signal.addEventListener(
+            'abort',
+            () => settled.reject(signal.reason),
+            { once: true },
+          );
+          entered.resolve();
+
+          return settled.promise;
+        },
+      },
+    );
+
+    const rejected = collect(model, controller.signal).catch(
+      (error: unknown) => error,
+    );
+
+    await entered.promise;
+    controller.abort(reason);
+
+    expect(await rejected).toBe(reason);
+    expect(fixture.sends()).toBe(0);
+  });
+
   it('applies a pending failure to the first wrapped stream only', async () => {
     const fixture = scriptedModel([complete, complete]);
     const retries: Array<number> = [];

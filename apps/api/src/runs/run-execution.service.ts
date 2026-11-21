@@ -84,6 +84,8 @@ import {
 } from '../db/schema';
 import {
   buildContext,
+  isReasoningPart,
+  isTextPart,
   partsToText,
   projectStoredReplyParts,
   userPartsToModelContent,
@@ -204,6 +206,7 @@ import {
   type AuthoredContextItemPart,
 } from '../chats/context-item';
 import { createRegenerateNoticeItem } from '../chats/regenerate-notice';
+import { createProviderFailureItem } from '../chats/provider-failure-notice';
 import {
   createInterruptedItem,
   stoppedCallsOf,
@@ -472,6 +475,7 @@ import {
   type QuotaRequestState,
 } from './quota-wake-projection';
 import { quotaWaitForFailure } from './quota-wait';
+import { MAX_SENDS, retryable } from '../models/request-recovery';
 import { WAIT_SUSPENSION, type WaitRequest } from '../tools/wait-suspension';
 import { ChatJobsRepository } from '../jobs/chat-jobs.repository';
 import { BashJobRegistry } from '../jobs/bash-job-registry';
@@ -748,6 +752,12 @@ type FinishRunInput = {
   boundaryCompaction?: NonNullable<DeliveryInput['boundaryCompaction']>;
   quotaRequest?: QuotaRequestState;
   stepBudgetUsed?: number;
+  /**
+   * The cut a failed send left, written in this terminal transaction
+   * (continue-after-broken-send D6): the reply already holds the kept parts
+   * and the notice, and this event names the dropped output.
+   */
+  superseded?: SupersededModelOutput;
 };
 
 type FinishRunResult =
@@ -956,6 +966,79 @@ class CancellationRecordedError extends Error {
 }
 
 function noop(): void {}
+
+/** What a step end finds, or nothing: the Run's own record decides (D3). */
+type StepEndSignal = 'cancel' | 'delivery' | 'suspend' | undefined;
+
+/**
+ * The decided cause of a failed step's boundary: the Run's own record, or the
+ * step-boundary compaction that step owes (D4 step 3).
+ */
+type FailedStepCause = StepEndSignal | 'compact';
+
+/** The status a failed send's Run ends with: a completed Run never failed. */
+type FailedSendStatus = Exclude<TerminalRunStatus, 'completed'>;
+
+/**
+ * Where a send's kept output ends, captured at its last complete tool-call
+ * part (continue-after-broken-send D3): the sequence a `model.superseded`
+ * event names, and the collected-part count through that part.
+ */
+type CutAnchor = {
+  readonly sequence: Promise<number>;
+  readonly partsLength: number;
+};
+
+/** A send that failed after it streamed a complete tool-call part (D1). */
+type FailedSend = {
+  readonly failure: ProviderFailure;
+  /** The reply-wide step that failed, in the call's own numbering. */
+  readonly step: number;
+  readonly anchor: CutAnchor;
+};
+
+/** The cut a failed send leaves: its window, and the notice to store (D3). */
+type FailedSendCut = {
+  readonly fromSequence: number;
+  readonly step: number;
+  readonly notice: AuthoredContextItemPart;
+};
+
+/**
+ * The result of a `wait` call whose send failed after a started call (A7): the
+ * wait never opened, so the Run does not suspend for it.
+ */
+const FAILED_WAIT_RESULT: ToolResult = {
+  status: 'error',
+  type: 'cancelled',
+  message:
+    'The wait did not start, because the provider failed. Call `wait` again if you still need it.',
+};
+
+/**
+ * The terminal `superseded` input of a reply that holds a failed send's cut
+ * (D6), or nothing when this reply kept no cut.
+ */
+function supersededOf(cut: FailedSendCut | undefined): {
+  superseded?: SupersededModelOutput;
+} {
+  return cut === undefined
+    ? {}
+    : { superseded: { fromSequence: cut.fromSequence, step: cut.step } };
+}
+
+/**
+ * Whether the failed send's request continues under the shared count (D4): a
+ * send is left before the cap, and the shipped in-process rule retries this
+ * class now — a quota or rate limit within a minute counts as one.
+ */
+function continuesFailedSend(failure: ProviderFailure): boolean {
+  return (
+    failure.sends !== undefined &&
+    failure.sends < MAX_SENDS &&
+    retryable(failure, Date.now())
+  );
+}
 
 /** The Run's own signal, with a call's interrupt signal when its fate is `cancel`. */
 function callAbortSignal(
@@ -1451,6 +1534,12 @@ export class RunExecutionService {
     error?: unknown;
     telemetry?: AssistantTurnTelemetry;
     assistantTurn?: AssistantTurnWrite;
+    /**
+     * The cut this terminal write closes (continue-after-broken-send D6): the
+     * reply carries the kept parts and the notice, and this names the dropped
+     * output in the same transaction.
+     */
+    superseded?: SupersededModelOutput;
   }) {
     const { telemetry, ...terminalInput } = input;
 
@@ -3448,6 +3537,200 @@ export class RunExecutionService {
       return false;
     };
 
+    // --- A send that broke after a started tool call (design D1-D3) ---
+    // `callStream` resets these per call. The cut is applied once per failed
+    // send, so the abort and finish writers cannot cut twice.
+    let cutAnchor: CutAnchor | undefined;
+    let sendFailure: FailedSend | undefined;
+    let failedSendCut: FailedSendCut | undefined;
+
+    /**
+     * Records a send that failed after it streamed its complete tool-call part
+     * (D1), while the send's calls still run. A send without such a part, and
+     * a failure that arrives before this step's first call, keep the shipped
+     * retry and failure paths.
+     */
+    const noteSendFailure = (error: unknown): void => {
+      if (sendFailure !== undefined) return;
+
+      if (!(error instanceof ProviderFailure) || !error.toolCallStarted) return;
+
+      if (cutAnchor === undefined) return;
+
+      sendFailure = {
+        failure: error,
+        step: currentStepNumber,
+        anchor: cutAnchor,
+      };
+    };
+
+    /**
+     * Captures the cut anchor of a just-arrived complete tool-call part (D3):
+     * both delta buffers flush first, so a short text prefix before the call
+     * stays outside the cut, and the sequence read queues behind every event
+     * written so far, exactly as `persistStepStartSequence` does.
+     */
+    const persistCutAnchor = (): void => {
+      persistReasoning(reasoningDeltas.flush());
+      persistDelta(deltas.flush());
+      const partsLength = assistantPartCollector.parts().length;
+      let sequence = 0;
+
+      const read = (deltaWrites = deltaWrites.then(async () => {
+        try {
+          sequence = await retryRunTransaction(() =>
+            this.tenantDb.runAs(
+              input.userId,
+              async (tx) =>
+                (await new RunEventsRepository(tx).latestSequence(
+                  input.runId,
+                  input.userId,
+                )) + 1,
+            ),
+          );
+        } catch (error) {
+          progressWriteFailed = true;
+          this.logger.error(
+            `Failed to record the cut anchor for run ${input.runId}`,
+            loggableError(error),
+          );
+        }
+      }));
+
+      cutAnchor = { sequence: read.then(() => sequence), partsLength };
+    };
+
+    /**
+     * The cut of the failed send (D3/D6): drops the text and reasoning it
+     * streamed after its last complete tool-call part, keeps its tool parts,
+     * and stores the `provider-failure` notice directly after the last of them.
+     * Applied at most once per send; every writer that persists the reply
+     * awaits it first.
+     */
+    const applyFailedSendCut = async (): Promise<FailedSendCut | undefined> => {
+      if (sendFailure === undefined) return undefined;
+
+      if (failedSendCut !== undefined) return failedSendCut;
+
+      const { failure, step, anchor } = sendFailure;
+      const fromSequence = await anchor.sequence;
+
+      // A failed progress write settles the Run through its shipped path.
+      if (progressWriteFailed) return undefined;
+
+      const kept = assistantPartCollector
+        .parts()
+        .filter(
+          (part, index) =>
+            index < anchor.partsLength ||
+            (!isTextPart(part) && !isReasoningPart(part)),
+        );
+
+      const notice = createProviderFailureItem({
+        runId: input.runId,
+        failureClass: failure.code,
+      });
+
+      const lastToolPart = kept.findLastIndex(
+        (part) => isRecord(part) && isString(part['toolCallId']),
+      );
+
+      assistantPartCollector = createAssistantPartCollector();
+      assistantPartCollector.seed([
+        ...kept.slice(0, lastToolPart + 1),
+        notice,
+        ...kept.slice(lastToolPart + 1),
+      ]);
+      // The failed send reported no usage, so the reply is not complete.
+      discardedSend = true;
+      failedSendCut = { fromSequence, step: stepOffset + step, notice };
+
+      return failedSendCut;
+    };
+
+    /**
+     * Ends the Run an `onError` error that is not the failed send itself
+     * leaves: it settles the open calls, keeps the cut and the notice of an
+     * earlier failed send, and writes the reply with the terminal events (D6).
+     */
+    const settleErrorOutcome = async (
+      error: unknown,
+      status: FailedSendStatus,
+      assistantTelemetry: AssistantTurnTelemetry,
+      progressFailureTelemetry: AssistantTurnTelemetry,
+    ): Promise<void> => {
+      // A stalled model stream is a model-level failure, not an abort: it
+      // ends the run terminally `failed` under its own error code so the
+      // cause survives on the run and its event (the same treatment
+      // `outcome_unknown` gets), and the job succeeds without a retry.
+      const failure = modelRequestFailure(error);
+
+      const message =
+        status === 'expired'
+          ? expiredRunMessage(input.abortSignal)
+          : errorMessageWithoutParams(error);
+
+      // Settle before reading parts: a call still open here was rendered as
+      // running live, and an unsettled part is filtered out of history — so
+      // without this the live view and the reload disagree.
+      if (!(await settleOpenToolsAndDrain(status, progressFailureTelemetry)))
+        return;
+
+      // A reply this error ends still keeps the cut and the notice of an
+      // earlier failed send, and names the cut (D6).
+      const cut = await applyFailedSendCut();
+
+      const turn: AssistantTurnWrite = {
+        chatId: input.chatId,
+        inReplyTo: input.userMessage.id,
+        // Same "show what the user actually saw" honesty as streamedText:
+        // reasoning and any tool activity that happened before the
+        // abort/error are kept too, not silently dropped while the partial
+        // answer survives. No cap notice here — the run didn't complete (see
+        // onFinish), so it can't claim "answered at cap".
+        parts: assistantPartCollector.parts(),
+        telemetry: assistantTelemetry,
+      };
+
+      const finish = await this.finishRun({
+        userId: input.userId,
+        runId: input.runId,
+        status,
+        attemptId,
+        modelCompleted: {
+          finishReason: null,
+          telemetry: assistantTelemetry,
+        },
+        runPayload: {
+          status,
+          message,
+          ...(status === 'failed' && {
+            code: failure.code,
+            ...(failure.resetsAt !== undefined && {
+              resetsAt: failure.resetsAt,
+            }),
+          }),
+        },
+        error: {
+          message,
+          ...(status === 'failed' && {
+            code: failure.code,
+            ...(failure.resetsAt !== undefined && {
+              resetsAt: failure.resetsAt,
+            }),
+          }),
+        },
+        assistantTurn: turn,
+        ...supersededOf(cut),
+      });
+
+      await this.afterAssistantTurn(
+        finish.assistantMessage,
+        input.userId,
+        turn.telemetry,
+      );
+    };
+
     // Set only when a parent abort lands while at least one tool call is open.
     // The tool continuation awaits it, so a failed durable terminal write is
     // surfaced to the stream/worker instead of becoming a detached rejection.
@@ -4005,6 +4288,21 @@ export class RunExecutionService {
           return;
         }
 
+        // A Stop or expiry during the wait for a failed send's calls keeps the
+        // cut and the notice, and names the cut in the terminal write (D6).
+        const cut = await applyFailedSendCut();
+
+        if (progressWriteFailed) {
+          await this.failRunProgressPersistence({
+            userId: input.userId,
+            runId: input.runId,
+            attemptId,
+            telemetry: buildAssistantTelemetry(null, 'error'),
+          });
+
+          return;
+        }
+
         const assistantTelemetry = buildAssistantTelemetry(
           null,
           turnStatusForTerminalRun(status),
@@ -4025,6 +4323,7 @@ export class RunExecutionService {
             },
             runPayload: { status, message },
             error: { message },
+            ...supersededOf(cut),
           });
         } catch {
           await this.failRunProgressPersistence({
@@ -4104,9 +4403,8 @@ export class RunExecutionService {
     // so a lost worker's notice participates in this same boundary. A durable
     // suspension belongs to this attempt even if a waker already queued or
     // claimed the Run again.
-    const stopWhenExtra = async (): Promise<boolean> => {
-      await recordQuotaRecovery('completed');
-      stopCause = await retryRunTransaction(() =>
+    const resolveStepEndSignal = async (): Promise<StepEndSignal> =>
+      retryRunTransaction(() =>
         this.tenantDb.runAs(input.userId, async (tx) => {
           await new ChatJobsRepository(tx).settleOnDeadWorkers(
             input.chatId,
@@ -4123,6 +4421,52 @@ export class RunExecutionService {
           });
         }),
       );
+
+    /**
+     * The boundary cause of a step whose send failed after a started call,
+     * decided once (D1/D4): the SDK asks `stopWhenExtra` after a started call
+     * settles, but a `wait` call has no output, so the loop ends without asking
+     * and `onFinish` computes the same cause here.
+     */
+    let failedStepBoundary: { readonly cause: FailedStepCause } | undefined;
+
+    const resolveFailedStepBoundary = async (): Promise<FailedStepCause> => {
+      if (failedStepBoundary !== undefined) return failedStepBoundary.cause;
+
+      const signal = await resolveStepEndSignal();
+
+      // A cancellation or suspension outranks the compaction the step owes.
+      if (
+        signal === 'cancel' ||
+        signal === 'suspend' ||
+        !(await automaticCompactionDueAtBoundary())
+      ) {
+        failedStepBoundary = { cause: signal };
+
+        return signal;
+      }
+
+      automaticCompactionAtBoundary = true;
+      const cause = signal ?? 'compact';
+
+      failedStepBoundary = { cause };
+
+      return cause;
+    };
+
+    const stopWhenExtra = async (): Promise<boolean> => {
+      // A failed step ends the SDK loop with its own cause: the delivery,
+      // cancellation, suspension, and compaction checks keep their shipped
+      // meaning, `stopCause` is left alone, and no quota recovery is recorded
+      // (the counts carry over, D1).
+      if (sendFailure !== undefined) {
+        await resolveFailedStepBoundary();
+
+        return true;
+      }
+
+      await recordQuotaRecovery('completed');
+      stopCause = await resolveStepEndSignal();
 
       if (stopCause === 'cancel' || stopCause === 'suspend') return true;
 
@@ -4176,9 +4520,22 @@ export class RunExecutionService {
       stepBase: number,
       requestRetriesUsed = 0,
       skipInitialContextPreparation = false,
+      pendingFailedSend?: {
+        readonly failure: ProviderFailure;
+        readonly notice: AuthoredContextItemPart;
+        readonly superseded: SupersededModelOutput;
+      },
     ): Promise<AttemptRun> => {
       let nextCall = noNextCall;
       const partsBefore = assistantPartCollector.parts().length;
+      // A new call is a new send: the anchor of its first step, its failure,
+      // and its cut all start over, while the collector keeps the cut the
+      // previous call left.
+      cutAnchor = undefined;
+      sendFailure = undefined;
+      failedSendCut = undefined;
+      failedStepBoundary = undefined;
+      let pendingNotice = pendingFailedSend;
 
       if (input.abortSignal?.aborted) {
         settleToolsOnParentAbort();
@@ -4242,6 +4599,8 @@ export class RunExecutionService {
           stoppedCalls?: Array<StoppedCall>;
           baselines?: FirstEpochBaselines;
           finalAnswer?: true;
+          /** The cut this boundary delivery closes (D4/D6). */
+          superseded?: SupersededModelOutput;
         },
       ): Promise<BoundaryDelivery['kind'] | 'quota'> => {
         const { telemetry } = modelCompleted;
@@ -4393,6 +4752,254 @@ export class RunExecutionService {
         return true;
       };
 
+      /**
+       * Settles the calls of the failed step that have no result once the SDK
+       * loop ends (D2). A `wait` call never opened, so the Run does not enter
+       * `awaiting_jobs` for it; any other open call settles on the shipped
+       * termination terms. Calls of another step are untouched.
+       */
+      const settleFailedStepCalls = async (): Promise<void> => {
+        const failure = sendFailure;
+
+        if (failure === undefined) return;
+        const step = stepOffset + failure.step;
+        let settledWait = false;
+
+        for (const [toolCallId, call] of openToolCalls) {
+          if (call.origin !== undefined || call.step !== step) continue;
+
+          if (call.toolName === 'wait') settledWait = true;
+
+          recordToolCompleted(
+            toolCallId,
+            call.toolName,
+            call.toolInput,
+            call.toolName === 'wait'
+              ? FAILED_WAIT_RESULT
+              : toolTerminationResult('failed', call.toolName),
+          );
+        }
+
+        if (settledWait) {
+          pendingWait = false;
+          waitRequest = undefined;
+        }
+
+        await deltaWrites;
+      };
+
+      /** The status a failed send's Run ends with: an abort that landed first
+       * decides (Stop, expiry, a recorded cancellation), else the failure. */
+      const failedSendStatus = (): FailedSendStatus =>
+        input.abortSignal?.aborted
+          ? classifyAbortedRun(input.abortSignal)
+          : failedStepBoundary?.cause === 'cancel'
+            ? 'cancelled'
+            : 'failed';
+
+      /** Ends the Run with the provider failure, the cut, and the notice (D6). */
+      const settleFailedSend = async (
+        cut: FailedSendCut,
+        finishReason: TurnTelemetry['finishReason'],
+      ): Promise<void> => {
+        const failure = sendFailure?.failure;
+
+        if (failure === undefined) return;
+        const status = failedSendStatus();
+
+        const assistantTelemetry = buildAssistantTelemetry(
+          finishReason,
+          turnStatusForTerminalRun(status),
+        );
+
+        persistReasoning(reasoningDeltas.flush());
+        persistDelta(deltas.flush());
+        await deltaWrites;
+
+        if (progressWriteFailed) {
+          await this.settleProgressWriteFailure({
+            userId: input.userId,
+            runId: input.runId,
+            attemptId,
+            telemetry: assistantTelemetry,
+          });
+
+          return;
+        }
+
+        if (!(await settleOpenToolsAndDrain(status, assistantTelemetry)))
+          return;
+
+        const stored = modelRequestFailure(failure);
+
+        // A Stop or expiry names its own cause, as the shipped abort
+        // settlement does; only the Run's own failure names the send.
+        const message =
+          status === 'expired'
+            ? expiredRunMessage(input.abortSignal)
+            : status === 'failed'
+              ? errorMessageWithoutParams(failure)
+              : input.abortSignal?.aborted
+                ? toolTerminationMessage(status)
+                : 'Run was cancelled.';
+
+        const failureDetails = {
+          message,
+          ...(status === 'failed' && {
+            code: stored.code,
+            ...(stored.resetsAt !== undefined && { resetsAt: stored.resetsAt }),
+          }),
+        };
+
+        const turn: AssistantTurnWrite = {
+          chatId: input.chatId,
+          inReplyTo: input.userMessage.id,
+          parts: assistantPartCollector.parts(),
+          telemetry: assistantTelemetry,
+        };
+
+        this.logger.error(
+          `Stream error for chat ${input.chatId}`,
+          loggableError(failure),
+        );
+
+        const finish = await this.finishRun({
+          userId: input.userId,
+          runId: input.runId,
+          status,
+          attemptId,
+          modelCompleted: { finishReason, telemetry: assistantTelemetry },
+          runPayload: { status, ...failureDetails },
+          error: failureDetails,
+          assistantTurn: turn,
+          superseded: { fromSequence: cut.fromSequence, step: cut.step },
+        });
+
+        await this.afterAssistantTurn(
+          finish.assistantMessage,
+          input.userId,
+          turn.telemetry,
+        );
+      };
+
+      /**
+       * Continues after the failed send's calls settled (D4). A delivery at
+       * the boundary starts a new segment with no carried count and no retry
+       * delay; otherwise the next step's first send stages the notice, stores
+       * the cut, and waits the retry delay of the carried count.
+       */
+      const continueFailedSend = async (
+        cut: FailedSendCut,
+        cause: FailedStepCause,
+        finishReason: TurnTelemetry['finishReason'],
+        stepCount: number,
+      ): Promise<void> => {
+        const failure = sendFailure;
+
+        if (failure === undefined) return;
+        const segmentSteps = stepBase + stepCount;
+
+        if (
+          cause === 'delivery' ||
+          cause === 'compact' ||
+          automaticCompactionAtBoundary
+        ) {
+          stopCause = cause;
+
+          const boundaryKind = await deliverAtBoundary(
+            {
+              finishReason,
+              telemetry: buildAssistantTelemetry(
+                finishReason,
+                turnStatusForTerminalRun('completed'),
+                segmentSteps,
+              ),
+            },
+            { superseded: { fromSequence: cut.fromSequence, step: cut.step } },
+          );
+
+          if (boundaryKind === 'delivered') {
+            // The closed reply holds the cut and the notice; the delivered
+            // message starts its own reply and usage accounting.
+            discardedSend = false;
+
+            return;
+          }
+
+          if (boundaryKind !== 'nothing-pending') return;
+        }
+
+        const produced = projectStoredReplyParts(
+          assistantPartCollector
+            .parts()
+            .slice(partsBefore)
+            .filter((part) => part !== cut.notice),
+          {
+            privateParts: true,
+            mediaKey: (index) => continuedMediaKey(partsBefore + index),
+          },
+        );
+
+        mergeRetainedMedia(media.retainedMedia, produced.retainedMedia);
+        inRunItems = createInRunContextItems();
+        nextCall = () =>
+          callStream(
+            [...callMessages, ...produced.messages],
+            failure.step + 1,
+            failure.failure.sends,
+            false,
+            {
+              failure: failure.failure,
+              notice: cut.notice,
+              superseded: { fromSequence: cut.fromSequence, step: cut.step },
+            },
+          );
+      };
+
+      /** The one decision of a failed send, after its calls settled (D2/D4). */
+      const decideFailedSend = async (
+        finishReason: TurnTelemetry['finishReason'],
+        stepCount: number,
+      ): Promise<void> => {
+        const failure = sendFailure;
+
+        if (failure === undefined) return;
+        const cause = await resolveFailedStepBoundary();
+
+        // A suspension belongs to its waker: this attempt writes nothing, as
+        // the shipped step-end path decides.
+        if (cause === 'suspend') return;
+
+        await settleFailedStepCalls();
+        const cut = await applyFailedSendCut();
+
+        if (cut === undefined || progressWriteFailed) {
+          await this.settleProgressWriteFailure({
+            userId: input.userId,
+            runId: input.runId,
+            attemptId,
+            telemetry: buildAssistantTelemetry(null, 'error'),
+          });
+
+          return;
+        }
+
+        // Stop, expiry, and cancellation beat the continue/fail decision (R9).
+        if (cause === 'cancel' || input.abortSignal?.aborted) {
+          await settleFailedSend(cut, finishReason);
+
+          return;
+        }
+
+        if (!continuesFailedSend(failure.failure)) {
+          await settleFailedSend(cut, finishReason);
+
+          return;
+        }
+
+        await continueFailedSend(cut, cause, finishReason, stepCount);
+      };
+
       const deliverInterrupt = async (): Promise<void> => {
         persistReasoning(reasoningDeltas.flush());
         persistDelta(deltas.flush());
@@ -4411,6 +5018,10 @@ export class RunExecutionService {
           return;
         }
 
+        // An interrupt ends the wait for a failed send's calls: the reply this
+        // delivery closes keeps the cut and the notice, and names the cut (D6).
+        const cut = await applyFailedSendCut();
+
         assistantPartCollector.markInterrupted();
 
         const closing = abortedByInterrupt(
@@ -4419,7 +5030,10 @@ export class RunExecutionService {
 
         const boundaryKind = await deliverAtBoundary(
           { finishReason: null, telemetry: closing },
-          { stoppedCalls: [...stoppedCalls] },
+          {
+            stoppedCalls: [...stoppedCalls],
+            ...supersededOf(cut),
+          },
         );
 
         if (boundaryKind === 'nothing-pending') {
@@ -4473,6 +5087,7 @@ export class RunExecutionService {
             },
             runPayload: { status, message },
             error: { message },
+            ...supersededOf(cut),
           });
         }
       };
@@ -4779,6 +5394,13 @@ export class RunExecutionService {
           system,
           messages: callMessages,
           requestRetriesUsed,
+          // The failed send's class: the first send waits its retry delay with
+          // the carried count, and fails at the cap (D4).
+          ...(pendingFailedSend !== undefined && {
+            pendingFailure: pendingFailedSend.failure,
+          }),
+          // The Run learns of a started-call failure while its calls run (D1).
+          onSendFailed: noteSendFailure,
           chat: { id: input.chatId, lane: 'main' },
           abortSignal: callSignal,
           media,
@@ -4807,6 +5429,8 @@ export class RunExecutionService {
               persistReasoning(reasoningDeltas.flush());
               persistDelta(deltas.flush());
               currentStepNumber = stepBase + stepNumber;
+              // A new step's first tool-call part starts its own cut anchor.
+              cutAnchor = undefined;
               stepStartSequence = await persistStepStartSequence();
               stepResultStart = assistantPartCollector.parts().length;
               stepStreamedText = streamedText;
@@ -4819,6 +5443,11 @@ export class RunExecutionService {
               workspaceRoot.beginStep();
               inRunItems.beginStep(messages);
 
+              // The failed send's notice and cut are stored in ONE fenced
+              // write before this step's first send, even when that send
+              // waits a retry delay (D4). The notice is already collected
+              // directly after the last kept tool part, so it is staged for
+              // the request, never collected twice.
               if (skipInitialContextPreparation && stepNumber === 0) {
                 skipInitialContextPreparation = false;
                 boundaryCallMessages = messages;
@@ -4826,6 +5455,9 @@ export class RunExecutionService {
 
                 return messages;
               }
+
+              const notice = pendingNotice;
+              pendingNotice = undefined;
 
               const staged: Array<AuthoredContextItemPart> = [];
               await inRunProducer?.prepareStep({
@@ -4836,12 +5468,16 @@ export class RunExecutionService {
                 },
               });
 
-              if (staged.length > 0) {
-                await this.storeInRunSnapshot(input, attemptId, [
-                  ...assistantPartCollector.parts(),
-                  ...staged,
-                ]);
+              if (staged.length > 0 || notice !== undefined) {
+                await this.storeInRunSnapshot(
+                  input,
+                  attemptId,
+                  [...assistantPartCollector.parts(), ...staged],
+                  notice?.superseded,
+                );
               }
+
+              if (notice !== undefined) inRunItems.stage(notice.notice);
 
               for (const part of staged) {
                 inRunItems.stage(part);
@@ -4898,8 +5534,9 @@ export class RunExecutionService {
               reason,
               sdkRefusal,
             }) => {
-              persistReasoning(reasoningDeltas.flush());
-              persistDelta(deltas.flush());
+              // A refused call is a complete tool-call part of this send too,
+              // so it ends the kept output the same way (D3).
+              persistCutAnchor();
 
               const { input: args, intent } = splitToolIntent(
                 toolName,
@@ -4933,6 +5570,10 @@ export class RunExecutionService {
             pendingToolMetadata.set(toolCallId, providerMetadata);
           },
           onToolCall: (call) => {
+            // Every complete tool-call part ends the output a failed send
+            // keeps, before the call's own part exists (D3).
+            persistCutAnchor();
+
             if (
               call.toolName !== 'wait' ||
               deferredWaitDeclaration === undefined
@@ -5091,6 +5732,13 @@ export class RunExecutionService {
             persistReasoning(reasoningDeltas.push(text, Date.now()));
           },
           onError: async ({ error }) => {
+            // The send failure itself is not an outcome: the Run has already
+            // recorded it, its calls still settle, and `onFinish` decides
+            // (D2). Any other error — an abort reason, a later failure — takes
+            // the shipped path below.
+            if (sendFailure !== undefined && error === sendFailure.failure)
+              return;
+
             const restarting =
               error instanceof ProviderFailure &&
               error.superseded !== undefined &&
@@ -5171,73 +5819,11 @@ export class RunExecutionService {
               return;
             }
 
-            // A stalled model stream is a model-level failure, not an abort: it
-            // ends the run terminally `failed` under its own error code so the
-            // cause survives on the run and its event (the same treatment
-            // `outcome_unknown` gets), and the job succeeds without a retry.
-            const failure = modelRequestFailure(error);
-
-            const message =
-              status === 'expired'
-                ? expiredRunMessage(input.abortSignal)
-                : errorMessageWithoutParams(error);
-
-            // Settle before reading parts: a call still open here was rendered
-            // as running live, and an unsettled part is filtered out of
-            // history — so without this the live view and the reload disagree.
-            if (
-              !(await settleOpenToolsAndDrain(status, progressFailureTelemetry))
-            ) {
-              return;
-            }
-
-            const turn: AssistantTurnWrite = {
-              chatId: input.chatId,
-              inReplyTo: input.userMessage.id,
-              // Same "show what the user actually saw" honesty as streamedText:
-              // reasoning and any tool activity that happened before the
-              // abort/error are kept too, not silently dropped while the
-              // partial answer survives. No cap notice here — the run didn't
-              // complete (see onFinish), so it can't claim "answered at cap".
-              parts: assistantPartCollector.parts(),
-              telemetry: assistantTelemetry,
-            };
-
-            const finish = await this.finishRun({
-              userId: input.userId,
-              runId: input.runId,
+            await settleErrorOutcome(
+              error,
               status,
-              attemptId,
-              modelCompleted: {
-                finishReason: null,
-                telemetry: assistantTelemetry,
-              },
-              runPayload: {
-                status,
-                message,
-                ...(status === 'failed' && {
-                  code: failure.code,
-                  ...(failure.resetsAt !== undefined && {
-                    resetsAt: failure.resetsAt,
-                  }),
-                }),
-              },
-              error: {
-                message,
-                ...(status === 'failed' && {
-                  code: failure.code,
-                  ...(failure.resetsAt !== undefined && {
-                    resetsAt: failure.resetsAt,
-                  }),
-                }),
-              },
-              assistantTurn: turn,
-            });
-
-            await this.afterAssistantTurn(
-              finish.assistantMessage,
-              input.userId,
-              turn.telemetry,
+              assistantTelemetry,
+              progressFailureTelemetry,
             );
           },
           onFinish: async ({ text, usage, finishReason, stepCount }) => {
@@ -5258,6 +5844,14 @@ export class RunExecutionService {
 
             if (parentAbortSettlement) {
               await parentAbortSettlement;
+
+              return;
+            }
+
+            // A send that broke after a started call: settle its wait, cut its
+            // output, and continue or fail — before any terminal status (D2).
+            if (sendFailure !== undefined) {
+              await decideFailedSend(finishReason, stepCount);
 
               return;
             }
@@ -7397,6 +7991,16 @@ export class RunExecutionService {
       }));
 
     const events = new RunEventsRepository(tx);
+
+    // The cut this attempt's failed send left: the reply written above holds
+    // the kept parts and the notice, and this event names the dropped output
+    // (continue-after-broken-send D6). It precedes `model.completed` because
+    // the live bridge prunes the step's part starts at `model.completed`, so
+    // a cut arriving after it would survive in the live view until reload
+    // (design D7).
+    if (input.superseded !== undefined) {
+      await events.append(input.runId, 'model.superseded', input.superseded);
+    }
 
     if (input.modelCompleted) {
       await events.append(
@@ -10178,12 +10782,15 @@ export class RunExecutionService {
    * Writes an in-Run item onto the running reply with the collector's part
    * snapshot, in one transaction fenced by the attempt, before the request
    * that first carries it (design D3). A lost fence or a reply no longer
-   * running under this attempt fails the step.
+   * running under this attempt fails the step. The `superseded` cut of a
+   * failed send rides the same transaction, so a reply never stores one
+   * without the other (continue-after-broken-send D4/D6).
    */
   private async storeInRunSnapshot(
     input: ExecuteRunInput,
     attemptId: string,
     parts: Array<MessagePart>,
+    superseded?: SupersededModelOutput,
   ): Promise<void> {
     await this.tenantDb.runAs(input.userId, async (tx) => {
       const fenced = await new RunsRepository(tx).updateForAttempt(
@@ -10203,6 +10810,14 @@ export class RunExecutionService {
         }));
 
       if (!stored) throw new RunNotRunnableError(input.runId);
+
+      if (superseded !== undefined) {
+        await new RunEventsRepository(tx).append(
+          input.runId,
+          'model.superseded',
+          superseded,
+        );
+      }
     });
   }
 }

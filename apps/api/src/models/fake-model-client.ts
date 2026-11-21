@@ -90,6 +90,7 @@ function createFakeStreamOutcome(input: ModelStreamInput): FakeStreamOutcome {
       onChunk: ({ chunk }) => forwardChunk(chunk, input),
       onError: async (event) => {
         try {
+          input.onSendFailed?.(event.error);
           await input.onError?.(event);
           resolveCompletion();
         } catch (error) {

@@ -38,10 +38,15 @@ export function promiseFailureOverrides(
   );
 }
 
-/** Preserve the actual failed send when the SDK rejects text with no output. */
+/**
+ * Preserve the actual failed send when the SDK rejects text with no output,
+ * and report each failed send to `onSendFailed` synchronously — at the
+ * stream's `error` part, before any deferred `onError` (design D1).
+ */
 export function captureRequestFailure(
-  request: Pick<ModelStreamInput, 'onError' | 'onSendFailed'>,
+  request: Pick<ModelStreamInput, 'onError'>,
   sanitize: ModelFailureSanitizer | undefined,
+  onSendFailed?: ModelStreamInput['onSendFailed'],
 ): ModelFailureSanitizer {
   let failure: { error: ModelFailure } | undefined;
   const onError = request.onError;
@@ -49,7 +54,7 @@ export function captureRequestFailure(
   request.onError = (event) => {
     const error = sanitize?.(event.error) ?? event.error;
     failure ??= { error };
-    request.onSendFailed?.(error);
+    onSendFailed?.(error);
 
     return onError?.({ error });
   };

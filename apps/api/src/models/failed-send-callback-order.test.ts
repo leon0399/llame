@@ -101,27 +101,10 @@ const FINISHED_SEND_PARTS: Array<LanguageModelV3StreamPart> = [
   },
 ];
 
-/** The seam events the order assertions read; everything else is noise here. */
-const SEAM_EVENTS: ReadonlySet<string> = new Set([
-  'step',
-  'doStream',
-  'text',
-  'tool-call',
-  'tool.started',
-  'tool.settled',
-  'sdk.onError-entry',
-  'sdk.onError-returned',
-  'sdk.onAbort-entry',
-  'sdk.onFinish-entry',
-  'input.onError',
-  'input.onFinish',
-]);
-
 type ClientWire = 'responses' | 'completions';
 
 type TimelineEntry = {
   readonly name: string;
-  readonly at: number;
   readonly detail?: string;
 };
 
@@ -132,7 +115,6 @@ class Timeline {
   record(name: string, detail?: string): void {
     this.entries.push({
       name,
-      at: performance.now(),
       ...(detail !== undefined && { detail }),
     });
   }
@@ -141,28 +123,11 @@ class Timeline {
     return this.entries.some((entry) => entry.name === name);
   }
 
-  /** The observed seam events, in order, `name` or `name:detail`. */
+  /** The observed events, in order, `name` or `name:detail`. */
   summary(): Array<string> {
-    return this.entries
-      .filter((entry) => SEAM_EVENTS.has(entry.name))
-      .map((entry) =>
-        entry.detail === undefined
-          ? entry.name
-          : `${entry.name}:${entry.detail}`,
-      );
-  }
-
-  /** Whether `first` ran strictly before `second`. */
-  before(first: string, second: string): boolean {
-    const firstAt = this.entries.find((entry) => entry.name === first)?.at;
-    const secondAt = this.entries.find((entry) => entry.name === second)?.at;
-
-    if (firstAt === undefined || secondAt === undefined)
-      throw new Error(
-        `Missing event: ${firstAt === undefined ? first : second}`,
-      );
-
-    return firstAt < secondAt;
+    return this.entries.map((entry) =>
+      entry.detail === undefined ? entry.name : `${entry.name}:${entry.detail}`,
+    );
   }
 }
 
@@ -388,6 +353,9 @@ function startHarness(options: HarnessOptions): Harness {
       reportedErrors.push(error);
       timeline.record('input.onError', describeFailure(error));
     },
+    onSendFailed: (failure) => {
+      timeline.record('input.onSendFailed', describeFailure(failure));
+    },
     onFinish: (event) => {
       finishEvents.push({
         finishReason: event.finishReason,
@@ -431,7 +399,12 @@ function consume(result: ModelStreamResult) {
   };
 }
 
-/** Every case opens on the same step-1 head, on either client. */
+/**
+ * Every case opens on the same step-1 head, on either client. `onSendFailed`
+ * runs at the `error` part, before the SDK's own deferred `onError`, and so
+ * before the call it started can settle: that is the seam the continuation
+ * reads.
+ */
 const STEP_ONE_HEAD: ReadonlyArray<string> = [
   'step:1',
   'doStream:1',
@@ -440,6 +413,7 @@ const STEP_ONE_HEAD: ReadonlyArray<string> = [
   'tool.started',
   `text:${TRAILING_TEXT}`,
   'sdk.onError-entry',
+  'input.onSendFailed:stream_broken',
   'sdk.onError-returned',
 ];
 
@@ -531,11 +505,6 @@ describe.each<ClientWire>(['responses', 'completions'])(
       await running.textSettled;
 
       expect(harness.timeline.summary()).toEqual(continuingOrder(clientWire));
-      // C1: the outer failure report runs at the `error` part, before the call
-      // it started can settle.
-      expect(harness.timeline.before('sdk.onError-entry', 'tool.settled')).toBe(
-        true,
-      );
       expect(providerFailureOf(harness.reportedErrors[0]).code).toBe(
         'stream_broken',
       );

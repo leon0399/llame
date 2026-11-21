@@ -86,9 +86,9 @@ describe('provider failure helpers', () => {
     const onSendFailed = vi.fn();
     const onError = vi.fn();
 
-    const request = { onError, onSendFailed };
+    const request = { onError };
 
-    captureRequestFailure(request, () => failure);
+    captureRequestFailure(request, () => failure, onSendFailed);
 
     request.onError?.({ error: new Error('raw') });
     request.onError?.({ error: new Error('again') });
