@@ -13,9 +13,15 @@ import type {
 
 function rootDisk(root: string): MachineRootDisk {
   try {
-    const stats = statfsSync(root);
+    const { blocks, bsize } = statfsSync(root);
+    const totalBytes = blocks * bsize;
 
-    return { root, totalBytes: stats.blocks * stats.bsize };
+    // A filesystem whose size the wire cannot carry exactly is a null total,
+    // never a rounded number.
+    return {
+      root,
+      totalBytes: Number.isSafeInteger(totalBytes) ? totalBytes : null,
+    };
   } catch {
     return { root, totalBytes: null };
   }

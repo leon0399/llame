@@ -7,23 +7,13 @@ import {
   writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
-import { machineConfigDir } from "./env";
-
-const INSTANCE_ID_PATTERN =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+import { INSTANCE_ID_PATTERN } from "@workspace/machine-protocol";
+import { isNodeError, isString } from "./roots";
 
 const INSTANCE_FILE_MODE = 0o600;
 const CONFIG_DIR_MODE = 0o700;
 
 type InstanceDocument = { readonly instanceId: string };
-
-function isNodeError(error: unknown): error is NodeJS.ErrnoException {
-  return typeof error === "object" && error !== null && "code" in error;
-}
-
-function isString(value: unknown): value is string {
-  return typeof value === "string";
-}
 
 function isInstanceDocument(value: unknown): value is InstanceDocument {
   return (
@@ -35,9 +25,7 @@ function isInstanceDocument(value: unknown): value is InstanceDocument {
 }
 
 /** The file that binds this Machine's name to one identity. */
-export function instanceFileFor(
-  configDir: string = machineConfigDir(),
-): string {
+export function instanceFileFor(configDir: string): string {
   return join(configDir, "instance.json");
 }
 

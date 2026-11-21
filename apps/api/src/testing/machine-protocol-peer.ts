@@ -143,7 +143,7 @@ const DEFAULT_ANSWER: PeerAnswer = { error: 'internal' };
 /** A stable instance id, so a suite can compare it without inventing one. */
 export const DEFAULT_PEER_INSTANCE_ID = '00000000-0000-4000-8000-000000000001';
 
-export const DEFAULT_PEER_BUILD_ID = '0123456789ab';
+const DEFAULT_PEER_BUILD_ID = '0123456789ab';
 
 /** Facts for a fixed linux/x64 Machine, one 512 GiB disk per configured root. */
 export function defaultPeerFacts(roots: ReadonlyArray<string>): MachineFacts {

@@ -342,6 +342,7 @@ function probeFailure(error: unknown): ToolErrorResult {
 
   switch (error.code) {
     case 'machine_unavailable':
+    case 'machine_identity_mismatch':
     case 'machine_update_required':
       return { status: 'error', type: error.code, message: error.message };
     case 'path_not_registered':
@@ -410,7 +411,10 @@ function workspaceFailure(result: ToolErrorResult): CreationWorkspaceResult {
       };
     case 'worktree_failed':
       return { status: 'worktree_failed', message: result.message, ...left };
+    // A name bound to another instance id is a Machine problem the operator
+    // fixes like an outage; the creation status set stays closed.
     case 'machine_unavailable':
+    case 'machine_identity_mismatch':
       return { status: 'machine_unavailable', message: result.message };
     case 'machine_update_required':
       return { status: 'machine_update_required', message: result.message };

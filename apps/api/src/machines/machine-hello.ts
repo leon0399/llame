@@ -7,7 +7,9 @@
  */
 
 import {
+  BUILD_ID_PATTERN,
   GIT_METHODS,
+  INSTANCE_ID_PATTERN,
   isSerializableRecord,
   type HelloResult,
   type JsonValue,
@@ -25,22 +27,34 @@ import {
 import {
   MACHINE_ROOT_MAX_LENGTH,
   MACHINE_ROOTS_LIMIT,
-  MACHINE_VERSION_MAX_LENGTH,
 } from './machines-status';
 
-/** A daemon's persistent identity: lowercase UUID v4 text, nothing else. */
-const MACHINE_INSTANCE_ID =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
+/** An `os.platform()` or `os.arch()` token: lowercase words and digits. */
+const PLATFORM_TOKEN_PATTERN = /^[a-z0-9_]{1,32}$/u;
 
-/** The shipped bundle's content hash, or the daemon's honest "unknown". */
-const MACHINE_BUILD_ID = /^(?:[0-9a-f]{12}|unknown)$/u;
+/** A kernel release as `os.release()` reports it: printable ASCII only. */
+const KERNEL_RELEASE_PATTERN = /^[\x21-\x7e]{1,128}$/u;
 
-/** A non-empty daemon string, bounded before it can reach a row or a response. */
-function isBoundedMachineText(
-  value: SerializableValue,
-  maxLength: number,
-): value is string {
-  return isText(value) && value.length > 0 && value.length <= maxLength;
+/** Whether the text carries a C0 control character or DEL. */
+function hasControlCharacter(value: string): boolean {
+  for (const character of value) {
+    const code = character.codePointAt(0) ?? 0;
+
+    if (code < 0x20 || code === 0x7f) return true;
+  }
+
+  return false;
+}
+
+/** A registered root: absolute, bounded, and free of control characters. */
+function isMachineRoot(value: SerializableValue): value is string {
+  return (
+    isText(value) &&
+    value.length > 0 &&
+    value.length <= MACHINE_ROOT_MAX_LENGTH &&
+    value.startsWith('/') &&
+    !hasControlCharacter(value)
+  );
 }
 
 /** A count of bytes: a whole number a JavaScript number can hold exactly. */
@@ -53,7 +67,7 @@ function readRootDisk(value: SerializableValue): MachineRootDisk | undefined {
   if (!isSerializableRecord(value)) return undefined;
   const { root, totalBytes } = value;
 
-  if (!isBoundedMachineText(root, MACHINE_ROOT_MAX_LENGTH)) return undefined;
+  if (!isMachineRoot(root)) return undefined;
 
   // `statfs` failing is a legitimate null; anything else must be a byte count.
   if (totalBytes !== null && !isByteCount(totalBytes)) return undefined;
@@ -64,11 +78,13 @@ function readRootDisk(value: SerializableValue): MachineRootDisk | undefined {
 function readRootDisks(
   value: SerializableValue,
 ): ReadonlyArray<MachineRootDisk> | undefined {
-  if (!isUntrustedList(value) || value.length > MACHINE_ROOTS_LIMIT)
-    return undefined;
+  if (!isUntrustedList(value)) return undefined;
   const disks: Array<MachineRootDisk> = [];
 
+  // Bounded like `boundMachineRoots`: the first entries are the report, and a
+  // daemon cannot make the hub read an unbounded list.
   for (const entry of value) {
+    if (disks.length >= MACHINE_ROOTS_LIMIT) break;
     const disk = readRootDisk(entry);
 
     if (disk === undefined) return undefined;
@@ -83,10 +99,16 @@ function readMachineFacts(value: SerializableValue): MachineFacts | undefined {
   if (!isSerializableRecord(value)) return undefined;
   const { os, arch, kernel, cpuCount, totalMemoryBytes, rootDisks } = value;
 
+  // Every daemon string that reaches a row or a response is a token from a
+  // known grammar: a newline in `os` or a NUL in `kernel` is not a Machine's
+  // platform, and a daemon that reports one is unusable.
   if (
-    !isBoundedMachineText(os, MACHINE_VERSION_MAX_LENGTH) ||
-    !isBoundedMachineText(arch, MACHINE_VERSION_MAX_LENGTH) ||
-    !isBoundedMachineText(kernel, MACHINE_VERSION_MAX_LENGTH) ||
+    !isText(os) ||
+    !PLATFORM_TOKEN_PATTERN.test(os) ||
+    !isText(arch) ||
+    !PLATFORM_TOKEN_PATTERN.test(arch) ||
+    !isText(kernel) ||
+    !KERNEL_RELEASE_PATTERN.test(kernel) ||
     !isByteCount(cpuCount) ||
     !isByteCount(totalMemoryBytes)
   )
@@ -107,20 +129,26 @@ function readMachineFacts(value: SerializableValue): MachineFacts | undefined {
  */
 export function readHelloResult(value: JsonValue): HelloResult | undefined {
   if (!isSerializableRecord(value)) return undefined;
-  const { protocolVersion, daemonVersion, roots, methods } = value;
+
+  const {
+    protocolVersion,
+    daemonVersion,
+    roots,
+    methods,
+    instanceId,
+    buildId,
+    facts: reportedFacts,
+  } = value;
 
   if (!isCount(protocolVersion) || !isText(daemonVersion) || !isTextList(roots))
     return undefined;
-
-  const instanceId = value['instanceId'];
-  const buildId = value['buildId'];
-  const facts = readMachineFacts(value['facts']);
+  const facts = readMachineFacts(reportedFacts);
 
   if (
     !isText(instanceId) ||
-    !MACHINE_INSTANCE_ID.test(instanceId) ||
+    !INSTANCE_ID_PATTERN.test(instanceId) ||
     !isText(buildId) ||
-    !MACHINE_BUILD_ID.test(buildId) ||
+    !BUILD_ID_PATTERN.test(buildId) ||
     facts === undefined
   )
     return undefined;
@@ -134,9 +162,10 @@ export function readHelloResult(value: JsonValue): HelloResult | undefined {
     facts,
   };
 
-  // A daemon that predates the git methods sends no list at all. A malformed
-  // one is read as absent too, because the handshake is still usable: its file
-  // tools and `bash` keep working while a git call asks for an update.
+  // `methods` is optional on the wire and absent from a daemon that answers
+  // none. A malformed one is read as absent too, because the handshake is
+  // still usable: its file tools and `bash` keep working while a git call asks
+  // for an update.
   const listed = isTextList(methods)
     ? GIT_METHODS.filter((method) => methods.includes(method))
     : [];

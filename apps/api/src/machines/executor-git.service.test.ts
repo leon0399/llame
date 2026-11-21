@@ -74,6 +74,7 @@ function hub(
 
   const connector = new MachineConnector({
     hubVersion: 'test-hub',
+    bindIdentity: () => Promise.resolve('match'),
     machines: MACHINE_ENDPOINTS,
     transportFactory: peer.factory,
     idleCloseMs: 1000,
@@ -91,6 +92,7 @@ function hub(
 function unconfiguredHub(): ExecutorGit {
   const connector = new MachineConnector({
     hubVersion: 'test-hub',
+    bindIdentity: () => Promise.resolve('match'),
     machines: undefined,
     transportFactory: createProtocolPeer().factory,
     idleCloseMs: 1000,

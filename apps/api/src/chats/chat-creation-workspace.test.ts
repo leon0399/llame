@@ -456,6 +456,23 @@ describe('ChatCreationWorkspace failures name their cause', () => {
     expect(appendAttempt).toHaveBeenCalledTimes(1);
   });
 
+  it('groups a mismatched Machine identity under machine_unavailable', async () => {
+    const { git, calls } = fakeGit();
+    calls.canonical.mockRejectedValue(
+      new ExecutorGitError(
+        'machine_identity_mismatch',
+        'The Machine devl answered with a different identity.',
+      ),
+    );
+    const { workspace, bindAtCreation } = makeWorkspace({ git });
+
+    await expect(workspace.enter(input())).resolves.toMatchObject({
+      status: 'machine_unavailable',
+      message: 'The Machine devl answered with a different identity.',
+    });
+    expect(bindAtCreation).not.toHaveBeenCalled();
+  });
+
   it('reports a daemon that predates the git methods as machine_update_required', async () => {
     const { git, calls } = fakeGit();
     calls.inspect.mockRejectedValue(

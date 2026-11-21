@@ -13,8 +13,7 @@
  * other name was never bound.
  */
 
-/** The name grammar a configured Machine and its binding share. */
-const MACHINE_NAME = /^[a-z0-9-]{1,63}$/u;
+import { MACHINE_NAME_PATTERN } from '../machine-locator';
 
 /** Where a command writes: its success line, or its refusal. */
 export type MachinesCommandIo = {
@@ -55,7 +54,11 @@ export async function runMachinesCommand(
 
   const [name, ...extra] = args;
 
-  if (extra.length > 0 || name === undefined || !MACHINE_NAME.test(name)) {
+  if (
+    extra.length > 0 ||
+    name === undefined ||
+    !MACHINE_NAME_PATTERN.test(name)
+  ) {
     io.err(MACHINES_FORGET_USAGE);
 
     return EXIT_USAGE;

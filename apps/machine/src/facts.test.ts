@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, statfsSync } from "node:fs";
 import {
   arch,
   availableParallelism,
@@ -41,7 +41,9 @@ describe("machine facts", () => {
     if (rootDisk === undefined || missingDisk === undefined)
       throw new Error("expected one disk entry per root");
 
-    expect(rootDisk.totalBytes).toBeGreaterThan(0);
+    expect(rootDisk.totalBytes).toBe(
+      statfsSync(root).blocks * statfsSync(root).bsize,
+    );
     expect(missingDisk.totalBytes).toBeNull();
   });
 });

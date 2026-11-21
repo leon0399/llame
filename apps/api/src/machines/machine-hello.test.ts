@@ -114,14 +114,9 @@ describe('readHelloResult', () => {
     ['thirteen hex chars', '0123456789abc'],
     ['uppercase hex', '0123456789AB'],
     ['a word other than unknown', 'UNKNOWN'],
-  ])('refuses a build id of %s', (_label, buildId) => {
-    expect(readHelloResult(hello({ buildId }))).toBeUndefined();
-  });
-
-  it.each([
     ['a non-string build id', 7],
     ['a missing build id', undefined],
-  ])('refuses %s', (_label, buildId) => {
+  ])('refuses a build id of %s', (_label, buildId) => {
     expect(readHelloResult(hello({ buildId }))).toBeUndefined();
   });
 
@@ -136,6 +131,8 @@ describe('readHelloResult', () => {
     ['null facts', { facts: null }],
     ['a string', { facts: 'linux' }],
     ['an empty os', { facts: { ...FACTS, os: '' } }],
+    ['a newline in os', { facts: { ...FACTS, os: 'linux\n' } }],
+    ['a NUL in kernel', { facts: { ...FACTS, kernel: '6.8.0\u0000' } }],
     [
       'an os past the bound',
       { facts: { ...FACTS, os: 'o'.repeat(MACHINE_VERSION_MAX_LENGTH + 1) } },
@@ -154,19 +151,21 @@ describe('readHelloResult', () => {
     expect(readHelloResult(hello(override))).toBeUndefined();
   });
 
-  it('refuses more root disks than the roots limit', () => {
+  it('truncates the root disks past the roots limit', () => {
     const rootDisks = Array.from(
       { length: MACHINE_ROOTS_LIMIT + 1 },
       (_, index) => ({ root: `/r/${index}`, totalBytes: null }),
     );
 
     expect(
-      readHelloResult(hello({ facts: { ...FACTS, rootDisks } })),
-    ).toBeUndefined();
+      readHelloResult(hello({ facts: { ...FACTS, rootDisks } }))?.facts
+        .rootDisks,
+    ).toEqual(rootDisks.slice(0, MACHINE_ROOTS_LIMIT));
   });
 
   it.each([
     ['an empty root', { root: '', totalBytes: null }],
+    ['a relative root', { root: 'srv/app', totalBytes: null }],
     [
       'a root past the bound',
       { root: `/${'x'.repeat(MACHINE_ROOT_MAX_LENGTH)}`, totalBytes: null },

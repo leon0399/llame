@@ -2312,6 +2312,7 @@ describe('Machine Workspace skill reads', () => {
     return new MachineConnector({
       machines: MACHINE_HOSTS,
       hubVersion: '9.9.9',
+      bindIdentity: () => Promise.resolve('match'),
       transportFactory: createProtocolPeer(options).factory,
       handshakeTimeoutMs: 2000,
     });

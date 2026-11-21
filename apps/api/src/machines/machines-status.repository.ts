@@ -103,8 +103,7 @@ function contactUpdate(
     };
 
     // A success that brought facts replaces them with their capture time; a
-    // success without them (an older caller's contact) leaves the stored pair
-    // alone.
+    // contact without facts leaves the stored pair alone.
     if (contact.facts !== undefined) {
       update.facts = contact.facts;
       update.factsCapturedAt = contact.at;

@@ -55,61 +55,30 @@ describe('runMachinesCommand', () => {
     expect(err).toEqual([`No instance id is bound to Machine ${NAME}.`]);
   });
 
-  it.each([['Devl'], [''], ['a b'], ['devl!'], ['x'.repeat(64)]])(
-    'refuses the name %j as a usage error without touching the database',
-    async (name) => {
+  const USAGE_ARGVS: ReadonlyArray<[string, ReadonlyArray<string>]> = [
+    ['an uppercase name', ['forget', 'Devl']],
+    ['an empty name', ['forget', '']],
+    ['a name with a space', ['forget', 'a b']],
+    ['a name with punctuation', ['forget', 'devl!']],
+    ['a name past the bound', ['forget', 'x'.repeat(64)]],
+    ['a missing name', ['forget']],
+    ['extra arguments', ['forget', NAME, 'other']],
+    ['no subcommand', []],
+    ['an empty subcommand', ['']],
+    ['an unknown subcommand', ['rebind']],
+  ];
+
+  it.each(USAGE_ARGVS)(
+    'refuses %s as a usage error without touching the database',
+    async (_label, argv) => {
       const forget = vi.fn(() => Promise.resolve(INSTANCE_ID));
       const { io, out, err } = capture();
 
-      await expect(
-        runMachinesCommand(['forget', name], { forget }, io),
-      ).resolves.toBe(2);
+      await expect(runMachinesCommand(argv, { forget }, io)).resolves.toBe(2);
 
       expect(forget).not.toHaveBeenCalled();
       expect(out).toEqual([]);
       expect(err).toEqual([MACHINES_FORGET_USAGE]);
     },
   );
-
-  it('refuses a missing name as a usage error', async () => {
-    const forget = vi.fn(() => Promise.resolve(INSTANCE_ID));
-    const { io, out, err } = capture();
-
-    await expect(runMachinesCommand(['forget'], { forget }, io)).resolves.toBe(
-      2,
-    );
-
-    expect(forget).not.toHaveBeenCalled();
-    expect(out).toEqual([]);
-    expect(err).toEqual([MACHINES_FORGET_USAGE]);
-  });
-
-  it('refuses extra arguments rather than guessing which name was meant', async () => {
-    const forget = vi.fn(() => Promise.resolve(INSTANCE_ID));
-    const { io, err } = capture();
-
-    await expect(
-      runMachinesCommand(['forget', NAME, 'other'], { forget }, io),
-    ).resolves.toBe(2);
-
-    expect(forget).not.toHaveBeenCalled();
-    expect(err).toEqual([MACHINES_FORGET_USAGE]);
-  });
-
-  const USAGE_ARGVS: ReadonlyArray<[ReadonlyArray<string>]> = [
-    [[]],
-    [['']],
-    [['rebind']],
-  ];
-
-  it.each(USAGE_ARGVS)('refuses the argv %j as a usage error', async (argv) => {
-    const forget = vi.fn(() => Promise.resolve(INSTANCE_ID));
-    const { io, out, err } = capture();
-
-    await expect(runMachinesCommand(argv, { forget }, io)).resolves.toBe(2);
-
-    expect(forget).not.toHaveBeenCalled();
-    expect(out).toEqual([]);
-    expect(err).toEqual([MACHINES_FORGET_USAGE]);
-  });
 });

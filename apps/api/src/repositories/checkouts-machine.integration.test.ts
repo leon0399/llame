@@ -138,6 +138,7 @@ async function boot(options: BootOptions): Promise<Harness> {
       new MachineConnector({
         machines: MACHINES,
         hubVersion: 'llame/test',
+        bindIdentity: () => Promise.resolve('match'),
         transportFactory: peer.factory,
         idleCloseMs: 1000,
       }),

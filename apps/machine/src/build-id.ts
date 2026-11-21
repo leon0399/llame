@@ -1,7 +1,6 @@
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
-
-const BUILD_ID_LENGTH = 12;
+import { BUILD_ID_LENGTH } from "@workspace/machine-protocol";
 
 /**
  * The content hash of the bundle this process runs. A Machine that keeps the

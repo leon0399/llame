@@ -69,7 +69,7 @@ function fixture(
         waiter.resolve();
       }
     },
-    bindIdentity: options.bindIdentity,
+    bindIdentity: options.bindIdentity ?? (() => Promise.resolve('match')),
     logger: options.logger,
     idleCloseMs: options.idleCloseMs ?? 5 * 60_000,
     handshakeTimeoutMs: options.handshakeTimeoutMs ?? 2000,
@@ -102,11 +102,20 @@ function refusal(error: unknown): MachineUnavailableError {
   throw error;
 }
 
+/** Let the peer's own stream callbacks run, with no guessed delay. */
+async function settle(): Promise<void> {
+  const turn = Promise.withResolvers<void>();
+  setImmediate(turn.resolve);
+  await turn.promise;
+  await Promise.resolve();
+}
+
 describe('MachineConnector configuration surface', () => {
   it('is absent without a machines section', async () => {
     const connector = new MachineConnector({
       machines: undefined,
       hubVersion: '1',
+      bindIdentity: () => Promise.resolve('match'),
     });
 
     expect(connector.enabled()).toBe(false);
@@ -164,6 +173,7 @@ describe('MachineConnector configuration surface', () => {
     const connector = new MachineConnector({
       machines,
       hubVersion: '9.9.9',
+      bindIdentity: () => Promise.resolve('match'),
       transportFactory: peer.factory,
     });
 
@@ -190,7 +200,12 @@ describe('MachineConnector configuration surface', () => {
     // file); drop it so the factory's own guard is the only thing left with no
     // transport injected.
     Reflect.deleteProperty(machines, 'ssh');
-    const connector = new MachineConnector({ machines, hubVersion: '9.9.9' });
+
+    const connector = new MachineConnector({
+      machines,
+      hubVersion: '9.9.9',
+      bindIdentity: () => Promise.resolve('match'),
+    });
 
     const error = refusal(
       await connector
@@ -560,6 +575,7 @@ describe('MachineConnector reachability', () => {
     const absent = new MachineConnector({
       machines: undefined,
       hubVersion: '1',
+      bindIdentity: () => Promise.resolve('match'),
     });
 
     await expect(absent.reachable('devl', 'attempt-1')).resolves.toBe(false);
@@ -670,6 +686,7 @@ describe('MachineConnector contact reporting', () => {
     const connector = new MachineConnector({
       machines: MACHINES,
       hubVersion: '9.9.9',
+      bindIdentity: () => Promise.resolve('match'),
       transportFactory: peer.factory,
       onContact: () => {
         throw new Error('the status store is down');
@@ -812,13 +829,23 @@ describe('MachineConnector shutdown', () => {
 
 describe('MachineConnector identity binding', () => {
   it('binds the handshake instance id before serving a request', async () => {
-    const bindIdentity = vi.fn<
-      NonNullable<MachineConnectorDeps['bindIdentity']>
-    >(() => Promise.resolve('bound'));
+    const events: Array<string> = [];
+
+    const bindIdentity = vi.fn<MachineConnectorDeps['bindIdentity']>(() => {
+      events.push('bind');
+
+      return Promise.resolve('bound');
+    });
 
     const { connector, peer, contacts } = fixture({
       roots: ['/srv/app'],
-      answers: { 'roots.list': { value: { roots: ['/srv/app'] } } },
+      // The peer records the arrival of the request itself, so the two
+      // events are ordered by observation rather than by assertion placement.
+      answer: () => {
+        events.push('request');
+
+        return { value: { roots: ['/srv/app'] } };
+      },
       bindIdentity,
     });
 
@@ -826,6 +853,7 @@ describe('MachineConnector identity binding', () => {
       connector.request('devl', 'roots.list', { envelope: ENVELOPE }),
     ).resolves.toEqual({ roots: ['/srv/app'] });
 
+    expect(events).toEqual(['bind', 'request']);
     expect(bindIdentity).toHaveBeenCalledTimes(1);
     expect(bindIdentity).toHaveBeenCalledWith('devl', DEFAULT_PEER_INSTANCE_ID);
     expect((await peer.session(0)).requests).toEqual(['roots.list']);
@@ -905,12 +933,15 @@ describe('MachineConnector identity binding', () => {
     expect(logger.error).toHaveBeenCalledTimes(1);
   });
 
-  it('holds every concurrent request until the binding resolves', async () => {
-    const pending = Promise.withResolvers<'bound' | 'match' | 'mismatch'>();
+  it('holds a second request and a probe while the identity bind is pending', async () => {
+    const pending = Promise.withResolvers<'match' | 'mismatch'>();
+    const binding = Promise.withResolvers<void>();
 
-    const bindIdentity = vi.fn<
-      NonNullable<MachineConnectorDeps['bindIdentity']>
-    >(() => pending.promise);
+    const bindIdentity = vi.fn<MachineConnectorDeps['bindIdentity']>(() => {
+      binding.resolve();
+
+      return pending.promise;
+    });
 
     const { connector, peer, contacts, awaitContacts } = fixture({
       answers: { 'roots.list': { value: { roots: [] } } },
@@ -921,14 +952,19 @@ describe('MachineConnector identity binding', () => {
       .request('devl', 'roots.list', { envelope: ENVELOPE })
       .catch((error: unknown) => rejection(error));
 
+    // The handshake is answered and the bind has started: the session is
+    // ready but must not serve until the bind says it may.
+    await binding.promise;
+
     const second = connector
       .request('devl', 'roots.list', { envelope: ENVELOPE })
       .catch((error: unknown) => rejection(error));
 
+    const probe = connector.reachable('devl', 'attempt-1');
+
     const session = await peer.session(0);
 
-    await vi.waitFor(() => expect(bindIdentity).toHaveBeenCalledTimes(1));
-    // The handshake answered, but neither request may have produced a frame.
+    await settle();
     expect(session.requests).toEqual([]);
     expect(session.calls).toEqual([]);
 
@@ -937,6 +973,10 @@ describe('MachineConnector identity binding', () => {
 
     expect(a).toBeInstanceOf(MachineIdentityMismatchError);
     expect(b).toBeInstanceOf(MachineIdentityMismatchError);
+    await expect(probe).resolves.toBe(false);
+    expect(connector.lastRefusal('devl')).toBeInstanceOf(
+      MachineIdentityMismatchError,
+    );
     expect(session.requests).toEqual([]);
     await awaitContacts(1);
     expect(contacts.at(0)).toMatchObject({ failure: 'identity_mismatch' });

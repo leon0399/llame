@@ -45,3 +45,13 @@ export const BUDGET_EXHAUSTED_MESSAGE =
 
 export const INCOMPATIBLE_VERSION_MESSAGE =
   "The hub and the Machine daemon speak different protocol versions.";
+
+/** A daemon's persistent instance id: lowercase UUID v4 text, nothing else. */
+export const INSTANCE_ID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
+
+/** The shipped bundle's content hash, or the daemon's honest "unknown". */
+export const BUILD_ID_PATTERN = /^(?:[0-9a-f]{12}|unknown)$/u;
+
+/** The hex characters a shipped build id carries before "unknown". */
+export const BUILD_ID_LENGTH = 12;

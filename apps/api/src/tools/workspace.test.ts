@@ -17,7 +17,10 @@ import { join } from 'node:path';
 import type { Db, TenantRunner } from '../db/tenant-db.service';
 import { PATH_NOT_REGISTERED_MESSAGE } from '@workspace/machine-protocol';
 import { WorkspaceBindingRepository } from '../chats/workspace-binding.repository';
-import { MachineConnector } from '../machines/machine-connector.service';
+import {
+  MachineConnector,
+  type MachineConnectorDeps,
+} from '../machines/machine-connector.service';
 import {
   createProtocolPeer,
   type ProtocolPeerOptions,
@@ -1356,7 +1359,11 @@ const MACHINE_HOSTS = {
   hosts: { devl: { destination: 'box' } },
 };
 
-function machineConnectorFor(options: ProtocolPeerOptions = {}) {
+function machineConnectorFor(
+  options: ProtocolPeerOptions & {
+    readonly bindIdentity?: MachineConnectorDeps['bindIdentity'];
+  } = {},
+) {
   const peer = createProtocolPeer(options);
 
   return {
@@ -1364,6 +1371,7 @@ function machineConnectorFor(options: ProtocolPeerOptions = {}) {
     connector: new MachineConnector({
       machines: MACHINE_HOSTS,
       hubVersion: '9.9.9',
+      bindIdentity: options.bindIdentity ?? (() => Promise.resolve('match')),
       transportFactory: peer.factory,
       handshakeTimeoutMs: 2000,
     }),
@@ -1618,6 +1626,26 @@ describe('Machine Workspace entry', () => {
       type: 'machine_unavailable',
       message: 'The Machine "devl" is unavailable.',
     });
+  });
+
+  it('reports a mismatched Machine identity as its own result', async () => {
+    const { peer, connector } = machineConnectorFor({
+      bindIdentity: () => Promise.resolve('mismatch'),
+    });
+
+    await expect(
+      enterWorkspaceTool.execute(context({ machines: connector }), {
+        path: 'machine://devl/srv/app',
+      }),
+    ).resolves.toEqual({
+      status: 'error',
+      type: 'machine_identity_mismatch',
+      message:
+        'The Machine "devl" answered with a different identity than the one bound to its name; an operator must check it, then run machines:forget if the change is legitimate.',
+    });
+    // The refusal happens before any request: only the handshake reached the
+    // daemon, and the session was closed rather than left usable.
+    expect((await peer.session(0)).requests).toEqual([]);
   });
 
   it('allows one Workspace transition per model step', async () => {

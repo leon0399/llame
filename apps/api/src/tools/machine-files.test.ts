@@ -88,6 +88,7 @@ function fixture(options: ProtocolPeerOptions = {}): Fixture {
   const connector = new MachineConnector({
     machines: MACHINES,
     hubVersion: '9.9.9',
+    bindIdentity: () => Promise.resolve('match'),
     transportFactory: peer.factory,
     handshakeTimeoutMs: 2000,
   });
@@ -393,6 +394,7 @@ describe('Machine native reads', () => {
     const connector = new MachineConnector({
       machines: undefined,
       hubVersion: '9.9.9',
+      bindIdentity: () => Promise.resolve('match'),
     });
 
     await expect(
@@ -1642,6 +1644,7 @@ describe('Machine listing rendering', () => {
     const connector = new MachineConnector({
       machines: undefined,
       hubVersion: '9.9.9',
+      bindIdentity: () => Promise.resolve('match'),
     });
 
     await expect(
@@ -1664,6 +1667,7 @@ describe('Machine listing rendering', () => {
         hosts: {},
       },
       hubVersion: '9.9.9',
+      bindIdentity: () => Promise.resolve('match'),
     });
 
     await expect(
@@ -2508,6 +2512,7 @@ describe('Machine bash working directories', () => {
     const disabled = new MachineConnector({
       machines: undefined,
       hubVersion: '9.9.9',
+      bindIdentity: () => Promise.resolve('match'),
     });
 
     await expect(

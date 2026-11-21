@@ -72,7 +72,6 @@ import { MachinesStatusRepository } from './machines-status.repository';
   ],
   exports: [
     ExecutorGit,
-    MachineBindingsRepository,
     MachineConnector,
     MachinesService,
     MachinesStatusRepository,

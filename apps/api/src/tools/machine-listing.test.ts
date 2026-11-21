@@ -52,7 +52,11 @@ const STATUS: ReadonlyArray<MachineStatusView> = [
 ];
 
 function connector(): MachineConnector {
-  return new MachineConnector({ machines: MACHINES, hubVersion: '9.9.9' });
+  return new MachineConnector({
+    machines: MACHINES,
+    hubVersion: '9.9.9',
+    bindIdentity: () => Promise.resolve('match'),
+  });
 }
 
 function context(

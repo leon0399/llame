@@ -27,6 +27,7 @@ function makeController(enabled: boolean) {
   const connector = new MachineConnector({
     machines: enabled ? MACHINES : undefined,
     hubVersion: '9.9.9',
+    bindIdentity: () => Promise.resolve('match'),
   });
 
   const status = new MachinesStatusRepository(

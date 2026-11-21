@@ -19,6 +19,7 @@
 
 import {
   PROTOCOL_VERSION,
+  type HelloResult,
   type JsonValue,
   type MachineMethod,
   type MachineMethodParams,
@@ -26,6 +27,7 @@ import {
 
 import type { MachinesConfig } from '../instance-config/machines-config';
 
+import type { BindOutcome } from './machine-bindings.repository';
 import {
   MachineIdentityMismatchError,
   MachineSession,
@@ -66,13 +68,13 @@ export type MachineConnectorDeps = {
   readonly onContact?: (contact: MachineContact) => Promise<void> | void;
   /**
    * Binds this Machine name to the daemon's instance id, or compares it with
-   * the stored one. Absent only where no database exists (unit tests): then
-   * every handshake counts as verified. A rejection fails the session closed.
+   * the stored one. Only `bound` and `match` admit the session to serve; any
+   * other outcome, and a rejection, fails it closed.
    */
-  readonly bindIdentity?: (
+  readonly bindIdentity: (
     name: string,
     instanceId: string,
-  ) => Promise<'bound' | 'match' | 'mismatch'>;
+  ) => Promise<BindOutcome>;
   readonly logger?: MachineConnectorLogger;
   readonly now?: () => number;
   readonly idleCloseMs?: number;
@@ -81,10 +83,19 @@ export type MachineConnectorDeps = {
 
 type SessionEntry = {
   readonly session: MachineSession;
-  /** Whether the identity binding admitted this session to serve requests. */
-  verified: boolean;
   idleTimer?: NodeJS.Timeout;
 };
+
+/** The contact one successful handshake reports to the status writer. */
+function helloContact(hello: HelloResult): Omit<MachineContact, 'name' | 'at'> {
+  return {
+    hubProtocolVersion: PROTOCOL_VERSION,
+    daemonProtocolVersion: hello.protocolVersion,
+    daemonVersion: boundMachineVersion(hello.daemonVersion),
+    roots: boundMachineRoots(hello.roots),
+    facts: hello.facts,
+  };
+}
 
 export class MachineConnector {
   private readonly machines: MachinesConfig | undefined;
@@ -239,12 +250,18 @@ export class MachineConnector {
     try {
       const session = await this.session(name);
 
+      this.refusals.delete(name);
+
       if (wasReady) this.restampContact(name, session);
 
       return true;
-    } catch {
-      // Reachability is a yes/no question to the caller; why it failed is the
-      // session's contact event, which the status writer already sees.
+    } catch (error) {
+      // Reachability is a yes/no question to the caller; the refusal itself is
+      // what `lastRefusal` answers, because a boolean loses the one reason the
+      // tool vocabulary has to name.
+      if (error instanceof MachineUnavailableError)
+        this.refusals.set(name, error);
+
       return false;
     }
   }
@@ -253,13 +270,7 @@ export class MachineConnector {
     const hello = session.hello;
 
     if (hello === undefined) return;
-    this.recordContact(name, {
-      hubProtocolVersion: PROTOCOL_VERSION,
-      daemonProtocolVersion: hello.protocolVersion,
-      daemonVersion: boundMachineVersion(hello.daemonVersion),
-      roots: boundMachineRoots(hello.roots),
-      facts: hello.facts,
-    });
+    this.recordContact(name, helloContact(hello));
   }
 
   private remember(key: string, verdict: Promise<boolean>): void {
@@ -282,15 +293,17 @@ export class MachineConnector {
         false,
         'This Machine is not configured.',
       );
-    const existing = this.sessions.get(name);
-
-    // Only a verified session may serve: an open session whose identity bind
-    // has not resolved yet must be awaited through `opening`, never handed out.
-    if (existing !== undefined && existing.verified && existing.session.isReady)
-      return existing.session;
+    // A pending open is awaited by every caller: its session became ready at
+    // the handshake, before the identity bind resolved, so it must never be
+    // handed out while it is still in `opening`. A pending open and a ready
+    // session cannot coexist.
     const opening = this.opening.get(name);
 
     if (opening !== undefined) return opening;
+    const existing = this.sessions.get(name);
+
+    if (existing !== undefined && existing.session.isReady)
+      return existing.session;
 
     const started = this.startSession(name).finally(() =>
       this.opening.delete(name),
@@ -302,21 +315,6 @@ export class MachineConnector {
   }
 
   private async startSession(name: string): Promise<MachineSession> {
-    try {
-      const session = await this.openSession(name);
-      this.refusals.delete(name);
-
-      return session;
-    } catch (error) {
-      // Kept for `lastRefusal`: the boolean reachability answer loses the
-      // reason, and the tool vocabulary needs the one refusal it names.
-      if (error instanceof MachineUnavailableError)
-        this.refusals.set(name, error);
-      throw error;
-    }
-  }
-
-  private async openSession(name: string): Promise<MachineSession> {
     const destination = this.hosts()[name]?.destination;
 
     if (destination === undefined)
@@ -334,7 +332,7 @@ export class MachineConnector {
       handshakeTimeoutMs: this.handshakeTimeoutMs,
     });
 
-    this.sessions.set(name, { session, verified: false });
+    this.sessions.set(name, { session });
     void session.ended.then((end) => this.onEnded(name, session, end));
     const hello = await session.ready();
 
@@ -344,13 +342,7 @@ export class MachineConnector {
     // read fails the session closed instead of trusting the daemon.
     await this.verifyIdentity(name, session, hello.instanceId);
 
-    this.recordContact(name, {
-      hubProtocolVersion: PROTOCOL_VERSION,
-      daemonProtocolVersion: hello.protocolVersion,
-      daemonVersion: boundMachineVersion(hello.daemonVersion),
-      roots: boundMachineRoots(hello.roots),
-      facts: hello.facts,
-    });
+    this.recordContact(name, helloContact(hello));
     this.armIdle(name);
 
     return session;
@@ -367,46 +359,34 @@ export class MachineConnector {
     session: MachineSession,
     instanceId: string,
   ): Promise<void> {
-    const bind = this.bindIdentity;
+    const outcome = await this.bindIdentity(name, instanceId).catch(
+      (error: unknown) => {
+        this.logger?.error(
+          `Checking the identity binding of Machine ${name} failed`,
+          error instanceof Error ? error.stack : String(error),
+        );
+        session.close();
+        // No contact: the daemon did nothing wrong, and an outage of the hub's
+        // own database says nothing about the Machine.
+        throw new MachineUnavailableError(
+          name,
+          'session_lost',
+          false,
+          'The identity binding of this Machine could not be checked.',
+        );
+      },
+    );
 
-    if (bind === undefined) {
-      this.markVerified(name, session);
+    // Only an explicit admission serves: anything else, including an outcome
+    // this hub does not know, fails the session closed.
+    if (outcome === 'bound' || outcome === 'match') return;
 
-      return;
-    }
-
-    const outcome = await bind(name, instanceId).catch((error: unknown) => {
-      this.logger?.error(
-        `Checking the identity binding of Machine ${name} failed`,
-        error instanceof Error ? error.stack : String(error),
-      );
-      session.close();
-      // No contact: the daemon did nothing wrong, and an outage of the hub's
-      // own database says nothing about the Machine.
-      throw new MachineUnavailableError(
-        name,
-        'session_lost',
-        false,
-        'The identity binding of this Machine could not be checked.',
-      );
+    session.close();
+    this.recordContact(name, {
+      hubProtocolVersion: PROTOCOL_VERSION,
+      failure: 'identity_mismatch',
     });
-
-    if (outcome === 'mismatch') {
-      session.close();
-      this.recordContact(name, {
-        hubProtocolVersion: PROTOCOL_VERSION,
-        failure: 'identity_mismatch',
-      });
-      throw new MachineIdentityMismatchError(name);
-    }
-
-    this.markVerified(name, session);
-  }
-
-  private markVerified(name: string, session: MachineSession): void {
-    const entry = this.sessions.get(name);
-
-    if (entry?.session === session) entry.verified = true;
+    throw new MachineIdentityMismatchError(name);
   }
 
   private onEnded(

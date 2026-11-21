@@ -1,13 +1,7 @@
 /**
- * `machines:*` operator commands (host-as-machine D2) — the process shell:
- * argv, the Nest application context's lifecycle, and the exit code. Follows
- * `db:migrate`'s and `search/operations/cli.ts`'s shape: a `tsx` entrypoint
- * resolved as a `package.json` script, with the Nest context built from a
- * narrow module (`OperationsModule`, see its own doc comment).
- *
- * It runs as soon as it is imported, with no `require.main` guard, so it must
- * never be imported from a test. Everything worth testing directly lives in
- * `cli-commands.ts`, which has no import-time side effect.
+ * `machines:*` operator commands (host-as-machine D2). It runs as soon as it
+ * is imported, with no `require.main` guard, so it must never be imported from
+ * a test; everything worth testing lives in `cli-commands.ts`.
  *
  * Usage: `npx tsx src/machines/operations/cli.ts forget <name>`
  * (wired as `pnpm --filter api machines:forget <name>`).
