@@ -3541,6 +3541,265 @@ describe('RunExecutionService executeRun', () => {
       });
     });
 
+    it('cancels a failed send whose step end records a cancellation', async () => {
+      const spies = mockNormalExecutionRepositories();
+      const appended = recordAppendedEvents();
+
+      const failure = new ProviderFailure('broken stream', {
+        code: 'stream_broken',
+      });
+
+      const execute = vi.fn(() => ({ status: 'success' as const }));
+
+      const tool: Tool = {
+        id: toolDeclaration.id,
+        description: toolDeclaration.description,
+        classification: 'unverified',
+        inputSchema: toolDeclaration.inputSchema,
+        execute,
+      };
+
+      const { client, requests } = createToolLoopClient([
+        providerResponse(
+          [
+            {
+              type: 'tool-call',
+              toolCallId: 'cancelled-step-call',
+              toolName: toolDeclaration.id,
+              input: '{"q":"once"}',
+            },
+            { type: 'error', error: failure },
+          ],
+          'tool-calls',
+        ),
+        providerText('never sent'),
+      ]);
+
+      const suspendForQuota = vi
+        .fn<RunWaitService['suspendForQuota']>()
+        .mockResolvedValue({ kind: 'suspended' });
+
+      const execution = makeExecutionService(
+        client,
+        makeDynamicResolver(tool),
+        undefined,
+        {
+          ...withDeclaredTool(),
+          permissionPolicy: compileTestPermissionPolicy([toolDeclaration.id]),
+          runWait: asDouble<RunWaitService>({ suspendForQuota }),
+        },
+      );
+
+      vi.spyOn(
+        ChatDeliveriesRepository.prototype,
+        'stepEndSignal',
+      ).mockResolvedValue('cancel');
+
+      const result = await execution.service.executeRun(executionInput(client));
+      await Promise.allSettled([result.text, result.consumeStream()]);
+
+      expect(requests).toHaveLength(1);
+      expect(suspendForQuota).not.toHaveBeenCalled();
+      expect(spies.markFinished.mock.lastCall?.slice(0, 3)).toEqual([
+        runId,
+        userId,
+        'cancelled',
+      ]);
+      expect(appended.map(({ type }) => type)).toContain('run.cancelled');
+      expect(appended.map(({ type }) => type)).not.toContain('run.completed');
+    });
+
+    it('charges a woken failed send the kept step and its completed steps', async () => {
+      const spies = mockNormalExecutionRepositories();
+      spies.findById.mockResolvedValue({
+        ...run,
+        activeAttemptId: testAttemptId,
+      });
+      vi.spyOn(
+        RunRowFenceRepository.prototype,
+        'lockForDelivery',
+      ).mockResolvedValue({ ...run, activeAttemptId: testAttemptId });
+
+      const broken = new ProviderFailure('broken stream', {
+        code: 'stream_broken',
+      });
+
+      const quota = new ProviderFailure('Usage limit', {
+        code: 'quota_exhausted',
+        resetsAt: Date.now() + 7_200_000,
+      });
+
+      const execute = vi.fn(() => ({ status: 'success' as const }));
+
+      const tool: Tool = {
+        id: toolDeclaration.id,
+        description: toolDeclaration.description,
+        classification: 'unverified',
+        inputSchema: toolDeclaration.inputSchema,
+        execute,
+      };
+
+      const call = (toolCallId: string) => ({
+        type: 'tool-call' as const,
+        toolCallId,
+        toolName: toolDeclaration.id,
+        input: `{"q":"${toolCallId}"}`,
+      });
+
+      const { client } = createToolLoopClient([
+        // The woken send breaks after its call; its next step starts at 1.
+        providerResponse(
+          [call('broken-call'), { type: 'error', error: broken }],
+          'tool-calls',
+        ),
+        // That next call completes a step and then hits the limit.
+        providerResponse([call('next-call')], 'tool-calls'),
+        providerResponse(
+          [call('quota-call'), { type: 'error', error: quota }],
+          'tool-calls',
+        ),
+      ]);
+
+      const suspendForQuota = vi
+        .fn<RunWaitService['suspendForQuota']>()
+        .mockResolvedValue({ kind: 'suspended' });
+
+      const execution = makeExecutionService(
+        client,
+        makeDynamicResolver(tool),
+        undefined,
+        {
+          ...withDeclaredTool(),
+          permissionPolicy: compileTestPermissionPolicy([toolDeclaration.id]),
+          runWait: asDouble<RunWaitService>({ suspendForQuota }),
+        },
+      );
+
+      vi.spyOn(execution.service, 'claimRun').mockResolvedValue({
+        effort: undefined,
+        permissionMode: 'default',
+        attemptId: testAttemptId,
+        messageId,
+        nativeDeliverySequence: 1,
+        wakeState: {
+          parts: toMessageParts([{ type: 'text', text: 'kept', step: 0 }]),
+        },
+        quotaRequest: {
+          generation: 13,
+          resumeAt: 'request',
+          waitCount: 3,
+          stepBudgetUsed: 1,
+        },
+        quotaWake: true,
+      });
+
+      const result = await execution.service.executeRun(executionInput(client));
+      await Promise.allSettled([result.text, result.consumeStream()]);
+
+      expect(suspendForQuota).toHaveBeenCalledOnce();
+      // One kept step, the next call's base of 1, and its two started steps.
+      expect(suspendForQuota.mock.lastCall?.[0].stepBudgetUsed).toBe(4);
+    });
+
+    it('writes no started-call boundary when the woken delivery loses its fence', async () => {
+      const spies = mockNormalExecutionRepositories();
+      const { client } = createToolLoopClient([providerText('never sent')]);
+
+      const execution = makeExecutionService(client);
+
+      vi.spyOn(execution.service, 'claimRun').mockResolvedValue({
+        effort: undefined,
+        permissionMode: 'default',
+        attemptId: testAttemptId,
+        messageId,
+        nativeDeliverySequence: 1,
+        wakeState: { parts: [] },
+        quotaRequest: {
+          generation: 13,
+          resumeAt: 'request',
+          waitCount: 3,
+          stepBudgetUsed: 1,
+        },
+        quotaWake: true,
+        startedCallCut: true,
+      });
+
+      vi.spyOn(
+        RunRowFenceRepository.prototype,
+        'lockForDelivery',
+      ).mockResolvedValue(undefined);
+
+      await expect(
+        execution.service.executeRun(executionInput(client)),
+      ).rejects.toBeInstanceOf(RunNotRunnableError);
+
+      expect(spies.upsertRunningReply).not.toHaveBeenCalled();
+    });
+
+    it('settles a cancelled quota park with the cancelled run status', async () => {
+      const spies = mockNormalExecutionRepositories();
+      const appended = recordAppendedEvents();
+
+      const failure = new ProviderFailure('Usage limit', {
+        code: 'quota_exhausted',
+        resetsAt: Date.now() + 7_200_000,
+      });
+
+      const execute = vi.fn(() => ({ status: 'success' as const }));
+
+      const tool: Tool = {
+        id: toolDeclaration.id,
+        description: toolDeclaration.description,
+        classification: 'unverified',
+        inputSchema: toolDeclaration.inputSchema,
+        execute,
+      };
+
+      const { client } = createToolLoopClient([
+        providerResponse(
+          [
+            {
+              type: 'tool-call',
+              toolCallId: 'park-call',
+              toolName: toolDeclaration.id,
+              input: '{"q":"once"}',
+            },
+            { type: 'error', error: failure },
+          ],
+          'tool-calls',
+        ),
+      ]);
+
+      const suspendForQuota = vi
+        .fn<RunWaitService['suspendForQuota']>()
+        .mockResolvedValue({ kind: 'ready', cause: 'cancelled' });
+
+      const execution = makeExecutionService(
+        client,
+        makeDynamicResolver(tool),
+        undefined,
+        {
+          ...withDeclaredTool(),
+          permissionPolicy: compileTestPermissionPolicy([toolDeclaration.id]),
+          runWait: asDouble<RunWaitService>({ suspendForQuota }),
+        },
+      );
+
+      const result = await execution.service.executeRun(executionInput(client));
+      await Promise.allSettled([result.text, result.consumeStream()]);
+
+      expect(suspendForQuota).toHaveBeenCalledOnce();
+      expect(spies.markFinished.mock.lastCall?.slice(0, 3)).toEqual([
+        runId,
+        userId,
+        'cancelled',
+      ]);
+      expect(appended).toContainEqual({
+        type: 'run.cancelled',
+        payload: { status: 'cancelled' },
+      });
+    });
+
     it('publishes a staged in-Run item after the step tool part on completion', async () => {
       const notice = workspaceNotice(runId);
 
