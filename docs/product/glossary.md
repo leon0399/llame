@@ -574,9 +574,15 @@ epoch.
 
 ## Models and usage
 
+**Credential**:
+A secret llame holds for one external service, such as a model provider, an
+MCP server, or GitHub, belonging to the installation or to one owner, together
+with its login and refresh state.
+_Avoid_: vault, secret, token, account
+
 **Provider entry**:
-One configured account with a model vendor or gateway: its credentials,
-destination, and headers.
+One configured account with a model vendor or gateway: its credential
+reference, destination, and headers.
 _Avoid_: provider (for the entry)
 
 **Model entry**:
