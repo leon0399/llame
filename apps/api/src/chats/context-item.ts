@@ -64,6 +64,10 @@ export const CONTEXT_ITEM_PRODUCERS = [
   // because it says what the new attempt must not trust.
   'regenerate',
   'tool-availability',
+  // The selected Project identity and guidance follow the tool catalog it
+  // cannot alter, and precede the Workspace snapshot because the Project
+  // association is not a Workspace binding.
+  'project',
   'workspace',
   // The repository state follows the snapshot that names the root it describes
   // and precedes the instructions bundle for the same root.

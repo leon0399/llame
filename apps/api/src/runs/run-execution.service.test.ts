@@ -165,6 +165,10 @@ import {
 } from '../chats/prompt-imports-item';
 import { createJobNoticeItem } from '../chats/job-context-item';
 import { createProviderFailureItem } from '../chats/provider-failure-notice';
+import {
+  createProjectSnapshotItem,
+  selectProjectSnapshot,
+} from '../chats/project-item';
 import { MediaService } from '../media/media.service';
 import type { WorkspaceDetachReason } from '../chats/workspace-binding';
 import {
@@ -202,6 +206,8 @@ import {
   type CompletedRunWithTrigger,
   type RunEventType,
 } from './runs-repository';
+import * as projectSelectionRepository from './project-selection.repository';
+import type { ProjectBoundPayload } from './project-selection';
 import { NativeReceiptsRepository } from './native-receipts-repository';
 import { RunRowFenceRepository } from './run-row-fence.repository';
 import {
@@ -596,6 +602,22 @@ function makeExecutionService(
         callback(db),
     );
 
+  // Every preparation resolves Project state through these repository
+  // boundaries, exactly as the other repositories are stubbed. The default
+  // is a genuine no-affiliation selection; a case that needs a bound one
+  // replaces the resolved value on the returned spy.
+  const resolveProjectSelection = vi
+    .spyOn(projectSelectionRepository, 'resolveRunProjectSelection')
+    .mockResolvedValue({ v: 1, project: null });
+
+  const recordProjectSelection = vi
+    .spyOn(projectSelectionRepository, 'recordRunProjectSelection')
+    .mockResolvedValue(undefined);
+
+  const projectContextHistory = vi
+    .spyOn(projectSelectionRepository, 'hasProjectContextHistory')
+    .mockResolvedValue(false);
+
   const permissionPolicy =
     options.permissionPolicy ??
     compileTestPermissionPolicy(['mcp__demo__lookup']);
@@ -747,6 +769,9 @@ function makeExecutionService(
     embedDispatch,
     client,
     promptUser,
+    resolveProjectSelection,
+    recordProjectSelection,
+    projectContextHistory,
   };
 }
 
@@ -5572,6 +5597,27 @@ describe('RunExecutionService executeRun', () => {
 
 type StreamOptions = Parameters<ModelClient['streamText']>[0];
 
+/**
+ * The exact text parts the model receives, in order. Assertions compare these
+ * raw strings: serializing a request escapes quotes and newlines, so a stored
+ * context item's text never equals its serialized form.
+ */
+function modelTextParts(messages: ReadonlyArray<ModelMessage>): Array<string> {
+  return messages.flatMap((message) => {
+    const { content } = message;
+
+    if (isString(content)) {
+      return content.length === 0 ? [] : [content];
+    }
+
+    return content.flatMap((part) =>
+      isRecord(part) && part['type'] === 'text' && isString(part['text'])
+        ? [part['text']]
+        : [],
+    );
+  });
+}
+
 type RequestUsage = Parameters<NonNullable<StreamOptions['onRequestUsage']>>[0];
 
 function requestUsageReceipt(
@@ -5836,6 +5882,293 @@ async function executeWorkspaceDetachCase(input: WorkspaceDetachCase) {
   expect(snapshots).toHaveLength(input.toldRoot === undefined ? 0 : 1);
   expect(stream).toHaveBeenCalled();
 }
+
+/**
+ * Project selection at execution preparation: resolved once per attempt,
+ * carried into the request the model actually receives, recorded with the
+ * first dispatch, and reconstructed from context instead of a told-state
+ * column.
+ */
+describe('RunExecutionService executeRun — Project selection', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  const PROJECT_ID = '11111111-1111-4111-8111-111111111111';
+
+  const boundProject: ProjectBoundPayload = {
+    v: 1,
+    project: {
+      id: PROJECT_ID,
+      name: 'Atlas',
+      description: 'Atlas handbook',
+      instructions: 'Use the Atlas layout conventions.',
+      locator: `projects://${PROJECT_ID}`,
+    },
+  };
+
+  const noProject: ProjectBoundPayload = { v: 1, project: null };
+
+  /** The item a Run with nothing told yet would stage for a selection. */
+  function projectSnapshot(
+    selection: ProjectBoundPayload,
+    snapshotRunId = runId,
+  ) {
+    const item = selectProjectSnapshot({
+      runId: snapshotRunId,
+      selection,
+      toldText: undefined,
+      historyPresent: false,
+    });
+
+    if (item === undefined) throw new Error('Expected a Project snapshot.');
+
+    return item;
+  }
+
+  /** The text parts of the request's last (trigger) message. */
+  function triggerTexts(capturing: { streamOptions: () => StreamOptions }) {
+    const trigger = capturing.streamOptions().messages.at(-1);
+
+    return trigger === undefined ? [] : modelTextParts([trigger]);
+  }
+
+  const EARLIER_MESSAGE_ID = '99999999-9999-4999-8999-999999999999';
+
+  /** A history whose earlier turn already carried a Project snapshot. */
+  function serveEarlierSnapshot(selection: ProjectBoundPayload) {
+    const stored = projectSnapshot(selection, EARLIER_MESSAGE_ID);
+
+    vi.spyOn(MessagesRepository.prototype, 'findByChatId').mockResolvedValue([
+      {
+        ...userMessage,
+        id: EARLIER_MESSAGE_ID,
+        seq: 1,
+        parts: [{ type: 'text', text: 'earlier question' }, stored],
+      },
+      { ...userMessage, seq: 2, parts: [{ type: 'text', text: 'hello' }] },
+    ]);
+
+    return stored;
+  }
+
+  /** This Run's trigger, after the earlier turn that carried the snapshot. */
+  function laterTriggerInput(client: ModelClient) {
+    return {
+      ...executionInput(client),
+      userMessage: {
+        id: messageId,
+        seq: 2,
+        parts: [{ type: 'text' as const, text: 'hello' }],
+      },
+    };
+  }
+
+  it('sends the selected Project snapshot before the owner text and records it at dispatch', async () => {
+    mockNormalExecutionRepositories();
+    const capturing = makeCapturingClient();
+    const execution = makeExecutionService(capturing.client);
+    execution.resolveProjectSelection.mockResolvedValue(boundProject);
+
+    await execution.service.executeRun(executionInput(capturing.client));
+
+    const expected = projectSnapshot(boundProject).data.text;
+    const texts = triggerTexts(capturing);
+
+    expect(texts).toContain(expected);
+    // The rail item precedes the owner's text, which closes the content.
+    expect(texts.indexOf(expected)).toBeGreaterThanOrEqual(0);
+    expect(texts.indexOf(expected)).toBeLessThan(texts.length - 1);
+    expect(texts.at(-1)).toBe('hello');
+
+    expect(execution.resolveProjectSelection).toHaveBeenCalledOnce();
+    expect(execution.resolveProjectSelection).toHaveBeenCalledWith(
+      expect.anything(),
+      { runId, chatId, userId },
+    );
+    expect(execution.recordProjectSelection).toHaveBeenCalledWith(
+      expect.anything(),
+      { runId, userId },
+      boundProject,
+    );
+  });
+
+  it('compares against an identical active-epoch item instead of duplicating it, and still records the binding', async () => {
+    mockNormalExecutionRepositories();
+    const stored = serveEarlierSnapshot(boundProject);
+
+    const capturing = makeCapturingClient();
+    const execution = makeExecutionService(capturing.client);
+    execution.resolveProjectSelection.mockResolvedValue(boundProject);
+
+    await execution.service.executeRun(laterTriggerInput(capturing.client));
+
+    // The stored item replays from history, but no new one is authored.
+    expect(triggerTexts(capturing)).not.toContain(stored.data.text);
+    expect(
+      modelTextParts(capturing.streamOptions().messages).filter(
+        (text) => text === stored.data.text,
+      ),
+    ).toHaveLength(1);
+    // An unchanged reminder still leaves the Run with a recoverable selection.
+    expect(execution.recordProjectSelection).toHaveBeenCalledWith(
+      expect.anything(),
+      { runId, userId },
+      boundProject,
+    );
+  });
+
+  it('supersedes earlier Project context with an absence snapshot for a null selection', async () => {
+    mockNormalExecutionRepositories();
+    const stored = serveEarlierSnapshot(boundProject);
+
+    const capturing = makeCapturingClient();
+    const execution = makeExecutionService(capturing.client);
+
+    await execution.service.executeRun(laterTriggerInput(capturing.client));
+
+    // The absence snapshot is authored for a null selection with durable
+    // history even though no active-epoch item supplies the text.
+    const absence = createProjectSnapshotItem({
+      runId,
+      selection: noProject,
+    }).data.text;
+
+    // The absence reminder retires the old guidance without rewriting it.
+    expect(triggerTexts(capturing)).toContain(absence);
+    expect(
+      modelTextParts(capturing.streamOptions().messages).filter(
+        (text) => text === stored.data.text,
+      ),
+    ).toHaveLength(1);
+    expect(execution.recordProjectSelection).toHaveBeenCalledWith(
+      expect.anything(),
+      { runId, userId },
+      noProject,
+    );
+  });
+
+  it('emits no absence reminder for a never-filed Chat', async () => {
+    mockNormalExecutionRepositories();
+    const capturing = makeCapturingClient();
+    const execution = makeExecutionService(capturing.client);
+
+    await execution.service.executeRun(executionInput(capturing.client));
+
+    expect(
+      modelTextParts(capturing.streamOptions().messages).some((text) =>
+        text.includes('producer="project"'),
+      ),
+    ).toBe(false);
+    // The null decision is still durable for later recovery.
+    expect(execution.recordProjectSelection).toHaveBeenCalledWith(
+      expect.anything(),
+      { runId, userId },
+      noProject,
+    );
+  });
+
+  it('records the selection immediately before model.requested in the dispatch transaction', async () => {
+    mockNormalExecutionRepositories();
+    const order: Array<string> = [];
+
+    vi.spyOn(RunEventsRepository.prototype, 'append').mockImplementation(
+      (_runId, eventType) => {
+        order.push(eventType);
+
+        return Promise.resolve({ ...event, eventType });
+      },
+    );
+
+    const execution = makeExecutionService();
+    execution.resolveProjectSelection.mockResolvedValue(boundProject);
+    execution.recordProjectSelection.mockImplementation(() => {
+      order.push('project-bound');
+
+      return Promise.resolve();
+    });
+
+    await execution.service.executeRun(executionInput(execution.client));
+
+    expect(order.indexOf('project-bound')).toBeLessThan(
+      order.indexOf('model.requested'),
+    );
+    expect(order.filter((type) => type === 'project-bound')).toHaveLength(1);
+  });
+
+  it('fails preparation before any provider call when the selection cannot be resolved', async () => {
+    const repositories = mockNormalExecutionRepositories();
+    const capturing = makeCapturingClient();
+    const execution = makeExecutionService(capturing.client);
+    execution.resolveProjectSelection.mockRejectedValue(
+      new ModelContextExecutionError('The Project read failed.'),
+    );
+
+    await expect(
+      execution.service.executeRun(executionInput(capturing.client)),
+    ).rejects.toBeInstanceOf(ModelContextExecutionError);
+
+    expect(() => capturing.streamOptions()).toThrow(
+      'streamText was never called',
+    );
+    // Nothing dispatched and nothing froze: no context write, no selection.
+    expect(repositories.storeAtDispatch).not.toHaveBeenCalled();
+    expect(execution.recordProjectSelection).not.toHaveBeenCalled();
+    expect(repositories.markFinished.mock.calls.at(-1)?.slice(0, 3)).toEqual([
+      runId,
+      userId,
+      'failed',
+    ]);
+  });
+
+  it('fails before the provider call when the dispatch cannot record the selection', async () => {
+    const repositories = mockNormalExecutionRepositories();
+    const append = vi.spyOn(RunEventsRepository.prototype, 'append');
+    const capturing = makeCapturingClient();
+    const execution = makeExecutionService(capturing.client);
+    execution.resolveProjectSelection.mockResolvedValue(boundProject);
+    execution.recordProjectSelection.mockRejectedValue(
+      new ModelContextExecutionError('The Run has no durable selection.'),
+    );
+
+    await expect(
+      execution.service.executeRun(executionInput(capturing.client)),
+    ).rejects.toBeInstanceOf(ModelContextExecutionError);
+
+    expect(() => capturing.streamOptions()).toThrow(
+      'streamText was never called',
+    );
+    // The request record follows the selection, so neither is written.
+    expect(append).not.toHaveBeenCalledWith(
+      runId,
+      'model.requested',
+      expect.anything(),
+    );
+    // The item the same transaction staged never reaches a committed turn.
+    const stored = repositories.storeAtDispatch.mock.calls[0]?.[0];
+    expect(stored?.items.some((item) => item.data.producer === 'project')).toBe(
+      true,
+    );
+  });
+
+  it('freezes no selection when the dispatch transaction cannot store the context', async () => {
+    const repositories = mockNormalExecutionRepositories();
+    repositories.storeAtDispatch.mockResolvedValue({ applied: false });
+
+    const capturing = makeCapturingClient();
+    const execution = makeExecutionService(capturing.client);
+    execution.resolveProjectSelection.mockResolvedValue(boundProject);
+
+    await expect(
+      execution.service.executeRun(executionInput(capturing.client)),
+    ).rejects.toBeInstanceOf(RunNotRunnableError);
+
+    expect(() => capturing.streamOptions()).toThrow(
+      'streamText was never called',
+    );
+    expect(execution.recordProjectSelection).not.toHaveBeenCalled();
+  });
+});
 
 describe('RunExecutionService executeRun — stream completion', () => {
   afterEach(() => {
@@ -13025,6 +13358,13 @@ describe('RunExecutionService executeRun — pre-step compaction trigger', () =>
     triggerParts?: RunUserMessage['parts'];
     /** Owned media the run's resolver describes (vision-media D6). */
     mediaRows?: ReadonlyArray<MediaDescriptor>;
+    /** The Project selection this attempt resolves once. */
+    projectSelection?: ProjectBoundPayload;
+    /** Rows and checkpoint the pass after a publication reads. */
+    rebake?: {
+      rows: Array<Message>;
+      checkpoint: CheckpointMessage;
+    };
   };
 
   async function executeTriggerCase(input: TriggerCase) {
@@ -13065,10 +13405,32 @@ describe('RunExecutionService executeRun — pre-step compaction trigger', () =>
     spies.findDispatched.mockImplementation(
       completedLookupBefore(triggerSeq, completed),
     );
-    vi.spyOn(MessagesRepository.prototype, 'findByChatId').mockResolvedValue(
-      input.historyRows,
-    );
     const publication = serveCheckpointPublication();
+    const rebake = input.rebake;
+
+    if (rebake === undefined) {
+      vi.spyOn(MessagesRepository.prototype, 'findByChatId').mockResolvedValue(
+        input.historyRows,
+      );
+    } else {
+      // The pass after a publication reads the checkpoint the publication
+      // committed and the rows after its cutoff, as the real transaction would.
+      vi.spyOn(MessagesRepository.prototype, 'findByChatId').mockImplementation(
+        () =>
+          Promise.resolve(
+            publication.create.mock.calls.length === 0
+              ? input.historyRows
+              : rebake.rows,
+          ),
+      );
+      spies.findActiveCheckpoint.mockImplementation(() =>
+        Promise.resolve(
+          publication.create.mock.calls.length === 0
+            ? undefined
+            : rebake.checkpoint,
+        ),
+      );
+    }
 
     if (input.duplicateCutoff !== undefined) {
       publication.findByBoundary.mockResolvedValue(input.duplicateCutoff);
@@ -13121,6 +13483,12 @@ describe('RunExecutionService executeRun — pre-step compaction trigger', () =>
       execution.summarizeCheckpoint.mockResolvedValue(input.summary);
     }
 
+    if (input.projectSelection !== undefined) {
+      execution.resolveProjectSelection.mockResolvedValue(
+        input.projectSelection,
+      );
+    }
+
     if (input.mediaRows !== undefined) {
       const rows = input.mediaRows;
       const where = () => Promise.resolve(rows.map(descriptorRow));
@@ -13143,6 +13511,70 @@ describe('RunExecutionService executeRun — pre-step compaction trigger', () =>
 
     return { spies, publication, execution, result };
   }
+
+  it('re-establishes the Run Project snapshot after the checkpoint absorbs the old one', async () => {
+    const projectId = '11111111-1111-4111-8111-111111111111';
+
+    const bound: ProjectBoundPayload = {
+      v: 1,
+      project: {
+        id: projectId,
+        name: 'Atlas',
+        description: null,
+        instructions: 'Use the Atlas layout conventions.',
+        locator: `projects://${projectId}`,
+      },
+    };
+
+    const stored = selectProjectSnapshot({
+      runId: '99999999-9999-4999-8999-999999999999',
+      selection: bound,
+      toldText: undefined,
+      historyPresent: false,
+    });
+
+    if (stored === undefined) throw new Error('Expected a Project snapshot.');
+
+    const [question, answer] = committedTurn({ contextTokens: 40_000 });
+    const capturing = triggerClient();
+
+    const { execution } = await executeTriggerCase({
+      client: capturing.client,
+      historyRows: [
+        {
+          ...question,
+          parts: [{ type: 'text', text: 'earlier question' }, stored],
+        },
+        answer,
+        triggerTurn(),
+      ],
+      // The committed turn crosses the threshold; the checkpoint absorbs it.
+      summary: checkpointSummary(2),
+      projectSelection: bound,
+      rebake: {
+        rows: [triggerTurn()],
+        checkpoint: activeCheckpoint({
+          uptoSeq: 2,
+          createdAt: checkpointInstant,
+        }),
+      },
+    });
+
+    // One resolution serves both the estimate and the re-baked pass.
+    expect(execution.resolveProjectSelection).toHaveBeenCalledOnce();
+
+    // The re-baked request carries the snapshot once, as raw model text.
+    expect(
+      modelTextParts(capturing.streamOptions().messages).filter(
+        (text) => text === stored.data.text,
+      ),
+    ).toHaveLength(1);
+    expect(execution.recordProjectSelection).toHaveBeenCalledWith(
+      expect.anything(),
+      { runId, userId },
+      bound,
+    );
+  });
 
   it('preserves the preceding assistant when textless trigger parts gain staged context', async () => {
     const capturing = triggerClient();
@@ -29408,6 +29840,7 @@ describe('RunExecutionService quota resume boundaries', () => {
       source: 'project_default' as const,
       systemPrompt: '',
     },
+    projectSelection: { v: 1 as const, project: null },
     model: testModelEntry,
     toolCatalog: {
       availabilityManifest: { version: 1 as const, entries: [] },
@@ -30377,6 +30810,7 @@ describe('RunExecutionService wake boundary preparation', () => {
         source: 'project_default' as const,
         systemPrompt: '',
       },
+      projectSelection: { v: 1 as const, project: null },
       model: testModelEntry,
       toolCatalog: {
         availabilityManifest: { version: 1 as const, entries: [] },

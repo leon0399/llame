@@ -182,6 +182,16 @@ describe('producer precedence', () => {
 
     expect(promptImports).toBe(activation + 1);
   });
+
+  it('places project after tool availability and before workspace', () => {
+    const tools = CONTEXT_ITEM_PRODUCERS.indexOf('tool-availability');
+    const project = CONTEXT_ITEM_PRODUCERS.indexOf('project');
+    const workspace = CONTEXT_ITEM_PRODUCERS.indexOf('workspace');
+
+    expect(project).toBe(tools + 1);
+    expect(workspace).toBe(project + 1);
+    expect(isRecognizedProducer('project')).toBe(true);
+  });
 });
 
 describe('rendering', () => {

@@ -140,17 +140,32 @@ revision boundary.
 1. Stop new Run admission, and keep the existing API and worker processes
    running. They must continue execution, job settlement, and wake processing.
    Do not delete, expire, or cancel a Run to shorten this step.
-2. Run the inventory below as a role that is a superuser or has `BYPASSRLS`.
-   The application role with no tenant identity matches no row under forced RLS
-   and would report a false zero.
-3. Keep execution, settlement, and wake processing alive until the inventory
-   returns no row. This includes `awaiting_jobs` and `awaiting_quota`. A parked
-   quota wait can last until its reset and deadline job, so the boundary can
-   take much longer than a deploy. If normal settlement is impractical, require
-   an explicit operator decision instead of silently cancelling a Run.
-4. Run the settlement gate below. Start the API and every worker on the new
-   revision only after both checks pass. A queued Run that never dispatched may
-   select current state normally.
+2. Run the preliminary inventory below as a role that is a superuser or has
+   `BYPASSRLS`. Enable `ON_ERROR_STOP`, for example with
+   `psql -v ON_ERROR_STOP=1 "$POSTGRES_URL"`, or wrap the statements in
+   `BEGIN;` and `ROLLBACK;`. Without that, psql continues after a failed
+   privilege check and the `SELECT` can print a false zero. The application role
+   with no tenant identity matches no row under forced RLS.
+3. Keep execution, settlement, and wake processing alive until the preliminary
+   inventory returns no row. This includes `awaiting_jobs` and `awaiting_quota`.
+   A parked quota wait can last until its reset and deadline job, so the boundary
+   can take much longer than a deploy. If normal settlement is impractical,
+   require an explicit operator decision instead of silently cancelling a Run.
+4. When the preliminary inventory is empty, stop every old API and worker
+   process, including the wake and settlement consumers. Start no new revision
+   yet. A queued Run can still be claimed before the processes stop, so a
+   snapshot taken while they were alive cannot guard the later switch.
+5. With no old writer alive, run the final inventory again and then the
+   settlement gate. The gate repeats the privilege check, so it fails closed
+   when copied without the earlier block.
+6. If either final check finds a dispatched nonterminal Run, do not start the
+   new revision. Resume only the old execution and settlement processes, with
+   admission still closed, to finish and drain it. Stop them again, and repeat
+   the final inventory and gate.
+7. Start the API and every worker on the new revision only when the final
+   inventory is empty and the gate passes. Queued Runs that never dispatched may
+   remain. No old process can claim them after the final gate, and the new
+   revision selects their current state normally.
 
 The inventory lists every nonterminal Run whose dispatch is already proven.
 `turn_tool_availability` is the primary proof. A `model.requested` event is
@@ -198,14 +213,23 @@ WHERE r.status NOT IN ('completed', 'failed', 'cancelled', 'expired')
 ORDER BY parked DESC, r.created_at;
 ```
 
-After the list is empty, this gate also fails when a Run dispatches during the
-check:
+Run the final inventory with the same `ON_ERROR_STOP` setting after every old
+process stops. Then run this gate, which repeats the privilege check and fails
+while any dispatched nonterminal Run remains. It is safe to run alone.
 
 ```sql
 DO $$
 DECLARE
+  privileged boolean;
   remaining integer;
 BEGIN
+  SELECT rolsuper OR rolbypassrls INTO privileged
+  FROM pg_roles
+  WHERE rolname = current_user;
+  IF privileged IS NOT TRUE THEN
+    RAISE EXCEPTION 'Project context gate requires a superuser or BYPASSRLS role';
+  END IF;
+
   SELECT count(*) INTO remaining
   FROM runs r
   WHERE r.status NOT IN ('completed', 'failed', 'cancelled', 'expired')
@@ -223,11 +247,13 @@ END
 $$;
 ```
 
-Before a rollback, stop new admission and repeat the same inventory and gate on
-the newer revision. Keep `projects.instructions`, every `run.project_bound`
-event, and all stored context and messages. Do not delete, rewrite, or backfill
-them, and do not bind current Project state to a Run that dispatched under an
-older revision. Historical Project items replay as stored text.
+Before a rollback, repeat the same preliminary and final sequence on the newer
+revision: stop new admission, drain, stop every newer API and worker process,
+then run the final inventory and gate with no newer writer alive. Keep
+`projects.instructions`, every `run.project_bound` event, and all stored context
+and messages. Do not delete, rewrite, or backfill them, and do not bind current
+Project state to a Run that dispatched under an older revision. Historical
+Project items replay as stored text.
 
 ## Capacity
 
@@ -302,8 +328,8 @@ is not transactional with the Run row: failure marks the Run failed
 best-effort, and a crash between row commit and enqueue leaves a job-less Run
 that the next message expires. Host-started first enqueue is transactional.
 An ordinary deploy stops workers after a 30 s drain, and pg-boss retries their
-Runs. That drain is not sufficient for the Project context revision boundary
-below.
+Runs. That drain is not sufficient for the
+[Project context revision boundary](#project-context-revision-boundary).
 
 The internal suspension service persists `awaiting_jobs` and its delayed
 deadline job together, then releases the Run worker slot. Suspension keeps the
