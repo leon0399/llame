@@ -56,7 +56,7 @@ This resolves the otherwise difficult case where a Run emits no snapshot because
 
 Rejected alternatives are a `project_told` column, a current-row lookup on each retry, and a metadata-only fake reminder. The first duplicates transcript state. The second violates fixed-within-Run behavior. The third changes the meaning of historical inert context parts.
 
-See [Project context binds when a Run starts execution](../../../docs/adr/2026-11-20-project-context-binds-at-execution.md) and [Project reminders derive told state from reconstructed context](../../../docs/adr/2026-11-20-project-reminders-derive-told-state-from-context.md).
+See [Project context binds when a Run starts execution](../../../../docs/adr/2026-11-20-project-context-binds-at-execution.md) and [Project reminders derive told state from reconstructed context](../../../../docs/adr/2026-11-20-project-reminders-derive-told-state-from-context.md).
 
 ### D3. Add one rail-only producer
 

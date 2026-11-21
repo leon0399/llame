@@ -29,7 +29,7 @@ This decision concerns reminder comparison. The immutable Project selection of
 an executing Run is a different recovery obligation. It cannot depend on the
 continued presence of an earlier epoch's item in active model context.
 
-The [Project discovery design](../../openspec/changes/project-discovery/design.md)
+The [Project discovery design](../../openspec/changes/archive/2026-11-21-project-discovery/design.md)
 applies the
 [runtime-plugin decision](https://github.com/leon0399/llame/issues/1489#issuecomment-6715360525)
 to this producer. It does not introduce the plugin framework or migrate other

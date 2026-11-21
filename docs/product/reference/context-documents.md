@@ -7,6 +7,7 @@ read_when:
 spec:
   - context-injection
   - projects
+  - project-context
   - instruction-files
   - prompt-imports
   - import-markers

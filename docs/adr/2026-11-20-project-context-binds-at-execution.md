@@ -30,6 +30,6 @@ Compaction restores the selected guidance during a live Run. It must not adopt
 an intervening Project edit. Earlier private context still records what the
 model received, even after the owner clears instructions or deletes the Project.
 
-The [Project discovery design](../../openspec/changes/project-discovery/design.md)
+The [Project discovery design](../../openspec/changes/archive/2026-11-21-project-discovery/design.md)
 defines recovery and the approved delivery boundary. The owner confirmed the
 execution-time choice and the fixed-within-Run consequence on 2026-11-20.
