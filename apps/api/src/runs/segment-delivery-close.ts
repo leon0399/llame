@@ -16,6 +16,7 @@ import {
   type BillingCatalog,
 } from './run-reply-finalizer';
 import { RunEventsRepository } from './runs-repository';
+import { type SupersededModelOutput } from './superseded-output';
 import { finalizeUsageCompleteness } from './usage-completeness';
 
 /**
@@ -161,6 +162,12 @@ export type DeliveryInput = {
   baselines?: FirstEpochBaselines;
   finalAnswer?: true;
   stepBudgetUsed?: number;
+  /**
+   * The cut of a failed send this delivery closes (continue-after-broken-send
+   * D6): appended as `model.superseded` in the same transaction that stores
+   * the reply's cut and notice.
+   */
+  superseded?: SupersededModelOutput;
   boundaryCompaction?: {
     ids: ReadonlyArray<string>;
     summary: CompactionSummary | null;
@@ -299,6 +306,19 @@ export async function closeReply(
     telemetry: closing.telemetry,
     models: closing.models,
   });
+
+  // The cut this segment closed with: the reply above already holds the kept
+  // parts and the notice, and this event names the output it dropped. It
+  // precedes `model.completed` because the live bridge prunes the step's part
+  // starts at `model.completed`, so a cut arriving after it would survive in
+  // the live view until reload (design D7).
+  if (closing.superseded !== undefined) {
+    await new RunEventsRepository(tx).append(
+      locked.id,
+      'model.superseded',
+      closing.superseded,
+    );
+  }
 
   if (closing.modelCompleted) {
     await new RunEventsRepository(tx).append(

@@ -36,23 +36,29 @@ export type ProviderFailureDetails = {
   statusCode?: number;
   superseded?: ProviderFailureSuperseded;
   toolCallStarted?: true;
+  /** Sends of this logical request so far, including the failed one. */
+  sends?: number;
 };
 
 /** A provider failure with a closed classification and safe timing metadata. */
 export class ProviderFailure extends Error {
+  override readonly name = 'ProviderFailure';
   readonly code: FailureClass;
   readonly resetsAt?: number;
   readonly hintMs?: number;
   readonly statusCode?: number;
   readonly superseded?: ProviderFailureSuperseded;
   readonly toolCallStarted?: true;
+  /** Sends of this logical request so far, including the failed one. */
+  readonly sends?: number;
 
   constructor(message: string, details: ProviderFailureDetails) {
     super(message);
-    this.name = 'ProviderFailure';
     this.code = details.code;
 
     if (details.toolCallStarted) this.toolCallStarted = true;
+
+    if (details.sends) this.sends = details.sends;
 
     if (
       details.resetsAt !== undefined &&

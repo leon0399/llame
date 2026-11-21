@@ -274,6 +274,10 @@ describe('RunWaitService.suspendForQuota', () => {
         steps: quotaInput.steps,
       },
     );
+    // A checkpoint without a cut appends no supersession marker.
+    expect(fixture.append.mock.calls.map(([, eventType]) => eventType)).toEqual(
+      ['run.suspended'],
+    );
 
     const [, dispatchInput, options] =
       fixture.enqueueInTransaction.mock.calls[0] ?? [];
@@ -282,6 +286,27 @@ describe('RunWaitService.suspendForQuota', () => {
     expect(options?.startAfter).toEqual(new Date(quotaAwaiting.wakeAt));
     expect(fixture.settleOnDeadWorkers).not.toHaveBeenCalled();
     expect(fixture.hasPendingSteering).not.toHaveBeenCalled();
+  });
+
+  it('names the cut before the checkpoint when a failed send left one', async () => {
+    const fixture = makeFixture();
+    const superseded = { fromSequence: 3, step: 1 };
+
+    await expect(
+      fixture.service.suspendForQuota({ ...quotaInput, superseded }),
+    ).resolves.toEqual({ kind: 'suspended' });
+
+    // The live bridge prunes from `model.superseded` while the Run is still
+    // streaming, so the cut is written before the suspension checkpoint
+    // (continue-after-broken-send D6).
+    expect(fixture.append.mock.calls.map(([, eventType]) => eventType)).toEqual(
+      ['model.superseded', 'run.suspended'],
+    );
+    expect(fixture.append).toHaveBeenCalledWith(
+      quotaInput.runId,
+      'model.superseded',
+      superseded,
+    );
   });
 
   it('rejects an ordinary wake without a triggering message', async () => {

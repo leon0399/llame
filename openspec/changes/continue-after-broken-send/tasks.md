@@ -19,9 +19,9 @@ Each implementation layer is a safe merge boundary. The state after each layer:
 
 - `continue`: a Run step that fails after a started tool call stops the SDK, waits for its calls,
   cuts, stores the notice, and continues with the carried count, or fails with real results and
-  the notice. A `quota_exhausted` or `rate_limited` failure after a started call with a reset more
-  than 60 seconds away, or with no reset, fails the Run in this state; it gets the notice. A reset
-  of 60 seconds or less is a request retry and continues.
+  the notice. A `quota_exhausted` failure after a started call with no reset, or a `quota_exhausted` or
+  `rate_limited` failure whose reset or delay hint is more than 60 seconds away, fails the Run in
+  this state; it gets the notice. Within 60 seconds, it is a request retry and continues.
 - `quota-wait`: that failure parks the Run after the calls settle, and the woken Run sends the next
   step.
 
@@ -57,46 +57,48 @@ against its parent before publication.
 Enter `continue-after-broken-send/continue` with `$gh-stack` from the approved proposal. Run
 focused test files only; CI owns the full suites.
 
-- [ ] 2.1 Spike first (design Risks): drive `runStreamChannel` and the Chat Completions client,
+- [x] 2.1 Spike first (design Risks): drive `runStreamChannel` and the Chat Completions client,
       each with `applyRequestRecovery` and a `MockLanguageModelV3` that streams a complete
       `tool-call` part and then fails, with a tool that resolves later. Record when `onError` and
       `onFinish` run and how many `doStream` calls occur today, also with a Stop and an interrupt
       during the wait. Stop the layer and return to review if the order differs from design Context.
-- [ ] 2.2 `request-recovery.ts` marks every class `toolCallStarted` after a complete tool-call part
+- [x] 2.2 `request-recovery.ts` marks every class `toolCallStarted` after a complete tool-call part
       and attaches the prior send count (design D1). Verify in `request-recovery.test.ts` that such
       a send is not sent again, and that a restored recovery with a pending failure waits the delay
       of retry `sends`, reports `retry: sends`, and fails at `MAX_SENDS`.
-- [ ] 2.3 Add the `onSendFailed` seam, stop the SDK at a failed step with no quota recovery, and
+- [x] 2.3 Add the `onSendFailed` seam, stop the SDK at a failed step with no quota recovery, and
       decide in `onFinish` (design D1, D2), on both client shapes of 2.1. Verify "One call still
       runs when the send breaks", "The owner stops the Run during the wait", "A rejected call does
       not cause a second send", "An overload after a tool call", "A wait call in a broken send", the
       `durable-runs` scenario "A wait call of a failed send does not suspend the Run", and the
       unchanged "A hosted search breaks after its search tool call". Re-verify the unchanged
       scenarios of "A Run that waits holds no worker".
-- [ ] 2.4 Capture the cut anchor at the last tool-call part (design D3). Verify "The text after the
+- [x] 2.4 Capture the cut anchor at the last tool-call part (design D3). Verify "The text after the
       last tool call is not kept" and "Text between two kept calls stays", including a short
       buffered text prefix before the tool call, in
       `run-stream-bridge.test.ts` and in the `assistant-transcript` rebuild tests.
-- [ ] 2.5 Add the `provider-failure` producer, template, labels, and precedence (design D5). Verify
+- [x] 2.5 Add the `provider-failure` producer, template, labels, and precedence (design D5). Verify
       "A broken stream has a label" and "The next request carries the notice" in
       `context-item-producers.test.ts`, the `context-injection` scenario "A provider-failure notice
       comes first in its step", and the unchanged scenarios of that MODIFIED requirement.
-- [ ] 2.6 Continue with the next step, the boundary delivery, and the carried count (design D4).
+- [x] 2.6 Continue with the next step, the boundary delivery, and the carried count (design D4).
       Verify "The stream breaks after a tool call", "A provider breaks after each tool call", "A
       reload during the delay of the next step", "No retry is left for the next step", "A send
       without failure ends the count", "A steer at the boundary starts a new count", "A failure with
       no retry does not deliver a pending steer", "A worker stops before the next step starts", and
       "A worker stops during the delay of the next step".
-- [ ] 2.7 Store the cut and the notice in the terminal and interrupt writes (design D6). Verify "An
+- [x] 2.7 Store the cut and the notice in the terminal and interrupt writes (design D6). Verify "An
       authentication failure after a tool call", "Owner Continue keeps the notice", "An interrupt
       during the wait keeps the notice", and the `run-steering` scenario "An interrupt during the
-      wait of a failed send", and re-verify "The cut reasoning part never replays". Verify that the `tool-calling` scenario "Failure
-      settles in-flight calls" still holds for a call outside the failed send.
-- [ ] 2.8 Update [SPEC.md](../../../SPEC.md) (failure paragraph),
+      wait of a failed send", and re-verify "The cut reasoning part never replays". The `tool-calling` scenario
+      "Failure settles in-flight calls" has no reachable seam for a call outside the failed send: the SDK starts a step
+      only after every earlier call has an output, and instruction-origin reads finish inside their own call.
+      Terminal writes still run the shipped `settleOpenToolsAndDrain`.
+- [x] 2.8 Update [SPEC.md](../../../SPEC.md) (failure paragraph),
       [provider routing](../../../docs/product/operator/providers/routing.md) (failure after a tool
       call), and [Continue a turn](../../../docs/product/reference/continue-a-turn.md) (the kept
       notice). Add a dated `CHANGELOG.md` entry. Verify with `pnpm lint:markdown`.
-- [ ] 2.9 Run `pnpm --filter api lint`, `pnpm --filter api typecheck`, the focused test files above,
+- [x] 2.9 Run `pnpm --filter api lint`, `pnpm --filter api typecheck`, the focused test files above,
       `pnpm format:check`, and `git diff --check`.
 - [ ] 2.10 SR: self-review the parent-relative draft diff against
       [REVIEW_GUIDE.md](../../../REVIEW_GUIDE.md) before ready. GR: run Ready-PR monitoring after

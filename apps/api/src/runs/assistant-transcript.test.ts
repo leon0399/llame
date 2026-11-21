@@ -4,8 +4,10 @@ import {
   toolActivityPart,
   type ToolActivityPart,
 } from './assistant-transcript';
+import { placeStoredContextItems } from './run-reply-finalizer';
 import { asDouble } from '../testing/support';
 import { createContextItemPart } from '../chats/context-item';
+import { createProviderFailureItem } from '../chats/provider-failure-notice';
 import { type MessagePart } from '../chats/context-builder';
 import { projectStoredToolPart } from '../chats/tool-observation-part';
 
@@ -37,6 +39,51 @@ function event(eventType: string, payload: unknown): RunEvent {
     eventType,
     payload,
     createdAt: timestamp,
+  };
+}
+
+/** The same event at an explicit sequence: the cut tests read sequence windows. */
+function sequencedEvent(
+  sequence: number,
+  eventType: string,
+  payload: RunEvent['payload'],
+): RunEvent {
+  return { ...event(eventType, payload), sequence };
+}
+
+/**
+ * The `tool.requested` → `tool.started` → `tool.completed` events of one
+ * read-only call that succeeded. The caller places each event, because a
+ * completion can land after later events while the Run waits for the call.
+ */
+function readCall(
+  requested: number,
+  completed: number,
+  call: {
+    readonly toolCallId: string;
+    readonly toolName: 'read' | 'grep';
+    readonly input: RunEvent['payload'];
+    readonly output: RunEvent['payload'];
+  },
+) {
+  return {
+    requested: sequencedEvent(requested, 'tool.requested', {
+      toolCallId: call.toolCallId,
+      toolName: call.toolName,
+      input: call.input,
+      stepNumber: 0,
+    }),
+    started: sequencedEvent(requested + 1, 'tool.started', {
+      toolCallId: call.toolCallId,
+      toolName: call.toolName,
+      classification: 'read_only',
+    }),
+    completed: sequencedEvent(completed, 'tool.completed', {
+      toolCallId: call.toolCallId,
+      toolName: call.toolName,
+      status: 'success',
+      output: call.output,
+    }),
   };
 }
 
@@ -894,6 +941,133 @@ describe('reconstructDurableAssistant', () => {
       { type: 'text', text: 'before|end-boundary' },
       { type: 'reasoning', text: '|after' },
     ]);
+  });
+
+  it('The text after the last tool call is not kept', () => {
+    // A send that broke after it streamed a complete `read` tool-call part:
+    // `persistCutAnchor` flushed the text before the call and read the next
+    // sequence, which the call's own `tool.requested` then took. The call
+    // settles while the Run waits; only then is the tail flushed.
+    const call = readCall(2, 4, {
+      toolCallId: 'call-a',
+      toolName: 'read',
+      input: { path: '/work/a.txt' },
+      output: { status: 'success', content: 'file body' },
+    });
+
+    const parts = reconstructDurableAssistant([
+      sequencedEvent(1, 'model.delta', { text: 'Hi' }),
+      call.requested,
+      call.started,
+      call.completed,
+      sequencedEvent(5, 'model.delta', { text: ' trailing' }),
+      sequencedEvent(6, 'reasoning.delta', { text: 'think' }),
+      sequencedEvent(7, 'model.superseded', { fromSequence: 2, step: 0 }),
+    ]).collector.parts();
+
+    // The buffered prefix sits below the anchor, so it is kept; the cut drops
+    // only the text and reasoning the reload would otherwise show.
+    expect(parts).toEqual([
+      { type: 'text', text: 'Hi' },
+      {
+        type: 'tool-read',
+        toolCallId: 'call-a',
+        state: 'output-available',
+        input: { path: '/work/a.txt' },
+        output: { status: 'success', content: 'file body' },
+        outcome: 'success',
+        step: 0,
+        classification: 'read_only',
+      },
+    ]);
+  });
+
+  it('Text between two kept calls stays', () => {
+    // Two complete tool-call parts: each flushed the text before it, so only
+    // the text after the second call falls inside the cut its anchor names.
+    const read = readCall(2, 7, {
+      toolCallId: 'call-a',
+      toolName: 'read',
+      input: { path: '/work/a.txt' },
+      output: { status: 'success', content: 'a body' },
+    });
+
+    const grep = readCall(5, 8, {
+      toolCallId: 'call-b',
+      toolName: 'grep',
+      input: { pattern: 'needle' },
+      output: { status: 'success', value: 'hit' },
+    });
+
+    const parts = reconstructDurableAssistant([
+      sequencedEvent(1, 'model.delta', { text: 'one' }),
+      read.requested,
+      read.started,
+      sequencedEvent(4, 'model.delta', { text: 'two' }),
+      grep.requested,
+      grep.started,
+      // Both calls settle while the Run waits, before the next step's start.
+      read.completed,
+      grep.completed,
+      sequencedEvent(9, 'model.delta', { text: 'three' }),
+      sequencedEvent(10, 'model.superseded', { fromSequence: 5, step: 0 }),
+    ]).collector.parts();
+
+    expect(parts).toEqual([
+      { type: 'text', text: 'one' },
+      {
+        type: 'tool-read',
+        toolCallId: 'call-a',
+        state: 'output-available',
+        input: { path: '/work/a.txt' },
+        output: { status: 'success', content: 'a body' },
+        outcome: 'success',
+        step: 0,
+        classification: 'read_only',
+      },
+      { type: 'text', text: 'two' },
+      {
+        type: 'tool-grep',
+        toolCallId: 'call-b',
+        state: 'output-available',
+        input: { pattern: 'needle' },
+        output: { status: 'success', value: 'hit' },
+        outcome: 'success',
+        step: 0,
+        classification: 'read_only',
+      },
+    ]);
+  });
+
+  it('keeps the provider-failure notice directly after the last kept tool part', () => {
+    // The reply's stored snapshot after the cut: the rebuilt kept parts, then
+    // the notice `applyFailedSendCut` splices in behind the last kept call. A
+    // reload rebuilds the parts from the log and places that item again.
+    const call = readCall(1, 3, {
+      toolCallId: 'call-a',
+      toolName: 'read',
+      input: { path: '/work/a.txt' },
+      output: { status: 'success', content: 'file body' },
+    });
+
+    const rebuilt = reconstructDurableAssistant([
+      call.requested,
+      call.started,
+      call.completed,
+      sequencedEvent(4, 'model.delta', { text: ' trailing' }),
+      sequencedEvent(5, 'model.superseded', { fromSequence: 1, step: 0 }),
+    ]).collector.parts();
+
+    const notice = createProviderFailureItem({
+      runId: RUN_ID,
+      failureClass: 'stream_broken',
+    });
+
+    const placed = placeStoredContextItems(rebuilt, [...rebuilt, notice]);
+
+    expect(placed.at(-1)).toBe(notice);
+    expect(placed.at(-2)).toMatchObject({ toolCallId: 'call-a' });
+    expect(placed.slice(0, -1)).toEqual(rebuilt);
   });
 
   it('rebuilds an error part with its artifact locator', () => {

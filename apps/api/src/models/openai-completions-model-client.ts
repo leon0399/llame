@@ -498,6 +498,24 @@ function completionsFailureOptions(
   };
 }
 
+/**
+ * Wraps the stream's `onError` so the Run learns of a send that broke after a
+ * complete tool-call part at the `error` part, before any deferred callback
+ * (continue-after-broken-send D1). This wire binds no terminal queue, so the
+ * wrapper is its only early seam.
+ */
+function captureSendFailure(
+  streamOptions: StreamOptions,
+  input: ModelStreamInput,
+  failureOptions: Parameters<typeof classifiedFailure>[1],
+) {
+  return captureRequestFailure(
+    streamOptions,
+    (error) => classifiedFailure(error, failureOptions),
+    input.onSendFailed,
+  );
+}
+
 function runOpenAICompatibleStream(
   provider: OpenAICompatibleProvider,
   config: OpenAICompletionsModelClientConfig,
@@ -532,9 +550,7 @@ function runOpenAICompatibleStream(
     createToolCallGate(),
   );
 
-  const sanitize = captureRequestFailure(streamOptions, (error) =>
-    classifiedFailure(error, failureOptions),
-  );
+  const sanitize = captureSendFailure(streamOptions, input, failureOptions);
 
   return awaitSettlementAfter(
     dependencies.streamText(streamOptions),

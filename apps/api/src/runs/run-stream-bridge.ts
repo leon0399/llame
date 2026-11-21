@@ -28,6 +28,10 @@ import {
 import { RunEventsRepository, RunsRepository } from './runs-repository';
 import { isSystemOriginPayload } from './tool-activity-origin';
 import { isTerminalRunStatus } from './run-status';
+import {
+  StreamPartTracker,
+  type StreamPartKind,
+} from './run-stream-part-tracker';
 
 /**
  * Stateful translator: run events in, UI chunks out. Emits the stream prelude
@@ -71,22 +75,13 @@ class RunEventTranslatorImpl implements RunEventTranslator {
   // / reasoning-1, …), so a tool part can sit between them. text and reasoning
   // are mutually exclusive: opening one closes the other, so parts never
   // interleave, and either can re-open (e.g. a reasoning model that thinks,
-  // answers, then thinks again). null when no part of that kind is open.
-  private textPartCount = 0;
-  private openTextId: string | null = null;
-  private reasoningPartCount = 0;
-  private openReasoningId: string | null = null;
-  // Adapter-supplied id of the open reasoning part (undefined = the wire gave
-  // none). The UI id above stays llame-owned, because a wire can reuse one
-  // adapter id for several parts (reasoning → tool → reasoning under a
-  // constant id) and duplicate UI part ids would merge them client-side; this
-  // field carries only the boundary decision (design D8).
-  private openReasoningPartId: string | undefined;
+  // answers, then thinks again). The tracker owns the identities, the adapter
+  // ids that decide their boundaries, and each part's opening sequence (D3/D8).
+  private readonly parts = new StreamPartTracker();
   // Tool calls whose result has not arrived. A terminal run event must settle
   // these: `tool-input-available` renders as "running", so finishing without
   // closing them leaves the UI spinning on a call that will never complete.
   private readonly openToolCallIds = new Set<string>();
-  private readonly unsettledPartSequences = new Map<string, number>();
 
   constructor(private readonly messageId: string) {}
 
@@ -104,31 +99,16 @@ class RunEventTranslatorImpl implements RunEventTranslator {
     return [{ type: 'start', messageId: this.messageId }];
   }
 
-  private closeText(): Array<UiChunk> {
-    if (this.openTextId === null) {
-      return [];
-    }
+  private closePart(kind: StreamPartKind): Array<UiChunk> {
+    const id = this.parts.close(kind);
 
-    const chunk: UiChunk = { type: 'text-end', id: this.openTextId };
-    this.openTextId = null;
-
-    return [chunk];
-  }
-
-  private closeReasoning(): Array<UiChunk> {
-    if (this.openReasoningId === null) {
-      return [];
-    }
-
-    const chunk: UiChunk = { type: 'reasoning-end', id: this.openReasoningId };
-    this.openReasoningId = null;
-    this.openReasoningPartId = undefined;
-
-    return [chunk];
+    return id === undefined ? [] : [{ type: `${kind}-end`, id }];
   }
 
   private closeModelParts(): Array<UiChunk> {
-    return this.openTextId === null ? this.closeReasoning() : this.closeText();
+    return this.parts.open('text') === undefined
+      ? this.closePart('reasoning')
+      : this.closePart('text');
   }
 
   private settleOpenTools(reason: string): Array<UiChunk> {
@@ -245,20 +225,21 @@ class RunEventTranslatorImpl implements RunEventTranslator {
       return [];
     }
 
-    const chunks = [...this.prelude(), ...this.closeReasoning()];
+    const partId = payloadString(event.payload, 'partId');
+    const chunks = [...this.prelude(), ...this.closePart('reasoning')];
+    // A tool-call part ends the open text part, and the Run names the text it
+    // keeps streaming after it apart from the text before it — so this part
+    // starts at its own sequence and a cut can remove it (D3).
+    let openTextId = this.parts.open('text');
 
-    if (this.openTextId === null) {
-      this.textPartCount += 1;
-      this.openTextId = `text-${this.textPartCount}`;
-
-      if (Number.isInteger(event.sequence) && event.sequence! > 0) {
-        this.unsettledPartSequences.set(this.openTextId, event.sequence!);
-      }
-
-      chunks.push({ type: 'text-start', id: this.openTextId });
+    if (openTextId === undefined || !this.parts.continues('text', partId)) {
+      chunks.push(...this.closePart('text'));
+      openTextId = this.parts.begin('text', partId, event.sequence);
+      chunks.push({ type: 'text-start', id: openTextId });
     }
 
-    chunks.push({ type: 'text-delta', id: this.openTextId, delta: text });
+    this.parts.adopt('text', partId);
+    chunks.push({ type: 'text-delta', id: openTextId, delta: text });
 
     return chunks;
   }
@@ -275,35 +256,22 @@ class RunEventTranslatorImpl implements RunEventTranslator {
     }
 
     const partId = payloadString(event.payload, 'partId');
-    const chunks = [...this.prelude(), ...this.closeText()];
+    const chunks = [...this.prelude(), ...this.closePart('text')];
     // Design D8: a new part starts when none is open, or when two defined
-    // adapter ids differ. An absent id is "no information" and never a
-    // boundary; an intervening text/tool/notice part already closed the open
-    // reasoning part, so this opens a fresh one from the closed state.
-    let openReasoningId = this.openReasoningId;
-    const openPartId = this.openReasoningPartId;
+    // adapter ids differ. An intervening text/tool/notice part already closed
+    // the open reasoning part, so this opens a fresh one from the closed state.
+    let openReasoningId = this.parts.open('reasoning');
 
     if (
-      openReasoningId === null ||
-      (partId !== undefined &&
-        openPartId !== undefined &&
-        partId !== openPartId)
+      openReasoningId === undefined ||
+      !this.parts.continues('reasoning', partId)
     ) {
-      chunks.push(...this.closeReasoning());
-      this.reasoningPartCount += 1;
-      openReasoningId = `reasoning-${this.reasoningPartCount}`;
-      this.openReasoningId = openReasoningId;
-      this.openReasoningPartId = partId;
-
-      if (Number.isInteger(event.sequence) && event.sequence! > 0) {
-        this.unsettledPartSequences.set(openReasoningId, event.sequence!);
-      }
-
+      chunks.push(...this.closePart('reasoning'));
+      openReasoningId = this.parts.begin('reasoning', partId, event.sequence);
       chunks.push({ type: 'reasoning-start', id: openReasoningId });
-    } else if (partId !== undefined) {
-      // A defined id becomes the open part's id; an absent one adds nothing.
-      this.openReasoningPartId = partId;
     }
+
+    this.parts.adopt('reasoning', partId);
 
     chunks.push({
       type: 'reasoning-delta',
@@ -318,15 +286,7 @@ class RunEventTranslatorImpl implements RunEventTranslator {
     const window = supersededWindow(event);
 
     if (window === undefined) return [];
-    const partIds: Array<string> = [];
-
-    for (const [partId, openedAt] of this.unsettledPartSequences) {
-      if (openedAt >= window.from && openedAt < window.to) {
-        partIds.push(partId);
-        this.unsettledPartSequences.delete(partId);
-      }
-    }
-
+    const partIds = this.parts.takeWindow(window.from, window.to);
     const chunks = [...this.prelude(), ...this.closeModelParts()];
 
     if (partIds.length)
@@ -336,7 +296,11 @@ class RunEventTranslatorImpl implements RunEventTranslator {
   }
 
   private onModelCompleted(event: RunEventLike): Array<UiChunk> {
-    this.unsettledPartSequences.clear();
+    // The step's response is done: nothing it streamed can be superseded by a
+    // later window, so its part starts are pruned here (design D3 windows stay
+    // inside one step). A failed send's terminal write appends its
+    // `model.superseded` before this event, so the cut's parts are still tracked.
+    this.parts.clear();
     // Surface per-turn usage as message metadata after closing the open part.
     const telemetry = payloadField(event.payload, 'telemetry');
 
@@ -412,8 +376,8 @@ class RunEventTranslatorImpl implements RunEventTranslator {
       isRecord(event.payload) && event.payload['interrupted'] === true;
 
     if (status !== 'error') {
-      this.unsettledPartSequences.clear();
-
+      // Deliberately keeps this step's part starts tracked: the failed send's
+      // cut can open before this call and close after it (design D3).
       return [
         ...this.prelude(),
         { type: 'tool-output-available', toolCallId, output, dynamic: true },

@@ -5,7 +5,10 @@ import type {
 import { MockLanguageModelV3 } from 'ai/test';
 
 import { classifyCompletions } from './provider-failure/classify-completions';
-import { ProviderFailure } from './provider-failure/provider-failure';
+import {
+  FAILURE_CLASSES,
+  ProviderFailure,
+} from './provider-failure/provider-failure';
 import { withRequestRecovery } from './request-recovery';
 
 const usage = {
@@ -182,6 +185,79 @@ it.each([
     expect(fixture.sends()).toBe(1);
   },
 );
+
+it.each(FAILURE_CLASSES)(
+  'does not send a %s failure again after a complete tool-call part',
+  async (failureClass) => {
+    const fixture = scriptedModel([
+      [
+        {
+          type: 'tool-call',
+          toolCallId: 'started-call',
+          toolName: 'read',
+          input: '{}',
+        },
+        {
+          type: 'error',
+          error: new ProviderFailure('Provider failure', {
+            code: failureClass,
+          }),
+        },
+      ],
+      complete,
+    ]);
+
+    const parts = await collect(
+      withRequestRecovery(fixture.model, options, immediate),
+    );
+
+    expect(providerFailureFrom(parts)).toMatchObject({
+      code: failureClass,
+      toolCallStarted: true,
+      sends: 1,
+    });
+    expect(fixture.sends()).toBe(1);
+  },
+);
+
+it('preserves safe failure metadata on a started call', async () => {
+  const now = Date.now();
+
+  const fixture = scriptedModel([
+    [
+      {
+        type: 'tool-call',
+        toolCallId: 'metadata-call',
+        toolName: 'read',
+        input: '{}',
+      },
+      {
+        type: 'error',
+        error: new ProviderFailure('Provider error', {
+          code: 'server_error',
+          resetsAt: now + 1000,
+          hintMs: 0,
+          statusCode: 503,
+        }),
+      },
+    ],
+    complete,
+  ]);
+
+  const parts = await collect(
+    withRequestRecovery(fixture.model, options, immediate),
+  );
+
+  expect(providerFailureFrom(parts)).toMatchObject({
+    code: 'server_error',
+    resetsAt: now + 1000,
+    hintMs: 0,
+    statusCode: 503,
+    toolCallStarted: true,
+    sends: 1,
+  });
+  expect(fixture.sends()).toBe(1);
+});
 
 describe('withRequestRecovery', () => {
   it('drops metadata from repeated failed sends and forwards one successful usage receipt', async () => {
@@ -1015,6 +1091,216 @@ describe('withRequestRecovery', () => {
     expect(secondStep.at(-1)).toMatchObject({
       error: { superseded: { retry: 1, delayMs: 0 } },
     });
+    expect(fixture.sends()).toBe(2);
+  });
+
+  it('keeps a carried started-call failure across a live supersede', async () => {
+    const fixture = scriptedModel([
+      [
+        { type: 'text-start', id: 'partial' },
+        { type: 'text-delta', id: 'partial', delta: 'partial' },
+        {
+          type: 'error',
+          error: new ProviderFailure('Provider overload', {
+            code: 'overloaded',
+            toolCallStarted: true,
+            sends: 5,
+          }),
+        },
+      ],
+    ]);
+
+    const parts = await collect(
+      withRequestRecovery(fixture.model, options, immediate),
+    );
+
+    expect(providerFailureFrom(parts)).toMatchObject({
+      code: 'overloaded',
+      toolCallStarted: true,
+      sends: 5,
+      superseded: { retry: 1, delayMs: 0 },
+    });
+    expect(fixture.sends()).toBe(1);
+  });
+
+  it('waits the carried retry number before the first send of the next step', async () => {
+    const fixture = scriptedModel([complete]);
+    const entered = Promise.withResolvers<void>();
+    const released = Promise.withResolvers<void>();
+    const onRetry = vi.fn();
+
+    const model = withRequestRecovery(
+      fixture.model,
+      {
+        ...options,
+        requestRetriesUsed: 3,
+        pendingFailure: new ProviderFailure('Provider error', {
+          code: 'server_error',
+        }),
+        onRetry,
+      },
+      {
+        random: () => 0.5,
+        delay: () => {
+          entered.resolve();
+
+          return released.promise;
+        },
+      },
+    );
+
+    const pending = collect(model);
+    await entered.promise;
+
+    expect(onRetry).toHaveBeenCalledTimes(1);
+    expect(onRetry).toHaveBeenCalledWith({
+      code: 'server_error',
+      retry: 3,
+      delayMs: 1000,
+    });
+    expect(fixture.sends()).toBe(0);
+
+    released.resolve();
+    expect(text(await pending)).toBe('Recovered answer.');
+    expect(fixture.sends()).toBe(1);
+  });
+
+  it('waits the provider delay when it exceeds the jitter of a pending retry', async () => {
+    const fixture = scriptedModel([complete]);
+    const delays: Array<number> = [];
+
+    const model = withRequestRecovery(
+      fixture.model,
+      {
+        ...options,
+        requestRetriesUsed: 1,
+        pendingFailure: new ProviderFailure('Rate limit', {
+          code: 'rate_limited',
+          hintMs: 1500,
+        }),
+      },
+      {
+        random: () => 0.5,
+        delay: (milliseconds) => {
+          delays.push(milliseconds);
+
+          return Promise.resolve();
+        },
+      },
+    );
+
+    expect(text(await collect(model))).toBe('Recovered answer.');
+    expect(delays).toEqual([1500]);
+    expect(fixture.sends()).toBe(1);
+  });
+
+  it('fails without a send when no retry is left for the next step', async () => {
+    const fixture = scriptedModel([complete]);
+    const onRetry = vi.fn();
+
+    const model = withRequestRecovery(
+      fixture.model,
+      {
+        ...options,
+        requestRetriesUsed: 11,
+        pendingFailure: overloaded(),
+        onRetry,
+      },
+      immediate,
+    );
+
+    await expect(collect(model)).rejects.toMatchObject({ code: 'overloaded' });
+    expect(fixture.sends()).toBe(0);
+    expect(onRetry).not.toHaveBeenCalled();
+  });
+
+  it('fails a pending authentication failure without a send', async () => {
+    const fixture = scriptedModel([complete]);
+
+    const model = withRequestRecovery(
+      fixture.model,
+      {
+        ...options,
+        pendingFailure: new ProviderFailure('Authentication failure', {
+          code: 'auth',
+        }),
+      },
+      immediate,
+    );
+
+    await expect(collect(model)).rejects.toMatchObject({ code: 'auth' });
+    expect(fixture.sends()).toBe(0);
+  });
+
+  it('aborts a pending-failure delay without a provider send', async () => {
+    const fixture = scriptedModel([complete]);
+    const entered = Promise.withResolvers<void>();
+    const controller = new AbortController();
+    const reason = new Error('Owner stopped the pending delay');
+
+    const model = withRequestRecovery(
+      fixture.model,
+      {
+        ...options,
+        pendingFailure: overloaded(),
+      },
+      {
+        random: () => 0,
+        delay: (_milliseconds, signal) => {
+          const settled = Promise.withResolvers<never>();
+
+          signal.addEventListener(
+            'abort',
+            () => settled.reject(signal.reason),
+            { once: true },
+          );
+          entered.resolve();
+
+          return settled.promise;
+        },
+      },
+    );
+
+    const rejected = collect(model, controller.signal).catch(
+      (error: unknown) => error,
+    );
+
+    await entered.promise;
+    controller.abort(reason);
+
+    expect(await rejected).toBe(reason);
+    expect(fixture.sends()).toBe(0);
+  });
+
+  it('applies a pending failure to the first wrapped stream only', async () => {
+    const fixture = scriptedModel([complete, complete]);
+    const retries: Array<number> = [];
+    const delays: Array<number> = [];
+
+    const model = withRequestRecovery(
+      fixture.model,
+      {
+        ...options,
+        requestRetriesUsed: 2,
+        pendingFailure: overloaded(),
+        onRetry: ({ retry }) => {
+          retries.push(retry);
+        },
+      },
+      {
+        random: () => 0,
+        delay: (milliseconds) => {
+          delays.push(milliseconds);
+
+          return Promise.resolve();
+        },
+      },
+    );
+
+    expect(text(await collect(model))).toBe('Recovered answer.');
+    expect(text(await collect(model))).toBe('Recovered answer.');
+    expect(retries).toEqual([2]);
+    expect(delays).toEqual([0]);
     expect(fixture.sends()).toBe(2);
   });
 

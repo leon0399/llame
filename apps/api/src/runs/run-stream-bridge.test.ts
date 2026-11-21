@@ -896,6 +896,34 @@ describe('createRunEventTranslator', () => {
     ]);
   });
 
+  it('opens a new UI text part when a text.delta changes its partId', () => {
+    const t = createRunEventTranslator('run-text-identity');
+
+    expect(
+      t.translate({
+        eventType: 'model.delta',
+        payload: { text: 'The answer', partId: '0:msg_1' },
+      }),
+    ).toEqual([
+      { type: 'start', messageId: 'run-text-identity' },
+      expect.objectContaining({ type: 'text-start', id: 'text-1' }),
+      { type: 'text-delta', id: 'text-1', delta: 'The answer' },
+    ]);
+
+    // Two defined ids that differ name different parts even while the wire is
+    // still inside the same step.
+    expect(
+      t.translate({
+        eventType: 'model.delta',
+        payload: { text: ' continues', partId: '0:msg_1#1' },
+      }),
+    ).toEqual([
+      { type: 'text-end', id: 'text-1' },
+      expect.objectContaining({ type: 'text-start', id: 'text-2' }),
+      { type: 'text-delta', id: 'text-2', delta: ' continues' },
+    ]);
+  });
+
   it('keeps one UI reasoning part for a constant partId and an absent one', () => {
     const t = createRunEventTranslator('run-constant-id');
     t.translate({
@@ -2100,5 +2128,269 @@ describe('RunStreamBridgeService terminal-status fallbacks', () => {
     expect(t.translate({ eventType: 'reasoning.delta', payload: {} })).toEqual(
       [],
     );
+  });
+});
+
+/**
+ * The cut of a failed send (continue-after-broken-send D3, provider-failures),
+ * in the order the continue path records it when the tail was still buffered
+ * at the break: `persistCutAnchor` flushes the deltas ahead of the call and
+ * reads the next sequence before the gate releases it, so the call's own
+ * `tool.requested` takes that anchor; the Run waits, the call settles, and the
+ * buffered tail flushes at the next step's start. The live view must remove
+ * only the text and reasoning parts opened after the anchor, and keep the
+ * prefix and the calls.
+ */
+describe('a failed send cut at its last complete tool call', () => {
+  /**
+   * The `tool.requested` → `tool.started` → `tool.completed` events of one
+   * read-only call that succeeded. The caller places each event, because a
+   * completion can land after later events while the Run waits for the call.
+   */
+  const readCall = (
+    requested: number,
+    completed: number,
+    call: {
+      readonly toolCallId: string;
+      readonly toolName: 'read' | 'grep';
+      readonly input: RunEvent['payload'];
+      readonly output: RunEvent['payload'];
+    },
+  ) => ({
+    requested: runEvent(requested, 'tool.requested', {
+      toolCallId: call.toolCallId,
+      toolName: call.toolName,
+      input: call.input,
+      stepNumber: 0,
+    }),
+    started: runEvent(requested + 1, 'tool.started', {
+      toolCallId: call.toolCallId,
+      toolName: call.toolName,
+      classification: 'read_only',
+    }),
+    completed: runEvent(completed, 'tool.completed', {
+      toolCallId: call.toolCallId,
+      toolName: call.toolName,
+      status: 'success',
+      output: call.output,
+    }),
+  });
+
+  const translateAll = (events: ReadonlyArray<RunEvent>) => {
+    const translator = createRunEventTranslator('run-cut');
+
+    return events.flatMap((event) => translator.translate(event));
+  };
+
+  it('The text after the last tool call is not kept', () => {
+    const call = readCall(2, 4, {
+      toolCallId: 'call-a',
+      toolName: 'read',
+      input: { path: '/work/a.txt' },
+      output: { status: 'success', content: 'file body' },
+    });
+
+    const chunks = translateAll([
+      runEvent(1, 'model.delta', { text: 'Hi' }),
+      call.requested,
+      call.started,
+      call.completed,
+      runEvent(5, 'model.delta', { text: ' trailing' }),
+      runEvent(6, 'reasoning.delta', { text: 'think' }),
+      // The anchor the call's own `tool.requested` took at sequence 2.
+      runEvent(7, 'model.superseded', { fromSequence: 2, step: 0 }),
+    ]);
+
+    // The short buffered prefix stayed below the anchor, so it is kept, and
+    // the call with its result is a kept part rather than a removed one.
+    expect(chunks.filter((chunk) => chunk.type === 'text-delta')).toEqual([
+      { type: 'text-delta', id: 'text-1', delta: 'Hi' },
+      { type: 'text-delta', id: 'text-2', delta: ' trailing' },
+    ]);
+    expect(chunks).toContainEqual({
+      type: 'tool-input-available',
+      toolCallId: 'call-a',
+      toolName: 'read',
+      input: { path: '/work/a.txt' },
+      dynamic: true,
+    });
+    expect(chunks).toContainEqual({
+      type: 'tool-output-available',
+      toolCallId: 'call-a',
+      output: { status: 'success', content: 'file body' },
+      dynamic: true,
+    });
+    expect(chunks).toContainEqual({
+      type: 'reasoning-delta',
+      id: 'reasoning-1',
+      delta: 'think',
+    });
+    // The live view removes only the parts opened inside the window.
+    expect(chunks).toContainEqual({
+      type: 'data-superseded',
+      data: { partIds: ['text-2', 'reasoning-1'] },
+    });
+  });
+
+  it('The text after a tool call is a new part', () => {
+    // The wire keeps one text id for the whole step, so the Run names the text
+    // after a tool call apart: it opens at its own sequence and a cut removes
+    // only that part, never the text before the call.
+    const call = readCall(2, 4, {
+      toolCallId: 'call-a',
+      toolName: 'read',
+      input: { path: '/work/a.txt' },
+      output: { status: 'success', content: 'file body' },
+    });
+
+    const chunks = translateAll([
+      runEvent(1, 'model.delta', { text: 'Hi', partId: '0:answer' }),
+      call.requested,
+      runEvent(3, 'model.delta', {
+        text: ' trailing',
+        partId: '0:answer#1',
+      }),
+      call.completed,
+      runEvent(5, 'model.superseded', { fromSequence: 2, step: 0 }),
+    ]);
+
+    expect(chunks.filter((chunk) => chunk.type === 'text-delta')).toEqual([
+      { type: 'text-delta', id: 'text-1', delta: 'Hi' },
+      { type: 'text-delta', id: 'text-2', delta: ' trailing' },
+    ]);
+    expect(chunks).toContainEqual({
+      type: 'data-superseded',
+      data: { partIds: ['text-2'] },
+    });
+  });
+
+  it('Text between two kept calls stays', () => {
+    const read = readCall(2, 7, {
+      toolCallId: 'call-a',
+      toolName: 'read',
+      input: { path: '/work/a.txt' },
+      output: { status: 'success', content: 'a body' },
+    });
+
+    const grep = readCall(5, 8, {
+      toolCallId: 'call-b',
+      toolName: 'grep',
+      input: { pattern: 'needle' },
+      output: { status: 'success', value: 'hit' },
+    });
+
+    const chunks = translateAll([
+      runEvent(1, 'model.delta', { text: 'one' }),
+      read.requested,
+      read.started,
+      // The second call's cut anchor flushed this text ahead of itself.
+      runEvent(4, 'model.delta', { text: 'two' }),
+      grep.requested,
+      grep.started,
+      // Both calls settle while the Run waits, before the next step's start.
+      read.completed,
+      grep.completed,
+      runEvent(9, 'model.delta', { text: 'three' }),
+      runEvent(10, 'model.superseded', { fromSequence: 5, step: 0 }),
+    ]);
+
+    expect(chunks.filter((chunk) => chunk.type === 'text-delta')).toEqual([
+      { type: 'text-delta', id: 'text-1', delta: 'one' },
+      { type: 'text-delta', id: 'text-2', delta: 'two' },
+      { type: 'text-delta', id: 'text-3', delta: 'three' },
+    ]);
+    expect(
+      chunks.filter((chunk) => chunk.type === 'tool-input-available'),
+    ).toEqual([
+      {
+        type: 'tool-input-available',
+        toolCallId: 'call-a',
+        toolName: 'read',
+        input: { path: '/work/a.txt' },
+        dynamic: true,
+      },
+      {
+        type: 'tool-input-available',
+        toolCallId: 'call-b',
+        toolName: 'grep',
+        input: { pattern: 'needle' },
+        dynamic: true,
+      },
+    ]);
+    expect(
+      chunks.filter((chunk) => chunk.type === 'tool-output-available'),
+    ).toEqual([
+      {
+        type: 'tool-output-available',
+        toolCallId: 'call-a',
+        output: { status: 'success', content: 'a body' },
+        dynamic: true,
+      },
+      {
+        type: 'tool-output-available',
+        toolCallId: 'call-b',
+        output: { status: 'success', value: 'hit' },
+        dynamic: true,
+      },
+    ]);
+    // Only the text after the second call is superseded.
+    expect(chunks).toContainEqual({
+      type: 'data-superseded',
+      data: { partIds: ['text-3'] },
+    });
+  });
+
+  it('The text after the last tool call is not kept when the call settles after the trailing text', () => {
+    // The tail can reach the log before a deferred call settles (a reasoning
+    // delta, the size or age flush, or `onFinish` after the wait), so the
+    // completion lands inside the cut's window and must not forget the parts
+    // opened before it.
+    const call = readCall(2, 6, {
+      toolCallId: 'call-a',
+      toolName: 'read',
+      input: { path: '/work/a.txt' },
+      output: { status: 'success', content: 'file body' },
+    });
+
+    const chunks = translateAll([
+      runEvent(1, 'model.delta', { text: 'Hi' }),
+      call.requested,
+      call.started,
+      runEvent(4, 'model.delta', { text: ' trailing' }),
+      runEvent(5, 'reasoning.delta', { text: 'think' }),
+      call.completed,
+      runEvent(7, 'model.superseded', { fromSequence: 2, step: 0 }),
+    ]);
+
+    expect(chunks.filter((chunk) => chunk.type === 'text-delta')).toEqual([
+      { type: 'text-delta', id: 'text-1', delta: 'Hi' },
+      { type: 'text-delta', id: 'text-2', delta: ' trailing' },
+    ]);
+    expect(chunks).toContainEqual({
+      type: 'tool-output-available',
+      toolCallId: 'call-a',
+      output: { status: 'success', content: 'file body' },
+      dynamic: true,
+    });
+    expect(chunks).toContainEqual({
+      type: 'data-superseded',
+      data: { partIds: ['text-2', 'reasoning-1'] },
+    });
+  });
+
+  it('does not name a part whose step already completed', () => {
+    // `model.completed` ends the step, so the parts behind it are no longer
+    // candidates: a later window starts after every sequence this step wrote,
+    // and a stale or malformed one cannot remove a committed part.
+    const chunks = translateAll([
+      runEvent(1, 'model.delta', { text: 'kept' }),
+      runEvent(2, 'model.completed', null),
+      runEvent(3, 'model.superseded', { fromSequence: 1, step: 0 }),
+    ]);
+
+    expect(chunks).not.toContainEqual(
+      expect.objectContaining({ type: 'data-superseded' }),
+    );
+    expect(chunks.at(-1)).toEqual({ type: 'text-end', id: 'text-1' });
   });
 });

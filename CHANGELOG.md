@@ -1,5 +1,15 @@
 _Reverse-chronological record of shipped work — features, fixes, and chores. Newest first._
 
+# 2026-11-21
+
+- Continue a Run after a model send that failed once it had streamed a complete
+  tool call. The Run waits for each started call to settle, keeps the reply
+  through its last tool part, drops the text and reasoning after it, and stores a
+  `provider-failure` notice after the last result. The next step then continues
+  under the failed request's retry count, and a class with no retry fails the Run
+  with the kept parts and the notice. References
+  [#1828](https://github.com/leon0399/llame/issues/1828).
+
 # 2026-11-20
 
 - Add prose rules for pages under `docs/` and vendor an adapted `unslop` skill

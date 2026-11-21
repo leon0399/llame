@@ -22,9 +22,10 @@ import {
 import {
   ProviderFailure,
   type FailureClass,
+  type ProviderFailureDetails,
 } from './provider-failure/provider-failure';
 
-const MAX_SENDS = 11;
+export const MAX_SENDS = 11;
 const STREAM_WINDOW_MS = 300_000;
 
 export type RequestRecoveryOptions = ProviderFailureMiddlewareOptions & {
@@ -32,6 +33,8 @@ export type RequestRecoveryOptions = ProviderFailureMiddlewareOptions & {
   onRetry?: ModelStreamInput['onRetry'];
   bufferWholeSend?: boolean;
   requestRetriesUsed?: number;
+  /** The previous step's started-call failure; the first send waits its delay. */
+  pendingFailure?: ProviderFailure;
 };
 
 type RecoveryTiming = Partial<RecoveryClock>;
@@ -51,7 +54,8 @@ type Send = {
   receivedAt: number;
 };
 
-function retryable(failure: ProviderFailure, now: number): boolean {
+/** Whether a request of this class is retried now, by the shipped rule. */
+export function retryable(failure: ProviderFailure, now: number): boolean {
   if (failure.resetsAt !== undefined && failure.resetsAt - now > 60_000)
     return false;
 
@@ -68,6 +72,24 @@ function retryable(failure: ProviderFailure, now: number): boolean {
     failure.code === 'first_token_timeout' ||
     failure.code === 'stream_broken'
   );
+}
+
+/** `failure` with its class and safe metadata carried over, plus `extra`. */
+function rebuilt(
+  failure: ProviderFailure,
+  extra: Partial<ProviderFailureDetails>,
+): ProviderFailure {
+  // The constructor drops an undefined detail, so every field can be assigned
+  // unconditionally; `extra` is spread last so a caller can override one.
+  return new ProviderFailure(failure.message, {
+    code: failure.code,
+    resetsAt: failure.resetsAt,
+    hintMs: failure.hintMs,
+    statusCode: failure.statusCode,
+    toolCallStarted: failure.toolCallStarted,
+    sends: failure.sends,
+    ...extra,
+  });
 }
 
 function retryDelay(
@@ -327,13 +349,7 @@ class StreamRecovery {
       : failure;
   }
   private supersededFailure(failure: ProviderFailure): ProviderFailure {
-    return new ProviderFailure(failure.message, {
-      code: failure.code,
-      ...(failure.resetsAt !== undefined && { resetsAt: failure.resetsAt }),
-      ...(failure.hintMs !== undefined && { hintMs: failure.hintMs }),
-      ...(failure.statusCode !== undefined && {
-        statusCode: failure.statusCode,
-      }),
+    return rebuilt(failure, {
       superseded: {
         retry: this.sends,
         delayMs: retryDelay(failure, this.sends, this.clock),
@@ -348,18 +364,9 @@ class StreamRecovery {
   ): FailedSend {
     const classified = this.streamFailure(error, send, output.content);
 
-    const failure =
-      output.completeTool &&
-      (classified.code === 'quota_exhausted' ||
-        classified.code === 'rate_limited')
-        ? new ProviderFailure(classified.message, {
-            code: classified.code,
-            resetsAt: classified.resetsAt,
-            hintMs: classified.hintMs,
-            statusCode: classified.statusCode,
-            toolCallStarted: true,
-          })
-        : classified;
+    const failure = output.completeTool
+      ? rebuilt(classified, { toolCallStarted: true, sends: this.sends })
+      : classified;
 
     const liveRetry =
       output.content &&
@@ -525,6 +532,7 @@ export function withRequestRecovery(
   };
 
   let requestRetriesUsed = options.requestRetriesUsed ?? 0;
+  let pendingFailure = options.pendingFailure;
 
   return wrapLanguageModel({
     model,
@@ -534,6 +542,13 @@ export function withRequestRecovery(
         const recovery = new StreamRecovery(raw, params, options, clock);
         recovery.restoreRetries(requestRetriesUsed);
         requestRetriesUsed = 0;
+
+        if (pendingFailure !== undefined) {
+          const failure = pendingFailure;
+          pendingFailure = undefined;
+          await recovery.retry(failure);
+        }
+
         const initial = await recovery.open();
 
         return {
@@ -557,6 +572,7 @@ export function applyRequestRecovery(
     abortSignal: input.abortSignal,
     onRetry: input.onRetry,
     requestRetriesUsed: input.requestRetriesUsed,
+    pendingFailure: input.pendingFailure,
     bufferWholeSend:
       options.bufferWholeSend ??
       (!input.onTextDelta && !input.onReasoningDelta),
