@@ -3842,9 +3842,11 @@ export class RunExecutionService {
     let segmentYield: AbortSignal | undefined;
     let interruptSettlement: Promise<void> | undefined;
     // The step's interrupt settlement and delivery, recorded once per model
-    // call: the SDK still reports `onFinish` after an abort on a step it
-    // already recorded (D2/D6).
-    let interruptOutcome: Promise<void> | undefined;
+    // call: it reports whether the delivery ran, so a later `onFinish` on a
+    // step the SDK already recorded waits for it instead of deciding the Run
+    // again, and a Stop that lands during the delivery is not mistaken for a
+    // delivery that never happened (D2/D6).
+    let interruptOutcome: Promise<boolean> | undefined;
     // The `bash` and MCP calls that started and that the interrupt stopped.
     const stoppedCalls: Array<StoppedCall> = [];
     // `native.result` writes of MCP calls whose attempt committed mid-interrupt.
@@ -5119,16 +5121,19 @@ export class RunExecutionService {
         cancelRequested: boolean,
       ): Promise<boolean> => {
         if (!cancelRequested && stoppedByInterrupt()) {
-          // The delivery is recorded once, so a later `onFinish` on a step the
-          // SDK already started waits for it instead of deciding the Run again
-          // (D2/D6).
-          await (interruptOutcome ??= (async () => {
+          // The delivery is recorded once: it reports whether it ran, so a
+          // Stop that lands while it is in flight cannot make the caller
+          // settle the same step a second time.
+          const delivered = await (interruptOutcome ??= (async () => {
             await settleOnInterrupt();
 
-            if (!input.abortSignal?.aborted) await deliverInterrupt();
+            if (input.abortSignal?.aborted) return false;
+            await deliverInterrupt();
+
+            return true;
           })());
 
-          if (!input.abortSignal?.aborted) return true;
+          if (delivered) return true;
         }
 
         if (parentAbortSettlement) {
