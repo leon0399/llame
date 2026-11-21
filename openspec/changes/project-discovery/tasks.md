@@ -70,8 +70,8 @@ Branch `project-discovery/editor` has parent `project-discovery/context`. It own
 
 - [x] 5.1 Replace the Instructions toggle with real query/mutation state, save, clear, server error handling, and retained unsaved drafts. Prove save and clear survive reload, and archived Projects remain read-only.
 - [x] 5.2 Remove the Context demo, sample files, and orphaned imports. Replace obsolete demo-interaction story assertions with observable editor behavior. Keep #1330 outside this layer.
-- [ ] 5.3 Run Storybook consumer tests and previews and record preview URLs. Prove a focused product E2E that saves instructions, reloads, starts a Project Chat, and observes the model request's applied guidance.
-- [ ] 5.4 Update affected owner-facing documentation, the dated changelog, and completed roadmap entries. Run affected web lint, typecheck, build, Markdown lint, formatting, and diff checks.
+- [x] 5.3 Run Storybook consumer tests and previews and record preview URLs. Prove a focused product E2E that saves instructions, reloads, starts a Project Chat, and observes the model request's applied guidance.
+- [x] 5.4 Update affected owner-facing documentation, the dated changelog, and completed roadmap entries. Run affected web lint, typecheck, build, Markdown lint, formatting, and diff checks.
 - [ ] 5.5 Publish draft with `Closes #1329`. Complete SR before ready, then GR, current-head CI, and delivery Project updates before the next layer. Keep #333 open for its remaining outcomes.
 
 ## 6. Finalize layer

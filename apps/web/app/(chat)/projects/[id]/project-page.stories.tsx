@@ -624,6 +624,7 @@ export const KeepsSavedTextWhenReloadFails: Story = {
       instructions: "New guidance.",
     });
     await waitFor(() => expect(failedProjectsReads).toBeGreaterThan(0));
+    await waitFor(() => expect(textarea).toBeEnabled());
     await waitFor(() => expect(textarea).toHaveValue("New guidance."));
     await expect(textarea).not.toHaveValue("Old guidance.");
   },
