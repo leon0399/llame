@@ -1,0 +1,50 @@
+Track [#119](https://github.com/leon0399/llame/issues/119) and its PR layers
+through [Project tracking](../../../CONTRIBUTING.md#project-tracking). Carry
+forward the recorded proposal approval and recheck native blockers before
+starting.
+
+## Delivery stack
+
+Use `$gh-stack` for every branch operation and `$openspec-apply-change` for
+the implementation layer, after proposal approval only.
+
+```text
+master
+  <- run-event-retention/proposal
+  <- run-event-retention/prune
+  <- run-event-retention/finalize
+```
+
+| Layer                          | Parent     | Ownership                                                                     | Authored estimate | Closes |
+| ------------------------------ | ---------- | ----------------------------------------------------------------------------- | ----------------- | ------ |
+| `run-event-retention/proposal` | `master`   | The approved proposal, design, deltas, and this task list.                    | ~300              | none   |
+| `run-event-retention/prune`    | `proposal` | The setting, the discovery function, the DELETE policy, the job, tests, docs. | ~700              | #119   |
+| `run-event-retention/finalize` | `prune`    | Spec sync, task records, and archive movement only.                           | ~200              | none   |
+
+## 0. proposal
+
+- [ ] 0.1 Run adversarial review with two independent reviewers, one security-focused on the new DELETE policy; verify findings against code and specs; commit each round separately.
+- [ ] 0.2 Prove the final revision: `pnpm exec openspec validate prune-terminal-run-deltas --strict`, `pnpm lint:markdown`, `pnpm format:check`, `git diff --check`, and a whitespace-normalized diff of every MODIFIED block (two in `durable-runs`, two in `reasoning-output`) against canonical keeping every canonical scenario in order; record Leo's approval, including decisions E1-E3.
+- [ ] 0.3 Self-review the proposal diff before marking the PR ready.
+- [ ] 0.4 Pass the GitHub review and CI gate under Ready-PR monitoring.
+
+## 1. prune
+
+- [ ] 1.1 Add `runs.deltaRetentionDays` to the loader, the JSON Schema, and `llame.config.jsonc.example`; verify `config-loader.test.ts` cases for absent and `null` (unset), `7`, an interpolation token, and `0`, `-1`, `1.5` failing startup; the example config shows `7` commented as the suggested window.
+- [ ] 1.2 Add the discovery function and the `run_events_owner_delete_delta` policy in a migration that follows `apps/api/src/db/AGENTS.md` (P1 `FORCE`, P3 ownership and grants in `docker/postgres/rls-function-owner.sql`, including the re-`GRANT EXECUTE` to `app` after the ownership transfer, a manual-SQL header), and replace the "Rows are never updated or deleted" comment above `runEvents` in `apps/api/src/db/schema/chats.ts` with the retention exception; verify the migration on a fresh database and `pnpm db:check`.
+- [ ] 1.3 Add `RunEventRetentionService` on a `run-event-retention` queue and worker-profile consumer (design D3), registering the group in `WORKER_GROUPS`, the closed `workers` profile schema, and the scaling runbook's group list; verify an integration test with Runs of two owners covering every scenario of both ADDED `durable-runs` requirements, including a superseded Run that shares its message with a later finalized Run and keeps its deltas, a retried Run whose first attempt's deltas survive while the finalizing attempt's are deleted, and a Run with more deltas than one `DELETE` batch that drains across statements and ticks within the row budget (design D1), plus a replay test for the MODIFIED scenario "A finished Run past retention replays without deltas", and an RLS test that another owner's rows, non-delta events, and a request without the cutoff setting are never deleted.
+- [ ] 1.4 Update `docs/product/operator/scaling.md` (remove the #119 open constraint, document the window), scope "Run progress is an append-only event stream" in `SPEC.md` §9.4 to everything except the retention job's delta deletes, and add the dated `CHANGELOG.md` entry; verify `pnpm lint:markdown`.
+- [ ] 1.5 Verify the layer: in `apps/api`, `pnpm exec vitest run --project unit src/runs src/instance-config`, the new integration and RLS tests, `pnpm typecheck`, `pnpm lint`, and the changed-lines mutation gate; at the root, `pnpm format:check` and `git diff --check`.
+- [ ] 1.6 Self-review the parent-relative diff before marking the PR ready; fix accepted findings with new commits.
+- [ ] 1.7 Pass the GitHub review and CI gate under Ready-PR monitoring with `Closes #119` in the PR body.
+
+## 2. finalize
+
+- [ ] 2.1 Enter `run-event-retention/finalize` with `$gh-stack` before any canonical spec write, then run `$openspec-sync-specs`; verify the ADDED requirements appear word for word and the two `durable-runs` and two `reasoning-output` MODIFIED requirements match the delta with every canonical scenario kept.
+- [ ] 2.2 Confirm archive readiness: `openspec status --change prune-terminal-run-deltas --json` reports every artifact done and every task above is checked; run `pnpm exec openspec validate --specs --strict`, `pnpm exec openspec validate --all --strict`, `pnpm lint:markdown`, `pnpm format:check`, and `git diff --check`.
+
+## Workflow follow-up
+
+- Archive with `$openspec-archive-change` after 2.2; then self-review the
+  finalize diff, mark it ready, and run Ready-PR monitoring.
+- Merge the stack only through `$gh-stack` with Leo's explicit permission.
