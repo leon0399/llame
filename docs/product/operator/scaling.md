@@ -212,21 +212,30 @@ authoritative reset more than 60 seconds away enters `awaiting_quota`, provided
 the reset is no more than `runs.quotaWaitMaxSeconds` away (default 691,200,
 eight days), no tool call has started, and this logical request has waited
 fewer than four times. The setting must be a positive integer. A missing
-reset, one beyond the cap, a started tool call, or an exhausted wait allowance
-ends the request with its failure class. Completed tool calls are never
-replayed. The checkpoint omits failed-send output, retains completed
-steps and context, and releases the worker while keeping the Chat in
+reset, one beyond the cap, a started tool call outside a Run step, or an
+exhausted wait allowance ends the request with its failure class. Completed
+tool calls are never replayed. The checkpoint omits failed-send output, retains
+completed steps and context, and releases the worker while keeping the Chat in
 single-flight. The deadline job sends again after reset plus 60 seconds and
 0-18 seconds of jitter. Each logical request can wait once and re-wait three
 times; recovery and redelivery retain that count until the request succeeds.
+
+A Run step that streamed a complete tool call before it failed parks the same
+way, after each started call settles. The entry transaction stores the kept
+parts of that send and its `provider-failure` notice, and names the cut. The
+failed step counts as one completed step against the cap, and the wait count
+carries to it because the failed step records no recovery.
 
 Quota wait time does not count toward `runs.timeoutSeconds`; each claim keeps
 its own execution ceiling. Only the deadline or Stop wakes a quota wait.
 Steers, interrupts, queued deliveries, and job notices remain pending; a plain
 send still gets 409. After the wake, the failed request is sent before pending
-items reach its next step boundary. Stop cancels rather than promoting a
-pending steer. The API stream stays open, polling every two seconds while the
-Run waits and sending a keepalive comment after 15 quiet seconds.
+items reach its next step boundary. A send that started a tool call instead
+delivers pending items at the boundary, and only then sends the next step from
+its checkpoint, so the steer reaches the model before that request. Stop
+cancels rather than promoting a pending steer. The API stream stays open,
+polling every two seconds while the Run waits and sending a keepalive comment
+after 15 quiet seconds.
 
 Compaction summaries on the Run's own model use the same quota wait, including
 pre-dispatch, step-boundary, final-answer, and manual compaction Runs. This

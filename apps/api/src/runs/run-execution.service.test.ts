@@ -164,6 +164,7 @@ import {
   promptImportMediaKey,
 } from '../chats/prompt-imports-item';
 import { createJobNoticeItem } from '../chats/job-context-item';
+import { createProviderFailureItem } from '../chats/provider-failure-notice';
 import { MediaService } from '../media/media.service';
 import type { WorkspaceDetachReason } from '../chats/workspace-binding';
 import {
@@ -31201,6 +31202,27 @@ describe('a send that breaks after a started tool call', () => {
     };
   }
 
+  /** A usage limit whose reset is two days away: in range, beyond a minute. */
+  function quotaFailure(
+    code: 'quota_exhausted' | 'rate_limited' = 'quota_exhausted',
+  ): ProviderFailure {
+    return new ProviderFailure('weekly quota exhausted', {
+      code,
+      resetsAt: Date.now() + 2 * 24 * 60 * 60 * 1000,
+    });
+  }
+
+  /** One scripted send that streamed `parts` and then failed with `failure`. */
+  function failedSend(
+    parts: ReadonlyArray<LanguageModelV3StreamPart>,
+    failure: ProviderFailure,
+  ) {
+    return providerResponse(
+      [...parts, { type: 'error', error: failure }],
+      'tool-calls',
+    );
+  }
+
   function lookupCall(
     toolCallId: string,
     q: string,
@@ -31381,6 +31403,8 @@ describe('a send that breaks after a started tool call', () => {
     readonly arrangeService?: (
       execution: ReturnType<typeof makeExecutionService>,
     ) => void;
+    /** Mocks that need the service's database handle, installed before the Run. */
+    readonly arrangeDb?: (db: Db) => void;
   };
 
   /** Drains the Run without deciding whether it succeeded. */
@@ -31428,6 +31452,7 @@ describe('a send that breaks after a started tool call', () => {
     );
 
     options.arrangeService?.(execution);
+    options.arrangeDb?.(execution.db);
 
     const drained = drain(
       await execution.service.executeRun(
@@ -34001,6 +34026,483 @@ describe('a send that breaks after a started tool call', () => {
       // its boundary estimates the whole request instead.
       expect(measured).toContain(100);
       expect(measured.at(-1)).toBeUndefined();
+    },
+  );
+
+  it.each<Wire>(['responses', 'completions'])(
+    '%s wire: A usage limit after a tool call',
+    async (wire) => {
+      const lookup = echoTool(LOOKUP_TOOL);
+
+      const suspendForQuota = vi
+        .fn<RunWaitService['suspendForQuota']>()
+        .mockResolvedValue({ kind: 'suspended' });
+
+      const { spies, appended, requests, drained } = await startAndDrain({
+        wire,
+        tools: toolset(lookup),
+        runWait: asDouble<RunWaitService>({ suspendForQuota }),
+        responses: [
+          failedSend(
+            [
+              ...textParts('I will read it. '),
+              lookupCall('read-call', 'a'),
+              ...textParts('TRAILING TEXT MUST NOT SURVIVE'),
+            ],
+            quotaFailure(),
+          ),
+          providerText('never sent'),
+        ],
+      });
+
+      await drained;
+
+      // The request is not sent again, and the read ran once.
+      expect(lookup.calls).toEqual(['a']);
+      expect(requests).toHaveLength(1);
+      // The Run parks; this attempt neither fails nor writes the reply.
+      expect(suspendForQuota).toHaveBeenCalledOnce();
+      expect(spies.markFinished).not.toHaveBeenCalled();
+      expect(spies.createAssistantReplyIfAbsent).not.toHaveBeenCalled();
+      expect(suspendForQuota.mock.lastCall?.[0]).toMatchObject({
+        runId,
+        chatId,
+        userId,
+        attemptId: testAttemptId,
+        awaiting: {
+          kind: 'quota',
+          failureClass: 'quota_exhausted',
+          resumeAt: 'request',
+          waitCount: 1,
+        },
+        steps: {},
+        // The kept part of the failed step is one step that completed its send.
+        stepBudgetUsed: 1,
+        // The cut is named in the entry transaction, with its checkpoint.
+        superseded: { step: 0 },
+      });
+      // Nothing of the cut or the suspension is written before that transaction.
+      expect(
+        appended.filter(({ type }) => type === 'model.superseded'),
+      ).toEqual([]);
+      expect(appended.filter(({ type }) => type === 'run.suspended')).toEqual(
+        [],
+      );
+    },
+  );
+
+  it.each<Wire>(['responses', 'completions'])(
+    '%s wire: A limit after a tool call parks the Run after the call settles',
+    async (wire) => {
+      const lookup = deferredTool(LOOKUP_TOOL);
+
+      const suspendForQuota = vi
+        .fn<RunWaitService['suspendForQuota']>()
+        .mockResolvedValue({ kind: 'suspended' });
+
+      const { requests, drained } = await startAndDrain({
+        wire,
+        tools: toolset(lookup),
+        runWait: asDouble<RunWaitService>({ suspendForQuota }),
+        responses: [
+          failedSend(
+            [lookupCall('bash-call', 'a')],
+            quotaFailure('rate_limited'),
+          ),
+          providerText('never sent'),
+        ],
+      });
+
+      await vi.waitFor(() => expect(lookup.calls).toEqual(['a']));
+      // The call still runs: the Run waits for it, and sends nothing.
+      expect(suspendForQuota).not.toHaveBeenCalled();
+      expect(requests).toHaveLength(1);
+
+      lookup.settle('a');
+      await drained;
+
+      expect(suspendForQuota).toHaveBeenCalledOnce();
+      expect(suspendForQuota.mock.lastCall?.[0].awaiting).toMatchObject({
+        kind: 'quota',
+        failureClass: 'rate_limited',
+        waitCount: 1,
+      });
+      expect(requests).toHaveLength(1);
+    },
+  );
+
+  it.each<Wire>(['responses', 'completions'])(
+    '%s wire: The kept parts of a failed send survive the wait',
+    async (wire) => {
+      const lookup = deferredTool(LOOKUP_TOOL);
+
+      const suspendForQuota = vi
+        .fn<RunWaitService['suspendForQuota']>()
+        .mockResolvedValue({ kind: 'suspended' });
+
+      const { drained } = await startAndDrain({
+        wire,
+        tools: toolset(lookup),
+        runWait: asDouble<RunWaitService>({ suspendForQuota }),
+        responses: [
+          failedSend(
+            [
+              ...textParts('Before the call. '),
+              lookupCall('bash-call', 'a'),
+              ...textParts('TRAILING TEXT MUST NOT SURVIVE'),
+            ],
+            quotaFailure(),
+          ),
+          providerText('never sent'),
+        ],
+      });
+
+      await vi.waitFor(() => expect(lookup.calls).toEqual(['a']));
+      lookup.settle('a');
+      await drained;
+
+      const parts = (suspendForQuota.mock.lastCall?.[0].parts ?? []).filter(
+        isRecord,
+      );
+
+      // The checkpoint holds the text before the call, the settled call, and
+      // then the notice — never the text the cut dropped.
+      expect(parts).toHaveLength(3);
+      expect(parts[0]).toMatchObject({
+        type: 'text',
+        text: 'Before the call. ',
+      });
+      expect(parts[1]).toMatchObject({
+        toolCallId: 'bash-call',
+        state: 'output-available',
+        output: { status: 'success', echo: 'a' },
+      });
+      expect(parts[2]).toMatchObject({
+        type: 'data-context',
+        data: { producer: 'provider-failure', form: 'notice' },
+      });
+      expect(JSON.stringify(parts)).not.toContain(
+        'TRAILING TEXT MUST NOT SURVIVE',
+      );
+    },
+  );
+
+  it.each<Wire>(['responses', 'completions'])(
+    '%s wire: A second usage limit after a woken tool call',
+    async (wire) => {
+      const attemptId = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
+      const generation = 2;
+      const lookup = deferredTool(LOOKUP_TOOL);
+
+      const suspendForQuota = vi
+        .fn<RunWaitService['suspendForQuota']>()
+        .mockResolvedValue({ kind: 'suspended' });
+
+      // The woken request carries the checkpoint the first wait stored.
+      const keptParts: Array<MessagePart> = [
+        {
+          type: 'tool-read',
+          toolCallId: 'kept-read',
+          state: 'output-available',
+          input: { path: 'notes.txt' },
+          output: { status: 'success', text: 'kept result' },
+          outcome: 'success',
+          step: 0,
+        },
+        createProviderFailureItem({ runId, failureClass: 'quota_exhausted' }),
+      ];
+
+      const awaiting = {
+        kind: 'quota' as const,
+        failureClass: 'quota_exhausted' as const,
+        resetsAt: new Date(Date.now() + 7_200_000).toISOString(),
+        wakeAt: new Date(Date.now() - 60_000).toISOString(),
+        resumeAt: 'request' as const,
+        waitCount: 1,
+      };
+
+      const queued = {
+        ...run,
+        status: 'queued' as const,
+        activeAttemptId: null,
+        awaiting,
+        wakeGeneration: generation,
+        currentJobId: 'quota-wake-job',
+      };
+
+      const started = {
+        ...queued,
+        status: 'running_model' as const,
+        activeAttemptId: attemptId,
+      };
+
+      const quotaEvents: Array<RunEvent> = [
+        {
+          ...event,
+          sequence: 1,
+          eventType: 'run.started',
+          payload: { attemptId: testAttemptId },
+        },
+        {
+          ...event,
+          sequence: 2,
+          eventType: 'run.suspended',
+          payload: {
+            attemptId: testAttemptId,
+            generation,
+            ...awaiting,
+            parts: keptParts,
+            steps: {},
+          },
+        },
+        {
+          ...event,
+          sequence: 3,
+          eventType: 'run.resumed',
+          payload: {
+            generation,
+            kind: 'quota',
+            attemptId,
+            cause: 'timeout',
+          },
+        },
+      ];
+
+      const { spies, requests, drained } = await startAndDrain({
+        wire,
+        tools: toolset(lookup),
+        runWait: asDouble<RunWaitService>({ suspendForQuota }),
+        arrange: (repositories) => {
+          repositories.findById
+            .mockResolvedValueOnce(queued)
+            .mockResolvedValue(started);
+          repositories.markStarted.mockResolvedValue(started);
+          repositories.updateForAttempt.mockResolvedValue({
+            ...started,
+            awaiting: null,
+          });
+          vi.spyOn(
+            RunEventsRepository.prototype,
+            'listByRunId',
+          ).mockImplementation((_runId, _userId, options) =>
+            Promise.resolve(filterDurableEvents(quotaEvents, options)),
+          );
+          vi.spyOn(
+            ChatsRepository.prototype,
+            'setSkillCatalogBaseline',
+          ).mockResolvedValue(undefined);
+          vi.spyOn(
+            RunRowFenceRepository.prototype,
+            'lockForDelivery',
+          ).mockResolvedValue({ ...started, awaiting: null });
+        },
+        arrangeDb: (database) => {
+          // The claim's own wake receipt: the deadline job's `run.resumed`.
+          Object.defineProperty(database, 'select', {
+            configurable: true,
+            value: () => ({
+              from: () => ({
+                innerJoin: () => ({
+                  where: () => ({
+                    orderBy: () => ({
+                      limit: () => Promise.resolve([quotaEvents[2]]),
+                    }),
+                  }),
+                }),
+                where: () => Promise.resolve([]),
+              }),
+            }),
+          });
+        },
+        responses: [
+          failedSend([lookupCall('bash-call', 'a')], quotaFailure()),
+          providerText('never sent'),
+        ],
+      });
+
+      await vi.waitFor(() => expect(lookup.calls).toEqual(['a']));
+      lookup.settle('a');
+      await drained;
+
+      // The woken request was the next step: it carried the kept result and the
+      // notice, and it re-ran nothing.
+      const woken = JSON.stringify(requests[0]);
+      expect(requests).toHaveLength(1);
+      expect(woken).toContain('kept result');
+      expect(woken).toContain('a usage limit');
+      // The failed step recorded no recovery, so its wait count carries.
+      expect(suspendForQuota).toHaveBeenCalledOnce();
+      expect(suspendForQuota.mock.lastCall?.[0].awaiting).toMatchObject({
+        kind: 'quota',
+        waitCount: 2,
+      });
+      expect(spies.markFinished).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each<Wire>(['responses', 'completions'])(
+    '%s wire: A steer during a wait after a tool call',
+    async (wire) => {
+      const attemptId = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
+      const generation = 2;
+      const lookup = deferredTool(LOOKUP_TOOL);
+
+      // The checkpoint the failed send left: kept text, the settled call, the
+      // notice the park stored in the entry transaction.
+      const parts: Array<MessagePart> = [
+        { type: 'text', text: 'Before the call. ', step: 0 },
+        {
+          type: 'tool-read',
+          toolCallId: 'kept-read',
+          state: 'output-available',
+          input: { path: 'notes.txt' },
+          output: { status: 'success', text: 'kept result' },
+          outcome: 'success',
+          step: 0,
+        },
+        createProviderFailureItem({ runId, failureClass: 'quota_exhausted' }),
+      ];
+
+      const awaiting = {
+        kind: 'quota' as const,
+        failureClass: 'quota_exhausted' as const,
+        resetsAt: new Date(Date.now() + 7_200_000).toISOString(),
+        wakeAt: new Date(Date.now() - 60_000).toISOString(),
+        resumeAt: 'request' as const,
+        waitCount: 1,
+      };
+
+      const queued = {
+        ...run,
+        status: 'queued' as const,
+        activeAttemptId: null,
+        awaiting,
+        wakeGeneration: generation,
+        currentJobId: 'quota-wake-job',
+      };
+
+      const started = {
+        ...queued,
+        status: 'running_model' as const,
+        activeAttemptId: attemptId,
+      };
+
+      const quotaEvents: Array<RunEvent> = [
+        {
+          ...event,
+          sequence: 1,
+          eventType: 'run.started',
+          payload: { attemptId: testAttemptId },
+        },
+        {
+          ...event,
+          sequence: 2,
+          eventType: 'run.suspended',
+          payload: {
+            attemptId: testAttemptId,
+            generation,
+            ...awaiting,
+            parts,
+            steps: {},
+            superseded: { fromSequence: 3, step: 0 },
+          },
+        },
+        {
+          ...event,
+          sequence: 3,
+          eventType: 'run.resumed',
+          payload: {
+            generation,
+            kind: 'quota',
+            attemptId,
+            cause: 'timeout',
+          },
+        },
+      ];
+
+      const { spies, appended, requests, drained } = await startAndDrain({
+        wire,
+        tools: toolset(lookup),
+        arrange: (repositories) => {
+          repositories.findById
+            .mockResolvedValueOnce(queued)
+            .mockResolvedValue(started);
+          repositories.markStarted.mockResolvedValue(started);
+          repositories.updateForAttempt.mockResolvedValue({
+            ...started,
+            awaiting: null,
+          });
+          vi.spyOn(
+            RunEventsRepository.prototype,
+            'listByRunId',
+          ).mockImplementation((_runId, _userId, options) =>
+            Promise.resolve(filterDurableEvents(quotaEvents, options)),
+          );
+          vi.spyOn(
+            ChatsRepository.prototype,
+            'setSkillCatalogBaseline',
+          ).mockResolvedValue(undefined);
+          vi.spyOn(
+            RunRowFenceRepository.prototype,
+            'lockForDelivery',
+          ).mockResolvedValue({ ...started, awaiting: null });
+          serveDelivery(
+            repositories,
+            [ownerItem('steer', 'steer now')],
+            deliveredMessageOf('steer now'),
+          );
+        },
+        arrangeDb: (database) => {
+          Object.defineProperty(database, 'select', {
+            configurable: true,
+            value: () => ({
+              from: () => ({
+                innerJoin: () => ({
+                  where: () => ({
+                    orderBy: () => ({
+                      limit: () => Promise.resolve([quotaEvents[2]]),
+                    }),
+                  }),
+                }),
+                where: () => Promise.resolve([]),
+              }),
+            }),
+          });
+        },
+        responses: [providerText('after the wait')],
+      });
+
+      await drained;
+
+      // The delivery came at the boundary before the woken next step: it is
+      // logged before that step's request, and the closed reply holds the cut.
+      const types = appended.map(({ type }) => type);
+      expect(types).toContain('run.delivered');
+      expect(types.indexOf('model.requested')).toBeGreaterThan(
+        types.indexOf('run.delivered'),
+      );
+      const closed = replyPartsOf(spies, 0);
+      expect(textOf(closed)).toBe('Before the call. ');
+      expect(partOf(closed, 'kept-read')).toMatchObject({
+        state: 'output-available',
+        output: { status: 'success', text: 'kept result' },
+      });
+      expect(noticesOf(closed)).toHaveLength(1);
+
+      // The next step is the delivered segment's request: it carries the
+      // steer, the kept result, and the notice, and it re-runs nothing.
+      expect(requests).toHaveLength(1);
+      const next = JSON.stringify(requests[0]);
+      expect(next).toContain('steer now');
+      expect(next).toContain('kept result');
+      expect(next).toContain('a usage limit');
+      expect(lookup.calls).toEqual([]);
+      expect(spies.markFinished).toHaveBeenCalledWith(
+        runId,
+        userId,
+        'completed',
+        expect.anything(),
+      );
     },
   );
 });

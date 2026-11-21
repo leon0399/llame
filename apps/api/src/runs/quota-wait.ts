@@ -2,17 +2,33 @@ import type { ProviderFailure } from '../models/provider-failure/provider-failur
 import type { AwaitingQuota } from '../db/schema';
 import type { QuotaRequestState } from './quota-wake-projection';
 
+/**
+ * How a caller treats a send that started a tool call. The shipped rule
+ * refuses it: the request fails with its class, and the caller's own rules
+ * apply. The failed-send decision parks that Run after its calls settle
+ * (continue-after-broken-send D6), so it asks for the after-cut mode.
+ */
+export type QuotaWaitOptions = {
+  /** Accept a send that already started a tool call, and park after the cut. */
+  readonly afterCut?: boolean;
+};
+
 export function quotaWaitForFailure(
   error: ProviderFailure,
   maxSeconds: number,
   request: QuotaRequestState | undefined,
+  options: QuotaWaitOptions = {},
 ): AwaitingQuota | undefined {
   if (error.code !== 'quota_exhausted' && error.code !== 'rate_limited')
     return undefined;
 
   const resetsAt = error.resetsAt;
 
-  if (resetsAt === undefined || error.toolCallStarted) return undefined;
+  if (
+    resetsAt === undefined ||
+    (error.toolCallStarted && options.afterCut !== true)
+  )
+    return undefined;
 
   const remaining = resetsAt - Date.now();
 

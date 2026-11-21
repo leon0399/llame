@@ -94,3 +94,95 @@ it('never parks after a complete tool call or without an authoritative reset', (
     ),
   ).toBeUndefined();
 });
+
+it('accepts a started call only for the after-cut mode', () => {
+  const failure = new ProviderFailure('Usage limit', {
+    code: 'rate_limited',
+    resetsAt: now + 3_600_000,
+    toolCallStarted: true,
+  });
+
+  expect(quotaWaitForFailure(failure, cap, undefined)).toBeUndefined();
+  expect(
+    quotaWaitForFailure(failure, cap, undefined, { afterCut: true }),
+  ).toMatchObject({ failureClass: 'rate_limited', waitCount: 1 });
+
+  // The cut mode waives the started-call refusal alone: the class, the reset
+  // range, and the absence of a reset still refuse.
+  const afterCut = { afterCut: true };
+
+  expect(
+    quotaWaitForFailure(
+      new ProviderFailure('Billing limit', {
+        code: 'billing',
+        resetsAt: now + 3_600_000,
+        toolCallStarted: true,
+      }),
+      cap,
+      undefined,
+      afterCut,
+    ),
+  ).toBeUndefined();
+  expect(
+    quotaWaitForFailure(
+      new ProviderFailure('Usage limit', {
+        code: 'quota_exhausted',
+        resetsAt: now + cap * 1000 + 1,
+        toolCallStarted: true,
+      }),
+      cap,
+      undefined,
+      afterCut,
+    ),
+  ).toBeUndefined();
+  expect(
+    quotaWaitForFailure(
+      new ProviderFailure('Usage limit', {
+        code: 'quota_exhausted',
+        resetsAt: now + 60_000,
+        toolCallStarted: true,
+      }),
+      cap,
+      undefined,
+      afterCut,
+    ),
+  ).toBeUndefined();
+  expect(
+    quotaWaitForFailure(
+      new ProviderFailure('Usage limit', {
+        code: 'quota_exhausted',
+        toolCallStarted: true,
+      }),
+      cap,
+      undefined,
+      afterCut,
+    ),
+  ).toBeUndefined();
+  expect(
+    quotaWaitForFailure(
+      new ProviderFailure('Usage limit', {
+        code: 'rate_limited',
+        resetsAt: now + 3_600_000,
+        toolCallStarted: true,
+      }),
+      cap,
+      { resumeAt: 'request', waitCount: 4, generation: 6 },
+      afterCut,
+    ),
+  ).toBeUndefined();
+});
+
+it('carries the wait count of the request it continues after a cut', () => {
+  expect(
+    quotaWaitForFailure(
+      new ProviderFailure('Usage limit', {
+        code: 'quota_exhausted',
+        resetsAt: now + 3_600_000,
+        toolCallStarted: true,
+      }),
+      cap,
+      { resumeAt: 'request', waitCount: 1, generation: 4 },
+      { afterCut: true },
+    ),
+  ).toMatchObject({ waitCount: 2, resumeAt: 'request' });
+});

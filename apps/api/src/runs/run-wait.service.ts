@@ -53,6 +53,12 @@ export type SuspendRunQuotaInput = {
   steps: Record<string, number>;
   stoppedCalls?: ReadonlyArray<StoppedCall>;
   /**
+   * The cut a failed send left (continue-after-broken-send D6): this entry
+   * transaction appends its `model.superseded` event with the suspension, so a
+   * worker that stops first leaves neither the cut nor the notice.
+   */
+  superseded?: SupersededModelOutput;
+  /**
    * Step budget this Run has charged so far, across every segment. It excludes
    * a Continue Run's inherited display numbering, so a later wake does not
    * spend this Run's cap on steps a source Run took.
@@ -67,12 +73,6 @@ export type SuspendRunQuotaInput = {
   summaryPrefixFingerprint?: string;
   /** The first-epoch baselines this attempt rendered for its target request. */
   baselines?: FirstEpochBaselines;
-  /**
-   * The cut of a failed send this suspension closes
-   * (continue-after-broken-send D6): appended as `model.superseded` in the
-   * same transaction that stores the kept parts and the notice.
-   */
-  superseded?: SupersededModelOutput;
 };
 
 type AttemptRunInput = Pick<
