@@ -2114,6 +2114,40 @@ describe('RunStreamBridgeService terminal-status fallbacks', () => {
  * prefix and the calls.
  */
 describe('a failed send cut at its last complete tool call', () => {
+  /**
+   * The `tool.requested` → `tool.started` → `tool.completed` events of one
+   * read-only call that succeeded. The caller places each event, because a
+   * completion can land after later events while the Run waits for the call.
+   */
+  const readCall = (
+    requested: number,
+    completed: number,
+    call: {
+      readonly toolCallId: string;
+      readonly toolName: 'read' | 'grep';
+      readonly input: RunEvent['payload'];
+      readonly output: RunEvent['payload'];
+    },
+  ) => ({
+    requested: runEvent(requested, 'tool.requested', {
+      toolCallId: call.toolCallId,
+      toolName: call.toolName,
+      input: call.input,
+      stepNumber: 0,
+    }),
+    started: runEvent(requested + 1, 'tool.started', {
+      toolCallId: call.toolCallId,
+      toolName: call.toolName,
+      classification: 'read_only',
+    }),
+    completed: runEvent(completed, 'tool.completed', {
+      toolCallId: call.toolCallId,
+      toolName: call.toolName,
+      status: 'success',
+      output: call.output,
+    }),
+  });
+
   const translateAll = (events: ReadonlyArray<RunEvent>) => {
     const translator = createRunEventTranslator('run-cut');
 
@@ -2121,25 +2155,18 @@ describe('a failed send cut at its last complete tool call', () => {
   };
 
   it('The text after the last tool call is not kept', () => {
+    const call = readCall(2, 4, {
+      toolCallId: 'call-a',
+      toolName: 'read',
+      input: { path: '/work/a.txt' },
+      output: { status: 'success', content: 'file body' },
+    });
+
     const chunks = translateAll([
       runEvent(1, 'model.delta', { text: 'Hi' }),
-      runEvent(2, 'tool.requested', {
-        toolCallId: 'call-a',
-        toolName: 'read',
-        input: { path: '/work/a.txt' },
-        stepNumber: 0,
-      }),
-      runEvent(3, 'tool.started', {
-        toolCallId: 'call-a',
-        toolName: 'read',
-        classification: 'read_only',
-      }),
-      runEvent(4, 'tool.completed', {
-        toolCallId: 'call-a',
-        toolName: 'read',
-        status: 'success',
-        output: { status: 'success', content: 'file body' },
-      }),
+      call.requested,
+      call.started,
+      call.completed,
       runEvent(5, 'model.delta', { text: ' trailing' }),
       runEvent(6, 'reasoning.delta', { text: 'think' }),
       // The anchor the call's own `tool.requested` took at sequence 2.
@@ -2177,46 +2204,64 @@ describe('a failed send cut at its last complete tool call', () => {
     });
   });
 
+  it('The text after a tool call is a new part', () => {
+    // The wire keeps one text id for the whole step, so the Run names the text
+    // after a tool call apart: it opens at its own sequence and a cut removes
+    // only that part, never the text before the call.
+    const call = readCall(2, 4, {
+      toolCallId: 'call-a',
+      toolName: 'read',
+      input: { path: '/work/a.txt' },
+      output: { status: 'success', content: 'file body' },
+    });
+
+    const chunks = translateAll([
+      runEvent(1, 'model.delta', { text: 'Hi', partId: '0:answer' }),
+      call.requested,
+      runEvent(3, 'model.delta', {
+        text: ' trailing',
+        partId: '0:answer#1',
+      }),
+      call.completed,
+      runEvent(5, 'model.superseded', { fromSequence: 2, step: 0 }),
+    ]);
+
+    expect(chunks.filter((chunk) => chunk.type === 'text-delta')).toEqual([
+      { type: 'text-delta', id: 'text-1', delta: 'Hi' },
+      { type: 'text-delta', id: 'text-2', delta: ' trailing' },
+    ]);
+    expect(chunks).toContainEqual({
+      type: 'data-superseded',
+      data: { partIds: ['text-2'] },
+    });
+  });
+
   it('Text between two kept calls stays', () => {
+    const read = readCall(2, 7, {
+      toolCallId: 'call-a',
+      toolName: 'read',
+      input: { path: '/work/a.txt' },
+      output: { status: 'success', content: 'a body' },
+    });
+
+    const grep = readCall(5, 8, {
+      toolCallId: 'call-b',
+      toolName: 'grep',
+      input: { pattern: 'needle' },
+      output: { status: 'success', value: 'hit' },
+    });
+
     const chunks = translateAll([
       runEvent(1, 'model.delta', { text: 'one' }),
-      runEvent(2, 'tool.requested', {
-        toolCallId: 'call-a',
-        toolName: 'read',
-        input: { path: '/work/a.txt' },
-        stepNumber: 0,
-      }),
-      runEvent(3, 'tool.started', {
-        toolCallId: 'call-a',
-        toolName: 'read',
-        classification: 'read_only',
-      }),
+      read.requested,
+      read.started,
       // The second call's cut anchor flushed this text ahead of itself.
       runEvent(4, 'model.delta', { text: 'two' }),
-      runEvent(5, 'tool.requested', {
-        toolCallId: 'call-b',
-        toolName: 'grep',
-        input: { pattern: 'needle' },
-        stepNumber: 0,
-      }),
-      runEvent(6, 'tool.started', {
-        toolCallId: 'call-b',
-        toolName: 'grep',
-        classification: 'read_only',
-      }),
+      grep.requested,
+      grep.started,
       // Both calls settle while the Run waits, before the next step's start.
-      runEvent(7, 'tool.completed', {
-        toolCallId: 'call-a',
-        toolName: 'read',
-        status: 'success',
-        output: { status: 'success', content: 'a body' },
-      }),
-      runEvent(8, 'tool.completed', {
-        toolCallId: 'call-b',
-        toolName: 'grep',
-        status: 'success',
-        output: { status: 'success', value: 'hit' },
-      }),
+      read.completed,
+      grep.completed,
       runEvent(9, 'model.delta', { text: 'three' }),
       runEvent(10, 'model.superseded', { fromSequence: 5, step: 0 }),
     ]);
@@ -2272,27 +2317,20 @@ describe('a failed send cut at its last complete tool call', () => {
     // delta, the size or age flush, or `onFinish` after the wait), so the
     // completion lands inside the cut's window and must not forget the parts
     // opened before it.
+    const call = readCall(2, 6, {
+      toolCallId: 'call-a',
+      toolName: 'read',
+      input: { path: '/work/a.txt' },
+      output: { status: 'success', content: 'file body' },
+    });
+
     const chunks = translateAll([
       runEvent(1, 'model.delta', { text: 'Hi' }),
-      runEvent(2, 'tool.requested', {
-        toolCallId: 'call-a',
-        toolName: 'read',
-        input: { path: '/work/a.txt' },
-        stepNumber: 0,
-      }),
-      runEvent(3, 'tool.started', {
-        toolCallId: 'call-a',
-        toolName: 'read',
-        classification: 'read_only',
-      }),
+      call.requested,
+      call.started,
       runEvent(4, 'model.delta', { text: ' trailing' }),
       runEvent(5, 'reasoning.delta', { text: 'think' }),
-      runEvent(6, 'tool.completed', {
-        toolCallId: 'call-a',
-        toolName: 'read',
-        status: 'success',
-        output: { status: 'success', content: 'file body' },
-      }),
+      call.completed,
       runEvent(7, 'model.superseded', { fromSequence: 2, step: 0 }),
     ]);
 

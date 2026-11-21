@@ -355,6 +355,9 @@ function startHarness(options: HarnessOptions): Harness {
     },
     onSendFailed: (failure) => {
       timeline.record('input.onSendFailed', describeFailure(failure));
+      // The seam the continuation reads, on both wires: the send broke after a
+      // complete tool call, and the failure carries this request's send count.
+      expect(failure).toMatchObject({ toolCallStarted: true, sends: 1 });
     },
     onFinish: (event) => {
       finishEvents.push({

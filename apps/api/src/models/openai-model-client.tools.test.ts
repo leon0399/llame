@@ -27,7 +27,6 @@ import {
   createOpenAIModelClient,
   hasStreamChannel,
 } from './openai-model-client';
-import { ProviderFailure } from './provider-failure/provider-failure';
 import { createAssistantPartCollector } from '../runs/assistant-transcript';
 
 const tools = {
@@ -1434,79 +1433,4 @@ describe('createOpenAIModelClient — reasoning channel settlement (D18)', () =>
       expect(observed).toEqual([expected]);
     },
   );
-});
-
-describe('createOpenAIModelClient — a send that breaks after its complete tool call', () => {
-  it('reports the started-call failure before the call it started is released', async () => {
-    const settlement = Promise.withResolvers<string>();
-
-    const report = Promise.withResolvers<{
-      failure: unknown;
-      started: boolean;
-      settled: boolean;
-    }>();
-
-    let started = false;
-    let settled = false;
-
-    const model = scriptedModel([
-      {
-        stream: simulateReadableStream<LanguageModelV3StreamPart>({
-          chunks: [
-            { type: 'stream-start', warnings: [] },
-            {
-              type: 'tool-call',
-              toolCallId: 'call-0',
-              toolName: 'slow_tool',
-              input: '{"value":"x"}',
-            },
-            { type: 'error', error: new Error('the provider stream broke') },
-          ],
-          chunkDelayInMs: 0,
-        }),
-      },
-      textResponse('after the call'),
-    ]);
-
-    const client = buildClient(model);
-
-    const result = client.streamText({
-      chat: CHAT,
-      messages,
-      tools: {
-        slow_tool: tool({
-          inputSchema: z.strictObject({ value: z.string() }),
-          execute: async () => {
-            started = true;
-            const output = await settlement.promise;
-            settled = true;
-
-            return output;
-          },
-        }),
-      },
-      // A live send: the call part reaches the SDK before the failure, so the
-      // tool runs while the send breaks.
-      onTextDelta: () => undefined,
-      onSendFailed: (failure) => report.resolve({ failure, started, settled }),
-    });
-
-    const running = result.consumeStream();
-    const observed = await report.promise;
-
-    // Read at the seam: the call had started, it had not settled, and the
-    // failure already names it as started with this logical request's count.
-    expect(observed.started).toBe(true);
-    expect(observed.settled).toBe(false);
-    expect(observed.failure).toBeInstanceOf(ProviderFailure);
-    expect(observed.failure).toMatchObject({
-      code: 'stream_broken',
-      toolCallStarted: true,
-      sends: 1,
-    });
-
-    settlement.resolve('slow output');
-    await running;
-    await Promise.resolve(result.text).catch(() => undefined);
-  });
 });

@@ -113,6 +113,13 @@ async function appendSuspensionEvents(
   const { kind, input, awaiting } = data;
 
   if (kind === 'quota') {
+    // The cut a failed send leaves is named before the suspension, so the live
+    // bridge prunes the dropped parts while the Run is still streaming, and a
+    // reload reads the same cut from the log (continue-after-broken-send D6).
+    if (input.superseded !== undefined) {
+      await events.append(run.id, 'model.superseded', input.superseded);
+    }
+
     await events.append(
       run.id,
       'run.suspended',

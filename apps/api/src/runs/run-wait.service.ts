@@ -24,6 +24,7 @@ import { retryRunTransaction } from './run-transaction';
 import { type AssistantTurnTelemetry } from './run-reply-finalizer';
 import type { StoppedCall } from '../chats/interrupted-notice';
 import type { FirstEpochBaselines } from './segment-delivery';
+import type { SupersededModelOutput } from './superseded-output';
 import type { CompactionSet } from '../compaction/boundary-compaction';
 
 export type RunWaitCause = 'settled' | 'interrupted' | 'timeout' | 'cancelled';
@@ -66,6 +67,12 @@ export type SuspendRunQuotaInput = {
   summaryPrefixFingerprint?: string;
   /** The first-epoch baselines this attempt rendered for its target request. */
   baselines?: FirstEpochBaselines;
+  /**
+   * The cut of a failed send this suspension closes
+   * (continue-after-broken-send D6): appended as `model.superseded` in the
+   * same transaction that stores the kept parts and the notice.
+   */
+  superseded?: SupersededModelOutput;
 };
 
 type AttemptRunInput = Pick<

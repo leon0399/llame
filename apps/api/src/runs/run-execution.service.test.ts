@@ -7934,11 +7934,16 @@ const TEST_PROVIDER_USAGE = {
   outputTokens: { total: 0, text: 0, reasoning: 0 },
 };
 
+/** One scripted provider response: the stream the mock model serves. */
+type ScriptedProviderResponse = {
+  readonly stream: ReadableStream<LanguageModelV3StreamPart>;
+};
+
 function providerResponse(
   parts: ReadonlyArray<LanguageModelV3StreamPart>,
   finishReason: 'tool-calls' | 'stop',
   options: { usage?: LanguageModelV3Usage; chunkDelayInMs?: number } = {},
-) {
+): ScriptedProviderResponse {
   return {
     stream: simulateReadableStream<LanguageModelV3StreamPart>({
       chunks: [
@@ -7975,15 +7980,19 @@ function providerText(text: string) {
   );
 }
 
-function createToolLoopClient(
-  responses: ReadonlyArray<ReturnType<typeof providerResponse>>,
-  input?: ReadonlyArray<ModelInput>,
+/**
+ * A scripted provider for a client test: each `doStream` serves the next
+ * response and records the prompt it was sent.
+ */
+function scriptedProvider(
+  provider: string,
+  responses: ReadonlyArray<ScriptedProviderResponse>,
 ) {
   let responseIndex = 0;
   const requests: Array<ReadonlyArray<LanguageModelV3Message>> = [];
 
   const model = new MockLanguageModelV3({
-    provider: 'openai-compatible.test',
+    provider,
     modelId: 'test-model',
     doStream: (options) => {
       requests.push(options.prompt);
@@ -7994,6 +8003,18 @@ function createToolLoopClient(
       return Promise.resolve(response);
     },
   });
+
+  return { model, requests };
+}
+
+function createToolLoopClient(
+  responses: ReadonlyArray<ScriptedProviderResponse>,
+  input?: ReadonlyArray<ModelInput>,
+) {
+  const { model, requests } = scriptedProvider(
+    'openai-compatible.test',
+    responses,
+  );
 
   const provider = vi.fn<OpenAICompatibleProvider>();
   provider.mockReturnValue(model);
@@ -28931,6 +28952,7 @@ describe('RunExecutionService suspendCompactionForQuota', () => {
     ];
 
     const resetsAt = Date.now() + 120_000;
+    const superseded = { fromSequence: 7, step: 2 };
 
     expect(
       await execution.service.suspendCompactionForQuota({
@@ -28950,8 +28972,23 @@ describe('RunExecutionService suspendCompactionForQuota', () => {
         summaryAttemptId: 'source-summary-attempt',
         summaryPrefixFingerprint: 'source-prefix-fingerprint',
         baselines,
+        superseded,
       }),
     ).toBe(true);
+
+    // The entry transaction names the cut before the suspension, so a live
+    // reader prunes what the failed send dropped.
+    const cutIndex = appended.findIndex(
+      ({ type }) => type === 'model.superseded',
+    );
+
+    const suspendedIndex = appended.findIndex(
+      ({ type }) => type === 'run.suspended',
+    );
+
+    expect(cutIndex).toBeGreaterThanOrEqual(0);
+    expect(cutIndex).toBeLessThan(suspendedIndex);
+    expect(appended[cutIndex]?.payload).toEqual(superseded);
 
     const log: Array<RunEvent> = appended.map(({ type, payload }, index) => {
       const serialized: unknown = JSON.parse(JSON.stringify(payload));
@@ -30965,45 +31002,49 @@ describe('a send that breaks after a started tool call', () => {
     return { q: submitted['q'] };
   }
 
+  /** The declared tool both fixtures build: only the call behavior differs. */
+  function declaredTool(id: string, execute: Tool['execute']): Tool {
+    return {
+      id,
+      description: `Call ${id}.`,
+      classification: 'unverified',
+      inputSchema: z.strictObject({ q: z.string() }),
+      execute,
+    };
+  }
+
   /** A declared tool whose every call the test settles by its own `q`. */
   function deferredTool(id: string) {
     const pending = new Map<string, (result: ToolResult) => void>();
 
     const calls: Array<string> = [];
 
-    const tool: Tool = {
-      id,
-      description: `Call ${id}.`,
-      classification: 'unverified',
-      inputSchema: z.strictObject({ q: z.string() }),
-      execute: (_context, submitted) => {
-        const args = deferredCallArgs(submitted);
-        calls.push(args.q);
-        const settlement = Promise.withResolvers<ToolResult>();
-        pending.set(args.q, settlement.resolve);
+    const tool = declaredTool(id, (_context, submitted) => {
+      const args = deferredCallArgs(submitted);
+      calls.push(args.q);
+      const settlement = Promise.withResolvers<ToolResult>();
+      pending.set(args.q, settlement.resolve);
 
-        return settlement.promise;
-      },
+      return settlement.promise;
+    });
+
+    /** Settles the call whose input is `q` with a distinguishable result. */
+    const settle = (q: string) => {
+      const resolve = pending.get(q);
+
+      if (resolve === undefined) throw new Error(`No pending call for ${q}`);
+
+      pending.delete(q);
+      resolve({ status: 'success', echo: q });
     };
 
     return {
       tool,
       calls,
-      /** Settles the call whose input is `q` with a distinguishable result. */
-      settle: (q: string) => {
-        const resolve = pending.get(q);
-
-        if (resolve === undefined) throw new Error(`No pending call for ${q}`);
-
-        pending.delete(q);
-        resolve({ status: 'success', echo: q });
-      },
+      settle,
       settleAll: () => {
         // A Map iterator tolerates deleting the entry it is on.
-        for (const q of pending.keys()) {
-          pending.get(q)?.({ status: 'success', echo: q });
-          pending.delete(q);
-        }
+        for (const q of pending.keys()) settle(q);
       },
     };
   }
@@ -31027,18 +31068,12 @@ describe('a send that breaks after a started tool call', () => {
   function echoTool(id: string) {
     const calls: Array<string> = [];
 
-    const tool: Tool = {
-      id,
-      description: `Call ${id}.`,
-      classification: 'unverified',
-      inputSchema: z.strictObject({ q: z.string() }),
-      execute: (_context, submitted) => {
-        const args = deferredCallArgs(submitted);
-        calls.push(args.q);
+    const tool = declaredTool(id, (_context, submitted) => {
+      const args = deferredCallArgs(submitted);
+      calls.push(args.q);
 
-        return Promise.resolve({ status: 'success' as const, echo: args.q });
-      },
-    };
+      return Promise.resolve({ status: 'success' as const, echo: args.q });
+    });
 
     return { tool, calls, settleAll: () => undefined };
   }
@@ -31090,25 +31125,9 @@ describe('a send that breaks after a started tool call', () => {
 
   /** The Responses wire's client over a scripted provider. */
   function responsesRunClient(
-    responses: ReadonlyArray<ReturnType<typeof providerResponse>>,
+    responses: ReadonlyArray<ScriptedProviderResponse>,
   ) {
-    let responseIndex = 0;
-    const requests: Array<ReadonlyArray<LanguageModelV3Message>> = [];
-
-    const model = new MockLanguageModelV3({
-      provider: 'openai.test',
-      modelId: 'test-model',
-      doStream: (options) => {
-        requests.push(options.prompt);
-        const response = responses[responseIndex++];
-
-        if (response === undefined) {
-          throw new Error('Missing scripted response.');
-        }
-
-        return Promise.resolve(response);
-      },
-    });
+    const { model, requests } = scriptedProvider('openai.test', responses);
 
     const provider = vi.fn<OpenAIProvider>();
     provider.mockReturnValue(model);
@@ -31130,17 +31149,11 @@ describe('a send that breaks after a started tool call', () => {
   /** One production wire, its scripted stream, and the requests it saw. */
   function wireClient(
     wire: Wire,
-    responses: ReadonlyArray<ReturnType<typeof providerResponse>>,
+    responses: ReadonlyArray<ScriptedProviderResponse>,
   ) {
-    if (wire === 'completions') {
-      const { client, requests } = createToolLoopClient(responses);
-
-      return { client, requests };
-    }
-
-    const { client, requests } = responsesRunClient(responses);
-
-    return { client, requests };
+    return wire === 'completions'
+      ? createToolLoopClient(responses)
+      : responsesRunClient(responses);
   }
 
   /**
@@ -31199,9 +31212,15 @@ describe('a send that breaks after a started tool call', () => {
     ];
   }
 
-  /** Every reply part the persisted turn holds, in order. */
-  function replyPartsOf(spies: RepositorySpies): Array<MessagePart> {
-    const write = spies.createAssistantReplyIfAbsent.mock.calls.at(-1)?.[0];
+  /**
+   * Every reply part a persisted turn holds, in order; the last write by
+   * default, or the write at `index`.
+   */
+  function replyPartsOf(
+    spies: RepositorySpies,
+    index = -1,
+  ): Array<MessagePart> {
+    const write = spies.createAssistantReplyIfAbsent.mock.calls.at(index)?.[0];
 
     if (write === undefined) throw new Error('No assistant reply was written.');
 
@@ -31236,12 +31255,33 @@ describe('a send that breaks after a started tool call', () => {
     );
   }
 
+  /** The reply part directly after a call's part, whatever it is. */
+  function partAfter(
+    parts: ReadonlyArray<MessagePart>,
+    toolCallId: string,
+  ): MessagePart | undefined {
+    const index = parts.findIndex(
+      (part) => isRecord(part) && part['toolCallId'] === toolCallId,
+    );
+
+    return index === -1 ? undefined : parts[index + 1];
+  }
+
   /** Every in-Run reply snapshot the attempt stored, in order. */
   function snapshotsOf(
     spies: RepositorySpies,
   ): Array<ReadonlyArray<MessagePart>> {
     return spies.updateRunningReplyParts.mock.calls.map(([snapshot]) =>
       snapshot.parts.filter(isRecord),
+    );
+  }
+
+  /** The in-Run snapshots whose reply already holds a notice, in order. */
+  function noticedSnapshots(
+    spies: RepositorySpies,
+  ): Array<ReadonlyArray<MessagePart>> {
+    return snapshotsOf(spies).filter(
+      (snapshot) => noticesOf(snapshot).length > 0,
     );
   }
 
@@ -31281,12 +31321,22 @@ describe('a send that breaks after a started tool call', () => {
     }
   }
 
+  /** The appended events of one type, in order. */
+  function eventsOf<T extends RunEventType>(
+    appended: ReadonlyArray<{ type: RunEventType; payload: unknown }>,
+    type: T,
+  ): Array<{ type: T; payload: unknown }> {
+    return appended.filter(
+      (entry): entry is { type: T; payload: unknown } => entry.type === type,
+    );
+  }
+
   /** The `model.retrying` payloads the attempt appended, in order. */
   function retryingEvents(
     appended: ReadonlyArray<{ type: RunEventType; payload: unknown }>,
   ): Array<UnknownRecord> {
-    return appended.flatMap(({ type, payload }) =>
-      type === 'model.retrying' && isRecord(payload) ? [payload] : [],
+    return eventsOf(appended, 'model.retrying').flatMap(({ payload }) =>
+      isRecord(payload) ? [payload] : [],
     );
   }
 
@@ -31294,7 +31344,7 @@ describe('a send that breaks after a started tool call', () => {
 
   type RunOptions = {
     readonly wire: Wire;
-    readonly responses: ReadonlyArray<ReturnType<typeof providerResponse>>;
+    readonly responses: ReadonlyArray<ScriptedProviderResponse>;
     readonly tools: CaseToolset;
     readonly abortSignal?: AbortSignal;
     readonly runWait?: RunWaitService;
@@ -31304,11 +31354,19 @@ describe('a send that breaks after a started tool call', () => {
     readonly arrange?: (spies: RepositorySpies) => void;
   };
 
+  /** Drains the Run without deciding whether it succeeded. */
+  async function drain(
+    started: Awaited<ReturnType<RunExecutionService['executeRun']>>,
+  ): Promise<void> {
+    await Promise.allSettled([started.text, started.consumeStream()]);
+  }
+
   /**
-   * One scripted Run: the mocked repositories, the appended event log, and the
-   * client the attempt streams through.
+   * One scripted Run starts and is consumed at once: the Chat Completions wire
+   * begins streaming only when its result is read, so every case drains while
+   * it waits for the Run's own observable state.
    */
-  function startFailedSendRun(options: RunOptions) {
+  async function startAndDrain(options: RunOptions) {
     const spies = mockNormalExecutionRepositories();
     spies.findById.mockResolvedValue({
       ...run,
@@ -31339,33 +31397,15 @@ describe('a send that breaks after a started tool call', () => {
       },
     );
 
-    const started = execution.service.executeRun(
-      executionInput(client, options.abortSignal),
+    const drained = drain(
+      await execution.service.executeRun(
+        executionInput(client, options.abortSignal),
+      ),
     );
-
-    return { spies, appended, requests, started };
-  }
-
-  /** Drains the Run without deciding whether it succeeded. */
-  async function drain(
-    started: Awaited<ReturnType<RunExecutionService['executeRun']>>,
-  ): Promise<void> {
-    await Promise.allSettled([started.text, started.consumeStream()]);
-  }
-
-  /**
-   * The Run starts and is consumed at once: the Chat Completions wire begins
-   * streaming only when its result is read, so every case drains while it
-   * waits for the Run's own observable state.
-   */
-  async function startAndDrain(options: RunOptions) {
-    const harness = startFailedSendRun(options);
-    const running = await harness.started;
-    const drained = drain(running);
 
     runningRuns.push({ drained, settleCalls: options.tools.settleAll });
 
-    return { ...harness, drained };
+    return { spies, appended, requests, drained };
   }
 
   /** The Runs a case started, so a failing assertion cannot leak one. */
@@ -31450,15 +31490,6 @@ describe('a send that breaks after a started tool call', () => {
     ).mockResolvedValue([]);
 
     return { lockPending, markDelivered };
-  }
-
-  /** The reply a delivery closed: the Run's own write, not the next segment. */
-  function closedReplyParts(spies: RepositorySpies): Array<MessagePart> {
-    const write = spies.createAssistantReplyIfAbsent.mock.calls[0]?.[0];
-
-    if (write === undefined) throw new Error('No assistant reply was written.');
-
-    return write.parts.filter(isRecord);
   }
 
   /**
@@ -31622,12 +31653,7 @@ describe('a send that breaks after a started tool call', () => {
       expect(next).toContain('"a"');
       expect(next).toContain('"b"');
       expect(next).toContain(NOTICE_PREFIX);
-      expect(spies.markFinished).toHaveBeenCalledWith(
-        runId,
-        userId,
-        'completed',
-        expect.anything(),
-      );
+      expectFinished(spies, 'completed');
     },
   );
 
@@ -31687,18 +31713,12 @@ describe('a send that breaks after a started tool call', () => {
       const parts = replyPartsOf(spies);
       expect(noticesOf(parts)).toHaveLength(1);
       // The reply holds the read's own result, not a termination result.
-      expect(
-        parts.filter(
-          (part) => isRecord(part) && part['toolCallId'] === 'read-call',
-        ),
-      ).toHaveLength(1);
+      expect(partOf(parts, 'read-call')).toBeDefined();
       // The cut and the terminal write share one transaction.
-      expect(
-        appended.filter(({ type }) => type === 'model.superseded'),
-      ).toHaveLength(1);
-      expect(
-        appended.filter(({ type }) => type === 'model.superseded')[0]?.payload,
-      ).toMatchObject({ step: 0 });
+      expect(eventsOf(appended, 'model.superseded')).toHaveLength(1);
+      expect(eventsOf(appended, 'model.superseded')[0]?.payload).toMatchObject({
+        step: 0,
+      });
       expect(appended.map(({ type }) => type)).toContain('run.failed');
     },
   );
@@ -31728,12 +31748,7 @@ describe('a send that breaks after a started tool call', () => {
       await drained;
 
       expect(requests).toHaveLength(1);
-      expect(spies.markFinished).toHaveBeenCalledWith(
-        runId,
-        userId,
-        'cancelled',
-        expect.anything(),
-      );
+      expectFinished(spies, 'cancelled');
       const parts = replyPartsOf(spies);
       expect(textOf(parts)).toBe('Before the call. ');
       expect(noticesOf(parts)).toHaveLength(1);
@@ -31797,17 +31812,10 @@ describe('a send that breaks after a started tool call', () => {
       // The Run continues after the call settled, and the call ran once.
       expect(lookup.calls).toEqual(['a']);
       expect(requests).toHaveLength(2);
-      expect(
-        appended
-          .filter(({ type }) => type === 'model.retrying')
-          .map(({ payload }) => payload),
-      ).toEqual([expect.objectContaining({ code: 'overloaded', retry: 1 })]);
-      expect(spies.markFinished).toHaveBeenCalledWith(
-        runId,
-        userId,
-        'completed',
-        expect.anything(),
-      );
+      expect(retryingEvents(appended)).toEqual([
+        expect.objectContaining({ code: 'overloaded', retry: 1 }),
+      ]);
+      expectFinished(spies, 'completed');
     },
   );
 
@@ -31847,9 +31855,7 @@ describe('a send that breaks after a started tool call', () => {
       await drained;
 
       expect(suspend).not.toHaveBeenCalled();
-      expect(appended.filter(({ type }) => type === 'run.suspended')).toEqual(
-        [],
-      );
+      expect(eventsOf(appended, 'run.suspended')).toEqual([]);
     },
   );
 
@@ -31965,6 +31971,16 @@ describe('a send that breaks after a started tool call', () => {
       expect(partOf(parts, `read-call-${sends - 1}`)).toMatchObject({
         state: 'output-available',
       });
+
+      // The last request carries every kept call, and each notice still follows
+      // the result of the send it belongs to.
+      const last = requests[sends - 1] ?? [];
+      const firstNotice = afterToolResult(last, 'read-call-0');
+      expect(firstNotice).toMatchObject({ role: 'user' });
+      expect(JSON.stringify(firstNotice)).toContain(NOTICE_PREFIX);
+      const tenthNotice = afterToolResult(last, `read-call-${sends - 2}`);
+      expect(tenthNotice).toMatchObject({ role: 'user' });
+      expect(JSON.stringify(tenthNotice)).toContain(NOTICE_PREFIX);
     },
   );
 
@@ -31986,13 +32002,7 @@ describe('a send that breaks after a started tool call', () => {
         ],
       });
 
-      await vi.waitFor(() =>
-        expect(
-          snapshotsOf(spies).filter(
-            (snapshot) => noticesOf(snapshot).length > 0,
-          ),
-        ).toHaveLength(3),
-      );
+      await vi.waitFor(() => expect(noticedSnapshots(spies)).toHaveLength(3));
 
       // A reload replays the retrying event of the delay it is in, and the
       // stored reply already holds the cut and the notice.
@@ -32002,9 +32012,7 @@ describe('a send that breaks after a started tool call', () => {
       expect(retrying.every((entry) => entry['code'] === 'stream_broken')).toBe(
         true,
       );
-      expect(
-        appended.filter(({ type }) => type === 'model.superseded'),
-      ).toHaveLength(3);
+      expect(eventsOf(appended, 'model.superseded')).toHaveLength(3);
 
       await drained;
       expect(requests).toHaveLength(4);
@@ -32037,9 +32045,7 @@ describe('a send that breaks after a started tool call', () => {
       expectFinished(spies, 'failed', 'stream_broken');
       // One cut and one notice: the carried failure starts no second send.
       expect(snapshotsOf(spies).length).toBe(0);
-      expect(
-        appended.filter(({ type }) => type === 'model.superseded'),
-      ).toHaveLength(1);
+      expect(eventsOf(appended, 'model.superseded')).toHaveLength(1);
       expect(noticesOf(replyPartsOf(spies))).toHaveLength(1);
     },
   );
@@ -32055,10 +32061,7 @@ describe('a send that breaks after a started tool call', () => {
         responses: [
           brokenSend([lookupCall('read-call-1', 'a')]),
           // This step ends without failure inside the continued request.
-          providerResponse(
-            [toolCall(LOOKUP_TOOL, 'read-call-2', { q: 'b' })],
-            'tool-calls',
-          ),
+          providerResponse([lookupCall('read-call-2', 'b')], 'tool-calls'),
           brokenSend([lookupCall('read-call-3', 'c')]),
           providerText('final answer'),
         ],
@@ -32114,21 +32117,15 @@ describe('a send that breaks after a started tool call', () => {
       await vi.waitFor(() => expect(lookup.calls).toEqual(['a']));
       lookup.settle('a');
       await vi.waitFor(() =>
-        expect(
-          appended.filter(({ type }) => type === 'run.delivered'),
-        ).toHaveLength(1),
+        expect(eventsOf(appended, 'run.delivered')).toHaveLength(1),
       );
       await vi.waitFor(() => expect(requests).toHaveLength(2));
       await drained;
 
       // The steer starts a segment: its first send carries no retry at all,
       // so no retry event and no carried delay.
-      expect(appended.filter(({ type }) => type === 'model.retrying')).toEqual(
-        [],
-      );
-      expect(
-        appended.filter(({ type }) => type === 'run.delivered'),
-      ).toHaveLength(1);
+      expect(retryingEvents(appended)).toEqual([]);
+      expect(eventsOf(appended, 'run.delivered')).toHaveLength(1);
       const delivered = requests[1] ?? [];
       expect(JSON.stringify(delivered)).toContain('steer now');
       // The closed reply's cut and notice still reach the delivered request.
@@ -32172,9 +32169,7 @@ describe('a send that breaks after a started tool call', () => {
       // The class decides before the boundary: the Run fails, and no segment
       // delivers the steer.
       expectFinished(spies, 'failed', 'auth');
-      expect(appended.filter(({ type }) => type === 'run.delivered')).toEqual(
-        [],
-      );
+      expect(eventsOf(appended, 'run.delivered')).toEqual([]);
       expect(requests).toHaveLength(1);
       expect(noticesOf(replyPartsOf(spies))).toHaveLength(1);
     },
@@ -32199,25 +32194,15 @@ describe('a send that breaks after a started tool call', () => {
       await vi.waitFor(() => expect(lookup.calls).toEqual(['a']));
       expect(spies.updateRunningReplyParts).not.toHaveBeenCalled();
       expect(spies.createAssistantReplyIfAbsent).not.toHaveBeenCalled();
-      expect(
-        appended.filter(({ type }) => type === 'model.superseded'),
-      ).toEqual([]);
+      expect(eventsOf(appended, 'model.superseded')).toEqual([]);
 
       lookup.settle('a');
 
       // The next step's preparation is the one write: the cut, the notice,
       // and its superseded event land before that step's send goes out.
-      await vi.waitFor(() =>
-        expect(
-          snapshotsOf(spies).filter(
-            (snapshot) => noticesOf(snapshot).length > 0,
-          ),
-        ).toHaveLength(1),
-      );
+      await vi.waitFor(() => expect(noticedSnapshots(spies)).toHaveLength(1));
       expect(requests).toHaveLength(1);
-      expect(
-        appended.filter(({ type }) => type === 'model.superseded'),
-      ).toHaveLength(1);
+      expect(eventsOf(appended, 'model.superseded')).toHaveLength(1);
 
       await drained;
       expect(requests).toHaveLength(2);
@@ -32243,25 +32228,15 @@ describe('a send that breaks after a started tool call', () => {
 
       // During the delay the stored reply already holds the cut and the
       // notice, so a redelivered attempt that fails keeps them.
-      await vi.waitFor(() =>
-        expect(
-          snapshotsOf(spies).filter(
-            (snapshot) => noticesOf(snapshot).length > 0,
-          ),
-        ).toHaveLength(1),
-      );
+      await vi.waitFor(() => expect(noticedSnapshots(spies)).toHaveLength(1));
       expect(requests).toHaveLength(1);
 
-      const stored = snapshotsOf(spies).filter(
-        (snapshot) => noticesOf(snapshot).length > 0,
-      )[0];
+      const stored = noticedSnapshots(spies)[0];
 
       expect(partOf(stored ?? [], 'edit-call')).toMatchObject({
         state: 'output-available',
       });
-      expect(
-        appended.filter(({ type }) => type === 'model.superseded'),
-      ).toHaveLength(1);
+      expect(eventsOf(appended, 'model.superseded')).toHaveLength(1);
 
       await drained;
     },
@@ -32334,14 +32309,9 @@ describe('a send that breaks after a started tool call', () => {
       await drained;
 
       // The closed segment's reply holds the call and then the notice.
-      const parts = closedReplyParts(spies);
+      const parts = replyPartsOf(spies, 0);
 
-      const callIndex = parts.findIndex(
-        (part) => isRecord(part) && part['toolCallId'] === 'bash-call',
-      );
-
-      expect(callIndex).toBeGreaterThanOrEqual(0);
-      expect(parts[callIndex + 1]).toMatchObject({
+      expect(partAfter(parts, 'bash-call')).toMatchObject({
         type: 'data-context',
         data: { producer: 'provider-failure', form: 'notice' },
       });
@@ -32383,7 +32353,7 @@ describe('a send that breaks after a started tool call', () => {
 
       // The reply keeps the first text and the call; later requests do not
       // carry the text after the call, and they keep the notice.
-      const parts = closedReplyParts(spies);
+      const parts = replyPartsOf(spies, 0);
       expect(textOf(parts)).toBe('Before the call. ');
       expect(partOf(parts, 'bash-call')).toBeDefined();
       expect(noticesOf(parts)).toHaveLength(1);
@@ -32393,6 +32363,275 @@ describe('a send that breaks after a started tool call', () => {
         'TRAILING TEXT MUST NOT SURVIVE',
       );
       expect(JSON.stringify(next)).toContain(NOTICE_PREFIX);
+    },
+  );
+
+  it.each<Wire>(['responses', 'completions'])(
+    '%s wire: Every later request carries each notice',
+    async (wire) => {
+      const lookup = echoTool(LOOKUP_TOOL);
+
+      const { spies, requests, drained } = await startAndDrain({
+        wire,
+        tools: toolset(lookup),
+        responses: [
+          brokenSend([lookupCall('read-call-1', 'a')], 'stream_broken'),
+          brokenSend([lookupCall('read-call-2', 'b')], 'overloaded'),
+          providerText('final answer'),
+        ],
+      });
+
+      await drained;
+
+      // The second cut leaves the first notice where it was: each one follows
+      // the result of the send it belongs to.
+      const third = requests[2] ?? [];
+      const firstAfter = afterToolResult(third, 'read-call-1');
+      expect(firstAfter).toMatchObject({ role: 'user' });
+      expect(JSON.stringify(firstAfter)).toContain('a broken stream');
+      const secondAfter = afterToolResult(third, 'read-call-2');
+      expect(secondAfter).toMatchObject({ role: 'user' });
+      expect(JSON.stringify(secondAfter)).toContain('provider overload');
+      expect(noticesOf(replyPartsOf(spies))).toHaveLength(2);
+      expectFinished(spies, 'completed');
+    },
+  );
+
+  it.each<Wire>(['responses', 'completions'])(
+    '%s wire: A live restart in the continued step keeps the notice',
+    async (wire) => {
+      const lookup = echoTool(LOOKUP_TOOL);
+
+      const { requests, drained } = await startAndDrain({
+        wire,
+        tools: toolset(lookup),
+        responses: [
+          brokenSend([lookupCall('read-call', 'a')]),
+          // The continued request breaks mid-text: no call of its own, so its
+          // output is superseded in place and sent again.
+          providerResponse(
+            [
+              ...textParts('discarded draft'),
+              {
+                type: 'error',
+                error: new ProviderFailure('broken', {
+                  code: 'stream_broken',
+                  superseded: { retry: 1, delayMs: 0 },
+                }),
+              },
+            ],
+            'stop',
+          ),
+          providerText('final answer'),
+        ],
+      });
+
+      await drained;
+
+      // The restarted request still carries the earlier send's notice.
+      expect(requests).toHaveLength(3);
+      const restarted = requests[2] ?? [];
+      expect(JSON.stringify(restarted)).toContain('read-call');
+      expect(JSON.stringify(restarted)).toContain(NOTICE_PREFIX);
+      expect(JSON.stringify(restarted)).not.toContain('discarded draft');
+    },
+  );
+
+  it.each<Wire>(['responses', 'completions'])(
+    '%s wire: An interrupt on a later broken step delivers once',
+    async (wire) => {
+      const aborts = new RunAbortRegistry();
+      aborts.register(runId, userId);
+      const lookup = deferredTool(LOOKUP_TOOL);
+      const grep = deferredTool(GREP_TOOL);
+
+      // The failed step is the call's second: the SDK still reports its
+      // `onFinish` after the abort, which must not decide the Run again.
+      const { spies, appended, requests, drained } = await startAndDrain({
+        wire,
+        tools: toolset(lookup, grep),
+        catalog: { segmentAborts: aborts },
+        arrange: (repositories) =>
+          serveDelivery(
+            repositories,
+            [ownerItem('interrupt', 'change course')],
+            deliveredMessageOf('change course'),
+          ),
+        responses: [
+          providerResponse([lookupCall('read-call-1', 'a')], 'tool-calls'),
+          brokenSend([grepCall('grep-call', 'b')]),
+          providerText('continued answer'),
+        ],
+      });
+
+      await vi.waitFor(() => expect(lookup.calls).toEqual(['a']));
+      lookup.settle('a');
+      await vi.waitFor(() => expect(grep.calls).toEqual(['b']));
+      expect(interruptCurrent(aborts, runId)).toBe(true);
+      grep.settle('b');
+      await drained;
+
+      // The delivered message starts its own segment, and the interrupted
+      // step sent nothing more behind it.
+      expect(requests).toHaveLength(3);
+      expect(JSON.stringify(requests[2])).toContain('change course');
+
+      const superseded = eventsOf(appended, 'model.superseded');
+
+      expect(superseded).toHaveLength(1);
+      expect(superseded[0]?.payload).toMatchObject({ step: 1 });
+      expect(noticesOf(replyPartsOf(spies, 0))).toHaveLength(1);
+    },
+  );
+
+  it.each<Wire>(['responses', 'completions'])(
+    '%s wire: The owner stops the Run on a later broken step',
+    async (wire) => {
+      const controller = new AbortController();
+      const lookup = deferredTool(LOOKUP_TOOL);
+      const grep = deferredTool(GREP_TOOL);
+
+      const { spies, appended, requests, drained } = await startAndDrain({
+        wire,
+        tools: toolset(lookup, grep),
+        abortSignal: controller.signal,
+        responses: [
+          providerResponse([lookupCall('read-call-1', 'a')], 'tool-calls'),
+          brokenSend([grepCall('grep-call', 'b')]),
+          providerText('never sent'),
+        ],
+      });
+
+      await vi.waitFor(() => expect(lookup.calls).toEqual(['a']));
+      lookup.settle('a');
+      await vi.waitFor(() => expect(grep.calls).toEqual(['b']));
+      controller.abort();
+      grep.settle('b');
+      await drained;
+
+      // Stop settles the Run once: the aborted step's `onFinish` adds no
+      // second decision and no send.
+      expect(requests).toHaveLength(2);
+      expectFinished(spies, 'cancelled');
+      expect(eventsOf(appended, 'model.superseded')).toHaveLength(1);
+      expect(noticesOf(replyPartsOf(spies))).toHaveLength(1);
+    },
+  );
+
+  it.each<Wire>(['responses', 'completions'])(
+    '%s wire: A cancellation recorded at the boundary cancels the Run',
+    async (wire) => {
+      const lookup = echoTool(LOOKUP_TOOL);
+
+      const { spies, appended, requests, drained } = await startAndDrain({
+        wire,
+        tools: toolset(lookup),
+        arrange: () => {
+          vi.spyOn(
+            ChatDeliveriesRepository.prototype,
+            'stepEndSignal',
+          ).mockResolvedValue('delivery');
+          // The owner cancels between the step end and the delivery.
+          vi.spyOn(
+            RunRowFenceRepository.prototype,
+            'lockForDelivery',
+          ).mockResolvedValue({ ...run, cancelRequestedAt: now });
+        },
+        responses: [
+          brokenSend([lookupCall('read-call', 'a')]),
+          providerText('never sent'),
+        ],
+      });
+
+      await drained;
+
+      // The delivery writes nothing, so the Run ends cancelled with the cut
+      // and the notice in its own terminal write.
+      expect(requests).toHaveLength(1);
+      expectFinished(spies, 'cancelled');
+      const parts = replyPartsOf(spies);
+      expect(noticesOf(parts)).toHaveLength(1);
+      expect(partOf(parts, 'read-call')).toBeDefined();
+      expect(eventsOf(appended, 'model.superseded')).toHaveLength(1);
+    },
+  );
+
+  it.each<Wire>(['responses', 'completions'])(
+    '%s wire: A withdrawn interrupt still names the cut',
+    async (wire) => {
+      const aborts = new RunAbortRegistry();
+      aborts.register(runId, userId);
+      const lookup = deferredTool(LOOKUP_TOOL);
+
+      // No item is pending when the abort lands: the delivery writes nothing,
+      // so the cut it closed must still find its event.
+      const { spies, appended, requests, drained } = await startAndDrain({
+        wire,
+        tools: toolset(lookup),
+        catalog: { segmentAborts: aborts },
+        responses: [
+          brokenSend([lookupCall('read-call', 'a')]),
+          providerText('final answer'),
+        ],
+      });
+
+      await vi.waitFor(() => expect(lookup.calls).toEqual(['a']));
+      expect(interruptCurrent(aborts, runId)).toBe(true);
+      lookup.settle('a');
+      await drained;
+
+      expect(requests).toHaveLength(2);
+      expect(eventsOf(appended, 'model.superseded')).toHaveLength(1);
+
+      const stored = noticedSnapshots(spies);
+
+      expect(stored).toHaveLength(1);
+      expect(JSON.stringify(requests[1])).toContain('read-call');
+      expect(JSON.stringify(requests[1])).toContain(NOTICE_PREFIX);
+      expectFinished(spies, 'completed');
+    },
+  );
+
+  it.each<Wire>(['responses', 'completions'])(
+    '%s wire: The text after a tool call is a new part',
+    async (wire) => {
+      const lookup = echoTool(LOOKUP_TOOL);
+
+      const { appended, drained } = await startAndDrain({
+        wire,
+        tools: toolset(lookup),
+        responses: [
+          brokenSend([
+            ...textParts('Before the call. '),
+            lookupCall('read-call', 'a'),
+            ...textParts('TRAILING TEXT MUST NOT SURVIVE'),
+          ]),
+          providerText('final answer'),
+        ],
+      });
+
+      await drained;
+
+      // The wire keeps one text id for the whole step, so the Run names the
+      // text after the call apart: the live view opens it at its own sequence
+      // and the cut can remove it there too.
+      const deltas = appended.flatMap(({ type, payload }) =>
+        type === 'model.delta' && isRecord(payload) && isString(payload['text'])
+          ? [payload]
+          : [],
+      );
+
+      const before = deltas.find(
+        (payload) => payload['text'] === 'Before the call. ',
+      );
+
+      const trailing = deltas.find(
+        (payload) => payload['text'] === 'TRAILING TEXT MUST NOT SURVIVE',
+      );
+
+      expect(isString(before?.['partId'])).toBe(true);
+      expect(isString(trailing?.['partId'])).toBe(true);
+      expect(trailing?.['partId']).not.toBe(before?.['partId']);
     },
   );
 });

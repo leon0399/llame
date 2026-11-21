@@ -999,8 +999,7 @@ type FailedSend = {
 
 /** The cut a failed send leaves: its window, and the notice to store (D3). */
 type FailedSendCut = {
-  readonly fromSequence: number;
-  readonly step: number;
+  readonly superseded: SupersededModelOutput;
   readonly notice: AuthoredContextItemPart;
 };
 
@@ -1014,18 +1013,6 @@ const FAILED_WAIT_RESULT: ToolResult = {
   message:
     'The wait did not start, because the provider failed. Call `wait` again if you still need it.',
 };
-
-/**
- * The terminal `superseded` input of a reply that holds a failed send's cut
- * (D6), or nothing when this reply kept no cut.
- */
-function supersededOf(cut: FailedSendCut | undefined): {
-  superseded?: SupersededModelOutput;
-} {
-  return cut === undefined
-    ? {}
-    : { superseded: { fromSequence: cut.fromSequence, step: cut.step } };
-}
 
 /**
  * Whether the failed send's request continues under the shared count (D4): a
@@ -2074,6 +2061,8 @@ export class RunExecutionService {
     summaryAttemptId?: string;
     summaryPrefixFingerprint?: string;
     baselines?: FirstEpochBaselines;
+    /** The cut a failed send leaves; the suspension's transaction appends it. */
+    superseded?: SupersededModelOutput;
   }): Promise<boolean> {
     const quotaWait = compactionQuotaWait(input.error, {
       maxSeconds: this.instanceConfig.config.runs.quotaWaitMaxSeconds,
@@ -2109,6 +2098,9 @@ export class RunExecutionService {
         summaryPrefixFingerprint: input.summaryPrefixFingerprint,
       }),
       ...(input.baselines !== undefined && { baselines: input.baselines }),
+      ...(input.superseded !== undefined && {
+        superseded: input.superseded,
+      }),
     });
 
     if (result.kind === 'ready') {
@@ -2874,27 +2866,43 @@ export class RunExecutionService {
         throw new Error('The quota recovery could not be recorded.');
     };
 
-    const persistStepStartSequence = async (): Promise<number> => {
-      await (deltaWrites = deltaWrites.then(async () => {
+    /**
+     * Queues a `latestSequence() + 1` read behind every progress write already
+     * made, so the number it reports is the one the next event will carry, and
+     * hands it to `record` once it is known. A failed read fails the Run's
+     * progress writes, as every other queued write does.
+     */
+    const queueNextSequence = (
+      label: string,
+      record: (sequence: number) => void,
+    ): Promise<void> =>
+      (deltaWrites = deltaWrites.then(async () => {
         try {
-          stepStartSequence = await retryRunTransaction(() =>
-            this.tenantDb.runAs(
-              input.userId,
-              async (tx) =>
-                (await new RunEventsRepository(tx).latestSequence(
-                  input.runId,
-                  input.userId,
-                )) + 1,
+          record(
+            await retryRunTransaction(() =>
+              this.tenantDb.runAs(
+                input.userId,
+                async (tx) =>
+                  (await new RunEventsRepository(tx).latestSequence(
+                    input.runId,
+                    input.userId,
+                  )) + 1,
+              ),
             ),
           );
         } catch (error) {
           progressWriteFailed = true;
           this.logger.error(
-            `Failed to record the model request boundary for run ${input.runId}`,
+            `Failed to record the ${label} for run ${input.runId}`,
             loggableError(error),
           );
         }
       }));
+
+    const persistStepStartSequence = async (): Promise<number> => {
+      await queueNextSequence('model request boundary', (sequence) => {
+        stepStartSequence = sequence;
+      });
 
       if (progressWriteFailed)
         throw new Error('Failed to record the model request boundary.');
@@ -2931,11 +2939,24 @@ export class RunExecutionService {
       disableAutomaticCompaction,
     });
 
-    // Each buffered `model.delta` event carries the adapter part id of the
-    // text it holds, so the durable reconstructor rebuilds the same part
-    // boundaries the live collector saw (design A7). The buffer is drained
-    // before the id is switched, so one event never spans two ids.
+    // Each buffered `model.delta` event carries the part id of the text it
+    // holds, so the durable reconstructor rebuilds the same part boundaries
+    // the live collector saw (design A7) and the live bridge can open the same
+    // parts. The buffer is drained before the id is switched, so one event
+    // never spans two ids.
+    //
+    // A wire may keep one text id for a whole step (Chat Completions sends
+    // `0` across a tool call), while a tool-call part always ends the text part
+    // (D3). Text the wire streams after a call then gets an id of its own, so
+    // the part it opens starts at its own sequence and a failed send's cut can
+    // name it in the live view too.
     let textPartId: string | undefined;
+    // The id the wire itself carries for the open text part (undefined = none).
+    let wireTextPartId: string | undefined;
+    // Whether a complete tool-call part ended the text part since its last
+    // delivery: the next text starts a new part even under the same wire id.
+    let textPartEnded = false;
+    let textPartEpoch = 0;
 
     const persistDelta = (text: string | null) => {
       if (text !== null) {
@@ -3573,29 +3594,15 @@ export class RunExecutionService {
     const persistCutAnchor = (): void => {
       persistReasoning(reasoningDeltas.flush());
       persistDelta(deltas.flush());
+      // The call is a structurally distinct part, so the text the send
+      // streams after it is a new part even under the id the wire kept (D3).
+      textPartEnded = true;
       const partsLength = assistantPartCollector.parts().length;
       let sequence = 0;
 
-      const read = (deltaWrites = deltaWrites.then(async () => {
-        try {
-          sequence = await retryRunTransaction(() =>
-            this.tenantDb.runAs(
-              input.userId,
-              async (tx) =>
-                (await new RunEventsRepository(tx).latestSequence(
-                  input.runId,
-                  input.userId,
-                )) + 1,
-            ),
-          );
-        } catch (error) {
-          progressWriteFailed = true;
-          this.logger.error(
-            `Failed to record the cut anchor for run ${input.runId}`,
-            loggableError(error),
-          );
-        }
-      }));
+      const read = queueNextSequence('cut anchor', (next) => {
+        sequence = next;
+      });
 
       cutAnchor = { sequence: read.then(() => sequence), partsLength };
     };
@@ -3643,7 +3650,10 @@ export class RunExecutionService {
       ]);
       // The failed send reported no usage, so the reply is not complete.
       discardedSend = true;
-      failedSendCut = { fromSequence, step: stepOffset + step, notice };
+      failedSendCut = {
+        superseded: { fromSequence, step: stepOffset + step },
+        notice,
+      };
 
       return failedSendCut;
     };
@@ -3680,6 +3690,17 @@ export class RunExecutionService {
       // earlier failed send, and names the cut (D6).
       const cut = await applyFailedSendCut();
 
+      // One record for the payload and the error: both name the same cause.
+      const failureDetails = {
+        message,
+        ...(status === 'failed' && {
+          code: failure.code,
+          ...(failure.resetsAt !== undefined && {
+            resetsAt: failure.resetsAt,
+          }),
+        }),
+      };
+
       const turn: AssistantTurnWrite = {
         chatId: input.chatId,
         inReplyTo: input.userMessage.id,
@@ -3701,27 +3722,10 @@ export class RunExecutionService {
           finishReason: null,
           telemetry: assistantTelemetry,
         },
-        runPayload: {
-          status,
-          message,
-          ...(status === 'failed' && {
-            code: failure.code,
-            ...(failure.resetsAt !== undefined && {
-              resetsAt: failure.resetsAt,
-            }),
-          }),
-        },
-        error: {
-          message,
-          ...(status === 'failed' && {
-            code: failure.code,
-            ...(failure.resetsAt !== undefined && {
-              resetsAt: failure.resetsAt,
-            }),
-          }),
-        },
+        runPayload: { status, ...failureDetails },
+        error: failureDetails,
         assistantTurn: turn,
-        ...supersededOf(cut),
+        superseded: cut?.superseded,
       });
 
       await this.afterAssistantTurn(
@@ -3837,6 +3841,10 @@ export class RunExecutionService {
     // The yield signal of the same model call (background-jobs D13).
     let segmentYield: AbortSignal | undefined;
     let interruptSettlement: Promise<void> | undefined;
+    // The step's interrupt settlement and delivery, recorded once per model
+    // call: the SDK still reports `onFinish` after an abort on a step it
+    // already recorded (D2/D6).
+    let interruptOutcome: Promise<void> | undefined;
     // The `bash` and MCP calls that started and that the interrupt stopped.
     const stoppedCalls: Array<StoppedCall> = [];
     // `native.result` writes of MCP calls whose attempt committed mid-interrupt.
@@ -4323,7 +4331,7 @@ export class RunExecutionService {
             },
             runPayload: { status, message },
             error: { message },
-            ...supersededOf(cut),
+            superseded: cut?.superseded,
           });
         } catch {
           await this.failRunProgressPersistence({
@@ -4423,6 +4431,27 @@ export class RunExecutionService {
       );
 
     /**
+     * The cause a step end records: the Run's own signal, or the compaction
+     * the step owes when nothing outranks it (D1/D4). A cancellation or
+     * suspension outranks the compaction, and a spent boundary leaves the
+     * cause undefined.
+     */
+    const resolveBoundaryCause = async (): Promise<FailedStepCause> => {
+      const signal = await resolveStepEndSignal();
+
+      if (
+        signal === 'cancel' ||
+        signal === 'suspend' ||
+        !(await automaticCompactionDueAtBoundary())
+      )
+        return signal;
+
+      automaticCompactionAtBoundary = true;
+
+      return signal ?? 'compact';
+    };
+
+    /**
      * The boundary cause of a step whose send failed after a started call,
      * decided once (D1/D4): the SDK asks `stopWhenExtra` after a started call
      * settles, but a `wait` call has no output, so the loop ends without asking
@@ -4431,27 +4460,9 @@ export class RunExecutionService {
     let failedStepBoundary: { readonly cause: FailedStepCause } | undefined;
 
     const resolveFailedStepBoundary = async (): Promise<FailedStepCause> => {
-      if (failedStepBoundary !== undefined) return failedStepBoundary.cause;
+      failedStepBoundary ??= { cause: await resolveBoundaryCause() };
 
-      const signal = await resolveStepEndSignal();
-
-      // A cancellation or suspension outranks the compaction the step owes.
-      if (
-        signal === 'cancel' ||
-        signal === 'suspend' ||
-        !(await automaticCompactionDueAtBoundary())
-      ) {
-        failedStepBoundary = { cause: signal };
-
-        return signal;
-      }
-
-      automaticCompactionAtBoundary = true;
-      const cause = signal ?? 'compact';
-
-      failedStepBoundary = { cause };
-
-      return cause;
+      return failedStepBoundary.cause;
     };
 
     const stopWhenExtra = async (): Promise<boolean> => {
@@ -4460,24 +4471,15 @@ export class RunExecutionService {
       // meaning, `stopCause` is left alone, and no quota recovery is recorded
       // (the counts carry over, D1).
       if (sendFailure !== undefined) {
-        await resolveFailedStepBoundary();
+        failedStepBoundary = { cause: await resolveBoundaryCause() };
 
         return true;
       }
 
       await recordQuotaRecovery('completed');
-      stopCause = await resolveStepEndSignal();
+      stopCause = await resolveBoundaryCause();
 
-      if (stopCause === 'cancel' || stopCause === 'suspend') return true;
-
-      if (!(await automaticCompactionDueAtBoundary()))
-        return stopCause !== undefined;
-
-      automaticCompactionAtBoundary = true;
-
-      if (stopCause === undefined) stopCause = 'compact';
-
-      return true;
+      return stopCause !== undefined;
     };
 
     const suspendPendingWait = async (
@@ -4521,9 +4523,8 @@ export class RunExecutionService {
       requestRetriesUsed = 0,
       skipInitialContextPreparation = false,
       pendingFailedSend?: {
-        readonly failure: ProviderFailure;
-        readonly notice: AuthoredContextItemPart;
-        readonly superseded: SupersededModelOutput;
+        readonly failure?: ProviderFailure;
+        readonly cut?: FailedSendCut;
       },
     ): Promise<AttemptRun> => {
       let nextCall = noNextCall;
@@ -4535,7 +4536,7 @@ export class RunExecutionService {
       sendFailure = undefined;
       failedSendCut = undefined;
       failedStepBoundary = undefined;
-      let pendingNotice = pendingFailedSend;
+      let pendingCut = pendingFailedSend?.cut;
 
       if (input.abortSignal?.aborted) {
         settleToolsOnParentAbort();
@@ -4560,6 +4561,7 @@ export class RunExecutionService {
       segment = callSegment;
       segmentYield = callControl.yield.signal;
       interruptSettlement = undefined;
+      interruptOutcome = undefined;
       stoppedCalls.length = 0;
       const callSignal = callAbortSignal(input.abortSignal, callSegment.signal);
 
@@ -4790,22 +4792,40 @@ export class RunExecutionService {
 
       /** The status a failed send's Run ends with: an abort that landed first
        * decides (Stop, expiry, a recorded cancellation), else the failure. */
-      const failedSendStatus = (): FailedSendStatus =>
-        input.abortSignal?.aborted
-          ? classifyAbortedRun(input.abortSignal)
-          : failedStepBoundary?.cause === 'cancel'
-            ? 'cancelled'
-            : 'failed';
+      const failedSendStatus = (): FailedSendStatus => {
+        if (input.abortSignal?.aborted)
+          return classifyAbortedRun(input.abortSignal);
+
+        return failedStepBoundary?.cause === 'cancel' ? 'cancelled' : 'failed';
+      };
+
+      /**
+       * The terminal message a failed send's Run carries: a Stop or expiry
+       * names its own cause, as the shipped abort settlement does, and only
+       * the Run's own failure names the send.
+       */
+      const failedSendMessage = (
+        status: FailedSendStatus,
+        failure: ProviderFailure,
+      ): string => {
+        if (status === 'expired') return expiredRunMessage(input.abortSignal);
+
+        if (status === 'failed') return errorMessageWithoutParams(failure);
+
+        return input.abortSignal?.aborted
+          ? toolTerminationMessage(status)
+          : 'Run was cancelled.';
+      };
 
       /** Ends the Run with the provider failure, the cut, and the notice (D6). */
       const settleFailedSend = async (
         cut: FailedSendCut,
         finishReason: TurnTelemetry['finishReason'],
+        status: FailedSendStatus = failedSendStatus(),
       ): Promise<void> => {
         const failure = sendFailure?.failure;
 
         if (failure === undefined) return;
-        const status = failedSendStatus();
 
         const assistantTelemetry = buildAssistantTelemetry(
           finishReason,
@@ -4831,17 +4851,7 @@ export class RunExecutionService {
           return;
 
         const stored = modelRequestFailure(failure);
-
-        // A Stop or expiry names its own cause, as the shipped abort
-        // settlement does; only the Run's own failure names the send.
-        const message =
-          status === 'expired'
-            ? expiredRunMessage(input.abortSignal)
-            : status === 'failed'
-              ? errorMessageWithoutParams(failure)
-              : input.abortSignal?.aborted
-                ? toolTerminationMessage(status)
-                : 'Run was cancelled.';
+        const message = failedSendMessage(status, failure);
 
         const failureDetails = {
           message,
@@ -4872,7 +4882,7 @@ export class RunExecutionService {
           runPayload: { status, ...failureDetails },
           error: failureDetails,
           assistantTurn: turn,
-          superseded: { fromSequence: cut.fromSequence, step: cut.step },
+          superseded: cut.superseded,
         });
 
         await this.afterAssistantTurn(
@@ -4885,8 +4895,8 @@ export class RunExecutionService {
       /**
        * Continues after the failed send's calls settled (D4). A delivery at
        * the boundary starts a new segment with no carried count and no retry
-       * delay; otherwise the next step's first send stages the notice, stores
-       * the cut, and waits the retry delay of the carried count.
+       * delay; otherwise the next step's first send stores the cut and waits
+       * the retry delay of the carried count.
        */
       const continueFailedSend = async (
         cut: FailedSendCut,
@@ -4899,11 +4909,7 @@ export class RunExecutionService {
         if (failure === undefined) return;
         const segmentSteps = stepBase + stepCount;
 
-        if (
-          cause === 'delivery' ||
-          cause === 'compact' ||
-          automaticCompactionAtBoundary
-        ) {
+        if (cause === 'delivery' || automaticCompactionAtBoundary) {
           stopCause = cause;
 
           const boundaryKind = await deliverAtBoundary(
@@ -4915,7 +4921,7 @@ export class RunExecutionService {
                 segmentSteps,
               ),
             },
-            { superseded: { fromSequence: cut.fromSequence, step: cut.step } },
+            { superseded: cut.superseded },
           );
 
           if (boundaryKind === 'delivered') {
@@ -4926,14 +4932,31 @@ export class RunExecutionService {
             return;
           }
 
+          if (boundaryKind === 'fenced')
+            throw new RunNotRunnableError(input.runId);
+
+          if (boundaryKind === 'cancelled') {
+            // The delivery found a recorded cancellation: the Run still ends
+            // with the cut and the notice in its own terminal write.
+            await settleFailedSend(
+              cut,
+              finishReason,
+              input.abortSignal?.aborted
+                ? classifyAbortedRun(input.abortSignal)
+                : 'cancelled',
+            );
+
+            return;
+          }
+
+          // A quota park committed its own suspension and this attempt is done.
           if (boundaryKind !== 'nothing-pending') return;
         }
 
+        // The notice is part of the reply like any stored context item, so the
+        // request projects it directly after its last tool result (D4).
         const produced = projectStoredReplyParts(
-          assistantPartCollector
-            .parts()
-            .slice(partsBefore)
-            .filter((part) => part !== cut.notice),
+          assistantPartCollector.parts().slice(partsBefore),
           {
             privateParts: true,
             mediaKey: (index) => continuedMediaKey(partsBefore + index),
@@ -4948,11 +4971,7 @@ export class RunExecutionService {
             failure.step + 1,
             failure.failure.sends,
             false,
-            {
-              failure: failure.failure,
-              notice: cut.notice,
-              superseded: { fromSequence: cut.fromSequence, step: cut.step },
-            },
+            { failure: failure.failure, cut },
           );
       };
 
@@ -4984,14 +5003,13 @@ export class RunExecutionService {
           return;
         }
 
-        // Stop, expiry, and cancellation beat the continue/fail decision (R9).
-        if (cause === 'cancel' || input.abortSignal?.aborted) {
-          await settleFailedSend(cut, finishReason);
-
-          return;
-        }
-
-        if (!continuesFailedSend(failure.failure)) {
+        // Stop, expiry, cancellation, and a class with no retry left beat the
+        // continue decision (R9).
+        if (
+          cause === 'cancel' ||
+          input.abortSignal?.aborted ||
+          !continuesFailedSend(failure.failure)
+        ) {
           await settleFailedSend(cut, finishReason);
 
           return;
@@ -5032,14 +5050,16 @@ export class RunExecutionService {
           { finishReason: null, telemetry: closing },
           {
             stoppedCalls: [...stoppedCalls],
-            ...supersededOf(cut),
+            superseded: cut?.superseded,
           },
         );
 
         if (boundaryKind === 'nothing-pending') {
           nextCall = () => {
             // The settled calls carry their results, and the projection leaves
-            // out the reasoning part the stop cut.
+            // out the reasoning part the stop cut. The delivery wrote nothing,
+            // so the cut this call ended still owes its event to the next
+            // request's first step (D4/D6).
             const produced = projectStoredReplyParts(
               assistantPartCollector.parts().slice(partsBefore),
               {
@@ -5055,6 +5075,9 @@ export class RunExecutionService {
             return callStream(
               [...callMessages, ...produced.messages],
               segmentSteps,
+              0,
+              false,
+              cut === undefined ? undefined : { cut },
             );
           };
         } else if (boundaryKind === 'cancelled') {
@@ -5087,7 +5110,7 @@ export class RunExecutionService {
             },
             runPayload: { status, message },
             error: { message },
-            ...supersededOf(cut),
+            superseded: cut?.superseded,
           });
         }
       };
@@ -5096,13 +5119,16 @@ export class RunExecutionService {
         cancelRequested: boolean,
       ): Promise<boolean> => {
         if (!cancelRequested && stoppedByInterrupt()) {
-          await settleOnInterrupt();
+          // The delivery is recorded once, so a later `onFinish` on a step the
+          // SDK already started waits for it instead of deciding the Run again
+          // (D2/D6).
+          await (interruptOutcome ??= (async () => {
+            await settleOnInterrupt();
 
-          if (!input.abortSignal?.aborted) {
-            await deliverInterrupt();
+            if (!input.abortSignal?.aborted) await deliverInterrupt();
+          })());
 
-            return true;
-          }
+          if (!input.abortSignal?.aborted) return true;
         }
 
         if (parentAbortSettlement) {
@@ -5177,6 +5203,8 @@ export class RunExecutionService {
           outputDeltaCount = stepOutputDeltaCount;
           reasoningPartId = undefined;
           textPartId = undefined;
+          wireTextPartId = undefined;
+          textPartEnded = false;
           inRunItems = createInRunContextItems();
 
           persistFencedModelEvent('model.superseded', {
@@ -5395,8 +5423,9 @@ export class RunExecutionService {
           messages: callMessages,
           requestRetriesUsed,
           // The failed send's class: the first send waits its retry delay with
-          // the carried count, and fails at the cap (D4).
-          ...(pendingFailedSend !== undefined && {
+          // the carried count, and fails at the cap (D4). A call that continues
+          // a withdrawn interrupt carries only the cut it owes.
+          ...(pendingFailedSend?.failure !== undefined && {
             pendingFailure: pendingFailedSend.failure,
           }),
           // The Run learns of a started-call failure while its calls run (D1).
@@ -5443,11 +5472,11 @@ export class RunExecutionService {
               workspaceRoot.beginStep();
               inRunItems.beginStep(messages);
 
-              // The failed send's notice and cut are stored in ONE fenced
-              // write before this step's first send, even when that send
-              // waits a retry delay (D4). The notice is already collected
-              // directly after the last kept tool part, so it is staged for
-              // the request, never collected twice.
+              // The failed send's cut is stored in ONE fenced write before
+              // this step's first send, even when that send waits a retry
+              // delay (D4). The notice itself is already collected directly
+              // after the last kept tool part and travels in `messages`, so
+              // nothing is staged or collected twice.
               if (skipInitialContextPreparation && stepNumber === 0) {
                 skipInitialContextPreparation = false;
                 boundaryCallMessages = messages;
@@ -5456,8 +5485,8 @@ export class RunExecutionService {
                 return messages;
               }
 
-              const notice = pendingNotice;
-              pendingNotice = undefined;
+              const cut = pendingCut;
+              pendingCut = undefined;
 
               const staged: Array<AuthoredContextItemPart> = [];
               await inRunProducer?.prepareStep({
@@ -5468,16 +5497,14 @@ export class RunExecutionService {
                 },
               });
 
-              if (staged.length > 0 || notice !== undefined) {
+              if (staged.length > 0 || cut !== undefined) {
                 await this.storeInRunSnapshot(
                   input,
                   attemptId,
                   [...assistantPartCollector.parts(), ...staged],
-                  notice?.superseded,
+                  cut?.superseded,
                 );
               }
-
-              if (notice !== undefined) inRunItems.stage(notice.notice);
 
               for (const part of staged) {
                 inRunItems.stage(part);
@@ -5650,9 +5677,17 @@ export class RunExecutionService {
 
             // Drain before adopting a new id so a buffered event never spans
             // two adapter parts (the collector splits on the same transition).
-            if (partId !== textPartId) {
+            // A call ended the open part, so the wire's own unchanged id names
+            // a new part and the events carry one of their own (D3).
+            if (partId !== wireTextPartId || textPartEnded) {
               persistDelta(deltas.flush());
-              textPartId = partId;
+              const changed = partId !== wireTextPartId;
+              wireTextPartId = partId;
+              textPartEnded = false;
+              textPartId =
+                changed || partId === undefined
+                  ? partId
+                  : `${partId}#${(textPartEpoch += 1)}`;
             }
 
             persistDelta(deltas.push(text, Date.now()));
@@ -5729,6 +5764,7 @@ export class RunExecutionService {
             // Reasoning intervened: the next text delta opens a new part, so
             // the id it carries is not the one the drained buffer belonged to.
             textPartId = undefined;
+            wireTextPartId = undefined;
             persistReasoning(reasoningDeltas.push(text, Date.now()));
           },
           onError: async ({ error }) => {
@@ -5844,6 +5880,14 @@ export class RunExecutionService {
 
             if (parentAbortSettlement) {
               await parentAbortSettlement;
+
+              return;
+            }
+
+            // An owner interrupt already cut and delivered this step: the
+            // aborted step's `onFinish` must not decide the Run again (D2/D6).
+            if (interruptOutcome !== undefined) {
+              await interruptOutcome;
 
               return;
             }
@@ -8832,6 +8876,8 @@ export class RunExecutionService {
        * final-answer wait carries them to the terminal write the wake performs.
        */
       baselines?: FirstEpochBaselines;
+      /** The cut a failed send leaves, when the step that parks owes one. */
+      superseded?: SupersededModelOutput;
     },
   ): Promise<DeliveryInput['boundaryCompaction'] | 'quota'> {
     const compactionSet =
@@ -8889,6 +8935,9 @@ export class RunExecutionService {
         }),
         ...(input.quotaStoppedCalls !== undefined && {
           stoppedCalls: input.quotaStoppedCalls,
+        }),
+        ...(input.superseded !== undefined && {
+          superseded: input.superseded,
         }),
       });
 

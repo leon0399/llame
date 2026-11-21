@@ -51,6 +51,42 @@ function sequencedEvent(
   return { ...event(eventType, payload), sequence };
 }
 
+/**
+ * The `tool.requested` → `tool.started` → `tool.completed` events of one
+ * read-only call that succeeded. The caller places each event, because a
+ * completion can land after later events while the Run waits for the call.
+ */
+function readCall(
+  requested: number,
+  completed: number,
+  call: {
+    readonly toolCallId: string;
+    readonly toolName: 'read' | 'grep';
+    readonly input: RunEvent['payload'];
+    readonly output: RunEvent['payload'];
+  },
+) {
+  return {
+    requested: sequencedEvent(requested, 'tool.requested', {
+      toolCallId: call.toolCallId,
+      toolName: call.toolName,
+      input: call.input,
+      stepNumber: 0,
+    }),
+    started: sequencedEvent(requested + 1, 'tool.started', {
+      toolCallId: call.toolCallId,
+      toolName: call.toolName,
+      classification: 'read_only',
+    }),
+    completed: sequencedEvent(completed, 'tool.completed', {
+      toolCallId: call.toolCallId,
+      toolName: call.toolName,
+      status: 'success',
+      output: call.output,
+    }),
+  };
+}
+
 type StoredPermissionRecord = {
   readonly policyId: string;
   readonly decision: string;
@@ -912,25 +948,18 @@ describe('reconstructDurableAssistant', () => {
     // `persistCutAnchor` flushed the text before the call and read the next
     // sequence, which the call's own `tool.requested` then took. The call
     // settles while the Run waits; only then is the tail flushed.
+    const call = readCall(2, 4, {
+      toolCallId: 'call-a',
+      toolName: 'read',
+      input: { path: '/work/a.txt' },
+      output: { status: 'success', content: 'file body' },
+    });
+
     const parts = reconstructDurableAssistant([
       sequencedEvent(1, 'model.delta', { text: 'Hi' }),
-      sequencedEvent(2, 'tool.requested', {
-        toolCallId: 'call-a',
-        toolName: 'read',
-        input: { path: '/work/a.txt' },
-        stepNumber: 0,
-      }),
-      sequencedEvent(3, 'tool.started', {
-        toolCallId: 'call-a',
-        toolName: 'read',
-        classification: 'read_only',
-      }),
-      sequencedEvent(4, 'tool.completed', {
-        toolCallId: 'call-a',
-        toolName: 'read',
-        status: 'success',
-        output: { status: 'success', content: 'file body' },
-      }),
+      call.requested,
+      call.started,
+      call.completed,
       sequencedEvent(5, 'model.delta', { text: ' trailing' }),
       sequencedEvent(6, 'reasoning.delta', { text: 'think' }),
       sequencedEvent(7, 'model.superseded', { fromSequence: 2, step: 0 }),
@@ -956,43 +985,30 @@ describe('reconstructDurableAssistant', () => {
   it('Text between two kept calls stays', () => {
     // Two complete tool-call parts: each flushed the text before it, so only
     // the text after the second call falls inside the cut its anchor names.
+    const read = readCall(2, 7, {
+      toolCallId: 'call-a',
+      toolName: 'read',
+      input: { path: '/work/a.txt' },
+      output: { status: 'success', content: 'a body' },
+    });
+
+    const grep = readCall(5, 8, {
+      toolCallId: 'call-b',
+      toolName: 'grep',
+      input: { pattern: 'needle' },
+      output: { status: 'success', value: 'hit' },
+    });
+
     const parts = reconstructDurableAssistant([
       sequencedEvent(1, 'model.delta', { text: 'one' }),
-      sequencedEvent(2, 'tool.requested', {
-        toolCallId: 'call-a',
-        toolName: 'read',
-        input: { path: '/work/a.txt' },
-        stepNumber: 0,
-      }),
-      sequencedEvent(3, 'tool.started', {
-        toolCallId: 'call-a',
-        toolName: 'read',
-        classification: 'read_only',
-      }),
+      read.requested,
+      read.started,
       sequencedEvent(4, 'model.delta', { text: 'two' }),
-      sequencedEvent(5, 'tool.requested', {
-        toolCallId: 'call-b',
-        toolName: 'grep',
-        input: { pattern: 'needle' },
-        stepNumber: 0,
-      }),
-      sequencedEvent(6, 'tool.started', {
-        toolCallId: 'call-b',
-        toolName: 'grep',
-        classification: 'read_only',
-      }),
-      sequencedEvent(7, 'tool.completed', {
-        toolCallId: 'call-a',
-        toolName: 'read',
-        status: 'success',
-        output: { status: 'success', content: 'a body' },
-      }),
-      sequencedEvent(8, 'tool.completed', {
-        toolCallId: 'call-b',
-        toolName: 'grep',
-        status: 'success',
-        output: { status: 'success', value: 'hit' },
-      }),
+      grep.requested,
+      grep.started,
+      // Both calls settle while the Run waits, before the next step's start.
+      read.completed,
+      grep.completed,
       sequencedEvent(9, 'model.delta', { text: 'three' }),
       sequencedEvent(10, 'model.superseded', { fromSequence: 5, step: 0 }),
     ]).collector.parts();
@@ -1027,24 +1043,17 @@ describe('reconstructDurableAssistant', () => {
     // The reply's stored snapshot after the cut: the rebuilt kept parts, then
     // the notice `applyFailedSendCut` splices in behind the last kept call. A
     // reload rebuilds the parts from the log and places that item again.
+    const call = readCall(1, 3, {
+      toolCallId: 'call-a',
+      toolName: 'read',
+      input: { path: '/work/a.txt' },
+      output: { status: 'success', content: 'file body' },
+    });
+
     const rebuilt = reconstructDurableAssistant([
-      sequencedEvent(1, 'tool.requested', {
-        toolCallId: 'call-a',
-        toolName: 'read',
-        input: { path: '/work/a.txt' },
-        stepNumber: 0,
-      }),
-      sequencedEvent(2, 'tool.started', {
-        toolCallId: 'call-a',
-        toolName: 'read',
-        classification: 'read_only',
-      }),
-      sequencedEvent(3, 'tool.completed', {
-        toolCallId: 'call-a',
-        toolName: 'read',
-        status: 'success',
-        output: { status: 'success', content: 'file body' },
-      }),
+      call.requested,
+      call.started,
+      call.completed,
       sequencedEvent(4, 'model.delta', { text: ' trailing' }),
       sequencedEvent(5, 'model.superseded', { fromSequence: 1, step: 0 }),
     ]).collector.parts();
