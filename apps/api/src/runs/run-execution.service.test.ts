@@ -33469,8 +33469,9 @@ describe('a send that breaks after a started tool call', () => {
 
       expect(suspension).toBeDefined();
       expect(requests).toHaveLength(1);
-      // No send broke here, so the park owes no cut and names none.
-      expect(suspension).not.toHaveProperty('superseded');
+      // No send broke here, so the park owes no cut and names none. The
+      // caller always passes the key; only its value decides the event.
+      expect(suspension?.superseded).toBeUndefined();
     },
   );
 

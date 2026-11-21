@@ -2104,9 +2104,7 @@ export class RunExecutionService {
         summaryPrefixFingerprint: input.summaryPrefixFingerprint,
       }),
       ...(input.baselines !== undefined && { baselines: input.baselines }),
-      ...(input.superseded !== undefined && {
-        superseded: input.superseded,
-      }),
+      superseded: input.superseded,
     });
 
     if (result.kind === 'ready') {
@@ -2131,9 +2129,7 @@ export class RunExecutionService {
           }),
           // The reply this fallback settles still holds the cut and the notice
           // of the failed send that parked it (D6).
-          ...(input.superseded !== undefined && {
-            superseded: input.superseded,
-          }),
+          superseded: input.superseded,
         });
       }
     }
@@ -3583,8 +3579,6 @@ export class RunExecutionService {
      * retry and failure paths.
      */
     const noteSendFailure = (error: unknown): void => {
-      if (sendFailure !== undefined) return;
-
       if (!(error instanceof ProviderFailure) || !error.toolCallStarted) return;
 
       if (cutAnchor === undefined) return;
@@ -4322,18 +4316,9 @@ export class RunExecutionService {
 
         // A Stop or expiry during the wait for a failed send's calls keeps the
         // cut and the notice, and names the cut in the terminal write (D6).
+        // The cut performs no write, and `await deltaWrites` above already
+        // covered the anchor read, so no new progress failure can appear here.
         const cut = await applyFailedSendCut();
-
-        if (progressWriteFailed) {
-          await this.failRunProgressPersistence({
-            userId: input.userId,
-            runId: input.runId,
-            attemptId,
-            telemetry: buildAssistantTelemetry(null, 'error'),
-          });
-
-          return;
-        }
 
         const assistantTelemetry = buildAssistantTelemetry(
           null,
@@ -4789,12 +4774,9 @@ export class RunExecutionService {
 
         if (failure === undefined) return;
         const step = stepOffset + failure.step;
-        let settledWait = false;
 
         for (const [toolCallId, call] of openToolCalls) {
           if (call.origin !== undefined || call.step !== step) continue;
-
-          if (call.toolName === 'wait') settledWait = true;
 
           recordToolCompleted(
             toolCallId,
@@ -4806,10 +4788,10 @@ export class RunExecutionService {
           );
         }
 
-        if (settledWait) {
-          pendingWait = false;
-          waitRequest = undefined;
-        }
+        // A settled `wait` reads as 'ready' in `suspendPendingWait` either
+        // way, so the failed step never enters `awaiting_jobs` (D2).
+        pendingWait = false;
+        waitRequest = undefined;
 
         await deltaWrites;
       };
@@ -4860,17 +4842,8 @@ export class RunExecutionService {
         persistDelta(deltas.flush());
         await deltaWrites;
 
-        if (progressWriteFailed) {
-          await this.settleProgressWriteFailure({
-            userId: input.userId,
-            runId: input.runId,
-            attemptId,
-            telemetry: assistantTelemetry,
-          });
-
-          return;
-        }
-
+        // `settleOpenToolsAndDrain` settles the calls, drains their writes, and
+        // settles the progress failure itself, so no separate pre-check here.
         if (!(await settleOpenToolsAndDrain(status, assistantTelemetry)))
           return;
 
@@ -4949,14 +4922,6 @@ export class RunExecutionService {
             // baselines its own request rendered, and names the cut (D4/D6).
             { superseded: cut.superseded, baselines: attemptContext },
           );
-
-          if (boundaryKind === 'delivered') {
-            // The closed reply holds the cut and the notice; the delivered
-            // message starts its own reply and usage accounting.
-            discardedSend = false;
-
-            return;
-          }
 
           if (boundaryKind === 'fenced')
             throw new RunNotRunnableError(input.runId);
@@ -5103,7 +5068,7 @@ export class RunExecutionService {
               segmentSteps,
               0,
               false,
-              cut === undefined ? undefined : { cut },
+              { cut },
             );
           };
         } else if (boundaryKind === 'cancelled') {
@@ -5233,7 +5198,6 @@ export class RunExecutionService {
           reasoningPartId = undefined;
           textPartId = undefined;
           wireTextPartId = undefined;
-          textPartEnded = false;
           inRunItems = createInRunContextItems();
 
           persistFencedModelEvent('model.superseded', {
@@ -8965,9 +8929,7 @@ export class RunExecutionService {
         ...(input.quotaStoppedCalls !== undefined && {
           stoppedCalls: input.quotaStoppedCalls,
         }),
-        ...(input.superseded !== undefined && {
-          superseded: input.superseded,
-        }),
+        superseded: input.superseded,
       });
 
       return 'quota';
