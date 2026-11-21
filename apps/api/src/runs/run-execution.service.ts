@@ -1040,6 +1040,22 @@ function continuesFailedSend(failure: ProviderFailure): boolean {
   );
 }
 
+/** The empty command set of an automatic compaction a failed step owes. */
+const OWED_AUTOMATIC_COMPACTION: CompactionSet = { ids: [], focus: null };
+
+/**
+ * The suspension fields a boundary or final-answer quota wait freezes: the
+ * boundary mode, the planned command set, the summary's prefix identity, and
+ * the first-epoch baselines its resume reuses.
+ */
+type QuotaBoundaryFields = {
+  readonly boundaryMode?: 'automatic' | 'owner';
+  readonly compactionSet?: CompactionSet;
+  readonly summaryAttemptId?: string;
+  readonly summaryPrefixFingerprint?: string;
+  readonly baselines?: FirstEpochBaselines;
+};
+
 /**
  * The closing reply a woken cut leaves: a boundary delivery that measured
  * nothing, shaped like every other reply — the model's pricing and billing
@@ -5097,7 +5113,12 @@ export class RunExecutionService {
         if (awaiting !== undefined) {
           await this.suspendCutForQuota({
             attempt,
+            request: quotaRequest,
+            execution: outcome.execution,
             awaiting,
+            ...(automaticCompactionAtBoundary && {
+              owedCompaction: OWED_AUTOMATIC_COMPACTION,
+            }),
             parts: assistantPartCollector.parts(),
             cut,
             // A cancellation that wins the entry settles this reply with the
@@ -8968,6 +8989,42 @@ export class RunExecutionService {
     };
   }
 
+  /** The fields a boundary or final-answer quota wait stores; a request wait stores none. */
+  private quotaBoundaryFields(input: {
+    resumeAt: AwaitingQuota['resumeAt'];
+    automatic: boolean;
+    request: QuotaRequestState | undefined;
+    attemptId: string;
+    compactionSet: CompactionSet;
+    prepared: PreparedExecutionContext;
+    context: PreparedAttemptContext;
+    baselines?: FirstEpochBaselines;
+  }): QuotaBoundaryFields {
+    if (input.resumeAt !== 'boundary' && input.resumeAt !== 'finalAnswer')
+      return {};
+
+    return {
+      ...(input.resumeAt === 'boundary' && {
+        boundaryMode: input.automatic ? 'automatic' : 'owner',
+      }),
+      compactionSet: input.compactionSet,
+      // The attempt that first suspended this summary owns the prefix the
+      // resume must reuse; a re-wait carries that identity, never its own.
+      summaryAttemptId: input.request?.summaryAttemptId ?? input.attemptId,
+      summaryPrefixFingerprint:
+        input.request?.summaryPrefixFingerprint ??
+        compactionSummaryPrefixFingerprint(input.prepared),
+      baselines:
+        input.request?.resumeAt === input.resumeAt
+          ? input.request.baselines
+          : (input.baselines ?? {
+              recencyDigestInitialization:
+                input.context.recencyDigestInitialization,
+              skillCatalogFreeze: input.context.skillCatalogFreeze,
+            }),
+    };
+  }
+
   private async prepareQuotaBoundary(
     input: Omit<
       Parameters<RunExecutionService['prepareBoundaryCompaction']>[0],
@@ -9015,27 +9072,15 @@ export class RunExecutionService {
         resumeAt: input.resumeAt,
         parts: input.quotaParts(),
         stepBudgetUsed: input.stepBudgetUsed,
-        ...(input.resumeAt === 'boundary' && {
-          boundaryMode: input.automatic === true ? 'automatic' : 'owner',
-        }),
-        ...((input.resumeAt === 'boundary' ||
-          input.resumeAt === 'finalAnswer') && {
+        ...this.quotaBoundaryFields({
+          resumeAt: input.resumeAt,
+          automatic: input.automatic === true,
+          request: input.quotaRequest,
+          attemptId: input.attemptId,
           compactionSet,
-          // The attempt that first suspended this summary owns the prefix the
-          // resume must reuse; a re-wait carries that identity, never its own.
-          summaryAttemptId:
-            input.quotaRequest?.summaryAttemptId ?? input.attemptId,
-          summaryPrefixFingerprint:
-            input.quotaRequest?.summaryPrefixFingerprint ??
-            compactionSummaryPrefixFingerprint(input.prepared),
-          baselines:
-            input.quotaRequest?.resumeAt === input.resumeAt
-              ? input.quotaRequest.baselines
-              : (input.baselines ?? {
-                  recencyDigestInitialization:
-                    input.context.recencyDigestInitialization,
-                  skillCatalogFreeze: input.context.skillCatalogFreeze,
-                }),
+          prepared: input.prepared,
+          context: input.context,
+          ...(input.baselines !== undefined && { baselines: input.baselines }),
         }),
         ...(input.quotaAssistantTurn !== undefined && {
           assistantTurn: input.quotaAssistantTurn(),
@@ -9275,7 +9320,16 @@ export class RunExecutionService {
    */
   private async suspendCutForQuota(input: {
     attempt: ExecuteAttemptInput;
+    /** The request this park continues, which carries its wait count. */
+    request: QuotaRequestState | undefined;
+    execution: PreparedAttemptExecution;
     awaiting: AwaitingQuota;
+    /**
+     * The automatic step-boundary compaction the failed step owed: the entry
+     * freezes its fields and the wake runs the summary before the next step
+     * (continue-after-broken-send D6).
+     */
+    owedCompaction?: CompactionSet;
     parts: Array<MessagePart>;
     cut: FailedSendCut;
     /**
@@ -9289,13 +9343,28 @@ export class RunExecutionService {
     stepsStarted: number;
   }): Promise<void> {
     const run = input.attempt.input;
+    const owed = input.owedCompaction;
+
+    const awaiting =
+      owed === undefined
+        ? input.awaiting
+        : { ...input.awaiting, resumeAt: 'boundary' as const };
 
     const suspended = await this.waitService().suspendForQuota({
       runId: run.runId,
       chatId: run.chatId,
       userId: run.userId,
       attemptId: input.attempt.attemptId,
-      awaiting: input.awaiting,
+      awaiting,
+      ...this.quotaBoundaryFields({
+        resumeAt: awaiting.resumeAt,
+        automatic: owed !== undefined,
+        request: input.request,
+        attemptId: input.attempt.attemptId,
+        compactionSet: owed ?? { ids: [], focus: null },
+        prepared: input.execution.prepared,
+        context: input.execution.attemptContext,
+      }),
       parts: input.parts,
       steps: {},
       superseded: input.cut.superseded,

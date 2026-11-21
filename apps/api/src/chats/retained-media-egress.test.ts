@@ -192,6 +192,7 @@ describe('withoutRetainedMediaPayload', () => {
     expect(JSON.stringify(stripped)).not.toContain(RETAINED_IMAGE.data);
     // The stored payload keeps its bytes: the next attempt replays them.
     expect(payload.parts[0]).toBe(TOOL_READ_PART);
+    expect(TOOL_READ_PART.retainedMedia).toEqual(RETAINED_IMAGE);
   });
 
   it('returns the stored payload by identity when it carries no bytes', () => {

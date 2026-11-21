@@ -52,5 +52,6 @@ describe('withoutProviderMetadataPayload', () => {
     );
     // The stored payload keeps its metadata: the next attempt replays it.
     expect(payload.parts[0]).toBe(TOOL_READ_PART);
+    expect(TOOL_READ_PART.providerMetadata).toBe(PROVIDER_METADATA);
   });
 });

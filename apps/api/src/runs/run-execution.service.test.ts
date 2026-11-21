@@ -34351,6 +34351,54 @@ describe('a send that breaks after a started tool call', () => {
   );
 
   it.each<Wire>(['responses', 'completions'])(
+    '%s wire: A usage limit after a tool call keeps the compaction its boundary owes',
+    async (wire) => {
+      const lookup = echoTool(LOOKUP_TOOL);
+
+      const suspendForQuota = vi
+        .fn<RunWaitService['suspendForQuota']>()
+        .mockResolvedValue({ kind: 'suspended' });
+
+      const { spies, requests, drained } = await startAndDrain({
+        wire,
+        tools: toolset(lookup),
+        runWait: asDouble<RunWaitService>({ suspendForQuota }),
+        arrangeService: (execution) => {
+          // The failed step's boundary owes an automatic compaction.
+          vi.spyOn(
+            Object.getPrototypeOf(execution.service),
+            'automaticCompactionDueAtBoundary',
+          ).mockResolvedValue(true);
+        },
+        responses: [
+          failedSend([lookupCall('read-call', 'a')], quotaFailure()),
+          providerText('never sent'),
+        ],
+      });
+
+      await drained;
+
+      // The summary does not run before the park: it is frozen for the wake.
+      expect(requests).toHaveLength(1);
+      expect(suspendForQuota.mock.lastCall?.[0]).toMatchObject({
+        awaiting: {
+          kind: 'quota',
+          failureClass: 'quota_exhausted',
+          resumeAt: 'boundary',
+          waitCount: 1,
+        },
+        boundaryMode: 'automatic',
+        compactionSet: { ids: [], focus: null },
+        summaryAttemptId: testAttemptId,
+        steps: {},
+        stepBudgetUsed: 1,
+        superseded: { step: 0 },
+      });
+      expect(spies.markFinished).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each<Wire>(['responses', 'completions'])(
     '%s wire: A limit after a tool call parks the Run after the call settles',
     async (wire) => {
       const lookup = deferredTool(LOOKUP_TOOL);
