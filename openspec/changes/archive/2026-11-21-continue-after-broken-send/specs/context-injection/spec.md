@@ -13,15 +13,14 @@ order. They MUST go before the user text in the user message of the turn:
 5. `effective-context-change`
 6. `regenerate`
 7. `tool-availability`
-8. `project`
-9. `workspace`
-10. `git`
-11. `instructions`
-12. `skill-catalog`
-13. `skill-activation`
-14. `prompt-imports`
-15. `recency-digest`
-16. `temporal`
+8. `workspace`
+9. `git`
+10. `instructions`
+11. `skill-catalog`
+12. `skill-activation`
+13. `prompt-imports`
+14. `recency-digest`
+15. `temporal`
 
 When one producer contributes more than one item, the system MUST store those
 items in emission order. A producer added later MUST extend this list
@@ -149,9 +148,3 @@ rule of a retry after a dispatch.
 - **WHEN** a send fails after a settled `read` call, and the same step boundary yields a `tool-availability` in-Run item for the `read` result
 - **THEN** the `provider-failure` item comes directly after the `read` part
 - **AND** the `tool-availability` item comes after the `provider-failure` item
-
-#### Scenario: Project context precedes Workspace context
-
-- **WHEN** initial preparation yields `project`, `workspace`, `git`, and filesystem `instructions` items
-- **THEN** the author-time order is `project`, `workspace`, `git`, then `instructions`
-- **AND** the order creates no override hierarchy between their guidance
