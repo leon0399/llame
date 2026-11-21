@@ -1,9 +1,10 @@
 ---
-summary: "Registering the git repositories and checkouts a Chat can start from, linking them to Projects, and the host paths registration may inspect"
+summary: "Registering the git repositories and checkouts a Chat can start from, linking them to Projects, storing a Project's instructions, and the host paths registration may inspect"
 read_when:
   - you want llame to know which clone or worktree a Chat runs on
   - you need to register, inspect, or remove a checkout
   - you are linking a Project to a repository or setting its isolation policy
+  - you are saving or clearing a Project's instructions through the API
   - you are deciding which host paths a checkout registration may inspect
 behavior:
   - ../reference/tools/enter-workspace.md
@@ -365,6 +366,45 @@ sentence where the write was made. Registration's typed failures — an invalid
 path, a directory that is not a repository, `origin_mismatch`, `path_taken`, or
 a Machine that is offline or needs an update — appear under the draft, where
 the path can be corrected.
+
+## Project instructions
+
+Project instructions are one optional block of literal text that the owner
+writes for a Project's Chats. The API stores the text only. No Run reads it,
+and the Project page does not edit it.
+
+`PATCH /api/v1/projects/:id` accepts `instructions` beside `name`,
+`description`, `archived`, and `defaultExecutorId`. Every `GET` and `PATCH`
+response for a Project includes `instructions`. The field is `null` when the
+Project has none. `POST /api/v1/projects` does not accept `instructions`, so a
+new Project starts without them.
+
+```bash
+# Save or replace the text, then read the Project back.
+curl -X PATCH localhost:3001/api/v1/projects/<project> -b "session=…" \
+  -H 'content-type: application/json' \
+  -d '{"instructions":"Answer using the names this repository uses."}'
+curl localhost:3001/api/v1/projects/<project> -b "session=…"
+
+# Omit the field to leave the text unchanged, or pass null to clear it.
+curl -X PATCH localhost:3001/api/v1/projects/<project> -b "session=…" \
+  -H 'content-type: application/json' -d '{"name":"llame"}'
+curl -X PATCH localhost:3001/api/v1/projects/<project> -b "session=…" \
+  -H 'content-type: application/json' -d '{"instructions":null}'
+```
+
+The bound is 16000 Unicode code points, counted before whitespace
+normalization. Text above it answers `400` and changes nothing, so 16001 spaces
+leave a stored value intact. A `null` value, or a whitespace-only value within
+the bound, clears the instructions. Nonblank text is stored as entered,
+including its leading and trailing whitespace. The API does not resolve an
+import marker, a file reference, or a skill activation inside the text.
+
+An archived Project answers `409` to a change or a clear of its instructions
+and keeps the stored text. Only the owner can read or change them: a missing
+Project and another owner's Project both answer `404` without instructions. A
+rejected request names the field and the constraint, and neither the error nor
+the operator log carries the submitted text.
 
 ## Reading the catalog
 

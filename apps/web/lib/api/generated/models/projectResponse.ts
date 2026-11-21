@@ -12,6 +12,8 @@ export interface ProjectResponse {
   name: string;
   /** @nullable */
   description: string | null;
+  /** @nullable */
+  instructions: string | null;
   createdAt: string;
   updatedAt: string;
   /** @nullable */

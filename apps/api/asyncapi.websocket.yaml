@@ -203,6 +203,7 @@ components:
               ownerUserId: usr_8Jq2mXv4Kp
               name: Realtime
               description: null
+              instructions: null
               createdAt: '2026-10-16T09:20:31.004Z'
               updatedAt: '2026-10-16T09:20:31.004Z'
               archivedAt: null

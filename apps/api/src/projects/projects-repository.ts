@@ -115,21 +115,23 @@ export class ProjectsRepository {
   }
 
   /**
-   * Apply a partial update to a project, scoped to owner (defense-in-depth).
-   * Only provided fields are changed. Returns undefined if not found or not
-   * owned by this user.
+   * Apply provided fields to an owned Project, or return undefined if absent.
+   * ProjectsService supplies the tenant transaction: the row lock keeps the
+   * archive guard and derived patch on the same version until the write commits.
    */
   async update(
     projectId: string,
     ownerUserId: string,
-    patch: {
-      name?: string;
-      description?: string | null;
-      archived?: boolean;
-      defaultExecutorId?: string | null;
-    },
+    patch: ProjectPatch,
   ): Promise<Project | undefined> {
-    const current = await this.findById(projectId, ownerUserId);
+    const [current] = await this.db
+      .select()
+      .from(projects)
+      .where(
+        and(eq(projects.id, projectId), eq(projects.ownerUserId, ownerUserId)),
+      )
+      .limit(1)
+      .for('update');
 
     if (!current) return undefined;
 
@@ -139,6 +141,7 @@ export class ProjectsRepository {
     const hasContentFields =
       patch.name !== undefined ||
       patch.description !== undefined ||
+      patch.instructions !== undefined ||
       patch.defaultExecutorId !== undefined;
 
     if (current.archivedAt !== null) {
@@ -198,9 +201,10 @@ function projectPinCondition(ownerUserId: string) {
   );
 }
 
-type ProjectPatch = {
+export type ProjectPatch = {
   name?: string;
   description?: string | null;
+  instructions?: string | null;
   archived?: boolean;
   defaultExecutorId?: string | null;
 };
@@ -218,6 +222,9 @@ function projectPatchFields(patch: ProjectPatch, current: Project) {
 
   if (patch.description !== undefined) fields.description = patch.description;
 
+  if (patch.instructions !== undefined)
+    fields.instructions = patch.instructions;
+
   if (patch.defaultExecutorId !== undefined) {
     fields.defaultExecutorId = patch.defaultExecutorId;
   }
@@ -233,6 +240,7 @@ function projectPatchFields(patch: ProjectPatch, current: Project) {
     contentChanged:
       patch.name !== undefined ||
       patch.description !== undefined ||
+      patch.instructions !== undefined ||
       patch.defaultExecutorId !== undefined,
   };
 }

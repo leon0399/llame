@@ -1,0 +1,37 @@
+{
+  "type": "diff",
+  "version": "9",
+  "dialect": "postgres",
+  "id": "c1d143aa-f503-4a2e-b627-48512ca88430",
+  "prevIds": ["2e7ff8b0-834b-4b77-9048-344a5da3cbd3"],
+  "footprints": [
+    {
+      "statementType": "add_column",
+      "statementTarget": ["column", "public", "projects", "instructions"],
+      "writes": [
+        "s|col|public.projects.instructions",
+        "n|col|public.projects.instructions",
+        "e|col|public.projects.instructions"
+      ],
+      "reads": ["n|tbl|public.projects", "n|sch|public"]
+    }
+  ],
+  "deltas": [
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "projects",
+        "name": "instructions",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    }
+  ]
+}

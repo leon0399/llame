@@ -249,6 +249,78 @@ describeIfDb('RLS integration — projects tenancy (projects-foundation)', () =>
     }
   });
 
+  it('project instructions are nullable and invisible to a foreign or identity-less session', async () => {
+    // The column is additive and nullable: every existing Project reads as
+    // absent without a content backfill.
+    const [column] = await sql`
+      SELECT is_nullable, data_type
+      FROM information_schema.columns
+      WHERE table_schema = current_schema()
+        AND table_name = 'projects'
+        AND column_name = 'instructions'`;
+
+    expect(column?.is_nullable).toBe('YES');
+    expect(column?.data_type).toBe('text');
+
+    const projectId = crypto.randomUUID();
+    const literal = 'Owner-only guidance with @policy.md and $review.';
+
+    try {
+      await asUser(
+        userAId,
+        (tx) =>
+          tx`INSERT INTO projects (id, owner_user_id, name, instructions) VALUES (${projectId}, ${userAId}, 'Private instructions', ${literal})`,
+      );
+
+      // A foreign owner's read returns no row at all — not the text, not even
+      // a masked row.
+      const bRead = await asUser(
+        userBId,
+        (tx) => tx`SELECT instructions FROM projects WHERE id = ${projectId}`,
+      );
+
+      expect(bRead.length).toBe(0);
+
+      // A foreign owner's targeted instruction update matches zero rows, so
+      // RLS filters it out before the new value can land.
+      const bUpdate = await asUser(
+        userBId,
+        (tx) =>
+          tx`UPDATE projects SET instructions = 'hijacked' WHERE id = ${projectId} RETURNING instructions`,
+      );
+
+      expect(bUpdate.length).toBe(0);
+
+      // No identity at all: fail closed for the same read and write.
+      const anonymousRead = await sql.begin(
+        (tx: SqlClient) =>
+          tx`SELECT instructions FROM projects WHERE id = ${projectId}`,
+      );
+
+      expect(anonymousRead.length).toBe(0);
+
+      const anonymousUpdate = await sql.begin(
+        (tx: SqlClient) =>
+          tx`UPDATE projects SET instructions = 'anonymous' WHERE id = ${projectId} RETURNING instructions`,
+      );
+
+      expect(anonymousUpdate.length).toBe(0);
+
+      // The owner still holds the exact literal text.
+      const ownerRead = await asUser(
+        userAId,
+        (tx) => tx`SELECT instructions FROM projects WHERE id = ${projectId}`,
+      );
+
+      expect(ownerRead[0]?.instructions).toBe(literal);
+    } finally {
+      await asUser(
+        userAId,
+        (tx) => tx`DELETE FROM projects WHERE id = ${projectId}`,
+      ).catch(() => {});
+    }
+  });
+
   it("filing a chat into the owner's own project succeeds and sets project_id", async () => {
     const projectId = crypto.randomUUID();
     const chatId = crypto.randomUUID();

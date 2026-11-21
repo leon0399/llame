@@ -17,9 +17,19 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   reaches the model and the call never runs again. The wait count carries, and
   the failed step counts against the step cap. References
   [#1828](https://github.com/leon0399/llame/issues/1828).
+- Lock a Project's owned row before checking archive state and applying an
+  update. A concurrent archive that wins the row lock makes an instruction
+  edit wait and return `409`, without changing its stored guidance.
 
 # 2026-11-20
 
+- Persist owner-authored Project instructions as one nullable Project field.
+  `PATCH /api/v1/projects/:id` accepts literal `instructions` up to 16000
+  Unicode code points counted before whitespace normalization. An omitted field
+  leaves the text unchanged, `null` or in-bound whitespace clears it, and
+  nonblank text is stored as entered. Archived Projects answer `409`, another
+  owner answers `404`, and validation errors carry no submitted text. No Run
+  reads the instructions.
 - Add prose rules for pages under `docs/` and vendor an adapted `unslop` skill
   for generated-prose patterns. `pnpm lint:markdown` now fails an ADR that
   uses semicolons, dashes as punctuation, curly quotes, flagged vocabulary, or

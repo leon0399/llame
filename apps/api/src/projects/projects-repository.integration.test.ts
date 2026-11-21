@@ -284,6 +284,125 @@ describe('ProjectsRepository (real Postgres)', () => {
       }
     });
 
+    it('starts without instructions, then saves, replaces, omits, and clears them', async () => {
+      const created = await asA((repo) =>
+        repo.create({ ownerUserId: ownerA, name: 'Instructed' }),
+      );
+
+      try {
+        // Additive nullable column: existing and new projects start absent,
+        // and creation takes no instruction input.
+        expect(created.instructions).toBeNull();
+
+        const saved = await asA((repo) =>
+          repo.update(created.id, ownerA, {
+            instructions: 'Prefer the API package.',
+          }),
+        );
+
+        expect(saved?.instructions).toBe('Prefer the API package.');
+
+        const replaced = await asA((repo) =>
+          repo.update(created.id, ownerA, {
+            instructions: 'Prefer the web package.',
+          }),
+        );
+
+        expect(replaced?.instructions).toBe('Prefer the web package.');
+
+        // Omission preserves: a patch that names only the name leaves the
+        // stored text alone.
+        const renamed = await asA((repo) =>
+          repo.update(created.id, ownerA, { name: 'Renamed' }),
+        );
+
+        expect(renamed?.name).toBe('Renamed');
+        expect(renamed?.instructions).toBe('Prefer the web package.');
+
+        const cleared = await asA((repo) =>
+          repo.update(created.id, ownerA, { instructions: null }),
+        );
+
+        expect(cleared?.instructions).toBeNull();
+
+        const reread = await asA((repo) => repo.findById(created.id, ownerA));
+        expect(reread?.instructions).toBeNull();
+      } finally {
+        await asA((repo) => repo.delete(created.id, ownerA));
+      }
+    });
+
+    it('stores nonblank instructions exactly as given, import markers included', async () => {
+      const created = await asA((repo) =>
+        repo.create({ ownerUserId: ownerA, name: 'Literal' }),
+      );
+
+      // Nonblank text is literal data: surrounding whitespace, line breaks,
+      // and import/skill markers all survive unchanged. Only all-whitespace
+      // input is cleared, and that is the service's job, not this layer's.
+      const literal = '  Read @policy.md before edits.\nNever run $review.\t';
+
+      try {
+        const saved = await asA((repo) =>
+          repo.update(created.id, ownerA, { instructions: literal }),
+        );
+
+        expect(saved?.instructions).toBe(literal);
+
+        const found = await asA((repo) => repo.findById(created.id, ownerA));
+        expect(found?.instructions).toBe(literal);
+      } finally {
+        await asA((repo) => repo.delete(created.id, ownerA));
+      }
+    });
+
+    it('rejects instruction changes and clears on an archived project, preserving the stored text', async () => {
+      const created = await asA((repo) =>
+        repo.create({ ownerUserId: ownerA, name: 'Locked instructions' }),
+      );
+
+      try {
+        await asA((repo) =>
+          repo.update(created.id, ownerA, {
+            instructions: 'Original guidance.',
+          }),
+        );
+
+        await asA((repo) =>
+          repo.update(created.id, ownerA, { archived: true }),
+        );
+
+        await expect(
+          asA((repo) =>
+            repo.update(created.id, ownerA, { instructions: 'Sneaky' }),
+          ),
+        ).rejects.toBeInstanceOf(ConflictException);
+
+        // Clearing is an instruction edit too — including an explicit null.
+        await expect(
+          asA((repo) =>
+            repo.update(created.id, ownerA, { instructions: null }),
+          ),
+        ).rejects.toBeInstanceOf(ConflictException);
+
+        const locked = await asA((repo) => repo.findById(created.id, ownerA));
+        expect(locked?.instructions).toBe('Original guidance.');
+
+        // Unarchiving restores the ordinary edit path.
+        await asA((repo) =>
+          repo.update(created.id, ownerA, { archived: false }),
+        );
+
+        const editable = await asA((repo) =>
+          repo.update(created.id, ownerA, { instructions: 'Updated.' }),
+        );
+
+        expect(editable?.instructions).toBe('Updated.');
+      } finally {
+        await asA((repo) => repo.delete(created.id, ownerA));
+      }
+    });
+
     it('creates a project with its description', async () => {
       const created = await asA((repo) =>
         repo.create({

@@ -15,6 +15,7 @@ const baseProject: ProjectResponse = {
   updatedAt: "2026-07-20T10:00:00.000Z",
   archivedAt: null,
   defaultExecutorId: null,
+  instructions: null,
 };
 
 // Comfortably wider than the 17rem rail, so the fade + hover scroll have

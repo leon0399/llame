@@ -32,6 +32,9 @@ export const projects = pgTable(
     // owner sets or clears it through PATCH /api/v1/projects/:id — creation
     // takes a name only.
     description: text('description'),
+    // Literal owner-authored guidance; NULL = none, and the text is never
+    // import-resolved.
+    instructions: text('instructions'),
     createdAt: timestamptz('created_at').notNull().defaultNow(),
     updatedAt: timestamptz('updated_at').notNull().defaultNow(),
     // Archive state (chat-project-archive): a nullable timestamp on the row, so

@@ -6909,6 +6909,10 @@
             "type": "string",
             "nullable": true
           },
+          "instructions": {
+            "type": "string",
+            "nullable": true
+          },
           "createdAt": {
             "format": "date-time",
             "type": "string"
@@ -6932,6 +6936,7 @@
           "ownerUserId",
           "name",
           "description",
+          "instructions",
           "createdAt",
           "updatedAt",
           "archivedAt",
@@ -6952,6 +6957,12 @@
             "maxLength": 1000,
             "nullable": true,
             "description": "What this project is for. Pass null to clear it; omit to leave unchanged."
+          },
+          "instructions": {
+            "type": "string",
+            "maxLength": 16000,
+            "nullable": true,
+            "description": "Literal instructions for chats filed here. Pass null to clear them; omit to leave them unchanged."
           },
           "archived": {
             "type": "boolean",
