@@ -2463,23 +2463,29 @@ describe('Machine bash working directories', () => {
     truncated: false,
   };
 
-  it('refuses a Machine cwd carrying a selector before any effect', async () => {
-    const { peer, connector } = fixture();
+  it('takes a selector-shaped suffix in a Machine cwd as path text', async () => {
+    stubFence();
+    const request = vi.spyOn(MachineConnector.prototype, 'request');
+
+    const { connector } = fixture({
+      answers: { 'proc.bash': { value: BASH_OK } },
+    });
 
     await expect(
-      runTool(
-        bashTool,
-        { command: 'pwd', cwd: 'machine://devl/srv/app:1-5' },
-        context(connector),
-        5,
-      ),
-    ).resolves.toEqual({
-      status: 'error',
-      type: 'invalid_path',
-      message:
-        'A Machine working directory is one absolute Machine path without a selector.',
-    });
-    expect(peer.sessions).toHaveLength(0);
+      bashTool.execute(context(connector), {
+        command: 'pwd',
+        cwd: 'machine://devl/srv/app:1-5',
+      }),
+    ).resolves.toMatchObject({ status: 'success' });
+
+    // grep parses no selector and bash takes its directory literally, so the
+    // daemon receives the directory the model named.
+    expect(request).toHaveBeenCalledWith(
+      'devl',
+      'proc.bash',
+      expect.objectContaining({ cwd: '/srv/app:1-5' }),
+      expect.anything(),
+    );
   });
 
   it('refuses a non-absolute cwd inside a Machine Workspace', async () => {

@@ -8,7 +8,6 @@ import {
   type ExecutorTarget,
 } from '../machines/executor-git.service';
 import { MachineConnector } from '../machines/machine-connector.service';
-import { isConfiguredExecutor } from './chat-creation-executors';
 import { ChatCreationRecordRepository } from './chat-creation-record.repository';
 import { WorkspaceBindingRepository } from './workspace-binding.repository';
 import {
@@ -253,7 +252,7 @@ export class ChatCreationWorkspace {
       };
     }
 
-    if (!isConfiguredExecutor(target.executorId, this.connector)) {
+    if (!this.connector.isConfigured(target.executorId)) {
       return {
         status: 'bind_failed',
         code: 'executor_unavailable',

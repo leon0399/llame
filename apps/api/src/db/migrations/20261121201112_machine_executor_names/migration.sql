@@ -189,6 +189,48 @@ SET "workspace_root" = 'machine://'
   || pg_temp.machine_locator_path_encode("workspace_root")
 WHERE "workspace_root" LIKE '/%'
   AND "workspace_executor_id" IS NOT NULL;--> statement-breakpoint
+-- A resend reads `worktreeDirectory` back, so an absolute value must name the
+-- Machine too. The Machine is the attempt's SOURCE CHECKOUT — the path its
+-- first decision recorded — not the record's Chat: a create that crashed or
+-- ended `outcome_unknown` before binding has no Chat executor, yet its
+-- directory still lives on the Machine whose checkout it came from, and a
+-- resend reads that directory back. This runs before `checkouts.path` is
+-- rewritten, so the join compares the bare source path an old record stored
+-- with the bare checkout row. An attempt whose source path matches no checkout,
+-- or matching rows on more than one Machine (the same clone path on two
+-- Machines), keeps its value as written.
+UPDATE "chat_creation_records" AS "record"
+SET "attempts" = (
+  SELECT jsonb_agg(
+    CASE
+      WHEN entry.attempt->>'worktreeDirectory' LIKE '/%'
+        AND source.executor_id IS NOT NULL
+        THEN jsonb_set(
+          entry.attempt,
+          '{worktreeDirectory}',
+          to_jsonb(
+            'machine://'
+            || source.executor_id
+            || pg_temp.machine_locator_path_encode(
+              entry.attempt->>'worktreeDirectory'
+            )
+          )
+        )
+      ELSE entry.attempt
+    END
+    ORDER BY entry.ordinality
+  )
+  FROM jsonb_array_elements("record"."attempts")
+    WITH ORDINALITY AS entry(attempt, ordinality)
+  LEFT JOIN LATERAL (
+    SELECT min("checkout"."executor_id") AS "executor_id"
+      FROM "checkouts" AS "checkout"
+     WHERE "checkout"."owner_user_id" = "record"."owner_user_id"
+       AND "checkout"."path" = entry.attempt->'decisions'->0->>'path'
+    HAVING count(DISTINCT "checkout"."executor_id") = 1
+  ) AS "source" ON true
+)
+WHERE jsonb_array_length("record"."attempts") > 0;--> statement-breakpoint
 UPDATE "checkouts"
 SET "path" = 'machine://'
   || "executor_id"
@@ -214,40 +256,6 @@ SET "workspace_told" = CASE
   ELSE "workspace_executor_id" || E'\n' || "workspace_told"
 END
 WHERE "workspace_told" IS NOT NULL;--> statement-breakpoint
--- A resend reads `worktreeDirectory` back, so an absolute value must name the
--- Machine too. The executor id comes from the record's Chat; a record whose
--- Chat has no executor id keeps its attempts untouched.
-UPDATE "chat_creation_records" AS "record"
-SET "attempts" = (
-  SELECT jsonb_agg(
-    CASE
-      WHEN entry.attempt->>'worktreeDirectory' LIKE '/%'
-        THEN jsonb_set(
-          entry.attempt,
-          '{worktreeDirectory}',
-          to_jsonb(
-            'machine://'
-            || "chat"."workspace_executor_id"
-            || pg_temp.machine_locator_path_encode(
-              entry.attempt->>'worktreeDirectory'
-            )
-          )
-        )
-      ELSE entry.attempt
-    END
-    ORDER BY entry.ordinality
-  )
-  FROM jsonb_array_elements("record"."attempts")
-    WITH ORDINALITY AS entry(attempt, ordinality)
-  JOIN "chats" AS "chat" ON "chat"."id" = "record"."chat_id"
-)
-WHERE jsonb_array_length("record"."attempts") > 0
-  AND EXISTS (
-    SELECT 1
-    FROM "chats" AS "chat"
-    WHERE "chat"."id" = "record"."chat_id"
-      AND "chat"."workspace_executor_id" IS NOT NULL
-  );--> statement-breakpoint
 DROP FUNCTION pg_temp.machine_locator_path_encode(text);--> statement-breakpoint
 ALTER TABLE "chats" FORCE ROW LEVEL SECURITY;--> statement-breakpoint
 ALTER TABLE "checkouts" FORCE ROW LEVEL SECURITY;--> statement-breakpoint

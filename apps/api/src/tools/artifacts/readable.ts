@@ -10,10 +10,9 @@
  * does not reject the call.
  */
 
-import { locatorContextOf } from '../bash-target';
 import { admitPermission } from '../permissions/admit';
 import { type ToolContext } from '../types';
-import { currentMachine } from '../workspace-path';
+import { currentMachine, locatorContext } from '../workspace-path';
 import { formatArtifactLocator } from './locator';
 
 /**
@@ -67,7 +66,7 @@ function hostFilesReachArtifact(context: ToolContext): boolean {
   return (
     context.artifactHostFiles === true &&
     local !== undefined &&
-    currentMachine(locatorContextOf(context))?.toLowerCase() ===
+    currentMachine(locatorContext(context))?.toLowerCase() ===
       local.toLowerCase() &&
     bashGroupAdmits(context)
   );

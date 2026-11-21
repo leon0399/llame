@@ -9,6 +9,7 @@ import { type SkillCatalogPort } from '../skills/skill-catalog';
 import { workspaceSkillSources } from '../skills/workspace-skill-sources';
 import {
   admitPermission,
+  canonicalPathEvaluation,
   evaluateCanonicalWithRejectTexts,
 } from './permissions/admit';
 import { projectNativeFilePath } from './permissions/locator-projection';
@@ -18,7 +19,7 @@ import {
   type ToolErrorResult,
   type ToolResult,
 } from './types';
-import { type LocatorContext } from './workspace-path';
+import { locatorContext } from './workspace-path';
 import { type WorktreeBinding } from './workspace-worktree-entry';
 
 /*
@@ -56,8 +57,6 @@ export type WorkspaceAuthority = {
   readonly executorId: string;
   /** The executor this transition pins the Run to; absent leaves it unbound. */
   readonly bindExecutorId?: string;
-  /** Whether this process serves the Machine in process. */
-  readonly local: boolean;
 };
 
 /**
@@ -81,17 +80,7 @@ export function workspaceAuthority(
     runId: context.runId,
     toolCallId: context.toolCallId,
     executorId: machine.name,
-    local: machine.local,
     ...(machine.local && { bindExecutorId: machine.name }),
-  };
-}
-
-/** The trusted facts a locator projection resolves against for this call. */
-export function locatorContext(context: ToolContext): LocatorContext {
-  return {
-    workspaceRoot: context.workspaceRoot?.current(),
-    defaultMachine: context.defaultMachine,
-    localMachine: context.localMachine,
   };
 }
 
@@ -106,24 +95,10 @@ export function requireSubmittedPermission(
   );
 
   const decision = admitPermission(context, (evaluate) =>
-    evaluateCanonicalWithRejectTexts(evaluate, {
-      canonical: {
-        toolId: 'enter_workspace',
-        args: { path: projected.canonical },
-      },
-      rejectTexts: [
-        { toolId: 'enter_workspace', args: { path: submittedPath } },
-        ...(projected.projectedPath !== undefined &&
-        projected.projectedPath !== projected.canonical
-          ? [
-              {
-                toolId: 'enter_workspace',
-                args: { path: projected.projectedPath },
-              },
-            ]
-          : []),
-      ],
-    }),
+    evaluateCanonicalWithRejectTexts(
+      evaluate,
+      canonicalPathEvaluation('enter_workspace', submittedPath, projected),
+    ),
   );
 
   if (decision === undefined) return permissionDeniedResult('no_allow');
@@ -146,24 +121,10 @@ export function requireDerivedPermission(
   const projected = projectNativeFilePath(address, locatorContext(context));
 
   const decision = admitPermission(context, (evaluate) =>
-    evaluateCanonicalWithRejectTexts(evaluate, {
-      canonical: {
-        toolId: 'enter_workspace',
-        args: { path: projected.canonical },
-      },
-      rejectTexts: [
-        { toolId: 'enter_workspace', args: { path: address } },
-        ...(projected.projectedPath !== undefined &&
-        projected.projectedPath !== projected.canonical
-          ? [
-              {
-                toolId: 'enter_workspace',
-                args: { path: projected.projectedPath },
-              },
-            ]
-          : []),
-      ],
-    }),
+    evaluateCanonicalWithRejectTexts(
+      evaluate,
+      canonicalPathEvaluation('enter_workspace', address, projected),
+    ),
   );
 
   if (decision === undefined) return permissionDeniedResult('no_allow');
@@ -205,7 +166,14 @@ function workspaceSkillResult(
 ): WorkspaceSkillResult {
   if (catalog === undefined) return { skills: [], skillsOmitted: 0 };
 
-  const sources = workspaceSkillSources(root, localMachine);
+  // The result is produced only after the entry's local directory verified
+  // its Machine identity (or for a root on another Machine, which yields no
+  // host-path sources at all).
+  const sources = workspaceSkillSources(root, {
+    localMachine,
+    localVerified: true,
+  });
+
   const snapshot = catalog.getSnapshot(sources);
 
   if (!snapshot.available) return { skills: [], skillsOmitted: 0 };

@@ -23,6 +23,7 @@ import {
   type MachineConnectorDeps,
 } from '../machines/machine-connector.service';
 import { MachineUnavailableError } from '../machines/machine-session';
+import { formatMachineLocator } from '../machines/machine-locator';
 import {
   createProtocolPeer,
   type ProtocolPeerOptions,
@@ -926,6 +927,41 @@ describe('Workspace host tools', () => {
         executorId: LOCAL,
         bindExecutorId: LOCAL,
       }),
+    );
+  });
+
+  it('enters a local directory whose name ends in a selector-shaped suffix', async () => {
+    const directory = join(root, 'build:2');
+    await mkdir(directory);
+
+    // The canonical locator re-encodes the trailing colon, so the directory's
+    // own name round-trips through the locator grammar.
+    const canonical = formatMachineLocator(LOCAL, await realpath(directory));
+
+    const enter = vi
+      .spyOn(WorkspaceBindingRepository.prototype, 'enter')
+      .mockResolvedValue({
+        status: 'bound',
+        previousRoot: null,
+        generation: 1,
+      });
+
+    const result = await runTool(
+      enterWorkspaceTool,
+      { path: directory },
+      context(),
+      5,
+    );
+
+    // The literal directory, never the selector-free `/build` the locator
+    // grammar would split off.
+    expect(result).toMatchObject({
+      status: 'success',
+      root: canonical,
+      state: 'bound',
+    });
+    expect(enter).toHaveBeenCalledWith(
+      expect.objectContaining({ root: canonical }),
     );
   });
 

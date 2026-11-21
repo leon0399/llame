@@ -35,7 +35,6 @@ import {
   claimTransition,
   executorUnavailable,
   isCurrentDelivery,
-  locatorContext,
   requireDerivedPermission,
   requireSubmittedPermission,
   transitionConflict,
@@ -46,6 +45,7 @@ import {
   readWorktreeRequest,
   type WorktreeRequest,
 } from './workspace-worktree';
+import { locatorContext } from './workspace-path';
 import { enterWorktree } from './workspace-worktree-entry';
 import {
   machineWorkspaceRoot,
@@ -84,6 +84,18 @@ function notDirectory(): ToolResult {
 type CanonicalDirectory = { readonly locator: string };
 
 /**
+ * The literal path text a target names: the locator grammar splits a
+ * read-selector-shaped suffix off a path, and a Workspace directory may itself
+ * be named `build:2`, so the suffix is re-attached before anything resolves
+ * the directory. The canonical locator the entry binds re-encodes the colon.
+ */
+function literalTargetPath(target: MachineTarget): string {
+  return target.selector === undefined
+    ? target.path
+    : `${target.path}:${target.selector}`;
+}
+
+/**
  * The canonical locator of an existing directory on this process's own
  * Machine. The directory is resolved in process — the family runs here — but
  * only after the identity-checked handshake with the daemon behind the
@@ -99,7 +111,7 @@ async function localDirectory(
   if (refusal !== undefined) return refusal;
 
   try {
-    const canonicalPath = await realpath(target.path);
+    const canonicalPath = await realpath(literalTargetPath(target));
     const entry = await stat(canonicalPath);
 
     if (!entry.isDirectory()) return notDirectory();
@@ -135,7 +147,7 @@ async function machineDirectory(
             context,
             machineBudgetMs(context, MACHINE_FILE_BUDGET_MS),
           ),
-          path: target.path,
+          path: literalTargetPath(target),
         },
         { signal: context.timeoutSignal ?? context.abortSignal },
       ),

@@ -28,7 +28,6 @@ import type {
   BashResult,
   BashTimedOutResult,
 } from '@workspace/bash-executor';
-import { formatMachineLocator } from '../machines/machine-locator';
 import { loadPackagedTemplate } from '../prompts/template-engine';
 import {
   writeToolArtifact,
@@ -37,11 +36,9 @@ import {
 import { artifactLineCount, artifactLinePieces } from './artifacts/lines';
 import { formatArtifactLocator } from './artifacts/locator';
 import { canReadArtifacts, readAdmitsArtifact } from './artifacts/readable';
-import { artifactMaxBytes } from './artifacts/spill';
+import { artifactHostFiles, artifactMaxBytes } from './artifacts/spill';
 import { toToolResult } from './bash-result';
-import { locatorContextOf } from './bash-target';
 import { type ToolContext } from './types';
-import { currentMachine } from './workspace-path';
 
 /** A stream that carries the executor's own output. */
 export type BashObservedResult = BashKnownResult | BashTimedOutResult;
@@ -376,20 +373,11 @@ function bashHostFiles(
   written: WrittenArtifact,
   awayFromHost: boolean,
 ): ArtifactNoticeHostFiles | undefined {
-  const directory = written.hostDirectory;
-  const local = context.localMachine;
+  const facts = artifactHostFiles(context, written);
 
-  if (directory === undefined || local === undefined) return undefined;
-  const locator = formatMachineLocator(local, directory);
-
-  if (locator === undefined) return undefined;
-  const current = currentMachine(locatorContextOf(context))?.toLowerCase();
-
-  return {
-    locator,
-    machine: local.toLowerCase(),
-    elsewhere: awayFromHost || current !== local.toLowerCase(),
-  };
+  return facts !== undefined && awayFromHost
+    ? { ...facts, elsewhere: true }
+    : facts;
 }
 
 /**

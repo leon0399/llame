@@ -35,7 +35,10 @@ import {
   snapshotMachineSkillSources,
   type MachineSkillRequest,
 } from '../skills/machine-skill-sources';
-import { decidePermission } from '../tools/permissions/admit';
+import {
+  decidePermission,
+  evaluateCanonicalWithRejectTexts,
+} from '../tools/permissions/admit';
 import { type PermissionMode } from '../tools/permissions/permission-mode';
 import { type CompiledPolicy } from '../tools/permissions/types';
 import { machineWorkspaceRoot } from '../tools/workspace-path';
@@ -199,26 +202,42 @@ export async function decideMachineWorkspace(
 async function checkLocalMachine(
   params: BoundMachineRequest,
 ): Promise<CheckedMachine> {
-  try {
-    await params.connector.verifyLocal();
-  } catch (error) {
+  if (!(await localReachable(params.connector))) {
     // The local daemon refused, or answered under another identity: this
     // attempt tells the Machine as unavailable and keeps the binding. A
     // mismatch is never-sent, so nothing of the Chat's changed.
+    return {
+      kind: 'unavailable',
+      machine: { name: params.machineName, available: false },
+    };
+  }
+
+  return checkLocalRoot(params);
+}
+
+/**
+ * Whether this process's own daemon answered and is bound to the identity this
+ * installation stored. A refusal is an unavailable Machine, never a defect: it
+ * fails the attempt's host operations and leaves the binding alone. Any other
+ * failure rethrows.
+ */
+async function localReachable(
+  connector: MachinePreparationConnector,
+): Promise<boolean> {
+  try {
+    await connector.verifyLocal();
+
+    return true;
+  } catch (error) {
     if (
       error instanceof MachineUnavailableError ||
       error instanceof MachineIdentityMismatchError
     ) {
-      return {
-        kind: 'unavailable',
-        machine: { name: params.machineName, available: false },
-      };
+      return false;
     }
 
     throw error;
   }
-
-  return checkLocalRoot(params);
 }
 
 /** The absolute path and canonical locator a stored root names on a Machine. */
@@ -255,15 +274,16 @@ async function checkLocalRoot(
 
   if (bound === undefined) return { kind: 'detach', reason: 'root_missing' };
 
-  let canonical: string;
+  let canonical: string | undefined;
 
   try {
     const entry = await stat(bound.path);
 
     if (!entry.isDirectory()) return { kind: 'detach', reason: 'root_missing' };
-    const real = await realpath(bound.path);
-
-    canonical = formatMachineLocator(params.machineName, real) ?? '';
+    canonical = formatMachineLocator(
+      params.machineName,
+      await realpath(bound.path),
+    );
   } catch {
     return { kind: 'detach', reason: 'root_missing' };
   }
@@ -271,19 +291,47 @@ async function checkLocalRoot(
   if (canonical !== bound.locator)
     return { kind: 'detach', reason: 'root_moved' };
 
+  const reason = rootDetachReason(params, bound);
+
+  return reason === undefined ? { kind: 'bound' } : { kind: 'detach', reason };
+}
+
+/** One `enter_workspace` call over `path`, for a permission text. */
+function workspaceEntryCall(path: string) {
+  return { toolId: 'enter_workspace', args: { path } };
+}
+
+/**
+ * The operator gates every re-checked root passes once its canonical form
+ * matched: `enter_workspace` must be allowlisted, and the saved policy must
+ * allow the root (design D7). Both re-checks decide on the canonical locator
+ * and keep a reject's effect in every spelling of the same path: the root's
+ * decoded absolute path, and the stored text when it differs (a bare legacy
+ * root, another percent spelling).
+ */
+function rootDetachReason(
+  params: BoundMachineRequest,
+  bound: { readonly path: string; readonly locator: string },
+): WorkspaceDetachReason | undefined {
   if (!params.toolAllowlist.includes('enter_workspace'))
-    return { kind: 'detach', reason: 'tool_not_allowed' };
+    return 'tool_not_allowed';
+
+  const rejectTexts = [workspaceEntryCall(bound.path)];
+
+  if (params.root !== bound.path && params.root !== bound.locator)
+    rejectTexts.push(workspaceEntryCall(params.root));
 
   const decision = decidePermission(
     params.permissionPolicy,
     params.effectivePermissionMode,
     (evaluate) =>
-      evaluate({ toolId: 'enter_workspace', args: { path: params.root } }),
+      evaluateCanonicalWithRejectTexts(evaluate, {
+        canonical: workspaceEntryCall(bound.locator),
+        rejectTexts,
+      }),
   );
 
-  return decision.decision === 'allow'
-    ? { kind: 'bound' }
-    : { kind: 'detach', reason: 'permission_rejected' };
+  return decision.decision === 'allow' ? undefined : 'permission_rejected';
 }
 
 /**
@@ -308,20 +356,7 @@ export async function decideUnboundMachine(params: {
   }
 
   if (name === connector.localMachine()) {
-    try {
-      await connector.verifyLocal();
-
-      return { name, available: true };
-    } catch (error) {
-      if (
-        error instanceof MachineUnavailableError ||
-        error instanceof MachineIdentityMismatchError
-      ) {
-        return { name, available: false };
-      }
-
-      throw error;
-    }
+    return { name, available: await localReachable(connector) };
   }
 
   const available =
@@ -420,21 +455,11 @@ async function checkMachineRoot(
     return { verdict: 'detach', reason: 'root_moved' };
   }
 
-  if (!params.toolAllowlist.includes('enter_workspace')) {
-    return { verdict: 'detach', reason: 'tool_not_allowed' };
-  }
+  const reason = rootDetachReason(params, bound);
 
-  // The bound locator is already the canonical text every Machine rule matches.
-  const decision = decidePermission(
-    params.permissionPolicy,
-    params.effectivePermissionMode,
-    (evaluate) =>
-      evaluate({ toolId: 'enter_workspace', args: { path: params.root } }),
-  );
-
-  return decision.decision === 'allow'
+  return reason === undefined
     ? { verdict: 'keep' }
-    : { verdict: 'detach', reason: 'permission_rejected' };
+    : { verdict: 'detach', reason };
 }
 
 /**
@@ -510,9 +535,11 @@ export async function prepareMachineSkills(
 
   if (parsed === undefined || parsed.name !== params.machineName) return;
 
-  // This process serves its own Machine in process (design D8), and the
-  // operator catalog already reads the host paths `workspaceSkillSources`
-  // derives for a local root; a daemon walk would be the wrong authority.
+  // This process serves its own Machine in process (design D8): its binding
+  // check already completed the identity-checked handshake above, and every
+  // read of the host paths `workspaceSkillSources` derives for a local root
+  // re-checks that handshake itself, so a snapshot would be the wrong
+  // authority.
   if (params.machineName === params.connector.localMachine()) return;
 
   const request: MachineSkillRequest = (method, requestParams, options) =>

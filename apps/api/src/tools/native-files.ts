@@ -20,7 +20,7 @@ import {
   skillResultEnvelope,
 } from '../skills/skill-results';
 import { SKILL_LOCATOR_SCHEME } from '../skills/skill-locator';
-import { workspaceSkillSources } from '../skills/workspace-skill-sources';
+import { verifiedWorkspaceSkillSources } from '../skills/workspace-skill-sources';
 import {
   NO_SKILL_SELECTION,
   isSkillCatalogResult,
@@ -28,6 +28,7 @@ import {
   skillCatalogUnavailableResult,
   type ResolvedSkillTarget,
 } from '../skills/skill-target';
+import { verifyLocalMachine } from './local-machine';
 import { type Tool, type ToolContext, type ToolResult } from './types';
 import { resolveMachinePath } from './workspace-path';
 import { executeWebRead } from './web-read/execute';
@@ -224,10 +225,16 @@ async function executeSkill(
   if (catalog === undefined) return skillCatalogUnavailableResult();
   const root = context.workspaceRoot?.current();
 
+  // The bound Workspace's own roots are host reads on this Machine, so they
+  // are offered only after this call's identity-checked handshake.
   const extraSources =
     root === undefined
       ? undefined
-      : workspaceSkillSources(root, context.localMachine);
+      : await verifiedWorkspaceSkillSources(root, {
+          localMachine: context.localMachine,
+          verifyLocal: async () =>
+            (await verifyLocalMachine(context)) === undefined,
+        });
 
   const resolved = await resolveSkillLocator(
     catalog,

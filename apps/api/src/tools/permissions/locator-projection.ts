@@ -39,7 +39,7 @@ const WEB_LOCATOR_SCHEMES = { http: true, https: true } as const;
  * decides its submitted path on the canonical locator too (design D7),
  * otherwise a bare-path entry could never find a canonical allow.
  */
-const NATIVE_FILE_PERMISSION_TOOL_IDS = new Set([
+export const NATIVE_FILE_PERMISSION_TOOL_IDS: ReadonlySet<string> = new Set([
   'read',
   'edit',
   'write',

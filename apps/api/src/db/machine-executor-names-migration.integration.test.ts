@@ -220,6 +220,17 @@ describe('machine executor-name migration', () => {
       )
     `;
 
+    // The source checkout of the host attempts below, and one path that two
+    // Machines both hold: an attempt naming it cannot be placed on a Machine.
+    await sql`
+      INSERT INTO ${sql(schemaName)}.checkouts
+        (id, owner_user_id, executor_id, path)
+      VALUES
+        (${randomUUID()}::uuid, 'owner-1', 'host', '/home/me/src'),
+        (${randomUUID()}::uuid, 'owner-1', 'alpha', '/srv/shared'),
+        (${randomUUID()}::uuid, 'owner-1', 'beta', '/srv/shared')
+    `;
+
     const projectId = randomUUID();
     await sql`
       INSERT INTO ${sql(schemaName)}.projects
@@ -238,10 +249,69 @@ describe('machine executor-name migration', () => {
         ${sql.json([
           {
             createdAt: '2026-11-01T00:00:00.000Z',
-            decisions: [],
+            decisions: [
+              { path: '/home/me/src', decision: { decision: 'allow' } },
+            ],
             worktreeDirectory: '/home/me/wt',
           },
           { createdAt: '2026-11-02T00:00:00.000Z', decisions: [] },
+        ])}
+      )
+    `;
+
+    // A create that ended before binding: its Chat holds no executor, yet the
+    // directory it recorded still lives on the Machine of its source checkout,
+    // and a resend reads it back.
+    const unboundChat = await insertChat({
+      executorId: null,
+      root: null,
+      told: null,
+    });
+
+    const unboundRecordId = randomUUID();
+    await sql`
+      INSERT INTO ${sql(schemaName)}.chat_creation_records
+        (id, owner_user_id, chat_id, attempts)
+      VALUES (
+        ${unboundRecordId}::uuid,
+        'owner-1',
+        ${unboundChat}::uuid,
+        ${sql.json([
+          {
+            createdAt: '2026-11-01T00:00:00.000Z',
+            decisions: [
+              { path: '/home/me/src', decision: { decision: 'allow' } },
+            ],
+            worktreeDirectory: '/home/me/wt-unbound',
+          },
+        ])}
+      )
+    `;
+
+    // The same source path on two Machines: the attempt is left as written
+    // rather than guessed onto one of them.
+    const ambiguousChat = await insertChat({
+      executorId: null,
+      root: null,
+      told: null,
+    });
+
+    const ambiguousRecordId = randomUUID();
+    await sql`
+      INSERT INTO ${sql(schemaName)}.chat_creation_records
+        (id, owner_user_id, chat_id, attempts)
+      VALUES (
+        ${ambiguousRecordId}::uuid,
+        'owner-1',
+        ${ambiguousChat}::uuid,
+        ${sql.json([
+          {
+            createdAt: '2026-11-01T00:00:00.000Z',
+            decisions: [
+              { path: '/srv/shared', decision: { decision: 'allow' } },
+            ],
+            worktreeDirectory: '/srv/wt-shared',
+          },
         ])}
       )
     `;
@@ -353,10 +423,30 @@ describe('machine executor-name migration', () => {
     ).toEqual([
       {
         createdAt: '2026-11-01T00:00:00.000Z',
-        decisions: [],
+        decisions: [{ path: '/home/me/src', decision: { decision: 'allow' } }],
         worktreeDirectory: 'machine://host/home/me/wt',
       },
       { createdAt: '2026-11-02T00:00:00.000Z', decisions: [] },
+    ]);
+    // The unbound Chat's Machine comes from its source checkout, not from the
+    // Chat's (absent) executor.
+    expect(
+      records.find((record) => record.id === unboundRecordId)?.attempts,
+    ).toEqual([
+      {
+        createdAt: '2026-11-01T00:00:00.000Z',
+        decisions: [{ path: '/home/me/src', decision: { decision: 'allow' } }],
+        worktreeDirectory: 'machine://host/home/me/wt-unbound',
+      },
+    ]);
+    expect(
+      records.find((record) => record.id === ambiguousRecordId)?.attempts,
+    ).toEqual([
+      {
+        createdAt: '2026-11-01T00:00:00.000Z',
+        decisions: [{ path: '/srv/shared', decision: { decision: 'allow' } }],
+        worktreeDirectory: '/srv/wt-shared',
+      },
     ]);
     expect(
       records.find((record) => record.id === detachedRecordId)?.attempts,

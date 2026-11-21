@@ -27,8 +27,7 @@ import {
   type SpillRendering,
 } from '../model-text';
 import { type Tool, type ToolContext } from '../types';
-import { locatorContextOf } from '../bash-target';
-import { currentMachine } from '../workspace-path';
+import { currentMachine, locatorContext } from '../workspace-path';
 import { writeToolArtifact, type WrittenArtifact } from './artifact-writer';
 import { canReadArtifacts, readAdmitsArtifact } from './readable';
 
@@ -275,7 +274,7 @@ export function artifactHostFiles(
     locator,
     machine: local.toLowerCase(),
     elsewhere:
-      currentMachine(locatorContextOf(context))?.toLowerCase() !==
+      currentMachine(locatorContext(context))?.toLowerCase() !==
       local.toLowerCase(),
   };
 }

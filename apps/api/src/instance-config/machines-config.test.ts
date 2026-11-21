@@ -357,6 +357,25 @@ describe('machines.local and machines.default (host-as-machine D3)', () => {
 
       expect(message).toContain(configPath);
       expect(message).toContain('[a-z0-9-]{1,63}');
+      // A resolved token may be a secret (an {env:} pointed at the wrong
+      // variable), so its value never reaches the startup error.
+      expect(message).not.toContain('GPU_1');
+    },
+  );
+
+  it.each(['local', 'default'])(
+    'refuses a {path:...} token for machines.%s without reading the file',
+    (field) => {
+      writeConfig({
+        machines: { [field]: '{path:/run/secrets/machine-name}', hosts: {} },
+      });
+
+      const message = loadError();
+
+      expect(message).toContain(`/machines/${field}`);
+      // The token is refused before it is ever read, and nothing of it is
+      // echoed back.
+      expect(message).not.toContain('/run/secrets');
     },
   );
 

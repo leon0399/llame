@@ -1,23 +1,19 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { type GitStateSuccess } from '@workspace/machine-protocol';
 
 import { type Checkout } from '../db/schema';
 import { TenantDbService } from '../db/tenant-db.service';
-import { InstanceConfigService } from '../instance-config/instance-config.service';
 import { ExecutorGitError } from '../machines/executor-git-error';
 import { gitFailureMessage } from '../machines/git-failure';
 import {
   ExecutorGit,
   type ExecutorTarget,
 } from '../machines/executor-git.service';
+import { OWNER_ROUTE } from '../tools/permissions/admit';
 import {
-  decidePermission,
-  evaluateCanonicalWithRejectTexts,
-  OWNER_ROUTE,
-} from '../tools/permissions/admit';
-import { projectNativeFilePath } from '../tools/permissions/locator-projection';
-import { TOOL_PERMISSION_POLICY } from '../tools/permissions/permission-policy.module';
-import { type CompiledPolicy } from '../tools/permissions/types';
+  WorkspaceEntryAdmission,
+  WORKSPACE_TOOL_ID,
+} from '../tools/permissions/workspace-entry-admission';
 import { checkoutFailureCode, notFound, repositoryFailure } from './failure';
 import { RepositoriesRepository } from './repositories.repository';
 
@@ -36,20 +32,12 @@ import { RepositoriesRepository } from './repositories.repository';
  * loses no commit, and the row leaves only after git succeeds.
  */
 
-/** The one tool group these routes are gated by. */
-const WORKSPACE_TOOL_ID = 'enter_workspace';
-
 @Injectable()
 export class WorktreeRemovalService {
   constructor(
     private readonly tenantDb: TenantDbService,
-    // Explicit token: the parameter is narrowed to the reader capability, so
-    // the emitted design type is not the class Nest would resolve.
-    @Inject(InstanceConfigService)
-    private readonly config: Pick<InstanceConfigService, 'config'>,
+    private readonly admission: WorkspaceEntryAdmission,
     private readonly executors: ExecutorGit,
-    @Inject(TOOL_PERMISSION_POLICY)
-    private readonly policy: CompiledPolicy,
   ) {}
 
   async remove(ownerUserId: string, checkoutId: string): Promise<void> {
@@ -175,8 +163,8 @@ export class WorktreeRemovalService {
    * The gates every route that runs git passes: a derivable executor, an
    * allowlisted `enter_workspace`, and a stored path the group allows. An
    * owner HTTP route has no Run, so the group is decided under
-   * {@link OWNER_ROUTE}. The row stores the canonical address, so one
-   * evaluation decides both the submitted and the canonical form.
+   * {@link OWNER_ROUTE} by the shared entry admission, which decides the
+   * canonical address and matches a reject against the stored spelling too.
    */
   private canRemove(checkout: Checkout): ExecutorTarget {
     let target: ExecutorTarget | undefined;
@@ -187,29 +175,14 @@ export class WorktreeRemovalService {
       throwExecutorFailure(error);
     }
 
-    if (!this.config.config.tools.allowed.includes(WORKSPACE_TOOL_ID)) {
+    if (!this.admission.allowsTool()) {
       throw repositoryFailure(
         'tool_not_allowed',
         `${WORKSPACE_TOOL_ID} is not in tools.allowed, so this path may not be inspected.`,
       );
     }
 
-    const projection = projectNativeFilePath(checkout.path);
-
-    const call = (path: string) => ({
-      toolId: WORKSPACE_TOOL_ID,
-      args: { path },
-    });
-
-    const decision = decidePermission(this.policy, OWNER_ROUTE, (evaluate) =>
-      evaluateCanonicalWithRejectTexts(evaluate, {
-        canonical: call(projection.canonical),
-        rejectTexts:
-          projection.projectedPath === undefined
-            ? []
-            : [call(projection.projectedPath)],
-      }),
-    );
+    const decision = this.admission.decide(checkout.path, OWNER_ROUTE);
 
     if (decision.decision === 'reject') {
       throw repositoryFailure(

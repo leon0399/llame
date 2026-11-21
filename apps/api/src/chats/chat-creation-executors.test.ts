@@ -2,15 +2,12 @@ import { drizzle } from 'drizzle-orm/postgres-js';
 
 import { type Checkout } from '../db/schema';
 import { type Db } from '../db/tenant-db.service';
-import { type LlameConfig } from '../instance-config/llame-config';
-import { MachineConnector } from '../machines/machine-connector.service';
 import { type MachineStatusView } from '../machines/machines-status';
 import { ProjectLinksRepository } from '../projects/project-links.repository';
 import {
   creationLocationSource,
   executorOnline,
   executorTarget,
-  isConfiguredExecutor,
 } from './chat-creation-executors';
 
 /*
@@ -23,27 +20,6 @@ import {
 
 const OWNER = 'owner-a';
 const REPOSITORY_ID = '22222222-2222-4222-8222-222222222222';
-
-const MACHINES = {
-  local: 'host',
-  default: 'host',
-  hosts: {
-    host: {},
-    nas: { destination: 'nas.example' },
-    attic: { destination: 'attic.example' },
-  },
-} satisfies NonNullable<LlameConfig['machines']>;
-
-/** A real connector over the configured Machines; it opens no link here. */
-function catalog(
-  machines: LlameConfig['machines'] = MACHINES,
-): MachineConnector {
-  return new MachineConnector({
-    machines,
-    hubVersion: 'test-hub',
-    bindIdentity: () => Promise.resolve('match'),
-  });
-}
 
 function machineView(
   name: string,
@@ -80,29 +56,6 @@ function checkoutRow(overrides: Partial<Checkout> = {}): Checkout {
     ...overrides,
   };
 }
-
-describe('isConfiguredExecutor', () => {
-  it('accepts every configured Machine, the host Machine included', () => {
-    expect(isConfiguredExecutor('host', catalog())).toBe(true);
-    expect(isConfiguredExecutor('nas', catalog())).toBe(true);
-  });
-
-  it('refuses an unconfigured Machine, a prefixed id, and a bare id', () => {
-    expect(isConfiguredExecutor('basement', catalog())).toBe(false);
-    expect(isConfiguredExecutor('machine:nas', catalog())).toBe(false);
-    expect(isConfiguredExecutor('somewhere-else', catalog())).toBe(false);
-  });
-
-  it('refuses every id when no Machine is configured', () => {
-    const disabled = new MachineConnector({
-      machines: undefined,
-      hubVersion: 'test-hub',
-      bindIdentity: () => Promise.resolve('match'),
-    });
-
-    expect(isConfiguredExecutor('nas', disabled)).toBe(false);
-  });
-});
 
 describe('executorOnline', () => {
   const input = {

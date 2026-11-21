@@ -19,10 +19,14 @@
       ]
     },
     "machineNameOrToken": {
-      "description": "A Machine name matching [a-z0-9-]{1,63}, or one whole-value {env:...}/{path:...} token that resolves to one.",
+      "description": "A Machine name matching [a-z0-9-]{1,63}, or one whole-value {env:...} token that resolves to one. A {path:...} token is refused: this field names a Machine, never a secret.",
       "oneOf": [
         { "type": "string", "pattern": "^[a-z0-9-]{1,63}$" },
-        { "$ref": "#/$defs/interpolationToken" }
+        {
+          "type": "string",
+          "description": "A whole-value {env:NAME} or {env:NAME:-default} token.",
+          "pattern": "^\\{env:[A-Za-z0-9_]+(?::-[^}]*)?\\}$"
+        }
       ]
     },
     "nullableNumberOrToken": {

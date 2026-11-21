@@ -11,6 +11,7 @@ import {
   type EvaluatePermissionOptions,
   type PermissionDecision,
 } from './types';
+import { type NativePathProjection } from './locator-projection';
 
 /**
  * The mode an owner HTTP route decides under. It has no Run and no permission
@@ -179,4 +180,32 @@ export function evaluateCanonicalWithRejectTexts(
   }
 
   return canonical;
+}
+
+/**
+ * One `path`-arg call's evaluation: the projection's canonical locator allows,
+ * and the submitted spelling plus the projected Machine path are the texts a
+ * reject also matches. A duplicate text is evaluated once.
+ */
+export function canonicalPathEvaluation(
+  toolId: string,
+  submitted: string,
+  projection: NativePathProjection,
+): CanonicalEvaluation {
+  const call = (value: string): EvaluatePermissionOptions => ({
+    toolId,
+    args: { path: value },
+  });
+
+  const texts = new Set(
+    [submitted, projection.projectedPath].filter(
+      (value): value is string =>
+        value !== undefined && value !== projection.canonical,
+    ),
+  );
+
+  return {
+    canonical: call(projection.canonical),
+    rejectTexts: [...texts].map(call),
+  };
 }

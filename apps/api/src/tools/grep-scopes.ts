@@ -40,7 +40,7 @@ import {
   skillUnavailableResult,
   type SkillSelection,
 } from '../skills/skill-target';
-import { workspaceSkillSources } from '../skills/workspace-skill-sources';
+import { verifiedWorkspaceSkillSources } from '../skills/workspace-skill-sources';
 import { type GrepReadAdmission, grepScopeStrings } from './grep-admission';
 import {
   resolveKnowledgeScope,
@@ -77,7 +77,12 @@ import {
 } from './grep-scope-shape';
 import { verifyLocalMachine } from './local-machine';
 import { type ToolContext } from './types';
-import { resolveMachinePath, type MachineTarget } from './workspace-path';
+import {
+  literalTargetPath,
+  locatorContext,
+  resolveMachinePath,
+  type MachineTarget,
+} from './workspace-path';
 
 const KNOWLEDGE_SCHEME = 'kb';
 const SKILL_SCHEME = 'skill';
@@ -246,11 +251,7 @@ async function resolveHostScope(
   index: number,
   admission: GrepReadAdmission,
 ): Promise<ScopeOutcome> {
-  const target = resolveMachinePath(scope, {
-    workspaceRoot: context.workspaceRoot?.current(),
-    defaultMachine: context.defaultMachine,
-    localMachine: context.localMachine,
-  });
+  const target = resolveMachinePath(scope, locatorContext(context));
 
   if (target.kind !== 'machine')
     return {
@@ -275,15 +276,6 @@ type HostTarget = {
   readonly admission: GrepReadAdmission;
 };
 
-/** The text a target's path resolves to: the resolver's selector stays text. */
-function hostTargetPath(target: MachineTarget): string {
-  // The resolver splits a valid read selector off a bare path; grep parses no
-  // selector, so the suffix stays the path text the model wrote.
-  return target.selector === undefined
-    ? target.path
-    : `${target.path}:${target.selector}`;
-}
-
 /**
  * One resolved Machine address: this process walks a target naming its own
  * Machine, and every other target is the named Machine's daemon walk.
@@ -293,7 +285,9 @@ async function resolveTarget(
   host: HostTarget,
 ): Promise<ScopeOutcome> {
   const { target } = host;
-  const normalized = normalizeHostScope(hostTargetPath(target));
+  // The resolver splits a valid read selector off a bare path; grep parses no
+  // selector, so the suffix stays the path text the model wrote.
+  const normalized = normalizeHostScope(literalTargetPath(target));
   // A colon is path text here: grep parses no read selector.
   const split = splitGrepScope(normalized);
 
@@ -495,7 +489,7 @@ async function resolveSkillScope(
     return { result: invalidPathResult('The skill locator is invalid.') };
   }
 
-  const entry = readableSkillPackage(context, name);
+  const entry = await readableSkillPackage(context, name);
 
   if ('result' in entry) return entry;
 
@@ -520,11 +514,11 @@ type ReadableSkillPackage = {
 };
 
 /** The package a `skill://<name>` scope names, once its access is settled. */
-function readableSkillPackage(
+async function readableSkillPackage(
   context: ToolContext,
   name: string,
-): ReadableSkillPackage | { readonly result: GrepToolError } {
-  const snapshot = readSkillCatalog(context);
+): Promise<ReadableSkillPackage | { readonly result: GrepToolError }> {
+  const snapshot = await readSkillCatalog(context);
 
   if ('result' in snapshot) return snapshot;
   const entry = snapshot.entries.find((candidate) => candidate.name === name);
@@ -548,7 +542,7 @@ async function resolveEverySkill(
   admission: GrepReadAdmission,
 ): Promise<ScopeOutcome> {
   if (context.skillCatalog === undefined) return { scopes: [] };
-  const snapshot = readSkillCatalog(context);
+  const snapshot = await readSkillCatalog(context);
 
   if ('result' in snapshot) return snapshot;
   const selection = selectionOf(context);
@@ -589,9 +583,14 @@ function selectionOf(context: ToolContext): SkillSelection {
   return context.skillSelection ?? NO_SKILL_SELECTION;
 }
 
-function readSkillCatalog(
+/**
+ * The skill catalog a `skill://` scope searches. A bound Workspace's own roots
+ * are host reads on this Machine, so they are offered only after this call's
+ * identity-checked handshake; a refused handshake leaves operator skills only.
+ */
+async function readSkillCatalog(
   context: ToolContext,
-): SkillCatalogSnapshot | { readonly result: GrepToolError } {
+): Promise<SkillCatalogSnapshot | { readonly result: GrepToolError }> {
   const catalog = context.skillCatalog;
 
   if (catalog === undefined) return { result: skillCatalogUnavailableResult() };
@@ -600,7 +599,11 @@ function readSkillCatalog(
   const snapshot = catalog.getSnapshot(
     root === undefined
       ? undefined
-      : workspaceSkillSources(root, context.localMachine),
+      : await verifiedWorkspaceSkillSources(root, {
+          localMachine: context.localMachine,
+          verifyLocal: async () =>
+            (await verifyLocalMachine(context)) === undefined,
+        }),
   );
 
   return snapshot.available

@@ -99,7 +99,6 @@ type ClientSet = {
 
 /** The world one binding's MCP servers live in. */
 type WorkspaceServerRoute =
-  | { readonly kind: 'host'; readonly root: string }
   | { readonly kind: 'local'; readonly path: string }
   | { readonly kind: 'machine'; readonly target: MachineWorkspaceTarget }
   | { readonly kind: 'unavailable' };
@@ -442,7 +441,7 @@ export class WorkspaceMcpClients implements OnModuleDestroy {
   }
 
   /**
-   * Where one binding's servers come from. A local root and this process's own
+   * Where one binding's servers come from. A bare root and this process's own
    * Machine both read the Workspace's own files here; the Machine case is
    * gated on the identity-checked handshake, which a failure turns into the
    * same unavailable entry an unreachable Machine produces.
@@ -451,7 +450,7 @@ export class WorkspaceMcpClients implements OnModuleDestroy {
     const target = machineWorkspaceTarget(root);
     const connector = this.connector;
 
-    if (target === undefined) return { kind: 'host', root };
+    if (target === undefined) return { kind: 'local', path: root };
 
     if (connector === undefined || connector.localMachine() !== target.machine)
       return { kind: 'machine', target };
@@ -476,8 +475,6 @@ export class WorkspaceMcpClients implements OnModuleDestroy {
     route: WorkspaceServerRoute,
   ): Promise<ReadonlyArray<WorkspaceServerConfig>> {
     switch (route.kind) {
-      case 'host':
-        return this.readLocalConfigs(route.root);
       case 'local':
         return this.readLocalConfigs(route.path);
       case 'machine':

@@ -1495,6 +1495,44 @@ describe('bash routing', () => {
     }
   });
 
+  it('takes a selector-shaped suffix in a local cwd as path text', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'bash-routing-suffix-'));
+    const target = join(directory, 'build:2');
+    await mkdir(target);
+    const { peer, connector } = machineFixture();
+    const begin = stubDurableRecords();
+
+    try {
+      const result = await runTool(
+        bashTool,
+        { command: 'printf suffix > suffix-effect', cwd: target },
+        {
+          ...testContext(),
+          machines: connector,
+          localMachine: 'host-a',
+          defaultMachine: 'host-a',
+        },
+        5,
+      );
+
+      expect(result).toMatchObject({ status: 'success' });
+      await expect(
+        readFile(join(target, 'suffix-effect'), 'utf8'),
+      ).resolves.toBe('suffix');
+      expect(begin).toHaveBeenCalledWith(
+        expect.objectContaining({
+          path: formatMachineLocator('host-a', target),
+        }),
+      );
+
+      // The local Machine answered the handshake and nothing else.
+      const session = await peer.session(0);
+      expect(session.requests).toEqual([]);
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
   it('runs a cwd on another Machine through its daemon', async () => {
     const { peer, connector } = machineFixture();
     stubDurableRecords();

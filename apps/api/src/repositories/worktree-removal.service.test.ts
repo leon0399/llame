@@ -27,6 +27,7 @@ import { RepositoriesRepository } from './repositories.repository';
 import { createProtocolPeer } from '../testing/machine-protocol-peer';
 import { compileToolPermissionMap } from '../tools/permissions/compile-permissions';
 import { type PermissionGroup } from '../tools/permissions/types';
+import { WorkspaceEntryAdmission } from '../tools/permissions/workspace-entry-admission';
 import { WorktreeRemovalService } from './worktree-removal.service';
 
 /*
@@ -126,13 +127,16 @@ const MACHINE = 'worktree-host';
 /** The canonical locator of one host path on the removal Machine. */
 const at = (path: string): string => `machine://${MACHINE}${path}`;
 
-function executors(
-  machines: LlameConfig['machines'] = {
-    local: MACHINE,
-    default: MACHINE,
-    hosts: { [MACHINE]: {} },
-  },
-): ExecutorGit {
+const DEFAULT_MACHINES: LlameConfig['machines'] = {
+  local: MACHINE,
+  default: MACHINE,
+  hosts: { [MACHINE]: {} },
+};
+
+/** One connector over these Machines, torn down after the test. */
+function connectorOf(
+  machines: LlameConfig['machines'] = DEFAULT_MACHINES,
+): MachineConnector {
   const connector = new MachineConnector({
     hubVersion: 'test-hub',
     bindIdentity: () => Promise.resolve('match'),
@@ -143,7 +147,13 @@ function executors(
 
   connectors.push(connector);
 
-  return new ExecutorGit(connector, localGitSurface());
+  return connector;
+}
+
+function executors(
+  machines: LlameConfig['machines'] = DEFAULT_MACHINES,
+): ExecutorGit {
+  return new ExecutorGit(connectorOf(machines), localGitSurface());
 }
 
 function configWith(tools: Partial<LlameConfig['tools']> = {}): LlameConfig {
@@ -182,15 +192,22 @@ function service(
   // eslint-disable-next-line typescript/no-unsafe-type-assertion
   const tenantDb = runner as never;
 
+  const config = options.config ?? configWith();
+
+  const admission = new WorkspaceEntryAdmission(
+    { config },
+    connectorOf(),
+    compileToolPermissionMap(
+      { enter_workspace: options.group ?? { allow: true } },
+      'removal-test',
+    ),
+  );
+
   return {
     removal: new WorktreeRemovalService(
       tenantDb,
-      { config: options.config ?? configWith() },
+      admission,
       options.executors ?? executors(),
-      compileToolPermissionMap(
-        { enter_workspace: options.group ?? { allow: true } },
-        'removal-test',
-      ),
     ),
     deleteCheckout: vi
       .spyOn(RepositoriesRepository.prototype, 'deleteCheckout')

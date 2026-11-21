@@ -10,6 +10,8 @@ import {
 import { bashWorkingDirectory } from './env';
 import {
   currentMachine,
+  literalTargetPath,
+  locatorContext,
   NO_CURRENT_MACHINE_MESSAGE,
   resolveMachinePath,
   type LocatorContext,
@@ -22,23 +24,6 @@ export type BashInput = {
   async?: boolean;
   unlimited?: boolean;
 };
-
-/**
- * The trusted locator facts of one call (design D6): the entered Workspace
- * root, `machines.default`, and `machines.local`, never a model argument.
- */
-export function locatorContextOf(
-  context: Pick<
-    ToolContext,
-    'workspaceRoot' | 'defaultMachine' | 'localMachine'
-  >,
-): LocatorContext {
-  return {
-    workspaceRoot: context.workspaceRoot?.current(),
-    defaultMachine: context.defaultMachine,
-    localMachine: context.localMachine,
-  };
-}
 
 /** The Machine a `bash` call runs on, and the directory it runs in. */
 export type BashMachineTarget = {
@@ -91,7 +76,7 @@ export function bashTarget(
   context: ToolContext,
   input: BashInput,
 ): BashRoute | ToolResult {
-  const facts = locatorContextOf(context);
+  const facts = locatorContext(context);
 
   if (input.cwd !== undefined && isSshLocator(input.cwd))
     return { target: 'ssh', input: { ...input, cwd: input.cwd } };
@@ -137,13 +122,20 @@ function machineTarget(
   const resolved = resolveMachinePath(value, facts);
 
   if (resolved.kind === 'machine') {
-    if (resolved.selector !== undefined)
-      return invalidWorkingDirectory(MACHINE_CWD_MESSAGE);
+    // A working directory is taken literally: a suffix the locator grammar
+    // split off as a read selector is path text here, exactly as a native
+    // mutation takes it, so `/srv/build:2` runs in that directory.
+    const path = literalTargetPath(resolved);
+
+    const locator =
+      resolved.selector === undefined
+        ? resolved.locator
+        : formatMachineLocator(resolved.name, path);
 
     return {
       name: resolved.name,
-      path: resolved.path,
-      locator: resolved.locator,
+      path,
+      ...(locator !== undefined && { locator }),
       local: resolved.local,
     };
   }

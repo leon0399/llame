@@ -1677,11 +1677,20 @@ function resolveMachinesConfig(
 }
 
 /**
+ * The whole-value token `machines.local` / `machines.default` accept: only
+ * `{env:...}` (design D3). A `{path:...}` token is refused here rather than
+ * read at boot, because this field names a Machine, never a secret.
+ */
+const MACHINE_NAME_ENV_TOKEN_PATTERN = /^\{env:[A-Za-z0-9_]+(?::-[^}]*)?\}$/u;
+
+/**
  * `machines.local` / `machines.default`: a Machine name, or one whole-value
- * `{env:...}`/`{path:...}` token resolved like `webAdapters[].token`. The
- * resolved value is trimmed and then held to the same name grammar as a
- * `hosts` key, so a token cannot introduce a name the operator could not
- * write directly.
+ * `{env:...}` token resolved like `webAdapters[].token`. The resolved value is
+ * trimmed and then held to the same name grammar as a `hosts` key, so a token
+ * cannot introduce a name the operator could not write directly. A resolved
+ * value never reaches the error: it may be a secret (`{env:}` pointed at the
+ * wrong variable), so a token's grammar failure names the field only, and a
+ * literal is echoed because the operator wrote it in the file.
  */
 function resolveMachineName(
   value: string | undefined,
@@ -1690,21 +1699,26 @@ function resolveMachineName(
 ): string | undefined {
   if (value === undefined) return undefined;
 
+  const fromToken = MACHINE_NAME_ENV_TOKEN_PATTERN.test(value);
+
   const resolved = (
-    WHOLE_VALUE_TOKEN_PATTERN.test(value)
-      ? resolveInterpolatedString(value, configPath, env)
-      : value
+    fromToken ? resolveInterpolatedString(value, configPath, env) : value
   ).trim();
 
   if (resolved === '') {
     throw new InstanceConfigError(
-      `${configPath}: must resolve to a nonblank Machine name`,
+      fromToken
+        ? `${configPath}: must resolve to a nonblank Machine name`
+        : `${configPath}: must be a nonblank Machine name`,
     );
   }
 
+  // A grammar miss names the field only when the value came from a token.
   if (!MACHINE_NAME_PATTERN.test(resolved)) {
     throw new InstanceConfigError(
-      `${configPath}: "${resolved}" must be a Machine name matching [a-z0-9-]{1,63}`,
+      fromToken
+        ? `${configPath}: must resolve to a Machine name matching [a-z0-9-]{1,63}`
+        : `${configPath}: "${resolved}" must be a Machine name matching [a-z0-9-]{1,63}`,
     );
   }
 

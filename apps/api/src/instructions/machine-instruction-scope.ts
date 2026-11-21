@@ -203,6 +203,21 @@ function localMachineInstructionScope(name: string): InstructionScope {
   return {
     ...host,
     label: (key) => formatMachineLocator(name, key) ?? key,
+    // The file identity a seen set and the canonical read decision compare is
+    // the link target's locator on this Machine: the import is decided on
+    // `machine://<local>/<realpath>`, never on the current Machine.
+    probe: async (key) => {
+      const probe = await host.probe(key);
+
+      return probe.kind === 'missing'
+        ? probe
+        : {
+            ...probe,
+            canonicalPath:
+              formatMachineLocator(name, probe.canonicalPath) ??
+              probe.canonicalPath,
+          };
+    },
   };
 }
 

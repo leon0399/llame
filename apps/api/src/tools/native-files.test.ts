@@ -48,7 +48,10 @@ import {
 } from '../skills/skill-catalog';
 import { MachineConnector } from '../machines/machine-connector.service';
 import { localMachineConnector } from '../testing/local-machine';
-import { MachineUnavailableError } from '../machines/machine-session';
+import {
+  MachineIdentityMismatchError,
+  MachineUnavailableError,
+} from '../machines/machine-session';
 import {
   createProtocolPeer,
   type ProtocolPeerOptions,
@@ -1700,6 +1703,8 @@ describe('skill locator resolution', () => {
       readonly catalog?: SkillCatalogPort;
       readonly selection?: ReadonlySet<string>;
       readonly workspaceRoot?: string;
+      readonly localMachine?: string;
+      readonly machines?: ToolContext['machines'];
     } = {},
   ): ToolContext {
     const base: ToolContext = {
@@ -1715,6 +1720,12 @@ describe('skill locator resolution', () => {
       },
       ...(overrides.workspaceRoot !== undefined && {
         workspaceRoot: createWorkspaceRootCell(overrides.workspaceRoot),
+      }),
+      ...(overrides.localMachine !== undefined && {
+        localMachine: overrides.localMachine,
+      }),
+      ...(overrides.machines !== undefined && {
+        machines: overrides.machines,
       }),
     };
 
@@ -1753,7 +1764,11 @@ describe('skill locator resolution', () => {
 
   it('resolves Workspace skill locators live and isolates Chats without a root', async () => {
     const workspace = join(source, 'workspace');
-    const [claude, agents, llame] = workspaceSkillSources(workspace);
+
+    const [claude, agents, llame] = workspaceSkillSources(workspace, {
+      localVerified: true,
+    });
+
     await mkdir(claude, { recursive: true });
     await mkdir(agents, { recursive: true });
     await mkdir(llame, { recursive: true });
@@ -1779,7 +1794,11 @@ describe('skill locator resolution', () => {
     const workspaceResult = await runTool(
       nativeReadTool,
       { path: 'skill://pdf' },
-      skillContext({ workspaceRoot: workspace }),
+      skillContext({
+        workspaceRoot: workspace,
+        localMachine: 'host-a',
+        machines: localMachineConnector({ name: 'host-a' }),
+      }),
       5,
     );
 
@@ -1800,6 +1819,57 @@ describe('skill locator resolution', () => {
       status: 'error',
       type: 'not_found',
     });
+  });
+
+  it('serves no Workspace skill when the local daemon answers another identity', async () => {
+    const workspace = join(source, 'workspace');
+
+    const [, agents] = workspaceSkillSources(workspace, {
+      localVerified: true,
+    });
+
+    await mkdir(join(agents, 'ws-only'), { recursive: true });
+    await writeFile(
+      join(agents, 'ws-only', 'SKILL.md'),
+      '---\nname: ws-only\ndescription: Workspace only\n---\n# Workspace only\n',
+    );
+
+    const root = `machine://host-a${workspace}`;
+    const verified = localMachineConnector({ name: 'host-a' });
+
+    await expect(
+      runTool(
+        nativeReadTool,
+        { path: 'skill://ws-only' },
+        skillContext({
+          workspaceRoot: root,
+          localMachine: 'host-a',
+          machines: verified,
+        }),
+        5,
+      ),
+    ).resolves.toMatchObject({
+      status: 'success',
+      skillDirectory: join(agents, 'ws-only'),
+    });
+
+    const mismatched = localMachineConnector({
+      name: 'host-a',
+      verify: () => Promise.reject(new MachineIdentityMismatchError('host-a')),
+    });
+
+    await expect(
+      runTool(
+        nativeReadTool,
+        { path: 'skill://ws-only' },
+        skillContext({
+          workspaceRoot: root,
+          localMachine: 'host-a',
+          machines: mismatched,
+        }),
+        5,
+      ),
+    ).resolves.toMatchObject({ status: 'error', type: 'not_found' });
   });
 
   it('reads the package root and publishes the real paths and instruction', async () => {

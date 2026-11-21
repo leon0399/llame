@@ -309,7 +309,7 @@ describe('snapshotMachineSkillSources', () => {
     expect(sources.diagnostics).toEqual([]);
 
     const snapshot = new SkillCatalog([], sources.fileSystem).getSnapshot(
-      workspaceSkillSources(MACHINE_ROOT),
+      workspaceSkillSources(MACHINE_ROOT, { localVerified: false }),
     );
 
     expect(snapshot.available).toBe(true);
@@ -352,7 +352,7 @@ describe('snapshotMachineSkillSources', () => {
     const sources = await snapshotSkills(machine);
 
     const snapshot = new SkillCatalog([], sources.fileSystem).getSnapshot(
-      workspaceSkillSources(MACHINE_ROOT),
+      workspaceSkillSources(MACHINE_ROOT, { localVerified: false }),
     );
 
     expect(namesIn(snapshot)).toEqual(['deploy']);
@@ -375,7 +375,7 @@ describe('snapshotMachineSkillSources', () => {
     const sources = await snapshotSkills(machine);
 
     const snapshot = new SkillCatalog([], sources.fileSystem).getSnapshot(
-      workspaceSkillSources(MACHINE_ROOT),
+      workspaceSkillSources(MACHINE_ROOT, { localVerified: false }),
     );
 
     expect(sources.diagnostics).toEqual([]);
@@ -441,7 +441,7 @@ describe('snapshotMachineSkillSources', () => {
     const sources = await snapshotSkills(machine);
 
     const snapshot = new SkillCatalog([], sources.fileSystem).getSnapshot(
-      workspaceSkillSources(MACHINE_ROOT),
+      workspaceSkillSources(MACHINE_ROOT, { localVerified: false }),
     );
 
     expect(
@@ -479,10 +479,14 @@ describe('snapshotMachineSkillSources', () => {
     ]);
     const catalog = new SkillCatalog([], sources.fileSystem);
     expect(() =>
-      catalog.getSnapshot(workspaceSkillSources(MACHINE_ROOT)),
+      catalog.getSnapshot(
+        workspaceSkillSources(MACHINE_ROOT, { localVerified: false }),
+      ),
     ).not.toThrow();
     expect(
-      catalog.getSnapshot(workspaceSkillSources(MACHINE_ROOT)),
+      catalog.getSnapshot(
+        workspaceSkillSources(MACHINE_ROOT, { localVerified: false }),
+      ),
     ).toMatchObject({ available: true, entries: [] });
   });
 
@@ -506,7 +510,7 @@ describe('snapshotMachineSkillSources', () => {
     ]);
     expect(
       new SkillCatalog([], sources.fileSystem).getSnapshot(
-        workspaceSkillSources(MACHINE_ROOT),
+        workspaceSkillSources(MACHINE_ROOT, { localVerified: false }),
       ),
     ).toMatchObject({ entries: [] });
   });
@@ -527,7 +531,7 @@ describe('snapshotMachineSkillSources', () => {
     ]);
     expect(
       new SkillCatalog([], sources.fileSystem).getSnapshot(
-        workspaceSkillSources(MACHINE_ROOT),
+        workspaceSkillSources(MACHINE_ROOT, { localVerified: false }),
       ),
     ).toMatchObject({ entries: [] });
   });
@@ -551,7 +555,7 @@ describe('snapshotMachineSkillSources', () => {
     ]);
     expect(
       new SkillCatalog([], sources.fileSystem).getSnapshot(
-        workspaceSkillSources(MACHINE_ROOT),
+        workspaceSkillSources(MACHINE_ROOT, { localVerified: false }),
       ),
     ).toMatchObject({ entries: [] });
   });
@@ -577,7 +581,7 @@ describe('snapshotMachineSkillSources', () => {
     ]);
     expect(
       new SkillCatalog([], sources.fileSystem).getSnapshot(
-        workspaceSkillSources(MACHINE_ROOT),
+        workspaceSkillSources(MACHINE_ROOT, { localVerified: false }),
       ),
     ).toMatchObject({ entries: [] });
   });
@@ -614,7 +618,7 @@ describe('snapshotMachineSkillSources', () => {
     ]);
     expect(
       new SkillCatalog([], sources.fileSystem).getSnapshot(
-        workspaceSkillSources(MACHINE_ROOT),
+        workspaceSkillSources(MACHINE_ROOT, { localVerified: false }),
       ),
     ).toMatchObject({ entries: [] });
   });
@@ -632,7 +636,7 @@ describe('snapshotMachineSkillSources', () => {
     ]);
     expect(
       new SkillCatalog([], sources.fileSystem).getSnapshot(
-        workspaceSkillSources(MACHINE_ROOT),
+        workspaceSkillSources(MACHINE_ROOT, { localVerified: false }),
       ),
     ).toMatchObject({ entries: [] });
   });
@@ -650,7 +654,7 @@ describe('snapshotMachineSkillSources', () => {
     ]);
     expect(
       new SkillCatalog([], sources.fileSystem).getSnapshot(
-        workspaceSkillSources(MACHINE_ROOT),
+        workspaceSkillSources(MACHINE_ROOT, { localVerified: false }),
       ),
     ).toMatchObject({ entries: [] });
   });
@@ -668,7 +672,7 @@ describe('snapshotMachineSkillSources', () => {
     ]);
     expect(
       new SkillCatalog([], sources.fileSystem).getSnapshot(
-        workspaceSkillSources(MACHINE_ROOT),
+        workspaceSkillSources(MACHINE_ROOT, { localVerified: false }),
       ),
     ).toMatchObject({ entries: [] });
   });
@@ -694,7 +698,7 @@ describe('snapshotMachineSkillSources', () => {
     const sources = await snapshotSkills(machine);
 
     const snapshot = new SkillCatalog([], sources.fileSystem).getSnapshot(
-      workspaceSkillSources(MACHINE_ROOT),
+      workspaceSkillSources(MACHINE_ROOT, { localVerified: false }),
     );
 
     expect(
@@ -719,7 +723,7 @@ describe('snapshotMachineSkillSources', () => {
     const sources = await snapshotSkills(machine);
 
     const snapshot = new SkillCatalog([], sources.fileSystem).getSnapshot(
-      workspaceSkillSources(MACHINE_ROOT),
+      workspaceSkillSources(MACHINE_ROOT, { localVerified: false }),
     );
 
     expect(snapshot.entries).toMatchObject([
@@ -749,7 +753,7 @@ describe('snapshotMachineSkillSources', () => {
     const sources = await snapshotSkills(machine);
 
     const snapshot = new SkillCatalog([], sources.fileSystem).getSnapshot(
-      workspaceSkillSources(MACHINE_ROOT),
+      workspaceSkillSources(MACHINE_ROOT, { localVerified: false }),
     );
 
     expect(snapshot.entries).toMatchObject([
@@ -775,7 +779,7 @@ describe('snapshotMachineSkillSources', () => {
 
     try {
       const snapshot = new SkillCatalog([host], sources.fileSystem).getSnapshot(
-        workspaceSkillSources(MACHINE_ROOT),
+        workspaceSkillSources(MACHINE_ROOT, { localVerified: false }),
       );
 
       expect(namesIn(snapshot)).toEqual(['deploy', 'host-skill']);
@@ -832,9 +836,9 @@ describe('snapshotMachineSkillSources', () => {
 
     // `path.join` collapses the scheme's `//`; the catalog joins children onto
     // whatever spelling it was handed, so both must resolve.
-    const collapsed = workspaceSkillSources(root).map((source) =>
-      path.join(source),
-    );
+    const collapsed = workspaceSkillSources(root, {
+      localVerified: false,
+    }).map((source) => path.join(source));
 
     const raw = [
       'machine://devl/home/me/my shop/.agents/skills',
@@ -939,7 +943,7 @@ describe('snapshotMachineSkillSources', () => {
     ]);
     expect(
       new SkillCatalog([], sources.fileSystem).getSnapshot(
-        workspaceSkillSources(MACHINE_ROOT),
+        workspaceSkillSources(MACHINE_ROOT, { localVerified: false }),
       ),
     ).toMatchObject({ available: true, entries: [] });
   });
@@ -972,7 +976,7 @@ describe('snapshotMachineSkillSources', () => {
     ]);
     expect(
       new SkillCatalog([], sources.fileSystem).getSnapshot(
-        workspaceSkillSources(MACHINE_ROOT),
+        workspaceSkillSources(MACHINE_ROOT, { localVerified: false }),
       ),
     ).toMatchObject({ available: true, entries: [] });
   });
@@ -1143,7 +1147,7 @@ describe('snapshotMachineSkillSources', () => {
     ).toBe('unavailable');
     expect(
       new SkillCatalog([], sources.fileSystem).getSnapshot(
-        workspaceSkillSources(MACHINE_ROOT),
+        workspaceSkillSources(MACHINE_ROOT, { localVerified: false }),
       ),
     ).toMatchObject({ available: true, entries: [] });
   });

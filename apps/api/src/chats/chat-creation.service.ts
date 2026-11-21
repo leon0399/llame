@@ -35,7 +35,6 @@ import { toChatResponse } from './dto/chats.dto';
 import {
   creationLocationSource,
   executorOnline,
-  isConfiguredExecutor,
 } from './chat-creation-executors';
 import {
   type AdmitContext,
@@ -96,7 +95,7 @@ export class ChatCreationService {
 
     if (
       input.executorId !== undefined &&
-      !isConfiguredExecutor(input.executorId, this.connector)
+      !this.connector.isConfigured(input.executorId)
     ) {
       throw new UnprocessableEntityException({
         statusCode: 422,

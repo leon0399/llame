@@ -20,7 +20,8 @@ import {
 } from './machine-call';
 import { type ToolContext, type ToolResult } from './types';
 
-const NO_LOCAL_MACHINE_MESSAGE =
+/** The refusal every in-process family shares when no Machine is configured. */
+export const NO_LOCAL_MACHINE_MESSAGE =
   'No local Machine is configured: set machines.local to the Machine this ' +
   'process hosts before an operation runs in process.';
 

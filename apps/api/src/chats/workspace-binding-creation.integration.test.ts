@@ -119,7 +119,10 @@ describeIfDb('bindAtCreation — PostgreSQL', () => {
       workspaceRoot: '/srv/llame',
       workspaceExecutorId: 'creation-host',
       workspaceGeneration: 1,
-      workspaceToldAvailable: null,
+      // Every binding names a Machine now, this process's own included; the
+      // entry that bound it proved that Machine reachable, so the next Run
+      // compares against "available" rather than "nothing told".
+      workspaceToldAvailable: true,
     });
 
     const runs = await tenantDb.runAs(owner, (tx) =>

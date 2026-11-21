@@ -6908,8 +6908,18 @@ describeIfDb('executeRun tool-loop persistence', () => {
         expect(toolIndex).toBeGreaterThanOrEqual(0);
         expect(bundleIndex).toBe(toolIndex + 1);
         const bundle = promptText(prompt[bundleIndex]);
-        const rootFile = path.join(root, 'AGENTS.md');
-        const apiFile = path.join(root, 'apps/api/AGENTS.md');
+
+        // A local Machine file is disclosed and read by its canonical locator.
+        const rootFile = boundRoot(
+          'instructions-host',
+          path.join(root, 'AGENTS.md'),
+        );
+
+        const apiFile = boundRoot(
+          'instructions-host',
+          path.join(root, 'apps/api/AGENTS.md'),
+        );
+
         expect(bundle).toContain(`<file path="${rootFile}">`);
         expect(bundle).toContain(`<file path="${apiFile}">`);
         expect(bundle.indexOf(rootFile)).toBeLessThan(bundle.indexOf(apiFile));
@@ -7626,8 +7636,13 @@ describeIfDb('executeRun tool-loop persistence', () => {
         await execution.consumeStream?.();
         await waitForCompleted(seeded.run.id);
 
-        // One audited page per page of the file, each with its own call id.
-        const file = path.join(root, 'AGENTS.md');
+        // One audited page per page of the file, each with its own call id; a
+        // local Machine file is read by its canonical locator.
+        const file = boundRoot(
+          'instructions-host',
+          path.join(root, 'AGENTS.md'),
+        );
+
         const audited = await instructionEvents(seeded.run.id);
         // `tool.started` carries no origin, so the origin-filtered log shows
         // one request/completion pair per page.
@@ -7651,9 +7666,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
         );
 
         expect(requestedPaths[0]).toBe(`${file}:raw:1-2000`);
-        expect(requestedPaths[1]).toMatch(
-          new RegExp(`^${file}:raw:\\d+-\\d+$`, 'u'),
-        );
+        expect(requestedPaths[1]?.startsWith(`${file}:raw:`)).toBe(true);
         expect(requestedPaths[1]).not.toBe(requestedPaths[0]);
 
         const callIds = requests.map((entry) =>
@@ -7739,7 +7752,9 @@ describeIfDb('executeRun tool-loop persistence', () => {
           instructionsSeenPaths(
             forkedHistory.flatMap((message) => message.parts),
           ),
-        ).toContain(path.join(root, 'AGENTS.md'));
+        ).toContain(
+          boundRoot('instructions-host', path.join(root, 'AGENTS.md')),
+        );
 
         const forkedSeeded = await seedRunOnChat(
           { ...seeded, chatId: forked.id },

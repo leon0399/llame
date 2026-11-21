@@ -29,6 +29,7 @@ import {
 import { SKILL_LOCATOR_SCHEME } from '../skills/skill-locator';
 import {
   admitPermission,
+  type CanonicalEvaluation,
   evaluateCanonicalWithRejectTexts,
 } from './permissions/admit';
 import { isFileAlias } from './permissions/file-alias';
@@ -43,7 +44,12 @@ import {
 } from './permissions/types';
 import { hostLiteralStart } from './grep-scope-shape';
 import { type ToolContext } from './types';
-import { resolveMachinePath, type LocatorContext } from './workspace-path';
+import {
+  literalTargetPath,
+  locatorContext,
+  resolveMachinePath,
+  type LocatorContext,
+} from './workspace-path';
 
 /** The one array-valued input a clause may name (tool-call-permissions). */
 export const GREP_SCOPES_FIELD = 'scopes';
@@ -144,12 +150,7 @@ function projectMachineScope(
   // text the refusal names, as it does for `read`.
   if (target.kind !== 'machine') return { submitted: scope, prefix: scope };
 
-  const pathText =
-    target.selector === undefined
-      ? target.path
-      : `${target.path}:${target.selector}`;
-
-  const normalized = normalizeHostScope(pathText);
+  const normalized = normalizeHostScope(literalTargetPath(target));
   const split = machine ? cut : splitGrepScope(normalized);
 
   if ('error' in split) return { submitted: scope, prefix: scope };
@@ -198,7 +199,7 @@ export function evaluateGrepPermission(
     );
   }
 
-  const projected = projectScopes(scopes, root, context);
+  const projected = projectScopes(scopes, context);
 
   const texts: GrepCallTexts = {
     scopes,
@@ -228,16 +229,11 @@ export function evaluateGrepPermission(
 /** Every scope projected against this call's own Machine placement. */
 function projectScopes(
   scopes: ReadonlyArray<string>,
-  root: string | undefined,
   context: ToolContext,
 ): ReadonlyArray<ProjectedGrepScope> {
-  const locatorContext = {
-    workspaceRoot: root,
-    defaultMachine: context.defaultMachine,
-    localMachine: context.localMachine,
-  };
+  const locator = locatorContext(context);
 
-  return scopes.map((scope) => projectGrepScope(scope, locatorContext));
+  return scopes.map((scope) => projectGrepScope(scope, locator));
 }
 
 /** Every projected text one call carries through its all-fields rejects. */
@@ -245,12 +241,6 @@ type GrepCallTexts = {
   readonly scopes: ReadonlyArray<string>;
   readonly prefixes: ReadonlyArray<string>;
   readonly projectedPaths: ReadonlyArray<string>;
-};
-
-/** The canonical text one scope is allowed by, and the texts its rejects match. */
-type ScopeDecisionTexts = {
-  readonly canonical: EvaluatePermissionOptions;
-  readonly rejectTexts: ReadonlyArray<EvaluatePermissionOptions>;
 };
 
 /**
@@ -262,7 +252,7 @@ function scopeDecisionTexts(
   args: UnknownRecord,
   scope: ProjectedGrepScope,
   texts: GrepCallTexts,
-): ScopeDecisionTexts {
+): CanonicalEvaluation {
   const rejectTexts: Array<EvaluatePermissionOptions> = [
     {
       toolId: 'grep',
@@ -311,17 +301,39 @@ export interface GrepReadAdmission {
   recordRefusals(): void;
 }
 
-/** The `read` group's decision for one locator, projected as `read` sees it. */
+/**
+ * The `read` group's decision for one locator, projected as `read` sees it:
+ * the allow is decided on the canonical locator, while a reject also matches
+ * the projected path, so a bare-spelled reject keeps its effect on a hit.
+ */
 export function readDecision(
   context: ToolContext,
   project: NativeFileProjection,
   locator: string,
 ): PermissionDecision | undefined {
+  const canonical = (field: string, value: string): string =>
+    project(field, value).canonical;
+
+  const projectedPath = (field: string, value: string): string => {
+    const projection = project(field, value);
+
+    return projection.projectedPath ?? projection.canonical;
+  };
+
   return admitPermission(context, (evaluate) =>
-    evaluate({
-      toolId: 'read',
-      args: { path: locator },
-      projectFieldValue: (field, value) => project(field, value).canonical,
+    evaluateCanonicalWithRejectTexts(evaluate, {
+      canonical: {
+        toolId: 'read',
+        args: { path: locator },
+        projectFieldValue: canonical,
+      },
+      rejectTexts: [
+        {
+          toolId: 'read',
+          args: { path: locator },
+          projectFieldValue: projectedPath,
+        },
+      ],
     }),
   );
 }
@@ -387,11 +399,7 @@ function recordRefusal(context: ToolContext, state: ReadAdmissionState): void {
 export function createGrepReadAdmission(
   context: ToolContext,
 ): GrepReadAdmission {
-  const project = nativeFileProjection('read', {
-    workspaceRoot: context.workspaceRoot?.current(),
-    defaultMachine: context.defaultMachine,
-    localMachine: context.localMachine,
-  });
+  const project = nativeFileProjection('read', locatorContext(context));
 
   const judge = (locator: string) => readDecision(context, project, locator);
   // One verdict per file for the whole call: overlapping scopes and a file a

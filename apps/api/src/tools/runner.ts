@@ -21,6 +21,7 @@ import {
 import { isBashCommandField } from './permissions/bash-command-field';
 import { declaredStringProperties } from './permissions/declared-fields';
 import {
+  NATIVE_FILE_PERMISSION_TOOL_IDS,
   nativeFileProjection,
   withoutReadSelector,
   type NativeFileProjection,
@@ -28,6 +29,7 @@ import {
 import { permissionDeniedResult } from './permissions/messages';
 import {
   canonicalMachineLocator,
+  locatorContext,
   resolveMachinePath,
   type LocatorContext,
 } from './workspace-path';
@@ -93,34 +95,18 @@ function mcpDeclaredStringFields(tool: Tool): ReadonlySet<string> | undefined {
 
 type SubmittedToolArguments = UnknownRecord;
 
-function locatorContextFor(context: ToolContext): LocatorContext {
-  return {
-    workspaceRoot: context.workspaceRoot?.current(),
-    defaultMachine: context.defaultMachine,
-    localMachine: context.localMachine,
-  };
-}
-
 function projectWorkspaceArguments(
   tool: Tool,
   args: SubmittedToolArguments,
-  context: ToolContext,
+  locator: LocatorContext,
+  bashCwd: BashCwdProjection,
 ): SubmittedToolArguments {
   if (isNativeFileTool(tool) || tool.id === 'enter_workspace')
-    return projectNativeFileArguments(args, context);
+    return projectNativeFileArguments(args, locator);
 
-  if (isBashTool(tool)) return projectBashArguments(args, context);
+  if (isBashTool(tool)) return projectBashArguments(args, bashCwd);
 
   return args;
-}
-
-/** The same arguments with one field replaced; the caller decided it differs. */
-function projectedField(
-  args: SubmittedToolArguments,
-  field: 'path' | 'cwd',
-  value: string,
-): SubmittedToolArguments {
-  return { ...args, [field]: value };
 }
 
 /**
@@ -131,18 +117,16 @@ function projectedField(
  */
 function projectNativeFileArguments(
   args: SubmittedToolArguments,
-  context: ToolContext,
+  locator: LocatorContext,
 ): SubmittedToolArguments {
   const path = args.path;
 
   if (!isString(path)) return args;
-  const target = resolveMachinePath(path, locatorContextFor(context));
+  const target = resolveMachinePath(path, locator);
 
-  if (target.kind !== 'machine') return args;
-
-  return target.locator === path
-    ? args
-    : projectedField(args, 'path', target.locator);
+  return target.kind === 'machine' && target.locator !== path
+    ? { ...args, path: target.locator }
+    : args;
 }
 
 /** A `bash` cwd as the one locator rule reads it: the text policy allows on,
@@ -178,47 +162,71 @@ function projectBashCwd(
  */
 function projectBashArguments(
   args: SubmittedToolArguments,
-  context: ToolContext,
+  bashCwd: BashCwdProjection,
 ): SubmittedToolArguments {
   const cwd = isString(args.cwd) ? args.cwd : undefined;
 
   if (args.cwd !== undefined && cwd === undefined) return args;
-  const { canonical } = projectBashCwd(cwd, locatorContextFor(context));
 
-  return canonical === undefined || canonical === args.cwd
+  return bashCwd.canonical === undefined || bashCwd.canonical === args.cwd
     ? args
-    : projectedField(args, 'cwd', canonical);
+    : { ...args, cwd: bashCwd.canonical };
 }
 
-function evaluateCanonicalReadPermission(
-  context: ToolContext,
-  tool: Tool,
-  workspaceArgs: SubmittedToolArguments,
-  projectFieldValue: (field: string, value: string) => string,
-  options: EvaluatePermissionOptions,
-  decision: PermissionDecision | undefined,
-): PermissionDecision | undefined {
-  // The canonical target is one resource path: a selector windows the read
-  // and is never part of it, even when the value had no Machine to project to.
-  const evaluatedPath =
-    tool.id === 'read' && isString(workspaceArgs.path)
-      ? withoutReadSelector(projectFieldValue('path', workspaceArgs.path))
-      : undefined;
-
-  const canonicalPath = context.canonicalReadPath;
-
+/**
+ * The canonical file a read reaches, when it differs from the submitted
+ * resource: a selector windows the read and is never part of the identity,
+ * even when the value had no Machine to project to.
+ */
+function canonicalReadTarget(
+  evaluation: LocatorEvaluation,
+  canonicalPath: string | undefined,
+): string | undefined {
   if (
     canonicalPath === undefined ||
-    evaluatedPath === undefined ||
-    canonicalPath === evaluatedPath
+    evaluation.tool.id !== 'read' ||
+    !isString(evaluation.workspaceArgs.path)
   ) {
-    return decision;
+    return undefined;
   }
 
+  const evaluatedPath = withoutReadSelector(
+    evaluation.canonicalValue('path', evaluation.workspaceArgs.path),
+  );
+
+  return canonicalPath === evaluatedPath ? undefined : canonicalPath;
+}
+
+/**
+ * The canonical file a read reaches (a followed link) is judged under the same
+ * `read` group, and a reject also matches its projected path — the bare path
+ * on its Machine — so a bare-spelled reject keeps its effect on a hit.
+ */
+function evaluateCanonicalReadPermission(
+  context: ToolContext,
+  evaluation: LocatorEvaluation,
+  decision: PermissionDecision | undefined,
+): PermissionDecision | undefined {
+  const canonicalPath = canonicalReadTarget(
+    evaluation,
+    context.canonicalReadPath,
+  );
+
+  if (canonicalPath === undefined) return decision;
+
   const canonicalDecision = admitPermission(context, (evaluate) =>
-    evaluate({
-      ...options,
-      args: { path: canonicalPath },
+    evaluateCanonicalWithRejectTexts(evaluate, {
+      canonical: {
+        ...evaluation.canonicalOptions,
+        args: { path: canonicalPath },
+      },
+      rejectTexts: [
+        {
+          ...evaluation.optionsFor({ path: canonicalPath }),
+          projectFieldValue: (field: string, value: string): string =>
+            projectedFieldValue(evaluation.project, field, value),
+        },
+      ],
     }),
   );
 
@@ -262,14 +270,6 @@ function evaluateToolPermission(
   return evaluateLocatorToolPermission(tool, args, context);
 }
 
-/** Tools whose `path` is a native file locator for policy (design D7). */
-const NATIVE_PATH_TOOL_IDS: ReadonlySet<string> = new Set([
-  'read',
-  'edit',
-  'write',
-  'enter_workspace',
-]);
-
 /** One locator tool's prepared evaluation: its projections and its texts. */
 type LocatorEvaluation = {
   readonly tool: Tool;
@@ -282,7 +282,42 @@ type LocatorEvaluation = {
   readonly project: NativeFileProjection;
   readonly canonicalValue: (field: string, value: string) => string;
   readonly canonicalOptions: EvaluatePermissionOptions;
+  /** The trusted facts every projection of this call resolves against. */
+  readonly locator: LocatorContext;
+  /** Bash's resolved cwd, computed once for its allow and its reject text. */
+  readonly bashCwd: BashCwdProjection;
 };
+
+/** The evaluator options of one call's submitted arguments. */
+function permissionOptionsFor(
+  tool: Tool,
+): (callArgs: SubmittedToolArguments) => EvaluatePermissionOptions {
+  return (callArgs) => ({
+    toolId: tool.id,
+    args: callArgs,
+    isFlexibleWhitespaceField: (field: string) =>
+      isBashCommandField(tool.id, field),
+    validFields: mcpDeclaredStringFields(tool),
+  });
+}
+
+/** The canonical text of one projected field. */
+function canonicalValueFor(
+  project: NativeFileProjection,
+): (field: string, value: string) => string {
+  return (field, value) => project(field, value).canonical;
+}
+
+/** A projection's reject text: the decoded Machine path, else the canonical. */
+function projectedFieldValue(
+  project: NativeFileProjection,
+  field: string,
+  value: string,
+): string {
+  const projection = project(field, value);
+
+  return projection.projectedPath ?? projection.canonical;
+}
 
 /** Everything one locator call decides, prepared before its group is chosen. */
 function prepareLocatorEvaluation(
@@ -290,21 +325,17 @@ function prepareLocatorEvaluation(
   args: SubmittedToolArguments,
   context: ToolContext,
 ): LocatorEvaluation {
-  const workspaceArgs = projectWorkspaceArguments(tool, args, context);
-  const project = nativeFileProjection(tool.id, locatorContextFor(context));
+  const locator = locatorContext(context);
 
-  const optionsFor = (
-    callArgs: SubmittedToolArguments,
-  ): EvaluatePermissionOptions => ({
-    toolId: tool.id,
-    args: callArgs,
-    isFlexibleWhitespaceField: (field: string) =>
-      isBashCommandField(tool.id, field),
-    validFields: mcpDeclaredStringFields(tool),
-  });
+  const bashCwd = isBashTool(tool)
+    ? projectBashCwd(isString(args.cwd) ? args.cwd : undefined, locator)
+    : {};
 
-  const canonicalValue = (field: string, value: string): string =>
-    project(field, value).canonical;
+  const workspaceArgs = projectWorkspaceArguments(tool, args, locator, bashCwd);
+
+  const project = nativeFileProjection(tool.id, locator);
+  const optionsFor = permissionOptionsFor(tool);
+  const canonicalValue = canonicalValueFor(project);
 
   return {
     tool,
@@ -313,6 +344,8 @@ function prepareLocatorEvaluation(
     optionsFor,
     project,
     canonicalValue,
+    locator,
+    bashCwd,
     canonicalOptions: {
       ...optionsFor(workspaceArgs),
       projectFieldValue: canonicalValue,
@@ -370,18 +403,14 @@ function nativePathDecision(
 function bashPermissionDecision(
   context: ToolContext,
   evaluation: LocatorEvaluation,
-  locator: LocatorContext,
 ): PermissionDecision | undefined {
-  const cwd = isString(evaluation.args.cwd) ? evaluation.args.cwd : undefined;
-
-  const projection = projectBashCwd(cwd, locator);
   const rejectTexts = [evaluation.optionsFor(evaluation.args)];
 
-  if (projection.projectedPath !== undefined)
+  if (evaluation.bashCwd.projectedPath !== undefined)
     rejectTexts.push(
       evaluation.optionsFor({
         ...evaluation.args,
-        cwd: projection.projectedPath,
+        cwd: evaluation.bashCwd.projectedPath,
       }),
     );
 
@@ -414,13 +443,12 @@ function submittedPermissionDecision(
 function decideLocatorPermission(
   context: ToolContext,
   evaluation: LocatorEvaluation,
-  locator: LocatorContext,
 ): PermissionDecision | undefined {
-  if (NATIVE_PATH_TOOL_IDS.has(evaluation.tool.id))
+  if (NATIVE_FILE_PERMISSION_TOOL_IDS.has(evaluation.tool.id))
     return nativePathDecision(context, evaluation);
 
   return isBashTool(evaluation.tool)
-    ? bashPermissionDecision(context, evaluation, locator)
+    ? bashPermissionDecision(context, evaluation)
     : submittedPermissionDecision(context, evaluation);
 }
 
@@ -430,21 +458,9 @@ function evaluateLocatorToolPermission(
   context: ToolContext,
 ): PermissionDecision | undefined {
   const evaluation = prepareLocatorEvaluation(tool, args, context);
+  const decision = decideLocatorPermission(context, evaluation);
 
-  const decision = decideLocatorPermission(
-    context,
-    evaluation,
-    locatorContextFor(context),
-  );
-
-  return evaluateCanonicalReadPermission(
-    context,
-    tool,
-    evaluation.workspaceArgs,
-    evaluation.canonicalValue,
-    evaluation.canonicalOptions,
-    decision,
-  );
+  return evaluateCanonicalReadPermission(context, evaluation, decision);
 }
 
 /**

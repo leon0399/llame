@@ -1,33 +1,22 @@
 import { type Db } from '../db/tenant-db.service';
 import { ProjectLinksRepository } from '../projects/project-links.repository';
 import { type StartLocationSource } from '../projects/start-location';
-import { type MachineConnector } from '../machines/machine-connector.service';
 import { parseMachineLocator } from '../machines/machine-locator';
 import { type MachineStatusView } from '../machines/machines-status';
 import { type ExecutorTarget } from '../machines/executor-git.service';
 
 /*
  * Executor identity for chat creation (openspec `chat-start-location`, design
- * D9): whether the configuration provides an executor id at all, whether that
- * executor can run right now, and the typed target one resolved location runs
- * on.
+ * D9): whether a resolved executor can run right now, the typed target one
+ * resolved location runs on, and the read source the resolver's implicit step
+ * filters. Whether the configuration declares an id at all is the connector's
+ * own `isConfigured`.
  *
  * Every executor id is a Machine name, the host Machine included: there is no
  * `machine:` prefix and no separate local id. The host Machine is a normal
  * entry, so it can be offline like any other, and its target is addressed by
  * its canonical `machine://` locator.
  */
-
-/** The Machine catalog these gates read: the connector's own view. */
-export type ExecutorCatalog = Pick<MachineConnector, 'isConfigured'>;
-
-/** Whether the configuration provides this executor id at all. */
-export function isConfiguredExecutor(
-  executorId: string,
-  catalog: ExecutorCatalog,
-): boolean {
-  return catalog.isConfigured(executorId);
-}
 
 /**
  * Whether the resolved executor can run right now, from the Machines read

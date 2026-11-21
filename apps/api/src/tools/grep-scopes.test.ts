@@ -5,7 +5,9 @@ import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 import { MachineConnector } from '../machines/machine-connector.service';
+import { MachineIdentityMismatchError } from '../machines/machine-session';
 import {
+  SkillCatalog,
   type SkillCatalogEntry,
   type SkillCatalogPort,
 } from '../skills/skill-catalog';
@@ -505,6 +507,65 @@ describe('resolveScopes', () => {
       // Each expanded package is its own scope, ordered for the walk.
       expect(outcome.scopes.map((scope) => scope.index)).toEqual([0, 1]);
     });
+  });
+
+  it('searches no Workspace skill when the local daemon answers another identity', async () => {
+    const workspace = await realpath(
+      await mkdtemp(path.join(tmpdir(), 'grep-workspace-')),
+    );
+
+    try {
+      const packageDirectory = path.join(
+        workspace,
+        '.agents',
+        'skills',
+        'ws-only',
+      );
+
+      await mkdir(packageDirectory, { recursive: true });
+      await writeFile(
+        path.join(packageDirectory, 'SKILL.md'),
+        '---\nname: ws-only\ndescription: Workspace only\n---\nneedle\n',
+      );
+
+      const root = `machine://host-a${workspace}`;
+      const catalog = new SkillCatalog([]);
+
+      const verified = scopesOf(
+        await resolveScopes(
+          { ...hostContext({ root }), skillCatalog: catalog },
+          ['skill://ws-only/SKILL.md'],
+          admission,
+        ),
+      );
+
+      expect(verified.scopes[0]?.locatorPrefix).toBe(
+        'skill://ws-only/SKILL.md',
+      );
+
+      // The same read without the identity-checked handshake contributes no
+      // Workspace skill, so the package is not found.
+      const mismatched = {
+        ...hostContext({ root }),
+        skillCatalog: catalog,
+        machines: localMachineConnector({
+          verify: () =>
+            Promise.reject(new MachineIdentityMismatchError('host-a')),
+        }),
+      };
+
+      await expect(
+        resolveScopes(mismatched, ['skill://ws-only/SKILL.md'], admission),
+      ).resolves.toEqual({
+        result: {
+          status: 'error',
+          type: 'not_found',
+          message: 'File not found.',
+        },
+      });
+    } finally {
+      await rm(workspace, { recursive: true, force: true });
+    }
   });
 
   it('expands a bare skill scope to nothing without a catalog', async () => {

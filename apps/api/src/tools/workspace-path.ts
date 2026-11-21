@@ -175,6 +175,23 @@ export type LocatorContext = {
 };
 
 /**
+ * The trusted locator facts of one call, from the ToolContext and never from
+ * model arguments: the entered Workspace root, `machines.default`, and
+ * `machines.local`.
+ */
+export function locatorContext(context: {
+  readonly workspaceRoot?: { current(): string | undefined };
+  readonly defaultMachine?: string;
+  readonly localMachine?: string;
+}): LocatorContext {
+  return {
+    workspaceRoot: context.workspaceRoot?.current(),
+    defaultMachine: context.defaultMachine,
+    localMachine: context.localMachine,
+  };
+}
+
+/**
  * The Machine a path of this call addresses: the bound Workspace root's
  * Machine, else `machines.default`. A legacy bare Workspace root carries no
  * Machine name of its own, so it is read on `machines.default` — the Machine
@@ -344,21 +361,20 @@ function splitReadSelector(value: string): {
     : { path: value };
 }
 
+/** The literal path text of one Machine target: a read selector re-attached
+ *  as the path text the tool takes literally. */
+export function literalTargetPath(target: MachineTarget): string {
+  return target.selector === undefined
+    ? target.path
+    : `${target.path}:${target.selector}`;
+}
+
 /**
  * The canonical locator for one absolute Machine path, with a trailing read
  * selector kept as a selector rather than encoded into the filename.
  */
 function machineLocator(name: string, value: string): string | undefined {
-  const split = splitSelectorSuffix(value);
+  const split = splitReadSelector(value);
 
-  const selector =
-    split.selector !== undefined && isSelectorSuffix(split.selector)
-      ? split.selector
-      : undefined;
-
-  return formatMachineLocator(
-    name,
-    selector === undefined ? value : split.path,
-    selector,
-  );
+  return formatMachineLocator(name, split.path, split.selector);
 }

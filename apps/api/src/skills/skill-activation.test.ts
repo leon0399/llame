@@ -11,6 +11,7 @@ import { type ToolContext, type ToolResult } from '../tools/types';
 import { createWorkspaceRootCell } from '../tools/workspace-path';
 import { workspaceSkillSources } from './workspace-skill-sources';
 import { compileTestPermissionPolicy } from '../testing/tool-permission-policy';
+import { localMachineConnector } from '../testing/local-machine';
 import { compileToolPermissionMap } from '../tools/permissions/compile-permissions';
 import { type PermissionDecision } from '../tools/permissions/types';
 import { CONTEXT_ITEM_TAG } from '../chats/context-item';
@@ -116,6 +117,10 @@ function harness(
       : compileTestPermissionPolicy(),
     skillCatalog: new SkillCatalog([source]),
     timeoutMs: 5000,
+    // The Workspace sources are host paths, so the attempt's local Machine
+    // must verify before they are read (design D8).
+    localMachine: 'host-a',
+    machines: localMachineConnector({ name: 'host-a' }),
     tenantDb: {
       runAs: () => Promise.reject(new Error('no database in this test')),
     },
@@ -207,7 +212,11 @@ describe('activateSkills', () => {
 
   it('activates an explicitly named Workspace skill', async () => {
     const workspace = temporaryDirectory('workspace');
-    const [, , llame] = workspaceSkillSources(workspace);
+
+    const [, , llame] = workspaceSkillSources(workspace, {
+      localVerified: true,
+    });
+
     const packageDirectory = path.join(llame, 'review');
     await mkdir(packageDirectory, { recursive: true });
     await writeFile(

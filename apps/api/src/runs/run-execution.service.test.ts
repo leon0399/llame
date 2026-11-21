@@ -38,6 +38,7 @@ import { webSearchTool } from '../tools/web-search/tool';
 import { compileTestPermissionPolicy } from '../testing/tool-permission-policy';
 import { createProtocolPeer } from '../testing/machine-protocol-peer';
 import { MachineConnector } from '../machines/machine-connector.service';
+import { parseMachineLocator } from '../machines/machine-locator';
 import { ExecutorGit, localGitSurface } from '../machines/executor-git.service';
 import { createGitProducer } from '../git-state/git-context-producer';
 import { createGitItem } from '../git-state/git-item';
@@ -5517,7 +5518,7 @@ describe('RunExecutionService executeRun', () => {
       workspaceExecutorId: 'devl',
       workspaceGeneration: 4,
       artifactSeq: 0,
-      workspaceTold: machineRoot,
+      workspaceTold: `devl\n${machineRoot}`,
       workspaceToldFrom: null,
       workspaceToldAvailable: false,
     });
@@ -5564,6 +5565,72 @@ describe('RunExecutionService executeRun', () => {
       toldFrom: null,
       clearDetachReason: false,
       available: true,
+    });
+  });
+
+  it('does not narrate a recovery for a Machine that was never told as lost', async () => {
+    const repositories = mockNormalExecutionRepositories();
+
+    const peer = createProtocolPeer({
+      roots: ['/srv'],
+      answer: (call) =>
+        call.method === 'fs.stat' && call.params?.['path'] === '/srv/app'
+          ? {
+              value: { kind: 'directory', isLink: false, realPath: '/srv/app' },
+            }
+          : undefined,
+    });
+
+    vi.spyOn(ChatsRepository.prototype, 'findById').mockResolvedValue({
+      ...chat,
+      workspaceRoot: machineRoot,
+      workspaceExecutorId: 'devl',
+      workspaceGeneration: 4,
+      artifactSeq: 0,
+      // The loss was told for another Machine: `devl` was never lost.
+      workspaceTold: `gpu\n${machineRoot}`,
+      workspaceToldFrom: null,
+      workspaceToldAvailable: false,
+    });
+
+    const execution = makeExecutionService(
+      createFakeModelClient(['answer']),
+      undefined,
+      undefined,
+      {
+        allowed: ['enter_workspace'],
+        machineConnector: new MachineConnector({
+          machines: {
+            ssh: { knownHostsFile: '/etc/llame/machine_known_hosts' },
+            hosts: { devl: { destination: 'box' } },
+          },
+          hubVersion: '9.9.9',
+          bindIdentity: () => Promise.resolve('match'),
+          transportFactory: peer.factory,
+        }),
+      },
+    );
+
+    const result = await execution.service.executeRun(
+      executionInput(execution.client),
+    );
+
+    await expect(result.text).resolves.toBe('answer');
+
+    // The epoch changed Machines, so it re-tells the snapshot and says nothing
+    // about a recovery this Machine never had.
+    const workspaceItems = stagedItemsOf(
+      repositories.storeAtDispatch,
+      'workspace',
+    );
+
+    expect(workspaceItems.map((item) => item.data.form)).toEqual(['snapshot']);
+    expect(repositories.setTold).toHaveBeenCalledWith({
+      chatId,
+      ownerUserId: userId,
+      told: `devl\n${machineRoot}`,
+      toldFrom: null,
+      clearDetachReason: false,
     });
   });
 
@@ -18781,6 +18848,11 @@ describe('RunExecutionService instruction files', () => {
     };
   }
 
+  /** The canonical locator of one host path on this test's local Machine. */
+  function localAt(file: string): string {
+    return `machine://host-a${file}`;
+  }
+
   /** Binds the Chat the run executes against to `root` for this worker. */
   function bindChatTo(root: string): void {
     vi.spyOn(ChatsRepository.prototype, 'findById').mockResolvedValue({
@@ -18847,7 +18919,10 @@ describe('RunExecutionService instruction files', () => {
     vi.spyOn(nativeReadTool, 'execute').mockImplementation(
       (_context, input) => {
         const marker = input.path.lastIndexOf(':raw:');
-        const file = marker < 0 ? input.path : input.path.slice(0, marker);
+        const target = marker < 0 ? input.path : input.path.slice(0, marker);
+        // The producer reads a local Machine file by its canonical locator.
+        const parsed = parseMachineLocator(target);
+        const file = parsed.kind === 'path' ? parsed.path : target;
         const content = readFileSync(file, 'utf8');
 
         return Promise.resolve({
@@ -18866,7 +18941,7 @@ describe('RunExecutionService instruction files', () => {
 
   /** One stored instructions part naming the root's `AGENTS.md`. */
   function instructionItem(root: string): AuthoredContextItemPart {
-    const file = path.join(root, 'AGENTS.md');
+    const file = localAt(path.join(root, 'AGENTS.md'));
 
     return createInstructionsItem({
       runId,
@@ -19002,7 +19077,7 @@ describe('RunExecutionService instruction files', () => {
       ]);
       expect(reads[0]?.payload).toMatchObject({
         toolName: 'read',
-        input: { path: `${path.join(root, 'AGENTS.md')}:raw:1-2000` },
+        input: { path: `${localAt(path.join(root, 'AGENTS.md'))}:raw:1-2000` },
         permission: { decision: 'allow' },
       });
       expect(reads[1]?.payload).toMatchObject({
@@ -19274,10 +19349,12 @@ describe('RunExecutionService instruction files', () => {
         'tool.completed',
       ]);
       expect(reads[0]?.payload).toMatchObject({
-        input: { path: `${path.join(root, 'AGENTS.md')}:raw:1-2000` },
+        input: { path: `${localAt(path.join(root, 'AGENTS.md'))}:raw:1-2000` },
       });
       expect(reads[2]?.payload).toMatchObject({
-        input: { path: `${path.join(root, 'apps/api/AGENTS.md')}:raw:1-2000` },
+        input: {
+          path: `${localAt(path.join(root, 'apps/api/AGENTS.md'))}:raw:1-2000`,
+        },
       });
       expect(callIdOf(reads[2]?.payload)).toBe(
         `instructions-${runId}-${testAttemptId}-2`,
@@ -19327,7 +19404,7 @@ describe('RunExecutionService instruction files', () => {
           enter_workspace: { allow: true },
           read: {
             allow: true,
-            reject: [{ field: 'path', literal: canonical }],
+            reject: [{ field: 'path', literal: localAt(canonical) }],
           },
         },
         'test-policy',
@@ -19348,7 +19425,9 @@ describe('RunExecutionService instruction files', () => {
       const importedRequest = reads.find(
         (record) =>
           record.type === 'tool.requested' &&
-          JSON.stringify(record.payload).includes(`${imported}:raw:1-2000`),
+          JSON.stringify(record.payload).includes(
+            `${localAt(imported)}:raw:1-2000`,
+          ),
       );
 
       expect(importedRequest?.payload).toMatchObject({
@@ -19379,7 +19458,7 @@ describe('RunExecutionService instruction files', () => {
         expect(repositories.createAssistantReplyIfAbsent).toHaveBeenCalled(),
       );
       expect(storedInstructionPart(repositories)?.data.payload).toMatchObject({
-        denied: [imported],
+        denied: [localAt(imported)],
       });
     } finally {
       rmSync(root, { recursive: true, force: true });
@@ -19966,7 +20045,7 @@ describe('RunExecutionService instruction files', () => {
       expect(
         eventsWithOrigin(append, 'instructions')[0]?.payload,
       ).toMatchObject({
-        input: { path: `${path.join(root, 'AGENTS.md')}:raw:1-2000` },
+        input: { path: `${localAt(path.join(root, 'AGENTS.md'))}:raw:1-2000` },
       });
     } finally {
       rmSync(root, { recursive: true, force: true });
@@ -30010,6 +30089,7 @@ describe('RunExecutionService quota resume boundaries', () => {
     latestCheckpoint: undefined,
     seenInstructionPaths: new Set<string>(),
     toldGit: { text: undefined, root: undefined },
+    machineVerified: true,
     untitled: false,
   };
 
@@ -30980,6 +31060,7 @@ describe('RunExecutionService wake boundary preparation', () => {
       latestCheckpoint: undefined,
       seenInstructionPaths: new Set<string>(),
       toldGit: { text: undefined, root: undefined },
+      machineVerified: true,
       untitled: false,
     };
   }

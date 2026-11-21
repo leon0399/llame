@@ -29,7 +29,7 @@ import {
   readProcBashResult,
   runMachineMutation,
 } from './machine-call';
-import { verifyLocalMachine } from './local-machine';
+import { NO_LOCAL_MACHINE_MESSAGE, verifyLocalMachine } from './local-machine';
 import {
   bashTarget,
   type BashInput,
@@ -51,10 +51,6 @@ const MACHINE_BASH_STREAM_BOUND: StreamBound = {
   kind: 'code-units',
   limit: BASH_BOUNDS.outputBound,
 };
-
-const NO_LOCAL_MACHINE_MESSAGE =
-  'No local Machine is configured: set machines.local to the Machine this ' +
-  'process hosts before a command runs in process.';
 
 const REMOTE_BACKGROUND_REFUSAL =
   'async and unlimited are supported only for bash commands on the llame host.';

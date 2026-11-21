@@ -34,6 +34,7 @@ import { MachineIdentityMismatchError } from '../machines/machine-session';
 import {
   formatMachineLocator,
   MACHINE_NAME_PATTERN,
+  parseMachineLocator,
 } from '../machines/machine-locator';
 import {
   readFsGrepResult,
@@ -46,7 +47,6 @@ import {
   unsupportedGlobResult,
   type GrepToolError,
 } from './grep-results';
-import { decodeRelativePath } from './locator-spelling';
 import {
   MACHINE_FILE_BUDGET_MS,
   machineBudgetMs,
@@ -266,24 +266,26 @@ export function machineScopeOf(
 
   if ('error' in split) return unsupportedGlobResult(split.operator);
 
-  const prefix =
-    split.prefix !== '/' && split.prefix.endsWith('/')
-      ? split.prefix.slice(0, -1)
-      : split.prefix;
+  // The prefix is validated by the one locator grammar policy also projects
+  // with, so a literal query, fragment, backslash, control character, or
+  // encoding a path separator is refused instead of walking a path no
+  // locator can name. grep parses no read selector, so a colon is path text
+  // and is encoded here for the grammar's selector split.
+  const parsed = parseMachineLocator(
+    `machine://${name}${split.prefix.replaceAll(':', '%3A')}`,
+  );
 
-  const decoded = decodeRelativePath(prefix);
+  if (parsed.kind !== 'path') return invalidPathResult(BAD_PATH_MESSAGE);
 
-  if (
-    decoded === undefined ||
-    !decoded.startsWith('/') ||
-    decoded.includes('\u0000')
-  )
-    return invalidPathResult(BAD_PATH_MESSAGE);
+  const path =
+    parsed.path !== '/' && parsed.path.endsWith('/')
+      ? parsed.path.slice(0, -1)
+      : parsed.path;
 
   return {
     index,
     name,
-    path: normalizeHostScope(decoded),
+    path: normalizeHostScope(path),
     globSuffix: split.globSuffix,
   };
 }

@@ -25,7 +25,11 @@ import {
   isInstructionsPayload,
   instructionsSeenPaths,
 } from '../chats/instructions-item';
-import { type ReadPage, parentKey } from './instruction-files';
+import {
+  hostInstructionScope,
+  parentKey,
+  type ReadPage,
+} from './instruction-files';
 import type { InRunToolCall } from '../runs/in-run-context-items';
 import { enterWorkspaceTool, exitWorkspaceTool } from '../tools/workspace';
 import { KNOWLEDGE_MAX_PATH_COMPONENTS } from '../knowledge/knowledge-filesystem-limits';
@@ -86,6 +90,14 @@ function attemptOf(
       readonly readPage: ReadPage;
       readonly knowledge: KnowledgeInstructionProbe;
     };
+    /** The Machine capability; defaults to this process's own filesystem. */
+    readonly machines?: {
+      readonly readPage: ReadPage;
+      readonly probe: (target: {
+        readonly name: string;
+        readonly path: string;
+      }) => Promise<ReturnType<typeof hostInstructionScope> | undefined>;
+    };
   } = {},
 ) {
   const staged: Array<AuthoredContextItemPart> = [];
@@ -97,16 +109,30 @@ function attemptOf(
 
   const space = input.space;
 
+  // A bare path now resolves on the current Machine (design D6), so the
+  // attempt carries `machines.local` and `machines.default` and a Machine
+  // capability over this process's own filesystem, as a worker does.
+  const machines =
+    readPage === undefined
+      ? undefined
+      : (input.machines ?? {
+          readPage,
+          probe: () => Promise.resolve(hostInstructionScope()),
+        });
+
   const producer = createInstructionsProducer().beginAttempt({
     runId: RUN_ID,
     chatId: '22222222-2222-4222-8222-222222222222',
     userId: 'owner',
     admitsRead: input.admitsRead ?? (() => true),
+    localMachine: 'host-a',
+    defaultMachine: 'host-a',
     ...(input.seenKeys !== undefined && { seenKeys: input.seenKeys }),
     ...(readPage !== undefined && { readPage }),
     ...(space !== undefined && {
       knowledge: { readPage: space.readPage, probe: space.knowledge },
     }),
+    ...(machines !== undefined && { machines }),
   });
 
   return {
@@ -535,7 +561,7 @@ describe('instructions producer Knowledge Space triggers', () => {
     );
   });
 
-  it('stages one bundle with the host files first for a host and Space touch', async () => {
+  it('stages one bundle for a local Machine and a Space touch', async () => {
     await write(join(root, 'apps/api/AGENTS.md'), 'api rules\n');
     const space = spaceOf({ 'notes/lore/AGENTS.md': 'lore rules\n' });
     const { producer, staged, prepare } = attemptOf({ space });
@@ -545,9 +571,11 @@ describe('instructions producer Knowledge Space triggers', () => {
     await prepare();
 
     expect(staged).toHaveLength(1);
+    // A bare path is a Machine trigger, and every Space's files precede every
+    // Machine's; this process's own Machine is one of them.
     expect(blockPaths(lastStaged(staged))).toEqual([
-      join(root, 'apps/api/AGENTS.md'),
       `kb://${SPACE}/notes/lore/AGENTS.md`,
+      join(root, 'apps/api/AGENTS.md'),
     ]);
     // The bundle carries owner-maintained Knowledge content, so the closed
     // untrusted-and-may-be-stale notice is in it once.

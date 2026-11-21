@@ -1,4 +1,4 @@
-import { mkdtemp, realpath, rm, symlink } from 'node:fs/promises';
+import { mkdir, mkdtemp, realpath, rm, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -321,6 +321,29 @@ describe('decideMachineWorkspace', () => {
     ).resolves.toEqual({ kind: 'detach', reason: 'permission_rejected' });
   });
 
+  it('detaches permission_rejected when a bare-spelled reject matches the root’s decoded path', async () => {
+    const barePathReject = compileToolPermissionMap(
+      {
+        read: { allow: true },
+        enter_workspace: {
+          allow: true,
+          reject: [{ allFields: true, regex: '^/srv/app$' }],
+        },
+      },
+      'test-policy',
+    );
+
+    const machine = fakeConnector();
+
+    // The stored root is the canonical locator, which the bare regex never
+    // matches; the root's decoded path is what the reject sees.
+    await expect(
+      decideMachineWorkspace(
+        decisionInput(machine.connector, { permissionPolicy: barePathReject }),
+      ),
+    ).resolves.toEqual({ kind: 'detach', reason: 'permission_rejected' });
+  });
+
   it('tells unavailability when the session dies between the verdict and the probe', async () => {
     const machine = fakeConnector({
       answer: () =>
@@ -495,6 +518,39 @@ describe('decideMachineWorkspace on this process own Machine', () => {
         }),
       ),
     ).resolves.toEqual({ kind: 'detach', reason: 'root_missing' });
+  });
+
+  it('detaches permission_rejected when a bare-spelled reject matches the root’s decoded path', async () => {
+    const secret = join(home, 'secret');
+    await mkdir(secret, { recursive: true });
+
+    const barePathReject = compileToolPermissionMap(
+      {
+        read: { allow: true },
+        enter_workspace: {
+          allow: true,
+          reject: [{ allFields: true, regex: `^${secret}$` }],
+        },
+      },
+      'test-policy',
+    );
+
+    const machine = fakeConnector({ configured: ['host-a'], local: 'host-a' });
+
+    try {
+      // The bound root is the canonical locator; only the decoded path matches
+      // the reject a host binding used to detach under.
+      await expect(
+        decideMachineWorkspace(
+          localInput(machine.connector, {
+            root: `machine://host-a${secret}`,
+            permissionPolicy: barePathReject,
+          }),
+        ),
+      ).resolves.toEqual({ kind: 'detach', reason: 'permission_rejected' });
+    } finally {
+      await rm(secret, { recursive: true, force: true });
+    }
   });
 });
 

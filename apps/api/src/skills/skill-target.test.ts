@@ -91,7 +91,11 @@ describe('resolveSkillLocator', () => {
   it('resolves a bound Workspace skill over an operator winner', async () => {
     const operator = temporaryDirectory('operator');
     const workspace = temporaryDirectory('workspace');
-    const [claude, agents, llame] = workspaceSkillSources(workspace);
+
+    const [claude, agents, llame] = workspaceSkillSources(workspace, {
+      localVerified: true,
+    });
+
     mkdirSync(claude, { recursive: true });
     mkdirSync(agents, { recursive: true });
     mkdirSync(llame, { recursive: true });
@@ -104,7 +108,7 @@ describe('resolveSkillLocator', () => {
       new SkillCatalog([operator]),
       'review',
       NO_SKILL_SELECTION,
-      workspaceSkillSources(workspace),
+      workspaceSkillSources(workspace, { localVerified: true }),
     );
 
     expect(resolved).toMatchObject({
@@ -118,7 +122,7 @@ describe('resolveSkillLocator', () => {
     const operator = temporaryDirectory('operator-only');
     const workspace = temporaryDirectory('workspace-only');
     createPackage(operator, 'operator-only');
-    const [claude] = workspaceSkillSources(workspace);
+    const [claude] = workspaceSkillSources(workspace, { localVerified: true });
     mkdirSync(claude, { recursive: true });
     createPackage(claude, 'workspace-only');
 

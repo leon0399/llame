@@ -5,6 +5,7 @@ import { MachineConnector } from '../../machines/machine-connector.service';
 
 import {
   type AdmissionMode,
+  canonicalPathEvaluation,
   decidePermission,
   evaluateCanonicalWithRejectTexts,
 } from './admit';
@@ -52,21 +53,11 @@ export class WorkspaceEntryAdmission {
       localMachine: this.connector.localMachine(),
     });
 
-    const call = (value: string) => ({
-      toolId: WORKSPACE_TOOL_ID,
-      args: { path: value },
-    });
-
     return decidePermission(this.policy, mode, (evaluate) =>
-      evaluateCanonicalWithRejectTexts(evaluate, {
-        canonical: call(projection.canonical),
-        rejectTexts: [
-          call(path),
-          ...(projection.projectedPath === undefined
-            ? []
-            : [call(projection.projectedPath)]),
-        ],
-      }),
+      evaluateCanonicalWithRejectTexts(
+        evaluate,
+        canonicalPathEvaluation(WORKSPACE_TOOL_ID, path, projection),
+      ),
     );
   }
 }

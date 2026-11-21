@@ -1897,7 +1897,7 @@ describe('llame-owned tool description templates', () => {
     }).text;
 
     expect(without).toContain(
-      '`async: true` starts a host command as a background job',
+      '`async: true` starts the command as a background job',
     );
     expect(without).toContain(
       'You get a notice when it settles. Do not poll it.',
@@ -1941,11 +1941,11 @@ describe('llame-owned tool description templates', () => {
     }).text;
 
     expect(bashWithoutEdit).not.toContain(
-      'Prefer native edit for small exact replacements.',
+      'Prefer `edit` for small exact replacements.',
     );
-    expect(bashWithoutEdit).toContain('Alpha host authority');
+    expect(bashWithoutEdit).toContain('Alpha Machine authority');
     expect(bashWithEdit).toContain(
-      'Prefer native edit for small exact replacements.',
+      'Prefer `edit` for small exact replacements.',
     );
 
     const searchWithoutReader = renderer.render({

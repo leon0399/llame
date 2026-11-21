@@ -641,6 +641,13 @@ type PreparedAttemptContext = ModelRequestContext & {
   skillCatalogNoticeTold?: NonNullable<Chat['skillCatalogTold']>;
   /** Written by the dispatch transaction that stores the workspace items. */
   workspaceWrites?: WorkspaceWrites;
+  /**
+   * Whether this attempt's Machine verified, so its host skill paths may be
+   * read. Decided once by the binding check and carried by every epoch re-bake
+   * of the same attempt (remote-machines "In-process host operations need a
+   * verified host Machine daemon").
+   */
+  machineVerified: boolean;
   untitled: boolean;
 };
 
@@ -7350,6 +7357,9 @@ export class RunExecutionService {
       return;
     }
 
+    const localMachine = this.machineConnector?.localMachine();
+    const defaultMachine = this.machineConnector?.defaultMachine();
+
     const part = await producer.prepareTurn({
       runId: input.runId,
       workspaceRoot: turn.root,
@@ -7359,6 +7369,8 @@ export class RunExecutionService {
       machines: turn.machines,
       promptImportTriggers: turn.promptImportTriggers,
       seenKeys: seenCanonicalPaths,
+      ...(localMachine !== undefined && { localMachine }),
+      ...(defaultMachine !== undefined && { defaultMachine }),
       abortSignal: input.abortSignal,
     });
 
@@ -8362,6 +8374,9 @@ export class RunExecutionService {
     readPage: ReadPage,
     admitsRead: (path: string) => boolean,
   ): InRunAttemptProducer | undefined {
+    const localMachine = this.machineConnector?.localMachine();
+    const defaultMachine = this.machineConnector?.defaultMachine();
+
     const attempt: InRunAttempt = {
       runId: input.runId,
       chatId: input.chatId,
@@ -8373,6 +8388,8 @@ export class RunExecutionService {
       admitsRead,
       knowledge: this.knowledgeInstructionWorld(input, readPage),
       machines: turn.machines,
+      ...(localMachine !== undefined && { localMachine }),
+      ...(defaultMachine !== undefined && { defaultMachine }),
       abortSignal: input.abortSignal,
       git: this.gitWorld(input, turnGit, workspaceRoot, admitsRead),
     };
@@ -8691,11 +8708,14 @@ export class RunExecutionService {
     // Resolve owner/model/digest inputs before admission so descriptions and
     // the system prompt share one attempt context. Admission still completes
     // before either surface is rendered.
+    const machineVerified = machine?.available === true;
+
     const promptInputs = await this.resolveAttemptPrompt(
       tx,
       input,
       workspaceChat,
       workspaceRoot,
+      machineVerified,
     );
 
     const disclosures: Array<PromptChatsDisclosure> = [];
@@ -8835,6 +8855,7 @@ export class RunExecutionService {
       ...(staged.workspaceWrites !== undefined && {
         workspaceWrites: staged.workspaceWrites,
       }),
+      machineVerified,
       untitled: prompt.chat.title === null,
     };
   }
@@ -8988,6 +9009,7 @@ export class RunExecutionService {
           focus: compactionSet.focus,
           model: input.context.model,
           workspaceRoot: input.workspaceRoot.current(),
+          machineVerified: input.context.machineVerified,
           digestCandidate,
           quotaRequest: input.quotaRequest,
         });
@@ -9962,6 +9984,7 @@ export class RunExecutionService {
         summary,
         model: estimatePass.model,
         workspaceRoot: input.workspacePreparation.root,
+        machineVerified: estimatePass.machineVerified,
         quotaRequest: input.quotaRequest,
       });
 
@@ -10095,6 +10118,8 @@ export class RunExecutionService {
     summary: CompactionSummary;
     model: SystemModelCatalogEntry;
     workspaceRoot: string | undefined;
+    /** The attempt's Machine verification, for the epoch's skill baseline. */
+    machineVerified: boolean;
     quotaRequest?: QuotaRequestState;
   }): Promise<void> {
     const { candidate: digestCandidate } = await this.resolveCompactionDigest({
@@ -10116,6 +10141,8 @@ export class RunExecutionService {
       focus?: string | null;
       model: SystemModelCatalogEntry;
       workspaceRoot: string | undefined;
+      /** The attempt's Machine verification, for the epoch's skill baseline. */
+      machineVerified: boolean;
       digestCandidate: RecencyDigestResolution | null;
       quotaRequest?: QuotaRequestState;
     },
@@ -10173,6 +10200,7 @@ export class RunExecutionService {
       checkpointId: checkpoint.id,
       model: input.model,
       workspaceRoot: input.workspaceRoot,
+      machineVerified: input.machineVerified,
       shareRecentChats,
       digestCandidate: input.digestCandidate,
     });
@@ -10188,6 +10216,8 @@ export class RunExecutionService {
     checkpointId: string;
     model: SystemModelCatalogEntry;
     workspaceRoot: string | undefined;
+    /** The attempt's Machine verification, for the epoch's skill baseline. */
+    machineVerified: boolean;
     shareRecentChats: ResolvedMemorySettings;
     digestCandidate: RecencyDigestResolution | null;
   }): Promise<void> {
@@ -10202,6 +10232,7 @@ export class RunExecutionService {
             model: input.model,
             workspaceRoot: input.workspaceRoot,
             latestCheckpointId: input.checkpointId,
+            machineVerified: input.machineVerified,
           });
 
     await this.rebakeCheckpointDigest({
@@ -10287,6 +10318,7 @@ export class RunExecutionService {
     input: ExecuteRunInput,
     workspaceChat: Chat | undefined,
     workspaceRoot: string | undefined,
+    machineVerified: boolean,
   ): Promise<AttemptPromptInputs> {
     const chatsRepo = new ChatsRepository(tx);
     const chat = workspaceChat;
@@ -10330,6 +10362,7 @@ export class RunExecutionService {
       model,
       workspaceRoot,
       latestCheckpointId: checkpoint?.id ?? null,
+      machineVerified,
     });
 
     return {
@@ -10372,16 +10405,20 @@ export class RunExecutionService {
     model: SystemModelCatalogEntry;
     workspaceRoot: string | undefined;
     latestCheckpointId: string | null;
+    /** Whether this attempt's Machine verified, so its host skill paths may be read. */
+    machineVerified: boolean;
   }): SkillTurnState {
+    const localMachine = this.machineConnector?.localMachine();
+
     return resolveTurnSkillState(
       {
         skillCatalog: this.skillCatalogFor(input.workspaceRoot),
         skillDirectories: this.instanceConfig.config.skills.directories,
         ...(input.workspaceRoot !== undefined && {
-          extraSources: workspaceSkillSources(
-            input.workspaceRoot,
-            this.machineConnector?.localMachine(),
-          ),
+          extraSources: workspaceSkillSources(input.workspaceRoot, {
+            ...(localMachine !== undefined && { localMachine }),
+            localVerified: input.machineVerified,
+          }),
         }),
         // Operator-facing: an unreadable operator catalog is logged, never
         // shown to the model. Workspace-source failures are intentionally
@@ -11001,13 +11038,19 @@ export class RunExecutionService {
 
     // One narration per availability transition: the state the Chat was last
     // told about against the one this attempt decided. A removed Machine is
-    // the detach notice's story, not this one.
+    // the detach notice's story, not this one. The told availability belongs
+    // to the Machine it was told for: a new current Machine (`machines.default`
+    // changed, a new binding) starts from nothing told, so its first
+    // observation only narrates an unreachable Machine.
     const machine = input.machine;
+
+    const toldAvailability =
+      told?.machine === machineName ? input.chat.workspaceToldAvailable : null;
 
     const narration = machineAvailabilityNarration({
       runId: input.runId,
       machine,
-      toldAvailable: input.chat.workspaceToldAvailable,
+      toldAvailable: toldAvailability,
     });
 
     if (narration !== undefined) {

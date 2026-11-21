@@ -1622,6 +1622,48 @@ describe('runTool permission gate', () => {
       });
     });
 
+    it('rejects a canonical target under a field reject spelled as a bare path', async () => {
+      const canonicalPath = 'machine://host-a/home/u/.ssh/id_rsa';
+
+      const { result, execute } = await runCanonicalRead({
+        path: 'machine://host-a/tmp/notes.md',
+        canonicalPath,
+        permissionMap: {
+          read: {
+            allow: [{ field: 'path', regex: '^machine://host-a/' }],
+            reject: [{ field: 'path', regex: String.raw`^\/home\/u\/\.ssh\/` }],
+          },
+        },
+      });
+
+      expect(result).toMatchObject({
+        status: 'error',
+        type: 'permission_denied',
+      });
+      expect(execute).not.toHaveBeenCalled();
+    });
+
+    it('rejects a canonical target under an all-fields reject spelled as a bare path', async () => {
+      const canonicalPath = 'machine://host-a/home/u/.ssh/id_rsa';
+
+      const { result, execute } = await runCanonicalRead({
+        path: 'machine://host-a/tmp/notes.md',
+        canonicalPath,
+        permissionMap: {
+          read: {
+            allow: [{ field: 'path', regex: '^machine://host-a/' }],
+            reject: [{ allFields: true, regex: '^/home/u/\\.ssh/' }],
+          },
+        },
+      });
+
+      expect(result).toMatchObject({
+        status: 'error',
+        type: 'permission_denied',
+      });
+      expect(execute).not.toHaveBeenCalled();
+    });
+
     it('reports a canonical allow and proceeds', async () => {
       const canonicalPath = '/tmp/canonical.md';
 

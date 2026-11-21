@@ -533,6 +533,36 @@ describe('createGrepReadAdmission', () => {
     expect(derived).toHaveLength(0);
   });
 
+  it('refuses a hit under a field reject spelled as a bare path', () => {
+    const admission = createGrepReadAdmission(
+      contextWith({
+        grep: { allow: true },
+        read: {
+          allow: [{ field: 'path', regex: '^machine://host-a/' }],
+          reject: [{ field: 'path', regex: String.raw`^\/home\/u\/\.ssh\/` }],
+        },
+      }),
+    );
+
+    expect(admission.admit('machine://host-a/home/u/.ssh/id_rsa')).toBe(false);
+    expect(admission.refused).toBe(1);
+  });
+
+  it('refuses a hit under an all-fields reject spelled as a bare path', () => {
+    const admission = createGrepReadAdmission(
+      contextWith({
+        grep: { allow: true },
+        read: {
+          allow: [{ field: 'path', regex: '^machine://host-a/' }],
+          reject: [{ allFields: true, regex: '^/home/u/\\.ssh/' }],
+        },
+      }),
+    );
+
+    expect(admission.admit('machine://host-a/home/u/.ssh/id_rsa')).toBe(false);
+    expect(admission.refused).toBe(1);
+  });
+
   it('judges a directory both as written and with a final separator', () => {
     const admission = createGrepReadAdmission(
       contextWith({
