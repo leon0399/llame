@@ -32,6 +32,7 @@ import {
   machineReadResult,
   machineUnknownResult,
   machineUnavailableResult,
+  machineUnusableResult,
   readBytesChunk,
   readProcBashResult,
   runMachineMutation,
@@ -200,6 +201,62 @@ describe('machineConnector', () => {
     });
 
     expect(machineConnector(context({ machines: disabled }))).toBeUndefined();
+  });
+});
+
+describe('Machine failure vocabulary', () => {
+  it('names the Machine a locator did not match', () => {
+    expect(machineNotFoundResult('devl')).toEqual({
+      status: 'error',
+      type: 'machine_not_found',
+      message: 'No Machine named "devl" is configured.',
+    });
+  });
+
+  it('reports an unavailable Machine without a reason', () => {
+    expect(machineUnavailableResult('devl')).toEqual({
+      status: 'error',
+      type: 'machine_unavailable',
+      message: 'The Machine "devl" is unavailable.',
+    });
+  });
+
+  it.each([
+    ['unreachable', 'it could not be reached'],
+    ['host_key_mismatch', 'its host key does not match the pinned one'],
+    ['auth_failed', 'authentication failed'],
+    [
+      'incompatible_version',
+      'its daemon speaks an incompatible protocol version',
+    ],
+    ['session_lost', 'the session was lost'],
+    [
+      'identity_mismatch',
+      'it answered with a different identity than the one bound to its name',
+    ],
+  ] as const)('names the reason for %s', (reason, text) => {
+    expect(machineUnavailableResult('devl', reason)).toEqual({
+      status: 'error',
+      type: 'machine_unavailable',
+      message: `The Machine "devl" is unavailable because ${text}.`,
+    });
+  });
+
+  it('warns that a mutation may have executed', () => {
+    expect(machineUnknownResult('devl')).toEqual({
+      status: 'error',
+      type: 'outcome_unknown',
+      message:
+        'The operation on Machine "devl" may have executed; inspect it before retrying. It will not be repeated automatically.',
+    });
+  });
+
+  it('reports an unusable answer', () => {
+    expect(machineUnusableResult('devl')).toEqual({
+      status: 'error',
+      type: 'machine_protocol_error',
+      message: 'The Machine "devl" answered an unusable result.',
+    });
   });
 });
 
