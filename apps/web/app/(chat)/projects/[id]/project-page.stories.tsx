@@ -717,7 +717,7 @@ export const ArchivedInstructionsAreReadOnly: Story = {
  * Project cannot accept that draft, so its editor may not present it as
  * current.
  *
- * @summary archiving discards the unsaved draft from the disabled editor
+ * @summary archiving shows stored guidance while retaining the editable draft
  */
 export const ArchivingShowsStoredTextInsteadOfDraft: Story = {
   tags: ["ai-generated"],
@@ -726,6 +726,7 @@ export const ArchivingShowsStoredTextInsteadOfDraft: Story = {
       otherProject,
       { ...tripPlanning, instructions: "Stored guidance." },
     ];
+    failProjectsAfterPatch = true;
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
@@ -747,6 +748,19 @@ export const ArchivingShowsStoredTextInsteadOfDraft: Story = {
     await expect(textarea).toHaveValue("Stored guidance.");
     await expect(textarea).not.toHaveValue("Unsaved draft.");
     await expect(save).toBeDisabled();
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("menu", { hidden: true }),
+      ).not.toBeInTheDocument(),
+    );
+
+    await userEvent.click(canvas.getByRole("button", { name: "More" }));
+    await userEvent.click(
+      await screen.findByRole("menuitem", { name: "Unarchive" }),
+    );
+    await waitFor(() => expect(textarea).toBeEnabled());
+    await expect(textarea).toHaveValue("Unsaved draft.");
+    await expect(save).toBeEnabled();
     await waitFor(() =>
       expect(
         screen.queryByRole("menu", { hidden: true }),

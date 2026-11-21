@@ -28,6 +28,9 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   while a save is pending, or on an archived Project. A failed save keeps the
   draft for retry, a counter shows the code point count against the bound, and
   an archived Project shows the stored text read-only.
+- Keep successful instruction and archive PATCH results in the Project caches
+  even when a later list read fails. A pinned Project's Edit details dialog
+  closes after a successful save without a redundant detail refetch.
 - Show in the editor that instructions apply to future Runs and are shared
   with the configured model provider. Existing Runs keep the guidance they
   started with, and editing or clearing it does not erase that history.

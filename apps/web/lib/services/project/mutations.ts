@@ -29,7 +29,7 @@ function authenticatedFetch(): typeof fetch {
  * invalidate the project list on success; a failure surfaces a toast rather
  * than failing silently. Rename/delete also invalidate the pins list (design
  * D5a) — the pins cache holds its own denormalized copy of the project name.
- * A details PATCH also refreshes that project's detail read.
+ * A details PATCH replaces the cached detail with its authoritative response.
  */
 
 /** A new project's details: a name, and a description or null for none. */
@@ -75,7 +75,7 @@ export function useUpdateProject() {
     mutationFn: ({ id, ...patch }: { id: string } & UpdateProjectPatch) =>
       updateProject(id, patch),
     onSuccess: async (project, { id, name }) => {
-      // A successful PATCH is authoritative even if the following GET fails.
+      // Keep the PATCH result even if a list refresh fails.
       queryClient.setQueriesData<Array<ProjectResponse>>(
         { queryKey: projectQueryKeys.lists() },
         (rows) =>
@@ -92,9 +92,6 @@ export function useUpdateProject() {
         name === undefined
           ? undefined
           : queryClient.invalidateQueries({ queryKey: pinQueryKeys.list() }),
-        queryClient.invalidateQueries({
-          queryKey: projectQueryKeys.detail(id),
-        }),
       ]);
     },
     onError: () => toast.error("Couldn't save the project."),
@@ -119,7 +116,18 @@ export function useSetProjectArchive() {
   return useMutation({
     mutationFn: ({ id, archived }: { id: string; archived: boolean }) =>
       setProjectArchive(id, archived),
-    onSuccess: () => {
+    onSuccess: (project, { id }) => {
+      queryClient.setQueriesData<Array<ProjectResponse>>(
+        { queryKey: projectQueryKeys.lists() },
+        (rows) =>
+          rows?.some((row) => row.id === id)
+            ? rows.map((row) => (row.id === id ? project : row))
+            : rows,
+      );
+      queryClient.setQueriesData<ProjectResponse>(
+        { queryKey: projectQueryKeys.detail(id), exact: true },
+        () => project,
+      );
       queryClient.invalidateQueries({ queryKey: projectQueryKeys.lists() });
       queryClient.invalidateQueries({ queryKey: pinQueryKeys.list() });
     },

@@ -7,7 +7,6 @@ import {
   Field,
   FieldDescription,
   FieldError,
-  FieldGroup,
   FieldLabel,
 } from "@workspace/ui/components/field";
 import { Spinner } from "@workspace/ui/components/spinner";
@@ -78,40 +77,40 @@ function InstructionsForm({ project }: { project: ProjectResponse }) {
   const fieldId = useId();
 
   return (
-    <FieldGroup>
-      <Field data-invalid={draft.tooLong} data-disabled={draft.archived}>
-        <FieldLabel htmlFor={fieldId}>Project instructions</FieldLabel>
-        <Textarea
-          id={fieldId}
-          value={draft.value}
-          onChange={(event) => draft.onChange(event.target.value)}
-          placeholder="Add guidance for chats in this project."
-          disabled={draft.archived || draft.pending}
-          aria-invalid={draft.tooLong}
-          aria-describedby={`${fieldId}-hint`}
-        />
-        <FieldDescription id={`${fieldId}-hint`}>
-          {draft.archived ? ARCHIVED_INSTRUCTIONS_NOTE : null}{" "}
-          {INSTRUCTIONS_DISCLOSURE}{" "}
-          <span aria-live="polite">
-            {draft.count} / {INSTRUCTIONS_MAX} Unicode code points
-          </span>
-        </FieldDescription>
-        {draft.tooLong || draft.saveFailed ? (
-          <FieldError id={`${fieldId}-error`}>
-            {draft.tooLong ? INSTRUCTIONS_TOO_LONG : INSTRUCTIONS_SAVE_FAILED}
-          </FieldError>
-        ) : null}
-        <Button
-          type="button"
-          size="sm"
-          onClick={draft.save}
-          disabled={draft.saveDisabled}
-        >
-          {draft.pending ? <Spinner /> : null} Save instructions
-        </Button>
-      </Field>
-    </FieldGroup>
+    <Field data-invalid={draft.tooLong} data-disabled={draft.archived}>
+      <FieldLabel htmlFor={fieldId}>Project instructions</FieldLabel>
+      <Textarea
+        id={fieldId}
+        value={draft.value}
+        onChange={(event) => draft.onChange(event.target.value)}
+        placeholder="Add guidance for chats in this project."
+        disabled={draft.archived || draft.pending}
+        aria-invalid={draft.tooLong}
+        aria-describedby={`${fieldId}-hint${
+          draft.tooLong || draft.saveFailed ? ` ${fieldId}-error` : ""
+        }`}
+      />
+      <FieldDescription id={`${fieldId}-hint`}>
+        {draft.archived ? ARCHIVED_INSTRUCTIONS_NOTE : null}{" "}
+        {INSTRUCTIONS_DISCLOSURE}{" "}
+        <span aria-live="polite">
+          {draft.count} / {INSTRUCTIONS_MAX} Unicode code points
+        </span>
+      </FieldDescription>
+      {draft.tooLong || draft.saveFailed ? (
+        <FieldError id={`${fieldId}-error`}>
+          {draft.tooLong ? INSTRUCTIONS_TOO_LONG : INSTRUCTIONS_SAVE_FAILED}
+        </FieldError>
+      ) : null}
+      <Button
+        type="button"
+        size="sm"
+        onClick={draft.save}
+        disabled={draft.saveDisabled}
+      >
+        {draft.pending ? <Spinner /> : null} Save instructions
+      </Button>
+    </Field>
   );
 }
 
