@@ -17,6 +17,9 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   reaches the model and the call never runs again. The wait count carries, and
   the failed step counts against the step cap. References
   [#1828](https://github.com/leon0399/llame/issues/1828).
+- Lock a Project's owned row before checking archive state and applying an
+  update. A concurrent archive that wins the row lock makes an instruction
+  edit wait and return `409`, without changing its stored guidance.
 
 # 2026-11-20
 

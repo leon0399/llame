@@ -115,16 +115,23 @@ export class ProjectsRepository {
   }
 
   /**
-   * Apply a partial update to a project, scoped to owner (defense-in-depth).
-   * Only provided fields are changed. Returns undefined if not found or not
-   * owned by this user.
+   * Apply provided fields to an owned Project, or return undefined if absent.
+   * ProjectsService supplies the tenant transaction: the row lock keeps the
+   * archive guard and derived patch on the same version until the write commits.
    */
   async update(
     projectId: string,
     ownerUserId: string,
     patch: ProjectPatch,
   ): Promise<Project | undefined> {
-    const current = await this.findById(projectId, ownerUserId);
+    const [current] = await this.db
+      .select()
+      .from(projects)
+      .where(
+        and(eq(projects.id, projectId), eq(projects.ownerUserId, ownerUserId)),
+      )
+      .limit(1)
+      .for('update');
 
     if (!current) return undefined;
 

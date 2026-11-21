@@ -53,6 +53,41 @@ function asDbQuery<T extends object>(query: T): never {
   return query as never;
 }
 
+/**
+ * Stand in for the owned-row `SELECT … FOR UPDATE` that update() takes before
+ * its archive guard. Returns `row` (or no rows) and implements exactly the
+ * fluent methods under test; persisted-state assertions live at the update
+ * seam below.
+ */
+function mockLockedRow(db: Db, row: Project | undefined) {
+  const rows = row === undefined ? [] : [row];
+  const forUpdate = vi.fn(() => Promise.resolve(rows));
+  const limit = vi.fn(() => ({ for: forUpdate }));
+  const where = vi.fn(() => ({ limit }));
+  const from = vi.fn(() => ({ where }));
+
+  return vi.spyOn(db, 'select').mockImplementation(() => asDbQuery({ from }));
+}
+
+/**
+ * Stand in for the owning UPDATE so assertions read the persisted row rather
+ * than SQL text. The production patch-field logic still computes the SET
+ * payload; this seam applies it to `row` and RETURNING hands the same fixture
+ * back, exactly as the database would for the one locked row.
+ */
+function mockUpdateRow(db: Db, row: Project) {
+  const returning = vi.fn(() => Promise.resolve([row]));
+  const where = vi.fn(() => ({ returning }));
+
+  const set = vi.fn((fields: Partial<Project>) => {
+    Object.assign(row, fields);
+
+    return { where };
+  });
+
+  vi.spyOn(db, 'update').mockImplementation(() => asDbQuery({ set }));
+}
+
 afterEach(() => {
   vi.restoreAllMocks();
 });
@@ -121,83 +156,96 @@ describe('ProjectsRepository list ordering', () => {
 
 describe('ProjectsRepository update', () => {
   it('updates content and archive state, bumping updatedAt for a content change', async () => {
-    const { db, queries } = makeMockDb();
+    const { db } = makeMockDb();
     const current = projectRow();
-    vi.spyOn(ProjectsRepository.prototype, 'findById').mockResolvedValue(
-      current,
-    );
+    mockLockedRow(db, current);
+    mockUpdateRow(db, current);
+    const beforeUpdate = Date.now();
 
-    await new ProjectsRepository(db)
-      .update(current.id, current.ownerUserId, {
+    const updated = await new ProjectsRepository(db).update(
+      current.id,
+      current.ownerUserId,
+      {
         name: 'Renamed',
         description: 'Acme relaunch',
         archived: true,
-      })
-      .catch(() => null);
+      },
+    );
 
-    expect(lastQuery(queries).sql).toContain('update "projects"');
-    expect(lastQuery(queries).sql).toContain('"name" = $');
-    expect(lastQuery(queries).sql).toContain('"description" = $');
-    expect(lastQuery(queries).sql).toContain('"archived_at" = $');
-    expect(lastQuery(queries).sql).toContain('"updated_at" = $');
+    expect(updated?.name).toBe('Renamed');
+    expect(updated?.description).toBe('Acme relaunch');
+    expect(updated?.archivedAt).toBeInstanceOf(Date);
+    expect(updated?.updatedAt.getTime()).toBeGreaterThanOrEqual(beforeUpdate);
   });
 
   it('clears the description with an explicit null and still bumps updatedAt', async () => {
-    const { db, queries } = makeMockDb();
+    const { db } = makeMockDb();
     const current = projectRow({ description: 'Acme relaunch' });
-    vi.spyOn(ProjectsRepository.prototype, 'findById').mockResolvedValue(
-      current,
+    mockLockedRow(db, current);
+    mockUpdateRow(db, current);
+    const beforeUpdate = Date.now();
+
+    const updated = await new ProjectsRepository(db).update(
+      current.id,
+      current.ownerUserId,
+      { description: null },
     );
 
-    await new ProjectsRepository(db)
-      .update(current.id, current.ownerUserId, { description: null })
-      .catch(() => null);
-
-    expect(lastQuery(queries).sql).toContain('"description" = $');
-    expect(lastQuery(queries).params).toContain(null);
-    expect(lastQuery(queries).sql).toContain('"updated_at" = $');
+    expect(updated?.description).toBeNull();
+    expect(updated?.updatedAt.getTime()).toBeGreaterThanOrEqual(beforeUpdate);
   });
 
   it('updates archive state without bumping updatedAt when content is unchanged', async () => {
-    const { db, queries } = makeMockDb();
+    const { db } = makeMockDb();
     const current = projectRow();
-    vi.spyOn(ProjectsRepository.prototype, 'findById').mockResolvedValue(
-      current,
+    mockLockedRow(db, current);
+    mockUpdateRow(db, current);
+    const previousUpdatedAt = current.updatedAt;
+
+    const updated = await new ProjectsRepository(db).update(
+      current.id,
+      current.ownerUserId,
+      { archived: true },
     );
 
-    await new ProjectsRepository(db)
-      .update(current.id, current.ownerUserId, { archived: true })
-      .catch(() => null);
-
-    expect(lastQuery(queries).sql).toContain('"archived_at" = $');
-    expect(lastQuery(queries).sql).not.toContain('"updated_at" = $');
+    expect(updated?.archivedAt).toBeInstanceOf(Date);
+    expect(updated?.updatedAt).toBe(previousUpdatedAt);
   });
 
   it('allows pure unarchive and idempotent re-archive, but rejects archived content changes', async () => {
-    const { db, queries } = makeMockDb();
-
-    const current = projectRow({
-      archivedAt: new Date('2026-09-01T00:00:00.000Z'),
-    });
-
-    vi.spyOn(ProjectsRepository.prototype, 'findById').mockResolvedValue(
-      current,
-    );
+    const { db } = makeMockDb();
+    const archivedAt = new Date('2026-09-01T00:00:00.000Z');
+    const current = projectRow({ archivedAt });
+    mockLockedRow(db, current);
+    mockUpdateRow(db, current);
     const repository = new ProjectsRepository(db);
+    const previousUpdatedAt = current.updatedAt;
 
-    // The guard's own `ConflictException`, not a message match: the mock db
-    // rejects every query with its SQL text, which names `archived_at`, so a
-    // /archived/ pattern would also "pass" for a write the guard let through.
-    await repository
-      .update(current.id, current.ownerUserId, { archived: false })
-      .catch(() => null);
-    expect(lastQuery(queries).sql).toContain('"archived_at" = $');
-    expect(lastQuery(queries).params).toContain(null);
+    // Pure unarchive: archive state alone and no content, so updatedAt stays.
+    const unarchived = await repository.update(
+      current.id,
+      current.ownerUserId,
+      { archived: false },
+    );
 
-    await expect(
-      repository.update(current.id, current.ownerUserId, { archived: true }),
-    ).resolves.toBe(current);
+    expect(unarchived?.archivedAt).toBeNull();
+    expect(unarchived?.updatedAt).toBe(previousUpdatedAt);
 
+    // Idempotent re-archive: an already archived row plus a pure archive patch
+    // writes nothing, so the same row comes back untouched.
+    current.archivedAt = archivedAt;
+
+    const reArchived = await repository.update(
+      current.id,
+      current.ownerUserId,
+      { archived: true },
+    );
+
+    expect(reArchived).toBe(current);
+    expect(reArchived?.archivedAt).toBe(archivedAt);
+    expect(reArchived?.updatedAt).toBe(previousUpdatedAt);
+
+    // The guard's own `ConflictException`, not a message match.
     await expect(
       repository.update(current.id, current.ownerUserId, { name: 'Changed' }),
     ).rejects.toBeInstanceOf(ConflictException);
@@ -238,102 +286,118 @@ describe('ProjectsRepository update', () => {
         defaultExecutorId: 'host',
       }),
     ).rejects.toBeInstanceOf(ConflictException);
+
+    // A refused write persists nothing.
+    expect(current.name).toBe('Project');
+    expect(current.description).toBeNull();
+    expect(current.defaultExecutorId).toBeNull();
+    expect(current.archivedAt).toBe(archivedAt);
+    expect(current.updatedAt).toBe(previousUpdatedAt);
   });
 
   it('writes the default executor and bumps updatedAt', async () => {
-    const { db, queries } = makeMockDb();
+    const { db } = makeMockDb();
     const current = projectRow();
-    vi.spyOn(ProjectsRepository.prototype, 'findById').mockResolvedValue(
-      current,
+    mockLockedRow(db, current);
+    mockUpdateRow(db, current);
+    const beforeUpdate = Date.now();
+
+    const updated = await new ProjectsRepository(db).update(
+      current.id,
+      current.ownerUserId,
+      { defaultExecutorId: 'host' },
     );
 
-    await new ProjectsRepository(db)
-      .update(current.id, current.ownerUserId, { defaultExecutorId: 'host' })
-      .catch(() => null);
-
-    expect(lastQuery(queries).sql).toContain('"default_executor_id" = $');
-    expect(lastQuery(queries).sql).toContain('"updated_at" = $');
-    expect(lastQuery(queries).params).toContain('host');
+    expect(updated?.defaultExecutorId).toBe('host');
+    expect(updated?.updatedAt.getTime()).toBeGreaterThanOrEqual(beforeUpdate);
   });
 
   it('clears the default executor with an explicit null', async () => {
-    const { db, queries } = makeMockDb();
+    const { db } = makeMockDb();
     const current = projectRow({ defaultExecutorId: 'host' });
-    vi.spyOn(ProjectsRepository.prototype, 'findById').mockResolvedValue(
-      current,
+    mockLockedRow(db, current);
+    mockUpdateRow(db, current);
+    const beforeUpdate = Date.now();
+
+    const updated = await new ProjectsRepository(db).update(
+      current.id,
+      current.ownerUserId,
+      { defaultExecutorId: null },
     );
 
-    await new ProjectsRepository(db)
-      .update(current.id, current.ownerUserId, { defaultExecutorId: null })
-      .catch(() => null);
-
-    expect(lastQuery(queries).sql).toContain('"default_executor_id" = $');
-    expect(lastQuery(queries).params).toContain(null);
+    expect(updated?.defaultExecutorId).toBeNull();
+    expect(updated?.updatedAt.getTime()).toBeGreaterThanOrEqual(beforeUpdate);
   });
 
   it('writes literal instructions exactly and bumps updatedAt', async () => {
-    const { db, queries } = makeMockDb();
+    const { db } = makeMockDb();
     const current = projectRow();
-    vi.spyOn(ProjectsRepository.prototype, 'findById').mockResolvedValue(
-      current,
-    );
+    mockLockedRow(db, current);
+    mockUpdateRow(db, current);
+    const beforeUpdate = Date.now();
 
     const literal = '  Read @policy.md.\nNever run $review.\t';
 
-    await new ProjectsRepository(db)
-      .update(current.id, current.ownerUserId, { instructions: literal })
-      .catch(() => null);
+    const updated = await new ProjectsRepository(db).update(
+      current.id,
+      current.ownerUserId,
+      { instructions: literal },
+    );
 
-    expect(lastQuery(queries).sql).toContain('"instructions" = $');
     // Literal data, not a normalized form: whitespace and import markers are
-    // bound as-is. Whitespace-only → null is the service's decision, proven at
-    // the service/HTTP boundary, so this layer must not re-trim.
-    expect(lastQuery(queries).params).toContain(literal);
-    expect(lastQuery(queries).sql).toContain('"updated_at" = $');
+    // stored as-is. Whitespace-only → null is the service's decision, proven
+    // at the service/HTTP boundary, so this layer must not re-trim.
+    expect(updated?.instructions).toBe(literal);
+    expect(updated?.updatedAt.getTime()).toBeGreaterThanOrEqual(beforeUpdate);
   });
 
   it('clears instructions with an explicit null and still bumps updatedAt', async () => {
-    const { db, queries } = makeMockDb();
+    const { db } = makeMockDb();
     const current = projectRow({ instructions: 'Old guidance.' });
-    vi.spyOn(ProjectsRepository.prototype, 'findById').mockResolvedValue(
-      current,
+    mockLockedRow(db, current);
+    mockUpdateRow(db, current);
+    const beforeUpdate = Date.now();
+
+    const updated = await new ProjectsRepository(db).update(
+      current.id,
+      current.ownerUserId,
+      { instructions: null },
     );
 
-    await new ProjectsRepository(db)
-      .update(current.id, current.ownerUserId, { instructions: null })
-      .catch(() => null);
-
-    expect(lastQuery(queries).sql).toContain('"instructions" = $');
-    expect(lastQuery(queries).params).toContain(null);
-    expect(lastQuery(queries).sql).toContain('"updated_at" = $');
+    expect(updated?.instructions).toBeNull();
+    expect(updated?.updatedAt.getTime()).toBeGreaterThanOrEqual(beforeUpdate);
   });
 
   it('leaves instructions out of the SET list when the patch omits them', async () => {
-    const { db, queries } = makeMockDb();
+    const { db } = makeMockDb();
     const current = projectRow({ instructions: 'Keep me.' });
-    vi.spyOn(ProjectsRepository.prototype, 'findById').mockResolvedValue(
-      current,
+    mockLockedRow(db, current);
+    mockUpdateRow(db, current);
+
+    const updated = await new ProjectsRepository(db).update(
+      current.id,
+      current.ownerUserId,
+      { name: 'Renamed' },
     );
 
-    await new ProjectsRepository(db)
-      .update(current.id, current.ownerUserId, { name: 'Renamed' })
-      .catch(() => null);
-
-    expect(lastQuery(queries).sql).not.toContain('"instructions" = $');
+    expect(updated?.name).toBe('Renamed');
+    expect(updated?.instructions).toBe('Keep me.');
   });
 
   it('refuses instruction writes of either kind on an archived project', async () => {
-    const { db, queries } = makeMockDb();
+    const { db } = makeMockDb();
+
+    const archivedAt = new Date('2026-09-01T00:00:00.000Z');
 
     const current = projectRow({
-      archivedAt: new Date('2026-09-01T00:00:00.000Z'),
+      archivedAt,
       instructions: 'Frozen guidance.',
     });
 
-    vi.spyOn(ProjectsRepository.prototype, 'findById').mockResolvedValue(
-      current,
-    );
+    mockLockedRow(db, current);
+    mockUpdateRow(db, current);
     const repository = new ProjectsRepository(db);
+    const previousUpdatedAt = current.updatedAt;
 
     // Clearing is an instruction edit.
     await expect(
@@ -359,38 +423,42 @@ describe('ProjectsRepository update', () => {
       }),
     ).rejects.toBeInstanceOf(ConflictException);
 
+    expect(current.instructions).toBe('Frozen guidance.');
+    expect(current.archivedAt).toBe(archivedAt);
+
     // A pure unarchive is still allowed: archive state alone and no content,
-    // so it writes no instruction column and does not bump updatedAt. The
-    // RETURNING list legitimately names both columns, so only the SET
-    // assignment form proves absence.
-    await repository
-      .update(current.id, current.ownerUserId, { archived: false })
-      .catch(() => null);
-    expect(lastQuery(queries).sql).toContain('"archived_at" = $');
-    expect(lastQuery(queries).sql).not.toContain('"instructions" = $');
-    expect(lastQuery(queries).sql).not.toContain('"updated_at" = $');
+    // so the stored instructions survive and updatedAt does not move.
+    const unarchived = await repository.update(
+      current.id,
+      current.ownerUserId,
+      { archived: false },
+    );
+
+    expect(unarchived?.archivedAt).toBeNull();
+    expect(unarchived?.instructions).toBe('Frozen guidance.');
+    expect(unarchived?.updatedAt).toBe(previousUpdatedAt);
   });
 
   it('bumps updatedAt for a rename alone', async () => {
-    const { db, queries } = makeMockDb();
+    const { db } = makeMockDb();
     const current = projectRow();
-    vi.spyOn(ProjectsRepository.prototype, 'findById').mockResolvedValue(
-      current,
+    mockLockedRow(db, current);
+    mockUpdateRow(db, current);
+    const beforeUpdate = Date.now();
+
+    const updated = await new ProjectsRepository(db).update(
+      current.id,
+      current.ownerUserId,
+      { name: 'Renamed' },
     );
 
-    await new ProjectsRepository(db)
-      .update(current.id, current.ownerUserId, { name: 'Renamed' })
-      .catch(() => null);
-
-    expect(lastQuery(queries).sql).toContain('"name" = $');
-    expect(lastQuery(queries).sql).toContain('"updated_at" = $');
+    expect(updated?.name).toBe('Renamed');
+    expect(updated?.updatedAt.getTime()).toBeGreaterThanOrEqual(beforeUpdate);
   });
 
   it('returns undefined when the owner-scoped current row is absent', async () => {
     const { db } = makeMockDb();
-    vi.spyOn(ProjectsRepository.prototype, 'findById').mockResolvedValue(
-      undefined,
-    );
+    mockLockedRow(db, undefined);
 
     await expect(
       new ProjectsRepository(db).update('missing', 'owner', { name: 'Nope' }),
@@ -400,9 +468,7 @@ describe('ProjectsRepository update', () => {
   it('returns the current row without writing for an empty patch', async () => {
     const { db } = makeMockDb();
     const current = projectRow();
-    vi.spyOn(ProjectsRepository.prototype, 'findById').mockResolvedValue(
-      current,
-    );
+    mockLockedRow(db, current);
     const update = vi.spyOn(db, 'update');
 
     await expect(

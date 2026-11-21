@@ -1,7 +1,8 @@
 /**
  * HTTP-boundary tests for literal Project instructions — save, replace,
  * omission, clear, the 16000-code-point bound before whitespace normalization,
- * archive refusal, owner isolation, and no instruction text in diagnostics.
+ * archive refusal — including an edit that raced a concurrent archive commit —
+ * owner isolation, and no instruction text in diagnostics.
  *
  * Runs against real Postgres (integration project) as the non-superuser `app`
  * role through the real AppModule, real session authentication, and the real
@@ -26,7 +27,7 @@ import { configureApp } from '../app.setup';
 import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
 import { InstanceConfigService } from '../instance-config/instance-config.service';
 import { CanonicalSearchCoverageService } from '../search/canonical-search-activation.service';
-import { cookieOf, expectRegisteredUserId } from '../testing/support';
+import { cookieOf, expectRegisteredUserId, waitFor } from '../testing/support';
 
 vi.setConfig({ testTimeout: 60_000 });
 
@@ -62,6 +63,12 @@ type UpdateProjectBody = {
   readonly name?: string;
   readonly instructions?: string | null;
   readonly archived?: boolean;
+};
+
+/** The status and body of the raced instruction PATCH, held as a promise. */
+type InstructionEditOutcome = {
+  readonly status: number;
+  readonly body: unknown;
 };
 
 async function boot(): Promise<Harness> {
@@ -412,5 +419,131 @@ describe('project instructions over HTTP', () => {
       .delete(`/api/v1/projects/${created.id}`)
       .set('Cookie', owner.cookie)
       .expect(204);
+  });
+
+  it('refuses an instruction edit that waited on a concurrent archive, keeping the archived instructions', async () => {
+    // A Project of its own: this case races a write, so it must not disturb
+    // the state the earlier cases leave on the shared `projectId` fixture.
+    const created = projectSchema.parse(
+      (
+        await request(owner.http)
+          .post('/api/v1/projects')
+          .set('Cookie', owner.cookie)
+          .send({ name: 'Archive race project' })
+          .expect(201)
+      ).body,
+    );
+
+    const frozen = 'ARCHIVE-RACE-ORIGINAL-INSTRUCTION';
+    const raced = 'ARCHIVE-RACE-EDIT-MUST-NOT-PERSIST';
+
+    await patch(owner, created.id, { instructions: frozen }).expect(200);
+
+    type ArchiveRaceState = { edit?: Promise<InstructionEditOutcome> };
+
+    const race: ArchiveRaceState = {};
+
+    try {
+      await sql.begin(async (tx) => {
+        // The archive write runs on its OWN backend while the edit travels the
+        // real HTTP route on the app's pool, so the two can genuinely overlap.
+        // The tenant identity is transaction-local: under FORCE RLS an
+        // identity-less UPDATE matches nothing, and a race on zero rows would
+        // prove nothing.
+        await tx`SELECT set_config('app.current_user_id', ${owner.userId}, true)`;
+
+        const archived = await tx`
+          UPDATE projects SET archived_at = now()
+          WHERE id = ${created.id} AND owner_user_id = ${owner.userId}
+          RETURNING id
+        `;
+
+        expect(archived).toHaveLength(1);
+
+        const [{ pid }] = await tx<Array<{ pid: number }>>`
+          SELECT pg_backend_pid() AS pid
+        `;
+
+        // Started while the archive is uncommitted, so the edit's backend can
+        // only see the pre-archive snapshot.
+        const pending = patch(owner, created.id, {
+          instructions: raced,
+        }).then((response) => {
+          const body: unknown = response.body;
+
+          return { status: response.status, body };
+        });
+
+        race.edit = pending;
+
+        let settled = false;
+
+        const markSettled = () => {
+          settled = true;
+        };
+
+        void pending.then(markSettled, markSettled);
+
+        // Deterministic window: wait until the edit's backend is actually
+        // blocked ON this transaction — the locking read a serialized update
+        // must take before the archive guard, or (when the guard read the old
+        // snapshot) its row-locking UPDATE — instead of sleeping for a guess.
+        const state = await waitFor(
+          async () => {
+            if (settled) return 'settled' as const;
+
+            const blocked = await sql`
+              SELECT 1 FROM pg_stat_activity
+              WHERE ${pid} = any(pg_blocking_pids(pid))
+              LIMIT 1
+            `;
+
+            return blocked.length > 0 ? ('blocked' as const) : undefined;
+          },
+          20_000,
+          'the instruction edit to wait on the archive transaction',
+        );
+
+        // Genuinely concurrent: no answer arrived while the archive held the
+        // row — the edit must be waiting on it, not already past it.
+        expect(state).toBe('blocked');
+        expect(settled).toBe(false);
+      });
+
+      // The archive committed while the edit was still waiting. The edit must
+      // observe the archived row and refuse, never save over it: the plain
+      // read-then-update this regresses would re-read the old snapshot, pass
+      // the archive guard, and write the text once the lock released.
+      const started = race.edit;
+
+      if (started === undefined) {
+        throw new Error('The archive race never started the instruction edit');
+      }
+
+      const response = await started;
+
+      expect(response.status).toBe(409);
+      expect(JSON.stringify(response.body)).not.toContain(frozen);
+      expect(JSON.stringify(response.body)).not.toContain(raced);
+
+      const archivedProject = projectSchema.parse(
+        (await get(owner, created.id).expect(200)).body,
+      );
+
+      expect(archivedProject.archivedAt).toEqual(expect.any(String));
+      expect(archivedProject.instructions).toBe(frozen);
+    } finally {
+      // Drain the request first. If an assertion above threw, `sql.begin`
+      // already rolled the archive back and the edit unblocks as a normal
+      // write; the next case must not inherit a connection still in flight.
+      await race.edit?.catch(() => undefined);
+
+      // The owner deletion in afterAll cascades, but drop this Project now so
+      // a failed race cannot leak rows into the rest of the file.
+      await request(owner.http)
+        .delete(`/api/v1/projects/${created.id}`)
+        .set('Cookie', owner.cookie)
+        .catch(() => undefined);
+    }
   });
 });
