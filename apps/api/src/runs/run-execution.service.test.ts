@@ -33919,4 +33919,88 @@ describe('a send that breaks after a started tool call', () => {
       );
     },
   );
+  it.each<Wire>(['responses', 'completions'])(
+    '%s wire: A failed step preparation still names the cut',
+    async (wire) => {
+      const lookup = echoTool(LOOKUP_TOOL);
+
+      const { spies, appended, drained } = await startAndDrain({
+        wire,
+        tools: toolset(lookup),
+        // The continued call's first step cannot store its snapshot: the cut
+        // it owed is still owed when the Run settles.
+        arrange: (repositories) => {
+          repositories.updateRunningReplyParts.mockResolvedValue(false);
+        },
+        responses: [
+          brokenSend([lookupCall('read-call', 'a')]),
+          providerText('never sent'),
+        ],
+      });
+
+      await drained;
+
+      expectFinished(spies, 'failed');
+      expect(noticesOf(replyPartsOf(spies))).toHaveLength(1);
+      expect(eventsOf(appended, 'model.superseded')).toHaveLength(1);
+    },
+  );
+
+  it.each<Wire>(['responses', 'completions'])(
+    '%s wire: The failed step boundary estimates the whole request',
+    async (wire) => {
+      const lookup = deferredTool(LOOKUP_TOOL);
+      const grep = deferredTool(GREP_TOOL);
+      const measured: Array<number | undefined> = [];
+
+      const { drained } = await startAndDrain({
+        wire,
+        tools: toolset(lookup, grep),
+        arrangeService: (execution) => {
+          const check = vi.spyOn(
+            Object.getPrototypeOf(execution.service),
+            'automaticCompactionDueAtBoundary',
+          );
+
+          // The boundary awaits this reply: `undefined` reads as "not due",
+          // so the case only observes the input it was given.
+          check.mockImplementation((...args: Array<unknown>) => {
+            const [input] = args;
+
+            const tokens = isRecord(input)
+              ? input['latestRequestContextTokens']
+              : undefined;
+
+            measured.push(isNumber(tokens) ? tokens : undefined);
+          });
+        },
+        responses: [
+          providerResponse([lookupCall('read-call-1', 'a')], 'tool-calls', {
+            usage: {
+              inputTokens: {
+                total: 100,
+                noCache: 100,
+                cacheRead: 0,
+                cacheWrite: 0,
+              },
+              outputTokens: { total: 10, text: 10, reasoning: 0 },
+            },
+          }),
+          brokenSend([grepCall('grep-call', 'b')]),
+          providerText('final answer'),
+        ],
+      });
+
+      await vi.waitFor(() => expect(lookup.calls).toEqual(['a']));
+      lookup.settle('a');
+      await vi.waitFor(() => expect(grep.calls).toEqual(['b']));
+      grep.settle('b');
+      await drained;
+
+      // Step 0 reported 100 input tokens; the failed step 1 reported none, so
+      // its boundary estimates the whole request instead.
+      expect(measured).toContain(100);
+      expect(measured.at(-1)).toBeUndefined();
+    },
+  );
 });

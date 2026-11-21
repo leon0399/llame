@@ -3571,6 +3571,9 @@ export class RunExecutionService {
     let cutAnchor: CutAnchor | undefined;
     let sendFailure: FailedSend | undefined;
     let failedSendCut: FailedSendCut | undefined;
+    // The cut a call owes the next one: a step-start snapshot carries it, and
+    // it stays owed until that write commits (D4/D6).
+    let owedCut: FailedSendCut | undefined;
 
     /**
      * Records a send that failed after it streamed its complete tool-call part
@@ -3626,7 +3629,9 @@ export class RunExecutionService {
      * awaits it first.
      */
     const applyFailedSendCut = async (): Promise<FailedSendCut | undefined> => {
-      if (sendFailure === undefined) return undefined;
+      // No failure of this call: a cut an earlier call still owes is the one
+      // every writer of this reply names.
+      if (sendFailure === undefined) return owedCut;
 
       if (failedSendCut !== undefined) return failedSendCut;
 
@@ -4396,7 +4401,12 @@ export class RunExecutionService {
           !automaticCompactionDisabled &&
           compactableRange,
         replyParts: projectedParts,
-        latestRequestContextTokens: requestUsageReceipts.at(-1)?.inputTokens,
+        // A failed send reports no usage, so the last receipt is an earlier
+        // request's and cannot measure this step's request (D4).
+        latestRequestContextTokens:
+          sendFailure === undefined
+            ? requestUsageReceipts.at(-1)?.inputTokens
+            : undefined,
         requestMessages: boundaryCallMessages,
         system,
         toolDeclarations: prepared.toolDeclarations,
@@ -4545,7 +4555,7 @@ export class RunExecutionService {
       sendFailure = undefined;
       failedSendCut = undefined;
       failedStepBoundary = undefined;
-      let pendingCut = pendingFailedSend?.cut;
+      owedCut = pendingFailedSend?.cut;
 
       if (input.abortSignal?.aborted) {
         settleToolsOnParentAbort();
@@ -5477,8 +5487,7 @@ export class RunExecutionService {
                 return messages;
               }
 
-              const cut = pendingCut;
-              pendingCut = undefined;
+              const cut = owedCut;
 
               const staged: Array<AuthoredContextItemPart> = [];
               await inRunProducer?.prepareStep({
@@ -5496,6 +5505,8 @@ export class RunExecutionService {
                   [...assistantPartCollector.parts(), ...staged],
                   cut?.superseded,
                 );
+                // The write committed: the cut is no longer owed.
+                owedCut = undefined;
               }
 
               for (const part of staged) {
