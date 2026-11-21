@@ -5,8 +5,11 @@ import {
   SidebarMenuItem,
   SidebarProvider,
 } from "@workspace/ui/components/sidebar";
-import { expect, screen, userEvent, within } from "storybook/test";
+import { expect, screen, userEvent, waitFor, within } from "storybook/test";
 import { useDragControls } from "framer-motion";
+import { vi } from "vitest";
+
+import { jsonResponse, stubFetch } from "@/lib/test-support/fetch-stub";
 
 import type { PinnedItem } from "@/lib/services/pins/types";
 import { PinnedProjectRow } from "./pinned-project-row";
@@ -116,5 +119,52 @@ export const RowMenu: Story = {
     await expect(
       within(menu).getByRole("menuitem", { name: "Delete" }),
     ).toBeInTheDocument();
+  },
+};
+
+export const EditDetailsClosesAfterSave: Story = {
+  beforeEach: () => {
+    let loaded = false;
+    const fetchMock = stubFetch();
+    fetchMock.mockImplementation((input) => {
+      const request = input instanceof Request ? input : new Request(input);
+
+      if (request.method === "PATCH") {
+        return Promise.resolve(
+          jsonResponse({
+            ...projectPin.item,
+            description: "Updated description",
+            instructions: null,
+          }),
+        );
+      }
+
+      const response = loaded
+        ? jsonResponse({ message: "Read unavailable" }, 500)
+        : jsonResponse({
+            ...projectPin.item,
+            description: "Stored description",
+            instructions: null,
+          });
+
+      loaded = true;
+
+      return Promise.resolve(response);
+    });
+
+    return () => vi.unstubAllGlobals();
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await userEvent.click(canvas.getByRole("button", { name: /more/i }));
+    await userEvent.click(
+      await screen.findByRole("menuitem", { name: "Edit details" }),
+    );
+    const dialog = await screen.findByRole("dialog", { name: "Edit details" });
+    const description = await within(dialog).findByLabelText("Description");
+    await userEvent.clear(description);
+    await userEvent.type(description, "Updated description");
+    await userEvent.click(within(dialog).getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(dialog).not.toBeInTheDocument());
   },
 };

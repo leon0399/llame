@@ -234,7 +234,7 @@ function ProjectPageContent({
             initial={prefill}
           />
         </div>
-        <ProjectSidePanel projectId={project.id} />
+        <ProjectSidePanel project={project} />
         <div className="min-w-0 lg:col-span-2">
           <ProjectChats
             view={data.view}

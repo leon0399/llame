@@ -29,6 +29,7 @@ function authenticatedFetch(): typeof fetch {
  * invalidate the project list on success; a failure surfaces a toast rather
  * than failing silently. Rename/delete also invalidate the pins list (design
  * D5a) — the pins cache holds its own denormalized copy of the project name.
+ * A details PATCH replaces the cached detail with its authoritative response.
  */
 
 /** A new project's details: a name, and a description or null for none. */
@@ -52,10 +53,12 @@ export function useCreateProject() {
 }
 
 /** The mutable project fields (PATCH /api/v1/projects/:id). An omitted field is
- *  left unchanged; `description: null` clears the description. */
+ *  left unchanged; `description: null` clears the description, and
+ *  `instructions: null` clears the literal owner instructions. */
 export type UpdateProjectPatch = {
   name?: string;
   description?: string | null;
+  instructions?: string | null;
 };
 
 export async function updateProject(
@@ -71,9 +74,25 @@ export function useUpdateProject() {
   return useMutation({
     mutationFn: ({ id, ...patch }: { id: string } & UpdateProjectPatch) =>
       updateProject(id, patch),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: projectQueryKeys.lists() });
-      queryClient.invalidateQueries({ queryKey: pinQueryKeys.list() });
+    onSuccess: async (project, { id, name }) => {
+      // Keep the PATCH result even if a list refresh fails.
+      queryClient.setQueriesData<Array<ProjectResponse>>(
+        { queryKey: projectQueryKeys.lists() },
+        (rows) =>
+          rows?.some((row) => row.id === id)
+            ? rows.map((row) => (row.id === id ? project : row))
+            : rows,
+      );
+      queryClient.setQueriesData<ProjectResponse>(
+        { queryKey: projectQueryKeys.detail(id), exact: true },
+        () => project,
+      );
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: projectQueryKeys.lists() }),
+        name === undefined
+          ? undefined
+          : queryClient.invalidateQueries({ queryKey: pinQueryKeys.list() }),
+      ]);
     },
     onError: () => toast.error("Couldn't save the project."),
   });
@@ -97,7 +116,18 @@ export function useSetProjectArchive() {
   return useMutation({
     mutationFn: ({ id, archived }: { id: string; archived: boolean }) =>
       setProjectArchive(id, archived),
-    onSuccess: () => {
+    onSuccess: (project, { id }) => {
+      queryClient.setQueriesData<Array<ProjectResponse>>(
+        { queryKey: projectQueryKeys.lists() },
+        (rows) =>
+          rows?.some((row) => row.id === id)
+            ? rows.map((row) => (row.id === id ? project : row))
+            : rows,
+      );
+      queryClient.setQueriesData<ProjectResponse>(
+        { queryKey: projectQueryKeys.detail(id), exact: true },
+        () => project,
+      );
       queryClient.invalidateQueries({ queryKey: projectQueryKeys.lists() });
       queryClient.invalidateQueries({ queryKey: pinQueryKeys.list() });
     },

@@ -1,6 +1,18 @@
+import { z } from "zod";
+
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { SidebarProvider } from "@workspace/ui/components/sidebar";
-import { expect, fn, userEvent, waitFor, within } from "storybook/test";
+import { useQueryClient } from "@tanstack/react-query";
+import { useState } from "react";
+import {
+  expect,
+  fireEvent,
+  fn,
+  screen,
+  userEvent,
+  waitFor,
+  within,
+} from "storybook/test";
 import { vi, type Mock } from "vitest";
 
 import { ChatProvider } from "@/contexts/chat-context";
@@ -10,6 +22,7 @@ import type {
 } from "@/lib/api/generated/models";
 import type { AvailableModel } from "@/lib/services/models/queries";
 import * as modelQueries from "@/lib/services/models/queries";
+import type { ProjectResponse } from "@/lib/services/project/types";
 import {
   jsonResponse,
   requestFromCall,
@@ -66,18 +79,27 @@ const CHECKOUTS_ROUTE = "GET /api/v1/checkouts";
 // and the send creates an unbound chat.
 const START_LOCATION_ROUTE = "GET /api/v1/projects/p1/start-location";
 const CREATE_CHAT_ROUTE = "POST /api/v1/chats";
+const PROJECT_UPDATE_ROUTE = "PATCH /api/v1/projects/p1";
 
-const tripPlanning = {
+const INSTRUCTIONS_MAX = 16_000;
+
+const tripPlanning: ProjectResponse = {
   id: "p1",
   ownerUserId: "u1",
   name: "Trip planning",
   description: "Flights, stays and the day-by-day plan.",
+  instructions: null,
   archivedAt: null,
+  defaultExecutorId: null,
   createdAt: "2026-01-01T00:00:00.000Z",
   updatedAt: "2026-01-01T00:00:00.000Z",
 };
 
-const otherProject = { ...tripPlanning, id: "p2", name: "Acme relaunch" };
+const otherProject: ProjectResponse = {
+  ...tripPlanning,
+  id: "p2",
+  name: "Acme relaunch",
+};
 
 let fetchMock: Mock<typeof fetch>;
 
@@ -86,7 +108,10 @@ let createChatResponse = {
   body: createdChat("created-1", { status: "unbound" }),
 };
 
-let projects: Array<typeof tripPlanning>;
+let projects: Array<ProjectResponse>;
+let saveFailure: { status: number; body: object } | null;
+let failProjectsAfterPatch: boolean;
+let failedProjectsReads: number;
 let holdRequests: boolean;
 let releaseProjects: () => void;
 let releaseChats: () => void;
@@ -124,52 +149,122 @@ function routeOf(input: RequestInfo | URL, init?: RequestInit) {
 function answer(body: Array<object>, onHold: (release: () => void) => void) {
   if (!holdRequests) return Promise.resolve(jsonResponse(body));
 
+  // Executor form: apps/web's TypeScript lib predates Promise.withResolvers.
   return new Promise<Response>((resolve) => {
     onHold(() => resolve(jsonResponse(body)));
   });
 }
 
+const instructionPatchSchema = z.object({
+  instructions: z.string().nullable().optional(),
+  archived: z.boolean().optional(),
+});
+
+type InstructionPatch = z.infer<typeof instructionPatchSchema>;
+
+/** The API's Project update: instruction text is kept literally, `null` or
+ *  whitespace clears it, the exact code-point bound is enforced, archive state
+ *  flips, and a mutation failure leaves the stored Project untouched. */
+function patchProject(patch: InstructionPatch): Response {
+  if (saveFailure !== null) {
+    return jsonResponse(saveFailure.body, saveFailure.status);
+  }
+
+  const current = projects.find((project) => project.id === "p1");
+
+  if (current === undefined) {
+    return jsonResponse({ statusCode: 404, message: "Not found" }, 404);
+  }
+
+  if (current.archivedAt !== null && patch.instructions !== undefined) {
+    return jsonResponse({ statusCode: 409, message: "Archived" }, 409);
+  }
+
+  let instructions = current.instructions;
+
+  if (patch.instructions !== undefined) {
+    if (patch.instructions === null) {
+      instructions = null;
+    } else if (Array.from(patch.instructions).length > INSTRUCTIONS_MAX) {
+      return jsonResponse({ statusCode: 400, message: "Too long" }, 400);
+    } else {
+      instructions =
+        patch.instructions.trim() === "" ? null : patch.instructions;
+    }
+  }
+
+  let archivedAt = current.archivedAt;
+
+  if (patch.archived !== undefined) {
+    archivedAt = patch.archived ? "2026-01-02T00:00:00.000Z" : null;
+  }
+
+  const updated: ProjectResponse = {
+    ...current,
+    instructions,
+    archivedAt,
+    updatedAt: "2026-01-02T00:00:00.000Z",
+  };
+
+  projects = projects.map((project) =>
+    project.id === current.id ? updated : project,
+  );
+
+  return jsonResponse(updated);
+}
+
 function routeFetch() {
   fetchMock = stubFetch();
-  fetchMock.mockImplementation((input) => {
+  fetchMock.mockImplementation(async (input) => {
     const key = routeOf(input);
 
     if (key === PROJECTS_ROUTE) {
+      if (
+        failProjectsAfterPatch &&
+        sentRoutes().includes(PROJECT_UPDATE_ROUTE)
+      ) {
+        failedProjectsReads += 1;
+
+        return jsonResponse({ statusCode: 500, message: "Internal" }, 500);
+      }
+
       return answer(projects, (release) => (releaseProjects = release));
     }
 
-    if (key === PINNED_CHATS_ROUTE) return Promise.resolve(jsonResponse([]));
+    if (key === PINNED_CHATS_ROUTE) return jsonResponse([]);
 
     if (key === CHATS_ROUTE) {
       return answer([], (release) => (releaseChats = release));
     }
 
-    if (key === PINS_ROUTE) return Promise.resolve(jsonResponse([]));
+    if (key === PINS_ROUTE) return jsonResponse([]);
 
-    if (key === PROJECT_LINKS_ROUTE) return Promise.resolve(jsonResponse([]));
+    if (key === PROJECT_LINKS_ROUTE) return jsonResponse([]);
 
-    if (key === REPOSITORIES_ROUTE) return Promise.resolve(jsonResponse([]));
+    if (key === REPOSITORIES_ROUTE) return jsonResponse([]);
 
-    if (key === CHECKOUTS_ROUTE) return Promise.resolve(jsonResponse([]));
+    if (key === CHECKOUTS_ROUTE) return jsonResponse([]);
 
     if (key === START_LOCATION_ROUTE) {
-      return Promise.resolve(
-        jsonResponse({
-          projectId: "p1",
-          repositoryId: null,
-          executorId: null,
-          checkoutId: null,
-          isolation: "reuse",
-          isolationReason: "no_link",
-          isolationChats: 0,
-        }),
-      );
+      return jsonResponse({
+        projectId: "p1",
+        repositoryId: null,
+        executorId: null,
+        checkoutId: null,
+        isolation: "reuse",
+        isolationReason: "no_link",
+        isolationChats: 0,
+      });
     }
 
     if (key === CREATE_CHAT_ROUTE) {
-      return Promise.resolve(
-        jsonResponse(createChatResponse.body, createChatResponse.status),
-      );
+      return jsonResponse(createChatResponse.body, createChatResponse.status);
+    }
+
+    if (key === PROJECT_UPDATE_ROUTE) {
+      const body = input instanceof Request ? await input.clone().json() : null;
+
+      return patchProject(instructionPatchSchema.parse(body));
     }
 
     throw new Error(`unrouted fetch in story: ${key}`);
@@ -179,6 +274,78 @@ function routeFetch() {
 /** "METHOD /path?query" of every request sent so far, in order. */
 function sentRoutes() {
   return fetchMock.mock.calls.map(([input, init]) => routeOf(input, init));
+}
+
+/**
+ * A story-controlled lifecycle boundary. Activating its hidden control drops
+ * the query cache and remounts the page, so a story observes a save the way a
+ * browser reload would: no surviving local draft, only the routed API's
+ * answer.
+ */
+function RemountableProjectPage() {
+  const queryClient = useQueryClient();
+  const [mountKey, setMountKey] = useState(0);
+
+  return (
+    <>
+      <button
+        type="button"
+        aria-label="Reload Project page"
+        hidden
+        data-story-remount-page=""
+        onClick={() => {
+          queryClient.clear();
+          setMountKey((current) => current + 1);
+        }}
+      />
+      <ProjectPage key={mountKey} />
+    </>
+  );
+}
+
+/** The project's instruction editor once its page has settled. */
+async function instructionsEditor(root: HTMLElement) {
+  const canvas = within(root);
+
+  const panel = within(
+    await canvas.findByRole("complementary", { name: "Project settings" }),
+  );
+
+  return {
+    panel,
+    textarea: await panel.findByRole("textbox", {
+      name: "Project instructions",
+    }),
+    save: panel.getByRole("button", { name: "Save instructions" }),
+  };
+}
+
+/** Remount the page and wait for its fresh project-list read. */
+async function reloadProjectPage(canvasElement: HTMLElement) {
+  const control = canvasElement.querySelector<HTMLButtonElement>(
+    "[data-story-remount-page]",
+  );
+
+  if (control === null) throw new Error("story remount control is missing");
+
+  const reads = sentRoutes().filter((route) => route === PROJECTS_ROUTE).length;
+
+  await fireEvent.click(control);
+
+  await waitFor(() =>
+    expect(
+      sentRoutes().filter((route) => route === PROJECTS_ROUTE).length,
+    ).toBeGreaterThan(reads),
+  );
+}
+
+/** The request body of the most recent instruction update. */
+async function lastUpdateBody() {
+  const index = sentRoutes().lastIndexOf(PROJECT_UPDATE_ROUTE);
+
+  if (index < 0) throw new Error("no instruction update was sent");
+
+  return requestFromCall(fetchMock, index).clone().json();
 }
 
 const meta = {
@@ -193,6 +360,9 @@ const meta = {
   },
   beforeEach: () => {
     projects = [otherProject, tripPlanning];
+    saveFailure = null;
+    failProjectsAfterPatch = false;
+    failedProjectsReads = 0;
     holdRequests = false;
     createChatResponse = {
       status: 201,
@@ -214,7 +384,7 @@ const meta = {
   render: () => (
     <ChatProvider>
       <SidebarProvider>
-        <ProjectPage />
+        <RemountableProjectPage />
       </SidebarProvider>
     </ChatProvider>
   ),
@@ -349,54 +519,373 @@ export const NoChats: Story = {
 };
 
 /**
- * The side panel previews project settings that do not exist yet (#1329,
- * #1330): Instructions' action flips between its empty state and sample
- * text, and Context's + adds sample cards that their own remove button takes
- * away. Nothing is sent.
+ * Typing guidance and saving persists it: the PATCH carries the literal text,
+ * and after a remount — the query cache dropped, the page reloaded — the
+ * editor still shows the stored text.
  *
- * @summary demo side panel: instructions toggle, context cards add and remove
+ * @summary saved instructions are literal and survive a remount
  */
-export const SidePanelDemo: Story = {
+export const SavesInstructionsAndReloads: Story = {
+  tags: ["ai-generated"],
+  play: async ({ canvasElement }) => {
+    const { panel, textarea, save } = await instructionsEditor(canvasElement);
+
+    await expect(panel.getByText(/sent to your model provider/i)).toBeVisible();
+    await expect(textarea).toHaveValue("");
+    await expect(save).toBeDisabled();
+
+    await userEvent.type(textarea, "Prefer small, reversible changes.");
+    await expect(save).toBeEnabled();
+    await userEvent.click(save);
+
+    await waitFor(() => expect(sentRoutes()).toContain(PROJECT_UPDATE_ROUTE));
+    await expect(lastUpdateBody()).resolves.toEqual({
+      instructions: "Prefer small, reversible changes.",
+    });
+    await waitFor(() => expect(save).toBeDisabled());
+    await expect(textarea).toHaveValue("Prefer small, reversible changes.");
+
+    await reloadProjectPage(canvasElement);
+
+    const reloaded = await instructionsEditor(canvasElement);
+    await expect(reloaded.textarea).toHaveValue(
+      "Prefer small, reversible changes.",
+    );
+    await expect(reloaded.save).toBeDisabled();
+  },
+};
+
+/**
+ * Clearing the editor and saving sends `null`; after a remount the stored
+ * instructions are gone and Save stays disabled because both sides are empty.
+ *
+ * @summary cleared instructions persist as absent through a remount
+ */
+export const ClearsInstructionsAndReloads: Story = {
+  tags: ["ai-generated"],
+  beforeEach: () => {
+    projects = [
+      otherProject,
+      { ...tripPlanning, instructions: "Keep replies short." },
+    ];
+  },
+  play: async ({ canvasElement }) => {
+    const { panel, textarea, save } = await instructionsEditor(canvasElement);
+
+    await expect(textarea).toHaveValue("Keep replies short.");
+    await expect(save).toBeDisabled();
+
+    await userEvent.clear(textarea);
+    await waitFor(() =>
+      expect(panel.getByText("0 / 16000 Unicode code points")).toBeVisible(),
+    );
+    await expect(save).toBeEnabled();
+    await userEvent.click(save);
+
+    await waitFor(() => expect(sentRoutes()).toContain(PROJECT_UPDATE_ROUTE));
+    await expect(lastUpdateBody()).resolves.toEqual({ instructions: null });
+    await waitFor(() => expect(save).toBeDisabled());
+    await expect(textarea).toHaveValue("");
+
+    await reloadProjectPage(canvasElement);
+
+    const reloaded = await instructionsEditor(canvasElement);
+    await expect(reloaded.textarea).toHaveValue("");
+    await expect(reloaded.save).toBeDisabled();
+  },
+};
+
+/**
+ * A successful save followed by a failed archive-inclusive list read must not
+ * fall back to the pre-save text: the stored text stays in the editor while
+ * the page cannot reload its list.
+ *
+ * @summary saved instructions stay fresh when the list reload fails
+ */
+export const KeepsSavedTextWhenReloadFails: Story = {
+  tags: ["ai-generated"],
+  beforeEach: () => {
+    projects = [
+      otherProject,
+      { ...tripPlanning, instructions: "Old guidance." },
+    ];
+    failProjectsAfterPatch = true;
+  },
+  play: async ({ canvasElement }) => {
+    const { textarea, save } = await instructionsEditor(canvasElement);
+
+    await expect(textarea).toHaveValue("Old guidance.");
+    await userEvent.clear(textarea);
+    await userEvent.type(textarea, "New guidance.");
+    await userEvent.click(save);
+
+    await waitFor(() => expect(sentRoutes()).toContain(PROJECT_UPDATE_ROUTE));
+    await expect(lastUpdateBody()).resolves.toEqual({
+      instructions: "New guidance.",
+    });
+    await waitFor(() => expect(failedProjectsReads).toBeGreaterThan(0));
+    await waitFor(() => expect(textarea).toBeEnabled());
+    await waitFor(() => expect(textarea).toHaveValue("New guidance."));
+    await expect(textarea).not.toHaveValue("Old guidance.");
+  },
+};
+
+/**
+ * A failed save reports a generic failure, keeps the literal draft in the
+ * editor, and never echoes the server's own message. The retry re-sends the
+ * same draft and succeeds.
+ *
+ * @summary a failed save keeps the draft and a retry saves it
+ */
+export const KeepsDraftAfterFailedSave: Story = {
+  tags: ["ai-generated"],
+  beforeEach: () => {
+    saveFailure = {
+      status: 500,
+      body: { statusCode: 500, message: "Internal" },
+    };
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    const { textarea, save } = await instructionsEditor(canvasElement);
+    const draft = "Review the trade-offs first.";
+
+    await userEvent.type(textarea, draft);
+    await userEvent.click(save);
+
+    const failure = await canvas.findByRole("alert");
+    await expect(failure).toBeVisible();
+    await expect(failure).not.toHaveTextContent(draft);
+    await expect(textarea).toHaveValue(draft);
+    await expect(canvas.queryByText("Internal")).not.toBeInTheDocument();
+    await expect(save).toBeEnabled();
+    await expect(
+      sentRoutes().filter((route) => route === PROJECT_UPDATE_ROUTE),
+    ).toHaveLength(1);
+
+    saveFailure = null;
+    await userEvent.click(save);
+
+    await waitFor(() =>
+      expect(
+        sentRoutes().filter((route) => route === PROJECT_UPDATE_ROUTE),
+      ).toHaveLength(2),
+    );
+    await expect(canvas.queryByRole("alert")).not.toBeInTheDocument();
+    await waitFor(() => expect(save).toBeDisabled());
+    await expect(lastUpdateBody()).resolves.toEqual({ instructions: draft });
+    await expect(textarea).toHaveValue(draft);
+  },
+};
+
+/**
+ * An archived Project keeps its instructions readable, but the editor is
+ * disabled and no update leaves the page.
+ *
+ * @summary an archived project shows instructions read-only
+ */
+export const ArchivedInstructionsAreReadOnly: Story = {
+  tags: ["ai-generated"],
+  beforeEach: () => {
+    projects = [
+      otherProject,
+      {
+        ...tripPlanning,
+        instructions: "Read-only guidance.",
+        archivedAt: "2026-01-02T00:00:00.000Z",
+      },
+    ];
+  },
+  play: async ({ canvasElement }) => {
+    const { textarea, save } = await instructionsEditor(canvasElement);
+
+    await expect(textarea).toHaveValue("Read-only guidance.");
+    await expect(textarea).toBeDisabled();
+    await expect(save).toBeDisabled();
+
+    await fireEvent.click(save);
+
+    await waitFor(() =>
+      expect(sentRoutes()).not.toContain(PROJECT_UPDATE_ROUTE),
+    );
+  },
+};
+
+/**
+ * Writing an unsaved draft and then archiving from the page header must leave
+ * the now-disabled editor showing the stored text, not the draft: an archived
+ * Project cannot accept that draft, so its editor may not present it as
+ * current.
+ *
+ * @summary archiving shows stored guidance while retaining the editable draft
+ */
+export const ArchivingShowsStoredTextInsteadOfDraft: Story = {
+  tags: ["ai-generated"],
+  beforeEach: () => {
+    projects = [
+      otherProject,
+      { ...tripPlanning, instructions: "Stored guidance." },
+    ];
+    failProjectsAfterPatch = true;
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    const { textarea, save } = await instructionsEditor(canvasElement);
+
+    await expect(textarea).toHaveValue("Stored guidance.");
+    await userEvent.clear(textarea);
+    await userEvent.type(textarea, "Unsaved draft.");
+    await expect(save).toBeEnabled();
+
+    await userEvent.click(canvas.getByRole("button", { name: "More" }));
+    await userEvent.click(
+      await screen.findByRole("menuitem", { name: "Archive" }),
+    );
+
+    await waitFor(() => expect(sentRoutes()).toContain(PROJECT_UPDATE_ROUTE));
+    await expect(lastUpdateBody()).resolves.toEqual({ archived: true });
+    await waitFor(() => expect(textarea).toBeDisabled());
+    await expect(textarea).toHaveValue("Stored guidance.");
+    await expect(textarea).not.toHaveValue("Unsaved draft.");
+    await expect(save).toBeDisabled();
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("menu", { hidden: true }),
+      ).not.toBeInTheDocument(),
+    );
+
+    await userEvent.click(canvas.getByRole("button", { name: "More" }));
+    await userEvent.click(
+      await screen.findByRole("menuitem", { name: "Unarchive" }),
+    );
+    await waitFor(() => expect(textarea).toBeEnabled());
+    await expect(textarea).toHaveValue("Unsaved draft.");
+    await expect(save).toBeEnabled();
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("menu", { hidden: true }),
+      ).not.toBeInTheDocument(),
+    );
+  },
+};
+
+/**
+ * The bound counts Unicode code points, not UTF-16 units: 16000 astral
+ * characters (32000 units) are exactly at the limit and save literally, while
+ * 16001 are rejected with the draft retained. No native `maxLength` caps the
+ * field first.
+ *
+ * @summary astral characters count as one code point each
+ */
+export const AstralCharactersCountAsCodePoints: Story = {
   tags: ["ai-generated"],
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
+    const { textarea, save } = await instructionsEditor(canvasElement);
 
-    const panel = within(
-      await canvas.findByRole("complementary", { name: "Project settings" }),
+    await expect(textarea).not.toHaveAttribute("maxlength");
+
+    const atLimit = "😀".repeat(16_000);
+    await fireEvent.input(textarea, { target: { value: atLimit } });
+    await waitFor(() =>
+      expect(
+        canvas.getByText("16000 / 16000 Unicode code points"),
+      ).toBeVisible(),
     );
+    await expect(textarea).toHaveValue(atLimit);
+    await expect(canvas.queryByRole("alert")).not.toBeInTheDocument();
+    await expect(save).toBeEnabled();
+
+    await userEvent.click(save);
+
+    await waitFor(() => expect(sentRoutes()).toContain(PROJECT_UPDATE_ROUTE));
+    await expect(lastUpdateBody()).resolves.toEqual({ instructions: atLimit });
+    await waitFor(() => expect(save).toBeDisabled());
+
+    const overLimit = "😀".repeat(16_001);
+    await fireEvent.input(textarea, { target: { value: overLimit } });
+    await expect(
+      await canvas.findByText("16001 / 16000 Unicode code points"),
+    ).toBeVisible();
+    await expect(textarea).toHaveAttribute("aria-invalid", "true");
+    await expect(canvas.getByRole("alert")).toBeVisible();
+    await expect(textarea).toHaveValue(overLimit);
+    await expect(save).toBeDisabled();
+    await expect(
+      sentRoutes().filter((route) => route === PROJECT_UPDATE_ROUTE),
+    ).toHaveLength(1);
+  },
+};
+
+/**
+ * Variation selectors are code points too. 16000 base characters each followed
+ * by U+FE0F are 32000 code points, so the form rejects them even though the
+ * installed server validator used to discount the selectors; 8000 such pairs
+ * are exactly 16000 code points and save.
+ *
+ * @summary variation selectors count separately in the bound
+ */
+export const VariationSelectorsCountAsCodePoints: Story = {
+  tags: ["ai-generated"],
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    const { textarea, save } = await instructionsEditor(canvasElement);
+
+    const paired = "a\uFE0F".repeat(16_000);
+    await fireEvent.input(textarea, { target: { value: paired } });
+    await expect(
+      await canvas.findByText("32000 / 16000 Unicode code points"),
+    ).toBeVisible();
+    await expect(textarea).toHaveAttribute("aria-invalid", "true");
+    await expect(canvas.getByRole("alert")).toBeVisible();
+    await expect(save).toBeDisabled();
+    await expect(sentRoutes()).not.toContain(PROJECT_UPDATE_ROUTE);
+
+    const atLimit = "a\uFE0F".repeat(8000);
+    await fireEvent.input(textarea, { target: { value: atLimit } });
+    await expect(
+      await canvas.findByText("16000 / 16000 Unicode code points"),
+    ).toBeVisible();
+    await expect(canvas.queryByRole("alert")).not.toBeInTheDocument();
+    await expect(save).toBeEnabled();
+
+    await userEvent.click(save);
+
+    await waitFor(() => expect(sentRoutes()).toContain(PROJECT_UPDATE_ROUTE));
+    await expect(lastUpdateBody()).resolves.toEqual({ instructions: atLimit });
+  },
+};
+
+/**
+ * The instruction editor is real: no add/edit toggle and no fake Context or
+ * sample-file controls remain in the Project settings panel.
+ *
+ * @summary no fake Context controls remain beside the real editor
+ */
+export const NoFakeContextControls: Story = {
+  tags: ["ai-generated"],
+  play: async ({ canvasElement }) => {
+    const { panel } = await instructionsEditor(canvasElement);
 
     await expect(
-      panel.getByText("Add instructions to tailor llame's responses"),
-    ).toBeVisible();
-    await userEvent.click(
-      panel.getByRole("button", { name: "Add instructions" }),
-    );
-    await expect(
-      panel.getByRole("button", { name: "Edit instructions" }),
+      panel.getByRole("heading", { name: "Instructions" }),
     ).toBeVisible();
     await expect(
-      panel.queryByText("Add instructions to tailor llame's responses"),
+      panel.queryByRole("button", { name: "Add instructions" }),
     ).not.toBeInTheDocument();
-
-    await userEvent.click(panel.getByRole("button", { name: "Add context" }));
-    await userEvent.click(panel.getByRole("button", { name: "Add context" }));
-    const cards = within(panel.getByRole("list", { name: "Project context" }));
-    await expect(cards.getAllByRole("listitem")).toHaveLength(2);
-
-    await userEvent.click(
-      cards.getByRole("button", { name: "Remove Design notes.pdf" }),
-    );
-    await expect(cards.getAllByRole("listitem")).toHaveLength(1);
-    await expect(sentRoutes()).toEqual([
-      PROJECTS_ROUTE,
-      PINNED_CHATS_ROUTE,
-      CHATS_ROUTE,
-      PINS_ROUTE,
-      PROJECT_LINKS_ROUTE,
-      CHECKOUTS_ROUTE,
-      START_LOCATION_ROUTE,
-      REPOSITORIES_ROUTE,
-    ]);
+    await expect(
+      panel.queryByRole("button", { name: "Edit instructions" }),
+    ).not.toBeInTheDocument();
+    await expect(
+      panel.queryByRole("button", { name: "Add context" }),
+    ).not.toBeInTheDocument();
+    await expect(
+      panel.queryByRole("list", { name: "Project context" }),
+    ).not.toBeInTheDocument();
+    await expect(panel.queryByText("Design notes.pdf")).not.toBeInTheDocument();
+    await expect(
+      panel.queryByText(/Add PDFs, documents, or other text/),
+    ).not.toBeInTheDocument();
   },
 };
 
