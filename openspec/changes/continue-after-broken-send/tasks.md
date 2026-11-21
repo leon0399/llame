@@ -100,7 +100,7 @@ focused test files only; CI owns the full suites.
       notice). Add a dated `CHANGELOG.md` entry. Verify with `pnpm lint:markdown`.
 - [x] 2.9 Run `pnpm --filter api lint`, `pnpm --filter api typecheck`, the focused test files above,
       `pnpm format:check`, and `git diff --check`.
-- [ ] 2.10 SR: self-review the parent-relative draft diff against
+- [x] 2.10 SR: self-review the parent-relative draft diff against
       [REVIEW_GUIDE.md](../../../REVIEW_GUIDE.md) before ready. GR: run Ready-PR monitoring after
       ready. This PR references #1828 and does not close it.
 
@@ -120,7 +120,7 @@ Enter `continue-after-broken-send/quota-wait` with `$gh-stack` from `continue`.
       Add a dated `CHANGELOG.md` entry. Verify with `pnpm lint:markdown`.
 - [x] 3.3 Run `pnpm --filter api lint`, `pnpm --filter api typecheck`, the focused test files above,
       `pnpm format:check`, and `git diff --check`.
-- [ ] 3.4 SR: self-review the parent-relative draft diff before ready. GR: run Ready-PR monitoring
+- [x] 3.4 SR: self-review the parent-relative draft diff before ready. GR: run Ready-PR monitoring
       after ready. This PR carries `Closes #1828`.
 
 ## 4. finalize
@@ -129,7 +129,7 @@ Enter `continue-after-broken-send/finalize` with `$gh-stack` before `$openspec-s
 canonical specs. SR and GR of this layer follow archive movement.
 
 - [x] 4.1 Run `$openspec-sync-specs` and check each MODIFIED requirement against its canonical text.
-- [ ] 4.2 Confirm that every task above is checked and `openspec status --change
+- [x] 4.2 Confirm that every task above is checked and `openspec status --change
       continue-after-broken-send --json` reports every artifact complete.
 - [x] 4.3 `pnpm exec openspec validate --specs --strict` and `pnpm exec openspec validate --all
       --strict`.
