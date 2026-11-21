@@ -29,6 +29,7 @@ function authenticatedFetch(): typeof fetch {
  * invalidate the project list on success; a failure surfaces a toast rather
  * than failing silently. Rename/delete also invalidate the pins list (design
  * D5a) — the pins cache holds its own denormalized copy of the project name.
+ * A details PATCH also refreshes that project's detail read.
  */
 
 /** A new project's details: a name, and a description or null for none. */
@@ -52,10 +53,12 @@ export function useCreateProject() {
 }
 
 /** The mutable project fields (PATCH /api/v1/projects/:id). An omitted field is
- *  left unchanged; `description: null` clears the description. */
+ *  left unchanged; `description: null` clears the description, and
+ *  `instructions: null` clears the literal owner instructions. */
 export type UpdateProjectPatch = {
   name?: string;
   description?: string | null;
+  instructions?: string | null;
 };
 
 export async function updateProject(
@@ -71,9 +74,19 @@ export function useUpdateProject() {
   return useMutation({
     mutationFn: ({ id, ...patch }: { id: string } & UpdateProjectPatch) =>
       updateProject(id, patch),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: projectQueryKeys.lists() });
-      queryClient.invalidateQueries({ queryKey: pinQueryKeys.list() });
+    onSuccess: async (_project, { id, name }) => {
+      // Await every affected read: a caller that clears its draft on
+      // mutateAsync settling must not drop the overlay before the pages it
+      // reads have the saved text.
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: projectQueryKeys.lists() }),
+        name === undefined
+          ? undefined
+          : queryClient.invalidateQueries({ queryKey: pinQueryKeys.list() }),
+        queryClient.invalidateQueries({
+          queryKey: projectQueryKeys.detail(id),
+        }),
+      ]);
     },
     onError: () => toast.error("Couldn't save the project."),
   });

@@ -4,6 +4,8 @@ read_when:
   - you want llame to know which clone or worktree a Chat runs on
   - you need to register, inspect, or remove a checkout
   - you are linking a Project to a repository or setting its isolation policy
+  - you are editing, saving, or clearing a Project's instructions on the
+    Project page
   - you are saving or clearing a Project's instructions through the API
   - you are checking when Project instructions reach a model, or what they share
   - you are deciding which host paths a checkout registration may inspect
@@ -323,7 +325,7 @@ answers `200`.
 ### The project page's Repositories section
 
 The Project page is the edit surface for links. The section sits in the
-Project's side panel, below Instructions and Context, with one row per link:
+Project's side panel, below Instructions, with one row per link:
 the Project's alias, a Primary badge when the Project links more than one
 repository, and a line with the catalog remote and how many checkouts and
 worktrees the repository holds — or "No checkout" when a Chat cannot start in
@@ -375,7 +377,44 @@ Project instructions are one optional block of literal text that the owner
 writes for a Project's Chats. The API stores the text, and every Run of a Chat
 in that Project applies it automatically at execution time. An admitted
 [Project detail read](../reference/locators/projects.md) also returns the
-current stored text as reference data. The Project page still does not edit it.
+current stored text as reference data.
+
+### Editing on the Project page
+
+The Project page's Instructions section always shows its editor. The field is
+labelled "Project instructions", and it holds a local draft until the owner
+saves. The section has no separate edit or add toggle.
+
+"Save instructions" writes the draft through `PATCH /api/v1/projects/:id` and
+refetches the Project. The button is disabled while the draft matches the
+stored text, while the draft is over the bound, while a save is pending, and on
+an archived Project. The field is disabled during a pending save, so a
+concurrent edit cannot be lost. A successful save keeps the draft until the
+Project query returns fresh data, then the stored text replaces it.
+
+To clear the instructions, empty the field and save. A whitespace-only draft
+within the bound clears them as well. There is no separate Clear action.
+
+The counter reads "N / 16000 Unicode code points". It counts the whole draft,
+including whitespace, in Unicode code points rather than UTF-16 units, so a
+character outside the basic plane counts once. An over-bound draft shows
+"Shorten the instructions to 16000 Unicode code points or fewer." and cannot be
+saved. The API section below applies the same bound before it normalizes
+whitespace.
+
+A failed save keeps the draft in the field, shows "Couldn't save
+instructions. Try again." beside it, and a later save retries. The field is
+enabled again after the failure.
+
+An archived Project shows the stored text in a disabled field and offers no
+save. The section says the instructions are read-only until the Project is
+unarchived.
+
+The section states that the text applies to future Runs and is sent to the
+configured model provider. Existing Runs keep the guidance they started with,
+and editing or clearing the text does not erase that history. [When a Run
+applies the text](#when-a-run-applies-the-text) and [Sharing and
+retention](#sharing-and-retention) own the execution and retention rules.
 
 `PATCH /api/v1/projects/:id` accepts `instructions` beside `name`,
 `description`, `archived`, and `defaultExecutorId`. Every `GET` and `PATCH`

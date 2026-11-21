@@ -30,8 +30,11 @@
  * HOLD: a user prompt containing `HOLD:<token>` (token = `[A-Za-z0-9_-]+`)
  * answers with SSE headers and writes nothing until the client closes the
  * response or a test POSTs `/hold/<token>/release`. GET `/hold/<token>`
- * reports `{ arrived, closed }` for that token. Unheld prompts are unchanged.
- * Requests to /ready serve the Playwright webServer readiness probe.
+ * reports `{ arrived, closed, requestBody? }` for that token; `requestBody`
+ * is the raw completion request once the held request has arrived, so a test
+ * can inspect exactly what the api sent the provider. Unheld prompts are
+ * unchanged. Requests to /ready serve the Playwright webServer readiness
+ * probe.
  */
 
 import http, { type ServerResponse } from "node:http";
@@ -1384,6 +1387,8 @@ type HoldState = {
   arrived: boolean;
   closed: boolean;
   released: boolean;
+  /** The raw completion request body, for tests that inspect provider input. */
+  requestBody?: string;
   waiters: Map<ServerResponse, () => void>;
 };
 
@@ -1453,6 +1458,7 @@ async function respondHeld(
 ): Promise<void> {
   const state = getOrCreateHold(token);
   state.arrived = true;
+  state.requestBody = raw;
   // A reused HOLD token must not inherit a prior response's abort.
   state.closed = false;
   writeSseHead(res);
@@ -1678,6 +1684,7 @@ const server = http.createServer((req, res) => {
           arrived: state?.arrived ?? false,
           closed: state?.closed ?? false,
           waiting: state?.waiters.size ?? 0,
+          requestBody: state?.requestBody,
         }),
       );
 

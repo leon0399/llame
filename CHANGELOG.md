@@ -20,6 +20,20 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 - Lock a Project's owned row before checking archive state and applying an
   update. A concurrent archive that wins the row lock makes an instruction
   edit wait and return `409`, without changing its stored guidance.
+- Ship the Project page editor that the Project context release did not include.
+  The Instructions section always shows a "Project instructions" textarea, and
+  "Save instructions" writes the draft through `PATCH /api/v1/projects/:id`.
+  Saving an empty or whitespace-only draft clears the stored text. The button
+  is disabled while the text is unchanged or over 16000 Unicode code points,
+  while a save is pending, or on an archived Project. A failed save keeps the
+  draft for retry, a counter shows the code point count against the bound, and
+  an archived Project shows the stored text read-only.
+- Show in the editor that instructions apply to future Runs and are shared
+  with the configured model provider. Existing Runs keep the guidance they
+  started with, and editing or clearing it does not erase that history.
+- Remove the demo Instructions toggle, the demo Context section, and its sample
+  PDF cards. The Project page no longer shows fake context files, and this
+  release adds no context-file upload.
 - Apply a Project's identity, description, and literal instructions to its
   Chats' Runs automatically at execution time. Before the first model request,
   a Run resolves the Chat's current Project under the owner identity and
