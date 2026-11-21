@@ -7,6 +7,7 @@ read_when:
 spec:
   - native-file-tools
   - projects
+  - project-discovery
   - tool-call-permissions
 configured_by: ../../operator/tool-call-permissions.md
 ---

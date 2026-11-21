@@ -416,23 +416,24 @@ order. They MUST go before the user text in the user message of the turn:
 5. `effective-context-change`
 6. `regenerate`
 7. `tool-availability`
-8. `workspace`
-9. `git`
-10. `instructions`
-11. `skill-catalog`
-12. `skill-activation`
-13. `prompt-imports`
-14. `recency-digest`
-15. `temporal`
+8. `project`
+9. `workspace`
+10. `git`
+11. `instructions`
+12. `skill-catalog`
+13. `skill-activation`
+14. `prompt-imports`
+15. `recency-digest`
+16. `temporal`
 
 When one producer contributes more than one item, the system MUST store those
 items in emission order. A producer added later MUST extend this list
-in the rail specification. The `interrupted` producer of `run-steering` attaches its item to a
-delivered message, or to the host message that continues a Run after an interrupt `/compact`. The `job` producer of `background-jobs` attaches its items to a delivered
-message, to the user message of a send, or to a host message. The `compaction` producer attaches its
-`notice` item to the host message that continues a Run after a step-boundary compaction. The `provider-failure`
-producer of `provider-failures` stores its `notice` item in the reply, directly after the last settled
-tool part of a failed send.
+in the rail specification.
+
+The `interrupted` producer of `run-steering` attaches its item to a delivered message or the host message after an interrupt `/compact`.
+The `job` producer of `background-jobs` attaches items to a delivered message, the user message of a send, or a host message.
+The `compaction` producer attaches its `notice` item to the host message after a step-boundary compaction.
+The `provider-failure` producer of `provider-failures` stores its `notice` item in the reply, directly after the last settled tool part of a failed send.
 
 In-Run items MUST be in the order of the model step that caused them. In a step,
 they MUST be in this same producer precedence. The system MUST NOT sort them
@@ -482,25 +483,24 @@ text. Its own new items MUST follow producer order. This rule MUST apply also
 when the producer of that item ranks before a stored item.
 
 A retry of a Run whose earlier attempts never dispatched MUST instead store each
-item at its producer rank, as a first attempt does. When an earlier Run of the
-user message dispatched, a follow-up Run from `turn-actions` MUST follow the
-rule of a retry after a dispatch.
+item at its producer rank, as a first attempt does. When an earlier Run of the user message dispatched, a follow-up Run from `turn-actions` MUST follow the retry-after-dispatch rule.
 
 #### Scenario: Workspace and skill catalog items share a turn
 
-- **WHEN** a Workspace state change and an effective skill catalog change come with one user message
+- **WHEN** one user message accompanies a Workspace state change and an effective skill catalog change
 - **THEN** the `workspace` item comes before the `skill-catalog` item, and both come before the user text
 - **AND** replay keeps those stored positions
 
 #### Scenario: Workspace snapshot and root instructions share a turn
 
 - **WHEN** an accepted turn sets up the Workspace snapshot again and stages the root instruction chain
-- **THEN** the `workspace` item comes before the `instructions` item, and both come before any `skill-catalog` item
+- **THEN** `workspace` precedes `instructions`
+- **AND** both precede any `skill-catalog` item
 
 #### Scenario: Workspace and git snapshots share a turn
 
 - **WHEN** an accepted turn yields a `workspace` snapshot, a `git` snapshot, and an `instructions` item
-- **THEN** the `workspace` item comes first, the `git` item comes second, and the `instructions` item comes third
+- **THEN** `workspace` precedes `git`, and `git` precedes `instructions`
 - **AND** replay keeps those stored positions
 
 #### Scenario: Skill activation and prompt imports share a turn
@@ -511,22 +511,24 @@ rule of a retry after a dispatch.
 
 #### Scenario: A retry's new item follows the stored items
 
-- **WHEN** an earlier attempt of a Run stored `instructions` and `skill-catalog` items in its dispatch transaction
+- **WHEN** an earlier Run attempt stored `instructions` and `skill-catalog` items in its dispatch transaction
 - **AND** a retry of the Run detaches the Workspace binding
-- **THEN** the retry stores its `workspace` detach narration after the stored items and before the user text, although `workspace` ranks before `instructions`
+- **THEN** the retry stores its `workspace` detach narration after the stored items and before the user text
+- **AND** this exception preserves earlier items despite the lower author-time rank of `workspace`
 - **AND** the stored items keep their positions, and replay keeps the order that results
 
 #### Scenario: A retry of a Run that never dispatched orders items by producer rank
 
-- **WHEN** an earlier attempt of a Run persisted a `prompt-imports` item and failed before its dispatch transaction committed
+- **WHEN** an earlier Run attempt persisted a `prompt-imports` item and failed before its dispatch transaction committed
 - **AND** a retry yields `workspace`, `instructions`, and `temporal` items
-- **THEN** the dispatch transaction of the retry stores the `workspace` and `instructions` items before the `prompt-imports` item
+- **THEN** the retry dispatch stores `workspace` and `instructions` before `prompt-imports`
 - **AND** it stores the `temporal` item after it, as a first attempt does
 - **AND** all of them come before the user text
 
 #### Scenario: A Regenerate notice follows the stored items
 
-- **WHEN** the first Run of a turn stored a `temporal` item and dispatched, and a Regenerate of that turn yields a `regenerate` notice
+- **WHEN** a turn's first Run stored `temporal` and dispatched
+- **AND** a Regenerate of that turn yields a `regenerate` notice
 - **THEN** the Regenerate dispatch stores the notice after the `temporal` item and before the user text
 
 #### Scenario: An interrupted item comes before the owner text
@@ -543,7 +545,7 @@ rule of a retry after a dispatch.
 
 #### Scenario: A continue message after an interrupt and a job
 
-- **WHEN** an interrupt `/compact` stops a step while a job settles
+- **WHEN** an interrupt `/compact` stops a step while a background job settles
 - **THEN** the continue message holds the `interrupted` item, then the `job` item, then the `compaction` item
 
 #### Scenario: A provider-failure notice comes first in its step
@@ -551,6 +553,12 @@ rule of a retry after a dispatch.
 - **WHEN** a send fails after a settled `read` call, and the same step boundary yields a `tool-availability` in-Run item for the `read` result
 - **THEN** the `provider-failure` item comes directly after the `read` part
 - **AND** the `tool-availability` item comes after the `provider-failure` item
+
+#### Scenario: Project context precedes Workspace context
+
+- **WHEN** initial preparation yields `project`, `workspace`, `git`, and filesystem `instructions` items
+- **THEN** the author-time order is `project`, `workspace`, `git`, then `instructions`
+- **AND** the order creates no override hierarchy between their guidance
 
 ### Requirement: Residency determines whether a change re-renders the prompt or appends an item
 
