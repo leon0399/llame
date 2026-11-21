@@ -71,9 +71,9 @@ Two of these decisions are recorded as ADRs, because each is hard to reverse, su
 reader who knows oh-my-pi, and a real trade-off. Leo asked for them in this PR, so the proposal
 layer carries them as a named exception to the proposal-only file rule of CONTRIBUTING.md:
 
-- [A failed send with a started tool call continues and is never sent again](../../../docs/adr/2026-11-20-a-failed-send-with-a-started-call-continues.md)
+- [A failed send with a started tool call continues and is never sent again](../../../../docs/adr/2026-11-20-a-failed-send-with-a-started-call-continues.md)
   (grilling Q3, Q4, Q8, and #1777 Q2).
-- [The model is told when output it already sent is cut from a reply that continues](../../../docs/adr/2026-11-20-the-model-is-told-when-its-sent-output-is-cut.md)
+- [The model is told when output it already sent is cut from a reply that continues](../../../../docs/adr/2026-11-20-the-model-is-told-when-its-sent-output-is-cut.md)
   (grilling Q7 and Q12).
 
 Assumptions that follow from these answers but were never asked:
@@ -170,7 +170,7 @@ Deliberately unchanged, with the reading this change relies on:
 
 - Any failover to another model, or any setting for it. That is
   [#1772](https://github.com/leon0399/llame/issues/1772), opt-in under
-  [Automatic failover is opt-in per model role, failure group, and Run origin](../../../docs/adr/2026-11-20-automatic-failover-is-opt-in.md).
+  [Automatic failover is opt-in per model role, failure group, and Run origin](../../../../docs/adr/2026-11-20-automatic-failover-is-opt-in.md).
 - Continuation inside hosted web search (grilling Q6).
 - A re-send for calls that never ran (grilling Q4).
 - A persisted retry count or a continuation checkpoint across a worker redelivery (grilling Q5).

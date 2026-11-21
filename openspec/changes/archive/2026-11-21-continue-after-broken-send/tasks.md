@@ -1,5 +1,5 @@
 Track [#1828](https://github.com/leon0399/llame/issues/1828) and its PR layers through
-[Project tracking](../../../CONTRIBUTING.md#project-tracking). Implementation waits for Leo's
+[Project tracking](../../../../CONTRIBUTING.md#project-tracking). Implementation waits for Leo's
 approval of the published proposal revision. Keep live status in the Project.
 
 ## Delivery stack
@@ -43,13 +43,13 @@ against its parent before publication.
 
 ## 1. proposal
 
-- [ ] 1.1 Validate: `pnpm exec openspec validate continue-after-broken-send --strict`,
+- [x] 1.1 Validate: `pnpm exec openspec validate continue-after-broken-send --strict`,
       `pnpm lint:markdown` (it runs the ADR prose check), `pnpm exec oxfmt --check` on the change
       and the two ADRs, `node scripts/check-markdown-links.mjs`, and `git diff --check`.
-- [ ] 1.2 Run `$iterative-review-refinement` with at least two independent reviewers per round, and
+- [x] 1.2 Run `$iterative-review-refinement` with at least two independent reviewers per round, and
       commit each round separately. Record each round in design.md "Revision history".
-- [ ] 1.3 SR: self-review the draft PR diff against [REVIEW_GUIDE.md](../../../REVIEW_GUIDE.md)
-      before ready. GR: run [Ready-PR monitoring](../../../CONTRIBUTING.md#ready-pr-monitoring) after
+- [x] 1.3 SR: self-review the draft PR diff against [REVIEW_GUIDE.md](../../../../REVIEW_GUIDE.md)
+      before ready. GR: run [Ready-PR monitoring](../../../../CONTRIBUTING.md#ready-pr-monitoring) after
       ready, and obtain Leo's approval of the published revision.
 
 ## 2. continue
@@ -94,14 +94,14 @@ focused test files only; CI owns the full suites.
       "Failure settles in-flight calls" has no reachable seam for a call outside the failed send: the SDK starts a step
       only after every earlier call has an output, and instruction-origin reads finish inside their own call.
       Terminal writes still run the shipped `settleOpenToolsAndDrain`.
-- [x] 2.8 Update [SPEC.md](../../../SPEC.md) (failure paragraph),
-      [provider routing](../../../docs/product/operator/providers/routing.md) (failure after a tool
-      call), and [Continue a turn](../../../docs/product/reference/continue-a-turn.md) (the kept
+- [x] 2.8 Update [SPEC.md](../../../../SPEC.md) (failure paragraph),
+      [provider routing](../../../../docs/product/operator/providers/routing.md) (failure after a tool
+      call), and [Continue a turn](../../../../docs/product/reference/continue-a-turn.md) (the kept
       notice). Add a dated `CHANGELOG.md` entry. Verify with `pnpm lint:markdown`.
 - [x] 2.9 Run `pnpm --filter api lint`, `pnpm --filter api typecheck`, the focused test files above,
       `pnpm format:check`, and `git diff --check`.
-- [ ] 2.10 SR: self-review the parent-relative draft diff against
-      [REVIEW_GUIDE.md](../../../REVIEW_GUIDE.md) before ready. GR: run Ready-PR monitoring after
+- [x] 2.10 SR: self-review the parent-relative draft diff against
+      [REVIEW_GUIDE.md](../../../../REVIEW_GUIDE.md) before ready. GR: run Ready-PR monitoring after
       ready. This PR references #1828 and does not close it.
 
 ## 3. quota-wait
@@ -115,12 +115,12 @@ Enter `continue-after-broken-send/quota-wait` with `$gh-stack` from `continue`.
       survive the wait", "A steer during a wait after a tool call", "A woken Run continues after a
       tool call", and "A checkpoint holds the settled tool part", in `quota-wait.test.ts` and `quota-wait.integration.test.ts`. Re-verify
       the unchanged scenarios of the four MODIFIED requirements.
-- [x] 3.2 Update [scaling](../../../docs/product/operator/scaling.md) (quota wait after a started
-      call) and the quota sentences of [provider routing](../../../docs/product/operator/providers/routing.md).
+- [x] 3.2 Update [scaling](../../../../docs/product/operator/scaling.md) (quota wait after a started
+      call) and the quota sentences of [provider routing](../../../../docs/product/operator/providers/routing.md).
       Add a dated `CHANGELOG.md` entry. Verify with `pnpm lint:markdown`.
 - [x] 3.3 Run `pnpm --filter api lint`, `pnpm --filter api typecheck`, the focused test files above,
       `pnpm format:check`, and `git diff --check`.
-- [ ] 3.4 SR: self-review the parent-relative draft diff before ready. GR: run Ready-PR monitoring
+- [x] 3.4 SR: self-review the parent-relative draft diff before ready. GR: run Ready-PR monitoring
       after ready. This PR carries `Closes #1828`.
 
 ## 4. finalize
@@ -128,10 +128,10 @@ Enter `continue-after-broken-send/quota-wait` with `$gh-stack` from `continue`.
 Enter `continue-after-broken-send/finalize` with `$gh-stack` before `$openspec-sync-specs` writes
 canonical specs. SR and GR of this layer follow archive movement.
 
-- [ ] 4.1 Run `$openspec-sync-specs` and check each MODIFIED requirement against its canonical text.
-- [ ] 4.2 Confirm that every task above is checked and `openspec status --change
+- [x] 4.1 Run `$openspec-sync-specs` and check each MODIFIED requirement against its canonical text.
+- [x] 4.2 Confirm that every task above is checked and `openspec status --change
       continue-after-broken-send --json` reports every artifact complete.
-- [ ] 4.3 `pnpm exec openspec validate --specs --strict` and `pnpm exec openspec validate --all
+- [x] 4.3 `pnpm exec openspec validate --specs --strict` and `pnpm exec openspec validate --all
       --strict`.
 
 4.4 Post-readiness operation: run `$openspec-archive-change`. This operation is not a readiness

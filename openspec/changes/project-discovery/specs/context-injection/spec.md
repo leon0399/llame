@@ -7,20 +7,21 @@ authors items and prepares requests MUST then persist them in a fixed producer p
 order. They MUST go before the user text in the user message of the turn:
 
 1. `interrupted`
-2. `job`
-3. `compaction`
-4. `effective-context-change`
-5. `regenerate`
-6. `tool-availability`
-7. `project`
-8. `workspace`
-9. `git`
-10. `instructions`
-11. `skill-catalog`
-12. `skill-activation`
-13. `prompt-imports`
-14. `recency-digest`
-15. `temporal`
+2. `provider-failure`
+3. `job`
+4. `compaction`
+5. `effective-context-change`
+6. `regenerate`
+7. `tool-availability`
+8. `project`
+9. `workspace`
+10. `git`
+11. `instructions`
+12. `skill-catalog`
+13. `skill-activation`
+14. `prompt-imports`
+15. `recency-digest`
+16. `temporal`
 
 When one producer contributes more than one item, the system MUST store those
 items in emission order. A producer added later MUST extend this list
@@ -29,6 +30,7 @@ in the rail specification.
 The `interrupted` producer of `run-steering` attaches its item to a delivered message or the host message after an interrupt `/compact`.
 The `job` producer of `background-jobs` attaches items to a delivered message, the user message of a send, or a host message.
 The `compaction` producer attaches its `notice` item to the host message after a step-boundary compaction.
+The `provider-failure` producer of `provider-failures` stores its `notice` item in the reply, directly after the last settled tool part of a failed send.
 
 In-Run items MUST be in the order of the model step that caused them. In a step,
 they MUST be in this same producer precedence. The system MUST NOT sort them
@@ -142,6 +144,12 @@ item at its producer rank, as a first attempt does. When an earlier Run of the u
 
 - **WHEN** an interrupt `/compact` stops a step while a background job settles
 - **THEN** the continue message holds the `interrupted` item, then the `job` item, then the `compaction` item
+
+#### Scenario: A provider-failure notice comes first in its step
+
+- **WHEN** a send fails after a settled `read` call, and the same step boundary yields a `tool-availability` in-Run item for the `read` result
+- **THEN** the `provider-failure` item comes directly after the `read` part
+- **AND** the `tool-availability` item comes after the `provider-failure` item
 
 #### Scenario: Project context precedes Workspace context
 
