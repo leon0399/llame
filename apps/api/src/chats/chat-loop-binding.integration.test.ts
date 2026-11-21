@@ -57,6 +57,7 @@ import {
 import { type CheckpointMessage } from './messages-repository';
 import { RunningReplyRepository } from './running-reply-repository';
 import { RunEventsRepository, RunsRepository } from '../runs/runs-repository';
+import * as projectSelectionRepository from '../runs/project-selection.repository';
 import { type RunJob } from '../runs/run-queues';
 import { SystemPromptReceiptsRepository } from '../runs/system-prompt-receipts.repository';
 import { RunExecutionService } from '../runs/run-execution.service';
@@ -454,6 +455,24 @@ describe('ChatLoopService accept/worker context binding', () => {
     vi.spyOn(RunEventsRepository.prototype, 'listByRunId').mockResolvedValue(
       [],
     );
+
+    // This suite drives the worker over an in-memory accept fixture, so there
+    // is no owned Run row for the strict persistence resolver to recover from.
+    // Mock the repository boundary the same way the other durable reads are
+    // mocked: the fixture's Chat is genuinely unfiled, and an event is still
+    // recorded per dispatch in production.
+    vi.spyOn(
+      projectSelectionRepository,
+      'resolveRunProjectSelection',
+    ).mockResolvedValue({ v: 1, project: null });
+    vi.spyOn(
+      projectSelectionRepository,
+      'recordRunProjectSelection',
+    ).mockResolvedValue(undefined);
+    vi.spyOn(
+      projectSelectionRepository,
+      'hasProjectContextHistory',
+    ).mockResolvedValue(false);
 
     const updateForAttempt = vi
       .spyOn(RunsRepository.prototype, 'updateForAttempt')

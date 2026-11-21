@@ -496,6 +496,12 @@ describeIfDb(
         const events = new RunEventsRepository(tx);
         const replies = new RunningReplyRepository(tx);
         await events.append(turn.runId, 'run.started');
+        // Attempt A dispatched after the Project selection became durable:
+        // the Chat is genuinely unfiled, so the decision is an explicit null.
+        await events.append(turn.runId, 'run.project_bound', {
+          v: 1,
+          project: null,
+        });
         await events.append(turn.runId, 'model.requested', {
           modelId: MODEL_ID,
           attemptId,

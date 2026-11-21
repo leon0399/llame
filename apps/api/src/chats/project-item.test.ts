@@ -152,6 +152,19 @@ describe('bound Project snapshot', () => {
     expect([...text.matchAll(/<\/system-reminder>/gu)]).toHaveLength(1);
   });
 
+  it('preserves balanced owner structure outside the snapshot field names', () => {
+    const instructions =
+      '<answering_rules>Keep literal <em>units</em>.</answering_rules>';
+
+    const part = createProjectSnapshotItem({
+      runId: RUN_ID,
+      selection: bound({ instructions }),
+    });
+
+    expect(textOf(part)).toContain(instructions);
+    expect(part.data.payload).toMatchObject({ project: { instructions } });
+  });
+
   it('neutralizes reserved envelopes, its own field tags, and forged line framing', () => {
     const part = createProjectSnapshotItem({
       runId: RUN_ID,

@@ -83,6 +83,38 @@ function assertOrderedMessage(
   }
 }
 
+/**
+ * Asserts a successful single-request Run's event log: every listed
+ * consumer-visible lifecycle stage is present and ordered, each occurs exactly
+ * once, the write-once Project binding was recorded exactly once, and no retry
+ * or non-success terminal event fired. Other private control metadata may
+ * interleave and is intentionally not pinned.
+ */
+function assertLifecycleOrder(
+  types: ReadonlyArray<string>,
+  lifecycle: ReadonlyArray<string>,
+): void {
+  const positions = lifecycle.map((type) => types.indexOf(type));
+
+  expect(positions).not.toContain(-1);
+  expect(positions).toEqual([...positions].sort((a, b) => a - b));
+
+  // One dispatch, one model completion, one terminal event — and one
+  // write-once Project binding.
+  for (const type of [...lifecycle, 'run.project_bound']) {
+    expect(types.filter((candidate) => candidate === type)).toHaveLength(1);
+  }
+
+  for (const forbidden of [
+    'model.retrying',
+    'run.failed',
+    'run.expired',
+    'run.cancelled',
+  ] as const) {
+    expect(types).not.toContain(forbidden);
+  }
+}
+
 /** Asserts a message's `usage` carries the two numeric token fields checked below. */
 function assertUsageTokens(
   value: unknown,
@@ -1649,14 +1681,22 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
       new RunEventsRepository(tx).listByRunId(runs[0].id, userAId),
     );
 
-    expect(events.map((e) => e.eventType)).toEqual([
-      'run.created',
-      'run.started',
-      'model.requested',
-      'model.delta',
-      'model.completed',
-      'run.completed',
-    ]);
+    // #48 — the turn left a durable run with an ordered lifecycle event log:
+    // run row completed, events strictly sequence-ascending, source of truth
+    // for replay (#49). The private `run.project_bound` control event is also
+    // in the owner's raw log, but it is not part of the consumer-visible
+    // lifecycle asserted here.
+    assertLifecycleOrder(
+      events.map((e) => e.eventType),
+      [
+        'run.created',
+        'run.started',
+        'model.requested',
+        'model.delta',
+        'model.completed',
+        'run.completed',
+      ],
+    );
     expect(
       events.find((event) => event.eventType === 'model.requested')?.payload,
     ).toEqual({
@@ -1854,14 +1894,20 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
     });
 
     const frames = z.array(runEventFrameSchema).parse(parseSseEvents(sse.text));
-    expect(frames.map((f) => f.eventType)).toEqual([
-      'run.created',
-      'run.started',
-      'model.requested',
-      'model.delta',
-      'model.completed',
-      'run.completed',
-    ]);
+    // Ordered lifecycle incl. the coalesced model.delta text. The private
+    // `run.project_bound` control event may be interleaved; it is not part of
+    // the consumer-visible lifecycle this replay contract orders.
+    assertLifecycleOrder(
+      frames.map((f) => f.eventType),
+      [
+        'run.created',
+        'run.started',
+        'model.requested',
+        'model.delta',
+        'model.completed',
+        'run.completed',
+      ],
+    );
     expect(frames.find((f) => f.eventType === 'model.delta')?.payload).toEqual({
       text: 'replayed answer',
     });
@@ -1880,8 +1926,21 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
     expect(resumed.status).toBe(200);
     expect(parseSseEvents(resumed.text)).toHaveLength(0);
 
-    // Cursor mid-stream: only events after it are replayed.
-    const midSequence = frames[2].sequence; // after model.requested
+    // Cursor mid-stream: only events after it are replayed. Cutting after
+    // model.requested proves a resume drops the prefix (including private
+    // control events before it) and loses nothing after it.
+    const requestedIndex = frames.findIndex(
+      (f) => f.eventType === 'model.requested',
+    );
+
+    const midFrame = frames[requestedIndex];
+
+    if (midFrame === undefined) {
+      expect.unreachable('expected a replayed model.requested frame');
+    }
+
+    const midSequence = midFrame.sequence;
+    const replayTail = frames.slice(requestedIndex + 1).map((f) => f.eventType);
 
     const partial = await request(http)
       .get(`/api/v1/runs/${run.id}/events?after_sequence=${midSequence}`)
@@ -1891,11 +1950,7 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
       .array(runEventFrameSchema)
       .parse(parseSseEvents(partial.text));
 
-    expect(partialFrames.map((f) => f.eventType)).toEqual([
-      'model.delta',
-      'model.completed',
-      'run.completed',
-    ]);
+    expect(partialFrames.map((f) => f.eventType)).toEqual(replayTail);
 
     // Native EventSource reconnect: the browser re-requests the SAME URL (no
     // query cursor) and sends the last `id:` seen via Last-Event-ID (SSE
@@ -1909,11 +1964,7 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
       .array(runEventFrameSchema)
       .parse(parseSseEvents(reconnected.text));
 
-    expect(reconnectedFrames.map((f) => f.eventType)).toEqual([
-      'model.delta',
-      'model.completed',
-      'run.completed',
-    ]);
+    expect(reconnectedFrames.map((f) => f.eventType)).toEqual(replayTail);
 
     // Cross-tenant: another user's session sees 404 on both surfaces.
     const deniedRun = await request(http)

@@ -1336,6 +1336,12 @@ describeIfDb('executeRun tool-loop persistence', () => {
     // reply from the full event log.
     await tenantDb.runAs(userId, async (tx) => {
       const events = new RunEventsRepository(tx);
+      // A post-cutover dispatch log: the Run's write-once Project selection
+      // (this Chat is genuinely unfiled) precedes its first request.
+      await events.append(seeded.run.id, 'run.project_bound', {
+        v: 1,
+        project: null,
+      });
       await events.append(seeded.run.id, 'model.requested', {
         modelId: seeded.run.modelId,
       });
@@ -3499,10 +3505,28 @@ describeIfDb('executeRun tool-loop persistence', () => {
     const types = events.map((e) => e.eventType);
     const idx = (t: string) => types.indexOf(t);
 
-    // Lifecycle bookends.
+    // Lifecycle bookends. The private `run.project_bound` control event may
+    // sit between the claim and the request; the request itself still follows
+    // the claim and precedes this step's output.
     expect(types[0]).toBe('run.started');
-    expect(types[1]).toBe('model.requested');
+    expect(idx('model.requested')).toBeGreaterThan(idx('run.started'));
+    expect(idx('model.requested')).toBeLessThan(idx('reasoning.delta'));
     expect(types.at(-1)).toBe('run.completed');
+
+    // One claim, one terminal event and one write-once Project binding for the
+    // Run; a successful tool loop records no retry, failure or cancellation.
+    for (const type of ['run.started', 'run.completed', 'run.project_bound']) {
+      expect(types.filter((candidate) => candidate === type)).toHaveLength(1);
+    }
+
+    for (const forbidden of [
+      'model.retrying',
+      'run.failed',
+      'run.expired',
+      'run.cancelled',
+    ] as const) {
+      expect(types).not.toContain(forbidden);
+    }
 
     // Tool events present, in request -> started -> completed order.
     expect(idx('tool.requested')).toBeGreaterThan(-1);

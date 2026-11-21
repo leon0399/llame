@@ -5,8 +5,15 @@
  * rather than reinterpreted, and recovery refuses it before any live Project
  * lookup or model request.
  */
+import { NoopLogger } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/postgres-js';
+import {
+  type BasePgAsyncSession,
+  PgAsyncPreparedQuery,
+  type PreparedQueryConfig,
+} from 'drizzle-orm/pg-core';
 
+import { type Db } from '../db/tenant-db.service';
 import { type RunEvent } from '../db/schema';
 import { type UnknownRecord } from '@workspace/runtime-safety';
 import { ModelContextExecutionError } from './model-context-errors';
@@ -16,6 +23,7 @@ import {
   type ProjectSelection,
 } from './project-selection';
 import {
+  hasProjectContextHistory,
   recordRunProjectSelection,
   resolveRunProjectSelection,
 } from './project-selection.repository';
@@ -174,7 +182,7 @@ function selected(
 }
 
 /** Capture a rejection so a test can assert its class and value-free text. */
-async function rejection(promise: Promise<void>): Promise<Error> {
+async function rejection(promise: Promise<unknown>): Promise<Error> {
   try {
     await promise;
   } catch (error) {
@@ -184,6 +192,55 @@ async function rejection(promise: Promise<void>): Promise<Error> {
   }
 
   throw new Error('Expected the operation to reject.');
+}
+
+/** The rows a single statement returns, as Postgres hands them to Drizzle. */
+type QueryRows = ReadonlyArray<UnknownRecord>;
+
+type PrepareQuery = BasePgAsyncSession['prepareQuery'];
+
+/**
+ * Answer a statement with the rows Postgres would return for the selected
+ * fields. The persistence guards read only these values, so stubbing query
+ * execution keeps the assertions on behavior instead of re-stating SQL text
+ * or wiring; real RLS and SQL remain the integration suite's authority.
+ */
+function stubPreparedQuery(rowsFor: () => QueryRows): PrepareQuery {
+  type PrepareArguments = Parameters<PrepareQuery>;
+
+  return function preparedQuery<T extends PreparedQueryConfig>(
+    query: PrepareArguments[0],
+    mode: PrepareArguments[1],
+  ): PgAsyncPreparedQuery<T> {
+    return new PgAsyncPreparedQuery<T>(
+      () => Promise.resolve(rowsFor()),
+      query,
+      undefined,
+      mode,
+      new NoopLogger(),
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+    );
+  };
+}
+
+/**
+ * Answer the transaction's statements in call order. A guard mutation that
+ * skips a check then consumes the next answer, so a test supplies the row a
+ * skipped guard would resolve and fails on the unauthorized result.
+ */
+function answerQueries(tx: Db, answers: ReadonlyArray<QueryRows>): void {
+  let nextAnswer = 0;
+
+  tx._.session.prepareQuery = stubPreparedQuery(() => {
+    const answer = answers.at(nextAnswer) ?? [];
+
+    nextAnswer += 1;
+
+    return answer;
+  });
 }
 
 describe('resolveRunProjectSelection recorded payloads', () => {
@@ -238,6 +295,139 @@ describe('resolveRunProjectSelection recorded payloads', () => {
       expect(message ?? '').not.toContain(SECRET_INSTRUCTIONS);
     },
   );
+});
+
+/**
+ * The live path: a Run with no recorded binding and no dispatch record reads
+ * the Chat's current owned affiliation exactly once. The session boundary
+ * supplies the row values, so a guard that lets a dispatched Run read current
+ * rows (or invents a selection from a missing one) is observable as a
+ * resolved payload instead of a fail-closed error.
+ */
+describe('resolveRunProjectSelection live states', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  const request = {
+    runId: 'run-1',
+    chatId: 'chat-1',
+    userId: 'owner-1',
+  };
+
+  const undispatchedRun = { id: 'run-1', dispatched: false };
+  const dispatchedRun = { id: 'run-1', dispatched: true };
+
+  function affiliation(
+    projectId: string | null,
+    projectName: string | null,
+  ): UnknownRecord {
+    const owned = projectName !== null;
+
+    return {
+      projectId,
+      projectName,
+      projectDescription: owned ? 'A selected Project.' : null,
+      projectInstructions: owned ? SECRET_INSTRUCTIONS : null,
+    };
+  }
+
+  function resolve(tx: Db) {
+    return resolveRunProjectSelection(tx, request);
+  }
+
+  function absentEvents(): void {
+    vi.spyOn(
+      RunEventsRepository.prototype,
+      'findFirstByType',
+    ).mockResolvedValue(undefined);
+  }
+
+  it('resolves the current owned affiliation before any dispatch', async () => {
+    absentEvents();
+    const tx = drizzle.mock();
+
+    answerQueries(tx, [[undispatchedRun], [affiliation(PROJECT_ID, 'Alpha')]]);
+
+    await expect(resolve(tx)).resolves.toEqual(payload());
+  });
+
+  it('treats an unaffiliated owned Chat as a real null selection', async () => {
+    absentEvents();
+    const tx = drizzle.mock();
+
+    answerQueries(tx, [[undispatchedRun], [affiliation(null, null)]]);
+
+    await expect(resolve(tx)).resolves.toEqual({ v: 1, project: null });
+  });
+
+  it('fails closed when a named affiliation has no owned Project row', async () => {
+    absentEvents();
+    const tx = drizzle.mock();
+
+    answerQueries(tx, [[undispatchedRun], [affiliation(PROJECT_ID, null)]]);
+
+    const error = await rejection(resolve(tx));
+
+    expect(error).toBeInstanceOf(ModelContextExecutionError);
+    expect(error.message).not.toContain(SECRET_INSTRUCTIONS);
+  });
+
+  it('fails closed when the run has no owned Chat', async () => {
+    absentEvents();
+    const tx = drizzle.mock();
+
+    answerQueries(tx, [[undispatchedRun], []]);
+
+    const error = await rejection(resolve(tx));
+
+    expect(error).toBeInstanceOf(ModelContextExecutionError);
+  });
+
+  it('fails closed when the run row is not owned, without a live fallback', async () => {
+    absentEvents();
+    const tx = drizzle.mock();
+
+    // The second answer proves a skipped missing-Run guard resolves instead
+    // of failing closed.
+    answerQueries(tx, [[], [affiliation(PROJECT_ID, 'Alpha')]]);
+
+    const error = await rejection(resolve(tx));
+
+    expect(error).toBeInstanceOf(ModelContextExecutionError);
+  });
+
+  it('fails closed after a persisted dispatch without a binding', async () => {
+    absentEvents();
+    const tx = drizzle.mock();
+
+    answerQueries(tx, [[dispatchedRun], [affiliation(PROJECT_ID, 'Alpha')]]);
+
+    const error = await rejection(resolve(tx));
+
+    expect(error).toBeInstanceOf(ModelContextExecutionError);
+  });
+
+  it('fails closed after a model request without a binding', async () => {
+    vi.spyOn(
+      RunEventsRepository.prototype,
+      'findFirstByType',
+    ).mockImplementation((_runId, _userId, eventType) =>
+      Promise.resolve(
+        eventType === 'model.requested'
+          ? runEvent('model.requested', { modelId: 'system:test' })
+          : undefined,
+      ),
+    );
+    const tx = drizzle.mock();
+
+    // A dispatched-Run fallback would find current rows and resolve them.
+    answerQueries(tx, [[undispatchedRun], [affiliation(PROJECT_ID, 'Alpha')]]);
+
+    const error = await rejection(resolve(tx));
+
+    expect(error).toBeInstanceOf(ModelContextExecutionError);
+  });
 });
 
 /**
@@ -357,6 +547,37 @@ describe('recordRunProjectSelection durable transitions', () => {
     expect(events[0]?.payload).toEqual(malformed);
   });
 
+  it('refuses to bind a Project onto a recorded real null selection', async () => {
+    const events = statefulEvents([boundEvent({ v: 1, project: null })]);
+
+    const error = await rejection(record(selected()));
+
+    expect(error).toBeInstanceOf(ModelContextExecutionError);
+    expect(events).toHaveLength(1);
+    expect(events[0]?.payload).toEqual({ v: 1, project: null });
+  });
+
+  // A typed `ProjectBoundPayload` is not a validated one: the canonical
+  // locator rule lives in the runtime schema, so this seam is the only place
+  // a caller can hand the recorder a well-typed, non-canonical value.
+  it.each<[string, Partial<ProjectSelection>]>([
+    [
+      'a locator naming another Project',
+      { locator: `projects://${OTHER_PROJECT_ID}` },
+    ],
+    ['a blank name', { name: '   ' }],
+  ])(
+    'refuses %s as supplied selection before any event write',
+    async (_case, overrides) => {
+      const events = statefulEvents();
+
+      const error = await rejection(record(selected(overrides)));
+
+      expect(error).toBeInstanceOf(ModelContextExecutionError);
+      expect(events).toHaveLength(0);
+    },
+  );
+
   it('refuses to record after a prior model.requested without binding', async () => {
     const requested = runEvent('model.requested', {
       modelId: 'system:test',
@@ -372,5 +593,35 @@ describe('recordRunProjectSelection durable transitions', () => {
     expect(
       events.some((event) => event.eventType === 'run.project_bound'),
     ).toBe(false);
+  });
+});
+
+/**
+ * Historical presence is a row-existence fact: the owner-scoped statement
+ * either returns one row or none, and only that distinction decides.
+ */
+describe('hasProjectContextHistory presence', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('reports history when the owner-scoped statement returns a row', async () => {
+    const tx = drizzle.mock();
+
+    answerQueries(tx, [[{ present: 1 }]]);
+
+    await expect(
+      hasProjectContextHistory(tx, 'chat-1', 'owner-1'),
+    ).resolves.toBe(true);
+  });
+
+  it('reports no history when the owner-scoped statement returns no row', async () => {
+    const tx = drizzle.mock();
+
+    answerQueries(tx, [[]]);
+
+    await expect(
+      hasProjectContextHistory(tx, 'chat-1', 'owner-1'),
+    ).resolves.toBe(false);
   });
 });

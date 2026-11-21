@@ -5991,6 +5991,8 @@ describe('RunExecutionService executeRun — Project selection', () => {
       { runId, userId },
       boundProject,
     );
+    // A bound selection already has presence; no durable-history read is owed.
+    expect(execution.projectContextHistory).not.toHaveBeenCalled();
   });
 
   it('compares against an identical active-epoch item instead of duplicating it, and still records the binding', async () => {
@@ -6016,6 +6018,8 @@ describe('RunExecutionService executeRun — Project selection', () => {
       { runId, userId },
       boundProject,
     );
+    // The active epoch holds the text; no durable-history read is owed.
+    expect(execution.projectContextHistory).not.toHaveBeenCalled();
   });
 
   it('supersedes earlier Project context with an absence snapshot for a null selection', async () => {
@@ -6027,8 +6031,9 @@ describe('RunExecutionService executeRun — Project selection', () => {
 
     await execution.service.executeRun(laterTriggerInput(capturing.client));
 
-    // The absence snapshot is authored for a null selection with durable
-    // history even though no active-epoch item supplies the text.
+    // The absence snapshot is authored because the null selection must
+    // supersede the active epoch's Project text; that text is the presence the
+    // comparison reads, so no durable-history probe is owed.
     const absence = createProjectSnapshotItem({
       runId,
       selection: noProject,
@@ -6046,6 +6051,40 @@ describe('RunExecutionService executeRun — Project selection', () => {
       { runId, userId },
       noProject,
     );
+    expect(execution.projectContextHistory).not.toHaveBeenCalled();
+  });
+
+  it('emits the absence reminder when only absorbed history holds Project context', async () => {
+    const repositories = mockNormalExecutionRepositories();
+    const capturing = makeCapturingClient();
+    const execution = makeExecutionService(capturing.client);
+    // The active epoch holds no Project text; the durable row a checkpoint
+    // absorbed is the only presence.
+    execution.projectContextHistory.mockResolvedValue(true);
+
+    await execution.service.executeRun(executionInput(capturing.client));
+
+    const absence = createProjectSnapshotItem({
+      runId,
+      selection: noProject,
+    });
+
+    // This is the one case the probe exists for, and it runs exactly once.
+    expect(execution.projectContextHistory).toHaveBeenCalledOnce();
+    expect(execution.projectContextHistory).toHaveBeenCalledWith(
+      expect.anything(),
+      chatId,
+      userId,
+    );
+
+    // The model receives the absence reminder that retires the absorbed text.
+    expect(triggerTexts(capturing)).toContain(absence.data.text);
+
+    // The dispatch freezes the same absence item into stored context.
+    const storedItems = stagedItemsOf(repositories.storeAtDispatch, 'project');
+    expect(storedItems).toHaveLength(1);
+    expect(storedItems[0]?.data.text).toBe(absence.data.text);
+    expect(storedItems[0]?.data.payload).toEqual({ v: 1, project: null });
   });
 
   it('emits no absence reminder for a never-filed Chat', async () => {
@@ -6066,6 +6105,9 @@ describe('RunExecutionService executeRun — Project selection', () => {
       { runId, userId },
       noProject,
     );
+    // With no active-epoch text and a null selection, the probe is the only
+    // way to learn the Chat never received Project context.
+    expect(execution.projectContextHistory).toHaveBeenCalledOnce();
   });
 
   it('records the selection immediately before model.requested in the dispatch transaction', async () => {
