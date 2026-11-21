@@ -32,6 +32,8 @@ export type RequestRecoveryOptions = ProviderFailureMiddlewareOptions & {
   onRetry?: ModelStreamInput['onRetry'];
   bufferWholeSend?: boolean;
   requestRetriesUsed?: number;
+  /** The previous step's started-call failure; the first send waits its delay. */
+  pendingFailure?: ProviderFailure;
 };
 
 type RecoveryTiming = Partial<RecoveryClock>;
@@ -334,6 +336,10 @@ class StreamRecovery {
       ...(failure.statusCode !== undefined && {
         statusCode: failure.statusCode,
       }),
+      ...(failure.toolCallStarted !== undefined && {
+        toolCallStarted: failure.toolCallStarted,
+      }),
+      ...(failure.sends !== undefined && { sends: failure.sends }),
       superseded: {
         retry: this.sends,
         delayMs: retryDelay(failure, this.sends, this.clock),
@@ -348,18 +354,20 @@ class StreamRecovery {
   ): FailedSend {
     const classified = this.streamFailure(error, send, output.content);
 
-    const failure =
-      output.completeTool &&
-      (classified.code === 'quota_exhausted' ||
-        classified.code === 'rate_limited')
-        ? new ProviderFailure(classified.message, {
-            code: classified.code,
+    const failure = output.completeTool
+      ? new ProviderFailure(classified.message, {
+          code: classified.code,
+          ...(classified.resetsAt !== undefined && {
             resetsAt: classified.resetsAt,
-            hintMs: classified.hintMs,
+          }),
+          ...(classified.hintMs !== undefined && { hintMs: classified.hintMs }),
+          ...(classified.statusCode !== undefined && {
             statusCode: classified.statusCode,
-            toolCallStarted: true,
-          })
-        : classified;
+          }),
+          toolCallStarted: true,
+          sends: this.sends,
+        })
+      : classified;
 
     const liveRetry =
       output.content &&
@@ -525,6 +533,7 @@ export function withRequestRecovery(
   };
 
   let requestRetriesUsed = options.requestRetriesUsed ?? 0;
+  let pendingFailure = options.pendingFailure;
 
   return wrapLanguageModel({
     model,
@@ -534,6 +543,13 @@ export function withRequestRecovery(
         const recovery = new StreamRecovery(raw, params, options, clock);
         recovery.restoreRetries(requestRetriesUsed);
         requestRetriesUsed = 0;
+
+        if (pendingFailure !== undefined) {
+          const failure = pendingFailure;
+          pendingFailure = undefined;
+          await recovery.retry(failure);
+        }
+
         const initial = await recovery.open();
 
         return {
@@ -557,6 +573,7 @@ export function applyRequestRecovery(
     abortSignal: input.abortSignal,
     onRetry: input.onRetry,
     requestRetriesUsed: input.requestRetriesUsed,
+    pendingFailure: input.pendingFailure,
     bufferWholeSend:
       options.bufferWholeSend ??
       (!input.onTextDelta && !input.onReasoningDelta),

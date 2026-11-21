@@ -76,6 +76,13 @@ through its last settled tool part, plus the context items directly after it.
 Everything after them is the step that did not finish: the Continue Run drops it
 from the reply and the earlier Run's event log keeps it.
 
+When the earlier Run's model send failed after a tool call had started, the kept
+parts also hold a `provider-failure` notice directly after the last settled tool
+part. It tells the model that the response stopped, that each call above has its
+result, and that the output after the last result is not kept. Continue keeps
+the notice with the context items, so its first request sends the notice as a
+user-role message after the last kept result.
+
 A reply with no settled tool part keeps nothing, and the Continue Run starts the
 turn again from its user message.
 

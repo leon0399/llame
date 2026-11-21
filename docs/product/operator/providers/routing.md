@@ -203,6 +203,22 @@ For a non-streaming structured request, the first-token deadline covers the
 complete send. A deadline expiry aborts that send and follows the same bounded
 `first_token_timeout` retry policy.
 
+A send that fails after it streamed a complete tool call is not sent again. The
+Run waits for each started call of that send to settle. Each tool's own timeout,
+Stop, and the execution ceiling bound that wait. The Run keeps the reply through
+the last tool part and drops the text and reasoning after it. That dropped
+output is the cut. A `provider-failure` notice follows the last result in every
+outcome, whether the Run continues, fails, expires, or is stopped or
+interrupted. Later requests and owner Continue carry it. The notice says that
+the previous response stopped because the provider failed and names the failure
+label. It tells the model that each tool call above has its result and that the
+output after the last result is not kept. It never carries a provider message.
+The Run then continues with the next step under the failed request's retry
+count, so the same ten-retry allowance applies. A failure class with no retry
+fails the Run with the kept parts and the notice. After a started call, a quota
+or rate limit with a reset more than 60 s away or no reset fails the Run with
+the notice. A reset of 60 s or less is a request retry.
+
 | Failure class                               | Operator action                                                                                                                      |
 | ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
 | `quota_exhausted`                           | Check the account's usage window or spend cap. `error.resetsAt`, when present, is the provider's reset instant in Unix milliseconds. |

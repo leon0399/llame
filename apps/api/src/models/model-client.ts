@@ -14,7 +14,10 @@ import type {
 
 import type { RunMediaResolver } from '../media/media-descriptors';
 import type { ModelInput, TokenPrice } from './model-catalog';
-import type { FailureClass } from './provider-failure/provider-failure';
+import type {
+  FailureClass,
+  ProviderFailure,
+} from './provider-failure/provider-failure';
 
 export type ModelRequestRetry = {
   code: FailureClass;
@@ -95,6 +98,11 @@ export interface ModelStepStart {
 export interface ModelStreamInput {
   /** Prior provider sends for this logical request, carried across a live restart. */
   requestRetriesUsed?: number;
+  /**
+   * The started-call failure of the previous step; the first send of this
+   * request waits its retry delay first.
+   */
+  pendingFailure?: ProviderFailure;
   messages: Array<ModelMessage>;
   /**
    * The Chat this request belongs to (required: every call site supplies it,
@@ -284,6 +292,12 @@ export interface ModelStreamInput {
   onRequestUsage?: (usage: LanguageModelUsage, generationMs: number) => void;
   /** Persisted before a same-model retry delay; omitted for side calls. */
   onRetry?: (retry: ModelRequestRetry) => void | Promise<void>;
+  /**
+   * Called synchronously when a send fails, at the stream's `error` part,
+   * before any deferred `onError`. The Run learns of a started-call failure
+   * here, while its tool calls still run.
+   */
+  onSendFailed?: (failure: ModelFailure) => void;
   onError?: StreamTextOnErrorCallback;
   onFinish?: (event: ModelStreamFinishEvent) => void | Promise<void>;
   /**

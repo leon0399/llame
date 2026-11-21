@@ -40,7 +40,7 @@ export function promiseFailureOverrides(
 
 /** Preserve the actual failed send when the SDK rejects text with no output. */
 export function captureRequestFailure(
-  request: Pick<ModelStreamInput, 'onError'>,
+  request: Pick<ModelStreamInput, 'onError' | 'onSendFailed'>,
   sanitize: ModelFailureSanitizer | undefined,
 ): ModelFailureSanitizer {
   let failure: { error: ModelFailure } | undefined;
@@ -49,6 +49,7 @@ export function captureRequestFailure(
   request.onError = (event) => {
     const error = sanitize?.(event.error) ?? event.error;
     failure ??= { error };
+    request.onSendFailed?.(error);
 
     return onError?.({ error });
   };

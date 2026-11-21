@@ -57,12 +57,12 @@ against its parent before publication.
 Enter `continue-after-broken-send/continue` with `$gh-stack` from the approved proposal. Run
 focused test files only; CI owns the full suites.
 
-- [ ] 2.1 Spike first (design Risks): drive `runStreamChannel` and the Chat Completions client,
+- [x] 2.1 Spike first (design Risks): drive `runStreamChannel` and the Chat Completions client,
       each with `applyRequestRecovery` and a `MockLanguageModelV3` that streams a complete
       `tool-call` part and then fails, with a tool that resolves later. Record when `onError` and
       `onFinish` run and how many `doStream` calls occur today, also with a Stop and an interrupt
       during the wait. Stop the layer and return to review if the order differs from design Context.
-- [ ] 2.2 `request-recovery.ts` marks every class `toolCallStarted` after a complete tool-call part
+- [x] 2.2 `request-recovery.ts` marks every class `toolCallStarted` after a complete tool-call part
       and attaches the prior send count (design D1). Verify in `request-recovery.test.ts` that such
       a send is not sent again, and that a restored recovery with a pending failure waits the delay
       of retry `sends`, reports `retry: sends`, and fails at `MAX_SENDS`.

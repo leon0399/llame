@@ -77,4 +77,31 @@ describe('provider failure helpers', () => {
     expect(sanitize(new NoOutputGeneratedError())).toBe(failure);
     expect(onError).toHaveBeenCalledWith({ error: failure });
   });
+
+  it('reports every failed send before the error handler with the sanitized error', () => {
+    const failure = new ProviderFailure('bounded provider failure', {
+      code: 'server_error',
+    });
+
+    const onSendFailed = vi.fn();
+    const onError = vi.fn();
+
+    const request = { onError, onSendFailed };
+
+    captureRequestFailure(request, () => failure);
+
+    request.onError?.({ error: new Error('raw') });
+    request.onError?.({ error: new Error('again') });
+
+    expect(onSendFailed).toHaveBeenCalledTimes(2);
+    expect(onError).toHaveBeenCalledTimes(2);
+    expect(onSendFailed).toHaveBeenNthCalledWith(1, failure);
+    expect(onSendFailed).toHaveBeenNthCalledWith(2, failure);
+    expect(onSendFailed.mock.invocationCallOrder[0]).toBeLessThan(
+      onError.mock.invocationCallOrder[0] ?? Infinity,
+    );
+    expect(onSendFailed.mock.invocationCallOrder[1]).toBeLessThan(
+      onError.mock.invocationCallOrder[1] ?? Infinity,
+    );
+  });
 });

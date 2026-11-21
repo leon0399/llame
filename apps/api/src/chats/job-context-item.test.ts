@@ -177,7 +177,7 @@ describe('createJobNoticeItem', () => {
     expect(item.data.text).not.toContain('b'.repeat(1989));
   });
 
-  it('places a job notice after interrupted and before every other producer', () => {
+  it('places a job notice after the provider-failure notice and before every other producer', () => {
     const interrupted = createInterruptedItem({
       runId: RUN_ID,
       stoppedCalls: [],
@@ -198,6 +198,6 @@ describe('createJobNoticeItem', () => {
       CONTEXT_ITEM_PRODUCERS.findIndex(
         (producer) => producer === notice.data.producer,
       ),
-    ).toBe(1);
+    ).toBe(CONTEXT_ITEM_PRODUCERS.indexOf('provider-failure') + 1);
   });
 });
