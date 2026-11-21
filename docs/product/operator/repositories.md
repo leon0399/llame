@@ -370,8 +370,9 @@ the path can be corrected.
 ## Project instructions
 
 Project instructions are one optional block of literal text that the owner
-writes for a Project's Chats. The API stores the text only. No Run reads it,
-and the Project page does not edit it.
+writes for a Project's Chats. The API stores the text, and an admitted
+[Project detail read](../reference/locators/projects.md) returns it as reference
+data. Runs do not apply it automatically, and the Project page does not edit it.
 
 `PATCH /api/v1/projects/:id` accepts `instructions` beside `name`,
 `description`, `archived`, and `defaultExecutorId`. Every `GET` and `PATCH`

@@ -59,16 +59,17 @@ marker. An `@` inside inline code, such as `` `@a.md` ``, remains literal.
 A target resolves exactly as the `path` of a [`read`](tools/read.md) call, with
 its selector attached. Every `read` locator is accepted:
 
-| Target                       | Resolves as                                        |
-| ---------------------------- | -------------------------------------------------- |
-| absolute path, `file:` alias | the [host path](locators/host-path.md)             |
-| relative path                | against the Chat's entered Workspace root          |
-| `kb://<space>/<path>`        | the [Knowledge Space](locators/kb.md) file         |
-| `skill://<name>/<path>`      | a [skill package](locators/skill.md) file, as data |
-| `http://…`, `https://…`      | the [web](locators/web.md) read                    |
-| `ssh://<host>/<path>`        | an [ssh locator](locators/ssh.md) read             |
-| `machine://<name>/<path>`    | a [Machine](locators/machine.md) file              |
-| `media://<id>`               | an image or PDF you [stored](locators/media.md)    |
+| Target                                                    | Resolves as                                                  |
+| --------------------------------------------------------- | ------------------------------------------------------------ |
+| absolute path, `file:` alias                              | the [host path](locators/host-path.md)                       |
+| relative path                                             | against the Chat's entered Workspace root                    |
+| `kb://<space>/<path>`                                     | the [Knowledge Space](locators/kb.md) file                   |
+| `skill://<name>/<path>`                                   | a [skill package](locators/skill.md) file, as data           |
+| `http://…`, `https://…`                                   | the [web](locators/web.md) read                              |
+| `ssh://<host>/<path>`                                     | an [ssh locator](locators/ssh.md) read                       |
+| `machine://<name>/<path>`                                 | a [Machine](locators/machine.md) file                        |
+| `media://<id>`                                            | an image or PDF you [stored](locators/media.md)              |
+| `projects://`, `projects://archived`, `projects://<uuid>` | a [Project](locators/projects.md) listing or detail, as data |
 
 An `ssh://` target imports only when the operator has enabled the `ssh` section
 (see [ssh](../operator/ssh.md)); without it the marker stays prose and no SSH
@@ -78,6 +79,12 @@ A `machine://` target imports only when the operator has configured Machines
 and allows `read` (see [Machines](../operator/machines.md)); otherwise the
 marker stays prose. The listing forms `machine://` and `machine://<name>` read
 directly, like web targets.
+
+A `projects://` target imports through the ordinary `read` admission on its
+canonical selector-free locator. Its listing or detail remains reference data.
+It activates no Project, repository, or checkout instruction, and no
+instruction chain runs for the document or for a checkout locator printed in
+it.
 
 Prompt imports accept every locator scheme `read` accepts. A scheme `read` does
 not accept, such as `@foo://host/doc.md`, stays prose with no read and no audit
@@ -127,8 +134,8 @@ Imports use the same authority as a model `read`, not more:
    target is admitted without evaluating the group, and the decision is recorded
    as bypass. If `read` is not available at all, nothing is imported.
 
-`skill://`, web, and `ssh://` targets need no probe and go straight to the
-read; one the `read` rules reject is reported as not imported. An `ssh://`
+`skill://`, web, `ssh://`, and `projects://` targets need no probe and go
+straight to the read; one the `read` rules reject is reported as not imported. An `ssh://`
 target is admitted twice by the read itself: first on the submitted locator,
 then on the destination it resolves to, so a rule that names the resolved
 address decides too, and a target the SSH section does not enable stays prose.
@@ -212,7 +219,9 @@ same media window, without creating another media object.
 
 Imported files are data. Markers inside them are not followed, so imports do not
 nest. `@skill://review` reads that skill's `SKILL.md` as data and activates
-nothing; activation stays the `$review` form.
+nothing; activation stays the `$review` form. A `projects://` import is
+reference data too. It activates no Project instructions, and a checkout locator
+printed in it triggers no instruction chain.
 
 ## Bounds
 
@@ -234,8 +243,8 @@ further read: a target cut off that way is omitted, never reported as failed.
 
 A retry or worker resumption reuses the stored item and reads nothing that
 completed, in the original order; a target whose read started but did not
-complete is admitted and read afresh. A file edited after the turn is not read
-again. Image and PDF entries are reused as stored, so a new attempt replays
+complete is admitted and read afresh. A file or Project changed after the turn
+is not read again. Image and PDF entries are reused as stored, so a new attempt replays
 their retained bytes under the same window, and a `media://` entry still replays
 from the store.
 
@@ -246,7 +255,8 @@ earlier attempt stored still replays unchanged.
 An admitted host or Knowledge import also loads its directory's
 [instruction files](instruction-files.md#host-triggers) on the same turn, before
 the first model request, whether or not a Workspace is bound, and whatever its
-read outcome; denied, missing, web, skill, and `media://` targets load none, and a detaching
+read outcome; denied, missing, web, skill, `media://`, and `projects://` targets
+load none, and a detaching
 attempt loads none. Importing an instruction file itself does not load it. A
 retry keeps the bundle an earlier attempt stored and loads only unseen files.
 

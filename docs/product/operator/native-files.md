@@ -1,7 +1,7 @@
 ---
-summary: "Enabling and restricting the host-backed native file tools, bash, Workspace entry, and permission modes"
+summary: "Enabling and restricting the host-backed native file tools, Project reads, bash, Workspace entry, and permission modes"
 read_when:
-  - you are enabling or changing native file access, bash, or Workspace entry
+  - you are enabling or changing native file access, Project reads, bash, or Workspace entry
   - you are deciding the Workspace entry or permission-mode policy of an instance
 behavior:
   - ../reference/tools/read.md
@@ -11,6 +11,7 @@ behavior:
   - ../reference/tools/enter-workspace.md
   - ../reference/tools/exit-workspace.md
   - ../reference/locators/index.md
+  - ../reference/locators/projects.md
   - ../reference/locators/artifact.md
   - ../reference/selectors.md
   - ../reference/instruction-files.md
@@ -25,7 +26,8 @@ behavior:
 `path` argument: an absolute path or a `file://` alias runs on the worker's
 filesystem with its OS user's authority, and `kb://` resolves through the
 trusted Run owner's current Knowledge Space access without binding the Run to an
-executor. `bash` shares the absolute-path host gate.
+executor. `projects://` reads the trusted Run owner's stored Projects, also
+without binding an executor. `bash` shares the absolute-path host gate.
 
 This page covers enabling and policy only. What each tool does is documented in
 [read](../reference/tools/read.md),
@@ -64,6 +66,11 @@ still decide every `ssh://` call. `read` accepts an `ssh://` path and `bash`
 accepts one as its `cwd`, which runs the
 command on that host; `edit` and `write` refuse it with
 `unsupported_operation`, and `enter_workspace` refuses it with `invalid_path`.
+
+`projects://` locators need no `nativeExecutorId` and no `knowledge.root`.
+`read` serves them on a process that offers it, once its `read` group admits the
+canonical Project locator. `edit` and `write` refuse the scheme with
+`unsupported_operation`.
 
 Optional trusted bash cwd (defaults to the cwd of the process that executes the
 Run, so a split web/worker deployment resolves it in the worker, and a bound
@@ -277,6 +284,21 @@ precedence, interpolation, client lifetime, and redaction limits.
 Entry evaluates, binds, projects relative paths, and detaches on re-preparation
 in [enter_workspace](../reference/tools/enter-workspace.md); releasing a binding
 is [exit_workspace](../reference/tools/exit-workspace.md).
+
+## Project reads
+
+`read` accepts `projects://` without a host identity and without a Workspace.
+The `read` group decides the canonical Project locator before any datastore
+read, as [tool-call permissions](tool-call-permissions.md#project-reads)
+describes. No executor is bound.
+
+A listing returns Project metadata. A detail returns the Project's literal
+instructions, linked repositories, and registered checkout locators, and the
+result labels each location registered and unverified. Admitting the Project
+locator grants no access to a returned location, so a later read, `grep` scope,
+or entry follows its own group. The detail discloses no SSH, daemon, Knowledge,
+or prompt configuration, and it returns a registered locator even when its text
+equals one. See [Project locators](../reference/locators/projects.md).
 
 ## `file://` permission clauses
 

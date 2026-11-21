@@ -19,7 +19,8 @@ configured_by:
 
 `read` takes one `path` argument and returns a bounded view of what that path
 addresses. The scheme of the path selects the authority — a host filesystem, a
-Knowledge Space, a skill package, the owner's stored media, or a web URL — and the trailing selector
+Knowledge Space, a skill package, the owner's stored media, a Project
+datastore, or a web URL — and the trailing selector
 selects lines or a representation. It never changes the source.
 
 ## Arguments
@@ -34,18 +35,19 @@ argument: the selector in `path` carries all of that. See
 
 ## Locators
 
-| Scheme                                         | Executor | Mutable | Authority and listing                    |
-| ---------------------------------------------- | -------- | ------- | ---------------------------------------- |
-| [absolute host path](../locators/host-path.md) | yes      | yes     | the worker's filesystem; depth-2 listing |
-| [`file://`](../locators/host-path.md#form)     | yes      | yes     | the same path, decoded once              |
-| [`machine://`](../locators/machine.md)         | no       | yes     | a configured Machine, over SSH           |
-| [`ssh://`](../locators/ssh.md)                 | no       | no      | an external host, over SSH               |
-| [`kb://`](../locators/kb.md)                   | no       | yes     | the owner's Knowledge Space tree         |
-| [`skill://`](../locators/skill.md)             | no       | no      | an installed skill package, read-only    |
-| [`http(s)://`](../locators/web.md)             | no       | no      | the public web, through the API process  |
-| [`media://`](../locators/media.md)             | no       | no      | the owner's stored media, read-only      |
-| [`artifact://`](../locators/artifact.md)       | no       | no      | this Chat's stored tool results          |
-| [`job://`](../locators/job.md)                 | no       | no      | this Chat's background jobs, read-only   |
+| Scheme                                         | Executor | Mutable | Authority and listing                                    |
+| ---------------------------------------------- | -------- | ------- | -------------------------------------------------------- |
+| [absolute host path](../locators/host-path.md) | yes      | yes     | the worker's filesystem; depth-2 listing                 |
+| [`file://`](../locators/host-path.md#form)     | yes      | yes     | the same path, decoded once                              |
+| [`machine://`](../locators/machine.md)         | no       | yes     | a configured Machine, over SSH                           |
+| [`ssh://`](../locators/ssh.md)                 | no       | no      | an external host, over SSH                               |
+| [`kb://`](../locators/kb.md)                   | no       | yes     | the owner's Knowledge Space tree                         |
+| [`skill://`](../locators/skill.md)             | no       | no      | an installed skill package, read-only                    |
+| [`http(s)://`](../locators/web.md)             | no       | no      | the public web, through the API process                  |
+| [`media://`](../locators/media.md)             | no       | no      | the owner's stored media, read-only                      |
+| [`artifact://`](../locators/artifact.md)       | no       | no      | this Chat's stored tool results                          |
+| [`job://`](../locators/job.md)                 | no       | no      | this Chat's background jobs, read-only                   |
+| [`projects://`](../locators/projects.md)       | no       | no      | the owner's Projects and registered checkouts, read-only |
 
 ### Artifact locators
 
@@ -68,6 +70,22 @@ routes before local path resolution and needs no executor. A read settles the
 running jobs of a dead worker as `lost` first. Another Chat, another owner, an
 unknown output, and a missing job are `not_found`; `edit` and `write` refuse
 the scheme with `invalid_path`. See [job](../locators/job.md).
+
+### Project locators
+
+`projects://` lists the owner's active Projects, `projects://archived` lists the
+owner's archived Projects, and `projects://<uuid>` reads one Project of either
+state. A listing carries only each Project's ID, name, description, archive
+state, and individual locator. A detail carries the current stored metadata and
+literal Project instructions plus each linked repository and its
+owner-registered checkouts, with each checkout labelled registered and
+unverified. The read is reference data. It activates no Project instructions,
+changes no Project affiliation, binds no Workspace, and grants no access to a
+location it prints. It needs no executor, and a missing or foreign UUID is
+`not_found`. `edit` and `write` refuse the scheme with `unsupported_operation`.
+The two listings and a detail are Markdown text sources, so the read selectors
+and result bounds apply to their rendered lines. See
+[projects](../locators/projects.md).
 
 ## Result
 
@@ -121,7 +139,10 @@ byte scan for line feeds without a decode. A larger file and an outline carry
 none, and their header and continuation line then omit the total and the
 remaining count. A directory listing carries `entryCount`, the requested level's
 entry count the listing already computes. A `machine://` read carries the count
-its daemon reports and none when the daemon sends none.
+its daemon reports and none when the daemon sends none. A Project listing or
+detail carries the rendered Markdown source line count, including encoded chunk
+lines, so its header and continuation line state the shown and remaining
+lines.
 
 A file read on an absolute path reports `realPath` when a symbolic link in the
 path or in one of its components makes it differ from the normalized path as
@@ -219,7 +240,9 @@ A read never mutates its source. A read of a host path also triggers that
 directory's instruction chain, and a `kb://` read triggers its Space's chain; a
 read on a Machine triggers the chain inside the registered root containing it.
 See [instruction files](../instruction-files.md). A `skill://`, `http(s)://`,
-`media://`, or `bash` call never triggers a load.
+`media://`, `projects://`, or `bash` call never triggers a load. A Project
+document loads no instruction chain, and no checkout locator printed inside it
+triggers one.
 
 A `machine://` read returns the same contents, listing shape, selectors, and
 bounds as the local executor, with every reported path written as a Machine
@@ -246,7 +269,9 @@ request, with the same locators and selectors; see [prompt imports](../prompt-im
 
 Every read shares the result bound documented in
 [selectors](../selectors.md#result-bounds); a directory read has its own
-traversal budget, in [host-path](../locators/host-path.md#listing).
+traversal budget, in [host-path](../locators/host-path.md#listing). A Project
+listing or detail stays within the shared bound, and its continuation reaches
+every omitted entry and location.
 
 ## Errors
 
@@ -256,7 +281,11 @@ Knowledge identifier failures — `knowledge_space_not_found` and
 return — `invalid_path`, `not_found`, `not_regular_file`, `invalid_utf8`,
 `executor_unavailable`, `directory_too_large`, ... — is the same native
 vocabulary regardless of scheme. `file_exists` is not one of them: it belongs to
-the mutations, in [write](write.md#errors).
+the mutations, in [write](write.md#errors). A malformed Project resource fails
+`invalid_path` before any datastore read, and a missing or foreign UUID is
+`not_found`. A rejected Project locator returns the ordinary read permission
+denial. `edit` and `write` refuse the scheme with `unsupported_operation`. See
+[projects](../locators/projects.md#errors).
 
 A selector the source does not accept fails with `invalid_selector`, and a
 suffix outside the grammar is `invalid_selector` on every scheme, with one
@@ -270,8 +299,9 @@ tail, open-ended, and multi-range selectors. An image or PDF over 20 MiB fails
 `media_too_large` before it is read whole, as does an image over 40 megapixels
 or a PDF over 100 pages. An encrypted or unopenable PDF, or image bytes that
 cannot be decoded, fails `unsupported_media_type`. Neither falls back to text.
-`unsupported_operation` is a `skill://` or `media://` mutation refusal, and
-`skill_requires_explicit_selection` a manual-only package refusal; both are in
+`unsupported_operation` is a mutation refusal for a read-only scheme, including
+`skill://`, `media://`, and `projects://`. The manual-only package refusal
+`skill_requires_explicit_selection` is in
 [skill](../locators/skill.md#errors).
 
 ## Configured by
@@ -294,4 +324,6 @@ A read is gated by the `read` permission group, described in
 [tool-call permissions](../../operator/tool-call-permissions.md#matching). That
 group matches the resource without the read selector the tool splits off, on
 every source; `edit` and `write` have no selector, so any suffix they carry
-stays in the matched text.
+stays in the matched text. A `projects://` locator is matched in its canonical
+selector-free form, so an uppercase scheme, the root alias, an uppercase UUID,
+and a selector cannot change the decision.

@@ -1347,19 +1347,24 @@ describe('resolvePromptImports native read schemes', () => {
   const MACHINE = 'machine://box/etc/hostname';
   const KB = 'kb://notes/a.md';
   const MEDIA = 'media://0190f5e2-7c1a-7b3e-9d4f-2a6b8c0d1e2f';
+  const PROJECT = 'projects://0190f5e2-7c1a-7b3e-9d4f-2a6b8c0d1e2f';
 
-  /** Probed sources need a target their probe finds; any other scheme reads directly. */
-  const probed = new Map([
+  /**
+   * Each scheme's marker: probed sources need a target their probe finds, a
+   * Project needs a well-formed UUID, and any other scheme reads directly.
+   */
+  const markerTargets = new Map([
     ['machine', MACHINE],
     ['kb', KB],
     ['media', MEDIA],
+    ['projects', PROJECT],
   ]);
 
   // `artifact://` and `job://` name resources of the current Chat, so their
   // markers stay prose (tool-result-artifacts D12) and are not attempted.
   const markers = readLocatorSchemes()
     .filter((scheme) => scheme !== 'artifact' && scheme !== 'job')
-    .map((scheme) => probed.get(scheme) ?? `${scheme}://host/doc.md`);
+    .map((scheme) => markerTargets.get(scheme) ?? `${scheme}://host/doc.md`);
 
   it('keeps every scheme native read accepts today', () => {
     expect(readLocatorSchemes()).toEqual(
@@ -1373,6 +1378,7 @@ describe('resolvePromptImports native read schemes', () => {
         'ssh',
         'artifact',
         'job',
+        'projects',
       ]),
     );
   });
@@ -1418,5 +1424,76 @@ describe('resolvePromptImports native read schemes', () => {
     expect(calls.admits).toEqual([]);
     expect(calls.reads).toEqual([]);
     expect(result).toEqual({ outcomes: [], omitted: [] });
+  });
+});
+
+describe('resolvePromptImports Project resources', () => {
+  const PROJECT_UUID = '0190f5e2-7c1a-7b3e-9d4f-2a6b8c0d1e2f';
+  const PROJECT = `projects://${PROJECT_UUID}`;
+
+  /** A detail's literal instructions and printed checkout locations. */
+  const DOCUMENT = [
+    '# api',
+    'Instructions are reference data; `/work/api` and `machine://nas/srv/api` are registered and unverified.',
+  ].join('\n');
+
+  it('reads one Project document directly and returns only import data', async () => {
+    const { calls, run } = createHarness({ body: () => DOCUMENT });
+
+    const result = await run(`@${PROJECT}`);
+
+    // The scheme imports through one direct read: no pre-evaluation and no
+    // probe, and no executor or Machine is contacted for the Project itself.
+    expect(calls.admits).toEqual([]);
+    expect(calls.hostProbes).toEqual([]);
+    expect(calls.machineProbes).toEqual([]);
+    expect(calls.knowledgeProbes).toEqual([]);
+    expect(calls.reads).toEqual([{ path: PROJECT, ordinal: 0 }]);
+    // Imported instructions stay data: the pass returns outcomes and carries
+    // no activation state, and a direct target has no `resolved` path, so no
+    // instruction-file trigger can come from the document's printed paths.
+    expect(result).toEqual({
+      outcomes: [{ locator: PROJECT, outcome: 'imported', body: DOCUMENT }],
+      omitted: [],
+    });
+    expect(result.outcomes[0]).not.toHaveProperty('resolved');
+  });
+
+  it('accepts an uppercase scheme and UUID as direct reads of their own', async () => {
+    const uppercaseScheme = `PROJECTS://${PROJECT_UUID}`;
+    const uppercaseId = `projects://${PROJECT_UUID.toUpperCase()}`;
+    const { calls, run } = createHarness();
+
+    const result = await run(`@${uppercaseScheme} @${uppercaseId}`);
+
+    // The import layer submits each marker as written; `read` parses the
+    // scheme and UUID case-insensitively, so neither form stays prose.
+    expect(calls.admits).toEqual([]);
+    expect(calls.reads).toEqual([
+      { path: uppercaseScheme, ordinal: 0 },
+      { path: uppercaseId, ordinal: 1 },
+    ]);
+    expect(
+      result.outcomes.map(({ locator, outcome }) => [locator, outcome]),
+    ).toEqual([
+      [uppercaseScheme, 'imported'],
+      [uppercaseId, 'imported'],
+    ]);
+  });
+
+  it('records a rejected Project locator as denied without a body', async () => {
+    const { calls, run } = createHarness({
+      result: () => REFUSED,
+      admission: () => REJECT,
+    });
+
+    const result = await run(`@${PROJECT}:raw:1-3`);
+
+    // The selector stays on the submitted locator; admission rejects the
+    // canonical Project resource, so the entry carries no status or content.
+    expect(calls.reads).toEqual([{ path: `${PROJECT}:raw:1-3`, ordinal: 0 }]);
+    expect(result.outcomes).toEqual([
+      { locator: `${PROJECT}:raw:1-3`, outcome: 'denied' },
+    ]);
   });
 });

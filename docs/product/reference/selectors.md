@@ -307,6 +307,16 @@ result envelopes are unchanged. Heading lines and their coordinates are
 untrusted, execution-time navigation metadata rather than a snapshot, hash, lock,
 or authority token; a later read reauthorizes and rereads the current source.
 
+## Project documents
+
+A [`projects://`](locators/projects.md) listing or detail is a Markdown source
+that llame renders from the owner's current rows. Native selectors address its
+rendered source lines, not the lines of a stored field. Encoding, chunk lines,
+and selector behavior are described in
+[projects](locators/projects.md#behavior). Each read renders the rows again, so
+coordinates are execution-time navigation, not a cross-read snapshot. The
+shared [result bounds](#result-bounds) apply.
+
 ## Malformed selectors
 
 A trailing suffix that splits off a locator which itself parses and then lies
@@ -332,8 +342,9 @@ their message is the forms alone.
 `invalid_path` remains the answer for a malformed locator part: a path that is
 not a locator at all, an unimplemented scheme, a `kb://` or `skill://` path that
 fails to decode or validate before the suffix is judged, a `file://` alias with
-a remote authority or an illegal escape, or a web locator that is not an
-absolute `http`/`https` URL. A selector the source cannot serve keeps its own
+a remote authority or an illegal escape, a web locator that is not an absolute
+`http`/`https` URL, or a `projects://` locator with a malformed resource. A
+selector the source cannot serve keeps its own
 `invalid_selector` rather than the grammar refusal: a web render reports how
 many lines it holds, while a file whose requested start is past its last line
 keeps the bare error type as its message, because the spelling was inside the

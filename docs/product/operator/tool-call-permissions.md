@@ -10,6 +10,7 @@ behavior:
   - ../reference/tools/write.md
   - ../reference/tools/enter-workspace.md
   - ../reference/locators/web.md
+  - ../reference/locators/projects.md
   - ../reference/context-documents.md
 ---
 
@@ -95,16 +96,19 @@ For native `read`, `edit`, and `write`, the `path` value is projected to its
 logical locator before matching: a `kb://` locator is re-encoded once to
 `kb://<space-id>/<encoded-path>`, a `skill://` locator to its canonical
 identity, a `file://` or `file:` alias to its percent-decoded absolute host
-path, and a web locator to the URL its request will use, down to the host case,
-port, escapes, and fragment, as [web
+path, a `projects://` locator to its canonical Project resource, with the
+scheme and UUID lowercased and the root alias `projects:///` folded to
+`projects://`, and a web locator to the URL its request will use, down to the
+host case, port, escapes, and fragment, as [web
 locators](../reference/locators/web.md#form) describes. A Workspace-relative
 host path is resolved against the Workspace root first. No filesystem or
 backing path is resolved during permission evaluation, and arbitrary MCP
 values receive no native normalization.
 
 A `read` is matched **without its read selector**, on every source: the direct
-host path, a decoded file alias, a `kb://` or `skill://` locator, a web
-locator, and the Workspace-relative path after resolution. Nothing else is
+host path, a decoded file alias, a `kb://` or `skill://` locator, a
+`projects://` locator, a web locator, and the Workspace-relative path after
+resolution. Nothing else is
 removed from the text — a submitted web fragment stays in the submitted pass,
 while the parsed/requested web projection drops it. A clause therefore names
 the resource, not the window into it, so `^/srv/docs/guide\.md$` admits
@@ -242,6 +246,7 @@ coexist:
           { "field": "path", "regex": "^skill://" },
           { "field": "path", "regex": "^media://" },
           { "field": "path", "regex": "^artifact://" },
+          { "field": "path", "regex": "^projects://" },
           { "field": "path", "regex": "^https://docs\\.example\\.com/" },
         ],
       },
@@ -258,6 +263,10 @@ read is rejected as `no_allow` before any lookup.
 The `^/` and `^kb://` clauses admit `/etc/hosts` and `kb://SPACE/notes/a.md`; a
 read you want blocked must be absent from the allow list or denied by a reject
 clause.
+The `^projects://` clause admits Project listings and detail reads. Without it
+every Project read is rejected as `no_allow` before any datastore read. The
+clause covers the Project resource only, not the checkout locators a detail
+returns. See [Project reads](#project-reads).
 The domain allowlist must also name each rewrite origin: allowing the source
 host does not admit the operator-declared target origin, because the target is
 a separate derived locator.
@@ -291,6 +300,68 @@ What the clause matches is locator text, not an address:
   server. Because some servers merge `//` or treat `..;` specially, a
   path-scoped rule can miss the resource the server serves; scope a sensitive
   address by origin instead of path when that is the boundary you need.
+
+## Project reads
+
+`projects://` is a `read` authority like a local path or a Knowledge locator. It
+uses the same `read` group, and it needs no executor. A process without
+`tools.nativeExecutorId` serves Project reads, and no Workspace has to be
+entered.
+
+The group decides the canonical Project resource, without its read selector.
+Three forms share one clause:
+
+| Submitted form                | Canonical resource    | Returns                       |
+| ----------------------------- | --------------------- | ----------------------------- |
+| `projects://`, `projects:///` | `projects://`         | the owner's active Projects   |
+| `PROJECTS://archived`         | `projects://archived` | the owner's archived Projects |
+| `PROJECTS://<UUID>`           | `projects://<uuid>`   | one Project                   |
+
+Write the clause against the lowercase canonical text. One clause then covers
+the uppercase spellings, the root alias, and a selector such as `:raw:1-10`.
+This group admits both listings and every detail except one named Project:
+
+```json
+{
+  "tools": {
+    "permissions": {
+      "read": {
+        "allow": [{ "field": "path", "regex": "^projects://" }],
+        "reject": [
+          {
+            "field": "path",
+            "literal": "projects://0f8fad5b-d9cb-469f-a165-70867728950e"
+          }
+        ]
+      }
+    }
+  }
+}
+```
+
+The reject matches `PROJECTS://0F8FAD5B-D9CB-469F-A165-70867728950E:raw` too,
+because the group sees the lowercase canonical resource without its selector.
+
+A detail read returns only a Project the Run owner owns. Another owner's UUID
+and a missing UUID both answer `not_found`, and a rejected locator reads no
+Project row.
+
+### Returned checkout locations
+
+A detail read returns the checkout locators the owner registered for the
+Project's linked repositories. Each is an absolute host path or a
+`machine://<name>/<path>` locator with its executor identity, and the result
+labels it registered and unverified. Admitting `projects://<uuid>` grants no
+access to them. A later `read`, `grep` scope, or `enter_workspace` call is
+decided by its own group on its own submitted locator.
+
+The result derives no SSH configuration, daemon root, Knowledge backing path,
+or prompt-file path from operator configuration. It also compares none of them.
+A registered locator whose text equals a configured private path returns as
+registered, with no label, binding, or other sign that it matches
+configuration. The detail states registration as its only provenance, and it
+performs no filesystem probe, git command, or Machine contact. See [Project
+locators](../reference/locators/projects.md).
 
 ## Applying, recovery, and rollback
 
