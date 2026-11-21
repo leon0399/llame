@@ -43,12 +43,12 @@ against its parent before publication.
 
 ## 1. proposal
 
-- [ ] 1.1 Validate: `pnpm exec openspec validate continue-after-broken-send --strict`,
+- [x] 1.1 Validate: `pnpm exec openspec validate continue-after-broken-send --strict`,
       `pnpm lint:markdown` (it runs the ADR prose check), `pnpm exec oxfmt --check` on the change
       and the two ADRs, `node scripts/check-markdown-links.mjs`, and `git diff --check`.
-- [ ] 1.2 Run `$iterative-review-refinement` with at least two independent reviewers per round, and
+- [x] 1.2 Run `$iterative-review-refinement` with at least two independent reviewers per round, and
       commit each round separately. Record each round in design.md "Revision history".
-- [ ] 1.3 SR: self-review the draft PR diff against [REVIEW_GUIDE.md](../../../REVIEW_GUIDE.md)
+- [x] 1.3 SR: self-review the draft PR diff against [REVIEW_GUIDE.md](../../../REVIEW_GUIDE.md)
       before ready. GR: run [Ready-PR monitoring](../../../CONTRIBUTING.md#ready-pr-monitoring) after
       ready, and obtain Leo's approval of the published revision.
 
@@ -128,10 +128,10 @@ Enter `continue-after-broken-send/quota-wait` with `$gh-stack` from `continue`.
 Enter `continue-after-broken-send/finalize` with `$gh-stack` before `$openspec-sync-specs` writes
 canonical specs. SR and GR of this layer follow archive movement.
 
-- [ ] 4.1 Run `$openspec-sync-specs` and check each MODIFIED requirement against its canonical text.
+- [x] 4.1 Run `$openspec-sync-specs` and check each MODIFIED requirement against its canonical text.
 - [ ] 4.2 Confirm that every task above is checked and `openspec status --change
       continue-after-broken-send --json` reports every artifact complete.
-- [ ] 4.3 `pnpm exec openspec validate --specs --strict` and `pnpm exec openspec validate --all
+- [x] 4.3 `pnpm exec openspec validate --specs --strict` and `pnpm exec openspec validate --all
       --strict`.
 
 4.4 Post-readiness operation: run `$openspec-archive-change`. This operation is not a readiness
