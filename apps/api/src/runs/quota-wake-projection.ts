@@ -160,6 +160,30 @@ export function quotaCompactionStateFromEvents(
   return quotaCheckpointState(suspension);
 }
 
+/**
+ * Whether the latest suspension of this request stored a failed send's cut
+ * (continue-after-broken-send D6): the wake then sends the next step, and
+ * pending items reach the boundary before it.
+ */
+export function quotaWaitCutFromEvents(
+  events: ReadonlyArray<RunEvent>,
+  request: QuotaRequestState | undefined,
+): boolean {
+  if (request === undefined) return false;
+
+  const suspension = events.findLast(
+    (event) =>
+      event.eventType === 'run.suspended' &&
+      isRecord(event.payload) &&
+      event.payload['generation'] === request.generation,
+  );
+
+  return (
+    isRecord(suspension?.payload) &&
+    suspension.payload['superseded'] !== undefined
+  );
+}
+
 function quotaCheckpointState(
   suspension: UnknownRecord,
 ): ContinueState | undefined {

@@ -19,8 +19,14 @@ const DATA_CONTEXT_PART = 'data-context';
 /** The context-item producer whose entries keep their own bytes. */
 const PROMPT_IMPORTS_PRODUCER = 'prompt-imports';
 
-/** Run event type whose payload holds the kept parts verbatim. */
-const RUN_CONTINUED_EVENT = 'run.continued';
+/**
+ * Run event types whose payload holds the kept parts verbatim: a Continue Run's
+ * inherited reply, and the checkpoint a quota wait stores after a failed send.
+ */
+const KEPT_PARTS_EVENTS = {
+  'run.continued': true,
+  'run.suspended': true,
+} satisfies Readonly<Record<string, true>>;
 
 /**
  * The stored parts with `stripPart` applied to every entry, copied only when
@@ -50,8 +56,8 @@ export function mapStoredParts(
 /**
  * A stored run event's payload after `stripPayload` removes what belongs to
  * the server and `stripPart` removes it from the kept parts a `run.continued`
- * payload holds verbatim. Each returns its argument by identity when it
- * changes nothing, and so does this function.
+ * or `run.suspended` payload holds verbatim. Each returns its argument by
+ * identity when it changes nothing, and so does this function.
  */
 export function withoutPayloadParts(
   eventType: string,
@@ -59,8 +65,9 @@ export function withoutPayloadParts(
   stripPayload: (payload: UnknownRecord) => UnknownRecord,
   stripPart: (part: UnknownRecord) => UnknownRecord,
 ): UnknownRecord {
-  const keptParts =
-    eventType === RUN_CONTINUED_EVENT ? payload['parts'] : undefined;
+  const keptParts = Object.hasOwn(KEPT_PARTS_EVENTS, eventType)
+    ? payload['parts']
+    : undefined;
 
   const strippedParts = Array.isArray(keptParts)
     ? mapStoredParts(keptParts, stripPart)
@@ -96,8 +103,8 @@ export function withoutRetainedMedia(parts: Array<unknown>): Array<unknown> {
 
 /**
  * A stored run event's payload without its retained bytes: the payload's own
- * `retainedMedia` field, and — for `run.continued`, which carries kept parts
- * verbatim — the bytes of those parts.
+ * `retainedMedia` field, and — for `run.continued` and `run.suspended`, which
+ * carry kept parts verbatim — the bytes of those parts.
  *
  * @param eventType - The stored event's type
  * @param payload - The stored payload, as read from `run_events.payload`

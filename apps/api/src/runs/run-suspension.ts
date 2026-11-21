@@ -119,6 +119,7 @@ async function appendSuspensionEvents(
     if (input.superseded !== undefined) {
       await events.append(run.id, 'model.superseded', input.superseded);
     }
+
     await events.append(
       run.id,
       'run.suspended',

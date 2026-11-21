@@ -465,8 +465,11 @@ describe('a quota wait after a started tool call', () => {
     // notice, and it re-runs nothing.
     const prompts = promptsSince(promptsBefore);
     expect(prompts).toHaveLength(1);
-    expect(prompts[0]).toContain('kept result');
+    expect(prompts[0]).toContain('tool:tool-result');
     expect(prompts[0]).toContain('a usage limit');
+    expect(
+      JSON.stringify(fx.harness.models.prompts.slice(promptsBefore)[0]),
+    ).toContain('kept result');
     const events = await fx.events(seeded.runId);
     expect(
       events.filter((event) => event.eventType === 'tool.requested'),
@@ -526,8 +529,11 @@ describe('a quota wait after a started tool call', () => {
     ).toBeGreaterThan(delivered);
     expect(prompts).toHaveLength(1);
     expect(prompts[0]).toContain('steer now');
-    expect(prompts[0]).toContain('kept result');
+    expect(prompts[0]).toContain('tool:tool-result');
     expect(prompts[0]).toContain('a usage limit');
+    expect(
+      JSON.stringify(fx.harness.models.prompts.slice(promptsBefore)[0]),
+    ).toContain('kept result');
     // The checkpoint's call is carried, never run again.
     expect(
       events.filter((event) => event.eventType === 'tool.requested'),

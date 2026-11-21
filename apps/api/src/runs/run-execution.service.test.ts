@@ -34188,6 +34188,60 @@ describe('a send that breaks after a started tool call', () => {
   );
 
   it.each<Wire>(['responses', 'completions'])(
+    '%s wire: A cancel that wins the park keeps the measured tokens',
+    async (wire) => {
+      const lookup = echoTool(LOOKUP_TOOL);
+
+      const suspendForQuota = vi
+        .fn<RunWaitService['suspendForQuota']>()
+        .mockResolvedValue({ kind: 'ready', cause: 'cancelled' });
+
+      const { spies, drained } = await startAndDrain({
+        wire,
+        tools: toolset(lookup),
+        runWait: asDouble<RunWaitService>({ suspendForQuota }),
+        responses: [
+          // The step before the limit completes and reports its usage.
+          providerResponse(
+            [...textParts('Before the call. '), lookupCall('read-call', 'a')],
+            'tool-calls',
+            {
+              usage: {
+                inputTokens: {
+                  total: 900,
+                  noCache: 900,
+                  cacheRead: 0,
+                  cacheWrite: 0,
+                },
+                outputTokens: { total: 45, text: 45, reasoning: 0 },
+              },
+            },
+          ),
+          failedSend([lookupCall('read-call', 'b')], quotaFailure()),
+        ],
+      });
+
+      await drained;
+
+      // The cancellation won the entry, so the reply settles from the step the
+      // failed send did measure rather than from the send that measured none.
+      expect(suspendForQuota).toHaveBeenCalledOnce();
+      expectFinished(spies, 'cancelled');
+
+      const usage =
+        spies.createAssistantReplyIfAbsent.mock.calls[0]?.[0]?.usage;
+
+      expect(usage).toMatchObject({
+        status: 'aborted',
+        finishReason: null,
+        inputTokens: 900,
+        outputTokens: 45,
+        totalTokens: 945,
+      });
+    },
+  );
+
+  it.each<Wire>(['responses', 'completions'])(
     '%s wire: A second usage limit after a woken tool call',
     async (wire) => {
       const attemptId = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
@@ -34253,6 +34307,9 @@ describe('a send that breaks after a started tool call', () => {
             ...awaiting,
             parts: keptParts,
             steps: {},
+            // The park stored the failed send's cut: the wake sends the next
+            // step after its boundary.
+            superseded: { fromSequence: 3, step: 0 },
           },
         },
         {
@@ -34337,6 +34394,9 @@ describe('a send that breaks after a started tool call', () => {
         waitCount: 2,
       });
       expect(spies.markFinished).not.toHaveBeenCalled();
+      // The cut woke a boundary before this step, so the reply was reset
+      // there and again by the step's own dispatch.
+      expect(spies.upsertRunningReply).toHaveBeenCalledTimes(2);
     },
   );
 
@@ -34488,6 +34548,17 @@ describe('a send that breaks after a started tool call', () => {
         output: { status: 'success', text: 'kept result' },
       });
       expect(noticesOf(closed)).toHaveLength(1);
+      // The closed reply measured nothing: its usage is the priced shape every
+      // reply carries, with no tokens and no cost.
+      expect(
+        spies.createAssistantReplyIfAbsent.mock.calls[0]?.[0]?.usage,
+      ).toMatchObject({
+        status: 'completed',
+        finishReason: null,
+        latencyMs: 0,
+        complete: false,
+        costUsd: null,
+      });
 
       // The next step is the delivered segment's request: it carries the
       // steer, the kept result, and the notice, and it re-runs nothing.

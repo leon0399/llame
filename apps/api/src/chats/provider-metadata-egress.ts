@@ -52,8 +52,8 @@ export function withoutProviderMetadata(parts: Array<unknown>): Array<unknown> {
  * payload's own field on a `model.delta` or `tool.requested` (and the adapter
  * part id on a `model.delta`, which names the Responses item the metadata
  * came from), the refusal fields on a `tool.completed`, and — for
- * `run.continued`, which carries kept parts verbatim — the metadata of those
- * parts.
+ * `run.continued` and `run.suspended`, which carry kept parts verbatim — the
+ * metadata of those parts.
  *
  * @param eventType - The stored event's type
  * @param payload - The stored payload, as read from `run_events.payload`
