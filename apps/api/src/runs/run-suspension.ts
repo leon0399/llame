@@ -158,6 +158,10 @@ function quotaSuspensionPayload(
     waitCount: awaiting.waitCount,
     parts: input.parts,
     steps: input.steps,
+    // The cut this suspension stored, so the wake knows the kept parts and the
+    // notice are a failed send's checkpoint and delivers pending items before
+    // the next step (continue-after-broken-send D6).
+    ...(input.superseded !== undefined && { superseded: input.superseded }),
     stoppedCalls: input.stoppedCalls,
     stepBudgetUsed: input.stepBudgetUsed,
     boundaryMode: input.boundaryMode,

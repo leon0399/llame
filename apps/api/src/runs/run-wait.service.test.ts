@@ -309,6 +309,21 @@ describe('RunWaitService.suspendForQuota', () => {
     );
   });
 
+  it('stores the failed send cut with the quota suspension', async () => {
+    const fixture = makeFixture();
+    const superseded = { fromSequence: 3, step: 0 };
+
+    await expect(
+      fixture.service.suspendForQuota({ ...quotaInput, superseded }),
+    ).resolves.toEqual({ kind: 'suspended' });
+
+    expect(fixture.append).toHaveBeenCalledWith(
+      quotaInput.runId,
+      'run.suspended',
+      expect.objectContaining({ superseded }),
+    );
+  });
+
   it('rejects an ordinary wake without a triggering message', async () => {
     const fixture = makeFixture();
     fixture.findMessage.mockResolvedValue(undefined);

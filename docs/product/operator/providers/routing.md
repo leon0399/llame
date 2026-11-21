@@ -215,10 +215,14 @@ label. It tells the model that each tool call above has its result and that the
 output after the last result is not kept. It never carries a provider message.
 The Run then continues with the next step under the failed request's retry
 count, so the same ten-retry allowance applies. A failure class with no retry
-fails the Run with the kept parts and the notice. After a started call, a usage
-limit with no reset or a reset more than 60 s away, or a rate limit whose reset
-or delay hint is more than 60 s away, fails the Run with the notice. Within
-60 s, it is a request retry.
+fails the Run with the kept parts and the notice. After a started call, a
+`quota_exhausted` or `rate_limited` failure with a reset in the wait window
+parks the Run once its calls settle, as the quota wait above describes. The
+woken Run sends the next step with the kept result and the notice, and the wait
+count carries. A usage limit with no reset, a rate limit with no reset and a
+delay hint more than 60 s away, or a reset beyond `runs.quotaWaitMaxSeconds`
+fails the Run with the notice. A reset or delay hint within 60 s is a request
+retry.
 
 | Failure class                               | Operator action                                                                                                                      |
 | ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |

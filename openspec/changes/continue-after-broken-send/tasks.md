@@ -108,17 +108,17 @@ focused test files only; CI owns the full suites.
 
 Enter `continue-after-broken-send/quota-wait` with `$gh-stack` from `continue`.
 
-- [ ] 3.1 Park after a started call with the cut, with the quota refusal kept on the shipped path
+- [x] 3.1 Park after a started call with the cut, with the quota refusal kept on the shipped path
       (design D2, D6). Verify the `provider-failures` scenarios "A usage limit after a tool call"
       and "A second usage limit after a woken tool call", and the `quota-wait` scenarios "A limit
       after a tool call parks the Run after the call settles", "The kept parts of a failed send
       survive the wait", "A steer during a wait after a tool call", "A woken Run continues after a
       tool call", and "A checkpoint holds the settled tool part", in `quota-wait.test.ts` and `quota-wait.integration.test.ts`. Re-verify
       the unchanged scenarios of the four MODIFIED requirements.
-- [ ] 3.2 Update [scaling](../../../docs/product/operator/scaling.md) (quota wait after a started
+- [x] 3.2 Update [scaling](../../../docs/product/operator/scaling.md) (quota wait after a started
       call) and the quota sentences of [provider routing](../../../docs/product/operator/providers/routing.md).
       Add a dated `CHANGELOG.md` entry. Verify with `pnpm lint:markdown`.
-- [ ] 3.3 Run `pnpm --filter api lint`, `pnpm --filter api typecheck`, the focused test files above,
+- [x] 3.3 Run `pnpm --filter api lint`, `pnpm --filter api typecheck`, the focused test files above,
       `pnpm format:check`, and `git diff --check`.
 - [ ] 3.4 SR: self-review the parent-relative draft diff before ready. GR: run Ready-PR monitoring
       after ready. This PR carries `Closes #1828`.

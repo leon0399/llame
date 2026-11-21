@@ -170,6 +170,31 @@ describe('withoutRetainedMediaPayload', () => {
     expect(payload.parts[0]).toBe(TOOL_READ_PART);
   });
 
+  it('removes a run.suspended payload’s bytes from its kept parts', () => {
+    const textPart = { type: 'text', text: 'kept' };
+
+    const payload = {
+      attemptId: 'attempt-1',
+      kind: 'quota',
+      parts: [TOOL_READ_PART, textPart],
+      steps: {},
+    };
+
+    const stripped = withoutRetainedMediaPayload('run.suspended', payload);
+    const parts = stripped['parts'];
+
+    if (!Array.isArray(parts)) {
+      throw new Error('Expected the kept parts');
+    }
+
+    expect(parts[0]).toEqual(TOOL_READ_PART_WITHOUT_BYTES);
+    expect(parts[1]).toBe(textPart);
+    expect(JSON.stringify(stripped)).not.toContain(RETAINED_IMAGE.data);
+    // The stored payload keeps its bytes: the next attempt replays them.
+    expect(payload.parts[0]).toBe(TOOL_READ_PART);
+    expect(TOOL_READ_PART.retainedMedia).toEqual(RETAINED_IMAGE);
+  });
+
   it('returns the stored payload by identity when it carries no bytes', () => {
     const payload = { runId: 'run-1', parts: [{ type: 'text', text: 'kept' }] };
 

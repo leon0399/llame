@@ -9,6 +9,14 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   under the failed request's retry count, and a class with no retry fails the Run
   with the kept parts and the notice. References
   [#1828](https://github.com/leon0399/llame/issues/1828).
+- Park a Run for a usage limit or rate limit that arrives after a send started a
+  tool call. The Run enters `awaiting_quota` once each started call settles. The
+  entry transaction stores the kept parts and the notice and names the cut. A
+  pending steer or interrupt is delivered at the boundary before the next step,
+  the woken Run then sends that step from the checkpoint, so the kept result
+  reaches the model and the call never runs again. The wait count carries, and
+  the failed step counts against the step cap. References
+  [#1828](https://github.com/leon0399/llame/issues/1828).
 
 # 2026-11-20
 

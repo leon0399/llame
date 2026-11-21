@@ -5,6 +5,7 @@ import {
   quotaRequestFromEvents,
   quotaResumeAttemptId,
   quotaSummaryWakeFromEvents,
+  quotaWaitCutFromEvents,
   quotaWakeStateFromEvents,
 } from './quota-wake-projection';
 
@@ -648,6 +649,53 @@ function resumedClaim(
 function startedAttempt(sequence: number, attemptId: string): RunEvent {
   return event(sequence, 'run.started', { attemptId });
 }
+
+describe('quota wait cut projection', () => {
+  const request = {
+    resumeAt: 'request' as const,
+    waitCount: 1,
+    generation: 3,
+  };
+
+  it('reports no cut without a quota request', () => {
+    expect(quotaWaitCutFromEvents([], undefined)).toBe(false);
+  });
+
+  it('ignores a suspension of another generation', () => {
+    expect(
+      quotaWaitCutFromEvents(
+        [
+          event(1, 'run.suspended', {
+            ...quotaPayload(4),
+            superseded: { fromSequence: 2, step: 0 },
+          }),
+        ],
+        request,
+      ),
+    ).toBe(false);
+  });
+
+  it('reports no cut when no suspension matches the request', () => {
+    expect(
+      quotaWaitCutFromEvents([startedAttempt(1, 'wake-attempt')], request),
+    ).toBe(false);
+  });
+
+  it('requires the matching suspension to carry the cut', () => {
+    expect(quotaWaitCutFromEvents([quotaSuspension()], request)).toBe(false);
+    expect(
+      quotaWaitCutFromEvents(
+        [
+          event(1, 'run.suspended', {
+            ...quotaPayload(),
+            superseded: { fromSequence: 2, step: 0 },
+          }),
+        ],
+        request,
+      ),
+    ).toBe(true);
+  });
+});
 
 describe('quota summary wake ownership', () => {
   it.each(['boundary', 'finalAnswer'])(
