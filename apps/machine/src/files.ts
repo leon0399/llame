@@ -1,4 +1,4 @@
-import { lstat, mkdir, opendir, readFile } from "node:fs/promises";
+import { lstat, mkdir, open, opendir, readFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import {
   createFile,
@@ -48,6 +48,37 @@ const NOT_REGULAR_FILE = "The target is not a regular file.";
 const NOT_DIRECTORY_MESSAGE = "The target is not a directory.";
 const LISTING_FAILED_MESSAGE = "The directory could not be listed.";
 const MEDIA_TOO_LARGE_MESSAGE = "The file exceeds the media byte bound.";
+const IMAGE_TOO_LARGE_MESSAGE = "Image exceeds 20 MiB or 40 megapixels";
+const PDF_TOO_LARGE_MESSAGE = "PDF exceeds 20 MiB or 100 pages";
+
+/** The one media-bound refusal, worded for the kind its signature names. */
+async function tooLargeFailure(path: string): Promise<NativeFailureResult> {
+  const head = Buffer.alloc(SIGNATURE_BYTES);
+
+  try {
+    const file = await open(path, "r");
+
+    try {
+      await file.read(head, 0, SIGNATURE_BYTES, 0);
+    } finally {
+      await file.close();
+    }
+  } catch {
+    return failure("media_too_large", MEDIA_TOO_LARGE_MESSAGE);
+  }
+
+  const mediaType = mediaTypeOf(head);
+
+  if (mediaType.startsWith("image/"))
+    return failure("media_too_large", IMAGE_TOO_LARGE_MESSAGE);
+
+  return failure(
+    "media_too_large",
+    mediaType === "application/pdf"
+      ? PDF_TOO_LARGE_MESSAGE
+      : MEDIA_TOO_LARGE_MESSAGE,
+  );
+}
 
 function failure(
   type: NativeFailureResult["type"],
@@ -194,6 +225,18 @@ function withCanonicalPath(
     : { ...result, realPath: displayPathFor(prefix, guarded.canonical) };
 }
 
+/**
+ * The path a read hands to the filesystem library. The guard normalises the
+ * requested address for root enforcement, but the trailing separator is the
+ * caller's statement that the target is a directory: the library answers a
+ * file with one as `not_found`, so dropping it here would read the file.
+ */
+function readTargetPath(requested: string, guarded: GuardedPath): string {
+  return requested.length > 1 && requested.endsWith("/")
+    ? `${guarded.path}/`
+    : guarded.path;
+}
+
 export async function readOperation(
   params: SerializableValue,
   context: OperationContext,
@@ -204,7 +247,7 @@ export async function readOperation(
   const guarded = await context.guard.resolvePath(path);
 
   const result = await readResolvedFile(
-    guarded.path,
+    readTargetPath(path, guarded),
     readOptions(
       options,
       displayPathFor(options.displayPrefix, guarded.path),
@@ -361,13 +404,13 @@ export async function bytesOperation(
 
   if (guarded.kind !== "file")
     return failure("not_regular_file", NOT_REGULAR_FILE);
-  const tooLarge = failure("media_too_large", MEDIA_TOO_LARGE_MESSAGE);
 
-  if ((guarded.size ?? 0) > MEDIA_MAX_BYTES) return tooLarge;
+  if ((guarded.size ?? 0) > MEDIA_MAX_BYTES)
+    return tooLargeFailure(guarded.path);
   const bytes = await readFile(guarded.path);
 
   // The size probe and the read are two syscalls; the bytes themselves decide.
-  if (bytes.byteLength > MEDIA_MAX_BYTES) return tooLarge;
+  if (bytes.byteLength > MEDIA_MAX_BYTES) return tooLargeFailure(guarded.path);
   // Re-verify before any byte leaves, as `read` and `list` do.
   await verifyUnchanged(context.guard, path, guarded);
   sendChunks(context, bytes);

@@ -15,8 +15,9 @@ type WorkspaceChatState = {
  *
  * Callers construct this repository with the transaction supplied by
  * TenantDbService.runAs. Enter, exit, and detach deliberately keep the Run
- * lock, worker binding, and Chat mutation in that transaction so a caller
- * cannot observe or commit only part of a Workspace transition.
+ * lock and the Chat mutation in that transaction so a caller cannot observe or
+ * commit only part of a Workspace transition; none of them pins the Run to a
+ * worker (design D15).
  */
 export class WorkspaceBindingRepository {
   constructor(private readonly db: Db) {}
@@ -44,13 +45,6 @@ export class WorkspaceBindingRepository {
     attemptId?: string;
     executorId: string;
     root: string;
-    /**
-     * The executor this transition pins the Run to, if any. A root on this
-     * process's own Machine passes that Machine's name, so the Run cannot
-     * later execute on another worker. A Machine this worker only reaches
-     * passes nothing: the Run stays free to use other Machines.
-     */
-    bindExecutorId?: string;
   }): Promise<
     | {
         status: 'bound' | 'switched' | 'unchanged';
@@ -85,8 +79,6 @@ export class WorkspaceBindingRepository {
     runId: string;
     deliverySequence: number;
     attemptId?: string;
-    /** The executor this exit pins the Run to, if any; a Machine binding passes none. */
-    bindExecutorId?: string;
   }): Promise<
     | { status: 'cleared'; previousRoot: string; generation: number }
     | { status: 'unbound' }
@@ -397,24 +389,12 @@ export class WorkspaceBindingRepository {
     ownerUserId: string;
     deliverySequence: number | undefined;
     attemptId?: string | undefined;
-    /** The executor to pin the Run to; absent leaves the Run unbound. */
-    bindExecutorId?: string;
   }): Promise<boolean> {
-    const native = new NativeFilesRepository(this.db);
-
-    if (
-      !(await native.isCurrentDelivery({
-        runId: input.runId,
-        userId: input.ownerUserId,
-        deliverySequence: input.deliverySequence,
-        attemptId: input.attemptId,
-      }))
-    ) {
-      return false;
-    }
-
-    return input.bindExecutorId === undefined
-      ? true
-      : native.bind(input.runId, input.ownerUserId, input.bindExecutorId);
+    return new NativeFilesRepository(this.db).isCurrentDelivery({
+      runId: input.runId,
+      userId: input.ownerUserId,
+      deliverySequence: input.deliverySequence,
+      attemptId: input.attemptId,
+    });
   }
 }

@@ -11,8 +11,8 @@ import {
   type SkillCatalogEntry,
   type SkillCatalogPort,
 } from '../skills/skill-catalog';
-import { localMachineConnector } from '../testing/local-machine';
 import { createProtocolPeer } from '../testing/machine-protocol-peer';
+import { localMachineConnector } from '../testing/local-machine';
 import { type GrepReadAdmission } from './grep-admission';
 import { machineUnsupportedResult } from './grep-results';
 import { resolveScopes, refuseUnsearchableGrepScopes } from './grep-scopes';
@@ -78,6 +78,24 @@ function contextOf(
   };
 }
 
+/**
+ * A local Machine whose daemon answers the exact-path probe as a directory.
+ * Every path scope lands on it, so host resolution never walks in process.
+ */
+function localConnector(): MachineConnector {
+  const peer = createProtocolPeer({
+    answers: { 'fs.stat': { value: { kind: 'directory', isLink: false } } },
+  });
+
+  return new MachineConnector({
+    machines: { local: 'host-a', default: 'host-a', hosts: { 'host-a': {} } },
+    hubVersion: 'test',
+    bindIdentity: () => Promise.resolve('match'),
+    transportFactory: peer.factory,
+    handshakeTimeoutMs: 1000,
+  });
+}
+
 /** A context holding the native host authority a Run on this host has. */
 function hostContext(options: { readonly root?: string } = {}): ToolContext {
   return {
@@ -85,7 +103,7 @@ function hostContext(options: { readonly root?: string } = {}): ToolContext {
     runId: 'run-a',
     localMachine: 'host-a',
     defaultMachine: 'host-a',
-    machines: localMachineConnector(),
+    machines: localConnector(),
   };
 }
 
@@ -333,18 +351,13 @@ describe('resolveScopes', () => {
     });
   });
 
-  it('keeps the filesystem root as the prefix of every locator', async () => {
-    const outcome = scopesOf(
-      await resolveScopes(hostContext(), ['/**'], admission),
-    );
+  it('keeps the filesystem root as the prefix of a Machine scope', async () => {
+    const outcome = await resolveScopes(hostContext(), ['/**'], admission);
 
-    const scope = outcome.scopes[0];
-
-    expect(scope?.locatorFor('etc/hosts')).toBe('machine://host-a/etc/hosts');
-    // The walk starts at the root itself, not at an empty path that names
-    // nothing: an empty prefix would make this listing fail.
-    const listed = await scope?.port.list('');
-    expect(listed?.length).toBeGreaterThan(0);
+    // The root is the prefix itself, not an empty path that names nothing.
+    expect(outcome).toMatchObject({
+      machines: [{ index: 0, name: 'host-a', path: '/', globSuffix: '**' }],
+    });
   });
 
   it('refuses a host scope path that holds a NUL byte', async () => {
@@ -359,23 +372,32 @@ describe('resolveScopes', () => {
     });
   });
 
-  it("walks a scope on this process's own Machine in process", async () => {
-    const connector = localMachineConnector();
-    const context = { ...hostContext(), machines: connector };
+  it("leaves a scope on this process's own Machine to its daemon", async () => {
+    const peer = createProtocolPeer({
+      answers: { 'fs.stat': { value: { kind: 'directory', isLink: false } } },
+    });
 
-    const outcome = scopesOf(
-      await resolveScopes(context, ['machine://host-a/**'], admission),
-    );
+    const connector = new MachineConnector({
+      machines: {
+        local: 'host-a',
+        default: 'host-a',
+        hosts: { 'host-a': {} },
+      },
+      hubVersion: 'test',
+      bindIdentity: () => Promise.resolve('match'),
+      transportFactory: peer.factory,
+      handshakeTimeoutMs: 1000,
+    });
 
-    const scope = outcome.scopes[0];
-
-    expect(scope?.locatorFor('')).toBe('machine://host-a/');
-    expect(scope?.locatorFor('etc/hosts')).toBe('machine://host-a/etc/hosts');
-    const listed = await scope?.port.list('');
-    expect(listed?.length).toBeGreaterThan(0);
-    // The identity handshake is the only traffic the local daemon sees: no
-    // request stream ever opens for the walk itself.
-    expect((await connector.peer.session(0)).requests).toEqual([]);
+    expect(
+      await resolveScopes(
+        { ...hostContext(), machines: connector },
+        ['machine://host-a/etc'],
+        admission,
+      ),
+    ).toMatchObject({ machines: [{ name: 'host-a', path: '/etc' }] });
+    // The exact path was probed on the daemon; this process walked nothing.
+    expect((await peer.session(0)).requests).toEqual(['fs.stat']);
   });
 
   it('leaves a scope on another Machine to its daemon', async () => {

@@ -252,6 +252,16 @@ included, with their status and
 it with no sandbox and no isolation between users who share the Machine; see
 [machine](../locators/machine.md#authority).
 
+A bare absolute path, a `file://` alias, and a Workspace-relative path run on
+the current Machine through the same daemon. The path must lie inside that
+Machine's registered roots. A path outside them fails with `path_not_registered`,
+with fixed text whether or not anything exists there. A daemon that cannot start
+or answer fails the read with `machine_unavailable`, and the read never falls
+back to the worker process.
+
+A trailing separator is accepted on a directory path. On any other target it
+fails with `not_found`, and the target is not read.
+
 An `ssh://` read runs on an external host as its login user, over the operator's
 SSH configuration and the instance's SSH identity, with no sandbox and no
 isolation between llame users. It returns UTF-8 text up to 1 MiB with the same
@@ -279,9 +289,10 @@ every omitted entry and location.
 Knowledge identifier failures — `knowledge_space_not_found` and
 `knowledge_space_unavailable` — are specific to `kb://`; see
 [kb](../locators/kb.md#errors). Every other path and file failure a read can
-return — `invalid_path`, `not_found`, `not_regular_file`, `invalid_utf8`,
-`executor_unavailable`, `directory_too_large`, ... — is the same native
-vocabulary regardless of scheme. `file_exists` is not one of them: it belongs to
+return is the same native vocabulary regardless of scheme: `invalid_path`,
+`not_found`, `path_not_registered`, `machine_unavailable`, `not_regular_file`,
+`invalid_utf8`, `executor_unavailable`, and `directory_too_large`. `file_exists`
+is not one of them: it belongs to
 the mutations, in [write](write.md#errors). A malformed Project resource fails
 `invalid_path` before any datastore read, and a missing or foreign UUID is
 `not_found`. A rejected Project locator returns the ordinary read permission

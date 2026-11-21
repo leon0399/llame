@@ -1,6 +1,7 @@
 /**
  * The `grep` artifact producer against a live database (tool-result-artifacts
- * D5, D7): the real walk stores its whole result with one finding per file, a
+ * D5, D7): the host Machine's real daemon walks the fixture root, the walk
+ * stores its whole result with one finding per file, a
  * `read` reject added afterwards withholds a file's heading and its lines
  * through `artifact://`, and the host file the writer made still holds them.
  *
@@ -25,7 +26,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { ChatsRepository } from '../chats/chats-repository';
 import { TenantDbService } from '../db/tenant-db.service';
-import { localMachineConnector } from '../testing/local-machine';
+import { startLocalDaemon, type LocalDaemon } from '../testing/local-daemon';
 import { readArtifact } from './artifacts/artifact-reader';
 import { ArtifactsRepository } from './artifacts/artifacts-repository';
 import { grepInputSchema, nativeGrepTool } from './grep';
@@ -48,6 +49,8 @@ d('grep artifact producer', () => {
   let tenantDb: TenantDbService;
   let owner: string;
   let chatId: string;
+  /** The host Machine daemon that walks the fixture root. */
+  let daemon: LocalDaemon;
 
   beforeAll(async () => {
     sql = postgres(TEST_DB_URL!, {
@@ -66,6 +69,7 @@ d('grep artifact producer', () => {
       await mkdtemp(path.join(tmpdir(), 'llame-grep-artifact-it-')),
     );
     await mkdir(path.join(root, '.git'), { recursive: true });
+    daemon = startLocalDaemon({ roots: [root] });
     // Host files land under the test's own `$TMPDIR`.
     previousTmpdir = process.env['TMPDIR'];
     process.env['TMPDIR'] = await mkdtemp(
@@ -77,6 +81,7 @@ d('grep artifact producer', () => {
   afterAll(async () => {
     if (previousTmpdir === undefined) delete process.env['TMPDIR'];
     else process.env['TMPDIR'] = previousTmpdir;
+    daemon.dispose();
     await rm(root, { recursive: true, force: true });
 
     if (sql) {
@@ -101,7 +106,7 @@ d('grep artifact producer', () => {
       toolCallId: crypto.randomUUID(),
       localMachine: 'host-a',
       defaultMachine: 'host-a',
-      machines: localMachineConnector(),
+      machines: daemon.connector,
       tenantDb,
       artifactReadable: true,
       artifactHostFiles: true,

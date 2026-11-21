@@ -157,7 +157,6 @@ describeIfDb('WorkspaceBindingRepository — PostgreSQL lifecycle', () => {
         runId,
         deliverySequence,
         executorId: 'executor-a',
-        bindExecutorId: 'executor-a',
         root,
       }),
     );
@@ -169,7 +168,6 @@ describeIfDb('WorkspaceBindingRepository — PostgreSQL lifecycle', () => {
         ownerUserId: owner,
         runId,
         deliverySequence,
-        bindExecutorId: 'executor-a',
       }),
     );
 
@@ -229,7 +227,7 @@ describeIfDb('WorkspaceBindingRepository — PostgreSQL lifecycle', () => {
       generation: 1,
     });
     expect(await readWorkspace()).toEqual(bound(rootA, 1));
-    expect(await readRun()).toEqual({ workerId: 'executor-a' });
+    expect(await readRun()).toEqual({ workerId: null });
 
     await expect(enter(rootA)).resolves.toEqual({
       status: 'unchanged',
@@ -312,6 +310,6 @@ describeIfDb('WorkspaceBindingRepository — PostgreSQL lifecycle', () => {
       status: 'fence_lost',
     });
     expect(await readWorkspace()).toEqual(beforeSuperseded);
-    expect(await readRun()).toEqual({ workerId: 'executor-a' });
+    expect(await readRun()).toEqual({ workerId: null });
   });
 });

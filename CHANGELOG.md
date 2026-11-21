@@ -2,6 +2,24 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-11-21
 
+- Run host `read`, `edit`, `write`, and `grep` through the host Machine's
+  `llame-machine` daemon, and remove the in-process file branch. A host path
+  outside the daemon's registered roots now fails with `path_not_registered` on
+  all four tools, and an unavailable host daemon fails the call with
+  `machine_unavailable` instead of running in the worker. Register the
+  directories you work in with `llame-machine roots add <dir>` on the host, or
+  `llame-machine roots add /` to restore the reach of an earlier process.
+  `pnpm dev` registers the development roots through
+  `apps/api/scripts/dev-machine-host.mts`. A `read` of a path whose trailing
+  separator names a regular file now returns `not_found` through the daemon.
+  Instruction-file and prompt-import reads on the host also go through the
+  daemon and its roots; their directory walks still run in the worker.
+  File mutations and Workspace entry no longer write `runs.worker_id`, so a
+  retry of a file mutation on another worker reports `outcome_unknown` instead
+  of `executor_unavailable`. Host `bash` still writes it. **Breaking**: register
+  host roots before the upgrade, and deploy the API and every daemon together.
+  References [#1831](https://github.com/leon0399/llame/issues/1831).
+
 - Treat the host as an ordinary Machine: the `machines.hosts` entry named by
   `machines.local`, reached through `llame-machine serve --stdio` as a child
   process. `machines.default` names the Machine of an unbound Chat. Every
@@ -9,8 +27,7 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   permission decision uses a canonical `machine://` locator. A bare, relative,
   or `file:` path addresses the current Machine, and `machine://<name>/…` is the
   only form that names a Machine. A path regex that begins with `^/` now fails
-  startup. Host file tools still run in the worker and contact the host daemon
-  only for the identity check; a later release moves them to the daemon.
+  startup.
   **Breaking**: add a `hosts` entry named after the old `tools.nativeExecutorId`
   value, set `machines.local` and `machines.default`, remove
   `tools.nativeExecutorId`, and rewrite `^/` path allows as

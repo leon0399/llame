@@ -35,6 +35,9 @@ import { envelope, startDaemon, type TestDaemon } from "./testing/harness";
 let fixture: RootFixture;
 let daemon: TestDaemon;
 
+/** The answer for a scope root that names no regular file or directory. */
+const NOT_FOUND_MESSAGE = "The target does not exist.";
+
 /** The bounds a hub request carries; the daemon maps them to its own budget. */
 const BOUNDS: FsGrepBounds = {
   files: 5000,
@@ -492,6 +495,37 @@ describe("fs.grep", () => {
 
     expect(outcome.ok).toBe(false);
     expect(outcome.error).toMatchObject({ code: "path_not_registered" });
+  });
+
+  it("answers not_found for a scope root that does not exist", async () => {
+    const outcome = await daemon.attempt(
+      FS_GREP_METHOD,
+      request(join(fixture.root, "absent"), { globSuffix: "**" }),
+    );
+
+    expect(outcome.ok).toBe(true);
+    expect(outcome.value).toMatchObject({
+      status: "error",
+      type: "not_found",
+      message: NOT_FOUND_MESSAGE,
+    });
+  });
+
+  it("answers not_found for a scope root that is a symbolic link", async () => {
+    await writeAt("project/a.go", "needle\n");
+    await symlink(join(fixture.root, "project"), join(fixture.root, "linked"));
+
+    const outcome = await daemon.attempt(
+      FS_GREP_METHOD,
+      request(join(fixture.root, "linked"), { globSuffix: "**" }),
+    );
+
+    expect(outcome.ok).toBe(true);
+    expect(outcome.value).toMatchObject({
+      status: "error",
+      type: "not_found",
+      message: NOT_FOUND_MESSAGE,
+    });
   });
 
   it("reports a consumed budget across the files it opened", async () => {

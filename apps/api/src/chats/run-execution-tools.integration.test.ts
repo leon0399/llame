@@ -31,7 +31,7 @@ import { getErrorMessage } from '@ai-sdk/provider-utils';
 import { createHash } from 'node:crypto';
 import { compileTestPermissionPolicy } from '../testing/tool-permission-policy';
 import type { MachineConnector } from '../machines/machine-connector.service';
-import { localMachineConnector } from '../testing/local-machine';
+import { machineFilesConnector } from '../testing/machine-files-peer';
 import { PORTABLE_TOOL_PERMISSIONS } from '../testing/portable-tool-policy';
 import { compileToolPermissionMap } from '../tools/permissions/compile-permissions';
 import type { CompiledPolicy } from '../tools/permissions/types';
@@ -693,7 +693,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
       resolved.machineConnector ??
       (localMachine === undefined
         ? undefined
-        : localMachineConnector({ name: localMachine }));
+        : machineFilesConnector({ name: localMachine }));
 
     const instanceConfig: InstanceConfigReader = {
       config: {
@@ -8004,7 +8004,11 @@ describeIfDb('executeRun tool-loop persistence', () => {
       const fixture = await docsMcpFixture();
       const root = workspaceRootWithDocs(fixture);
       const operator = new McpRuntimeService({});
-      const connector = localMachineConnector({ name: 'workspace-test-host' });
+
+      const connector = machineFilesConnector({
+        name: 'workspace-test-host',
+      });
+
       const clients = new WorkspaceMcpClients(operator, { connector });
 
       const seeded = await seedBoundRun(

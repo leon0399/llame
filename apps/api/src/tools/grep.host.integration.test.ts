@@ -1,3 +1,11 @@
+/**
+ * The `grep` tool over host paths, through the host Machine's real daemon
+ * (host-as-machine design D8, D12): every scope on the current Machine is a
+ * Machine scope, so the walk, its ignore policy, its bounds, and its locators
+ * are what `llame-machine` answers over `fs.grep`. The suite starts the built
+ * bundle as a child and registers each test root with its own `roots add`.
+ */
+
 import {
   lstat,
   mkdir,
@@ -16,14 +24,14 @@ import { describe, expect, it, vi, type MockInstance } from 'vitest';
 
 import { type Db } from '../db/tenant-db.service';
 import { type GrepBoundsConfig } from '../instance-config/llame-config';
-import { MachineConnector } from '../machines/machine-connector.service';
-import { MachineUnavailableError } from '../machines/machine-session';
 import { type SkillCatalogPort } from '../skills/skill-catalog';
-import { localMachineConnector } from '../testing/local-machine';
+import { startLocalDaemon, type LocalDaemon } from '../testing/local-daemon';
 import { createProtocolPeer } from '../testing/machine-protocol-peer';
+import { MachineConnector } from '../machines/machine-connector.service';
 import { ArtifactsRepository } from './artifacts/artifacts-repository';
 import { grepInputSchema, nativeGrepTool } from './grep';
 import { machineNotFoundResult } from './machine-call';
+import { PATH_NOT_REGISTERED_MESSAGE } from '@workspace/machine-protocol';
 import { compileToolPermissionMap } from './permissions/compile-permissions';
 import { type ToolPermissionMap } from './permissions/types';
 import { type ToolContext, type ToolResult } from './types';
@@ -95,6 +103,46 @@ type ContextOptions = {
   readonly artifactMaxBytes?: number;
 };
 
+/** The daemon `withRoot` starts for the test that is running right now. */
+let daemon: LocalDaemon | undefined;
+
+/**
+ * The daemon the running test started. A test that asserts a Machine result
+ * without any daemon overrides `machines` itself.
+ */
+function runningDaemon(): LocalDaemon {
+  if (daemon === undefined)
+    throw new Error('a host test starts its daemon through withRoot');
+
+  return daemon;
+}
+
+/**
+ * A configured Machine whose daemon a refusal test never reaches: resolution
+ * answers before any request leaves, so the peer needs no answer at all.
+ */
+function idleConnector(): MachineConnector {
+  const peer = createProtocolPeer({});
+
+  return new MachineConnector({
+    machines: { local: 'host-a', default: 'host-a', hosts: { 'host-a': {} } },
+    hubVersion: 'test',
+    bindIdentity: () => Promise.resolve('match'),
+    transportFactory: peer.factory,
+    handshakeTimeoutMs: 1000,
+  });
+}
+
+/** A context with the current Machine, for a test that walks nothing. */
+function idleContext(options: ContextOptions = {}): ToolContext {
+  return {
+    ...contextOf({ ...options, machine: false }),
+    localMachine: 'host-a',
+    defaultMachine: 'host-a',
+    machines: idleConnector(),
+  };
+}
+
 function contextOf(options: ContextOptions = {}): ToolContext {
   const trusted = options.machine !== false;
   const db: Db = drizzle.mock();
@@ -106,9 +154,9 @@ function contextOf(options: ContextOptions = {}): ToolContext {
     toolCallId: 'call-a',
     runId: options.run === false ? undefined : 'run-a',
     ...(trusted && {
-      localMachine: 'host-a',
-      defaultMachine: 'host-a',
-      machines: localMachineConnector(),
+      localMachine: runningDaemon().name,
+      defaultMachine: runningDaemon().name,
+      machines: runningDaemon().connector,
     }),
     permissionPolicy: compileToolPermissionMap(
       options.map ?? PERMISSIVE,
@@ -146,13 +194,17 @@ async function temporaryRoot(): Promise<string> {
 
 async function withRoot<T>(callback: (root: string) => Promise<T>): Promise<T> {
   const root = await temporaryRoot();
-  // A repository at the fixture root seals the walk: nothing above `tmpdir`
-  // can change which ignore files apply.
+  // A repository at the fixture root seals the walk: nothing above it can
+  // change which ignore files apply.
   await mkdir(path.join(root, '.git'), { recursive: true });
+  const started = startLocalDaemon({ roots: [root] });
+  daemon = started;
 
   try {
     return await callback(root);
   } finally {
+    daemon = undefined;
+    started.dispose();
     await rm(root, { recursive: true, force: true });
   }
 }
@@ -437,7 +489,12 @@ describe('host walk policy', () => {
         scopes: [`${root}/one.md/**`],
       });
 
-      expect(fileRoot).toMatchObject({ status: 'error', type: 'not_found' });
+      // A regular file cannot be listed: the daemon answers with `read`'s
+      // `not_regular_file`, not the absent path's `not_found`.
+      expect(fileRoot).toMatchObject({
+        status: 'error',
+        type: 'not_regular_file',
+      });
     });
   });
 
@@ -582,26 +639,40 @@ describe('host ignore files above the scope', () => {
     });
   });
 
-  it('does not apply a gitignore outside a repository above the scope', async () => {
+  it('applies no gitignore above the registered root', async () => {
     // This tree has no repository on purpose, so it cannot use the sealed root.
     expect(
       await gitAbove(dirname(tmpdir())),
       'tmpdir must sit outside every git work tree',
     ).toBeUndefined();
     const root = await temporaryRoot();
+    const scope = path.join(root, 'Projects/Arduino');
 
     try {
       await writeAt(root, 'Projects/.gitignore', '*.md\n');
       await writeAt(root, 'Projects/Arduino/README.md', 'needle\n');
+      // The scope itself is the registered root, so the walk starts there: a
+      // `.gitignore` above it is outside the Machine's search and applies to
+      // nothing.
+      const started = startLocalDaemon({ roots: [scope] });
 
-      const result = await run(contextOf(), {
-        patterns: ['needle'],
-        scopes: [`${root}/Projects/Arduino`],
-      });
+      try {
+        const result = await run(
+          {
+            ...contextOf({ machine: false }),
+            localMachine: started.name,
+            defaultMachine: started.name,
+            machines: started.connector,
+          },
+          { patterns: ['needle'], scopes: [scope] },
+        );
 
-      expect(locatorsOf(result)).toEqual([
-        `machine://host-a${root}/Projects/Arduino/README.md:1-1`,
-      ]);
+        expect(locatorsOf(result)).toEqual([
+          `machine://host-a${scope}/README.md:1-1`,
+        ]);
+      } finally {
+        started.dispose();
+      }
     } finally {
       await rm(root, { recursive: true, force: true });
     }
@@ -903,7 +974,7 @@ describe('host Workspace rule', () => {
 
   it('names only scope kinds without a Workspace', async () => {
     const result = await run(
-      { ...contextOf(), skillCatalog: undefined },
+      { ...idleContext(), skillCatalog: undefined },
       { patterns: ['needle'] },
     );
 
@@ -931,7 +1002,7 @@ describe('host Workspace rule', () => {
   });
 
   it('refuses a relative scope with no entered Workspace', async () => {
-    const result = await run(contextOf(), {
+    const result = await run(idleContext(), {
       patterns: ['needle'],
       scopes: ['src/**'],
     });
@@ -944,7 +1015,7 @@ describe('host Workspace rule', () => {
   });
 
   it('maps a host scope inside a Machine Workspace to the Machine', async () => {
-    const context = contextOf({ root: 'machine://devl/home/me/shop' });
+    const context = idleContext({ root: 'machine://devl/home/me/shop' });
     expect(
       await run(context, {
         patterns: ['needle'],
@@ -958,22 +1029,6 @@ describe('host Workspace rule', () => {
 });
 
 describe('host authority', () => {
-  it('fails a host scope with no Run identity as executor_unavailable', async () => {
-    await withRoot(async (root) => {
-      await writeAt(root, 'a.md', 'needle\n');
-
-      const result = await run(contextOf({ run: false }), {
-        patterns: ['needle'],
-        scopes: [`${root}/**`],
-      });
-
-      expect(result).toMatchObject({
-        status: 'error',
-        type: 'executor_unavailable',
-      });
-    });
-  });
-
   it('fails a host scope with no current Machine as invalid_path', async () => {
     await withRoot(async (root) => {
       await writeAt(root, 'a.md', 'needle\n');
@@ -1178,8 +1233,11 @@ describe('host pages inside one call', () => {
         { patterns: ['needle'], scopes: [`${root}/**`] },
       );
 
+      // The daemon's page reached the binary file before the artifact refused
+      // the long passage, so its skip is part of what the call walked.
       expect(warningsOf(result)).toEqual([
         { kind: 'artifact_bound', count: 1 },
+        { kind: 'binary', count: 1 },
       ]);
       expect(success(result).complete).toBe(false);
     });
@@ -1201,9 +1259,11 @@ describe('host pages inside one call', () => {
         { patterns: ['needle'], scopes: [`${root}/**`] },
       );
 
-      // The walk stops at the 250th file and never takes the 251st, so the
-      // artifact holds one passage for each examined file.
-      expect(artifactHeadings()).toHaveLength(250);
+      // The walk spends its file bound and never takes the 251st file. Each
+      // daemon page after the first re-opens the file its position cursor
+      // names, and the bound counts that file again: twelve pages of twenty
+      // passages spend 11 of the 250 on resumption, so 239 files are kept.
+      expect(artifactHeadings()).toHaveLength(239);
       expect(success(result).complete).toBe(false);
       expect(warningsOf(result)).toEqual([{ kind: 'file_bound', count: 1 }]);
     });
@@ -1224,7 +1284,9 @@ describe('host pages inside one call', () => {
         { patterns: ['needle'], scopes: [`${root}/**`] },
       );
 
-      expect(artifactHeadings()).toHaveLength(201);
+      // Each page after the first re-opens its resume file and spends its
+      // bytes again, so the 1,407-byte bound keeps 192 files, not 201.
+      expect(artifactHeadings()).toHaveLength(192);
       expect(success(result).complete).toBe(false);
       expect(warningsOf(result)).toEqual([{ kind: 'byte_bound', count: 1 }]);
     });
@@ -1305,118 +1367,74 @@ describe('host scope pages', () => {
 });
 
 describe("this process's own Machine", () => {
-  it('walks a host scope in process and reports canonical locators', async () => {
+  it('walks a host scope through the host Machine daemon', async () => {
     await withRoot(async (root) => {
       await writeAt(root, 'a.md', 'needle\n');
 
-      const connector = localMachineConnector();
-      const context: ToolContext = { ...contextOf(), machines: connector };
-
-      const result = await run(context, {
+      const result = await run(contextOf(), {
         patterns: ['needle'],
         scopes: [`${root}/**`],
       });
 
       expect(locatorsOf(result)).toEqual([`machine://host-a${root}/a.md:1-1`]);
-      // The identity handshake is the only traffic the local daemon sees.
-      expect((await connector.peer.session(0)).requests).toEqual([]);
+      expect(success(result).complete).toBe(true);
     });
   });
 
-  it('walks a machine:// scope on its own Machine in process', async () => {
+  it('walks a machine:// scope on its own Machine through its daemon', async () => {
     await withRoot(async (root) => {
       await writeAt(root, 'a.md', 'needle\n');
 
-      const connector = localMachineConnector();
-      const context: ToolContext = { ...contextOf(), machines: connector };
-
-      const result = await run(context, {
+      const result = await run(contextOf(), {
         patterns: ['needle'],
         scopes: [`machine://host-a${root}/**`],
       });
 
       expect(locatorsOf(result)).toEqual([`machine://host-a${root}/a.md:1-1`]);
-      expect((await connector.peer.session(0)).requests).toEqual([]);
+      expect(success(result).complete).toBe(true);
     });
   });
 
-  it('walks another Machine scope through its daemon', async () => {
-    await withRoot(async (root) => {
-      const peer = createProtocolPeer({
-        answers: {
-          'fs.grep': {
-            value: {
-              ok: true,
-              results: [
-                {
-                  path: 'a.md',
-                  startLine: 1,
-                  endLine: 1,
-                  content: '1: needle',
-                  matches: [1],
-                },
-              ],
-              complete: true,
-              warnings: [],
-              consumed: { files: 1, entries: 1, bytes: 12 },
-              progressed: false,
-            },
-          },
-        },
-      });
-
-      const connector = new MachineConnector({
-        machines: {
-          local: 'host-a',
-          default: 'host-a',
-          hosts: { 'host-a': {}, gpu: { destination: 'gpu-box' } },
-        },
-        hubVersion: 'test',
-        bindIdentity: () => Promise.resolve('match'),
-        transportFactory: peer.factory,
-        handshakeTimeoutMs: 1000,
-      });
-
-      const context: ToolContext = { ...contextOf(), machines: connector };
-
-      const result = await run(context, {
-        patterns: ['needle'],
-        scopes: [`machine://gpu${root}/**`],
-      });
-
-      expect(locatorsOf(result)).toEqual([`machine://gpu${root}/a.md:1-1`]);
-      expect((await peer.session(0)).requests).toEqual(['fs.grep']);
-    });
-  });
-
-  it('returns machine_unavailable before any walk when the identity fails', async () => {
+  it('refuses a host scope outside the registered roots', async () => {
     await withRoot(async (root) => {
       await writeAt(root, 'a.md', 'needle\n');
 
-      const connector = localMachineConnector({
-        verify: () =>
-          Promise.reject(
-            new MachineUnavailableError(
-              'host-a',
-              'unreachable',
-              false,
-              'The local daemon is gone.',
-            ),
-          ),
-      });
-
-      const context: ToolContext = { ...contextOf(), machines: connector };
-
-      const result = await run(context, {
+      const result = await run(contextOf(), {
         patterns: ['needle'],
-        scopes: [`${root}/**`],
+        scopes: ['/etc/**'],
       });
 
       expect(result).toMatchObject({
         status: 'error',
-        type: 'machine_unavailable',
+        type: 'path_not_registered',
+        message: PATH_NOT_REGISTERED_MESSAGE,
       });
-      expect(result).not.toHaveProperty('results');
+    });
+  });
+
+  it('fails as machine_unavailable when the host daemon cannot start', async () => {
+    await withRoot(async (root) => {
+      await writeAt(root, 'a.md', 'needle\n');
+
+      const unreachable = startLocalDaemon({
+        roots: [root],
+        command: '/nonexistent/llame-machine',
+      });
+
+      try {
+        const result = await run(
+          { ...contextOf(), machines: unreachable.connector },
+          { patterns: ['needle'], scopes: [`${root}/**`] },
+        );
+
+        expect(result).toMatchObject({
+          status: 'error',
+          type: 'machine_unavailable',
+        });
+        expect(result).not.toHaveProperty('results');
+      } finally {
+        unreachable.dispose();
+      }
     });
   });
 });

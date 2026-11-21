@@ -353,16 +353,13 @@ async function recordAttempt(
   creation: Creation,
   plan: Plan,
 ): Promise<Failed | undefined> {
-  const { context, worktree } = creation;
+  const { context } = creation;
 
   const guarded = await context.tenantDb.runAs(context.userId, (db) =>
     new NativeFilesRepository(db).begin({
       runId: creation.runId,
       userId: context.userId,
-      fence:
-        worktree.authority.bindExecutorId === undefined
-          ? { bound: false }
-          : { bound: true, executorId: worktree.authority.bindExecutorId },
+      fence: { bound: false },
       deliverySequence: context.nativeDeliverySequence,
       attemptId: context.attemptId,
       toolCallId: creation.toolCallId,
@@ -596,9 +593,6 @@ async function bindWorktree(db: Db, commit: Commit): Promise<WorktreeOutcome> {
     attemptId: context.attemptId,
     executorId: worktree.authority.executorId,
     root: commit.plan.directory,
-    ...(worktree.authority.bindExecutorId !== undefined && {
-      bindExecutorId: worktree.authority.bindExecutorId,
-    }),
   });
 
   if (binding.status === 'fence_lost') {

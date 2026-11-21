@@ -86,7 +86,7 @@ async function executeGrep(
   input: GrepArguments,
 ): Promise<ToolResult> {
   // The walk's deadline starts here, before scope resolution, so Knowledge
-  // lookups, skill resolution, and host probes spend the walk's own time.
+  // lookups, skill resolution, and Machine probes spend the walk's own time.
   const deadlineAt = Date.now() + grepWalkMs(context);
   context.abortSignal?.throwIfAborted();
   const root = context.workspaceRoot?.current();
@@ -145,8 +145,9 @@ type ScanRequest = {
 };
 
 /**
- * One ordered unit of work, in scope order: a host scope the engine walks, or
- * a Machine scope whose own `fs.grep` pages run on its box.
+ * One ordered unit of work, in scope order: an installation scope the engine
+ * walks in process (Knowledge or skill), or a Machine scope whose own
+ * `fs.grep` pages run on its box.
  */
 type GrepSegment = GrepScope | MachineGrepScope;
 
@@ -212,8 +213,8 @@ function endAtArtifactBound(state: PageState): void {
 
 /**
  * The submitted scopes in index order, one segment each: the engine walks one
- * host scope under the page budget the call has left, and a Machine scope runs
- * its own `fs.grep` pages (design D7).
+ * installation scope under the page budget the call has left, and a Machine
+ * scope runs its own `fs.grep` pages (design D7).
  */
 function segmentsOf(resolved: ResolvedScopes): ReadonlyArray<GrepSegment> {
   return [...resolved.scopes, ...(resolved.machines ?? [])].sort(
@@ -234,11 +235,11 @@ type SegmentRun = {
   readonly progressed: boolean;
 };
 
-/** Run one segment: the engine walks a host scope, the Machine walks its own. */
+/** Run one segment: the engine walks an installation scope, a Machine its own. */
 async function runSegment(run: SegmentRun): Promise<ToolResult | undefined> {
   return isMachineGrepScope(run.segment)
     ? runMachineSegment(run, run.segment)
-    : runLocalSegment(run, run.segment);
+    : runEngineSegment(run, run.segment);
 }
 
 /**
@@ -303,11 +304,12 @@ async function runMachineSegment(
 const INTERNAL_CURSOR_HASH = 'grep-walk';
 
 /**
- * The host engine has no file page: one call walks the scope until the artifact
- * has no bytes left, a bound stops it, or it reaches the end. The artifact
- * passes the engine the bytes it has left as the page budget (design D7), and
- * the engine ends that page just before the bound for the cursor and warnings
- * line it reserves; the artifact then stops the walk at the bound itself.
+ * An installation walk has no file page: one call walks the scope until the
+ * artifact has no bytes left, a bound stops it, or it reaches the end. The
+ * artifact passes the engine the bytes it has left as the page budget (design
+ * D7), and the engine ends that page just before the bound for the cursor and
+ * warnings line it reserves; the artifact then stops the walk at the bound
+ * itself.
  */
 const NO_FILE_LIMIT = Number.MAX_SAFE_INTEGER;
 
@@ -320,13 +322,13 @@ const PAGE_STOP_KINDS: ReadonlySet<GrepWarningKind> = new Set([
 ]);
 
 /**
- * One host scope, walked by the shared engine with no file page: each engine
- * call takes the bytes the artifact has left as its page budget, and every
- * page resumes from the engine's own cursor. A page the engine cut inside a
- * file still continues, so the artifact never loses a line of the walk; a
- * page the artifact byte budget ended stops the whole call.
+ * One installation scope, walked by the shared engine with no file page: each
+ * engine call takes the bytes the artifact has left as its page budget, and
+ * every page resumes from the engine's own cursor. A page the engine cut
+ * inside a file still continues, so the artifact never loses a line of the
+ * walk; a page the artifact byte budget ended stops the whole call.
  */
-async function runLocalSegment(
+async function runEngineSegment(
   run: SegmentRun,
   scope: GrepScope,
 ): Promise<ToolResult | undefined> {
@@ -339,7 +341,7 @@ async function runLocalSegment(
   try {
     for (;;) {
       const scan = await runGrepScan(engineInput(run, scope, walk));
-      appendSegment(run.state, localPage(scan), run.request.admission);
+      appendSegment(run.state, enginePage(scan), run.request.admission);
 
       // The artifact may reject the passage that overflowed its bound; the
       // walk then stops with the artifact bound, not a page stop.
@@ -368,7 +370,7 @@ async function runLocalSegment(
   }
 }
 
-/** How the host engine's next internal page resumes. */
+/** How the engine's next internal page resumes. */
 type PageWalk = {
   readonly cursor: DecodedGrepCursor | undefined;
   readonly progressed: boolean;
@@ -376,8 +378,8 @@ type PageWalk = {
 };
 
 /**
- * One host engine call: the page budget is the artifact text's bytes left, so
- * the page ends where the artifact would have no room for its next passage.
+ * One engine call: the page budget is the artifact text's bytes left, so the
+ * page ends where the artifact would have no room for its next passage.
  */
 function engineInput(
   run: SegmentRun,
@@ -443,7 +445,7 @@ function nextPage(
 }
 
 /** The engine's own page, as the call's segment shape. */
-function localPage(scan: GrepScanResult): SegmentPage {
+function enginePage(scan: GrepScanResult): SegmentPage {
   return {
     complete: scan.complete,
     warnings: scan.warnings,

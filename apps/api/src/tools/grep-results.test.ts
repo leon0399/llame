@@ -1,8 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
 import {
-  executorUnavailableResult,
-  hostPathFailureResult,
   invalidInputResult,
   invalidPathResult,
   invalidPatternResult,
@@ -44,21 +42,11 @@ describe('grep results', () => {
     });
   });
 
-  it('names the missing backend its own layer owns', () => {
-    expect(executorUnavailableResult()).toEqual({
-      status: 'error',
-      type: 'executor_unavailable',
-      message: 'Native host authority is unavailable.',
-    });
+  it('names the missing Machine surface its own layer owns', () => {
     expect(machineUnsupportedResult()).toEqual({
       status: 'error',
       type: 'invalid_path',
       message: 'Machine locators are not available on this process.',
-    });
-    expect(hostPathFailureResult()).toEqual({
-      status: 'error',
-      type: 'executor_unavailable',
-      message: 'The host path could not be read.',
     });
   });
 });

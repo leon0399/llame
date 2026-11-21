@@ -1,21 +1,18 @@
 /**
- * Every source this layer can walk: the host filesystem, one bound Knowledge
- * Space, and one installed skill package. Each port adapts its own trusted
- * source to the engine's `GrepWalkPort`, and each keeps its own link rule —
- * the host and Knowledge never follow a link, and a skill package follows one
- * exactly as agent-skills does. The host and Machine ports honor ignore files.
+ * The two sources this process still walks itself: one bound Knowledge Space
+ * and one installed skill package. Each port adapts its own trusted source to
+ * the engine's `GrepWalkPort`, and each keeps its own link rule — Knowledge
+ * never follows a link, and a skill package follows one exactly as
+ * agent-skills does. Every other scope, including every path on the current
+ * Machine, is walked by that Machine's daemon through `fs.grep`.
  */
 
 import { type Dirent } from 'node:fs';
-import { lstat, open, readdir, realpath, stat } from 'node:fs/promises';
-import { type FileHandle } from 'node:fs/promises';
+import { readdir, realpath, stat } from 'node:fs/promises';
 import path from 'node:path';
 
 import {
-  collectAncestorIgnoreFiles,
-  GREP_IGNORE_FILE_NAMES,
   openFileStream,
-  openFlags,
   type GrepEntry,
   type GrepWalkPort,
 } from '@workspace/native-file-tools';
@@ -26,12 +23,7 @@ import {
 } from '../knowledge/knowledge-filesystem';
 import { mapKnowledgeResolutionFailure } from '../knowledge/knowledge-locator';
 import { skillUnavailableResult } from '../skills/skill-target';
-import {
-  GrepScopeFailure,
-  hostPathFailureResult,
-  notFoundResult,
-  type GrepToolError,
-} from './grep-results';
+import { GrepScopeFailure, type GrepToolError } from './grep-results';
 
 /** What one scope path is on its own scheme, or the result that ends the call. */
 export type ScopeProbe =
@@ -45,215 +37,6 @@ export function joinedPath(prefix: string, rel: string): string {
   if (rel.length === 0) return prefix;
 
   return `${prefix}/${rel}`;
-}
-
-/** The chunk a bounded ignore read asks a handle for, so no file is held whole. */
-const READ_CHUNK_BYTES = 64 * 1024;
-
-/** The one file-handle operation a bounded read needs. */
-type BoundedFileReader = {
-  read(
-    buffer: Buffer,
-    offset: number,
-    length: number,
-    position: number,
-  ): Promise<{ bytesRead: number }>;
-};
-
-/**
- * Read an open file up to `maxBytes` + 1 bytes, so a caller can tell a file
- * that overflows the bound from one exactly at it. The read stops at the extra
- * byte: a file far larger than the bound is never buffered beyond it.
- */
-export async function readBoundedFileBytes(
-  file: BoundedFileReader,
-  maxBytes: number,
-  signal: AbortSignal | undefined,
-): Promise<Buffer> {
-  const chunks: Array<Uint8Array> = [];
-  let totalBytes = 0;
-
-  while (totalBytes <= maxBytes) {
-    signal?.throwIfAborted();
-
-    const chunk = Buffer.allocUnsafe(
-      Math.min(READ_CHUNK_BYTES, maxBytes + 1 - totalBytes),
-    );
-
-    const { bytesRead } = await file.read(
-      chunk,
-      0,
-      chunk.byteLength,
-      totalBytes,
-    );
-
-    if (!Number.isInteger(bytesRead) || bytesRead <= 0) break;
-    chunks.push(chunk.subarray(0, Math.min(bytesRead, chunk.byteLength)));
-    totalBytes += bytesRead;
-  }
-
-  return Buffer.concat(chunks, Math.min(totalBytes, maxBytes + 1));
-}
-
-/** The largest ignore file the walk reads; a larger one applies no rules. */
-const IGNORE_FILE_BYTES = 256 * 1024;
-
-/**
- * One host path as the process sees it: a symbolic link is never one of the
- * two things a scope may name, because a host walk never follows one.
- */
-export async function probeHostPath(
-  root: string,
-  signal: AbortSignal | undefined,
-): Promise<ScopeProbe> {
-  signal?.throwIfAborted();
-
-  try {
-    const stats = await lstat(root);
-
-    if (stats.isDirectory()) return { kind: 'directory' };
-
-    return stats.isFile() ? { kind: 'file' } : { kind: 'missing' };
-  } catch {
-    return { kind: 'missing' };
-  }
-}
-
-/**
- * The host tree as the operating system reports it. A link is reported as a
- * link and never entered, hidden entries stay visible, and each directory's
- * `.gitignore` and `.ignore` become walk policy; the engine prunes `.git`
- * itself.
- */
-export function createHostWalkPort(
-  root: string,
-  signal: AbortSignal | undefined,
-): GrepWalkPort {
-  return {
-    followsLinks: false,
-    list: (rel) => listHostDirectory(root, rel, signal),
-    open: (rel) => openFileStream(hostPath(root, rel), false, signal),
-    ignoreFiles: (rel) => readIgnoreFiles(root, rel, signal),
-    ignoreAncestors: () =>
-      collectAncestorIgnoreFiles(
-        { prefix: root, root: '/', fallbackRepository: undefined, signal },
-        (directory, name) => readIgnoreText(directory, name, signal),
-      ),
-  };
-}
-
-/** One directory of the host tree, with links reported and never entered. */
-async function listHostDirectory(
-  root: string,
-  rel: string,
-  signal: AbortSignal | undefined,
-): Promise<ReadonlyArray<GrepEntry>> {
-  signal?.throwIfAborted();
-  const directory = hostPath(root, rel);
-
-  if (rel.length === 0) await refuseNonDirectoryRoot(directory);
-  let dirents: Array<Dirent>;
-
-  try {
-    dirents = await readdir(directory, { withFileTypes: true });
-  } catch (error) {
-    // A subdirectory the process cannot list, or one that vanished mid-walk,
-    // contributes nothing; only the scope root itself fails the call.
-    if (rel.length > 0) return [];
-
-    const code =
-      error instanceof Error && 'code' in error ? String(error.code) : '';
-
-    throw new GrepScopeFailure(
-      code === 'ENOENT' || code === 'ENOTDIR'
-        ? notFoundResult()
-        : hostPathFailureResult(),
-    );
-  }
-
-  return dirents.map((dirent): GrepEntry => ({
-    name: dirent.name,
-    kind: dirent.isSymbolicLink()
-      ? 'link'
-      : dirent.isDirectory()
-        ? 'directory'
-        : dirent.isFile()
-          ? 'file'
-          : 'other',
-  }));
-}
-
-/**
- * Refuse a scope root that is not a directory of its own: a listing reports a
- * link as a link and never enters it, so lstat is the view that names the link
- * instead of the tree behind it. An lstat the process cannot make decides
- * nothing, and the listing that follows reports that refusal as it always has.
- */
-async function refuseNonDirectoryRoot(target: string): Promise<void> {
-  let ownDirectory: boolean;
-
-  try {
-    ownDirectory = (await lstat(target)).isDirectory();
-  } catch {
-    return;
-  }
-
-  if (!ownDirectory) throw new GrepScopeFailure(notFoundResult());
-}
-
-function hostPath(root: string, rel: string): string {
-  return rel.length === 0 ? root : path.join(root, rel);
-}
-
-/** One directory's ignore texts, `.gitignore` before `.ignore`. */
-async function readIgnoreFiles(
-  root: string,
-  rel: string,
-  signal: AbortSignal | undefined,
-): Promise<ReadonlyArray<string>> {
-  const directory = hostPath(root, rel);
-  const texts: Array<string> = [];
-
-  for (const name of GREP_IGNORE_FILE_NAMES) {
-    const text = await readIgnoreText(directory, name, signal);
-
-    if (text !== undefined) texts.push(text);
-  }
-
-  return texts;
-}
-
-/** One ignore file's text, when it is a bounded regular file. */
-async function readIgnoreText(
-  directory: string,
-  name: string,
-  signal: AbortSignal | undefined,
-): Promise<string | undefined> {
-  const file = path.join(directory, name);
-  let handle: FileHandle | undefined;
-
-  try {
-    // Policy comes from a real file only, opened by the walk's own rule: a
-    // link is never followed and a FIFO never blocks the walk.
-    handle = await open(file, openFlags(false));
-    const stats = await handle.stat();
-
-    if (!stats.isFile()) return undefined;
-    // The cap applies to the bytes read, so a file that announced the wrong
-    // size applies no rules either way.
-    const bytes = await readBoundedFileBytes(handle, IGNORE_FILE_BYTES, signal);
-
-    return bytes.byteLength > IGNORE_FILE_BYTES
-      ? undefined
-      : bytes.toString('utf8');
-  } catch {
-    // A cancellation is not an absent file: let the walk end the call.
-    signal?.throwIfAborted();
-
-    return undefined;
-  } finally {
-    await handle?.close();
-  }
 }
 
 export function createKnowledgeWalkPort(
@@ -329,7 +112,12 @@ export function createSkillWalkPort(
   return {
     followsLinks: true,
     list: (rel) => listSkillDirectory(root, rel, signal),
-    open: (rel) => openFileStream(hostPath(root, rel), true, signal),
+    open: (rel) =>
+      openFileStream(
+        rel.length === 0 ? root : path.join(root, rel),
+        true,
+        signal,
+      ),
   };
 }
 

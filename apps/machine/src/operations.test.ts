@@ -129,6 +129,15 @@ describe("fs.list", () => {
     });
   });
 
+  it("lists a directory named with a trailing separator", async () => {
+    await expect(
+      daemon.call("fs.list", {
+        envelope: envelope(),
+        path: `${fixture.root}/`,
+      }),
+    ).resolves.toMatchObject({ totalCount: 4, truncated: false });
+  });
+
   it("refuses a target that is not a directory", async () => {
     await expect(
       daemon.call("fs.list", { envelope: envelope(), path: fixture.notes }),
@@ -187,6 +196,24 @@ describe("fs.read", () => {
     const content = JSON.stringify(result);
     expect(content).toContain(`${PREFIX}${fixture.root}`);
     expect(content).not.toContain(fixture.outside);
+  });
+
+  it("refuses a trailing separator on a file and accepts it on a directory", async () => {
+    await expect(
+      daemon.call("fs.read", {
+        envelope: envelope(),
+        path: `${fixture.notes}/`,
+        options: { displayPrefix: PREFIX },
+      }),
+    ).resolves.toMatchObject({ status: "error", type: "not_found" });
+
+    await expect(
+      daemon.call("fs.read", {
+        envelope: envelope(),
+        path: `${fixture.root}/`,
+        options: { displayPrefix: PREFIX },
+      }),
+    ).resolves.toMatchObject({ status: "success", kind: "directory" });
   });
 
   it("reports the canonical locator when the address is a link", async () => {

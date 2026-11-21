@@ -56,7 +56,11 @@ import { MachineConnector } from '../machines/machine-connector.service';
 import { MachinesService } from '../machines/machines.service';
 import { type MachinesConfig } from '../instance-config/machines-config';
 import { type MachineTransportFactory } from '../machines/machine-transport';
-import { localMachineConnector } from '../testing/local-machine';
+import { machineFilesConnector } from '../testing/machine-files-peer';
+import {
+  type PeerAnswer,
+  type PeerCall,
+} from '../testing/machine-protocol-peer';
 // ---- Harness boot ----------------------------------------------------------
 
 export type WorkerHarness = {
@@ -96,6 +100,13 @@ type HarnessOverrides = {
    * no suite exercises today.
    */
   machineTransportFactory?: MachineTransportFactory;
+  /**
+   * One extra answer for the local Machine peer, consulted before the file
+   * methods it serves by default. A family that has moved onto the Machine
+   * surface but has no real walk in the peer (grep) scripts it here, so a
+   * suite tests its own behaviour instead of the walk.
+   */
+  machineAnswer?: (call: PeerCall) => PeerAnswer | undefined;
   /** Deterministic pg-boss schema for restart/recovery integration tests. */
   queueSchema?: string;
   /** `null` boots a process that does not consume `runs`, like an API-only process. */
@@ -258,11 +269,16 @@ export async function bootWorkerHarness(
     overrides?.machines === undefined &&
     machines?.local !== undefined
   ) {
-    // A suite that only names its own Machine asks for the same in-process
-    // host it always had: the daemon side answers the identity handshake and
-    // nothing else, so a local target that ever spends a Machine request fails
-    // loudly.
-    connector = localMachineConnector({ name: machines.local });
+    // A suite that only names its own Machine asks for an in-process host:
+    // the peer answers the identity handshake and the file methods against
+    // the real filesystem (the host file family runs through the Machine
+    // surface since layer 3), and any other request fails loudly.
+    connector = machineFilesConnector({
+      name: machines.local,
+      ...(overrides?.machineAnswer !== undefined && {
+        answer: overrides.machineAnswer,
+      }),
+    });
   }
 
   if (connector !== undefined) {

@@ -28,8 +28,11 @@ file as it is. It is the tool for a partial change.
 
 An absolute path on the current Machine, a `file://` alias, a `machine://`
 locator, or a `kb://`
-locator; see [locators](../locators/index.md). The selector grammar is not part
-of `edit`: a `kb://` locator that carries one is refused with
+locator; see [locators](../locators/index.md). An absolute path, a `file://`
+alias, and a Workspace-relative path run on the current Machine through its
+daemon and must lie inside that Machine's registered roots. The selector
+grammar is not part of `edit`: a `kb://` locator that carries one is refused
+with
 `invalid_selector`, and on an absolute `path` or `file://` alias a trailing
 `:N-M` or
 `:raw` is part of the filename, so the edit targets a file whose name ends in
@@ -104,9 +107,11 @@ chain of the directory it touches; see
 
 ## Errors
 
-A missing or ambiguous match fails without a change; `not_regular_file` for a
-target that is not a regular file; `not_found` for an absent path or a refused
-`kb://` symbolic-link component. The shared vocabulary is in
+A missing or ambiguous match fails without a change. `not_regular_file` reports
+a target that is not a regular file. `not_found` reports an absent path or a
+refused `kb://` symbolic-link component. A target outside the current Machine's
+registered roots fails with `path_not_registered`, and a daemon that cannot
+serve fails with `machine_unavailable`. The shared vocabulary is in
 [read](read.md#errors).
 
 ## Configured by

@@ -604,7 +604,6 @@ describe('Workspace MCP production integration', () => {
               ownerUserId: userId,
               runId: crypto.randomUUID(),
               deliverySequence: 0,
-              bindExecutorId: 'integration-worker',
             })
             .catch(() => undefined),
         )
@@ -834,7 +833,6 @@ describe('Workspace MCP production integration', () => {
           deliverySequence: seeded.deliverySequence,
           executorId: WORKER_MACHINE,
           root: bound,
-          bindExecutorId: WORKER_MACHINE,
         }),
       );
       // A `default` Run started the clients of this very binding.

@@ -283,8 +283,8 @@ every stored bare root to a `machine://` locator. It rewrites one transaction
 and fails on an unknown executor value, so a failed run changes nothing.
 
 This release uses the host daemon child to verify the host's identity. Host file
-tools still run in the worker process, and host git and Workspace context follow
-in later releases.
+tools and `grep` run through that child, and host git and Workspace context
+follow in later releases.
 
 ## Register roots
 
@@ -304,10 +304,10 @@ servers, can edit the roots file. The hub has no operation that changes roots.
 The host Machine needs roots too, registered on the host as the llame process
 user. A host Chat served by another worker over SSH is already root-bounded, so
 register the directories you work in before the upgrade. In development,
-`pnpm dev` sets `LLAME_MACHINE_COMMAND` and `LLAME_MACHINE_CONFIG_DIR` and
-registers the repository's parent directory and the operating system's
-temporary directory. Those cover the default `.llame-worktrees` directory beside
-the clone.
+`pnpm dev` sets `LLAME_MACHINE_COMMAND` and `LLAME_MACHINE_CONFIG_DIR` and runs
+`apps/api/scripts/dev-machine-host.mts`, which registers the repository's
+parent directory and the operating system's temporary directory. Those cover the
+default `.llame-worktrees` directory beside the clone.
 
 A git worktree on a Machine must lie inside a registered root, because the
 daemon decides the worktree directory before any git call. By default a new

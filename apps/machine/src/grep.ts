@@ -243,9 +243,10 @@ export async function grepOperation(
       FS_GREP_METHOD,
       "the cursor does not belong to this request",
     );
-  const scope = await scopeOf(request, context);
 
   try {
+    const scope = await scopeOf(request, context);
+
     return resultOf(
       await runGrepScan({
         scopes: [scope],
@@ -261,6 +262,8 @@ export async function grepOperation(
       }),
     );
   } catch (error) {
+    // An absent, linked, or non-regular scope root is the same `not_found`
+    // result `read` answers, not a protocol failure.
     if (error instanceof GrepWalkFailure) return error.result;
     throw error;
   }

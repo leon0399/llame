@@ -33,7 +33,7 @@ import { KnowledgeToolRuntimeResolver } from '../knowledge/knowledge-tool-runtim
 import { runTool } from './runner';
 import { type ToolContext } from './types';
 import { compileTestPermissionPolicy } from '../testing/tool-permission-policy';
-import { localMachineConnector } from '../testing/local-machine';
+import { startLocalDaemon, type LocalDaemon } from '../testing/local-daemon';
 import { hostBashJobs } from '../testing/host-bash-jobs';
 import { bashTool } from './bash';
 
@@ -61,8 +61,13 @@ describe('native file authority and durable effects', () => {
     await sql`INSERT INTO users (id, name, email) VALUES (${owner}, 'Native', ${`${owner}@test.com`}), (${otherOwner}, 'Other', ${`${otherOwner}@test.com`})`;
   });
 
+  let daemon: LocalDaemon;
+
   beforeEach(async () => {
     directory = await mkdtemp(join(tmpdir(), 'native-runtime-'));
+    // A dev-like root set: these tests read and write arbitrary temporary
+    // directories, and root refusal has its own test below.
+    daemon = startLocalDaemon({ roots: ['/'] });
     path = join(directory, 'notes');
     await writeFile(path, 'before\nFoo\nafter\n');
     const chatId = randomUUID();
@@ -116,7 +121,7 @@ describe('native file authority and durable effects', () => {
       attemptId: run.activeAttemptId!,
       localMachine: 'host-a',
       defaultMachine: 'host-a',
-      machines: localMachineConnector({ name: 'host-a' }),
+      machines: daemon.connector,
       nativeDeliverySequence: run.startedSequence,
       toolCallId: randomUUID(),
       bashProcessLimiter: new BashProcessLimiter(64),
@@ -127,6 +132,7 @@ describe('native file authority and durable effects', () => {
 
   afterEach(async () => {
     vi.unstubAllEnvs();
+    daemon.dispose();
     await rm(directory, { recursive: true, force: true });
   });
   afterAll(async () => {
@@ -142,10 +148,9 @@ describe('native file authority and durable effects', () => {
 
       if (!started) return undefined;
 
-      if (
-        started.workerId !== null &&
-        (await new NativeFilesRepository(tx).hasMutation(runId))
-      ) {
+      // A Run with an admitted native attempt recovers instead of claiming a
+      // fresh delivery: the attempt's identity decides, not a worker pin.
+      if (await new NativeFilesRepository(tx).hasMutation(runId)) {
         return undefined;
       }
 
@@ -169,7 +174,12 @@ describe('native file authority and durable effects', () => {
       new NativeFilesRepository(tx).begin({
         runId,
         userId: owner,
-        fence: { bound: true, executorId: 'host-a' },
+        // In-process host `bash` still pins its worker; a Machine mutation
+        // names its Machine and fences on any worker (design D15).
+        fence:
+          input.operation === 'bash'
+            ? { bound: true as const, executorId: 'host-a' }
+            : { bound: false as const },
         deliverySequence: input.deliverySequence,
         toolCallId: input.toolCallId,
         operation: input.operation,
@@ -278,36 +288,35 @@ describe('native file authority and durable effects', () => {
     expect(events.map((event) => event.eventType)).toEqual(['run.started']);
   });
 
-  it('binds on the first read and rejects another host before mutation', async () => {
+  it('leaves the Run unbound after a read and a mutation', async () => {
     expect(await runTool(nativeReadTool, { path }, context, 5)).toMatchObject({
       status: 'success',
       content: '1: before\n2: Foo\n3: after\n',
     });
 
-    const run = await tenantDb.runAs(owner, (tx) =>
+    const afterRead = await tenantDb.runAs(owner, (tx) =>
       new RunsRepository(tx).findById(runId, owner),
     );
 
-    expect(run?.workerId).toBe('host-a');
+    // A Machine path names its Machine, so neither the read nor the mutation
+    // pins the Run to this worker (design D15).
+    expect(afterRead?.workerId).toBeNull();
 
-    const result = await runTool(
-      nativeEditTool,
-      { path, oldText: 'Foo', newText: 'Bar' },
-      {
-        ...context,
-        localMachine: 'host-b',
-        defaultMachine: 'host-b',
-        machines: localMachineConnector({ name: 'host-b' }),
-        toolCallId: randomUUID(),
-      },
-      5,
+    expect(
+      await runTool(
+        nativeEditTool,
+        { path, oldText: 'Foo', newText: 'Bar' },
+        { ...context, toolCallId: randomUUID() },
+        5,
+      ),
+    ).toMatchObject({ status: 'success', replacements: 1 });
+    expect(await readFile(path, 'utf8')).toBe('before\nBar\nafter\n');
+
+    const afterEdit = await tenantDb.runAs(owner, (tx) =>
+      new RunsRepository(tx).findById(runId, owner),
     );
 
-    expect(result).toMatchObject({
-      status: 'error',
-      type: 'executor_unavailable',
-    });
-    expect(await readFile(path, 'utf8')).toBe('before\nFoo\nafter\n');
+    expect(afterEdit?.workerId).toBeNull();
   });
 
   it('settles a mutation before returning and replays its result without executing', async () => {
@@ -338,7 +347,7 @@ describe('native file authority and durable effects', () => {
       new NativeFilesRepository(tx).begin({
         runId,
         userId: owner,
-        fence: { bound: true, executorId: 'host-a' },
+        fence: { bound: false },
         deliverySequence: context.nativeDeliverySequence,
         toolCallId: context.toolCallId!,
         operation: 'edit',
@@ -414,7 +423,7 @@ describe('native file authority and durable effects', () => {
     });
   });
 
-  it('rejects a stale read after a newer delivery claim', async () => {
+  it('fences a stale delivery mutation on any worker and leaves the Run unbound', async () => {
     const deliveries = await Promise.all([claimDelivery(), claimDelivery()]);
 
     const [olderDelivery, newerDelivery] = deliveries
@@ -423,13 +432,13 @@ describe('native file authority and durable effects', () => {
 
     expect(
       await runTool(
-        nativeReadTool,
-        { path },
+        nativeEditTool,
+        { path, oldText: 'Foo', newText: 'Bar' },
         {
           ...context,
           attemptId: olderDelivery.attemptId,
           nativeDeliverySequence: olderDelivery.sequence,
-          toolCallId: 'stale-read',
+          toolCallId: 'stale-edit',
         },
         5,
       ),
@@ -437,44 +446,7 @@ describe('native file authority and durable effects', () => {
       status: 'error',
       type: 'executor_unavailable',
     });
-    expect(
-      await runTool(
-        nativeReadTool,
-        { path },
-        {
-          ...context,
-          attemptId: newerDelivery.attemptId,
-          nativeDeliverySequence: newerDelivery.sequence,
-          toolCallId: 'current-read',
-        },
-        5,
-      ),
-    ).toMatchObject({ status: 'success' });
-  });
-
-  it('does not bind a stale delivery host before the current delivery succeeds', async () => {
-    const deliveries = await Promise.all([claimDelivery(), claimDelivery()]);
-
-    const [olderDelivery, newerDelivery] = deliveries
-      .filter((delivery) => delivery !== undefined)
-      .sort((left, right) => left.sequence - right.sequence);
-
-    expect(
-      await runTool(
-        nativeReadTool,
-        { path },
-        {
-          ...context,
-          attemptId: olderDelivery.attemptId,
-          nativeDeliverySequence: olderDelivery.sequence,
-          toolCallId: 'stale-host',
-        },
-        5,
-      ),
-    ).toMatchObject({
-      status: 'error',
-      type: 'executor_unavailable',
-    });
+    expect(await readFile(path, 'utf8')).toBe('before\nFoo\nafter\n');
     expect(
       await tenantDb.runAs(owner, (tx) =>
         new RunsRepository(tx).findById(runId, owner),
@@ -483,25 +455,23 @@ describe('native file authority and durable effects', () => {
 
     expect(
       await runTool(
-        nativeReadTool,
-        { path },
+        nativeEditTool,
+        { path, oldText: 'Foo', newText: 'Bar' },
         {
           ...context,
           attemptId: newerDelivery.attemptId,
-          localMachine: 'host-b',
-          defaultMachine: 'host-b',
-          machines: localMachineConnector({ name: 'host-b' }),
           nativeDeliverySequence: newerDelivery.sequence,
-          toolCallId: 'current-host',
+          toolCallId: 'current-edit',
         },
         5,
       ),
-    ).toMatchObject({ status: 'success' });
+    ).toMatchObject({ status: 'success', replacements: 1 });
+    expect(await readFile(path, 'utf8')).toBe('before\nBar\nafter\n');
     expect(
       await tenantDb.runAs(owner, (tx) =>
         new RunsRepository(tx).findById(runId, owner),
       ),
-    ).toMatchObject({ workerId: 'host-b' });
+    ).toMatchObject({ workerId: null });
   });
 
   it.each(['edit', 'bash'] as const)(

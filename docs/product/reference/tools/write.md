@@ -30,7 +30,9 @@ entire contents. It is the tool for a whole-file change; use
 An absolute path on the current Machine, a `file://` alias, a `machine://`
 locator, or a `kb://`
 locator; while a Workspace is entered, a relative path is resolved beneath its
-root on the Workspace's Machine. See
+root on the Workspace's Machine. An absolute path, a `file://` alias, and a
+Workspace-relative path run on the current Machine through its daemon and must
+lie inside that Machine's registered roots. See
 [locators](../locators/index.md) and
 [enter_workspace](enter-workspace.md#bounds).
 
@@ -101,10 +103,12 @@ chain of the directory it touches; see
 
 ## Errors
 
-`file_exists` for an existing target in create mode, `not_regular_file` for an
-intermediate component that is a regular file, `not_found` for an absent replace
-target or a refused `kb://` symbolic-link component, and `invalid_selector` for
-a `kb://` locator carrying a selector. The shared vocabulary is in
+`file_exists` reports an existing target in create mode, and `not_regular_file`
+an intermediate component that is a regular file. `not_found` reports an absent
+replace target or a refused `kb://` symbolic-link component. `invalid_selector`
+reports a `kb://` locator carrying a selector. A target outside the current
+Machine's registered roots fails with `path_not_registered`, and a daemon that
+cannot serve fails with `machine_unavailable`. The shared vocabulary is in
 [read](read.md#errors).
 
 ## Configured by

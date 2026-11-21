@@ -470,14 +470,13 @@ describe('enter_workspace with a worktree', () => {
       expect.objectContaining({
         operation: 'worktree',
         path: onHost(directory),
-        fence: { bound: true, executorId: HOST },
+        fence: { bound: false },
       }),
     );
     expect(database.enter).toHaveBeenCalledWith(
       expect.objectContaining({
         root: onHost(directory),
         executorId: HOST,
-        bindExecutorId: HOST,
       }),
     );
     expect(database.append).toHaveBeenCalledWith(

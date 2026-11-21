@@ -31,6 +31,10 @@ without binding a Machine. `bash` shares the absolute-path Machine gate. The
 current Machine is the entered Workspace's Machine, or `machines.default` when
 no Workspace is entered.
 
+The current Machine's daemon serves a host `read`, `edit`, `write`, or `grep`.
+It answers only inside the roots registered on that Machine, so a host path
+outside them fails with `path_not_registered`.
+
 This page covers enabling and policy only. What each tool does is documented in
 [read](../reference/tools/read.md),
 [edit](../reference/tools/edit.md),
@@ -63,6 +67,20 @@ fails when either names no entry, when `default` is not this process's `local`
 and has no `destination`, when `tools.nativeExecutorId` is present, and when a
 native tool is allowlisted without `default`. See [Machines](machines.md) for
 the full field list and the child daemon.
+
+A host `read`, `edit`, `write`, or `grep` runs through the host Machine's daemon
+child, so register the host directories you work in before you rely on a host
+path. Run `llame-machine roots add <dir>` as the daemon's user on the host. The
+daemon answers only inside those roots: a host `read`, `edit`, `write`, or `grep`
+outside every root fails with `path_not_registered`, and a host daemon that
+cannot start or answer fails the call with `machine_unavailable`. Neither falls
+back to an in-process operation. See [Machines](machines.md#register-roots) for
+the roots file, the development roots, and the root rules on worktrees.
+`llame-machine roots add /` restores the reach of an earlier process that
+served every host path. The development API runs
+`apps/api/scripts/dev-machine-host.mts` when you run `pnpm dev`, and it
+registers the repository's parent directory and the operating system's
+temporary directory for the development host Machine.
 
 `kb://` locators need only a configured `knowledge.root`; `tools.allowed` still
 gates each tool id. Startup still requires `machines.default` when `read`,
@@ -112,13 +130,14 @@ spawning a process. A Machine daemon has its own bound of one and keeps its
 ## `grep`
 
 `grep` searches file contents. It is read-only and records no native attempt.
-It needs its own `tools.allowed` entry and at least one serving backend: a
-`machines.default`, a `knowledge.root`, a skills directory, or a configured
-Machine. Without a backend the tool is not advertised.
+It needs its own `tools.allowed` entry. Startup requires `machines.default`
+when `grep` is allowlisted, so a Machine backend can always serve. A `kb://`
+or `skill://` scope needs no Machine.
 
-A path scope runs on the current Machine. Startup requires `machines.default`
-when `grep` is allowlisted, so a path scope on an unreachable Machine returns
-`machine_unavailable`. A `kb://` or `skill://` scope needs no Machine.
+A path scope runs on the current Machine's daemon, inside that Machine's
+registered roots. A scope outside every root returns `path_not_registered`, and
+an unreachable Machine returns `machine_unavailable`. The worker process never
+walks a host scope.
 
 `grep` adds one permission group, `tools.permissions.grep`. The shipped
 example config does not include this group. An absent group rejects every
@@ -213,7 +232,8 @@ A path walk follows these rules:
 A `machine://` scope runs on the Machine. The `llame-machine` daemon performs
 the walk, the match, and the bounds, through the `fs.grep` method. It resolves
 the scope prefix through its registered roots first. Any other prefix returns
-`path_not_registered`, and the daemon opens no file.
+`path_not_registered`, and the daemon opens no file. A host path scope is the
+same walk on the current Machine through the same method.
 
 The daemon answers passages relative to the scope prefix. Every result is
 therefore a `machine://` locator, and no bare path reaches the model. Read one

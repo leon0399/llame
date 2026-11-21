@@ -12,25 +12,29 @@ configured_by:
 
 ## Machine binding
 
-The first absolute-path native operation binds its Run to the current Machine. A
-different Machine cannot resolve those physical paths on reattachment. Mutations
-to one Machine are ordered, including symlink aliases; external editors and
-other uncoordinated processes are outside that guarantee.
+A native operation addresses the current Machine through its daemon. It never
+binds the Run to a worker, so a later attempt on another worker resolves the same
+locator on the current Machine. A physical path thus moves only with its
+Machine, never with the worker that ran an earlier attempt. Mutations to one
+Machine are ordered by its daemon, including symlink aliases; external editors
+and other uncoordinated processes are outside that guarantee.
+
+Host `bash` still writes the Run's existing `worker_id` for its worker, because
+the command runs in that process.
 
 ## Attempt fence
 
-Before an edit or write changes bytes, on either scheme, its attempt is committed
+Before an edit or write changes bytes, on any scheme, its attempt is committed
 to the existing owner-scoped Run event log — for `kb://`, recorded against the
-locator, never the resolved host path. The result is committed before the model
-continues.
+locator, never the resolved host path. The attempt carries no worker binding, so
+a retry on another worker reports `outcome_unknown` instead of
+`executor_unavailable`. The result is committed before the model continues.
 
 A recovered open attempt returns `outcome_unknown`; a queue retry of a Run that
 started a mutation terminates instead of replaying its model loop. Reconnecting
 clients replay recorded activity without running tools again.
 
-A `kb://` mutation uses this same fence without binding or requiring a Machine,
-so a retry on a different worker still reports `outcome_unknown` rather than
-`executor_unavailable`.
+A `kb://` mutation uses this same fence without binding or requiring a Machine.
 
 The fence survives `bypass`: it is not a permission-group clause, so it applies
 under every permission mode; see [permission modes](permission-modes.md).

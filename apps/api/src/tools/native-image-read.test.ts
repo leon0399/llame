@@ -22,7 +22,7 @@ import { createToolMediaStore } from '../media/tool-media-store';
 import { SkillCatalog } from '../skills/skill-catalog';
 import { NativeFilesRepository } from '../runs/native-files-repository';
 import { compileTestPermissionPolicy } from '../testing/tool-permission-policy';
-import { localMachineConnector } from '../testing/local-machine';
+import { machineFilesConnector } from '../testing/machine-files-peer';
 import {
   nativeEditTool,
   nativeReadTool,
@@ -145,7 +145,7 @@ describe('native media reads', () => {
       runId: 'run',
       localMachine: HOST,
       defaultMachine: HOST,
-      machines: localMachineConnector(),
+      machines: machineFilesConnector(),
       nativeDeliverySequence: 1,
       toolCallId: 'call',
       permissionPolicy: compileTestPermissionPolicy(),
