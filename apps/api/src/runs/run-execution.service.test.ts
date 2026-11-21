@@ -32634,4 +32634,54 @@ describe('a send that breaks after a started tool call', () => {
       expect(trailing?.['partId']).not.toBe(before?.['partId']);
     },
   );
+
+  it.each<Wire>(['responses', 'completions'])(
+    '%s wire: Text between two calls whose first is still pending stays',
+    async (wire) => {
+      const lookup = deferredTool(LOOKUP_TOOL);
+      const grep = deferredTool(GREP_TOOL);
+
+      const { spies, requests, drained } = await startAndDrain({
+        wire,
+        tools: toolset(lookup, grep),
+        responses: [
+          // The gap between chunks lets the first call be admitted while it
+          // still runs: its part is then a placeholder the collector hides.
+          providerResponse(
+            [
+              ...textParts('before-a '),
+              lookupCall('read-call', 'a'),
+              ...textParts('between '),
+              grepCall('grep-call', 'b'),
+              ...textParts('TRAILING TEXT MUST NOT SURVIVE'),
+              {
+                type: 'error',
+                error: new ProviderFailure('the provider stream broke', {
+                  code: 'stream_broken',
+                }),
+              },
+            ],
+            'tool-calls',
+            { chunkDelayInMs: 5 },
+          ),
+          providerText('final answer'),
+        ],
+      });
+
+      await vi.waitFor(() => expect(lookup.calls).toEqual(['a']));
+      await vi.waitFor(() => expect(grep.calls).toEqual(['b']));
+      lookup.settle('a');
+      grep.settle('b');
+      await drained;
+
+      // The text before the last call precedes a kept call, so it stays: the
+      // anchor counts output parts, and settling the first call cannot move it.
+      const parts = replyPartsOf(spies);
+      expect(textOf(parts)).toContain('between ');
+      expect(textOf(parts)).not.toContain('TRAILING');
+      const next = JSON.stringify(requests[1]);
+      expect(next).toContain('between ');
+      expect(next).not.toContain('TRAILING TEXT MUST NOT SURVIVE');
+    },
+  );
 });

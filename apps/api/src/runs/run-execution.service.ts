@@ -982,11 +982,17 @@ type FailedSendStatus = Exclude<TerminalRunStatus, 'completed'>;
 /**
  * Where a send's kept output ends, captured at its last complete tool-call
  * part (continue-after-broken-send D3): the sequence a `model.superseded`
- * event names, and the collected-part count through that part.
+ * event names, and how many text and reasoning parts the reply held through
+ * that part.
+ *
+ * The count, never an array index: a call's part is a `pending-tool` slot that
+ * `parts()` hides until the call settles, and settling replaces it in place —
+ * so an index taken before that shifts every part after it, while text and
+ * reasoning parts are only ever appended and keep their order.
  */
 type CutAnchor = {
   readonly sequence: Promise<number>;
-  readonly partsLength: number;
+  readonly keptOutput: number;
 };
 
 /** A send that failed after it streamed a complete tool-call part (D1). */
@@ -3597,14 +3603,20 @@ export class RunExecutionService {
       // The call is a structurally distinct part, so the text the send
       // streams after it is a new part even under the id the wire kept (D3).
       textPartEnded = true;
-      const partsLength = assistantPartCollector.parts().length;
+
+      // Only the output parts the reply held: a call settled later takes its
+      // placeholder's slot in place, so a full count would move the boundary.
+      const keptOutput = assistantPartCollector
+        .parts()
+        .filter((part) => isTextPart(part) || isReasoningPart(part)).length;
+
       let sequence = 0;
 
       const read = queueNextSequence('cut anchor', (next) => {
         sequence = next;
       });
 
-      cutAnchor = { sequence: read.then(() => sequence), partsLength };
+      cutAnchor = { sequence: read.then(() => sequence), keptOutput };
     };
 
     /**
@@ -3625,13 +3637,18 @@ export class RunExecutionService {
       // A failed progress write settles the Run through its shipped path.
       if (progressWriteFailed) return undefined;
 
-      const kept = assistantPartCollector
-        .parts()
-        .filter(
-          (part, index) =>
-            index < anchor.partsLength ||
-            (!isTextPart(part) && !isReasoningPart(part)),
-        );
+      // Keep the output the send streamed through its last complete call: the
+      // first parts its anchor counted, since text and reasoning only ever
+      // append. Every other part — calls, context items — is kept regardless
+      // of where a later settled call placed it.
+      let outputSeen = 0;
+
+      const kept = assistantPartCollector.parts().filter((part) => {
+        if (!isTextPart(part) && !isReasoningPart(part)) return true;
+        outputSeen += 1;
+
+        return outputSeen <= anchor.keptOutput;
+      });
 
       const notice = createProviderFailureItem({
         runId: input.runId,
