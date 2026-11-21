@@ -456,7 +456,7 @@ describe('ChatCreationWorkspace failures name their cause', () => {
     expect(appendAttempt).toHaveBeenCalledTimes(1);
   });
 
-  it('groups a mismatched Machine identity under machine_unavailable', async () => {
+  it('reports a mismatched Machine identity as machine_identity_mismatch', async () => {
     const { git, calls } = fakeGit();
     calls.canonical.mockRejectedValue(
       new ExecutorGitError(
@@ -467,7 +467,7 @@ describe('ChatCreationWorkspace failures name their cause', () => {
     const { workspace, bindAtCreation } = makeWorkspace({ git });
 
     await expect(workspace.enter(input())).resolves.toMatchObject({
-      status: 'machine_unavailable',
+      status: 'machine_identity_mismatch',
       message: 'The Machine devl answered with a different identity.',
     });
     expect(bindAtCreation).not.toHaveBeenCalled();

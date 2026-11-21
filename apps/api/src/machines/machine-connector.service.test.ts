@@ -616,7 +616,8 @@ describe('MachineConnector reachability', () => {
     await connector.request('devl', 'roots.list', { envelope: ENVELOPE });
     expect(contacts).toHaveLength(1);
     // The session is already live, so probing it re-stamps liveness rather
-    // than handshaking again: the status writer sees a fresh contact.
+    // than handshaking again: the status writer sees a fresh contact whose
+    // facts are absent, so the stored facts keep their handshake capture time.
     await expect(connector.reachable('devl', 'attempt-1')).resolves.toBe(true);
     expect(contacts.at(1)).toEqual({
       name: 'devl',
@@ -625,7 +626,6 @@ describe('MachineConnector reachability', () => {
       daemonProtocolVersion: PROTOCOL_VERSION,
       daemonVersion: '1.2.3',
       roots: ['/srv/app'],
-      facts: defaultPeerFacts(['/srv/app']),
     });
     expect(contacts).toHaveLength(2);
   });

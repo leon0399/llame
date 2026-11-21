@@ -9,8 +9,8 @@
  * that OWNS the table, which is what makes the FORCE statement load-bearing —
  * without it this suite would pass for the wrong reason.
  *
- * Requires POSTGRES_URL to point at a migrated database; without it the suite
- * is skipped so offline `pnpm test` stays green.
+ * Requires POSTGRES_URL to point at a migrated database, which the integration
+ * project's global setup provides (vitest.integration.global-setup.mts).
  */
 
 import { drizzle } from 'drizzle-orm/postgres-js';
@@ -22,9 +22,6 @@ import { pgErrorCode } from '../db/pg-error';
 import { MachineBindingsRepository } from './machine-bindings.repository';
 import { MachinesStatusRepository } from './machines-status.repository';
 
-const hasDb = !!process.env.POSTGRES_URL;
-const d = hasDb ? describe : describe.skip;
-
 type SqlClient = Sql;
 
 /** The name every test in this suite uses; the binding is keyed by it. */
@@ -32,7 +29,7 @@ const NAME = 'integration-bind';
 const FIRST_ID = '00000000-0000-4000-8000-0000000000a1';
 const SECOND_ID = '00000000-0000-4000-8000-0000000000a2';
 
-d('machine_bindings RLS and the bind lifecycle', () => {
+describe('machine_bindings RLS and the bind lifecycle', () => {
   let sql: SqlClient;
   let bindings: MachineBindingsRepository;
   let status: MachinesStatusRepository;

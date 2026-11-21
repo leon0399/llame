@@ -86,14 +86,16 @@ type SessionEntry = {
   idleTimer?: NodeJS.Timeout;
 };
 
-/** The contact one successful handshake reports to the status writer. */
+/**
+ * The liveness part of one successful handshake's contact. Only a fresh
+ * handshake adds `facts`, so a restamp never refreshes their capture time.
+ */
 function helloContact(hello: HelloResult): Omit<MachineContact, 'name' | 'at'> {
   return {
     hubProtocolVersion: PROTOCOL_VERSION,
     daemonProtocolVersion: hello.protocolVersion,
     daemonVersion: boundMachineVersion(hello.daemonVersion),
     roots: boundMachineRoots(hello.roots),
-    facts: hello.facts,
   };
 }
 
@@ -342,7 +344,7 @@ export class MachineConnector {
     // read fails the session closed instead of trusting the daemon.
     await this.verifyIdentity(name, session, hello.instanceId);
 
-    this.recordContact(name, helloContact(hello));
+    this.recordContact(name, { ...helloContact(hello), facts: hello.facts });
     this.armIdle(name);
 
     return session;

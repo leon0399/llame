@@ -8,8 +8,9 @@
  * The role topology is the integration suite's
  * (vitest.integration.global-setup.mts): the binding table is readable only in
  * the marked system context, which is exactly what `MachineBindingsRepository`
- * enters. Requires POSTGRES_URL to point at a migrated database; without it the
- * suite is skipped so offline `pnpm test` stays green.
+ * enters. Requires POSTGRES_URL to point at a migrated database, which the
+ * integration project's global setup provides
+ * (vitest.integration.global-setup.mts).
  */
 
 import { drizzle } from 'drizzle-orm/postgres-js';
@@ -30,9 +31,6 @@ import {
 } from './machine-connector.service';
 import { MachineIdentityMismatchError } from './machine-session';
 import type { MachineContact } from './machines-status';
-
-const hasDb = !!process.env.POSTGRES_URL;
-const d = hasDb ? describe : describe.skip;
 
 type SqlClient = Sql;
 
@@ -76,7 +74,7 @@ async function settle(): Promise<void> {
   }
 }
 
-d('Machine identity binding over the real bindings table', () => {
+describe('Machine identity binding over the real bindings table', () => {
   let sql: SqlClient;
   let bindings: MachineBindingsRepository;
 

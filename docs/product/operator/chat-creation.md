@@ -123,21 +123,28 @@ bind it.
 `201` carries the Chat and a `workspace` object whose `status` is one of a
 closed set:
 
-| Status                    | Meaning                                                                        | `code`                                                                       |
-| ------------------------- | ------------------------------------------------------------------------------ | ---------------------------------------------------------------------------- |
-| `bound`                   | The Chat is bound to `root` on `executorId`; `worktree` names it when created. | —                                                                            |
-| `unbound`                 | No location resolved. The message still stores and its Run still starts.       | —                                                                            |
-| `bind_failed`             | The Workspace step refused the binding.                                        | `permission_denied`, `tool_not_allowed`, `executor_unavailable`, `not_found` |
-| `worktree_failed`         | A git worktree command failed. `message` carries its bounded, redacted error.  | `path_not_registered`, or none                                               |
-| `machine_unavailable`     | The resolved Machine is offline.                                               | —                                                                            |
-| `machine_update_required` | The Machine's daemon does not answer the git methods.                          | —                                                                            |
-| `outcome_unknown`         | The Machine link was lost after a mutation; `leftDirectory` may remain.        | —                                                                            |
+| Status                      | Meaning                                                                        | `code`                                                                       |
+| --------------------------- | ------------------------------------------------------------------------------ | ---------------------------------------------------------------------------- |
+| `bound`                     | The Chat is bound to `root` on `executorId`; `worktree` names it when created. | —                                                                            |
+| `unbound`                   | No location resolved. The message still stores and its Run still starts.       | —                                                                            |
+| `bind_failed`               | The Workspace step refused the binding.                                        | `permission_denied`, `tool_not_allowed`, `executor_unavailable`, `not_found` |
+| `worktree_failed`           | A git worktree command failed. `message` carries its bounded, redacted error.  | `path_not_registered`, or none                                               |
+| `machine_unavailable`       | The resolved Machine is offline.                                               | —                                                                            |
+| `machine_identity_mismatch` | The Machine answered with a different identity than its bound one.             | —                                                                            |
+| `machine_update_required`   | The Machine's daemon does not answer the git methods.                          | —                                                                            |
+| `outcome_unknown`           | The Machine link was lost after a mutation; `leftDirectory` may remain.        | —                                                                            |
 
 `code` appears only with `bind_failed` and `worktree_failed`. Every failure
 status carries `message`; `leftDirectory` names the directory an
 `outcome_unknown` can leave behind, when it is known. A failure keeps the Chat
 filed and unbound: it stores no bound root, no lease, no defaults row, and no
 message, and it starts no Run. The client keeps the draft for a later send.
+
+A `machine_identity_mismatch` means a daemon with another instance id answered
+under the Machine's name: the hub sends it no request, and an operator checks
+the box, then runs `pnpm --filter api machines:forget <name>` on the hub if the
+change is legitimate (see [machines](machines.md#machine-identity)). The
+Machine reads offline until the next handshake binds the new id.
 
 A successful start records the source `main` checkout as the link's default for
 that executor, so the next preview in the same Project suggests it again. A

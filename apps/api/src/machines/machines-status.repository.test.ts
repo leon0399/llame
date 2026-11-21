@@ -339,6 +339,31 @@ describe('MachinesStatusRepository.recordContact facts', () => {
     expect(insert.set).toMatchObject({ facts: FACTS, factsCapturedAt: AT });
   });
 
+  it('leaves the stored facts alone on a successful contact without facts', async () => {
+    const fake = statusDb();
+
+    const repository = new MachinesStatusRepository(
+      fake.db,
+      tenantFake(fake.scoped).tenantDb,
+    );
+
+    await repository.recordContact({
+      name: 'build-box',
+      at: AT,
+      hubProtocolVersion: 5,
+      daemonProtocolVersion: 5,
+      daemonVersion: '1.5.0',
+      roots: ['/srv/repo'],
+    });
+
+    const [insert] = fake.inserts;
+    expect(insert.values).toMatchObject({ facts: null, factsCapturedAt: null });
+    // A liveness restamp moves the contact stamps only: the facts and their
+    // capture time stay those of the last handshake.
+    expect(insert.set).not.toHaveProperty('facts');
+    expect(insert.set).not.toHaveProperty('factsCapturedAt');
+  });
+
   it('leaves the stored facts alone on a failure contact', async () => {
     const fake = statusDb();
 

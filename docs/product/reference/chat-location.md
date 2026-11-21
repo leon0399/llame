@@ -41,8 +41,9 @@ cells and a ×:
 - **Machine** — every executor that holds a `main` checkout of the repository.
   An offline Machine is listed disabled with its reason (for example
   `Offline — Could not be reached`). A Machine whose daemon answered
-  `machine_update_required` on the last create is disabled with that sentence.
-  Choosing a Machine that holds one such checkout selects it at once.
+  `machine_update_required` or `machine_identity_mismatch` on the last create
+  is disabled with that sentence. Choosing a Machine that holds one such
+  checkout selects it at once.
 - **Folder** — the checkout's folder name; its tooltip prints the path. Its
   menu lists the same checkouts as the `+` menu, and "Other folder…".
 - **Mode** — the checkout's branch (for example `master`) while the Chat works

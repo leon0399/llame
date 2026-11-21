@@ -330,7 +330,7 @@ flow.
 A failure in authorization, worktree creation, or binding leaves the chat filed
 and unbound. The response carries one `workspace` status from a closed set:
 `bound`, `unbound`, `bind_failed`, `worktree_failed`, `machine_unavailable`,
-`machine_update_required`, `outcome_unknown`.
+`machine_identity_mismatch`, `machine_update_required`, `outcome_unknown`.
 
 Multi-repo context: the agent keeps one cwd. Sibling checkouts are reachable by
 absolute path or `..`, and permissions still evaluate the projected absolute
