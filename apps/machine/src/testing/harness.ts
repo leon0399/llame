@@ -146,12 +146,18 @@ function createClient(input: Writable, output: Readable) {
   };
 }
 
+/** A fixed identity so a test daemon never reads or writes real config. */
+const TEST_INSTANCE_ID = "00000000-0000-4000-8000-000000000000";
+const TEST_BUILD_ID = "000000000000";
+
 /** The daemon in-process over pipes, with a hub-side client on the other end. */
 export function startDaemon(options: ServeMachineOptions = {}): TestDaemon {
   const input = new PassThrough();
   const output = new PassThrough();
 
   const session = serveMachine(input, output, {
+    instanceId: TEST_INSTANCE_ID,
+    buildId: TEST_BUILD_ID,
     heartbeatIntervalMs: 60_000,
     ...options,
   });

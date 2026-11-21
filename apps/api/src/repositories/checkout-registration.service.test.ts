@@ -164,6 +164,7 @@ function makeService(options: {
 
   const connector = new MachineConnector({
     hubVersion: 'test-hub',
+    bindIdentity: () => Promise.resolve('match'),
     machines: undefined,
     transportFactory: createProtocolPeer().factory,
     idleCloseMs: 1000,

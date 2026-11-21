@@ -23,6 +23,22 @@ export type HelloParams = {
   readonly hubVersion: string;
 };
 
+export type MachineRootDisk = {
+  readonly root: string;
+  /** Total bytes of the filesystem holding the root; null when statfs failed. */
+  readonly totalBytes: number | null;
+};
+
+export type MachineFacts = {
+  readonly os: string; // os.platform(), e.g. "linux"
+  readonly arch: string; // os.arch(), e.g. "x64"
+  readonly kernel: string; // os.release()
+  readonly cpuCount: number; // os.availableParallelism()
+  readonly totalMemoryBytes: number; // os.totalmem()
+  /** One entry per registered root, in the same order as `roots`. */
+  readonly rootDisks: ReadonlyArray<MachineRootDisk>;
+};
+
 export type HelloResult = {
   readonly protocolVersion: number;
   readonly daemonVersion: string;
@@ -30,6 +46,11 @@ export type HelloResult = {
   /** The git methods this daemon answers; absent on a daemon that predates
    *  them, which is how the hub tells that it needs an update. */
   readonly methods?: ReadonlyArray<string>;
+  /** Lowercase UUID v4 text, persisted in this Machine's config directory. */
+  readonly instanceId: string;
+  /** 12 lowercase hex chars of the shipped bundle's sha256, or "unknown". */
+  readonly buildId: string;
+  readonly facts: MachineFacts;
 };
 
 /** The handshake refusal: both versions travel so the hub can report them. */

@@ -875,6 +875,7 @@ describe('the Machine bash spill', () => {
         hosts: { devl: { destination: 'box' } },
       },
       hubVersion: '9.9.9',
+      bindIdentity: () => Promise.resolve('match'),
       transportFactory: peer.factory,
       handshakeTimeoutMs: 2000,
     });
@@ -934,6 +935,7 @@ describe('the Machine bash spill', () => {
         hosts: { devl: { destination: 'box' } },
       },
       hubVersion: '9.9.9',
+      bindIdentity: () => Promise.resolve('match'),
       transportFactory: peer.factory,
       handshakeTimeoutMs: 2000,
     });

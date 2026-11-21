@@ -55,6 +55,7 @@ function fixture(options: ProtocolPeerOptions = {}): Fixture {
   const connector = new MachineConnector({
     machines: MACHINES,
     hubVersion: '9.9.9',
+    bindIdentity: () => Promise.resolve('match'),
     transportFactory: peer.factory,
     handshakeTimeoutMs: 2000,
   });

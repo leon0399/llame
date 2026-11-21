@@ -904,6 +904,7 @@ function fakeMachine(servers: ReadonlyArray<McpServerEntry>): FakeMachine {
   const connector = new MachineConnector({
     machines: MACHINE_HOSTS,
     hubVersion: '9.9.9',
+    bindIdentity: () => Promise.resolve('match'),
     transportFactory: {
       open: (options) => {
         const transport = peer.factory.open(options);

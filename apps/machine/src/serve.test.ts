@@ -1,6 +1,7 @@
 import { existsSync } from "node:fs";
-import { readFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { PassThrough } from "node:stream";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   BUDGET_EXHAUSTED_MESSAGE,
@@ -10,8 +11,10 @@ import {
   MAX_MESSAGE_BYTES,
   PROTOCOL_VERSION,
   StreamClosedError,
+  type MachineFacts,
 } from "@workspace/machine-protocol";
 import { createRootFixture, type RootFixture } from "./testing/fixtures";
+import { serveMachine } from "./serve";
 import {
   envelope,
   isGone,
@@ -33,10 +36,27 @@ const OVERSIZE_ANSWER_MESSAGE =
 
 let fixture: RootFixture;
 let daemon: TestDaemon;
+let facts: MachineFacts;
+
+const TEST_INSTANCE_ID = "11111111-1111-4111-8111-111111111111";
+const TEST_BUILD_ID = "0123456789ab";
 
 beforeEach(async () => {
   fixture = await createRootFixture();
-  daemon = startDaemon({ roots: [fixture.root] });
+  facts = {
+    os: "linux",
+    arch: "x64",
+    kernel: "test-kernel",
+    cpuCount: 4,
+    totalMemoryBytes: 8 * 1024 * 1024 * 1024,
+    rootDisks: [{ root: fixture.root, totalBytes: 64 * 1024 * 1024 * 1024 }],
+  };
+  daemon = startDaemon({
+    roots: [fixture.root],
+    instanceId: TEST_INSTANCE_ID,
+    buildId: TEST_BUILD_ID,
+    facts,
+  });
 });
 
 afterEach(async () => {
@@ -63,16 +83,32 @@ async function startedPid(
 }
 
 describe("handshake", () => {
-  it("answers hello with the protocol version, daemon version, roots, and methods", async () => {
+  it("answers hello with its identity, facts, roots, and methods", async () => {
     await expect(daemon.hello()).resolves.toEqual({
       ok: true,
       value: {
         protocolVersion: PROTOCOL_VERSION,
-        daemonVersion: "0.0.1",
+        daemonVersion: "0.0.2",
         roots: [fixture.root],
         methods: [...GIT_METHODS],
+        instanceId: TEST_INSTANCE_ID,
+        buildId: TEST_BUILD_ID,
+        facts,
       },
     });
+  });
+
+  it("refuses to open a session on a corrupt instance file", async () => {
+    const configDir = join(fixture.base, "config");
+    await mkdir(configDir, { recursive: true });
+    await writeFile(join(configDir, "instance.json"), "not json");
+
+    expect(() =>
+      serveMachine(new PassThrough(), new PassThrough(), {
+        roots: [fixture.root],
+        configDir,
+      }),
+    ).toThrow(/is unreadable or corrupt/);
   });
 
   it("ends the session on an incompatible protocol version", async () => {

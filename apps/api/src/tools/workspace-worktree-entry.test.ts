@@ -40,10 +40,12 @@ import {
   type ProtocolPeerOptions,
 } from '../testing/machine-protocol-peer';
 import { localGitSurface } from '../machines/executor-git.service';
+import { machineIdentityMismatchResult } from './machine-call';
 import { compileToolPermissionMap } from './permissions/compile-permissions';
 import { type CompiledPolicy, type PermissionGroup } from './permissions/types';
 import { type ToolContext, type ToolResult } from './types';
 import { enterWorkspaceTool } from './workspace';
+import { executorFailure } from './workspace-worktree-failure';
 
 /*
  * Worktree entry through the tool's own seam (openspec `repositories` design
@@ -155,6 +157,7 @@ function hostile(repository: string): string {
 function executors(): ExecutorGit {
   const connector = new MachineConnector({
     hubVersion: 'test-hub',
+    bindIdentity: () => Promise.resolve('match'),
     machines: undefined,
     transportFactory: createProtocolPeer().factory,
     idleCloseMs: 1000,
@@ -184,6 +187,7 @@ function machineFixture(options: ProtocolPeerOptions) {
 
   const connector = new MachineConnector({
     hubVersion: 'test-hub',
+    bindIdentity: () => Promise.resolve('match'),
     machines: {
       ssh: { knownHostsFile: '/dev/null' },
       hosts: { [MACHINE]: { destination: 'nas.example' } },
@@ -1232,6 +1236,16 @@ describe('worktree failures that come from the executor', () => {
       expect(result).not.toHaveProperty('leftDirectory');
     },
   );
+
+  it('reports a mismatched Machine identity by name, with no leftover', () => {
+    const failed = executorFailure(
+      new ExecutorGitError('machine_identity_mismatch', 'not sent'),
+      MACHINE,
+    );
+
+    expect(failed.result).toEqual(machineIdentityMismatchResult(MACHINE));
+    expect(failed.result).not.toHaveProperty('leftDirectory');
+  });
 
   it('reports a Link lost after the add as unknown with the decided directory', async () => {
     const database = stubbedDatabase();

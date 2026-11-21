@@ -618,6 +618,7 @@ describe('machineInstructionWorld', () => {
         hosts: { devl: { destination: 'box' } },
       },
       hubVersion: '9.9.9',
+      bindIdentity: () => Promise.resolve('match'),
       transportFactory: peer.factory,
     });
   }

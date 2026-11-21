@@ -74,6 +74,7 @@ function hub(
 
   const connector = new MachineConnector({
     hubVersion: 'test-hub',
+    bindIdentity: () => Promise.resolve('match'),
     machines: MACHINE_ENDPOINTS,
     transportFactory: peer.factory,
     idleCloseMs: 1000,
@@ -91,6 +92,7 @@ function hub(
 function unconfiguredHub(): ExecutorGit {
   const connector = new MachineConnector({
     hubVersion: 'test-hub',
+    bindIdentity: () => Promise.resolve('match'),
     machines: undefined,
     transportFactory: createProtocolPeer().factory,
     idleCloseMs: 1000,
@@ -548,6 +550,38 @@ describe('ExecutorGit.inspect', () => {
       `The Machine ${NAS} is unavailable (unreachable).`,
     );
     expect(error.message).not.toContain('ssh:');
+  });
+
+  it('fails as machine_identity_mismatch when another id answers for the name', async () => {
+    const peer = createProtocolPeer({
+      roots: ['/srv'],
+      methods: ['git.inspect'],
+    });
+
+    const connector = new MachineConnector({
+      hubVersion: 'test-hub',
+      machines: MACHINE_ENDPOINTS,
+      transportFactory: peer.factory,
+      idleCloseMs: 1000,
+      bindIdentity: () => Promise.resolve('mismatch'),
+    });
+
+    opened.push(connector);
+
+    const executors = new ExecutorGit(
+      configWith({ nativeExecutorId: LOCAL_EXECUTOR }),
+      connector,
+      localGitSurface(),
+    );
+
+    const error = await rejectionOf(
+      executors.inspect(executors.locate(LOCATOR), LOCATOR),
+    );
+
+    expect(error.code).toBe('machine_identity_mismatch');
+    // Nothing was sent, so a mutation's effect is not in doubt either.
+    expect(error.sent).toBe(false);
+    expect((await peer.session(0)).requests).toEqual([]);
   });
 
   it('marks only a mutation whose link dropped after sending as sent', async () => {

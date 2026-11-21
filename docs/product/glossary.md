@@ -371,6 +371,11 @@ The llame program that runs on a Machine and serves its native tools. Each
 Machine runs one.
 _Avoid_: agent, server, runner
 
+**Machine instance id**:
+The persistent identifier a Machine daemon creates once and reports at each
+handshake. The installation binds each Machine name to one instance id.
+_Avoid_: node id
+
 **Configured Machine**:
 A Machine declared by the operator rather than created by llame. The host
 Machine is a configured Machine on the serving process's own computer.

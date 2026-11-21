@@ -25,6 +25,8 @@ const onlineDevbox = {
   hubProtocolVersion: 1,
   daemonProtocolVersion: 1,
   daemonVersion: "0.0.1",
+  facts: null,
+  factsCapturedAt: null,
   roots: ["/home/box/work"],
 };
 

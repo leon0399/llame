@@ -231,6 +231,8 @@ const WORKSPACE_FAILURE_FALLBACKS: Record<
   bind_failed: "The Workspace could not be bound.",
   worktree_failed: "The worktree could not be created.",
   machine_unavailable: "The Machine is offline.",
+  machine_identity_mismatch:
+    "The Machine answered with a different identity than the one bound to its name; an operator must run machines:forget if the change is legitimate.",
   machine_update_required:
     "Update the llame-machine daemon on that Machine to use git operations.",
   outcome_unknown: "The Machine link was lost during the worktree step.",
@@ -247,10 +249,10 @@ export function unavailableExecutor(
 
   switch (failed.status) {
     case "machine_unavailable":
+    case "machine_identity_mismatch":
       return {
         executorId: failed.executorId,
-        reason:
-          failed.message ?? WORKSPACE_FAILURE_FALLBACKS.machine_unavailable,
+        reason: failed.message ?? WORKSPACE_FAILURE_FALLBACKS[failed.status],
       };
     case "machine_update_required":
       return {
@@ -265,6 +267,7 @@ export function unavailableExecutor(
 function workspaceWarning(failed: WorkspaceFailure): LocationWarning {
   const step =
     failed.status === "machine_unavailable" ||
+    failed.status === "machine_identity_mismatch" ||
     failed.status === "machine_update_required"
       ? "machine"
       : "workspace";

@@ -6,6 +6,7 @@ import {
 
 import { ExecutorGitError } from './executor-git-error';
 import {
+  MachineIdentityMismatchError,
   MachineUnavailableError,
   MachineUpdateRequiredError,
 } from './machine-session';
@@ -18,6 +19,13 @@ export function dispatchFailure(
 ): Error {
   if (error instanceof MachineUpdateRequiredError)
     return new ExecutorGitError('machine_update_required', error.message);
+
+  // Before the unavailable branch: a mismatch extends it and has its own code.
+  if (error instanceof MachineIdentityMismatchError)
+    return new ExecutorGitError(
+      'machine_identity_mismatch',
+      `The Machine ${machine} answered with a different identity than the one bound to its name.`,
+    );
 
   if (error instanceof MachineUnavailableError)
     // The session's own message is the transport's: an ssh standard error or

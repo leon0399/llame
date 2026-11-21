@@ -18,11 +18,11 @@ export class RootsFileError extends Error {
 
 type RootsDocument = { readonly roots: ReadonlyArray<string> };
 
-function isNodeError(error: unknown): error is NodeJS.ErrnoException {
+export function isNodeError(error: unknown): error is NodeJS.ErrnoException {
   return typeof error === "object" && error !== null && "code" in error;
 }
 
-function isString(value: unknown): value is string {
+export function isString(value: unknown): value is string {
   return typeof value === "string";
 }
 

@@ -34,6 +34,7 @@ import { cn } from "@workspace/ui/lib/utils";
 import { RelativeTime } from "@/components/relative-time";
 import { CopyPathButton } from "@/components/copy-path-button";
 import { ForgeMark } from "@/components/forge-mark";
+import { MACHINE_FAILURE_LABELS } from "@/lib/services/machines/labels";
 import { machinePathFromRoot } from "@/lib/services/machines/locator";
 import type { MachineResponse } from "@/lib/services/machines/queries";
 import type {
@@ -43,17 +44,6 @@ import type {
   GitStateUnboundResponse,
 } from "@/lib/services/git-state/queries";
 import { forgePage } from "@/lib/services/repositories/forge";
-
-const FAILURE_LABELS: Record<
-  NonNullable<MachineResponse["failureReason"]>,
-  string
-> = {
-  unreachable: "Could not be reached",
-  host_key_mismatch: "Host key does not match",
-  auth_failed: "Authentication failed",
-  incompatible_version: "Incompatible protocol version",
-  session_lost: "Connection lost",
-};
 
 export interface EnvironmentProject {
   id: string;
@@ -192,7 +182,7 @@ function MachineRow({
 }) {
   const failure =
     machine?.status === "offline" && machine.failureReason !== null
-      ? FAILURE_LABELS[machine.failureReason]
+      ? MACHINE_FAILURE_LABELS[machine.failureReason]
       : undefined;
 
   const state = machineState(machine);

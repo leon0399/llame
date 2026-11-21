@@ -16,7 +16,7 @@ import {
 } from '@workspace/machine-protocol';
 import {
   formatMachineLocator,
-  MACHINE_SCHEME,
+  machinePrefix,
   parseMachineLocator,
   type MachineLocator,
 } from '../machines/machine-locator';
@@ -40,6 +40,7 @@ import {
   readBytesChunk,
   runMachineMutation,
 } from './machine-call';
+import { configuredMachines, listingResult } from './machine-listing';
 import { type ToolContext, type ToolResult } from './types';
 import { NativeFileError, readMediaBytes } from '@workspace/native-file-tools';
 import {
@@ -104,11 +105,6 @@ export function executeMachineNative(
   return call.operation === 'read'
     ? readMachinePath(context, locator, submitted)
     : mutateMachinePath(context, call, locator);
-}
-
-/** The display prefix and canonical locator every request for one path uses. */
-function machinePrefix(name: string): string {
-  return `${MACHINE_SCHEME}://${name}`;
 }
 
 function machinePathLocator(machine: MachinePath): string {
@@ -211,7 +207,7 @@ function machineListing(
 
   if (connector === undefined) return Promise.resolve(unknownSchemeResult());
 
-  if (locator.kind === 'list') return configuredMachines(context);
+  if (locator.kind === 'list') return configuredMachines(context, connector);
 
   if (!connector.isConfigured(locator.name))
     return Promise.resolve(machineNotFoundResult(locator.name));
@@ -247,53 +243,6 @@ function machineListing(
       lines.length === 0 ? ['(no registered roots)'] : lines,
     );
   });
-}
-
-/**
- * The configured Machines and their derived status. The status read model is
- * owner-scoped and never names an SSH route, a jump host, or an identity; a
- * context without it still lists the names, without a status.
- */
-async function configuredMachines(context: ToolContext): Promise<ToolResult> {
-  const connector = machineConnector(context);
-
-  if (connector === undefined) return unknownSchemeResult();
-  const names = connector.names();
-  const statuses = await context.machineStatus?.list(context.userId);
-
-  const byName = new Map(
-    (statuses ?? []).map((status) => [status.name, status]),
-  );
-
-  const lines = names.map((name) => {
-    const status = byName.get(name);
-
-    if (status === undefined) return `- ${machinePrefix(name)}`;
-
-    const detail =
-      status.status === 'online'
-        ? 'online'
-        : status.failureReason === null
-          ? 'offline'
-          : `offline, ${status.failureReason}`;
-
-    return `- ${machinePrefix(name)} (${detail})`;
-  });
-
-  return listingResult(
-    `${MACHINE_SCHEME}://`,
-    lines.length === 0 ? ['(no Machines configured)'] : lines,
-  );
-}
-
-function listingResult(path: string, lines: ReadonlyArray<string>): ToolResult {
-  return {
-    status: 'success',
-    kind: 'directory',
-    path,
-    content: lines.join('\n'),
-    truncated: false,
-  };
 }
 
 async function readMachinePath(

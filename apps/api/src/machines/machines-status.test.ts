@@ -1,3 +1,5 @@
+import { PROTOCOL_VERSION } from '@workspace/machine-protocol';
+
 import {
   boundMachineRoots,
   boundMachineVersion,
@@ -25,6 +27,8 @@ function row(overrides: Partial<MachineStatusRow> = {}): MachineStatusRow {
     daemonProtocolVersion: 1,
     daemonVersion: '0.0.1',
     roots: ['/srv/app'],
+    facts: null,
+    factsCapturedAt: null,
     updatedAt: new Date(NOW - 1000),
     ...overrides,
   };
@@ -38,6 +42,7 @@ describe('the failure vocabulary', () => {
       'auth_failed',
       'incompatible_version',
       'session_lost',
+      'identity_mismatch',
     ]);
   });
 
@@ -146,9 +151,11 @@ describe('machineStatusView', () => {
       status: 'offline',
       lastSeenAt: null,
       failureReason: null,
-      hubProtocolVersion: 1,
+      hubProtocolVersion: PROTOCOL_VERSION,
       daemonProtocolVersion: null,
       daemonVersion: null,
+      facts: null,
+      factsCapturedAt: null,
       roots: [],
     });
   });
@@ -163,7 +170,29 @@ describe('machineStatusView', () => {
       daemonProtocolVersion: 1,
       daemonVersion: '0.0.1',
       roots: ['/srv/app'],
+      facts: null,
+      factsCapturedAt: null,
     });
+  });
+
+  it('copies the facts and their capture time from the row', () => {
+    const facts = {
+      os: 'linux',
+      arch: 'x64',
+      kernel: '6.8.0',
+      cpuCount: 8,
+      totalMemoryBytes: 16 * 1024 ** 3,
+      rootDisks: [{ root: '/srv/app', totalBytes: 512 * 1024 ** 3 }],
+    };
+
+    const view = machineStatusView(
+      'devl',
+      row({ facts, factsCapturedAt: new Date(NOW - 1000) }),
+      NOW,
+    );
+
+    expect(view.facts).toEqual(facts);
+    expect(view.factsCapturedAt).toEqual(new Date(NOW - 1000));
   });
 
   it('shows the failure reason of an offline Machine', () => {

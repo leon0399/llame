@@ -238,6 +238,7 @@ export async function bootWorkerHarness(
     const connector = new MachineConnector({
       machines,
       hubVersion: 'llame-harness',
+      bindIdentity: () => Promise.resolve('match'),
       transportFactory: overrides.machineTransportFactory,
       handshakeTimeoutMs: 2000,
     });

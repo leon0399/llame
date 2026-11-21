@@ -11,6 +11,7 @@ import {
   MachineConnector,
   MachineUnavailableError,
 } from '../machines/machine-connector.service';
+import { MachineIdentityMismatchError } from '../machines/machine-session';
 import { NativeFilesRepository } from '../runs/native-files-repository';
 import { RunEventsRepository } from '../runs/runs-repository';
 import {
@@ -25,6 +26,7 @@ import {
   machineCallAttemptKey,
   machineCallEnvelope,
   machineConnector,
+  machineIdentityMismatchResult,
   machineNotFoundResult,
   machineProtocolFailureResult,
   machineReadResult,
@@ -50,6 +52,7 @@ function connectorFor(options: ProtocolPeerOptions = {}) {
     connector: new MachineConnector({
       machines: MACHINES,
       hubVersion: '9.9.9',
+      bindIdentity: () => Promise.resolve('match'),
       transportFactory: peer.factory,
       handshakeTimeoutMs: 2000,
     }),
@@ -194,6 +197,7 @@ describe('machineConnector', () => {
     const disabled = new MachineConnector({
       machines: undefined,
       hubVersion: '9.9.9',
+      bindIdentity: () => Promise.resolve('match'),
     });
 
     expect(machineConnector(context({ machines: disabled }))).toBeUndefined();
@@ -226,6 +230,10 @@ describe('Machine failure vocabulary', () => {
       'its daemon speaks an incompatible protocol version',
     ],
     ['session_lost', 'the session was lost'],
+    [
+      'identity_mismatch',
+      'it answered with a different identity than the one bound to its name',
+    ],
   ] as const)('names the reason for %s', (reason, text) => {
     expect(machineUnavailableResult('devl', reason)).toEqual({
       status: 'error',
@@ -348,6 +356,14 @@ describe('machineReadResult', () => {
         ),
       ),
     ).resolves.toEqual(machineUnavailableResult('devl', 'auth_failed'));
+  });
+
+  it('reports a mismatched identity as its own result, before unavailable', async () => {
+    await expect(
+      machineReadResult('devl', () =>
+        Promise.reject(new MachineIdentityMismatchError('devl')),
+      ),
+    ).resolves.toEqual(machineIdentityMismatchResult('devl'));
   });
 
   it('maps a protocol refusal onto the settled vocabulary', async () => {
@@ -701,6 +717,45 @@ describe('runMachineMutation', () => {
     ).resolves.toEqual(machineUnavailableResult('devl'));
     expect(begin).not.toHaveBeenCalled();
     expect(peer.sessions).toHaveLength(0);
+  });
+
+  it('reports a mismatched identity from the reachability gate itself', async () => {
+    const { begin } = stubFence();
+    const peer = createProtocolPeer();
+
+    const connector = new MachineConnector({
+      machines: MACHINES,
+      hubVersion: '9.9.9',
+      transportFactory: peer.factory,
+      handshakeTimeoutMs: 2000,
+      bindIdentity: () => Promise.resolve('mismatch'),
+    });
+
+    await expect(
+      runMachineMutation(context({ machines: connector }), TARGET, () =>
+        Promise.resolve({ status: 'success' }),
+      ),
+    ).resolves.toEqual(machineIdentityMismatchResult('devl'));
+
+    // The refusal happens before the attempt is fenced and before a request.
+    expect(begin).not.toHaveBeenCalled();
+    expect((await peer.session(0)).requests).toEqual([]);
+  });
+
+  it('settles a mismatch as machine_identity_mismatch, never outcome_unknown', async () => {
+    const { begin } = stubFence();
+    const { connector } = connectorFor();
+
+    const settled = await runMachineMutation(
+      context({ machines: connector }),
+      TARGET,
+      () => Promise.reject(new MachineIdentityMismatchError('devl')),
+    );
+
+    expect(settled).toEqual(machineIdentityMismatchResult('devl'));
+    // The attempt was already fenced, but nothing reached the daemon, so the
+    // result is not an unknown outcome.
+    expect(begin).toHaveBeenCalled();
   });
 
   it('fences the unbound attempt, runs the request, and records the result', async () => {

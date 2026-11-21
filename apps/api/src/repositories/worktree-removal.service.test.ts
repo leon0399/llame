@@ -124,6 +124,7 @@ function hostile(repository: string): string {
 function executors(tools: Partial<LlameConfig['tools']> = {}): ExecutorGit {
   const connector = new MachineConnector({
     hubVersion: 'test-hub',
+    bindIdentity: () => Promise.resolve('match'),
     machines: undefined,
     transportFactory: createProtocolPeer().factory,
     idleCloseMs: 1000,

@@ -45,7 +45,8 @@ import {
 } from '../testing/machine-sshd/machine-sshd';
 
 import { MachineConnector } from './machine-connector.service';
-import { readFsReadResult, readHelloResult } from './machine-results';
+import { readHelloResult } from './machine-hello';
+import { readFsReadResult } from './machine-results';
 import { MachineUnavailableError } from './machine-session';
 import {
   createMachineSshTransportFactory,
@@ -330,6 +331,7 @@ function connect(connection: MachineSshdConnection): Harness {
   const connector = new MachineConnector({
     machines: connection.machines,
     hubVersion: HUB_VERSION,
+    bindIdentity: () => Promise.resolve('match'),
     transportFactory: {
       open: (transportRequest) => {
         const transport = ssh.open(transportRequest);

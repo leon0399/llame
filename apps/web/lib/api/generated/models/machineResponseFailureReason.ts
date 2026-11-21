@@ -20,4 +20,5 @@ export const MachineResponseFailureReason = {
   auth_failed: "auth_failed",
   incompatible_version: "incompatible_version",
   session_lost: "session_lost",
+  identity_mismatch: "identity_mismatch",
 } as const;

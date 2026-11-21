@@ -21,6 +21,7 @@
     "format": "oxfmt src evals",
     "lint": "oxlint --deny-warnings --report-unused-disable-directives",
     "lint:fix": "oxlint --deny-warnings --fix",
+    "machines:forget": "npx tsx src/machines/operations/cli.ts forget",
     "ranking:eval": "npx tsx evals/ranking/eval.ts",
     "ranking:record": "npx tsx evals/ranking/record.ts",
     "search:backfill": "npx tsx src/search/operations/cli.ts backfill",

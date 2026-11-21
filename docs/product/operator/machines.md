@@ -156,6 +156,34 @@ protocol revision stopped sending. The change does not bump `PROTOCOL_VERSION`,
 so the handshake stays compatible in both directions; only the result mapping
 differs.
 
+## Machine identity
+
+The daemon keeps an instance id in `instance.json` in its configuration
+directory. That directory is `LLAME_MACHINE_CONFIG_DIR` when it is set,
+`$XDG_CONFIG_HOME/llame-machine` when that variable is set, and
+`~/.config/llame-machine` otherwise.
+
+The daemon creates the id once and reports it at every handshake. llame binds
+each Machine name to the first id it sees. A daemon that answers with another
+id is refused with `machine_identity_mismatch`, and the Machine reads offline
+until an operator acts.
+
+After a legitimate reinstall, run `pnpm --filter api machines:forget <name>` on
+the hub. The next handshake binds the new id. Copying the configuration
+directory also copies the id, so the binding catches misconfiguration rather
+than impersonation.
+
+## Upgrading
+
+Protocol version 2 carries the instance id, the build id, and the static facts
+of the Machine. Upgrade every Machine daemon before the API. Run
+`llame-machine --version` on each box to read the release, the build, the
+protocol version, and the instance id. A box that runs an older daemon shows as
+offline with "update required" until you replace the binary.
+
+The Machines list and the `machine://` listing show each Machine's OS and
+architecture once a handshake reports them.
+
 ## Register roots
 
 On the box, as the daemon's user:
@@ -215,9 +243,10 @@ local rejects in Machine form:
 `GET /api/v1/machines`, the settings page, and a Chat's session details
 sidebar list each Machine's state, last seen time, last failure reason
 (`unreachable`, `host_key_mismatch`, `auth_failed`, `incompatible_version`,
-`session_lost`), versions, and roots. A probe runs every minute on a `runs`
-worker; a Machine is online when it was reached within 150 seconds and after
-its last failure. A Chat bound to an offline Machine keeps its Workspace; only
+`session_lost`, `identity_mismatch`), versions, the OS and architecture the
+daemon reported, and roots. A probe runs every minute on a `runs` worker. A
+Machine is online when it was reached within 150 seconds and after its last
+failure. A Chat bound to an offline Machine keeps its Workspace, and only
 operations on that Machine fail.
 
 Status changes are pushed to signed-in clients over the live WebSocket as

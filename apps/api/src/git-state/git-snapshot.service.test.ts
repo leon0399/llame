@@ -207,6 +207,10 @@ describe('GitSnapshotService.observe', () => {
       'Machine unavailable',
     ],
     [
+      new ExecutorGitError('machine_identity_mismatch', 'another instance'),
+      'Machine unavailable',
+    ],
+    [
       new ExecutorGitError('machine_update_required', 'update nas'),
       'Machine daemon update required',
     ],

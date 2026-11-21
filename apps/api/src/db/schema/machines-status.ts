@@ -8,6 +8,8 @@ import {
   text,
 } from 'drizzle-orm/pg-core';
 
+import type { MachineFacts } from '@workspace/machine-protocol';
+
 import { timestamptz } from '../columns';
 
 /**
@@ -53,6 +55,14 @@ export const machinesStatus = pgTable(
       .$type<ReadonlyArray<string>>()
       .notNull()
       .default(sql`'[]'::jsonb`),
+    /**
+     * The static facts the last successful handshake reported, bounded by
+     * `readHelloResult` before they reach this column, and when they were
+     * captured. A failure leaves both untouched, exactly like the contact
+     * stamps: an unreachable Machine has no facts to refresh.
+     */
+    facts: jsonb('facts').$type<MachineFacts>(),
+    factsCapturedAt: timestamptz('facts_captured_at'),
     updatedAt: timestamptz('updated_at').notNull().defaultNow(),
   },
   (t) => [
@@ -63,7 +73,7 @@ export const machinesStatus = pgTable(
     // cannot enter the table through a future writer.
     check(
       'machines_status_failure_reason_check',
-      sql`${t.lastFailureReason} IS NULL OR ${t.lastFailureReason} IN ('unreachable', 'host_key_mismatch', 'auth_failed', 'incompatible_version', 'session_lost')`,
+      sql`${t.lastFailureReason} IS NULL OR ${t.lastFailureReason} IN ('unreachable', 'host_key_mismatch', 'auth_failed', 'incompatible_version', 'session_lost', 'identity_mismatch')`,
     ),
     // READ: an authenticated identity only. This is the policy the spec's
     // "Requests without an authenticated identity SHALL NOT read Machine

@@ -15,6 +15,7 @@ export const CreationWorkspaceResponseStatus = {
   bind_failed: "bind_failed",
   worktree_failed: "worktree_failed",
   machine_unavailable: "machine_unavailable",
+  machine_identity_mismatch: "machine_identity_mismatch",
   machine_update_required: "machine_update_required",
   outcome_unknown: "outcome_unknown",
 } as const;

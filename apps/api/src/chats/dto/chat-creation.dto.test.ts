@@ -350,6 +350,7 @@ describe('toWorkspaceResponse', () => {
   it('carries `message` and, when known, `leftDirectory` on every other failure', () => {
     for (const status of [
       'machine_unavailable',
+      'machine_identity_mismatch',
       'machine_update_required',
       'outcome_unknown',
     ] as const) {

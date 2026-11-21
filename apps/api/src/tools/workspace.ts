@@ -14,12 +14,14 @@ import {
 import { readFsStatResult } from '../machines/machine-results';
 import { isSshLocator } from '../ssh/ssh-locator';
 import { type MachineConnector } from '../machines/machine-connector.service';
+import { MachineIdentityMismatchError } from '../machines/machine-session';
 import {
   MACHINE_FILE_BUDGET_MS,
   machineBudgetMs,
   machineCallAttemptKey,
   machineCallEnvelope,
   machineConnector,
+  machineIdentityMismatchResult,
   machineNotFoundResult,
   machineReadResult,
   machineUnavailableResult,
@@ -176,11 +178,17 @@ async function enterMachineWorkspace(
   }
 
   // The attempt's reachability verdict first: a hopeless Machine must not pay
-  // a handshake timeout for an entry the attempt already knows will fail.
+  // a handshake timeout for an entry the attempt already knows will fail. The
+  // verdict is a boolean, so the refusal itself is read back: a mismatched
+  // identity is its own result, never a plain unavailability.
   if (
     !(await connector.reachable(machine.name, machineCallAttemptKey(context)))
   ) {
-    return machineUnavailableResult(machine.name);
+    const refusal = connector.lastRefusal(machine.name);
+
+    return refusal instanceof MachineIdentityMismatchError
+      ? machineIdentityMismatchResult(machine.name)
+      : machineUnavailableResult(machine.name);
   }
 
   const canonicalResult = await machineDirectory(context, connector, machine);

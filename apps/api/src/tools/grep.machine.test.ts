@@ -27,7 +27,10 @@ import {
   KnowledgeFilesystemAdapter,
   type KnowledgeFilesystemBinding,
 } from '../knowledge/knowledge-filesystem';
-import { MachineConnector } from '../machines/machine-connector.service';
+import {
+  MachineConnector,
+  type MachineConnectorDeps,
+} from '../machines/machine-connector.service';
 import { type MachineStatusView } from '../machines/machines-status';
 import {
   createProtocolPeer,
@@ -81,7 +84,11 @@ const DIRECTORY_STAT: PeerAnswer = {
   value: { kind: 'directory', isLink: false },
 };
 
-function fixture(options: ProtocolPeerOptions = {}): Fixture {
+function fixture(
+  options: ProtocolPeerOptions & {
+    readonly bindIdentity?: MachineConnectorDeps['bindIdentity'];
+  } = {},
+): Fixture {
   const peer = createProtocolPeer({
     ...options,
     answers: { 'fs.stat': DIRECTORY_STAT, ...options.answers },
@@ -90,6 +97,7 @@ function fixture(options: ProtocolPeerOptions = {}): Fixture {
   const connector = new MachineConnector({
     machines: MACHINES,
     hubVersion: '9.9.9',
+    bindIdentity: options.bindIdentity ?? (() => Promise.resolve('match')),
     transportFactory: peer.factory,
     handshakeTimeoutMs: 2000,
   });
@@ -738,10 +746,30 @@ describe('Machine scope addresses', () => {
     expect(locatorsOf(result)).toEqual(['machine://devl/srv/app:1-1']);
   });
 
+  it('reports a mismatched Machine identity as its own result', async () => {
+    const { peer, connector } = fixture({
+      bindIdentity: () => Promise.resolve('mismatch'),
+    });
+
+    expect(
+      await run(context(connector), {
+        patterns: ['needle'],
+        scopes: ['machine://devl/srv/app'],
+      }),
+    ).toEqual({
+      status: 'error',
+      type: 'machine_identity_mismatch',
+      message:
+        'The Machine "devl" answered with a different identity than the one bound to its name; an operator must check it, then run machines:forget if the change is legitimate.',
+    });
+    expect((await peer.session(0)).requests).toEqual([]);
+  });
+
   it('names the Machine surface this process lacks', async () => {
     const disabled = new MachineConnector({
       machines: undefined,
       hubVersion: 'test',
+      bindIdentity: () => Promise.resolve('match'),
       onContact: () => undefined,
     });
 

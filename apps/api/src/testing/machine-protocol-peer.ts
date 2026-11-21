@@ -31,6 +31,7 @@ import {
   type JsonValue,
   type MachineChannel,
   type MachineErrorCode,
+  type MachineFacts,
 } from '@workspace/machine-protocol';
 
 import type {
@@ -55,6 +56,12 @@ export type PeerAnswer =
 export type ProtocolPeerOptions = {
   readonly roots?: ReadonlyArray<string>;
   readonly daemonVersion?: string;
+  /** The persistent instance id the daemon reports; deterministic by default. */
+  readonly instanceId?: string;
+  /** The build id the daemon reports; 12 lowercase hex chars by default. */
+  readonly buildId?: string;
+  /** The static facts the daemon reports; one root disk per configured root. */
+  readonly facts?: MachineFacts;
   /** Override the version the daemon claims, to test a handshake refusal. */
   readonly helloProtocolVersion?: number;
   /** The git methods the handshake lists; absent means a daemon that predates
@@ -132,6 +139,23 @@ export type ProtocolPeer = {
 };
 
 const DEFAULT_ANSWER: PeerAnswer = { error: 'internal' };
+
+/** A stable instance id, so a suite can compare it without inventing one. */
+export const DEFAULT_PEER_INSTANCE_ID = '00000000-0000-4000-8000-000000000001';
+
+const DEFAULT_PEER_BUILD_ID = '0123456789ab';
+
+/** Facts for a fixed linux/x64 Machine, one 512 GiB disk per configured root. */
+export function defaultPeerFacts(roots: ReadonlyArray<string>): MachineFacts {
+  return {
+    os: 'linux',
+    arch: 'x64',
+    kernel: '6.8.0',
+    cpuCount: 8,
+    totalMemoryBytes: 16 * 1024 ** 3,
+    rootDisks: roots.map((root) => ({ root, totalBytes: 512 * 1024 ** 3 })),
+  };
+}
 
 /** One peer-side session: its own multiplexer, framer, and heartbeat. */
 class PeerSessionImpl implements PeerSession {
@@ -366,10 +390,15 @@ class PeerSessionImpl implements PeerSession {
       return;
     }
 
+    const roots = [...(this.options.roots ?? [])];
+
     const hello = {
       protocolVersion: version,
       daemonVersion: this.options.daemonVersion ?? '0.0.1',
-      roots: [...(this.options.roots ?? [])],
+      roots,
+      instanceId: this.options.instanceId ?? DEFAULT_PEER_INSTANCE_ID,
+      buildId: this.options.buildId ?? DEFAULT_PEER_BUILD_ID,
+      facts: this.options.facts ?? defaultPeerFacts(roots),
     };
 
     const methods = this.options.methods;
