@@ -645,6 +645,15 @@ describe('provider classifier input boundaries', () => {
     },
   );
 
+  it('omits a zero send count that names no send', () => {
+    const failure = new ProviderFailure('Provider request failed', {
+      code: 'overloaded',
+      sends: 0,
+    });
+
+    expect(failure.sends).toBeUndefined();
+  });
+
   it('uses a safe generic message for non-error input', () => {
     const failure = classifyResponses({
       provider: 'openai',

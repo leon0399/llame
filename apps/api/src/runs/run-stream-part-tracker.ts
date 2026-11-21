@@ -45,7 +45,6 @@ export class StreamPartTracker {
   close(kind: StreamPartKind): string | undefined {
     const openId = this.openIds.get(kind);
 
-    if (openId === undefined) return undefined;
     this.openIds.delete(kind);
     this.adapterIds.delete(kind);
 

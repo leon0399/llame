@@ -8,7 +8,11 @@
 
 import { jsonSchema, type ModelMessage } from 'ai';
 import { z } from 'zod';
-import type { ChatIdentity, ModelClient } from './model-client';
+import type {
+  ChatIdentity,
+  ModelClient,
+  ModelStreamInput,
+} from './model-client';
 import { ProviderFailure } from './provider-failure/provider-failure';
 import { createOpenAICompletionsModelClient } from './openai-completions-model-client';
 
@@ -95,7 +99,10 @@ function serve(...responses: Array<() => Response>) {
  * stack). The stream's own settlement is the wait, so nothing delivered after
  * it is missed.
  */
-async function reportedError(client: ModelClient): Promise<Error> {
+async function reportedError(
+  client: ModelClient,
+  onSendFailed?: ModelStreamInput['onSendFailed'],
+): Promise<Error> {
   const reported: Array<Error> = [];
   await client
     .streamText({
@@ -109,6 +116,7 @@ async function reportedError(client: ModelClient): Promise<Error> {
 
         reported.push(error);
       },
+      ...(onSendFailed !== undefined && { onSendFailed }),
     })
     .text.then(
       () => undefined,
@@ -470,12 +478,22 @@ describe('createOpenAICompletionsModelClient — bounded stream failures', () =>
       Promise.reject(transportFailure),
     );
 
-    const error = await reportedError(buildClient(fetch));
+    const sendFailures: Array<unknown> = [];
+
+    const error = await reportedError(buildClient(fetch), (failure) => {
+      sendFailures.push(failure);
+    });
 
     expect(error).toBeInstanceOf(ProviderFailure);
     expect(error).toMatchObject({
       code: 'unreachable',
     });
+    // The seam the continuation reads is the same classified failure: the
+    // transport's own error graph never reaches it (continue-after-broken-send
+    // D1).
+    expect(sendFailures).toHaveLength(1);
+    expect(sendFailures[0]).toBeInstanceOf(ProviderFailure);
+    expect(sendFailures[0]).toMatchObject({ code: 'unreachable' });
     expect(error.cause).toBeUndefined();
     expect(error).not.toHaveProperty('responseBody');
     expect(error).not.toHaveProperty('responseHeaders');

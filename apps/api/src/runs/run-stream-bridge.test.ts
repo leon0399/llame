@@ -896,6 +896,34 @@ describe('createRunEventTranslator', () => {
     ]);
   });
 
+  it('opens a new UI text part when a text.delta changes its partId', () => {
+    const t = createRunEventTranslator('run-text-identity');
+
+    expect(
+      t.translate({
+        eventType: 'model.delta',
+        payload: { text: 'The answer', partId: '0:msg_1' },
+      }),
+    ).toEqual([
+      { type: 'start', messageId: 'run-text-identity' },
+      expect.objectContaining({ type: 'text-start', id: 'text-1' }),
+      { type: 'text-delta', id: 'text-1', delta: 'The answer' },
+    ]);
+
+    // Two defined ids that differ name different parts even while the wire is
+    // still inside the same step.
+    expect(
+      t.translate({
+        eventType: 'model.delta',
+        payload: { text: ' continues', partId: '0:msg_1#1' },
+      }),
+    ).toEqual([
+      { type: 'text-end', id: 'text-1' },
+      expect.objectContaining({ type: 'text-start', id: 'text-2' }),
+      { type: 'text-delta', id: 'text-2', delta: ' continues' },
+    ]);
+  });
+
   it('keeps one UI reasoning part for a constant partId and an absent one', () => {
     const t = createRunEventTranslator('run-constant-id');
     t.translate({
