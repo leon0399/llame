@@ -8,6 +8,7 @@ import {
   expect,
   fireEvent,
   fn,
+  screen,
   userEvent,
   waitFor,
   within,
@@ -109,6 +110,8 @@ let createChatResponse = {
 
 let projects: Array<ProjectResponse>;
 let saveFailure: { status: number; body: object } | null;
+let failProjectsAfterPatch: boolean;
+let failedProjectsReads: number;
 let holdRequests: boolean;
 let releaseProjects: () => void;
 let releaseChats: () => void;
@@ -154,13 +157,14 @@ function answer(body: Array<object>, onHold: (release: () => void) => void) {
 
 const instructionPatchSchema = z.object({
   instructions: z.string().nullable().optional(),
+  archived: z.boolean().optional(),
 });
 
 type InstructionPatch = z.infer<typeof instructionPatchSchema>;
 
-/** The API's instruction update: literal text is kept, `null` or whitespace
- *  clears it, the exact code-point bound is enforced, and a mutation failure
- *  leaves the stored Project untouched. */
+/** The API's Project update: instruction text is kept literally, `null` or
+ *  whitespace clears it, the exact code-point bound is enforced, archive state
+ *  flips, and a mutation failure leaves the stored Project untouched. */
 function patchProject(patch: InstructionPatch): Response {
   if (saveFailure !== null) {
     return jsonResponse(saveFailure.body, saveFailure.status);
@@ -172,7 +176,7 @@ function patchProject(patch: InstructionPatch): Response {
     return jsonResponse({ statusCode: 404, message: "Not found" }, 404);
   }
 
-  if (current.archivedAt !== null) {
+  if (current.archivedAt !== null && patch.instructions !== undefined) {
     return jsonResponse({ statusCode: 409, message: "Archived" }, 409);
   }
 
@@ -189,9 +193,16 @@ function patchProject(patch: InstructionPatch): Response {
     }
   }
 
+  let archivedAt = current.archivedAt;
+
+  if (patch.archived !== undefined) {
+    archivedAt = patch.archived ? "2026-01-02T00:00:00.000Z" : null;
+  }
+
   const updated: ProjectResponse = {
     ...current,
     instructions,
+    archivedAt,
     updatedAt: "2026-01-02T00:00:00.000Z",
   };
 
@@ -208,6 +219,15 @@ function routeFetch() {
     const key = routeOf(input);
 
     if (key === PROJECTS_ROUTE) {
+      if (
+        failProjectsAfterPatch &&
+        sentRoutes().includes(PROJECT_UPDATE_ROUTE)
+      ) {
+        failedProjectsReads += 1;
+
+        return jsonResponse({ statusCode: 500, message: "Internal" }, 500);
+      }
+
       return answer(projects, (release) => (releaseProjects = release));
     }
 
@@ -341,6 +361,8 @@ const meta = {
   beforeEach: () => {
     projects = [otherProject, tripPlanning];
     saveFailure = null;
+    failProjectsAfterPatch = false;
+    failedProjectsReads = 0;
     holdRequests = false;
     createChatResponse = {
       status: 201,
@@ -574,6 +596,40 @@ export const ClearsInstructionsAndReloads: Story = {
 };
 
 /**
+ * A successful save followed by a failed archive-inclusive list read must not
+ * fall back to the pre-save text: the stored text stays in the editor while
+ * the page cannot reload its list.
+ *
+ * @summary saved instructions stay fresh when the list reload fails
+ */
+export const KeepsSavedTextWhenReloadFails: Story = {
+  tags: ["ai-generated"],
+  beforeEach: () => {
+    projects = [
+      otherProject,
+      { ...tripPlanning, instructions: "Old guidance." },
+    ];
+    failProjectsAfterPatch = true;
+  },
+  play: async ({ canvasElement }) => {
+    const { textarea, save } = await instructionsEditor(canvasElement);
+
+    await expect(textarea).toHaveValue("Old guidance.");
+    await userEvent.clear(textarea);
+    await userEvent.type(textarea, "New guidance.");
+    await userEvent.click(save);
+
+    await waitFor(() => expect(sentRoutes()).toContain(PROJECT_UPDATE_ROUTE));
+    await expect(lastUpdateBody()).resolves.toEqual({
+      instructions: "New guidance.",
+    });
+    await waitFor(() => expect(failedProjectsReads).toBeGreaterThan(0));
+    await waitFor(() => expect(textarea).toHaveValue("New guidance."));
+    await expect(textarea).not.toHaveValue("Old guidance.");
+  },
+};
+
+/**
  * A failed save reports a generic failure, keeps the literal draft in the
  * editor, and never echoes the server's own message. The retry re-sends the
  * same draft and succeeds.
@@ -650,6 +706,50 @@ export const ArchivedInstructionsAreReadOnly: Story = {
 
     await waitFor(() =>
       expect(sentRoutes()).not.toContain(PROJECT_UPDATE_ROUTE),
+    );
+  },
+};
+
+/**
+ * Writing an unsaved draft and then archiving from the page header must leave
+ * the now-disabled editor showing the stored text, not the draft: an archived
+ * Project cannot accept that draft, so its editor may not present it as
+ * current.
+ *
+ * @summary archiving discards the unsaved draft from the disabled editor
+ */
+export const ArchivingShowsStoredTextInsteadOfDraft: Story = {
+  tags: ["ai-generated"],
+  beforeEach: () => {
+    projects = [
+      otherProject,
+      { ...tripPlanning, instructions: "Stored guidance." },
+    ];
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    const { textarea, save } = await instructionsEditor(canvasElement);
+
+    await expect(textarea).toHaveValue("Stored guidance.");
+    await userEvent.clear(textarea);
+    await userEvent.type(textarea, "Unsaved draft.");
+    await expect(save).toBeEnabled();
+
+    await userEvent.click(canvas.getByRole("button", { name: "More" }));
+    await userEvent.click(
+      await screen.findByRole("menuitem", { name: "Archive" }),
+    );
+
+    await waitFor(() => expect(sentRoutes()).toContain(PROJECT_UPDATE_ROUTE));
+    await expect(lastUpdateBody()).resolves.toEqual({ archived: true });
+    await waitFor(() => expect(textarea).toBeDisabled());
+    await expect(textarea).toHaveValue("Stored guidance.");
+    await expect(textarea).not.toHaveValue("Unsaved draft.");
+    await expect(save).toBeDisabled();
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("menu", { hidden: true }),
+      ).not.toBeInTheDocument(),
     );
   },
 };

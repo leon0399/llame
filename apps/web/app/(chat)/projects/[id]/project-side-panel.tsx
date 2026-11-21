@@ -43,11 +43,11 @@ function useInstructionsDraft(project: ProjectResponse) {
   const [draft, setDraft] = useState<string | undefined>(undefined);
   const update = useUpdateProject();
   const persisted = project.instructions ?? "";
-  const value = draft ?? persisted;
+  const archived = project.archivedAt !== null;
+  const value = archived ? persisted : (draft ?? persisted);
   const nextInstructions = value.trim() === "" ? null : value;
   const count = Array.from(value).length;
   const tooLong = count > INSTRUCTIONS_MAX;
-  const archived = project.archivedAt !== null;
   const pending = update.isPending;
   const unchanged = nextInstructions === project.instructions;
   const saveDisabled = archived || unchanged || tooLong || pending;

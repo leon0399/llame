@@ -74,10 +74,19 @@ export function useUpdateProject() {
   return useMutation({
     mutationFn: ({ id, ...patch }: { id: string } & UpdateProjectPatch) =>
       updateProject(id, patch),
-    onSuccess: async (_project, { id, name }) => {
-      // Await every affected read: a caller that clears its draft on
-      // mutateAsync settling must not drop the overlay before the pages it
-      // reads have the saved text.
+    onSuccess: async (project, { id, name }) => {
+      // A successful PATCH is authoritative even if the following GET fails.
+      queryClient.setQueriesData<Array<ProjectResponse>>(
+        { queryKey: projectQueryKeys.lists() },
+        (rows) =>
+          rows?.some((row) => row.id === id)
+            ? rows.map((row) => (row.id === id ? project : row))
+            : rows,
+      );
+      queryClient.setQueriesData<ProjectResponse>(
+        { queryKey: projectQueryKeys.detail(id), exact: true },
+        () => project,
+      );
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: projectQueryKeys.lists() }),
         name === undefined
