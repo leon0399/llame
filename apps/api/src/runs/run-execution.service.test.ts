@@ -29060,6 +29060,8 @@ describe('RunExecutionService suspendCompactionForQuota', () => {
       runWait: asDouble<RunWaitService>({ suspendForQuota }),
     });
 
+    const superseded = { fromSequence: 5, step: 1 };
+
     await execution.service.suspendCompactionForQuota({
       run: { runId, chatId, userId },
       attemptId: testAttemptId,
@@ -29067,6 +29069,7 @@ describe('RunExecutionService suspendCompactionForQuota', () => {
       request: undefined,
       resumeAt: 'boundary',
       parts: [{ type: 'text', text: 'checkpoint' }],
+      superseded,
     });
 
     expect(spies.markFinished).toHaveBeenCalledWith(
@@ -29075,6 +29078,10 @@ describe('RunExecutionService suspendCompactionForQuota', () => {
       'cancelled',
       expect.objectContaining({ attemptId: testAttemptId }),
     );
+    // The fallback terminal write names the cut the parked reply holds, once.
+    const cuts = appended.filter(({ type }) => type === 'model.superseded');
+    expect(cuts).toHaveLength(1);
+    expect(cuts[0]?.payload).toEqual(superseded);
     expect(appended.at(-1)).toMatchObject({
       type: 'run.cancelled',
       payload: { status: 'cancelled' },
@@ -31653,6 +31660,19 @@ describe('a send that breaks after a started tool call', () => {
       expect(next).toContain('"a"');
       expect(next).toContain('"b"');
       expect(next).toContain(NOTICE_PREFIX);
+
+      // Each result is the call's own echo of its input, not a termination
+      // result: the send broke, the calls still ran and reported.
+      const resultOf = (toolCallId: string) =>
+        requests[1]
+          ?.filter((message) => message.role === 'tool')
+          .filter((message) => JSON.stringify(message).includes(toolCallId))
+          .at(-1);
+
+      expect(resultOf('read-call')).toBeDefined();
+      expect(JSON.stringify(resultOf('read-call'))).toContain('"echo":"a"');
+      expect(resultOf('grep-call')).toBeDefined();
+      expect(JSON.stringify(resultOf('grep-call'))).toContain('"echo":"b"');
       expectFinished(spies, 'completed');
     },
   );
@@ -32086,9 +32106,35 @@ describe('a send that breaks after a started tool call', () => {
     async (wire) => {
       const lookup = deferredTool(LOOKUP_TOOL);
 
+      const baseline: RecencyDigestResolution['baseline'] = {
+        pinned: [],
+        recent: [],
+        pinnedShown: 0,
+        pinnedTotal: 0,
+        recentShown: 0,
+        recentTotal: 0,
+        compiledOn: '2026-09-01',
+      };
+
+      const resolveCandidate = vi
+        .fn<RecencyDigestResolver['resolveCandidate']>()
+        .mockResolvedValue({ baseline, candidates: [] });
+
+      const setBaseline = vi
+        .spyOn(ChatsRepository.prototype, 'setRecencyDigestIfAbsent')
+        .mockResolvedValue(chat);
+
+      const getForOwnerForBinding = vi
+        .fn<MemorySettingsBindingResolver['getForOwnerForBinding']>()
+        .mockResolvedValue({ shareRecentChats: true });
+
       const { appended, requests, drained } = await startAndDrain({
         wire,
         tools: toolset(lookup),
+        catalog: {
+          recencyDigest: { resolveCandidate },
+          memory: { getForOwnerForBinding },
+        },
         arrange: (repositories) => {
           vi.spyOn(
             ChatDeliveriesRepository.prototype,
@@ -32134,6 +32180,14 @@ describe('a send that breaks after a started tool call', () => {
       expect(JSON.stringify(delivered)).not.toContain(
         'TRAILING TEXT MUST NOT SURVIVE',
       );
+      // The delivery closes a successful turn, so it establishes the
+      // first-epoch baselines that turn's own request rendered. Two writes
+      // prove it: the delivery's, then the delivered segment's terminal one.
+      expect(setBaseline).toHaveBeenCalledTimes(2);
+
+      for (const call of setBaseline.mock.calls) {
+        expect(call.slice(0, 3)).toEqual([chatId, userId, baseline]);
+      }
     },
   );
 

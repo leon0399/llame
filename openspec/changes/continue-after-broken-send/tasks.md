@@ -90,8 +90,10 @@ focused test files only; CI owns the full suites.
 - [x] 2.7 Store the cut and the notice in the terminal and interrupt writes (design D6). Verify "An
       authentication failure after a tool call", "Owner Continue keeps the notice", "An interrupt
       during the wait keeps the notice", and the `run-steering` scenario "An interrupt during the
-      wait of a failed send", and re-verify "The cut reasoning part never replays". Verify that the `tool-calling` scenario "Failure
-      settles in-flight calls" still holds for a call outside the failed send.
+      wait of a failed send", and re-verify "The cut reasoning part never replays". The `tool-calling` scenario
+      "Failure settles in-flight calls" has no reachable seam for a call outside the failed send: the SDK starts a step
+      only after every earlier call has an output, and instruction-origin reads finish inside their own call.
+      Terminal writes still run the shipped `settleOpenToolsAndDrain`.
 - [x] 2.8 Update [SPEC.md](../../../SPEC.md) (failure paragraph),
       [provider routing](../../../docs/product/operator/providers/routing.md) (failure after a tool
       call), and [Continue a turn](../../../docs/product/reference/continue-a-turn.md) (the kept

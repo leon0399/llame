@@ -216,9 +216,9 @@ output after the last result is not kept. It never carries a provider message.
 The Run then continues with the next step under the failed request's retry
 count, so the same ten-retry allowance applies. A failure class with no retry
 fails the Run with the kept parts and the notice. After a started call, a usage
-limit with no reset, or a usage or rate limit whose reset or delay hint is more
-than 60 s away, fails the Run with the notice. Within 60 s, it is a request
-retry.
+limit with no reset or a reset more than 60 s away, or a rate limit whose reset
+or delay hint is more than 60 s away, fails the Run with the notice. Within
+60 s, it is a request retry.
 
 | Failure class                               | Operator action                                                                                                                      |
 | ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |

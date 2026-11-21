@@ -4,7 +4,7 @@ import { type ChatJob } from '../db/schema';
 import { type Db, type TenantRunner } from '../db/tenant-db.service';
 import { ChatsRepository } from '../chats/chats-repository';
 import { ChatJobsRepository } from '../jobs/chat-jobs.repository';
-import { buildWaitResult, waitTool } from './wait';
+import { buildWaitResult, WAIT_NOT_STARTED, waitTool } from './wait';
 import { WAIT_SUSPENSION } from './wait-suspension';
 import { type ToolContext } from './types';
 
@@ -101,6 +101,15 @@ function setup(rows: Readonly<Record<string, ChatJob | undefined>>) {
 
 describe('waitTool', () => {
   afterEach(() => vi.restoreAllMocks());
+
+  it('pins the closed wait-not-started message byte-for-byte', () => {
+    // Authored from the text itself, not compared to its own import: this
+    // literal is the guard against a silent byte change in
+    // `tools/prompts/wait-not-started.md`.
+    expect(WAIT_NOT_STARTED).toBe(
+      'The wait did not start, because the provider failed. Call `wait` again if you still need it.',
+    );
+  });
 
   it('suspends only after every owner-scoped record locator resolves', async () => {
     const tools = setup({ 'job://bash-3': job('job-id') });

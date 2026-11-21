@@ -477,6 +477,7 @@ import {
 import { quotaWaitForFailure } from './quota-wait';
 import { MAX_SENDS, retryable } from '../models/request-recovery';
 import { WAIT_SUSPENSION, type WaitRequest } from '../tools/wait-suspension';
+import { WAIT_NOT_STARTED } from '../tools/wait';
 import { ChatJobsRepository } from '../jobs/chat-jobs.repository';
 import { BashJobRegistry } from '../jobs/bash-job-registry';
 import { workerDeadAfterSeconds } from '../jobs/worker-liveness';
@@ -1016,8 +1017,7 @@ type FailedSendCut = {
 const FAILED_WAIT_RESULT: ToolResult = {
   status: 'error',
   type: 'cancelled',
-  message:
-    'The wait did not start, because the provider failed. Call `wait` again if you still need it.',
+  message: WAIT_NOT_STARTED,
 };
 
 /**
@@ -2128,6 +2128,11 @@ export class RunExecutionService {
           ...(input.assistantTurn !== undefined && {
             assistantTurn: input.assistantTurn,
             telemetry: input.assistantTurn.telemetry,
+          }),
+          // The reply this fallback settles still holds the cut and the notice
+          // of the failed send that parked it (D6).
+          ...(input.superseded !== undefined && {
+            superseded: input.superseded,
           }),
         });
       }
@@ -4940,7 +4945,9 @@ export class RunExecutionService {
                 segmentSteps,
               ),
             },
-            { superseded: cut.superseded },
+            // The closed reply is a successful turn: it establishes the
+            // baselines its own request rendered, and names the cut (D4/D6).
+            { superseded: cut.superseded, baselines: attemptContext },
           );
 
           if (boundaryKind === 'delivered') {

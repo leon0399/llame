@@ -13,6 +13,7 @@ import {
   parseJobLocatorText,
 } from '../jobs/job-locator';
 import { loadPackagedToolDescription } from '../prompts/tool-descriptions';
+import { loadPackagedTemplate } from '../prompts/template-engine';
 import { readJobNoticeOutputs } from '../runs/job-notice-context';
 import { ArtifactsRepository } from './artifacts/artifacts-repository';
 import { type Tool, type ToolContext, type ToolResult } from './types';
@@ -27,6 +28,19 @@ type WaitInput = z.output<typeof waitInputSchema>;
 
 const RUNNING_PROMISE =
   'The jobs continue in the background. You get a notice when one of them settles.';
+
+const renderWaitNotStarted = loadPackagedTemplate<Record<string, never>>(
+  __dirname,
+  'wait-not-started',
+);
+
+/**
+ * What the model reads when a send failed after a started call and its `wait`
+ * never opened (continue-after-broken-send D2): the Run does not suspend, and
+ * a second `wait` is the model's own call to make. Packaged as
+ * `prompts/wait-not-started.md`; the literal pin in `wait.test.ts` guards it.
+ */
+export const WAIT_NOT_STARTED = renderWaitNotStarted({});
 
 export const waitTool: Tool<WaitInput> = {
   id: 'wait',
