@@ -63,7 +63,7 @@ the approach.
   behind it.
 - Any change to the frame format, multiplexing, heartbeat, or method set of the wire, other than
   the `hello` fields and the version bump.
-- Moving installation resources (`kb://`, `skill://`, `artifact://`, operator skill directories,
+- Moving installation resources (`kb://`, `skill://`, `artifact://`, `projects://`, operator skill directories,
   operator MCP servers, and prompt files) to a daemon (H6).
 
 ## Decisions

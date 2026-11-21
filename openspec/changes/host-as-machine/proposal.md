@@ -121,7 +121,7 @@ Decisions from the grilling session of 2026-11-20, cited as H:
 - **H4 (A).** `machines.local` and `machines.default` accept `{env:...}`, `destination` is
   optional, and `machines.default` is required when a native tool is allowlisted.
 - **H5 (A).** The migration keeps a host id as the Machine name, verbatim.
-- **H6 (A).** `kb://`, `skill://`, `artifact://`, operator skill directories, operator MCP servers,
+- **H6 (A).** `kb://`, `skill://`, `artifact://`, `projects://`, operator skill directories, operator MCP servers,
   and prompt files stay installation resources served in process. Only host-path dispatch is
   deleted.
 - **H7 (A).** `bash` routes by location: in process for this process's `machines.local`, daemon

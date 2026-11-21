@@ -5,7 +5,7 @@ status: accepted
 # Installation resources stay in the installation
 
 The in-process executor is deleted for paths on Machines. Installation
-resources keep their in-process readers: `kb://`, `skill://`, `artifact://`,
+resources keep their in-process readers: `kb://`, `skill://`, `artifact://`, `projects://`,
 operator skill directories, operator MCP servers, and prompt files. They are
 the same from every Machine, and no Machine daemon serves them.
 
