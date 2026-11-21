@@ -1,16 +1,25 @@
-import { MachineProtocolError } from '@workspace/machine-protocol';
+import {
+  MachineProtocolError,
+  PROTOCOL_VERSION,
+} from '@workspace/machine-protocol';
 
 import type { MachinesConfig } from '../instance-config/machines-config';
 import {
   createProtocolPeer,
+  defaultPeerFacts,
+  DEFAULT_PEER_INSTANCE_ID,
   type ProtocolPeerOptions,
 } from '../testing/machine-protocol-peer';
 
 import {
   MachineConnector,
   REACHABILITY_CACHE_LIMIT,
+  type MachineConnectorDeps,
 } from './machine-connector.service';
-import { MachineUnavailableError } from './machine-session';
+import {
+  MachineIdentityMismatchError,
+  MachineUnavailableError,
+} from './machine-session';
 import type { MachineContact } from './machines-status';
 
 /** Every request carries its own budget; the envelope is part of the params. */
@@ -37,6 +46,8 @@ function fixture(
   options: ProtocolPeerOptions & {
     readonly idleCloseMs?: number;
     readonly handshakeTimeoutMs?: number;
+    readonly bindIdentity?: MachineConnectorDeps['bindIdentity'];
+    readonly logger?: MachineConnectorDeps['logger'];
   } = {},
 ): Fixture {
   const peer = createProtocolPeer(options);
@@ -58,6 +69,8 @@ function fixture(
         waiter.resolve();
       }
     },
+    bindIdentity: options.bindIdentity,
+    logger: options.logger,
     idleCloseMs: options.idleCloseMs ?? 5 * 60_000,
     handshakeTimeoutMs: options.handshakeTimeoutMs ?? 2000,
     now: () => 1_700_000_000_000,
@@ -214,10 +227,11 @@ describe('MachineConnector session lifecycle', () => {
       {
         name: 'devl',
         at: new Date(1_700_000_000_000),
-        hubProtocolVersion: 1,
-        daemonProtocolVersion: 1,
+        hubProtocolVersion: PROTOCOL_VERSION,
+        daemonProtocolVersion: PROTOCOL_VERSION,
         daemonVersion: '1.2.3',
         roots: ['/srv/app'],
+        facts: defaultPeerFacts(['/srv/app']),
       },
     ]);
   });
@@ -591,10 +605,11 @@ describe('MachineConnector reachability', () => {
     expect(contacts.at(1)).toEqual({
       name: 'devl',
       at: new Date(1_700_000_000_000),
-      hubProtocolVersion: 1,
-      daemonProtocolVersion: 1,
+      hubProtocolVersion: PROTOCOL_VERSION,
+      daemonProtocolVersion: PROTOCOL_VERSION,
       daemonVersion: '1.2.3',
       roots: ['/srv/app'],
+      facts: defaultPeerFacts(['/srv/app']),
     });
     expect(contacts).toHaveLength(2);
   });
@@ -792,5 +807,138 @@ describe('MachineConnector shutdown', () => {
     connector.onModuleDestroy();
     await session.awaitStop();
     expect(session.stopped).toBe(true);
+  });
+});
+
+describe('MachineConnector identity binding', () => {
+  it('binds the handshake instance id before serving a request', async () => {
+    const bindIdentity = vi.fn<
+      NonNullable<MachineConnectorDeps['bindIdentity']>
+    >(() => Promise.resolve('bound'));
+
+    const { connector, peer, contacts } = fixture({
+      roots: ['/srv/app'],
+      answers: { 'roots.list': { value: { roots: ['/srv/app'] } } },
+      bindIdentity,
+    });
+
+    await expect(
+      connector.request('devl', 'roots.list', { envelope: ENVELOPE }),
+    ).resolves.toEqual({ roots: ['/srv/app'] });
+
+    expect(bindIdentity).toHaveBeenCalledTimes(1);
+    expect(bindIdentity).toHaveBeenCalledWith('devl', DEFAULT_PEER_INSTANCE_ID);
+    expect((await peer.session(0)).requests).toEqual(['roots.list']);
+    // The facts the handshake carried reach the status writer with the
+    // contact, so the Machines list can show them without another handshake.
+    expect(contacts).toEqual([
+      {
+        name: 'devl',
+        at: new Date(1_700_000_000_000),
+        hubProtocolVersion: PROTOCOL_VERSION,
+        daemonProtocolVersion: PROTOCOL_VERSION,
+        daemonVersion: '0.0.1',
+        roots: ['/srv/app'],
+        facts: defaultPeerFacts(['/srv/app']),
+      },
+    ]);
+  });
+
+  it('refuses a mismatched daemon before any request and reports the reason', async () => {
+    const { connector, peer, contacts, awaitContacts } = fixture({
+      answers: { 'roots.list': { value: { roots: [] } } },
+      bindIdentity: () => Promise.resolve('mismatch'),
+    });
+
+    const error = refusal(
+      await connector
+        .request('devl', 'roots.list', { envelope: ENVELOPE })
+        .catch((error: unknown) => rejection(error)),
+    );
+
+    expect(error).toBeInstanceOf(MachineIdentityMismatchError);
+    expect(error.reason).toBe('identity_mismatch');
+    expect(error.sent).toBe(false);
+    const session = await peer.session(0);
+    // Nothing but the handshake reached the daemon, and the session was closed
+    // rather than left usable.
+    expect(session.requests).toEqual([]);
+    await session.awaitStop();
+    expect(session.stopped).toBe(true);
+    await awaitContacts(1);
+    expect(contacts).toEqual([
+      {
+        name: 'devl',
+        at: new Date(1_700_000_000_000),
+        hubProtocolVersion: PROTOCOL_VERSION,
+        failure: 'identity_mismatch',
+      },
+    ]);
+  });
+
+  it('fails closed when the binding cannot be read, recording no contact', async () => {
+    const logger = { error: vi.fn() };
+
+    const { connector, peer, contacts } = fixture({
+      answers: { 'roots.list': { value: { roots: [] } } },
+      bindIdentity: () => Promise.reject(new Error('database unreachable')),
+      logger,
+    });
+
+    const error = refusal(
+      await connector
+        .request('devl', 'roots.list', { envelope: ENVELOPE })
+        .catch((error: unknown) => rejection(error)),
+    );
+
+    expect(error).not.toBeInstanceOf(MachineIdentityMismatchError);
+    expect(error.reason).toBe('session_lost');
+    expect(error.sent).toBe(false);
+    expect(error.message).toBe(
+      'The identity binding of this Machine could not be checked.',
+    );
+    expect((await peer.session(0)).requests).toEqual([]);
+    // Give the session's own end handler a turn: a bind failure is not the
+    // daemon's fault, so nothing is recorded against the Machine.
+    await (await peer.session(0)).awaitStop();
+    expect(contacts).toEqual([]);
+    expect(logger.error).toHaveBeenCalledTimes(1);
+  });
+
+  it('holds every concurrent request until the binding resolves', async () => {
+    const pending = Promise.withResolvers<'bound' | 'match' | 'mismatch'>();
+
+    const bindIdentity = vi.fn<
+      NonNullable<MachineConnectorDeps['bindIdentity']>
+    >(() => pending.promise);
+
+    const { connector, peer, contacts, awaitContacts } = fixture({
+      answers: { 'roots.list': { value: { roots: [] } } },
+      bindIdentity,
+    });
+
+    const first = connector
+      .request('devl', 'roots.list', { envelope: ENVELOPE })
+      .catch((error: unknown) => rejection(error));
+
+    const second = connector
+      .request('devl', 'roots.list', { envelope: ENVELOPE })
+      .catch((error: unknown) => rejection(error));
+
+    const session = await peer.session(0);
+
+    await vi.waitFor(() => expect(bindIdentity).toHaveBeenCalledTimes(1));
+    // The handshake answered, but neither request may have produced a frame.
+    expect(session.requests).toEqual([]);
+    expect(session.calls).toEqual([]);
+
+    pending.resolve('mismatch');
+    const [a, b] = await Promise.all([first, second]);
+
+    expect(a).toBeInstanceOf(MachineIdentityMismatchError);
+    expect(b).toBeInstanceOf(MachineIdentityMismatchError);
+    expect(session.requests).toEqual([]);
+    await awaitContacts(1);
+    expect(contacts.at(0)).toMatchObject({ failure: 'identity_mismatch' });
   });
 });

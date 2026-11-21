@@ -101,6 +101,8 @@ function machine(
     hubProtocolVersion: 1,
     daemonProtocolVersion: 1,
     daemonVersion: "0.1.0",
+    facts: null,
+    factsCapturedAt: null,
     roots: ["/srv/src"],
     ...overrides,
   };

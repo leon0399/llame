@@ -76,15 +76,15 @@ against its parent before publication.
 
 ## 2. daemon-identity
 
-- [ ] 2.1 Daemon: create and keep `instance.json` with an exclusive create, report `instanceId`,
+- [x] 2.1 Daemon: create and keep `instance.json` with an exclusive create, report `instanceId`,
       `buildId`, and the static facts in `hello`, and print them in `llame-machine --version`
       (design D1). Verify in `apps/machine` tests that two concurrent first starts agree on one id
       and that a second start keeps it.
-- [ ] 2.2 Protocol: bump `PROTOCOL_VERSION` to 2 and type the new `hello` fields in
+- [x] 2.2 Protocol: bump `PROTOCOL_VERSION` to 2 and type the new `hello` fields in
       `packages/machine-protocol`. Verify that a version 1 peer fails with
       `incompatible_version` and every operation on it returns `machine_unavailable` with that
       reason.
-- [ ] 2.3 Binding: add the `machine_bindings` table with forced RLS, and `facts` and
+- [x] 2.3 Binding: add the `machine_bindings` table with forced RLS, and `facts` and
       `facts_captured_at` to `machines_status`. Bind or compare in the awaited session-open path,
       refuse a different id with `machine_identity_mismatch` and the `identity_mismatch` reason,
       fail with `machine_unavailable` when the binding cannot be read, and add
@@ -93,15 +93,15 @@ against its parent before publication.
       mismatched daemon, a concurrent call during the bind gets no unverified session, an unreadable
       binding fails closed, and a removed and re-added name keeps its binding after the status
       prune.
-- [ ] 2.4 Status and listing: return the facts and their capture time from
+- [x] 2.4 Status and listing: return the facts and their capture time from
       `GET /api/v1/machines`, show OS, architecture, and daemon version in the settings Machines
       section, and add OS and architecture to each `machine://` listing line. Regenerate the
       OpenAPI document and client. Verify the listing scenario and the story for the settings
       section.
-- [ ] 2.5 Docs: add "Machine instance id" to `docs/product/glossary.md`, describe identity,
+- [x] 2.5 Docs: add "Machine instance id" to `docs/product/glossary.md`, describe identity,
       `machines:forget`, and the protocol bump in `docs/product/operator/machines.md`, and add a
       dated `CHANGELOG.md` entry that says every Machine needs the new daemon.
-- [ ] 2.6 Focused checks: `pnpm --filter machine test`, `pnpm --filter api lint`,
+- [x] 2.6 Focused checks: `pnpm --filter machine test`, `pnpm --filter api lint`,
       `pnpm --filter api typecheck`, the changed test files, OpenAPI lint and second-generation
       clean diff, `pnpm format:check`, `git diff --check`.
 - [ ] 2.7 SR before ready; GR per [CONTRIBUTING.md](../../../CONTRIBUTING.md#ready-pr-monitoring).

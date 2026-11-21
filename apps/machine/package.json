@@ -1,6 +1,6 @@
 {
   "name": "machine",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "private": true,
   "description": "llame-machine: the daemon a llame hub starts over SSH to run tools on a remote Machine.",
   "bin": {

@@ -12,7 +12,9 @@
  * - a session that could not be opened, or that was lost, is
  *   `MachineUnavailableError`, whose `sent` flag is the effect fence's whole
  *   input: `false` means nothing reached the Machine (`machine_unavailable`),
- *   `true` means the request had gone out and its outcome is unknown.
+ *   `true` means the request had gone out and its outcome is unknown. A
+ *   daemon answering under another computer's name is the one subclass,
+ *   `MachineIdentityMismatchError`: never sent, and reported by name.
  */
 
 import {
@@ -25,6 +27,7 @@ import {
 import type { MachinesConfig } from '../instance-config/machines-config';
 
 import {
+  MachineIdentityMismatchError,
   MachineSession,
   MachineUnavailableError,
   type MachineChannelHandle,
@@ -61,6 +64,15 @@ export type MachineConnectorDeps = {
   readonly transportFactory?: MachineTransportFactory;
   /** Where session events go (the `machines_status` writer). */
   readonly onContact?: (contact: MachineContact) => Promise<void> | void;
+  /**
+   * Binds this Machine name to the daemon's instance id, or compares it with
+   * the stored one. Absent only where no database exists (unit tests): then
+   * every handshake counts as verified. A rejection fails the session closed.
+   */
+  readonly bindIdentity?: (
+    name: string,
+    instanceId: string,
+  ) => Promise<'bound' | 'match' | 'mismatch'>;
   readonly logger?: MachineConnectorLogger;
   readonly now?: () => number;
   readonly idleCloseMs?: number;
@@ -69,6 +81,8 @@ export type MachineConnectorDeps = {
 
 type SessionEntry = {
   readonly session: MachineSession;
+  /** Whether the identity binding admitted this session to serve requests. */
+  verified: boolean;
   idleTimer?: NodeJS.Timeout;
 };
 
@@ -76,6 +90,7 @@ export class MachineConnector {
   private readonly machines: MachinesConfig | undefined;
   private readonly hubVersion: string;
   private readonly onContact: MachineConnectorDeps['onContact'];
+  private readonly bindIdentity: MachineConnectorDeps['bindIdentity'];
   private readonly logger: MachineConnectorLogger | undefined;
   private readonly now: () => number;
   private readonly idleCloseMs: number;
@@ -83,6 +98,7 @@ export class MachineConnector {
   private readonly sessions = new Map<string, SessionEntry>();
   private readonly opening = new Map<string, Promise<MachineSession>>();
   private readonly reachability = new Map<string, Promise<boolean>>();
+  private readonly refusals = new Map<string, MachineUnavailableError>();
   private readonly mutations = new Map<string, Promise<void>>();
   private readonly injected: MachineTransportFactory | undefined;
   private ssh: MachineSshTransportFactory | undefined;
@@ -91,6 +107,7 @@ export class MachineConnector {
     this.machines = deps.machines;
     this.hubVersion = deps.hubVersion;
     this.onContact = deps.onContact;
+    this.bindIdentity = deps.bindIdentity;
     this.logger = deps.logger;
     this.now = deps.now ?? (() => Date.now());
     this.idleCloseMs = deps.idleCloseMs ?? MACHINE_IDLE_CLOSE_MS;
@@ -128,6 +145,16 @@ export class MachineConnector {
     this.remember(key, verdict);
 
     return verdict;
+  }
+
+  /**
+   * The error this Machine's most recent open ended with, if it did. Callers
+   * that only saw {@link reachable}'s boolean read it here when the refusal
+   * itself carries the answer: a mismatched identity is a distinct tool result,
+   * not a plain unavailability.
+   */
+  lastRefusal(name: string): MachineUnavailableError | undefined {
+    return this.refusals.get(name);
   }
 
   /** One request over the Machine's session; the answer is untrusted JSON. */
@@ -231,6 +258,7 @@ export class MachineConnector {
       daemonProtocolVersion: hello.protocolVersion,
       daemonVersion: boundMachineVersion(hello.daemonVersion),
       roots: boundMachineRoots(hello.roots),
+      facts: hello.facts,
     });
   }
 
@@ -256,7 +284,9 @@ export class MachineConnector {
       );
     const existing = this.sessions.get(name);
 
-    if (existing !== undefined && existing.session.isReady)
+    // Only a verified session may serve: an open session whose identity bind
+    // has not resolved yet must be awaited through `opening`, never handed out.
+    if (existing !== undefined && existing.verified && existing.session.isReady)
       return existing.session;
     const opening = this.opening.get(name);
 
@@ -272,6 +302,21 @@ export class MachineConnector {
   }
 
   private async startSession(name: string): Promise<MachineSession> {
+    try {
+      const session = await this.openSession(name);
+      this.refusals.delete(name);
+
+      return session;
+    } catch (error) {
+      // Kept for `lastRefusal`: the boolean reachability answer loses the
+      // reason, and the tool vocabulary needs the one refusal it names.
+      if (error instanceof MachineUnavailableError)
+        this.refusals.set(name, error);
+      throw error;
+    }
+  }
+
+  private async openSession(name: string): Promise<MachineSession> {
     const destination = this.hosts()[name]?.destination;
 
     if (destination === undefined)
@@ -289,18 +334,79 @@ export class MachineConnector {
       handshakeTimeoutMs: this.handshakeTimeoutMs,
     });
 
-    this.sessions.set(name, { session });
+    this.sessions.set(name, { session, verified: false });
     void session.ended.then((end) => this.onEnded(name, session, end));
     const hello = await session.ready();
+
+    // The bind decides whether this session may ever carry a request. It runs
+    // after the handshake and before anything else: a daemon answering under
+    // another computer's name never sees a request, and a bind that cannot be
+    // read fails the session closed instead of trusting the daemon.
+    await this.verifyIdentity(name, session, hello.instanceId);
+
     this.recordContact(name, {
       hubProtocolVersion: PROTOCOL_VERSION,
       daemonProtocolVersion: hello.protocolVersion,
       daemonVersion: boundMachineVersion(hello.daemonVersion),
       roots: boundMachineRoots(hello.roots),
+      facts: hello.facts,
     });
     this.armIdle(name);
 
     return session;
+  }
+
+  /**
+   * Bind or compare this handshake's instance id, and admit the session to
+   * serve requests only when it matches (or nothing is bound yet). The session
+   * is closed first on every refusal, so no request can slip through while the
+   * caller unwinds.
+   */
+  private async verifyIdentity(
+    name: string,
+    session: MachineSession,
+    instanceId: string,
+  ): Promise<void> {
+    const bind = this.bindIdentity;
+
+    if (bind === undefined) {
+      this.markVerified(name, session);
+
+      return;
+    }
+
+    const outcome = await bind(name, instanceId).catch((error: unknown) => {
+      this.logger?.error(
+        `Checking the identity binding of Machine ${name} failed`,
+        error instanceof Error ? error.stack : String(error),
+      );
+      session.close();
+      // No contact: the daemon did nothing wrong, and an outage of the hub's
+      // own database says nothing about the Machine.
+      throw new MachineUnavailableError(
+        name,
+        'session_lost',
+        false,
+        'The identity binding of this Machine could not be checked.',
+      );
+    });
+
+    if (outcome === 'mismatch') {
+      session.close();
+      this.recordContact(name, {
+        hubProtocolVersion: PROTOCOL_VERSION,
+        failure: 'identity_mismatch',
+      });
+      throw new MachineIdentityMismatchError(name);
+    }
+
+    this.markVerified(name, session);
+  }
+
+  private markVerified(name: string, session: MachineSession): void {
+    const entry = this.sessions.get(name);
+
+    if (entry?.session === session) entry.verified = true;
   }
 
   private onEnded(

@@ -2,6 +2,15 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-11-21
 
+- Report a Machine daemon's persistent instance id, build id, and static facts
+  (OS, architecture, kernel, CPU count, memory, and per-root disk size) at
+  protocol version 2. The installation binds each Machine name to the first
+  instance id it sees and refuses another with `machine_identity_mismatch`.
+  `pnpm --filter api machines:forget <name>` rebinds a name after a legitimate
+  reinstall. The Machines list and the `machine://` listing show each Machine's
+  OS and architecture. **Breaking**: upgrade every Machine daemon before the
+  API. References
+  [#1831](https://github.com/leon0399/llame/issues/1831).
 - Continue a Run after a model send that failed once it had streamed a complete
   tool call. The Run waits for each started call to settle, keeps the reply
   through its last tool part, drops the text and reasoning after it, and stores a

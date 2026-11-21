@@ -7,7 +7,10 @@
  * the derivation without a Machine.
  */
 
-import { PROTOCOL_VERSION } from '@workspace/machine-protocol';
+import {
+  PROTOCOL_VERSION,
+  type MachineFacts,
+} from '@workspace/machine-protocol';
 
 /** The closed set of failure reasons; the table's CHECK mirrors it. */
 export const MACHINE_FAILURE_REASONS = [
@@ -16,6 +19,7 @@ export const MACHINE_FAILURE_REASONS = [
   'auth_failed',
   'incompatible_version',
   'session_lost',
+  'identity_mismatch',
 ] as const;
 
 export type MachineFailureReason = (typeof MACHINE_FAILURE_REASONS)[number];
@@ -50,6 +54,8 @@ export type MachineContact = {
   readonly daemonProtocolVersion?: number;
   readonly daemonVersion?: string;
   readonly roots?: ReadonlyArray<string>;
+  /** The static facts a successful handshake reported. */
+  readonly facts?: MachineFacts;
   /** Present when the contact failed. */
   readonly failure?: MachineFailureReason;
 };
@@ -69,6 +75,9 @@ export type MachineStatusRow = {
   readonly daemonProtocolVersion: number | null;
   readonly daemonVersion: string | null;
   readonly roots: ReadonlyArray<string>;
+  /** The facts the last successful handshake reported, and their capture time. */
+  readonly facts: MachineFacts | null;
+  readonly factsCapturedAt: Date | null;
   readonly updatedAt: Date;
 };
 
@@ -143,6 +152,8 @@ export type MachineStatusView = {
   readonly hubProtocolVersion: number;
   readonly daemonProtocolVersion: number | null;
   readonly daemonVersion: string | null;
+  readonly facts: MachineFacts | null;
+  readonly factsCapturedAt: Date | null;
   readonly roots: ReadonlyArray<string>;
 };
 
@@ -166,6 +177,8 @@ export function machineStatusView(
       hubProtocolVersion: PROTOCOL_VERSION,
       daemonProtocolVersion: null,
       daemonVersion: null,
+      facts: null,
+      factsCapturedAt: null,
       roots: [],
     };
 
@@ -177,6 +190,8 @@ export function machineStatusView(
     hubProtocolVersion: row.hubProtocolVersion,
     daemonProtocolVersion: row.daemonProtocolVersion,
     daemonVersion: row.daemonVersion,
+    facts: row.facts,
+    factsCapturedAt: row.factsCapturedAt,
     roots: row.roots,
   };
 }

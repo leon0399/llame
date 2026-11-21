@@ -12,90 +12,11 @@ import {
   readFsListResult,
   readFsReadResult,
   readFsStatResult,
-  readHelloResult,
   readMcpOpenResult,
   readMcpServersResult,
   readNativeFailure,
   readRootsListResult,
 } from './machine-results';
-
-describe('readHelloResult', () => {
-  it('accepts the daemon answer', () => {
-    expect(
-      readHelloResult({
-        protocolVersion: 1,
-        daemonVersion: '0.0.1',
-        roots: ['/srv/app', '/home/me'],
-      }),
-    ).toEqual({
-      protocolVersion: 1,
-      daemonVersion: '0.0.1',
-      roots: ['/srv/app', '/home/me'],
-    });
-  });
-
-  it.each([
-    [null],
-    ['hello'],
-    [[]],
-    [{}],
-    [{ protocolVersion: 1 }],
-    [{ protocolVersion: 1, daemonVersion: 'x' }],
-    [{ protocolVersion: 1, daemonVersion: 'x', roots: 'not-an-array' }],
-    [{ protocolVersion: 1, daemonVersion: 'x', roots: ['/a', 7] }],
-    [{ protocolVersion: '1', daemonVersion: 'x', roots: [] }],
-    [{ protocolVersion: 1.5, daemonVersion: 'x', roots: [] }],
-    [{ protocolVersion: -1, daemonVersion: 'x', roots: [] }],
-  ])('refuses %j', (value) => {
-    expect(readHelloResult(value)).toBeUndefined();
-  });
-
-  it('accepts a handshake that lists no methods, as an older daemon answers', () => {
-    expect(
-      readHelloResult({
-        protocolVersion: 1,
-        daemonVersion: '0.0.1',
-        roots: ['/srv/app'],
-      }),
-    ).toEqual({
-      protocolVersion: 1,
-      daemonVersion: '0.0.1',
-      roots: ['/srv/app'],
-    });
-  });
-
-  it('carries the git methods a daemon lists', () => {
-    expect(
-      readHelloResult({
-        protocolVersion: 1,
-        daemonVersion: '0.0.1',
-        roots: [],
-        methods: ['git.state', 'git.status', 'git.inspect'],
-      }),
-    ).toEqual({
-      protocolVersion: 1,
-      daemonVersion: '0.0.1',
-      roots: [],
-      // Rebuilt from the protocol's own vocabulary, so an unknown method a
-      // daemon names cannot reach a hub-side check.
-      methods: ['git.inspect', 'git.state'],
-    });
-  });
-
-  it.each([[['fs.read', 'git']], [[7]], ['git.inspect'], [null]])(
-    'reads a malformed method list as absent, keeping the handshake usable',
-    (methods) => {
-      expect(
-        readHelloResult({
-          protocolVersion: 1,
-          daemonVersion: '0.0.1',
-          roots: [],
-          methods,
-        }),
-      ).toEqual({ protocolVersion: 1, daemonVersion: '0.0.1', roots: [] });
-    },
-  );
-});
 
 describe('readRootsListResult', () => {
   it('accepts and copies the list', () => {

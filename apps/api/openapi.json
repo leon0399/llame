@@ -6520,6 +6520,61 @@
         },
         "required": ["id", "title", "messages"]
       },
+      "MachineRootDiskResponse": {
+        "type": "object",
+        "properties": {
+          "root": {
+            "type": "string",
+            "description": "The registered root this entry measures."
+          },
+          "totalBytes": {
+            "type": "number",
+            "nullable": true,
+            "description": "Total bytes of the filesystem holding the root."
+          }
+        },
+        "required": ["root", "totalBytes"]
+      },
+      "MachineFactsResponse": {
+        "type": "object",
+        "properties": {
+          "os": {
+            "type": "string",
+            "description": "The operating system, as `os.platform()`."
+          },
+          "arch": {
+            "type": "string",
+            "description": "The CPU architecture, as `os.arch()`."
+          },
+          "kernel": {
+            "type": "string",
+            "description": "The kernel release, as `os.release()`."
+          },
+          "cpuCount": {
+            "type": "number",
+            "description": "The number of usable CPUs."
+          },
+          "totalMemoryBytes": {
+            "type": "number",
+            "description": "The total memory in bytes."
+          },
+          "rootDisks": {
+            "description": "One entry per registered root, in registration order.",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MachineRootDiskResponse"
+            }
+          }
+        },
+        "required": [
+          "os",
+          "arch",
+          "kernel",
+          "cpuCount",
+          "totalMemoryBytes",
+          "rootDisks"
+        ]
+      },
       "MachineResponse": {
         "type": "object",
         "properties": {
@@ -6544,7 +6599,8 @@
               "host_key_mismatch",
               "auth_failed",
               "incompatible_version",
-              "session_lost"
+              "session_lost",
+              "identity_mismatch"
             ],
             "nullable": true,
             "description": "Why the last contact attempt failed, when one did."
@@ -6562,6 +6618,22 @@
             "type": "string",
             "nullable": true
           },
+          "facts": {
+            "nullable": true,
+            "description": "Static facts the daemon reported at its last successful handshake; null before the first one.",
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/MachineFactsResponse"
+              }
+            ]
+          },
+          "factsCapturedAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true,
+            "description": "When the facts were captured."
+          },
           "roots": {
             "description": "The Machine's registered roots; addressing, not isolation.",
             "type": "array",
@@ -6578,6 +6650,8 @@
           "hubProtocolVersion",
           "daemonProtocolVersion",
           "daemonVersion",
+          "facts",
+          "factsCapturedAt",
           "roots"
         ]
       },
@@ -7725,6 +7799,7 @@
               "permission_denied",
               "executor_unavailable",
               "machine_unavailable",
+              "machine_identity_mismatch",
               "machine_update_required",
               "git_failed"
             ]

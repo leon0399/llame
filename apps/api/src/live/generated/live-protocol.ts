@@ -65,6 +65,29 @@ export const projectDeletedMessageSchema = z
   .strict();
 export type ProjectDeletedMessage = z.infer<typeof projectDeletedMessageSchema>;
 
+export const machineRootDiskResponseSchema = z.object({
+  root: z.string().describe('The registered root this entry measures.'),
+  totalBytes: z
+    .number()
+    .nullable()
+    .describe('Total bytes of the filesystem holding the root.'),
+});
+export type MachineRootDiskResponse = z.infer<
+  typeof machineRootDiskResponseSchema
+>;
+
+export const machineFactsResponseSchema = z.object({
+  os: z.string().describe('The operating system, as `os.platform()`.'),
+  arch: z.string().describe('The CPU architecture, as `os.arch()`.'),
+  kernel: z.string().describe('The kernel release, as `os.release()`.'),
+  cpuCount: z.number().describe('The number of usable CPUs.'),
+  totalMemoryBytes: z.number().describe('The total memory in bytes.'),
+  rootDisks: z
+    .array(machineRootDiskResponseSchema)
+    .describe('One entry per registered root, in registration order.'),
+});
+export type MachineFactsResponse = z.infer<typeof machineFactsResponseSchema>;
+
 export const machineResponseSchema = z.object({
   name: z.string().describe('The configured Machine name.'),
   status: z
@@ -83,6 +106,7 @@ export const machineResponseSchema = z.object({
       'auth_failed',
       'incompatible_version',
       'session_lost',
+      'identity_mismatch',
     ])
     .nullable()
     .describe('Why the last contact attempt failed, when one did.'),
@@ -94,6 +118,12 @@ export const machineResponseSchema = z.object({
     .nullable()
     .describe('The protocol version the daemon reported, once known.'),
   daemonVersion: z.string().nullable(),
+  facts: machineFactsResponseSchema.nullable(),
+  factsCapturedAt: z
+    .string()
+    .datetime({ offset: true })
+    .nullable()
+    .describe('When the facts were captured.'),
   roots: z
     .array(z.string())
     .describe("The Machine's registered roots; addressing, not isolation."),

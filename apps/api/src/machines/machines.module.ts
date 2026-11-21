@@ -1,7 +1,7 @@
 /**
  * MachinesModule — the hub's remote-Machine surface: the connector (sessions,
- * requests, channels), the status reader/writer, the API list, and the probe
- * job. Imported by both entrypoints, because a worker needs the connector for
+ * requests, channels), the status reader/writer, the installation's
+ * name-to-instance-id bindings, the API list, and the probe job. Imported by both entrypoints, because a worker needs the connector for
  * tool execution and the probe, and the API process needs the route.
  *
  * The connector is built by a factory rather than Nest's own construction so
@@ -20,6 +20,7 @@ import {
   LOCAL_GIT,
   localGitSurface,
 } from './executor-git.service';
+import { MachineBindingsRepository } from './machine-bindings.repository';
 import { MachineConnector } from './machine-connector.service';
 import { MachinesController } from './machines.controller';
 import { MachinesProbeService } from './machines-probe.service';
@@ -34,10 +35,15 @@ import { MachinesStatusRepository } from './machines-status.repository';
   providers: [
     {
       provide: MachineConnector,
-      inject: [InstanceConfigService, MachinesStatusRepository],
+      inject: [
+        InstanceConfigService,
+        MachinesStatusRepository,
+        MachineBindingsRepository,
+      ],
       useFactory: (
         instanceConfig: InstanceConfigService,
         status: MachinesStatusRepository,
+        bindings: MachineBindingsRepository,
       ) => {
         const logger = new Logger(MachineConnector.name);
 
@@ -47,6 +53,8 @@ import { MachinesStatusRepository } from './machines-status.repository';
           // (`llame/<version>`, read once at boot from the API manifest).
           hubVersion: instanceConfig.productUserAgent,
           onContact: (contact) => status.recordContact(contact),
+          bindIdentity: (name, instanceId) =>
+            bindings.bindOrCompare(name, instanceId),
           logger,
         });
       },
@@ -57,12 +65,14 @@ import { MachinesStatusRepository } from './machines-status.repository';
       useValue: localGitSurface(),
     },
     ExecutorGit,
+    MachineBindingsRepository,
     MachinesStatusRepository,
     MachinesService,
     MachinesProbeService,
   ],
   exports: [
     ExecutorGit,
+    MachineBindingsRepository,
     MachineConnector,
     MachinesService,
     MachinesStatusRepository,

@@ -40,6 +40,16 @@ const MACHINES = {
   },
 };
 
+/** The facts a handshake reports: the listing shows only the OS and arch. */
+const FACTS = {
+  os: 'linux',
+  arch: 'x64',
+  kernel: '6.8.0-45-generic',
+  cpuCount: 8,
+  totalMemoryBytes: 16_000_000_000,
+  rootDisks: [{ root: '/srv/app', totalBytes: 500_000_000_000 }],
+} as const;
+
 const STATUS: ReadonlyArray<MachineStatusView> = [
   {
     name: 'devl',
@@ -49,6 +59,8 @@ const STATUS: ReadonlyArray<MachineStatusView> = [
     hubProtocolVersion: 1,
     daemonProtocolVersion: 1,
     daemonVersion: '1.0.0',
+    facts: FACTS,
+    factsCapturedAt: new Date('2026-10-18T00:00:00.000Z'),
     roots: ['/srv/app'],
   },
   {
@@ -59,6 +71,8 @@ const STATUS: ReadonlyArray<MachineStatusView> = [
     hubProtocolVersion: 1,
     daemonProtocolVersion: null,
     daemonVersion: null,
+    facts: null,
+    factsCapturedAt: null,
     roots: [],
   },
 ];
@@ -399,42 +413,6 @@ describe('Machine native reads', () => {
 
 describe('Machine listings', () => {
   afterEach(() => vi.restoreAllMocks());
-
-  it('lists the configured Machines with their status and no route', async () => {
-    const { connector } = fixture();
-
-    const result = await runTool(
-      nativeReadTool,
-      { path: 'machine://' },
-      context(connector),
-      5,
-    );
-
-    expect(result).toMatchObject({
-      status: 'success',
-      kind: 'directory',
-      path: 'machine://',
-      content:
-        '- machine://devl (online)\n- machine://gpu (offline, unreachable)',
-    });
-    expect(JSON.stringify(result)).not.toContain('box');
-    expect(JSON.stringify(result)).not.toContain('gpu.lan');
-  });
-
-  it('lists the names without status when no reader is supplied', async () => {
-    const { connector } = fixture();
-
-    const result = await runTool(
-      nativeReadTool,
-      { path: 'machine://' },
-      context(connector, { machineStatus: undefined }),
-      5,
-    );
-
-    expect(result).toMatchObject({
-      content: '- machine://devl\n- machine://gpu',
-    });
-  });
 
   it('lists a Machine root set as locators', async () => {
     const { peer, connector } = fixture({
@@ -1737,6 +1715,8 @@ describe('Machine listing rendering', () => {
         hubProtocolVersion: 1,
         daemonProtocolVersion: 1,
         daemonVersion: '1.0.0',
+        facts: null,
+        factsCapturedAt: null,
         roots: ['/srv/app'],
       },
       {
@@ -1747,6 +1727,8 @@ describe('Machine listing rendering', () => {
         hubProtocolVersion: 1,
         daemonProtocolVersion: null,
         daemonVersion: null,
+        facts: null,
+        factsCapturedAt: null,
         roots: [],
       },
     ];

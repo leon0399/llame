@@ -30,7 +30,7 @@ describe('machines_status schema', () => {
     // reason (or gained one machines-status.ts does not know) would admit a row
     // the derivation cannot classify.
     expect(checkSql('machines_status_failure_reason_check')).toBe(
-      `"machines_status"."last_failure_reason" IS NULL OR "machines_status"."last_failure_reason" IN ('unreachable', 'host_key_mismatch', 'auth_failed', 'incompatible_version', 'session_lost')`,
+      `"machines_status"."last_failure_reason" IS NULL OR "machines_status"."last_failure_reason" IN ('unreachable', 'host_key_mismatch', 'auth_failed', 'incompatible_version', 'session_lost', 'identity_mismatch')`,
     );
   });
 
@@ -45,6 +45,8 @@ describe('machines_status schema', () => {
     expect(Object.keys(columns).sort()).toEqual([
       'daemon_protocol_version',
       'daemon_version',
+      'facts',
+      'facts_captured_at',
       'first_contact_at',
       'hub_protocol_version',
       'last_contact_at',
@@ -65,6 +67,10 @@ describe('machines_status schema', () => {
     expect(columns.daemon_protocol_version.notNull).toBe(false);
     expect(columns.daemon_version.notNull).toBe(false);
     expect(columns.roots.notNull).toBe(true);
+    // Facts and their capture time arrive together with a successful
+    // handshake and stay null until the first one.
+    expect(columns.facts.notNull).toBe(false);
+    expect(columns.facts_captured_at.notNull).toBe(false);
     expect(columns.updated_at.notNull).toBe(true);
 
     const rootsDefault = columns.roots.default;

@@ -105,12 +105,15 @@ the local managed bounds.
 
 ## Listing
 
-A read of `machine://` lists every configured Machine with its derived status
-(`online`, or `offline` with a failure reason) — never an SSH route. A read of
-`machine://<name>` lists that Machine's registered roots, each as a
-`machine://<name>/…` locator. A Machine directory read lists entries as the
-local one does, and a link that points outside the registered roots is not
-named.
+A read of `machine://` lists every configured Machine with its derived status:
+`online`, or `offline` with a failure reason. Once the daemon has reported its
+static facts, the entry also names the OS and architecture, for example
+`- machine://devl (online, linux/x64)`. An incompatible protocol version reads
+`update required` in place of the reason. The listing never names an SSH route,
+an instance id, or the kernel. A read of `machine://<name>` lists that
+Machine's registered roots, each as a `machine://<name>/…` locator. A Machine
+directory read lists entries as the local one does, and a link that points
+outside the registered roots is not named.
 
 ## Errors
 
@@ -118,10 +121,13 @@ named.
 opening any connection. `machine_unavailable` for a Machine that could not be
 reached, failed host-key or authentication checks, speaks an incompatible
 protocol version, or lost its session before a request was sent.
-`outcome_unknown` for a mutation or command sent into a session that then
-ended: it may have executed, it is not repeated, and the result names nothing
-else. `path_not_registered` for any address outside the Machine's registered
-roots, with fixed text whether or not the path exists.
+`machine_identity_mismatch` for a daemon that answers with a different instance
+id than the one bound to its Machine name. The handshake is the only request it
+receives, and no mutation can run. `outcome_unknown` for a mutation or command
+sent into a session that then ended: it may have executed, it is not repeated,
+and the result names nothing else. `path_not_registered` for any address
+outside the Machine's registered roots, with fixed text whether or not the path
+exists.
 
 `edit` and `write` refuse the two listing forms with `unsupported_operation`
 and no effect, and a selector on a mutation is `invalid_selector`. A malformed

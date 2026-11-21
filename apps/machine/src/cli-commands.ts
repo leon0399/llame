@@ -1,12 +1,15 @@
-import { rootsFileFor } from "./env";
+import { PROTOCOL_VERSION } from "@workspace/machine-protocol";
+import { machineConfigDir, rootsFileFor } from "./env";
 import { addRoot, readRoots, removeRoot } from "./roots";
+import { readOrCreateInstanceId } from "./instance";
+import { currentBuildId } from "./build-id";
+import { DAEMON_VERSION } from "./version";
 import {
   serveMachine,
   type MachineSession,
   type ServeMachineOptions,
   type SessionEndReason,
 } from "./serve";
-import { DAEMON_VERSION } from "./version";
 
 export const EXIT_OK = 0;
 export const EXIT_USAGE = 1;
@@ -26,7 +29,7 @@ const USAGE = `Usage:
   llame-machine roots add <dir>      Register a directory this Machine serves
   llame-machine roots remove <dir>   Unregister a directory
   llame-machine roots list           List the registered directories
-  llame-machine --version            Print the daemon version
+  llame-machine --version            Print the daemon version and identity
 `;
 
 function messageOf(error: unknown): string {
@@ -94,6 +97,28 @@ async function serveCommand(
   return exitCodeFor(await session.done);
 }
 
+function versionCommand(environment: CliEnvironment): number {
+  try {
+    const instanceId = readOrCreateInstanceId(machineConfigDir());
+
+    environment.out(
+      [
+        `llame-machine ${DAEMON_VERSION}`,
+        `build ${currentBuildId()}`,
+        `protocol ${String(PROTOCOL_VERSION)}`,
+        `instance ${instanceId}`,
+        "",
+      ].join("\n"),
+    );
+
+    return EXIT_OK;
+  } catch (error) {
+    environment.err(`llame-machine: ${messageOf(error)}\n`);
+
+    return EXIT_USAGE;
+  }
+}
+
 export async function runCli(
   argv: ReadonlyArray<string>,
   environment: CliEnvironment,
@@ -104,11 +129,7 @@ export async function runCli(
 
   if (command === "roots") return rootsCommand(rest, environment);
 
-  if (command === "--version") {
-    environment.out(`${DAEMON_VERSION}\n`);
-
-    return EXIT_OK;
-  }
+  if (command === "--version") return versionCommand(environment);
 
   environment.err(USAGE);
 

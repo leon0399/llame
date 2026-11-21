@@ -18,6 +18,7 @@ export type ExecutorGitErrorCode =
   | 'not_a_directory'
   | 'executor_unavailable'
   | 'machine_unavailable'
+  | 'machine_identity_mismatch'
   | 'machine_update_required'
   | 'path_not_registered'
   | 'permission_denied'

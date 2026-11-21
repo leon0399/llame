@@ -1,5 +1,5 @@
 /** The protocol both sides speak; a mismatch ends the session at the handshake. */
-export const PROTOCOL_VERSION = 1;
+export const PROTOCOL_VERSION = 2;
 
 /** Stream 0 carries the handshake, the heartbeat, and session control. Only the
  *  hub opens the numbered streams above it. */

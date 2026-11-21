@@ -73,6 +73,16 @@ const HELLO = {
   protocolVersion: PROTOCOL_VERSION,
   daemonVersion: '1.2.3',
   roots: ['/srv/app'],
+  instanceId: '00000000-0000-4000-8000-000000000001',
+  buildId: '0123456789ab',
+  facts: {
+    os: 'linux',
+    arch: 'x64',
+    kernel: '6.8.0',
+    cpuCount: 8,
+    totalMemoryBytes: 16 * 1024 ** 3,
+    rootDisks: [{ root: '/srv/app', totalBytes: 512 * 1024 ** 3 }],
+  },
 };
 
 const ROOTS_CALL: MachineCall<'roots.list'> = {
@@ -544,6 +554,25 @@ describe('MachineSession handshake', () => {
       reason: 'incompatible_version',
       established: false,
     });
+  });
+
+  it('refuses a version 1 handshake that carries no identity or facts', async () => {
+    const link = localLink();
+    const session = pipeSession(link);
+    const answer = session.ready();
+    const request = await awaitFrame(link, isRequest('hello'));
+    link.sendFrame({
+      s: CONTROL_STREAM_ID,
+      m: {
+        jsonrpc: '2.0',
+        id: request.m.id,
+        result: { protocolVersion: 1, daemonVersion: '0.9.0', roots: [] },
+      },
+    });
+    const error = refusal(await failedCall(answer));
+    expect(error.reason).toBe('incompatible_version');
+    expect(error.sent).toBe(false);
+    expect(session.hello).toBeUndefined();
   });
 
   it('refuses an answer it cannot read', async () => {

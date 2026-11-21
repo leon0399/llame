@@ -5,6 +5,7 @@
  * llame auth and domain API
  * OpenAPI spec version: 0.1
  */
+import type { MachineFactsResponse } from "./machineFactsResponse";
 import type { MachineResponseFailureReason } from "./machineResponseFailureReason";
 import type { MachineResponseStatus } from "./machineResponseStatus";
 
@@ -32,6 +33,16 @@ export interface MachineResponse {
   daemonProtocolVersion: number | null;
   /** @nullable */
   daemonVersion: string | null;
+  /**
+   * Static facts the daemon reported at its last successful handshake; null before the first one.
+   * @nullable
+   */
+  facts: MachineFactsResponse | null;
+  /**
+   * When the facts were captured.
+   * @nullable
+   */
+  factsCapturedAt: string | null;
   /** The Machine's registered roots; addressing, not isolation. */
   roots: string[];
 }

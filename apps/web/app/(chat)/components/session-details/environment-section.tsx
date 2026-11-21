@@ -53,6 +53,7 @@ const FAILURE_LABELS: Record<
   auth_failed: "Authentication failed",
   incompatible_version: "Incompatible protocol version",
   session_lost: "Connection lost",
+  identity_mismatch: "Identity changed",
 };
 
 export interface EnvironmentProject {

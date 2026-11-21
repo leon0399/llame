@@ -60,6 +60,8 @@ function machineView(
     hubProtocolVersion: 1,
     daemonProtocolVersion: null,
     daemonVersion: null,
+    facts: null,
+    factsCapturedAt: null,
     roots: [],
   };
 }

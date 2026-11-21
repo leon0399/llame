@@ -32,6 +32,7 @@ export const REPOSITORY_FAILURE_CODES = [
   'permission_denied',
   'executor_unavailable',
   'machine_unavailable',
+  'machine_identity_mismatch',
   'machine_update_required',
   'git_failed',
 ] as const;
@@ -58,6 +59,9 @@ const STATUS: Record<RepositoryFailureCode, HttpStatus> = {
   permission_denied: HttpStatus.FORBIDDEN,
   executor_unavailable: HttpStatus.SERVICE_UNAVAILABLE,
   machine_unavailable: HttpStatus.SERVICE_UNAVAILABLE,
+  // A Machine bound to another computer's instance id stays unusable until an
+  // operator checks it and rebinds the name (`machines:forget`).
+  machine_identity_mismatch: HttpStatus.SERVICE_UNAVAILABLE,
   machine_update_required: HttpStatus.SERVICE_UNAVAILABLE,
   git_failed: HttpStatus.BAD_GATEWAY,
 };
