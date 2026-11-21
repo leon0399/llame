@@ -62,7 +62,7 @@ Branch `project-discovery/context` has parent `project-discovery/locator`. It ow
 - [x] 4.5 Cover Continue, Regenerate, steer, interrupt, owner forks, shared forks, and Project deletion. Prove new Runs resolve current context and old private history stays literal without public/share/export/search disclosure.
 - [x] 4.6 Integrate private selection-event handling and exact Project context inspection without changing system-only receipts. Prove [no assistant output from selection events](specs/project-context/spec.md#scenario-a-selection-event-produces-no-assistant-output) and [private payload exclusion](specs/project-context/spec.md#scenario-selection-payload-stays-outside-public-projections-and-receipts). Prove malformed recovery failure and negative cross-owner reads.
 - [x] 4.7 Document the worker revision boundary, provider sharing, historical retention, and additive guidance. Prove the cutover inventory includes parked dispatched Runs and blocks until settlement or an explicit operator decision. Update affected architecture/reference/operator pages, the dated changelog, and completed roadmap entries.
-- [ ] 4.8 Run focused worker/serializer/integration checks, affected API lint and typecheck, the workspace build, Markdown lint, formatting, and diff checks. Publish draft and complete SR before ready, then GR and current-head CI before the next layer.
+- [x] 4.8 Run focused worker/serializer/integration checks, affected API lint and typecheck, the workspace build, Markdown lint, formatting, and diff checks. Publish draft and complete SR before ready, then GR and current-head CI before the next layer.
 
 ## 5. Real Project editor layer
 
@@ -72,14 +72,16 @@ Branch `project-discovery/editor` has parent `project-discovery/context`. It own
 - [x] 5.2 Remove the Context demo, sample files, and orphaned imports. Replace obsolete demo-interaction story assertions with observable editor behavior. Keep #1330 outside this layer.
 - [x] 5.3 Run Storybook consumer tests and previews and record preview URLs. Prove a focused product E2E that saves instructions, reloads, starts a Project Chat, and observes the model request's applied guidance.
 - [x] 5.4 Update affected owner-facing documentation, the dated changelog, and completed roadmap entries. Run affected web lint, typecheck, build, Markdown lint, formatting, and diff checks.
-- [ ] 5.5 Publish draft with `Closes #1329`. Complete SR before ready, then GR, current-head CI, and delivery Project updates before the next layer. Keep #333 open for its remaining outcomes.
+- [x] 5.5 Publish draft with `Closes #1329`. Complete SR before ready, then GR, current-head CI, and delivery Project updates before the next layer. Keep #333 open for its remaining outcomes.
 
 ## 6. Finalize layer
 
 Branch `project-discovery/finalize` has parent `project-discovery/editor`. It owns canonical spec synchronization, task records, and archive movement only. Estimated authored churn is 1000 to 1600 lines, with no generated output. It closes no feature issue.
 
-- [ ] 6.1 Confirm all implementation layers are published, verified, and checked, including their GR gates. Reconcile all earlier task records against evidence. Prove no task remains incomplete before archive readiness.
-- [ ] 6.2 Enter `project-discovery/finalize` through `$gh-stack` before `$openspec-sync-specs` writes any canonical specification. Synchronize approved deltas and verify all modified canonical requirements preserve their scenarios. Repair inbound ADR source links as part of archive movement.
-- [ ] 6.3 Prove strict canonical and all-change validation, Markdown lint, formatting, and diff checks. Inspect `openspec status` and complete spec-sync and archive-readiness records before `$openspec-archive-change` moves the change.
+- [x] 6.1 Confirm all implementation layers are published, verified, and checked, including their GR gates. Reconcile all earlier task records against evidence. Prove no task remains incomplete before archive readiness.
+- [x] 6.2 Enter `project-discovery/finalize` through `$gh-stack` before `$openspec-sync-specs` writes any canonical specification. Synchronize approved deltas and verify all modified canonical requirements preserve their scenarios. Identify inbound ADR source links and outbound design-to-ADR links for repair immediately after the CLI returns the archive path.
+- [x] 6.3 Prove strict canonical and all-change validation, Markdown lint, formatting, and diff checks. Inspect `openspec status` and complete spec-sync and archive-readiness records before `$openspec-archive-change` moves the change.
 
 Finalize SR and GR are post-archive gates, not unchecked prerequisites of archive execution. After readiness and archive movement, publish finalize as draft. Review its actual parent-relative diff, complete SR, mark ready only with current-head CI, and run GR/monitoring. Update delivery Project fields at each GitHub transition. Merge only with explicit permission and through `$gh-stack`.
+
+After archive movement, repair the two inbound ADR source links with the CLI-returned path and adjust the archived design's two outbound ADR links before publication. Re-run Markdown link validation on the moved record and its inbound references. This ordering avoids predicting an archive path or creating broken links before movement.
