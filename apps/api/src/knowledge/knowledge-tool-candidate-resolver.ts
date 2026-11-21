@@ -1,6 +1,4 @@
-import { isBashTool } from '../tools/bash';
-import { isGrepTool } from '../tools/grep';
-import { isNativeFileTool } from '../tools/native-files';
+import { bashTool } from '../tools/bash';
 import { stopTool } from '../tools/stop';
 import { Inject, Injectable } from '@nestjs/common';
 
@@ -52,7 +50,7 @@ export class KnowledgeToolCandidateResolver {
     input: KnowledgeToolCandidateResolverInput,
   ): Promise<Array<TurnToolCandidate>> {
     const tools = [...(input.codeOwnedTools ?? TOOL_REGISTRY.values())].filter(
-      (tool) => this.admitsHostCapability(tool),
+      (tool) => this.admitsHostCapability(tool, input.allowedToolRules),
     );
 
     const shouldResolveOwner = tools.some(
@@ -88,46 +86,24 @@ export class KnowledgeToolCandidateResolver {
   }
 
   /**
-   * `bash` needs an accepted native host, a configured Machine, or the `ssh`
-   * section to run on. The native file tools also serve `kb://` locators, which
-   * need no executor identity, so a Knowledge root alone admits `edit` and
-   * `write`, and `skill://` and web locators, which need no host authority at
-   * all, admit `read` alone; a configured Machine or `ssh` section admits the
-   * host tools too, because those locators are their own authority. A local
-   * path on such a process still fails closed with `executor_unavailable` at
-   * execution.
+   * Every native tool is advertised: startup refuses a configuration that
+   * allowlists one without a reachable `machines.default` (host-as-machine D3),
+   * so a bare path always has a current Machine to resolve on and the catalog
+   * is the same on every worker of one configuration. `machines.local` differs
+   * per worker and never affects advertisement, so no worker advertises a
+   * different catalog for the same config.
+   *
+   * `stop` is advertised with `bash`: it ends the jobs a host `bash` call
+   * starts, so it is offered exactly when the operator allowlists `bash`.
    */
-  private admitsHostCapability(tool: Tool): boolean {
-    const { nativeExecutorId } = this.instanceConfig.config.tools;
-    const machines = this.instanceConfig.config.machines !== undefined;
-    const ssh = this.instanceConfig.config.ssh !== undefined;
+  private admitsHostCapability(
+    tool: Tool,
+    allowedToolRules: ReadonlyArray<string>,
+  ): boolean {
+    if (tool.id === stopTool.id)
+      return matchesCodeOwnedToolId(bashTool.id, allowedToolRules);
 
-    if (isBashTool(tool))
-      return nativeExecutorId !== undefined || machines || ssh;
-
-    // `grep` is advertised only when a backend can serve it: a host executor,
-    // a Knowledge root, an operator skill source, or a Machine.
-    if (isGrepTool(tool)) {
-      return (
-        nativeExecutorId !== undefined ||
-        this.instanceConfig.config.knowledge.root !== undefined ||
-        this.instanceConfig.config.skills.directories.length > 0 ||
-        machines
-      );
-    }
-
-    // `stop` ends jobs that only a native host executor starts.
-    if (tool === stopTool) return nativeExecutorId !== undefined;
-
-    if (!isNativeFileTool(tool)) return true;
-
-    if (tool.id === 'read') return true;
-
-    return (
-      nativeExecutorId !== undefined ||
-      this.instanceConfig.config.knowledge.root !== undefined ||
-      machines
-    );
+    return true;
   }
 
   private resolveUnavailableReason(): ToolUnavailableReason | undefined {

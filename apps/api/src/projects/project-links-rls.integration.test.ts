@@ -335,7 +335,7 @@ describeIfDb('RLS integration — project repository links', () => {
     const link = await seedLink(userA, project, repository);
     const host = await seedCheckout(userA, repository);
     const second = await seedCheckout(userA, repository);
-    const nas = await seedCheckout(userA, repository, 'machine:nas');
+    const nas = await seedCheckout(userA, repository, 'nas');
 
     const defaults = await seedDefault(userA, link, host);
     await expect(
@@ -375,7 +375,7 @@ describeIfDb('RLS integration — project repository links', () => {
     );
 
     // A second executor keeps its own row.
-    await seedDefault(userA, link, nas, 'machine:nas');
+    await seedDefault(userA, link, nas, 'nas');
 
     const rows = await asUser(
       userA,
@@ -383,7 +383,7 @@ describeIfDb('RLS integration — project repository links', () => {
         tx`SELECT executor_id FROM project_repository_defaults WHERE project_repository_id = ${link} ORDER BY executor_id`,
     );
 
-    expect(rows.map((row) => row.executor_id)).toEqual(['host', 'machine:nas']);
+    expect(rows.map((row) => row.executor_id)).toEqual(['host', 'nas']);
   });
 
   it('deleting a project removes its links and defaults, keeps its chats and catalog', async () => {

@@ -10,13 +10,12 @@ configured_by:
 
 # Mutation recovery
 
-## Executor binding
+## Machine binding
 
-The first absolute-path native operation binds its Run to the configured executor
-identity. A different executor cannot resolve those physical paths on
-reattachment. Mutations are ordered in the host process, including symlink
-aliases; external editors and other uncoordinated processes are outside that
-guarantee.
+The first absolute-path native operation binds its Run to the current Machine. A
+different Machine cannot resolve those physical paths on reattachment. Mutations
+to one Machine are ordered, including symlink aliases; external editors and
+other uncoordinated processes are outside that guarantee.
 
 ## Attempt fence
 
@@ -29,9 +28,9 @@ A recovered open attempt returns `outcome_unknown`; a queue retry of a Run that
 started a mutation terminates instead of replaying its model loop. Reconnecting
 clients replay recorded activity without running tools again.
 
-A `kb://` mutation uses this same fence without binding or requiring an executor
-identity, so a retry on a different worker still reports `outcome_unknown` rather
-than `executor_unavailable`.
+A `kb://` mutation uses this same fence without binding or requiring a Machine,
+so a retry on a different worker still reports `outcome_unknown` rather than
+`executor_unavailable`.
 
 The fence survives `bypass`: it is not a permission-group clause, so it applies
 under every permission mode; see [permission modes](permission-modes.md).
@@ -67,5 +66,5 @@ stop or Chat deletion still ends the command under the same proof rule.
 
 ## Configured by
 
-[native files](../operator/native-files.md) enables the host executor and the
-`edit`, `write`, and `bash` entries the fence covers.
+[native files](../operator/native-files.md) configures the Machine behind
+absolute paths and the `edit`, `write`, and `bash` entries the fence covers.

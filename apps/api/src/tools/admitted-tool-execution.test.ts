@@ -55,6 +55,8 @@ describe('executeAdmittedTool', () => {
       } satisfies TenantRunner,
       abortSignal: abort.signal,
       onNativeMutationUnknown,
+      localMachine: 'host-a',
+      defaultMachine: 'host-a',
     };
 
     const result = await executeAdmittedTool(
@@ -91,6 +93,8 @@ describe('executeAdmittedTool', () => {
       yieldSignal: yielded.signal,
       onHostCommandStarted,
       onHostPromotionStarted,
+      localMachine: 'host-a',
+      defaultMachine: 'host-a',
     };
 
     const result = await executeAdmittedTool(

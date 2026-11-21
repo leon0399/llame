@@ -45,8 +45,8 @@ export const projects = pgTable(
     // names one (chat-start-location D8). Nullable, and deliberately without a
     // foreign key to `machines_status`: that table is an observation the hub
     // probe rewrites, while this column is the owner's intent. A configured
-    // executor id — `tools.nativeExecutorId` or `machine:<name>` — that the
-    // current configuration no longer carries simply resolves nothing.
+    // Machine name that the current configuration no longer carries simply
+    // resolves nothing.
     defaultExecutorId: text('default_executor_id'),
   },
   (t) => [

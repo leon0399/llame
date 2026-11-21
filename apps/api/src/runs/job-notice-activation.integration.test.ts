@@ -29,7 +29,7 @@ vi.setConfig({ testTimeout: 90_000 });
 describe('job notice producer-to-live-Run activation', () => {
   const fx = useSegmentsFixture('job-notice-activation', {
     allowedTools: ['bash', 'read', 'stop'],
-    nativeExecutorId: 'job-notice-activation-host',
+    localMachine: 'job-notice-activation-host',
   });
 
   async function createRunningJob(input: {

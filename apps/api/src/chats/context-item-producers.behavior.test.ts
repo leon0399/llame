@@ -5,19 +5,23 @@ import {
   checkpointSummary,
   createCompactionCheckpointPart,
   createModelChangeItem,
-  createRecencyDigestDeltaItem,
-  createRecencyDigestSupersessionItem,
   createTemporalItem,
   createWorkspaceDetachNoticeItem,
   createWorkspaceSnapshotItem,
+  formatWorkspaceTold,
   isModelChangePayload,
-  isRecencyDigestDeltaPayload,
   isRecencyDigestItem,
   isWorkspaceDetachPayload,
   isWorkspaceSnapshotPayload,
+  parseWorkspaceTold,
   readCheckpointText,
   renderCompactionCheckpoint,
 } from './context-item-producers';
+import {
+  createRecencyDigestDeltaItem,
+  createRecencyDigestSupersessionItem,
+  isRecencyDigestDeltaPayload,
+} from './recency-digest-item';
 import { type Message } from '../db/schema';
 import { ModelContextExecutionError } from '../runs/model-context-errors';
 import { type ContextItemPart } from './context-item';
@@ -626,26 +630,76 @@ describe('temporal and checkpoint wording', () => {
 });
 
 describe('workspace producer', () => {
-  it('renders and validates a bound-root snapshot', () => {
+  it('renders and validates a bound-root snapshot that names its Machine', () => {
     const item = createWorkspaceSnapshotItem({
       runId: RUN_ID,
       root: '/home/operator/projects/app',
+      machine: 'host-a',
     });
 
     expect(isWorkspaceSnapshotPayload(item.data.payload)).toBe(true);
     expect(item.data.form).toBe('snapshot');
+    expect(item.data.payload).toEqual({
+      root: '/home/operator/projects/app',
+      machine: 'host-a',
+    });
     expect(item.data.text).toContain(
-      'The active Workspace working root is `/home/operator/projects/app`.',
+      'The active Workspace working root is `/home/operator/projects/app`, on Machine `host-a`.',
     );
-    expect(item.data.text).toContain('does not confine host authority');
+    expect(item.data.text).toContain(
+      'Tools resolve bare and relative paths and `file:` locators there.',
+    );
+    expect(item.data.text).toContain('one OS user');
   });
 
-  it('renders a no-Workspace snapshot without a root', () => {
-    const item = createWorkspaceSnapshotItem({ runId: RUN_ID, root: null });
+  it('renders the unbound snapshot the current Machine serves', () => {
+    const item = createWorkspaceSnapshotItem({
+      runId: RUN_ID,
+      root: null,
+      machine: 'host-a',
+    });
 
-    expect(item.data.payload).toEqual({ root: null });
-    expect(item.data.text).toContain('No Workspace is entered.');
-    expect(item.data.text).not.toContain('working root is `');
+    expect(item.data.payload).toEqual({ root: null, machine: 'host-a' });
+    expect(item.data.text).toBe(
+      [
+        '<system-reminder producer="workspace" form="snapshot">',
+        'Inserted by llame; not written by the user.',
+        'No Workspace is entered. Tools resolve bare and relative paths and `file:` locators on the current Machine, `host-a`. Use `machine://<name>/...` to reach another Machine.',
+        '',
+        '</system-reminder>',
+      ].join('\n'),
+    );
+  });
+
+  it('reads a told state written before the format carried a Machine', () => {
+    expect(parseWorkspaceTold(null)).toBeUndefined();
+    expect(parseWorkspaceTold('')).toBeUndefined();
+    expect(parseWorkspaceTold('/repo')).toEqual({ root: '/repo' });
+    expect(parseWorkspaceTold('machine://build-1/repo')).toEqual({
+      root: 'machine://build-1/repo',
+    });
+  });
+
+  it('round-trips the told state of both a bound and an unbound Chat', () => {
+    expect(formatWorkspaceTold('build-1', null)).toBe('build-1\n');
+    expect(formatWorkspaceTold('build-1', 'machine://build-1/repo')).toBe(
+      'build-1\nmachine://build-1/repo',
+    );
+    expect(parseWorkspaceTold(formatWorkspaceTold('build-1', null))).toEqual({
+      machine: 'build-1',
+      root: null,
+    });
+    expect(
+      parseWorkspaceTold(
+        formatWorkspaceTold('build-1', 'machine://build-1/repo'),
+      ),
+    ).toEqual({ machine: 'build-1', root: 'machine://build-1/repo' });
+  });
+
+  it('counts an unreadable told state as absent', () => {
+    expect(parseWorkspaceTold('Build 1\n/repo')).toBeUndefined();
+    expect(parseWorkspaceTold('build-1\nrelative/path')).toBeUndefined();
+    expect(parseWorkspaceTold('relative/path')).toBeUndefined();
   });
 
   it('keeps detach notices separate from snapshots', () => {
@@ -661,19 +715,27 @@ describe('workspace producer', () => {
     expect(item.data.text).not.toContain('working root');
   });
 
-  it('renders and validates a Machine-root snapshot through the Machine body', () => {
+  it('renders a Machine-root snapshot through the same single body', () => {
     const root = 'machine://build-1/home/operator/app';
+    expect(isWorkspaceSnapshotPayload({ root, machine: 'build-1' })).toBe(true);
+    // A payload written before the snapshot named a Machine still validates.
     expect(isWorkspaceSnapshotPayload({ root })).toBe(true);
 
-    const item = createWorkspaceSnapshotItem({ runId: RUN_ID, root });
+    const item = createWorkspaceSnapshotItem({
+      runId: RUN_ID,
+      root,
+      machine: 'build-1',
+    });
 
-    expect(item.data.payload).toEqual({ root });
+    expect(item.data.payload).toEqual({ root, machine: 'build-1' });
     expect(item.data.form).toBe('snapshot');
     expect(item.data.text).toContain(
       'The active Workspace working root is `machine://build-1/home/operator/app`, on Machine `build-1`.',
     );
+    expect(item.data.text).toContain(
+      'Tools resolve bare and relative paths and `file:` locators there.',
+    );
     expect(item.data.text).toContain('one OS user');
-    expect(item.data.text).not.toContain('does not confine host authority');
   });
 
   it('gates a detach payload on record-ness, exact keys, and the Machine name', () => {
@@ -749,6 +811,15 @@ describe('workspace producer', () => {
       createWorkspaceSnapshotItem({
         runId: RUN_ID,
         root: 'relative/path',
+        machine: 'host-a',
+      }),
+    ).toThrow('Invalid server-authored Workspace snapshot metadata');
+
+    expect(() =>
+      createWorkspaceSnapshotItem({
+        runId: RUN_ID,
+        root: '/repo',
+        machine: 'Build 1',
       }),
     ).toThrow('Invalid server-authored Workspace snapshot metadata');
 

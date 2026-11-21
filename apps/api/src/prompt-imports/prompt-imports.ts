@@ -5,10 +5,7 @@
  * existence probes, the audited read) and persists the result.
  */
 
-import {
-  parsePathScheme,
-  splitSelectorSuffix,
-} from '@workspace/native-file-tools';
+import { parsePathScheme } from '@workspace/native-file-tools';
 
 import {
   neutralizeImportBody,
@@ -21,17 +18,18 @@ import { KNOWLEDGE_LOCATOR_SCHEME } from '../knowledge/knowledge-locator';
 import { JOB_SCHEME } from '../jobs/job-locator';
 import {
   formatMachineLocator,
-  isMachineLocator,
-  parseMachineLocator,
+  MACHINE_SCHEME,
 } from '../machines/machine-locator';
 import { MEDIA_LOCATOR_SCHEME } from '../media/media-locator';
 import { SSH_SCHEME } from '../ssh/ssh-locator';
 import { readAcceptsScheme } from '../tools/native-files';
 import { ARTIFACT_SCHEME } from '../tools/artifacts/locator';
-import { decodeFileAlias, isFileAlias } from '../tools/permissions/file-alias';
 import type { PermissionDecision } from '../tools/permissions/types';
 import { type ToolResult } from '../tools/types';
-import { resolveWorkspacePath } from '../tools/workspace-path';
+import {
+  type MachineTarget,
+  resolveMachinePath,
+} from '../tools/workspace-path';
 
 /** Distinct markers considered per prompt; later ones stay prose, unprobed. */
 export const MAX_PROMPT_IMPORT_MARKERS = 64;
@@ -64,12 +62,27 @@ export type PromptImportRequest = {
    */
   readonly signal: AbortSignal;
   readonly workspaceRoot: string | undefined;
+  /** `machines.local`: the Machine this process serves in process. */
+  readonly localMachine: string | undefined;
+  /** `machines.default`: the current Machine when no Workspace is bound. */
+  readonly defaultMachine: string | undefined;
+  /**
+   * Whether the Run may serve a target on this process's own Machine at all:
+   * `read` allowlisted and `machines.local` configured.
+   */
   readonly hostAvailable: boolean;
   readonly knowledgeAvailable: boolean;
   /** Whether the Run may reach the configured Machines at all. */
   readonly machineAvailable: boolean;
   /** Whether `ssh://` is enabled and `read` allowlisted (ssh-locator D6a). */
   readonly sshAvailable: boolean;
+  /**
+   * The identity-checked handshake with this process's own daemon, completed
+   * before the first in-process probe (design D8). False means the Machine
+   * could not prove its identity, so a local target stays prose exactly as an
+   * unreachable Machine's does.
+   */
+  readonly verifyLocal: () => Promise<boolean>;
   /** Silent `read`-group pre-evaluation of the exact string the read submits. */
   readonly admitsRead: (path: string) => boolean;
   readonly probeHost: (absolutePathWithoutSelector: string) => Promise<boolean>;
@@ -121,18 +134,17 @@ type PromptImportResolution = {
 type ImportPlan =
   | { readonly kind: 'direct'; readonly readPath: string }
   | {
-      readonly kind: 'host';
-      readonly readPath: string;
-      /** Decoded absolute host path, selector still attached. */
-      readonly hostPath: string;
-    }
-  | {
       readonly kind: 'machine';
       /** The configured Machine the locator names. */
       readonly name: string;
       /** Decoded absolute Machine path, without the read selector. */
       readonly machinePath: string;
+      /** The canonical locator the read submits. */
       readonly readPath: string;
+      /** `name === localMachine`: this process serves it in process. */
+      readonly local: boolean;
+      /** The read selector the locator spells, if any. */
+      readonly selector?: string;
     }
   | { readonly kind: 'knowledge'; readonly readPath: string }
   | { readonly kind: 'media'; readonly readPath: string };
@@ -144,6 +156,8 @@ type ImportRun = PromptImportResolution & {
   bytes: number;
   outputFull: boolean;
   knowledgeProbeCancelled: boolean;
+  /** The one identity-checked handshake this pass runs for local targets. */
+  localVerified?: Promise<boolean>;
 };
 
 /**
@@ -190,75 +204,46 @@ function planTarget(
 ): ImportPlan | undefined {
   if (target.startsWith('~/')) return undefined;
 
-  if (isFileAlias(target)) return planFileAlias(request, target);
+  const resolved = resolveMachinePath(target, {
+    workspaceRoot: request.workspaceRoot,
+    defaultMachine: request.defaultMachine,
+    localMachine: request.localMachine,
+  });
 
-  if (isMachineLocator(target)) return planMachineTarget(request, target);
+  if (resolved.kind === 'machine') return planMachineTarget(request, resolved);
+
+  if (resolved.kind === 'invalid') return undefined;
   const scheme = parsePathScheme(target);
 
-  if (scheme !== undefined) return planScheme(request, scheme.scheme, target);
-
-  // A bare absolute marker is never re-mapped here: while a Chat is bound to a
-  // Machine Workspace the caller projects it, and otherwise it is a host path.
-  if (target.startsWith('/')) {
-    if (!request.hostAvailable) return undefined;
-
-    return { kind: 'host', readPath: target, hostPath: target };
-  }
-
-  const root = request.workspaceRoot;
-
-  if (root === undefined) return undefined;
-
-  // A Machine Workspace root resolves without the local native executor: the
-  // relative marker becomes a Machine locator, not a host path.
-  if (!request.hostAvailable && !isMachineLocator(root)) return undefined;
-  const projected = resolveWorkspacePath(root, target);
-
-  if (isMachineLocator(projected)) return planMachineTarget(request, projected);
-
-  return { kind: 'host', readPath: projected, hostPath: projected };
+  return scheme === undefined
+    ? undefined
+    : planScheme(request, scheme.scheme, target);
 }
 
 /**
- * A Machine locator plans like a host path: the same admission pre-evaluation
- * over the canonical locator the read submits, then a probe of the absolute
- * Machine path. A listing form (`machine://`, `machine://<name>`) has nothing
- * to probe, so it reads directly like web; a refusal stays prose. No Machine
- * is reached unless the Run may reach the configured Machines.
+ * One Machine target plans like a host path: the same admission
+ * pre-evaluation over the canonical locator a `read` submits, then a probe of
+ * the absolute Machine path. A target this process serves in process probes
+ * its own filesystem after the identity-checked handshake; every other Machine
+ * stays a Machine probe. A refusal stays prose, and a Machine this Run may not
+ * reach is never probed.
  */
 function planMachineTarget(
   request: PromptImportRequest,
-  locator: string,
+  target: MachineTarget,
 ): ImportPlan | undefined {
-  if (!request.machineAvailable) return undefined;
-  const parsed = parseMachineLocator(locator);
+  if (target.local && !request.hostAvailable) return undefined;
 
-  if (parsed.kind === 'list' || parsed.kind === 'roots') {
-    return { kind: 'direct', readPath: locator };
-  }
-
-  if (parsed.kind !== 'path') return undefined;
+  if (!target.local && !request.machineAvailable) return undefined;
 
   return {
     kind: 'machine',
-    name: parsed.name,
-    machinePath: parsed.path,
-    readPath:
-      formatMachineLocator(parsed.name, parsed.path, parsed.selector) ??
-      locator,
+    name: target.name,
+    machinePath: target.path,
+    readPath: target.locator,
+    local: target.local,
+    ...(target.selector !== undefined && { selector: target.selector }),
   };
-}
-
-function planFileAlias(
-  request: PromptImportRequest,
-  target: string,
-): ImportPlan | undefined {
-  if (!request.hostAvailable) return undefined;
-  const alias = decodeFileAlias(target);
-
-  return alias.ok
-    ? { kind: 'host', readPath: target, hostPath: alias.hostPath }
-    : undefined;
 }
 
 /**
@@ -279,6 +264,14 @@ function planScheme(
 
   if (scheme === MEDIA_LOCATOR_SCHEME) {
     return { kind: 'media', readPath: target };
+  }
+
+  // A listing form names no path to probe, so `read` itself admits it as web
+  // does; no Machine is reached unless the Run may reach the configured ones.
+  if (scheme === MACHINE_SCHEME) {
+    return request.machineAvailable
+      ? { kind: 'direct', readPath: target }
+      : undefined;
   }
 
   // An artifact belongs to the current Chat, not to the prompt's author, so an
@@ -319,7 +312,7 @@ async function handleTarget(
     return;
   }
 
-  const resolved = await probePlan(run.request, plan);
+  const resolved = await probePlan(run, plan);
 
   if (resolved === PROMPT_IMPORT_KNOWLEDGE_CANCELLED) {
     run.knowledgeProbeCancelled = true;
@@ -338,18 +331,23 @@ async function handleTarget(
 }
 
 /**
- * Host paths probe the whole literal first, as `read` does, then the path
- * with its selector split off. A Machine locator is probed once, over the
- * absolute path the locator names (its selector is never a path character).
- * Knowledge and media locators have no literal colon, so only the
- * selector-free locator is probed.
+ * A target this process serves in process probes its own filesystem the way a
+ * host path does — the whole literal first, then the path with its selector
+ * split off — after the identity-checked handshake. A target on another
+ * Machine is probed once, over the absolute path the locator names (its
+ * selector is never a path character). Knowledge and media locators have no
+ * literal colon, so only the selector-free locator is probed.
  */
 async function probePlan(
-  request: PromptImportRequest,
+  run: ImportRun,
   plan: Exclude<ImportPlan, { kind: 'direct' }>,
 ): Promise<string | undefined | typeof PROMPT_IMPORT_KNOWLEDGE_CANCELLED> {
+  const { request } = run;
+
   if (plan.kind === 'machine') {
-    return request.probeMachine(plan.name, plan.machinePath);
+    return plan.local
+      ? probeLocal(run, plan)
+      : request.probeMachine(plan.name, plan.machinePath);
   }
 
   if (plan.kind === 'media') {
@@ -370,12 +368,47 @@ async function probePlan(
     }
   }
 
-  if (await request.probeHost(plan.hostPath)) return plan.hostPath;
-  const { path, selector } = splitSelectorSuffix(plan.hostPath);
+  return undefined;
+}
 
-  if (selector === undefined) return undefined;
+/**
+ * One target on this process's Machine. The handshake runs once per pass, and
+ * a Machine that cannot prove its identity contributes no import at all —
+ * exactly as an unreachable one does.
+ */
+async function probeLocal(
+  run: ImportRun,
+  plan: Extract<ImportPlan, { kind: 'machine' }>,
+): Promise<string | undefined> {
+  const { request } = run;
 
-  return (await request.probeHost(path)) ? path : undefined;
+  run.localVerified ??= handshakeVerified(request);
+
+  if (!(await run.localVerified)) return undefined;
+
+  const literal =
+    plan.selector === undefined
+      ? undefined
+      : `${plan.machinePath}:${plan.selector}`;
+
+  if (literal !== undefined && (await request.probeHost(literal))) {
+    return formatMachineLocator(plan.name, literal) ?? plan.readPath;
+  }
+
+  if (!(await request.probeHost(plan.machinePath))) return undefined;
+
+  return formatMachineLocator(plan.name, plan.machinePath) ?? plan.readPath;
+}
+
+/** The identity-checked handshake's verdict; a refusal is "not available". */
+async function handshakeVerified(
+  request: PromptImportRequest,
+): Promise<boolean> {
+  try {
+    return await request.verifyLocal();
+  } catch {
+    return false;
+  }
 }
 
 /** `path` up to the first colon after its scheme's `prefix`. */

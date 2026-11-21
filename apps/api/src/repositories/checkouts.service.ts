@@ -7,9 +7,9 @@ import { TenantDbService } from '../db/tenant-db.service';
 import {
   formatMachineLocator,
   isMachineLocator,
-  machineExecutorId,
   parseMachineLocator,
 } from '../machines/machine-locator';
+import { MachineConnector } from '../machines/machine-connector.service';
 import {
   CheckoutRegistrationService,
   type RegisterCheckoutInput,
@@ -28,6 +28,7 @@ export class CheckoutsService {
   constructor(
     private readonly tenantDb: TenantDbService,
     private readonly registration: CheckoutRegistrationService,
+    private readonly connector: MachineConnector,
   ) {}
 
   /**
@@ -87,7 +88,11 @@ export class CheckoutsService {
         );
       }
 
-      const base = worktreeBaseFor(checkout, worktreeBase);
+      const base = worktreeBaseFor(
+        checkout,
+        worktreeBase,
+        this.connector.defaultMachine(),
+      );
 
       const updated = await repository.setWorktreeBase(
         ownerUserId,
@@ -152,18 +157,21 @@ async function summarize(
 }
 
 /**
- * Validate a submitted worktree base against the checkout's executor. The
- * value is stored as submitted: it is placement intent, and the directory it
+ * Validate a submitted worktree base against the checkout's Machine. A locator
+ * must name that same Machine; a bare absolute path is the `machines.default`
+ * Machine's, which is the one a bare path means everywhere else. The value is
+ * stored as the canonical locator: it is placement intent, and the directory it
  * names need not exist yet.
  */
-function worktreeBaseFor(checkout: Checkout, submitted: string): string {
+function worktreeBaseFor(
+  checkout: Checkout,
+  submitted: string,
+  defaultMachine: string | undefined,
+): string {
   if (isMachineLocator(submitted)) {
     const parsed = parseMachineLocator(submitted);
 
-    if (
-      parsed.kind !== 'path' ||
-      machineExecutorId(parsed.name) !== checkout.executorId
-    ) {
+    if (parsed.kind !== 'path' || parsed.name !== checkout.executorId) {
       throw invalidWorktreeBase(
         'A worktree base must name the Machine of its own checkout.',
       );
@@ -178,19 +186,25 @@ function worktreeBaseFor(checkout: Checkout, submitted: string): string {
     return canonical;
   }
 
-  if (checkout.executorId.startsWith('machine:')) {
+  if (checkout.executorId !== defaultMachine) {
     throw invalidWorktreeBase(
-      'A worktree base on a Machine checkout must be a machine:// locator.',
+      'A worktree base on a Machine that is not machines.default must be a machine:// locator of its checkout.',
     );
   }
 
   if (submitted.includes('\0') || !path.isAbsolute(submitted)) {
     throw invalidWorktreeBase(
-      'A worktree base on a local checkout must be an absolute path.',
+      'A worktree base must be an absolute path on machines.default, or a machine:// locator.',
     );
   }
 
-  return submitted;
+  const canonical = formatMachineLocator(defaultMachine, submitted);
+
+  if (canonical === undefined) {
+    throw invalidWorktreeBase('A worktree base must be an absolute path.');
+  }
+
+  return canonical;
 }
 
 function invalidWorktreeBase(message: string) {

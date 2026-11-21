@@ -370,7 +370,7 @@ beforeAll(async () => {
   const machineCheckout = await seedCheckout({
     ownerUserId: owner,
     repositoryId: apiRepository.id,
-    executorId: 'machine:nas',
+    executorId: 'nas',
     path: 'machine://nas/srv/api',
     kind: 'main',
     origin: 'registered',
@@ -531,7 +531,7 @@ describe('projects:// detail', () => {
     expect(content).toContain(JSON.stringify('machine://nas/srv/api'));
     expect(content).toContain(JSON.stringify('host-a'));
     expect(content).toContain(JSON.stringify('host-b'));
-    expect(content).toContain(JSON.stringify('machine:nas'));
+    expect(content).toContain(JSON.stringify('nas'));
     expect(content).toContain(JSON.stringify('worktree'));
     expect(content).toContain(JSON.stringify(harness.mainCheckout.id));
     expect(content).toContain(JSON.stringify(harness.worktreeCheckout.id));
@@ -687,10 +687,11 @@ describe('projects:// authority boundaries', () => {
     ).rejects.toThrow(/non-empty userId/u);
   });
 
-  it('reads without any executor identity or Workspace', async () => {
+  it('reads without any Machine identity or Workspace', async () => {
     const context = contextFor(owner);
 
-    expect(context.nativeExecutorId).toBeUndefined();
+    expect(context.localMachine).toBeUndefined();
+    expect(context.defaultMachine).toBeUndefined();
     expect(context.workspaceRoot).toBeUndefined();
 
     const result = await readResource(owner, 'projects://');

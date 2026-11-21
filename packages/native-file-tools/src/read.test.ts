@@ -104,6 +104,86 @@ describe("native source reads", () => {
     await rm(directory, { recursive: true, force: true });
   });
 
+  it("reports a rewritten path while opening the host path", async () => {
+    await writeFile(path, "hello\n");
+    const report = (hostPath: string) => `machine://host-a${hostPath}`;
+
+    expect(
+      await readFile({ path }, undefined, undefined, { reportPath: report }),
+    ).toMatchObject({
+      status: "success",
+      path: `machine://host-a${path}`,
+      content: "1: hello\n",
+    });
+  });
+
+  it("rewrites realPath and a listing's header and link targets", async () => {
+    const real = join(directory, "real.md");
+    await writeFile(real, "notes");
+    await symlink(real, join(directory, "link.md"));
+    const report = (hostPath: string) => `machine://host-a${hostPath}`;
+
+    const file = await readFile(
+      { path: join(directory, "link.md") },
+      undefined,
+      undefined,
+      { reportPath: report },
+    );
+
+    expect(file).toMatchObject({
+      status: "success",
+      path: `machine://host-a${join(directory, "link.md")}`,
+      realPath: `machine://host-a${await realpath(real)}`,
+    });
+
+    const listing = await readFile({ path: directory }, undefined, undefined, {
+      reportPath: report,
+    });
+
+    expect(listing).toMatchObject({
+      status: "success",
+      kind: "directory",
+      path: `machine://host-a${directory}`,
+    });
+
+    if (listing.status !== "success" || listing.kind !== "directory")
+      throw new Error("expected a directory listing");
+
+    expect(listing.content.split("\n")[0]).toBe(`machine://host-a${directory}`);
+    expect(listing.content).toContain(
+      `  - link.md@ -> machine://host-a${await realpath(real)}`,
+    );
+  });
+
+  it("applies reportPath to a scheme-resolved read without its displayPath behavior", async () => {
+    const real = join(directory, "real.md");
+    await writeFile(real, "notes");
+    const link = join(directory, "link.md");
+    await symlink(real, link);
+
+    // `displayPath` alone would refuse the leaf link without followSymlinks;
+    // `reportPath` only rewrites what is reported.
+    expect(
+      await readResolvedFile(link, {
+        displayPath: "skill://pdf/link.md",
+        reportPath: (hostPath) => `machine://host-a${hostPath}`,
+      }),
+    ).toMatchObject({
+      status: "error",
+      type: "not_found",
+    });
+
+    expect(
+      await readResolvedFile(real, {
+        displayPath: "skill://pdf/real.md",
+        reportPath: (hostPath) => `machine://host-a${hostPath}`,
+      }),
+    ).toMatchObject({
+      status: "success",
+      path: `machine://host-a${real}`,
+    });
+  });
+
   it("caps an unselected read and continues before trailing context", async () => {
     await writeFile(path, "\n".repeat(2002));
     expect(await readFile({ path })).toMatchObject({

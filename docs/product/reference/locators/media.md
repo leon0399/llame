@@ -14,7 +14,7 @@ configured_by:
 ## Form
 
 `media://<id>`, where `<id>` is a lower-case canonical UUID. The scheme is
-case-sensitive in the executor: `MEDIA://<id>` and an upper-case id are
+case-sensitive in the resolver: `MEDIA://<id>` and an upper-case id are
 malformed. Bare `media://` is reserved and invalid until a library listing
 exists. The locator names an image or PDF the Run owner uploaded; attachment
 labels (`Image n (media://<id>):` or `PDF n (media://<id>):`) and `media://`
@@ -40,7 +40,7 @@ turns. See [PDF reads](../tools/read.md#pdf-result).
 ## Authority
 
 The id resolves under tenant enforcement against the Run owner only. A
-`media://` read needs no native executor and no Knowledge root: a process that
+`media://` read needs no Machine and no Knowledge root: a process that
 allowlists `read` serves it, gated by the `read` permission group, which matches
 the locator without its selector. A domain-restricted `read` group admits it
 only with a `^media://` allow; see

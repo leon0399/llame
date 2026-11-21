@@ -7,6 +7,7 @@
  */
 
 export interface CreationWorktreeResponse {
+  /** The canonical `machine://` locator of the new worktree directory. */
   path: string;
   branch: string;
   baseCommit: string;

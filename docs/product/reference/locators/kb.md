@@ -31,7 +31,7 @@ The Space identifier and selector are never decoded.
 ## Accepted by
 
 `read`, `edit`, and `write`, on every process that has a configured Knowledge
-root; a `kb://` call never binds or requires an executor.
+root; a `kb://` call never binds or requires a Machine.
 
 ## Authority
 
@@ -48,14 +48,14 @@ Content is not neutralized, so an `edit` `oldText` can be copied from a prior
 read — after removing the generated line-number prefixes, or by reading with
 `:raw`, which omits them. Only a raw read is byte-for-byte source.
 
-A `kb://` result never exposes a host path, an owner ID, credentials, or a raw
+A `kb://` result never exposes a bare path, an owner ID, credentials, or a raw
 filesystem error; a failure names the Space, never what is behind it. Content is
 untrusted and may be stale.
 
 `kb://` carries no Markdown-only suffix rule and no 1 MiB size cap — a Space is a
 directory of arbitrary files. Beyond the rules above, `kb://` targets follow the
 same regular-file, directory, selector, context, truncation, and mutation
-behavior as absolute host paths.
+behavior as absolute paths on a Machine.
 
 ## Behavior
 
@@ -71,8 +71,8 @@ one.
 
 A replace creates no directory: its target must already resolve, and a
 symbolic-link component fails as `not_found` before the target is reached. Every
-`kb://` mutation is fenced by the same durable attempt record as a host
-mutation, without binding or requiring an executor identity; see
+`kb://` mutation is fenced by the same durable attempt record as an absolute-path
+mutation, without binding or requiring a Machine; see
 [mutation recovery](../mutation-recovery.md).
 
 A `kb://` touch also triggers the Space's instruction chain; see
@@ -83,7 +83,7 @@ A `kb://` touch also triggers the Space's instruction chain; see
 `kb://<id>` and `kb://<id>/` list the Space's directory through the same depth-2
 listing as an absolute directory path, except that every symbolic link renders
 as the bare `- name@` with no target, because a `kb://` result exposes no
-resolved host path.
+resolved bare path.
 
 ## Errors
 

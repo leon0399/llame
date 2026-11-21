@@ -3,11 +3,223 @@ import { describe, expect, it } from 'vitest';
 import {
   canonicalMachineLocator,
   createWorkspaceRootCell,
+  currentMachine,
   isWorkspaceRelative,
   machineWorkspaceRoot,
   mapToWorkspaceHost,
+  NO_CURRENT_MACHINE_MESSAGE,
+  resolveMachinePath,
   resolveWorkspacePath,
 } from './workspace-path';
+
+const BOUND = {
+  workspaceRoot: 'machine://gpu/srv/app',
+  defaultMachine: 'devl',
+  localMachine: 'devl',
+} as const;
+
+describe('resolveMachinePath', () => {
+  it('resolves a bare absolute path on the bound Workspace Machine', () => {
+    expect(resolveMachinePath('/etc/hostname', BOUND)).toEqual({
+      kind: 'machine',
+      name: 'gpu',
+      path: '/etc/hostname',
+      locator: 'machine://gpu/etc/hostname',
+      local: false,
+    });
+  });
+
+  it('resolves a bare absolute path on the default Machine when unbound', () => {
+    expect(
+      resolveMachinePath('/etc/hostname', {
+        defaultMachine: 'devl',
+        localMachine: 'devl',
+      }),
+    ).toEqual({
+      kind: 'machine',
+      name: 'devl',
+      path: '/etc/hostname',
+      locator: 'machine://devl/etc/hostname',
+      local: true,
+    });
+  });
+
+  it.each([
+    'file:///etc/hostname',
+    'file://localhost/etc/hostname',
+    'file:/etc/hostname',
+    'FILE:///etc/hostname',
+    'file:///etc/%68ostname',
+  ])('resolves %s on the current Machine', (value) => {
+    expect(resolveMachinePath(value, { defaultMachine: 'devl' })).toEqual({
+      kind: 'machine',
+      name: 'devl',
+      path: '/etc/hostname',
+      locator: 'machine://devl/etc/hostname',
+      local: false,
+    });
+  });
+
+  it('refuses a file alias that names another host', () => {
+    expect(
+      resolveMachinePath('file://other.example/etc/hostname', {
+        defaultMachine: 'devl',
+      }),
+    ).toEqual({
+      kind: 'invalid',
+      message:
+        'A file:// URL with a host other than localhost names another Machine. ' +
+        'Use machine://<name>/<path> to reach a configured Machine.',
+    });
+  });
+
+  it('refuses a malformed file alias with the decoder message', () => {
+    expect(
+      resolveMachinePath('file:///etc/pass%ZZwd', { defaultMachine: 'devl' }),
+    ).toMatchObject({ kind: 'invalid' });
+  });
+
+  it('resolves a relative path lexically on the Workspace root Machine', () => {
+    expect(resolveMachinePath('src/app.ts', BOUND)).toEqual({
+      kind: 'machine',
+      name: 'gpu',
+      path: '/srv/app/src/app.ts',
+      locator: 'machine://gpu/srv/app/src/app.ts',
+      local: false,
+    });
+    expect(resolveMachinePath('../shared/', BOUND)).toMatchObject({
+      path: '/srv/shared/',
+      locator: 'machine://gpu/srv/shared/',
+    });
+    expect(resolveMachinePath('../../..', BOUND)).toMatchObject({
+      path: '/',
+      locator: 'machine://gpu/',
+    });
+    expect(resolveMachinePath('src/app.ts:10-20', BOUND)).toEqual({
+      kind: 'machine',
+      name: 'gpu',
+      path: '/srv/app/src/app.ts',
+      locator: 'machine://gpu/srv/app/src/app.ts:10-20',
+      local: false,
+      selector: '10-20',
+    });
+  });
+
+  it('refuses a relative path without an entered Workspace', () => {
+    expect(
+      resolveMachinePath('src/app.ts', { defaultMachine: 'devl' }),
+    ).toEqual({
+      kind: 'invalid',
+      message: 'A relative path needs an entered Workspace to resolve from.',
+    });
+  });
+
+  it('reads a legacy bare Workspace root on the default Machine', () => {
+    expect(
+      resolveMachinePath('src/app.ts', {
+        workspaceRoot: '/srv/app',
+        defaultMachine: 'devl',
+      }),
+    ).toMatchObject({ locator: 'machine://devl/srv/app/src/app.ts' });
+    expect(
+      resolveMachinePath('src/app.ts', { workspaceRoot: '/srv/app' }),
+    ).toEqual({ kind: 'invalid', message: NO_CURRENT_MACHINE_MESSAGE });
+  });
+
+  it('resolves machine:// and marks the local Machine', () => {
+    expect(
+      resolveMachinePath('MACHINE://DEVL/srv/app', { localMachine: 'devl' }),
+    ).toEqual({
+      kind: 'machine',
+      name: 'devl',
+      path: '/srv/app',
+      locator: 'machine://devl/srv/app',
+      local: true,
+    });
+    expect(
+      resolveMachinePath('machine://gpu/srv/a%23b.md:5-6', {
+        localMachine: 'devl',
+      }),
+    ).toEqual({
+      kind: 'machine',
+      name: 'gpu',
+      path: '/srv/a#b.md',
+      locator: 'machine://gpu/srv/a%23b.md:5-6',
+      local: false,
+      selector: '5-6',
+    });
+  });
+
+  it('refuses a malformed machine:// path', () => {
+    expect(resolveMachinePath('machine://bad_name/x', BOUND)).toMatchObject({
+      kind: 'invalid',
+    });
+    expect(resolveMachinePath('machine://devl/a%00b', BOUND)).toMatchObject({
+      kind: 'invalid',
+    });
+  });
+
+  it.each([
+    'machine://',
+    'machine://gpu',
+    'kb://Space/notes/a',
+    'skill://pdf',
+    'media://0190f5e2-7c1a-7b3e-9d4f-2a6b8c0d1e2f',
+    'job://bash-1',
+    'projects://',
+    'artifact://bash-1/stdout',
+    'ssh://box/notes',
+    'http://example.test/',
+    'HTTPS://example.test/x',
+  ])('keeps %s for its own reader', (value) => {
+    expect(resolveMachinePath(value, BOUND)).toEqual({ kind: 'scheme' });
+  });
+
+  it('refuses an unknown scheme instead of reading it as a path', () => {
+    expect(resolveMachinePath('vault://notes/a.md', BOUND)).toEqual({
+      kind: 'invalid',
+      message: 'This path scheme is not available.',
+    });
+  });
+
+  it('refuses a bare path when there is no current Machine', () => {
+    expect(resolveMachinePath('/etc/hostname', {})).toEqual({
+      kind: 'invalid',
+      message: NO_CURRENT_MACHINE_MESSAGE,
+    });
+  });
+
+  it('keeps a trailing separator and a read selector apart', () => {
+    expect(
+      resolveMachinePath('/srv/app/', { defaultMachine: 'devl' }),
+    ).toMatchObject({ path: '/srv/app/', locator: 'machine://devl/srv/app/' });
+    expect(
+      resolveMachinePath('/srv/app.ts:5-6', { defaultMachine: 'devl' }),
+    ).toMatchObject({
+      path: '/srv/app.ts',
+      selector: '5-6',
+      locator: 'machine://devl/srv/app.ts:5-6',
+    });
+    // A suffix the selector grammar refuses stays part of the file name.
+    expect(
+      resolveMachinePath('/srv/notes:draft', { defaultMachine: 'devl' }),
+    ).toMatchObject({
+      path: '/srv/notes:draft',
+      locator: 'machine://devl/srv/notes%3Adraft',
+    });
+  });
+});
+
+describe('currentMachine', () => {
+  it('reports the bound root Machine, else the default Machine', () => {
+    expect(currentMachine(BOUND)).toBe('gpu');
+    expect(currentMachine({ defaultMachine: 'devl' })).toBe('devl');
+    expect(
+      currentMachine({ workspaceRoot: '/srv/app', defaultMachine: 'devl' }),
+    ).toBe('devl');
+    expect(currentMachine({})).toBeUndefined();
+  });
+});
 
 describe('workspace path projection', () => {
   it('resolves lexically and preserves a trailing separator', () => {

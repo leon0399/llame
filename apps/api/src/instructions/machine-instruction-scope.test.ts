@@ -11,6 +11,10 @@
  * started; the page reader is the Run's own seam, faked over the same bodies.
  */
 
+import { mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
 import {
   FS_LIST_METHOD,
   FS_STAT_METHOD,
@@ -35,6 +39,7 @@ import { parseMachineLocator } from '../machines/machine-locator';
 import type { MachineRequestOptions } from '../machines/machine-session';
 import { machineEnvelope } from '../runs/machine-attempt';
 import type { InRunToolCall } from '../runs/in-run-context-items';
+import { localMachineConnector } from '../testing/local-machine';
 import { type InstructionScope, type ReadPage } from './instruction-files';
 import {
   createInstructionsProducer,
@@ -1190,5 +1195,106 @@ describe('instructions producer Machine world', () => {
     expect(world.reads).toEqual([]);
     // The reachability verdict decides once: not even the root list is asked.
     expect(world.connector.recorded).toEqual([]);
+  });
+});
+
+describe('instructions on this process’s Machine', () => {
+  it('loads a local Machine root in process, labelled by its locators', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'local-instructions-'));
+    const root = await realpath(directory);
+    await writeFile(join(root, 'AGENTS.md'), 'shop rules\n');
+
+    const connector = localMachineConnector();
+
+    const probe = createMachineInstructionProbe({
+      connector,
+      envelope: machineEnvelope({ runId: RUN_ID, deliverySequence: 1 }),
+    });
+
+    const reads: Array<string> = [];
+
+    const readPage: ReadPage = async (selectorPath) => {
+      reads.push(selectorPath);
+      const marker = selectorPath.lastIndexOf(':raw:');
+
+      const parsed = parseMachineLocator(
+        marker < 0 ? selectorPath : selectorPath.slice(0, marker),
+      );
+
+      if (parsed.kind !== 'path') {
+        return { status: 'error', type: 'not_found', message: 'No such file.' };
+      }
+
+      try {
+        return {
+          status: 'success',
+          kind: 'file',
+          content: await readFile(parsed.path, 'utf8'),
+          truncated: false,
+        };
+      } catch {
+        return { status: 'error', type: 'not_found', message: 'No such file.' };
+      }
+    };
+
+    try {
+      const part = await createInstructionsProducer().prepareTurn?.({
+        runId: RUN_ID,
+        workspaceRoot: locator(root, 'host-a'),
+        admitsRead: () => true,
+        seenKeys: new Set(),
+        machines: { readPage, probe },
+      });
+
+      if (part === undefined)
+        throw new Error('the accepted turn loaded nothing');
+      expect(blockPaths(part)).toEqual([
+        locator(`${root}/AGENTS.md`, 'host-a'),
+      ]);
+      expect(reads).toEqual([
+        `${locator(`${root}/AGENTS.md`, 'host-a')}:raw:1-2000`,
+      ]);
+      // The local daemon answered the handshake and nothing else.
+      const session = await connector.peer.session(0);
+
+      expect(session.requests).toEqual([]);
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it('loads nothing when the local daemon cannot prove its identity', async () => {
+    const connector = localMachineConnector({
+      verify: () => Promise.reject(new Error('identity mismatch')),
+    });
+
+    const probe = createMachineInstructionProbe({
+      connector,
+      envelope: machineEnvelope({ runId: RUN_ID, deliverySequence: 1 }),
+    });
+
+    const reads: Array<string> = [];
+
+    const part = await createInstructionsProducer().prepareTurn?.({
+      runId: RUN_ID,
+      workspaceRoot: locator(ROOT, 'host-a'),
+      admitsRead: () => true,
+      seenKeys: new Set(),
+      machines: {
+        readPage: (selectorPath) => {
+          reads.push(selectorPath);
+
+          return Promise.resolve({
+            status: 'error',
+            type: 'not_found',
+            message: 'No such file.',
+          });
+        },
+        probe,
+      },
+    });
+
+    expect(part).toBeUndefined();
+    expect(reads).toEqual([]);
   });
 });

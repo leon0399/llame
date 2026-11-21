@@ -342,7 +342,7 @@ describe('scope refusals', () => {
     expect(message).not.toContain(SPACE_A);
   });
 
-  it('fails a host scope as executor_unavailable on this layer', async () => {
+  it('fails a host scope with no current Machine', async () => {
     const result = await run(contextOf(), {
       patterns: ['x'],
       scopes: ['/srv/data/**'],
@@ -350,7 +350,9 @@ describe('scope refusals', () => {
 
     expect(result).toMatchObject({
       status: 'error',
-      type: 'executor_unavailable',
+      type: 'invalid_path',
+      message:
+        'No current Machine: configure machines.default or enter a Workspace.',
     });
   });
 });
@@ -1194,8 +1196,8 @@ describe('scope kinds message', () => {
   it.each([
     [{}, 'grep requires scopes, and this process has no searchable backend.'],
     [
-      { nativeExecutorId: 'host-a' },
-      'grep requires scopes: this process can search host paths.',
+      { localMachine: 'host-a' },
+      'grep requires scopes: this process can search paths on the current Machine.',
     ],
     [
       { machines: MACHINES },
@@ -1218,11 +1220,11 @@ describe('scope kinds message', () => {
     ],
     [
       {
-        nativeExecutorId: 'host-a',
+        localMachine: 'host-a',
         knowledgeResolver: knowledgeResolver(new Map()),
         skillCatalog: catalogOf([]),
       },
-      'grep requires scopes: this process can search host paths, kb:// locators, and skill:// locators.',
+      'grep requires scopes: this process can search paths on the current Machine, kb:// locators, and skill:// locators.',
     ],
   ])(
     'names only the backends this process can serve',

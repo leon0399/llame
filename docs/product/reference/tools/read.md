@@ -18,7 +18,7 @@ configured_by:
 ## Purpose
 
 `read` takes one `path` argument and returns a bounded view of what that path
-addresses. The scheme of the path selects the authority — a host filesystem, a
+addresses. The scheme of the path selects the authority — a Machine filesystem, a
 Knowledge Space, a skill package, the owner's stored media, a Project
 datastore, or a web URL — and the trailing selector
 selects lines or a representation. It never changes the source.
@@ -35,25 +35,25 @@ argument: the selector in `path` carries all of that. See
 
 ## Locators
 
-| Scheme                                         | Executor | Mutable | Authority and listing                                    |
-| ---------------------------------------------- | -------- | ------- | -------------------------------------------------------- |
-| [absolute host path](../locators/host-path.md) | yes      | yes     | the worker's filesystem; depth-2 listing                 |
-| [`file://`](../locators/host-path.md#form)     | yes      | yes     | the same path, decoded once                              |
-| [`machine://`](../locators/machine.md)         | no       | yes     | a configured Machine, over SSH                           |
-| [`ssh://`](../locators/ssh.md)                 | no       | no      | an external host, over SSH                               |
-| [`kb://`](../locators/kb.md)                   | no       | yes     | the owner's Knowledge Space tree                         |
-| [`skill://`](../locators/skill.md)             | no       | no      | an installed skill package, read-only                    |
-| [`http(s)://`](../locators/web.md)             | no       | no      | the public web, through the API process                  |
-| [`media://`](../locators/media.md)             | no       | no      | the owner's stored media, read-only                      |
-| [`artifact://`](../locators/artifact.md)       | no       | no      | this Chat's stored tool results                          |
-| [`job://`](../locators/job.md)                 | no       | no      | this Chat's background jobs, read-only                   |
-| [`projects://`](../locators/projects.md)       | no       | no      | the owner's Projects and registered checkouts, read-only |
+| Scheme                                     | Machine | Mutable | Authority and listing                                    |
+| ------------------------------------------ | ------- | ------- | -------------------------------------------------------- |
+| [absolute path](../locators/host-path.md)  | current | yes     | the current Machine's filesystem; depth-2 listing        |
+| [`file://`](../locators/host-path.md#form) | current | yes     | the same path on the current Machine, decoded once       |
+| [`machine://`](../locators/machine.md)     | named   | yes     | a configured Machine, through its daemon                 |
+| [`ssh://`](../locators/ssh.md)             | no      | no      | an external host, over SSH                               |
+| [`kb://`](../locators/kb.md)               | no      | yes     | the owner's Knowledge Space tree                         |
+| [`skill://`](../locators/skill.md)         | no      | no      | an installed skill package, read-only                    |
+| [`http(s)://`](../locators/web.md)         | no      | no      | the public web, through the API process                  |
+| [`media://`](../locators/media.md)         | no      | no      | the owner's stored media, read-only                      |
+| [`artifact://`](../locators/artifact.md)   | no      | no      | this Chat's stored tool results                          |
+| [`job://`](../locators/job.md)             | no      | no      | this Chat's background jobs, read-only                   |
+| [`projects://`](../locators/projects.md)   | no      | no      | the owner's Projects and registered checkouts, read-only |
 
 ### Artifact locators
 
 `artifact://<toolName>-<n>` reads the whole result a tool call stored when it
 did not fit inline, and `artifact://<toolName>-<n>/<part>` reads one part of a
-`bash` artifact. It routes before local path resolution and needs no executor:
+`bash` artifact. It routes before path resolution and needs no Machine:
 the store is the Chat's own Postgres rows. A bare `artifact://` lists the
 Chat's artifacts, and a `bash` artifact's locator lists its streams. Artifact
 lines count 8,000-unit pieces of a long source line, and `:outline` reads a
@@ -66,7 +66,7 @@ Markdown part. Another Chat, another owner, and a missing part are
 `job://<executor>-<n>` reads the record of one background job of the Chat as
 plain text, `job://<executor>-<n>/<output>` reads the stored text of one
 output with the read selectors, and a bare `job://` lists the Chat's jobs. It
-routes before local path resolution and needs no executor. A read settles the
+routes before path resolution and needs no Machine. A read settles the
 running jobs of a dead worker as `lost` first. Another Chat, another owner, an
 unknown output, and a missing job are `not_found`; `edit` and `write` refuse
 the scheme with `invalid_path`. See [job](../locators/job.md).
@@ -81,7 +81,7 @@ literal Project instructions plus each linked repository and its
 owner-registered checkouts, with each checkout labelled registered and
 unverified. The read is reference data. It activates no Project instructions,
 changes no Project affiliation, binds no Workspace, and grants no access to a
-location it prints. It needs no executor, and a missing or foreign UUID is
+location it prints. It needs no Machine, and a missing or foreign UUID is
 `not_found`. `edit` and `write` refuse the scheme with `unsupported_operation`.
 The two listings and a detail are Markdown text sources, so the read selectors
 and result bounds apply to their rendered lines. See
@@ -156,7 +156,7 @@ A multi-range read reports the plural `requestedRanges` (the merged request) and
 
 ### Image result
 
-A host, `file://`, `machine://`, Workspace-relative, `kb://`, or `skill://`
+An absolute path, `file://`, `machine://`, Workspace-relative, `kb://`, or `skill://`
 regular file whose leading bytes are a PNG, JPEG, GIF, or WebP image is not
 decoded as text: the worker decodes it with the same preparation as an upload,
 creates no media object, and the read returns an image result instead of
@@ -171,7 +171,7 @@ creates no media object, and the read returns an image result instead of
 | `path`              | the path as for a text read of the same source                      |
 | `display.thumbnail` | a display-only WebP data URL, at most 256 px; never sent to a model |
 
-The source's attribution stays: `realPath` on a host path, the Space fields and
+The source's attribution stays: `realPath` on an absolute path, the Space fields and
 notice on `kb://`, the skill fields on `skill://`. The result has no `media`
 field, no line metadata, and takes no selector. The extension never decides: an
 SVG, or any file matching no signature, stays on the text path whatever its
@@ -205,7 +205,7 @@ the same way.
 
 ### PDF result
 
-A host, `file://`, `machine://`, Workspace-relative, `kb://`, or `skill://`
+An absolute path, `file://`, `machine://`, Workspace-relative, `kb://`, or `skill://`
 regular file starting with `%PDF-` returns `kind: "pdf"`, `mediaType:
 "application/pdf"`, `pages`, and `byteSize`, with the same source attribution as
 a text read.
@@ -236,17 +236,18 @@ source without line numbers or added context. The full line (including the
 open-ended `N-` and tail `-K` members), raw, and representation grammar is under
 [selectors](../selectors.md#line-selectors).
 
-A read never mutates its source. A read of a host path also triggers that
+A read never mutates its source. A read of an absolute path also triggers that
 directory's instruction chain, and a `kb://` read triggers its Space's chain; a
-read on a Machine triggers the chain inside the registered root containing it.
+read on any Machine triggers the chain inside the registered root containing it.
 See [instruction files](../instruction-files.md). A `skill://`, `http(s)://`,
 `media://`, `projects://`, or `bash` call never triggers a load. A Project
 document loads no instruction chain, and no checkout locator printed inside it
 triggers one.
 
 A `machine://` read returns the same contents, listing shape, selectors, and
-bounds as the local executor, with every reported path written as a Machine
-locator; a bare `machine://` lists the configured Machines with their status and
+bounds as a bare path, with every reported path written as a Machine
+locator; a bare `machine://` lists the configured Machines, the host Machine
+included, with their status and
 `machine://<name>` that Machine's registered roots. The Machine's OS user runs
 it with no sandbox and no isolation between users who share the Machine; see
 [machine](../locators/machine.md#authority).
@@ -269,7 +270,7 @@ request, with the same locators and selectors; see [prompt imports](../prompt-im
 
 Every read shares the result bound documented in
 [selectors](../selectors.md#result-bounds); a directory read has its own
-traversal budget, in [host-path](../locators/host-path.md#listing). A Project
+traversal budget, in [absolute paths](../locators/host-path.md#listing). A Project
 listing or detail stays within the shared bound, and its continuation reaches
 every omitted entry and location.
 
@@ -306,8 +307,8 @@ cannot be decoded, fails `unsupported_media_type`. Neither falls back to text.
 
 ## Configured by
 
-- [Native files](../../operator/native-files.md) enables the host executor and
-  the `read` entry.
+- [Native files](../../operator/native-files.md) enables the `read` entry, and
+  [Machines](../../operator/machines.md) declares the Machine a bare path uses.
 - [Web reads](../../operator/web-read.md) configures `http(s)://` restrictions,
   and [web adapters](../../operator/web-adapters.md) configures adapters.
 - [SSH locators](../../operator/ssh.md) enables `ssh://` and pins the host keys
@@ -316,9 +317,11 @@ cannot be decoded, fails `unsupported_media_type`. Neither falls back to text.
   behind `kb://`.
 - [Skills](../../operator/skills.md) installs the packages `skill://` reads.
 
-`machine://` needs no local executor: the operator declares the Machines and
+`machine://` needs no separate Machine configuration beyond the entry it names:
+the operator declares the Machines and
 pins their SSH host keys, and the feature is absent without that configuration;
-see [machine](../locators/machine.md).
+see [machine](../locators/machine.md). Startup requires `machines.default` for
+any allowlisted native tool, because a bare path needs a current Machine.
 
 A read is gated by the `read` permission group, described in
 [tool-call permissions](../../operator/tool-call-permissions.md#matching). That

@@ -1,9 +1,9 @@
 /**
  * The artifact read surface of a Run (tool-result-artifacts "An artifact needs
  * a way to read it"): `read` with an admitted locator, or the host files a
- * host-bound `bash` opens. A Machine Workspace, a rejected `bash` group, or a
- * missing executor leaves the files unreachable, so the producer stores
- * nothing.
+ * `bash` on this process's Machine opens. A Workspace on another Machine, a
+ * rejected `bash` group, or no host Machine leaves the files unreachable, so
+ * the producer stores nothing.
  */
 
 import { drizzle } from 'drizzle-orm/postgres-js';
@@ -21,6 +21,8 @@ function context(overrides: Partial<ToolContext> = {}): ToolContext {
   return {
     userId: 'owner',
     chatId: 'chat',
+    localMachine: 'host-a',
+    defaultMachine: 'host-a',
     permissionPolicy: compileToolPermissionMap(
       { read: { allow: true }, bash: { allow: true } },
       'policy',
@@ -78,13 +80,27 @@ describe('the artifact readability predicate', () => {
     ).toBe(true);
   });
 
-  it('refuses a Machine Workspace, whose bash opens no llame host path', () => {
+  it('refuses a Machine Workspace, whose bash opens no path of this Machine', () => {
     expect(
       canReadArtifacts(
         context({
           artifactReadable: false,
           artifactHostFiles: true,
           workspaceRoot: createWorkspaceRootCell(MACHINE_ROOT),
+        }),
+        'bash',
+      ),
+    ).toBe(false);
+  });
+
+  it('refuses a Run that hosts no Machine', () => {
+    expect(
+      canReadArtifacts(
+        context({
+          artifactReadable: false,
+          artifactHostFiles: true,
+          localMachine: undefined,
+          defaultMachine: undefined,
         }),
         'bash',
       ),

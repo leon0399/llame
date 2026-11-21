@@ -4,7 +4,6 @@ import {
   createWorkspaceMachineAvailabilityItem,
   isMachineName,
   isWorkspaceMachinePayload,
-  renderMachineWorkspaceSnapshot,
 } from './machine-context-item-producers';
 
 const RUN_ID = '11111111-2222-4333-8444-555555555555';
@@ -61,51 +60,6 @@ describe('Workspace Machine payload guard', () => {
   });
 });
 
-describe('Machine Workspace snapshot body', () => {
-  it('names the Machine and the root as the binding wrote them', () => {
-    expect(
-      renderMachineWorkspaceSnapshot('machine://build-1/home/operator/app'),
-    ).toBe(
-      [
-        'The active Workspace working root is `machine://build-1/home/operator/app`, on Machine `build-1`.',
-        "Machine operations run as that Machine's own OS user without sandboxing; the Machine's registered roots bound addressing only, and that user can change them. Every hub user bound to the same Machine shares that one OS user, so the Machine itself provides no isolation between them.",
-      ].join('\n'),
-    );
-  });
-
-  it('canonicalizes the Machine name without rewriting the root text', () => {
-    expect(renderMachineWorkspaceSnapshot('machine://BUILD-1/Work/App')).toBe(
-      [
-        'The active Workspace working root is `machine://BUILD-1/Work/App`, on Machine `build-1`.',
-        "Machine operations run as that Machine's own OS user without sandboxing; the Machine's registered roots bound addressing only, and that user can change them. Every hub user bound to the same Machine shares that one OS user, so the Machine itself provides no isolation between them.",
-      ].join('\n'),
-    );
-  });
-
-  it('narrates a Machine root that is the machine filesystem root itself', () => {
-    expect(renderMachineWorkspaceSnapshot('machine://build-1/')).toBe(
-      [
-        'The active Workspace working root is `machine://build-1/`, on Machine `build-1`.',
-        "Machine operations run as that Machine's own OS user without sandboxing; the Machine's registered roots bound addressing only, and that user can change them. Every hub user bound to the same Machine shares that one OS user, so the Machine itself provides no isolation between them.",
-      ].join('\n'),
-    );
-  });
-
-  it('returns undefined for every root that is not a Machine path', () => {
-    for (const root of [
-      '/home/operator/app',
-      'relative/path',
-      '',
-      'machine://',
-      'machine://build-1',
-      'machine://Build_1/app',
-      'file://localhost/home/operator/app',
-    ]) {
-      expect(renderMachineWorkspaceSnapshot(root)).toBeUndefined();
-    }
-  });
-});
-
 describe('Workspace Machine availability item', () => {
   it('narrates recovery as a workspace notice on the Machine binding', () => {
     const item = createWorkspaceMachineAvailabilityItem({
@@ -121,10 +75,7 @@ describe('Workspace Machine availability item', () => {
     expect(item.data.text).toBe(
       envelope(
         'producer="workspace" form="notice"',
-        [
-          'Machine `build-1` is reachable again, so the Workspace bound to it is online.',
-          'Relative paths resolve on `machine://build-1/...` as before, with no new `enter_workspace` needed.',
-        ].join('\n'),
+        'Machine `build-1` is reachable again. Bare and relative paths resolve on it as before.',
       ),
     );
   });
@@ -142,10 +93,7 @@ describe('Workspace Machine availability item', () => {
     expect(item.data.text).toBe(
       envelope(
         'producer="workspace" form="notice"',
-        [
-          'Machine `build-1` is unreachable, so this Workspace is offline for now.',
-          'The Workspace stays entered: relative paths and `machine://build-1/...` targets fail with `machine_unavailable` until it answers again, and a path on another host or Machine still works.',
-        ].join('\n'),
+        'Machine `build-1` is unreachable. Bare and relative paths fail with `machine_unavailable` until it answers again; `machine://<other>/...` paths still work.',
       ),
     );
   });

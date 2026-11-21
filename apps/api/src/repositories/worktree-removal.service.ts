@@ -10,7 +10,11 @@ import {
   ExecutorGit,
   type ExecutorTarget,
 } from '../machines/executor-git.service';
-import { decidePermission, OWNER_ROUTE } from '../tools/permissions/admit';
+import {
+  decidePermission,
+  evaluateCanonicalWithRejectTexts,
+  OWNER_ROUTE,
+} from '../tools/permissions/admit';
 import { projectNativeFilePath } from '../tools/permissions/locator-projection';
 import { TOOL_PERMISSION_POLICY } from '../tools/permissions/permission-policy.module';
 import { type CompiledPolicy } from '../tools/permissions/types';
@@ -190,10 +194,20 @@ export class WorktreeRemovalService {
       );
     }
 
+    const projection = projectNativeFilePath(checkout.path);
+
+    const call = (path: string) => ({
+      toolId: WORKSPACE_TOOL_ID,
+      args: { path },
+    });
+
     const decision = decidePermission(this.policy, OWNER_ROUTE, (evaluate) =>
-      evaluate({
-        toolId: WORKSPACE_TOOL_ID,
-        args: { path: projectNativeFilePath(checkout.path) },
+      evaluateCanonicalWithRejectTexts(evaluate, {
+        canonical: call(projection.canonical),
+        rejectTexts:
+          projection.projectedPath === undefined
+            ? []
+            : [call(projection.projectedPath)],
       }),
     );
 

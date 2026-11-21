@@ -1,5 +1,8 @@
 import path from 'node:path';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 
+import { NODE_SKILL_FILE_SYSTEM, SkillCatalog } from './skill-catalog';
 import {
   machineWorkspaceSkillSources,
   workspaceSkillSources,
@@ -67,6 +70,40 @@ describe('workspaceSkillSources', () => {
         path.join(root, '.agents', 'skills'),
         path.join(root, '.llame', 'skills'),
       ]);
+    }
+  });
+
+  it('reads a root on this process’s Machine from the host filesystem', () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'llame-local-skills-'));
+    const packageDirectory = path.join(root, '.agents', 'skills', 'deploy');
+    mkdirSync(packageDirectory, { recursive: true });
+    writeFileSync(
+      path.join(packageDirectory, 'SKILL.md'),
+      '---\nname: deploy\ndescription: Ship the service.\n---\n# Runbook\n',
+    );
+
+    try {
+      const sources = workspaceSkillSources(
+        `machine://host-a${root}`,
+        'host-a',
+      );
+
+      // The sources are the plain host paths the catalog already reads, so no
+      // Machine snapshot is taken for a Machine this process hosts.
+      expect(sources).toEqual([
+        path.join(root, '.claude', 'skills'),
+        path.join(root, '.agents', 'skills'),
+        path.join(root, '.llame', 'skills'),
+      ]);
+
+      const snapshot = new SkillCatalog([], NODE_SKILL_FILE_SYSTEM).getSnapshot(
+        sources,
+      );
+
+      expect(snapshot.available).toBe(true);
+      expect(snapshot.entries.map((entry) => entry.name)).toEqual(['deploy']);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
     }
   });
 });

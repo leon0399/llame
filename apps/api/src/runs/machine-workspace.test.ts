@@ -1,9 +1,14 @@
+import { mkdtemp, realpath, rm, symlink } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
 import { type JsonValue } from '@workspace/machine-protocol';
 
+import { MachineConnector } from '../machines/machine-connector.service';
 import {
-  MachineConnector,
+  MachineIdentityMismatchError,
   MachineUnavailableError,
-} from '../machines/machine-connector.service';
+} from '../machines/machine-session';
 import { type Chat } from '../db/schema';
 import { type ReadPage } from '../instructions/instruction-files';
 import { type SkillCatalogPort } from '../skills/skill-catalog';
@@ -15,6 +20,7 @@ import { compileToolPermissionMap } from '../tools/permissions/compile-permissio
 import { MACHINE_PREPARATION_BUDGET_MS } from './machine-attempt';
 import {
   decideMachineWorkspace,
+  decideUnboundMachine,
   detachedBinding,
   machineAvailabilityNarration,
   machineInstructionAvailability,
@@ -54,7 +60,7 @@ const chat: Chat = {
   skillCatalogRebakedFrom: null,
   skillCatalogTold: null,
   workspaceRoot: MACHINE_ROOT,
-  workspaceExecutorId: 'machine:devl',
+  workspaceExecutorId: 'devl',
   workspaceGeneration: 3,
   artifactSeq: 0,
   workspaceTold: null,
@@ -87,6 +93,14 @@ function fakeConnector(
     readonly configured?: ReadonlyArray<string>;
     readonly reachable?: boolean;
     readonly answer?: () => Promise<JsonValue>;
+    /** `machines.local`: this worker's own Machine. */
+    readonly local?: string;
+    /** `machines.default`: the Machine an unbound Chat addresses. */
+    readonly defaultMachine?: string;
+    /** Static reachability; the fixture reaches every configured Machine. */
+    readonly canReach?: (name: string) => boolean;
+    /** The local daemon's identity handshake. */
+    readonly verify?: () => Promise<void>;
   } = {},
 ): RecordingConnector {
   const calls: Array<RecordedRequest> = [];
@@ -99,6 +113,10 @@ function fakeConnector(
     connector: {
       enabled: () => options.enabled ?? true,
       isConfigured: (name: string) => configured.includes(name),
+      localMachine: () => options.local,
+      defaultMachine: () => options.defaultMachine,
+      canReach: (name: string) => options.canReach?.(name) ?? true,
+      verifyLocal: () => options.verify?.() ?? Promise.resolve(),
       reachable: (name: string, attemptKey: string) => {
         reachability.push(`${name}\u0000${attemptKey}`);
 
@@ -347,6 +365,211 @@ describe('decideMachineWorkspace', () => {
   });
 });
 
+describe('decideMachineWorkspace on this process own Machine', () => {
+  let home: string;
+
+  beforeAll(async () => {
+    home = await realpath(await mkdtemp(join(tmpdir(), 'machine-workspace-')));
+  });
+
+  afterAll(async () => {
+    await rm(home, { recursive: true, force: true });
+  });
+
+  const localRoot = () => `machine://host-a${home}`;
+
+  const localInput = (
+    connector: MachinePreparationConnector,
+    overrides: Partial<MachineWorkspaceRequest> = {},
+  ) =>
+    decisionInput(connector, {
+      machineName: 'host-a',
+      root: localRoot(),
+      ...overrides,
+    });
+
+  it('keeps the binding when the stored locator is an existing directory, asking no daemon', async () => {
+    const machine = fakeConnector({ configured: ['host-a'], local: 'host-a' });
+
+    await expect(
+      decideMachineWorkspace(localInput(machine.connector)),
+    ).resolves.toEqual({
+      kind: 'available',
+      machine: { name: 'host-a', available: true },
+    });
+    // The root check runs in process: the daemon answered the handshake and
+    // was asked nothing else.
+    expect(machine.calls).toEqual([]);
+    expect(machine.reachability).toEqual([]);
+  });
+
+  it('detaches executor_absent when the configuration no longer declares the Machine', async () => {
+    const machine = fakeConnector({ configured: ['gpu'], local: 'gpu' });
+
+    await expect(
+      decideMachineWorkspace(localInput(machine.connector)),
+    ).resolves.toEqual({
+      kind: 'detach',
+      reason: 'executor_absent',
+      removedMachine: 'host-a',
+    });
+  });
+
+  it('detaches executor_mismatch when this worker hosts another Machine and the entry has no destination', async () => {
+    const machine = fakeConnector({
+      configured: ['host-a', 'gpu'],
+      local: 'gpu',
+      canReach: (name) => name === 'gpu',
+    });
+
+    await expect(
+      decideMachineWorkspace(localInput(machine.connector)),
+    ).resolves.toEqual({ kind: 'detach', reason: 'executor_mismatch' });
+    // A Machine this worker cannot reach is never probed.
+    expect(machine.calls).toEqual([]);
+    expect(machine.reachability).toEqual([]);
+  });
+
+  it('tells unavailability and keeps the binding when the local daemon does not answer', async () => {
+    const machine = fakeConnector({
+      configured: ['host-a'],
+      local: 'host-a',
+      verify: () =>
+        Promise.reject(
+          new MachineUnavailableError(
+            'host-a',
+            'unreachable',
+            false,
+            'no child',
+          ),
+        ),
+    });
+
+    await expect(
+      decideMachineWorkspace(localInput(machine.connector)),
+    ).resolves.toEqual({
+      kind: 'unavailable',
+      machine: { name: 'host-a', available: false },
+    });
+  });
+
+  it('tells unavailability, never a detach, when the local daemon answers under another identity', async () => {
+    const machine = fakeConnector({
+      configured: ['host-a'],
+      local: 'host-a',
+      verify: () => Promise.reject(new MachineIdentityMismatchError('host-a')),
+    });
+
+    await expect(
+      decideMachineWorkspace(localInput(machine.connector)),
+    ).resolves.toEqual({
+      kind: 'unavailable',
+      machine: { name: 'host-a', available: false },
+    });
+  });
+
+  it('detaches root_moved when the directory it names is a symbolic link elsewhere', async () => {
+    const other = await mkdtemp(join(tmpdir(), 'machine-workspace-target-'));
+    const link = join(home, 'link');
+    await rm(join(home, 'link'), { recursive: true, force: true });
+    await symlink(other, link);
+    const machine = fakeConnector({ configured: ['host-a'], local: 'host-a' });
+
+    await expect(
+      decideMachineWorkspace(
+        localInput(machine.connector, { root: `machine://host-a${link}` }),
+      ),
+    ).resolves.toEqual({ kind: 'detach', reason: 'root_moved' });
+
+    await rm(link, { force: true });
+    await rm(other, { recursive: true, force: true });
+  });
+
+  it('detaches root_missing when the stored path is gone', async () => {
+    const machine = fakeConnector({ configured: ['host-a'], local: 'host-a' });
+
+    await expect(
+      decideMachineWorkspace(
+        localInput(machine.connector, {
+          root: `machine://host-a${home}/gone`,
+        }),
+      ),
+    ).resolves.toEqual({ kind: 'detach', reason: 'root_missing' });
+  });
+});
+
+describe('decideUnboundMachine', () => {
+  const identity: MachineAttemptIdentity = {
+    runId: 'run-1',
+    deliverySequence: 4,
+  };
+
+  it('is absent without a configured default Machine', async () => {
+    const machine = fakeConnector({
+      local: 'host-a',
+      defaultMachine: undefined,
+      configured: ['host-a'],
+    });
+
+    await expect(
+      decideUnboundMachine({ connector: machine.connector, identity }),
+    ).resolves.toBeUndefined();
+  });
+
+  it('is absent when Machines are not configured at all', async () => {
+    await expect(
+      decideUnboundMachine({ connector: undefined, identity }),
+    ).resolves.toBeUndefined();
+  });
+
+  it('is available when this process hosts the default Machine', async () => {
+    const machine = fakeConnector({
+      local: 'host-a',
+      defaultMachine: 'host-a',
+      configured: ['host-a'],
+    });
+
+    await expect(
+      decideUnboundMachine({ connector: machine.connector, identity }),
+    ).resolves.toEqual({ name: 'host-a', available: true });
+  });
+
+  it('is unavailable when its own daemon refuses, and nothing is detached', async () => {
+    const machine = fakeConnector({
+      local: 'host-a',
+      defaultMachine: 'host-a',
+      configured: ['host-a'],
+      verify: () =>
+        Promise.reject(
+          new MachineUnavailableError(
+            'host-a',
+            'unreachable',
+            false,
+            'no child',
+          ),
+        ),
+    });
+
+    await expect(
+      decideUnboundMachine({ connector: machine.connector, identity }),
+    ).resolves.toEqual({ name: 'host-a', available: false });
+  });
+
+  it('asks another Machine once, under the attempt key', async () => {
+    const machine = fakeConnector({
+      local: 'host-a',
+      defaultMachine: 'devl',
+      configured: ['host-a', 'devl'],
+      reachable: false,
+    });
+
+    await expect(
+      decideUnboundMachine({ connector: machine.connector, identity }),
+    ).resolves.toEqual({ name: 'devl', available: false });
+    expect(machine.reachability).toEqual(['devl\u0000run-1\u00004']);
+  });
+});
+
 describe('prepareMachineSkills', () => {
   it('reads nothing without read on the allowlist', async () => {
     const machine = fakeConnector();
@@ -549,17 +772,38 @@ describe('machineAvailabilityNarration', () => {
     expect(narration?.part.data.text).toContain('devl');
   });
 
+  it('stays silent when a working Machine was never told as lost', () => {
+    expect(
+      machineAvailabilityNarration({
+        runId: RUN_ID,
+        machine: available,
+        toldAvailable: null,
+      }),
+    ).toBeUndefined();
+  });
+
+  it('narrates an unreachable Machine that was never told as working', () => {
+    const lost = machineAvailabilityNarration({
+      runId: RUN_ID,
+      machine: unavailable,
+      toldAvailable: null,
+    });
+
+    expect(lost?.available).toBe(false);
+    expect(lost?.part.data.text).toContain('devl');
+  });
+
   it('narrates a recovery, with the text the loss did not use', () => {
     const recovered = machineAvailabilityNarration({
       runId: RUN_ID,
       machine: available,
-      toldAvailable: null,
+      toldAvailable: false,
     });
 
     const lost = machineAvailabilityNarration({
       runId: RUN_ID,
       machine: unavailable,
-      toldAvailable: null,
+      toldAvailable: true,
     });
 
     expect(recovered?.available).toBe(true);

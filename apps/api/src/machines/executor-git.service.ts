@@ -4,13 +4,11 @@ import path from 'node:path';
 import { Inject, Injectable } from '@nestjs/common';
 import {
   addWorktree,
-  DEFAULT_GIT_TIMEOUT_MS,
   inspectRepository,
   listWorktrees,
   locateRepository,
   removeWorktree,
   stateRepository,
-  WORKTREE_ADD_TIMEOUT_MS,
   type GitInspectResult,
   type GitLocateResult,
   type GitStateResult,
@@ -25,27 +23,26 @@ import {
   GIT_WORKTREE_ADD_METHOD,
   GIT_WORKTREE_LIST_METHOD,
   GIT_WORKTREE_REMOVE_METHOD,
-  type FsStatResult,
-  type GitMethod,
   type GitStateParams,
-  type JsonValue,
-  type MachineMethodParams,
-  type NativeDisplayOptions,
-  type RequestEnvelope,
 } from '@workspace/machine-protocol';
 
-import { InstanceConfigService } from '../instance-config/instance-config.service';
-import {
-  formatMachineLocator,
-  isMachineLocator,
-  MACHINE_SCHEME,
-  machineExecutorId,
-  parseMachineLocator,
-} from './machine-locator';
+import { isMachineLocator, parseMachineLocator } from './machine-locator';
 import { dispatchFailure } from './dispatch-failure';
 import { ExecutorGitError } from './executor-git-error';
+import {
+  askGit,
+  canonicalInspect,
+  canonicalLocate,
+  canonicalState,
+  canonicalWorktreeAdd,
+  canonicalWorktreeList,
+  machineAddress,
+  machineCanonical,
+  machineCanonicalTarget,
+  machineGitBudget,
+  statOn,
+} from './executor-git-machine';
 import { MachineConnector } from './machine-connector.service';
-import { readFsStatResult } from './machine-results';
 import {
   readGitInspectResult,
   readGitLocateResult,
@@ -56,17 +53,19 @@ import {
 } from './git-results';
 
 /*
- * The typed git surface of one executor (openspec `repositories` "Executors
+ * The typed git surface of one Machine (openspec `repositories` "Executors
  * expose typed git operations").
  *
- * An absolute local path runs in-process on the executor of the process that
- * serves the request, and a `machine://<name>/<abs>` locator reaches that
- * Machine through the protocol. Both sides call `@workspace/git-executor`, so
- * one implementation defines the argv, the environment, and the timeout.
+ * Every executor is a Machine, and its identifier is the Machine name. The
+ * Machine this process hosts is served by the same code path as before —
+ * `@workspace/git-executor` in process, after an identity-checked handshake
+ * with its own daemon (design D8) — while every other Machine reaches its
+ * daemon over the protocol, so one implementation defines the argv, the
+ * environment, and the timeout.
  *
- * Every path this surface accepts is an ADDRESS: an absolute host path locally,
- * and the canonical Machine locator on a Machine. That is the same text a
- * checkout stores, so a caller never converts between the two forms.
+ * Every path this surface accepts and returns is a canonical
+ * `machine://<name>/<abs>` ADDRESS, the host Machine included. That is the same
+ * text a checkout stores, so a caller never converts between the two forms.
  */
 
 /** The git surface of the process that serves the request; a suite overrides
@@ -94,25 +93,13 @@ export function localGitSurface(): LocalGit {
   };
 }
 
-/** The round-trip margin added to a daemon operation's own deadline. */
-const MACHINE_MARGIN_MS = 15_000;
-
-/**
- * The budget one Machine git call carries: the daemon's longest operation plus
- * the round trip, so the daemon's own typed timeout answers first instead of
- * the hub's budget. A cancelled or expired call still ends git, because the
- * request signal reaches every subcommand.
- */
-export const MACHINE_GIT_BUDGET_MS =
-  WORKTREE_ADD_TIMEOUT_MS + MACHINE_MARGIN_MS;
-
-/** The executor one submitted address runs on, and the path it names there. */
+/** The Machine one submitted address runs on, and the path it names there. */
 export type ExecutorTarget = {
-  /** The stored executor identifier: `tools.nativeExecutorId` or `machine:<name>`. */
+  /** The stored executor identifier: the Machine name. */
   readonly executorId: string;
-  /** The Machine name, or undefined for the local executor. */
-  readonly machine: string | undefined;
-  /** The path on that executor, in its own absolute form. */
+  /** The Machine that serves it; every executor is a Machine. */
+  readonly machine: string;
+  /** The path on that Machine, in its own absolute form. */
   readonly path: string;
 };
 
@@ -130,25 +117,30 @@ function creatableSegments(value: string): ReadonlyArray<string> | undefined {
     : segments;
 }
 
+/** The `git.state` inputs the surface forwards, without the display options. */
+type StateInput = Pick<
+  GitStateParams,
+  'gitEntry' | 'limit' | 'submodules' | 'timeoutMs'
+>;
+
 @Injectable()
 export class ExecutorGit {
   constructor(
-    // Explicit tokens: both parameters are narrowed capabilities, so the
-    // emitted design types are not what Nest would resolve.
-    @Inject(InstanceConfigService)
-    private readonly config: Pick<InstanceConfigService, 'config'>,
+    // Explicit token: the parameter is narrowed to the git surface, so the
+    // emitted design type is not what Nest would resolve.
     private readonly connector: MachineConnector,
     @Inject(LOCAL_GIT)
     private readonly local: LocalGit,
   ) {}
 
   /**
-   * Derive the executor from the submitted path: an absolute local path runs on
-   * this process's own executor, and a locator names `machine:<name>`. An
-   * unset native id, a locator that names no configured Machine, and a
-   * malformed locator all fail here, before any git call.
+   * Derive the Machine and the path from the submitted address: a
+   * `machine://<name>/<abs>` locator names its own Machine, and a bare absolute
+   * path names `machines.default` (or the Machine the caller names). A locator
+   * that names no configured Machine, a bare path with no Machine to resolve it
+   * on, and a malformed value all fail here, before any git call.
    */
-  locate(submittedPath: string): ExecutorTarget {
+  locate(submittedPath: string, machine?: string): ExecutorTarget {
     if (submittedPath.includes('\0')) {
       throw new ExecutorGitError(
         'invalid_path',
@@ -158,11 +150,14 @@ export class ExecutorGit {
 
     return isMachineLocator(submittedPath)
       ? this.locateMachine(submittedPath)
-      : this.locateLocal(submittedPath);
+      : this.locatePath(submittedPath, machine);
   }
 
-  /** An absolute local path runs on the executor of the serving process. */
-  private locateLocal(submittedPath: string): ExecutorTarget {
+  /** A bare absolute path is `machines.default`'s, or the caller's Machine. */
+  private locatePath(
+    submittedPath: string,
+    machine: string | undefined,
+  ): ExecutorTarget {
     if (!path.isAbsolute(submittedPath)) {
       throw new ExecutorGitError(
         'invalid_path',
@@ -170,19 +165,26 @@ export class ExecutorGit {
       );
     }
 
-    const executorId = this.config.config.tools.nativeExecutorId;
+    const name = machine ?? this.connector.defaultMachine();
 
-    if (executorId === undefined) {
+    if (name === undefined) {
       throw new ExecutorGitError(
         'executor_unavailable',
-        'The serving process holds no tools.nativeExecutorId, so it cannot run git for a local path.',
+        'No machines.default is configured, so a bare path names no Machine.',
       );
     }
 
-    return { executorId, machine: undefined, path: submittedPath };
+    if (!this.connector.isConfigured(name)) {
+      throw new ExecutorGitError(
+        'executor_unavailable',
+        `No Machine named ${name} is configured, so its git surface cannot run.`,
+      );
+    }
+
+    return { executorId: name, machine: name, path: submittedPath };
   }
 
-  /** A locator names `machine:<name>`, which must be configured here. */
+  /** A locator names its own Machine, which must be configured here. */
   private locateMachine(submittedPath: string): ExecutorTarget {
     const parsed = parseMachineLocator(submittedPath);
 
@@ -212,25 +214,37 @@ export class ExecutorGit {
     }
 
     return {
-      executorId: machineExecutorId(parsed.name),
+      executorId: parsed.name,
       machine: parsed.name,
       path: parsed.path,
     };
   }
 
-  /** The stored form of one path on this executor: the locator on a Machine. */
+  /** The stored form of one path on this Machine: its canonical locator. */
   address(target: ExecutorTarget, executorPath: string): string {
-    if (target.machine === undefined) return executorPath;
-    const locator = formatMachineLocator(target.machine, executorPath);
+    return machineAddress(target.machine, executorPath);
+  }
 
-    if (locator === undefined) {
-      throw new ExecutorGitError(
-        'invalid_path',
-        'This path cannot be written as a Machine locator.',
-      );
+  /** Whether this process serves the target in process (design D8). */
+  private isLocal(target: ExecutorTarget): boolean {
+    return target.machine === this.connector.localMachine();
+  }
+
+  /**
+   * The identity-checked handshake every in-process operation needs: the host
+   * runs this code inside a process whose own daemon must be alive and bound to
+   * the same instance id a remote one would have to be. `verifyLocal` caches
+   * the session, so this is one handshake per link, not one per call.
+   */
+  private async verifyLocal(
+    target: ExecutorTarget,
+    method: string,
+  ): Promise<void> {
+    try {
+      await this.connector.verifyLocal();
+    } catch (error) {
+      throw dispatchFailure(target.machine, method, error);
     }
-
-    return locator;
   }
 
   /**
@@ -251,15 +265,20 @@ export class ExecutorGit {
    * route's tests exercise on both sides of the decision.
    */
   async canonical(target: ExecutorTarget, address: string): Promise<string> {
-    if (target.machine !== undefined) {
-      return this.machineCanonical(
+    if (!this.isLocal(target)) {
+      return machineCanonical(
+        this.connector,
         target.machine,
         this.executorPath(target, address),
       );
     }
 
+    await this.verifyLocal(target, 'fs.stat');
+
     // codeql[js/path-injection]
-    const canonical = await realpath(address).catch(() => undefined);
+    const canonical = await realpath(this.executorPath(target, address)).catch(
+      () => undefined,
+    );
 
     if (canonical === undefined) {
       throw new ExecutorGitError(
@@ -284,71 +303,7 @@ export class ExecutorGit {
       );
     }
 
-    return canonical;
-  }
-
-  /** The daemon's `fs.stat` answer for one path, or the typed failure. */
-  private async statOn(
-    machine: string,
-    machinePath: string,
-  ): Promise<FsStatResult> {
-    let answer: JsonValue;
-
-    try {
-      answer = await this.connector.request(machine, 'fs.stat', {
-        envelope: { budgetMs: MACHINE_GIT_BUDGET_MS },
-        path: machinePath,
-      });
-    } catch (error) {
-      throw dispatchFailure(machine, 'fs.stat', error);
-    }
-
-    const entry = readFsStatResult(answer);
-
-    if (entry === undefined) {
-      throw new ExecutorGitError(
-        'git_failed',
-        `The Machine ${machine} answered an unusable fs.stat result.`,
-      );
-    }
-
-    return entry;
-  }
-
-  /** The daemon's real path for one directory, in its canonical locator form. */
-  private async machineCanonical(
-    machine: string,
-    machinePath: string,
-  ): Promise<string> {
-    const entry = await this.statOn(machine, machinePath);
-
-    if (entry.kind === 'missing') {
-      throw new ExecutorGitError(
-        'invalid_path',
-        'The checkout path does not exist.',
-      );
-    }
-
-    if (entry.kind !== 'directory') {
-      throw new ExecutorGitError(
-        'not_a_directory',
-        'The checkout path is not a directory.',
-      );
-    }
-
-    const canonical =
-      entry.realPath === undefined
-        ? undefined
-        : formatMachineLocator(machine, entry.realPath);
-
-    if (canonical === undefined) {
-      throw new ExecutorGitError(
-        'git_failed',
-        `The Machine ${machine} answered no real path for fs.stat.`,
-      );
-    }
-
-    return canonical;
+    return this.address(target, canonical);
   }
 
   /**
@@ -375,10 +330,10 @@ export class ExecutorGit {
       );
     }
 
-    const machine = target.machine;
+    if (!this.isLocal(target))
+      return machineCanonicalTarget(this.connector, target.machine, segments);
 
-    if (machine !== undefined)
-      return this.machineCanonicalTarget({ ...target, machine }, segments);
+    await this.verifyLocal(target, 'fs.stat');
 
     for (let end = segments.length; end >= 1; end -= 1) {
       const ancestor = `/${segments.slice(0, end).join('/')}`;
@@ -386,49 +341,25 @@ export class ExecutorGit {
       const canonical = await realpath(ancestor).catch(() => undefined);
 
       if (canonical !== undefined)
-        return path.posix.join(canonical, ...segments.slice(end));
-    }
-
-    return `/${segments.join('/')}`;
-  }
-
-  /** The daemon's real path for an existing ancestor of one future directory. */
-  private async machineCanonicalTarget(
-    target: ExecutorTarget & { readonly machine: string },
-    segments: ReadonlyArray<string>,
-  ): Promise<string> {
-    for (let end = segments.length; end >= 1; end -= 1) {
-      const entry = await this.statOn(
-        target.machine,
-        `/${segments.slice(0, end).join('/')}`,
-      );
-
-      if (entry.kind === 'missing') continue;
-
-      if (entry.kind !== 'directory' || entry.realPath === undefined) {
-        throw new ExecutorGitError(
-          'invalid_path',
-          'A worktree parent on this Machine is not a directory.',
+        return this.address(
+          target,
+          path.posix.join(canonical, ...segments.slice(end)),
         );
-      }
-
-      return this.address(
-        target,
-        path.posix.join(entry.realPath, ...segments.slice(end)),
-      );
     }
 
-    // No ancestor exists, so the whole path is still the caller's: render it in
-    // the same locator form every other Machine answer uses.
     return this.address(target, `/${segments.join('/')}`);
   }
 
-  /** Whether one address names an entry on its executor, creating nothing. */
+  /** Whether one address names an entry on its Machine, creating nothing. */
   async exists(target: ExecutorTarget, address: string): Promise<boolean> {
     const value = this.executorPath(target, address);
 
-    if (target.machine !== undefined)
-      return (await this.statOn(target.machine, value)).kind !== 'missing';
+    if (!this.isLocal(target))
+      return (
+        (await statOn(this.connector, target.machine, value)).kind !== 'missing'
+      );
+
+    await this.verifyLocal(target, 'fs.stat');
 
     return (await stat(value).catch(() => undefined)) !== undefined;
   }
@@ -437,10 +368,16 @@ export class ExecutorGit {
     target: ExecutorTarget,
     address: string,
   ): Promise<GitInspectResult> {
-    if (target.machine === undefined)
-      return this.local.inspect({ path: address });
+    if (this.isLocal(target)) {
+      await this.verifyLocal(target, GIT_INSPECT_METHOD);
 
-    return this.ask(target.machine, GIT_INSPECT_METHOD, {
+      return canonicalInspect(
+        target.machine,
+        await this.local.inspect({ path: this.executorPath(target, address) }),
+      );
+    }
+
+    return askGit(this.connector, target.machine, GIT_INSPECT_METHOD, {
       build: (envelope, options) => ({
         envelope,
         options,
@@ -455,10 +392,19 @@ export class ExecutorGit {
     address: string,
     options: { readonly signal?: AbortSignal } = {},
   ): Promise<GitLocateResult> {
-    if (target.machine === undefined)
-      return this.local.locate({ path: address }, options);
+    if (this.isLocal(target)) {
+      await this.verifyLocal(target, GIT_LOCATE_METHOD);
 
-    return this.ask(target.machine, GIT_LOCATE_METHOD, {
+      return canonicalLocate(
+        target.machine,
+        await this.local.locate(
+          { path: this.executorPath(target, address) },
+          options,
+        ),
+      );
+    }
+
+    return askGit(this.connector, target.machine, GIT_LOCATE_METHOD, {
       build: (envelope, display) => ({
         envelope,
         options: display,
@@ -472,23 +418,18 @@ export class ExecutorGit {
   async state(
     target: ExecutorTarget,
     address: string,
-    input: Pick<
-      GitStateParams,
-      'gitEntry' | 'limit' | 'submodules' | 'timeoutMs'
-    >,
+    input: StateInput,
     options: { readonly signal?: AbortSignal } = {},
   ): Promise<GitStateResult> {
-    const { gitEntry, limit, submodules, timeoutMs } = input;
+    if (this.isLocal(target)) {
+      return this.localState(target, address, input, options);
+    }
 
-    if (target.machine === undefined)
-      return this.local.state(
-        { path: address, gitEntry, limit, submodules },
-        { ...options, timeoutMs },
-      );
+    const { gitEntry, limit, submodules, timeoutMs } = input;
     const path = this.executorPath(target, address);
     const entry = this.executorPath(target, gitEntry);
 
-    return this.ask(target.machine, GIT_STATE_METHOD, {
+    return askGit(this.connector, target.machine, GIT_STATE_METHOD, {
       build: (envelope, display) => ({
         envelope,
         options: display,
@@ -500,8 +441,33 @@ export class ExecutorGit {
       }),
       read: readGitStateResult,
       signal: options.signal,
-      budgetMs: (timeoutMs ?? DEFAULT_GIT_TIMEOUT_MS) + MACHINE_MARGIN_MS,
+      budgetMs: machineGitBudget(timeoutMs),
     });
+  }
+
+  /** The in-process `git.state`, after the identity-checked handshake. */
+  private async localState(
+    target: ExecutorTarget,
+    address: string,
+    input: StateInput,
+    options: { readonly signal?: AbortSignal },
+  ): Promise<GitStateResult> {
+    const { gitEntry, limit, submodules, timeoutMs } = input;
+
+    await this.verifyLocal(target, GIT_STATE_METHOD);
+
+    return canonicalState(
+      target.machine,
+      await this.local.state(
+        {
+          path: this.executorPath(target, address),
+          gitEntry: this.executorPath(target, gitEntry),
+          limit,
+          submodules,
+        },
+        { ...options, timeoutMs },
+      ),
+    );
   }
 
   async worktreeAdd(
@@ -513,9 +479,20 @@ export class ExecutorGit {
       readonly directory: string;
     },
   ): Promise<GitWorktreeAddResult> {
-    if (target.machine === undefined) return this.local.worktreeAdd(input);
+    if (this.isLocal(target)) {
+      await this.verifyLocal(target, GIT_WORKTREE_ADD_METHOD);
 
-    return this.ask(target.machine, GIT_WORKTREE_ADD_METHOD, {
+      return canonicalWorktreeAdd(
+        target.machine,
+        await this.local.worktreeAdd({
+          ...input,
+          source: this.executorPath(target, input.source),
+          directory: this.executorPath(target, input.directory),
+        }),
+      );
+    }
+
+    return askGit(this.connector, target.machine, GIT_WORKTREE_ADD_METHOD, {
       build: (envelope, options) => ({
         envelope,
         options,
@@ -532,10 +509,18 @@ export class ExecutorGit {
     target: ExecutorTarget,
     address: string,
   ): Promise<GitWorktreeListResult> {
-    if (target.machine === undefined)
-      return this.local.listWorktrees({ path: address });
+    if (this.isLocal(target)) {
+      await this.verifyLocal(target, GIT_WORKTREE_LIST_METHOD);
 
-    return this.ask(target.machine, GIT_WORKTREE_LIST_METHOD, {
+      return canonicalWorktreeList(
+        target.machine,
+        await this.local.listWorktrees({
+          path: this.executorPath(target, address),
+        }),
+      );
+    }
+
+    return askGit(this.connector, target.machine, GIT_WORKTREE_LIST_METHOD, {
       build: (envelope, options) => ({
         envelope,
         options,
@@ -549,10 +534,15 @@ export class ExecutorGit {
     target: ExecutorTarget,
     address: string,
   ): Promise<GitWorktreeRemoveResult> {
-    if (target.machine === undefined)
-      return this.local.removeWorktree({ path: address });
+    if (this.isLocal(target)) {
+      await this.verifyLocal(target, GIT_WORKTREE_REMOVE_METHOD);
 
-    return this.ask(target.machine, GIT_WORKTREE_REMOVE_METHOD, {
+      return this.local.removeWorktree({
+        path: this.executorPath(target, address),
+      });
+    }
+
+    return askGit(this.connector, target.machine, GIT_WORKTREE_REMOVE_METHOD, {
       build: (envelope, options) => ({
         envelope,
         options,
@@ -563,12 +553,12 @@ export class ExecutorGit {
   }
 
   /**
-   * The executor's own path for an address: a locator decodes to the path it
-   * names, and a local address is already that path. It is the inverse of
-   * {@link address}, and the form placement arithmetic joins onto.
+   * The Machine's own path for an address: a locator decodes to the path it
+   * names, and a value with no locator scheme is already that path. It is the
+   * inverse of {@link address}, and the form placement arithmetic joins onto.
    */
   executorPath(target: ExecutorTarget, address: string): string {
-    if (target.machine === undefined) return address;
+    if (!isMachineLocator(address)) return address;
     const parsed = parseMachineLocator(address);
 
     if (parsed.kind !== 'path') {
@@ -579,53 +569,5 @@ export class ExecutorGit {
     }
 
     return parsed.path;
-  }
-
-  /**
-   * One git method on a Machine, with its untrusted answer narrowed to the
-   * typed result. The envelope and the display prefix are the same for every
-   * method: the prefix is what turns each path field and each standard-error
-   * root prefix into a locator before it leaves the daemon, and the budget
-   * covers the daemon's longest operation.
-   */
-  private async ask<M extends GitMethod, T>(
-    machine: string,
-    method: M,
-    call: {
-      readonly build: (
-        envelope: RequestEnvelope,
-        options: NativeDisplayOptions,
-      ) => MachineMethodParams[M];
-      readonly read: (value: JsonValue, machine: string) => T | undefined;
-      readonly signal?: AbortSignal;
-      readonly budgetMs?: number;
-    },
-  ): Promise<T> {
-    let answer: JsonValue;
-
-    try {
-      answer = await this.connector.request(
-        machine,
-        method,
-        call.build(
-          { budgetMs: call.budgetMs ?? MACHINE_GIT_BUDGET_MS },
-          { displayPrefix: `${MACHINE_SCHEME}://${machine}` },
-        ),
-        { signal: call.signal },
-      );
-    } catch (error) {
-      throw dispatchFailure(machine, method, error);
-    }
-
-    const result = call.read(answer, machine);
-
-    if (result === undefined) {
-      throw new ExecutorGitError(
-        'git_failed',
-        `The Machine ${machine} answered an unusable ${method} result.`,
-      );
-    }
-
-    return result;
   }
 }

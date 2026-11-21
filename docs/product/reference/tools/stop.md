@@ -59,7 +59,7 @@ context behavior.
 A repeated call requests the stop again. `stop` records no native attempt.
 
 The `execute_code` classification and the host-capability gate apply: the tool
-needs a trusted host identity, its own `tools.allowed` entry, and its own
+needs a configured host Machine, its own `tools.allowed` entry, and its own
 `tools.permissions` group, and a `read-only` Run refuses it.
 
 ## Errors

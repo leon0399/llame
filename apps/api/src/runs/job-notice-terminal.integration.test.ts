@@ -21,7 +21,7 @@ vi.setConfig({ testTimeout: 90_000 });
 describe('terminal job notice recovery', () => {
   const fx = useSegmentsFixture('job-notice-terminal', {
     allowedTools: ['read', 'bash', 'stop'],
-    nativeExecutorId: 'job-notice-terminal-host',
+    localMachine: 'job-notice-terminal-host',
     maxStepsPerRun: 2,
   });
 

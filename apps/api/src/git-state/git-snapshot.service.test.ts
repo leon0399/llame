@@ -13,14 +13,15 @@ import {
 } from './git-snapshot.service';
 import { renderGitObservation } from './git-state-render';
 
+/** The Machine this process hosts: `machines.local`. */
 const LOCAL: ExecutorTarget = {
   executorId: 'hub',
-  machine: undefined,
+  machine: 'hub',
   path: '/work/app',
 };
 
 const MACHINE: ExecutorTarget = {
-  executorId: 'machine:nas',
+  executorId: 'nas',
   machine: 'nas',
   path: '/srv/app',
 };
@@ -74,18 +75,21 @@ function harness(
 ) {
   const calls: Calls = { locate: [], state: [] };
 
-  const service = new GitSnapshotService({
-    locateEntry: (_target, address, options) => {
-      calls.locate.push({ address, signal: options?.signal });
+  const service = new GitSnapshotService(
+    {
+      locateEntry: (_target, address, options) => {
+        calls.locate.push({ address, signal: options?.signal });
 
-      return locate();
-    },
-    state: (_target, address, input, options) => {
-      calls.state.push({ address, input, signal: options?.signal });
+        return locate();
+      },
+      state: (_target, address, input, options) => {
+        calls.state.push({ address, input, signal: options?.signal });
 
-      return state();
+        return state();
+      },
     },
-  });
+    { localMachine: () => 'hub' },
+  );
 
   return { service, calls };
 }

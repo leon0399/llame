@@ -46,6 +46,8 @@ function context(overrides: Partial<ToolContext> = {}): ToolContext {
     chatId: 'chat-1',
     runId: 'run-1',
     toolCallId: 'call-1',
+    localMachine: 'host-a',
+    defaultMachine: 'host-a',
     artifactReadable: true,
     tenantDb,
     permissionPolicy: compileToolPermissionMap(
@@ -156,7 +158,7 @@ describe('capHeadResult', () => {
 
       expect(noticeOf(result)).toContain(`[full result: ${LOCATOR} (`);
       expect(noticeOf(result)).toContain(
-        `; host files in ${artifactDirectory('chat-1')}]`,
+        `; host files in machine://host-a${artifactDirectory('chat-1')}]`,
       );
       const file = join(artifactDirectory('chat-1'), 'mcp__docs__fetch-4.json');
       expect(JSON.parse(readFileSync(file, 'utf8'))).toMatchObject({
@@ -264,7 +266,7 @@ describe('capHeadResult', () => {
 
     expect(result).toMatchObject({ artifact: LOCATOR });
     expect(noticeOf(result)).toContain(
-      `; host files in ${artifactDirectory('chat-1')}]`,
+      `; host files in machine://host-a${artifactDirectory('chat-1')}]`,
     );
     expect(hostRoot).not.toBe('');
   });
@@ -294,7 +296,7 @@ describe('capHeadResult', () => {
     expect(noticeOf(result)).toContain('[full result not stored]');
   });
 
-  it('says the files are on the llame host only in a Machine Workspace', async () => {
+  it('says which Machine holds the files in a Workspace on another Machine', async () => {
     hostTmpdir();
     spyStorage(4);
 
@@ -307,7 +309,7 @@ describe('capHeadResult', () => {
       hugeResult(),
     );
 
-    expect(noticeOf(result)).toContain('; host files on the llame host only]');
+    expect(noticeOf(result)).toContain('; host files only on Machine host-a]');
   });
 
   it('stores nothing outside a Run', async () => {

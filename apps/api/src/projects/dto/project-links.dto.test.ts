@@ -144,7 +144,7 @@ describe('project link DTOs', () => {
       validate(
         plainToInstance(StartLocationQueryDto, {
           repositoryId: REPOSITORY_ID,
-          executorId: 'machine:nas',
+          executorId: 'nas',
           checkoutId: CHECKOUT_ID,
         }),
       ),

@@ -7,7 +7,7 @@ import {
   clearFieldWorktree,
   link,
   llame,
-  localClone,
+  hostClone,
   routeFetch,
   sentBody,
   sentRoutes,
@@ -27,7 +27,7 @@ const meta = {
     api.repositories = [llame, website];
     api.checkouts = [];
     api.refusal = null;
-    api.registered = localClone;
+    api.registered = hostClone;
     api.checkoutsFail = false;
 
     return routeFetch();
@@ -81,7 +81,7 @@ export const Links: Story = {
       link({ repositoryId: "r1", alias: "llame", isPrimary: true }),
       link({ repositoryId: "r2", alias: "site" }),
     ];
-    api.checkouts = [localClone, clearFieldWorktree];
+    api.checkouts = [hostClone, clearFieldWorktree];
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
@@ -182,11 +182,11 @@ export const AddFromCatalog: Story = {
 };
 
 /**
- * A pasted path becomes the draft's one option: Enter registers the clone,
+ * A pasted locator becomes the draft's one option: Enter registers the clone,
  * then links the repository it resolves to — as the primary, since it is the
  * project's first.
  *
- * @summary a pasted path registers the clone and links its repository
+ * @summary a pasted locator registers the clone and links its repository
  */
 export const AddByPath: Story = {
   tags: ["ai-generated"],
@@ -198,7 +198,7 @@ export const AddByPath: Story = {
       canvas.getByRole("button", { name: "Add repository" }),
     );
     const field = canvas.getByRole("combobox", { name: "Add repository" });
-    await userEvent.type(field, "/home/leo/src/llame");
+    await userEvent.type(field, "machine://host/home/leo/src/llame");
     await expect(canvas.getByText("Enter adds this clone")).toBeVisible();
     // The field is a combobox over the options it picks from.
     await expect(field).toHaveAttribute(
@@ -209,7 +209,7 @@ export const AddByPath: Story = {
 
     await waitFor(() => expect(sentRoutes()).toContain(LINK_ROUTE));
     await expect(sentBody(REGISTER_ROUTE)).resolves.toEqual({
-      path: "/home/leo/src/llame",
+      path: "machine://host/home/leo/src/llame",
     });
     await expect(sentBody(LINK_ROUTE)).resolves.toEqual({
       repositoryId: "r1",
@@ -219,16 +219,16 @@ export const AddByPath: Story = {
 };
 
 /**
- * A pasted path that is already one of the account's checkouts links that
+ * A pasted locator that is already one of the account's checkouts links that
  * checkout's repository without registering it again, which the api would
  * refuse. A trailing separator still names the same checkout.
  *
- * @summary a registered path links its repository without re-registering
+ * @summary a registered locator links its repository without re-registering
  */
 export const AddRegisteredPath: Story = {
   tags: ["ai-generated"],
   beforeEach: () => {
-    api.checkouts = [localClone];
+    api.checkouts = [hostClone];
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
@@ -239,7 +239,7 @@ export const AddRegisteredPath: Story = {
     );
     await userEvent.type(
       canvas.getByRole("combobox", { name: "Add repository" }),
-      "/home/leo/src/llame/{Enter}",
+      "machine://host/home/leo/src/llame/{Enter}",
     );
 
     await waitFor(() => expect(sentRoutes()).toContain(LINK_ROUTE));
@@ -290,7 +290,7 @@ export const OpensSheet: Story = {
   tags: ["ai-generated"],
   beforeEach: () => {
     api.links = [link({ repositoryId: "r1", alias: "llame" })];
-    api.checkouts = [localClone];
+    api.checkouts = [hostClone];
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);

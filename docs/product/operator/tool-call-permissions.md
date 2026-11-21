@@ -95,43 +95,53 @@ continues with other permitted work.
 For native `read`, `edit`, and `write`, the `path` value is projected to its
 logical locator before matching: a `kb://` locator is re-encoded once to
 `kb://<space-id>/<encoded-path>`, a `skill://` locator to its canonical
-identity, a `file://` or `file:` alias to its percent-decoded absolute host
-path, a `projects://` locator to its canonical Project resource, with the
+identity, a `file://` or `file:` alias to the canonical `machine://` locator of
+its absolute path on the current Machine, a bare absolute path likewise, a
+`machine://` locator to its canonical form with the path decoded once, a
+`projects://` locator to its canonical Project resource, with the
 scheme and UUID lowercased and the root alias `projects:///` folded to
 `projects://`, and a web locator to the URL its request will use, down to the
 host case, port, escapes, and fragment, as [web
-locators](../reference/locators/web.md#form) describes. A Workspace-relative
-host path is resolved against the Workspace root first. No filesystem or
-backing path is resolved during permission evaluation, and arbitrary MCP
-values receive no native normalization.
+locators](../reference/locators/web.md#form) describes. A relative path is
+resolved lexically against the Workspace root on its Machine first. No
+filesystem or backing path is resolved during permission evaluation, and
+arbitrary MCP values receive no native normalization.
 
 A `read` is matched **without its read selector**, on every source: the direct
-host path, a decoded file alias, a `kb://` or `skill://` locator, a
+path, a `file:` alias, a `machine://` locator, a `kb://` or `skill://` locator, a
 `projects://` locator, a web locator, and the Workspace-relative path after
 resolution. Nothing else is
 removed from the text — a submitted web fragment stays in the submitted pass,
 while the parsed/requested web projection drops it. A clause therefore names
-the resource, not the window into it, so `^/srv/docs/guide\.md$` admits
-`/srv/docs/guide.md:10-20`, and a clause written against the selector spelling
+the resource, not the window into it, so `^machine://devl/srv/docs/guide\.md$` admits
+`machine://devl/srv/docs/guide.md:10-20`, and a clause written against the selector spelling
 such as `:raw` matches no split-off read selector; it can still match ordinary
 URL text such as `#x:raw` or `?x=:raw`, which is not a selector. An
 instruction import whose canonical path differs is also evaluated against
 `read` on its first page, and a reject denies the import. Three consequences
 are worth knowing:
 
-- Admission is text-only, so an exact allow for `/srv/docs/README` also admits
+- Admission is text-only, so an exact allow for `machine://devl/srv/docs/README` also admits
   a read of a literal file named `README:raw` when one exists.
 - A selector-shaped literal filename cannot be singled out by a `read` reject.
-  `^/data/report$` matches `/data/report:2024` after selector removal, so that
-  read is refused. But `^/data/report:2024$` matches nothing for `read`, so it
-  cannot single out that literal file apart from `/data/report`; when an allow
-  names the resource, admission succeeds and the executor reads the literal
+  `^machine://devl/data/report$` matches `machine://devl/data/report:2024` after selector removal, so that
+  read is refused. But `^machine://devl/data/report:2024$` matches nothing for `read`, so it
+  cannot single out that literal file apart from `machine://devl/data/report`; when an allow
+  names the resource, admission succeeds and the tool reads the literal
   file. Scope a reject to the resource, not to a selector spelling.
 - `edit` and `write` are the exception: a mutation takes its path literally,
   so any selector-shaped suffix stays in every text they are matched on,
-  including the decoded alias. `^/srv/app/config\.json$` admits the write of
-  `/srv/app/config.json` and refuses `/srv/app/config.json:1-5`, which names a
+  including the decoded alias. `^machine://devl/srv/app/config\.json$` admits the write of
+  `machine://devl/srv/app/config.json` and refuses `machine://devl/srv/app/config.json:1-5`, which names a
   different file.
+
+An allow is decided on the canonical locator, with its Machine name. A rule
+that names one Machine therefore does not admit the same path on another. A
+reject also sees the submitted text, the canonical locator, and the projected
+path without the scheme and Machine name, so an older reject written as
+`^\/etc\/` still refuses every spelling. A regex clause on a path parameter
+that begins with `^/` fails startup and names the group, the list, and the
+clause index.
 
 The `:` alternative in the F1-F3 credential terminators stays load-bearing for
 the same reason: those rows also guard `edit`, `write`, and
@@ -139,7 +149,8 @@ the same reason: those rows also guard `edit`, `write`, and
 the read selector grammar, such as `/home/u/.ssh:old`, keeps its suffix in a
 `read`'s matched text, so F1 still catches it. F4 keeps catching a credential
 file a read selects into, because the selector is gone before the clause sees
-the text: `read /srv/.env:raw` is matched as `/srv/.env`.
+the text: `read /srv/.env:raw` on `devl` is matched as
+`machine://devl/srv/.env`.
 
 ## Bypass
 
@@ -207,7 +218,7 @@ an admitted Workspace root is trusted with.
 | W1  | `edit.path`, `write.path`                                      | regex   | `(?i)(^\|[/\\])\.mcp\.json$`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 | W2  | `edit.path`, `write.path`                                      | regex   | `(?i)(^\|[/\\])\.(llame\|agents\|claude)[/\\]`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 | E1  | `enter_workspace.path`                                         | regex   | `(^\|[/\\])node_modules([/\\]\|$)`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
-| E2  | `enter_workspace.path`                                         | regex   | `^/(tmp\|var/tmp)(/\|$)`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| E2  | `enter_workspace.path`                                         | regex   | `^machine://[^/]+/(tmp\|var/tmp)(/\|$)`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 | E3  | `enter_workspace.path`                                         | regex   | `(^\|[/\\])Downloads([/\\]\|$)`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
 
 A supplied `tools.permissions` **is the complete policy** — there is no merge
@@ -241,7 +252,7 @@ coexist:
     "permissions": {
       "read": {
         "allow": [
-          { "field": "path", "regex": "^/" },
+          { "field": "path", "regex": "^machine://" },
           { "field": "path", "regex": "^kb://" },
           { "field": "path", "regex": "^skill://" },
           { "field": "path", "regex": "^media://" },
@@ -260,9 +271,10 @@ reading `https://other.example/guide` is rejected as `no_allow` without a fetch.
 The `^media://` clause admits a re-read of an image the Run owner holds
 (another owner's id still returns `not_found`); without it every `media://`
 read is rejected as `no_allow` before any lookup.
-The `^/` and `^kb://` clauses admit `/etc/hosts` and `kb://SPACE/notes/a.md`; a
-read you want blocked must be absent from the allow list or denied by a reject
-clause.
+The `^machine://` and `^kb://` clauses admit `/etc/hosts` on the current Machine
+and `kb://SPACE/notes/a.md`; a read you want blocked must be absent from the
+allow list or denied by a reject clause. An anchored form such as
+`^machine://devl/pub/` is tighter than `^machine://`.
 The `^projects://` clause admits Project listings and detail reads. Without it
 every Project read is rejected as `no_allow` before any datastore read. The
 clause covers the Project resource only, not the checkout locators a detail
@@ -303,9 +315,9 @@ What the clause matches is locator text, not an address:
 
 ## Project reads
 
-`projects://` is a `read` authority like a local path or a Knowledge locator. It
-uses the same `read` group, and it needs no executor. A process without
-`tools.nativeExecutorId` serves Project reads, and no Workspace has to be
+`projects://` is a `read` authority like a path on a Machine or a Knowledge locator. It
+uses the same `read` group, and it needs no Machine. A process without a
+reachable Machine still serves Project reads, and no Workspace has to be
 entered.
 
 The group decides the canonical Project resource, without its read selector.
@@ -349,8 +361,8 @@ Project row.
 ### Returned checkout locations
 
 A detail read returns the checkout locators the owner registered for the
-Project's linked repositories. Each is an absolute host path or a
-`machine://<name>/<path>` locator with its executor identity, and the result
+Project's linked repositories. Each is a canonical
+`machine://<name>/<path>` locator, and the result
 labels it registered and unverified. Admitting `projects://<uuid>` grants no
 access to them. A later `read`, `grep` scope, or `enter_workspace` call is
 decided by its own group on its own submitted locator.
@@ -371,11 +383,11 @@ processes restart. Each new invocation — including calls from Runs queued unde
 an earlier policy — uses the executing process's current policy. Tool
 declarations and availability catalogs are not rebound by a permission change.
 
-A rejected call is a non-fatal observation: no executor runs, no native
+A rejected call is a non-fatal observation: no tool runs, no native
 attempt is created, and the Run continues. A permission decision is recorded
 on owner-scoped tool activity and the stored tool part as an opaque policy
 instance id, decision, static reason, and clause reference — never rule text,
-matched fragments, or host paths. This metadata is excluded from model replay,
+matched fragments, or absolute paths. This metadata is excluded from model replay,
 public shares, exports, and search. The id is regenerated on every restart and
 carries no information about interpolated values.
 

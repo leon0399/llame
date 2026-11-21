@@ -1,4 +1,5 @@
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { realpathSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
@@ -18,6 +19,7 @@ import {
   type AttemptToolBinding,
 } from '../tools/attempt-tool-additions';
 import { compileTestPermissionPolicy } from '../testing/tool-permission-policy';
+import { localMachineConnector } from '../testing/local-machine';
 import { composeTurnToolCatalog } from '../tools/turn-tool-catalog';
 import { McpRuntimeService } from './mcp-runtime.service';
 import { WorkspaceMcpClients } from './workspace-mcp-clients';
@@ -33,6 +35,23 @@ const searchDeclaration = {
   description: 'Workspace integration search.',
   inputSchema: { type: 'object', properties: {} },
 };
+
+/** The Machine this test process hosts: `machines.local` and default. */
+const WORKER_MACHINE = 'integration-worker';
+
+/** The Machine context every Workspace entry below runs with. */
+function machineContext() {
+  return {
+    localMachine: WORKER_MACHINE,
+    defaultMachine: WORKER_MACHINE,
+    machines: localMachineConnector({ name: WORKER_MACHINE }),
+  };
+}
+
+/** The canonical locator of one host path on the worker's own Machine. */
+function machineRoot(path: string): string {
+  return `machine://${WORKER_MACHINE}${realpathSync(path)}`;
+}
 
 type WorkspaceServerEntry = {
   type?: string;
@@ -130,7 +149,11 @@ describe('Workspace MCP production integration', () => {
     const firstRoot = await mkdtemp(join(tmpdir(), 'workspace-mcp-first-'));
     const secondRoot = await mkdtemp(join(tmpdir(), 'workspace-mcp-second-'));
     const operator = new McpRuntimeService({});
-    const clients = new WorkspaceMcpClients(operator);
+
+    const clients = new WorkspaceMcpClients(operator, {
+      connector: localMachineConnector({ name: WORKER_MACHINE }),
+    });
+
     const firstChat = crypto.randomUUID();
     const secondChat = crypto.randomUUID();
     const secondOwnerId = crypto.randomUUID();
@@ -222,8 +245,15 @@ describe('Workspace MCP production integration', () => {
     );
 
     const operator = new McpRuntimeService({});
-    const firstProcess = new WorkspaceMcpClients(operator);
-    const secondProcess = new WorkspaceMcpClients(operator);
+
+    const firstProcess = new WorkspaceMcpClients(operator, {
+      connector: localMachineConnector({ name: WORKER_MACHINE }),
+    });
+
+    const secondProcess = new WorkspaceMcpClients(operator, {
+      connector: localMachineConnector({ name: WORKER_MACHINE }),
+    });
+
     const chatId = crypto.randomUUID();
 
     try {
@@ -289,7 +319,11 @@ describe('Workspace MCP production integration', () => {
     const fixture = await httpFixture('redaction', secret);
     const root = await mkdtemp(join(tmpdir(), 'workspace-mcp-redaction-'));
     const operator = new McpRuntimeService({});
-    const clients = new WorkspaceMcpClients(operator);
+
+    const clients = new WorkspaceMcpClients(operator, {
+      connector: localMachineConnector({ name: WORKER_MACHINE }),
+    });
+
     const chatId = crypto.randomUUID();
 
     try {
@@ -335,7 +369,11 @@ describe('Workspace MCP production integration', () => {
     );
 
     const operator = new McpRuntimeService({});
-    const clients = new WorkspaceMcpClients(operator);
+
+    const clients = new WorkspaceMcpClients(operator, {
+      connector: localMachineConnector({ name: WORKER_MACHINE }),
+    });
+
     const chatId = crypto.randomUUID();
     const previous = process.env['LLAME_WORKSPACE_AMBIENT_ONLY'];
     process.env['LLAME_WORKSPACE_AMBIENT_ONLY'] = 'must-not-leak';
@@ -380,7 +418,10 @@ describe('Workspace MCP production integration', () => {
     const root = await mkdtemp(join(tmpdir(), 'workspace-mcp-enter-'));
     const chatId = crypto.randomUUID();
     const operator = new McpRuntimeService({});
-    const clients = new WorkspaceMcpClients(operator);
+
+    const clients = new WorkspaceMcpClients(operator, {
+      connector: localMachineConnector({ name: WORKER_MACHINE }),
+    });
 
     try {
       await writeConfig(root, {
@@ -444,7 +485,7 @@ describe('Workspace MCP production integration', () => {
       const context = {
         configuredCredentials: [],
         runId: seeded.runId,
-        nativeExecutorId: 'integration-worker',
+        ...machineContext(),
         nativeDeliverySequence: seeded.deliverySequence,
         toolCallId: 'enter-workspace',
         userId,
@@ -625,7 +666,7 @@ describe('Workspace MCP production integration', () => {
     return {
       configuredCredentials: [],
       runId: seeded.runId,
-      nativeExecutorId: 'integration-worker',
+      ...machineContext(),
       nativeDeliverySequence: seeded.deliverySequence,
       toolCallId,
       userId,
@@ -643,7 +684,10 @@ describe('Workspace MCP production integration', () => {
     const root = await mkdtemp(join(tmpdir(), 'workspace-mcp-read-only-'));
     const chatId = crypto.randomUUID();
     const operator = new McpRuntimeService({});
-    const clients = new WorkspaceMcpClients(operator);
+
+    const clients = new WorkspaceMcpClients(operator, {
+      connector: localMachineConnector({ name: WORKER_MACHINE }),
+    });
 
     try {
       await writeConfig(root, {
@@ -677,7 +721,11 @@ describe('Workspace MCP production integration', () => {
       });
       // The attempt started no client, so no cached set exists for the key.
       expect(
-        clients.stateForKey({ chatId, root, generation: 1 }),
+        clients.stateForKey({
+          chatId,
+          root: machineRoot(root),
+          generation: 1,
+        }),
       ).toBeUndefined();
 
       // A same-root re-entry reports the listing the attempt made once and
@@ -718,7 +766,10 @@ describe('Workspace MCP production integration', () => {
     const root = await mkdtemp(join(tmpdir(), 'workspace-mcp-read-only-bad-'));
     const chatId = crypto.randomUUID();
     const operator = new McpRuntimeService({});
-    const clients = new WorkspaceMcpClients(operator);
+
+    const clients = new WorkspaceMcpClients(operator, {
+      connector: localMachineConnector({ name: WORKER_MACHINE }),
+    });
 
     try {
       await writeFile(join(root, '.mcp.json'), '{ malformed', 'utf8');
@@ -757,7 +808,10 @@ describe('Workspace MCP production integration', () => {
     const root = await mkdtemp(join(tmpdir(), 'workspace-mcp-read-only-same-'));
     const chatId = crypto.randomUUID();
     const operator = new McpRuntimeService({});
-    const clients = new WorkspaceMcpClients(operator);
+
+    const clients = new WorkspaceMcpClients(operator, {
+      connector: localMachineConnector({ name: WORKER_MACHINE }),
+    });
 
     try {
       await writeConfig(root, {
@@ -770,21 +824,23 @@ describe('Workspace MCP production integration', () => {
         'Enter the same root read-only.',
       );
 
+      const bound = machineRoot(root);
+
       await tenantDb.runAs(userId, (tx) =>
         new WorkspaceBindingRepository(tx).enter({
           chatId,
           ownerUserId: userId,
           runId: seeded.runId,
           deliverySequence: seeded.deliverySequence,
-          executorId: 'integration-worker',
-          root,
-          bindExecutorId: 'integration-worker',
+          executorId: WORKER_MACHINE,
+          root: bound,
+          bindExecutorId: WORKER_MACHINE,
         }),
       );
       // A `default` Run started the clients of this very binding.
-      await clients.startForChat({ chatId, root, generation: 1 });
+      await clients.startForChat({ chatId, root: bound, generation: 1 });
       expect(
-        clients.stateForKey({ chatId, root, generation: 1 }),
+        clients.stateForKey({ chatId, root: bound, generation: 1 }),
       ).toMatchObject({ servers: [{ id: 'web', state: 'available' }] });
       const requestsBefore = fixture.requestSummaries().length;
       const addToAttempt = vi.spyOn(clients, 'addToAttempt');
@@ -832,7 +888,10 @@ describe('Workspace MCP production integration', () => {
 
     const chatId = crypto.randomUUID();
     const operator = new McpRuntimeService({});
-    const clients = new WorkspaceMcpClients(operator);
+
+    const clients = new WorkspaceMcpClients(operator, {
+      connector: localMachineConnector({ name: WORKER_MACHINE }),
+    });
 
     try {
       await writeFile(join(malformedRoot, '.mcp.json'), '{ malformed', 'utf8');
@@ -880,7 +939,7 @@ describe('Workspace MCP production integration', () => {
       const context = {
         configuredCredentials: [],
         runId: seeded.runId,
-        nativeExecutorId: 'integration-worker',
+        ...machineContext(),
         nativeDeliverySequence: seeded.deliverySequence,
         toolCallId: 'enter-malformed',
         userId,

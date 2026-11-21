@@ -1,5 +1,5 @@
 ---
-summary: "The native bash tool: the model supplies shell text and the host, a Machine, or an ssh:// host runs it under the executor's OS user"
+summary: "The native bash tool: the model supplies shell text and the current Machine, another Machine, or an ssh:// host runs it under that Machine user's authority"
 read_when:
   - you need to know how a bash call's cwd, environment, and output work
   - you need to know what happens when a bash attempt stops without a proven outcome
@@ -13,10 +13,11 @@ configured_by:
 
 ## Purpose
 
-Allowlisted `bash` shares the absolute-path native host gate: the model supplies
-shell text and the host runs `bash -c` in the trusted bash working directory
-(defaulting to the API process cwd). A `machine://` or `ssh://` `cwd` runs the
-command on that remote host instead. It is not tenant isolation.
+Allowlisted `bash` runs shell text as `bash -c` on the target Machine. A bare or
+relative `cwd` resolves on the current Machine, whose default directory is the
+trusted bash working directory (defaulting to the API process cwd). A
+`machine://` `cwd` runs the
+command on that Machine instead. It is not tenant isolation.
 
 ## Arguments
 
@@ -34,7 +35,7 @@ The model reads plain text, not JSON: one status header `exit <code>`, continued
 with `, <seconds> s` (one decimal) when the producer measured the command's wall
 time from spawn to settlement, then stdout verbatim, then a `[stderr]` line and
 the stderr when it is non-empty. A result with both streams empty says
-`(no output)`. `[output cut at the bound]` marks output the executor bound cut,
+`(no output)`. `[output cut at the bound]` marks output a stream bound cut,
 and a bracketed cap notice can end the text; a result only the global result cap
 shortened ends with its notice and no such marker. A stored result without a
 wall time renders the bare header.
@@ -62,25 +63,29 @@ whose message starts with `timed out` and the measured elapsed time in seconds,
 and names no exit code: the process was stopped, not exited. A deadline that
 ended the call before a command started names no time, because nothing
 measured one. The stored result keeps the exit code, both bounded streams, the
-`cut` flag its executor set, and the wall time, and carries no field naming the
-operation or the executor.
+`cut` flag its producer set, and the wall time, and carries no field naming the
+operation or the Machine.
 
 ## Behavior
 
-`async: true` is host-only. SSH and Machine directories reject either background
-field, even when false; a Machine Workspace's omitted working directory is a
-Machine target too. An unlimited request is refused before spawn unless the
-operator permits it. The model cannot provide a duration or override a bound.
+`async: true` is available only when the command runs in this worker, which is
+the case when its resolved `cwd` is on this process's `machines.local`. A
+working directory on another Machine, or an `ssh://` directory, rejects either
+background field, even when false, with
+"`async` is unavailable for Machine `<name>` on this attempt. Run the command
+synchronously." A Machine Workspace's omitted working directory is a Machine
+target too. An unlimited request is refused before spawn unless the operator
+permits it. The model cannot provide a duration or override a bound.
 
-A foreground host command that runs past the foreground bound moves to the
+A foreground command on this Machine that runs past the foreground bound moves to the
 background. The bound is the lesser of the operator's foreground setting and
 the call timeout; see [background jobs](../../operator/background-jobs.md#bound-jobs).
 The call then returns `backgrounded` with cause `time`, the command keeps
 running as a job, and the output captured before the move is the start of its
-stored output. The call timeout never stops, rejects, or marks unknown a host
-command.
+stored output. The call timeout never stops, rejects, or marks unknown a command
+it runs.
 
-A steer or interrupt received during a foreground host command also moves it
+A steer or interrupt received during a foreground command on this Machine also moves it
 to the background, with cause `message`. The model receives the authoritative
 tool result before the new message is delivered. The
 command keeps running, and its result carries no interrupt marker. One message
@@ -187,7 +192,7 @@ When the Run can read artifacts and the write succeeds, a stream over its inline
 share is stored as one artifact part named `stdout` or `stderr` in one artifact,
 so the model reads the rest through `artifact://bash-<n>/<stream>`. The streams
 that do not fit share the inline budget equally, and a quarter of each share is
-the head. The artifact holds the executor's captured stream, after redaction, in
+the head. The artifact holds the Machine's captured stream, after redaction, in
 bytes, and is marked incomplete when the byte bound cut it; a stream that parses
 as JSON is stored with the JSON content type.
 
@@ -205,7 +210,7 @@ while the Run continues; inspect the workspace before retrying. See
 crash-recovery termination.
 
 A call past the operator's worker process bound is `limit_reached`. The count
-holds foreground host commands and `ssh://` commands; see
+holds foreground commands this worker runs and `ssh://` commands; see
 [managed command capacity](../../operator/native-files.md#managed-command-capacity).
 The refusal names the bound, says that a later call can succeed, and comes before
 any attempt is recorded, so the command did not run. A Machine command is not
@@ -227,8 +232,8 @@ connection is `ssh_unavailable` with a reason, and a host without `bash` is
 
 ## Configured by
 
-[native files](../../operator/native-files.md) enables the host executor, the
-`bash` entry, and the trusted bash working directory, and
-[SSH locators](../../operator/ssh.md) enables an `ssh://` `cwd` without a local
-executor. A call is gated by the `bash` permission group, described in
+[native files](../../operator/native-files.md) enables the `bash` entry and the
+trusted bash working directory, and
+[Machines](../../operator/machines.md) declares the current Machine. [SSH locators](../../operator/ssh.md) enables an `ssh://` `cwd` without a Machine
+of its own. A call is gated by the `bash` permission group, described in
 [tool-call permissions](../../operator/tool-call-permissions.md).

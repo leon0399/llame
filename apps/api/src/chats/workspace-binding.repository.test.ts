@@ -285,7 +285,7 @@ describe('WorkspaceBindingRepository', () => {
     ]);
   });
 
-  it('narrates Machine availability on entry and no availability for a local root', async () => {
+  it('narrates availability for every bound root', async () => {
     const machine = makeDb({
       select: fenceSelect(),
       update: [[{ workspaceGeneration: 5 }]],
@@ -297,7 +297,7 @@ describe('WorkspaceBindingRepository', () => {
         ownerUserId: 'owner-a',
         runId: 'run-1',
         deliverySequence: 7,
-        executorId: 'machine:build-1',
+        executorId: 'build-1',
         root: 'machine://build-1/home/operator/app',
       }),
     ).resolves.toMatchObject({
@@ -313,7 +313,7 @@ describe('WorkspaceBindingRepository', () => {
     expect(sets).toHaveLength(1);
     expect(sets[0]).toMatchObject({
       workspaceRoot: 'machine://build-1/home/operator/app',
-      workspaceExecutorId: 'machine:build-1',
+      workspaceExecutorId: 'build-1',
       workspaceToldAvailable: true,
     });
 
@@ -328,8 +328,8 @@ describe('WorkspaceBindingRepository', () => {
         ownerUserId: 'owner-a',
         runId: 'run-1',
         deliverySequence: 7,
-        executorId: 'worker-a',
-        root: '/work/new',
+        executorId: 'host-a',
+        root: 'machine://host-a/work/new',
       }),
     ).resolves.toMatchObject({ status: 'switched' });
 
@@ -339,8 +339,8 @@ describe('WorkspaceBindingRepository', () => {
 
     expect(localSets).toHaveLength(1);
     expect(localSets[0]).toMatchObject({
-      workspaceExecutorId: 'worker-a',
-      workspaceToldAvailable: null,
+      workspaceExecutorId: 'host-a',
+      workspaceToldAvailable: true,
     });
   });
 

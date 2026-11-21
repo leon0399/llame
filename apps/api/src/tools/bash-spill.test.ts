@@ -26,8 +26,9 @@ import { RunEventsRepository } from '../runs/runs-repository';
 import { createProtocolPeer } from '../testing/machine-protocol-peer';
 import { compileTestPermissionPolicy } from '../testing/tool-permission-policy';
 import { MachineConnector } from '../machines/machine-connector.service';
+import { localMachineConnector } from '../testing/local-machine';
 import { compileToolPermissionMap } from './permissions/compile-permissions';
-import { runForegroundBash } from './bash-async';
+import { hostCommand, runForegroundBash } from './bash-async';
 import { runTool } from './runner';
 import { executeSshBash } from './ssh-bash';
 import { type SshClient, type SshRunOutcome } from '../ssh/ssh-client';
@@ -88,7 +89,9 @@ function testContext(overrides: Partial<ToolContext> = {}): ToolContext {
     runId: 'run',
     attemptId: 'attempt-1',
     toolCallId: 'call-1',
-    nativeExecutorId: 'host',
+    localMachine: 'host-a',
+    defaultMachine: 'host-a',
+    machines: localMachineConnector({ verify: () => Promise.resolve() }),
     nativeDeliverySequence: 1,
     bashProcessLimiter: new BashProcessLimiter(64),
     ...hostBashJobs(tenantDb),
@@ -720,7 +723,7 @@ describe('the bash tool spill on the host and over ssh', () => {
         onHostPromotionStarted: promotionStarted,
       }),
       runId: 'run',
-      nativeExecutorId: 'host',
+      localMachine: 'host-a',
       toolCallId: 'call-1',
       attemptId: 'attempt-1',
     };
@@ -745,9 +748,7 @@ describe('the bash tool spill on the host and over ssh', () => {
     try {
       const pending = runForegroundBash(
         context,
-        { command: 'echo' },
-        tmpdir(),
-        slot,
+        hostCommand({ command: 'echo' }, tmpdir(), slot),
       );
 
       await spawned.promise;
@@ -843,9 +844,9 @@ describe('the bash tool spill on the host and over ssh', () => {
       name: 'stderr',
       content: Buffer.from(stderr, 'utf8'),
     });
-    // The ssh:// host cannot open the llame host file; `read` is the route.
+    // The ssh:// host cannot open this Machine's file.
     expect(result.message).toContain('[full result: artifact://bash-5/stderr');
-    expect(result.message).toContain('; host files on the llame host only]');
+    expect(result.message).toContain('; host files only on Machine host-a]');
   });
 });
 
@@ -912,7 +913,7 @@ describe('the Machine bash spill', () => {
     });
   });
 
-  it('tells a Machine Workspace that the files are on the llame host only', async () => {
+  it('tells a Machine Workspace which Machine holds the files', async () => {
     const peer = createProtocolPeer({
       roots: ['/srv/app'],
       answers: {
@@ -962,7 +963,7 @@ describe('the Machine bash spill', () => {
 
     expect(result.artifact).toBe('artifact://bash-5');
     expect(textOf(result)).toContain(
-      '[full result: artifact://bash-5/stdout (3 lines); host files on the llame host only]',
+      '[full result: artifact://bash-5/stdout (3 lines); host files only on Machine host-a]',
     );
   });
 });
@@ -978,7 +979,7 @@ describe('the bash artifact host files', () => {
     // Pin the base independently of the production path helper.
     expect(hostDirectory().startsWith(temporaryRoot)).toBe(true);
     expect(textOf(result)).toContain(
-      `[full result: artifact://bash-5/stdout (3 lines); host files in ${hostDirectory()}]`,
+      `[full result: artifact://bash-5/stdout (3 lines); host files in machine://host-a${hostDirectory()}]`,
     );
     expect(readFileSync(join(hostDirectory(), 'stdout.txt'), 'utf8')).toBe(
       'a'.repeat(20_000),
@@ -992,14 +993,14 @@ describe('the bash artifact host files', () => {
     );
 
     expect(textOf(result).split('\n').at(-1)).toBe(
-      `[full result: artifact://bash-5/stdout (3 lines), artifact://bash-5/stderr (3 lines); host files in ${hostDirectory()}]`,
+      `[full result: artifact://bash-5/stdout (3 lines), artifact://bash-5/stderr (3 lines); host files in machine://host-a${hostDirectory()}]`,
     );
     expect(readFileSync(join(hostDirectory(), 'stderr.txt'), 'utf8')).toBe(
       'e'.repeat(20_000),
     );
   });
 
-  it('says the files are on the llame host only away from this host', async () => {
+  it('says the files are only on this Machine away from it', async () => {
     const result = await spillBashResult(
       testContext({ artifactHostFiles: true }),
       success('a'.repeat(20_000)),
@@ -1007,7 +1008,7 @@ describe('the bash artifact host files', () => {
     );
 
     expect(textOf(result)).toContain(
-      '[full result: artifact://bash-5/stdout (3 lines); host files on the llame host only]',
+      '[full result: artifact://bash-5/stdout (3 lines); host files only on Machine host-a]',
     );
     expect(textOf(result)).not.toContain(tmpdir());
   });
@@ -1023,7 +1024,7 @@ describe('the bash artifact host files', () => {
     );
   });
 
-  it('names the host directory away from this host when only a host bash reads it', async () => {
+  it('names only the Machine away from it, whether or not read is a route', async () => {
     const result = await spillBashResult(
       testContext({ artifactReadable: false, artifactHostFiles: true }),
       success('a'.repeat(20_000)),
@@ -1031,7 +1032,7 @@ describe('the bash artifact host files', () => {
     );
 
     expect(textOf(result)).toContain(
-      `[full result: artifact://bash-5/stdout (3 lines); host files in ${hostDirectory()} on the llame host]`,
+      '[full result: artifact://bash-5/stdout (3 lines); host files only on Machine host-a]',
     );
   });
 
@@ -1041,10 +1042,12 @@ describe('the bash artifact host files', () => {
       { stdout: 'a'.repeat(20_000), stderr: '' },
     );
 
-    expect(result.notice).toContain(`; host files in ${hostDirectory()}`);
+    expect(result.notice).toContain(
+      `; host files in machine://host-a${hostDirectory()}`,
+    );
   });
 
-  it('judges the read rule on the allocated locator for the notice', async () => {
+  it('names the Machine of the files whatever the read rule says', async () => {
     const result = await spillBashResult(
       testContext({
         permissionPolicy: compileToolPermissionMap(
@@ -1059,8 +1062,8 @@ describe('the bash artifact host files', () => {
       true,
     );
 
-    // The read rule admits the artifact, so `read` is the route elsewhere.
-    expect(textOf(result)).toContain('; host files on the llame host only]');
+    // The files are on this Machine; `read` being a route changes nothing.
+    expect(textOf(result)).toContain('; host files only on Machine host-a]');
   });
 
   it('stores a host-file artifact when the read rule names the allocated locator', async () => {
@@ -1096,7 +1099,9 @@ describe('the bash artifact host files', () => {
     );
 
     expect(result.artifact).toBe('artifact://bash-5');
-    expect(textOf(result)).toContain(`; host files in ${hostDirectory()}]`);
+    expect(textOf(result)).toContain(
+      `; host files in machine://host-a${hostDirectory()}]`,
+    );
   });
 
   it('stores through the shared predicate when read is not admissible', async () => {

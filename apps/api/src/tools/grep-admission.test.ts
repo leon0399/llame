@@ -27,136 +27,175 @@ function contextWith(
       runAs: () => Promise.reject(new Error('tenant DB is not used')),
     },
     permissionPolicy: compileToolPermissionMap(map, 'test-policy'),
+    localMachine: 'host-a',
+    defaultMachine: 'host-a',
     workspaceRoot:
       root === undefined ? undefined : createWorkspaceRootCell(root),
     onDerivedDecision,
   };
 }
 
+const HOST = { localMachine: 'host-a', defaultMachine: 'host-a' } as const;
+
 describe('projectGrepScope', () => {
   it('cuts a host scope at the first glob segment and keeps the separator', () => {
-    expect(projectGrepScope('/home/u/repo/src/**/*.ts', undefined)).toEqual({
+    expect(projectGrepScope('/home/u/repo/src/**/*.ts', HOST)).toEqual({
       submitted: '/home/u/repo/src/**/*.ts',
-      prefix: '/home/u/repo/src/',
+      prefix: 'machine://host-a/home/u/repo/src/',
+      projectedPath: '/home/u/repo/src/',
     });
   });
 
   it('resolves parent segments lexically before the cut', () => {
-    expect(
-      projectGrepScope('/home/u/repo/../../../etc/**', undefined).prefix,
-    ).toBe('/etc/');
+    expect(projectGrepScope('/home/u/repo/../../../etc/**', HOST).prefix).toBe(
+      'machine://host-a/etc/',
+    );
   });
 
   it('resolves a relative scope from the Workspace root', () => {
-    expect(projectGrepScope('src/**', '/home/u/repo').prefix).toBe(
-      '/home/u/repo/src/',
-    );
+    expect(
+      projectGrepScope('src/**', { ...HOST, workspaceRoot: '/home/u/repo' })
+        .prefix,
+    ).toBe('machine://host-a/home/u/repo/src/');
   });
 
   it('maps a bare absolute scope into a Machine Workspace', () => {
     expect(
-      projectGrepScope('/home/me/shop/src/**', 'machine://devl/home/me/shop')
-        .prefix,
+      projectGrepScope('/home/me/shop/src/**', {
+        workspaceRoot: 'machine://devl/home/me/shop',
+        defaultMachine: 'host-a',
+      }).prefix,
     ).toBe('machine://devl/home/me/shop/src/');
   });
 
   it('keeps a Knowledge prefix on its logical identity', () => {
-    expect(
-      projectGrepScope(`kb://${SPACE}/notes/**/*.md`, undefined).prefix,
-    ).toBe(`kb://${SPACE}/notes/`);
+    expect(projectGrepScope(`kb://${SPACE}/notes/**/*.md`, HOST).prefix).toBe(
+      `kb://${SPACE}/notes/`,
+    );
   });
 
   it('projects a bare Knowledge scope to its own text', () => {
-    expect(projectGrepScope('kb://', '/home/u/repo').prefix).toBe('kb://');
+    expect(
+      projectGrepScope('kb://', { ...HOST, workspaceRoot: '/home/u/repo' })
+        .prefix,
+    ).toBe('kb://');
   });
 
   it('does not treat a percent-encoded asterisk as a glob', () => {
     // The canonical Knowledge identity decodes it, as a read of that path does.
-    expect(projectGrepScope(`kb://${SPACE}/a%2Ab/`, undefined).prefix).toBe(
+    expect(projectGrepScope(`kb://${SPACE}/a%2Ab/`, HOST).prefix).toBe(
       `kb://${SPACE}/a*b/`,
     );
   });
 
   it('keeps a logical scope with no path part whole', () => {
-    expect(projectGrepScope('skill://pdf', undefined)).toEqual({
+    expect(projectGrepScope('skill://pdf', HOST)).toEqual({
       submitted: 'skill://pdf',
       prefix: 'skill://pdf',
     });
-    expect(projectGrepScope('skill://p/x', undefined).prefix).toBe(
-      'skill://p/x',
-    );
+    expect(projectGrepScope('skill://p/x', HOST).prefix).toBe('skill://p/x');
   });
 
   it('keeps a glob in a logical authority out of the path cut', () => {
-    expect(projectGrepScope('skill://pd*/x', undefined).prefix).toBe(
+    expect(projectGrepScope('skill://pd*/x', HOST).prefix).toBe(
       'skill://pd*/x',
     );
   });
 
   it('normalizes a decoded file alias before the glob cut', () => {
     expect(
-      projectGrepScope('file:///srv/public/../secrets/**', undefined).prefix,
-    ).toBe('/srv/secrets/');
+      projectGrepScope('file:///srv/public/../secrets/**', HOST).prefix,
+    ).toBe('machine://host-a/srv/secrets/');
   });
 
   it('keeps a colon in a host scope as path text', () => {
-    expect(projectGrepScope('/repo/v:1/**', undefined).prefix).toBe(
-      '/repo/v:1/',
+    expect(projectGrepScope('/repo/v:1/**', HOST).prefix).toBe(
+      'machine://host-a/repo/v:1/',
     );
   });
 
   it('decodes the literal spellings in a host prefix', () => {
-    expect(projectGrepScope('/home/u/repo/a%2Ab/**', undefined).prefix).toBe(
-      '/home/u/repo/a*b/',
+    expect(projectGrepScope('/home/u/repo/a%2Ab/**', HOST).prefix).toBe(
+      'machine://host-a/home/u/repo/a*b/',
     );
-    expect(
-      projectGrepScope('/home/u/repo/app/%5Bid%5D/', undefined).prefix,
-    ).toBe('/home/u/repo/app/[id]/');
-    expect(projectGrepScope('/w/%25%3F%7B%7D', undefined).prefix).toBe(
-      '/w/%?{}',
+    expect(projectGrepScope('/home/u/repo/app/%5Bid%5D/', HOST).prefix).toBe(
+      'machine://host-a/home/u/repo/app/[id]/',
+    );
+    expect(projectGrepScope('/w/%25%3F%7B%7D', HOST).prefix).toBe(
+      'machine://host-a/w/%25%3F{}',
     );
   });
 
   it('does not decode a file alias a second time', () => {
-    expect(projectGrepScope('file:///tmp/a%252A', undefined).prefix).toBe(
-      '/tmp/a%2A',
+    expect(projectGrepScope('file:///tmp/a%252A', HOST).prefix).toBe(
+      'machine://host-a/tmp/a%252A',
     );
-    expect(projectGrepScope('file:///tmp/100%2525', undefined).prefix).toBe(
-      '/tmp/100%25',
+    expect(projectGrepScope('file:///tmp/100%2525', HOST).prefix).toBe(
+      'machine://host-a/tmp/100%2525',
     );
   });
 
   it('decodes another percent sequence in a host prefix as written', () => {
-    expect(projectGrepScope('/home/u/repo/100%41', undefined).prefix).toBe(
-      '/home/u/repo/100%41',
+    // `%41` is not one of the seven spellings: it stays literal text, which
+    // the locator grammar then encodes once, so a decode gives `%41` back.
+    expect(projectGrepScope('/home/u/repo/100%41', HOST).prefix).toBe(
+      'machine://host-a/home/u/repo/100%2541',
     );
   });
 
   it('decodes only the model text of a relative scope under a root', () => {
-    expect(projectGrepScope('src/%2A/**', '/w/a%2Ab').prefix).toBe(
-      '/w/a%2Ab/src/*/',
-    );
-    expect(projectGrepScope('../a%5Bb%5D', '/w/root').prefix).toBe('/w/a[b]');
-    expect(projectGrepScope('sub/a%5Bb%5D', '/w/p%25q').prefix).toBe(
-      '/w/p%25q/sub/a[b]',
-    );
-    expect(projectGrepScope('%2A/x/**', '/').prefix).toBe('/*/x/');
+    expect(
+      projectGrepScope('src/%2A/**', { ...HOST, workspaceRoot: '/w/a%2Ab' })
+        .prefix,
+    ).toBe('machine://host-a/w/a%252Ab/src/*/');
+    expect(
+      projectGrepScope('../a%5Bb%5D', { ...HOST, workspaceRoot: '/w/root' })
+        .prefix,
+    ).toBe('machine://host-a/w/a[b]');
+    expect(
+      projectGrepScope('sub/a%5Bb%5D', { ...HOST, workspaceRoot: '/w/p%25q' })
+        .prefix,
+    ).toBe('machine://host-a/w/p%2525q/sub/a[b]');
+    expect(
+      projectGrepScope('%2A/x/**', { ...HOST, workspaceRoot: '/' }).prefix,
+    ).toBe('machine://host-a/*/x/');
   });
 
   it('decodes a whole absolute scope but not one that names the root', () => {
-    expect(projectGrepScope('/w/a%2Ab/src/**', '/w/a%2Ab').prefix).toBe(
-      '/w/a*b/src/',
-    );
-    expect(projectGrepScope('/w/a%2Ab/', '/w/a%2Ab').prefix).toBe('/w/a%2Ab/');
-    expect(projectGrepScope('/elsewhere/x%2A/**', '/w/a%2Ab').prefix).toBe(
-      '/elsewhere/x*/',
-    );
+    expect(
+      projectGrepScope('/w/a%2Ab/src/**', {
+        ...HOST,
+        workspaceRoot: '/w/a%2Ab',
+      }).prefix,
+    ).toBe('machine://host-a/w/a*b/src/');
+    expect(
+      projectGrepScope('/w/a%2Ab/', { ...HOST, workspaceRoot: '/w/a%2Ab' })
+        .prefix,
+    ).toBe('machine://host-a/w/a%252Ab/');
+    expect(
+      projectGrepScope('/elsewhere/x%2A/**', {
+        ...HOST,
+        workspaceRoot: '/w/a%2Ab',
+      }).prefix,
+    ).toBe('machine://host-a/elsewhere/x*/');
   });
 
   it('decodes a spelled percent once', () => {
-    expect(projectGrepScope('/home/u/repo/a%252A', undefined).prefix).toBe(
-      '/home/u/repo/a%2A',
+    expect(projectGrepScope('/home/u/repo/a%252A', HOST).prefix).toBe(
+      'machine://host-a/home/u/repo/a%252A',
     );
+  });
+
+  it('keeps a machine:// prefix on its canonical spelling', () => {
+    expect(
+      projectGrepScope('machine://build/srv/a/../b/**', {
+        localMachine: 'host-a',
+      }),
+    ).toEqual({
+      submitted: 'machine://build/srv/a/../b/**',
+      prefix: 'machine://build/srv/b/',
+      projectedPath: '/srv/b/',
+    });
   });
 });
 
@@ -294,6 +333,64 @@ describe('evaluateGrepPermission', () => {
       decision: 'reject',
       reference: { groupId: 'grep', list: 'reject', clauseIndex: 0 },
     });
+  });
+
+  it('refuses a bare-path reject on a Machine scope', () => {
+    const context = contextWith({
+      grep: {
+        allow: true,
+        reject: [{ field: 'scopes', regex: '^/etc/' }],
+      },
+    });
+
+    expect(
+      evaluateGrepPermission(
+        { patterns: ['x'], scopes: ['machine://host-a/etc/**'] },
+        context,
+      ),
+    ).toMatchObject({ decision: 'reject', reason: 'explicit_reject' });
+    expect(
+      evaluateGrepPermission({ patterns: ['x'], scopes: ['/etc/**'] }, context),
+    ).toMatchObject({ decision: 'reject', reason: 'explicit_reject' });
+  });
+
+  it('admits a bare scope on the Machine an allow names', () => {
+    const allowed = contextWith({
+      grep: {
+        allow: [{ field: 'scopes', regex: '^machine://host-a/srv/' }],
+      },
+    });
+
+    expect(
+      evaluateGrepPermission({ patterns: ['x'], scopes: ['/srv/**'] }, allowed)
+        ?.decision,
+    ).toBe('allow');
+
+    const otherMachine = contextWith({
+      grep: {
+        allow: [{ field: 'scopes', regex: '^machine://gpu/srv/' }],
+      },
+    });
+
+    expect(
+      evaluateGrepPermission(
+        { patterns: ['x'], scopes: ['/srv/**'] },
+        otherMachine,
+      ),
+    ).toMatchObject({ decision: 'reject', reason: 'no_allow' });
+  });
+
+  it('lets an all-fields reject see a projected path', () => {
+    const context = contextWith({
+      grep: { allow: true, reject: [{ allFields: true, regex: '^/etc/' }] },
+    });
+
+    expect(
+      evaluateGrepPermission(
+        { patterns: ['x'], scopes: ['machine://host-a/etc/**'] },
+        context,
+      ),
+    ).toMatchObject({ decision: 'reject', reason: 'explicit_reject' });
   });
 
   it('refuses an encoded bracket against a reject of the decoded path', () => {

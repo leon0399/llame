@@ -42,7 +42,7 @@ describe('defaultTargetProblem', () => {
   it('refuses a checkout on another executor', () => {
     expect(
       defaultTargetProblem(
-        { kind: 'main', repositoryId: 'repo-a', executorId: 'machine:nas' },
+        { kind: 'main', repositoryId: 'repo-a', executorId: 'nas' },
         link,
         'host',
       ),

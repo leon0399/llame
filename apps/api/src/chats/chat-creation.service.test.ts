@@ -18,6 +18,7 @@ import {
   type LlameConfig,
 } from '../instance-config/llame-config';
 import { type MachinesService } from '../machines/machines.service';
+import { MachineConnector } from '../machines/machine-connector.service';
 import { type MachineStatusView } from '../machines/machines-status';
 import { ProjectLinksRepository } from '../projects/project-links.repository';
 import { ProjectsRepository } from '../projects/projects-repository';
@@ -55,15 +56,28 @@ const PROJECT_ID = '11111111-1111-4111-8111-111111111111';
 const REPOSITORY_ID = '22222222-2222-4222-8222-222222222222';
 const CHECKOUT_ID = '55555555-5555-4555-8555-555555555555';
 const LINK_ID = '44444444-4444-4444-8444-444444444444';
-const ROOT = '/srv/llame';
+const MACHINE = 'machine://host-a';
+const ROOT_PATH = '/srv/llame';
+const ROOT = `${MACHINE}${ROOT_PATH}`;
+
+/** The Machines this process knows: all of them here, plus one it cannot reach. */
+const MACHINES = {
+  local: 'host-a',
+  default: 'host-a',
+  hosts: {
+    'host-a': {},
+    nas: { destination: 'nas.example' },
+    attic: { destination: 'attic.example' },
+  },
+} satisfies NonNullable<LlameConfig['machines']>;
 
 function configWith(tools: Partial<LlameConfig['tools']> = {}): LlameConfig {
   return {
     ...BUILT_IN_DEFAULTS,
+    machines: MACHINES,
     tools: {
       ...BUILT_IN_DEFAULTS.tools,
       allowed: ['enter_workspace'],
-      nativeExecutorId: 'host',
       ...tools,
     },
   };
@@ -143,7 +157,7 @@ function checkoutRow(overrides: Partial<Checkout> = {}): Checkout {
     id: CHECKOUT_ID,
     ownerUserId: OWNER,
     repositoryId: REPOSITORY_ID,
-    executorId: 'host',
+    executorId: 'host-a',
     path: ROOT,
     kind: 'main',
     parentCheckoutId: null,
@@ -174,7 +188,7 @@ function defaultRow(): ProjectRepositoryDefault {
     id: '66666666-6666-4666-8666-666666666666',
     ownerUserId: OWNER,
     projectRepositoryId: LINK_ID,
-    executorId: 'host',
+    executorId: 'host-a',
     checkoutId: CHECKOUT_ID,
     createdAt: CREATED_AT,
     updatedAt: CREATED_AT,
@@ -347,7 +361,10 @@ function makeService(options: {
     .spyOn(ProjectsService.prototype, 'recordProjectDefault')
     .mockResolvedValue(defaultRow());
 
-  const listMachines = vi.fn(() => Promise.resolve(options.machines ?? []));
+  const listMachines = vi.fn(() =>
+    Promise.resolve(options.machines ?? [machineView('host-a', 'online')]),
+  );
+
   const machines = asDouble<MachinesService>({ list: listMachines });
 
   const runExclusively = vi.fn(
@@ -374,10 +391,17 @@ function makeService(options: {
 
   const projects = new ProjectsService(tenantDb);
 
+  const connector = new MachineConnector({
+    machines: config.machines,
+    hubVersion: 'test-hub',
+    bindIdentity: () => Promise.resolve('match'),
+  });
+
   return {
     service: new ChatCreationService(
       tenantDb,
       { config },
+      connector,
       machines,
       projects,
       locks,
@@ -428,16 +452,13 @@ describe('ChatCreationService validation before any write', () => {
     const service = makeService({ stubs });
 
     await expect(
-      service.service.create(
-        OWNER,
-        request({ executorId: 'machine:basement' }),
-      ),
+      service.service.create(OWNER, request({ executorId: 'basement' })),
     ).rejects.toMatchObject({
       status: 422,
       response: {
         statusCode: 422,
         error: 'Unprocessable Entity',
-        message: 'Executor machine:basement is not configured.',
+        message: 'Executor basement is not configured.',
         code: 'executor_unknown',
       },
     });
@@ -523,7 +544,7 @@ describe('ChatCreationService Workspace outcomes', () => {
     service.enter.mockResolvedValue({
       status: 'bound',
       root: ROOT,
-      executorId: 'host',
+      executorId: 'host-a',
     });
 
     const response = await service.service.create(
@@ -542,7 +563,7 @@ describe('ChatCreationService Workspace outcomes', () => {
 
     expect(response).toEqual({
       chat: expect.objectContaining({ id: CHAT_ID }),
-      workspace: { status: 'bound', root: ROOT, executorId: 'host' },
+      workspace: { status: 'bound', root: ROOT, executorId: 'host-a' },
     });
     expect(stubs.createIfAbsent).toHaveBeenCalledWith({
       id: CHAT_ID,
@@ -553,7 +574,7 @@ describe('ChatCreationService Workspace outcomes', () => {
       ownerUserId: OWNER,
       chatId: CHAT_ID,
       permissionMode: 'default',
-      target: { executorId: 'host', machine: undefined, path: ROOT },
+      target: { executorId: 'host-a', machine: 'host-a', path: ROOT_PATH },
       checkout: checkoutRow(),
       repository: repositoryRow(),
       // An omitted `worktree` carries no object: presence decides the bind.
@@ -562,7 +583,7 @@ describe('ChatCreationService Workspace outcomes', () => {
     expect(service.recordProjectDefault).toHaveBeenCalledWith(
       OWNER,
       LINK_ID,
-      'host',
+      'host-a',
       CHECKOUT_ID,
     );
     expect(service.startFirstRun).toHaveBeenCalledWith({
@@ -581,7 +602,7 @@ describe('ChatCreationService Workspace outcomes', () => {
     service.enter.mockResolvedValue({
       status: 'bound',
       root: ROOT,
-      executorId: 'host',
+      executorId: 'host-a',
     });
     service.recordProjectDefault.mockRejectedValue(
       new Error('the defaults table is unavailable'),
@@ -604,7 +625,7 @@ describe('ChatCreationService Workspace outcomes', () => {
     expect(response.workspace).toEqual({
       status: 'bound',
       root: ROOT,
-      executorId: 'host',
+      executorId: 'host-a',
     });
     expect(service.startFirstRun).toHaveBeenCalledTimes(1);
   });
@@ -616,7 +637,7 @@ describe('ChatCreationService Workspace outcomes', () => {
     service.enter.mockResolvedValue({
       status: 'bound',
       root: ROOT,
-      executorId: 'host',
+      executorId: 'host-a',
     });
 
     await service.service.create(
@@ -906,7 +927,7 @@ describe('ChatCreationService resend rules', () => {
     stubs.findChatById.mockResolvedValue({
       ...chat,
       workspaceRoot: ROOT,
-      workspaceExecutorId: 'host',
+      workspaceExecutorId: 'host-a',
       workspaceGeneration: 1,
       artifactSeq: 0,
     });
@@ -927,7 +948,7 @@ describe('ChatCreationService resend rules', () => {
     expect(response.workspace).toEqual({
       status: 'bound',
       root: ROOT,
-      executorId: 'host',
+      executorId: 'host-a',
     });
     expect(service.enter).not.toHaveBeenCalled();
     expect(stubs.createIfAbsent).not.toHaveBeenCalled();
@@ -988,7 +1009,7 @@ describe('ChatCreationService resend rules', () => {
     stubs.findChatById.mockResolvedValue({
       ...chat,
       workspaceRoot: worktreeRow.path,
-      workspaceExecutorId: 'host',
+      workspaceExecutorId: 'host-a',
     });
     const bound = makeService({ stubs });
 
@@ -1007,7 +1028,7 @@ describe('ChatCreationService resend rules', () => {
     stubs.findChatById.mockResolvedValue({
       ...chat,
       workspaceRoot: ROOT,
-      workspaceExecutorId: 'host',
+      workspaceExecutorId: 'host-a',
     });
     const bare = makeService({ stubs });
 
@@ -1016,7 +1037,7 @@ describe('ChatCreationService resend rules', () => {
     expect(bareResponse.workspace).toStrictEqual({
       status: 'bound',
       root: ROOT,
-      executorId: 'host',
+      executorId: 'host-a',
     });
   });
 
@@ -1044,7 +1065,7 @@ describe('ChatCreationService resend rules', () => {
     expect(response.workspace).toEqual({
       status: 'bound',
       root: worktreeRow.path,
-      executorId: 'host',
+      executorId: 'host-a',
       worktree: {
         path: worktreeRow.path,
         branch: 'llame/one',
@@ -1054,7 +1075,7 @@ describe('ChatCreationService resend rules', () => {
     expect(stubs.bindAtCreation).toHaveBeenCalledWith({
       chatId: CHAT_ID,
       ownerUserId: OWNER,
-      executorId: 'host',
+      executorId: 'host-a',
       root: worktreeRow.path,
     });
     expect(service.enter).not.toHaveBeenCalled();
@@ -1163,33 +1184,49 @@ describe('ChatCreationService offline executors', () => {
   it('answers machine_unavailable for an explicit offline Machine', async () => {
     const stubs = stubRepositories();
     resolvableCatalog(stubs);
-    stubs.findCheckout.mockResolvedValue(
-      checkoutRow({ executorId: 'machine:nas' }),
-    );
+    stubs.findCheckout.mockResolvedValue(checkoutRow({ executorId: 'nas' }));
     stubs.listMainCheckouts.mockResolvedValue([
-      checkoutRow({ executorId: 'machine:nas' }),
+      checkoutRow({ executorId: 'nas' }),
     ]);
 
     const service = makeService({
       stubs,
       machines: [machineView('nas', 'offline')],
-      config: {
-        ...configWith(),
-        machines: {
-          ssh: { knownHostsFile: '/dev/null' },
-          hosts: { nas: { destination: 'nas.example' } },
-        },
-      },
+      config: configWith(),
     });
 
     const response = await service.service.create(
       OWNER,
-      request({ projectId: PROJECT_ID, executorId: 'machine:nas' }),
+      request({ projectId: PROJECT_ID, executorId: 'nas' }),
     );
 
     expect(response.workspace).toMatchObject({
       status: 'machine_unavailable',
-      message: expect.stringContaining('machine:nas'),
+      message: expect.stringContaining('nas'),
+    });
+    expect(service.enter).not.toHaveBeenCalled();
+  });
+
+  it('answers machine_unavailable for an offline host Machine', async () => {
+    const stubs = stubRepositories();
+    resolvableCatalog(stubs);
+
+    const service = makeService({
+      stubs,
+      machines: [machineView('host-a', 'offline')],
+      config: configWith(),
+    });
+
+    const response = await service.service.create(
+      OWNER,
+      request({ projectId: PROJECT_ID, executorId: 'host-a' }),
+    );
+
+    // The host Machine has no exemption: its status row is derived from the
+    // local daemon's contact like every other Machine's.
+    expect(response.workspace).toMatchObject({
+      status: 'machine_unavailable',
+      message: expect.stringContaining('host-a'),
     });
     expect(service.enter).not.toHaveBeenCalled();
   });
@@ -1220,12 +1257,12 @@ describe('ChatCreationService offline executors', () => {
   it('drops an offline project default so the implicit step skips it', async () => {
     const stubs = stubRepositories();
     stubs.findProject.mockResolvedValue(
-      projectRow({ defaultExecutorId: 'machine:nas' }),
+      projectRow({ defaultExecutorId: 'nas' }),
     );
     stubs.listLinks.mockResolvedValue([linkRow()]);
     stubs.listMainCheckouts.mockResolvedValue([
-      checkoutRow({ executorId: 'machine:nas' }),
-      checkoutRow({ id: 'other-checkout', executorId: 'host' }),
+      checkoutRow({ executorId: 'nas' }),
+      checkoutRow({ id: 'other-checkout', executorId: 'host-a' }),
     ]);
     stubs.findCheckout.mockImplementation((_owner, checkoutId) =>
       Promise.resolve(
@@ -1238,14 +1275,11 @@ describe('ChatCreationService offline executors', () => {
 
     const service = makeService({
       stubs,
-      machines: [machineView('nas', 'offline')],
-      config: {
-        ...configWith(),
-        machines: {
-          ssh: { knownHostsFile: '/dev/null' },
-          hosts: { nas: { destination: 'nas.example' } },
-        },
-      },
+      machines: [
+        machineView('host-a', 'online'),
+        machineView('nas', 'offline'),
+      ],
+      config: configWith(),
     });
 
     service.enter.mockResolvedValue({ status: 'bound', root: ROOT });
@@ -1259,7 +1293,7 @@ describe('ChatCreationService offline executors', () => {
     // sorts, so the local executor wins the implicit step.
     expect(service.enter).toHaveBeenCalledWith(
       expect.objectContaining({
-        target: { executorId: 'host', machine: undefined, path: ROOT },
+        target: { executorId: 'host-a', machine: 'host-a', path: ROOT_PATH },
       }),
     );
   });

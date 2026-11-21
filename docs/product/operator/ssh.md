@@ -22,8 +22,9 @@ behavior contract is the
 what a result contains is in the
 [ssh locator reference](../reference/locators/ssh.md).
 
-SSH locators and the local executor (`tools.nativeExecutorId`) are independent:
-configure either, both, or neither. They are operator-wide: every user whose Run
+SSH locators and Machines are independent: configure either, both, or neither.
+`ssh://` needs no Machine, while an allowlisted native tool still requires
+`machines.default`. They are operator-wide: every user whose Run
 passes `tools.allowed` and `tools.permissions` can address them, with the SSH
 identity of the instance.
 
@@ -61,9 +62,9 @@ type fails startup naming the field. Relative paths resolve from the
 configuration file, and `~/` from the llame process user's home. Every API and
 worker process that executes Runs needs an `ssh` client, the pinned file, and
 whatever the included configuration references; keep `read` and `bash` in
-`tools.allowed` for the users who may use them. The `ssh` section also makes
-`bash` available without a local executor: an `ssh://` `cwd` runs remotely,
-while a local `cwd` is `executor_unavailable`.
+`tools.allowed` for the users who may use them. An `ssh://` command needs no
+Machine of its own. A local `cwd` uses the current Machine, and an `ssh://` `cwd`
+runs remotely.
 
 This section is separate from `machines.ssh`: configuring one does not enable
 the other, so an instance can reach external hosts without declaring a Machine.
@@ -163,8 +164,9 @@ separator kept.
 Rejects run twice: on the submitted text with the selector removed, before
 anything resolves, and then on the resolved locator. A match in either refuses
 the call. The allow is decided once, on the resolved text, and the connection
-uses exactly that user, hostname, and port. A rule anchored at `^/` never
-admits an ssh locator.
+uses exactly that user, hostname, and port. A path regex that begins with `^/`
+fails startup, and a rule written against an absolute path never admits an ssh
+locator.
 
 Allow per host and repeat the local rejects in ssh form:
 
@@ -212,7 +214,7 @@ them and the `bash` group decides each one. Keep `bash` in `tools.allowed` for
 the users who may run remote commands, and write `bash` rules on the full
 arguments, as shown in
 [Permissions on the resolved locator](#permissions-on-the-resolved-locator).
-With no local executor configured, a local `cwd` is `executor_unavailable`; an
+A local `cwd` uses the current Machine; an
 `ssh://` `cwd` still runs, as a `machine://` one does on its Machine.
 
 The login user is the one OpenSSH resolves for the destination, so the identity

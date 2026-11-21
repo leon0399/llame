@@ -85,7 +85,7 @@ export type AdmitAddress = (address: string, locator: string) => boolean;
 
 /** Projects a derived locator exactly as the request will use it. */
 const PROJECT_DERIVED_LOCATOR = (_field: string, value: string): string =>
-  projectNativeFilePath(value);
+  projectNativeFilePath(value).canonical;
 
 /**
  * What the `read` policy decides for a web locator that no `read` call submits

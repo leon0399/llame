@@ -40,8 +40,15 @@ import {
 } from '../instance-config/llame-config';
 import { InstanceConfigService } from '../instance-config/instance-config.service';
 import { WorkerProfileService } from '../instance-config/worker-profile.service';
+import { MachineBindingsRepository } from '../machines/machine-bindings.repository';
+import { MachineConnector } from '../machines/machine-connector.service';
+import { MachinesStatusRepository } from '../machines/machines-status.repository';
 import { ModelsService } from '../models/models.service';
 import { CanonicalSearchCoverageService } from '../search/canonical-search-activation.service';
+import {
+  createProtocolPeer,
+  type ProtocolPeerOptions,
+} from '../testing/machine-protocol-peer';
 import {
   FakeModelsService,
   cookieOf,
@@ -191,13 +198,20 @@ function headOf(directory: string): string {
   return runGit(directory, ['rev-parse', 'HEAD']).trim();
 }
 
+/** The host Machine's name in these fixtures: `machines.local` and default. */
+const HOST = 'creation-host';
+
+/** The canonical locator of one host path, as every result reports it. */
+function rootOf(path: string): string {
+  return `machine://${HOST}${path}`;
+}
+
 function configFor(): LlameConfig {
   return {
     ...BUILT_IN_DEFAULTS,
     tools: {
       ...BUILT_IN_DEFAULTS.tools,
       allowed: ['enter_workspace'],
-      nativeExecutorId: 'creation-host',
       permissionModes: ['default', 'bypass', 'read-only'],
       permissions: {
         enter_workspace: {
@@ -210,7 +224,14 @@ function configFor(): LlameConfig {
     },
     machines: {
       ssh: { knownHostsFile: '/dev/null' },
-      hosts: { nas: { destination: 'nas.example' } },
+      // The host Machine is a normal `machines.hosts` entry; bare paths name
+      // it as `machines.default`.
+      local: HOST,
+      default: HOST,
+      hosts: {
+        [HOST]: {},
+        nas: { destination: 'nas.example' },
+      },
     },
   };
 }
@@ -222,15 +243,41 @@ function configFor(): LlameConfig {
  */
 async function boot(
   config: LlameConfig = configFor(),
-  { workers = true } = {},
+  {
+    workers = true,
+    peer = {},
+  }: { workers?: boolean; peer?: ProtocolPeerOptions } = {},
 ): Promise<Harness> {
   const models = new FakeModelsService();
+  // The host Machine's daemon is an in-process peer: the identity-checked
+  // handshake a local target needs answers without spawning a child, and any
+  // other request reaching it fails the call loudly. The session events go to
+  // the real status writer, because a Machine is only online once its contact
+  // row exists — exactly as the production factory wires it.
+  const daemon = createProtocolPeer({ roots: ['/srv'], ...peer });
 
   const builder = Test.createTestingModule({ imports: [AppModule] })
     .overrideProvider(CanonicalSearchCoverageService)
     .useValue({ assertReady: () => Promise.resolve() })
     .overrideProvider(InstanceConfigService)
-    .useValue({ config })
+    .useValue({ config, productUserAgent: 'llame/test' })
+    .overrideProvider(MachineConnector)
+    .useFactory({
+      inject: [MachinesStatusRepository, MachineBindingsRepository],
+      factory: (
+        status: MachinesStatusRepository,
+        bindings: MachineBindingsRepository,
+      ) =>
+        new MachineConnector({
+          machines: config.machines,
+          hubVersion: 'llame/test',
+          transportFactory: daemon.factory,
+          onContact: (contact) => status.recordContact(contact),
+          bindIdentity: (name, instanceId) =>
+            bindings.bindOrCompare(name, instanceId),
+          idleCloseMs: 1000,
+        }),
+    })
     .overrideProvider(ModelsService)
     .useValue(models);
 
@@ -333,11 +380,18 @@ describe('chat creation over HTTP', () => {
     readonly parentCheckoutId?: string | null;
   }): Promise<string> {
     const id = crypto.randomUUID();
+
+    // A seeded row stores the canonical locator a registration would have
+    // stored; a caller naming another Machine passes one already.
+    const stored = input.path.startsWith('machine://')
+      ? input.path
+      : rootOf(input.path);
+
     await asOwner(
       owner.userId,
       (tx) =>
         tx`INSERT INTO checkouts (id, owner_user_id, repository_id, executor_id, path, kind, parent_checkout_id, branch, origin)
-           VALUES (${id}, ${owner.userId}, ${input.repositoryId}, ${input.executorId ?? 'creation-host'}, ${input.path}, ${input.kind ?? 'main'}, ${input.parentCheckoutId ?? null}, 'main', 'registered')`,
+           VALUES (${id}, ${owner.userId}, ${input.repositoryId}, ${input.executorId ?? HOST}, ${stored}, ${input.kind ?? 'main'}, ${input.parentCheckoutId ?? null}, 'main', 'registered')`,
     );
 
     return id;
@@ -539,7 +593,7 @@ describe('chat creation over HTTP', () => {
     });
     machineCheckoutId = await seedCheckout({
       repositoryId,
-      executorId: 'machine:nas',
+      executorId: 'nas',
       path: 'machine://nas/srv/nas-llame',
     });
   });
@@ -658,7 +712,7 @@ describe('chat creation over HTTP', () => {
 
       const response = await create({
         id: chatId,
-        executorId: 'machine:basement',
+        executorId: 'basement',
       }).expect(422);
 
       expect(response.body).toMatchObject({ code: 'executor_unknown' });
@@ -733,13 +787,13 @@ describe('chat creation over HTTP', () => {
       expect(body.chat).toMatchObject({ id: chatId, projectId });
       expect(body.workspace).toEqual({
         status: 'bound',
-        root: source,
-        executorId: 'creation-host',
+        root: rootOf(source),
+        executorId: HOST,
       });
       expect(await chatRow(chatId)).toMatchObject({
         project_id: projectId,
-        workspace_root: source,
-        workspace_executor_id: 'creation-host',
+        workspace_root: rootOf(source),
+        workspace_executor_id: HOST,
         workspace_generation: 1,
       });
       expect(await countRows('messages', { chatId })).toBe(0);
@@ -749,7 +803,7 @@ describe('chat creation over HTTP', () => {
       const defaults = await defaultsOf(projectId, repositoryId);
       expect(defaults).toMatchObject([
         {
-          executorId: 'creation-host',
+          executorId: HOST,
           checkoutId: mainCheckoutId,
           updatedAt: expect.any(String),
         },
@@ -762,8 +816,8 @@ describe('chat creation over HTTP', () => {
 
       expect(record.attempts).toHaveLength(1);
       expect(record.attempts[0]?.decisions).toMatchObject([
-        { path: source, decision: 'allow', reason: 'matched_allow' },
-        { path: source, decision: 'allow', reason: 'matched_allow' },
+        { path: rootOf(source), decision: 'allow', reason: 'matched_allow' },
+        { path: rootOf(source), decision: 'allow', reason: 'matched_allow' },
       ]);
     });
 
@@ -787,12 +841,12 @@ describe('chat creation over HTTP', () => {
 
       expect(body.workspace).toEqual({
         status: 'bound',
-        root: source,
-        executorId: 'creation-host',
+        root: rootOf(source),
+        executorId: HOST,
       });
       expect(await chatRow(chatId)).toMatchObject({
-        workspace_root: source,
-        workspace_executor_id: 'creation-host',
+        workspace_root: rootOf(source),
+        workspace_executor_id: HOST,
         workspace_generation: 1,
       });
       expect(await runModesOf(chatId)).toEqual(['read-only']);
@@ -826,8 +880,8 @@ describe('chat creation over HTTP', () => {
 
       expect(body.workspace).toEqual({
         status: 'bound',
-        root: secondSource,
-        executorId: 'creation-host',
+        root: rootOf(secondSource),
+        executorId: HOST,
       });
       // The override becomes that link's default; the primary link's stays.
       expect(await defaultsOf(projectId, secondRepositoryId)).toMatchObject([
@@ -926,12 +980,14 @@ describe('chat creation over HTTP', () => {
         'creation-one',
       );
 
+      const stored = rootOf(directory);
+
       expect(body.workspace).toEqual({
         status: 'bound',
-        root: directory,
-        executorId: 'creation-host',
+        root: stored,
+        executorId: HOST,
         worktree: {
-          path: directory,
+          path: stored,
           branch: 'llame/creation-one',
           baseCommit: base,
         },
@@ -940,7 +996,7 @@ describe('chat creation over HTTP', () => {
         'branch refs/heads/llame/creation-one',
       );
       expect(await chatRow(chatId)).toMatchObject({
-        workspace_root: directory,
+        workspace_root: stored,
         workspace_executor_id: 'creation-host',
         workspace_generation: 1,
       });
@@ -949,7 +1005,7 @@ describe('chat creation over HTTP', () => {
         owner.userId,
         (tx) =>
           tx`SELECT id, kind, parent_checkout_id, branch, origin FROM checkouts
-             WHERE owner_user_id = ${owner.userId} AND path = ${directory}`,
+             WHERE owner_user_id = ${owner.userId} AND path = ${stored}`,
       );
 
       expect(worktree).toMatchObject({
@@ -974,7 +1030,7 @@ describe('chat creation over HTTP', () => {
       });
       // The default names the SOURCE main checkout, not the worktree.
       expect(await defaultsOf(projectId, repositoryId)).toMatchObject([
-        { executorId: 'creation-host', checkoutId: mainCheckoutId },
+        { executorId: HOST, checkoutId: mainCheckoutId },
       ]);
       expect(await countRows('messages', { chatId })).toBe(1);
       expect(await countRows('runs', { chatId })).toBe(1);
@@ -1000,7 +1056,7 @@ describe('chat creation over HTTP', () => {
 
       expect(body.workspace).toMatchObject({
         status: 'bound',
-        executorId: 'creation-host',
+        executorId: HOST,
         worktree: { branch: 'llame/creation-read-only' },
       });
       expect(await chatRow(chatId)).toMatchObject({
@@ -1124,7 +1180,11 @@ describe('chat creation over HTTP', () => {
 
       expect(record.attempts).toHaveLength(1);
       expect(record.attempts[0]?.decisions).toMatchObject([
-        { path: deniedPath, decision: 'reject', reason: 'explicit_reject' },
+        {
+          path: rootOf(deniedPath),
+          decision: 'reject',
+          reason: 'explicit_reject',
+        },
       ]);
     });
 
@@ -1147,7 +1207,7 @@ describe('chat creation over HTTP', () => {
 
       expect(body.workspace).toMatchObject({
         status: 'bound',
-        root: deniedPath,
+        root: rootOf(deniedPath),
       });
 
       const record = creationRecordSchema.parse(
@@ -1156,12 +1216,12 @@ describe('chat creation over HTTP', () => {
 
       expect(record.attempts[0]?.decisions).toMatchObject([
         {
-          path: deniedPath,
+          path: rootOf(deniedPath),
           decision: 'allow',
           reason: 'permission_mode_bypass',
         },
         {
-          path: deniedPath,
+          path: rootOf(deniedPath),
           decision: 'allow',
           reason: 'permission_mode_bypass',
         },
@@ -1224,7 +1284,7 @@ describe('chat creation over HTTP', () => {
 
       expect(body.workspace).toMatchObject({
         status: 'machine_unavailable',
-        message: expect.stringContaining('machine:nas'),
+        message: expect.stringContaining('nas is offline'),
       });
       expect(await chatRow(chatId)).toMatchObject({
         workspace_root: null,
@@ -1257,7 +1317,10 @@ describe('chat creation over HTTP', () => {
 
       const body = createResponseSchema.parse(resent.body);
 
-      expect(body.workspace).toMatchObject({ status: 'bound', root: source });
+      expect(body.workspace).toMatchObject({
+        status: 'bound',
+        root: rootOf(source),
+      });
       expect(await countRows('messages', { chatId })).toBe(1);
       expect(await countRows('runs', { chatId })).toBe(1);
 
@@ -1279,7 +1342,7 @@ describe('chat creation over HTTP', () => {
         .expect(200);
 
       await create({ id: chatId, projectId }).expect(409);
-      expect((await chatRow(chatId)).workspace_root).toBe(source);
+      expect((await chatRow(chatId)).workspace_root).toBe(rootOf(source));
     });
 
     it('names a project mismatch with its body code', async () => {
@@ -1354,7 +1417,7 @@ describe('chat creation over HTTP', () => {
       await create({
         id: disagreeingExecutor,
         checkoutId: mainCheckoutId,
-        executorId: 'machine:nas',
+        executorId: 'nas',
       }).expect(422);
       expect(await chatRow(disagreeingExecutor)).toBeUndefined();
     });

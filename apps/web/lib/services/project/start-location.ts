@@ -96,22 +96,11 @@ export function useStartLocationPreview(
   });
 }
 
-/** The Machine an executor id names; the local executor names none. */
-export function machineNameFromExecutorId(
-  executorId: string,
-): string | undefined {
-  const prefix = "machine:";
-
-  if (!executorId.startsWith(prefix)) return undefined;
-  const name = executorId.slice(prefix.length);
-
-  return name.length === 0 ? undefined : name;
-}
-
 export type ExecutorOption = {
+  /** The Machine's name: an executor id IS a Machine name. */
   executorId: string;
   label: string;
-  /** `main` checkouts of the chosen repository on this executor. */
+  /** `main` checkouts of the chosen repository on this Machine. */
   mainCheckouts: number;
   /** Why the cascade disables it, or null when it can start a chat. */
   reason: string | null;
@@ -123,15 +112,14 @@ export type UnavailableExecutor = {
   reason: string;
 };
 
-/** An executor id as a reader reads it: the Machine's name, or the id itself. */
+/** An executor id as a reader reads it: the Machine's configured name, or the
+ *  id itself when the list names no such Machine. Every executor id is a
+ *  Machine name — the host is a Machine like any other. */
 export function executorLabel(
   executorId: string,
   machines: ReadonlyArray<MachineResponse> | undefined,
 ): string {
-  const machineName = machineNameFromExecutorId(executorId);
-  const machine = findMachineByName(machines, machineName);
-
-  return machine?.name ?? machineName ?? executorId;
+  return findMachineByName(machines, executorId)?.name ?? executorId;
 }
 
 function executorOption(
@@ -139,21 +127,20 @@ function executorOption(
   executorId: string,
   unavailable: UnavailableExecutor | null,
 ): Omit<ExecutorOption, "mainCheckouts"> {
-  const machineName = machineNameFromExecutorId(executorId);
-  const machine = findMachineByName(machines, machineName);
-  const label = executorLabel(executorId, machines);
+  const machine = findMachineByName(machines, executorId);
+  const label = machine?.name ?? executorId;
 
   if (unavailable?.executorId === executorId) {
     return { executorId, label, reason: unavailable.reason };
   }
 
-  if (machineName === undefined) return { executorId, label, reason: null };
-
+  // No answer yet is not "not configured": the host's own row arrives with the
+  // list, and disabling a usable Machine until then would flash a warning.
   if (machine === undefined) {
     return {
       executorId,
       label,
-      reason: "This Machine is not configured.",
+      reason: machines === undefined ? null : "This Machine is not configured.",
     };
   }
 
@@ -180,10 +167,10 @@ export type ExecutorOptionsInput = {
 };
 
 /**
- * The Machine level: every executor that holds a `main` checkout of the chosen
- * repository, with offline Machines disabled and their reason named. Implicit
- * resolution skips those Machines, so the level never offers one as a default
- * it would then refuse.
+ * The Machine level: every Machine that holds a `main` checkout of the chosen
+ * repository, with offline Machines disabled and their reason named. The host
+ * is a Machine like any other. Implicit resolution skips those Machines, so
+ * the level never offers one as a default it would then refuse.
  */
 export function executorOptions(
   input: ExecutorOptionsInput,

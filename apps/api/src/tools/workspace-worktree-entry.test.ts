@@ -26,10 +26,6 @@ import { WorkspaceBindingRepository } from '../chats/workspace-binding.repositor
 import { ExecutorGit } from '../machines/executor-git.service';
 import { ExecutorGitError } from '../machines/executor-git-error';
 import { MachineConnector } from '../machines/machine-connector.service';
-import {
-  BUILT_IN_DEFAULTS,
-  type LlameConfig,
-} from '../instance-config/llame-config';
 import { RepositoriesRepository } from '../repositories/repositories.repository';
 import { NativeFilesRepository } from '../runs/native-files-repository';
 import { RunEventsRepository } from '../runs/runs-repository';
@@ -39,6 +35,10 @@ import {
   type PeerCall,
   type ProtocolPeerOptions,
 } from '../testing/machine-protocol-peer';
+import {
+  localMachineConnector,
+  type LocalMachineConnector,
+} from '../testing/local-machine';
 import { localGitSurface } from '../machines/executor-git.service';
 import { machineIdentityMismatchResult } from './machine-call';
 import { compileToolPermissionMap } from './permissions/compile-permissions';
@@ -158,18 +158,14 @@ function executors(): ExecutorGit {
   const connector = new MachineConnector({
     hubVersion: 'test-hub',
     bindIdentity: () => Promise.resolve('match'),
-    machines: undefined,
+    machines: { local: HOST, default: HOST, hosts: { [HOST]: {} } },
     transportFactory: createProtocolPeer().factory,
     idleCloseMs: 1000,
   });
 
   connectors.push(connector);
 
-  return new ExecutorGit(
-    { config: configWith({}) },
-    connector,
-    localGitSurface(),
-  );
+  return new ExecutorGit(connector, localGitSurface());
 }
 
 const MACHINE = 'nas';
@@ -200,11 +196,7 @@ function machineFixture(options: ProtocolPeerOptions) {
 
   return {
     peer,
-    executors: new ExecutorGit(
-      { config: configWith({}) },
-      connector,
-      localGitSurface(),
-    ),
+    executors: new ExecutorGit(connector, localGitSurface()),
     connector,
   };
 }
@@ -232,22 +224,33 @@ function statPath(call: PeerCall): string | undefined {
   return isString(path) ? path : undefined;
 }
 
-function configWith(tools: Partial<LlameConfig['tools']>): LlameConfig {
-  return {
-    ...BUILT_IN_DEFAULTS,
-    tools: {
-      ...BUILT_IN_DEFAULTS.tools,
-      nativeExecutorId: 'worktree-host',
-      ...tools,
-    },
-  };
-}
-
 function policy(group: PermissionGroup = { allow: true }): CompiledPolicy {
   return compileToolPermissionMap(
     { enter_workspace: group, exit_workspace: { allow: true } },
     'worktree-test',
   );
+}
+
+/** The Machine this process hosts in every local fixture of this suite. */
+const HOST = 'worktree-host';
+
+/** The canonical locator of one absolute path on the local Machine. */
+function onHost(path: string): string {
+  return `machine://${HOST}${path}`;
+}
+
+const localConnectors: Array<LocalMachineConnector> = [];
+
+afterEach(() => {
+  for (const connector of localConnectors.splice(0))
+    connector.onModuleDestroy();
+});
+
+function hostConnector(): LocalMachineConnector {
+  const connector = localMachineConnector({ name: HOST });
+  localConnectors.push(connector);
+
+  return connector;
 }
 
 function context(overrides: Partial<ToolContext> = {}): ToolContext {
@@ -260,7 +263,9 @@ function context(overrides: Partial<ToolContext> = {}): ToolContext {
 
   return {
     runId: 'run-1',
-    nativeExecutorId: 'worktree-host',
+    localMachine: HOST,
+    defaultMachine: HOST,
+    ...(overrides.machines === undefined && { machines: hostConnector() }),
     nativeDeliverySequence: 4,
     toolCallId: 'call-1',
     userId: 'owner-1',
@@ -420,10 +425,10 @@ describe('enter_workspace with a worktree', () => {
 
     expect(result).toMatchObject({
       status: 'success',
-      root: directory,
+      root: onHost(directory),
       state: 'bound',
       worktree: {
-        path: directory,
+        path: onHost(directory),
         branch: 'llame/clear-field-0192',
         baseCommit: base,
       },
@@ -441,14 +446,14 @@ describe('enter_workspace with a worktree', () => {
     );
     const main = database.createCheckout.mock.calls[0]?.[0];
     expect(isRecord(main) ? main : {}).toMatchObject({
-      path: source,
+      path: onHost(source),
       kind: 'main',
       origin: 'adopted',
       parentCheckoutId: null,
     });
     const worktree = database.createCheckout.mock.calls[1]?.[0];
     expect(isRecord(worktree) ? worktree : {}).toMatchObject({
-      path: directory,
+      path: onHost(directory),
       kind: 'worktree',
       origin: 'created',
       branch: 'llame/clear-field-0192',
@@ -464,15 +469,15 @@ describe('enter_workspace with a worktree', () => {
     expect(database.begin).toHaveBeenCalledWith(
       expect.objectContaining({
         operation: 'worktree',
-        path: directory,
-        fence: { bound: true, executorId: 'worktree-host' },
+        path: onHost(directory),
+        fence: { bound: true, executorId: HOST },
       }),
     );
     expect(database.enter).toHaveBeenCalledWith(
       expect.objectContaining({
-        root: directory,
-        executorId: 'worktree-host',
-        bindExecutorId: 'worktree-host',
+        root: onHost(directory),
+        executorId: HOST,
+        bindExecutorId: HOST,
       }),
     );
     expect(database.append).toHaveBeenCalledWith(
@@ -480,7 +485,10 @@ describe('enter_workspace with a worktree', () => {
       'native.result',
       expect.objectContaining({
         toolCallId: 'call-1',
-        result: expect.objectContaining({ status: 'success', root: directory }),
+        result: expect.objectContaining({
+          status: 'success',
+          root: onHost(directory),
+        }),
       }),
     );
   });
@@ -509,7 +517,9 @@ describe('enter_workspace with a worktree', () => {
     expect(result).toMatchObject({
       status: 'success',
       worktree: {
-        path: join(source, '..', '.llame-worktrees', 'llame', 'feature-login'),
+        path: onHost(
+          join(source, '..', '.llame-worktrees', 'llame', 'feature-login'),
+        ),
         branch: 'feature/login',
       },
     });
@@ -600,9 +610,9 @@ describe('enter_workspace with a worktree', () => {
     database.findCheckoutByPath.mockImplementation(
       (_owner: string, _executor: string, path: string) =>
         Promise.resolve(
-          path === source
+          path === onHost(source)
             ? checkoutRow({
-                path: source,
+                path: onHost(source),
                 repositoryId: 'repo-1',
                 worktreeBase: base,
               })
@@ -616,7 +626,7 @@ describe('enter_workspace with a worktree', () => {
 
     expect(result).toMatchObject({
       status: 'success',
-      root: join(base, 'llame', 'clear-field-0192'),
+      root: onHost(join(base, 'llame', 'clear-field-0192')),
     });
     expect(existsSync(join(source, '..', '.llame-worktrees'))).toBe(false);
   });
@@ -633,7 +643,9 @@ describe('enter_workspace with a worktree', () => {
 
     expect(result).toMatchObject({
       status: 'success',
-      root: join(source, '..', '.llame-worktrees', 'llame', 'clear-field-0192'),
+      root: onHost(
+        join(source, '..', '.llame-worktrees', 'llame', 'clear-field-0192'),
+      ),
     });
   });
 
@@ -649,9 +661,17 @@ describe('enter_workspace with a worktree', () => {
       name: 'clear-field-0192',
     });
 
+    const directory = join(
+      source,
+      '..',
+      '.llame-worktrees',
+      'llame',
+      'clear-field-0192',
+    );
+
     expect(result).toMatchObject({
       status: 'success',
-      root: join(source, '..', '.llame-worktrees', 'llame', 'clear-field-0192'),
+      root: onHost(directory),
     });
 
     const paths = database.createCheckout.mock.calls.map(
@@ -660,9 +680,9 @@ describe('enter_workspace with a worktree', () => {
 
     // The main clone, the linked source the owner entered, and the new worktree.
     expect(paths).toStrictEqual([
-      source,
-      linked,
-      join(source, '..', '.llame-worktrees', 'llame', 'clear-field-0192'),
+      onHost(source),
+      onHost(linked),
+      onHost(directory),
     ]);
     expect(database.createCheckout.mock.calls[1]?.[0]).toMatchObject({
       kind: 'worktree',
@@ -685,25 +705,21 @@ describe('enter_workspace with a worktree', () => {
       name: 'clear-field-0192',
     });
 
+    const directory = join(
+      source,
+      '..',
+      '.llame-worktrees',
+      'renamed',
+      'clear-field-0192',
+    );
+
     expect(result).toMatchObject({
       status: 'success',
-      root: join(
-        source,
-        '..',
-        '.llame-worktrees',
-        'renamed',
-        'clear-field-0192',
-      ),
+      root: onHost(directory),
     });
     expect(database.createRepository).not.toHaveBeenCalled();
     expect(database.createCheckout.mock.calls[0]?.[0]).toMatchObject({
-      path: join(
-        source,
-        '..',
-        '.llame-worktrees',
-        'renamed',
-        'clear-field-0192',
-      ),
+      path: onHost(directory),
       parentCheckoutId: 'main-recorded',
     });
   });
@@ -908,7 +924,7 @@ describe('enter_workspace with a worktree', () => {
     expect(result).not.toHaveProperty('leftDirectory');
     expect(canonical).toHaveBeenCalledWith(
       expect.anything(),
-      join(source, '..', '.llame-worktrees', 'llame', 'taken'),
+      onHost(join(source, '..', '.llame-worktrees', 'llame', 'taken')),
     );
     expect(remove).toHaveBeenCalledOnce();
     expect(database.createCheckout).not.toHaveBeenCalled();
@@ -946,7 +962,7 @@ describe('enter_workspace with a worktree', () => {
       type: 'worktree_failed',
       message: 'fatal: not a working tree',
     });
-    expect(result).toHaveProperty('leftDirectory', directory);
+    expect(result).toHaveProperty('leftDirectory', onHost(directory));
   });
 
   it('answers a refused real-path check with the executor code it raised', async () => {
@@ -987,7 +1003,7 @@ describe('enter_workspace with a worktree', () => {
     expect(result).toMatchObject({
       status: 'error',
       type: 'executor_unavailable',
-      leftDirectory: directory,
+      leftDirectory: onHost(directory),
       message:
         'The Workspace binding was superseded; the worktree directory remains on disk.',
     });
@@ -1021,8 +1037,8 @@ describe('the decisions of a worktree entry', () => {
     const worktreeContext = context({
       executorGit: executorsOf,
       permissionPolicy: policy({
-        allow: [{ field: 'path', regex: '^/deeper/' }],
-        reject: [{ field: 'path', regex: `^${source}$` }],
+        allow: [{ field: 'path', regex: '^machine://[^/]+/deeper/' }],
+        reject: [{ field: 'path', regex: `^\\${source}$` }],
       }),
     });
 
@@ -1046,8 +1062,8 @@ describe('the decisions of a worktree entry', () => {
     const worktreeContext = context({
       executorGit: executorsOf,
       permissionPolicy: policy({
-        allow: [{ field: 'path', regex: '^/' }],
-        reject: [{ field: 'path', regex: `^${source}$` }],
+        allow: [{ field: 'path', regex: '^machine://[^/]+/' }],
+        reject: [{ field: 'path', regex: `^\\${source}$` }],
       }),
     });
 
@@ -1071,8 +1087,8 @@ describe('the decisions of a worktree entry', () => {
     const worktreeContext = context({
       executorGit: executorsOf,
       permissionPolicy: policy({
-        allow: [{ field: 'path', regex: '^/' }],
-        reject: [{ field: 'path', regex: `^${source}$` }],
+        allow: [{ field: 'path', regex: '^machine://[^/]+/' }],
+        reject: [{ field: 'path', regex: `^\\${source}$` }],
       }),
     });
 
@@ -1095,8 +1111,8 @@ describe('the decisions of a worktree entry', () => {
     const worktreeContext = context({
       executorGit: executorsOf,
       permissionPolicy: policy({
-        allow: [{ field: 'path', regex: '^/' }],
-        reject: [{ field: 'path', regex: `^${source}$` }],
+        allow: [{ field: 'path', regex: '^machine://[^/]+/' }],
+        reject: [{ field: 'path', regex: `^\\${source}$` }],
       }),
     });
 
@@ -1117,7 +1133,7 @@ describe('the decisions of a worktree entry', () => {
     const worktreeContext = context({
       executorGit: executorsOf,
       permissionPolicy: policy({
-        allow: [{ field: 'path', regex: '^/' }],
+        allow: [{ field: 'path', regex: '^machine://[^/]+/' }],
         reject: [{ field: 'path', regex: '\\.llame-worktrees/' }],
       }),
     });
@@ -1143,7 +1159,7 @@ describe('the decisions of a worktree entry', () => {
 
     expect(result).toMatchObject({
       status: 'success',
-      root: join(elsewhere, 'llame', 'clear-field-0192'),
+      root: onHost(join(elsewhere, 'llame', 'clear-field-0192')),
     });
     expect(
       existsSync(join(elsewhere, 'llame', 'clear-field-0192', 'README.md')),
@@ -1166,11 +1182,13 @@ describe('the decisions of a worktree entry', () => {
     );
 
     expect(decisions.map((decision) => [decision.kind, decision.url])).toEqual([
-      ['canonical', subdirectory],
-      ['main_clone', source],
+      ['canonical', onHost(subdirectory)],
+      ['main_clone', onHost(source)],
       [
         'worktree_directory',
-        join(source, '..', '.llame-worktrees', 'llame', 'clear-field-0192'),
+        onHost(
+          join(source, '..', '.llame-worktrees', 'llame', 'clear-field-0192'),
+        ),
       ],
     ]);
   });
@@ -1273,7 +1291,7 @@ describe('worktree failures that come from the executor', () => {
     expect(result).toMatchObject({
       status: 'error',
       type: 'outcome_unknown',
-      leftDirectory: directory,
+      leftDirectory: onHost(directory),
       message:
         'The worktree may exist on the Machine; inspect it before retrying. refused',
     });
@@ -1539,18 +1557,18 @@ describe('the source clone a worktree entry reads', () => {
     database.findCheckoutByPath.mockImplementation(
       (_owner: string, _executor: string, path: string) =>
         Promise.resolve(
-          path === linked
+          path === onHost(linked)
             ? checkoutRow({
                 id: 'linked-row',
-                path: linked,
+                path: onHost(linked),
                 kind: 'worktree',
                 parentCheckoutId: 'parent-row',
                 branch: 'feature',
               })
-            : path === source
+            : path === onHost(source)
               ? checkoutRow({
                   id: 'parent-row',
-                  path: source,
+                  path: onHost(source),
                   kind: 'main',
                   worktreeBase: base,
                 })
@@ -1558,7 +1576,11 @@ describe('the source clone a worktree entry reads', () => {
         ),
     );
     database.findCheckout.mockResolvedValue(
-      checkoutRow({ id: 'parent-row', path: source, worktreeBase: base }),
+      checkoutRow({
+        id: 'parent-row',
+        path: onHost(source),
+        worktreeBase: base,
+      }),
     );
 
     const result = await enterWorktreeCall(context(), linked, {
@@ -1567,7 +1589,7 @@ describe('the source clone a worktree entry reads', () => {
 
     expect(result).toMatchObject({
       status: 'success',
-      root: join(base, 'llame', 'clear-field-0192'),
+      root: onHost(join(base, 'llame', 'clear-field-0192')),
     });
 
     // The main clone row exists, so only the entered linked source and the new
@@ -1577,8 +1599,8 @@ describe('the source clone a worktree entry reads', () => {
     );
 
     expect(paths).toStrictEqual([
-      linked,
-      join(base, 'llame', 'clear-field-0192'),
+      onHost(linked),
+      onHost(join(base, 'llame', 'clear-field-0192')),
     ]);
   });
 
@@ -1769,7 +1791,7 @@ describe('a worktree entry on a Machine', () => {
     });
     expect(database.createCheckout.mock.calls[1]?.[0]).toMatchObject({
       path: directory,
-      executorId: 'machine:nas',
+      executorId: 'nas',
       kind: 'worktree',
     });
   });

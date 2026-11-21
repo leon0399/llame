@@ -64,6 +64,8 @@ function testContext(overrides: Partial<ToolContext> = {}): ToolContext {
     chatId: 'chat',
     runId: 'run',
     toolCallId: 'call-1',
+    localMachine: 'host-a',
+    defaultMachine: 'host-a',
     permissionPolicy: compileToolPermissionMap(
       { read: { allow: true } },
       'web-search-artifact-test',
@@ -767,7 +769,7 @@ it('names the host-file directory when the files are written', async () => {
     );
 
     expect(spilled(result).truncationNotice).toContain(
-      `; host files in ${join(root, 'llame', 'chats', 'chat', 'artifacts')}`,
+      `; host files in machine://host-a${join(root, 'llame', 'chats', 'chat', 'artifacts')}`,
     );
   } finally {
     vi.unstubAllEnvs();
@@ -775,7 +777,7 @@ it('names the host-file directory when the files are written', async () => {
   }
 });
 
-it('says the host files are on the llame host only in a Machine Workspace', async () => {
+it('names the Machine of the host files in a Workspace on another Machine', async () => {
   const root = mkdtempSync(join(tmpdir(), 'web-search-machine-'));
   vi.stubEnv('TMPDIR', root);
 
@@ -784,8 +786,8 @@ it('says the host files are on the llame host only in a Machine Workspace', asyn
       testContext({
         artifactHostFiles: true,
         workspaceRoot: createWorkspaceRootCell('machine://box/home/u/project'),
-        // Only this tool's locators are readable, so a wrong tool name in the
-        // host-file fact loses the artifact's only route in a Machine.
+        // Only this tool's locators are readable, so `read` is the route in a
+        // Workspace whose current Machine cannot open this Machine's files.
         permissionPolicy: compileToolPermissionMap(
           {
             read: {
@@ -802,7 +804,7 @@ it('says the host files are on the llame host only in a Machine Workspace', asyn
     );
 
     expect(spilled(result).truncationNotice).toContain(
-      '; host files on the llame host only',
+      '; host files only on Machine host-a',
     );
   } finally {
     vi.unstubAllEnvs();

@@ -25,8 +25,8 @@ export type FileAliasResult =
     };
 
 const REMOTE_AUTHORITY_MESSAGE =
-  'A file:// URL with a host other than localhost names another machine. ' +
-  "Only this host's files are readable; write the absolute path instead.";
+  'A file:// URL with a host other than localhost names another Machine. ' +
+  'Use machine://<name>/<path> to reach a configured Machine.';
 
 /**
  * Strict total decoder for `file:` aliases.

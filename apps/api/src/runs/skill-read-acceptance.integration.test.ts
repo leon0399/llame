@@ -91,7 +91,7 @@ describe('skill package references and scripts through the model loop', () => {
 
     harness = await bootWorkerHarness({
       allowedTools: tools,
-      nativeExecutorId: 'skill-acceptance-host',
+      localMachine: 'skill-acceptance-host',
       skillDirectories: [source],
     });
     userId = await createUser(harness.db, 'skill-acceptance');

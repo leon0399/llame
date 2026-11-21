@@ -270,9 +270,7 @@ describe('project DTOs', () => {
   );
   it('accepts, bounds, and clears the default executor', async () => {
     const [set, cleared, omitted, blank, tooLong] = await Promise.all([
-      validate(
-        plainToInstance(UpdateProjectDto, { defaultExecutorId: 'machine:nas' }),
-      ),
+      validate(plainToInstance(UpdateProjectDto, { defaultExecutorId: 'nas' })),
       validate(plainToInstance(UpdateProjectDto, { defaultExecutorId: null })),
       validate(plainToInstance(UpdateProjectDto, {})),
       validate(plainToInstance(UpdateProjectDto, { defaultExecutorId: '  ' })),

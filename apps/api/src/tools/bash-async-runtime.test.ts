@@ -19,6 +19,7 @@ import { NativeFilesRepository } from '../runs/native-files-repository';
 import { NativeReceiptsRepository } from '../runs/native-receipts-repository';
 import { RunEventsRepository, RunsRepository } from '../runs/runs-repository';
 import { RunRowFenceRepository } from '../runs/run-row-fence.repository';
+import { localMachineConnector } from '../testing/local-machine';
 import { compileTestPermissionPolicy } from '../testing/tool-permission-policy';
 import * as hostFiles from './artifacts/host-files';
 import { ArtifactsRepository } from './artifacts/artifacts-repository';
@@ -63,7 +64,9 @@ describe('async host bash through the tool', () => {
       configuredCredentials: [],
       userId: 'owner',
       chatId: 'chat',
-      nativeExecutorId: 'host',
+      localMachine: 'host-a',
+      defaultMachine: 'host-a',
+      machines: localMachineConnector({ verify: () => Promise.resolve() }),
       runId: 'run',
       attemptId: 'attempt-1',
       toolCallId: 'call-1',

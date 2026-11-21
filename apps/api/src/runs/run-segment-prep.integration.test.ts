@@ -126,7 +126,7 @@ describe('run steering segment preparation', () => {
     await writeFile(join(directory, 'notes.txt'), 'IMPORTED_SEGMENT_TOKEN\n');
     harness = await bootWorkerHarness({
       allowedTools: ['read', 'bash'],
-      nativeExecutorId: 'run-segment-prep-host',
+      localMachine: 'run-segment-prep-host',
       skillDirectories: [skills],
     });
     harness.models.register(TITLE_MODEL_ID, {

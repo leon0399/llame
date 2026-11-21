@@ -24,6 +24,8 @@ import type {
 
 import { TenantDbService, type Db } from '../db/tenant-db.service';
 import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
+import { type MachinesConfig } from '../instance-config/machines-config';
+import { localMachineConnector } from '../testing/local-machine';
 import { createModelPromptLoader } from '../instance-config/prompt-loader';
 import {
   formatTemporalAnchor,
@@ -59,6 +61,7 @@ import {
   checkpointSummary,
   createCompactionCheckpointPart,
   createModelChangeItem,
+  formatWorkspaceTold,
 } from '../chats/context-item-producers';
 import { PromptImportPartsRepository } from '../chats/prompt-import-parts.repository';
 import { createPromptImportsItem } from '../chats/prompt-imports-item';
@@ -823,6 +826,7 @@ describeIfDb('snapshot-bound compaction continuity', () => {
       tools?: Partial<typeof BUILT_IN_DEFAULTS.tools>;
       skills?: Partial<typeof BUILT_IN_DEFAULTS.skills>;
       skillCatalog?: SkillCatalogPort;
+      machines?: MachinesConfig;
     };
     models?: ModelSelectionValidator;
     recencyDigest?: RecencyDigestResolver;
@@ -838,8 +842,18 @@ describeIfDb('snapshot-bound compaction continuity', () => {
         tools: toolConfig,
         skills: skillConfig,
         skillCatalog = noopSkillCatalog(),
+        machines,
       } = {},
     } = options;
+
+    const localMachine = machines?.local ?? machines?.default;
+
+    const machineConnector =
+      machines === undefined
+        ? undefined
+        : localMachineConnector(
+            localMachine === undefined ? {} : { name: localMachine },
+          );
 
     return new RunExecutionService(
       tenantDb,
@@ -848,6 +862,7 @@ describeIfDb('snapshot-bound compaction continuity', () => {
       {
         config: {
           ...BUILT_IN_DEFAULTS,
+          ...(machines !== undefined && { machines }),
           tools: {
             ...BUILT_IN_DEFAULTS.tools,
             allowed: ['search_conversations'],
@@ -870,7 +885,10 @@ describeIfDb('snapshot-bound compaction continuity', () => {
       { snapshotCandidates: () => [] },
       new MemoryService(tenantDb),
       options.recencyDigest ?? new RecencyDigestService(tenantDb),
-      undefined,
+      undefined, // dynamicToolResolver
+      undefined, // workspaceMcp
+      undefined, // inRunProducer
+      machineConnector,
     );
   }
 
@@ -883,7 +901,11 @@ describeIfDb('snapshot-bound compaction continuity', () => {
             'enter_workspace',
             ...(degraded ? DEGRADED_KNOWLEDGE.allowed : []),
           ],
-          nativeExecutorId: EPOCH_EXECUTOR_ID,
+        },
+        machines: {
+          local: EPOCH_EXECUTOR_ID,
+          default: EPOCH_EXECUTOR_ID,
+          hosts: { [EPOCH_EXECUTOR_ID]: {} },
         },
         skills: {
           directories: ['/opt/skills'],
@@ -1134,7 +1156,10 @@ describeIfDb('snapshot-bound compaction continuity', () => {
         recencyDigestRebakedFrom: checkpoint.id,
         skillCatalogRebakedFrom: checkpoint.id,
         workspaceToldFrom: checkpoint.id,
-        workspaceTold: seeded.workspaceRoot,
+        workspaceTold: formatWorkspaceTold(
+          EPOCH_EXECUTOR_ID,
+          seeded.workspaceRoot,
+        ),
         skillCatalogBaseline: LIVE_SKILLS,
         skillCatalogTold: ['live-skill'],
       });
@@ -1314,7 +1339,10 @@ describeIfDb('snapshot-bound compaction continuity', () => {
         workspaceToldFrom: checkpoint.id,
         // The dispatch transaction advanced the told state with the snapshot
         // it stored.
-        workspaceTold: seeded.workspaceRoot,
+        workspaceTold: formatWorkspaceTold(
+          EPOCH_EXECUTOR_ID,
+          seeded.workspaceRoot,
+        ),
       });
       expect(published.chat?.recencyDigestBaseline?.recent).toEqual(
         expect.arrayContaining([
@@ -1379,7 +1407,10 @@ describeIfDb('snapshot-bound compaction continuity', () => {
         recencyDigestRebakedFrom: checkpoint.id,
         skillCatalogRebakedFrom: checkpoint.id,
         workspaceToldFrom: checkpoint.id,
-        workspaceTold: seeded.workspaceRoot,
+        workspaceTold: formatWorkspaceTold(
+          EPOCH_EXECUTOR_ID,
+          seeded.workspaceRoot,
+        ),
       });
       // One receipt per attempt, each the prompt that attempt sent.
       expect(after.receipts).toHaveLength(2);

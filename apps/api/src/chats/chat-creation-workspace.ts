@@ -1,13 +1,13 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 
 import { type Checkout, type Repository } from '../db/schema';
 import { TenantDbService } from '../db/tenant-db.service';
-import { InstanceConfigService } from '../instance-config/instance-config.service';
 import { ExecutorGitError } from '../machines/executor-git-error';
 import {
   ExecutorGit,
   type ExecutorTarget,
 } from '../machines/executor-git.service';
+import { MachineConnector } from '../machines/machine-connector.service';
 import { isConfiguredExecutor } from './chat-creation-executors';
 import { ChatCreationRecordRepository } from './chat-creation-record.repository';
 import { WorkspaceBindingRepository } from './workspace-binding.repository';
@@ -15,15 +15,13 @@ import {
   type BindFailureCode,
   type WorktreeFailureCode,
 } from './dto/chat-creation.dto';
-import { decidePermission } from '../tools/permissions/admit';
-import { projectNativeFilePath } from '../tools/permissions/locator-projection';
 import { permissionDeniedResult } from '../tools/permissions/messages';
-import { TOOL_PERMISSION_POLICY } from '../tools/permissions/permission-policy.module';
 import { type PermissionMode } from '../tools/permissions/permission-mode';
+import { type PermissionDecision } from '../tools/permissions/types';
 import {
-  type CompiledPolicy,
-  type PermissionDecision,
-} from '../tools/permissions/types';
+  WORKSPACE_TOOL_ID,
+  WorkspaceEntryAdmission,
+} from '../tools/permissions/workspace-entry-admission';
 import { type ToolErrorResult } from '../tools/types';
 import {
   addCreationWorktree,
@@ -44,9 +42,6 @@ import { type WorktreeRequest } from '../tools/workspace-worktree';
  * creation record; the attempt commits in its own transaction before the first
  * git write, and it stays when a later step fails.
  */
-
-/** The one tool group every path decision of this step evaluates. */
-const WORKSPACE_TOOL_ID = 'enter_workspace';
 
 /** One decided path, in the order the step took it. */
 type RecordedDecision = {
@@ -117,11 +112,9 @@ type DecisionLog = {
 export class ChatCreationWorkspace {
   constructor(
     private readonly tenantDb: TenantDbService,
-    @Inject(InstanceConfigService)
-    private readonly config: Pick<InstanceConfigService, 'config'>,
     private readonly executors: ExecutorGit,
-    @Inject(TOOL_PERMISSION_POLICY)
-    private readonly policy: CompiledPolicy,
+    private readonly connector: MachineConnector,
+    private readonly admission: WorkspaceEntryAdmission,
   ) {}
 
   /**
@@ -239,15 +232,7 @@ export class ChatCreationWorkspace {
     log: DecisionLog,
     address: string,
   ): ToolErrorResult | undefined {
-    const decision = decidePermission(
-      this.policy,
-      log.input.permissionMode,
-      (evaluate) =>
-        evaluate({
-          toolId: WORKSPACE_TOOL_ID,
-          args: { path: projectNativeFilePath(address) },
-        }),
-    );
+    const decision = this.admission.decide(address, log.input.permissionMode);
 
     log.decisions.push({ path: address, decision });
 
@@ -260,7 +245,7 @@ export class ChatCreationWorkspace {
   private availabilityGate(
     target: ExecutorTarget,
   ): CreationWorkspaceResult | null {
-    if (!this.config.config.tools.allowed.includes(WORKSPACE_TOOL_ID)) {
+    if (!this.admission.allowsTool()) {
       return {
         status: 'bind_failed',
         code: 'tool_not_allowed',
@@ -268,26 +253,22 @@ export class ChatCreationWorkspace {
       };
     }
 
-    if (
-      target.machine === undefined &&
-      this.config.config.tools.nativeExecutorId !== target.executorId
-    ) {
-      return {
-        status: 'bind_failed',
-        code: 'executor_unavailable',
-        message:
-          'The serving process holds no matching tools.nativeExecutorId, so it cannot bind a local root.',
-      };
-    }
-
-    if (
-      target.machine !== undefined &&
-      !isConfiguredExecutor(target.executorId, this.config.config)
-    ) {
+    if (!isConfiguredExecutor(target.executorId, this.connector)) {
       return {
         status: 'bind_failed',
         code: 'executor_unavailable',
         message: 'The resolved Machine is no longer configured.',
+      };
+    }
+
+    // Reachability is the entry's own: this process hosts the Machine, or its
+    // entry has an SSH destination. The host Machine is not exempt — a worker
+    // that names another computer's Machine as its own still cannot serve it.
+    if (!this.connector.canReach(target.machine)) {
+      return {
+        status: 'bind_failed',
+        code: 'executor_unavailable',
+        message: `The Machine ${target.machine} is not reachable from this process: it is neither machines.local nor an entry with a destination.`,
       };
     }
 

@@ -47,47 +47,18 @@ function makeInput(
 describe('KnowledgeToolCandidateResolver', () => {
   afterEach(() => vi.restoreAllMocks());
 
-  it('omits native mutation tools without an explicitly configured host capability', async () => {
+  it('advertises every allowlisted native tool with no extra capability configured', async () => {
     const resolver = new KnowledgeToolCandidateResolver(makeConfig(undefined));
-    expect(
-      await makeInput(resolver, {
-        allowedToolRules: ['edit', 'write'],
-        codeOwnedTools: [nativeEditTool, nativeWriteTool],
-      }),
-    ).toEqual([]);
-  });
-
-  it('admits the native tools on a Knowledge root with no native executor', async () => {
-    const resolver = new KnowledgeToolCandidateResolver(
-      makeConfig('/srv/knowledge'),
-    );
-
-    const candidates = await makeInput(resolver, {
-      allowedToolRules: ['read', 'edit', 'write', 'bash'],
-      codeOwnedTools: [
-        nativeReadTool,
-        nativeEditTool,
-        nativeWriteTool,
-        bashTool,
-      ],
-    });
-
-    expect(
-      candidates.map((candidate) =>
-        candidate.state === 'available' ? candidate.tool.id : candidate.id,
-      ),
-    ).toEqual(['read', 'edit', 'write']);
-  });
-
-  it('admits read alone with no native executor, no Knowledge root, and no skill directories', async () => {
-    const resolver = new KnowledgeToolCandidateResolver({
-      config: { ...BUILT_IN_DEFAULTS, skills: { directories: [] } },
-    });
 
     expect(
       await makeInput(resolver, {
-        allowedToolRules: ['read', 'edit', 'write'],
-        codeOwnedTools: [nativeReadTool, nativeEditTool, nativeWriteTool],
+        allowedToolRules: ['read', 'edit', 'write', 'bash'],
+        codeOwnedTools: [
+          nativeReadTool,
+          nativeEditTool,
+          nativeWriteTool,
+          bashTool,
+        ],
       }),
     ).toEqual([
       {
@@ -95,14 +66,75 @@ describe('KnowledgeToolCandidateResolver', () => {
         state: 'available',
         tool: nativeReadTool,
       },
+      {
+        source: { type: 'code_owned' },
+        state: 'available',
+        tool: nativeEditTool,
+      },
+      {
+        source: { type: 'code_owned' },
+        state: 'available',
+        tool: nativeWriteTool,
+      },
+      {
+        source: { type: 'code_owned' },
+        state: 'available',
+        tool: bashTool,
+      },
     ]);
   });
 
-  it('offers native candidates when the operator declares host authority', async () => {
+  it('advertises the same catalog on a worker that hosts the Machine and one that reaches it', async () => {
+    const local = new KnowledgeToolCandidateResolver({
+      config: {
+        ...BUILT_IN_DEFAULTS,
+        machines: {
+          local: 'host-a',
+          default: 'host-a',
+          hosts: { 'host-a': {} },
+        },
+      },
+    });
+
+    const remote = new KnowledgeToolCandidateResolver({
+      config: {
+        ...BUILT_IN_DEFAULTS,
+        machines: {
+          local: 'host-b',
+          default: 'devl',
+          hosts: { 'host-b': {}, devl: { destination: 'box' } },
+        },
+      },
+    });
+
+    const catalogOf = async (resolver: KnowledgeToolCandidateResolver) =>
+      (
+        await makeInput(resolver, {
+          allowedToolRules: ['read', 'edit', 'write', 'bash'],
+          codeOwnedTools: [
+            nativeReadTool,
+            nativeEditTool,
+            nativeWriteTool,
+            bashTool,
+          ],
+        })
+      ).map((candidate) =>
+        candidate.state === 'available' ? candidate.tool.id : candidate.id,
+      );
+
+    expect(await catalogOf(local)).toEqual(await catalogOf(remote));
+    expect(await catalogOf(local)).toEqual(['read', 'edit', 'write', 'bash']);
+  });
+
+  it('offers native candidates with the operator Machines configured', async () => {
     const resolver = new KnowledgeToolCandidateResolver({
       config: {
         ...BUILT_IN_DEFAULTS,
-        tools: { ...BUILT_IN_DEFAULTS.tools, nativeExecutorId: 'host-a' },
+        machines: {
+          local: 'host-a',
+          default: 'host-a',
+          hosts: { 'host-a': {} },
+        },
       },
     });
 
@@ -158,35 +190,8 @@ describe('KnowledgeToolCandidateResolver', () => {
     ).toEqual(['read', 'edit', 'write', 'bash']);
   });
 
-  it('admits bash on a local native executor with no Machines configured', async () => {
-    const resolver = new KnowledgeToolCandidateResolver({
-      config: {
-        ...BUILT_IN_DEFAULTS,
-        tools: { ...BUILT_IN_DEFAULTS.tools, nativeExecutorId: 'host-a' },
-      },
-    });
-
-    const candidates = await makeInput(resolver, {
-      allowedToolRules: ['bash'],
-      codeOwnedTools: [bashTool],
-    });
-
-    expect(candidates).toEqual([
-      {
-        source: { type: 'code_owned' },
-        state: 'available',
-        tool: bashTool,
-      },
-    ]);
-  });
-
-  it('admits bash on the ssh section without a local executor', async () => {
-    const resolver = new KnowledgeToolCandidateResolver({
-      config: {
-        ...BUILT_IN_DEFAULTS,
-        ssh: { knownHostsFile: '/etc/llame/ssh_known_hosts' },
-      },
-    });
+  it('admits bash whenever it is allowlisted', async () => {
+    const resolver = new KnowledgeToolCandidateResolver(makeConfig(undefined));
 
     const candidates = await makeInput(resolver, {
       allowedToolRules: ['bash'],
@@ -223,41 +228,28 @@ describe('KnowledgeToolCandidateResolver', () => {
       ).map((tool) => tool.id);
     };
 
-    const host = {
-      tools: { ...BUILT_IN_DEFAULTS.tools, nativeExecutorId: 'host-a' },
-    };
-
-    it('is offered with a configured native host and its own allowlist entry', async () => {
-      expect(await advertised(host, ['bash', 'stop'])).toEqual([
-        'bash',
-        'stop',
-      ]);
+    it('is offered with bash and its own allowlist entry', async () => {
+      expect(await advertised({}, ['bash', 'stop'])).toEqual(['bash', 'stop']);
     });
 
     it('needs its own allowlist entry, apart from bash', async () => {
-      expect(await advertised(host, ['bash'])).toEqual(['bash']);
-      expect(await advertised(host, ['stop'])).toEqual(['stop']);
+      expect(await advertised({}, ['bash'])).toEqual(['bash']);
+      expect(await advertised({}, ['stop'])).toEqual([]);
     });
 
-    it('is not offered without a native executor', async () => {
-      expect(await advertised({}, ['bash', 'stop'])).toEqual([]);
-    });
-
-    it('is not offered on Machines or ssh alone', async () => {
-      const machines = {
-        ssh: { knownHostsFile: '/etc/llame/machine_known_hosts' },
-        hosts: { devl: { destination: 'box' } },
-      };
-
-      expect(await advertised({ machines }, ['bash', 'stop'])).toEqual([
-        'bash',
-      ]);
+    it('is not offered when bash is not allowlisted', async () => {
       expect(
         await advertised(
-          { ssh: { knownHostsFile: '/etc/llame/ssh_known_hosts' } },
-          ['bash', 'stop'],
+          {
+            machines: {
+              local: 'host-a',
+              default: 'host-a',
+              hosts: { 'host-a': {} },
+            },
+          },
+          ['stop'],
         ),
-      ).toEqual(['bash']);
+      ).toEqual([]);
     });
   });
 
@@ -374,11 +366,15 @@ describe('KnowledgeToolCandidateResolver', () => {
     ]);
   });
 
-  it('admits grep on a native executor alone', async () => {
+  it('admits grep on a configured Machine alone', async () => {
     const resolver = new KnowledgeToolCandidateResolver({
       config: {
         ...BUILT_IN_DEFAULTS,
-        tools: { ...BUILT_IN_DEFAULTS.tools, nativeExecutorId: 'host-a' },
+        machines: {
+          local: 'host-a',
+          default: 'host-a',
+          hosts: { 'host-a': {} },
+        },
       },
     });
 
@@ -418,11 +414,15 @@ describe('KnowledgeToolCandidateResolver', () => {
     ]);
   });
 
-  it('admits grep on a local native executor with no other backend', async () => {
+  it('admits grep on a configured local Machine with no other backend', async () => {
     const resolver = new KnowledgeToolCandidateResolver({
       config: {
         ...BUILT_IN_DEFAULTS,
-        tools: { ...BUILT_IN_DEFAULTS.tools, nativeExecutorId: 'host-a' },
+        machines: {
+          local: 'host-a',
+          default: 'host-a',
+          hosts: { 'host-a': {} },
+        },
         skills: { directories: [] },
       },
     });
@@ -466,7 +466,7 @@ describe('KnowledgeToolCandidateResolver', () => {
     ]);
   });
 
-  it('leaves grep unadvertised with no backend', async () => {
+  it('advertises grep with no other capability configured', async () => {
     const resolver = new KnowledgeToolCandidateResolver({
       config: { ...BUILT_IN_DEFAULTS, skills: { directories: [] } },
     });
@@ -476,7 +476,13 @@ describe('KnowledgeToolCandidateResolver', () => {
         allowedToolRules: ['grep'],
         codeOwnedTools: [nativeGrepTool],
       }),
-    ).toEqual([]);
+    ).toEqual([
+      {
+        source: { type: 'code_owned' },
+        state: 'available',
+        tool: nativeGrepTool,
+      },
+    ]);
   });
 
   it('does not mutate the static registry while resolving candidates', async () => {

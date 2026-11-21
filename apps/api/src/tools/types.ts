@@ -100,9 +100,13 @@ export type WorktreeGit = Pick<
  * engages RLS, scoping every read to the user.
  */
 export interface ToolContext {
-  /** Trusted Run and native host identity; never model supplied. */
+  /** Trusted Run and Machine identity; never model supplied. */
   readonly runId?: string;
-  readonly nativeExecutorId?: string;
+  /** `machines.local`: the Machine this process hosts, served in process for
+   *  the families not yet cut over. */
+  readonly localMachine?: string;
+  /** `machines.default`: the current Machine when no Workspace is bound. */
+  readonly defaultMachine?: string;
   /** The durable run.started event claimed by this worker delivery. */
   readonly nativeDeliverySequence?: number;
   /** Marks an MCP dispatch once its durable native.attempt is committed. */

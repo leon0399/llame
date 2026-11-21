@@ -70,6 +70,13 @@ type ReadOutcome =
  *
  * `media` opts the read into image and PDF detection; without it a file is
  * always read as text.
+ *
+ * `reportPath` rewrites a path the result REPORTS (the read path, its
+ * `realPath`, a listing header, and a listing's link targets) without changing
+ * the path that is opened. It is separate from `displayPath`, which also
+ * changes the open and the selector handling: a caller that serves the host
+ * filesystem itself reports a canonical locator while still opening the
+ * decoded host path.
  */
 export type NativeReadOptions = {
   readonly displayPath: string;
@@ -79,6 +86,12 @@ export type NativeReadOptions = {
   readonly linkTargets?: boolean;
   readonly signal?: AbortSignal | undefined;
   readonly media?: MediaReadHook | undefined;
+  readonly reportPath?: (hostPath: string) => string;
+};
+
+/** Options for a read that keeps its host path and only reports another. */
+export type NativeReadFileOptions = {
+  readonly reportPath?: (hostPath: string) => string;
 };
 
 export async function loadText(
@@ -110,17 +123,19 @@ export async function readFile(
   input: { path: string },
   signal?: AbortSignal,
   media?: MediaReadHook,
+  options: NativeReadFileOptions = {},
 ): Promise<ReadOutcome | MediaReadSuccess> {
   let hostPath = input.path;
 
   try {
     const target = await resolveReadTarget(input.path);
     hostPath = target.path;
+    const reported = reportTarget(target, options.reportPath);
 
     return target.directory
-      ? await runListing(target.path, target)
-      : await streamFileWindow(target, {
-          hostPath: target.path,
+      ? await runListing(hostPath, reported, options.reportPath)
+      : await streamFileWindow(reported, {
+          hostPath,
           followSymlinks: true,
           signal,
           media,
@@ -128,6 +143,48 @@ export async function readFile(
   } catch (error) {
     return readFailure(error, hostPath, input.path, true);
   }
+}
+
+/**
+ * The target as a result reports it: the path and a differing `realPath` pass
+ * through the caller's rewrite, while `hostPath` still opens the same file.
+ */
+function reportTarget(
+  target: ReadTarget,
+  report: ((hostPath: string) => string) | undefined,
+): ReadTarget {
+  if (report === undefined) return target;
+  const { realPath } = target;
+
+  return {
+    ...target,
+    path: report(target.path),
+    ...(realPath !== undefined && { realPath: report(realPath) }),
+  };
+}
+
+/** A listing's link targets are reported paths too; a raw relative target is
+ *  text the link itself holds and stays as written. */
+function rewriteLinkTargets(
+  content: string,
+  report: ((hostPath: string) => string) | undefined,
+): string {
+  if (report === undefined) return content;
+  const marker = " -> ";
+
+  return content
+    .split("\n")
+    .map((line) => {
+      const index = line.lastIndexOf(marker);
+
+      if (index === -1) return line;
+      const target = line.slice(index + marker.length);
+
+      return target.startsWith("/")
+        ? `${line.slice(0, index + marker.length)}${report(target)}`
+        : line;
+    })
+    .join("\n");
 }
 
 /**
@@ -139,12 +196,16 @@ export async function readResolvedFile(
   options: NativeReadOptions,
 ): Promise<ReadOutcome | MediaReadSuccess> {
   const followSymlinks = options.followSymlinks ?? false;
+  const displayPath = options.reportPath?.(hostPath) ?? options.displayPath;
 
   try {
-    const target = await resolveResolvedTarget(hostPath, options);
+    const target = await resolveResolvedTarget(hostPath, {
+      ...options,
+      displayPath,
+    });
 
     return target.directory
-      ? await runListing(hostPath, target)
+      ? await runListing(hostPath, target, options.reportPath)
       : await streamFileWindow(target, {
           hostPath,
           followSymlinks,
@@ -152,7 +213,7 @@ export async function readResolvedFile(
           media: options.media,
         });
   } catch (error) {
-    return readFailure(error, hostPath, options.displayPath, followSymlinks);
+    return readFailure(error, hostPath, displayPath, followSymlinks);
   }
 }
 
@@ -188,10 +249,8 @@ async function resolveResolvedTarget(
   throw new NativeFileError("not_regular_file");
 }
 
-function runListing(
-  hostPath: string,
-  target: ReadTarget,
-): Promise<DirectorySuccess | DirectoryFailure> | FileFailure {
+/** The member selectors a directory read refuses, and the refusal it names. */
+function listingSelectorRefusal(target: ReadTarget): FileFailure | undefined {
   if (target.outline)
     return {
       status: "error",
@@ -206,13 +265,18 @@ function runListing(
       message: "The :raw selector is not supported for directory reads.",
     };
 
-  if (target.ranges !== undefined || target.pending?.includes(","))
-    return {
-      status: "error",
-      type: "invalid_selector",
-      message:
-        "Comma-separated selectors are not supported for directory reads.",
-    };
+  return target.ranges !== undefined || target.pending?.includes(",")
+    ? {
+        status: "error",
+        type: "invalid_selector",
+        message:
+          "Comma-separated selectors are not supported for directory reads.",
+      }
+    : undefined;
+}
+
+/** The window and follow options one resolved directory target asks for. */
+function listingOptions(target: ReadTarget): DirectoryListingOptions {
   const options: DirectoryListingOptions = { displayPath: target.path };
 
   if (target.offset > 0 || target.limit !== undefined || target.pending) {
@@ -227,7 +291,30 @@ function runListing(
   if (target.linkTargets !== undefined)
     options.linkTargets = target.linkTargets;
 
-  return listDirectory(hostPath, NODE_DIRECTORY_PORT, options);
+  return options;
+}
+
+async function runListing(
+  hostPath: string,
+  target: ReadTarget,
+  reportPath?: (hostPath: string) => string,
+): Promise<DirectorySuccess | DirectoryFailure | FileFailure> {
+  const refusal = listingSelectorRefusal(target);
+
+  if (refusal !== undefined) return refusal;
+
+  const listing = await listDirectory(
+    hostPath,
+    NODE_DIRECTORY_PORT,
+    listingOptions(target),
+  );
+
+  return "content" in listing
+    ? {
+        ...listing,
+        content: rewriteLinkTargets(listing.content, reportPath),
+      }
+    : listing;
 }
 
 async function readFailure(

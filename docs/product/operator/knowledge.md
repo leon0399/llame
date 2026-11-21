@@ -46,11 +46,11 @@ exist yet.
 
 Two Knowledge tool ids exist: `knowledge_search` scans Markdown across a Space,
 and native `read`, `edit`, and `write` open, change, or create a Space's files
-by locator. `read` still needs its own
-`tools.allowed` entry; what a configured `knowledge.root` removes is the
-`tools.nativeExecutorId` requirement, so an allowlisted `read` is advertised
-without one. On such a process an absolute path argument to `read` fails closed
-with `executor_unavailable` instead of resolving through the Knowledge root.
+by locator. `read` still needs its own `tools.allowed` entry. A configured
+`knowledge.root` serves `kb://` on its own, while an absolute path uses the
+current Machine. An absolute path never resolves through the Knowledge root, and
+it fails closed with `machine_unavailable` when the current Machine is
+unreachable.
 
 The authenticated collection is:
 
@@ -68,7 +68,7 @@ opaque server-generated IDs are identity and authorization. List limits are
 Trusted code creates `<root>/<stable-id>/` before committing its authority row.
 Callers cannot choose owner, ID, path, source, or directory. A DB failure may
 leave an unauthoritative directory; never reuse or delete it automatically.
-Trusted native hosts may edit these files through the generic file tools.
+Trusted Machine users may edit these files through the generic file tools.
 Commit those changes with allowlisted host `bash` Git; llame has no Knowledge
 submit tool.
 
@@ -86,12 +86,12 @@ without probing and reported as denied whether or not it exists. The full marker
 ordering, hop, deduplication, and per-file size contract is in
 [Instruction files](../reference/instruction-files.md).
 
-A host path under `knowledge.root` is host authority, not Space content: a
+A path under `knowledge.root` is Machine authority, not Space content: a
 `read`, `edit`, or `write` that names one is a plain native file operation,
-governed by the host's own permissions, ownership, and executor, and it is
-never attributed to a Space or to its owner. Where one host serves several
+governed by the current Machine's own permissions and ownership, and it is
+never attributed to a Space or to its owner. Where one Machine serves several
 owners, add a reject rule for the Knowledge root to each of the `read`,
-`edit`, and `write` groups (and keep `bash` off such a host), so an absolute
+`edit`, and `write` groups (and keep `bash` off that Machine), so an absolute
 path cannot read or change a Space file the owner's own `kb://` access would
 not authorize. Under the `bypass` permission mode no `tools.permissions` rule
 is evaluated, so a reject rule closes nothing there: do not expose `bypass` in

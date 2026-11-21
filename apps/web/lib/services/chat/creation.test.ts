@@ -9,7 +9,7 @@ import {
 
 const SELECTION = {
   repositoryId: "repo-1",
-  executorId: "machine:nas",
+  executorId: "nas",
   checkoutId: "checkout-1",
 };
 
@@ -34,7 +34,7 @@ describe("buildCreateChatRequest", () => {
       id: "chat-1",
       projectId: "project-1",
       repositoryId: "repo-1",
-      executorId: "machine:nas",
+      executorId: "nas",
       checkoutId: "checkout-1",
       message: {
         id: "message-1",

@@ -1,17 +1,15 @@
 /**
  * The `machine://` branch of the native file tools: reads, both listing forms,
- * and the mutations, all executed on the Machine through `MachineConnector`.
- * Every reported path is the Machine locator the daemon renders from the
- * `displayPrefix` supplied here, so a host path never crosses back to the
- * model, and a Machine operation never binds the Run to the local executor.
+ * and the mutations. A target on another Machine runs through
+ * `MachineConnector`; a target on `machines.local` completes the identity
+ * check with this process's own daemon and then runs the existing host code in
+ * process (design D8). Every reported path is a canonical Machine locator, so
+ * a host path never crosses back to the model, and a Machine operation never
+ * binds the Run to the local executor.
  */
 
 import {
-  BYTES_NOTIFICATION,
   type JsonValue,
-  type NativeLineRange,
-  type NativeMutationDisplay,
-  type NativeMutationResult,
   type RequestEnvelope,
 } from '@workspace/machine-protocol';
 import {
@@ -20,15 +18,9 @@ import {
   parseMachineLocator,
   type MachineLocator,
 } from '../machines/machine-locator';
-import {
-  readFsBytesResult,
-  readFsReadResult,
-  readNativeFailure,
-  readRootsListResult,
-} from '../machines/machine-results';
+import { readRootsListResult } from '../machines/machine-results';
 import { type MachineConnector } from '../machines/machine-connector.service';
 import { boundMachineRoots } from '../machines/machines-status';
-import { type ToolMediaStore } from '../media/tool-media-store';
 import {
   MACHINE_FILE_BUDGET_MS,
   machineBudgetMs,
@@ -37,19 +29,27 @@ import {
   machineNotFoundResult,
   machineReadResult,
   machineUnusableResult,
-  readBytesChunk,
   runMachineMutation,
 } from './machine-call';
 import { configuredMachines, listingResult } from './machine-listing';
 import { type ToolContext, type ToolResult } from './types';
-import { NativeFileError, readMediaBytes } from '@workspace/native-file-tools';
 import {
-  isBoolean,
-  isNumber,
-  isRecord,
-  isString,
-  type UnknownRecord,
-} from '@workspace/runtime-safety';
+  createFile,
+  editFile,
+  readFile,
+  replaceFile,
+} from '@workspace/native-file-tools';
+import { NativeFilesRepository } from '../runs/native-files-repository';
+import { RunEventsRepository } from '../runs/runs-repository';
+import { readMachinePath } from './machine-file-reads';
+import {
+  canonicalizeMachineResult,
+  machinePathLocator,
+  readFsMutateResult,
+  type MachinePath,
+} from './machine-file-results';
+import { verifyLocalMachine } from './local-machine';
+import { resolveMachinePath, type MachineTarget } from './workspace-path';
 
 /** The three native calls a Machine locator can address. */
 export type MachineFileCall =
@@ -71,8 +71,6 @@ export type MachineFileCall =
       };
     };
 
-type MachinePath = Extract<MachineLocator, { kind: 'path' }>;
-
 /**
  * One native call whose path is a `machine://` locator. `submitted` is the
  * text the model wrote, which is the key an image read is held under; the
@@ -83,8 +81,9 @@ export function executeMachineNative(
   call: MachineFileCall,
   submitted: string,
 ): Promise<ToolResult> {
-  if (machineConnector(context) === undefined)
-    return Promise.resolve(unknownSchemeResult());
+  const connector = machineConnector(context);
+
+  if (connector === undefined) return Promise.resolve(unknownSchemeResult());
   const locator = parseMachineLocator(call.input.path);
 
   if (locator.kind === 'invalid')
@@ -102,72 +101,248 @@ export function executeMachineNative(
   if (call.operation !== 'read' && locator.selector !== undefined)
     return Promise.resolve(selectorOnMutationResult());
 
+  // This process hosts the named Machine: serve the call in process, so a
+  // local target never spends a daemon request beyond the identity check.
+  const target = resolveMachinePath(call.input.path, {
+    workspaceRoot: context.workspaceRoot?.current(),
+    defaultMachine: context.defaultMachine,
+    localMachine: context.localMachine,
+  });
+
+  if (target.kind === 'machine' && target.local)
+    return executeLocalNative(context, call, submitted, target);
+
   return call.operation === 'read'
-    ? readMachinePath(context, locator, submitted)
+    ? readMachinePath(context, connector, locator, submitted)
     : mutateMachinePath(context, call, locator);
 }
 
-function machinePathLocator(machine: MachinePath): string {
-  return (
-    formatMachineLocator(machine.name, machine.path) ??
-    `${machinePrefix(machine.name)}${machine.path}`
+/** The same call with one path replaced; the caller decided it differs. */
+export function rewriteNativeCallPath(
+  call: MachineFileCall,
+  path: string,
+): MachineFileCall {
+  if (call.operation === 'read') return { operation: 'read', input: { path } };
+
+  if (call.operation === 'edit')
+    return { operation: 'edit', input: { ...call.input, path } };
+
+  return { operation: 'write', input: { ...call.input, path } };
+}
+
+type HostMutationCall = Exclude<
+  MachineFileCall,
+  { readonly operation: 'read' }
+>;
+
+let nativeMutations: Promise<void> = Promise.resolve();
+
+/** One host mutation at a time, whatever scheme resolved the target. */
+export function serializeNativeMutation(
+  operation: () => Promise<ToolResult>,
+): Promise<ToolResult> {
+  const pending = nativeMutations.then(operation);
+
+  nativeMutations = pending.then(
+    () => undefined,
+    () => undefined,
+  );
+
+  return pending;
+}
+
+/** The locator a host result reports, and how each host path becomes one. */
+type ReportedNativePath = {
+  readonly locator: string;
+  readonly reportPath: (hostPath: string) => string;
+};
+
+/**
+ * One call on this process's Machine: the identity-checked handshake first,
+ * then the existing host code with the decoded absolute path. A failed
+ * handshake is the result and the operation never runs. Every reported path
+ * is rewritten to the Machine locator, while the open still uses `target.path`.
+ */
+export async function executeLocalNative(
+  context: ToolContext,
+  call: MachineFileCall,
+  submitted: string,
+  target: MachineTarget,
+): Promise<ToolResult> {
+  const refusal = await verifyLocalMachine(context);
+
+  if (refusal !== undefined) return refusal;
+
+  // A read takes the literal suffix as written, exactly as a bare host path
+  // does; a mutation's selector was already refused by the Machine grammar.
+  const path =
+    target.selector === undefined
+      ? target.path
+      : `${target.path}:${target.selector}`;
+
+  const hostCall = rewriteNativeCallPath(call, path);
+
+  const reported: ReportedNativePath = {
+    locator: target.locator,
+    reportPath: (hostPath) =>
+      formatMachineLocator(target.name, hostPath) ?? hostPath,
+  };
+
+  const operation = () =>
+    executeNativeBound(context, hostCall, submitted, reported);
+
+  return call.operation === 'read'
+    ? operation()
+    : serializeNativeMutation(operation);
+}
+
+/** The identity one in-process host call fences under. */
+type NativeBoundContext = {
+  readonly runId: string;
+  readonly localMachine: string;
+  readonly toolCallId: string;
+  readonly userId: string;
+};
+
+/**
+ * The identity an in-process host call needs, or the refusal a worker with no
+ * native authority records instead of running it.
+ */
+function nativeBoundContext(
+  context: ToolContext,
+): NativeBoundContext | ToolResult {
+  const { runId, localMachine, toolCallId, userId } = context;
+
+  if (!runId || !localMachine || !toolCallId)
+    return {
+      status: 'error',
+      type: 'executor_unavailable',
+      message: 'Native host authority is unavailable.',
+    };
+
+  return { runId, localMachine, toolCallId, userId };
+}
+
+/**
+ * The durable pre-effect fence for one in-process host call: a call already
+ * begun returns its prior result, so the effect never runs twice.
+ */
+function beginNativeCall(
+  context: ToolContext,
+  call: MachineFileCall,
+  reported: ReportedNativePath | undefined,
+  bound: NativeBoundContext,
+): Promise<ToolResult | undefined> {
+  return context.tenantDb.runAs(bound.userId, (db) =>
+    new NativeFilesRepository(db).begin({
+      runId: bound.runId,
+      userId: bound.userId,
+      fence: { bound: true, executorId: bound.localMachine },
+      deliverySequence: context.nativeDeliverySequence,
+      attemptId: context.attemptId,
+      toolCallId: bound.toolCallId,
+      operation: call.operation,
+      path: reported?.locator ?? call.input.path,
+    }),
   );
 }
 
-/**
- * The path a Machine result reported, re-encoded once. The daemon concatenates
- * its display prefix onto the raw absolute path, so a filename containing `#`
- * arrives unescaped; re-encoding here is what makes the reported locator
- * round-trip. A path that does not carry this Machine's prefix is not a locator
- * this hub asked for and is dropped rather than reported.
- */
-function canonicalReportedPath(
-  name: string,
-  value: unknown,
-): string | undefined {
-  if (!isString(value)) return undefined;
-  const prefix = machinePrefix(name);
-
-  if (!value.startsWith(prefix)) return undefined;
-
-  return formatMachineLocator(name, value.slice(prefix.length)) ?? undefined;
+/** The exact `native.result` a mutation's effect already settled on. */
+async function commitNativeResult(
+  context: ToolContext,
+  result: ToolResult,
+  bound: NativeBoundContext,
+): Promise<void> {
+  await context.tenantDb.runAs(bound.userId, async (db) => {
+    await new RunEventsRepository(db).append(bound.runId, 'native.result', {
+      toolCallId: bound.toolCallId,
+      result,
+    });
+  });
 }
 
 /**
- * Every path a Machine operation reports is a canonical Machine locator. A
- * directory read also carries its header inside `content`, which is the display
- * path the daemon rendered, so that one occurrence is re-encoded too; file
- * content is never rewritten.
+ * The durable pre-effect fence for one in-process host call. `submitted` is
+ * the path as the model wrote it; an image read is held in the attempt's
+ * memory under it.
  */
-function canonicalizeMachineResult(
-  machine: MachinePath,
-  result: ToolResult,
-): ToolResult {
-  if (result.status !== 'success') return result;
-  const path = canonicalReportedPath(machine.name, result['path']);
-  const realPath = canonicalReportedPath(machine.name, result['realPath']);
+async function executeNativeBound(
+  context: ToolContext,
+  call: MachineFileCall,
+  submitted: string,
+  reported?: ReportedNativePath,
+): Promise<ToolResult> {
+  const bound = nativeBoundContext(context);
 
-  const canonical: ToolResult = {
-    ...result,
-    path: path ?? machinePathLocator(machine),
-    ...(realPath !== undefined && { realPath }),
+  if ('status' in bound) return bound;
+  context.abortSignal?.throwIfAborted();
+
+  const prior = await beginNativeCall(context, call, reported, bound);
+
+  if (prior) return prior;
+  context.abortSignal?.throwIfAborted();
+
+  const result = await performNative(
+    call,
+    context,
+    submitted,
+    reported?.reportPath,
+  );
+
+  if (call.operation !== 'read')
+    await commitNativeResult(context, result, bound);
+
+  return result;
+}
+
+function performNative(
+  call: MachineFileCall,
+  context: ToolContext,
+  submitted: string,
+  reportPath?: (hostPath: string) => string,
+): Promise<ToolResult> {
+  return call.operation === 'read'
+    ? readFile(
+        call.input,
+        context.abortSignal,
+        context.media?.readMedia(submitted, context.toolCallId),
+        reportPath === undefined ? {} : { reportPath },
+      )
+    : performMutation(call, call.input.path, {
+        signal: context.abortSignal,
+        reportPath,
+      });
+}
+
+/** The host path is the argument for an absolute path and the resolved target
+ *  for a scheme, so the mutation itself is the same call either way. */
+export function performMutation(
+  call: HostMutationCall,
+  hostPath: string,
+  runtime: {
+    signal?: AbortSignal;
+    displayPath?: string;
+    reserveCodeUnits?: number;
+    reportPath?: (hostPath: string) => string;
+  },
+): Promise<ToolResult> {
+  if (call.operation === 'edit')
+    return editFile({ ...call.input, path: hostPath }, runtime.signal, {
+      displayPath: runtime.displayPath,
+      reserveCodeUnits: runtime.reserveCodeUnits,
+      reportPath: runtime.reportPath,
+    });
+  const input = { path: hostPath, content: call.input.content };
+
+  const options = {
+    displayPath: runtime.displayPath,
+    reserveCodeUnits: runtime.reserveCodeUnits,
+    reportPath: runtime.reportPath,
   };
 
-  const content = result['content'];
-  const reportedPath = canonical['path'];
-
-  if (
-    result['kind'] !== 'directory' ||
-    !isString(content) ||
-    !isString(reportedPath)
-  )
-    return canonical;
-  const header = `${machinePrefix(machine.name)}${machine.path}`;
-
-  return {
-    ...canonical,
-    content: content.split(header).join(reportedPath),
-  };
+  return call.input.replace === true
+    ? replaceFile(input, runtime.signal, options)
+    : createFile(input, runtime.signal, options);
 }
 
 function unknownSchemeResult(): ToolResult {
@@ -245,176 +420,6 @@ function machineListing(
   });
 }
 
-async function readMachinePath(
-  context: ToolContext,
-  machine: MachinePath,
-  submitted: string,
-): Promise<ToolResult> {
-  const connector = machineConnector(context);
-
-  if (connector === undefined) return unknownSchemeResult();
-
-  if (!connector.isConfigured(machine.name))
-    return machineNotFoundResult(machine.name);
-
-  const envelope = machineCallEnvelope(
-    context,
-    machineBudgetMs(context, MACHINE_FILE_BUDGET_MS),
-  );
-
-  return machineReadResult(machine.name, async () => {
-    const raw = await connector.request(
-      machine.name,
-      'fs.read',
-      {
-        envelope,
-        path: machine.path,
-        options: {
-          displayPrefix: machinePrefix(machine.name),
-          ...(machine.selector !== undefined && {
-            selector: machine.selector,
-          }),
-        },
-      },
-      { signal: context.abortSignal },
-    );
-
-    const result = readFsReadResult(raw);
-
-    if (result === undefined) return machineUnusableResult(machine.name);
-
-    if (result.status === 'success')
-      return canonicalizeMachineResult(machine, { ...result });
-
-    // The daemon reads text only; bytes of an image or PDF are not valid UTF-8
-    // here, and the media path streams them instead. Any other refusal is the
-    // read's own result.
-    if (result.type !== 'invalid_utf8' || context.media === undefined)
-      return result;
-
-    return (
-      (await readMachineMedia(context, machine, submitted, envelope)) ?? result
-    );
-  });
-}
-
-/**
- * The media read of a Machine file, through `fs.bytes` and the shared
- * byte-buffer preparation, so the result is the one a local read of the same
- * bytes produces. `undefined` means the bytes are not an image or PDF after
- * all, and the text read's refusal stands.
- */
-async function readMachineMedia(
-  context: ToolContext,
-  machine: MachinePath,
-  submitted: string,
-  envelope: RequestEnvelope,
-): Promise<ToolResult | undefined> {
-  const connector = machineConnector(context);
-  const store = context.media;
-
-  if (connector === undefined || store === undefined) return undefined;
-
-  const { raw, bytes } = await readMachineBytes(
-    context,
-    connector,
-    machine,
-    envelope,
-  );
-
-  const meta = readFsBytesResult(raw);
-
-  if (meta === undefined) return machineUnusableResult(machine.name);
-
-  if ('status' in meta) return meta;
-
-  if (bytes.byteLength !== meta.size)
-    return machineUnusableResult(machine.name);
-  const locator = formatMachineLocator(machine.name, machine.path);
-
-  if (locator === undefined) return machineUnusableResult(machine.name);
-
-  return handMachineBytes(context, store, {
-    bytes,
-    locator,
-    selector: machine.selector,
-    submitted,
-  });
-}
-
-/** The bytes of one Machine media read, as the shared media store takes them. */
-type MachineMediaBytes = {
-  readonly bytes: Buffer;
-  readonly locator: string;
-  readonly selector: string | undefined;
-  readonly submitted: string;
-};
-
-/**
- * Hand the streamed bytes to the shared byte-buffer preparation. A refusal the
- * preparation itself makes (an unsupported media type, an over-large image) is
- * this read's result, exactly as it would be for the same local file.
- */
-async function handMachineBytes(
-  context: ToolContext,
-  store: ToolMediaStore,
-  media: MachineMediaBytes,
-): Promise<ToolResult | undefined> {
-  try {
-    return await readMediaBytes(
-      media.bytes,
-      {
-        path: media.locator,
-        ...(media.selector !== undefined && { selector: media.selector }),
-      },
-      {
-        media: store.readMedia(media.submitted, context.toolCallId),
-        signal: context.abortSignal,
-      },
-    );
-  } catch (error) {
-    if (error instanceof NativeFileError)
-      return { status: 'error', type: error.type, message: error.message };
-    throw error;
-  }
-}
-
-/**
- * One `fs.bytes` exchange: the streamed chunks and the result the daemon
- * answered with. The channel is closed as soon as the result settles, whatever
- * it is, so a failed read never leaves a stream open.
- */
-async function readMachineBytes(
-  context: ToolContext,
-  connector: MachineConnector,
-  machine: MachinePath,
-  envelope: RequestEnvelope,
-): Promise<{ readonly raw: JsonValue; readonly bytes: Buffer }> {
-  const handle = await connector.openChannel(
-    machine.name,
-    'fs.bytes',
-    { envelope, path: machine.path },
-    { signal: context.abortSignal },
-  );
-
-  const chunks: Array<Buffer> = [];
-  handle.channel.onNotification((message) => {
-    if (message.method !== BYTES_NOTIFICATION) return;
-    const chunk = readBytesChunk(message.params);
-
-    if (chunk !== undefined) chunks.push(chunk);
-  });
-  let raw: JsonValue;
-
-  try {
-    raw = await handle.result;
-  } finally {
-    handle.channel.close();
-  }
-
-  return { raw, bytes: Buffer.concat(chunks) };
-}
-
 async function mutateMachinePath(
   context: ToolContext,
   call: Exclude<MachineFileCall, { operation: 'read' }>,
@@ -445,7 +450,10 @@ async function mutateMachinePath(
         envelope,
       });
 
-      const result = readFsMutateResult(raw, call);
+      const result = readFsMutateResult(
+        raw,
+        call.operation === 'edit' ? call.input : undefined,
+      );
 
       return result === undefined
         ? machineUnusableResult(machine.name)
@@ -494,128 +502,5 @@ function requestMachineMutation(
           ...(call.input.replace === true && { replace: true }),
         },
         { signal: context.abortSignal },
-      );
-}
-
-/** One stored line range from a daemon answer: both counts, or nothing. */
-function readMutationRange(value: unknown): NativeLineRange | undefined {
-  if (!isRecord(value)) return undefined;
-  const { startLine, endLine } = value;
-
-  return isNumber(startLine) && isNumber(endLine)
-    ? { startLine, endLine }
-    : undefined;
-}
-
-/** The edit input a Machine edit call carries. */
-type MachineEditInput = Extract<
-  MachineFileCall,
-  { operation: 'edit' }
->['input'];
-
-/** The display data of an edit answer: the daemon's start line with the text
- *  the hub already holds. A daemon answers without the replaced and
- *  replacement text, because echoing a large replacement would carry it over
- *  the frame limit twice and can fail after the file has changed, so the
- *  stored part takes `oldText` and `newText` from the call, exactly as a local
- *  edit takes them from its input. */
-function readMutationDisplay(
-  value: unknown,
-  input: MachineEditInput,
-): NativeMutationDisplay | undefined {
-  if (!isRecord(value)) return undefined;
-  const { startLine } = value;
-
-  return isNumber(startLine)
-    ? { startLine, oldText: input.oldText, newText: input.newText }
-    : undefined;
-}
-
-/** One `fs.write` success: only the facts its status line names. An old
- *  daemon's `content`, `shownRange`, and `truncated` belong to the edit form
- *  and would contradict the write contract, so they are dropped, never
- *  stored. */
-function readFsWriteResult(
-  value: UnknownRecord,
-  path: string,
-): NativeMutationResult {
-  const { created, replaced, lineCount } = value;
-
-  return {
-    status: 'success',
-    operation: 'write',
-    path,
-    ...(created === true && { created: true }),
-    ...(replaced === true && { replaced: true }),
-    ...(isNumber(lineCount) && { lineCount }),
-  };
-}
-
-/** One `fs.edit` success: its numbered region, shown range, cut marker, line
- *  count, and display data. An old-daemon edit without display data keeps its
- *  `diff`, which is the only line numbering the owner UI has for such a part;
- *  a current answer's display data makes the diff dead weight. Each field is
- *  forwarded only when it is well formed. */
-function readFsEditResult(
-  value: UnknownRecord,
-  path: string,
-  input: MachineEditInput | undefined,
-): NativeMutationResult {
-  const { content, truncated, cut, replacements, lineCount } = value;
-  const storedRange = value['shownRange'];
-
-  const shownRange =
-    storedRange === null ? null : readMutationRange(storedRange);
-
-  const display =
-    input === undefined
-      ? undefined
-      : readMutationDisplay(value['display'], input);
-
-  const legacyDiff =
-    display === undefined && isString(value['diff'])
-      ? value['diff']
-      : undefined;
-
-  return {
-    status: 'success',
-    operation: 'edit',
-    path,
-    ...(replacements === 1 && { replacements: 1 }),
-    ...(isString(content) && { content }),
-    ...(shownRange !== undefined && { shownRange }),
-    ...(isBoolean(truncated) && { truncated }),
-    ...(cut === true && { cut: true }),
-    ...(isNumber(lineCount) && { lineCount }),
-    ...(display !== undefined && { display }),
-    ...(legacyDiff !== undefined && { diff: legacyDiff }),
-  };
-}
-
-/**
- * One `fs.edit` or `fs.write` success, mapped to the shape the tool stores. A
- * write is status only; an edit carries its region and the display data the
- * owner UI diffs. A daemon that predates a field still yields a usable result.
- */
-function readFsMutateResult(
-  value: JsonValue,
-  call: Exclude<MachineFileCall, { operation: 'read' }>,
-): ToolResult | undefined {
-  const failure = readNativeFailure(value);
-
-  if (failure !== undefined) return failure;
-
-  if (!isRecord(value) || value['status'] !== 'success') return undefined;
-  const { operation, path } = value;
-
-  if ((operation !== 'edit' && operation !== 'write') || !isString(path))
-    return undefined;
-
-  return operation === 'write'
-    ? readFsWriteResult(value, path)
-    : readFsEditResult(
-        value,
-        path,
-        call.operation === 'edit' ? call.input : undefined,
       );
 }

@@ -15,6 +15,7 @@ import {
   createMachineSshTransportFactory,
   createProcessTransport,
 } from './machine-transport';
+import { MachineUnavailableError } from './machine-session';
 
 type FakeLink = {
   readonly process: SshProcess;
@@ -176,6 +177,22 @@ describe('createMachineSshTransportFactory', () => {
       expect(of(calls[1]).args[1]).toBe(of(calls[0]).args[1]);
       // A configured port reaches ssh in the URI form it parses.
       expect(of(calls[1]).args[4]).toBe('ssh://me@gpu.lan:2222');
+    } finally {
+      created.dispose();
+    }
+  });
+
+  it('refuses a request with no destination without spawning ssh', () => {
+    const { created, calls } = factory();
+
+    try {
+      expect(() => created.open({ name: 'devl' })).toThrow(
+        MachineUnavailableError,
+      );
+      expect(() => created.open({ name: 'devl' })).toThrow(
+        'This Machine has no SSH destination.',
+      );
+      expect(calls).toHaveLength(0);
     } finally {
       created.dispose();
     }

@@ -20,13 +20,15 @@ import {
 } from '@workspace/runtime-safety';
 
 import { BUILT_IN_DEFAULTS } from '../../instance-config/llame-config';
+import { formatMachineLocator } from '../../machines/machine-locator';
 import {
   measureToolResultForModel,
   renderToolResultForSpill,
   type SpillRendering,
 } from '../model-text';
 import { type Tool, type ToolContext } from '../types';
-import { machineWorkspaceRoot } from '../workspace-path';
+import { locatorContextOf } from '../bash-target';
+import { currentMachine } from '../workspace-path';
 import { writeToolArtifact, type WrittenArtifact } from './artifact-writer';
 import { canReadArtifacts, readAdmitsArtifact } from './readable';
 
@@ -143,7 +145,7 @@ async function storeHeadRendering(
 
   if (write.kind === 'no-reader') return undefined;
   const written = write.written;
-  const hostFiles = artifactHostFiles(context, toolName, written);
+  const hostFiles = artifactHostFiles(context, written);
 
   return {
     kind: 'stored',
@@ -254,23 +256,26 @@ function writePart(
 
 /**
  * The host-file facts of the cap notice, or undefined when no file was made.
- * A Machine Workspace cannot open a llame host path, so `elsewhere` holds
- * there; a head spill stores only when the Run can read it back, which is the
- * route the notice then names.
+ * The files live on the Machine this process hosts; a call whose current
+ * Machine is another one (or an `ssh://` host) cannot open that directory.
  */
 export function artifactHostFiles(
   context: ToolContext,
-  toolName: string,
   written: WrittenArtifact,
 ): ArtifactNoticeHostFiles | undefined {
   const directory = written.hostDirectory;
+  const local = context.localMachine;
 
-  if (directory === undefined) return undefined;
+  if (directory === undefined || local === undefined) return undefined;
+  const locator = formatMachineLocator(local, directory);
+
+  if (locator === undefined) return undefined;
 
   return {
-    directory,
+    locator,
+    machine: local.toLowerCase(),
     elsewhere:
-      machineWorkspaceRoot(context.workspaceRoot?.current()) !== undefined,
-    readable: readAdmitsArtifact(context, toolName, written.seq),
+      currentMachine(locatorContextOf(context))?.toLowerCase() !==
+      local.toLowerCase(),
   };
 }

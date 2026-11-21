@@ -18,11 +18,7 @@ import { toToolResult } from './bash-result';
 import { reconcileArtifactFiles } from './artifacts/host-files';
 import { spillBashResult } from './bash-spill';
 import { executeSshBash } from './ssh-bash';
-import { isSshLocator } from '../ssh/ssh-locator';
-import {
-  isMachineLocator,
-  parseMachineLocator,
-} from '../machines/machine-locator';
+import { machinePrefix } from '../machines/machine-locator';
 import {
   MACHINE_BASH_BUDGET_MS,
   machineBudgetMs,
@@ -33,14 +29,20 @@ import {
   readProcBashResult,
   runMachineMutation,
 } from './machine-call';
+import { verifyLocalMachine } from './local-machine';
 import {
   bashTarget,
-  machineWorkingDirectory,
   type BashInput,
-  type MachineWorkingDirectory,
+  type BashMachineTarget,
+  type BashRoute,
 } from './bash-target';
 import { stopTool } from './stop';
-import { runAsyncBash, runForegroundBash } from './bash-async';
+import {
+  hostCommand,
+  runAsyncBash,
+  runForegroundBash,
+  type HostCommand,
+} from './bash-async';
 
 const bashLogger = new Logger('BashTool');
 
@@ -50,16 +52,23 @@ const MACHINE_BASH_STREAM_BOUND: StreamBound = {
   limit: BASH_BOUNDS.outputBound,
 };
 
+const NO_LOCAL_MACHINE_MESSAGE =
+  'No local Machine is configured: set machines.local to the Machine this ' +
+  'process hosts before a command runs in process.';
+
+const REMOTE_BACKGROUND_REFUSAL =
+  'async and unlimited are supported only for bash commands on the llame host.';
+
 /**
  * Run on the Machine through its working directory: the command, the managed
  * base environment, the shared bounds, and cancellation all travel to the
  * daemon, and the durable attempt is the same unbound fence a Machine
- * mutation uses.
+ * mutation uses. No `cwd` means the daemon's own default directory.
  */
 async function runMachineBash(
   context: ToolContext,
   input: BashInput,
-  machine: MachineWorkingDirectory,
+  machine: BashMachineTarget,
 ): Promise<ToolResult> {
   const { name, path, locator } = machine;
   const connector = machineConnector(context);
@@ -75,7 +84,7 @@ async function runMachineBash(
 
   return runMachineMutation(
     context,
-    { name, operation: 'bash', locator },
+    { name, operation: 'bash', locator: locator ?? machinePrefix(name) },
     async () => {
       const raw = await connector.request(
         name,
@@ -86,7 +95,7 @@ async function runMachineBash(
             machineBudgetMs(context, MACHINE_BASH_BUDGET_MS),
           ),
           command: input.command,
-          cwd: path,
+          ...(path !== undefined && { cwd: path }),
           ...(input.env !== undefined && { env: input.env }),
         },
         { signal: context.abortSignal },
@@ -130,34 +139,6 @@ function sanitizeMachineBashResult(
   );
 }
 
-/**
- * The Machine branch of `bash`: a projected cwd that is a Machine locator runs
- * on that Machine, and `undefined` means this call has no Machine in it.
- */
-function machineBashExecution(
-  context: ToolContext,
-  input: BashInput,
-): ToolResult | Promise<ToolResult> | undefined {
-  const cwd = input.cwd;
-
-  if (cwd === undefined || !isMachineLocator(cwd)) return undefined;
-  const target = parseMachineLocator(cwd);
-
-  const machine =
-    target.kind === 'path'
-      ? machineWorkingDirectory(target.name, target.path)
-      : undefined;
-
-  if (machine === undefined)
-    return {
-      status: 'error',
-      type: 'invalid_path',
-      message: 'The working directory is not a Machine path.',
-    };
-
-  return runMachineBash(context, input, machine);
-}
-
 export const bashTool: Tool<BashInput> = {
   id: 'bash',
   classification: 'execute_code',
@@ -174,20 +155,13 @@ export const bashTool: Tool<BashInput> = {
     unlimited: z.boolean().optional(),
   }),
   execute: async (context, input): Promise<ToolResult> => {
-    const projected = bashTarget(context, input);
+    const routed = bashTarget(context, input);
 
-    if ('status' in projected) return projected;
+    if ('status' in routed) return routed;
 
-    if (
-      projected.target !== 'host' &&
-      (input.async !== undefined || input.unlimited !== undefined)
-    )
-      return {
-        status: 'error',
-        type: 'invalid_input',
-        message:
-          'async and unlimited are supported only for bash commands on the llame host.',
-      };
+    const refused = backgroundRefusal(routed, input);
+
+    if (refused !== undefined) return refused;
 
     if (input.unlimited === true && context.allowUnlimitedJobs !== true)
       return {
@@ -196,28 +170,43 @@ export const bashTool: Tool<BashInput> = {
         message:
           'tools.jobs.allowUnlimited is false; unlimited jobs are not allowed.',
       };
-    const routed = routedBashExecution(context, projected.input);
 
-    return routed ?? runHostBash(context, projected.input);
+    if (routed.target === 'machine')
+      return runMachineBash(context, routed.input, routed.machine);
+
+    if (routed.target === 'ssh') return executeSshBash(context, routed.input);
+
+    return runHostBash(context, routed);
   },
 };
 
 /**
- * A Machine cwd runs on that Machine, and an `ssh://` cwd runs before the
- * local executor gate: it needs no local executor, and a local cwd on the same
- * process still refuses below. `undefined` means the llame host.
+ * `async` and `unlimited` need a process this worker owns. Another Machine
+ * cannot promote its daemon's command to a local job, and an `ssh://` host has
+ * no job runtime either; both refuse before any process starts. The Machine
+ * refusal names that Machine and never this worker.
  */
-function routedBashExecution(
-  context: ToolContext,
+function backgroundRefusal(
+  routed: BashRoute,
   input: BashInput,
-): ToolResult | Promise<ToolResult> | undefined {
-  const machineExecution = machineBashExecution(context, input);
+): ToolResult | undefined {
+  if (input.async === undefined && input.unlimited === undefined)
+    return undefined;
 
-  if (machineExecution !== undefined) return machineExecution;
+  if (routed.target === 'machine')
+    return {
+      status: 'error',
+      type: 'invalid_input',
+      message: `\`async\` is unavailable for Machine \`${routed.machine.name}\` on this attempt. Run the command synchronously.`,
+    };
 
-  if (input.cwd === undefined || !isSshLocator(input.cwd)) return undefined;
-
-  return executeSshBash(context, { ...input, cwd: input.cwd });
+  return routed.target === 'ssh'
+    ? {
+        status: 'error',
+        type: 'invalid_input',
+        message: REMOTE_BACKGROUND_REFUSAL,
+      }
+    : undefined;
 }
 
 /**
@@ -245,20 +234,28 @@ function admitHostCommand(
   );
 }
 
-/** The llame host branch, fenced as a native attempt. */
+/**
+ * The process's own Machine, served in process (design D8): the identity check
+ * comes first, because the host runs tool code inside this process, then the
+ * same managed bounds, fence, and job promotion a queued attempt uses.
+ */
 async function runHostBash(
   context: ToolContext,
-  input: BashInput,
+  routed: Extract<BashRoute, { target: 'host' }>,
 ): Promise<ToolResult> {
-  const { runId, nativeExecutorId, toolCallId, attemptId } = context;
+  const { runId, localMachine, toolCallId, attemptId } = context;
 
-  if (!runId || !nativeExecutorId || !toolCallId || !attemptId) {
+  if (!runId || !localMachine || !toolCallId || !attemptId) {
     return {
       status: 'error',
       type: 'executor_unavailable',
-      message: 'Native host authority is unavailable.',
+      message: NO_LOCAL_MACHINE_MESSAGE,
     };
   }
+
+  const refusal = await verifyLocalMachine(context);
+
+  if (refusal !== undefined) return refusal;
 
   // Repair the Chat's artifact files before this command can open them; a
   // failed reconcile leaves them as they were (tool-result-artifacts D10).
@@ -268,13 +265,44 @@ async function runHostBash(
     });
   }
 
-  // The slot comes before the executor, so a refused call records no attempt
-  // and starts no process (background-jobs D7).
+  const admitted = admitHostCall(context, routed, toolCallId);
+
+  if ('status' in admitted) return admitted;
+
+  const fenced = {
+    ...context,
+    runId,
+    localMachine,
+    toolCallId,
+    attemptId,
+  };
+
+  return routed.input.async === true
+    ? runAsyncBash(fenced, admitted.command)
+    : runForegroundBash(fenced, admitted.command);
+}
+
+/** One host call once its managed admission is settled. */
+type AdmittedHostCall = {
+  readonly command: HostCommand;
+};
+
+/**
+ * The admission a host call takes before any executor runs: its slot first, so
+ * a refused call records no attempt and starts no process (background-jobs
+ * D7), then its managed bounds. The attempt records the canonical locator;
+ * only the executor sees the absolute directory it enters.
+ */
+function admitHostCall(
+  context: ToolContext,
+  routed: Extract<BashRoute, { target: 'host' }>,
+  toolCallId: string,
+): ToolResult | AdmittedHostCall {
   const slot = acquireBashSlot(context);
 
   if ('status' in slot) return slot;
 
-  const admitted = admitHostCommand(context, input, toolCallId);
+  const admitted = admitHostCommand(context, routed.input, toolCallId);
 
   if ('type' in admitted) {
     slot.release();
@@ -282,20 +310,14 @@ async function runHostBash(
     return toToolResult(admitted);
   }
 
-  if (input.async === true)
-    return runAsyncBash(
-      { ...context, runId, nativeExecutorId, toolCallId, attemptId },
-      input,
+  return {
+    command: hostCommand(
+      routed.input,
       admitted.cwd,
       slot,
-    );
-
-  return runForegroundBash(
-    { ...context, runId, nativeExecutorId, toolCallId, attemptId },
-    input,
-    admitted.cwd,
-    slot,
-  );
+      routed.machine.locator ?? admitted.cwd,
+    ),
+  };
 }
 
 export function isBashTool(tool: Tool): boolean {

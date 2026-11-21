@@ -18,7 +18,7 @@ import { RunEventsRepository } from '../runs/runs-repository';
 import { type ToolContext, type ToolResult, type WorktreeGit } from './types';
 import { adoptSource } from './workspace-worktree-adoption';
 import { executorFailure, type Failed } from './workspace-worktree-failure';
-import { targetOf } from './workspace-worktree-target';
+import { entryMachine, type EntryMachine } from './workspace-worktree-target';
 import {
   requireDerivedPermission,
   type WorkspaceAuthority,
@@ -102,6 +102,7 @@ type Creation = {
   readonly context: ToolContext;
   readonly worktree: WorktreeEntryInput;
   readonly executors: WorktreeGit;
+  readonly machine: EntryMachine;
   readonly target: ExecutorTarget;
   readonly runId: string;
   readonly toolCallId: string;
@@ -109,9 +110,11 @@ type Creation = {
 
 /** The decided source, name, and directory of one entry, before any write. */
 type Plan = {
+  /** The canonical locator of the main clone, where every decision applies. */
   readonly mainClone: string;
-  /** The executor's own path for the main clone, where placement does math. */
+  /** The absolute path of the main clone, where placement does math. */
   readonly mainPath: string;
+  /** The canonical locator of the new worktree directory. */
   readonly directory: string;
   readonly branch: string;
   readonly baseRef: string | undefined;
@@ -133,18 +136,21 @@ export async function enterWorktree(
     return worktreeFailed('This process cannot create a worktree.');
 
   try {
+    const machine = entryMachine(input);
+
     return await createWorktree({
       context,
       worktree: input,
       executors,
-      target: targetOf(input),
+      machine,
+      target: machine.target,
       runId,
       toolCallId,
     });
   } catch (error) {
     // Every read is inside this catch and every mutation is caught where it
     // is sent, so no failure here can carry a leftover-directory claim.
-    return executorFailure(error, input.authority.machine?.name);
+    return executorFailure(error, input.authority.executorId);
   }
 }
 
@@ -195,13 +201,17 @@ async function planWorktree(
   creation: Creation,
   inspection: GitInspectSuccess,
 ): Promise<Plan | Failed> {
-  const { context, executors, target, worktree } = creation;
+  const { context, executors, machine, target, worktree } = creation;
 
   // The main tree git reports: the toplevel, or the main worktree of a linked
-  // one by its real path. A subdirectory source decides on its clone.
-  const mainClone = inspection.linked
+  // one by its real path. A subdirectory source decides on its clone. The
+  // address is the executor's; the decision, the rows, and the catalogue see
+  // the canonical locator of the same directory.
+  const mainAddress = inspection.linked
     ? (inspection.mainWorktree ?? inspection.toplevel)
     : inspection.toplevel;
+
+  const mainClone = machine.locator(mainAddress);
 
   if (mainClone !== worktree.canonical) {
     const rejection = requireDerivedPermission(
@@ -213,7 +223,7 @@ async function planWorktree(
     if (rejection !== undefined) return { status: 'failed', result: rejection };
   }
 
-  const mainPath = executors.executorPath(target, mainClone);
+  const mainPath = machine.pathOf(mainAddress);
 
   const directoryAt = await placement(
     creation,
@@ -251,12 +261,14 @@ async function decidedDirectory(
   name: WorktreeName,
   directoryAt: (slug: string) => string,
 ): Promise<{ readonly directory: string } | Failed> {
-  const { context, executors, target } = creation;
+  const { context, executors, machine, target } = creation;
 
-  const directory = await executors.canonicalTarget(
+  const address = await executors.canonicalTarget(
     target,
     directoryAt(name.slug),
   );
+
+  const directory = machine.locator(address);
 
   const rejection = requireDerivedPermission(
     context,
@@ -379,22 +391,23 @@ async function refuseElsewhere(
   creation: Creation,
   plan: Plan,
 ): Promise<Failed | undefined> {
-  const { executors, target } = creation;
+  const { executors, machine, target } = creation;
+  const address = plan.directory;
   let actual: string;
 
   try {
-    actual = await executors.canonical(target, plan.directory);
+    actual = await executors.canonical(target, address);
   } catch (error) {
     // A real-path read writes nothing, so it never claims a leftover.
     return executorFailure(error, target.machine);
   }
 
-  if (actual === plan.directory) return undefined;
+  if (machine.locator(actual) === plan.directory) return undefined;
 
   let removed: GitWorktreeRemoveResult;
 
   try {
-    removed = await executors.removeWorktree(target, plan.directory);
+    removed = await executors.removeWorktree(target, address);
   } catch (error) {
     return executorFailure(error, target.machine, plan.directory);
   }
@@ -424,7 +437,7 @@ async function placement(
   mainClone: string,
   mainPath: string,
 ): Promise<(slug: string) => string> {
-  const { context, executors, target, worktree } = creation;
+  const { context, machine, worktree } = creation;
 
   const source = await context.tenantDb.runAs(context.userId, async (db) => {
     const catalog = new RepositoriesRepository(db);
@@ -449,12 +462,12 @@ async function placement(
       row?.kind === 'main' ? row.worktreeBase : (parent?.worktreeBase ?? null);
 
     return {
-      // A recorded base is an address on this executor: an absolute host path
-      // locally, and a locator on a Machine, which placement math decodes.
+      // A recorded base is an address on this Machine: a locator written since
+      // the migration, or a bare host path an older row still carries.
       base:
         recordedBase === null
           ? defaultWorktreeBase(mainPath)
-          : executors.executorPath(target, recordedBase),
+          : machine.pathOf(recordedBase),
       displayName:
         repository?.displayName ??
         derivedDisplayName(canonicalOrigin(inspection.remotes), mainPath),
@@ -462,10 +475,7 @@ async function placement(
   });
 
   return (slug: string) =>
-    executors.address(
-      target,
-      worktreeDirectory(source.base, source.displayName, slug),
-    );
+    machine.locator(worktreeDirectory(source.base, source.displayName, slug));
 }
 
 /**
@@ -520,6 +530,8 @@ async function commitWorktree(
     executorId: commit.worktree.authority.executorId,
     mainClone: commit.plan.mainClone,
     mainPath: commit.plan.mainPath,
+    // The inspector reports every path as its canonical locator, locally and
+    // through the daemon alike, so the rows record what it returned.
     inspection: commit.inspection,
   });
 

@@ -127,9 +127,8 @@ Imports use the same authority as a model `read`, not more:
    without a probe, **whether or not the file exists**, so a denial never
    reveals a path.
 2. Only an admitted target is probed; a `media://` probe looks the id up among
-   your own media. An admitted target that does not exist, or a host target
-   on a process with no native executor, stays prose with no audit event,
-   notice, or chip.
+   your own media. An admitted target that does not exist stays prose with no
+   audit event, notice, or chip.
 3. Each surviving target is read once through `read`. In `bypass` mode the
    target is admitted without evaluating the group, and the decision is recorded
    as bypass. If `read` is not available at all, nothing is imported.
@@ -274,8 +273,8 @@ and search see neither the item's text nor its metadata.
 
 ## Configured by
 
-- [Native files](../operator/native-files.md) enables the host executor and the
-  `read` entry that host imports need.
+- [Native files](../operator/native-files.md) configures the Machine behind
+  absolute paths and the `read` entry that host imports need.
 - [Personal Knowledge](../operator/knowledge.md) configures the Knowledge root
   behind `kb://` imports.
 - [Tool-call permissions](../operator/tool-call-permissions.md) sets the `read`

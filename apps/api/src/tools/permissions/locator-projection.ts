@@ -22,9 +22,8 @@ import {
 } from '../../projects/project-locator';
 import {
   canonicalMachineLocator,
-  isWorkspaceRelative,
-  mapToWorkspaceHost,
-  resolveWorkspacePath,
+  type LocatorContext,
+  resolveMachinePath,
 } from '../workspace-path';
 import {
   parseWebLocator,
@@ -35,8 +34,17 @@ import { isFileAlias, decodeFileAlias } from './file-alias';
 
 const WEB_LOCATOR_SCHEMES = { http: true, https: true } as const;
 
-/** Native tools whose `path` is a logical resource locator for policy. */
-const NATIVE_FILE_PERMISSION_TOOL_IDS = new Set(['read', 'edit', 'write']);
+/**
+ * Tools whose `path` is a logical resource locator for policy. `enter_workspace`
+ * decides its submitted path on the canonical locator too (design D7),
+ * otherwise a bare-path entry could never find a canonical allow.
+ */
+const NATIVE_FILE_PERMISSION_TOOL_IDS = new Set([
+  'read',
+  'edit',
+  'write',
+  'enter_workspace',
+]);
 
 /**
  * Project a submitted locator to the identity its read is admitted under: a
@@ -111,46 +119,88 @@ function withoutFileAliasSelector(value: string): string {
   return value;
 }
 
+/** The identity one native `path` value has for policy. */
+export type NativePathProjection = {
+  /** The canonical locator policy decides an allow on. */
+  readonly canonical: string;
+  /** The decoded absolute path on the Machine, for a Machine value only. */
+  readonly projectedPath?: string;
+};
+
 /**
  * Canonicalize a submitted native `path` value for permission matching only.
- * A `file:` alias is decoded to its absolute host path before any other
- * classification, so a valid alias is matched as its host path and an invalid
- * alias is returned unchanged. Knowledge, skill, and Project locators are
- * re-encoded to their canonical logical identity, retaining a valid selector
- * for mutations; read projections remove it afterward. A web locator is
- * re-encoded through the read tool's own parser, so the text a clause matches
- * is the URL that will be requested plus the selector exactly as it trails
- * it — a fragment the request drops cannot smuggle clause-matching text past
- * an allow, a locator with no path is matched with the slash its request
- * carries, and `:5-9:raw` is never reordered to `:raw:5-9`, which the model
- * and a server never wrote. Relative direct host paths are projected lexically
- * from the Workspace root when one is supplied; absolute host locators and
- * invalid locators are otherwise returned unchanged. Nothing touches the
- * filesystem, and the resolved host path is never substituted for Knowledge,
- * skill, or direct host locators. A Machine locator is re-encoded to its
- * canonical text with the path decoded once; while a Machine Workspace is
- * entered, a bare absolute path is mapped to that Machine's locator first, so
- * a rule written against the local filesystem cannot admit a remote address.
+ * A `file:` alias is decoded to its absolute path before any other
+ * classification, so a valid alias is matched as its path on the current
+ * Machine and an invalid alias is returned unchanged. The single locator rule
+ * (`resolveMachinePath`) decides the Machine: a bare absolute path and every
+ * valid `file:` form are the current Machine's, a relative path resolves from
+ * the entered Workspace root, and `machine://<name>/<path>` names its own. A
+ * Machine value's canonical text is its `machine://` locator with the path
+ * decoded once; its projected path is the decoded absolute path without the
+ * scheme and the name, which is what a reject written as a bare path matches.
+ * Knowledge, skill, Project, job, and web locators keep their existing
+ * canonical forms. Nothing touches the filesystem, and an invalid value is
+ * matched as written.
+ *
+ * A mutation takes its path literally, so a suffix that looks like a selector
+ * stays on both texts; the `read` projection removes it afterward.
  */
 export function projectNativeFilePath(
   value: string,
-  workspaceRoot?: string,
-): string {
-  if (isFileAlias(value)) {
-    const alias = decodeFileAlias(value);
+  context: LocatorContext = {},
+): NativePathProjection {
+  return projectValue(value, context, { keepSelector: true });
+}
 
-    if (!alias.ok) return value;
+/**
+ * One value's projection. `keepSelector` describes a mutation, whose path the
+ * tool takes literally; a `read` drops a split-off selector from both texts.
+ */
+function projectValue(
+  value: string,
+  context: LocatorContext,
+  options: { readonly keepSelector: boolean },
+): NativePathProjection {
+  const target = resolveMachinePath(value, context);
 
-    return alias.hostPath;
+  if (target.kind === 'machine') {
+    // A mutation takes the suffix literally, so it keeps whatever the grammar
+    // split off; a `read` drops the selector that windowed the call.
+    const literalSuffix =
+      target.selector === undefined ? '' : `:${target.selector}`;
+
+    return {
+      canonical: options.keepSelector
+        ? target.locator
+        : withoutReadSelector(target.locator),
+      projectedPath: options.keepSelector
+        ? `${target.path}${literalSuffix}`
+        : target.path,
+    };
   }
 
-  const projected =
-    workspaceRoot === undefined
-      ? value
-      : isWorkspaceRelative(value)
-        ? resolveWorkspacePath(workspaceRoot, value)
-        : mapToWorkspaceHost(workspaceRoot, value);
+  if (target.kind === 'scheme') {
+    const canonical = projectSchemeValue(value);
 
+    // A `read` matches the resource without the selector that windowed the
+    // call, exactly as it does for a Machine path.
+    return {
+      canonical: options.keepSelector
+        ? canonical
+        : withoutReadSelector(canonical),
+    };
+  }
+
+  // The reader refuses this value, so policy matches the text it would refuse:
+  // a valid `file:` alias stays its decoded path, everything else as written.
+  if (!isFileAlias(value)) return { canonical: value };
+  const alias = decodeFileAlias(value);
+
+  return { canonical: alias.ok ? alias.hostPath : value };
+}
+
+/** The canonical text of every locator scheme whose reader keeps its routing. */
+function projectSchemeValue(projected: string): string {
   const scheme = parsePathScheme(projected);
 
   if (scheme === undefined) return projected;
@@ -231,32 +281,41 @@ function withSelector(canonical: string, selector: string | undefined): string {
  * The evaluator projection for a tool: native file tools match their `path` as
  * a logical locator, and a `read` matches it without the selector that
  * windowed the call; `stop` matches each `jobs` entry with a lower-case
- * scheme; every other tool and field is passed through. The same
- * projection applies when all-fields rejection visits the native `path`.
+ * scheme; every other tool and field is passed through. The same projection
+ * applies when all-fields rejection visits the native `path`.
+ *
+ * The returned function takes a whole `path` value on its own — the form a
+ * caller that only has values uses — or a field and a value, which is the
+ * shape `projectFieldValue` calls.
  */
+export type NativeFileProjection = {
+  (value: string): NativePathProjection;
+  (field: string, value: string): NativePathProjection;
+};
+
 export function nativeFileProjection(
   toolId: string,
-  workspaceRoot?: string,
-): (field: string, value: string) => string {
-  if (toolId === 'stop') {
-    // Each `jobs` entry matches with its scheme in lower case.
-    return (field, value) => {
+  context: LocatorContext = {},
+): NativeFileProjection {
+  const project = (field: string, value: string): NativePathProjection => {
+    if (toolId === 'stop') {
+      // Each `jobs` entry matches with its scheme in lower case.
       const scheme = field === 'jobs' ? parsePathScheme(value) : undefined;
 
-      return scheme?.scheme === JOB_SCHEME
-        ? `${JOB_SCHEME}://${scheme.rest}`
-        : value;
-    };
-  }
+      return {
+        canonical:
+          scheme?.scheme === JOB_SCHEME
+            ? `${JOB_SCHEME}://${scheme.rest}`
+            : value,
+      };
+    }
 
-  if (!NATIVE_FILE_PERMISSION_TOOL_IDS.has(toolId)) {
-    return (_field, value) => value;
-  }
+    if (!NATIVE_FILE_PERMISSION_TOOL_IDS.has(toolId) || field !== 'path')
+      return { canonical: value };
 
-  return (field, value) => {
-    if (field !== 'path') return value;
-    const projected = projectNativeFilePath(value, workspaceRoot);
-
-    return toolId === 'read' ? withoutReadSelector(projected) : projected;
+    return projectValue(value, context, { keepSelector: toolId !== 'read' });
   };
+
+  return (first: string, second?: string) =>
+    second === undefined ? project('path', first) : project(first, second);
 }

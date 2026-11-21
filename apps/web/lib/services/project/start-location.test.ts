@@ -8,7 +8,6 @@ import type {
 import {
   executorLabel,
   executorOptions,
-  machineNameFromExecutorId,
   resolveLocation,
   type ResolvedLocation,
 } from "./start-location";
@@ -19,11 +18,13 @@ function checkout(
   id: string,
   overrides: Partial<CheckoutResponse> = {},
 ): CheckoutResponse {
+  const executorId = overrides.executorId ?? "host";
+
   return {
     id,
     repositoryId: "repo-1",
-    executorId: "local",
-    path: `/home/leo/src/llame-${id}`,
+    executorId,
+    path: `machine://${executorId}/home/leo/src/llame-${id}`,
     kind: "main",
     parentCheckoutId: null,
     branch: "main",
@@ -62,7 +63,7 @@ function preview(
   return {
     projectId: "p1",
     repositoryId: "repo-1",
-    executorId: "local",
+    executorId: "host",
     checkoutId: "c1",
     isolation: "reuse",
     isolationReason: "project_policy",
@@ -73,43 +74,30 @@ function preview(
 
 const CHECKOUTS = [checkout("c1")];
 
-describe("machineNameFromExecutorId", () => {
-  it("reads the Machine name and nothing from the local executor", () => {
-    expect(machineNameFromExecutorId("machine:nas")).toBe("nas");
-    expect(machineNameFromExecutorId("machine:")).toBeUndefined();
-    expect(machineNameFromExecutorId("local")).toBeUndefined();
-  });
-});
-
 describe("executorOptions", () => {
-  it("groups the repository's main checkouts per executor and sorts by label", () => {
+  it("groups the repository's main checkouts per Machine and sorts by label", () => {
     const options = executorOptions({
       repositoryId: "repo-1",
       checkouts: [
         checkout("c1"),
         checkout("c2"),
-        checkout("c3", { executorId: "machine:nas" }),
-        checkout("w1", { kind: "worktree", executorId: "local" }),
+        checkout("c3", { executorId: "nas" }),
+        checkout("w1", { kind: "worktree" }),
         checkout("c4", { repositoryId: "repo-2" }),
       ],
-      machines: [machine("nas")],
+      machines: [machine("host"), machine("nas")],
     });
 
     expect(options).toEqual([
-      { executorId: "local", label: "local", mainCheckouts: 2, reason: null },
-      {
-        executorId: "machine:nas",
-        label: "nas",
-        mainCheckouts: 1,
-        reason: null,
-      },
+      { executorId: "host", label: "host", mainCheckouts: 2, reason: null },
+      { executorId: "nas", label: "nas", mainCheckouts: 1, reason: null },
     ]);
   });
 
   it("disables an offline Machine and names its failure", () => {
     const [option] = executorOptions({
       repositoryId: "repo-1",
-      checkouts: [checkout("c1", { executorId: "machine:nas" })],
+      checkouts: [checkout("c1", { executorId: "nas" })],
       machines: [
         machine("nas", {
           status: "offline",
@@ -119,7 +107,7 @@ describe("executorOptions", () => {
     });
 
     expect(option).toEqual({
-      executorId: "machine:nas",
+      executorId: "nas",
       label: "nas",
       mainCheckouts: 1,
       reason: "Offline — Host key does not match",
@@ -129,20 +117,36 @@ describe("executorOptions", () => {
   it("names a Machine the configuration no longer provides", () => {
     const [option] = executorOptions({
       repositoryId: "repo-1",
-      checkouts: [checkout("c1", { executorId: "machine:gone" })],
+      checkouts: [checkout("c1", { executorId: "gone" })],
       machines: [],
     });
 
+    expect(option.label).toBe("gone");
     expect(option.reason).toBe("This Machine is not configured.");
+  });
+
+  it("keeps a Machine startable until the list answers", () => {
+    const [option] = executorOptions({
+      repositoryId: "repo-1",
+      checkouts: [checkout("c1")],
+      machines: undefined,
+    });
+
+    expect(option).toEqual({
+      executorId: "host",
+      label: "host",
+      mainCheckouts: 1,
+      reason: null,
+    });
   });
 
   it("uses a failed create's reason ahead of the Machine's status", () => {
     const [option] = executorOptions({
       repositoryId: "repo-1",
-      checkouts: [checkout("c1", { executorId: "machine:nas" })],
+      checkouts: [checkout("c1", { executorId: "nas" })],
       machines: [machine("nas")],
       unavailable: {
-        executorId: "machine:nas",
+        executorId: "nas",
         reason: "Update the llame-machine daemon on that Machine.",
       },
     });
@@ -170,7 +174,7 @@ function resolve(
     preview: preview(),
     previewFailed: false,
     checkouts: CHECKOUTS,
-    machines: [],
+    machines: [machine("host")],
     failed: null,
     ...overrides,
   });
@@ -180,7 +184,7 @@ describe("resolveLocation", () => {
   it("resolves the preview's ids against the owner's rows", () => {
     const location = resolve();
 
-    expect(location.executor?.label).toBe("local");
+    expect(location.executor?.label).toBe("host");
     expect(location.checkout?.id).toBe("c1");
     expect(location.isolation).toBe("reuse");
     expect(location.warning).toBeNull();
@@ -206,9 +210,9 @@ describe("resolveLocation", () => {
 
   it("warns about an offline Machine by name and reason", () => {
     const location = resolve({
-      preview: preview({ executorId: "machine:nas" }),
-      checkouts: [checkout("c1", { executorId: "machine:nas" })],
-      machines: [machine("nas", { status: "offline" })],
+      preview: preview({ executorId: "nas" }),
+      checkouts: [checkout("c1", { executorId: "nas" })],
+      machines: [machine("host"), machine("nas", { status: "offline" })],
     });
 
     expect(location.warning).toEqual({
@@ -219,10 +223,10 @@ describe("resolveLocation", () => {
 
   it("names a failed create's Workspace status", () => {
     const location = resolve({
-      preview: preview({ executorId: "machine:nas" }),
-      checkouts: [checkout("c1", { executorId: "machine:nas" })],
-      machines: [machine("nas")],
-      failed: { status: "machine_update_required", executorId: "machine:nas" },
+      preview: preview({ executorId: "nas" }),
+      checkouts: [checkout("c1", { executorId: "nas" })],
+      machines: [machine("host"), machine("nas")],
+      failed: { status: "machine_update_required", executorId: "nas" },
     });
 
     expect(location.warning?.step).toBe("machine");
@@ -260,11 +264,11 @@ describe("resolveLocation", () => {
 });
 
 describe("executorLabel", () => {
-  it("names a Machine, falls back to its configured name, then the id", () => {
-    expect(executorLabel("machine:nas", [machine("nas")])).toBe("nas");
-    expect(executorLabel("machine:builder", [machine("nas")])).toBe("builder");
-    // The local executor has no Machine name, so its id is the label.
-    expect(executorLabel("local", [machine("nas")])).toBe("local");
-    expect(executorLabel("machine:nas", undefined)).toBe("nas");
+  it("names the Machine's row, else the id itself", () => {
+    expect(executorLabel("nas", [machine("nas")])).toBe("nas");
+    expect(executorLabel("host", [machine("host")])).toBe("host");
+    expect(executorLabel("builder", [machine("nas")])).toBe("builder");
+    expect(executorLabel("nas", undefined)).toBe("nas");
+    expect(executorLabel("NAS", [machine("nas")])).toBe("nas");
   });
 });

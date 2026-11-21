@@ -1,15 +1,13 @@
 /**
  * The Machine context-item producers: the Machine branches of the `workspace`
- * producer — the snapshot body for a Machine root, the availability transition
- * of the bound Machine, and the Machine name guard the Workspace detach
- * payload shares. Split out of context-item-producers.ts (a distinct,
- * self-contained slice of the Workspace producer) purely to keep that file
- * under its line budget.
+ * producer — the availability transition of the current Machine and the
+ * Machine name guard the Workspace detach payload shares. Split out of
+ * context-item-producers.ts (a distinct, self-contained slice of the Workspace
+ * producer) purely to keep that file under its line budget.
  */
 
 import { MACHINE_NAME_PATTERN } from '../machines/machine-locator';
 import { loadPackagedTemplate } from '../prompts/template-engine';
-import { machineWorkspaceRoot } from '../tools/workspace-path';
 import { isString, type UnknownRecord } from '@workspace/runtime-safety';
 import type { AuthoredContextItemPart } from './context-item';
 import {
@@ -38,11 +36,6 @@ export function isWorkspaceMachinePayload(
   return isExactRecord(value, ['machine']) && isMachineName(value['machine']);
 }
 
-const renderMachineWorkspaceSnapshotTemplate = loadPackagedTemplate<{
-  readonly root: string;
-  readonly machine: string;
-}>(__dirname, 'workspace-snapshot-machine');
-
 const renderMachineUnavailableTemplate = loadPackagedTemplate<{
   readonly machine: string;
 }>(__dirname, 'workspace-machine-unavailable');
@@ -52,30 +45,11 @@ const renderMachineRecoveredTemplate = loadPackagedTemplate<{
 }>(__dirname, 'workspace-machine-recovered');
 
 /**
- * The snapshot body when the Workspace root is on a Machine, and `undefined`
- * when it is a local path.
- *
- * A Machine root narrates the Machine's own authority, not the hub's: the
- * commands run as that Machine's OS user, which hub users share.
- */
-export function renderMachineWorkspaceSnapshot(
-  root: string,
-): string | undefined {
-  const machine = machineWorkspaceRoot(root);
-
-  if (machine === undefined) return undefined;
-
-  return renderMachineWorkspaceSnapshotTemplate({
-    root,
-    machine: machine.name,
-  });
-}
-
-/**
- * One availability transition of the bound Machine, told exactly once: the
- * transition the Chat's recorded availability disagrees with. Both directions
- * are the same producer and form as the detach notice — a one-off statement
- * about the binding, not a snapshot that supersedes an earlier one.
+ * One availability transition of the current Machine, bound or unbound, told
+ * exactly once: the transition the Chat's recorded availability disagrees
+ * with. Both directions are the same producer and form as the detach notice —
+ * a one-off statement about the Machine, not a snapshot that supersedes an
+ * earlier one.
  */
 export function createWorkspaceMachineAvailabilityItem(input: {
   readonly runId: string;

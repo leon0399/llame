@@ -133,6 +133,35 @@ describe('derivePromptImportTriggers', () => {
     ).toEqual([{ key: '/notes/a.md', machine: { name: 'dev' } }]);
   });
 
+  it('gates a Machine this process hosts through the host gate', () => {
+    const entries = [
+      {
+        locator: 'm',
+        resolved: 'machine://host-a/notes/a.md',
+        outcome: 'imported',
+      },
+    ] as const;
+
+    const local = {
+      host: true,
+      knowledge: false,
+      machine: false,
+      localMachine: 'host-a',
+    };
+
+    expect(derivePromptImportTriggers(entries, local)).toEqual([
+      { key: '/notes/a.md', machine: { name: 'host-a' } },
+    ]);
+    // Without the host world a local Machine entry loads nothing, and a
+    // Machine this process does not host keeps the Machine gate.
+    expect(
+      derivePromptImportTriggers(entries, { ...local, host: false }),
+    ).toEqual([]);
+    expect(
+      derivePromptImportTriggers(entries, { ...local, localMachine: 'gpu' }),
+    ).toEqual([]);
+  });
+
   it('names a Machine trigger for an admitted Machine entry', () => {
     const triggers = derivePromptImportTriggers(
       [

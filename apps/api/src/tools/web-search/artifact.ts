@@ -201,7 +201,7 @@ function storedNotice(
   written: WrittenArtifact,
   next: number,
 ): string {
-  const hostFiles = artifactHostFiles(context, 'web_search', written);
+  const hostFiles = artifactHostFiles(context, written);
 
   const notice = artifactNotice(
     [{ locator: written.locator, lines: written.lineCount }],

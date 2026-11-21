@@ -10,6 +10,8 @@
  * that follow from it.
  */
 
+import { realpath, stat } from 'node:fs/promises';
+
 import { type FsStatResult } from '@workspace/machine-protocol';
 
 import { createWorkspaceMachineAvailabilityItem } from '../chats/machine-context-item-producers';
@@ -18,10 +20,11 @@ import { type WorkspaceDetachReason } from '../chats/workspace-binding';
 import { type Chat } from '../db/schema';
 import { createMachineInstructionProbe } from '../instructions/machine-instruction-scope';
 import { type ReadPage } from '../instructions/instruction-files';
+import { type MachineConnector } from '../machines/machine-connector.service';
 import {
+  MachineIdentityMismatchError,
   MachineUnavailableError,
-  type MachineConnector,
-} from '../machines/machine-connector.service';
+} from '../machines/machine-session';
 import {
   formatMachineLocator,
   parseMachineLocator,
@@ -69,7 +72,14 @@ export type MachineWorkspaceState = {
 /** The connector surface Machine preparation reads. */
 export type MachinePreparationConnector = Pick<
   MachineConnector,
-  'enabled' | 'isConfigured' | 'reachable' | 'request'
+  | 'enabled'
+  | 'isConfigured'
+  | 'reachable'
+  | 'request'
+  | 'localMachine'
+  | 'defaultMachine'
+  | 'canReach'
+  | 'verifyLocal'
 >;
 
 /** The attempt's Machine identity: where it goes, who it is, how long it may take. */
@@ -148,7 +158,16 @@ export async function decideMachineWorkspace(
     };
   }
 
-  const checked = await checkBoundMachine({ ...params, connector });
+  // A declared entry without a destination is reachable only by the process
+  // whose `machines.local` names it. This worker cannot reach it at all, which
+  // is a mismatched Machine, not a Machine that went away for a while.
+  if (!connector.canReach(machineName))
+    return { kind: 'detach', reason: 'executor_mismatch' };
+
+  const checked =
+    machineName === connector.localMachine()
+      ? await checkLocalMachine({ ...params, connector })
+      : await checkBoundMachine({ ...params, connector });
 
   if (checked.kind !== 'bound') {
     params.skillCatalogs.delete(params.root);
@@ -169,6 +188,153 @@ export async function decideMachineWorkspace(
     kind: 'available',
     machine: { name: machineName, available: true },
   };
+}
+
+/**
+ * The binding check for a Workspace on this process's own Machine. The daemon
+ * behind `machines.local` must answer and be bound to the identity this
+ * installation stored, exactly as a remote daemon must; then the root is
+ * re-checked in process, on the Machine's own filesystem.
+ */
+async function checkLocalMachine(
+  params: BoundMachineRequest,
+): Promise<CheckedMachine> {
+  try {
+    await params.connector.verifyLocal();
+  } catch (error) {
+    // The local daemon refused, or answered under another identity: this
+    // attempt tells the Machine as unavailable and keeps the binding. A
+    // mismatch is never-sent, so nothing of the Chat's changed.
+    if (
+      error instanceof MachineUnavailableError ||
+      error instanceof MachineIdentityMismatchError
+    ) {
+      return {
+        kind: 'unavailable',
+        machine: { name: params.machineName, available: false },
+      };
+    }
+
+    throw error;
+  }
+
+  return checkLocalRoot(params);
+}
+
+/** The absolute path and canonical locator a stored root names on a Machine. */
+function boundRoot(
+  root: string,
+  machineName: string,
+): { readonly path: string; readonly locator: string } | undefined {
+  const parsed = parseMachineLocator(root);
+
+  if (parsed.kind === 'path') {
+    if (parsed.name !== machineName) return undefined;
+    const locator = formatMachineLocator(parsed.name, parsed.path);
+
+    return locator === undefined ? undefined : { path: parsed.path, locator };
+  }
+
+  // A root stored before the canonical format is a bare absolute path on the
+  // Machine the binding names (history replay).
+  if (!root.startsWith('/') || root.startsWith('//')) return undefined;
+  const locator = formatMachineLocator(machineName, root);
+
+  return locator === undefined ? undefined : { path: root, locator };
+}
+
+/**
+ * The in-process counterpart of the Machine's root re-check: the stored root
+ * must still be an existing directory whose canonical form is the stored
+ * locator, and the operator gates apply exactly as they do for a remote one.
+ */
+async function checkLocalRoot(
+  params: BoundMachineRequest,
+): Promise<CheckedMachine> {
+  const bound = boundRoot(params.root, params.machineName);
+
+  if (bound === undefined) return { kind: 'detach', reason: 'root_missing' };
+
+  let canonical: string;
+
+  try {
+    const entry = await stat(bound.path);
+
+    if (!entry.isDirectory()) return { kind: 'detach', reason: 'root_missing' };
+    const real = await realpath(bound.path);
+
+    canonical = formatMachineLocator(params.machineName, real) ?? '';
+  } catch {
+    return { kind: 'detach', reason: 'root_missing' };
+  }
+
+  if (canonical !== bound.locator)
+    return { kind: 'detach', reason: 'root_moved' };
+
+  if (!params.toolAllowlist.includes('enter_workspace'))
+    return { kind: 'detach', reason: 'tool_not_allowed' };
+
+  const decision = decidePermission(
+    params.permissionPolicy,
+    params.effectivePermissionMode,
+    (evaluate) =>
+      evaluate({ toolId: 'enter_workspace', args: { path: params.root } }),
+  );
+
+  return decision.decision === 'allow'
+    ? { kind: 'bound' }
+    : { kind: 'detach', reason: 'permission_rejected' };
+}
+
+/**
+ * The availability of the Machine an unbound Chat addresses: `machines.default`
+ * decided once per attempt, the same way a bound Machine is. Absent without a
+ * configured default, so no narration describes a Machine no path addresses.
+ */
+export async function decideUnboundMachine(params: {
+  readonly connector: MachinePreparationConnector | undefined;
+  readonly identity: MachineAttemptIdentity;
+}): Promise<MachineWorkspaceState | undefined> {
+  const { connector } = params;
+  const name = connector?.defaultMachine();
+
+  if (
+    connector === undefined ||
+    name === undefined ||
+    !connector.enabled() ||
+    !connector.isConfigured(name)
+  ) {
+    return undefined;
+  }
+
+  if (name === connector.localMachine()) {
+    try {
+      await connector.verifyLocal();
+
+      return { name, available: true };
+    } catch (error) {
+      if (
+        error instanceof MachineUnavailableError ||
+        error instanceof MachineIdentityMismatchError
+      ) {
+        return { name, available: false };
+      }
+
+      throw error;
+    }
+  }
+
+  const available =
+    connector.canReach(name) &&
+    (await connector.reachable(
+      name,
+      machineAttemptKey(
+        params.identity.runId,
+        params.identity.deliverySequence,
+      ),
+    ));
+
+  return { name, available };
 }
 
 /**
@@ -225,16 +391,14 @@ type MachineRootVerdict =
 async function checkMachineRoot(
   params: BoundMachineRequest,
 ): Promise<MachineRootVerdict> {
-  const parsed = parseMachineLocator(params.root);
+  const bound = boundRoot(params.root, params.machineName);
 
-  if (parsed.kind !== 'path') {
-    return { verdict: 'detach', reason: 'root_missing' };
-  }
+  if (bound === undefined) return { verdict: 'detach', reason: 'root_missing' };
 
   const probe = await probeMachineRoot({
     connector: params.connector,
     machineName: params.machineName,
-    path: parsed.path,
+    path: bound.path,
     identity: params.identity,
     warn: params.warn,
   });
@@ -252,7 +416,7 @@ async function checkMachineRoot(
 
   // A Machine that reports no real path (or a path this locator grammar cannot
   // spell) is not the bound root either: both detach as a moved root.
-  if (canonical !== params.root) {
+  if (canonical !== bound.locator) {
     return { verdict: 'detach', reason: 'root_moved' };
   }
 
@@ -346,6 +510,11 @@ export async function prepareMachineSkills(
 
   if (parsed === undefined || parsed.name !== params.machineName) return;
 
+  // This process serves its own Machine in process (design D8), and the
+  // operator catalog already reads the host paths `workspaceSkillSources`
+  // derives for a local root; a daemon walk would be the wrong authority.
+  if (params.machineName === params.connector.localMachine()) return;
+
   const request: MachineSkillRequest = (method, requestParams, options) =>
     params.connector.request(
       params.machineName,
@@ -420,6 +589,10 @@ export function detachedBinding(params: {
  * One narration per availability transition: the state the Chat was last told
  * about against the one this attempt decided. A removed Machine is the detach
  * notice's story, not this one.
+ *
+ * Nothing told yet (`null`) narrates only an unreachable Machine: a first
+ * observation of a Machine that works is not a change, and a freshly entered
+ * binding has nothing to recover from.
  */
 export function machineAvailabilityNarration(params: {
   readonly runId: string;
@@ -430,13 +603,15 @@ export function machineAvailabilityNarration(params: {
   | undefined {
   const { machine } = params;
 
-  if (
-    machine === undefined ||
-    machine.removed === true ||
-    params.toldAvailable === machine.available
-  ) {
-    return undefined;
-  }
+  if (machine === undefined || machine.removed === true) return undefined;
+
+  // Reaching a Machine that was never told as lost is not a transition, and
+  // an unreachable Machine already told as lost is not one either.
+  const changed = machine.available
+    ? params.toldAvailable === false
+    : params.toldAvailable !== false;
+
+  if (!changed) return undefined;
 
   return {
     part: createWorkspaceMachineAvailabilityItem({

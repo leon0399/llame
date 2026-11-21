@@ -24,6 +24,7 @@ type WorkspaceRow = {
   workspaceGeneration: number;
   workspaceTold: string | null;
   workspaceToldFrom: string | null;
+  workspaceToldAvailable: boolean | null;
   workspaceDetachReason: string | null;
 };
 
@@ -111,6 +112,7 @@ describeIfDb('WorkspaceBindingRepository — PostgreSQL lifecycle', () => {
           workspaceGeneration: schema.chats.workspaceGeneration,
           workspaceTold: schema.chats.workspaceTold,
           workspaceToldFrom: schema.chats.workspaceToldFrom,
+          workspaceToldAvailable: schema.chats.workspaceToldAvailable,
           workspaceDetachReason: schema.chats.workspaceDetachReason,
         })
         .from(schema.chats)
@@ -188,8 +190,8 @@ describeIfDb('WorkspaceBindingRepository — PostgreSQL lifecycle', () => {
     );
 
   it('fences and persists every binding transition and delivery state', async () => {
-    const rootA = '/work/project-a';
-    const rootB = '/work/project-b';
+    const rootA = 'machine://executor-a/work/project-a';
+    const rootB = 'machine://executor-a/work/project-b';
 
     const unbound: WorkspaceRow = {
       workspaceRoot: null,
@@ -197,8 +199,17 @@ describeIfDb('WorkspaceBindingRepository — PostgreSQL lifecycle', () => {
       workspaceGeneration: 0,
       workspaceTold: null,
       workspaceToldFrom: null,
+      workspaceToldAvailable: null,
       workspaceDetachReason: null,
     };
+
+    const bound = (root: string, generation: number): WorkspaceRow => ({
+      ...unbound,
+      workspaceRoot: root,
+      workspaceExecutorId: 'executor-a',
+      workspaceGeneration: generation,
+      workspaceToldAvailable: true,
+    });
 
     expect(
       await tenantDb.runAs(owner, (tx) =>
@@ -217,12 +228,7 @@ describeIfDb('WorkspaceBindingRepository — PostgreSQL lifecycle', () => {
       previousRoot: null,
       generation: 1,
     });
-    expect(await readWorkspace()).toEqual({
-      ...unbound,
-      workspaceRoot: rootA,
-      workspaceExecutorId: 'executor-a',
-      workspaceGeneration: 1,
-    });
+    expect(await readWorkspace()).toEqual(bound(rootA, 1));
     expect(await readRun()).toEqual({ workerId: 'executor-a' });
 
     await expect(enter(rootA)).resolves.toEqual({
@@ -230,24 +236,14 @@ describeIfDb('WorkspaceBindingRepository — PostgreSQL lifecycle', () => {
       previousRoot: rootA,
       generation: 1,
     });
-    expect(await readWorkspace()).toEqual({
-      ...unbound,
-      workspaceRoot: rootA,
-      workspaceExecutorId: 'executor-a',
-      workspaceGeneration: 1,
-    });
+    expect(await readWorkspace()).toEqual(bound(rootA, 1));
 
     await expect(enter(rootB)).resolves.toEqual({
       status: 'switched',
       previousRoot: rootA,
       generation: 2,
     });
-    expect(await readWorkspace()).toEqual({
-      ...unbound,
-      workspaceRoot: rootB,
-      workspaceExecutorId: 'executor-a',
-      workspaceGeneration: 2,
-    });
+    expect(await readWorkspace()).toEqual(bound(rootB, 2));
 
     await expect(exit()).resolves.toEqual({
       status: 'cleared',
@@ -270,20 +266,10 @@ describeIfDb('WorkspaceBindingRepository — PostgreSQL lifecycle', () => {
       previousRoot: null,
       generation: 4,
     });
-    expect(await readWorkspace()).toEqual({
-      ...unbound,
-      workspaceRoot: rootA,
-      workspaceExecutorId: 'executor-a',
-      workspaceGeneration: 4,
-    });
+    expect(await readWorkspace()).toEqual(bound(rootA, 4));
 
     await expect(detach(3, 'permission_rejected')).resolves.toBe('stale');
-    expect(await readWorkspace()).toEqual({
-      ...unbound,
-      workspaceRoot: rootA,
-      workspaceExecutorId: 'executor-a',
-      workspaceGeneration: 4,
-    });
+    expect(await readWorkspace()).toEqual(bound(rootA, 4));
 
     await expect(detach(4, 'permission_rejected')).resolves.toBe('detached');
     expect(await readWorkspace()).toEqual({

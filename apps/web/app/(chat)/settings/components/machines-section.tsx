@@ -168,8 +168,9 @@ export function MachinesSection() {
       <CardHeader>
         <CardTitle>Machines</CardTitle>
         <CardDescription>
-          Remote hosts this instance can run tools on. The operator configures
-          them; this list is read-only.
+          Machines this instance runs tools on, including this
+          installation&apos;s own host. The operator configures them; this list
+          is read-only.
         </CardDescription>
       </CardHeader>
       <CardContent>

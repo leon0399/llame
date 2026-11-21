@@ -1,11 +1,8 @@
 import { type Db } from '../db/tenant-db.service';
-import { type LlameConfig } from '../instance-config/llame-config';
 import { ProjectLinksRepository } from '../projects/project-links.repository';
 import { type StartLocationSource } from '../projects/start-location';
-import {
-  parseMachineExecutorId,
-  parseMachineLocator,
-} from '../machines/machine-locator';
+import { type MachineConnector } from '../machines/machine-connector.service';
+import { parseMachineLocator } from '../machines/machine-locator';
 import { type MachineStatusView } from '../machines/machines-status';
 import { type ExecutorTarget } from '../machines/executor-git.service';
 
@@ -13,71 +10,52 @@ import { type ExecutorTarget } from '../machines/executor-git.service';
  * Executor identity for chat creation (openspec `chat-start-location`, design
  * D9): whether the configuration provides an executor id at all, whether that
  * executor can run right now, and the typed target one resolved location runs
- * on. A local executor is this process's `tools.nativeExecutorId`; every other
- * id is `machine:<name>`, which is configured only while `machines.hosts` names
- * it and online only while its recorded contact derives `online`.
+ * on.
+ *
+ * Every executor id is a Machine name, the host Machine included: there is no
+ * `machine:` prefix and no separate local id. The host Machine is a normal
+ * entry, so it can be offline like any other, and its target is addressed by
+ * its canonical `machine://` locator.
  */
 
-type ExecutorConfig = Pick<LlameConfig, 'tools' | 'machines'>;
+/** The Machine catalog these gates read: the connector's own view. */
+export type ExecutorCatalog = Pick<MachineConnector, 'isConfigured'>;
 
 /** Whether the configuration provides this executor id at all. */
 export function isConfiguredExecutor(
   executorId: string,
-  config: ExecutorConfig,
+  catalog: ExecutorCatalog,
 ): boolean {
-  if (executorId === config.tools.nativeExecutorId) return true;
-  const name = parseMachineExecutorId(executorId);
-
-  return (
-    name !== undefined &&
-    config.machines !== undefined &&
-    Object.hasOwn(config.machines.hosts, name)
-  );
+  return catalog.isConfigured(executorId);
 }
 
 /**
  * Whether the resolved executor can run right now, from the Machines read
- * model. The local executor is never offline; a Machine is online only while
- * its last successful contact is inside the window and no later contact failed.
+ * model. Every Machine — the host Machine included — is online only while its
+ * last successful contact is inside the window and no later contact failed.
  */
 export function executorOnline(
   executorId: string,
-  input: {
-    readonly config: ExecutorConfig;
-    readonly machines: ReadonlyArray<MachineStatusView>;
-  },
+  input: { readonly machines: ReadonlyArray<MachineStatusView> },
 ): boolean {
-  if (executorId === input.config.tools.nativeExecutorId) return true;
-  const name = parseMachineExecutorId(executorId);
-
-  return (
-    name !== undefined &&
-    input.machines.some(
-      (machine) => machine.name === name && machine.status === 'online',
-    )
+  return input.machines.some(
+    (machine) => machine.name === executorId && machine.status === 'online',
   );
 }
 
 /**
- * The typed target of one resolved location. A local executor keeps the stored
- * address as its path; a Machine executor requires the stored address to be a
- * locator of that same Machine, so an inconsistent row binds nothing.
+ * The typed target of one resolved location. The stored address must be a
+ * locator of the row's own Machine, so an inconsistent row binds nothing.
  */
 export function executorTarget(
   executorId: string,
   address: string,
 ): ExecutorTarget | undefined {
-  const name = parseMachineExecutorId(executorId);
-
-  if (name === undefined) {
-    return { executorId, machine: undefined, path: address };
-  }
-
   const parsed = parseMachineLocator(address);
 
-  if (parsed.kind !== 'path' || parsed.name !== name) return undefined;
+  if (parsed.kind !== 'path' || parsed.name !== executorId) return undefined;
 
-  return { executorId, machine: name, path: parsed.path };
+  return { executorId, machine: executorId, path: parsed.path };
 }
 
 /**

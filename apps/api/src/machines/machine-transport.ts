@@ -13,7 +13,7 @@
 
 import type { Readable, Writable } from 'node:stream';
 
-import type { MachinesConfig } from '../instance-config/machines-config';
+import type { ResolvedSshFiles } from '../instance-config/machines-config';
 import {
   createSshConfigFile,
   defaultSshConfigFile,
@@ -25,6 +25,8 @@ import {
   type SshProcess,
   type SshSpawn,
 } from '../ssh/ssh-process';
+
+import { MachineUnavailableError } from './machine-session';
 
 /** How the link ended; `diagnostic` is the link process's own stderr. */
 export type MachineLinkEnd = {
@@ -48,7 +50,8 @@ export type MachineTransport = {
 
 export type MachineTransportRequest = {
   readonly name: string;
-  readonly destination: string;
+  /** The SSH destination; absent for the local Machine, which is a child process. */
+  readonly destination?: string;
 };
 
 /** The seam the session manager opens a link through (tests inject a peer). */
@@ -89,7 +92,7 @@ export function createProcessTransport(link: SshProcess): MachineTransport {
 }
 
 export type MachineSshTransportFactoryOptions = {
-  readonly ssh: MachinesConfig['ssh'];
+  readonly ssh: ResolvedSshFiles | undefined;
   /** Test seam: where the link process comes from. */
   readonly spawn?: SshSpawn;
   /** Test seam: a pre-made generated configuration file. */
@@ -114,6 +117,51 @@ function sshDestination(destination: string): string {
 }
 
 /**
+ * The one `ssh …serve --stdio` spawn of a session, after the destination and
+ * settings guards: the connector picks this factory only for an entry with a
+ * destination, and the guards keep a direct caller from spawning `ssh
+ * undefined`.
+ */
+function openSshSession(
+  deps: {
+    readonly ssh: ResolvedSshFiles | undefined;
+    readonly spawnLink: SshSpawn;
+    readonly path: (ssh: ResolvedSshFiles) => string;
+  },
+  request: MachineTransportRequest,
+): MachineTransport {
+  if (request.destination === undefined)
+    throw new MachineUnavailableError(
+      request.name,
+      'unreachable',
+      false,
+      'This Machine has no SSH destination.',
+    );
+  const ssh = deps.ssh;
+
+  if (ssh === undefined)
+    throw new MachineUnavailableError(
+      request.name,
+      'unreachable',
+      false,
+      'No Machine SSH settings are configured.',
+    );
+
+  return createProcessTransport(
+    deps.spawnLink('ssh', [
+      '-F',
+      deps.path(ssh),
+      '-T',
+      '--',
+      sshDestination(request.destination),
+      'llame-machine',
+      'serve',
+      '--stdio',
+    ]),
+  );
+}
+
+/**
  * The production factory: one generated SSH configuration per process, written
  * on first use, and one `ssh` process per session.
  */
@@ -123,11 +171,11 @@ export function createMachineSshTransportFactory(
   const spawnLink = options.spawn ?? spawnSshProcess;
   let configFile = options.configFile;
 
-  function path(): string {
+  function path(ssh: ResolvedSshFiles): string {
     configFile ??= createSshConfigFile({
-      knownHostsFile: options.ssh.knownHostsFile,
-      identityFile: options.ssh.identityFile,
-      includeFile: options.ssh.configFile ?? defaultSshConfigFile(),
+      knownHostsFile: ssh.knownHostsFile,
+      identityFile: ssh.identityFile,
+      includeFile: ssh.configFile ?? defaultSshConfigFile(),
     });
 
     return configFile.path;
@@ -136,18 +184,7 @@ export function createMachineSshTransportFactory(
   return {
     sshConfigText: () => configFile?.text,
     open: (request) =>
-      createProcessTransport(
-        spawnLink('ssh', [
-          '-F',
-          path(),
-          '-T',
-          '--',
-          sshDestination(request.destination),
-          'llame-machine',
-          'serve',
-          '--stdio',
-        ]),
-      ),
+      openSshSession({ ssh: options.ssh, spawnLink, path }, request),
     dispose: () => {
       configFile?.dispose();
       configFile = undefined;

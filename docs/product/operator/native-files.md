@@ -1,5 +1,5 @@
 ---
-summary: "Enabling and restricting the host-backed native file tools, Project reads, bash, Workspace entry, and permission modes"
+summary: "Enabling and restricting the Machine-backed native file tools, Project reads, bash, Workspace entry, and permission modes"
 read_when:
   - you are enabling or changing native file access, Project reads, bash, or Workspace entry
   - you are deciding the Workspace entry or permission-mode policy of an instance
@@ -23,11 +23,13 @@ behavior:
 # Native file tools
 
 `read`, `edit`, and `write` select their authority from the scheme of their
-`path` argument: an absolute path or a `file://` alias runs on the worker's
-filesystem with its OS user's authority, and `kb://` resolves through the
-trusted Run owner's current Knowledge Space access without binding the Run to an
-executor. `projects://` reads the trusted Run owner's stored Projects, also
-without binding an executor. `bash` shares the absolute-path host gate.
+`path` argument: an absolute path or a `file://` alias runs on the current
+Machine with its OS user's authority, and `kb://` resolves through the trusted
+Run owner's current Knowledge Space access without binding the Run to a
+Machine. `projects://` reads the trusted Run owner's stored Projects, also
+without binding a Machine. `bash` shares the absolute-path Machine gate. The
+current Machine is the entered Workspace's Machine, or `machines.default` when
+no Workspace is entered.
 
 This page covers enabling and policy only. What each tool does is documented in
 [read](../reference/tools/read.md),
@@ -39,35 +41,44 @@ representation selectors in [selectors](../reference/selectors.md).
 
 ## Enabling
 
-Absolute-path access and `bash` need a trusted host identity in the instance
-configuration named in the [operator index](index.md#operator), then a restart
-of the API and worker:
+Absolute-path access and `bash` need a configured Machine, named in the
+[operator index](index.md#operator), then a restart of the API and worker:
 
-```json
+```jsonc
 {
+  "machines": {
+    "local": "host",
+    "default": "host",
+    "hosts": { "host": {} },
+  },
   "tools": {
-    "nativeExecutorId": "personal-host-a",
-    "allowed": ["read", "edit", "write", "bash"]
-  }
+    "allowed": ["read", "edit", "write", "bash"],
+  },
 }
 ```
 
-`kb://` locators need only a configured `knowledge.root`; `tools.allowed`
-still gates each tool id. A process with `knowledge.root` and no
-`nativeExecutorId` advertises `read`, `edit`, and `write`, all usable with a
-locator — an absolute path argument on that process fails closed with
-`executor_unavailable` instead of resolving through the Knowledge root.
+`machines.local` names the Machine this process hosts, and its entry needs no
+`destination`. `machines.default` is the Machine an unbound Chat uses. Startup
+fails when either names no entry, when `default` is not this process's `local`
+and has no `destination`, when `tools.nativeExecutorId` is present, and when a
+native tool is allowlisted without `default`. See [Machines](machines.md) for
+the full field list and the child daemon.
 
-`ssh://` locators replace only the executor prerequisite: they need the
-top-level `ssh` section, described in [SSH locators](ssh.md), instead of
-`tools.nativeExecutorId`, and a process with the section but no local executor
-still serves them. `tools.allowed` and the `read` and `bash` permission groups
-still decide every `ssh://` call. `read` accepts an `ssh://` path and `bash`
-accepts one as its `cwd`, which runs the
+`kb://` locators need only a configured `knowledge.root`; `tools.allowed` still
+gates each tool id. Startup still requires `machines.default` when `read`,
+`edit`, or `write` is allowlisted, so a Knowledge-only deployment declares the
+host Machine too. A `kb://` call never contacts it.
+
+`ssh://` locators need the top-level `ssh` section, described in
+[SSH locators](ssh.md), and no Machine. A process with the section and a
+native tool allowlisted still declares `machines.default`, and a bare path then
+runs on that Machine. `tools.allowed` and the `read` and `bash` permission
+groups still decide every `ssh://` call. `read` accepts an `ssh://` path and
+`bash` accepts one as its `cwd`, which runs the
 command on that host; `edit` and `write` refuse it with
 `unsupported_operation`, and `enter_workspace` refuses it with `invalid_path`.
 
-`projects://` locators need no `nativeExecutorId` and no `knowledge.root`.
+`projects://` locators need no Machine and no `knowledge.root`.
 `read` serves them on a process that offers it, once its `read` group admits the
 canonical Project locator. `edit` and `write` refuse the scheme with
 `unsupported_operation`.
@@ -80,10 +91,11 @@ Workspace root overrides it):
 BASH_WORKING_DIRECTORY=/absolute/project
 ```
 
-Keep any other desired tool ids in `allowed`. Each distinct host filesystem
-needs a distinct, stable `nativeExecutorId`. Co-located API and worker processes
-that use the same native filesystem should use the same identity. Without it,
-absolute-path native access and `bash` are unavailable even when allowlisted.
+Keep any other desired tool ids in `allowed`. Each distinct computer that serves
+paths needs its own Machine entry. Co-located API and worker processes that use
+the same computer set the same `machines.local`, and the daemon child gives them
+one identity. A worker without a `machines.local` entry reaches every Machine
+over SSH, and it needs a `destination` on each entry it must serve.
 
 ## Managed command capacity
 
@@ -101,12 +113,12 @@ spawning a process. A Machine daemon has its own bound of one and keeps its
 
 `grep` searches file contents. It is read-only and records no native attempt.
 It needs its own `tools.allowed` entry and at least one serving backend: a
-`nativeExecutorId`, a `knowledge.root`, a skills directory, or a configured
+`machines.default`, a `knowledge.root`, a skills directory, or a configured
 Machine. Without a backend the tool is not advertised.
 
-A host scope needs the same `nativeExecutorId` as `read`. A host scope on a
-process without accepted native host authority returns
-`executor_unavailable`.
+A path scope runs on the current Machine. Startup requires `machines.default`
+when `grep` is allowlisted, so a path scope on an unreachable Machine returns
+`machine_unavailable`. A `kb://` or `skill://` scope needs no Machine.
 
 `grep` adds one permission group, `tools.permissions.grep`. The shipped
 example config does not include this group. An absent group rejects every
@@ -170,7 +182,7 @@ number, a fraction, and an unknown field fail startup naming the field. Every Ma
 the canonical locator of that file. A file that `read` refuses contributes no
 hit. The result does not count the refused files. The completion audit does.
 
-A host walk follows these rules:
+A path walk follows these rules:
 
 - It includes hidden entries.
 - It MUST NOT follow a symbolic link.
@@ -204,7 +216,7 @@ the scope prefix through its registered roots first. Any other prefix returns
 `path_not_registered`, and the daemon opens no file.
 
 The daemon answers passages relative to the scope prefix. Every result is
-therefore a `machine://` locator, and no host path reaches the model. Read one
+therefore a `machine://` locator, and no bare path reaches the model. Read one
 locator, or submit it as a later scope.
 
 One call shares its file, entry, byte, time, and page budget across every
@@ -264,19 +276,21 @@ What an effective mode admits and records for one Run is documented in
 
 ## Workspace entry
 
-`enter_workspace` and `exit_workspace` are native host capability tools. Both
-require a trusted host identity, their own `tools.allowed` entry, and their own
-`tools.permissions` group.
+`enter_workspace` and `exit_workspace` are Machine capability tools. Both
+require `machines.default`, their own `tools.allowed` entry, and their own
+`tools.permissions` group. Startup fails when either is allowlisted without
+`machines.default`.
 
 The recommended policy in `apps/api/llame.config.jsonc.example` uses an
 operator-edited `enter_workspace.path` field allow such as
-`^/home/operator/projects/[^/]+/?$`, plus F1-F3 credential rejects and E1-E3
+`^machine://[^/]+/home/operator/projects/[^/]+/?$`, plus F1-F3 credential
+rejects and E1-E3
 rejects for `node_modules`, temporary roots, and `Downloads`. Every directory
-that this group admits is trusted to run code and read host secrets through
+that this group admits is trusted to run code and read Machine secrets through
 its Workspace MCP configuration. W1 and W2 reject case-insensitive text paths to
 `.mcp.json` and `.llame`, `.agents`, or `.claude` trees for both `edit` and
 `write`. These are text-only policy rejects: an in-repository alias such as a
-symlink can bypass them, and there is no executor-level guard.
+symlink can bypass them, and there is no Machine-level guard.
 
 See [Workspace MCP](mcp-tools.md#workspace-mcp) for configuration
 precedence, interpolation, client lifetime, and redaction limits.
@@ -287,10 +301,10 @@ is [exit_workspace](../reference/tools/exit-workspace.md).
 
 ## Project reads
 
-`read` accepts `projects://` without a host identity and without a Workspace.
+`read` accepts `projects://` without a Machine and without a Workspace.
 The `read` group decides the canonical Project locator before any datastore
 read, as [tool-call permissions](tool-call-permissions.md#project-reads)
-describes. No executor is bound.
+describes. No Machine is bound.
 
 A listing returns Project metadata. A detail returns the Project's literal
 instructions, linked repositories, and registered checkout locators, and the
@@ -302,16 +316,20 @@ equals one. See [Project locators](../reference/locators/projects.md).
 
 ## `file://` permission clauses
 
-Permission clauses on a `file://` alias match the decoded host path, not the URL
-form, so prefer `^/path/` over `^file:///path/`; see
-[tool-call permissions](tool-call-permissions.md).
+Permission clauses on a `file://` alias match the same resource as the absolute
+path: the canonical `machine://` locator of the current Machine. Write clauses
+against that form, for example `^machine://[^/]+/srv/docs/`. A regex that begins
+with `^/` fails startup. A literal clause stays a substring match, and a reject
+also sees the projected path without the scheme and Machine name, so an older
+reject spelling still refuses the alias. See
+[tool-call permissions](tool-call-permissions.md#matching).
 
 ## `artifact://` reads
 
 A tool result too large for the model-facing bound is stored as a Chat
 resource and read back with `artifact://<toolName>-<n>`; see
 [artifact](../reference/locators/artifact.md). The store is Postgres, so the
-scheme needs no `nativeExecutorId` and no `bash`: `read` serves it whenever it
+scheme needs no Machine and no `bash`: `read` serves it whenever it
 is allowlisted and its `read` group admits the locator. With a whole-tool allow
 on `read` that is every artifact read; a field-allow group must also name
 `^artifact://`, as it must name `^media://`, or the read is rejected as
@@ -340,9 +358,10 @@ try, never which rows it may see.
 
 ### Host files
 
-When `bash` is in `tools.allowed` and the process has a `nativeExecutorId`,
-each artifact part is also a file on the llame host, and the spilled result's
-notice names the directory. The layout, the notice wording, and the refusal of
+When `bash` is in `tools.allowed` and the process has a `machines.local`
+Machine, each artifact part is also a file on that Machine, and the spilled
+result's notice names the directory as a canonical `machine://` locator. The
+layout, the notice wording, and the refusal of
 an unsafe directory are documented with the locator in the
 [artifact reference](../reference/locators/artifact.md#host-files).
 
@@ -435,8 +454,8 @@ Per-directory project instruction files are loaded into the model's context by
 directory chain and trigger; the contract is in
 [instruction files](../reference/instruction-files.md).
 
-Host instruction imports use the same `read` group and effective permission mode as
-ordinary host reads. A denied target is audited through `read` without a filesystem
+Instruction imports on a Machine use the same `read` group and effective permission mode as
+ordinary path reads. A denied target is audited through `read` without a filesystem
 probe and reported as denied whether or not it exists. When an import's canonical
 path differs from its resolved path (for example, a symlink), `read` also evaluates
 the canonical (real) path on its first page and records a derived `canonical`
@@ -455,7 +474,7 @@ configured there:
         "reject": [
           {
             "field": "path",
-            "regex": "^/home/operator/(LLAME|AGENTS|CLAUDE)(\\.override|\\.local)?\\.md($|:)"
+            "regex": "^machine://[^/]+/home/operator/(LLAME|AGENTS|CLAUDE)(\\.override|\\.local)?\\.md($|:)"
           }
         ]
       }

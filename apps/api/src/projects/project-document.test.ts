@@ -445,7 +445,7 @@ describe('renderProjectDetail', () => {
             }),
             checkout({
               id: '77777777-7777-4777-8777-777777777777',
-              executorId: 'machine:nas',
+              executorId: 'nas',
               locator: 'machine://nas/srv/api',
             }),
           ],

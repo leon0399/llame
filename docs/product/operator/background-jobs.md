@@ -13,8 +13,8 @@ behavior:
 
 ## Enable host execution
 
-Enable the host executor, allowlist `bash`, and admit the command through its
-permission group as described in [native files](native-files.md). The same
+Configure `machines.default`, allowlist `bash`, and admit the command through
+its permission group as described in [native files](native-files.md). The same
 permissions apply to a background command; `async` grants no extra authority.
 A host command with `async: true` returns a `job://bash-<n>` locator while the
 command continues. SSH and Machine commands reject background fields, including

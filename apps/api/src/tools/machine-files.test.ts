@@ -376,16 +376,16 @@ describe('Machine native reads', () => {
     });
   });
 
-  it('still refuses a local path without a native executor', async () => {
+  it('refuses a local path with no current Machine', async () => {
     const { connector } = fixture();
     await expect(
-      runTool(
-        nativeReadTool,
-        { path: '/etc/hostname' },
-        context(connector, { nativeExecutorId: undefined }),
-        5,
-      ),
-    ).resolves.toMatchObject({ status: 'error', type: 'executor_unavailable' });
+      runTool(nativeReadTool, { path: '/etc/hostname' }, context(connector), 5),
+    ).resolves.toMatchObject({
+      status: 'error',
+      type: 'invalid_path',
+      message:
+        'No current Machine: configure machines.default or enter a Workspace.',
+    });
   });
 
   it('treats an unconfigured feature as an unknown scheme', async () => {
@@ -1220,7 +1220,7 @@ describe('Machine bash', () => {
       runTool(
         bashTool,
         { command: 'pwd', cwd: 'machine://devl/srv/app' },
-        context(connector, { nativeExecutorId: undefined }),
+        context(connector),
         5,
       ),
     ).resolves.toMatchObject({ status: 'success', stdout: '/srv/app\n' });
@@ -1244,7 +1244,7 @@ describe('Machine bash', () => {
     const result = await runTool(
       bashTool,
       { command: 'pwd', cwd: 'machine://devl/srv/app' },
-      context(connector, { nativeExecutorId: undefined }),
+      context(connector),
       5,
     );
 
@@ -1267,7 +1267,7 @@ describe('Machine bash', () => {
       runTool(
         bashTool,
         { command: 'pwd', cwd: 'machine://devl/srv/app' },
-        context(connector, { nativeExecutorId: undefined }),
+        context(connector),
         5,
       ),
     ).resolves.toMatchObject({ status: 'success', wallTimeMs: 1240 });
@@ -1336,16 +1336,11 @@ describe('Machine bash', () => {
     });
   });
 
-  it('still refuses a local cwd without a native executor', async () => {
+  it('refuses a local cwd with no current Machine without opening a session', async () => {
     const { peer, connector } = fixture();
     await expect(
-      runTool(
-        bashTool,
-        { command: 'pwd', cwd: '/tmp' },
-        context(connector, { nativeExecutorId: undefined }),
-        5,
-      ),
-    ).resolves.toMatchObject({ status: 'error', type: 'executor_unavailable' });
+      runTool(bashTool, { command: 'pwd', cwd: '/tmp' }, context(connector), 5),
+    ).resolves.toMatchObject({ status: 'error', type: 'invalid_path' });
     expect(peer.sessions).toHaveLength(0);
   });
 
@@ -2499,11 +2494,9 @@ describe('Machine bash working directories', () => {
         }),
         5,
       ),
-    ).resolves.toEqual({
+    ).resolves.toMatchObject({
       status: 'error',
       type: 'invalid_path',
-      message:
-        'The working directory must be a local absolute path or a machine:// locator.',
     });
     expect(peer.sessions).toHaveLength(0);
   });

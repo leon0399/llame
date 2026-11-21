@@ -18,6 +18,13 @@
         { "$ref": "#/$defs/interpolationToken" }
       ]
     },
+    "machineNameOrToken": {
+      "description": "A Machine name matching [a-z0-9-]{1,63}, or one whole-value {env:...}/{path:...} token that resolves to one.",
+      "oneOf": [
+        { "type": "string", "pattern": "^[a-z0-9-]{1,63}$" },
+        { "$ref": "#/$defs/interpolationToken" }
+      ]
+    },
     "nullableNumberOrToken": {
       "description": "A positive integer, null, or a whole-value interpolation token that resolves to one of those.",
       "oneOf": [
@@ -789,13 +796,12 @@
     "machineHostEntry": {
       "type": "object",
       "additionalProperties": false,
-      "description": "One declared remote Machine: how the hub reaches it over SSH.",
-      "required": ["destination"],
+      "description": "One declared Machine. An entry with a `destination` is reached over SSH by every worker; an entry without one is this process's own Machine, held in process and named by `machines.local`.",
       "properties": {
         "destination": {
           "type": "string",
           "minLength": 1,
-          "description": "An SSH host alias, or [user@]host[:port], resolved through the included SSH configuration (which supplies aliases, jump hosts, users, ports, and identities). It must not begin with `-` and must not contain whitespace, `%`, or a shell metacharacter; the loader rejects any such value at startup, and rejects interpolation tokens outright. The value reaches an `ssh` argv, never a shell."
+          "description": "Optional. An SSH host alias, or [user@]host[:port], resolved through the included SSH configuration (which supplies aliases, jump hosts, users, ports, and identities). It must not begin with `-` and must not contain whitespace, `%`, or a shell metacharacter; the loader rejects any such value at startup, and rejects interpolation tokens outright. The value reaches an `ssh` argv, never a shell. Omit it for the Machine that runs this process; then only a worker whose `machines.local` names the entry can reach it."
         }
       }
     }
@@ -958,8 +964,16 @@
     "machines": {
       "type": "object",
       "additionalProperties": false,
-      "description": "Optional operator-declared remote Machines (remote-machines, experimental). Absent means the feature does not exist: no Machine tool argument, route, status read, or UI surface, and a `machine://` locator is refused as an unknown scheme exactly as before. Declared Machines are operator-wide — every authenticated user whose Run passes tool eligibility and permissions may address them, and one OS user on the Machine represents them all. `ssh` may be omitted: the worker user's ~/.ssh/known_hosts and ~/.ssh/config then apply. See docs/product/operator/machines.md.",
+      "description": "Optional operator-declared Machines (remote-machines and host-as-machine, experimental). The computer that runs llame is an ordinary entry here, named by `local`. Absent means no Machine surface: no Machine tool argument, route, status read, or UI surface, a `machine://` locator is refused as an unknown scheme exactly as before, and a configuration that allowlists a native tool fails startup because `machines.default` is absent. Declared Machines are operator-wide — every authenticated user whose Run passes tool eligibility and permissions may address them, and one OS user on the Machine represents them all. `ssh` may be omitted: the worker user's ~/.ssh/known_hosts and ~/.ssh/config then apply. See docs/product/operator/machines.md.",
       "properties": {
+        "local": {
+          "$ref": "#/$defs/machineNameOrToken",
+          "description": "The Machine this process hosts: a key of `hosts`, typically the computer that runs the process. The loader resolves one whole-value {env:...} token once at startup, then requires a name matching [a-z0-9-]{1,63}, and fails naming this field when it names no entry. Omitted means this process hosts no Machine."
+        },
+        "default": {
+          "$ref": "#/$defs/machineNameOrToken",
+          "description": "The Machine that serves an unbound Chat: a key of `hosts`. Startup fails naming this field when it names no entry, when it is neither this process's `local` nor an entry with a `destination`, or when a native tool (read, edit, write, grep, bash, enter_workspace, exit_workspace, stop) is allowlisted and it is absent. Configure the same value on every worker. A whole-value {env:...} token is resolved once at startup."
+        },
         "ssh": {
           "type": "object",
           "additionalProperties": false,
@@ -984,7 +998,7 @@
         },
         "hosts": {
           "type": "object",
-          "description": "Machine name → destination. The name is the user-facing name in `machine://<name>/<absolute path>` locators and must match [a-z0-9-]{1,63}; any other name fails startup naming the key. Declaring a Machine here is a trust decision: a Run that may enter one runs that repository's Workspace MCP servers as the Machine's OS user.",
+          "description": "Machine name → entry. The name is the user-facing name in `machine://<name>/<absolute path>` locators and must match [a-z0-9-]{1,63}; any other name fails startup naming the key. An entry without a destination is this process's own Machine. Declaring a Machine here is a trust decision: a Run that may enter one runs that repository's Workspace MCP servers as the Machine's OS user.",
           "additionalProperties": { "$ref": "#/$defs/machineHostEntry" }
         }
       }
@@ -1068,8 +1082,7 @@
       "properties": {
         "nativeExecutorId": {
           "type": "string",
-          "minLength": 1,
-          "description": "Stable operator-owned identity of this alpha native host. Setting it accepts host OS file authority for allowlisted read/edit/write tools. Use a distinct identity on each host. It must not begin with `machine:` — that prefix names a Machine Workspace binding (`workspace_executor_id = machine:<name>`), and the loader fails startup naming this field for any value (interpolated or literal) that does."
+          "description": "Removed: see machines.local. The host is now an entry of machines.hosts named by machines.local. A configuration that sets this field in any form fails startup naming this field and the replacement."
         },
         "allowed": {
           "type": "array",

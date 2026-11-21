@@ -61,7 +61,8 @@ function submittedDecision(
 
     return evaluate({
       ...options,
-      projectFieldValue: nativeFileProjection('read'),
+      projectFieldValue: (_field, value) =>
+        nativeFileProjection('read')(value).canonical,
     });
   });
 }

@@ -59,7 +59,7 @@ export function checkout(
 ): CheckoutResponse {
   return {
     repositoryId: "r1",
-    executorId: "personal-host-a",
+    executorId: "host",
     kind: "main",
     parentCheckoutId: null,
     branch: "master",
@@ -73,14 +73,15 @@ export function checkout(
   };
 }
 
-export const localClone = checkout({
+/** The host is a Machine like any other, so its clone is a locator too. */
+export const hostClone = checkout({
   id: "c1",
-  path: "/home/leo/src/llame",
+  path: "machine://host/home/leo/src/llame",
 });
 
-export const machineClone = checkout({
+export const devboxClone = checkout({
   id: "c4",
-  executorId: "machine:devbox",
+  executorId: "devbox",
   path: "machine://devbox/home/box/work/llame",
 });
 
@@ -88,7 +89,7 @@ export const clearFieldWorktree = checkout({
   id: "c2",
   kind: "worktree",
   parentCheckoutId: "c1",
-  path: "/home/leo/src/.llame-worktrees/llame/clear-field-0192",
+  path: "machine://host/home/leo/src/.llame-worktrees/llame/clear-field-0192",
   branch: "llame/clear-field-0192",
   origin: "created",
   chatIds: ["chat-1", "chat-2"],
@@ -118,7 +119,7 @@ export const api: StoryApi = {
   repositories: [],
   checkouts: [],
   refusal: null,
-  registered: localClone,
+  registered: hostClone,
   checkoutsFail: false,
 };
 

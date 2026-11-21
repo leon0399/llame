@@ -81,11 +81,6 @@ export const nativeGrepTool: Tool<GrepArguments> = {
   execute: (context, input) => executeGrep(context, input),
 };
 
-/** Whether a registry entry is this tool, by identity. */
-export function isGrepTool(tool: Tool): boolean {
-  return tool === nativeGrepTool;
-}
-
 async function executeGrep(
   context: ToolContext,
   input: GrepArguments,
@@ -534,12 +529,13 @@ export function pageFixedReserve(): number {
 
 /**
  * The kinds this process can serve, and only those: no Space identifier, no
- * Machine name, and no host path may reach this message.
+ * Machine name, and no absolute path may reach this message.
  */
 function scopesRequiredResult(context: ToolContext): ToolResult {
   const kinds: Array<string> = [];
 
-  if (context.nativeExecutorId !== undefined) kinds.push('host paths');
+  if (context.localMachine !== undefined)
+    kinds.push('paths on the current Machine');
 
   if (context.machines !== undefined) kinds.push('machine:// locators');
 

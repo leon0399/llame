@@ -58,58 +58,46 @@ describe("artifactNotice", () => {
     ).toBe("[full result: artifact://a-1 b c (2 lines)]");
   });
 
-  it("names the host directory of a call on this host", () => {
+  it("names the host directory as a locator of this Machine", () => {
     expect(
       artifactNotice([{ locator: "artifact://bash-5/stdout", lines: 5000 }], {
         hostFiles: {
-          directory: "/tmp/llame/chats/c/artifacts/bash-5",
+          locator: "machine://devl/tmp/llame/chats/c/artifacts/bash-5",
+          machine: "devl",
           elsewhere: false,
-          readable: false,
         },
       }),
     ).toBe(
-      "[full result: artifact://bash-5/stdout (5000 lines); host files in /tmp/llame/chats/c/artifacts/bash-5]",
+      "[full result: artifact://bash-5/stdout (5000 lines); host files in machine://devl/tmp/llame/chats/c/artifacts/bash-5]",
     );
   });
 
-  it("says the llame host only when read is a route", () => {
+  it("names only the Machine when the call ran elsewhere", () => {
     expect(
       artifactNotice([{ locator: "artifact://grep-7", lines: 3 }], {
         continueWith: { locator: "artifact://grep-7", next: 2 },
         hostFiles: {
-          directory: "/tmp/llame/chats/c/artifacts",
+          locator: "machine://devl/tmp/llame/chats/c/artifacts",
+          machine: "devl",
           elsewhere: true,
-          readable: true,
         },
       }),
     ).toBe(
-      "[full result: artifact://grep-7 (3 lines); continue with artifact://grep-7:2-; host files on the llame host only]",
+      "[full result: artifact://grep-7 (3 lines); continue with artifact://grep-7:2-; host files only on Machine devl]",
     );
   });
 
-  it("names the directory with the llame-host qualifier when read is not a route", () => {
-    expect(
-      artifactNotice([{ locator: "artifact://bash-5/stdout", lines: 2 }], {
-        hostFiles: {
-          directory: "/tmp/llame/chats/c/artifacts/bash-5",
-          elsewhere: true,
-          readable: false,
-        },
-      }),
-    ).toBe(
-      "[full result: artifact://bash-5/stdout (2 lines); host files in /tmp/llame/chats/c/artifacts/bash-5 on the llame host]",
-    );
-  });
-
-  it("keeps a line break in the host directory on one line", () => {
+  it("keeps a line break in the host locator on one line", () => {
     expect(
       artifactNotice([{ locator: "artifact://a-1", lines: 1 }], {
         hostFiles: {
-          directory: "/tmp/a\nb",
+          locator: "machine://devl/tmp/a\nb",
+          machine: "devl",
           elsewhere: false,
-          readable: false,
         },
       }),
-    ).toBe("[full result: artifact://a-1 (1 line); host files in /tmp/a b]");
+    ).toBe(
+      "[full result: artifact://a-1 (1 line); host files in machine://devl/tmp/a b]",
+    );
   });
 });

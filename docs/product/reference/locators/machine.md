@@ -1,5 +1,5 @@
 ---
-summary: "machine:// locators: files, directories, and shell commands on an operator-configured remote Machine"
+summary: "machine:// locators: files, directories, and shell commands on the host Machine or a configured remote Machine"
 read_when:
   - you are passing a machine:// locator to a native tool or as a bash cwd
   - you need to know what a Machine result reports or why a Machine call failed
@@ -9,8 +9,10 @@ configured_by: ../../operator/machines.md
 
 # Machine locators
 
-**Experimental.** A Machine extends the native file interface below to a remote
-box the operator configured, addressed over SSH. The Machine contract itself is
+**Experimental.** A Machine is a computer the operator configured. The host
+Machine is the entry named by `machines.local`, and another Machine is a remote
+box. Both are addressed as `machine://<name>/<absolute path>`. The Machine
+contract itself is
 the [remote-machines spec](../../../../openspec/specs/remote-machines/spec.md).
 
 ## Form
@@ -40,8 +42,8 @@ addresses the same file, including a filename that contains `#`.
 ## Accepted by
 
 `read`, `edit`, and `write` take a locator as their `path`; `bash` takes one as
-its `cwd`; `enter_workspace` takes one as its root. A `file:` alias always
-addresses the local host, never a Machine.
+its `cwd`; `enter_workspace` takes one as its root. A `file:` alias and a bare
+absolute path address the same Machine as the locator of the current Machine.
 
 | Tool              | Locator form        | Mutable |
 | ----------------- | ------------------- | ------- |
@@ -52,12 +54,12 @@ addresses the local host, never a Machine.
 
 ## Authority
 
-A Machine operation runs on the Machine as that Machine's OS user, over the
-operator's SSH route, with no sandbox and no sandboxing of the command's
-process group. There is no isolation between users of a shared Machine: one
-user's files and processes are visible to another's, and hub-held Chat state —
-bindings, declarations, attempts, and results — stays owner-scoped as it is for
-a local Workspace.
+A Machine operation runs on the Machine as that Machine's OS user, with no
+sandbox and no sandboxing of the command's process group. The host Machine is
+reached through a daemon child on this computer, and another Machine over the
+operator's SSH route. There is no isolation between users of a shared Machine:
+one user's files and processes are visible to another's, and hub-held Chat
+state — bindings, declarations, attempts, and results — stays owner-scoped.
 
 The Machine's registered roots bound addressing only. They are not a security
 boundary: the Machine user can change them, and anything running as that user,
@@ -65,30 +67,31 @@ including a Machine `bash` command and a Workspace MCP server, can do so. The
 SSH destination, any jump host, and every identity are operator-only and never
 appear in a result, a listing, or a tool description.
 
-A Machine operation never binds the Run to the local executor, so a worker
-without a configured local executor serves Machine locators while a local path
-still fails with `executor_unavailable`.
+A Machine operation binds the Run to that Machine. A bare absolute path and a
+`file:` alias bind the same Machine, through its canonical locator.
 
 ## Behavior
 
-Machine locators behave like the local executor's wherever the same bytes are
-involved: the same contents, selectors, listing shape, result bounds, error
-types, and media preparation, with every reported path and link target written
-as a Machine locator. An image or PDF is read as an attachment exactly as a
-local one is, up to the shared media cap.
+Every Machine behaves the same wherever the same bytes are involved: the same
+contents, selectors, listing shape, result bounds, error types, and media
+preparation, with every reported path and link target written as a Machine
+locator. An image or PDF is read as an attachment exactly as a bare path's is,
+up to the shared media cap.
 
 `edit`, `write`, and Machine `bash` record the durable native attempt before
 the request and its one result after, so an interrupted call settles as
 `outcome_unknown` and is never replayed automatically; mutations to one Machine
-serialize with each other and never block local or Knowledge writes. Every
+serialize with each other and never block a write to another Machine or to
+Knowledge. Every
 request carries a relative time budget the Machine measures on its own
 monotonic clock and refuses before any effect when it is already spent.
 
 While a Chat is bound to a Machine Workspace, a bare absolute path and an
 absolute `bash` `cwd` are that Machine's paths, and a relative path resolves on
 the Machine; an omitted `bash` `cwd` runs in the Workspace root on the Machine.
-Instruction files, prompt imports, and a Workspace's skills are read from the
-Machine, and its Workspace MCP servers run there.
+With no Workspace bound, they are `machines.default`'s paths. Instruction
+files, prompt imports, and a Workspace's skills come from the Machine, and its
+Workspace MCP servers run there.
 
 An unreachable Machine does not detach its Workspace: its binding persists and
 only operations targeting it fail, with one narrated unavailability and one
@@ -105,14 +108,15 @@ the local managed bounds.
 
 ## Listing
 
-A read of `machine://` lists every configured Machine with its derived status:
+A read of `machine://` lists every configured Machine, the host Machine
+included, with its derived status:
 `online`, or `offline` with a failure reason. Once the daemon has reported its
 static facts, the entry also names the OS and architecture, for example
 `- machine://devl (online, linux/x64)`. An incompatible protocol version reads
 `update required` in place of the reason. The listing never names an SSH route,
 an instance id, or the kernel. A read of `machine://<name>` lists that
 Machine's registered roots, each as a `machine://<name>/…` locator. A Machine
-directory read lists entries as the local one does, and a link that points
+directory read lists entries as a bare path's does, and a link that points
 outside the registered roots is not named.
 
 ## Errors
@@ -140,5 +144,5 @@ Only the operator can add Machines; without that configuration no Machine
 locator resolves, no status is listed, and `machine://` is refused as an
 unknown scheme. A Machine is also gated by the `read`, `edit`, `write`, and
 `bash` permission groups, which match the canonical locator text; a rule
-written against a local path does not admit a Machine address, and a Machine
-rule names the Machine it admits.
+written against a bare path does not admit another Machine's address, and a
+Machine rule names the Machine it admits.

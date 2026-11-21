@@ -28,6 +28,7 @@ import type {
   BashResult,
   BashTimedOutResult,
 } from '@workspace/bash-executor';
+import { formatMachineLocator } from '../machines/machine-locator';
 import { loadPackagedTemplate } from '../prompts/template-engine';
 import {
   writeToolArtifact,
@@ -38,7 +39,9 @@ import { formatArtifactLocator } from './artifacts/locator';
 import { canReadArtifacts, readAdmitsArtifact } from './artifacts/readable';
 import { artifactMaxBytes } from './artifacts/spill';
 import { toToolResult } from './bash-result';
+import { locatorContextOf } from './bash-target';
 import { type ToolContext } from './types';
+import { currentMachine } from './workspace-path';
 
 /** A stream that carries the executor's own output. */
 export type BashObservedResult = BashKnownResult | BashTimedOutResult;
@@ -90,7 +93,7 @@ export type StreamPreview = {
 export async function spillBashResult(
   context: ToolContext,
   result: BashResult,
-  hostFilesOnly = false,
+  awayFromHost = false,
 ): Promise<ToolResult> {
   if (!carriesStreams(result)) return toToolResult(result);
   const streams = { stdout: result.stdout, stderr: result.stderr };
@@ -99,7 +102,7 @@ export async function spillBashResult(
     context,
     streams,
     !result.truncated,
-    hostFilesOnly,
+    awayFromHost,
   );
 
   const inline: BashObservedResult = {
@@ -138,7 +141,7 @@ export async function spillBashStreams(
   context: ToolContext,
   streams: BashStreams,
   complete = true,
-  hostFilesOnly = false,
+  awayFromHost = false,
 ): Promise<SpilledBashStreams> {
   const spilling = spillingStreams(streams);
 
@@ -157,7 +160,7 @@ export async function spillBashStreams(
     streams: { stdout, stderr },
     ...(written !== undefined && { artifact: written.locator }),
     ...(written !== undefined && {
-      notice: storedNotice(context, spilling, written, hostFilesOnly),
+      notice: storedNotice(context, spilling, written, awayFromHost),
     }),
   };
 }
@@ -347,7 +350,7 @@ function storedNotice(
   context: ToolContext,
   spilling: ReadonlyArray<SpillingStream>,
   written: WrittenArtifact,
-  elsewhere: boolean,
+  awayFromHost: boolean,
 ): string {
   const parts = spilling.map((stream) => ({
     locator: formatArtifactLocator('bash', written.seq, stream.name),
@@ -355,7 +358,7 @@ function storedNotice(
   }));
 
   const notice = artifactNotice(parts, {
-    hostFiles: bashHostFiles(context, written, elsewhere),
+    hostFiles: bashHostFiles(context, written, awayFromHost),
   });
 
   return notice.slice(1, -1);
@@ -363,24 +366,29 @@ function storedNotice(
 
 /**
  * The host-file facts of the notice (tool-result-artifacts "The notice names
- * the host files"), or undefined when no file was written. A call away from
- * the llame host cannot open the directory, so only a Run that also reads the
- * artifact is told the files are on the llame host only; a Run whose only
- * route is a host `bash` is given the directory with that qualification.
+ * the host files"), or undefined when no file was written. The files live on
+ * the Machine this process hosts; a command that ran on another Machine or an
+ * `ssh://` host cannot open that directory, and neither can a call whose
+ * current Machine is another one.
  */
 function bashHostFiles(
   context: ToolContext,
   written: WrittenArtifact,
-  elsewhere: boolean,
+  awayFromHost: boolean,
 ): ArtifactNoticeHostFiles | undefined {
   const directory = written.hostDirectory;
+  const local = context.localMachine;
 
-  if (directory === undefined) return undefined;
+  if (directory === undefined || local === undefined) return undefined;
+  const locator = formatMachineLocator(local, directory);
+
+  if (locator === undefined) return undefined;
+  const current = currentMachine(locatorContextOf(context))?.toLowerCase();
 
   return {
-    directory,
-    elsewhere,
-    readable: readAdmitsArtifact(context, 'bash', written.seq),
+    locator,
+    machine: local.toLowerCase(),
+    elsewhere: awayFromHost || current !== local.toLowerCase(),
   };
 }
 

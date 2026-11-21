@@ -15,10 +15,10 @@ configured_by:
 # Locators
 
 Native `read`, `edit`, and `write` select their authority from the scheme of
-their `path` argument. An absolute path executes on the worker's filesystem with
-its OS user's authority. A `kb://<knowledgeSpaceId>/<path>[:selector]` locator
+their `path` argument. An absolute path executes on the current Machine with
+that Machine's OS user authority. A `kb://<knowledgeSpaceId>/<path>[:selector]` locator
 resolves through the trusted Run owner's current Knowledge Space access instead
-and never binds the Run to an executor. This alpha capability supplies no
+and never binds the Run to a Machine. This alpha capability supplies no
 per-user or per-path filesystem permissions or sandbox on either path; `kb://`
 narrows exposure to one owner-scoped directory tree.
 
@@ -30,19 +30,19 @@ and read-only. Each scheme page states its accepted spellings; see
 
 ## Accepted by
 
-| Scheme                       | `read` | `edit` | `write` | Executor | Authority                                                | Mutable    | Triggers instructions |
-| ---------------------------- | ------ | ------ | ------- | -------- | -------------------------------------------------------- | ---------- | --------------------- |
-| absolute path                | yes    | yes    | yes     | yes      | the worker's filesystem, its OS user                     | yes        | yes                   |
-| `file://`                    | yes    | yes    | yes     | yes      | the worker's filesystem, its OS user                     | yes        | yes                   |
-| [`machine://`](machine.md)   | yes    | yes    | yes     | no       | a configured Machine's filesystem, its OS user over SSH  | yes        | yes, on the Machine   |
-| [`ssh://`](ssh.md)           | yes    | no     | no      | no       | an external host's filesystem, its login user over SSH   | as written | no                    |
-| `kb://`                      | yes    | yes    | yes     | no       | the owner's Knowledge Space directory                    | yes        | yes, inside the Space |
-| `skill://`                   | yes    | no     | no      | no       | an installed skill package, read-only                    | no         | no                    |
-| `http(s)://`                 | yes    | no     | no      | no       | the public web, through the API process                  | no         | no                    |
-| `media://`                   | yes    | no     | no      | no       | the owner's stored images, read-only                     | no         | no                    |
-| [`artifact://`](artifact.md) | yes    | no     | no      | no       | this Chat's stored tool results, read-only               | no         | no                    |
-| [`job://`](job.md)           | yes    | no     | no      | no       | this Chat's background jobs, read-only                   | no         | no                    |
-| [`projects://`](projects.md) | yes    | no     | no      | no       | the owner's Projects and registered checkouts, read-only | no         | no                    |
+| Scheme                       | `read` | `edit` | `write` | Machine     | Authority                                                         | Mutable    | Triggers instructions |
+| ---------------------------- | ------ | ------ | ------- | ----------- | ----------------------------------------------------------------- | ---------- | --------------------- |
+| absolute path                | yes    | yes    | yes     | the current | the current Machine's filesystem, its OS user                     | yes        | yes                   |
+| `file://`                    | yes    | yes    | yes     | the current | the current Machine's filesystem, its OS user                     | yes        | yes                   |
+| [`machine://`](machine.md)   | yes    | yes    | yes     | named       | a configured Machine's filesystem, its OS user through its daemon | yes        | yes, on the Machine   |
+| [`ssh://`](ssh.md)           | yes    | no     | no      | no          | an external host's filesystem, its login user over SSH            | as written | no                    |
+| `kb://`                      | yes    | yes    | yes     | no          | the owner's Knowledge Space directory                             | yes        | yes, inside the Space |
+| `skill://`                   | yes    | no     | no      | no          | an installed skill package, read-only                             | no         | no                    |
+| `http(s)://`                 | yes    | no     | no      | no          | the public web, through the API process                           | no         | no                    |
+| `media://`                   | yes    | no     | no      | no          | the owner's stored images, read-only                              | no         | no                    |
+| [`artifact://`](artifact.md) | yes    | no     | no      | no          | this Chat's stored tool results, read-only                        | no         | no                    |
+| [`job://`](job.md)           | yes    | no     | no      | no          | this Chat's background jobs, read-only                            | no         | no                    |
+| [`projects://`](projects.md) | yes    | no     | no      | no          | the owner's Projects and registered checkouts, read-only          | no         | no                    |
 
 `edit` and `write` reject `http://`, `https://`,
 [`artifact://`](artifact.md), and [`job://`](job.md) with `invalid_path`, and reject `skill://`,
@@ -53,9 +53,8 @@ same two tools refuse the two [`machine://`](machine.md) listing forms with
 [`projects://`](projects.md) locator with `unsupported_operation`. They never
 turn it into a local path or a Project mutation. A [`machine://`](machine.md) and [`ssh://`](ssh.md)
 locator is also accepted as a `bash` `cwd`, where the command runs on that host
-and may change whatever its user may change. The operator enables the host
-executor the first two rows need; see
-[native files](../../operator/native-files.md#enabling).
+and may change whatever its user may change. The operator declares the Machine the first two rows use; see
+[Machines](../../operator/machines.md#configure).
 
 ## Authority
 
@@ -65,13 +64,14 @@ package the operator installed; `http(s)://` is fetched by the API process;
 `media://` resolves only the Run owner's stored media, and
 [`artifact://`](artifact.md) resolves only the current Chat's stored tool
 results, and [`job://`](job.md) only its jobs, both under its owner's row-level
-security. A `machine://` locator runs on an
-operator-configured Machine as that Machine's OS user, over the operator's SSH
-route, and an `ssh://` locator runs on an external host as its login user over
-the operator's own SSH configuration, with nothing installed there. No scheme
-but the first two rows of the table above binds the Run to a local executor. A
+security. A [`machine://`](machine.md) locator runs on a
+configured Machine as that Machine's OS user, through its daemon; the host
+Machine's daemon is a child of the serving process, and another Machine's is
+reached over SSH. An `ssh://` locator runs on an external host as its login user over
+the operator's own SSH configuration, with nothing installed there. The first
+three rows of the table bind the Run to one Machine. A
 [`projects://`](projects.md) read uses the owner's Project rows and needs no
-executor or Workspace binding.
+Machine or Workspace binding.
 
 An unimplemented `scheme://` prefix — for example `vault://x` — fails closed
 with `invalid_path` on `read`, `edit`, and `write` alike. It is never treated as
@@ -81,7 +81,7 @@ read, created, or modified.
 ## Listing
 
 Each scheme's directory or catalog listing is documented on its own page: an
-absolute path and `file://` in [host-path](host-path.md), a Space directory in
+absolute path and `file://` in [absolute paths](host-path.md), a Space directory in
 [kb](kb.md), a package directory and the catalog in [skill](skill.md), a
 Machine's status and registered roots in [machine](machine.md), an external
 host's directory in [ssh](ssh.md), a Chat's artifacts oldest first and a `bash` artifact's streams
@@ -100,7 +100,7 @@ literal colon has an encoded spelling, that spelling after them; see
 [malformed selectors](../selectors.md#malformed-selectors). A
 trailing representation member the scheme splits differently is refused rather
 than reinterpreted: `:raw:outline` fails everywhere, and `kb://` and `skill://`
-refuse `:outline:raw`, where a host path or web locator reads it as a raw read
+refuse `:outline:raw`, where an absolute path or web locator reads it as a raw read
 of a path or URL ending in `:outline`; see
 [selectors](../selectors.md#markdown-outline). `not_found` covers a refused
 symbolic-link component on `kb://`, an absent path, a `media://` id the owner
@@ -111,8 +111,8 @@ mutation is `unsupported_operation`. The shared native vocabulary is in
 
 ## Configured by
 
-- [Native files](../../operator/native-files.md) enables the host executor the
-  absolute-path and `file://` rows need.
+- [Machines](../../operator/machines.md) declares the Machine that the
+  absolute-path and `file://` rows use.
 - [SSH locators](../../operator/ssh.md) enables `ssh://` and pins the host keys
   behind it.
 - [Personal Knowledge](../../operator/knowledge.md) configures the Knowledge root

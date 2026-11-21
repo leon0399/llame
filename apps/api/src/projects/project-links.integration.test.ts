@@ -450,10 +450,10 @@ describe('project repository links over HTTP', () => {
     const set = await request(owner.http)
       .patch(`/api/v1/projects/${projectId}`)
       .set('Cookie', owner.cookie)
-      .send({ defaultExecutorId: 'machine:nas' })
+      .send({ defaultExecutorId: 'nas' })
       .expect(200);
 
-    expect(set.body).toMatchObject({ defaultExecutorId: 'machine:nas' });
+    expect(set.body).toMatchObject({ defaultExecutorId: 'nas' });
 
     const cleared = await request(owner.http)
       .patch(`/api/v1/projects/${projectId}`)

@@ -39,6 +39,8 @@ function fakeContext(userId = 'user-A'): ToolContext {
   return {
     userId,
     chatId: 'chat-1',
+    localMachine: 'host-a',
+    defaultMachine: 'host-a',
     configuredCredentials: [],
     tenantDb,
     permissionPolicy: compileTestPermissionPolicy(['echo']),
@@ -1638,7 +1640,7 @@ describe('runTool permission gate', () => {
     });
 
     it('does not report an equal canonical path', async () => {
-      const canonicalPath = '/tmp/canonical.md';
+      const canonicalPath = 'machine://host-a/tmp/canonical.md';
 
       const { result, execute, decisions } = await runCanonicalRead({
         path: `${canonicalPath}:raw:1-2`,
@@ -1793,11 +1795,19 @@ describe('runTool permission gate', () => {
       {
         ...contextWith({
           read: {
-            allow: [{ field: 'path', regex: '^/work/project/' }],
-            reject: [{ field: 'path', regex: '^/work/project/secret\\.md$' }],
+            allow: [
+              { field: 'path', regex: '^machine://host-a/work/project/' },
+            ],
+            reject: [
+              {
+                field: 'path',
+                regex: '^machine://host-a/work/project/secret\\.md$',
+              },
+            ],
           },
         }),
-        workspaceRoot: createWorkspaceRootCell('/work/project'),
+        defaultMachine: 'host-a',
+        workspaceRoot: createWorkspaceRootCell('machine://host-a/work/project'),
       },
       5,
     );
@@ -1810,9 +1820,16 @@ describe('runTool permission gate', () => {
         { path: 'notes.md:1-5' },
         {
           ...contextWith({
-            read: { allow: [{ field: 'path', regex: '^/work/project/' }] },
+            read: {
+              allow: [
+                { field: 'path', regex: '^machine://host-a/work/project/' },
+              ],
+            },
           }),
-          workspaceRoot: createWorkspaceRootCell('/work/project'),
+          defaultMachine: 'host-a',
+          workspaceRoot: createWorkspaceRootCell(
+            'machine://host-a/work/project',
+          ),
         },
         5,
       ),
@@ -2068,7 +2085,9 @@ describe('runTool permission gate', () => {
       ),
     ).toMatchObject({ type: 'permission_denied', message: NO_ALLOW });
   });
-  it('does not match a native reject against the submitted relative spelling', async () => {
+  it('refuses a native reject written against the submitted relative spelling', async () => {
+    // Design D7: a reject that matches the submitted text still refuses, even
+    // when an allow is decided on the canonical locator.
     vi.spyOn(nativeReadTool, 'execute').mockResolvedValue({
       status: 'success',
     });
@@ -2083,12 +2102,17 @@ describe('runTool permission gate', () => {
             reject: [{ field: 'path', regex: '^src/app\\.ts$' }],
           },
         }),
+        defaultMachine: 'host-a',
         workspaceRoot: createWorkspaceRootCell('/home/operator/project'),
       },
       5,
     );
 
-    expect(result).toEqual({ status: 'success' });
+    expect(result).toEqual({
+      status: 'error',
+      type: 'permission_denied',
+      message: EXPLICIT_REJECT,
+    });
   });
 
   it('preserves an absolute native path with duplicate leading separators', async () => {
@@ -2134,7 +2158,9 @@ describe('runTool permission gate', () => {
     expect(result).toEqual({ status: 'success', value: 'x' });
   });
 
-  it('matches Bash cwd rules against the projected relative cwd', async () => {
+  it('refuses a Bash cwd reject written against the submitted spelling', async () => {
+    // Design D7 judges the submitted cwd, the projected Machine path, and the
+    // canonical locator; a reject on any of them refuses.
     vi.spyOn(bashTool, 'execute').mockResolvedValue({ status: 'success' });
 
     const result = await runTool(
@@ -2147,12 +2173,17 @@ describe('runTool permission gate', () => {
             reject: [{ field: 'cwd', literal: '.' }],
           },
         }),
+        defaultMachine: 'host-a',
         workspaceRoot: createWorkspaceRootCell('/tmp'),
       },
       5,
     );
 
-    expect(result).toEqual({ status: 'success' });
+    expect(result).toEqual({
+      status: 'error',
+      type: 'permission_denied',
+      message: EXPLICIT_REJECT,
+    });
   });
 
   it('does not Workspace-project an impostor native tool before matching rejects', async () => {
@@ -2194,7 +2225,7 @@ describe('runTool permission gate', () => {
 });
 
 describe('Workspace argument projection for permissions', () => {
-  it('maps a bare absolute read path in a Machine Workspace before a reject can match it', () => {
+  it('keeps a bare-path reject effective on a mapped Machine read', () => {
     const context: ToolContext = {
       ...fakeContext(),
       permissionPolicy: compileToolPermissionMap(
@@ -2202,6 +2233,31 @@ describe('Workspace argument projection for permissions', () => {
           read: {
             allow: true,
             reject: [{ field: 'path', regex: '^/srv/app/' }],
+          },
+        },
+        'projection-policy',
+      ),
+      workspaceRoot: createWorkspaceRootCell('machine://devl/srv/app'),
+    };
+
+    // The allow is decided on the canonical locator, but the reject still
+    // matches the decoded Machine path, so no spelling can evade it.
+    expect(
+      previewToolPermission(
+        nativeReadTool,
+        { path: '/srv/app/notes.md' },
+        context,
+      ),
+    ).toBe(false);
+  });
+
+  it('admits a mapped Machine read only through a canonical allow', () => {
+    const context: ToolContext = {
+      ...fakeContext(),
+      permissionPolicy: compileToolPermissionMap(
+        {
+          read: {
+            allow: [{ field: 'path', regex: '^machine://devl/srv/app/notes' }],
           },
         },
         'projection-policy',
@@ -2255,7 +2311,7 @@ describe('Workspace argument projection for permissions', () => {
     ).toBe(false);
   });
 
-  it('maps a bash cwd in a Machine Workspace before a reject can match it', () => {
+  it('keeps a bare-path reject effective on a mapped Machine cwd', () => {
     const context: ToolContext = {
       ...fakeContext(),
       permissionPolicy: compileToolPermissionMap(
@@ -2276,7 +2332,72 @@ describe('Workspace argument projection for permissions', () => {
         { command: 'pwd', cwd: '/srv/app/src' },
         context,
       ),
+    ).toBe(false);
+  });
+});
+
+describe('canonical locator policy', () => {
+  const contextFor = (map: ToolPermissionMap): ToolContext => ({
+    ...fakeContext(),
+    permissionPolicy: compileToolPermissionMap(map, 'canonical-policy'),
+  });
+
+  it('refuses a bare /etc reject in every spelling of the path', () => {
+    const context = contextFor({
+      read: { allow: true, reject: [{ field: 'path', regex: '^/etc/' }] },
+    });
+
+    for (const path of [
+      '/etc/passwd',
+      'file:///etc/passwd',
+      'machine://host-a/etc/passwd',
+    ]) {
+      expect(previewToolPermission(nativeReadTool, { path }, context)).toBe(
+        false,
+      );
+    }
+  });
+
+  it('admits a bare /home path through a canonical allow on the current Machine', () => {
+    const context = contextFor({
+      read: { allow: [{ field: 'path', regex: '^machine://host-a/home/' }] },
+    });
+
+    expect(
+      previewToolPermission(nativeReadTool, { path: '/home/x' }, context),
     ).toBe(true);
+  });
+
+  it('does not admit a bare /home path through another Machine’s allow', () => {
+    const context = contextFor({
+      read: { allow: [{ field: 'path', regex: '^machine://gpu/home/' }] },
+    });
+
+    expect(
+      previewToolPermission(nativeReadTool, { path: '/home/x' }, context),
+    ).toBe(false);
+  });
+
+  it('projects an omitted bash cwd to the Workspace root locator', () => {
+    const context: ToolContext = {
+      ...contextFor({
+        bash: {
+          allow: [
+            {
+              field: 'cwd',
+              regex: '^machine://host-a/home/operator/project$',
+            },
+          ],
+        },
+      }),
+      workspaceRoot: createWorkspaceRootCell(
+        'machine://host-a/home/operator/project',
+      ),
+    };
+
+    expect(previewToolPermission(bashTool, { command: 'pwd' }, context)).toBe(
+      true,
+    );
   });
 });
 

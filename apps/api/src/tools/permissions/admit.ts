@@ -143,3 +143,40 @@ export function evaluateSubmittedThenProjected(
 
   return evaluate(projected);
 }
+
+/** One call's evaluations: the canonical locator, and the texts a reject may
+ *  also match (the submitted spelling and the projected Machine path). */
+export type CanonicalEvaluation = {
+  /** The one text an allow is decided on. */
+  readonly canonical: EvaluatePermissionOptions;
+  /** Texts whose matching reject also refuses, in evaluation order. */
+  readonly rejectTexts: ReadonlyArray<EvaluatePermissionOptions>;
+};
+
+/**
+ * Canonical-locator precedence (design D7): an allow is decided on the
+ * canonical locator alone, while any reject that matches the submitted text,
+ * the projected path, or the canonical locator refuses the call. A decision
+ * reached on a non-canonical text can therefore never admit — only its reject
+ * is kept — so a rule written for one Machine's path cannot widen, and a
+ * bare-path reject in another spelling keeps its effect on every Machine. The
+ * returned decision carries the evaluator's own provenance.
+ */
+export function evaluateCanonicalWithRejectTexts(
+  evaluate: EvaluateCall,
+  input: CanonicalEvaluation,
+): PermissionDecision {
+  const canonical = evaluate(input.canonical);
+
+  if (canonical.decision === 'reject' && canonical.reason !== 'no_allow')
+    return canonical;
+
+  for (const options of input.rejectTexts) {
+    const decision = evaluate(options);
+
+    if (decision.decision === 'reject' && decision.reason !== 'no_allow')
+      return decision;
+  }
+
+  return canonical;
+}

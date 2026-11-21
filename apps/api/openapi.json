@@ -5995,6 +5995,7 @@
           },
           "executorId": {
             "type": "string",
+            "description": "The Machine name of the executor.",
             "maxLength": 200,
             "pattern": "\\S"
           },
@@ -6016,7 +6017,8 @@
         "type": "object",
         "properties": {
           "path": {
-            "type": "string"
+            "type": "string",
+            "description": "The canonical `machine://` locator of the new worktree directory."
           },
           "branch": {
             "type": "string"
@@ -6044,10 +6046,12 @@
             ]
           },
           "root": {
-            "type": "string"
+            "type": "string",
+            "description": "The canonical `machine://` locator of the bound root."
           },
           "executorId": {
-            "type": "string"
+            "type": "string",
+            "description": "The Machine name of the executor."
           },
           "worktree": {
             "$ref": "#/components/schemas/CreationWorktreeResponse"
@@ -7253,7 +7257,8 @@
           },
           "executorId": {
             "type": "string",
-            "nullable": true
+            "nullable": true,
+            "description": "The Machine name of the executor."
           },
           "checkoutId": {
             "type": "string",
@@ -7869,7 +7874,7 @@
             "type": "string",
             "maxLength": 4096,
             "pattern": "^(?:/|[Mm][Aa][Cc][Hh][Ii][Nn][Ee]://)",
-            "description": "An absolute local path or a configured `machine://` locator."
+            "description": "An absolute path on `machines.default`, or a `machine://<name>/<path>` locator of a configured Machine."
           },
           "repositoryId": {
             "type": "string",
@@ -7900,10 +7905,11 @@
           },
           "executorId": {
             "type": "string",
-            "description": "The local executor id, or machine:<name>."
+            "description": "The Machine name of the executor."
           },
           "path": {
-            "type": "string"
+            "type": "string",
+            "description": "The canonical `machine://` locator of this checkout."
           },
           "kind": {
             "type": "string",
@@ -7925,7 +7931,8 @@
           },
           "worktreeBase": {
             "type": "string",
-            "nullable": true
+            "nullable": true,
+            "description": "The canonical `machine://` locator new worktrees are created under; null when unset."
           },
           "chatIds": {
             "description": "The ids of this owner's chats whose Workspace root equals path.",

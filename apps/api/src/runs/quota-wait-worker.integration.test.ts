@@ -42,7 +42,7 @@ describe('quota wait worker acceptance', () => {
       quotaWaitMaxSeconds: 7 * 24 * 60 * 60,
       timeoutSeconds: 1800,
       allowedTools: ['read'],
-      nativeExecutorId: 'quota-wait-worker-host',
+      localMachine: 'quota-wait-worker-host',
     });
     userId = await createUser(harness.db, `quota-worker-${randomUUID()}`);
   });

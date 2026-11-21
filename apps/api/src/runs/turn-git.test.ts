@@ -106,6 +106,7 @@ describe('refreshTurnGit', () => {
     const workspace = createWorkspaceSnapshotItem({
       runId: RUN_ID,
       root: '/repo',
+      machine: 'host-a',
     });
 
     const staged: Array<MessagePart> = [workspace, item('instructions')];
@@ -131,7 +132,11 @@ describe('refreshTurnGit', () => {
     const turn = fresh(CLEAN);
 
     const staged: Array<MessagePart> = [
-      createWorkspaceSnapshotItem({ runId: RUN_ID, root: '/other' }),
+      createWorkspaceSnapshotItem({
+        runId: RUN_ID,
+        root: '/other',
+        machine: 'host-a',
+      }),
     ];
 
     refresh(turn, staged, history(textOf(CLEAN)));
@@ -145,7 +150,11 @@ describe('refreshTurnGit', () => {
     const turn = fresh(CLEAN);
 
     const staged: Array<MessagePart> = [
-      createWorkspaceSnapshotItem({ runId: RUN_ID, root: '/repo' }),
+      createWorkspaceSnapshotItem({
+        runId: RUN_ID,
+        root: '/repo',
+        machine: 'host-a',
+      }),
     ];
 
     refresh(turn, staged, history(textOf(CLEAN)));

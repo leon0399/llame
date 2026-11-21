@@ -17,7 +17,7 @@ below state additional ordering where a change needs it.
 
 ## Tools and permissions
 
-- [Native files](native-files.md): host executor identity, `read`, `edit`,
+- [Native files](native-files.md): the host and default Machine, `read`, `edit`,
   `write`, `bash`, Workspace entry, and permission modes.
 - [Background jobs](background-jobs.md): host async commands, lifetime and
   concurrency bounds, owner stop controls, and worker shutdown.
@@ -29,7 +29,7 @@ below state additional ordering where a change needs it.
   the resend rules, and the Chat's creation record.
 - [Chat commands](chat-commands.md): the data fix a downgrade below the
   `/compact` focus release needs.
-- [Remote Machines](machines.md): experimental SSH-reached Machines, the
+- [Machines](machines.md): the host entry and remote Machines, the
   `llame-machine` daemon, registered roots, permissions, and status.
 - [SSH locators](ssh.md): experimental `ssh://` reads and bash working
   directories on external hosts, pinned keys, the included SSH configuration,

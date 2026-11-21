@@ -396,7 +396,7 @@ describe('ProjectLinksRepository resolver reads', () => {
   it('lists main checkouts only, narrowed to an executor when named', async () => {
     const { db, queries } = makeMockDb();
     await new ProjectLinksRepository(db)
-      .listMainCheckouts(OWNER, REPOSITORY_ID, 'machine:nas')
+      .listMainCheckouts(OWNER, REPOSITORY_ID, 'nas')
       .catch(() => null);
 
     expect(lastQuery(queries).sql).toContain(`"kind" = $3`);
@@ -405,7 +405,7 @@ describe('ProjectLinksRepository resolver reads', () => {
       OWNER,
       REPOSITORY_ID,
       'main',
-      'machine:nas',
+      'nas',
     ]);
   });
 

@@ -1,19 +1,21 @@
 ---
-summary: "Absolute host paths and file:// aliases, and the bounded depth-2 directory listing they return"
+summary: "Absolute paths and file:// aliases on the current Machine, and the bounded depth-2 directory listing they return"
 read_when:
   - you are passing an absolute path or a file:// alias to a native tool
-  - you are reading or listing a host directory
+  - you are reading or listing a directory on the current Machine
 spec: native-file-tools
-configured_by: ../../operator/native-files.md
+configured_by: ../../operator/machines.md
 ---
 
-# Host paths
+# Absolute paths
 
 ## Form
 
 An absolute POSIX path is read, edited, or written as given; a `read` may carry
 a trailing `[:selector]` (see [selectors](../selectors.md)), which `edit` and
-`write` take as part of the filename. Relative paths are valid only while a
+`write` take as part of the filename. An absolute path addresses the current
+Machine: the Machine of an entered Workspace, or `machines.default` when none is
+entered. Relative paths are valid only while a
 Workspace is entered; see [enter_workspace](../tools/enter-workspace.md).
 
 `read`, `edit`, and `write` also accept `file://` and RFC 8089 minimal `file:`
@@ -28,7 +30,8 @@ a literal-path probe first; there is no escaped literal-colon form. Selectors
 work the same way, so `file:///path:10-12` is equivalent to `/path:10-12`.
 
 This is POSIX-only: `file:///C:/x` means `/C:/x`; drive handling is not
-supported, and `file://C:/x` is refused as remote. A literal space, including a
+supported, and `file://C:/x` is refused because a host other than `localhost`
+names another Machine. A literal space, including a
 trailing space, is a legal POSIX filename and is retained.
 
 ## Accepted by
@@ -39,9 +42,11 @@ argument of `enter_workspace`; `file://` does not, and `bash` uses its own
 
 ## Authority
 
-An absolute path or alias executes on the worker's filesystem with its OS user's
-authority and binds the Run to the configured executor. A valid alias binds the
+An absolute path or alias executes on the current Machine with that Machine's OS
+user authority and binds the Run to that Machine. A valid alias binds the
 Run exactly as an absolute path does; Workspace root does not affect them.
+Every result reports the canonical `machine://` locator of the decoded path,
+never the submitted spelling.
 Permission matching strips a `read`'s selector and not an `edit`'s or `write`'s,
 whose suffix is part of the filename; see
 [tool-call permissions](../../operator/tool-call-permissions.md#matching).
@@ -54,7 +59,7 @@ path, never the submitted URL.
 ## Listing
 
 A read of a directory path returns a depth-2 listing: directories first, then
-files, sorted by name under the host collation. A symbolic link sorts among the
+files, sorted by name under the Machine's collation. A symbolic link sorts among the
 files by name whatever its target kind. Each entry renders as `- name/`
 (directory), `- name` (file), `- name@/ -> <target>` (symbolic link to a
 directory), `- name@ -> <target>` (symbolic link to a regular file),
@@ -82,10 +87,10 @@ truncated with `nextOffset`.
 selector grammar ([selectors](../selectors.md#malformed-selectors));
 `not_found` for an absent path; `directory_too_large` for a directory over the
 traversal budget; `not_regular_file` and `file_exists` for mutations.
-`executor_unavailable` when the call needs the host executor the operator did not
-enable. The shared vocabulary is in [read](../tools/read.md#errors).
+`machine_unavailable` when the current Machine is unreachable. The shared
+vocabulary is in [read](../tools/read.md#errors).
 
 ## Configured by
 
-[native files](../../operator/native-files.md) enables the host executor and the
-`read`, `edit`, and `write` entries.
+[Machines](../../operator/machines.md) declares the Machine an absolute path
+addresses, and the `read`, `edit`, and `write` entries gate the tools.

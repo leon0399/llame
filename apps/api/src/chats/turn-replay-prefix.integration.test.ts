@@ -216,7 +216,7 @@ describeIfDb('turn replay prefix equality', () => {
     registerTestOnlyTool(spillTool);
     harness = await bootWorkerHarness({
       allowedTools: ['read', 'search_conversations', SPILL_TOOL_ID],
-      nativeExecutorId: 'turn-replay-prefix',
+      localMachine: 'turn-replay-prefix',
     });
     userId = await createUser(harness.db, 'turn-replay-prefix');
   });

@@ -3,6 +3,7 @@ import { bashTool } from './bash';
 import { bashTarget, isHostBashCall } from './bash-target';
 import { createWorkspaceRootCell } from './workspace-path';
 import { type ToolContext } from './types';
+import { localMachineConnector } from '../testing/local-machine';
 import { compileTestPermissionPolicy } from '../testing/tool-permission-policy';
 
 const context: ToolContext = {
@@ -10,7 +11,9 @@ const context: ToolContext = {
   chatId: 'chat',
   runId: 'run',
   attemptId: 'attempt-1',
-  nativeExecutorId: 'host',
+  localMachine: 'host-a',
+  defaultMachine: 'host-a',
+  machines: localMachineConnector(),
   nativeDeliverySequence: 1,
   toolCallId: 'call-1',
   configuredCredentials: [],
@@ -37,7 +40,7 @@ describe('host-only background fields', () => {
       }),
     ).toEqual({ command: 'true', async: true, unlimited: false });
   });
-  it.each(['duration', 'maxSeconds', 'timeout', 'nativeExecutorId'])(
+  it.each(['duration', 'maxSeconds', 'timeout', 'localMachine'])(
     'Model cannot widen execution with %s',
     (key) => {
       expect(
@@ -49,28 +52,40 @@ describe('host-only background fields', () => {
       ).toBe(false);
     },
   );
-  it.each(['ssh://host/tmp', 'machine://dev/tmp'])(
-    'A remote directory refuses async: %s',
-    async (cwd) => {
-      const result = await bashTool.execute(context, {
-        command: 'true',
-        cwd,
-        async: true,
-      });
+  it('refuses async on an ssh:// directory without starting a process', async () => {
+    const result = await bashTool.execute(context, {
+      command: 'true',
+      cwd: 'ssh://host/tmp',
+      async: true,
+    });
 
-      expect(result).toMatchObject({ status: 'error', type: 'invalid_input' });
-      expect(result.status === 'error' ? result.message : '').toContain(
-        'llame host',
-      );
-      expect(
-        await bashTool.execute(context, {
-          command: 'true',
-          cwd,
-          unlimited: false,
-        }),
-      ).toMatchObject({ type: 'invalid_input' });
-    },
-  );
+    expect(result).toMatchObject({ status: 'error', type: 'invalid_input' });
+    expect(result.status === 'error' ? result.message : '').toContain(
+      'llame host',
+    );
+    expect(
+      await bashTool.execute(context, {
+        command: 'true',
+        cwd: 'ssh://host/tmp',
+        unlimited: false,
+      }),
+    ).toMatchObject({ type: 'invalid_input' });
+  });
+  it('refuses async on another Machine without naming this worker', async () => {
+    const result = await bashTool.execute(context, {
+      command: 'true',
+      cwd: 'machine://gpu/srv/app',
+      async: true,
+    });
+
+    expect(result).toEqual({
+      status: 'error',
+      type: 'invalid_input',
+      message:
+        '`async` is unavailable for Machine `gpu` on this attempt. Run the command synchronously.',
+    });
+    expect(JSON.stringify(result)).not.toContain('host-a');
+  });
   it('requires a string command before classifying host bash', () => {
     expect(isHostBashCall({}, context)).toBe(false);
   });
@@ -78,7 +93,7 @@ describe('host-only background fields', () => {
   it('rejects invalid and remote projected directories as host calls', () => {
     const machine = {
       ...context,
-      workspaceRoot: createWorkspaceRootCell('machine://dev/tmp/project'),
+      workspaceRoot: createWorkspaceRootCell('machine://gpu/tmp/project'),
     };
 
     expect(
@@ -89,15 +104,26 @@ describe('host-only background fields', () => {
     ).toBe(false);
   });
 
+  it('treats the local Machine of the call as host bash', () => {
+    expect(isHostBashCall({ command: 'true' }, context)).toBe(true);
+    expect(
+      isHostBashCall({ command: 'true', cwd: 'machine://host-a/tmp' }, context),
+    ).toBe(true);
+    expect(isHostBashCall({ command: 'true', cwd: '/tmp' }, context)).toBe(
+      true,
+    );
+  });
+
   it('refuses an omitted cwd in a Machine Workspace after projection', async () => {
     const machine = {
       ...context,
-      workspaceRoot: createWorkspaceRootCell('machine://dev/tmp/project'),
+      workspaceRoot: createWorkspaceRootCell('machine://gpu/tmp/project'),
     };
 
     expect(bashTarget(machine, { command: 'true' })).toMatchObject({
       target: 'machine',
-      input: { cwd: 'machine://dev/tmp/project' },
+      input: { cwd: 'machine://gpu/tmp/project' },
+      machine: { name: 'gpu', path: '/tmp/project', local: false },
     });
     expect(
       await bashTool.execute(machine, { command: 'true', async: true }),

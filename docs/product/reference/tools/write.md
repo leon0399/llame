@@ -27,17 +27,18 @@ entire contents. It is the tool for a whole-file change; use
 
 ## Locators
 
-An absolute host path, a `file://` alias, a `machine://` locator, or a `kb://`
+An absolute path on the current Machine, a `file://` alias, a `machine://`
+locator, or a `kb://`
 locator; while a Workspace is entered, a relative path is resolved beneath its
-root, and a Workspace on a Machine resolves it there. See
+root on the Workspace's Machine. See
 [locators](../locators/index.md) and
 [enter_workspace](enter-workspace.md#bounds).
 
 The selector grammar is not part of `write`. A `kb://` locator that carries one
-is refused with `invalid_selector`; on a host `path` or `file://` alias a
+is refused with `invalid_selector`; on an absolute `path` or `file://` alias a
 trailing `:N-M` or `:raw` is part of the filename, so such a write creates or
 replaces a file whose name ends in that text. A `machine://` mutation likewise
-takes no selector, needs no local executor, and records its attempt with the
+takes no selector, binds the Run to its Machine, and records its attempt with the
 locator; a session lost after dispatch settles as `outcome_unknown` rather than
 being retried; see [machine](../locators/machine.md#behavior).
 
@@ -108,8 +109,8 @@ a `kb://` locator carrying a selector. The shared vocabulary is in
 
 ## Configured by
 
-- [Native files](../../operator/native-files.md) enables the host executor and
-  the `write` entry.
+- [Native files](../../operator/native-files.md) enables the `write` entry, and
+  [Machines](../../operator/machines.md) declares the Machine a bare path uses.
 - [Personal Knowledge](../../operator/knowledge.md) configures the Knowledge root
   behind `kb://`.
 

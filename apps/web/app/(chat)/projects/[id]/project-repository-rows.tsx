@@ -7,7 +7,6 @@ import { Button } from "@workspace/ui/components/button";
 import {
   FolderPlusIcon,
   GitBranchIcon,
-  HardDriveIcon,
   ServerIcon,
   Trash2Icon,
 } from "lucide-react";
@@ -36,11 +35,7 @@ import {
   DraftLines,
 } from "./project-repository-draft-row";
 import { Refusal } from "./project-repository-dialogs";
-import {
-  countLabel,
-  executorLabel,
-  isOnMachine,
-} from "./project-repository-policy";
+import { countLabel, executorLabel } from "./project-repository-policy";
 
 /** A row's leading icon, aligned with the first line of its text. */
 const ROW_ICON = "mt-0.5 size-4 shrink-0 text-muted-foreground";
@@ -87,16 +82,12 @@ function displayPath(checkout: CheckoutResponse) {
 }
 
 /** One registered clone: its path first, since that is what tells two
- *  clones apart, then where it lives and the branch it had. Copy shows on
- *  hover, like a sidebar row's actions. */
+ *  clones apart, then the Machine it lives on and the branch it had. Copy
+ *  shows on hover, like a sidebar row's actions. */
 export function CheckoutRow({ checkout }: { checkout: CheckoutResponse }) {
   return (
     <li className="group/menu-item flex min-w-0 items-start gap-2 rounded-md px-2 py-1.5 hover:bg-accent">
-      {isOnMachine(checkout) ? (
-        <ServerIcon aria-hidden className={ROW_ICON} />
-      ) : (
-        <HardDriveIcon aria-hidden className={ROW_ICON} />
-      )}
+      <ServerIcon aria-hidden className={ROW_ICON} />
       <span className="flex min-w-0 flex-1 flex-col">
         <code className="truncate font-mono text-sm">
           {displayPath(checkout)}
@@ -122,16 +113,15 @@ const STATE_DOT = {
   Unknown: "bg-muted-foreground",
 } as const;
 
-/** Where a checkout lives: "Local", or its Machine's name after a dot that
- *  says whether llame can reach it right now — an offline Machine's rows
- *  still list, but nothing on them works until it is back. The state is
- *  spelled out for assistive tech, since the dot is color alone. */
+/** Where a checkout lives: its Machine's name after a dot that says whether
+ *  llame can reach it right now — an offline Machine's rows still list, but
+ *  nothing on them works until it is back. Every checkout is on a Machine,
+ *  the host included. The state is spelled out for assistive tech, since the
+ *  dot is color alone, and the Machine word keeps the name from reading as a
+ *  bare hostname in a list. */
 function ExecutorLabel({ checkout }: { checkout: CheckoutResponse }) {
-  const onMachine = isOnMachine(checkout);
-  const machines = useMachinesQuery(onMachine);
-
-  if (!onMachine) return <>{executorLabel(checkout)}</>;
-  const machine = findMachineByName(machines.data, executorLabel(checkout));
+  const machines = useMachinesQuery();
+  const machine = findMachineByName(machines.data, checkout.executorId);
 
   const state =
     machine === undefined ? "Unknown" : MACHINE_STATE[machine.status];
@@ -144,7 +134,8 @@ function ExecutorLabel({ checkout }: { checkout: CheckoutResponse }) {
         aria-hidden="true"
         className={`mr-1 inline-block size-1.5 rounded-full align-middle ${STATE_DOT[state]}`}
       />
-      {executorLabel(checkout)}
+      <span className="sr-only">Machine </span>
+      {machine?.name ?? executorLabel(checkout)}
       <span className="sr-only">, {state}</span>
     </>
   );
@@ -159,12 +150,8 @@ function WorktreeChats({ checkout }: { checkout: CheckoutResponse }) {
 
   return (
     <span className="truncate text-xs text-muted-foreground">
-      {isOnMachine(checkout) ? (
-        <>
-          <ExecutorLabel checkout={checkout} />
-          {" · "}
-        </>
-      ) : null}
+      <ExecutorLabel checkout={checkout} />
+      {" · "}
       {checkout.leaseChatId === null ? (
         "No chat recorded"
       ) : (

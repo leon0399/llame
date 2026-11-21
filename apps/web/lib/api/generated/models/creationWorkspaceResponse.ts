@@ -11,7 +11,9 @@ import type { CreationWorktreeResponse } from "./creationWorktreeResponse";
 
 export interface CreationWorkspaceResponse {
   status: CreationWorkspaceResponseStatus;
+  /** The canonical `machine://` locator of the bound root. */
   root?: string;
+  /** The Machine name of the executor. */
   executorId?: string;
   worktree?: CreationWorktreeResponse;
   code?: CreationWorkspaceResponseCode;

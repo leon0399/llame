@@ -184,7 +184,7 @@ describe('run steering interrupts', () => {
       'slow_lookup',
       'mcp__fixture__send',
     ],
-    nativeExecutorId: 'run-interrupt-host',
+    localMachine: 'run-interrupt-host',
   });
 
   const { db, storeItems, events, types, terminal, messages, seed, launch } =

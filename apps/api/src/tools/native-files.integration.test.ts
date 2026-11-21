@@ -33,8 +33,14 @@ import { KnowledgeToolRuntimeResolver } from '../knowledge/knowledge-tool-runtim
 import { runTool } from './runner';
 import { type ToolContext } from './types';
 import { compileTestPermissionPolicy } from '../testing/tool-permission-policy';
+import { localMachineConnector } from '../testing/local-machine';
 import { hostBashJobs } from '../testing/host-bash-jobs';
 import { bashTool } from './bash';
+
+const HOST = 'host-a';
+
+/** The canonical locator of one host path, as every result reports it. */
+const locatorOf = (target: string): string => `machine://${HOST}${target}`;
 
 describe('native file authority and durable effects', () => {
   let sql: Sql;
@@ -108,7 +114,9 @@ describe('native file authority and durable effects', () => {
       tenantDb,
       runId,
       attemptId: run.activeAttemptId!,
-      nativeExecutorId: 'host-a',
+      localMachine: 'host-a',
+      defaultMachine: 'host-a',
+      machines: localMachineConnector({ name: 'host-a' }),
       nativeDeliverySequence: run.startedSequence,
       toolCallId: randomUUID(),
       bashProcessLimiter: new BashProcessLimiter(64),
@@ -188,7 +196,7 @@ describe('native file authority and durable effects', () => {
     expect(events[1].payload).toEqual({
       toolCallId: context.toolCallId,
       operation: 'bash',
-      path: directory,
+      path: locatorOf(directory),
     });
     expect(events[2].payload).toEqual({
       toolCallId: context.toolCallId,
@@ -244,7 +252,7 @@ describe('native file authority and durable effects', () => {
     expect(events[1].payload).toEqual({
       toolCallId: context.toolCallId,
       operation: 'bash',
-      path: directory,
+      path: locatorOf(directory),
     });
     expect(events[2].payload).toEqual({
       toolCallId: context.toolCallId,
@@ -285,7 +293,13 @@ describe('native file authority and durable effects', () => {
     const result = await runTool(
       nativeEditTool,
       { path, oldText: 'Foo', newText: 'Bar' },
-      { ...context, nativeExecutorId: 'host-b', toolCallId: randomUUID() },
+      {
+        ...context,
+        localMachine: 'host-b',
+        defaultMachine: 'host-b',
+        machines: localMachineConnector({ name: 'host-b' }),
+        toolCallId: randomUUID(),
+      },
       5,
     );
 
@@ -452,7 +466,6 @@ describe('native file authority and durable effects', () => {
         {
           ...context,
           attemptId: olderDelivery.attemptId,
-          nativeExecutorId: 'host-a',
           nativeDeliverySequence: olderDelivery.sequence,
           toolCallId: 'stale-host',
         },
@@ -475,7 +488,9 @@ describe('native file authority and durable effects', () => {
         {
           ...context,
           attemptId: newerDelivery.attemptId,
-          nativeExecutorId: 'host-b',
+          localMachine: 'host-b',
+          defaultMachine: 'host-b',
+          machines: localMachineConnector({ name: 'host-b' }),
           nativeDeliverySequence: newerDelivery.sequence,
           toolCallId: 'current-host',
         },
@@ -656,7 +671,11 @@ describe('native file authority and durable effects', () => {
         { ...context, toolCallId: randomUUID() },
         5,
       ),
-    ).toMatchObject({ status: 'success', created: true, path: fresh });
+    ).toMatchObject({
+      status: 'success',
+      created: true,
+      path: locatorOf(fresh),
+    });
     expect(await readFile(fresh, 'utf8')).toBe('new\n');
   });
 
@@ -672,7 +691,7 @@ describe('native file authority and durable effects', () => {
       status: 'success',
       operation: 'write',
       replaced: true,
-      path,
+      path: locatorOf(path),
     });
     expect(await readFile(path, 'utf8')).toBe('replaced bytes\n');
 
@@ -780,7 +799,7 @@ describe('native file authority and durable effects', () => {
       mediaType: 'image/png',
       width: 8,
       height: 8,
-      path: image,
+      path: locatorOf(image),
     });
     expect(read).not.toHaveProperty('media');
     expect(await ownedObjects()).toEqual([]);
@@ -918,7 +937,7 @@ describe('kb:// mutations under real owner binding', () => {
     });
 
     runId = run.id;
-    // No `nativeExecutorId`: a kb:// mutation must work on a worker that has
+    // No Machine surface: a kb:// mutation must work on a worker that has
     // never accepted host authority.
     context = {
       configuredCredentials: [],
@@ -1193,7 +1212,7 @@ describe('kb:// mutations under real owner binding', () => {
           content: 'delta\n',
           replace: true,
         },
-        { ...context, nativeExecutorId: undefined },
+        context,
         5,
       ),
     ).toMatchObject({ status: 'error', type: 'outcome_unknown' });
@@ -1269,7 +1288,7 @@ describe('kb:// mutations under real owner binding', () => {
           oldText: 'beta',
           newText: 'delta',
         },
-        { ...context, nativeExecutorId: undefined },
+        context,
         5,
       ),
     ).toMatchObject({ status: 'error', type: 'outcome_unknown' });

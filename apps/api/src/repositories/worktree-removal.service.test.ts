@@ -121,22 +121,29 @@ function hostile(repository: string): string {
   return marker;
 }
 
-function executors(tools: Partial<LlameConfig['tools']> = {}): ExecutorGit {
+const MACHINE = 'worktree-host';
+
+/** The canonical locator of one host path on the removal Machine. */
+const at = (path: string): string => `machine://${MACHINE}${path}`;
+
+function executors(
+  machines: LlameConfig['machines'] = {
+    local: MACHINE,
+    default: MACHINE,
+    hosts: { [MACHINE]: {} },
+  },
+): ExecutorGit {
   const connector = new MachineConnector({
     hubVersion: 'test-hub',
     bindIdentity: () => Promise.resolve('match'),
-    machines: undefined,
+    machines,
     transportFactory: createProtocolPeer().factory,
     idleCloseMs: 1000,
   });
 
   connectors.push(connector);
 
-  return new ExecutorGit(
-    { config: configWith(tools) },
-    connector,
-    localGitSurface(),
-  );
+  return new ExecutorGit(connector, localGitSurface());
 }
 
 function configWith(tools: Partial<LlameConfig['tools']> = {}): LlameConfig {
@@ -144,7 +151,6 @@ function configWith(tools: Partial<LlameConfig['tools']> = {}): LlameConfig {
     ...BUILT_IN_DEFAULTS,
     tools: {
       ...BUILT_IN_DEFAULTS.tools,
-      nativeExecutorId: 'worktree-host',
       allowed: ['enter_workspace'],
       ...tools,
     },
@@ -201,8 +207,8 @@ function checkoutRow(directory: string): Checkout {
     id: 'checkout-1',
     ownerUserId: 'owner-1',
     repositoryId: 'repo-1',
-    executorId: 'worktree-host',
-    path: directory,
+    executorId: MACHINE,
+    path: at(directory),
     kind: 'worktree',
     parentCheckoutId: 'main-1',
     branch: 'llame/x',
@@ -549,9 +555,9 @@ describe('WorktreeRemovalService', () => {
 
     expect(state).toHaveBeenCalledOnce();
     expect(state).toHaveBeenCalledWith(
-      expect.objectContaining({ machine: undefined }),
-      directory,
-      { gitEntry: join(directory, '.git'), limit: 0, submodules: 'check' },
+      expect.objectContaining({ machine: MACHINE }),
+      at(directory),
+      { gitEntry: at(join(directory, '.git')), limit: 0, submodules: 'check' },
     );
   });
 
@@ -578,7 +584,7 @@ describe('WorktreeRemovalService', () => {
     expect(locate).not.toHaveBeenCalled();
   });
 
-  it('refuses a removal of a path the policy rejects, starting no git call', async () => {
+  it('refuses a removal a bare-path reject names, starting no git call', async () => {
     const source = clone();
     const { directory } = worktree(source, 'llame/x');
     rowOf(checkoutRow(directory));
@@ -588,7 +594,10 @@ describe('WorktreeRemovalService', () => {
     const { removal } = service({
       executors: executorsOf,
       group: {
-        allow: [{ field: 'path', regex: '^/nothing/' }],
+        allow: [{ field: 'path', regex: '^machine://worktree-host/' }],
+        // The stored locator is canonical, and the decoded Machine path is a
+        // second text a reject is evaluated on, so a bare-path reject keeps
+        // refusing a removal the allow would otherwise admit.
         reject: [{ field: 'path', regex: '^/' }],
       },
     });
@@ -603,18 +612,20 @@ describe('WorktreeRemovalService', () => {
     expect(locate).not.toHaveBeenCalled();
   });
 
-  it('removes a worktree the group allows by its stored path', async () => {
+  it('removes a worktree the group allows by its canonical stored locator', async () => {
     const source = clone();
     const { directory } = worktree(source, 'llame/x');
     runGit(directory, ['branch', '--set-upstream-to=main', 'llame/x']);
     rowOf(checkoutRow(directory));
 
     const { removal, deleteCheckout } = service({
-      group: { allow: [{ field: 'path', regex: '^/' }] },
+      group: {
+        allow: [{ field: 'path', regex: '^machine://worktree-host/' }],
+      },
     });
 
-    // The decision reads the stored path: a group that allows by `path` must
-    // allow this removal, so the policy is evaluated with that field set.
+    // The row stores the canonical locator, and an allow is decided on that one
+    // text, so a group written against the Machine form admits the removal.
     await expect(
       removal.remove('owner-1', 'checkout-1'),
     ).resolves.toBeUndefined();
@@ -622,17 +633,24 @@ describe('WorktreeRemovalService', () => {
     expect(deleteCheckout).toHaveBeenCalledOnce();
   });
 
-  it('refuses a removal when no executor is configured', async () => {
+  it('refuses a removal when the stored Machine is not configured', async () => {
     const source = clone();
     const { directory } = worktree(source, 'llame/x');
     rowOf(checkoutRow(directory));
-    const executorsOf = executors({ nativeExecutorId: undefined });
+
+    const connector = new MachineConnector({
+      hubVersion: 'test-hub',
+      machines: undefined,
+      bindIdentity: () => Promise.resolve('match'),
+      transportFactory: createProtocolPeer().factory,
+      idleCloseMs: 1000,
+    });
+
+    connectors.push(connector);
+    const executorsOf = new ExecutorGit(connector, localGitSurface());
     const locate = vi.spyOn(executorsOf, 'locateEntry');
 
-    const { removal } = service({
-      config: configWith({ nativeExecutorId: undefined }),
-      executors: executorsOf,
-    });
+    const { removal } = service({ executors: executorsOf });
 
     await expect(
       failureOf(removal.remove('owner-1', 'checkout-1')),
@@ -640,7 +658,7 @@ describe('WorktreeRemovalService', () => {
       code: 'executor_unavailable',
       status: 503,
       message:
-        'The serving process holds no tools.nativeExecutorId, so it cannot run git for a local path.',
+        'No Machine named worktree-host is configured, so its git surface cannot run.',
     });
     expect(locate).not.toHaveBeenCalled();
   });

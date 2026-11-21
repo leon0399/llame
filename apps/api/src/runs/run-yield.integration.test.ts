@@ -24,7 +24,7 @@ vi.setConfig({ testTimeout: 60_000 });
 describe('Run segment yield', () => {
   const fx = useSegmentsFixture('run-yield', {
     allowedTools: ['bash', 'read', 'grep'],
-    nativeExecutorId: 'run-yield-host',
+    localMachine: 'run-yield-host',
   });
 
   afterEach(() => vi.restoreAllMocks());

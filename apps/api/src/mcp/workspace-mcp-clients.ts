@@ -25,15 +25,21 @@ import {
   machineWorkspaceTarget,
   readMachineServerConfigs,
   unavailableWorkspaceConfig,
-  type ConfiguredServerConfig,
+  type MachineWorkspaceTarget,
   type WorkspaceServerConfig,
 } from './machine-workspace-servers';
 import {
   McpRuntimeService,
   type McpRuntimeClientFactory,
-  type McpRuntimeDefinition,
-  type McpRuntimeServerState,
 } from './mcp-runtime.service';
+import {
+  configuredEntries,
+  isCaseOnlyCollision,
+  runtimeDefinitions,
+  runtimeState,
+  unavailable,
+  type WorkspaceMcpServerState,
+} from './workspace-mcp-entries';
 
 const IDLE_TIMEOUT_MS = 30 * 60 * 1000;
 const CLEANUP_INTERVAL_MS = 5 * 60 * 1000;
@@ -42,12 +48,6 @@ export type WorkspaceMcpKey = Readonly<{
   chatId: string;
   root: string;
   generation: number;
-}>;
-
-export type WorkspaceMcpServerState = Readonly<{
-  id: string;
-  state: 'available' | 'unavailable';
-  reason?: string;
 }>;
 
 export type WorkspaceMcpEntryState = Readonly<{
@@ -97,6 +97,13 @@ type ClientSet = {
   lastUsed: number;
 };
 
+/** The world one binding's MCP servers live in. */
+type WorkspaceServerRoute =
+  | { readonly kind: 'host'; readonly root: string }
+  | { readonly kind: 'local'; readonly path: string }
+  | { readonly kind: 'machine'; readonly target: MachineWorkspaceTarget }
+  | { readonly kind: 'unavailable' };
+
 function keyString(key: WorkspaceMcpKey): string {
   return `${key.chatId}\u0000${key.root}\u0000${key.generation}`;
 }
@@ -107,64 +114,6 @@ function sameKey(left: WorkspaceMcpKey, right: WorkspaceMcpKey): boolean {
     left.root === right.root &&
     left.generation === right.generation
   );
-}
-
-function asciiFold(value: string): string {
-  return value.replaceAll(/[A-Z]/gu, (letter) => letter.toLowerCase());
-}
-
-function unavailable(id: string, reason: string): WorkspaceMcpServerState {
-  return { id, state: 'unavailable', reason };
-}
-
-function runtimeDefinition(
-  config: ConfiguredServerConfig,
-): McpRuntimeDefinition {
-  return { ...config.definition, protectedValues: config.protectedValues };
-}
-
-function configuredEntries(
-  configs: ReadonlyArray<WorkspaceServerConfig>,
-  operatorIds: ReadonlyArray<string>,
-): ReadonlyArray<ConfiguredServerConfig> {
-  return configs.filter(
-    (config): config is ConfiguredServerConfig =>
-      config.state === 'configured' &&
-      !isCaseOnlyCollision(config.id, operatorIds),
-  );
-}
-
-function runtimeDefinitions(
-  configs: ReadonlyArray<ConfiguredServerConfig>,
-): Readonly<Record<string, McpRuntimeDefinition>> {
-  return Object.freeze(
-    Object.fromEntries(
-      configs.map((config) => [config.id, runtimeDefinition(config)]),
-    ),
-  );
-}
-
-function isCaseOnlyCollision(
-  id: string,
-  operatorIds: ReadonlyArray<string>,
-): boolean {
-  return operatorIds.some(
-    (operatorId) =>
-      operatorId !== id && asciiFold(operatorId) === asciiFold(id),
-  );
-}
-
-function runtimeState(
-  id: string,
-  states: ReadonlyArray<McpRuntimeServerState>,
-): WorkspaceMcpServerState {
-  const state = states.find((entry) => entry.serverId === id);
-
-  if (state === undefined) return unavailable(id, 'source_connecting');
-
-  return state.state === 'available'
-    ? { id, state: 'available' }
-    : unavailable(id, state.reason ?? 'source_disconnected');
 }
 
 @Injectable()
@@ -468,8 +417,8 @@ export class WorkspaceMcpClients implements OnModuleDestroy {
   }
 
   private async createClientSet(key: WorkspaceMcpKey): Promise<ClientSet> {
-    const target = machineWorkspaceTarget(key.root);
-    const configs = await this.readConfigs(key.root);
+    const route = await this.serverRoute(key.root);
+    const configs = await this.readConfigsFor(route);
     const operatorIds = this.operator.snapshotServerIds();
     const configured = configuredEntries(configs, operatorIds);
 
@@ -477,10 +426,12 @@ export class WorkspaceMcpClients implements OnModuleDestroy {
       ...(this.clientFactory !== undefined && {
         clientFactory: this.clientFactory,
       }),
-      ...(target !== undefined && {
+      // A local Machine Workspace starts its servers here, exactly as a host
+      // root does: only another Machine's servers are relayed.
+      ...(route.kind === 'machine' && {
         machineClientFactory: machineServerClientFactory(
           this.connector,
-          target,
+          route.target,
         ),
       }),
     });
@@ -490,15 +441,50 @@ export class WorkspaceMcpClients implements OnModuleDestroy {
     return { key, configs, runtime, activeAttempts: 0, lastUsed: this.now() };
   }
 
-  /** Every server the binding's root declares, locally or on its Machine. */
+  /**
+   * Where one binding's servers come from. A local root and this process's own
+   * Machine both read the Workspace's own files here; the Machine case is
+   * gated on the identity-checked handshake, which a failure turns into the
+   * same unavailable entry an unreachable Machine produces.
+   */
+  private async serverRoute(root: string): Promise<WorkspaceServerRoute> {
+    const target = machineWorkspaceTarget(root);
+    const connector = this.connector;
+
+    if (target === undefined) return { kind: 'host', root };
+
+    if (connector === undefined || connector.localMachine() !== target.machine)
+      return { kind: 'machine', target };
+
+    try {
+      await connector.verifyLocal();
+    } catch {
+      return { kind: 'unavailable' };
+    }
+
+    return { kind: 'local', path: target.path };
+  }
+
+  /** Every server the binding's root declares, in the world it lives in. */
   private async readConfigs(
     root: string,
   ): Promise<ReadonlyArray<WorkspaceServerConfig>> {
-    const target = machineWorkspaceTarget(root);
+    return this.readConfigsFor(await this.serverRoute(root));
+  }
 
-    return target === undefined
-      ? this.readLocalConfigs(root)
-      : readMachineServerConfigs(this.connector, target);
+  private async readConfigsFor(
+    route: WorkspaceServerRoute,
+  ): Promise<ReadonlyArray<WorkspaceServerConfig>> {
+    switch (route.kind) {
+      case 'host':
+        return this.readLocalConfigs(route.root);
+      case 'local':
+        return this.readLocalConfigs(route.path);
+      case 'machine':
+        return readMachineServerConfigs(this.connector, route.target);
+      case 'unavailable':
+        return [unavailableWorkspaceConfig()];
+    }
   }
 
   /** Every server the Workspace's own `.mcp.json` resolves to, here. */

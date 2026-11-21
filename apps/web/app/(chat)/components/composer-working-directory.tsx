@@ -42,14 +42,11 @@ import type {
  * The working directory of a chat that does not exist yet: a registered
  * checkout, chosen from the `+` menu or the location row, or a folder typed by
  * hand. A typed folder that is already registered is that checkout; any other
- * is registered first, so it gets the same repository, mode and branch
- * options (openspec `repositories`: registration derives the executor from
- * the path, `machine://<name>/…` naming a Machine).
+ * is registered first, under the `machine://<name>/…` locator of the Machine
+ * the reader picked, so it gets the same repository, mode and branch options
+ * (openspec `repositories`). Every folder lives on a Machine — the host
+ * included — so a bare path never leaves this dialog.
  */
-
-// "This server": a value no Machine name can take (names are lowercase
-// alphanumerics and dashes), so it never collides with a configured Machine.
-const LOCAL = "@local";
 
 /** The last path segment, which is how a folder reads in a small control. */
 export function folderName(path: string): string {
@@ -167,14 +164,12 @@ export function ComposerWorkingDirectorySubmenu({
 }
 
 /**
- * A typed path as checkouts store it: a local folder is the plain path, and a
- * Machine's is its `machine://<name>/…` locator, whose path carries one layer
- * of `%XX` escapes for `%`, `#`, `?`, `\`, and control characters.
+ * A typed path as checkouts store it: the `machine://<name>/…` locator of the
+ * Machine it is typed for, whose path carries one layer of `%XX` escapes for
+ * `%`, `#`, `?`, `\`, and control characters.
  */
 function folderLocator(machine: string, path: string): string {
   const trimmed = path.replace(/(.)\/+$/u, "$1");
-
-  if (machine === LOCAL) return trimmed;
 
   const encoded = Array.from(trimmed, (char) => {
     const code = char.charCodeAt(0);
@@ -202,22 +197,20 @@ function registeredAt(
 }
 
 function MachineField({
+  machines,
   value,
   onChange,
 }: {
-  value: string;
+  machines: ReadonlyArray<{ name: string }>;
+  value: string | null;
   onChange: (machine: string) => void;
 }) {
   const id = useId();
-  const machines = useMachinesQuery().data ?? [];
 
-  const items = [
-    { value: LOCAL, label: "This server" },
-    ...machines.map((machine) => ({
-      value: machine.name,
-      label: machine.name,
-    })),
-  ];
+  const items = machines.map((machine) => ({
+    value: machine.name,
+    label: machine.name,
+  }));
 
   return (
     <div className="grid gap-2">
@@ -315,14 +308,24 @@ function OtherFolderForm({
   onClose: () => void;
 }) {
   const id = useId();
-  const [machine, setMachine] = useState(LOCAL);
+  const machines = useMachinesQuery().data ?? [];
+
+  // Start on the Machine the pill shows, so the folder the reader types lands
+  // beside the checkout they were looking at.
+  const [machine, setMachine] = useState<string | null>(
+    () => location.location.executor?.executorId ?? machines[0]?.name ?? null,
+  );
+
   const [path, setPath] = useState("");
   const folder = useTypedFolder(location, onClose);
-  const submit = () => void folder.submit(machine, path.trim());
+
+  const submit = () => {
+    if (machine !== null) void folder.submit(machine, path.trim());
+  };
 
   return (
     <>
-      <MachineField value={machine} onChange={setMachine} />
+      <MachineField machines={machines} value={machine} onChange={setMachine} />
       <FolderPathField id={id} path={path} onPath={setPath} onSubmit={submit} />
       {folder.failure === null ? null : (
         <p role="alert" className="text-destructive text-sm">
@@ -333,7 +336,9 @@ function OtherFolderForm({
         onCancel={onClose}
         onSubmit={submit}
         submitLabel="Use folder"
-        submitDisabled={!path.trim().startsWith("/") || folder.pending}
+        submitDisabled={
+          machine === null || !path.trim().startsWith("/") || folder.pending
+        }
       />
     </>
   );

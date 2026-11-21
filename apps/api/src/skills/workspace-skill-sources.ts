@@ -39,8 +39,24 @@ export type MachineSkillSource = {
  * entry it publishes stays a Machine locator. `path.join` cannot build that
  * text — it collapses the scheme's `//` — so a Machine root is joined as
  * decoded path segments and re-encoded once by the locator grammar.
+ *
+ * A Machine root naming `localMachine` is this process's own filesystem, so
+ * its sources are the plain host paths the catalog already reads: no Machine
+ * snapshot is taken, and the Machine's own identity check is the caller's
+ * (the run's workspace re-check) before this call.
  */
-export function workspaceSkillSources(root: string): ReadonlyArray<string> {
+export function workspaceSkillSources(
+  root: string,
+  localMachine?: string,
+): ReadonlyArray<string> {
+  const parsed = parseMachineLocator(root);
+
+  if (parsed.kind === 'path' && parsed.name === localMachine?.toLowerCase()) {
+    return SKILL_SOURCE_SEGMENTS.map((segments) =>
+      path.posix.join(parsed.path, ...segments),
+    );
+  }
+
   const sources = machineWorkspaceSkillSources(root);
 
   return sources === undefined

@@ -197,8 +197,9 @@ transcript exports, and search see neither the item text nor that metadata.
 
 ## Configured by
 
-- [Native files](../operator/native-files.md) enables the host executor and the
-  `read` entry that host instruction files and host prompt imports need.
+- [Native files](../operator/native-files.md) configures the Machine behind
+  absolute paths and the `read` entry that host instruction files and host
+  prompt imports need.
 - [Personal Knowledge](../operator/knowledge.md) configures the Knowledge root
   behind `kb://` instruction files and imports.
 - [Skills](../operator/skills.md) installs packages and sets which of them the

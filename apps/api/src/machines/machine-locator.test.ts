@@ -1,9 +1,6 @@
 import {
   formatMachineLocator,
-  isMachineExecutorId,
   isMachineLocator,
-  machineExecutorId,
-  parseMachineExecutorId,
   parseMachineLocator,
 } from './machine-locator';
 
@@ -234,30 +231,5 @@ describe('formatMachineLocator', () => {
       name: 'devl',
       path: '/tmp/10-20:raw',
     });
-  });
-});
-
-describe('Machine executor ids', () => {
-  it('builds and reads machine:<name>', () => {
-    expect(machineExecutorId('devl')).toBe('machine:devl');
-    expect(machineExecutorId('DEVL')).toBe('machine:devl');
-    expect(parseMachineExecutorId('machine:devl')).toBe('devl');
-    expect(parseMachineExecutorId('MACHINE:DEV-L')).toBe('dev-l');
-  });
-
-  it('refuses anything else', () => {
-    expect(parseMachineExecutorId('machine:')).toBeUndefined();
-    expect(parseMachineExecutorId('machine:Dev_L')).toBeUndefined();
-    expect(parseMachineExecutorId('devl')).toBeUndefined();
-    expect(parseMachineExecutorId('machines:devl')).toBeUndefined();
-    expect(isMachineExecutorId('machine:devl')).toBe(true);
-    expect(isMachineExecutorId('machine:dev_l')).toBe(false);
-  });
-
-  it('requires the prefix itself, not a name that starts at its length', () => {
-    // 'aaaaaaaadevl' slices to 'devl', so a reader that skipped the prefix
-    // check would claim a Machine here.
-    expect(parseMachineExecutorId('aaaaaaaadevl')).toBeUndefined();
-    expect(isMachineExecutorId('aaaaaaaadevl')).toBe(false);
   });
 });

@@ -20,9 +20,11 @@ import {
   type ExecutorGit,
   type ExecutorTarget,
 } from '../machines/executor-git.service';
+import { MachineConnector } from '../machines/machine-connector.service';
 import { RepositoriesRepository } from '../repositories/repositories.repository';
 import { asDouble } from '../testing/support';
 import { compileToolPermissionMap } from '../tools/permissions/compile-permissions';
+import { WorkspaceEntryAdmission } from '../tools/permissions/workspace-entry-admission';
 import {
   type CompiledPolicy,
   type PermissionGroup,
@@ -53,19 +55,38 @@ const OWNER = 'owner-1';
 const CHAT_ID = '3f9b2ab7-8ba1-4f34-9a4e-0f6e3f6a2b10';
 const HEAD = 'a'.repeat(40);
 const ADDED_HEAD = 'b'.repeat(40);
-const ROOT = '/srv/llame';
-const DIRECTORY = '/srv/.llame-worktrees/llame/clear-field-0192';
+const MACHINE = 'machine://host-a';
+const ROOT_PATH = '/srv/llame';
+const ROOT = `${MACHINE}${ROOT_PATH}`;
+const DIRECTORY_PATH = '/srv/.llame-worktrees/llame/clear-field-0192';
+const DIRECTORY = `${MACHINE}${DIRECTORY_PATH}`;
+
+/** The Machines this process knows: its own, and one it cannot reach. */
+const MACHINES = {
+  local: 'host-a',
+  default: 'host-a',
+  hosts: { 'host-a': {}, nas: {} },
+} satisfies NonNullable<LlameConfig['machines']>;
 
 function configWith(tools: Partial<LlameConfig['tools']> = {}): LlameConfig {
   return {
     ...BUILT_IN_DEFAULTS,
+    machines: MACHINES,
     tools: {
       ...BUILT_IN_DEFAULTS.tools,
       allowed: ['enter_workspace'],
-      nativeExecutorId: 'host',
       ...tools,
     },
   };
+}
+
+/** A connector over the fixed Machine list; no test here opens a link. */
+function machineConnector(): MachineConnector {
+  return new MachineConnector({
+    machines: MACHINES,
+    hubVersion: 'test-hub',
+    bindIdentity: () => Promise.resolve('match'),
+  });
 }
 
 function checkoutRow(overrides: Partial<Checkout> = {}): Checkout {
@@ -73,7 +94,7 @@ function checkoutRow(overrides: Partial<Checkout> = {}): Checkout {
     id: '55555555-5555-4555-8555-555555555555',
     ownerUserId: OWNER,
     repositoryId: '22222222-2222-4222-8222-222222222222',
-    executorId: 'host',
+    executorId: 'host-a',
     path: ROOT,
     kind: 'main',
     parentCheckoutId: null,
@@ -111,17 +132,29 @@ function leaseRow(overrides: Partial<WorktreeLease> = {}): WorktreeLease {
   };
 }
 
+/** The bare path behind one address on this test's host Machine. */
+function decode(value: string): string {
+  return value.startsWith(`${MACHINE}/`) ? value.slice(MACHINE.length) : value;
+}
+
+/** One bare path as the canonical locator this test's host Machine reports. */
+function encode(value: string): string {
+  return value.startsWith('/') ? `${MACHINE}${value}` : value;
+}
+
 /** The git surface the step consumes, with every call recorded. */
 function fakeGit(overrides: { readonly canonical?: string } = {}) {
-  const canonicalPath = overrides.canonical ?? ROOT;
+  const canonicalPath = overrides.canonical ?? ROOT_PATH;
 
   const executors = {
-    address: vi.fn((_target: ExecutorTarget, path: string) => path),
-    canonical: vi.fn(() => Promise.resolve(canonicalPath)),
+    address: vi.fn((_target: ExecutorTarget, path: string) => encode(path)),
+    canonical: vi.fn(() => Promise.resolve(encode(canonicalPath))),
     canonicalTarget: vi.fn((_target: ExecutorTarget, path: string) =>
-      Promise.resolve(path),
+      Promise.resolve(encode(path)),
     ),
-    executorPath: vi.fn((_target: ExecutorTarget, path: string) => path),
+    executorPath: vi.fn((_target: ExecutorTarget, path: string) =>
+      decode(path),
+    ),
     exists: vi.fn(() => Promise.resolve(false)),
     inspect: vi.fn((): Promise<GitInspectResult> =>
       Promise.resolve({
@@ -157,6 +190,7 @@ function makeWorkspace(options: {
   readonly git: ExecutorGit;
   readonly policy?: CompiledPolicy;
   readonly config?: LlameConfig;
+  readonly connector?: MachineConnector;
 }) {
   const tx = asDouble<Db>(drizzle.mock());
 
@@ -187,11 +221,17 @@ function makeWorkspace(options: {
     .spyOn(RepositoriesRepository.prototype, 'createLease')
     .mockResolvedValue(leaseRow());
 
+  const connector = options.connector ?? machineConnector();
+
   const workspace = new ChatCreationWorkspace(
     tenantDb,
-    { config: options.config ?? configWith() },
     options.git,
-    options.policy ?? policy(),
+    connector,
+    new WorkspaceEntryAdmission(
+      { config: options.config ?? configWith() },
+      connector,
+      options.policy ?? policy(),
+    ),
   );
 
   return {
@@ -210,7 +250,7 @@ function input(
     ownerUserId: OWNER,
     chatId: CHAT_ID,
     permissionMode: 'default',
-    target: { executorId: 'host', machine: undefined, path: ROOT },
+    target: { executorId: 'host-a', machine: 'host-a', path: ROOT_PATH },
     checkout: checkoutRow(),
     repository: repositoryRow(),
     // An omitted field binds the checkout; `{}` asks for a worktree.
@@ -249,34 +289,29 @@ describe('ChatCreationWorkspace gates', () => {
     expect(appendAttempt).not.toHaveBeenCalled();
   });
 
-  it('refuses a local root on a process whose native executor is another id', async () => {
+  it('refuses a Machine this process cannot reach, before any decision', async () => {
     const { git, calls } = fakeGit();
 
-    const { workspace, appendAttempt } = makeWorkspace({
-      git,
-      config: configWith({ nativeExecutorId: 'other-host' }),
-    });
+    const { workspace, appendAttempt } = makeWorkspace({ git });
 
-    await expect(workspace.enter(input())).resolves.toMatchObject({
+    // `nas` is configured but names no destination and is not machines.local.
+    await expect(
+      workspace.enter(
+        input({
+          target: {
+            executorId: 'nas',
+            machine: 'nas',
+            path: '/srv/llame',
+          },
+        }),
+      ),
+    ).resolves.toMatchObject({
       status: 'bind_failed',
       code: 'executor_unavailable',
+      message: expect.stringContaining('The Machine nas is not reachable'),
     });
     expect(calls.canonical).not.toHaveBeenCalled();
     expect(appendAttempt).not.toHaveBeenCalled();
-  });
-
-  it('refuses a local root on a process with no native executor', async () => {
-    const { workspace } = makeWorkspace({
-      git: fakeGit().git,
-      config: configWith({ nativeExecutorId: undefined }),
-    });
-
-    await expect(workspace.enter(input())).resolves.toMatchObject({
-      status: 'bind_failed',
-      code: 'executor_unavailable',
-      message:
-        'The serving process holds no matching tools.nativeExecutorId, so it cannot bind a local root.',
-    });
   });
 
   it('refuses a Machine the configuration no longer names', async () => {
@@ -286,8 +321,8 @@ describe('ChatCreationWorkspace gates', () => {
       workspace.enter(
         input({
           target: {
-            executorId: 'machine:nas',
-            machine: 'nas',
+            executorId: 'basement',
+            machine: 'basement',
             path: '/srv/llame',
           },
         }),
@@ -345,7 +380,7 @@ describe('ChatCreationWorkspace ordered decisions', () => {
     const recorded = appendAttempt.mock.calls[0]?.[0];
     expect(recorded?.decisions.map((entry) => entry.path)).toEqual([
       ROOT,
-      '/srv/real/llame',
+      `${MACHINE}/srv/real/llame`,
     ]);
   });
 
@@ -356,7 +391,7 @@ describe('ChatCreationWorkspace ordered decisions', () => {
       toplevel: ROOT,
       commonDir: `${ROOT}/.git`,
       linked: true,
-      mainWorktree: '/srv/main-llame',
+      mainWorktree: `${MACHINE}/srv/main-llame`,
       remotes: [],
       branch: 'main',
       head: HEAD,
@@ -376,7 +411,7 @@ describe('ChatCreationWorkspace ordered decisions', () => {
     expect(calls.worktreeAdd).not.toHaveBeenCalled();
     expect(
       appendAttempt.mock.calls[0]?.[0]?.decisions.map((entry) => entry.path),
-    ).toEqual([ROOT, ROOT, '/srv/main-llame']);
+    ).toEqual([ROOT, ROOT, `${MACHINE}/srv/main-llame`]);
     expect(
       appendAttempt.mock.calls[0]?.[0]?.decisions[2]?.decision,
     ).toMatchObject({ decision: 'reject', reason: 'no_allow' });
@@ -600,13 +635,13 @@ describe('ChatCreationWorkspace binding', () => {
     await expect(workspace.enter(input())).resolves.toEqual({
       status: 'bound',
       root: ROOT,
-      executorId: 'host',
+      executorId: 'host-a',
     });
     expect(calls.worktreeAdd).not.toHaveBeenCalled();
     expect(bindAtCreation).toHaveBeenCalledWith({
       chatId: CHAT_ID,
       ownerUserId: OWNER,
-      executorId: 'host',
+      executorId: 'host-a',
       root: ROOT,
     });
     expect(calls.inspect).not.toHaveBeenCalled();
@@ -631,7 +666,7 @@ describe('ChatCreationWorkspace binding', () => {
     ).resolves.toEqual({
       status: 'bound',
       root: DIRECTORY,
-      executorId: 'host',
+      executorId: 'host-a',
       worktree: {
         path: DIRECTORY,
         branch: 'llame/clear-field-0192',
@@ -665,7 +700,7 @@ describe('ChatCreationWorkspace binding', () => {
     expect(bindAtCreation).toHaveBeenCalledWith({
       chatId: CHAT_ID,
       ownerUserId: OWNER,
-      executorId: 'host',
+      executorId: 'host-a',
       root: DIRECTORY,
     });
   });
@@ -691,7 +726,7 @@ describe('ChatCreationWorkspace binding', () => {
     }
 
     expect(result.root).toMatch(
-      /^\/srv\/\.llame-worktrees\/llame\/[a-z]+-[a-z]+-[0-9a-f]{4}$/u,
+      /^machine:\/\/host-a\/srv\/\.llame-worktrees\/llame\/[a-z]+-[a-z]+-[0-9a-f]{4}$/u,
     );
     expect(result.worktree).toMatchObject({
       path: result.root,
