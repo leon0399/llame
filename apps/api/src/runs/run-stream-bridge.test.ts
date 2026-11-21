@@ -14,6 +14,7 @@ import { afterEach, vi } from 'vitest';
 import { drizzle } from 'drizzle-orm/postgres-js';
 
 import { TenantDbService, type Db } from '../db/tenant-db.service';
+import type { ProjectBoundPayload } from './project-selection';
 import { RunEventsRepository, RunsRepository } from './runs-repository';
 import {
   createRunEventTranslator,
@@ -28,6 +29,22 @@ afterEach(() => {
 const RUN_ID = '00000000-0000-4000-8000-000000000001';
 const CHAT_ID = '00000000-0000-4000-8000-000000000002';
 const STREAM_INPUT = { chatId: CHAT_ID, runId: RUN_ID, userId: 'user-1' };
+
+/**
+ * A realistic committed `run.project_bound` payload (project-discovery): the
+ * frozen selection carries owner-private instructions, so no chunk of the
+ * owner's stream may render any field of it.
+ */
+const PROJECT_BOUND_PAYLOAD = {
+  v: 1,
+  project: {
+    id: '8f2a1f0e-4c94-4f0a-9a10-2b6c8e2d7a11',
+    name: 'Private launch review',
+    description: 'Internal notes for the launch review.',
+    instructions: 'Only mention UNRELEASED-CODENAME when the owner asks.',
+    locator: 'projects://8f2a1f0e-4c94-4f0a-9a10-2b6c8e2d7a11',
+  },
+} as const satisfies ProjectBoundPayload;
 
 const RUN_STARTED_FRAME = `data: ${JSON.stringify({
   type: 'RUN_STARTED',
@@ -1284,6 +1301,89 @@ describe('createRunEventTranslator', () => {
       t.translate({ eventType: 'run.step_cap_reached', payload: {} }),
     ).toEqual([]);
   });
+
+  it('accepts a committed Project selection between real parts without any UI output or state change', () => {
+    const selection = {
+      eventType: 'run.project_bound',
+      payload: PROJECT_BOUND_PAYLOAD,
+    };
+
+    // The event contributes no chunk at all — not even the stream prelude —
+    // and it is not treated as the end of the Run.
+    const bare = createRunEventTranslator('run-project');
+    expect(bare.translate(selection)).toEqual([]);
+    expect(bare.finished()).toBe(false);
+
+    // The same Run streamed with a selection event before every real event
+    // must produce exactly the chunks of the stream that never saw one, so the
+    // event neither starts nor closes a text, reasoning, or tool part.
+    const control = createRunEventTranslator('run-project');
+    const observed = createRunEventTranslator('run-project');
+    const expected: Array<unknown> = [];
+    const actual: Array<unknown> = [];
+
+    const realEvents = [
+      { eventType: 'run.started', payload: null },
+      { eventType: 'model.delta', payload: { text: 'Checking' } },
+      {
+        eventType: 'tool.requested',
+        payload: {
+          toolCallId: 'call-1',
+          toolName: 'read',
+          input: { path: 'README.md' },
+        },
+      },
+      {
+        eventType: 'tool.completed',
+        payload: {
+          toolCallId: 'call-1',
+          toolName: 'read',
+          status: 'success',
+          output: { status: 'success', text: 'body' },
+        },
+      },
+      {
+        eventType: 'reasoning.delta',
+        payload: { text: 'Second look', partId: 'r-1' },
+      },
+      { eventType: 'model.delta', payload: { text: 'Answer' } },
+    ] as const;
+
+    for (const event of realEvents) {
+      expected.push(...control.translate(event));
+      expect(observed.translate(selection)).toEqual([]);
+      actual.push(...observed.translate(event));
+    }
+
+    expect(actual).toEqual(expected);
+    expect(observed.finished()).toBe(false);
+    expect(observed.translate(selection)).toEqual([]);
+
+    const terminal = { eventType: 'run.completed', payload: null };
+
+    expected.push(...control.translate(terminal));
+    actual.push(...observed.translate(terminal));
+
+    expect(actual).toEqual(expected);
+    expect(observed.finished()).toBe(true);
+
+    // The consumer-visible shape survives the interleaved events: the answer
+    // opens a second text part after the tool and reasoning, and the terminal
+    // closes it.
+    expect(actual).toContainEqual({
+      type: 'text-delta',
+      id: 'text-2',
+      delta: 'Answer',
+    });
+    expect(actual).toContainEqual({ type: 'text-end', id: 'text-2' });
+    expect(actual).toContainEqual({ type: 'finish', finishReason: 'stop' });
+
+    const serialized = JSON.stringify(actual);
+
+    for (const value of Object.values(PROJECT_BOUND_PAYLOAD.project)) {
+      expect(serialized).not.toContain(value);
+    }
+  });
 });
 
 describe('RunStreamBridgeService', () => {
@@ -1937,6 +2037,50 @@ describe('RunStreamBridgeService response contract', () => {
       ),
     ).toBe(true);
     expect(body).not.toContain('RUN_FINISHED');
+  });
+
+  it('replays an owner SSE stream around a committed Project selection without exposing its payload', async () => {
+    const { bridge } = bridgeFixture();
+
+    const listByRunId = vi
+      .spyOn(RunEventsRepository.prototype, 'listByRunId')
+      .mockResolvedValue([
+        runEvent(1, 'run.project_bound', PROJECT_BOUND_PAYLOAD),
+        runEvent(2, 'run.started', null),
+        runEvent(3, 'model.delta', { text: 'Working' }),
+        runEvent(4, 'run.project_bound', PROJECT_BOUND_PAYLOAD),
+        runEvent(5, 'model.delta', { text: ' done' }),
+        runEvent(6, 'run.project_bound', PROJECT_BOUND_PAYLOAD),
+        runEvent(7, 'run.completed', null),
+      ]);
+
+    const body = await bridge
+      .createUiMessageStreamResponse(STREAM_INPUT)
+      .text();
+
+    // The owner still receives one ordinary assistant text part around the
+    // interleaved selection events, then the terminal event.
+    expect(body.match(/"type":"TEXT_MESSAGE_START"/g)).toHaveLength(1);
+    expect(body).toContain('"delta":"Working"');
+    expect(body).toContain('"delta":" done"');
+    expect(body).toContain('"type":"TEXT_MESSAGE_END"');
+    expect(body.endsWith(RUN_FINISHED_FRAME)).toBe(true);
+
+    // None of the private selection reaches the browser, and the event adds no
+    // reasoning or tool part of its own.
+    for (const value of Object.values(PROJECT_BOUND_PAYLOAD.project)) {
+      expect(body).not.toContain(value);
+    }
+
+    expect(body).not.toContain('run.project_bound');
+    expect(body).not.toContain('REASONING_');
+    expect(body).not.toContain('TOOL_CALL_');
+
+    // Owner scoping is unchanged: the bridge still reads the event log through
+    // the caller's own user id.
+    expect(listByRunId).toHaveBeenCalledWith(RUN_ID, 'user-1', {
+      afterSequence: 0,
+    });
   });
 
   it('surfaces a polling failure as a stream error rather than a silent close', async () => {

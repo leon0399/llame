@@ -240,22 +240,62 @@ describeIfDb(
         runEvents(seedB.runId),
       ]);
 
-      // Clean, uncorrupted stream-ordered event logs for both siblings — no
-      // event from the failing run's retries/dead-letter ever bled in.
-      expect(eventsA.map((e) => e.eventType)).toEqual([
-        'run.started',
-        'model.requested',
-        'model.delta',
-        'model.completed',
-        'run.completed',
-      ]);
-      expect(eventsB.map((e) => e.eventType)).toEqual([
-        'run.started',
-        'model.requested',
-        'model.delta',
-        'model.completed',
-        'run.completed',
-      ]);
+      // Clean, stream-ordered event logs for both siblings — no event from the
+      // failing run's retries/dead-letter ever bled in. Each sibling's log
+      // carries its own output through the lifecycle in order, with exactly
+      // one request, model completion and terminal event (plus its write-once
+      // Project binding).
+      for (const [events, output] of [
+        [eventsA, 'a-done'],
+        [eventsB, 'b-done'],
+      ] as const) {
+        const types = events.map((event) => event.eventType);
+
+        const positions = [
+          'run.started',
+          'model.requested',
+          'model.delta',
+          'model.completed',
+          'run.completed',
+        ].map((type) => types.indexOf(type));
+
+        expect(positions).not.toContain(-1);
+        expect(positions).toEqual([...positions].sort((a, b) => a - b));
+
+        for (const type of [
+          'run.started',
+          'model.requested',
+          'model.completed',
+          'run.completed',
+          'run.project_bound',
+        ]) {
+          expect(types.filter((candidate) => candidate === type)).toHaveLength(
+            1,
+          );
+        }
+
+        // A sibling that completed never records a retry, failure, expiry or
+        // cancellation.
+        for (const forbidden of [
+          'model.retrying',
+          'run.failed',
+          'run.expired',
+          'run.cancelled',
+        ] as const) {
+          expect(types).not.toContain(forbidden);
+        }
+
+        // Every streamed chunk carries this sibling's own output.
+        const deltas = events.filter(
+          (event) => event.eventType === 'model.delta',
+        );
+
+        for (const delta of deltas) {
+          expect(delta.payload).toMatchObject({ text: output });
+        }
+
+        expect(types.at(-1)).toBe('run.completed');
+      }
     });
 
     it('does not invoke a fallback model when the newly selected target fails', async () => {

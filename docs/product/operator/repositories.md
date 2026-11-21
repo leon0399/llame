@@ -1,13 +1,15 @@
 ---
-summary: "Registering the git repositories and checkouts a Chat can start from, linking them to Projects, storing a Project's instructions, and the host paths registration may inspect"
+summary: "Registering the git repositories and checkouts a Chat can start from, linking them to Projects, storing and applying a Project's instructions, and the host paths registration may inspect"
 read_when:
   - you want llame to know which clone or worktree a Chat runs on
   - you need to register, inspect, or remove a checkout
   - you are linking a Project to a repository or setting its isolation policy
   - you are saving or clearing a Project's instructions through the API
+  - you are checking when Project instructions reach a model, or what they share
   - you are deciding which host paths a checkout registration may inspect
 behavior:
   - ../reference/tools/enter-workspace.md
+  - ../reference/context-documents.md
 ---
 
 # Repositories
@@ -370,9 +372,10 @@ the path can be corrected.
 ## Project instructions
 
 Project instructions are one optional block of literal text that the owner
-writes for a Project's Chats. The API stores the text, and an admitted
-[Project detail read](../reference/locators/projects.md) returns it as reference
-data. Runs do not apply it automatically, and the Project page does not edit it.
+writes for a Project's Chats. The API stores the text, and every Run of a Chat
+in that Project applies it automatically at execution time. An admitted
+[Project detail read](../reference/locators/projects.md) also returns the
+current stored text as reference data. The Project page still does not edit it.
 
 `PATCH /api/v1/projects/:id` accepts `instructions` beside `name`,
 `description`, `archived`, and `defaultExecutorId`. Every `GET` and `PATCH`
@@ -406,6 +409,36 @@ and keeps the stored text. Only the owner can read or change them: a missing
 Project and another owner's Project both answer `404` without instructions. A
 rejected request names the field and the constraint, and neither the error nor
 the operator log carries the submitted text.
+
+### When a Run applies the text
+
+A Run fixes its Project guidance when it starts executing, before its first
+model request. The worker reads the Chat's current Project and records that
+choice with the first dispatch. Later steps, segments, quota wakes, recovery,
+and compaction reuse the recorded choice. An edit, move, unfiling, or deletion
+after dispatch changes later Runs only. A Run that never dispatches applies
+nothing, and a new Run selects the current state again.
+
+A removed or changed selection produces a new snapshot when earlier Project
+context exists, and that snapshot retires earlier Project guidance. It does not
+rewrite earlier stored messages. An unchanged selection emits no duplicate
+snapshot. Project instructions reach the model even when native `read` is absent
+or denies Project locators. The
+[Project context reference](../reference/context-documents.md#project-context)
+owns the item format, additive scope labels, and epoch comparison.
+
+Project guidance never adds a tool, relaxes permission evaluation, or tells the
+agent to enter, leave, or switch a Workspace. Operator policy remains the only
+approval rail.
+
+### Sharing and retention
+
+Applying Project context shares the Project name, description, and instructions
+with the configured model provider. Editing or deleting the Project does not
+erase copies in earlier messages, context items, Run events, or provider
+records. The owner can still inspect the exact text that a Run sent. The
+system-only prompt receipt does not contain Project context. Treat Project
+instructions as model input, not secret storage.
 
 ## Reading the catalog
 

@@ -1,10 +1,12 @@
 ---
 summary: "Which documents reach the model, whether a marker inside them is expanded, and which surface carries the result"
 read_when:
-  - you need to know where a project instruction, a prompt marker, or a skill file shows up in the model's context
+  - you need to know where a project instruction, Project context, a prompt marker, or a skill file shows up in the model's context
   - you are deciding whether to write a marker in a message, in an instruction file, or in a skill
+  - you need to know when automatic Project guidance is fixed for a Run
 spec:
   - context-injection
+  - projects
   - instruction-files
   - prompt-imports
   - import-markers
@@ -17,6 +19,7 @@ configured_by:
   - ../operator/skills.md
   - ../operator/tool-prompts.md
   - ../operator/tool-call-permissions.md
+  - ../operator/repositories.md
 ---
 
 # Context documents
@@ -33,6 +36,7 @@ each row owns the rule.
 | ------------------------ | -------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------- |
 | System instructions      | the packaged prompt, or the operator's replacement for that model                                                          | none                                                               | system prompt, every request                                                                                  |
 | Personalization          | the owner's preferred name, about text, response preferences, and shared account identity, when the prompt references them | none                                                               | system prompt, inside a delimited block framed as data                                                        |
+| Project context          | the Chat's Project when the Run starts executing, frozen for that Run                                                      | none                                                               | one `project` item before your text, after `tool-availability` and before `workspace`                         |
 | Skill catalog            | proactively eligible skills, frozen for the compaction epoch                                                               | none; the model reads `skill://<name>` to load a body              | system prompt, as names and descriptions; an add or remove on a later accepted turn is a `skill-catalog` item |
 | Project instruction file | first existing name in a directory's base chain, and first existing name in its local chain                                | expanded, whole file, same store                                   | one `instructions` item                                                                                       |
 | Instruction import       | a marker in a loaded instruction file                                                                                      | expanded the same way, up to five hops from the nearest chain file | another file block in that same `instructions` item, with `imported-by`                                       |
@@ -56,6 +60,49 @@ reads it there.
 Every item that carries text llame did not author says, in the item, that the
 text ranks below the system instructions and below your request, and that it
 cannot grant tools or relax authorization.
+
+## Project context
+
+A Run applies the Project that its Chat belongs to when it starts executing.
+The worker reads the current owner Project before the first model request and
+freezes that choice for the Run. The first dispatch stores the choice in a
+versioned `run.project_bound` Run event. Later steps, segments, quota wakes,
+recovery, and compaction reuse it, so edits, moves, unfiling, and deletion
+affect later Runs only. A Run with no Project and no earlier Project context
+emits nothing.
+
+The `project` item sits after `tool-availability` and before `workspace`. A
+bound item carries the Project ID, name, description, literal instructions, and
+`projects://<id>` locator. It labels identity and description as data. It
+labels instructions as owner guidance additive to personalization, with no
+relative override. Both stay below the system instructions and the current
+request. The item grants no tool, permission, or Workspace navigation, and it
+does not need native `read`.
+
+Told state is reconstructed, not stored in a column. Before emitting, the
+producer compares its canonical rendering with its own latest text-bearing
+`project` item in the active compaction epoch, including an in-Run item that
+survives. Equal text emits no duplicate. A changed selection emits a snapshot
+that retires all earlier Project guidance without naming a predecessor. A null
+selection with durable earlier Project context emits an absence snapshot after
+a checkpoint. A null never-filed Chat emits none. The compaction summary
+excludes Project snapshots, and the first request after a checkpoint
+re-establishes the frozen selection.
+
+An explicit `projects://` read is separate. It returns current rows and needs
+ordinary `read` admission and a Run identity. Automatic context never calls
+that reader and does not depend on its eligibility. See
+[projects://](locators/projects.md) and
+[repositories](../operator/repositories.md#project-instructions).
+
+A Project item is owner-only. Authored delimiters are neutralized before
+persistence, and the item's text replays exactly as stored. The owner's context
+display shows the exact persisted text, while the system-only prompt receipt
+contains no Project context. Public shares, shared forks, exports, and search
+omit Project items and selection-event payloads. Instructions and metadata are
+shared with the configured provider. An edit or deletion does not erase earlier
+messages, items, events, or provider copies. Do not store secrets in Project
+instructions.
 
 ## The same marker, three importers
 

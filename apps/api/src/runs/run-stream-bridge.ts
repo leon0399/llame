@@ -152,6 +152,15 @@ class RunEventTranslatorImpl implements RunEventTranslator {
         return [];
       case 'tool.completed':
         return this.onToolCompleted(event);
+      // The Run's committed Project selection (project-discovery) is private,
+      // owner-only control metadata, not model output: the Project snapshot
+      // item is the only thing the model ever sees, while only the owner's
+      // authenticated raw run-event stream may carry the payload. This
+      // assistant stream therefore gets no chunk of its own, and the event
+      // must neither open a part nor close one that the real events around it
+      // own.
+      case 'run.project_bound':
+        return [];
       case 'run.step_cap_reached':
         return this.onStepCapReached(event);
       case 'run.compaction_failed':

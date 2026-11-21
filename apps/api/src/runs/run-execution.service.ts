@@ -363,6 +363,16 @@ import {
 } from './in-run-context-items';
 import type { ReadPage } from '../instructions/instruction-files';
 import { instructionsSeenPaths } from '../chats/instructions-item';
+import {
+  projectSnapshotText,
+  selectProjectSnapshot,
+} from '../chats/project-item';
+import { type ProjectBoundPayload } from './project-selection';
+import {
+  hasProjectContextHistory,
+  recordRunProjectSelection,
+  resolveRunProjectSelection,
+} from './project-selection.repository';
 import { GIT_CONTEXT_PRODUCER } from '../git-state/git-context-producer';
 import { gitToldState, type GitToldState } from '../git-state/git-item';
 import { observeWorkspaceRoot } from '../git-state/git-observe-root';
@@ -577,6 +587,13 @@ type TurnInstructions = {
 type PreparedAttemptContext = ModelRequestContext & {
   /** Receipt-only data persisted before target-model I/O. */
   effectiveContext: SystemPromptReceiptInput;
+  /**
+   * The Project selection this attempt dispatches. Resolved once for the
+   * attempt — from the Run's bound event once it dispatched, otherwise from
+   * the Chat's current affiliation — and carried even when no snapshot emits,
+   * so the dispatch transaction can record it.
+   */
+  projectSelection: ProjectBoundPayload;
   /** The bound model catalog entry this pass resolved and rendered for. */
   model: SystemModelCatalogEntry;
   toolCatalog: AttemptToolCatalog;
@@ -6424,6 +6441,8 @@ export class RunExecutionService {
     readonly historyRows: Array<Message>;
     readonly seenInstructionPaths: ReadonlySet<string>;
     readonly toldGit: GitToldState;
+    /** The latest own text-bearing Project item in the same epoch. */
+    readonly toldProject: string | undefined;
   }> {
     const messagesRepo = new MessagesRepository(tx);
 
@@ -6442,6 +6461,14 @@ export class RunExecutionService {
       },
     );
 
+    // The active epoch, in order, with the kept parts of a Continue after it.
+    // Both told states read this one projection: the history as rebuilt, which
+    // excludes reply parts the dispatch resets.
+    const epochParts = [
+      ...history.flatMap((message) => message.parts),
+      ...(continued?.parts ?? []),
+    ];
+
     return {
       context: buildContext(toStoredMessages(history), {
         systemPrompt,
@@ -6456,17 +6483,10 @@ export class RunExecutionService {
       // The kept parts sit above the trigger in the reply, which this read
       // never returns, so their instruction bundles would look unseen and the
       // Continue Run would load and send them a second time (turn-actions D8).
-      seenInstructionPaths: new Set([
-        ...instructionsSeenPaths(history.flatMap((message) => message.parts)),
-        ...(continued === undefined
-          ? []
-          : instructionsSeenPaths(continued.parts)),
-      ]),
+      seenInstructionPaths: new Set(instructionsSeenPaths(epochParts)),
       // The same epoch, in order, with the kept parts of a Continue after it.
-      toldGit: gitToldState([
-        ...history.flatMap((message) => message.parts),
-        ...(continued?.parts ?? []),
-      ]),
+      toldGit: gitToldState(epochParts),
+      toldProject: projectSnapshotText(epochParts),
     };
   }
 
@@ -8683,6 +8703,7 @@ export class RunExecutionService {
     afterPublication: boolean,
     machine: MachineWorkspaceState | undefined,
     continued: ContinueState | undefined,
+    projectSelection: ProjectBoundPayload,
   ): Promise<PreparedAttemptContext> {
     return this.tenantDb.runAs(input.userId, (tx) =>
       this.prepareAttemptContextInTransaction(
@@ -8695,6 +8716,7 @@ export class RunExecutionService {
         afterPublication,
         machine,
         continued,
+        projectSelection,
       ),
     );
   }
@@ -8709,6 +8731,7 @@ export class RunExecutionService {
     afterPublication: boolean,
     machine: MachineWorkspaceState | undefined,
     continued: ContinueState | undefined,
+    projectSelection: ProjectBoundPayload,
   ): Promise<PreparedAttemptContext> {
     // Resolve owner/model/digest inputs before admission so descriptions and
     // the system prompt share one attempt context. Admission still completes
@@ -8797,6 +8820,33 @@ export class RunExecutionService {
       continued,
     );
 
+    // Project told state is reconstructed, never stored: the active epoch's
+    // effective history plus the kept parts this request sends after the
+    // trigger, the same projection `toldGit` reads. Reply parts the dispatch
+    // resets are not read here, so an item the reset drops cannot suppress its
+    // replacement. Stored order is never re-sorted; the item, when one is
+    // owed, takes its rail rank among this turn's staged items.
+    const toldProject = built.toldProject;
+
+    // Only a null selection without active own text needs the durable-history
+    // probe, which sees rows a checkpoint absorbed. Prior own text always
+    // counts as presence, and a bound selection needs no presence check.
+    const projectHistoryPresent =
+      projectSelection.project === null && toldProject === undefined
+        ? await hasProjectContextHistory(tx, input.chatId, input.userId)
+        : false;
+
+    const projectItem = selectProjectSnapshot({
+      runId: input.runId,
+      selection: projectSelection,
+      toldText: toldProject,
+      historyPresent: projectHistoryPresent,
+    });
+
+    if (projectItem !== undefined) {
+      placeRailPart(staged.stagedParts, projectItem);
+    }
+
     const { freeze, told } = prompt.skillState;
 
     return {
@@ -8809,6 +8859,7 @@ export class RunExecutionService {
       )?.parts,
       latestCheckpoint: prompt.checkpoint,
       effectiveContext,
+      projectSelection,
       model: prompt.model,
       toolCatalog: catalog,
       stagedParts: staged.stagedParts,
@@ -9697,7 +9748,7 @@ export class RunExecutionService {
   private async prepareQuotaFirstStep(
     input: Omit<
       Parameters<RunExecutionService['prepareAttemptForFirstStep']>[0],
-      'firstSegment'
+      'firstSegment' | 'projectSelection'
     > & {
       firstSegment: boolean;
       quotaRequest?: QuotaRequestState;
@@ -9710,8 +9761,25 @@ export class RunExecutionService {
     let quotaRequest = input.quotaRequest;
 
     try {
+      // The attempt's Project selection is resolved exactly once, before any
+      // target dispatch, inside this try so a selection failure settles the
+      // Run through the same context-failure path as the passes below. A
+      // dispatched Run restores its recorded selection; an undispatched Run
+      // reads the Chat's current affiliation. The same value feeds the estimate
+      // and re-baked passes, so live edits never reach a bound Run.
+      const projectSelection = await this.tenantDb.runAs(
+        input.run.userId,
+        (tx) =>
+          resolveRunProjectSelection(tx, {
+            runId: input.run.runId,
+            chatId: input.run.chatId,
+            userId: input.run.userId,
+          }),
+      );
+
       const firstStep = await this.prepareAttemptForFirstStep({
         ...input,
+        projectSelection,
         firstSegment:
           startsAutomaticCompaction(input.firstSegment, input.wakeCompaction) &&
           (quotaRequest === undefined ||
@@ -9782,6 +9850,11 @@ export class RunExecutionService {
     /** A requested wake compaction gets to attempt before window admission. */
     wakeCompaction: boolean;
     quotaRequest?: QuotaRequestState;
+    /**
+     * The selection this attempt resolved once before its first dispatch. Both
+     * passes use it unchanged; neither live-resolves Project state.
+     */
+    projectSelection: ProjectBoundPayload;
   }): Promise<PreparedFirstStep> {
     // One projection for the whole attempt: both passes and the compaction
     // trigger measure and send the same kept messages. The kept parts are the
@@ -9804,6 +9877,7 @@ export class RunExecutionService {
       false,
       input.workspacePreparation.machine,
       input.continued,
+      input.projectSelection,
     );
 
     const turnInstructions = await this.loadTurnInstructions(
@@ -9953,6 +10027,7 @@ export class RunExecutionService {
         true,
         input.workspacePreparation.machine,
         input.continued,
+        input.projectSelection,
       );
       // The published history decides the accepted-turn bundle: the item the
       // estimate pass staged can no longer be what made its files seen.
@@ -11174,6 +11249,18 @@ export class RunExecutionService {
         }),
       });
     }
+
+    // The Run's selection becomes durable with the dispatch it describes. The
+    // recorder strict-checks it against any prior binding and fails closed on a
+    // dispatched Run without one, so a stale attempt, a malformed recovery
+    // value or a rebind rolls this whole transaction back before the provider
+    // call. It records a null selection too: the event proves a decision, not
+    // that a reminder emitted.
+    await recordRunProjectSelection(
+      tx,
+      { runId: run.runId, userId: run.userId },
+      context.projectSelection,
+    );
 
     // `model.requested` describes the target inference, not the summary
     // inference that may have preceded it.

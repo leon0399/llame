@@ -580,14 +580,50 @@ d('queue-executed runs behind the stream bridge', () => {
       new RunEventsRepository(tx).listByRunId(run.id, userId),
     );
 
-    expect(events.map((e) => e.eventType)).toEqual([
+    // The disconnect did not truncate the durable log: every
+    // consumer-visible stage is present, exactly once and in order, through
+    // the terminal event, with no retry or failure path recorded.
+    const types = events.map((e) => e.eventType);
+
+    const positions = [
       'run.created',
       'run.started',
       'model.requested',
       'model.delta',
       'model.completed',
       'run.completed',
-    ]);
+    ].map((type) => types.indexOf(type));
+
+    expect(positions).not.toContain(-1);
+    expect(positions).toEqual([...positions].sort((a, b) => a - b));
+
+    // One dispatch, one model completion and one terminal event for this
+    // single-request fixture, plus its write-once Project binding.
+    for (const type of [
+      'run.created',
+      'run.started',
+      'model.requested',
+      'model.delta',
+      'model.completed',
+      'run.completed',
+      'run.project_bound',
+    ]) {
+      expect(types.filter((candidate) => candidate === type)).toHaveLength(1);
+    }
+
+    for (const forbidden of [
+      'model.retrying',
+      'run.failed',
+      'run.expired',
+      'run.cancelled',
+    ] as const) {
+      expect(types).not.toContain(forbidden);
+    }
+
+    expect(types.at(-1)).toBe('run.completed');
+    expect(
+      events.find((e) => e.eventType === 'model.delta')?.payload,
+    ).toMatchObject({ text: 'worker answer' });
 
     const messages = await tenantDb.runAs(userId, (tx) =>
       new MessagesRepository(tx).findByChatId(chatId, userId),

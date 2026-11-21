@@ -107,8 +107,7 @@ export type CompactionVariant = 'threshold' | 'window' | 'owner' | 'boundary';
  * the replayed system prompt would work too and is rejected: that changes the
  * prefix and makes the whole (deliberately large) call cold.
  *
- * The sentence is literal text in `prompts/instruction.md`: the exclusion
- * stays in the packaged trailing instruction, and the test pins it verbatim.
+ * The exclusion stays in the packaged trailing `prompts/instruction.md`.
  */
 const renderCompactionInstructionTemplate = loadPackagedTemplate<{
   readonly owner: boolean;

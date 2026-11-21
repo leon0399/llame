@@ -20,6 +20,35 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 - Lock a Project's owned row before checking archive state and applying an
   update. A concurrent archive that wins the row lock makes an instruction
   edit wait and return `409`, without changing its stored guidance.
+- Apply a Project's identity, description, and literal instructions to its
+  Chats' Runs automatically at execution time. Before the first model request,
+  a Run resolves the Chat's current Project under the owner identity and
+  records a versioned write-once `run.project_bound` selection event with the
+  attempt context and `model.requested`. Later steps, segments, quota wakes,
+  recovery, and compaction reuse that selection, and a new Run resolves current
+  state again.
+- Add the `project` context producer after `tool-availability` and before
+  `workspace`. It labels identity and description as data and instructions as
+  owner guidance additive to personalization. The item stays below operator
+  constraints and the current request, grants no tool or Workspace authority,
+  and reaches the model even when native `read` is absent or Project locators
+  are denied.
+- Compare told state against the producer's latest text-bearing item in
+  reconstructed active-epoch context, including surviving in-Run items.
+  Unchanged guidance emits no duplicate, a changed selection retires earlier
+  Project guidance, and a null selection emits an absence snapshot only when
+  durable Project context exists. Compaction excludes Project snapshots and
+  re-establishes the frozen selection.
+- Keep selection events owner-only. They emit no assistant text, reasoning, or
+  tool chunk, and public projections, shared forks, exports, search, and
+  system-only receipts omit their payload. Edits and deletions do not rewrite
+  earlier messages, events, or provider-side copies. Instructions and metadata
+  are shared with the configured model provider.
+- Require a worker revision boundary that drains every dispatched nonterminal
+  Run, including `awaiting_jobs` and `awaiting_quota`, before switching
+  revisions or rolling back. A privilege-checked SQL inventory fails closed for
+  a role without superuser or `BYPASSRLS`. This release does not ship the
+  Project page editor.
 
 # 2026-11-20
 

@@ -71,6 +71,7 @@ for (const id of TOOL_PROMPT_IDS) {
 // no test can reach, and this file is a build step, not a unit under test. The
 // build is plain `tsc` output with no bundler, so a side-effect import stands.
 import '../chats/context-item-producers';
+import '../chats/project-item';
 
 // Same proof for the compaction instructions: importing the module renders both
 // packaged instructions at initialization from `compaction/prompts/*.md`.

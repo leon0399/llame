@@ -296,12 +296,16 @@ describeIfDb('a Regenerate Run', () => {
       );
 
       if (options?.dispatched === true) {
-        // A retry: this Run's first dispatch already recorded its availability
-        // and stored its items.
+        // A retry: this Run's first dispatch already bound its Project
+        // selection, recorded its availability, and stored its items.
         await tx
           .update(schema.runs)
           .set({ turnToolAvailability: [] })
           .where(eq(schema.runs.id, run.id));
+        await new RunEventsRepository(tx).append(run.id, 'run.project_bound', {
+          v: 1,
+          project: null,
+        });
         await new RunEventsRepository(tx).append(run.id, 'model.requested', {
           attemptId: crypto.randomUUID(),
         });

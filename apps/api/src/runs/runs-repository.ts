@@ -567,6 +567,10 @@ export class RunsRepository {
 export type RunEventType =
   | 'run.created'
   | 'run.started'
+  // The write-once Project selection frozen before the first dispatch
+  // (project-discovery D2). Private owner-only control metadata: the `project`
+  // context item is the only model-visible contribution of the selection.
+  | 'run.project_bound'
   | 'model.requested'
   | 'model.retrying'
   | 'model.superseded'
