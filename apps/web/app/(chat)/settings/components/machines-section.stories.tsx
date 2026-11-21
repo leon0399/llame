@@ -144,7 +144,9 @@ export const OnlineWithFacts: Story = {
     // The facts carry a kernel, a CPU count, and memory sizes; the row says
     // only what the owner acts on, and never the instance id.
     await expect(canvas.queryByText(/6\.8\.0/)).toBeNull();
-    await expect(canvas.queryByText(/instance/i)).toBeNull();
+    await expect(
+      canvas.queryByText(/[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-/),
+    ).toBeNull();
   },
 };
 
