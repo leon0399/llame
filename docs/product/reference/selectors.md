@@ -101,8 +101,10 @@ A literal-path probe runs first, so a host or Machine file named `x:12:5` is
 read as that file. The splitter recognizes the form after the `:raw` and
 `:outline` forms and before the last-colon fallback. The rule needs two bare
 numbers. A letter or a range in either part leaves the suffix outside the form,
-and the last colon decides the selector: `x.ts:12:L5` is line 5 of a file
-`x.ts:12`, and `x.ts:12:5:raw` is line 5 of `x.ts:12`, read raw. A zero line
+and on a host, Machine, `ssh://`, or web locator the last colon decides the
+selector: `x.ts:12:L5` is line 5 of a file `x.ts:12`, and `x.ts:12:5:raw` is
+line 5 of `x.ts:12`, read raw. `kb://` and `skill://` split at the first colon
+and refuse a literal colon in a path, so those examples do not apply there. A zero line
 fails with `invalid_selector`. A representation cannot take a line and column,
 so `:raw:12:5` and `:outline:12:5` fail with the shared forms message on every
 source.
@@ -114,8 +116,9 @@ context. `:raw:L4-5,7-8` stays verbatim without context. Only a raw read is
 byte-for-byte source. `:raw` is not supported for directories.
 
 The two separators are one read in either order: `guide.md:L60-64:raw` and
-`guide.md:raw:L60-64` return the same lines, on every source, and the canonical
-spelling everything downstream sees is the `raw:` one. A host or web split takes
+`guide.md:raw:L60-64` return the same lines, on every source. The split keeps
+the order as written, so a Machine daemon's literal-path probe tests the text
+the model wrote; llame itself writes the `raw:` order. A host or web split takes
 the colon segment before a trailing `:raw` as the range list only when that
 segment has the member-list shape, and that shape admits lettered members. So
 `notes.md:L4-5:raw` is the raw read of lines 4 through 5, `notes:draft:raw`
