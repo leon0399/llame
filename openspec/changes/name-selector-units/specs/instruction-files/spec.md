@@ -2,7 +2,7 @@
 
 ### Requirement: A Knowledge locator loads the chain within its Space
 
-A `read`, `edit`, or `write` whose `path` is a `kb://<spaceId>/<relative path>` locator MUST load the same candidate chains, with the same selection rules. The chains run from the root of that Space down to the touched directory, and include it. The load MUST NOT consider a directory above that Space root. Thus it never reads the `knowledge.root` directory of the operator, which holds the Spaces of every owner. It also never reads a host ancestor of that directory or another Space.
+A `read`, `edit`, or `write` whose `path` is a `kb://<spaceId>/<relative path>` locator MUST load the same candidate chains, with the same selection rules. The chains run from the root of that Space down to the touched directory, and include it. The load MUST NOT consider a directory above that Space root. It MUST NOT consider the `knowledge.root` directory of the operator, which holds the Spaces of every owner. It MUST NOT consider a host ancestor of that directory or another Space.
 
 The touched directory MUST be the directory of the locator when the locator names an existing directory in that Space. Otherwise, it MUST be the parent directory of the locator path in that Space. When the Knowledge resolver refuses a candidate as a symbolic link, the load MUST NOT select it, and its chain MUST continue.
 
@@ -10,11 +10,11 @@ Space resolution and every candidate probe MUST run under the identity of the Ru
 
 The load MUST label and key every selected candidate by its logical locator `kb://<spaceId>/<relative path>`. This locator MUST have the percent-encoding that the Knowledge locator formatter gives. It MUST be the `path` of the item and its seen key. A host path MUST NOT appear in the text, payload, metadata, audit events, or owner chip of the item.
 
-The load MUST read each selected candidate through the native `read` tool, with its `kb://` locator and bounded `:raw:L<from>-<to>` pages. These pages MUST use the canonical selector spelling. The reads MUST run under system origin `instructions`. The `read` permission group MUST evaluate them as it evaluates a host candidate.
+The load MUST read each selected candidate through the native `read` tool, with its `kb://` locator and bounded `:raw:L<from>-<to>` pages. These pages MUST use the canonical selector spelling. The reads MUST run under system origin `instructions`. The `read` permission group MUST evaluate them exactly as it evaluates a host candidate.
 
 The load MUST occur only for a locator whose Space identifier already has the canonical lower-case form that the Knowledge locator formatter gives. A locator whose Space identifier contains an upper-case letter MUST load nothing, probe nothing, and record no event. The read that the model itself asked for MUST continue normally, under the spelling that the model wrote.
 
-Grouping, labels, seen keys, and every candidate page read MUST use that one canonical spelling. Thus the `read` group evaluates the injection under the same locator as a read of that candidate by the model.
+Grouping, labels, seen keys, and every candidate page read MUST use that one lower-case Space identifier. Thus the `read` group evaluates the injection under the same locator as a read of that candidate by the model.
 
 A bundle with at least one Knowledge candidate MUST include the closed Knowledge untrusted-content notice of `knowledge-tools` exactly once. A bundle with only host-path candidates MUST NOT include it.
 

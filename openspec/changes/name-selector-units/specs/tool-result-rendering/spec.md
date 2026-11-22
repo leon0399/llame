@@ -39,10 +39,13 @@ MUST render their `content` lines after the header and the attribution lines.
 
 A `read` text MUST begin with one of these headers, with the shown range of the result. It can
 also begin with the bare-locator header that its own requirement defines. Each range MUST carry the unit letter
-`L` in the canonical spelling:
-`<locator>:L<start>-<end>` for a single range, `<locator>:L<a>-<b>,L<c>-<d>` for a multi-range
-read, `<locator>:raw:L<start>-<end>` for a raw read, and `<locator>:outline:L<start>-<end>` for an
-outline. A null shown range MUST render `<locator>: empty` when the result is not truncated.
+`L` in the canonical spelling. The headers are these:
+
+- `<locator>:L<start>-<end>` for a single range,
+- `<locator>:L<a>-<b>,L<c>-<d>` for a multi-range read,
+- `<locator>:raw:L<start>-<end>` for a raw read,
+- `<locator>:outline:L<start>-<end>` for an outline.
+  A null shown range MUST render `<locator>: empty` when the result is not truncated.
 
 #### Scenario: A multi-range read lists its ranges
 

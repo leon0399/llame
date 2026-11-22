@@ -21,11 +21,15 @@ See proposal.md for the reasons. The facts below were read at `origin/master` `0
   (`apps/api/src/machines/machine-session.ts:489`).
 - **Printers.** Read headers and continuations: `model-text.ts` `formatRange`, `fileHeader`,
   `rangeSelector`, `multiSelector`, `resumeSelector`, `continuationLine` (lines 91-308). Grep
-  passage locators are built in four places (`grep/passages.ts:557`, `grep/page.ts:196`,
-  `apps/api/src/tools/grep-machine.ts:718`, `grep-artifact.ts:318`). `grepFileLocator`
-  (`grep/model-text.ts:47-63`) parses a stored bare range back to print the file line. Other
+  passage locators are built in five places (`grep/passages.ts:557`, `grep/page.ts:196`,
+  `apps/api/src/tools/grep-machine.ts:718`, `grep-artifact.ts:318`, and `grep-page.ts:444` in
+  `mergeCutPassage`). Three server functions parse a passage range back: `grepFileLocator`
+  (`grep/model-text.ts:47-63`) for the file line, and `passageStartLine` and `passageEndLine`
+  (`grep/passages.ts:215-222`), which feed the page cursor (`grep/page.ts:110,171`), scan capping
+  (`grep/scan.ts:519,540`), artifact cut counts (`grep-artifact.ts:281,311`), and cut-passage merge
+  (`grep-page.ts:436`). Other
   printers: grep remainder (`grep/model-text.ts:439-473`), Knowledge `passageLocator`
-  (`knowledge-tools.ts:493-499`), artifact notice (`runtime-safety/src/artifact-notice.ts:56-73`),
+  (`knowledge-tools.ts:522-528`), artifact notice (`runtime-safety/src/artifact-notice.ts:56-73`),
   head spill (`result-truncation.ts:214-226`), bash spill template
   (`apps/api/src/tools/prompts/bash-spill-omitted.md`), instruction pages
   (`instruction-files.ts:265-266`, `instruction-imports.ts:70`), and the prompt-import template
@@ -40,8 +44,7 @@ See proposal.md for the reasons. The facts below were read at `origin/master` `0
 - **Permissions reuse the parser.** The `read` projection removes "the split-off read selector"
   through the same parser (`tool-call-permissions`, `Match submitted string values...`), so a new
   form that the parser splits leaves matching with no evaluator change.
-- **GitHub adapter.** `parseGithubUrl` matches `URL.pathname` only (`adapters/github/url.ts:82-85,
-  273-289`). A blob is fetched from the Contents API and rendered line for line
+- **GitHub adapter.** `parseGithubUrl` matches `URL.pathname` only (`adapters/github/url.ts:143-165`). A blob is fetched from the Contents API and rendered line for line
   (`adapters/github/code.ts:236-265`), and a selector already applies to that render. The adapter
   never sees a fragment. A failed adapter falls through to the generic ladder.
 
@@ -66,10 +69,13 @@ migration.
 
 ### D1: The unit letter is stripped at the shape gate
 
-The gate admits an optional `L` or `l` before each number of a member, plus the range form
-`L5-L10`. After the gate accepts a suffix, one normalization step removes the letters, so
-`parseMember`, the pending list, the raw split, and every scheme reader keep their digit-only
-logic. The normalization returns the bare member list; the canonical printer adds `L` back.
+The member shape admits an optional `L` or `l` before the first number of a member, and before the
+second number of a range whose first number has it (`L5-L10`). That one member shape serves the
+gate, `MEMBER_LIST` in the host `rawSplit`, and the web `<list>:raw` claim, because the raw split runs
+before the gate: `notes.md:L4-5:raw` must split as `raw:L4-5`. Letters are removed only inside
+`applySelectorSuffix`, after the split. Thus `parseMember` and the pending resolution keep their
+digit-only logic. The splitters, the hub, and `parseMachinePath` pass the selector text as written,
+so the daemon probes the literal name that the model wrote (D3).
 
 Rejected: a unit field on `ReadTarget`. Only one unit exists, so a field would carry a constant and
 every reader would have to check it. When `P` ships, its source adds that field with its own
@@ -107,44 +113,63 @@ Knowledge passages, instruction pages, and prompt-import labels call it.
 `packages/runtime-safety` cannot depend on `native-file-tools`, so `artifact-notice.ts` and
 `result-truncation.ts` write the `L` prefix inline, with their own tests.
 
-`grepFileLocator`, `grep.tsx`, `knowledge-search.tsx`, and the E2E parsers accept both
-`path:5-10` and `path:L5-10`, because stored passage locators keep their old spelling.
+`grepFileLocator`, `passageStartLine`, `passageEndLine`, `grep.tsx`, `knowledge-search.tsx`, and the
+E2E parsers accept both `path:5-10` and `path:L5-10`, because stored passage locators keep their old
+spelling. The formatter lands in the input-grammar layer, because the web refusal for
+`https://example.test:1-5` already names `https://example.test/:L1-5` there.
 
 Rejected: a backfill that rewrites stored `locator` strings. Both spellings stay valid input, so a
 backfill buys only cosmetic uniformity at the cost of a data migration on Leo's running instance.
 
 ### D5: Prompt-import labels print the canonical selector
 
-The import planner already splits the selector from each target. The label and the not-imported
-line print the path plus `canonicalSelector(selector)`. The owner message, the stored marker, and
-the admission text stay as written, so permission evaluation is unchanged.
+The planner splits the selector only for Machine targets today (`prompt-imports.ts:196-208`); `kb://`,
+`skill://`, `media://`, `ssh://`, and web targets go to `read` whole (`:216-251`). The label step
+therefore splits each target with the parser of its scheme, and prints the path plus
+`canonicalSelector(selector)` only when the read resolved that split. A Machine target whose
+literal probe found the whole name (`prompt-imports.ts:305-317`) prints as written, because
+`README.md:L30-35` would name a different resource. The owner message, the stored marker, and the
+admission text stay as written, so permission evaluation is unchanged.
 
 ### D6: A GitHub line anchor becomes the selector after the adapter claims the blob
 
 `parseWebLocator` still cuts the fragment first, and it now returns a `lineAnchor` when the
 fragment matches `L<n>(C<c>)?(-L<m>(C<c>)?)?` exactly. Every other fragment is dropped as today.
-After admission, the read asks the GitHub adapter's pure `match` whether it claims the locator as a
-blob. If it does:
+
+`WebAdapter.match` is boolean, the GitHub `match` accepts every GitHub kind, and the executor sees
+adapters only by their operator id (`adapters/contract.ts:85-86,255-292`, `execute.ts:312`). The
+contract therefore gains one optional pure hook, `lineAddressed(source): boolean`. The GitHub
+adapter implements it as "this source parses as a blob". The rendered outcome gains a flag that
+says the render came from an adapter whose hook accepted the source. After admission, the read
+asks each enabled adapter's hook, without network I/O and whatever `:raw` would do. If one accepts:
 
 - with a selector (`:raw` included), the read fails with `invalid_selector` before any request
   (grilling Q6);
 - without one, the anchor becomes the selector `L<n>-<m>` for the adapter render only.
 
-If the adapter fails and the read falls through, the generic render gets no selector from the
-anchor. The stored `path` is the fragment-free locator, so the header and continuation have
-selector room. Permission admission is unchanged: the submitted text keeps the fragment, and the
+The executor applies the anchor only to a render that carries the flag. A render from a later
+claimant after a fall-through, or from the generic ladder, gets no selector from the anchor. Two
+`use: github` entries behave as one: the first that renders with the flag gets the anchor. The stored
+`path` is the fragment-free locator, so the header and continuation have selector room, except
+when the locator has a query such as `?plain=1`, where the continuation states the remainder alone. Permission admission is unchanged: the submitted text keeps the fragment, and the
 projected text drops it.
 
 Rejected: anchors on every web read. A fragment on an HTML page is a heading id, not a line, and a
 render's line numbers have no stable relation to the publisher's.
 
-### D7: No Machine protocol bump
+### D7: Increment the Machine protocol version
 
-A daemon older than the hub receives `L5` or `12:5` and refuses it with `invalid_selector` from its
-own grammar. That fails closed and reads nothing wrong. The deploy procedure updates hub and daemon
-together. Rejected: bumping `PROTOCOL_VERSION`, which makes every Machine unavailable until it is
-updated, for a change that degrades safely. Rejected: translating `L` to bare on the hub, which
-does not cover `N:M` (D3) and adds a second spelling layer.
+A daemon older than the hub refuses `L5` or `12:5` from the model with `invalid_selector`, which is
+safe. It also refuses the `:raw:L1-2000` pages that llame writes for instruction files, and
+`readInstructionFile` treats that as a failed file (`instruction-files.ts:271-278`,
+`instruction-imports.ts:220`). A Machine `AGENTS.md` would then disappear from the Run with no
+message. The input-grammar layer therefore increments `PROTOCOL_VERSION`, so the hub refuses a stale
+daemon with the visible `incompatible_version` failure.
+
+Rejected: a capability in `hello.methods`, which keeps two spellings alive in the hub for one
+release. Rejected: bare instruction pages, which break the canonical-spelling requirement for the
+one selector that the owner sees in audit. Rejected: translating `L` to bare on the hub, which does
+not cover `N:M` (D3).
 
 ### D8: Refusal messages
 
@@ -169,7 +194,11 @@ last so their headers already print the canonical form. See tasks.md.
 - [An external client parses `path:5-10` from tool results] -> Only the shipped UI and E2E parse
   them, and both accept both spellings. Recorded as **BREAKING** for wire consumers.
 - [A model mixes old and new spellings across turns] -> Both are valid input with one meaning.
-- [Machine daemon older than the hub] -> D7: fails closed with `invalid_selector`.
+- [Machine daemon older than the hub] -> D7: the hub refuses it at the handshake, so every
+  Machine stays unavailable until its daemon is updated.
+- [A literal name such as `secret:P3` now projects as `secret`, so a `$`-anchored reject on the
+  whole literal name stops matching it] -> The same known text-only gap as a bare range today.
+  The recommended rules end in `([/\\]|$|:)` and still refuse it. Recorded as **BREAKING**.
 - [`l5` lowercase is close to `15` in some fonts] -> Output is always upper-case `L`; lowercase is an
   input convenience only.
 - [A GitHub anchor on a fall-through read silently reads the whole page] -> The adapter note in the
@@ -178,7 +207,7 @@ last so their headers already print the canonical form. See tasks.md.
 
 ## Migration Plan
 
-No data migration. Deploy hub and Machine daemons together. Rollback reverses the layers from the
+No data migration. Deploy hub and Machine daemons together; the protocol increment enforces it. Rollback reverses the layers from the
 top. Revert the input-grammar layer last: once output layers have shipped, stored transcripts
 contain `L` spellings that the model copies, and only that layer parses them.
 
@@ -188,4 +217,14 @@ None. Exact export names in D4 are an implementation choice.
 
 ## Revision history
 
-- Round 0 (initial draft): grilling round Q5-Q9 recorded on #1833 before drafting.
+- Round 0 (initial draft, 0e7df23fc): grilling round Q5-Q9 recorded on #1833 before drafting.
+- Round 1: two reviewers, spec consistency (P0 0, P1 5, P2 7) and feasibility (P0 0, P1 7, P2 7).
+  Accepted all P1: proposal names aligned; `ssh://`/`machine://` carve-out in the shared refusal;
+  anchor trigger defined through the adapter hook (D6), whatever `:raw` does; `L-5` hint scope and
+  `%3A` order; instruction-files isolation clause restored; grep range parsers and the fifth printer
+  added (D4); the letter admitted in the raw split (D1); formatter moved to the input-grammar
+  layer; literal prompt-import targets print as written (D5); D7 reversed to a protocol increment;
+  the literal-name permission gap recorded. Accepted P2: `N:M` in the `kb://`/`skill://` validation,
+  `5-L10` refused, representation plus line-and-column refused, anchor case and `#L0`, `?plain=1`
+  continuation, the source-without-lines rule narrowed to images, stale anchors, STE slips.
+  Rejected none.

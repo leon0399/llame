@@ -1,12 +1,12 @@
 ## ADDED Requirements
 
-### Requirement: Every selector spelling leaves resource matching
+### Requirement: A read selector of any spelling is removed before the resource match
 
 For `read`, the evaluator MUST remove a split-off read selector in each spelling that `read`
-accepts. This includes the `L` forms and the line-and-column form `N:M`. Thus a reject that names a
-file MUST refuse a read of that file in every selector spelling. A web locator MUST lose its
-fragment in the projected text, so a GitHub line anchor never changes the resource that the
-evaluator matches.
+accepts. This includes the `L` forms, the reserved-unit shapes, and the line-and-column form `N:M`.
+Thus a reject that names a file MUST refuse a read of that file in every selector spelling. A web
+locator MUST lose its fragment in the projected text, so a GitHub line anchor never changes the
+matched resource.
 
 #### Scenario: A reject refuses every selector spelling
 
@@ -23,3 +23,15 @@ evaluator matches.
 
 - **WHEN** the `read` group rejects `path` matching `^https://github\.com/o/r/blob/main/secret\.ts$`
 - **THEN** a read of `https://github.com/o/r/blob/main/secret.ts#L10-L20` is rejected before any request
+
+### Requirement: The literal-name gap covers the new selector shapes
+
+The projection uses text only, so it MUST NOT probe whether a literal file has the removed suffix in
+its name. The known text-only gap thus also covers a literal name that ends in an `L`, `P`, or `M`
+member, or in `:N:M`. A reject that ends in `([/\\]|$|:)` MUST still refuse such a literal name.
+
+#### Scenario: A literal name with a new shape is matched without its suffix
+
+- **WHEN** a host file named `/home/u/secret:P3` exists and a reject matches `path` against `secret:P3$`
+- **THEN** the projected text is `machine://devl/home/u/secret`, so that reject does not refuse the read
+- **AND** a reject on `/home/u/secret` that ends in `([/\\]|$|:)` refuses it

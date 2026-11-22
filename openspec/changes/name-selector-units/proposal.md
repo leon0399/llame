@@ -42,10 +42,19 @@ Source: [#1833](https://github.com/leon0399/llame/issues/1833), its
   results replay with the new header and continuation spelling. Stored passage `locator` strings
   keep the spelling they were written with, and both spellings stay valid `read` input. A client
   that parses these strings must accept both; the shipped owner UI is updated in the same layer.
-- **BREAKING (filenames).** On `ssh://`, `machine://`, `kb://`, `skill://`, and web locators, a
-  name that ends in a new selector shape (`notes:L5`, `notes:P3`, `x:12:5`) now splits as a
-  selector. Host and Machine reads keep literal-path precedence. Every other source reaches such a
-  name through its `%3A` spelling.
+- **BREAKING (filenames).** On `ssh://` and web locators, a name that ends in a new selector shape
+  now splits as a selector: `notes:L5`, `notes:P3`, `notes:L-5`, and `x:12:5`, which read line 5
+  of `x:12` until now. Host and Machine reads keep literal-path precedence. `ssh://` reaches such a
+  name through `%3A`, and web through `%3A` in the last path segment. `kb://` and `skill://` already
+  refuse a literal colon, so no readable name changes meaning there.
+- **BREAKING (permission matching).** The projection strips the new shapes as it strips a bare
+  range today, without a filesystem probe. The known text-only gap for literal names that look like
+  a selector thus also covers names that end in an `L`, `P`, or `M` member, or in `:N:M`. Rejects
+  that end in `([/\\]|$|:)`, as the recommended portable policy writes them, still refuse those
+  names.
+- **Machine protocol.** The input-grammar layer increments the Machine `PROTOCOL_VERSION`, so a
+  daemon without the new grammar is refused at the handshake. A silent skew would otherwise drop
+  Machine instruction files once llame writes `:raw:L1-2000` pages (design D7).
 
 ## Assumptions, confirmed with Leo
 
@@ -69,15 +78,24 @@ Assumptions that follow from those decisions but were not asked:
 
 - A list may combine bare and `L` members (`5-16,L960-973`), because both are lines. Only a second
   unit makes a list mixed.
-- The count after `+` takes no letter: `L5+10` is valid, and `L5+L10` fails with
+- The count after `+` takes no letter: `L5+10` is valid. `L5+L10` and `5-L10` fail with
   `invalid_selector`.
 - The GitHub anchor also accepts `#L10C5` (one line with a column), because the column rule drops
-  it. Anchors are matched case-sensitively, as GitHub writes them.
-- A line anchor applies only to the decoded blob that the GitHub adapter renders. When the adapter
-  fails and the read falls through to the generic ladder, the fragment is dropped as any fragment
-  is today.
+  it. Anchors are matched case-sensitively, as GitHub writes them, so `#l10` is dropped.
+- A line anchor applies only to the blob that the GitHub adapter renders. When the adapter fails and
+  the read falls through to another method, the fragment is dropped as any fragment is today.
+- `:raw:N:M` and `:outline:N:M` fail with `invalid_selector`. `x.ts:12:5:raw` keeps the shipped raw
+  split: line 5 of `x.ts:12`, read raw.
+- A prompt-import target that the read resolved as a literal file name prints as written.
 - Stored transcripts are not rewritten (pre-launch policy: no preservation backfills, and none is
   needed because both spellings stay valid input).
+
+## Deviation from the grilling record
+
+- **D7 skew handling.** The proposal first kept the Machine protocol version. Review found that an
+  older daemon refuses the `:raw:L1-2000` instruction pages that llame writes, and the instruction
+  loader then skips the file with no message. The change now increments `PROTOCOL_VERSION`, so a
+  stale daemon fails visibly at the handshake. Leo to confirm.
 
 ## Capabilities
 
@@ -88,13 +106,19 @@ None.
 ### Modified Capabilities
 
 - `native-file-tools`: MODIFIED `Read selectors and context are deterministic` (unit letters in
-  the member set, the new refusal message, and the line-and-column split),
-  `Web locators are fetched by the native read tool` (admitted forms, line-and-column split, and
-  GitHub anchors before the fragment cut), and `An unselected read requests the whole source`
-  (printed `:L51-`). ADDED `Line members can name the L unit`,
+  the member set, the shared refusal message, and the line-and-column split),
+  `Web locators are fetched by the native read tool` (admitted forms, the line-and-column split,
+  and the fragment kept for GitHub anchors after the cut), and
+  `An unselected read requests the whole source` (printed `:L51-`). ADDED
+  `Line members can name the L unit`, `A selector list names one unit`,
   `A misplaced unit letter is refused with a fixed hint`, `Unit letters are reserved`,
+  `An image refuses a lettered member`, `The shared selector refusal names the lettered forms`,
+  `Other line refusals name the lettered forms`,
   `llame writes every selector in the canonical spelling`,
-  `A trailing line and column read the line`, `GitHub blob line anchors select lines`, and
+  `A line and column suffix reads the line`,
+  `A line and column does not combine with a representation`,
+  `GitHub blob line anchors select lines`,
+  `A line anchor outside its rule keeps the shipped fragment rule`, and
   `A line anchor and a selector together are refused`.
 - `tool-result-rendering`: MODIFIED `Results that carry content render as text`,
   `The read header names the source and the shown lines`,
@@ -113,7 +137,9 @@ None.
 - `instruction-files`: MODIFIED `A Knowledge locator loads the chain within its Space` (page
   spelling `raw:L<from>-<to>`).
 - `prompt-imports`: ADDED `Import labels print the canonical selector`.
-- `tool-call-permissions`: ADDED `Every selector spelling leaves resource matching`.
+- `tool-call-permissions`: ADDED
+  `A read selector of any spelling is removed before the resource match` and
+  `The literal-name gap covers the new selector shapes`.
 
 Deliberately unchanged, with the reading under which each holds:
 
@@ -129,7 +155,8 @@ Deliberately unchanged, with the reading under which each holds:
   prints no range in its file line.
 - `tool-result-rendering` `A locator without selector room states the remainder alone`: a
   fragment or query still blocks a trailing selector. A read that a GitHub line anchor selects
-  stores a fragment-free path, so its continuation has selector room.
+  stores a fragment-free path, so its continuation has selector room unless the locator has a
+  query, such as `?plain=1`.
 - `tool-call-permissions` `Match submitted string values without serialization artifacts`,
   `File permission matching uses logical resource locators`, and the artifact, job, and Project
   locator requirements: each removes "the split-off read selector" through the `read` parser, so
@@ -150,8 +177,9 @@ Deliberately unchanged, with the reading under which each holds:
   bash spill template, instruction paging, prompt-import labels, listing refusal messages, and
   the tool prompts `read.md`, `grep.md`, `knowledge_search.md`, `bash.md`, `web_search.md`, and
   `chat-default.md`.
-- `apps/machine`: the daemon applies the new forms through the shared package. A daemon older than
-  the hub refuses them with `invalid_selector`; no protocol version change.
+- `packages/machine-protocol` and `apps/machine`: the daemon applies the new forms through the
+  shared package, and `PROTOCOL_VERSION` increments so a daemon without them is refused at the
+  handshake.
 - `packages/ui`: grep and Knowledge search cards parse both spellings.
 - `e2e/support/model-server.ts` and the Knowledge E2E spec: printed-text parsers.
 - Docs: `docs/product/reference/selectors.md`, the tool and locator reference pages, and the
