@@ -1,4 +1,3 @@
-import type { ModelMessage } from 'ai';
 import { z } from 'zod';
 
 import { loadPackagedTemplate } from '../prompts/template-engine';
@@ -70,38 +69,4 @@ export function splitToolIntent(id: string, input: unknown): ToolEnvelope {
   const value = intent.safeParse(i);
 
   return { input: args, ...(value.success && { intent: value.data }) };
-}
-
-/** Keep live SDK continuation consistent with normalized durable replay. */
-export function withoutToolIntents(
-  messages: Array<ModelMessage>,
-): Array<ModelMessage> {
-  let normalized: Array<ModelMessage> | undefined;
-
-  for (let index = 0; index < messages.length; index += 1) {
-    const message = messages[index];
-
-    if (message?.role !== 'assistant' || !Array.isArray(message.content))
-      continue;
-    const source = message.content;
-    let content: typeof source | undefined;
-
-    for (let at = 0; at < source.length; at += 1) {
-      const part = source[at];
-
-      if (part?.type !== 'tool-call') continue;
-      const { input } = splitToolIntent(part.toolName, part.input);
-
-      if (input === part.input) continue;
-      content ??= [...source];
-      content[at] = { ...part, input };
-    }
-
-    if (content !== undefined) {
-      normalized ??= [...messages];
-      normalized[index] = { ...message, content };
-    }
-  }
-
-  return normalized ?? messages;
 }

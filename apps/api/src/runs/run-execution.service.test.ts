@@ -3044,27 +3044,18 @@ describe('RunExecutionService executeRun', () => {
       return { spies, options: capturing.streamOptions() };
     }
 
-    it('normalizes built-in intent in live step history without changing MCP or provider parts', async () => {
+    it('keeps built-in intent in live step history', async () => {
       const { options } = await runWithInRunProducer(() => {});
 
       const stepMessages: Array<ModelMessage> = [
         {
           role: 'assistant',
           content: [
-            { type: 'text', text: 'Inspecting files' },
-            { type: 'reasoning', text: 'Keep the provider reasoning' },
             {
               type: 'tool-call',
               toolCallId: 'bash-intent',
               toolName: 'bash',
-              input: { command: 'pwd', i: 'Inspecting the directory' },
-              providerOptions: { openai: { itemId: 'provider-call' } },
-            },
-            {
-              type: 'tool-call',
-              toolCallId: 'server-argument',
-              toolName: 'mcp__math__evaluate',
-              input: { i: 42 },
+              input: { i: 'Inspecting the directory', command: 'pwd' },
             },
           ],
         },
@@ -3075,32 +3066,11 @@ describe('RunExecutionService executeRun', () => {
         stepNumber: 1,
       });
 
-      expect(override).toEqual([
-        {
-          role: 'assistant',
-          content: [
-            { type: 'text', text: 'Inspecting files' },
-            { type: 'reasoning', text: 'Keep the provider reasoning' },
-            {
-              type: 'tool-call',
-              toolCallId: 'bash-intent',
-              toolName: 'bash',
-              input: { command: 'pwd' },
-              providerOptions: { openai: { itemId: 'provider-call' } },
-            },
-            {
-              type: 'tool-call',
-              toolCallId: 'server-argument',
-              toolName: 'mcp__math__evaluate',
-              input: { i: 42 },
-            },
-          ],
-        },
-      ]);
-      expect(stepMessages[0]).toHaveProperty(
-        'content.2.input.i',
-        'Inspecting the directory',
-      );
+      // The next request is the override when one exists, else the SDK's own messages.
+      expect(override ?? stepMessages).toHaveProperty('0.content.0.input', {
+        i: 'Inspecting the directory',
+        command: 'pwd',
+      });
     });
 
     async function runScriptedRestart(
@@ -12114,10 +12084,10 @@ describe('RunExecutionService executeRun — tool loop', () => {
       expect.objectContaining({
         type: 'tool-bash',
         intent: 'Inspecting the working directory',
-        input: { wrong: true },
+        input: { i: 'Inspecting the working directory', wrong: true },
         sdkRefusal: {
           errorText: 'Invalid input for tool bash',
-          input: { wrong: true },
+          input: { wrong: true, i: 'Inspecting the working directory' },
         },
       }),
     );
@@ -19499,7 +19469,23 @@ describe('RunExecutionService instruction files', () => {
 
       expect(toolReads).toHaveLength(1);
       expect(toolReads[0]?.['intent']).toBe('Reading the file');
-      expect(toolReads[0]?.['input']).toEqual({ path: touch });
+      expect(toolReads[0]?.['input']).toEqual({
+        i: 'Reading the file',
+        path: touch,
+      });
+
+      // The request event records the submitted input too, so a reply rebuilt
+      // from events replays the same call.
+      const modelRequest = append.mock.calls.find(
+        ([, eventType, payload]) =>
+          eventType === 'tool.requested' &&
+          isRecord(payload) &&
+          payload['toolCallId'] === toolReads[0]?.['toolCallId'],
+      )?.[2];
+
+      expect(modelRequest).toMatchObject({
+        input: { i: 'Reading the file', path: touch },
+      });
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

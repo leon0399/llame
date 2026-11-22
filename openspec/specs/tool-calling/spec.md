@@ -1909,17 +1909,17 @@ The model-facing declarations for `bash`, `read`, `edit`, `write`, `grep`, `wait
 `knowledge_search`, and `web_search` MUST require a nonblank string `i` of at most
 120 characters. This envelope MUST be part of the canonical model declaration.
 The executor schemas MUST remain unchanged. Before ordinary argument validation,
-permission admission, or execution, the harness MUST remove `i` and retain it as
-the call's display-only `intent`. It MUST NOT alter eligibility, permission
-decisions, native-attempt identity, or the arguments sent to an MCP server.
+permission admission, or execution, the harness MUST remove `i` from the arguments
+that it validates and executes, and retain it as the call's display-only `intent`.
+It MUST NOT alter eligibility, permission decisions, native-attempt identity, or
+the arguments sent to an MCP server.
 
 Owner history, live streaming, kept-part replay, and event-based reconstruction
-MUST preserve that intent separately from the executable input. Model history,
-public shares, exports, and search MUST NOT receive this separate display field.
-Normalized model-history tool-call arguments, including refused calls, MUST omit
-the envelope. SDK refusal diagnostics MUST retain their original text, which can
-quote the model's original rejected arguments, including its intent text; this
-separation is not a text-redaction guarantee.
+MUST preserve that intent as a separate field. Public shares, exports, and search
+MUST NOT receive this separate display field. The stored call input and the
+model-history tool-call arguments, including refused calls, MUST keep `i` as the
+model sent it, so that the model sees the envelope on each of its earlier calls.
+SDK refusal diagnostics MUST retain their original text.
 Trusted system-origin calls MUST NOT require or fabricate an intent. MCP tools
 MUST retain their original schemas, including any server-owned argument named `i`.
 
@@ -1927,8 +1927,8 @@ MUST retain their original schemas, including any server-owned argument named `i
 
 - **WHEN** a model requests `bash` with `i: "Checking files"` and a command rejected by its permission group
 - **THEN** the command is rejected regardless of the intent
-- **AND** the recorded executable input contains the command and no `i`
-- **AND** the owner-facing tool part carries `intent: "Checking files"`
+- **AND** the input that admission judged contains the command and no `i`
+- **AND** the owner-facing tool part carries `intent: "Checking files"` and keeps `i` in its input
 
 #### Scenario: An internal read does not need model presentation data
 
@@ -1939,7 +1939,12 @@ MUST retain their original schemas, including any server-owned argument named `i
 #### Scenario: Reconnection preserves the intent beside the real arguments
 
 - **WHEN** a tool part with an intent is rebuilt from events or replayed by a Continue Run
-- **THEN** its intent and executable input remain separate and agree with owner history
+- **THEN** its intent and its input, which keeps `i`, agree with owner history
+
+#### Scenario: A later request shows the model its own intent
+
+- **WHEN** the model called `bash` with `i: "Checking files"` in an earlier step or turn
+- **THEN** the next request sends that call's arguments with `i: "Checking files"`
 
 #### Scenario: An MCP argument named i keeps its server-defined meaning
 

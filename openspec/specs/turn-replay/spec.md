@@ -83,12 +83,10 @@ of its model, the compaction rules of `model-system-prompts` apply.
 ### Requirement: A refused call replays as the live step sent it
 
 When the AI SDK refused a call before llame ran it, the tool part MUST store the
-error text and the input of the live step, except that the harness-owned `i`
-presentation envelope MUST be removed from built-in tool arguments as
-`tool-calling` defines. These fields are for the model only, and the owner-facing
-error stays as before. Replay MUST send that original error text as an error-text
-output with the normalized input. The error text can quote original model
-arguments, including intent. A refused part stored before
+error text and the input of the live step, including the harness-owned `i`
+envelope that `tool-calling` defines. These fields are for the model only, and
+the owner-facing error stays as before. Replay MUST send that original error
+text as an error-text output with the stored input. A refused part stored before
 this change has neither field and replays through the failure rendering. On
 another model or after a failed reply, a refused input that is not an object
 MUST replay as `{}`.

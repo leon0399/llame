@@ -2,6 +2,14 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-11-22
 
+- Show the model its own tool intent `i` on every earlier call. A stored tool
+  part now keeps `i` in its input, so later steps, later turns, and refused-call
+  replay send each built-in call's arguments as the model wrote them. Before,
+  history replayed those calls without `i`, and models copied that shape and
+  omitted `i` on later calls, which validation then rejected. Admission and
+  execution still receive the arguments without `i`; parts stored before this
+  change replay without it.
+
 - Run host Workspace MCP servers, host Workspace entry, host instruction files,
   Workspace skills, and prompt imports through the host Machine's
   `llame-machine` daemon, and leave host `bash` and its background jobs as the

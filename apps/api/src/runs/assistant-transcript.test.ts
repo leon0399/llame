@@ -810,12 +810,12 @@ describe('reconstructDurableAssistant', () => {
     expect(result.openToolCalls).toEqual(new Map());
   });
 
-  it('retains display intent after recovery without adding it to model replay input', () => {
+  it('keeps the recorded intent argument through recovery and replay', () => {
     const recovered = reconstructDurableAssistant([
       event('tool.requested', {
         toolCallId: 'intent-call',
         toolName: 'bash',
-        input: { command: 'pwd' },
+        input: { i: 'Inspecting the working directory', command: 'pwd' },
         intent: 'Inspecting the working directory',
       }),
       event('tool.completed', {
@@ -827,7 +827,7 @@ describe('reconstructDurableAssistant', () => {
     expect(recovered).toEqual([
       expect.objectContaining({
         intent: 'Inspecting the working directory',
-        input: { command: 'pwd' },
+        input: { i: 'Inspecting the working directory', command: 'pwd' },
       }),
     ]);
 
@@ -837,7 +837,7 @@ describe('reconstructDurableAssistant', () => {
       type: 'tool-call',
       toolCallId: 'intent-call',
       toolName: 'bash',
-      input: { command: 'pwd' },
+      input: { i: 'Inspecting the working directory', command: 'pwd' },
     });
   });
 
