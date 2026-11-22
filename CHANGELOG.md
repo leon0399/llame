@@ -2,6 +2,18 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-11-22
 
+- Read instruction-file pages and instruction imports with the canonical raw
+  selector `:raw:L<from>-<to>`. A Knowledge candidate's first page is
+  `kb://<id>/CLAUDE.md:raw:L1-2000`, the page after it continues at
+  `:raw:L2001-4000`, and an imported instruction file is read as
+  `<its locator>:raw:L1-2000`. Prompt-import labels and not-imported lines print
+  the canonical selector too, so `@README.md:30-35` is labelled
+  `README.md:L30-35`, and a denied `@kb://<id>/notes.md:raw:30-35` is named
+  `kb://<id>/notes.md:raw:L30-35`. A target whose read resolved as a literal
+  file name, or whose selector the grammar refuses, prints as written, because
+  the canonical spelling would name a different resource. The owner's message is
+  never rewritten: every marker stays exactly as it was typed.
+
 - Print the unit letter `L` in the passage locators that `grep` and
   `knowledge_search` return, and in the `grep` remainder line. A hit locator
   reads `src/app.ts:L12-13`, a Knowledge passage

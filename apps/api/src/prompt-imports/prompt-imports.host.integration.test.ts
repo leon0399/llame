@@ -197,6 +197,7 @@ describe('host prompt imports through the daemon', () => {
         expect(imported).toMatchObject({
           locator: literal,
           resolved: daemon.locator(literal),
+          literal: true,
         });
         expect(imported.body).toContain('the literal notes');
         expect(imported.body).not.toContain('the selector-free notes');

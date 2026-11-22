@@ -244,8 +244,35 @@ describe('resolvePromptImports resolution', () => {
     ]);
     expect(result.outcomes[0]).toMatchObject({
       resolved: 'machine://host-a/tmp/x.md%3A10-12',
+      literal: true,
       outcome: 'imported',
     });
+  });
+
+  it('marks no target literal when the literal probe finds nothing', async () => {
+    const { run } = createHarness({ existing: ['/tmp/a.md'] });
+
+    const result = await run('@/tmp/a.md:10-12');
+
+    expect(result.outcomes[0]).not.toHaveProperty('literal');
+    expect(result.outcomes[0]).toMatchObject({
+      resolved: 'machine://host-a/tmp/a.md',
+      outcome: 'imported',
+    });
+  });
+
+  it('keeps a selector the grammar refuses, for the label step to print as written', async () => {
+    const { calls, run } = createHarness({ existing: ['/repo/notes.md'] });
+
+    const result = await run('@notes.md:L-5');
+
+    expect(calls.hostProbes).toEqual(['/repo/notes.md:L-5', '/repo/notes.md']);
+    expect(result.outcomes[0]).toMatchObject({
+      locator: 'notes.md:L-5',
+      resolved: 'machine://host-a/repo/notes.md',
+      outcome: 'imported',
+    });
+    expect(result.outcomes[0]).not.toHaveProperty('literal');
   });
 
   it('probes a selector-free path once', async () => {

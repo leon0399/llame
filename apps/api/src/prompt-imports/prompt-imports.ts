@@ -287,23 +287,34 @@ async function handleTarget(
     return;
   }
 
-  const resolved = await probePlan(run, plan);
+  const probe = await probePlan(run, plan);
 
-  if (resolved === PROMPT_IMPORT_KNOWLEDGE_CANCELLED) {
+  if (probe === PROMPT_IMPORT_KNOWLEDGE_CANCELLED) {
     run.knowledgeProbeCancelled = true;
 
     return;
   }
 
-  if (resolved === undefined) return;
+  if (probe === undefined) return;
 
   return attemptRead(run, {
     target,
     ordinal,
     readPath: plan.readPath,
-    resolved,
+    ...probe,
   });
 }
+
+/**
+ * What a probe found: the canonical locator of the file the read opens, and
+ * whether the literal probe found a file whose whole name is the target. A
+ * target whose selector the literal probe claimed is not the selector's
+ * resource, so the label step prints it as written.
+ */
+type ProbeResolution = {
+  readonly resolved?: string;
+  readonly literal?: true;
+};
 
 /**
  * A Machine target probes its literal path first, as `read` does, then the
@@ -315,7 +326,9 @@ async function handleTarget(
 async function probePlan(
   run: ImportRun,
   plan: Exclude<ImportPlan, { kind: 'direct' }>,
-): Promise<string | undefined | typeof PROMPT_IMPORT_KNOWLEDGE_CANCELLED> {
+): Promise<
+  ProbeResolution | undefined | typeof PROMPT_IMPORT_KNOWLEDGE_CANCELLED
+> {
   const { request } = run;
 
   if (plan.kind === 'machine') {
@@ -323,16 +336,22 @@ async function probePlan(
   }
 
   if (plan.kind === 'media') {
-    return request.probeMedia(
-      withoutSelector(plan.readPath, `${MEDIA_LOCATOR_SCHEME}://`),
+    return resolvedBy(
+      await request.probeMedia(
+        withoutSelector(plan.readPath, `${MEDIA_LOCATOR_SCHEME}://`),
+      ),
     );
   }
 
   if (plan.kind === 'knowledge') {
     try {
-      return await request.probeKnowledge(
+      const found = await request.probeKnowledge(
         withoutSelector(plan.readPath, KNOWLEDGE_PREFIX),
       );
+
+      return found === PROMPT_IMPORT_KNOWLEDGE_CANCELLED
+        ? found
+        : resolvedBy(found);
     } catch (error) {
       if (!isKnowledgeCancellation(error)) throw error;
 
@@ -341,6 +360,10 @@ async function probePlan(
   }
 
   return undefined;
+}
+
+function resolvedBy(resolved: string | undefined): ProbeResolution | undefined {
+  return resolved === undefined ? undefined : { resolved };
 }
 
 /**
@@ -352,17 +375,17 @@ async function probePlan(
 async function probeMachineTarget(
   request: PromptImportRequest,
   plan: Extract<ImportPlan, { kind: 'machine' }>,
-): Promise<string | undefined> {
+): Promise<ProbeResolution | undefined> {
   if (plan.selector !== undefined) {
     const literal = await request.probeMachine(
       plan.name,
       `${plan.machinePath}:${plan.selector}`,
     );
 
-    if (literal !== undefined) return literal;
+    if (literal !== undefined) return { resolved: literal, literal: true };
   }
 
-  return request.probeMachine(plan.name, plan.machinePath);
+  return resolvedBy(await request.probeMachine(plan.name, plan.machinePath));
 }
 
 /** `path` up to the first colon after its scheme's `prefix`. */
@@ -377,12 +400,15 @@ type ReadAttempt = {
   readonly ordinal: number;
   readonly readPath: string;
   readonly resolved?: string;
+  /** The literal probe found the whole target as one file name. */
+  readonly literal?: true;
 };
 
 function outcomeBase(attempt: ReadAttempt) {
   return {
     locator: attempt.target,
     ...(attempt.resolved !== undefined && { resolved: attempt.resolved }),
+    ...(attempt.literal === true && { literal: true }),
   };
 }
 

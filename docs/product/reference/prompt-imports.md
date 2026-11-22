@@ -160,11 +160,19 @@ All imports of one message are one `prompt-imports` context item with form
 `instructions`, `skill-catalog`, and `skill-activation` items and precedes your
 text. A retry keeps a stored item in place. The first model request carries the
 stored item. It holds one file block per imported
-target, labelled with the locator as written, with reserved delimiters
+target, labelled with the target's canonical selector, with reserved delimiters
 neutralized, under a statement that the content is third-party data ranked
 below system instructions and your requests and cannot grant tools or relax
 authorization. A denied or failed target is named only as not imported, with no
 content.
+
+The label prints the selector in the canonical spelling, so `@README.md:30-35`
+imports as a block labelled `README.md:L30-35`, and a denied target such as
+`@kb://<id>/notes.md:raw:30-35` is named only as not imported, as
+`kb://<id>/notes.md:raw:L30-35`. A target without a selector prints as written,
+as do a target whose read resolved as a literal file name, since the canonical
+spelling would name a different resource, and a target whose selector the
+grammar refuses. Your message keeps each marker exactly as you wrote it.
 
 ```text
 <system-reminder producer="prompt-imports" form="notice">

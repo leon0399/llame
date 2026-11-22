@@ -95,10 +95,10 @@ layer, but no more than one earlier layer may carry open review work.
 
 ## 4. authored-selectors
 
-- [ ] 4.1 Write instruction pages and instruction imports as `:raw:L<from>-<to>` (`instruction-files.ts`, `instruction-imports.ts`). Verify "A candidate page uses the canonical spelling" (instruction-files) and "A read argument that llame writes is canonical" (native-file-tools), and update the tests that pin `:raw:1-2000`.
-- [ ] 4.2 Print prompt-import labels and not-imported lines with the canonical selector, split by the parser of each scheme, and keep a literal-probe target and a target with a refused selector as written, through a new unstored `literal` outcome field (design D5). Verify "Import labels print the canonical selector": "A bare range prints with its unit", "A target that is not imported prints with its unit", and "A literal file name prints as written" in `prompt-imports.test.ts` and `prompt-imports-item.test.ts`.
-- [ ] 4.3 Update `apps/api/src/prompts/chat-default.md`, `docs/product/reference/prompt-imports.md`, `instruction-files.md`, and `context-documents.md`, and add the dated `CHANGELOG.md` entry. Verify `pnpm lint:markdown`.
-- [ ] 4.4 Verify the layer: focused `apps/api` instruction, prompt-import, and Run execution tests, affected `lint` and `typecheck`, `pnpm format:check`, `git diff --check`. The PR carries `Closes #1833`.
+- [x] 4.1 Write instruction pages and instruction imports as `:raw:L<from>-<to>` (`instruction-files.ts`, `instruction-imports.ts`). Verify "A candidate page uses the canonical spelling" (instruction-files) and "A read argument that llame writes is canonical" (native-file-tools), and update the tests that pin `:raw:1-2000`.
+- [x] 4.2 Print prompt-import labels and not-imported lines with the canonical selector, split by the parser of each scheme, and keep a literal-probe target and a target with a refused selector as written, through a new unstored `literal` outcome field (design D5). Verify "Import labels print the canonical selector": "A bare range prints with its unit", "A target that is not imported prints with its unit", and "A literal file name prints as written" in `prompt-imports.test.ts` and `prompt-imports-item.test.ts`.
+- [x] 4.3 Update `apps/api/src/prompts/chat-default.md`, `docs/product/reference/prompt-imports.md`, `instruction-files.md`, and `context-documents.md`, and add the dated `CHANGELOG.md` entry. Verify `pnpm lint:markdown`.
+- [x] 4.4 Verify the layer: focused `apps/api` instruction, prompt-import, and Run execution tests, affected `lint` and `typecheck`, `pnpm format:check`, `git diff --check`. The PR carries `Closes #1833`.
 - [ ] 4.5 Run the local multi-agent review of the parent-relative diff before the PR is marked ready. Fix accepted findings with new commits.
 - [ ] 4.6 Pass the GitHub review and CI gate under Ready-PR monitoring.
 

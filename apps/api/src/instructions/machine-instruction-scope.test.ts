@@ -854,8 +854,8 @@ describe('instructions producer Machine world', () => {
       locator(`${ROOT}/src/AGENTS.md`),
     ]);
     expect(world.reads).toEqual([
-      `${locator(`${ROOT}/AGENTS.md`)}:raw:1-2000`,
-      `${locator(`${ROOT}/src/AGENTS.md`)}:raw:1-2000`,
+      `${locator(`${ROOT}/AGENTS.md`)}:raw:L1-2000`,
+      `${locator(`${ROOT}/src/AGENTS.md`)}:raw:L1-2000`,
     ]);
     expect(seenKeys(part)).toEqual(blockPaths(part));
     // The root bounds the walk: nothing above it is probed, listed, or read,
@@ -1290,7 +1290,7 @@ describe('instructions on this process’s Machine', () => {
         locator(`${root}/AGENTS.md`, 'host-a'),
       ]);
       expect(reads).toEqual([
-        `${locator(`${root}/AGENTS.md`, 'host-a')}:raw:1-2000`,
+        `${locator(`${root}/AGENTS.md`, 'host-a')}:raw:L1-2000`,
       ]);
     } finally {
       await rm(directory, { recursive: true, force: true });

@@ -14,6 +14,7 @@
 import { readdir } from 'node:fs/promises';
 
 import {
+  formatLineRange,
   type HostPathStat,
   MAX_READ_LINES,
 } from '@workspace/native-file-tools';
@@ -214,6 +215,14 @@ export type ReadPage = (
   canonicalPath?: string,
 ) => Promise<ToolResult>;
 
+/**
+ * One bounded `:raw` page of `path` starting at line `from`, in the canonical
+ * selector spelling every instruction read prints.
+ */
+export function instructionPage(path: string, from: number): string {
+  return `${path}:raw:${formatLineRange(from, from + MAX_READ_LINES - 1)}`;
+}
+
 export type InstructionFileRead =
   | {
       readonly kind: 'loaded';
@@ -245,7 +254,9 @@ function loaded(
 
 /**
  * Read one candidate as consecutive bounded `:raw` pages, cut at
- * INSTRUCTION_FILE_BYTE_LIMIT UTF-8 bytes on a character boundary.
+ * INSTRUCTION_FILE_BYTE_LIMIT UTF-8 bytes on a character boundary. Every page
+ * is requested in the canonical `:raw:L<from>-<to>` spelling, so the `read`
+ * group evaluates the same text the item is built from.
  *
  * Each page starts after the last complete line collected, never at the
  * previous page's `nextOffset`: that offset points past a line the native
@@ -263,7 +274,7 @@ export async function readInstructionFile(
   let lines = 0;
 
   for (;;) {
-    const selectorPath = `${candidate.path}:raw:${lines + 1}-${lines + MAX_READ_LINES}`;
+    const selectorPath = instructionPage(candidate.path, lines + 1);
 
     const result = await readPage(
       selectorPath,

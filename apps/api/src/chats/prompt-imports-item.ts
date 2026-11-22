@@ -12,13 +12,25 @@
 import { sanitizeAuthoredText } from '../instance-config/authored-text';
 import { loadPackagedTemplate } from '../prompts/template-engine';
 import {
+  canonicalSelector,
+  parsePathScheme,
+  splitSelectorSuffix,
+} from '@workspace/native-file-tools';
+import {
   isRecord,
   isString,
   type UnknownRecord,
 } from '@workspace/runtime-safety';
 import { z } from 'zod';
 
-import { userImagePart, type MediaRef } from '../media/epoch-admission';
+import {
+  KNOWLEDGE_LOCATOR_SCHEME,
+  parseKnowledgeLocator,
+} from '../knowledge/knowledge-locator';
+import {
+  MACHINE_SCHEME,
+  parseMachineLocator,
+} from '../machines/machine-locator';
 import {
   boundRetained,
   retainedEntry,
@@ -26,11 +38,7 @@ import {
   type RetainedSettlement,
   type UnstoredMedia,
 } from '../media/attempt-media';
-import {
-  type RetainedMediaJson,
-  retainedImageRecordSchema,
-  retainedPdfRecordSchema,
-} from '../media/retained-media';
+import { userImagePart, type MediaRef } from '../media/epoch-admission';
 import {
   isThumbnailDataUrl,
   ORIGINAL_MEDIA_TYPES,
@@ -39,6 +47,17 @@ import {
   MEDIA_LOCATOR_PATTERN,
   parseMediaLocator,
 } from '../media/media-locator';
+import {
+  type RetainedMediaJson,
+  retainedImageRecordSchema,
+  retainedPdfRecordSchema,
+} from '../media/retained-media';
+import {
+  parseSkillLocator,
+  SKILL_LOCATOR_SCHEME,
+} from '../skills/skill-locator';
+import { parseSshLocator, SSH_SCHEME } from '../ssh/ssh-locator';
+import { splitWebSelector, stripFragment } from '../tools/web-read/locator';
 
 import {
   escapeXmlAttribute,
@@ -61,6 +80,12 @@ export type PromptImportMedia = z.infer<typeof promptImportMediaSchema>;
 export type PromptImportOutcome = {
   readonly locator: string;
   readonly resolved?: string;
+  /**
+   * The probe found a file whose whole name is the target, so its selector is
+   * file-name text and the label prints the target as written. Unstored: it
+   * describes the probe, not the import, and never reaches the payload.
+   */
+  readonly literal?: true;
 } & (
   | {
       readonly outcome: 'imported';
@@ -390,6 +415,111 @@ export function neutralizeImportBody(body: string): string {
   );
 }
 
+/** The path and selector as written that the `read` of one scheme splits. */
+type ImportLabelSplit = {
+  readonly path: string;
+  readonly selector: string;
+};
+
+/**
+ * The label of one target: its path plus the canonical spelling of its
+ * selector. The path and the split come from the locator parser of the
+ * target's own scheme, so the label names the resource that scheme's `read`
+ * opens. A target prints as written when a Machine probe resolved the whole
+ * name as one file, when it names no selector, or when the grammar refuses its
+ * selector, because no read of the canonical spelling would name it.
+ */
+function importLabel(outcome: PromptImportOutcome): string {
+  if (outcome.literal === true) return outcome.locator;
+
+  const split = splitImportTarget(outcome.locator);
+
+  const canonical =
+    split === undefined ? undefined : canonicalSelector(split.selector);
+
+  return split === undefined || canonical === undefined
+    ? outcome.locator
+    : `${split.path}:${canonical}`;
+}
+
+/**
+ * Split one target the way its scheme's `read` locator does. Permission
+ * matching strips the same selector in `withoutReadSelector`; this keeps it,
+ * because the label prints its canonical spelling.
+ */
+function splitImportTarget(locator: string): ImportLabelSplit | undefined {
+  const scheme = parsePathScheme(locator);
+
+  if (scheme === undefined) return localSplit(locator);
+
+  switch (scheme.scheme) {
+    case KNOWLEDGE_LOCATOR_SCHEME: {
+      const parsed = parseKnowledgeLocator(scheme.rest);
+
+      return 'type' in parsed ? undefined : tailSplit(locator, parsed.selector);
+    }
+
+    case SKILL_LOCATOR_SCHEME: {
+      const parsed = parseSkillLocator(scheme.rest);
+
+      return 'type' in parsed ? undefined : tailSplit(locator, parsed.selector);
+    }
+
+    case MACHINE_SCHEME: {
+      const parsed = parseMachineLocator(locator);
+
+      return parsed.kind === 'path'
+        ? tailSplit(locator, parsed.selector)
+        : undefined;
+    }
+
+    case SSH_SCHEME: {
+      const parsed = parseSshLocator(locator);
+
+      return parsed.kind === 'path'
+        ? tailSplit(locator, parsed.selector)
+        : undefined;
+    }
+
+    case 'http':
+    case 'https':
+      return webSplit(locator);
+    default:
+      return localSplit(locator);
+  }
+}
+
+/** A host, `file:`, media, or relative target's own split. */
+function localSplit(locator: string): ImportLabelSplit | undefined {
+  const { path, selector } = splitSelectorSuffix(locator);
+
+  return selector === undefined ? undefined : { path, selector };
+}
+
+/**
+ * The split the Knowledge, skill, Machine, and `ssh://` parsers report: each
+ * separates the selector at a colon, so the selector they return is a tail of
+ * the text and the path is what precedes its colon.
+ */
+function tailSplit(
+  locator: string,
+  selector: string | undefined,
+): ImportLabelSplit | undefined {
+  if (selector === undefined) return undefined;
+  const at = locator.length - selector.length - 1;
+
+  return at > 0 && locator[at] === ':'
+    ? { path: locator.slice(0, at), selector }
+    : undefined;
+}
+
+/** A web target splits after its fragment, which the request never sends. */
+function webSplit(locator: string): ImportLabelSplit | undefined {
+  const { url, selector } = splitWebSelector(stripFragment(locator));
+
+  return selector === undefined ? undefined : { path: url, selector };
+}
+
 function renderPromptImports(
   outcomes: ReadonlyArray<PromptImportOutcome>,
   omitted: ReadonlyArray<string>,
@@ -398,15 +528,15 @@ function renderPromptImports(
   const notImported: Array<{ locator: string }> = [];
 
   for (const outcome of outcomes) {
-    const locator = sanitizeAuthoredText(outcome.locator);
+    const label = importLabel(outcome);
 
     if (outcome.outcome === 'imported') {
       imports.push({
-        locator: escapeXmlAttribute(outcome.locator),
+        locator: escapeXmlAttribute(label),
         body: neutralizeImportBody(outcome.body),
       });
     } else {
-      notImported.push({ locator });
+      notImported.push({ locator: sanitizeAuthoredText(label) });
     }
   }
 

@@ -24,6 +24,7 @@ import {
 } from '../machines/machine-locator';
 import type { LoadedInstructionFile } from '../chats/instructions-item';
 import {
+  instructionPage,
   parentKey,
   readInstructionFile,
   selectCandidates,
@@ -67,7 +68,6 @@ interface ResolvedImport {
   readonly path: string;
 }
 
-const IMPORT_PAGE = ':raw:1-2000';
 const EMPTY_DISCLOSED: ReadonlySet<string> = new Set<string>();
 
 function resolveImport(
@@ -248,7 +248,7 @@ async function loadResolvedImport(
   const { collector, group } = state;
 
   if (collector.attempted.has(resolved.path)) return;
-  const readPath = `${resolved.path}${IMPORT_PAGE}`;
+  const readPath = instructionPage(resolved.path, 1);
 
   if (!group.admitsRead(readPath)) {
     collector.attempted.add(resolved.path);

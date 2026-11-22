@@ -161,14 +161,20 @@ from that file's directory and becomes a following block for
 repository `AGENTS.md`.
 
 A Knowledge Space uses the same names. The walk starts at the Space root, and
-each file is named by its `kb://` locator. See
+each file is named by its `kb://` locator. Each selected file's pages are read
+with the canonical `:raw:L<start>-<end>` selector, starting at
+`:raw:L1-2000`. See
 [Knowledge Space triggers](instruction-files.md#knowledge-space-triggers).
 
 ## Prompt markers
 
 Write the marker in the message. The message is stored as typed. Before the
 first model request, each admitted target is read and placed in one
-`prompt-imports` item ahead of your text.
+`prompt-imports` item ahead of your text. Each file block is labelled with the
+target's canonical selector, so the first marker below is labelled
+`README.md:L30-35`. A target without a selector, one read as a literal file
+name, and one whose selector the grammar refuses keep the spelling you wrote.
+The marker in your message is never rewritten.
 
 ```text
 Compare @README.md:30-35 with @"docs/style guide.md".

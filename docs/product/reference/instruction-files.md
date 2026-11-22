@@ -224,10 +224,14 @@ directory.
 Each existing candidate is read as a native `read` call with system origin
 `instructions`, under the `read` permission group and the Run's effective
 permission mode, with an attempt-scoped call id of
-`instructions-<runId>-<attemptId>-<n>` — one audited call per page. A denied or
-otherwise failed page drops the whole file: it is absent from the model-visible
-text, never named there, and disclosed to the owner alone through the read's
-audit event and, when the same step loads another file, the chip.
+`instructions-<runId>-<attemptId>-<n>` — one audited call per page. Each page
+is a bounded raw read in the canonical spelling, so a Knowledge file's first
+page is `kb://<space>/CLAUDE.md:raw:L1-2000` and the page after it continues at
+`:raw:L2001-4000`; an instruction import is read as
+`<its locator>:raw:L1-2000`. A denied or otherwise failed page drops the whole
+file: it is absent from the model-visible text, never named there, and
+disclosed to the owner alone through the read's audit event and, when the same
+step loads another file, the chip.
 
 A file larger than 32 KiB is cut at 32 KiB on a UTF-8 character boundary and
 followed by one line naming the path and the byte count omitted; there is no
