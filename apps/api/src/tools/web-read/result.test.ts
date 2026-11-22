@@ -200,6 +200,25 @@ describe('buildWebReadResult', () => {
     expect(text).toContain('not shown; this locator takes no line selector');
   });
 
+  it('quotes a missed anchor as written and advises no selector', async () => {
+    const url = `${GUIDE_URL}?plain=1`;
+
+    const result = await buildWebReadResult({ url, lineAnchor: 'L50' }, url, {
+      method: 'adapter',
+      content: `${renderedLines(30)}\n`,
+      lineAddressed: true,
+    });
+
+    // The model wrote `#L50`, so the refusal answers with it, and a locator
+    // with a query takes no selector, so no `:` form is advised.
+    expect(result).toEqual({
+      status: 'error',
+      type: 'invalid_selector',
+      message:
+        'The anchor #L50 selected no line of this page, which rendered 30 lines numbered from 1. Write an anchor within L1-30. Omit the anchor to read from the start.',
+    });
+  });
+
   it('matches the native directory renderer, including a selector', async () => {
     const directory = {
       displayPath: DIRECTORY_URL,

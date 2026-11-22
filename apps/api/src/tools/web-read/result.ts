@@ -79,11 +79,11 @@ export async function buildWebReadResult(
   render: WebRender,
 ): Promise<WebReadSuccess | WebReadFailure> {
   const envelope = webResultEnvelope(finalUrl, render);
-  const selector = appliedSelector(locator, render);
+  const applied = appliedSelector(locator, render);
 
   try {
     const target: ReadTarget = {
-      ...applySelectorSuffix(locator.url, selector),
+      ...applySelectorSuffix(locator.url, applied.selector),
       reserveCodeUnits: readAttributionReserve(envelope),
     };
 
@@ -105,25 +105,33 @@ export async function buildWebReadResult(
       // has no outline — is passed on unchanged.
       message:
         error.type === 'invalid_selector' && error.message === error.type
-          ? selectorFailureMessage(render.content, selector)
+          ? selectorFailureMessage(render.content, applied)
           : error.message,
     };
   }
 }
 
 /**
- * The selector a web read applies. A line anchor selects lines only in a
- * render whose adapter claims the source's lines; every other render drops
- * it, as the request drops the fragment it was cut from.
+ * The selector a web read applies, and the locator's anchor when the render
+ * addressed lines and the anchor supplied that selector.
  */
+type AppliedSelector = {
+  readonly selector: string | undefined;
+  readonly anchor: string | undefined;
+};
+
 function appliedSelector(
   locator: WebLocator,
   render: WebRender,
-): string | undefined {
-  if (render.lineAddressed !== true || locator.lineAnchor === undefined)
-    return locator.selector;
+): AppliedSelector {
+  if (render.lineAddressed === true && locator.lineAnchor !== undefined) {
+    return {
+      selector: anchorSelector(locator.lineAnchor),
+      anchor: locator.lineAnchor,
+    };
+  }
 
-  return anchorSelector(locator.lineAnchor);
+  return { selector: locator.selector, anchor: undefined };
 }
 
 /** Unstored page media with its source attribution and no text/range fields. */
@@ -253,14 +261,33 @@ function buildDirectoryReadResult(
  * A selector the render could not serve carries no message of its own, and a
  * bare error type tells the model nothing it can act on: a page's length is
  * unknown until it is read, so the count it should have selected within is
- * the one fact worth reporting.
+ * the one fact worth reporting. The selector is quoted as the model wrote it,
+ * so an anchor keeps its `#`.
  */
 function selectorFailureMessage(
   content: string,
-  selector: string | undefined,
+  applied: AppliedSelector,
 ): string {
   const lines = splitSourceLines(content).length;
-  const written = selector === undefined ? '' : `:${selector} `;
+
+  const count =
+    lines === 0
+      ? 'rendered no text'
+      : `rendered ${lines} line${lines === 1 ? '' : 's'} numbered from 1`;
+
+  // An anchor is answered with anchors alone: a locator with a query takes no
+  // selector, and a locator that carries an anchor and a selector is refused.
+  // A render with no lines never names a range.
+  if (applied.anchor !== undefined) {
+    const range =
+      lines === 0
+        ? ''
+        : ` Write an anchor within ${formatLineRange(1, lines)}.`;
+
+    return `The anchor #${applied.anchor} selected no line of this page, which ${count}.${range} Omit the anchor to read from the start.`;
+  }
+
+  const written = applied.selector === undefined ? '' : `:${applied.selector} `;
 
   // A render with no lines has no range to point at, so the sentence that
   // would name one is left out rather than naming `1-0`.

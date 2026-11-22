@@ -101,9 +101,12 @@ const ABORTED_FAILURE: WebFetchFailure = {
  * fetch. A selector whose refusal depends on the rendered count stays with
  * the renderer, which alone holds that count.
  */
-function refusedSelector(locator: WebLocator): ToolResult | undefined {
+function refusedSelector(
+  url: string,
+  selector: string | undefined,
+): ToolResult | undefined {
   try {
-    applySelectorSuffix(locator.url, locator.selector);
+    applySelectorSuffix(url, selector);
 
     return undefined;
   } catch (error) {
@@ -145,15 +148,7 @@ function lineAnchorRefusal(
     };
   }
 
-  try {
-    applySelectorSuffix(locator.url, anchorSelector(lineAnchor));
-
-    return undefined;
-  } catch (error) {
-    if (!(error instanceof NativeFileError)) throw error;
-
-    return { status: 'error', type: error.type, message: error.message };
-  }
+  return refusedSelector(locator.url, anchorSelector(lineAnchor));
 }
 
 /** The locator and adapters a read proceeds with, or the refusal that ends it. */
@@ -196,7 +191,7 @@ function admitRead(
     };
   }
 
-  const refused = refusedSelector(locator);
+  const refused = refusedSelector(locator.url, locator.selector);
 
   if (refused !== undefined) return { refusal: refused };
 
@@ -237,12 +232,13 @@ export function createWebReadExecutor(deps: WebReadDeps): WebReadExecutor {
     try {
       const pageRead = {
         locator,
+        adapters,
         media: context.media?.readMedia(call.input.path, context.toolCallId),
         session,
         admit,
       };
 
-      return await fetchAndRender(context, pageRead, adapters, deps);
+      return await fetchAndRender(context, pageRead, deps);
     } finally {
       session.dispose();
     }
@@ -255,49 +251,15 @@ export const executeWebRead: WebReadExecutor =
 /** One web read, with media preparation bound to its submitted locator and call id. */
 type WebPageRead = {
   readonly locator: WebLocator;
+  readonly adapters: ReadonlyArray<WebAdapter>;
   readonly session: WebFetchSession;
   readonly admit: AdmitDerivedLocator;
   readonly media: MediaReadHook | undefined;
 };
 
-/** One non-raw read's adapter pass: a final result, or the fall-through notes. */
-type AdapterAttempt =
-  | { readonly result: ToolResult }
-  | { readonly notes: ReadonlyArray<string> };
-
-/**
- * The adapter pass of a non-raw read: the render of the first claimant that
- * wins, or the notes the generic ladder reports alongside its own render.
- */
-async function adapterAttempt(
-  context: ToolContext,
-  pageRead: WebPageRead,
-  adapters: ReadonlyArray<WebAdapter>,
-  deps: WebReadDeps,
-): Promise<AdapterAttempt> {
-  const { locator } = pageRead;
-  const dispatched = await dispatchFor(context, pageRead, adapters);
-
-  if (dispatched.kind === 'fatal')
-    return { result: { status: 'error', ...dispatched.failure } };
-
-  if (dispatched.kind === 'rendered') {
-    return {
-      result: await deps.buildWebReadResult(
-        locator,
-        locator.url,
-        dispatched.render,
-      ),
-    };
-  }
-
-  return { notes: dispatched.notes };
-}
-
 async function fetchAndRender(
   context: ToolContext,
   pageRead: WebPageRead,
-  adapters: ReadonlyArray<WebAdapter>,
   deps: WebReadDeps,
 ): Promise<ToolResult> {
   const { locator, media, session, admit } = pageRead;
@@ -305,10 +267,20 @@ async function fetchAndRender(
   let notes: ReadonlyArray<string> = [];
 
   if (!raw) {
-    const attempted = await adapterAttempt(context, pageRead, adapters, deps);
+    const dispatched = await dispatchFor(context, pageRead);
 
-    if ('result' in attempted) return attempted.result;
-    notes = attempted.notes;
+    if (dispatched.kind === 'fatal')
+      return { status: 'error', ...dispatched.failure };
+
+    if (dispatched.kind === 'rendered') {
+      return await deps.buildWebReadResult(
+        locator,
+        locator.url,
+        dispatched.render,
+      );
+    }
+
+    notes = dispatched.notes;
   }
 
   const response = await fetchPage(context, session, locator.url, media);
@@ -424,9 +396,8 @@ function createSession(
 async function dispatchFor(
   context: ToolContext,
   pageRead: WebPageRead,
-  adapters: ReadonlyArray<WebAdapter>,
 ): Promise<WebAdapterDispatch> {
-  const { locator, session, admit } = pageRead;
+  const { locator, session, admit, adapters } = pageRead;
 
   const adapterIo: WebAdapterIo = {
     fetch: async (url, init) => {

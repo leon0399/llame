@@ -1484,12 +1484,15 @@ describe('web adapters', () => {
 
     // A claimed adapter that addresses its source by line, as GitHub does for
     // a blob: its own request is the one the test inspects.
+    const received: Array<string> = [];
+
     const adapter: WebAdapter = {
       id: 'gh',
       route: 'native',
       match: () => true,
       lineAddressed: () => true,
       read: async (source, io) => {
+        received.push(source.href);
         const response = await io.fetch(source.href);
 
         if ('type' in response) return { kind: 'failed', failure: 'transport' };
@@ -1522,10 +1525,10 @@ describe('web adapters', () => {
       requestedRange: { startLine: 10, endLine: 20 },
       shownRange: { startLine: 9, endLine: 21 },
     });
-    // The source request is the fragment-free locator, and the anchor never
-    // reaches the socket.
+    // The adapter receives the fragment-free locator, and the source request
+    // is that same text: the anchor stays out of both.
+    expect(received).toEqual([sourceUrl('/blob')]);
     expect(fixture.requests.map(({ path }) => path)).toEqual(['/blob']);
-    expect(fixture.requests.some(({ path }) => path.includes('#'))).toBe(false);
   });
 });
 

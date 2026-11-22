@@ -95,13 +95,13 @@ const BLOB_SOURCE = 'https://github.com/o/r/blob/main/f.ts';
  * An executor with one adapter that claims the source's lines, standing in
  * for the GitHub adapter: the hook is the only part the executor sees.
  */
-function lineAddressedExecutor(outcome: WebAdapterOutcome, matches = true) {
+function lineAddressedExecutor(outcome: WebAdapterOutcome) {
   const readSources: Array<string> = [];
 
   const adapter: WebAdapter = {
     id: 'gh',
     route: 'native',
-    match: () => matches,
+    match: () => true,
     lineAddressed: () => true,
     read: (source) => {
       readSources.push(source.href);
@@ -913,6 +913,22 @@ describe('web locator dispatch', () => {
       });
       expect(fetchDouble).toHaveBeenCalledTimes(1);
       expect(fetchDouble.mock.calls[0]?.[0]).toBe(BLOB_SOURCE);
+    });
+
+    it('quotes a missed anchor as written', async () => {
+      const { execute } = lineAddressedExecutor(renderedBlob);
+
+      const result = await execute(webContext(), {
+        operation: 'read',
+        input: { path: `${BLOB_SOURCE}#L50` },
+      });
+
+      expect(result).toEqual({
+        status: 'error',
+        type: 'invalid_selector',
+        message:
+          'The anchor #L50 selected no line of this page, which rendered 30 lines numbered from 1. Write an anchor within L1-30. Omit the anchor to read from the start.',
+      });
     });
 
     it.each(['#L20-L10', '#L0'])(
