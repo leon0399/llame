@@ -133,8 +133,8 @@ MUST NOT store it. The tool MUST then return its bounded inline result with
 ### Requirement: The read tool accepts artifact locators
 
 `read` MUST accept `artifact://` locators with its line selectors, `:raw`, and
-`:outline` for a Markdown part. `read` MUST route the scheme before local path
-resolution. It MUST NOT need a native executor. A part name that does not
+`:outline` for a Markdown part. `read` MUST route the scheme before path
+resolution. It MUST NOT need a Machine. A part name that does not
 exist MUST return `not_found`. `edit` and `write` MUST refuse an `artifact://`
 locator as `invalid_path`.
 
@@ -145,8 +145,9 @@ locator as `invalid_path`.
 
 #### Scenario: An artifact is read without a native executor
 
-- **WHEN** a process with no `tools.nativeExecutorId` allowlists `read` and the model reads `artifact://grep-3`
-- **THEN** the read returns the artifact and no `executor_unavailable`
+- **WHEN** `read` is allowlisted, the current Machine is unreachable, and the
+  model reads `artifact://grep-3`
+- **THEN** the read returns the artifact and no `machine_unavailable`
 
 #### Scenario: An unknown part is not found
 
@@ -342,16 +343,18 @@ open call MUST keep its locator.
 
 ### Requirement: Artifacts are host files when bash can run
 
-When `bash` is in `tools.allowed` and the Run has a native executor, each
-artifact part MUST also be a file on the llame host. The directory is
-`$TMPDIR/llame/chats/<chatId>/artifacts/`. A part file is `<toolName>-<n>`
-with the extension of its content type. A `bash` part is the stream name with
-that extension, in a `bash-<n>` directory.
+When `bash` is in `tools.allowed` and the process has a `machines.local`
+Machine, each artifact part MUST also be a file on that Machine. The directory
+is `$TMPDIR/llame/chats/<chatId>/artifacts/` of the worker process. A part
+file is `<toolName>-<n>` with the extension of its content type. A `bash` part
+is the stream name with that extension, in a `bash-<n>` directory.
 
 #### Scenario: A bash artifact becomes files
 
-- **WHEN** `bash` is allowlisted and both streams of call `bash-12` did not fit
-- **THEN** the host has `bash-12/stdout.txt` and `bash-12/stderr.txt` in the artifact directory of the Chat
+- **WHEN** `bash` is allowlisted, the process has `machines.local` set to
+  `devl`, and both streams of call `bash-12` did not fit
+- **THEN** `devl` has `bash-12/stdout.txt` and `bash-12/stderr.txt` in the
+  artifact directory of the Chat
 
 #### Scenario: Without bash no file is written
 
@@ -395,20 +398,24 @@ gets its files back at its next reconcile.
 
 ### Requirement: The notice names the host files
 
-When the system wrote host files, the notice MUST also name their absolute
-directory. In a Machine Workspace, or when `bash` runs on an `ssh://` host,
-the notice MUST say that the files are on the llame host only. Without files,
-the notice MUST name no host path.
+When the system wrote artifact files, the notice MUST also name their directory
+as a canonical `machine://` locator on the `machines.local` Machine of the
+process. The current Machine can be another Machine, or `bash` can run on an
+`ssh://` host. The notice MUST then say that the files are only on that
+`machines.local` Machine. Without files, the notice MUST name no path.
 
 #### Scenario: The host path is shown with bash
 
-- **WHEN** `bash` is allowlisted on the host and a `bash` call spills its stdout
-- **THEN** the notice names the absolute directory of `bash-<n>` on the host
+- **WHEN** `bash` is allowlisted, the current Machine is the `machines.local`
+  Machine `devl`, and a `bash` call spills its stdout
+- **THEN** the notice names the directory of `bash-<n>` as a `machine://devl/...`
+  locator
 
 #### Scenario: A Machine Workspace is told where the files are
 
-- **WHEN** `bash` is allowlisted, the process has a native executor, the Chat is in a Machine Workspace, and a call spills
-- **THEN** the notice says that the files are on the llame host only
+- **WHEN** `bash` is allowlisted, the process has `machines.local` set to
+  `devl`, the Chat is in a Workspace on `gpu`, and a call spills
+- **THEN** the notice says that the files are only on `devl`
 - **AND** `read("artifact://…")` returns the artifact in that Workspace
 
 ### Requirement: Artifact files hold the content as admitted

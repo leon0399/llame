@@ -36,41 +36,6 @@ For a directory `D`, the base candidate SHALL be the first existing regular file
 - **WHEN** a directory contains an empty `LLAME.md` and a non-empty `AGENTS.md`
 - **THEN** neither is loaded from that directory's base chain
 
-### Requirement: A host-path trigger loads the chain from the filesystem root down to the touched directory
-
-An entry trigger and a native `read`, `edit`, or `write` whose `path` is a local host filesystem path SHALL each name one directory `D` on the native executor host. A loaded instruction import and an admitted host-path prompt import SHALL each name one directory `D` on the native executor host, chosen exactly as for a native read of the import's resolved path: the path itself when it is an existing directory, and otherwise its parent directory. The load SHALL consider every directory from the filesystem root down to `D` inclusive, in that order, and SHALL include ancestors above any Workspace root or repository boundary. `D` SHALL be the canonical Workspace root for an entry trigger; for a file-tool trigger it SHALL be the projected absolute path itself when that path is an existing directory, and otherwise the parent directory of the projected absolute path, whether or not that path exists. The walk SHALL NOT descend into siblings or children of `D`. A trigger whose `path` is a `kb://` locator SHALL NOT walk the host filesystem; it SHALL follow the Knowledge-locator requirement instead.
-
-#### Scenario: Entry loads the root and its ancestors
-
-- **WHEN** `enter_workspace("/home/u/repo/apps/api")` succeeds and `/home/u/repo/AGENTS.md` and `/home/u/repo/apps/api/AGENTS.md` exist
-- **THEN** one bundle carries `/home/u/repo/AGENTS.md` then `/home/u/repo/apps/api/AGENTS.md`
-
-#### Scenario: File touch outside the Workspace still walks its ancestors
-
-- **WHEN** a Chat bound to `/home/u/repo` reads `/home/u/other/src/x.ts` and `/home/u/other/AGENTS.md` exists
-- **THEN** the bundle carries `/home/u/other/AGENTS.md`
-- **AND** the Workspace root's own files are not reloaded by that trigger
-
-#### Scenario: Write into a directory that does not exist yet
-
-- **WHEN** `write("/home/u/repo/apps/web/src/new.tsx")` targets a directory whose parent chain contains `/home/u/repo/apps/web/AGENTS.md`
-- **THEN** that file is loaded from the next model step, whether or not the write succeeded, unless the call was denied
-
-#### Scenario: Reading a directory loads that directory's own chain
-
-- **WHEN** the model reads the existing directory `apps/api` on a Chat bound to `/home/u/repo`
-- **THEN** `D` is `/home/u/repo/apps/api`, so `/home/u/repo/apps/api/AGENTS.md` is a candidate
-
-#### Scenario: An import trigger walks from its resolved directory
-
-- **WHEN** a loaded instruction import or an admitted host-path prompt import resolves to `/home/u/repo/apps/api/doc.md` and `/home/u/repo/AGENTS.md` and `/home/u/repo/apps/api/AGENTS.md` exist
-- **THEN** the import names `/home/u/repo/apps/api` as `D` and loads the same chain from the filesystem root down to `D`
-
-#### Scenario: A prompt import of a directory loads that directory's own chain
-
-- **WHEN** an admitted host-path prompt import resolves to the existing directory `/home/u/repo/apps/api` and `/home/u/repo/apps/api/AGENTS.md` exists
-- **THEN** the import names `/home/u/repo/apps/api` itself as `D` and loads that directory's own chain from the filesystem root down to `D`
-
 ### Requirement: A Knowledge locator loads the chain within its Space
 
 A `read`, `edit`, or `write` whose `path` is a `kb://<spaceId>/<relative path>` locator SHALL load the same candidate chains, with the same selection rules, from the root of that Space down to the touched directory inclusive, and SHALL NOT consider any directory above that Space root: not the operator's `knowledge.root` directory, which holds every owner's Spaces, not a host ancestor of it, and not another Space. The touched directory SHALL be the locator's own directory when it names an existing directory in that Space, and otherwise the parent directory of the locator's path within that Space. A candidate that the Knowledge resolver refuses as a symbolic link SHALL NOT be selected and its chain SHALL continue.
@@ -479,3 +444,47 @@ Instruction imports SHALL process targets in first-occurrence order, depth-first
 - **WHEN** `/repo/AGENTS.md` contains `@missing.md`, the silent `read` pre-evaluation admits the resolved target, and no such file exists
 - **THEN** the marker remains literal
 - **AND** no read and no audit event is recorded for the missing target
+
+### Requirement: A Machine-path trigger names one directory on its Machine
+
+An entry trigger, and a native `read`, `edit`, or `write` whose `path` is on a Machine, MUST each name one directory `D` on that Machine. For an entry trigger, `D` MUST be the canonical Workspace root. For a file-tool trigger or an admitted import, `D` MUST be the projected path when it is an existing directory, or else its parent directory. A `kb://` trigger MUST follow the Knowledge-locator requirement.
+
+#### Scenario: Reading a directory loads that directory's own chain
+
+- **WHEN** the model reads the existing directory `apps/api` on a Chat bound to `machine://devl/home/u/repo`
+- **THEN** `D` is `machine://devl/home/u/repo/apps/api`, so `/home/u/repo/apps/api/AGENTS.md` on `devl` is a candidate
+
+#### Scenario: A prompt import of a directory loads that directory's own chain
+
+- **WHEN** an admitted prompt import resolves to the existing directory `machine://devl/home/u/repo/apps/api` and `/home/u/repo/apps/api/AGENTS.md` exists on `devl`
+- **THEN** the import names that directory itself as `D`
+
+#### Scenario: Write into a directory that does not exist yet
+
+- **WHEN** `write("/home/u/repo/apps/web/src/new.tsx")` on the current Machine `devl` targets a directory whose parent chain contains `/home/u/repo/apps/web/AGENTS.md`
+- **THEN** that file is loaded from the next model step, whether or not the write succeeded, unless the call was denied
+
+### Requirement: A Machine-path trigger loads the chain from the containing registered root
+
+The load MUST consider each directory from the registered root that contains `D` down to `D`, in that order, on the Machine of `D`. It MUST include ancestors above a Workspace root or a repository boundary inside that registered root. It MUST NOT read above that registered root. When no registered root contains `D`, the load MUST read no file. The walk MUST NOT go into siblings or children of `D`.
+
+#### Scenario: Entry loads the root and its ancestors
+
+- **WHEN** `/home/u` is a registered root of `devl`, `enter_workspace("machine://devl/home/u/repo/apps/api")` succeeds, and `/home/u/repo/AGENTS.md` and `/home/u/repo/apps/api/AGENTS.md` exist on `devl`
+- **THEN** one bundle carries `machine://devl/home/u/repo/AGENTS.md` then `machine://devl/home/u/repo/apps/api/AGENTS.md`
+
+#### Scenario: File touch outside the Workspace still walks its ancestors
+
+- **WHEN** a Chat bound to `machine://devl/home/u/repo` reads `/home/u/other/src/x.ts`, `/home/u` is a registered root, and `/home/u/other/AGENTS.md` exists
+- **THEN** the bundle carries `machine://devl/home/u/other/AGENTS.md`
+- **AND** that trigger does not load the files of the Workspace root again
+
+#### Scenario: An import trigger walks from its resolved directory
+
+- **WHEN** an admitted import resolves to `machine://devl/home/u/repo/apps/api/doc.md`, and `/home/u/repo/AGENTS.md` and `/home/u/repo/apps/api/AGENTS.md` exist
+- **THEN** the import names `machine://devl/home/u/repo/apps/api` as `D` and loads the chain from the containing registered root down to `D`
+
+#### Scenario: A host chain stops at the registered root
+
+- **WHEN** the host Machine `devl` registers only `/home/u/repo`, `/home/u/AGENTS.md` exists, and the model enters `machine://devl/home/u/repo`
+- **THEN** `/home/u/AGENTS.md` is not loaded

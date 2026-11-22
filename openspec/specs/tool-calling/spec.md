@@ -79,7 +79,7 @@ durable.
 
 ### Requirement: Tool registry with mandatory safety classification
 
-Every registered tool MUST declare a safety classification from the SPEC §13.5
+Every registered tool MUST declare a safety classification from the SPEC section 13.5
 set. That set contains `read_only`, `write_low_risk`, `write_high_risk`,
 `execute_code`, `external_send`, `financial_or_sensitive`, `admin`, and
 `unverified`. The loop MUST execute an allowlisted `read_only` tool only when
@@ -99,33 +99,22 @@ The initial native set is `read` and `grep` with `read_only`, plus `edit` and
 declare its own exact tools and its own retry policy. A classification alone
 MUST NOT admit any other write tool or execution tool.
 
-An alpha-native tool carries explicit host authority for absolute paths. It also
+An alpha-native tool carries explicit Machine authority for paths on Machines. It also
 carries owner-scoped Knowledge authority for `kb://` locators. `read` alone
 carries owner-scoped, read-only media authority for `media://` locators. That
 authority resolves only the media of the Run owner. These tools are not a
-general permission engine. Their host authority MUST NOT grant authority to MCP
-tools.
+general permission engine. Their Machine authority MUST NOT grant authority to
+MCP tools.
 
-The candidate resolver MUST admit `edit` and `write` when the process accepted
-native host authority or has a configured Knowledge root. It MUST leave them
-unavailable when the process has neither. It MUST admit `read` whenever
-`tools.allowed` names it. Skill, web, and `media://` locators need no host
-authority. An absolute path on a process without accepted native authority MUST
-still fail closed with `executor_unavailable`. It MUST admit `grep` when the
-process accepted native host authority.
+The candidate resolver MUST admit `read`, `grep`, `edit`, and `write` whenever `tools.allowed` names them. Startup MUST fail when `tools.allowed` names a native tool and `machines.default` is absent, so a Machine can always serve a path. Skill, web, `media://`, and `kb://` locators need no Machine. When the current Machine is unreachable, a path on it MUST still fail closed with `machine_unavailable`.
 
-It MUST also admit `grep` when it has a configured Knowledge root, operator
-skill source, or Machine. It MUST leave `grep` unavailable when the process has
-none of these. The `grep-tool` capability owns the scope and the admission rules
-of that tool. A configured Knowledge root admits only `read`, `grep`, `edit`,
-and `write`. Accepted native host authority alone admits `bash`,
-`enter_workspace`, `exit_workspace`, and every other host-capability tool.
+The `grep-tool` capability owns the scope and the admission rules of `grep`. A configured Knowledge root alone admits no host-capability tool. `bash`, `enter_workspace`, `exit_workspace`, and every other host-capability tool MUST need `machines.default`.
 
 The exact host-capability set MUST include `enter_workspace` and
 `exit_workspace`. `enter_workspace` MUST have the `execute_code` classification,
 and `exit_workspace` MUST have the `write_low_risk` classification. Both MUST
-bind the Run to the native executor identity that executes them, like other host
-tools. An `enter_workspace` call that carries a `worktree` object MUST append a
+bind the Chat to a configured Machine, as `workspace-entry` states. An
+`enter_workspace` call that carries a `worktree` object MUST append a
 `native.attempt` with the `worktree` operation before it calls
 `git.worktreeAdd`. It MUST append the `native.result` of that attempt in the
 transaction that stores the worktree rows and the bound root. A redelivered Run
@@ -167,38 +156,36 @@ across source kinds.
 #### Scenario: Alpha native file tool executes only in its host capability
 
 - **WHEN** `tools.allowed` names an exact code-owned native host tool, such as
-  `enter_workspace` or `exit_workspace`, and the trusted host capability of that
-  tool is present
+  `enter_workspace` or `exit_workspace`, and `machines.default` is configured
 - **AND** the invocation passes the execution permission checks
-- **THEN** the tool executes with the host authority that the capability declares
-- **AND** the system does not substitute it with a hosted path or a remote MCP
+- **THEN** the tool executes with the Machine authority that the capability declares
+- **AND** the system does not replace it with a hosted path or a remote MCP
   operation
 
 #### Scenario: Native tools are admitted by Knowledge root alone
 
-- **WHEN** a process has a configured Knowledge root, no `tools.nativeExecutorId`,
-  and `tools.allowed` with `read`, `edit`, and `write`
-- **THEN** the system advertises the three tools for `kb://` locators
+- **WHEN** a process has a configured Knowledge root and `tools.allowed` with
+  `read`, `edit`, and `write`, and its current Machine is unreachable
+- **THEN** the Knowledge root alone serves the three tools for `kb://` locators
 - **AND** each call executes only when its `tools.permissions` policy allows it
 - **AND** a call without an allow match receives `permission_denied`
-- **AND** an absolute path fails closed with `executor_unavailable`
+- **AND** an absolute path fails closed with `machine_unavailable`
 
 #### Scenario: Read is admitted by the allowlist alone
 
-- **WHEN** a process has no `tools.nativeExecutorId`, no configured Knowledge
-  root, and `tools.allowed` with `read`, `edit`, and `write`
+- **WHEN** a process has no configured Knowledge root, `machines.default` is
+  configured, and `tools.allowed` names `read` and no other native tool
 - **THEN** the system advertises `read`, and `read` serves web locators under its
   permission policy
-- **AND** the system does not advertise `edit` and does not execute it
-- **AND** the system does not advertise `write` and does not execute it
-- **AND** an absolute-path `read` fails closed with `executor_unavailable`
+- **AND** the system does not advertise `edit` or `write`, because the allowlist
+  does not name them
 
 #### Scenario: Knowledge root does not admit bash
 
-- **WHEN** a process has a configured Knowledge root, no `tools.nativeExecutorId`,
+- **WHEN** a process has a configured Knowledge root, no `machines.default`,
   and `tools.allowed` with `bash`
-- **THEN** the system does not advertise `bash` and does not execute it
-- **AND** the Run manifest records it unavailable exactly as before this change
+- **THEN** startup fails naming `machines.default`
+- **AND** no Run advertises or executes `bash`
 
 #### Scenario: Non-read-only tool is refused even when allowlisted
 
@@ -233,8 +220,8 @@ across source kinds.
 
 #### Scenario: Read serves media locators without host or Knowledge authority
 
-- **WHEN** a process has no `tools.nativeExecutorId` and no configured Knowledge
-  root, and `tools.allowed` names `read`
+- **WHEN** a process has no configured Knowledge root, its current Machine is
+  unreachable, and `tools.allowed` names `read`
 - **AND** the Run owner reads `media://<id>` of an image that the owner holds
 - **THEN** `read` returns the image result when its permission policy allows the
   call
@@ -255,10 +242,10 @@ across source kinds.
 
 #### Scenario: Grep is admitted by any serving backend
 
-- **WHEN** `tools.allowed` names `grep`, and the process has a configured skill
-  source but no native executor, no Knowledge root, and no Machine
+- **WHEN** `tools.allowed` names `grep`, the process has a configured skill
+  source and no Knowledge root, and its current Machine is unreachable
 - **THEN** the system advertises `grep`
-- **AND** a host scope returns `executor_unavailable`
+- **AND** a host scope returns `machine_unavailable`
 - **AND** a `kb://` scope returns `knowledge_space_unavailable`
 
 #### Scenario: A worktree entry records one worktree attempt
@@ -284,7 +271,7 @@ across source kinds.
 - **WHEN** an `enter_workspace` call carries no `worktree` object, or an
   `exit_workspace` call occurs
 - **THEN** the call records no `native.attempt`
-- **AND** a retry after the commit of its state change succeeds idempotently
+- **AND** a retry after the commit of its state change succeeds without change
   over Chat state
 
 ### Requirement: Each execution attempt applies the operator availability gate and per-call permission
@@ -1438,18 +1425,18 @@ queue job of the woken Run MUST follow the retry rules of `No mid-run tool-state
 ### Requirement: The stop tool is a host-capability tool
 
 `stop` MUST have the `execute_code` classification, and it MUST be in the exact host-capability
-set. It MUST be available only on a process that can run host `bash`. Its retry policy is this:
+set. It MUST be available only when `bash` is available. Its retry policy is this:
 a retried `stop` call requests the stop again, and a job that is already settled keeps its
 state. `wait` MUST have the `read_only` classification.
 
 #### Scenario: Stop is advertised with bash
 
-- **WHEN** `tools.allowed` names `bash` and `stop`, and the process accepted native host authority
+- **WHEN** `tools.allowed` names `bash` and `stop`, and `machines.default` is configured
 - **THEN** the system advertises `stop`
 
 #### Scenario: Stop without host authority is not advertised
 
-- **WHEN** `tools.allowed` names `stop`, and the process accepted no native host authority
+- **WHEN** `tools.allowed` names `stop` and does not name `bash`
 - **THEN** the system does not advertise `stop` and does not execute it
 
 ### Requirement: Tool activity is rendered in the chat UI

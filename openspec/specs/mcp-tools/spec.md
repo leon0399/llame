@@ -632,13 +632,19 @@ MCP annotations, descriptions, and server claims SHALL NOT grant execution autho
 
 ### Requirement: Workspace MCP configuration is portable and protects interpolated values
 
-A bound Workspace SHALL load its MCP server entries from `<root>/.mcp.json`, with `<root>/.llame/mcp.json` taking precedence by server name: an entry in the latter SHALL replace an entry with the same name in the former. Workspace entries SHALL use the portable named-server shape: an entry with `command` and no `type` SHALL be interpreted as stdio; `type: "http"` or `type: "streamable-http"` SHALL select the remote Streamable HTTP transport. A stdio entry MAY supply ordered `args`, `env`, and `cwd`; a remote entry SHALL supply its URL and MAY supply headers. A stdio entry with no `cwd` SHALL use the Workspace root, and a relative `cwd` SHALL resolve from that root. A Workspace stdio child's environment SHALL be built as for an operator stdio server: the entry's declared `env` values, after interpolation, merged over the fixed MCP base environment allowlist, and nothing else from llame's ambient environment inherited wholesale.
+A bound Workspace MUST load its MCP server entries from `<root>/.mcp.json` and `<root>/.llame/mcp.json`. An entry in `<root>/.llame/mcp.json` MUST replace an entry with the same name in `<root>/.mcp.json`. Workspace entries MUST use the portable named-server shape. An entry with `command` and no `type` MUST be read as stdio. `type: "http"` or `type: "streamable-http"` MUST select the remote Streamable HTTP transport. A stdio entry can supply ordered `args`, `env`, and `cwd`. A remote entry MUST supply its URL and can supply headers.
 
-Workspace server string values SHALL support `${VAR}`, `${VAR:-default}`, `{env:…}`, and `{path:…}` interpolation. These tokens SHALL resolve from the executing process's environment and filesystem, including llame's own process environment. A relative `{path:LOCATION}` SHALL resolve from the Workspace root; an absolute location SHALL resolve as written. `${VAR:-default}` SHALL use the literal default when `VAR` is unset or empty. Interpolation SHALL be single-pass and non-recursive: a resolved value SHALL NOT be scanned again for tokens. An unset variable without a default or an unreadable file SHALL make the affected server unavailable, with a diagnostic naming the variable or file location but never the resolved value. Command and argument fields SHALL be passed as literal text and SHALL NOT be shell-interpreted. Reading llame's ambient environment through these tokens, and passing a selected value to a Workspace server, is an accepted risk of permitting entry into an audited Workspace.
+A stdio entry with no `cwd` MUST use the Workspace root, and a relative `cwd` MUST resolve from that root. The environment of a Workspace stdio child MUST be built as for an operator stdio server: the declared `env` values of the entry, after interpolation, over the fixed MCP base environment allowlist. The child MUST NOT inherit other variables of the environment that starts it.
 
-Every non-empty resolved interpolation value SHALL be added to that Workspace server's protected-value set, except a literal supplied solely as the `:-default` fallback in a stdio `command`, `args`, or `env` field or in a remote `headers` entry. A remote `headers` substitution SHALL be added in its trimmed form, as the HTTP runtime sends it. The non-empty trimmed whole value of a Workspace remote `Authorization`, `Proxy-Authorization`, or `Cookie` header (names matched ASCII case-insensitively) SHALL also be added to the protected-value set, whether literal or interpolated. Literal stdio `command`, `args`, and `env` text and literal text of any other remote header SHALL NOT be added to the protected-value set solely because it is literal. Protected values SHALL be redacted before they can appear in that server's declarations, call arguments or results, diagnostics, entry result, receipts, persisted errors, or model-facing content. This protection guarantee is scoped to that server's traffic and server-derived output; another tool that independently reads the same source is outside this guarantee.
+Workspace server string values MUST support `${VAR}`, `${VAR:-default}`, `{env:…}`, and `{path:…}` interpolation. These tokens MUST resolve from the environment and filesystem of the Machine daemon of the Workspace, the host Machine included. A relative `{path:LOCATION}` MUST resolve from the Workspace root, and an absolute location MUST resolve as written. `${VAR:-default}` MUST use the literal default when `VAR` is unset or empty. Interpolation MUST be single-pass and not recursive: the system MUST NOT scan a resolved value again for tokens.
 
-A malformed Workspace MCP file, invalid server name or entry, unsupported transport, or unresolvable interpolation SHALL NOT fail Workspace entry. Each affected Workspace MCP server SHALL instead be reported as unavailable and SHALL contribute no callable tools.
+An unset variable without a default, or a file that cannot be read, MUST make the affected server unavailable. Its diagnostic MUST name the variable or the file location but never the resolved value. Command and argument fields MUST pass as literal text. A shell MUST NOT interpret them. A token can read the environment of the Machine daemon and pass a selected value to a Workspace server. That is an accepted risk of entry into an audited Workspace.
+
+Every non-empty resolved interpolation value MUST join the protected-value set of that Workspace server. A literal that is only the `:-default` fallback in a stdio `command`, `args`, or `env` field, or in a remote `headers` entry, is the exception. A remote `headers` substitution MUST join in its trimmed form, as the HTTP runtime sends it. The non-empty trimmed whole value of a Workspace remote `Authorization`, `Proxy-Authorization`, or `Cookie` header MUST also join the protected-value set, whether literal or interpolated. Header names match ASCII case-insensitively.
+
+Literal stdio `command`, `args`, and `env` text, and literal text of another remote header, MUST NOT join the protected-value set only because it is literal. The system MUST redact protected values before they can appear in the declarations, call arguments, results, diagnostics, entry result, receipts, persisted errors, or model-facing content of that server. This guarantee covers the traffic of that server and output from it. Another tool that reads the same source separately is outside this guarantee.
+
+A malformed Workspace MCP file, an invalid server name or entry, an unsupported transport, or an interpolation that cannot resolve MUST NOT fail Workspace entry. The system MUST report each affected Workspace MCP server as unavailable, and it MUST contribute no callable tools.
 
 #### Scenario: Workspace-local config overrides the portable config
 
@@ -664,8 +670,9 @@ A malformed Workspace MCP file, invalid server name or entry, unsupported transp
 
 #### Scenario: Workspace interpolation can read llame's process environment
 
-- **WHEN** a Workspace MCP field contains `${LLAME_ONLY}` or `{env:LLAME_ONLY}` and the executing llame process defines that variable
+- **WHEN** a Workspace MCP field contains `${LLAME_ONLY}` or `{env:LLAME_ONLY}` and the Machine daemon of the Workspace defines that variable
 - **THEN** its value is used for that field
+- **AND** for a Workspace on the host Machine, a variable that only the worker process defines is unset
 
 #### Scenario: Unreferenced ambient variable is not inherited
 
@@ -776,7 +783,7 @@ Starting a Workspace MCP server SHALL NOT require a separate per-server permissi
 
 #### Scenario: Same-root re-entry preserves clients and configuration
 
-- **WHEN** a Chat is already bound to canonical root `/workspace` and enters `/workspace` again
+- **WHEN** a Chat is already bound to canonical root `machine://devl/workspace` and enters `machine://devl/workspace` again
 - **THEN** the operation succeeds with the current Workspace state
 - **AND** it does not restart clients or re-read Workspace configuration
 
