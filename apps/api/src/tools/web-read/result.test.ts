@@ -3,6 +3,7 @@ import {
   measureReadRendering,
   OUTLINE_UNSUPPORTED_MESSAGE,
   renderCollectedDirectory,
+  renderReadText,
   type DirectoryListingEntry,
 } from '@workspace/native-file-tools';
 import { RESULT_TRUNCATE_CHARS } from '@workspace/runtime-safety';
@@ -125,6 +126,78 @@ describe('buildWebReadResult', () => {
       representation: 'outline',
     });
     expect(outline).not.toHaveProperty('lineCount');
+  });
+
+  it('applies a line anchor only to a render that addresses lines', async () => {
+    const content = `${renderedLines(30)}\n`;
+    const anchored = { url: GUIDE_URL, lineAnchor: 'L10-L20' } as const;
+
+    const selected = await buildWebReadResult(anchored, GUIDE_URL, {
+      method: 'adapter',
+      content,
+      lineAddressed: true,
+    });
+
+    expect(selected).toMatchObject({
+      status: 'success',
+      path: GUIDE_URL,
+      representation: 'text',
+      requestedRange: { startLine: 10, endLine: 20 },
+      shownRange: { startLine: 9, endLine: 21 },
+      lineCount: 30,
+    });
+
+    if (selected.status !== 'success') throw new Error('expected a read');
+
+    // The header names the shown range with the source total, exactly as the
+    // selector `:L10-20` does.
+    expect(renderReadText(selected)).toContain(
+      `${GUIDE_URL}:L9-21 of 30 lines`,
+    );
+
+    const dropped = await buildWebReadResult(anchored, GUIDE_URL, {
+      method: 'negotiated',
+      content,
+    });
+
+    expect(dropped).toMatchObject({
+      status: 'success',
+      path: GUIDE_URL,
+      requestedRange: { startLine: 1, endLine: 30 },
+      shownRange: { startLine: 1, endLine: 30 },
+    });
+  });
+
+  it('states a query locator’s remainder alone after an anchor', async () => {
+    const url = `${GUIDE_URL}?plain=1`;
+
+    const selected = await buildWebReadResult(
+      { url, lineAnchor: 'L10-L2500' },
+      url,
+      {
+        method: 'adapter',
+        content: `${renderedLines(3000)}\n`,
+        lineAddressed: true,
+      },
+    );
+
+    expect(selected).toMatchObject({
+      status: 'success',
+      path: url,
+      requestedRange: { startLine: 10, endLine: 2500 },
+      truncated: true,
+    });
+
+    if (selected.status !== 'success') throw new Error('expected a read');
+
+    const text = renderReadText(selected);
+
+    // The header names the range that fit. A locator with a query takes no
+    // selector, so the continuation names the remainder alone.
+    expect(text).toMatch(
+      /^https:\/\/example\.test\/guide\?plain=1:L9-\d+ of 3000 lines$/mu,
+    );
+    expect(text).toContain('not shown; this locator takes no line selector');
   });
 
   it('matches the native directory renderer, including a selector', async () => {

@@ -3,7 +3,7 @@ import {
   isSelectorSuffix,
 } from '@workspace/native-file-tools';
 
-import { canonicalHref, parseWebLocator } from './locator';
+import { anchorSelector, canonicalHref, parseWebLocator } from './locator';
 
 /** The one refusal sentence every source shares, which this source follows
  *  with the `%3A` spelling of the locator the model wrote. */
@@ -61,6 +61,76 @@ describe('parseWebLocator', () => {
     expect(parseWebLocator('https://example.test/guide#x:raw')).toEqual({
       url: 'https://example.test/guide',
     });
+  });
+
+  it('keeps a GitHub line anchor as written and drops every other fragment', () => {
+    const blob = 'https://github.com/o/r/blob/main/f.ts';
+
+    // A line anchor is the one fragment a read can act on: an enabled GitHub
+    // adapter claims the blob's lines, so the anchor survives the cut.
+    expect(parseWebLocator(`${blob}#L10-L20`)).toEqual({
+      url: blob,
+      lineAnchor: 'L10-L20',
+    });
+    expect(parseWebLocator(`${blob}#L10`)).toEqual({
+      url: blob,
+      lineAnchor: 'L10',
+    });
+    // Columns are kept as written for the refusal message; the selector they
+    // become ignores them.
+    expect(parseWebLocator(`${blob}#L10C5-L20C3`)).toEqual({
+      url: blob,
+      lineAnchor: 'L10C5-L20C3',
+    });
+    expect(parseWebLocator(`${blob}#L10C5`)).toEqual({
+      url: blob,
+      lineAnchor: 'L10C5',
+    });
+    // Line 0 and a reversed range are anchors the read refuses when an
+    // adapter claims the source, so they are kept for that check.
+    expect(parseWebLocator(`${blob}#L0`)).toEqual({
+      url: blob,
+      lineAnchor: 'L0',
+    });
+    expect(parseWebLocator(`${blob}#L20-L10`)).toEqual({
+      url: blob,
+      lineAnchor: 'L20-L10',
+    });
+
+    // Any other fragment keeps the shipped rule and disappears.
+    for (const fragment of ['#readme', '#l10', '#L10-', '#10-20', '#']) {
+      expect(parseWebLocator(`${blob}${fragment}`)).toEqual({ url: blob });
+    }
+  });
+
+  it('keeps an anchor beside a selector and after a query as written', () => {
+    const blob = 'https://github.com/o/r/blob/main/f.ts';
+
+    // The conflict is refused during the read, where the enabled adapters are
+    // known; the parser reports both the selector and the anchor.
+    expect(parseWebLocator(`${blob}:5-9#L10-L20`)).toEqual({
+      url: blob,
+      selector: '5-9',
+      lineAnchor: 'L10-L20',
+    });
+    expect(parseWebLocator(`${blob}:raw#L10`)).toEqual({
+      url: blob,
+      selector: 'raw',
+      lineAnchor: 'L10',
+    });
+    // A query locator takes no selector, so the anchor is the only line
+    // request the read can serve.
+    expect(parseWebLocator(`${blob}?plain=1#L10-L2500`)).toEqual({
+      url: `${blob}?plain=1`,
+      lineAnchor: 'L10-L2500',
+    });
+  });
+
+  it('turns an anchor into the selector its lines name', () => {
+    expect(anchorSelector('L10')).toBe('L10');
+    expect(anchorSelector('L10-L20')).toBe('L10-20');
+    expect(anchorSelector('L10C5-L20C3')).toBe('L10-20');
+    expect(anchorSelector('L10C5')).toBe('L10');
   });
 
   it('splits the trailing selector at the last colon after the last slash', () => {

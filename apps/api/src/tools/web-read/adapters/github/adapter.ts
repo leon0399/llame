@@ -94,6 +94,9 @@ export function createGithubAdapter(
         (target.kind !== 'discussion' || config.token !== undefined)
       );
     },
+    // Only a blob's own URL addresses its lines; a tree, issue, or gist has
+    // no line the fragment could select.
+    lineAddressed: (source) => parseGithubUrl(source)?.kind === 'blob',
     read: (source, io) =>
       readGithubTarget(parseGithubUrl(source)!, source, {
         io,

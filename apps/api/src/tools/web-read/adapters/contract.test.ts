@@ -344,6 +344,41 @@ describe('dispatchWebAdapters', () => {
       },
     });
   });
+  it('flags a render only when its adapter addresses the source by line', async () => {
+    const lineAddressed = vi.fn<(source: URL) => boolean>(() => true);
+
+    const flagged = await dispatchWebAdapters(
+      new URL(SOURCE),
+      [{ ...adapter('gh', true, renderedOutcome('blob text')), lineAddressed }],
+      { fetch: () => Promise.resolve(response('unused')) },
+    );
+
+    expect(lineAddressed).toHaveBeenCalledWith(new URL(SOURCE));
+    expect(flagged).toMatchObject({
+      kind: 'rendered',
+      render: { lineAddressed: true },
+    });
+
+    // An adapter without the hook, or one that answers false, produces a
+    // render no line anchor may select.
+    for (const hook of [undefined, () => false]) {
+      const plain = await dispatchWebAdapters(
+        new URL(SOURCE),
+        [
+          {
+            ...adapter('plain', true, renderedOutcome('plain')),
+            ...(hook !== undefined && { lineAddressed: hook }),
+          },
+        ],
+        { fetch: () => Promise.resolve(response('unused')) },
+      );
+
+      if (plain.kind !== 'rendered') throw new Error('expected a render');
+
+      expect(plain.render).not.toHaveProperty('lineAddressed');
+    }
+  });
+
   it('keeps a primary rate-limit reset in the fall-through note', async () => {
     const result = await dispatchWebAdapters(
       new URL(SOURCE),

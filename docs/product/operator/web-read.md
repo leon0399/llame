@@ -91,6 +91,36 @@ domain](tool-call-permissions.md#restricting-reads-to-one-domain).
 
 `tools.webAdapters` is configured in [web adapters](web-adapters.md).
 
+## GitHub line anchors
+
+A pasted GitHub blob link can carry GitHub's own line anchor. With an enabled
+`{ "use": "github" }` entry, `https://github.com/o/r/blob/main/f.ts#L10-L20`
+reads lines 10 through 20 of the rendered blob with the context lines, header,
+and continuation of a `:L10-20` read. The fragment is never requested from
+GitHub. `#L10` reads one line, and a `C<c>` column after a line number is
+ignored. The rules and the refusals are in
+[web locators](../reference/locators/web.md#github-line-anchors).
+
+The entry is what gives the anchor meaning:
+
+- Without an enabled `github` entry, the anchor is dropped like any fragment, so
+  `...f.ts:5-9#L10-L20` applies `:5-9` to the generic render, and a bare
+  `...f.ts#L10-L20` reads the whole page.
+- When the entry falls through and the generic ladder renders, the anchor is
+  dropped too, and the result carries the fall-through note.
+- A locator that carries an anchor and a selector, `:raw` included, is refused
+  with `invalid_selector` before any request, so the call sends nothing. The
+  fixed message names the anchor and the selector as written and asks for one of
+  them.
+- A reversed anchor, or one that names line 0, is refused with
+  `invalid_selector` before any request when the entry claims the blob. Without
+  the entry, the same locator drops its fragment.
+
+Permission admission is unchanged. The submitted text keeps the fragment and
+the projected text drops it, so a reject written against the blob URL refuses
+the anchored read ([matching](tool-call-permissions.md#matching)). An anchor
+never reaches a resource that the fragment-free locator does not.
+
 ## Derived locators and permission admission
 
 A web read derives locators the model never wrote: redirect hops, an announced

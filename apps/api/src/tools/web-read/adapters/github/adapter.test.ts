@@ -756,6 +756,29 @@ describe('GitHub thread adapter', () => {
     ).toBe(false);
   });
 
+  it('addresses only a blob by line', () => {
+    const adapter = createGithubAdapter(config());
+
+    expect(
+      adapter.lineAddressed?.(new URL('https://github.com/o/r/blob/main/f.ts')),
+    ).toBe(true);
+    expect(
+      adapter.lineAddressed?.(
+        new URL('https://github.com/o/r/blob/main/f.ts?plain=1'),
+      ),
+    ).toBe(true);
+
+    for (const source of [
+      'https://github.com/o/r/tree/main/src',
+      'https://github.com/o/r/issues/1',
+      'https://github.com/o/r',
+      'https://gist.github.com/aa5a315d61ae9438b18d',
+      'https://example.test/blob/main/f.ts',
+    ]) {
+      expect(adapter.lineAddressed?.(new URL(source))).toBe(false);
+    }
+  });
+
   it('claims gists, releases, and job links with or without a token', () => {
     const keyless = [
       'https://gist.github.com/octocat/aa5a315d61ae9438b18d',

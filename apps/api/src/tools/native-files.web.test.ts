@@ -6,6 +6,8 @@ import { Response } from 'undici';
 import { invalidSelectorMessage } from '@workspace/native-file-tools';
 import { type Mock, vi } from 'vitest';
 
+import { renderReadText } from '@workspace/native-file-tools';
+
 import type { RetainedMedia } from '../media/attempt-media';
 import type { MediaService } from '../media/media.service';
 import * as pdfPreparation from '../media/pdf-preparation';
@@ -20,6 +22,10 @@ import {
 } from './native-files';
 import { compileToolPermissionMap } from './permissions/compile-permissions';
 import { ToolResult, type ToolContext } from './types';
+import {
+  type WebAdapter,
+  type WebAdapterOutcome,
+} from './web-read/adapters/contract';
 import {
   createWebReadExecutor,
   realWebReadDeps,
@@ -75,6 +81,40 @@ function webReadExecutor(
 let fetchDouble: Mock<TestFetch>;
 
 const MARKDOWN = '# Guide\n\nA publisher-provided body for agents.\n';
+
+/** A blob stand-in whose lines are told apart by number, so a line selection
+ *  from an anchor cannot be confused with a whole-file read. */
+const BLOB_LINES =
+  Array.from({ length: 30 }, (_, index) => `blob line ${index + 1}`).join(
+    '\n',
+  ) + '\n';
+
+const BLOB_SOURCE = 'https://github.com/o/r/blob/main/f.ts';
+
+/**
+ * An executor with one adapter that claims the source's lines, standing in
+ * for the GitHub adapter: the hook is the only part the executor sees.
+ */
+function lineAddressedExecutor(outcome: WebAdapterOutcome, matches = true) {
+  const readSources: Array<string> = [];
+
+  const adapter: WebAdapter = {
+    id: 'gh',
+    route: 'native',
+    match: () => matches,
+    lineAddressed: () => true,
+    read: (source) => {
+      readSources.push(source.href);
+
+      return Promise.resolve(outcome);
+    },
+  };
+
+  return {
+    execute: webReadExecutor({ createWebAdapters: () => [adapter] }),
+    readSources,
+  };
+}
 
 /** The same shape with a two-column table, so a range inside it can only
  *  report its columns through the header pair. */
@@ -769,6 +809,207 @@ describe('web locator dispatch', () => {
     expect(result).not.toHaveProperty('notes');
     expect(fetchDouble).toHaveBeenCalledTimes(1);
     expect(fetchDouble.mock.calls[0]?.[0]).toBe(source);
+  });
+
+  describe('GitHub line anchors', () => {
+    const renderedBlob: WebAdapterOutcome = {
+      kind: 'rendered',
+      content: BLOB_LINES,
+      mediaType: 'text/plain',
+      notes: [],
+    };
+
+    it('selects the anchored lines of an adapter render', async () => {
+      const { execute, readSources } = lineAddressedExecutor(renderedBlob);
+
+      const result = await execute(webContext(), {
+        operation: 'read',
+        input: { path: `${BLOB_SOURCE}#L10-L20` },
+      });
+
+      expect(result).toMatchObject({
+        status: 'success',
+        path: BLOB_SOURCE,
+        finalUrl: BLOB_SOURCE,
+        method: 'adapter',
+        representation: 'text',
+        requestedRange: { startLine: 10, endLine: 20 },
+        shownRange: { startLine: 9, endLine: 21 },
+        lineCount: 30,
+      });
+
+      if (result.status !== 'success') throw new Error('expected a read');
+
+      expect(renderReadText(result)).toContain(
+        `${BLOB_SOURCE}:L9-21 of 30 lines`,
+      );
+      // The adapter reads the fragment-free source, and no request carries
+      // the anchor.
+      expect(readSources).toEqual([BLOB_SOURCE]);
+      expect(fetchDouble).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ['#L10', 10, 10, { startLine: 9, endLine: 11 }],
+      ['#L10C5-L20C3', 10, 20, { startLine: 9, endLine: 21 }],
+    ] as const)(
+      'selects the lines of %s',
+      async (anchor, startLine, endLine, shownRange) => {
+        const { execute } = lineAddressedExecutor(renderedBlob);
+
+        const result = await execute(webContext(), {
+          operation: 'read',
+          input: { path: `${BLOB_SOURCE}${anchor}` },
+        });
+
+        expect(result).toMatchObject({
+          status: 'success',
+          requestedRange: { startLine, endLine },
+          shownRange,
+          path: BLOB_SOURCE,
+        });
+        expect(fetchDouble).not.toHaveBeenCalled();
+      },
+    );
+
+    it.each(['#readme', '#l10'])(
+      'drops the fragment %s and reads the whole blob',
+      async (fragment) => {
+        const { execute, readSources } = lineAddressedExecutor(renderedBlob);
+
+        const result = await execute(webContext(), {
+          operation: 'read',
+          input: { path: `${BLOB_SOURCE}${fragment}` },
+        });
+
+        expect(result).toMatchObject({
+          status: 'success',
+          path: BLOB_SOURCE,
+          requestedRange: { startLine: 1, endLine: 30 },
+          shownRange: { startLine: 1, endLine: 30 },
+        });
+        expect(readSources).toEqual([BLOB_SOURCE]);
+      },
+    );
+
+    it('falls through without a line selection when the adapter fails', async () => {
+      const { execute } = lineAddressedExecutor({
+        kind: 'failed',
+        failure: 'status',
+      });
+
+      const result = await execute(webContext(), {
+        operation: 'read',
+        input: { path: `${BLOB_SOURCE}#L10-L20` },
+      });
+
+      expect(result).toMatchObject({
+        status: 'success',
+        method: 'negotiated',
+        path: BLOB_SOURCE,
+        finalUrl: BLOB_SOURCE,
+        requestedRange: { startLine: 1, endLine: 3 },
+        notes: ['web adapter "gh" fell through: status'],
+      });
+      expect(fetchDouble).toHaveBeenCalledTimes(1);
+      expect(fetchDouble.mock.calls[0]?.[0]).toBe(BLOB_SOURCE);
+    });
+
+    it.each(['#L20-L10', '#L0'])(
+      'refuses %s before any request when an adapter claims the blob',
+      async (anchor) => {
+        const { execute, readSources } = lineAddressedExecutor(renderedBlob);
+
+        const result = await execute(webContext(), {
+          operation: 'read',
+          input: { path: `${BLOB_SOURCE}${anchor}` },
+        });
+
+        expect(result).toMatchObject({
+          status: 'error',
+          type: 'invalid_selector',
+        });
+        expect(readSources).toEqual([]);
+        expect(fetchDouble).not.toHaveBeenCalled();
+      },
+    );
+
+    it.each(['#L20-L10', '#L0'])(
+      'drops %s when no enabled adapter claims the blob',
+      async (anchor) => {
+        const execute = webReadExecutor();
+
+        const result = await execute(webContext(), {
+          operation: 'read',
+          input: { path: `${BLOB_SOURCE}${anchor}` },
+        });
+
+        expect(result).toMatchObject({
+          status: 'success',
+          method: 'negotiated',
+        });
+        expect(fetchDouble.mock.calls[0]?.[0]).toBe(BLOB_SOURCE);
+      },
+    );
+
+    it('refuses a selector and an anchor together before any request', async () => {
+      const { execute, readSources } = lineAddressedExecutor(renderedBlob);
+
+      const result = await execute(webContext(), {
+        operation: 'read',
+        input: { path: `${BLOB_SOURCE}:5-9#L10-L20` },
+      });
+
+      expect(result).toEqual({
+        status: 'error',
+        type: 'invalid_selector',
+        message:
+          'This locator selects lines twice, with #L10-L20 and with :5-9. Write one of them.',
+      });
+      expect(readSources).toEqual([]);
+      expect(fetchDouble).not.toHaveBeenCalled();
+    });
+
+    it('refuses a raw read with an anchor before any request', async () => {
+      const { execute, readSources } = lineAddressedExecutor(renderedBlob);
+
+      const result = await execute(webContext(), {
+        operation: 'read',
+        input: { path: `${BLOB_SOURCE}:raw#L10` },
+      });
+
+      expect(result).toMatchObject({
+        status: 'error',
+        type: 'invalid_selector',
+      });
+      expect(readSources).toEqual([]);
+      expect(fetchDouble).not.toHaveBeenCalled();
+    });
+
+    it('applies the selector and drops the anchor without an adapter', async () => {
+      fetchDouble.mockResolvedValue(
+        new Response(BLOB_LINES, {
+          status: 200,
+          headers: { 'content-type': 'text/plain; charset=utf-8' },
+        }),
+      );
+
+      const execute = webReadExecutor();
+
+      const result = await execute(webContext(), {
+        operation: 'read',
+        input: { path: `${BLOB_SOURCE}:5-9#L10-L20` },
+      });
+
+      expect(result).toMatchObject({
+        status: 'success',
+        method: 'negotiated',
+        requestedRange: { startLine: 5, endLine: 9 },
+        shownRange: { startLine: 4, endLine: 10 },
+      });
+      expect(fetchDouble).toHaveBeenCalledTimes(1);
+      expect(fetchDouble.mock.calls[0]?.[0]).toBe(BLOB_SOURCE);
+    });
   });
 
   it('does not start the render when the fetch resolves after the Run aborted', async () => {

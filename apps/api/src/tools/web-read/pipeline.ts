@@ -40,6 +40,9 @@ export type WebRender = {
   readonly finalUrl?: string;
   readonly notes?: ReadonlyArray<string>;
   readonly adapter?: WebAdapterProvenance;
+  /** True only when the adapter that produced this render claims the source's
+   *  lines by its own fragment, so the read may apply a line anchor to it. */
+  readonly lineAddressed?: boolean;
 };
 
 /** One request of the call, bounded by the same client as the first. */

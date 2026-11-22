@@ -2,6 +2,21 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-11-22
 
+- Select lines from a GitHub blob link's own anchor. With `tools.webAdapters`
+  enabling the `github` adapter, `https://github.com/o/r/blob/main/f.ts#L10-L20`
+  reads lines 10 through 20 of the rendered blob exactly as `:L10-20` does, and
+  `#L10` reads one line. A `C<c>` column after a line number is ignored, so
+  `#L10C5-L20C3` reads lines 10 through 20. The header names the shown lines and
+  the source total, the continuation resumes the read as any selector read does,
+  and the fragment never reaches GitHub. An anchor together with a selector,
+  `:raw` included, is refused with `invalid_selector` before any request, with a
+  message naming the anchor and the selector as written. A reversed anchor and
+  line 0 are refused the same way. Without an enabled `github` adapter, and on
+  any fall-through render, the anchor is dropped as every fragment is, so other
+  fragments and adapters behave as before. Permission matching is unchanged and
+  still drops the fragment, so a reject on the blob URL refuses the anchored
+  read.
+
 - Read instruction-file pages and instruction imports with the canonical raw
   selector `:raw:L<from>-<to>`. A Knowledge candidate's first page is
   `kb://<id>/CLAUDE.md:raw:L1-2000`, the page after it continues at

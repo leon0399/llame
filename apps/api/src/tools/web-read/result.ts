@@ -16,7 +16,7 @@ import {
 import { type UnknownRecord } from '@workspace/runtime-safety';
 
 import { readAttributionReserve } from '../model-text';
-import { type WebLocator } from './locator';
+import { anchorSelector, type WebLocator } from './locator';
 import { type WebAdapterProvenance } from './adapters/contract';
 import {
   type WebDirectory,
@@ -79,10 +79,11 @@ export async function buildWebReadResult(
   render: WebRender,
 ): Promise<WebReadSuccess | WebReadFailure> {
   const envelope = webResultEnvelope(finalUrl, render);
+  const selector = appliedSelector(locator, render);
 
   try {
     const target: ReadTarget = {
-      ...applySelectorSuffix(locator.url, locator.selector),
+      ...applySelectorSuffix(locator.url, selector),
       reserveCodeUnits: readAttributionReserve(envelope),
     };
 
@@ -104,10 +105,25 @@ export async function buildWebReadResult(
       // has no outline — is passed on unchanged.
       message:
         error.type === 'invalid_selector' && error.message === error.type
-          ? selectorFailureMessage(render.content, locator.selector)
+          ? selectorFailureMessage(render.content, selector)
           : error.message,
     };
   }
+}
+
+/**
+ * The selector a web read applies. A line anchor selects lines only in a
+ * render whose adapter claims the source's lines; every other render drops
+ * it, as the request drops the fragment it was cut from.
+ */
+function appliedSelector(
+  locator: WebLocator,
+  render: WebRender,
+): string | undefined {
+  if (render.lineAddressed !== true || locator.lineAnchor === undefined)
+    return locator.selector;
+
+  return anchorSelector(locator.lineAnchor);
 }
 
 /** Unstored page media with its source attribution and no text/range fields. */
