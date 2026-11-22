@@ -31,7 +31,7 @@ raw colon starts the selector; use `%3A` inside a filename. Existing literal
 percent names now require `%25`, including locators saved before this change.
 The Space identifier and selector are never decoded.
 
-## Passage locators
+### Passage locators
 
 `grep` and `knowledge_search` return a passage as a `kb://` locator with a
 line range in the canonical selector spelling,
