@@ -61,9 +61,9 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 - Record a floor and a ceiling for context narration to the model. The floor is
   a review test. A change the model would misread its own history without gets a
   notice, and silence must justify itself wherever another harness narrates. The
-  ceiling is token cost. The rail narrates events and one named exception for
-  model-authored state a tool stores, and it never re-states the standing context
-  the frozen baseline already owns.
+  ceiling is token cost. The Context rail narrates events and one named
+  exception for model-authored state a tool stores, and it never re-states the
+  standing context the frozen baseline already owns.
 
 # 2026-11-21
 

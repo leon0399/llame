@@ -99,8 +99,9 @@ one, and a mutation the assistant cannot perceive is one it cannot report.
 Narration is bounded at both ends. The floor is a review test. A change the
 model would misread its own history without gets a notice, and silence
 justifies itself wherever another harness narrates. The ceiling is token cost.
-The rail narrates events and one named exception for model-authored state, and
-it never re-states the standing context the frozen baseline already owns.
+The Context rail narrates events and one named exception for model-authored
+state, and it never re-states the standing context the frozen baseline already
+owns.
 [Context narration has a floor and a
 ceiling](docs/adr/2026-11-22-context-narration-has-a-floor-and-a-ceiling.md)
 records the decision.

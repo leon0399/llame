@@ -10,8 +10,9 @@ a review test. llame narrates a change the model would misread its own history
 without. Where another harness narrates a change that llame applies silently,
 the silent side writes its reason down. The ceiling is the cost of the
 narration. A notice is permanent history that every later request pays for until
-a compaction absorbs it. The rail narrates events and one named exception, and
-it never re-states the standing context the frozen baseline already owns.
+a compaction absorbs it. The Context rail narrates events and one named
+exception, and it never re-states the standing context the frozen baseline
+already owns.
 
 ## Considered options
 
@@ -33,8 +34,8 @@ it never re-states the standing context the frozen baseline already owns.
 - The ceiling forbids re-stating unchanged state for recency. Standing context
   lives in the frozen baseline and changes only through the baseline contract.
 - The named exception is model-authored state that a tool stores on the model's
-  behalf. A feature that re-states it on the rail argues its token cost in its
-  proposal. A todo reminder is the expected first case.
+  behalf. A feature that re-states it on the Context rail argues its token
+  cost in its proposal. A todo reminder is the expected first case.
 - Tool results that speak for the harness, such as a "not permitted" refusal,
   are outside this decision. Tool specs own that channel.
 - The comparison is against named systems, not a moving average. The
