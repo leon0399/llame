@@ -219,6 +219,45 @@ describe('buildWebReadResult', () => {
     });
   });
 
+  it('counts a single rendered line in a missed anchor’s refusal', async () => {
+    const url = `${GUIDE_URL}?plain=1`;
+
+    const result = await buildWebReadResult({ url, lineAnchor: 'L5' }, url, {
+      method: 'adapter',
+      content: 'only one line\n',
+      lineAddressed: true,
+    });
+
+    // A page of one line is counted as one, so the anchor's advice names the
+    // range that page actually offers.
+    expect(result).toEqual({
+      status: 'error',
+      type: 'invalid_selector',
+      message:
+        'The anchor #L5 selected no line of this page, which rendered 1 line numbered from 1. Write an anchor within L1-1. Omit the anchor to read from the start.',
+    });
+  });
+
+  it('names no anchor range when the render has no lines', async () => {
+    const url = `${GUIDE_URL}?plain=1`;
+
+    const result = await buildWebReadResult({ url, lineAnchor: 'L5' }, url, {
+      method: 'adapter',
+      content: '',
+      lineAddressed: true,
+    });
+
+    // A render with no lines has no range to point at, so the anchor's own
+    // sentence keeps the count and leaves the range out rather than naming
+    // `L1-0`.
+    expect(result).toEqual({
+      status: 'error',
+      type: 'invalid_selector',
+      message:
+        'The anchor #L5 selected no line of this page, which rendered no text. Omit the anchor to read from the start.',
+    });
+  });
+
   it('matches the native directory renderer, including a selector', async () => {
     const directory = {
       displayPath: DIRECTORY_URL,

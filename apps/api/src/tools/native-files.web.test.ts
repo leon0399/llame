@@ -370,9 +370,10 @@ describe('web locator dispatch', () => {
     });
 
     for (const result of [edited, written]) {
-      expect(result).toMatchObject({
+      expect(result).toEqual({
         status: 'error',
         type: 'invalid_path',
+        message: 'A web locator is read-only; edit and write cannot target it.',
       });
     }
 
@@ -965,6 +966,36 @@ describe('web locator dispatch', () => {
           method: 'negotiated',
         });
         expect(fetchDouble.mock.calls[0]?.[0]).toBe(BLOB_SOURCE);
+      },
+    );
+
+    it.each(['#L20-L10', '#L0'])(
+      'drops %s when the enabled adapter claims no lines',
+      async (anchor) => {
+        // An adapter that matches the source without the line hook leaves the
+        // anchor unclaimed: the shipped fragment rule drops it instead of
+        // refusing a selector the read never carries.
+        const adapter: WebAdapter = {
+          id: 'gh',
+          route: 'native',
+          match: () => true,
+          read: () => Promise.resolve(renderedBlob),
+        };
+        const execute = webReadExecutor({
+          createWebAdapters: () => [adapter],
+        });
+
+        const result = await execute(webContext(), {
+          operation: 'read',
+          input: { path: `${BLOB_SOURCE}${anchor}` },
+        });
+
+        expect(result).toMatchObject({
+          status: 'success',
+          method: 'adapter',
+          path: BLOB_SOURCE,
+          requestedRange: { startLine: 1, endLine: 30 },
+        });
       },
     );
 
