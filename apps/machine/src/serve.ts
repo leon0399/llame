@@ -19,16 +19,21 @@ import {
   type FrameMultiplexer,
   type FramerEvent,
   type Heartbeat,
+  type HelloResult,
   type JsonRpcRequest,
   type JsonValue,
   type LineFramer,
   type MachineChannel,
   type MachineErrorCode,
+  type MachineFacts,
   type RequestEnvelope,
 } from "@workspace/machine-protocol";
 import { readRoots } from "./roots";
 import { createSignal } from "./signal";
-import { rootsFileFor } from "./env";
+import { machineConfigDir, rootsFileFor } from "./env";
+import { readOrCreateInstanceId } from "./instance";
+import { currentBuildId } from "./build-id";
+import { machineFacts } from "./facts";
 import { DAEMON_VERSION } from "./version";
 import { createRootGuard, type RootGuard } from "./guard";
 import { createBashProcesses, type BashProcesses } from "./processes";
@@ -51,6 +56,10 @@ export type ServeMachineOptions = {
   readonly roots?: ReadonlyArray<string>;
   readonly configDir?: string;
   readonly daemonVersion?: string;
+  /** Test seams; the defaults come from the instance file and the bundle. */
+  readonly instanceId?: string;
+  readonly buildId?: string;
+  readonly facts?: MachineFacts;
   readonly heartbeatIntervalMs?: number;
   readonly heartbeatMisses?: number;
 };
@@ -83,6 +92,10 @@ type Session = {
   readonly guard: RootGuard;
   readonly processes: BashProcesses;
   readonly daemonVersion: string;
+  readonly instanceId: string;
+  readonly buildId: string;
+  /** Pinned by a test; otherwise measured when the hub says hello. */
+  readonly facts: MachineFacts | undefined;
   readonly multiplexer: FrameMultiplexer;
   readonly heartbeat: Heartbeat;
   readonly framer: LineFramer;
@@ -151,14 +164,20 @@ function handleHello(
   }
 
   session.helloed = true;
-  channel.result({
+
+  const result: HelloResult = {
     protocolVersion: PROTOCOL_VERSION,
     daemonVersion: session.daemonVersion,
     roots: [...session.roots],
-    // Additive: the version stays 1, and a hub reads this list to know
-    // whether this daemon answers the git methods.
+    // Additive: a hub reads this list to know whether this daemon answers the
+    // git methods.
     methods: [...GIT_METHODS],
-  });
+    instanceId: session.instanceId,
+    buildId: session.buildId,
+    facts: session.facts ?? machineFacts(session.roots),
+  };
+
+  channel.result(result);
 }
 
 /**
@@ -379,6 +398,20 @@ export function serveMachine(
   };
 }
 
+/** Who this daemon is; a corrupt instance file ends the session like a bad roots file. */
+function sessionIdentity(
+  options: ServeMachineOptions,
+): Pick<Session, "daemonVersion" | "instanceId" | "buildId" | "facts"> {
+  return {
+    daemonVersion: options.daemonVersion ?? DAEMON_VERSION,
+    instanceId:
+      options.instanceId ??
+      readOrCreateInstanceId(options.configDir ?? machineConfigDir()),
+    buildId: options.buildId ?? currentBuildId(),
+    facts: options.facts,
+  };
+}
+
 function openSession(
   input: Readable,
   output: Writable,
@@ -404,7 +437,7 @@ function openSession(
     roots,
     guard: createRootGuard(roots),
     processes: createBashProcesses(),
-    daemonVersion: options.daemonVersion ?? DAEMON_VERSION,
+    ...sessionIdentity(options),
     multiplexer,
     heartbeat,
     framer: createLineFramer(),

@@ -147,6 +147,7 @@ export const CREATION_WORKSPACE_STATUSES = [
   'bind_failed',
   'worktree_failed',
   'machine_unavailable',
+  'machine_identity_mismatch',
   'machine_update_required',
   'outcome_unknown',
 ] as const;
@@ -281,6 +282,7 @@ export function toWorkspaceResponse(
     case 'bind_failed':
     case 'worktree_failed':
     case 'machine_unavailable':
+    case 'machine_identity_mismatch':
     case 'machine_update_required':
     case 'outcome_unknown':
       return {

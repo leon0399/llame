@@ -380,6 +380,7 @@ describe('ssh bash over a real sshd', () => {
     const machines = new MachineConnector({
       machines: connection.machines,
       hubVersion: '0.0.0-yield-test',
+      bindIdentity: () => Promise.resolve('match'),
       transportFactory: transport,
     });
 

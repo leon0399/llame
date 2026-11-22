@@ -1,5 +1,6 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { PROTOCOL_VERSION } from "@workspace/machine-protocol";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   EXIT_INCOMPATIBLE_VERSION,
@@ -10,6 +11,7 @@ import {
   runMain,
   type CliEnvironment,
 } from "./cli-commands";
+import { currentBuildId } from "./build-id";
 import { DAEMON_VERSION } from "./version";
 import { createRootFixture, type RootFixture } from "./testing/fixtures";
 import type { MachineSession, SessionEndReason } from "./serve";
@@ -121,10 +123,49 @@ describe("serve command", () => {
 });
 
 describe("top level", () => {
-  it("prints the daemon version", async () => {
+  it("prints the version, build, protocol, and persisted instance", async () => {
     const version = cli();
+
     await expect(runCli(["--version"], version.env)).resolves.toBe(EXIT_OK);
-    expect(version.out()).toBe(`${DAEMON_VERSION}\n`);
+
+    const persisted = await readFile(
+      join(fixture.base, "config", "instance.json"),
+      "utf8",
+    );
+
+    const match = /^\{"instanceId":"([0-9a-f-]+)"\}\n$/.exec(persisted);
+
+    expect(match?.[1]).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+    );
+
+    const instanceId = match?.[1];
+
+    expect(version.out()).toBe(
+      [
+        `llame-machine ${DAEMON_VERSION}`,
+        `build ${currentBuildId()}`,
+        `protocol ${String(PROTOCOL_VERSION)}`,
+        `instance ${instanceId}`,
+        "",
+      ].join("\n"),
+    );
+  });
+
+  it("reports an unreadable instance file and leaves it in place", async () => {
+    const configDir = join(fixture.base, "config");
+    const instanceFile = join(configDir, "instance.json");
+    await mkdir(configDir, { recursive: true });
+    await writeFile(instanceFile, "not json");
+
+    const version = cli();
+    await expect(runCli(["--version"], version.env)).resolves.toBe(EXIT_USAGE);
+
+    expect(version.out()).toBe("");
+    expect(version.err()).toContain(
+      `The instance file ${instanceFile} is unreadable or corrupt`,
+    );
+    await expect(readFile(instanceFile, "utf8")).resolves.toBe("not json");
   });
 
   it("prints usage for an unknown command", async () => {

@@ -235,9 +235,19 @@ components:
               status: online
               lastSeenAt: '2026-10-19T09:12:04.118Z'
               failureReason: null
-              hubProtocolVersion: 1
-              daemonProtocolVersion: 1
-              daemonVersion: '0.4.0'
+              hubProtocolVersion: 2
+              daemonProtocolVersion: 2
+              daemonVersion: '0.0.2'
+              facts:
+                os: linux
+                arch: x64
+                kernel: 6.8.0-45-generic
+                cpuCount: 8
+                totalMemoryBytes: 16000000000
+                rootDisks:
+                  - root: /srv/projects
+                    totalBytes: 500000000000
+              factsCapturedAt: '2026-10-19T09:12:04.118Z'
               roots:
                 - /srv/projects
     machineDeleted:

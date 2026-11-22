@@ -12,6 +12,8 @@ export * from './identity';
 
 export * from './knowledge-spaces';
 
+export * from './machine-bindings';
+
 export * from './machines-status';
 
 export * from './media';

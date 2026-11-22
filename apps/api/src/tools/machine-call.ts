@@ -26,9 +26,10 @@ import { isBoolean, isString } from '@workspace/runtime-safety';
 
 import type { MachineFailureReason } from '../machines/machines-status';
 import {
+  MachineIdentityMismatchError,
   MachineUnavailableError,
-  type MachineConnector,
-} from '../machines/machine-connector.service';
+} from '../machines/machine-session';
+import { type MachineConnector } from '../machines/machine-connector.service';
 import {
   machineEnvelope,
   machineAttemptKey as attemptKeyFor,
@@ -118,6 +119,8 @@ const REASON_TEXT: Readonly<Record<MachineFailureReason, string>> = {
   auth_failed: 'authentication failed',
   incompatible_version: 'its daemon speaks an incompatible protocol version',
   session_lost: 'the session was lost',
+  identity_mismatch:
+    'it answered with a different identity than the one bound to its name',
 };
 
 export function machineUnavailableResult(
@@ -131,6 +134,21 @@ export function machineUnavailableResult(
       reason === undefined
         ? `The Machine "${name}" is unavailable.`
         : `The Machine "${name}" is unavailable because ${REASON_TEXT[reason]}.`,
+  };
+}
+
+/**
+ * A Machine whose daemon answered under a name bound to another instance id.
+ * Nothing was sent, so this is never `outcome_unknown`: the hub refused the
+ * session before any request, and only an operator can decide what to do.
+ */
+export function machineIdentityMismatchResult(
+  name: string,
+): MachineFailureResult {
+  return {
+    status: 'error',
+    type: 'machine_identity_mismatch',
+    message: `The Machine "${name}" answered with a different identity than the one bound to its name; an operator must check it, then run machines:forget if the change is legitimate.`,
   };
 }
 
@@ -197,6 +215,11 @@ async function machineCallResult(
   try {
     return await perform();
   } catch (error) {
+    // Before the unavailable branch: a mismatch extends it, and it has its own
+    // operator-facing outcome. `sent` is false, so it is never unknown.
+    if (error instanceof MachineIdentityMismatchError)
+      return machineIdentityMismatchResult(name);
+
     if (error instanceof MachineUnavailableError)
       return error.sent && options.unknownOnSent
         ? machineUnknownResult(name)
@@ -249,8 +272,18 @@ export async function runMachineMutation(
   if (!connector.isConfigured(target.name))
     return machineNotFoundResult(target.name);
 
-  if (!(await connector.reachable(target.name, machineCallAttemptKey(context))))
-    return machineUnavailableResult(target.name);
+  if (
+    !(await connector.reachable(target.name, machineCallAttemptKey(context)))
+  ) {
+    // Reachability is a boolean, so the reason is read back from the open that
+    // just failed: a mismatched identity is its own result, never a plain
+    // unavailability (the spec requires it for every operation on the Machine).
+    const refusal = connector.lastRefusal(target.name);
+
+    return refusal instanceof MachineIdentityMismatchError
+      ? machineIdentityMismatchResult(target.name)
+      : machineUnavailableResult(target.name);
+  }
 
   return connector.serializeMutation(target.name, () =>
     fencedMachineMutation(context, target, perform, {

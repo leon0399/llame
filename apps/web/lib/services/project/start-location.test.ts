@@ -49,6 +49,8 @@ function machine(
     hubProtocolVersion: 1,
     daemonProtocolVersion: 1,
     daemonVersion: "0.1.0",
+    facts: null,
+    factsCapturedAt: null,
     roots: ["/srv/src"],
     ...overrides,
   };
@@ -226,6 +228,22 @@ describe("resolveLocation", () => {
     expect(location.warning?.step).toBe("machine");
     expect(location.warning?.message).toContain("Update the llame-machine");
     expect(location.executor?.reason).toContain("Update the llame-machine");
+  });
+
+  it("names a mismatched Machine identity and disables the Machine with it", () => {
+    const location = resolve({
+      preview: preview({ executorId: "machine:nas" }),
+      checkouts: [checkout("c1", { executorId: "machine:nas" })],
+      machines: [machine("nas")],
+      failed: {
+        status: "machine_identity_mismatch",
+        executorId: "machine:nas",
+      },
+    });
+
+    expect(location.warning?.step).toBe("machine");
+    expect(location.warning?.message).toContain("machines:forget");
+    expect(location.executor?.reason).toContain("machines:forget");
   });
 
   it("reports a preview failure", () => {

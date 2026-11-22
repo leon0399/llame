@@ -1187,6 +1187,7 @@ describe('scope kinds message', () => {
   const MACHINES = new MachineConnector({
     machines: undefined,
     hubVersion: 'test',
+    bindIdentity: () => Promise.resolve('match'),
     onContact: () => undefined,
   });
 

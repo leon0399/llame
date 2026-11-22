@@ -102,6 +102,11 @@ function MachineFacts({ machine }: { machine: MachineResponse }) {
         </FactRow>
       )}
       <FactRow label="Versions">{versionsText(machine)}</FactRow>
+      {machine.facts === null ? null : (
+        <FactRow label="System">
+          {machine.facts.os} {machine.facts.arch}
+        </FactRow>
+      )}
       <FactRow label="Roots">
         <MachineRoots roots={machine.roots} />
       </FactRow>
@@ -111,9 +116,10 @@ function MachineFacts({ machine }: { machine: MachineResponse }) {
 
 /**
  * One Machine's row: name and state first, then the facts the spec makes
- * visible — last contact, the last failure, both protocol versions, and the
- * registered roots. SSH destinations, jump hosts, and identities never reach
- * this shape (see `GET /api/v1/machines`), so nothing here needs redacting.
+ * visible — last contact, the last failure, both protocol versions, the OS and
+ * architecture the daemon reported, and the registered roots. SSH
+ * destinations, jump hosts, and identities never reach this shape (see
+ * `GET /api/v1/machines`), so nothing here needs redacting.
  */
 function MachineDetails({ machine }: { machine: MachineResponse }) {
   return (

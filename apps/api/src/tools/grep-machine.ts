@@ -30,6 +30,7 @@ import {
   MachineUnavailableError,
   type MachineConnector,
 } from '../machines/machine-connector.service';
+import { MachineIdentityMismatchError } from '../machines/machine-session';
 import {
   formatMachineLocator,
   MACHINE_NAME_PATTERN,
@@ -51,6 +52,7 @@ import {
   machineBudgetMs,
   machineCallEnvelope,
   machineConnector,
+  machineIdentityMismatchResult,
   machineNotFoundResult,
   machineProtocolFailureResult,
   machineUnavailableResult,
@@ -568,6 +570,10 @@ function machineGrepFailure(
   name: string,
   error: unknown,
 ): MachineFailureResult {
+  // Before the unavailable branch: a mismatch extends it and is its own result.
+  if (error instanceof MachineIdentityMismatchError)
+    return machineIdentityMismatchResult(name);
+
   if (error instanceof MachineUnavailableError)
     return machineUnavailableResult(name, error.reason);
 

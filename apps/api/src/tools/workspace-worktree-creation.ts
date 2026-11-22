@@ -8,11 +8,10 @@ import { RepositoriesRepository } from '../repositories/repositories.repository'
 import { type ToolErrorResult, type WorktreeGit } from './types';
 import {
   chosenName,
-  executorFailure,
   gitFailureOutcome,
   worktreeFailed,
-  type Failed,
 } from './workspace-worktree-entry';
+import { executorFailure, type Failed } from './workspace-worktree-failure';
 import {
   defaultWorktreeBase,
   worktreeDirectory,
@@ -117,7 +116,7 @@ export async function planCreationWorktree(
   try {
     return await decidePlan(creation);
   } catch (error) {
-    return executorFailure(error);
+    return executorFailure(error, input.target.machine);
   }
 }
 
@@ -212,7 +211,7 @@ export async function addCreationWorktree(
 
     if (error instanceof RollbackError) return error.outcome;
 
-    return executorFailure(error);
+    return executorFailure(error, input.target.machine);
   }
 }
 
@@ -244,7 +243,7 @@ async function addWorktree(
       directory: plan.directory,
     });
   } catch (error) {
-    return executorFailure(error, plan.directory);
+    return executorFailure(error, input.target.machine, plan.directory);
   }
 
   if (added.status === 'error') return gitFailureOutcome(added);

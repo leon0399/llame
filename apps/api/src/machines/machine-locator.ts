@@ -34,6 +34,11 @@ export const MACHINE_EXECUTOR_PREFIX = 'machine:';
 /** Machine names are the operator's configuration keys: lowercase and dashed. */
 export const MACHINE_NAME_PATTERN = /^[a-z0-9-]{1,63}$/u;
 
+/** The display prefix every report for one Machine starts with. */
+export function machinePrefix(name: string): string {
+  return `${MACHINE_SCHEME}://${name}`;
+}
+
 const LOCATOR_PREFIX = /^machine:\/\//iu;
 const NAME_SEPARATOR = '/';
 

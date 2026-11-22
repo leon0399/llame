@@ -53,6 +53,7 @@ const EXPECTED_STATUS: Record<RepositoryFailureCode, number> = {
   permission_denied: 403,
   executor_unavailable: 503,
   machine_unavailable: 503,
+  machine_identity_mismatch: 503,
   machine_update_required: 503,
   git_failed: 502,
 };

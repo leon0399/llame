@@ -93,7 +93,10 @@ export type CreationWorkspaceResult =
       readonly leftDirectory?: string;
     }
   | {
-      readonly status: 'machine_unavailable' | 'machine_update_required';
+      readonly status:
+        | 'machine_unavailable'
+        | 'machine_identity_mismatch'
+        | 'machine_update_required';
       readonly message: string;
     }
   | {
@@ -342,6 +345,7 @@ function probeFailure(error: unknown): ToolErrorResult {
 
   switch (error.code) {
     case 'machine_unavailable':
+    case 'machine_identity_mismatch':
     case 'machine_update_required':
       return { status: 'error', type: error.code, message: error.message };
     case 'path_not_registered':
@@ -410,8 +414,12 @@ function workspaceFailure(result: ToolErrorResult): CreationWorkspaceResult {
       };
     case 'worktree_failed':
       return { status: 'worktree_failed', message: result.message, ...left };
+    // A name bound to another instance id keeps its own status: the operator
+    // fixes it with `machines:forget`, not by waiting for the Machine.
     case 'machine_unavailable':
       return { status: 'machine_unavailable', message: result.message };
+    case 'machine_identity_mismatch':
+      return { status: 'machine_identity_mismatch', message: result.message };
     case 'machine_update_required':
       return { status: 'machine_update_required', message: result.message };
     case 'outcome_unknown':

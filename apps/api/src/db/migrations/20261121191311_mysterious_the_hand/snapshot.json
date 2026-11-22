@@ -1,0 +1,208 @@
+{
+  "type": "diff",
+  "version": "9",
+  "dialect": "postgres",
+  "id": "7c80d17d-1b7c-425e-81c9-886768491d0a",
+  "prevIds": ["c1d143aa-f503-4a2e-b627-48512ca88430"],
+  "footprints": [
+    {
+      "statementType": "create_table",
+      "statementTarget": ["table", "public", "machine_bindings"],
+      "writes": [
+        "s|tbl|public.machine_bindings",
+        "n|tbl|public.machine_bindings",
+        "e|tbl|public.machine_bindings",
+        "n|rel|public.machine_bindings",
+        "n|type|public.machine_bindings",
+        "n|rel|public.machine_bindings_pkey"
+      ],
+      "reads": ["n|sch|public"]
+    },
+    {
+      "statementType": "add_column",
+      "statementTarget": ["column", "public", "machines_status", "facts"],
+      "writes": [
+        "s|col|public.machines_status.facts",
+        "n|col|public.machines_status.facts",
+        "e|col|public.machines_status.facts"
+      ],
+      "reads": ["n|tbl|public.machines_status", "n|sch|public"]
+    },
+    {
+      "statementType": "add_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "machines_status",
+        "facts_captured_at"
+      ],
+      "writes": [
+        "s|col|public.machines_status.facts_captured_at",
+        "n|col|public.machines_status.facts_captured_at",
+        "e|col|public.machines_status.facts_captured_at"
+      ],
+      "reads": ["n|tbl|public.machines_status", "n|sch|public"]
+    },
+    {
+      "statementType": "alter_check",
+      "statementTarget": ["table", "public", "machines_status"],
+      "writes": [
+        "s|ck|public.machines_status.machines_status_failure_reason_check"
+      ],
+      "reads": [
+        "n|tbl|public.machines_status",
+        "n|sch|public",
+        "n|col|public.machines_status.last_failure_reason",
+        "e|col|public.machines_status.last_failure_reason"
+      ],
+      "sqlHash": "6ec3fa1511d2bf0d"
+    },
+    {
+      "statementType": "create_policy",
+      "statementTarget": ["table", "public", "machine_bindings"],
+      "writes": [
+        "s|pol|public.machine_bindings.machine_bindings_system_write",
+        "n|pol|public.machine_bindings.machine_bindings_system_write",
+        "e|pol|public.machine_bindings.machine_bindings_system_write"
+      ],
+      "reads": [
+        "n|tbl|public.machine_bindings",
+        "n|sch|public",
+        "e|rls|public.machine_bindings"
+      ]
+    }
+  ],
+  "deltas": [
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "name": "machine_bindings",
+        "isRlsEnabled": true,
+        "entityType": "tables"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "machine_bindings",
+        "name": "name",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "machine_bindings",
+        "name": "instance_id",
+        "type": "uuid",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "machine_bindings",
+        "name": "bound_at",
+        "type": "timestamp with time zone",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "now()",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "machines_status",
+        "name": "facts",
+        "type": "jsonb",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "machines_status",
+        "name": "facts_captured_at",
+        "type": "timestamp with time zone",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "machine_bindings",
+        "name": "machine_bindings_pkey",
+        "columns": ["name"],
+        "nameExplicit": false,
+        "entityType": "pks"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "machine_bindings",
+        "name": "machine_bindings_name_check",
+        "value": "\"name\" ~ '^[a-z0-9-]{1,63}$'",
+        "entityType": "checks"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "machine_bindings",
+        "name": "machine_bindings_system_write",
+        "as": "PERMISSIVE",
+        "for": "ALL",
+        "roles": ["public"],
+        "using": "current_setting('app.machines_system', true) = '1'",
+        "withCheck": "current_setting('app.machines_system', true) = '1'",
+        "entityType": "policies"
+      }
+    },
+    {
+      "op": "alter",
+      "key": "checks\u0000[\"public\",\"machines_status\",\"machines_status_failure_reason_check\"]",
+      "set": {
+        "value": "\"last_failure_reason\" IS NULL OR \"last_failure_reason\" IN ('unreachable', 'host_key_mismatch', 'auth_failed', 'incompatible_version', 'session_lost', 'identity_mismatch')"
+      }
+    }
+  ]
+}

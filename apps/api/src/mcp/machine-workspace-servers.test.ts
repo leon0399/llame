@@ -60,6 +60,7 @@ function fixture(options: ProtocolPeerOptions = {}): Fixture {
   const connector = new MachineConnector({
     machines: MACHINES,
     hubVersion: '9.9.9',
+    bindIdentity: () => Promise.resolve('match'),
     handshakeTimeoutMs: 2000,
     transportFactory: {
       open: (openOptions) => {
@@ -402,6 +403,7 @@ function mcpServerFixture(): Fixture {
   const connector = new MachineConnector({
     machines: MACHINES,
     hubVersion: '9.9.9',
+    bindIdentity: () => Promise.resolve('match'),
     handshakeTimeoutMs: 2000,
     transportFactory: {
       open: (openOptions) => {

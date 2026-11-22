@@ -39,7 +39,7 @@ import {
 } from '@workspace/machine-protocol';
 
 import { classifySshLinkFailure } from '../ssh/ssh-process';
-import { readHelloResult } from './machine-results';
+import { readHelloResult } from './machine-hello';
 import {
   type MachineLinkEnd,
   type MachineTransport,
@@ -154,6 +154,26 @@ export class MachineUnavailableError extends Error {
   ) {
     super(message);
     this.name = 'MachineUnavailableError';
+  }
+}
+
+/**
+ * The daemon answered under a name that is bound to a different instance id:
+ * a second computer under one Machine name. Extending
+ * {@link MachineUnavailableError} keeps every existing `instanceof` site
+ * failing closed as unavailable; the tool boundary narrows this subclass
+ * first, because a mismatch is its own operator-facing outcome and nothing was
+ * ever sent.
+ */
+export class MachineIdentityMismatchError extends MachineUnavailableError {
+  constructor(machine: string) {
+    super(
+      machine,
+      'identity_mismatch',
+      false,
+      'The Machine answered with a different identity than the one bound to its name.',
+    );
+    this.name = 'MachineIdentityMismatchError';
   }
 }
 

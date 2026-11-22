@@ -8,7 +8,6 @@ import {
 import { WorkspaceBindingRepository } from '../chats/workspace-binding.repository';
 import { type Checkout } from '../db/schema';
 import { type Db } from '../db/tenant-db.service';
-import { ExecutorGitError } from '../machines/executor-git-error';
 import { type ExecutorTarget } from '../machines/executor-git.service';
 import { gitFailureMessage } from '../machines/git-failure';
 import { derivedDisplayName } from '../repositories/display-name';
@@ -16,13 +15,9 @@ import { canonicalOrigin } from '../repositories/remote';
 import { RepositoriesRepository } from '../repositories/repositories.repository';
 import { NativeFilesRepository } from '../runs/native-files-repository';
 import { RunEventsRepository } from '../runs/runs-repository';
-import {
-  type ToolContext,
-  type ToolErrorResult,
-  type ToolResult,
-  type WorktreeGit,
-} from './types';
+import { type ToolContext, type ToolResult, type WorktreeGit } from './types';
 import { adoptSource } from './workspace-worktree-adoption';
+import { executorFailure, type Failed } from './workspace-worktree-failure';
 import { targetOf } from './workspace-worktree-target';
 import {
   requireDerivedPermission,
@@ -80,12 +75,6 @@ export type WorktreeOutcome =
       readonly worktree: WorktreeBinding;
     };
 
-/** Anything that ended the call with an observation instead of a binding. */
-export type Failed = {
-  readonly status: 'failed';
-  readonly result: ToolErrorResult;
-};
-
 /**
  * The settled failure a commit transaction rolls back to. Throwing it inside
  * `runAs` discards every row the transaction wrote, and the caller outside
@@ -107,48 +96,6 @@ export function worktreeFailed(message: string): Failed {
 /** One git failure as the observation a worktree call reports. */
 export function gitFailureOutcome(failure: GitFailure): Failed {
   return worktreeFailed(gitFailureMessage(failure));
-}
-
-/**
- * One executor refusal, in the code this call answers. A Machine link lost
- * after a mutation was sent may have left its effect behind, so it is reported
- * as unknown with the directory that can remain; every read answers its own
- * code, because a read wrote nothing.
- */
-export function executorFailure(
-  error: unknown,
-  leftDirectory?: string,
-): Failed {
-  if (!(error instanceof ExecutorGitError)) throw error;
-
-  switch (error.code) {
-    case 'machine_unavailable':
-      return {
-        status: 'failed',
-        result:
-          error.sent && leftDirectory !== undefined
-            ? {
-                status: 'error',
-                type: 'outcome_unknown',
-                message: `The worktree may exist on the Machine; inspect it before retrying. ${error.message}`,
-                leftDirectory,
-              }
-            : {
-                status: 'error',
-                type: 'machine_unavailable',
-                message: error.message,
-              },
-      };
-    case 'machine_update_required':
-    case 'path_not_registered':
-    case 'executor_unavailable':
-      return {
-        status: 'failed',
-        result: { status: 'error', type: error.code, message: error.message },
-      };
-    default:
-      return worktreeFailed(error.message);
-  }
 }
 
 type Creation = {
@@ -197,7 +144,7 @@ export async function enterWorktree(
   } catch (error) {
     // Every read is inside this catch and every mutation is caught where it
     // is sent, so no failure here can carry a leftover-directory claim.
-    return executorFailure(error);
+    return executorFailure(error, input.authority.machine?.name);
   }
 }
 
@@ -346,7 +293,10 @@ async function addedWorktree(
   } catch (error) {
     // The add is the one mutation this call sends, so it is the one place a
     // lost link can leave the decided directory behind.
-    return settledFailure(creation, executorFailure(error, plan.directory));
+    return settledFailure(
+      creation,
+      executorFailure(error, creation.target.machine, plan.directory),
+    );
   }
 
   if (added.status === 'error')
@@ -436,7 +386,7 @@ async function refuseElsewhere(
     actual = await executors.canonical(target, plan.directory);
   } catch (error) {
     // A real-path read writes nothing, so it never claims a leftover.
-    return executorFailure(error);
+    return executorFailure(error, target.machine);
   }
 
   if (actual === plan.directory) return undefined;
@@ -446,7 +396,7 @@ async function refuseElsewhere(
   try {
     removed = await executors.removeWorktree(target, plan.directory);
   } catch (error) {
-    return executorFailure(error, plan.directory);
+    return executorFailure(error, target.machine, plan.directory);
   }
 
   if (removed.status === 'error')

@@ -51,7 +51,12 @@ function failureObservation(failure: GitFailure): GitObservation {
 
 function thrownObservation(error: unknown): GitObservation {
   if (error instanceof ExecutorGitError) {
-    if (error.code === 'machine_unavailable')
+    // A name bound to another instance id is answered as unavailable: the
+    // Machine is there, but this hub will not read its git state.
+    if (
+      error.code === 'machine_unavailable' ||
+      error.code === 'machine_identity_mismatch'
+    )
       return unavailable('machine_unavailable');
 
     if (error.code === 'machine_update_required')

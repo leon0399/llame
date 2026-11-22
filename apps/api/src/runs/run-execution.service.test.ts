@@ -5504,6 +5504,7 @@ describe('RunExecutionService executeRun', () => {
             hosts: { devl: { destination: 'box' } },
           },
           hubVersion: '9.9.9',
+          bindIdentity: () => Promise.resolve('match'),
           transportFactory: peer.factory,
         }),
       },
@@ -22862,7 +22863,11 @@ describe('RunExecutionService git state', () => {
           tools: { ...BUILT_IN_DEFAULTS.tools, nativeExecutorId: 'host-a' },
         },
       },
-      new MachineConnector({ machines: undefined, hubVersion: 'test' }),
+      new MachineConnector({
+        machines: undefined,
+        hubVersion: 'test',
+        bindIdentity: () => Promise.resolve('match'),
+      }),
       localGitSurface(),
     );
   }

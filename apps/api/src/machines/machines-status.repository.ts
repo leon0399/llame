@@ -32,8 +32,12 @@ import {
   type MachineStatusRow,
 } from './machines-status';
 
-/** The transaction-local setting that marks the hub's own status writer. */
-const SYSTEM_MARKER = sql`select set_config('app.machines_system', '1', true)`;
+/**
+ * The transaction-local setting that marks the hub's own system context. Shared
+ * with `MachineBindingsRepository`: one marker admits every installation-state
+ * table's system writer, and no request path ever sets it.
+ */
+export const SYSTEM_MARKER = sql`select set_config('app.machines_system', '1', true)`;
 
 /** A selected row, with its failure reason narrowed to the closed set. */
 function asStatusRow(
@@ -65,6 +69,10 @@ function contactRow(
     daemonProtocolVersion: contact.daemonProtocolVersion ?? null,
     daemonVersion: boundMachineVersion(contact.daemonVersion) ?? null,
     roots: boundMachineRoots(contact.roots),
+    // A failure carries no facts: it never refreshed them, so the row keeps
+    // whatever the last successful handshake captured.
+    facts: contact.facts ?? null,
+    factsCapturedAt: success && contact.facts !== undefined ? contact.at : null,
     updatedAt: contact.at,
   };
 }
@@ -83,8 +91,8 @@ function contactUpdate(
   contact: MachineContact,
   row: typeof machinesStatus.$inferInsert,
 ): PgUpdateSetSource<typeof machinesStatus> {
-  if (contact.failure === undefined)
-    return {
+  if (contact.failure === undefined) {
+    const update: PgUpdateSetSource<typeof machinesStatus> = {
       firstContactAt: sql`coalesce(${machinesStatus.firstContactAt}, excluded.first_contact_at)`,
       lastContactAt: sql`greatest(${machinesStatus.lastContactAt}, excluded.last_contact_at)`,
       hubProtocolVersion: row.hubProtocolVersion,
@@ -93,6 +101,16 @@ function contactUpdate(
       roots: row.roots,
       updatedAt: row.updatedAt,
     };
+
+    // A success that brought facts replaces them with their capture time; a
+    // contact without facts leaves the stored pair alone.
+    if (contact.facts !== undefined) {
+      update.facts = contact.facts;
+      update.factsCapturedAt = contact.at;
+    }
+
+    return update;
+  }
 
   return {
     lastFailureReason: sql`case when ${machinesStatus.lastFailureAt} is null or excluded.last_failure_at >= ${machinesStatus.lastFailureAt} then excluded.last_failure_reason else ${machinesStatus.lastFailureReason} end`,

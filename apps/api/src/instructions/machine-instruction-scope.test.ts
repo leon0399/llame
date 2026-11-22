@@ -137,7 +137,11 @@ class MachinePeer extends MachineConnector {
   private readonly tree: MachineTree;
 
   constructor(tree: MachineTree = {}) {
-    super({ machines: MACHINES, hubVersion: '9.9.9' });
+    super({
+      machines: MACHINES,
+      hubVersion: '9.9.9',
+      bindIdentity: () => Promise.resolve('match'),
+    });
     this.tree = tree;
   }
 

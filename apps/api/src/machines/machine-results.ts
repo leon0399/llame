@@ -8,7 +8,6 @@
  */
 
 import {
-  GIT_METHODS,
   isSerializableRecord,
   type FsBytesResult,
   type FsGrepConsumed,
@@ -24,7 +23,6 @@ import {
   type FsReadResult,
   type FsStatKind,
   type FsStatResult,
-  type HelloResult,
   type JsonValue,
   type McpOpenResult,
   type McpServerEntry,
@@ -183,7 +181,7 @@ export function isTextList(
 
 /** An untrusted JSON array, typed for element-wise validation. */
 export function isUntrustedList(
-  value: JsonValue,
+  value: SerializableValue,
 ): value is ReadonlyArray<SerializableValue> {
   return Array.isArray(value);
 }
@@ -208,31 +206,6 @@ export function isNativeFailure(
   value: JsonValue,
 ): value is NativeFailureResult {
   return readNativeFailure(value) !== undefined;
-}
-
-/** The handshake answer: protocol version, daemon version, registered roots,
- *  and the git methods the daemon answers. */
-export function readHelloResult(value: JsonValue): HelloResult | undefined {
-  if (!isSerializableRecord(value)) return undefined;
-  const { protocolVersion, daemonVersion, roots, methods } = value;
-
-  if (!isCount(protocolVersion) || !isText(daemonVersion) || !isTextList(roots))
-    return undefined;
-
-  const hello: HelloResult = {
-    protocolVersion,
-    daemonVersion,
-    roots: [...roots],
-  };
-
-  // A daemon that predates the git methods sends no list at all. A malformed
-  // one is read as absent too, because the handshake is still usable: its file
-  // tools and `bash` keep working while a git call asks for an update.
-  const listed = isTextList(methods)
-    ? GIT_METHODS.filter((method) => methods.includes(method))
-    : [];
-
-  return listed.length === 0 ? hello : { ...hello, methods: listed };
 }
 
 export function readRootsListResult(

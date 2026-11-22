@@ -25,9 +25,11 @@ function machine(
     status: "online",
     lastSeenAt: LAST_SEEN,
     failureReason: null,
-    hubProtocolVersion: 1,
-    daemonProtocolVersion: 1,
-    daemonVersion: "0.1.0",
+    hubProtocolVersion: 2,
+    daemonProtocolVersion: 2,
+    daemonVersion: "0.0.2",
+    facts: null,
+    factsCapturedAt: null,
     roots: ["/srv/projects"],
     ...overrides,
   };
@@ -39,6 +41,25 @@ const offlineDevl = machine({
   name: "devl",
   status: "offline",
   failureReason: "host_key_mismatch",
+});
+
+const withFacts = machine({
+  name: "devl",
+  facts: {
+    os: "linux",
+    arch: "x64",
+    kernel: "6.8.0-45-generic",
+    cpuCount: 8,
+    totalMemoryBytes: 16_000_000_000,
+    rootDisks: [{ root: "/srv/projects", totalBytes: 500_000_000_000 }],
+  },
+  factsCapturedAt: LAST_SEEN,
+});
+
+const identityChanged = machine({
+  name: "devl",
+  status: "offline",
+  failureReason: "identity_mismatch",
 });
 
 const neverConnected = machine({
@@ -89,11 +110,69 @@ export const Online: Story = {
     await expect(seen).toHaveTextContent("3 minutes ago");
 
     await expect(
-      canvas.getByText("Hub protocol v1 · daemon 0.1.0 (protocol v1)"),
+      canvas.getByText("Hub protocol v2 · daemon 0.0.2 (protocol v2)"),
     ).toBeVisible();
     await expect(canvas.getByText("/srv/projects")).toBeVisible();
     // Nothing failed, so there is no failure row to read.
     await expect(canvas.queryByText("Last failure")).toBeNull();
+    // No handshake has reported facts, so there is no system row either.
+    await expect(canvas.queryByText("System")).toBeNull();
+  },
+};
+
+/**
+ * A daemon reports its OS and architecture at each handshake, so the owner can
+ * tell a Linux box from a macOS one before entering a Workspace on it.
+ *
+ * @summary online Machine with the OS and architecture it reported
+ */
+export const OnlineWithFacts: Story = {
+  tags: ["ai-generated"],
+  beforeEach: () => {
+    useMachinesQuery.mockReturnValue({
+      data: [withFacts],
+      isPending: false,
+      isError: false,
+      refetch: refetchMachines,
+    });
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+
+    await expect(canvas.getByText("System")).toBeVisible();
+    await expect(canvas.getByText("linux x64")).toBeVisible();
+    // The facts carry a kernel, a CPU count, and memory sizes; the row says
+    // only what the owner acts on, and never the instance id.
+    await expect(canvas.queryByText(/6\.8\.0/)).toBeNull();
+    await expect(
+      canvas.queryByText(/[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-/),
+    ).toBeNull();
+  },
+};
+
+/**
+ * A daemon that answers with a different instance id than the one bound to its
+ * name is refused, so the owner sees the identity change rather than a
+ * connection problem that would invite a retry.
+ *
+ * @summary offline Machine whose identity changed
+ */
+export const IdentityChanged: Story = {
+  tags: ["ai-generated"],
+  beforeEach: () => {
+    useMachinesQuery.mockReturnValue({
+      data: [identityChanged],
+      isPending: false,
+      isError: false,
+      refetch: refetchMachines,
+    });
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+
+    await expect(canvas.getByText("Offline")).toBeVisible();
+    await expect(canvas.getByText("Last failure")).toBeVisible();
+    await expect(canvas.getByText("Identity changed")).toBeVisible();
   },
 };
 
@@ -151,7 +230,7 @@ export const NeverConnected: Story = {
     await expect(canvas.getByText("builder")).toBeVisible();
     await expect(canvas.getByText("Never connected")).toBeVisible();
     await expect(
-      canvas.getByText("Hub protocol v1 · daemon not contacted yet"),
+      canvas.getByText("Hub protocol v2 · daemon not contacted yet"),
     ).toBeVisible();
     await expect(canvas.getByText("No roots registered")).toBeVisible();
     // No handshake, so no timestamp element at all.

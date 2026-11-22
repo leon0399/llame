@@ -108,6 +108,7 @@ function realExecutors(
 ): ExecutorGit {
   const connector = new MachineConnector({
     hubVersion: 'test-hub',
+    bindIdentity: () => Promise.resolve('match'),
     machines,
     transportFactory: createProtocolPeer(options).factory,
     idleCloseMs: 1000,

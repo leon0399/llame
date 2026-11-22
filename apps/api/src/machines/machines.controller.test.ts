@@ -27,6 +27,7 @@ function makeController(enabled: boolean) {
   const connector = new MachineConnector({
     machines: enabled ? MACHINES : undefined,
     hubVersion: '9.9.9',
+    bindIdentity: () => Promise.resolve('match'),
   });
 
   const status = new MachinesStatusRepository(
@@ -65,6 +66,15 @@ describe('MachinesController.list', () => {
         hubProtocolVersion: 4,
         daemonProtocolVersion: 3,
         daemonVersion: '1.4.0',
+        facts: {
+          os: 'linux',
+          arch: 'x64',
+          kernel: '6.8.0-45-generic',
+          cpuCount: 8,
+          totalMemoryBytes: 16_000_000_000,
+          rootDisks: [{ root: '/srv/work', totalBytes: 500_000_000_000 }],
+        },
+        factsCapturedAt: new Date('2026-10-19T09:58:30.000Z'),
         roots: ['/srv/work'],
       },
       {
@@ -75,6 +85,8 @@ describe('MachinesController.list', () => {
         hubProtocolVersion: 4,
         daemonProtocolVersion: null,
         daemonVersion: null,
+        facts: null,
+        factsCapturedAt: null,
         roots: [],
       },
     ];
@@ -90,6 +102,15 @@ describe('MachinesController.list', () => {
         hubProtocolVersion: 4,
         daemonProtocolVersion: 3,
         daemonVersion: '1.4.0',
+        facts: {
+          os: 'linux',
+          arch: 'x64',
+          kernel: '6.8.0-45-generic',
+          cpuCount: 8,
+          totalMemoryBytes: 16_000_000_000,
+          rootDisks: [{ root: '/srv/work', totalBytes: 500_000_000_000 }],
+        },
+        factsCapturedAt: '2026-10-19T09:58:30.000Z',
         roots: ['/srv/work'],
       },
       {
@@ -100,9 +121,53 @@ describe('MachinesController.list', () => {
         hubProtocolVersion: 4,
         daemonProtocolVersion: null,
         daemonVersion: null,
+        facts: null,
+        factsCapturedAt: null,
         roots: [],
       },
     ]);
     expect(list).toHaveBeenCalledWith('user-1');
+  });
+
+  it('never exposes the instance id the hub binds', async () => {
+    const { controller, list } = makeController(true);
+
+    list.mockResolvedValue([
+      {
+        name: 'devl',
+        status: 'online',
+        lastSeenAt: null,
+        failureReason: null,
+        hubProtocolVersion: 4,
+        daemonProtocolVersion: 4,
+        daemonVersion: '2.0.0',
+        facts: {
+          os: 'linux',
+          arch: 'arm64',
+          kernel: '6.8.0-45-generic',
+          cpuCount: 4,
+          totalMemoryBytes: 8_000_000_000,
+          rootDisks: [{ root: '/srv/work', totalBytes: null }],
+        },
+        factsCapturedAt: new Date('2026-10-19T09:58:30.000Z'),
+        roots: ['/srv/work'],
+      },
+    ]);
+
+    const response = await controller.list('user-1');
+
+    expect(JSON.stringify(response)).not.toContain('instanceId');
+    expect(Object.keys(response[0] ?? {})).toEqual([
+      'name',
+      'status',
+      'lastSeenAt',
+      'failureReason',
+      'hubProtocolVersion',
+      'daemonProtocolVersion',
+      'daemonVersion',
+      'facts',
+      'factsCapturedAt',
+      'roots',
+    ]);
   });
 });

@@ -52,6 +52,8 @@ const STORED: StoredRow = {
   daemonProtocolVersion: 3,
   daemonVersion: '1.4.0',
   roots: ['/srv/repo'],
+  facts: null,
+  factsCapturedAt: null,
   updatedAt: AT,
 };
 
@@ -227,6 +229,8 @@ describe('MachinesStatusRepository.recordContact', () => {
       daemonProtocolVersion: 3,
       daemonVersion: '1.4.0',
       roots: ['/srv/repo', '/srv/work'],
+      facts: null,
+      factsCapturedAt: null,
       updatedAt: AT,
     });
     // A repeat success re-stamps the contact and the daemon report and
@@ -281,6 +285,8 @@ describe('MachinesStatusRepository.recordContact', () => {
       daemonProtocolVersion: null,
       daemonVersion: null,
       roots: [],
+      facts: null,
+      factsCapturedAt: null,
       updatedAt: AT,
     });
     // Only the failure fields move: the contact stamps of an earlier success
@@ -292,6 +298,95 @@ describe('MachinesStatusRepository.recordContact', () => {
       'updatedAt',
     ]);
     expect(insert.set).toMatchObject({ hubProtocolVersion: 4, updatedAt: AT });
+  });
+});
+
+describe('MachinesStatusRepository.recordContact facts', () => {
+  const FACTS = {
+    os: 'linux',
+    arch: 'x64',
+    kernel: '6.8.0',
+    cpuCount: 8,
+    totalMemoryBytes: 16 * 1024 ** 3,
+    rootDisks: [{ root: '/srv/repo', totalBytes: 512 * 1024 ** 3 }],
+  };
+
+  it('stores the facts with their capture time on a successful contact', async () => {
+    const fake = statusDb();
+
+    const repository = new MachinesStatusRepository(
+      fake.db,
+      tenantFake(fake.scoped).tenantDb,
+    );
+
+    await repository.recordContact({
+      name: 'build-box',
+      at: AT,
+      hubProtocolVersion: 5,
+      daemonProtocolVersion: 5,
+      daemonVersion: '1.5.0',
+      roots: ['/srv/repo'],
+      facts: FACTS,
+    });
+
+    const [insert] = fake.inserts;
+    expect(insert.values).toMatchObject({
+      facts: FACTS,
+      factsCapturedAt: AT,
+    });
+    // A repeat success replaces the stored pair too; the capture time is the
+    // contact's own instant, not the row's previous one.
+    expect(insert.set).toMatchObject({ facts: FACTS, factsCapturedAt: AT });
+  });
+
+  it('leaves the stored facts alone on a successful contact without facts', async () => {
+    const fake = statusDb();
+
+    const repository = new MachinesStatusRepository(
+      fake.db,
+      tenantFake(fake.scoped).tenantDb,
+    );
+
+    await repository.recordContact({
+      name: 'build-box',
+      at: AT,
+      hubProtocolVersion: 5,
+      daemonProtocolVersion: 5,
+      daemonVersion: '1.5.0',
+      roots: ['/srv/repo'],
+    });
+
+    const [insert] = fake.inserts;
+    expect(insert.values).toMatchObject({ facts: null, factsCapturedAt: null });
+    // A liveness restamp moves the contact stamps only: the facts and their
+    // capture time stay those of the last handshake.
+    expect(insert.set).not.toHaveProperty('facts');
+    expect(insert.set).not.toHaveProperty('factsCapturedAt');
+  });
+
+  it('leaves the stored facts alone on a failure contact', async () => {
+    const fake = statusDb();
+
+    const repository = new MachinesStatusRepository(
+      fake.db,
+      tenantFake(fake.scoped).tenantDb,
+    );
+
+    await repository.recordContact({
+      name: 'build-box',
+      at: AT,
+      hubProtocolVersion: 5,
+      failure: 'identity_mismatch',
+    });
+
+    const [insert] = fake.inserts;
+    expect(insert.values).toMatchObject({
+      facts: null,
+      factsCapturedAt: null,
+      lastFailureReason: 'identity_mismatch',
+    });
+    expect(insert.set).not.toHaveProperty('facts');
+    expect(insert.set).not.toHaveProperty('factsCapturedAt');
   });
 });
 

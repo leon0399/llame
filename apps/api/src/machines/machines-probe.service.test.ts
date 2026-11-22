@@ -111,6 +111,7 @@ describe('MachinesProbeService', () => {
     const connector = new MachineConnector({
       machines: options.enabled ? MACHINES : undefined,
       hubVersion: '9.9.9',
+      bindIdentity: () => Promise.resolve('match'),
     });
 
     const reachable = vi.spyOn(connector, 'reachable').mockResolvedValue(true);

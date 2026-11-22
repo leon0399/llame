@@ -135,6 +135,7 @@ function configWith(): LlameConfig {
 function executors(): ExecutorGit {
   const connector = new MachineConnector({
     hubVersion: 'test-hub',
+    bindIdentity: () => Promise.resolve('match'),
     machines: undefined,
     idleCloseMs: 1000,
   });
