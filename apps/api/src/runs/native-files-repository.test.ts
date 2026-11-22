@@ -381,6 +381,22 @@ describe('NativeFilesRepository.isCurrentDelivery', () => {
   });
 });
 
+describe('NativeFilesRepository.isCurrentUnfinishedDelivery', () => {
+  const base = { runId: 'run-1', userId: 'user-1' };
+
+  it('is false without reading anything when the caller has no delivery sequence', async () => {
+    const { repository, select } = sequencedRepository();
+
+    await expect(
+      repository.isCurrentUnfinishedDelivery({
+        ...base,
+        deliverySequence: undefined,
+      }),
+    ).resolves.toBe(false);
+    expect(select).not.toHaveBeenCalled();
+  });
+});
+
 describe('NativeFilesRepository.begin effect admission', () => {
   afterEach(() => vi.restoreAllMocks());
 

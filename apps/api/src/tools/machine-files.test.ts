@@ -689,6 +689,61 @@ describe('Machine media', () => {
     ]);
   });
 
+  it('asks the split path when the literal filename does not exist', async () => {
+    const bytes = Buffer.concat([
+      Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+      Buffer.alloc(32, 7),
+    ]);
+
+    const { peer, connector } = fixture({
+      answer: (call) => {
+        if (call.method !== 'fs.bytes') return undefined;
+        const path = isRecord(call.params) ? call.params['path'] : undefined;
+
+        // No literal file ends in the selector: the daemon says so, and the
+        // split path is the file to read.
+        return path === '/srv/shot.png:1'
+          ? { value: { status: 'error', type: 'not_found', message: 'no' } }
+          : undefined;
+      },
+      answers: {
+        'fs.read': {
+          value: { status: 'error', type: 'invalid_utf8', message: 'no' },
+        },
+        'fs.bytes': { hold: true },
+      },
+    });
+
+    const call = runTool(
+      nativeReadTool,
+      { path: 'machine://devl/srv/shot.png:1' },
+      context(connector, { media: mediaStore().store }),
+      5,
+    );
+
+    const session = await peer.session(0);
+    await session.awaitRequests(3);
+    await flushMicrotasks();
+    sendChunks(session, bytes);
+    session.release('fs.bytes', {
+      size: bytes.byteLength,
+      mediaType: 'image/png',
+    });
+    // The missing literal file is no answer to the read: the split path's own
+    // selector refusal is what the call reports.
+    await expect(call).resolves.toMatchObject({
+      status: 'error',
+      type: 'invalid_selector',
+      message: 'An image or PDF is read without a selector.',
+    });
+    expect(session.calls.map((request) => request.method)).toEqual([
+      'fs.read',
+      'fs.bytes',
+      'fs.bytes',
+    ]);
+    expect(session.calls[2]?.params).toMatchObject({ path: '/srv/shot.png' });
+  });
+
   it('keeps the text refusal when the bytes are not media', async () => {
     const bytes = Buffer.from([0x00, 0x01, 0x02, 0x03]);
 

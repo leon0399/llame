@@ -343,6 +343,21 @@ describe('createSkillWalkPort', () => {
     });
   });
 
+  it('streams a link to a package file the way agent-skills resolves it', async () => {
+    await withTree(async (root) => {
+      const directory = await packageFixture(root);
+
+      const opened = await createSkillWalkPort(directory, undefined).open(
+        'copy.md',
+      );
+
+      if (!('chunks' in opened)) throw new Error('a package link opens');
+      expect(await collectStreamBytes(opened.chunks)).toEqual(
+        Buffer.from('needle\n'),
+      );
+    });
+  });
+
   it('closes the handle after every read, so a scan cannot exhaust the process', async () => {
     await withTree(async (root) => {
       const directory = await packageFixture(root);
