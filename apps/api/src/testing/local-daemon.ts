@@ -15,10 +15,16 @@ import { existsSync, mkdtempSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
+import { drizzle } from 'drizzle-orm/postgres-js';
+
+import { type Db } from '../db/tenant-db.service';
 import { createLocalChildTransportFactory } from '../machines/local-child-transport';
 import { MachineConnector } from '../machines/machine-connector.service';
+import { formatMachineLocator } from '../machines/machine-locator';
 import { processEnvironment } from '../tools/env';
+import { type ToolContext } from '../tools/types';
 import { DEFAULT_LOCAL_MACHINE_NAME } from './local-machine';
+import { compileTestPermissionPolicy } from './tool-permission-policy';
 
 /** The daemon bundle the suites start; built by `pnpm --filter machine build`. */
 export const MACHINE_BUNDLE = resolve(
@@ -49,9 +55,21 @@ export type LocalDaemonOptions = {
 export type LocalDaemon = {
   readonly connector: MachineConnector;
   readonly name: string;
+  /** The canonical Machine locator of one absolute path on this daemon. */
+  locator(path: string): string;
   /** Close every session and delete the temporary configuration directory. */
   dispose(): void;
 };
+
+/** The canonical locator of one path on the daemon named `name`. */
+function daemonLocator(name: string, path: string): string {
+  const locator = formatMachineLocator(name, path);
+
+  if (locator === undefined)
+    throw new Error(`the daemon cannot address ${path}`);
+
+  return locator;
+}
 
 export function startLocalDaemon(options: LocalDaemonOptions): LocalDaemon {
   assertBuiltBundle(MACHINE_BUNDLE);
@@ -89,9 +107,50 @@ export function startLocalDaemon(options: LocalDaemonOptions): LocalDaemon {
   return {
     connector,
     name,
+    locator: (path) => daemonLocator(name, path),
     dispose() {
       connector.onModuleDestroy();
       rmSync(configDir, { recursive: true, force: true });
     },
+  };
+}
+
+/** Start the real daemon over `roots`, and dispose it after the body. */
+export async function withLocalDaemon<T>(
+  roots: ReadonlyArray<string>,
+  body: (daemon: LocalDaemon) => Promise<T>,
+): Promise<T> {
+  const daemon = startLocalDaemon({ roots });
+
+  try {
+    return await body(daemon);
+  } finally {
+    daemon.dispose();
+  }
+}
+
+/**
+ * The context a native `read` needs to address the running daemon, so a suite
+ * exercises the machine read a Chat issues instead of a local shortcut.
+ */
+export function daemonReadContext(
+  daemon: LocalDaemon,
+  extra: Partial<ToolContext> = {},
+): ToolContext {
+  const db: Db = drizzle.mock();
+
+  return {
+    configuredCredentials: [],
+    userId: 'owner',
+    chatId: 'chat',
+    tenantDb: {
+      runAs: <T>(_userId: string, operation: (tx: Db) => Promise<T>) =>
+        operation(db),
+    },
+    localMachine: daemon.name,
+    defaultMachine: daemon.name,
+    machines: daemon.connector,
+    permissionPolicy: compileTestPermissionPolicy(['read']),
+    ...extra,
   };
 }

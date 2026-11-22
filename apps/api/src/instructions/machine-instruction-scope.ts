@@ -21,6 +21,9 @@
  * and reuses them, and a target no registered root contains names no chain at
  * all, so its triggers load nothing. The daemon's own root enforcement stays
  * the authority on what may be read; the root chosen here only bounds the walk.
+ * The host Machine takes this same path: its roots are the ones its own daemon
+ * reports, so a host chain starts at a registered root exactly as a remote one
+ * does.
  *
  * Every call crosses an untrusted boundary and may fail. An unavailable
  * Machine, a refused request, an answer that is not the shape the protocol
@@ -50,10 +53,7 @@ import {
 } from '../machines/machine-results';
 import { machineAttemptKey } from '../runs/machine-attempt';
 
-import {
-  hostInstructionScope,
-  type InstructionScope,
-} from './instruction-files';
+import { type InstructionScope } from './instruction-files';
 
 /**
  * The registered-root view of one Machine target: the scope its chain is walked
@@ -87,13 +87,7 @@ export function createMachineInstructionProbe(input: {
     input.envelope.deliverySeq,
   );
 
-  // The local Machine is this process's own filesystem, so its identity check
-  // runs once per probe, on the first trigger that names it, and its chain is
-  // walked here. A Machine that cannot prove its identity contributes no
-  // files, exactly as an unreachable one does.
   const state: TriggerScopeState = {
-    localName: input.connector.localMachine()?.toLowerCase(),
-    verifiedLocal: localIdentity(input.connector),
     rootsOf: cachedRoots({ ...input, attemptKey }),
     ask: (name, method, path) => ask({ ...input, name, method, path }),
   };
@@ -103,8 +97,6 @@ export function createMachineInstructionProbe(input: {
 
 /** The per-attempt state one trigger's scope is resolved through. */
 type TriggerScopeState = {
-  readonly localName: string | undefined;
-  readonly verifiedLocal: () => Promise<boolean>;
   readonly rootsOf: (
     name: string,
   ) => Promise<ReadonlyArray<string> | undefined>;
@@ -116,9 +108,9 @@ type TriggerScopeState = {
 };
 
 /**
- * One instruction trigger's scope: the local Machine's own filesystem when the
- * trigger names this process's Machine and its identity check passes, else the
- * registered root that contains the target, else none.
+ * One instruction trigger's scope: the registered root that contains the
+ * target, or none. The host Machine is answered by its own daemon's root list,
+ * exactly as every other Machine is.
  */
 async function triggerScope(
   state: TriggerScopeState,
@@ -128,13 +120,6 @@ async function triggerScope(
   },
 ): Promise<InstructionScope | undefined> {
   const { name, path } = target;
-
-  if (state.localName !== undefined && name === state.localName) {
-    return (await state.verifiedLocal())
-      ? localMachineInstructionScope(name)
-      : undefined;
-  }
-
   const registered = await state.rootsOf(name);
 
   if (registered === undefined) return undefined;
@@ -173,51 +158,6 @@ function cachedRoots(input: {
     roots.set(name, pending);
 
     return pending;
-  };
-}
-
-/** The local Machine's identity check, run once per probe instance. */
-function localIdentity(connector: MachineConnector): () => Promise<boolean> {
-  let verified: Promise<boolean> | undefined;
-
-  return () => {
-    verified ??= connector.verifyLocal().then(
-      () => true,
-      () => false,
-    );
-
-    return verified;
-  };
-}
-
-/**
- * One target on this process's own Machine: the host filesystem's own walk,
- * with every entry labelled and keyed by the Machine's canonical locator, so
- * nothing a Machine path names reaches the model as a bare host path. The walk
- * stays host-wide here (layers below bound the local chain by its registered
- * roots), exactly as a host Workspace loads today.
- */
-function localMachineInstructionScope(name: string): InstructionScope {
-  const host = hostInstructionScope();
-
-  return {
-    ...host,
-    label: (key) => formatMachineLocator(name, key) ?? key,
-    // The file identity a seen set and the canonical read decision compare is
-    // the link target's locator on this Machine: the import is decided on
-    // `machine://<local>/<realpath>`, never on the current Machine.
-    probe: async (key) => {
-      const probe = await host.probe(key);
-
-      return probe.kind === 'missing'
-        ? probe
-        : {
-            ...probe,
-            canonicalPath:
-              formatMachineLocator(name, probe.canonicalPath) ??
-              probe.canonicalPath,
-          };
-    },
   };
 }
 

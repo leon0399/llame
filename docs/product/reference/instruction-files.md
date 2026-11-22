@@ -25,8 +25,8 @@ compaction absorbs it. A file whose canonical path is already named by an
 `instructions` item in effective history is omitted until that item is
 absorbed.
 
-An accepted-turn load (the bound Workspace root, and any admitted host, Machine,
-or Knowledge prompt import) is stored on the triggering user message, ahead of
+An accepted-turn load (the bound Workspace root, and any admitted Machine or
+Knowledge prompt import) is stored on the triggering user message, ahead of
 your text. On the first dispatch it precedes any `skill-catalog`,
 `skill-activation`, or `prompt-imports` item from that turn. A retry whose
 earlier attempt already dispatched keeps that stored bundle in place and
@@ -43,27 +43,29 @@ that the files are repository or Knowledge content: they rank below the system
 instructions and below your requests, and they cannot grant tools or relax
 authorization. A bundle that includes a Knowledge file also carries the closed
 Knowledge untrusted-content notice once
-([Knowledge authority](locators/kb.md#authority)); a host-only bundle does not.
+([Knowledge authority](locators/kb.md#authority)); a bundle with no Knowledge
+file does not.
 
 Each loaded file is one block:
 
 ```text
-<file path="/home/operator/projects/repo/AGENTS.md">
+<file path="machine://host/home/operator/projects/repo/AGENTS.md">
 …body…
 </file>
-<file path="/home/operator/projects/repo/docs/style.md" imported-by="/home/operator/projects/repo/AGENTS.md">
+<file path="machine://host/home/operator/projects/repo/docs/style.md" imported-by="machine://host/home/operator/projects/repo/AGENTS.md">
 …imported body…
 </file>
 ```
 
-The `path` is the identifier at which the walk selected the file: an absolute
-host path, a `machine://<name>/<path>` locator, or a
+The `path` is the identifier at which the walk selected the file: a
+`machine://<name>/<path>` locator, or a
 `kb://<knowledgeSpaceId>/<path>` locator. An imported block follows its importer
-and carries `imported-by` naming that importer. Host files come first, then
-Knowledge files, then Machine files. Within each group the broadest directory
-comes first, and a directory's base file comes before its local file. An
-import's own directory chain, then the blocks its own markers import, follow it
-depth-first.
+and carries `imported-by` naming that importer. Knowledge files come first,
+then each Machine's files in the order its first trigger named it. A host path
+and a `machine://` locator on the current Machine share one group. Within each
+group the broadest directory comes first, and a directory's base file comes
+before its local file. An import's own directory chain, then the blocks its own
+markers import, follow it depth-first.
 Bodies have no line-number prefixes. Reserved delimiters inside a body are
 neutralized before the item is stored.
 
@@ -77,7 +79,9 @@ text never names a denied or missing file.
 Each directory has two independent chains. The first existing regular file in
 a chain wins and replaces every later name in that chain and directory, rather
 than merging with it. A directory contributes a base file, a local file, both,
-or neither.
+or neither. These names are the same on every Machine. The walk that selects
+them on a Machine, the host Machine included, is bounded by that Machine's
+registered roots, as described under [Machine triggers](#machine-triggers).
 
 | Chain | Names, first match wins                                                                               |
 | ----- | ----------------------------------------------------------------------------------------------------- |
@@ -96,22 +100,24 @@ contributes nothing.
 
 ## Host triggers
 
-A trigger names one directory and the load walks every directory from the
-filesystem root down to it inclusive, in that order, without visiting siblings
-or children. An entry trigger names the canonical Workspace root; a file-tool
+A trigger names one directory on the current Machine. The load walks through
+that Machine's daemon, from the most specific registered root that contains the
+directory down to it inclusive, in that order, without visiting siblings or
+children. An entry trigger names the canonical Workspace root. A file-tool
 trigger names the projected absolute path itself when it is an existing
 directory, and otherwise that path's parent, whether or not the parent exists.
-Ancestors above the Workspace root and above any Git root are included, so
-`/home/operator/AGENTS.md` enters every Chat that touches a path beneath it on
-that Machine. A reject rule on the `read` group excludes such a path from every
-load.
+Every directory from the registered root down is included, so
+`/home/operator/AGENTS.md` enters every Chat that touches a path beneath it
+when `/home/operator` is a registered root. A directory outside every
+registered root names no chain and loads nothing. A reject rule on the `read`
+group excludes an included path from every load.
 
 Entry loads the root chain when it establishes or switches the binding, never on
 a same-root re-entry, and exit and detach load nothing; every load is effective
 from the next model step. Each native `read`, `edit`, or `write` whose `path`
-resolves to a path on the host Machine loads its directory's chain from the
-next model step, whatever the call's own outcome — a denied call loads nothing —
-and a read selector or representation suffix (`:40-80`, `:outline`) does not
+resolves to a path on the current Machine loads its directory's chain from the
+next model step, whatever the call's own outcome. A denied call loads nothing.
+A read selector or representation suffix (`:40-80`, `:outline`) does not
 change the trigger directory, while a `file://` alias triggers as the path it
 decodes to.
 Each accepted turn on a Chat with a live binding re-stages the bound root's chain
@@ -120,34 +126,34 @@ context; a Chat without a binding stages no root load. `bash`, `skill://`, `http
 and `https://` never trigger a load, and a model read of a candidate file itself
 neither loads nor marks that file.
 
-Loading requires `read` to be allowlisted and a configured Machine for host
-triggers, and does not require `enter_workspace`.
+Loading requires `read` to be allowlisted and the current Machine configured,
+and does not require `enter_workspace`.
 
-An admitted host or Knowledge [prompt import](prompt-imports.md) triggers the
-same way, as a native `read` of its path, on the accepted turn and before the
-first model request. It does so whether or not a Workspace is bound: a host
-import needs a configured Machine and a `kb://` import needs the Knowledge root,
-and both need `read` allowlisted. The import's read outcome does not matter, so
-a failed read still loads its directory's chain. A denied, missing, web, or
-`skill://` target loads nothing, and importing an instruction file itself
-neither loads nor marks it. Another prompt import in the same directory, or
-one whose chain walks through it, still selects that file even when no Workspace
-is bound; a bound-root load can also select it. An attempt that detaches the
+An admitted Machine or Knowledge [prompt import](prompt-imports.md) triggers
+the same way, as a native `read` of its path, on the accepted turn and before
+the first model request. It does so whether or not a Workspace is bound: a
+Machine import needs a configured Machine and a `kb://` import needs the
+Knowledge root, and both need `read` allowlisted. The import's read outcome
+does not matter, so a failed read still loads its directory's chain. A denied,
+missing, web, or `skill://` target loads nothing, and importing an instruction
+file itself neither loads nor marks it. Another prompt import in the same
+directory, or one whose chain walks through it, still selects that file even
+when no Workspace is bound; a bound-root load can also select it. An attempt that detaches the
 Workspace stages no import load. A retry keeps the accepted-turn bundle an
 earlier attempt stored and loads only files its effective history has not seen.
 
 ## Machine triggers
 
-A target on a [Machine](locators/machine.md) is walked in that Machine's own
-instruction world. The chain is discovered from the registered root that
-contains the target down to the target itself, through the Machine: the Machine
-answers each candidate's `stat` and each directory's listing, and every page is
-read through the Run's audited `read` — a `read` rule matches the page's
-canonical `machine://` locator exactly as it matches the model's own read of it,
-which is why a Machine page is admitted or refused on that locator text. The
-chain names, ordering, first-match rule, dedupe, bounds, and disclosure are the
-host ones, and every label and canonical key is the `machine://<name>/<path>`
-locator of the file.
+A target on a [Machine](locators/machine.md), the host Machine included, is
+walked in that Machine's own instruction world. The chain is discovered from
+the registered root that contains the target down to the target itself, through
+the Machine: the Machine answers each candidate's `stat` and each directory's
+listing, and every page is read through the Run's audited `read` — a `read`
+rule matches the page's canonical `machine://` locator exactly as it matches
+the model's own read of it, which is why a Machine page is admitted or refused
+on that locator text. The chain names, ordering, first-match rule, dedupe,
+bounds, and disclosure are the host ones, and every label and canonical key is
+the `machine://<name>/<path>` locator of the file.
 
 Which directories are registered roots is the Machine's own answer, asked once
 per Machine per attempt and reused for every trigger of it. The most specific
@@ -156,14 +162,15 @@ registered root that contains the target bounds the walk, so with
 `/home/me/AGENTS.md` is never probed, listed, or read. A target no registered
 root contains names no chain at all, so its triggers load nothing.
 
-Triggers are the host ones in their Machine spelling: entry loads the bound
-locator's chain when it establishes or switches the binding, a `read`, `edit`,
-or `write` whose target is a `machine://` locator loads its target directory's
-chain from the next model step whatever the call's own outcome, and an admitted
-prompt import whose target is on a Machine loads on its accepted turn.
+Triggers are the ones above, with every path a Machine locator: entry loads the
+bound locator's chain when it establishes or switches the binding, a `read`,
+`edit`, or `write` whose target is a `machine://` locator loads its target
+directory's chain from the next model step whatever the call's own outcome, and
+an admitted prompt import whose target is on a Machine loads on its accepted
+turn.
 
 Loading a Machine chain needs `read` to be allowlisted and a Machine the
-operator configured; it binds no Workspace and needs no local Machine.
+operator configured; it binds no Workspace.
 A Machine that is unconfigured or unreachable, or that answers an unusable
 result, contributes no files: this load is best-effort context and never an error
 the Run has to handle.
@@ -181,13 +188,14 @@ locator, its canonical key is that same locator, and its pages are read through
 the native `read` tool under the same `instructions` origin and `read` permission
 group under that exact locator, so a `read` reject rule is evaluated for those
 pages exactly as it is for the model's own read of that Space.
-`knowledge_search` hits never trigger. When host and Space files are pending at
-the same step, they resolve into one item with the host files first, each group
-broadest directory first. A Space that is missing, belongs to another owner, or
-is unavailable loads nothing and reveals nothing, and a locator whose own path
-the Knowledge resolver refuses names no candidate either. A model `kb://` touch
-has no accepted-turn load, since a Chat has no Space binding; its Space chain
-returns on the next `kb://` touch after a compaction. An admitted `kb://` prompt
+`knowledge_search` hits never trigger. When Space and Machine files are
+pending at the same step, they resolve into one item with the Space files
+first, then each Machine's, each group broadest directory first. A Space that
+is missing, belongs to another owner, or is unavailable loads nothing and
+reveals nothing, and a locator whose own path the Knowledge resolver refuses
+names no candidate either. A model `kb://` touch has no accepted-turn load,
+since a Chat has no Space binding; its Space chain returns on the next `kb://`
+touch after a compaction. An admitted `kb://` prompt
 import does load its Space chain on its accepted turn (see
 [Host triggers](#host-triggers)).
 
@@ -198,13 +206,13 @@ root; it binds no Machine.
 
 A file is loaded at most once per compaction epoch. The seen set is the set of
 canonical paths recorded in the payload of `instructions` items in the Chat's
-effective history — a host `realpath`, the `kb://` locator of a Space file, or
-the canonical `machine://` locator of a Machine file — and is never stored in a
-Chat column; a forked Chat inherits it through its copied history. A candidate
-whose canonical path is already seen is omitted, so a symlink and its target are
-one file and an edit to a loaded file is not re-announced; denied, failed, and
-empty candidates are not seen. All triggers pending at one model step, or one
-accepted turn, resolve together into at most one item.
+effective history: the canonical `machine://` locator of a Machine file, the
+host Machine included, or the `kb://` locator of a Space file. The set is never
+stored in a Chat column; a forked Chat inherits it through its copied history. A
+candidate whose canonical path is already seen is omitted, so a symlink and its
+target are one file and an edit to a loaded file is not re-announced; denied,
+failed, and empty candidates are not seen. All triggers pending at one model
+step, or one accepted turn, resolve together into at most one item.
 
 After a compaction absorbs loaded items, the next accepted turn restages the
 bound root's chain and the chains of the turn's admitted prompt imports; any
@@ -243,15 +251,15 @@ The shapes, recognized outside fenced and inline code, are:
 | `@[label](path)`            | Markdown link preceded by `@`               |
 | `[label](path "import")`    | Markdown link with the exact `import` title |
 
-The marker stays literal. Host imports resolve absolute paths as written or relative
-to the importing file's directory. `~/` and any schemed target stay literal. An
-import inside a Machine file resolves inside that Machine: an absolute target as
-written, and a relative one against the importing file's Machine directory, with
-`..` resolving there too, and the block is named by the canonical Machine locator
-of the file the Machine read. A Knowledge import resolves only a relative target
-within the importer's Space; absolute, escaping, `~/`, and schemed targets stay
-literal. A selector-bearing target stays literal and loads nothing, including
-when a file's name is exactly that string.
+The marker stays literal. An import inside a Machine file, the host Machine
+included, resolves inside that Machine: an absolute target as written, and a
+relative one against the importing file's Machine directory, with `..`
+resolving there too, and the block is named by the canonical Machine locator of
+the file the Machine read. `~/` and any schemed target stay literal. A Knowledge
+import resolves only a relative target within the importer's Space; absolute,
+escaping, `~/`, and schemed targets stay literal. A selector-bearing target
+stays literal and loads nothing, including when a file's name is exactly that
+string.
 
 Each resolved target is silently pre-evaluated against the `read` group before
 probing. An admitted existing regular target is read as a separate system-origin
@@ -291,8 +299,10 @@ exports, and search projections expose neither the item's text nor its metadata.
 - [Personal Knowledge](../operator/knowledge.md) configures the Knowledge root
   behind `kb://` triggers.
 
-Machine triggers need the target Machine's registered roots; see
-[machine locators](locators/machine.md#configured-by).
+Machine triggers, host triggers included, need the target Machine's registered
+roots. A host walk is bounded by the host Machine's roots; see
+[machine locators](locators/machine.md#configured-by) and
+[register roots](../operator/machines.md#register-roots).
 
 The `read` reject rule that excludes a path from every load is configured under
 [instruction files](../operator/native-files.md#instruction-files).

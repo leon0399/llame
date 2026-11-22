@@ -47,6 +47,7 @@ import type { MachineRequestOptions } from '../machines/machine-session';
 import { machineEnvelope } from '../runs/machine-attempt';
 import type { InRunToolCall } from '../runs/in-run-context-items';
 import { localMachineConnector } from '../testing/local-machine';
+import { machineFilesConnector } from '../testing/machine-files-peer';
 import { type InstructionScope, type ReadPage } from './instruction-files';
 import {
   createInstructionsProducer,
@@ -384,35 +385,17 @@ function attemptOf(
       readonly readPage: ReadPage;
       readonly probe: MachineInstructionProbe;
     };
-    /** `null` builds the attempt with no host page reader at all. */
-    readonly hostReadPage?: ReadPage | null;
     readonly localMachine?: string;
     readonly defaultMachine?: string;
   } = {},
 ) {
   const staged: Array<AuthoredContextItemPart> = [];
-  const hostReads: Array<string> = [];
-
-  const hostReadPage =
-    input.hostReadPage === null
-      ? undefined
-      : (input.hostReadPage ??
-        ((selectorPath: string) => {
-          hostReads.push(selectorPath);
-
-          return Promise.resolve({
-            status: 'error' as const,
-            type: 'not_found' as const,
-            message: 'No such file.',
-          });
-        }));
 
   const producer = createInstructionsProducer().beginAttempt({
     runId: RUN_ID,
     chatId: '22222222-2222-4222-8222-222222222222',
     userId: 'owner',
     admitsRead: () => true,
-    ...(hostReadPage !== undefined && { readPage: hostReadPage }),
     ...(input.machines !== undefined && { machines: input.machines }),
     ...(input.localMachine !== undefined && {
       localMachine: input.localMachine,
@@ -425,7 +408,6 @@ function attemptOf(
   return {
     producer,
     staged,
-    hostReads,
     prepare: async () => {
       await producer.prepareStep({
         messages: [],
@@ -859,7 +841,7 @@ describe('instructions producer Machine world', () => {
       },
     });
 
-    const { producer, staged, hostReads, prepare } = attemptOf({
+    const { producer, staged, prepare } = attemptOf({
       machines: world,
     });
 
@@ -882,7 +864,6 @@ describe('instructions producer Machine world', () => {
       { name: MACHINE, path: `${ROOT}/src/app.ts` },
     ]);
     expect(outside(world.connector.recorded, ROOT)).toEqual([]);
-    expect(hostReads).toEqual([]);
   });
 
   it('walks the registered root itself when the trigger is the root', async () => {
@@ -1100,7 +1081,7 @@ describe('instructions producer Machine world', () => {
       },
     });
 
-    const { producer, staged, hostReads, prepare } = attemptOf({
+    const { producer, staged, prepare } = attemptOf({
       machines: world,
       defaultMachine: MACHINE,
     });
@@ -1118,12 +1099,10 @@ describe('instructions producer Machine world', () => {
     expect(world.probed).toEqual([
       { name: MACHINE, path: `${ROOT}/src/app.ts` },
     ]);
-    // The worker's own filesystem is never probed or read for the call.
-    expect(hostReads).toEqual([]);
   });
 
   it('loads nothing for a bare path with no current Machine', async () => {
-    const { producer, staged, hostReads, prepare } = attemptOf();
+    const { producer, staged, prepare } = attemptOf();
 
     producer.observeToolCall?.({
       toolName: 'read',
@@ -1133,7 +1112,6 @@ describe('instructions producer Machine world', () => {
     await prepare();
 
     expect(staged).toEqual([]);
-    expect(hostReads).toEqual([]);
   });
 
   it('treats a Machine entry as a Machine trigger', async () => {
@@ -1259,12 +1237,12 @@ describe('instructions producer Machine world', () => {
 });
 
 describe('instructions on this process’s Machine', () => {
-  it('loads a local Machine root in process, labelled by its locators', async () => {
+  it('loads a Machine root through its daemon, labelled by its locators', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'local-instructions-'));
     const root = await realpath(directory);
     await writeFile(join(root, 'AGENTS.md'), 'shop rules\n');
 
-    const connector = localMachineConnector();
+    const connector = machineFilesConnector({ roots: ['/'] });
 
     const probe = createMachineInstructionProbe({
       connector,
@@ -1314,10 +1292,6 @@ describe('instructions on this process’s Machine', () => {
       expect(reads).toEqual([
         `${locator(`${root}/AGENTS.md`, 'host-a')}:raw:1-2000`,
       ]);
-      // The local daemon answered the handshake and nothing else.
-      const session = await connector.peer.session(0);
-
-      expect(session.requests).toEqual([]);
     } finally {
       await rm(directory, { recursive: true, force: true });
     }
@@ -1330,7 +1304,7 @@ describe('instructions on this process’s Machine', () => {
 
     try {
       const probe = createMachineInstructionProbe({
-        connector: localMachineConnector(),
+        connector: machineFilesConnector({ roots: ['/'] }),
         envelope: machineEnvelope({ runId: RUN_ID, deliverySequence: 1 }),
       });
 
@@ -1381,7 +1355,7 @@ describe('instructions on this process’s Machine', () => {
 
     try {
       const probe = createMachineInstructionProbe({
-        connector: localMachineConnector(),
+        connector: machineFilesConnector({ roots: ['/'] }),
         envelope: machineEnvelope({ runId: RUN_ID, deliverySequence: 1 }),
       });
 
@@ -1405,10 +1379,10 @@ describe('instructions on this process’s Machine', () => {
     }
   });
 
-  it('loads nothing when the local daemon cannot prove its identity', async () => {
-    const connector = localMachineConnector({
-      verify: () => Promise.reject(new Error('identity mismatch')),
-    });
+  it('loads nothing when its daemon cannot answer', async () => {
+    // The handshake succeeds and every other request is refused, so the
+    // probe's root list is unavailable and its triggers resolve no chain.
+    const connector = localMachineConnector();
 
     const probe = createMachineInstructionProbe({
       connector,

@@ -6,14 +6,14 @@
  * trail, and staged as one item for the next model step — or, for the accepted
  * turn of a bound Chat, for its first request.
  *
- * A world is the host filesystem (keys are absolute paths, walked from `/`),
- * one Knowledge Space (keys are Space-relative paths, walked from the Space's
- * own directory and never above it), or one Machine (keys are absolute Machine
- * paths, walked from the registered root that contains the touched directory
- * and never above it). Host files resolve into the same bundle first, then each
- * Space's files, then each Machine's; a Space is labelled and keyed by its
- * logical `kb://` locator and a Machine file by its canonical `machine://`
- * locator, so no host path reaches the model in either world's place.
+ * A world is one Knowledge Space (keys are Space-relative paths, walked from
+ * the Space's own directory and never above it) or one Machine (keys are
+ * absolute Machine paths, walked from the registered root that contains the
+ * touched directory and never above it). A host path is a path on the current
+ * Machine, so it is read on that Machine exactly as any other Machine path is.
+ * Each Space's files come first, then each Machine's; a Space is labelled and
+ * keyed by its logical `kb://` locator and a Machine file by its canonical
+ * `machine://` locator, so no host path ever reaches the model.
  *
  * The producer holds no state of its own. An attempt's pending triggers and
  * seen keys live in the object `beginAttempt` returns and are discarded with
@@ -77,7 +77,6 @@ import {
   type LocatorContext,
 } from '../tools/workspace-path';
 import {
-  hostInstructionScope,
   selectCandidates,
   touchedPath,
   walkFrom,
@@ -189,14 +188,8 @@ export function machineTarget(
 function worldTrigger(
   target: PromptImportTrigger,
   locator: LocatorContext,
-  machineWorld: boolean,
 ): PromptImportTrigger | undefined {
   if (target.machine !== undefined || target.space !== undefined) return target;
-
-  // A Run without the Machine capability has only the host world to read a
-  // local path with; a Run with it places the path on its Machine, so one
-  // filesystem is never loaded as a host world and a Machine world at once.
-  if (!machineWorld) return target;
 
   const resolved = resolveMachinePath(target.key, locator);
 
@@ -246,7 +239,7 @@ function enteredRoot(result: ToolResult | undefined): string | undefined {
 
 /** The trigger facts of one attempt: both Machine names, never a root. */
 function attemptLocator(
-  attempt: Pick<InRunAttempt, 'defaultMachine' | 'localMachine' | 'machines'>,
+  attempt: Pick<InRunAttempt, 'defaultMachine' | 'localMachine'>,
 ): LocatorContext {
   return {
     defaultMachine: attempt.defaultMachine,
@@ -257,7 +250,7 @@ function attemptLocator(
 /** The trigger one observed tool call marks, if it marks one at all. */
 function observedTrigger(
   call: InRunToolCall,
-  attempt: Pick<InRunAttempt, 'defaultMachine' | 'localMachine' | 'machines'>,
+  attempt: Pick<InRunAttempt, 'defaultMachine' | 'localMachine'>,
 ): PendingTrigger | undefined {
   if (FILE_TOOL_IDS.includes(call.toolName)) {
     // A file tool marks at admission; its settled observation repeats the very
@@ -280,14 +273,10 @@ function observedTrigger(
   const root = enteredRoot(call.result);
 
   // A Machine entry binds a Machine locator, so the bound root's own directory
-  // load happens on that Machine, exactly as an entry at a host root does here.
+  // load happens on that Machine.
   return root === undefined
     ? undefined
-    : worldTrigger(
-        { key: root },
-        attemptLocator(attempt),
-        attempt.machines !== undefined,
-      );
+    : worldTrigger({ key: root }, attemptLocator(attempt));
 }
 
 /** One directory's pending exclusions, collected across the trigger set. */
@@ -402,11 +391,11 @@ async function resolveDirectories(
 /**
  * The trusted capabilities one attempt may read candidates through: a world
  * absent from this record may not load at all, so its triggers are ignored
- * before any filesystem is probed.
+ * before any Machine is probed.
  */
 type AttemptWorlds = Pick<
   InRunAttempt,
-  'readPage' | 'knowledge' | 'machines' | 'admitsRead'
+  'knowledge' | 'machines' | 'admitsRead'
 >;
 
 /** One world's own triggers in a step. */
@@ -414,9 +403,8 @@ interface WorldTriggers {
   readonly triggers: Array<PendingTrigger>;
 }
 
-/** The host triggers and each Space's and Machine's own, in first-mention order. */
+/** Each Space's and each Machine's own triggers, in first-mention order. */
 interface TriggerPartition {
-  readonly onHost: Array<PendingTrigger>;
   readonly bySpace: Map<string, WorldTriggers>;
   readonly byMachine: Map<string, WorldTriggers>;
 }
@@ -437,16 +425,15 @@ function addTrigger(
 }
 
 /**
- * Splits a step's triggers into the host world and one group per Space and per
- * Machine. A trigger's own world wins: a Machine trigger names a Machine, a
- * `kb://` trigger a Space, and every other path this worker's filesystem.
+ * Splits a step's triggers into one group per Space and per Machine. Every
+ * trigger names one of the two: a bare path was already placed on the current
+ * Machine when it was observed.
  */
 function partitionTriggers(
   triggers: ReadonlyArray<PendingTrigger>,
 ): TriggerPartition {
   const bySpace = new Map<string, WorldTriggers>();
   const byMachine = new Map<string, WorldTriggers>();
-  const onHost: Array<PendingTrigger> = [];
 
   for (const trigger of triggers) {
     const machine = trigger.machine;
@@ -456,40 +443,24 @@ function partitionTriggers(
       addTrigger(byMachine, machine.name, trigger);
     } else if (space !== undefined) {
       addTrigger(bySpace, space.id, trigger);
-    } else {
-      onHost.push(trigger);
     }
   }
 
-  return { onHost, bySpace, byMachine };
+  return { bySpace, byMachine };
 }
 
 /**
- * The worlds one trigger set resolves into, host first and then each Space and
- * each Machine in the order its first trigger named it. A world without its
- * trusted capability — no native executor, no configured Knowledge root, no
- * Machine capability, a Space that is not the owner's — contributes nothing, so
- * no filesystem is probed for it.
+ * The Machine worlds one trigger set resolves into, each Space and each
+ * Machine in the order its first trigger named it. A world without its trusted
+ * capability — no configured Knowledge root, no Machine capability, a Space
+ * that is not the owner's — contributes nothing, so no Machine is probed for it.
  */
 async function resolveGroups(input: {
   readonly triggers: ReadonlyArray<PendingTrigger>;
   readonly worlds: AttemptWorlds;
 }): Promise<Array<InstructionImportGroup>> {
-  const { onHost, bySpace, byMachine } = partitionTriggers(input.triggers);
+  const { bySpace, byMachine } = partitionTriggers(input.triggers);
   const groups: Array<InstructionImportGroup> = [];
-  const hostPage = input.worlds.readPage;
-
-  if (hostPage !== undefined) {
-    const scope = hostInstructionScope();
-    groups.push({
-      scope,
-      page: hostPage,
-      admitsRead: input.worlds.admitsRead,
-      directories: await resolveDirectories(onHost, scope),
-      knowledge: false,
-    });
-  }
-
   const knowledge = input.worlds.knowledge;
 
   if (knowledge !== undefined) {
@@ -596,13 +567,12 @@ async function machineGroups(input: {
 
 /**
  * Every directory one group walks, broadest first and once each. A key's
- * segment count is its depth in every world — a host key and a Machine key are
- * absolute paths, so the world's own root counts one segment more than it has
- * while every Space key counts exactly its depth — so counting segments orders
- * all three; code points break the tie a world's own root has with its
- * top-level directories. A Machine trigger that is the registered root itself
- * (`walkFrom` yields that root alone) sorts before everything below it, exactly
- * as the host root does.
+ * segment count is its depth in every world — a Machine key is an absolute
+ * path, so the world's own root counts one segment more than it has while
+ * every Space key counts exactly its depth — so counting segments orders both;
+ * code points break the tie a world's own root has with its top-level
+ * directories. A Machine trigger that is the registered root itself
+ * (`walkFrom` yields that root alone) sorts before everything below it.
  */
 function walkOrder(group: InstructionImportGroup): Array<string> {
   const walked = new Set<string>();
@@ -727,18 +697,14 @@ function turnTriggers(context: InRunTurnContext): Array<PendingTrigger> {
     localMachine: context.localMachine,
   };
 
-  const machineWorld = context.machines !== undefined;
-
   const rootTrigger =
-    root === undefined
-      ? undefined
-      : worldTrigger({ key: root }, locator, machineWorld);
+    root === undefined ? undefined : worldTrigger({ key: root }, locator);
 
   const triggers: Array<PendingTrigger> =
     rootTrigger === undefined ? [] : [rootTrigger];
 
   for (const imported of context.promptImportTriggers ?? []) {
-    const target = worldTrigger(imported, locator, machineWorld);
+    const target = worldTrigger(imported, locator);
 
     if (target === undefined) continue;
     triggers.push({ ...target, excludeCandidate: true, yieldsToWalk: true });
@@ -758,9 +724,9 @@ export function createInstructionsProducer(): InRunContextProducer {
       return loadBundle({
         runId: context.runId,
         triggers,
-        // An accepted turn may carry the host and Knowledge capabilities
+        // An accepted turn may carry the Knowledge and Machine capabilities
         // together; a world without its capability loads nothing, so a
-        // trigger of that world is ignored before any filesystem is probed.
+        // trigger of that world is ignored before any Machine is probed.
         worlds: context,
         // The caller derives the turn's seen set from the returned item, so
         // this set is a scratch guard for the walk: the turn's seen keys plus

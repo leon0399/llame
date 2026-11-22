@@ -5,7 +5,7 @@ import { derivePromptImportTriggers } from './prompt-import-triggers';
 const SPACE_ID = 'a6230f3c-4a5e-4c9b-8f0e-1d2c3b4a5e6f';
 const MACHINE = 'machine://dev/notes/a.md';
 const PROJECT = 'projects://0190f5e2-7c1a-7b3e-9d4f-2a6b8c0d1e2f';
-const BOTH = { host: true, knowledge: true, machine: true };
+const BOTH = { knowledge: true, machine: true };
 
 describe('derivePromptImportTriggers', () => {
   it('triggers on imported and failed entries, never on denied ones', () => {
@@ -110,30 +110,35 @@ describe('derivePromptImportTriggers', () => {
       { locator: 'm', resolved: MACHINE, outcome: 'imported' },
     ] as const;
 
+    // A bare stored path is left for the accepted turn's locator rule, so it
+    // carries no gate of its own.
     expect(
       derivePromptImportTriggers(entries, {
-        host: true,
         knowledge: false,
         machine: false,
       }),
     ).toEqual([{ key: '/nowhere/a.md' }]);
     expect(
       derivePromptImportTriggers(entries, {
-        host: false,
         knowledge: true,
         machine: false,
       }),
-    ).toEqual([{ space: { id: SPACE_ID }, key: 'a.md' }]);
+    ).toEqual([
+      { key: '/nowhere/a.md' },
+      { space: { id: SPACE_ID }, key: 'a.md' },
+    ]);
     expect(
       derivePromptImportTriggers(entries, {
-        host: false,
         knowledge: false,
         machine: true,
       }),
-    ).toEqual([{ key: '/notes/a.md', machine: { name: 'dev' } }]);
+    ).toEqual([
+      { key: '/nowhere/a.md' },
+      { key: '/notes/a.md', machine: { name: 'dev' } },
+    ]);
   });
 
-  it('gates a Machine this process hosts through the host gate', () => {
+  it('gates every Machine through the Machine gate', () => {
     const entries = [
       {
         locator: 'm',
@@ -142,24 +147,20 @@ describe('derivePromptImportTriggers', () => {
       },
     ] as const;
 
-    const local = {
-      host: true,
-      knowledge: false,
-      machine: false,
-      localMachine: 'host-a',
-    };
-
-    expect(derivePromptImportTriggers(entries, local)).toEqual([
-      { key: '/notes/a.md', machine: { name: 'host-a' } },
-    ]);
-    // Without the host world a local Machine entry loads nothing, and a
-    // Machine this process does not host keeps the Machine gate.
     expect(
-      derivePromptImportTriggers(entries, { ...local, host: false }),
+      derivePromptImportTriggers(entries, {
+        knowledge: false,
+        machine: false,
+      }),
     ).toEqual([]);
+    // A Machine this process hosts takes the Machine gate exactly as a remote
+    // one does: its trigger loads through its own daemon.
     expect(
-      derivePromptImportTriggers(entries, { ...local, localMachine: 'gpu' }),
-    ).toEqual([]);
+      derivePromptImportTriggers(entries, {
+        knowledge: false,
+        machine: true,
+      }),
+    ).toEqual([{ key: '/notes/a.md', machine: { name: 'host-a' } }]);
   });
 
   it('names a Machine trigger for an admitted Machine entry', () => {

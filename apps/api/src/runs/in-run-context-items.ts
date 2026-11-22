@@ -243,12 +243,6 @@ export interface InRunTurnContext {
   readonly localMachine?: string;
   /** `machines.default`: the Machine an unbound Chat's bare path addresses. */
   readonly defaultMachine?: string;
-  /**
-   * Reads one host page under the Run's own permission decision and audit
-   * trail. Never a model-visible tool call. Absent when the producer may not
-   * load host instruction files.
-   */
-  readonly readPage?: ReadPage;
   /** Preview the read permission without recording an audit event. */
   readonly admitsRead: (path: string) => boolean;
   /** The Knowledge capability, with the same shape and meaning as an in-Run attempt's. */
@@ -292,12 +286,6 @@ export interface InRunAttempt {
   readonly defaultMachine?: string;
   /** Keys already disclosed to the attempt's effective context. */
   readonly seenKeys?: ReadonlySet<string>;
-  /**
-   * Reads one audited page for this attempt. Absent when the producer may not
-   * load host instruction files — the `read` tool or the native executor is
-   * missing.
-   */
-  readonly readPage?: ReadPage;
   /** Preview the read permission without recording an audit event. */
   readonly admitsRead: (path: string) => boolean;
   /**

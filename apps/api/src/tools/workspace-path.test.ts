@@ -25,7 +25,6 @@ describe('resolveMachinePath', () => {
       name: 'gpu',
       path: '/etc/hostname',
       locator: 'machine://gpu/etc/hostname',
-      local: false,
     });
   });
 
@@ -40,7 +39,6 @@ describe('resolveMachinePath', () => {
       name: 'devl',
       path: '/etc/hostname',
       locator: 'machine://devl/etc/hostname',
-      local: true,
     });
   });
 
@@ -56,7 +54,6 @@ describe('resolveMachinePath', () => {
       name: 'devl',
       path: '/etc/hostname',
       locator: 'machine://devl/etc/hostname',
-      local: false,
     });
   });
 
@@ -85,7 +82,6 @@ describe('resolveMachinePath', () => {
       name: 'gpu',
       path: '/srv/app/src/app.ts',
       locator: 'machine://gpu/srv/app/src/app.ts',
-      local: false,
     });
     expect(resolveMachinePath('../shared/', BOUND)).toMatchObject({
       path: '/srv/shared/',
@@ -100,7 +96,6 @@ describe('resolveMachinePath', () => {
       name: 'gpu',
       path: '/srv/app/src/app.ts',
       locator: 'machine://gpu/srv/app/src/app.ts:10-20',
-      local: false,
       selector: '10-20',
     });
   });
@@ -134,7 +129,6 @@ describe('resolveMachinePath', () => {
       name: 'devl',
       path: '/srv/app',
       locator: 'machine://devl/srv/app',
-      local: true,
     });
     expect(
       resolveMachinePath('machine://gpu/srv/a%23b.md:5-6', {
@@ -145,7 +139,6 @@ describe('resolveMachinePath', () => {
       name: 'gpu',
       path: '/srv/a#b.md',
       locator: 'machine://gpu/srv/a%23b.md:5-6',
-      local: false,
       selector: '5-6',
     });
   });
@@ -158,7 +151,6 @@ describe('resolveMachinePath', () => {
       name: 'gpu',
       path: '/srv/report:2',
       locator: 'machine://gpu/srv/report%3A2',
-      local: false,
     });
     // A colon written literally is still a selector, and a suffix outside the
     // grammar is still part of the file name.
@@ -174,7 +166,6 @@ describe('resolveMachinePath', () => {
       name: 'gpu',
       path: '/srv/notes:draft',
       locator: 'machine://gpu/srv/notes%3Adraft',
-      local: false,
     });
   });
 

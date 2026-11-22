@@ -207,21 +207,46 @@ against its parent before publication.
 
 ## 6. workspace-context
 
-- [ ] 6.1 Host Workspace MCP through `mcp.open`, with interpolation against the daemon child's
+- [x] 6.1 Host Workspace MCP through `mcp.open`, with interpolation against the daemon child's
       environment (H18). Verify "Worker secrets do not reach a host Workspace server", the
       `mcp-tools` interpolation scenarios, and the `remote-machines` Workspace MCP scenarios against
       a real daemon child.
-- [ ] 6.2 Host instruction files and Workspace skills through the daemon, and the deletion of the
+  - Evidence: `WorkspaceMcpClients` has no local route. Every binding reads its declarations from
+    `mcp.servers` and opens each server with `mcp.open`, the host Machine included, and the
+    in-process `.mcp.json` read, the worker environment, and the `readConfig` seam are gone from
+    the MCP client set. `workspace-mcp.integration` runs its nine Workspace MCP scenarios plus
+    "Worker secrets do not reach a host Workspace server" through the real `llame-machine` child
+    over `tmpdir` roots, and `run-execution-tools.integration` starts the read-only and default
+    Workspace MCP attempts through that child. `workspace-mcp-clients` covers the same split by
+    unit over the protocol peer.
+- [x] 6.2 Host instruction files and Workspace skills through the daemon, and the deletion of the
       host scopes. Keep operator skill directories in process. Verify the `instruction-files`
       registered-root scenarios and "Host Workspace skills come from the host Machine daemon".
-- [ ] 6.3 Prompt imports on the current Machine through the daemon. Verify the existing
+  - Evidence: `createMachineInstructionProbe` is the only instruction scope, and the producer
+    resolves every world through it, the host Machine included; the local instruction scope is
+    gone. `prepareMachineSkills` snapshots the Workspace's three skill sources over
+    `fs.list`/`fs.read`/`fs.stat` through the daemon, and operator `skills.directories` stay on
+    `NODE_SKILL_FILE_SYSTEM`. `instruction-files.host.integration` walks the entry chain, the
+    registered-root stop, a touched file's ancestors, and an unregistered target through the real
+    `llame-machine` child, and `workspace-skills.host.integration` reads
+    `.agents/skills/deploy/SKILL.md` through that child while an operator directory stays in
+    process.
+- [x] 6.3 Prompt imports on the current Machine through the daemon. Verify the existing
       `prompt-imports` scenarios against a real daemon child.
-- [ ] 6.4 Confirm that no host-path branch remains in file tools, grep, git, Workspace MCP,
+  - Evidence: `prompt-imports.host.integration` imports an admitted host file through the real
+    child, denies a rejected target without probing it, and leaves a target outside every
+    registered root prose with no read.
+- [x] 6.4 Confirm that no host-path branch remains in file tools, grep, git, Workspace MCP,
       instruction files, Workspace skills, or prompt imports, and that host `bash` and background
       jobs are the only in-process host families.
-- [ ] 6.5 Docs: `skills.md`, `mcp-tools.md`, the instruction-file and prompt-import references,
+  - Evidence: file tools, grep, git, Workspace MCP, instruction files, Workspace skills, and prompt
+    imports all reach the host through `MachineConnector.request`; the local instruction scope,
+    the local `.mcp.json` reader, and the local Workspace-skill branch are gone.
+    `verifyLocalMachine` remains only in `tools/bash.ts`, and `runs.worker_id` still pins host
+    background jobs.
+- [x] 6.5 Docs: `skills.md`, `mcp-tools.md`, the instruction-file and prompt-import references,
       and a dated `CHANGELOG.md` entry.
-- [ ] 6.6 Focused checks as in 3.14.
+- [x] 6.6 Focused checks as in 3.14.
 - [ ] 6.7 SR before ready; GR per [CONTRIBUTING.md](../../../CONTRIBUTING.md#ready-pr-monitoring).
       This PR carries `Closes #1831`.
 

@@ -152,6 +152,16 @@ export interface ToolContext {
    */
   readonly skillCatalog?: SkillCatalogPort;
   /**
+   * Resolves the catalog a Workspace entry reports its skills from, for a root
+   * this attempt may not have prepared (a mid-Run entry). It reads the root's
+   * sources on their Machine exactly as attempt preparation does, keeping the
+   * `read` gate and the snapshot cache, and publishes the result for later
+   * calls of the same attempt. Absent means only the attempt's own catalog.
+   */
+  readonly skillCatalogFor?: (
+    root: string,
+  ) => Promise<SkillCatalogPort | undefined>;
+  /**
    * The current user turn's explicit `$skill` selections, derived by the
    * activation layer from the triggering user message and supplied to every
    * skill read in that Run. A caller with no turn context leaves it unset, so

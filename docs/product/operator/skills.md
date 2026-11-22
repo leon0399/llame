@@ -68,10 +68,15 @@ source, in this order:
 
 The last source has the highest precedence, so a package in `.llame/skills`
 overrides one with the same name in `.agents/skills`, `.claude/skills`, or any
-operator source. The `enter_workspace` result lists the bounded,
-proactively eligible Workspace packages by name and description. The
-instructions for an available package can then be read in that same Run with
-`skill://<name>`.
+operator source.
+
+These sources live on the Workspace's Machine, so its `llame-machine` daemon
+reads them, the host Machine included. A configured operator source stays in
+the llame process. The Machine's registered roots bound each Workspace read: a
+source outside every root contributes no packages, as a missing source does.
+The `enter_workspace` result lists the bounded, proactively eligible Workspace
+packages by name and description. The instructions for an available package
+can then be read in that same Run with `skill://<name>`.
 
 Workspace sources are Chat-local. Another Chat, and the operator-only
 `GET /api/v1/skills` catalog, continue to see only configured operator
@@ -79,11 +84,11 @@ sources. A Workspace package with the same name as an operator package is
 selected for the entered Chat only; it does not alter the process-wide
 operator catalog.
 
-Missing, unreadable, non-directory, and over-limit Workspace sources contribute
-no packages. These failures do not make operator discovery unavailable and do
-not consume one of the 32 configured operator-source slots. Discovery and
-reads otherwise follow the same package and ordinary operating-system link
-rules described above.
+Missing, unreadable, non-directory, over-limit, and unregistered Workspace
+sources contribute no packages. These failures do not make operator discovery
+unavailable and do not consume one of the 32 configured operator-source slots.
+Discovery and reads otherwise follow the same package and ordinary
+operating-system link rules described above.
 
 Successful Workspace entry is the trust decision for these sources: the
 operator's `enter_workspace` permission grants the entered Chat permission to

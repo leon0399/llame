@@ -25,7 +25,7 @@ import type {
 import { TenantDbService, type Db } from '../db/tenant-db.service';
 import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
 import { type MachinesConfig } from '../instance-config/machines-config';
-import { localMachineConnector } from '../testing/local-machine';
+import { machineFilesConnector } from '../testing/machine-files-peer';
 import { createModelPromptLoader } from '../instance-config/prompt-loader';
 import {
   formatTemporalAnchor,
@@ -848,11 +848,16 @@ describeIfDb('snapshot-bound compaction continuity', () => {
 
     const localMachine = machines?.local ?? machines?.default;
 
+    // The host Machine is an ordinary Machine: preparation checks its root and
+    // snapshots its skill sources through the daemon, so the harness serves a
+    // real in-process daemon over `/` rather than a handshake-only peer.
     const machineConnector =
       machines === undefined
         ? undefined
-        : localMachineConnector(
-            localMachine === undefined ? {} : { name: localMachine },
+        : machineFilesConnector(
+            localMachine === undefined
+              ? {}
+              : { name: localMachine, roots: ['/'] },
           );
 
     return new RunExecutionService(

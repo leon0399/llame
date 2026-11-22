@@ -14,11 +14,7 @@ import {
   type AttemptToolAdditionResult,
 } from '../tools/attempt-tool-additions';
 import { type TurnToolCandidate } from '../tools/turn-tool-catalog';
-import { processEnvironment } from '../tools/env';
-import {
-  parseMcpToolId,
-  readWorkspaceMcpConfig,
-} from '@workspace/mcp-workspace';
+import { parseMcpToolId } from '@workspace/mcp-workspace';
 import { type MachineConnector } from '../machines/machine-connector.service';
 import {
   machineServerClientFactory,
@@ -75,7 +71,6 @@ export type WorkspaceMcpListingCell = {
 export type WorkspaceMcpClientsOptions = Readonly<{
   clientFactory?: McpRuntimeClientFactory;
   now?: () => number;
-  readConfig?: typeof readWorkspaceMcpConfig;
   /**
    * The Machine connector, when this instance has Machines at all. Without it
    * a Machine Workspace's servers are simply unreported, exactly as they are
@@ -96,12 +91,6 @@ type ClientSet = {
   activeAttempts: number;
   lastUsed: number;
 };
-
-/** The world one binding's MCP servers live in. */
-type WorkspaceServerRoute =
-  | { readonly kind: 'local'; readonly path: string }
-  | { readonly kind: 'machine'; readonly target: MachineWorkspaceTarget }
-  | { readonly kind: 'unavailable' };
 
 function keyString(key: WorkspaceMcpKey): string {
   return `${key.chatId}\u0000${key.root}\u0000${key.generation}`;
@@ -125,7 +114,6 @@ export class WorkspaceMcpClients implements OnModuleDestroy {
   private readonly clientFactory: McpRuntimeClientFactory | undefined;
   private readonly connector: MachineConnector | undefined;
   private readonly now: () => number;
-  private readonly readConfig: typeof readWorkspaceMcpConfig;
   private readonly cleanupTimer: ReturnType<typeof setInterval>;
   private stopping = false;
 
@@ -139,7 +127,6 @@ export class WorkspaceMcpClients implements OnModuleDestroy {
     this.clientFactory = options.clientFactory;
     this.connector = options.connector;
     this.now = options.now ?? Date.now;
-    this.readConfig = options.readConfig ?? readWorkspaceMcpConfig;
     this.cleanupTimer = setInterval(
       () => this.cleanupIdle(),
       CLEANUP_INTERVAL_MS,
@@ -183,15 +170,14 @@ export class WorkspaceMcpClients implements OnModuleDestroy {
   /**
    * Every server the binding's configuration names, read fresh, with each
    * configured entry reported as unavailable because a `read-only` attempt
-   * starts none of them. Nothing starts: a local root reads both configuration
-   * files, and a `machine://` root asks the Machine for its `mcp.servers`. A
-   * file or server the reader already reports as unavailable keeps its own
-   * reason.
+   * starts none of them. Nothing starts: the binding's Machine resolves the
+   * Workspace's declarations, exactly as it does for a start. A file or server
+   * the Machine already reports as unavailable keeps its own reason.
    */
   async listUnstarted(
     key: WorkspaceMcpKey,
   ): Promise<ReadonlyArray<WorkspaceMcpServerState>> {
-    const configs = await this.readConfigs(key.root);
+    const configs = await this.readConfigs(machineWorkspaceTarget(key.root));
 
     return Object.freeze(
       configs.map((config) =>
@@ -416,8 +402,8 @@ export class WorkspaceMcpClients implements OnModuleDestroy {
   }
 
   private async createClientSet(key: WorkspaceMcpKey): Promise<ClientSet> {
-    const route = await this.serverRoute(key.root);
-    const configs = await this.readConfigsFor(route);
+    const target = machineWorkspaceTarget(key.root);
+    const configs = await this.readConfigs(target);
     const operatorIds = this.operator.snapshotServerIds();
     const configured = configuredEntries(configs, operatorIds);
 
@@ -425,12 +411,12 @@ export class WorkspaceMcpClients implements OnModuleDestroy {
       ...(this.clientFactory !== undefined && {
         clientFactory: this.clientFactory,
       }),
-      // A local Machine Workspace starts its servers here, exactly as a host
-      // root does: only another Machine's servers are relayed.
-      ...(route.kind === 'machine' && {
+      // Every Workspace server runs on its Machine, the host Machine included:
+      // the Machine resolves the declaration and relays the channel.
+      ...(target !== undefined && {
         machineClientFactory: machineServerClientFactory(
           this.connector,
-          route.target,
+          target,
         ),
       }),
     });
@@ -441,58 +427,20 @@ export class WorkspaceMcpClients implements OnModuleDestroy {
   }
 
   /**
-   * Where one binding's servers come from. A bare root and this process's own
-   * Machine both read the Workspace's own files here; the Machine case is
-   * gated on the identity-checked handshake, which a failure turns into the
-   * same unavailable entry an unreachable Machine produces.
+   * Every server the binding's root declares, as its Machine resolved them.
+   * The hub reads no `.mcp.json` and resolves no interpolation itself: a
+   * declaration that names a variable belongs to the Machine's environment,
+   * so a host Workspace's servers come from the host daemon exactly as a
+   * remote one's do (host-as-machine H18). A root that names no Machine cannot
+   * come from the locator rule, and reports one unavailable entry rather than
+   * reading this process's filesystem.
    */
-  private async serverRoute(root: string): Promise<WorkspaceServerRoute> {
-    const target = machineWorkspaceTarget(root);
-    const connector = this.connector;
-
-    if (target === undefined) return { kind: 'local', path: root };
-
-    if (connector === undefined || connector.localMachine() !== target.machine)
-      return { kind: 'machine', target };
-
-    try {
-      await connector.verifyLocal();
-    } catch {
-      return { kind: 'unavailable' };
-    }
-
-    return { kind: 'local', path: target.path };
-  }
-
-  /** Every server the binding's root declares, in the world it lives in. */
   private async readConfigs(
-    root: string,
+    target: MachineWorkspaceTarget | undefined,
   ): Promise<ReadonlyArray<WorkspaceServerConfig>> {
-    return this.readConfigsFor(await this.serverRoute(root));
-  }
+    if (target === undefined) return [unavailableWorkspaceConfig()];
 
-  private async readConfigsFor(
-    route: WorkspaceServerRoute,
-  ): Promise<ReadonlyArray<WorkspaceServerConfig>> {
-    switch (route.kind) {
-      case 'local':
-        return this.readLocalConfigs(route.path);
-      case 'machine':
-        return readMachineServerConfigs(this.connector, route.target);
-      case 'unavailable':
-        return [unavailableWorkspaceConfig()];
-    }
-  }
-
-  /** Every server the Workspace's own `.mcp.json` resolves to, here. */
-  private async readLocalConfigs(
-    root: string,
-  ): Promise<ReadonlyArray<WorkspaceServerConfig>> {
-    try {
-      return await this.readConfig(root, processEnvironment());
-    } catch {
-      return [unavailableWorkspaceConfig()];
-    }
+    return readMachineServerConfigs(this.connector, target);
   }
 
   private async stopStaleForChat(key: WorkspaceMcpKey): Promise<void> {

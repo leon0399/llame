@@ -20,7 +20,7 @@ import {
   skillResultEnvelope,
 } from '../skills/skill-results';
 import { SKILL_LOCATOR_SCHEME } from '../skills/skill-locator';
-import { verifiedWorkspaceSkillSources } from '../skills/workspace-skill-sources';
+import { workspaceSkillSources } from '../skills/workspace-skill-sources';
 import {
   NO_SKILL_SELECTION,
   isSkillCatalogResult,
@@ -28,9 +28,13 @@ import {
   skillCatalogUnavailableResult,
   type ResolvedSkillTarget,
 } from '../skills/skill-target';
-import { verifyLocalMachine } from './local-machine';
 import { type Tool, type ToolContext, type ToolResult } from './types';
 import { resolveMachinePath } from './workspace-path';
+import {
+  admitPermission,
+  evaluateCanonicalWithRejectTexts,
+} from './permissions/admit';
+import { permissionDeniedResult } from './permissions/messages';
 import { executeWebRead } from './web-read/execute';
 import { executeMediaRead } from './media-read';
 import { readAttributionReserve } from './model-text';
@@ -207,8 +211,9 @@ async function executeKnowledge(
 /**
  * Skill locators are read-only. The catalog resolves the current winning
  * package on every call, so a removed or newly invalid package fails here
- * rather than serving stale bytes, and no executor identity is needed: the
- * catalog reads the operator roots plus the bound Chat's live Workspace roots.
+ * rather than serving stale bytes. Operator roots stay installation
+ * resources, and the bound Workspace's own roots are Machine locators the
+ * attempt's snapshot read from the Workspace's Machine.
  */
 async function executeSkill(
   context: ToolContext,
@@ -222,16 +227,8 @@ async function executeSkill(
   if (catalog === undefined) return skillCatalogUnavailableResult();
   const root = context.workspaceRoot?.current();
 
-  // The bound Workspace's own roots are host reads on this Machine, so they
-  // are offered only after this call's identity-checked handshake.
   const extraSources =
-    root === undefined
-      ? undefined
-      : await verifiedWorkspaceSkillSources(root, {
-          localMachine: context.localMachine,
-          verifyLocal: async () =>
-            (await verifyLocalMachine(context)) === undefined,
-        });
+    root === undefined ? undefined : workspaceSkillSources(root);
 
   const resolved = await resolveSkillLocator(
     catalog,
@@ -250,7 +247,43 @@ async function executeSkill(
     return skillCatalogEnvelope(resolved.entries, window);
   }
 
+  const refusal = machineSkillRefusal(context, resolved);
+
+  if (refusal !== undefined) return refusal;
+
   return readResolvedSkillTarget(context, resolved);
+}
+
+/**
+ * A Machine package's file is judged again on its canonical Machine locator
+ * and that bare path: the `read` group allowed the `skill://` text, but a
+ * reject written for the Machine location must still refuse the bytes.
+ */
+function machineSkillRefusal(
+  context: ToolContext,
+  target: ResolvedSkillTarget,
+): ToolResult | undefined {
+  if (!isMachineLocator(target.skillDirectory)) return undefined;
+  const parsed = parseMachineLocator(target.hostPath);
+
+  if (parsed.kind !== 'path') return undefined;
+  const locator = formatMachineLocator(parsed.name, parsed.path);
+
+  if (locator === undefined) return undefined;
+
+  const decision = admitPermission(context, (evaluate) =>
+    evaluateCanonicalWithRejectTexts(evaluate, {
+      canonical: { toolId: 'read', args: { path: target.locator } },
+      rejectTexts: [
+        { toolId: 'read', args: { path: locator } },
+        { toolId: 'read', args: { path: parsed.path } },
+      ],
+    }),
+  );
+
+  return decision?.decision === 'reject'
+    ? permissionDeniedResult(decision.reason)
+    : undefined;
 }
 
 /**

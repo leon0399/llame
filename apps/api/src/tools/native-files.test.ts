@@ -43,14 +43,13 @@ import {
 import { KnowledgeFilesystemAdapter } from '../knowledge/knowledge-filesystem';
 import { KNOWLEDGE_CONTENT_NOTICE } from '../knowledge/knowledge-content-notice';
 import {
+  NODE_SKILL_FILE_SYSTEM,
   SkillCatalog,
   type SkillCatalogEntry,
   type SkillCatalogPort,
 } from '../skills/skill-catalog';
 import { MachineConnector } from '../machines/machine-connector.service';
-import { localMachineConnector } from '../testing/local-machine';
 import { machineFilesConnector } from '../testing/machine-files-peer';
-import { MachineIdentityMismatchError } from '../machines/machine-session';
 import {
   createProtocolPeer,
   type ProtocolPeerOptions,
@@ -1857,6 +1856,29 @@ describe('skill locator resolution', () => {
   let source: string;
   let packageDirectory: string;
 
+  /** The hub's view of a source path on its own Machine, for a real file read. */
+  function machineView(path: string): string {
+    return path.startsWith('machine://host-a')
+      ? path.slice('machine://host-a'.length)
+      : path;
+  }
+
+  /** A path as the text of an anchored reject regex. */
+  function escapeRegex(text: string): string {
+    return text.replaceAll(/[.*+?^${}()|[\]\\]/gu, String.raw`\$&`);
+  }
+
+  /** A catalog that reads Machine-locator sources through their host paths. */
+  function machineCatalog(): SkillCatalog {
+    return new SkillCatalog([source], {
+      readDirectory: (path) =>
+        NODE_SKILL_FILE_SYSTEM.readDirectory(machineView(path)),
+      fileKind: (path) => NODE_SKILL_FILE_SYSTEM.fileKind(machineView(path)),
+      readTextFile: (path) =>
+        NODE_SKILL_FILE_SYSTEM.readTextFile(machineView(path)),
+    });
+  }
+
   function skillContext(
     overrides: {
       readonly catalog?: SkillCatalogPort;
@@ -1864,6 +1886,7 @@ describe('skill locator resolution', () => {
       readonly workspaceRoot?: string;
       readonly localMachine?: string;
       readonly machines?: ToolContext['machines'];
+      readonly permissionPolicy?: ToolContext['permissionPolicy'];
     } = {},
   ): ToolContext {
     const base: ToolContext = {
@@ -1872,7 +1895,8 @@ describe('skill locator resolution', () => {
       chatId: 'chat',
       runId: 'run',
       toolCallId: 'call',
-      permissionPolicy: compileTestPermissionPolicy(),
+      permissionPolicy:
+        overrides.permissionPolicy ?? compileTestPermissionPolicy(),
       skillCatalog: overrides.catalog ?? new SkillCatalog([source]),
       tenantDb: {
         runAs: () => Promise.reject(new Error('Database unavailable')),
@@ -1923,23 +1947,27 @@ describe('skill locator resolution', () => {
 
   it('resolves Workspace skill locators live and isolates Chats without a root', async () => {
     const workspace = join(source, 'workspace');
+    const root = `machine://host-a${workspace}`;
+    const sources = workspaceSkillSources(root);
 
-    const [claude, agents, llame] = workspaceSkillSources(workspace, {
-      localVerified: true,
-    });
+    const [, , llame] = ['.claude', '.agents', '.llame'].map((segment) =>
+      join(workspace, segment, 'skills'),
+    );
 
-    await mkdir(claude, { recursive: true });
-    await mkdir(agents, { recursive: true });
-    await mkdir(llame, { recursive: true });
+    for (const segment of ['.claude', '.agents', '.llame']) {
+      await mkdir(join(workspace, segment, 'skills'), { recursive: true });
+    }
 
-    for (const [directory, description] of [
-      [claude, 'Claude pdf'],
-      [agents, 'Agents pdf'],
-      [llame, 'Llame pdf'],
+    for (const [segment, description] of [
+      ['.claude', 'Claude pdf'],
+      ['.agents', 'Agents pdf'],
+      ['.llame', 'Llame pdf'],
     ] as const) {
-      await mkdir(join(directory, 'pdf'), { recursive: true });
+      const directory = join(workspace, segment, 'skills', 'pdf');
+
+      await mkdir(directory, { recursive: true });
       await writeFile(
-        join(directory, 'pdf', 'SKILL.md'),
+        join(directory, 'SKILL.md'),
         `---\nname: pdf\ndescription: ${description}\n---\n# Workspace pdf\n`,
       );
     }
@@ -1954,17 +1982,25 @@ describe('skill locator resolution', () => {
       nativeReadTool,
       { path: 'skill://pdf' },
       skillContext({
-        workspaceRoot: workspace,
+        workspaceRoot: root,
         localMachine: 'host-a',
-        machines: localMachineConnector({ name: 'host-a' }),
+        machines: machineFilesConnector({ name: 'host-a' }),
+        catalog: new SkillCatalog([source], {
+          readDirectory: (path) =>
+            NODE_SKILL_FILE_SYSTEM.readDirectory(machineView(path)),
+          fileKind: (path) =>
+            NODE_SKILL_FILE_SYSTEM.fileKind(machineView(path)),
+          readTextFile: (path) =>
+            NODE_SKILL_FILE_SYSTEM.readTextFile(machineView(path)),
+        }),
       }),
       5,
     );
 
     expect(workspaceResult).toMatchObject({
       status: 'success',
-      skillDirectory: join(llame, 'pdf'),
-      sourceDirectory: llame,
+      skillDirectory: `machine://host-a${join(llame, 'pdf')}`,
+      sourceDirectory: sources[2],
     });
 
     const operatorResult = await runTool(
@@ -1980,55 +2016,153 @@ describe('skill locator resolution', () => {
     });
   });
 
-  it('serves no Workspace skill when the local daemon answers another identity', async () => {
+  it('refuses a Machine package file the read group rejects on its Machine locator', async () => {
     const workspace = join(source, 'workspace');
+    const guarded = join(workspace, '.agents', 'skills', 'guarded');
 
-    const [, agents] = workspaceSkillSources(workspace, {
-      localVerified: true,
-    });
-
-    await mkdir(join(agents, 'ws-only'), { recursive: true });
+    await mkdir(guarded, { recursive: true });
     await writeFile(
-      join(agents, 'ws-only', 'SKILL.md'),
-      '---\nname: ws-only\ndescription: Workspace only\n---\n# Workspace only\n',
+      join(guarded, 'SKILL.md'),
+      '---\nname: guarded\ndescription: Guarded\n---\n# guarded\n',
     );
 
-    const root = `machine://host-a${workspace}`;
-    const verified = localMachineConnector({ name: 'host-a' });
+    const result = await runTool(
+      nativeReadTool,
+      { path: 'skill://guarded' },
+      skillContext({
+        workspaceRoot: `machine://host-a${workspace}`,
+        localMachine: 'host-a',
+        machines: machineFilesConnector({ name: 'host-a' }),
+        catalog: machineCatalog(),
+        permissionPolicy: compileToolPermissionMap(
+          {
+            read: {
+              allow: true,
+              reject: [
+                {
+                  field: 'path',
+                  regex: String.raw`^machine://host-a.*/workspace/\.agents/skills/guarded/`,
+                },
+              ],
+            },
+          },
+          'machine-skill-reject',
+        ),
+      }),
+      5,
+    );
 
-    await expect(
-      runTool(
-        nativeReadTool,
-        { path: 'skill://ws-only' },
-        skillContext({
-          workspaceRoot: root,
-          localMachine: 'host-a',
-          machines: verified,
-        }),
-        5,
-      ),
-    ).resolves.toMatchObject({
-      status: 'success',
-      skillDirectory: join(agents, 'ws-only'),
+    expect(result).toMatchObject({
+      status: 'error',
+      type: 'permission_denied',
     });
+  });
 
-    const mismatched = localMachineConnector({
-      name: 'host-a',
-      verify: () => Promise.reject(new MachineIdentityMismatchError('host-a')),
+  it('refuses a Machine package file the read group rejects on its bare path', async () => {
+    const workspace = join(source, 'workspace');
+    const guarded = join(workspace, '.agents', 'skills', 'guarded');
+
+    await mkdir(guarded, { recursive: true });
+    await writeFile(
+      join(guarded, 'SKILL.md'),
+      '---\nname: guarded\ndescription: Guarded\n---\n# guarded\n',
+    );
+
+    const result = await runTool(
+      nativeReadTool,
+      { path: 'skill://guarded' },
+      skillContext({
+        workspaceRoot: `machine://host-a${workspace}`,
+        localMachine: 'host-a',
+        machines: machineFilesConnector({ name: 'host-a' }),
+        catalog: machineCatalog(),
+        permissionPolicy: compileToolPermissionMap(
+          {
+            read: {
+              allow: true,
+              reject: [{ field: 'path', literal: join(guarded, 'SKILL.md') }],
+            },
+          },
+          'machine-skill-reject',
+        ),
+      }),
+      5,
+    );
+
+    expect(result).toMatchObject({
+      status: 'error',
+      type: 'permission_denied',
     });
+  });
 
-    await expect(
-      runTool(
-        nativeReadTool,
-        { path: 'skill://ws-only' },
-        skillContext({
-          workspaceRoot: root,
-          localMachine: 'host-a',
-          machines: mismatched,
-        }),
-        5,
-      ),
-    ).resolves.toMatchObject({ status: 'error', type: 'not_found' });
+  it('refuses a Machine package file rejected on its bare path exactly', async () => {
+    const workspace = join(source, 'workspace');
+    const guarded = join(workspace, '.agents', 'skills', 'guarded');
+    const document = join(guarded, 'SKILL.md');
+
+    await mkdir(guarded, { recursive: true });
+    await writeFile(
+      document,
+      '---\nname: guarded\ndescription: Guarded\n---\n# guarded\n',
+    );
+
+    const result = await runTool(
+      nativeReadTool,
+      { path: 'skill://guarded' },
+      skillContext({
+        workspaceRoot: `machine://host-a${workspace}`,
+        localMachine: 'host-a',
+        machines: machineFilesConnector({ name: 'host-a' }),
+        catalog: machineCatalog(),
+        permissionPolicy: compileToolPermissionMap(
+          {
+            read: {
+              allow: true,
+              // Anchored, so only the bare path itself can match it: a
+              // substring rule would also match the canonical locator.
+              reject: [{ field: 'path', regex: `^${escapeRegex(document)}$` }],
+            },
+          },
+          'machine-skill-reject',
+        ),
+      }),
+      5,
+    );
+
+    expect(result).toMatchObject({
+      status: 'error',
+      type: 'permission_denied',
+    });
+  });
+
+  it('reads a Machine package file the read group allows', async () => {
+    const workspace = join(source, 'workspace');
+    const guarded = join(workspace, '.agents', 'skills', 'guarded');
+
+    await mkdir(guarded, { recursive: true });
+    await writeFile(
+      join(guarded, 'SKILL.md'),
+      '---\nname: guarded\ndescription: Guarded\n---\n# guarded body\n',
+    );
+
+    const result = await runTool(
+      nativeReadTool,
+      { path: 'skill://guarded' },
+      skillContext({
+        workspaceRoot: `machine://host-a${workspace}`,
+        localMachine: 'host-a',
+        machines: machineFilesConnector({ name: 'host-a' }),
+        catalog: machineCatalog(),
+        permissionPolicy: compileToolPermissionMap(
+          { read: { allow: true } },
+          'machine-skill-allow',
+        ),
+      }),
+      5,
+    );
+
+    expect(result).toMatchObject({ status: 'success' });
+    expect(JSON.stringify(result)).toContain('# guarded body');
   });
 
   it('reads the package root and publishes the real paths and instruction', async () => {

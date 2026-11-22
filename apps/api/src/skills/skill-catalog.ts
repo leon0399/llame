@@ -66,12 +66,26 @@ export type SkillCatalogFileSystem = {
 };
 
 /**
+ * One host skill path. Every operator source is an absolute directory, so a
+ * Machine locator or a relative string is never opened on the hub's own
+ * filesystem: it reads as unreadable instead of resolving against the process
+ * working directory.
+ */
+function hostSkillPath(filePath: string): string {
+  if (!path.isAbsolute(filePath)) {
+    throw new Error(`The skill path ${filePath} is not an absolute host path.`);
+  }
+
+  return filePath;
+}
+
+/**
  * The production filesystem seam. Exported so a test can delegate to it and
  * override only the operation it needs to fail.
  */
 export const NODE_SKILL_FILE_SYSTEM: SkillCatalogFileSystem = {
   readDirectory: (directoryPath) => {
-    const dir = opendirSync(directoryPath);
+    const dir = opendirSync(hostSkillPath(directoryPath));
     const entries: Array<CatalogDirent> = [];
 
     try {
@@ -89,8 +103,10 @@ export const NODE_SKILL_FILE_SYSTEM: SkillCatalogFileSystem = {
 
     return entries;
   },
-  readTextFile: (filePath) => readFileSync(filePath, 'utf8'),
+  readTextFile: (filePath) => readFileSync(hostSkillPath(filePath), 'utf8'),
   fileKind: (filePath) => {
+    if (!path.isAbsolute(filePath)) return 'unavailable';
+
     try {
       const link = lstatSync(filePath);
 

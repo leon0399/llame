@@ -25,9 +25,11 @@ import {
   isInstructionsPayload,
   instructionsSeenPaths,
 } from '../chats/instructions-item';
+import { statHostPath } from '@workspace/native-file-tools';
 import {
-  hostInstructionScope,
+  listDirectoryNames,
   parentKey,
+  type InstructionScope,
   type ReadPage,
 } from './instruction-files';
 import type { InRunToolCall } from '../runs/in-run-context-items';
@@ -60,17 +62,57 @@ async function write(path: string, content: string): Promise<void> {
   await writeFile(path, content);
 }
 
+const HOST_LABEL = 'machine://host-a';
+
+/** The path behind a Machine label the fixture Machine produced. */
+function hostPath(value: string): string {
+  if (!value.startsWith(HOST_LABEL)) return value;
+  const rest = value.slice(HOST_LABEL.length);
+
+  try {
+    return decodeURIComponent(rest);
+  } catch {
+    return rest;
+  }
+}
+
+/** A scope over real paths, labelled as one Machine's canonical locators. */
+function pathScope(): InstructionScope {
+  return {
+    root: '/',
+    label: (key) => `${HOST_LABEL}${key}`,
+    probe: async (key) => {
+      const probe = await statHostPath(key);
+
+      return probe.kind === 'missing'
+        ? probe
+        : { ...probe, canonicalPath: `${HOST_LABEL}${probe.canonicalPath}` };
+    },
+    list: listDirectoryNames,
+  };
+}
+
+/** The Machine world one attempt carries, over this process's filesystem. */
+function machineWorld(readPage: ReadPage) {
+  return {
+    readPage,
+    probe: () => Promise.resolve(pathScope()),
+  };
+}
+
 /** A page reader over the real files, recording every selector it was asked for. */
 function pageReader() {
   const reads: Array<string> = [];
   const canonicalPaths: Array<string | undefined> = [];
 
   const readPage: ReadPage = async (selectorPath, canonicalPath) => {
-    reads.push(selectorPath);
-    canonicalPaths.push(canonicalPath);
+    reads.push(hostPath(selectorPath));
+    canonicalPaths.push(
+      canonicalPath === undefined ? undefined : hostPath(canonicalPath),
+    );
     const marker = selectorPath.lastIndexOf(':raw:');
     const path = marker < 0 ? selectorPath : selectorPath.slice(0, marker);
-    const content = await readFile(path, 'utf8');
+    const content = await readFile(hostPath(path), 'utf8');
 
     return { status: 'success', kind: 'file', content, truncated: false };
   };
@@ -82,7 +124,7 @@ function pageReader() {
 function attemptOf(
   input: {
     readonly seenKeys?: ReadonlySet<string>;
-    /** `null` builds the attempt with no page reader at all. */
+    /** `null` builds the attempt with no Machine world. */
     readonly readPage?: ReadPage | null;
     readonly admitsRead?: (path: string) => boolean;
     /** The Space capability; absent builds an attempt without one. */
@@ -96,7 +138,7 @@ function attemptOf(
       readonly probe: (target: {
         readonly name: string;
         readonly path: string;
-      }) => Promise<ReturnType<typeof hostInstructionScope> | undefined>;
+      }) => Promise<InstructionScope | undefined>;
     };
   } = {},
 ) {
@@ -117,7 +159,7 @@ function attemptOf(
       ? undefined
       : (input.machines ?? {
           readPage,
-          probe: () => Promise.resolve(hostInstructionScope()),
+          probe: () => Promise.resolve(pathScope()),
         });
 
   const producer = createInstructionsProducer().beginAttempt({
@@ -128,7 +170,6 @@ function attemptOf(
     localMachine: 'host-a',
     defaultMachine: 'host-a',
     ...(input.seenKeys !== undefined && { seenKeys: input.seenKeys }),
-    ...(readPage !== undefined && { readPage }),
     ...(space !== undefined && {
       knowledge: { readPage: space.readPage, probe: space.knowledge },
     }),
@@ -158,7 +199,7 @@ function blockPaths(part: AuthoredContextItemPart): Array<string> {
     throw new Error('the staged part is not an instructions payload');
   }
 
-  return payload.files.map((file) => file.path);
+  return payload.files.map((file) => hostPath(file.path));
 }
 
 function loadedFiles(part: AuthoredContextItemPart): ReadonlyArray<{
@@ -173,7 +214,14 @@ function loadedFiles(part: AuthoredContextItemPart): ReadonlyArray<{
     throw new Error('the staged part is not an instructions payload');
   }
 
-  return payload.files;
+  return payload.files.map((file) => ({
+    ...file,
+    path: hostPath(file.path),
+    canonicalPath: hostPath(file.canonicalPath),
+    ...(file.importedBy !== undefined && {
+      importedBy: hostPath(file.importedBy),
+    }),
+  }));
 }
 
 function deniedPaths(part: AuthoredContextItemPart): Array<string> {
@@ -183,12 +231,12 @@ function deniedPaths(part: AuthoredContextItemPart): Array<string> {
     throw new Error('the staged part is not an instructions payload');
   }
 
-  return [...payload.denied];
+  return [...payload.denied].map(hostPath);
 }
 
 /** The canonical seen keys an item discloses. */
 function seenKeys(part: AuthoredContextItemPart): Array<string> {
-  return [...instructionsSeenPaths([part])];
+  return [...instructionsSeenPaths([part])].map(hostPath);
 }
 
 /** The fixture paths of `paths`, in order, ignoring anything above `root`. */
@@ -812,7 +860,7 @@ describe('instructions producer triggers', () => {
     const { readPage, reads } = pageReader();
 
     const { producer, staged, prepare } = attemptOf({
-      seenKeys: new Set([canonical]),
+      seenKeys: new Set([`${HOST_LABEL}${canonical}`]),
       readPage,
     });
 
@@ -1114,7 +1162,7 @@ describe('instructions producer triggers', () => {
     const reads: Array<string> = [];
 
     const readPage: ReadPage = (selectorPath) => {
-      reads.push(selectorPath);
+      reads.push(hostPath(selectorPath));
 
       if (deny) {
         return Promise.resolve({
@@ -1338,13 +1386,13 @@ describe('instructions producer imports', () => {
     const admitted: Array<string> = [];
 
     const readPage: ReadPage = async (selectorPath) => {
-      reads.push(selectorPath);
+      reads.push(hostPath(selectorPath));
       const path = selectorPath.slice(0, selectorPath.lastIndexOf(':raw:'));
 
       return {
         status: 'success',
         kind: 'file',
-        content: await readFile(path, 'utf8'),
+        content: await readFile(hostPath(path), 'utf8'),
         truncated: false,
       };
     };
@@ -1352,7 +1400,7 @@ describe('instructions producer imports', () => {
     const { producer, staged, prepare } = attemptOf({
       readPage,
       admitsRead: (path) => {
-        admitted.push(path);
+        admitted.push(hostPath(path));
 
         return true;
       },
@@ -1441,7 +1489,7 @@ describe('instructions producer imports', () => {
 
     const { producer, staged, prepare } = attemptOf({
       space,
-      admitsRead: (path) => path !== `${target}:raw:1-2000`,
+      admitsRead: (path) => hostPath(path) !== `${target}:raw:1-2000`,
     });
 
     producer.observeToolCall?.(spaceCall('entry.md'));
@@ -1503,9 +1551,9 @@ describe('instructions producer imports', () => {
     const reads: Array<string> = [];
 
     const readPage: ReadPage = async (selectorPath) => {
-      reads.push(selectorPath);
+      reads.push(hostPath(selectorPath));
 
-      if (selectorPath.startsWith(`${target}:raw:`)) {
+      if (selectorPath.startsWith(`${HOST_LABEL}${target}:raw:`)) {
         return {
           status: 'error',
           type: 'permission_denied',
@@ -1518,14 +1566,14 @@ describe('instructions producer imports', () => {
       return {
         status: 'success',
         kind: 'file',
-        content: await readFile(path, 'utf8'),
+        content: await readFile(hostPath(path), 'utf8'),
         truncated: false,
       };
     };
 
     const { producer, staged, prepare } = attemptOf({
       readPage,
-      admitsRead: (path) => path !== `${target}:raw:1-2000`,
+      admitsRead: (path) => hostPath(path) !== `${target}:raw:1-2000`,
     });
 
     producer.observeToolCall?.(readCall(join(root, 'x.ts')));
@@ -1545,9 +1593,9 @@ describe('instructions producer imports', () => {
       const admitted: Array<string> = [];
 
       const readPage: ReadPage = async (selectorPath) => {
-        reads.push(selectorPath);
+        reads.push(hostPath(selectorPath));
 
-        if (selectorPath.startsWith(`${target}:raw:`)) {
+        if (selectorPath.startsWith(`${HOST_LABEL}${target}:raw:`)) {
           return {
             status: 'error',
             type: 'permission_denied',
@@ -1560,7 +1608,7 @@ describe('instructions producer imports', () => {
         return {
           status: 'success',
           kind: 'file',
-          content: await readFile(path, 'utf8'),
+          content: await readFile(hostPath(path), 'utf8'),
           truncated: false,
         };
       };
@@ -1568,9 +1616,9 @@ describe('instructions producer imports', () => {
       const { producer, staged, prepare } = attemptOf({
         readPage,
         admitsRead: (path) => {
-          admitted.push(path);
+          admitted.push(hostPath(path));
 
-          return path !== `${target}:raw:1-2000`;
+          return hostPath(path) !== `${target}:raw:1-2000`;
         },
       });
 
@@ -1608,9 +1656,9 @@ describe('instructions producer imports', () => {
     const reads: Array<string> = [];
 
     const readPage: ReadPage = async (selectorPath) => {
-      reads.push(selectorPath);
+      reads.push(hostPath(selectorPath));
 
-      if (selectorPath.startsWith(`${target}:raw:`)) {
+      if (selectorPath.startsWith(`${HOST_LABEL}${target}:raw:`)) {
         return {
           status: 'error',
           type: 'permission_denied',
@@ -1623,14 +1671,14 @@ describe('instructions producer imports', () => {
       return {
         status: 'success',
         kind: 'file',
-        content: await readFile(path, 'utf8'),
+        content: await readFile(hostPath(path), 'utf8'),
         truncated: false,
       };
     };
 
     const attempt = attemptOf({
       readPage,
-      admitsRead: (path) => path !== `${target}:raw:1-2000`,
+      admitsRead: (path) => hostPath(path) !== `${target}:raw:1-2000`,
     });
 
     attempt.producer.observeToolCall?.(readCall(join(root, 'x.ts')));
@@ -1652,7 +1700,9 @@ describe('instructions producer imports', () => {
     const part = await createInstructionsProducer().prepareTurn?.({
       runId: RUN_ID,
       workspaceRoot: root,
-      readPage: pageReader().readPage,
+      localMachine: 'host-a',
+      defaultMachine: 'host-a',
+      machines: machineWorld(pageReader().readPage),
       admitsRead: () => true,
       seenKeys: new Set(),
     });
@@ -1691,9 +1741,9 @@ describe('instructions producer imports', () => {
     const reads: Array<string> = [];
 
     const readPage: ReadPage = async (selectorPath) => {
-      reads.push(selectorPath);
+      reads.push(hostPath(selectorPath));
 
-      if (selectorPath.startsWith(`${denied}:raw:`)) {
+      if (selectorPath.startsWith(`${HOST_LABEL}${denied}:raw:`)) {
         return {
           status: 'error',
           type: 'permission_denied',
@@ -1706,7 +1756,7 @@ describe('instructions producer imports', () => {
       return {
         status: 'success',
         kind: 'file',
-        content: await readFile(path, 'utf8'),
+        content: await readFile(hostPath(path), 'utf8'),
         truncated: false,
       };
     };
@@ -1734,9 +1784,12 @@ describe('instructions producer imports', () => {
     const reads: Array<readonly [string, string | undefined]> = [];
 
     const readPage: ReadPage = async (selectorPath, canonicalPath) => {
-      reads.push([selectorPath, canonicalPath]);
+      reads.push([
+        hostPath(selectorPath),
+        canonicalPath === undefined ? undefined : hostPath(canonicalPath),
+      ]);
 
-      if (canonicalPath === chain) {
+      if (canonicalPath === `${HOST_LABEL}${chain}`) {
         return {
           status: 'error',
           type: 'permission_denied',
@@ -1750,7 +1803,7 @@ describe('instructions producer imports', () => {
       return {
         status: 'success',
         kind: 'file',
-        content: await readFile(path, 'utf8'),
+        content: await readFile(hostPath(path), 'utf8'),
         truncated: false,
       };
     };
@@ -1758,7 +1811,9 @@ describe('instructions producer imports', () => {
     const part = await createInstructionsProducer().prepareTurn?.({
       runId: RUN_ID,
       workspaceRoot: join(root, 'foo'),
-      readPage,
+      localMachine: 'host-a',
+      defaultMachine: 'host-a',
+      machines: machineWorld(readPage),
       admitsRead: () => true,
       seenKeys: new Set(),
     });
@@ -1827,13 +1882,13 @@ describe('instructions producer imports', () => {
     const admitted: Array<string> = [];
 
     const readPage: ReadPage = async (selectorPath) => {
-      reads.push(selectorPath);
+      reads.push(hostPath(selectorPath));
       const path = selectorPath.slice(0, selectorPath.lastIndexOf(':raw:'));
 
       return {
         status: 'success',
         kind: 'file',
-        content: await readFile(path, 'utf8'),
+        content: await readFile(hostPath(path), 'utf8'),
         truncated: false,
       };
     };
@@ -1841,9 +1896,9 @@ describe('instructions producer imports', () => {
     const { producer, staged, prepare } = attemptOf({
       readPage,
       admitsRead: (path) => {
-        admitted.push(path);
+        admitted.push(hostPath(path));
 
-        return splitSelectorSuffix(path).path !== target;
+        return splitSelectorSuffix(hostPath(path)).path !== target;
       },
     });
 
@@ -1901,9 +1956,12 @@ describe('instructions producer imports', () => {
     const reads: Array<readonly [string, string | undefined]> = [];
 
     const readPage: ReadPage = async (selectorPath, canonicalPath) => {
-      reads.push([selectorPath, canonicalPath]);
+      reads.push([
+        hostPath(selectorPath),
+        canonicalPath === undefined ? undefined : hostPath(canonicalPath),
+      ]);
 
-      if (canonicalPath === target) {
+      if (canonicalPath === `${HOST_LABEL}${target}`) {
         return {
           status: 'error',
           type: 'permission_denied',
@@ -1917,7 +1975,7 @@ describe('instructions producer imports', () => {
       return {
         status: 'success',
         kind: 'file',
-        content: await readFile(path, 'utf8'),
+        content: await readFile(hostPath(path), 'utf8'),
         truncated: false,
       };
     };
@@ -1964,7 +2022,9 @@ describe('instructions producer accepted turn', () => {
     const part = await createInstructionsProducer().prepareTurn?.({
       runId: RUN_ID,
       workspaceRoot: join(root, 'apps/api'),
-      readPage: pageReader().readPage,
+      localMachine: 'host-a',
+      defaultMachine: 'host-a',
+      machines: machineWorld(pageReader().readPage),
       admitsRead: () => true,
       seenKeys: new Set(),
     });
@@ -1986,9 +2046,13 @@ describe('instructions producer accepted turn', () => {
     const part = await createInstructionsProducer().prepareTurn?.({
       runId: RUN_ID,
       workspaceRoot: root,
-      readPage: pageReader().readPage,
+      localMachine: 'host-a',
+      defaultMachine: 'host-a',
+      machines: machineWorld(pageReader().readPage),
       admitsRead: () => true,
-      seenKeys: new Set([await realpath(join(root, 'AGENTS.md'))]),
+      seenKeys: new Set([
+        `${HOST_LABEL}${await realpath(join(root, 'AGENTS.md'))}`,
+      ]),
     });
 
     expect(part).toBeUndefined();
@@ -2016,7 +2080,11 @@ describe('instructions producer accepted-turn prompt-import triggers', () => {
       seenKeys: new Set(),
       promptImportTriggers: input.triggers,
       ...(workspaceRoot !== undefined && { workspaceRoot }),
-      ...(hostPage !== undefined && { readPage: hostPage }),
+      ...(hostPage !== undefined && {
+        localMachine: 'host-a',
+        defaultMachine: 'host-a',
+        machines: machineWorld(hostPage),
+      }),
       ...(space !== undefined && {
         knowledge: { readPage: space.readPage, probe: space.knowledge },
       }),

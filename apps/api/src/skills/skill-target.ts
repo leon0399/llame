@@ -3,6 +3,7 @@ import path from 'node:path';
 
 import { type ToolResult } from '@workspace/runtime-safety';
 
+import { isMachineLocator } from '../machines/machine-locator';
 import {
   formatSkillLocator,
   parseSkillLocator,
@@ -195,6 +196,10 @@ const SKILL_DOCUMENT_FILENAME = 'SKILL.md';
 async function realPackageDirectory(
   skillDirectory: string,
 ): Promise<string | undefined> {
+  // A Machine package's directory is a locator the daemon owns: the hub has no
+  // host path to canonicalize, so it never opens one.
+  if (isMachineLocator(skillDirectory)) return undefined;
+
   let real: string;
 
   try {

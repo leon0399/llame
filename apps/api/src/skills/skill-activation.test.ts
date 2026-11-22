@@ -5,13 +5,16 @@ import path from 'node:path';
 
 import { activateSkills, MAX_SKILL_ACTIVATIONS } from './skill-activation';
 import { parseSkillMentions } from './skill-mention';
-import { SkillCatalog } from './skill-catalog';
+import {
+  NODE_SKILL_FILE_SYSTEM,
+  SkillCatalog,
+  type SkillCatalogPort,
+} from './skill-catalog';
 import { nativeReadTool } from '../tools/native-files';
 import { type ToolContext, type ToolResult } from '../tools/types';
 import { createWorkspaceRootCell } from '../tools/workspace-path';
-import { workspaceSkillSources } from './workspace-skill-sources';
 import { compileTestPermissionPolicy } from '../testing/tool-permission-policy';
-import { localMachineConnector } from '../testing/local-machine';
+import { machineFilesConnector } from '../testing/machine-files-peer';
 import { compileToolPermissionMap } from '../tools/permissions/compile-permissions';
 import { type PermissionDecision } from '../tools/permissions/types';
 import { CONTEXT_ITEM_TAG } from '../chats/context-item';
@@ -99,10 +102,18 @@ type AuditRecord = {
   readonly result?: ToolResult;
 };
 
+function machineView(path: string): string {
+  return path.startsWith('machine://host-a')
+    ? path.slice('machine://host-a'.length)
+    : path;
+}
+
 function harness(
   options: {
     readonly reject?: boolean;
     readonly workspaceRoot?: string;
+    readonly catalog?: SkillCatalogPort;
+    readonly machines?: ToolContext['machines'];
   } = {},
 ) {
   const audit: Array<AuditRecord> = [];
@@ -115,12 +126,10 @@ function harness(
     permissionPolicy: options.reject
       ? rejectingReadPolicy()
       : compileTestPermissionPolicy(),
-    skillCatalog: new SkillCatalog([source]),
+    skillCatalog: options.catalog ?? new SkillCatalog([source]),
     timeoutMs: 5000,
-    // The Workspace sources are host paths, so the attempt's local Machine
-    // must verify before they are read (design D8).
     localMachine: 'host-a',
-    machines: localMachineConnector({ name: 'host-a' }),
+    machines: options.machines ?? machineFilesConnector({ name: 'host-a' }),
     tenantDb: {
       runAs: () => Promise.reject(new Error('no database in this test')),
     },
@@ -152,6 +161,8 @@ const run = (
   overrides: {
     readonly reject?: boolean;
     readonly workspaceRoot?: string;
+    readonly catalog?: SkillCatalogPort;
+    readonly machines?: ToolContext['machines'];
   } = {},
 ) => {
   const h = harness(overrides);
@@ -213,10 +224,7 @@ describe('activateSkills', () => {
   it('activates an explicitly named Workspace skill', async () => {
     const workspace = temporaryDirectory('workspace');
 
-    const [, , llame] = workspaceSkillSources(workspace, {
-      localVerified: true,
-    });
-
+    const llame = path.join(workspace, '.llame', 'skills');
     const packageDirectory = path.join(llame, 'review');
     await mkdir(packageDirectory, { recursive: true });
     await writeFile(
@@ -224,7 +232,19 @@ describe('activateSkills', () => {
       '---\nname: review\ndescription: Workspace review\n---\n# Workspace review\n',
     );
 
-    const { outcome } = await run('$review', { workspaceRoot: workspace });
+    const root = `machine://host-a${workspace}`;
+
+    const { outcome } = await run('$review', {
+      workspaceRoot: root,
+      catalog: new SkillCatalog([source], {
+        readDirectory: (path) =>
+          NODE_SKILL_FILE_SYSTEM.readDirectory(machineView(path)),
+        fileKind: (path) => NODE_SKILL_FILE_SYSTEM.fileKind(machineView(path)),
+        readTextFile: (path) =>
+          NODE_SKILL_FILE_SYSTEM.readTextFile(machineView(path)),
+      }),
+      machines: machineFilesConnector({ name: 'host-a' }),
+    });
 
     expect(outcome.items).toHaveLength(1);
     expect(texts(outcome.items)).toContain('# Workspace review');

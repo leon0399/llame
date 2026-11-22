@@ -16,10 +16,7 @@ import { KnowledgeFilesystemError } from '../knowledge/knowledge-filesystem';
 import { importTargets } from '../import-markers/import-markers';
 import { KNOWLEDGE_LOCATOR_SCHEME } from '../knowledge/knowledge-locator';
 import { JOB_SCHEME } from '../jobs/job-locator';
-import {
-  formatMachineLocator,
-  MACHINE_SCHEME,
-} from '../machines/machine-locator';
+import { MACHINE_SCHEME } from '../machines/machine-locator';
 import { MEDIA_LOCATOR_SCHEME } from '../media/media-locator';
 import { SSH_SCHEME } from '../ssh/ssh-locator';
 import { readAcceptsScheme } from '../tools/native-files';
@@ -62,35 +59,21 @@ export type PromptImportRequest = {
    */
   readonly signal: AbortSignal;
   readonly workspaceRoot: string | undefined;
-  /** `machines.local`: the Machine this process serves in process. */
+  /** `machines.local`: the Machine a bare path may name when nothing else does. */
   readonly localMachine: string | undefined;
   /** `machines.default`: the current Machine when no Workspace is bound. */
   readonly defaultMachine: string | undefined;
-  /**
-   * Whether the Run may serve a target on this process's own Machine at all:
-   * `read` allowlisted and `machines.local` configured.
-   */
-  readonly hostAvailable: boolean;
   readonly knowledgeAvailable: boolean;
   /** Whether the Run may reach the configured Machines at all. */
   readonly machineAvailable: boolean;
   /** Whether `ssh://` is enabled and `read` allowlisted (ssh-locator D6a). */
   readonly sshAvailable: boolean;
-  /**
-   * The identity-checked handshake with this process's own daemon, completed
-   * before the first in-process probe (design D8). False means the Machine
-   * could not prove its identity, so a local target stays prose exactly as an
-   * unreachable Machine's does.
-   */
-  readonly verifyLocal: () => Promise<boolean>;
   /** Silent `read`-group pre-evaluation of the exact string the read submits. */
   readonly admitsRead: (path: string) => boolean;
-  readonly probeHost: (absolutePathWithoutSelector: string) => Promise<boolean>;
   /**
    * The canonical Machine locator when `path` exists on `name`, and undefined
    * when it does not or the Machine is unreachable alike. `path` is the
-   * locator's absolute Machine path, without its read selector — the same
-   * selector-free path a local probe confirms.
+   * locator's absolute Machine path, without its read selector.
    */
   readonly probeMachine: (
     name: string,
@@ -126,7 +109,7 @@ export type PromptImportRequest = {
   readonly nowMs: () => number;
 };
 
-type PromptImportResolution = {
+export type PromptImportResolution = {
   outcomes: Array<PromptImportOutcome>;
   omitted: Array<string>;
 };
@@ -139,12 +122,10 @@ type ImportPlan =
       readonly name: string;
       /** Decoded absolute Machine path, without the read selector. */
       readonly machinePath: string;
+      /** A read selector split off the target, exactly as written. */
+      readonly selector?: string;
       /** The canonical locator the read submits. */
       readonly readPath: string;
-      /** `name === localMachine`: this process serves it in process. */
-      readonly local: boolean;
-      /** The read selector the locator spells, if any. */
-      readonly selector?: string;
     }
   | { readonly kind: 'knowledge'; readonly readPath: string }
   | { readonly kind: 'media'; readonly readPath: string };
@@ -156,8 +137,6 @@ type ImportRun = PromptImportResolution & {
   bytes: number;
   outputFull: boolean;
   knowledgeProbeCancelled: boolean;
-  /** The one identity-checked handshake this pass runs for local targets. */
-  localVerified?: Promise<boolean>;
 };
 
 /**
@@ -221,28 +200,24 @@ function planTarget(
 }
 
 /**
- * One Machine target plans like a host path: the same admission
- * pre-evaluation over the canonical locator a `read` submits, then a probe of
- * the absolute Machine path. A target this process serves in process probes
- * its own filesystem after the identity-checked handshake; every other Machine
- * stays a Machine probe. A refusal stays prose, and a Machine this Run may not
- * reach is never probed.
+ * One Machine target plans like any other: the same admission pre-evaluation
+ * over the canonical locator a `read` submits, then a probe of the absolute
+ * Machine path. The host Machine is an ordinary Machine here, so its targets
+ * probe through its daemon exactly as a remote one's do. A refusal stays prose,
+ * and a Machine this Run may not reach is never probed.
  */
 function planMachineTarget(
   request: PromptImportRequest,
   target: MachineTarget,
 ): ImportPlan | undefined {
-  if (target.local && !request.hostAvailable) return undefined;
-
-  if (!target.local && !request.machineAvailable) return undefined;
+  if (!request.machineAvailable) return undefined;
 
   return {
     kind: 'machine',
     name: target.name,
     machinePath: target.path,
-    readPath: target.locator,
-    local: target.local,
     ...(target.selector !== undefined && { selector: target.selector }),
+    readPath: target.locator,
   };
 }
 
@@ -331,12 +306,11 @@ async function handleTarget(
 }
 
 /**
- * A target this process serves in process probes its own filesystem the way a
- * host path does — the whole literal first, then the path with its selector
- * split off — after the identity-checked handshake. A target on another
- * Machine is probed once, over the absolute path the locator names (its
- * selector is never a path character). Knowledge and media locators have no
- * literal colon, so only the selector-free locator is probed.
+ * A Machine target probes its literal path first, as `read` does, then the
+ * selector-free path: the daemon keeps literal-path precedence, so
+ * `x.md:10-12` names the regular file `x.md:10-12` when one exists. The
+ * resolved locator always names the file the read opens. Knowledge and media
+ * locators have no literal colon, so only the selector-free locator is probed.
  */
 async function probePlan(
   run: ImportRun,
@@ -345,9 +319,7 @@ async function probePlan(
   const { request } = run;
 
   if (plan.kind === 'machine') {
-    return plan.local
-      ? probeLocal(run, plan)
-      : request.probeMachine(plan.name, plan.machinePath);
+    return probeMachineTarget(request, plan);
   }
 
   if (plan.kind === 'media') {
@@ -372,43 +344,25 @@ async function probePlan(
 }
 
 /**
- * One target on this process's Machine. The handshake runs once per pass, and
- * a Machine that cannot prove its identity contributes no import at all —
- * exactly as an unreachable one does.
+ * The first probe that finds a file wins: the literal path a selector was
+ * split from, then the selector-free path. The import read submits the
+ * selector-bearing locator, and the daemon's literal-path precedence opens the
+ * same file this probe resolved.
  */
-async function probeLocal(
-  run: ImportRun,
+async function probeMachineTarget(
+  request: PromptImportRequest,
   plan: Extract<ImportPlan, { kind: 'machine' }>,
 ): Promise<string | undefined> {
-  const { request } = run;
+  if (plan.selector !== undefined) {
+    const literal = await request.probeMachine(
+      plan.name,
+      `${plan.machinePath}:${plan.selector}`,
+    );
 
-  run.localVerified ??= handshakeVerified(request);
-
-  if (!(await run.localVerified)) return undefined;
-
-  const literal =
-    plan.selector === undefined
-      ? undefined
-      : `${plan.machinePath}:${plan.selector}`;
-
-  if (literal !== undefined && (await request.probeHost(literal))) {
-    return formatMachineLocator(plan.name, literal) ?? plan.readPath;
+    if (literal !== undefined) return literal;
   }
 
-  if (!(await request.probeHost(plan.machinePath))) return undefined;
-
-  return formatMachineLocator(plan.name, plan.machinePath) ?? plan.readPath;
-}
-
-/** The identity-checked handshake's verdict; a refusal is "not available". */
-async function handshakeVerified(
-  request: PromptImportRequest,
-): Promise<boolean> {
-  try {
-    return await request.verifyLocal();
-  } catch {
-    return false;
-  }
+  return request.probeMachine(plan.name, plan.machinePath);
 }
 
 /** `path` up to the first colon after its scheme's `prefix`. */

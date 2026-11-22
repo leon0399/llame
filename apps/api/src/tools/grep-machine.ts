@@ -32,7 +32,6 @@ import {
 } from '../machines/machine-connector.service';
 import { MachineIdentityMismatchError } from '../machines/machine-session';
 import {
-  formatMachineLocator,
   MACHINE_NAME_PATTERN,
   parseMachineLocator,
 } from '../machines/machine-locator';
@@ -60,6 +59,7 @@ import {
   type MachineFailureResult,
 } from './machine-call';
 import {
+  admitMachineFile,
   ignoredAccumulator,
   machineScopeLocator,
   mergePage,
@@ -86,6 +86,19 @@ export type MachineGrepScope = {
    * Absent (a directory or glob scope) lists entries before any candidate.
    */
   readonly singleFile?: boolean;
+  /**
+   * The locator and `read` identity of a path relative to `path`. Absent for
+   * a `machine://` scope, whose locator is the Machine path itself; a skill
+   * package on a Machine reports its `skill://` locator instead, so admission
+   * matches the same identity a `read` of that package matches.
+   */
+  readonly locatorOf?: (rel: string) => string;
+  /**
+   * The extra texts whose matching `read` reject refuses a file, by its path
+   * relative to `path`: a skill package on a Machine is also judged on its
+   * canonical `machine://` locator and that bare path.
+   */
+  readonly rejectTextsOf?: (rel: string) => ReadonlyArray<string>;
 };
 
 /** The compiled search the call resolved before either backend ran. */
@@ -171,17 +184,33 @@ export async function resolveMachineScope(
   const parsed = machineScopeOf(scope, index);
 
   if ('status' in parsed) return { result: parsed };
+
+  return resolveParsedMachineScope(context, parsed, admission, deadlineAt);
+}
+
+/**
+ * One Machine scope already parsed: its Machine must be reachable and
+ * configured, then the exact-path rule runs on the daemon. A caller that
+ * builds the scope itself — a skill package on a Machine, whose locators are
+ * `skill://` — settles the text before this point and passes the walk clock.
+ */
+export async function resolveParsedMachineScope(
+  context: ToolContext,
+  scope: MachineGrepScope,
+  admission: GrepReadAdmission,
+  deadlineAt: number,
+): Promise<MachineScopeResolution> {
   const connector = machineConnector(context);
 
   if (connector === undefined) return { result: machineUnsupportedResult() };
 
-  if (!connector.isConfigured(parsed.name))
-    return { result: machineNotFoundResult(parsed.name) };
+  if (!connector.isConfigured(scope.name))
+    return { result: machineNotFoundResult(scope.name) };
 
   const verdict = await exactPathVerdict({
     context,
     connector,
-    scope: parsed,
+    scope,
     admission,
     deadlineAt,
   });
@@ -192,7 +221,7 @@ export async function resolveMachineScope(
     return { result: machinePathNotFoundResult() };
 
   return {
-    machine: verdict.singleFile ? { ...parsed, singleFile: true } : parsed,
+    machine: verdict.singleFile ? { ...scope, singleFile: true } : scope,
   };
 }
 
@@ -231,7 +260,7 @@ async function exactPathVerdict(
 
   if (scope.globSuffix !== undefined)
     return { kind: 'walk', singleFile: false };
-  const locator = formatMachineLocator(scope.name, scope.path);
+  const locator = machineScopeLocator(scope, '');
 
   if (locator === undefined) return { kind: 'walk', singleFile: false };
 
@@ -262,7 +291,7 @@ async function exactPathVerdict(
 
     if (scope.endsWithSeparator) return { kind: 'refused' };
 
-    return probe.admission.admit(locator)
+    return admitMachineFile(probe.admission, scope, '', locator)
       ? { kind: 'walk', singleFile: true }
       : { kind: 'refused' };
   } catch (error) {
@@ -656,18 +685,29 @@ function locatorsOf(
   return locators;
 }
 
+/** One file's admission input: the call's admission, its scope, and its path. */
+type MachineFileAdmission = {
+  readonly admission: GrepReadAdmission;
+  readonly scope: MachineGrepScope;
+  readonly decided: Map<string, boolean>;
+  readonly rel: string;
+  readonly locator: string;
+};
+
 /** The `read` verdict for one file, judged once and shared by its passages. */
-function admitsFile(
-  admission: GrepReadAdmission,
-  decided: Map<string, boolean>,
-  rel: string,
-  locator: string,
-): boolean {
-  const known = decided.get(rel);
+function admitsFile(input: MachineFileAdmission): boolean {
+  const known = input.decided.get(input.rel);
 
   if (known !== undefined) return known;
-  const allowed = admission.admit(locator);
-  decided.set(rel, allowed);
+
+  const allowed = admitMachineFile(
+    input.admission,
+    input.scope,
+    input.rel,
+    input.locator,
+  );
+
+  input.decided.set(input.rel, allowed);
 
   return allowed;
 }
@@ -701,7 +741,16 @@ function renderPage(
   for (const [index, passage] of result.results.entries()) {
     const locator = locators[index];
 
-    if (!admitsFile(search.admission, decided, passage.path, locator)) continue;
+    if (
+      !admitsFile({
+        admission: search.admission,
+        scope: search.scope,
+        decided,
+        rel: passage.path,
+        locator,
+      })
+    )
+      continue;
     into.push(keptPassage(passage, locator));
   }
 

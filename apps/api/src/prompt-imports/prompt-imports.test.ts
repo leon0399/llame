@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { KnowledgeFilesystemError } from '../knowledge/knowledge-filesystem';
-import { localMachineConnector } from '../testing/local-machine';
+import { formatMachineLocator } from '../machines/machine-locator';
 import type { PermissionDecision } from '../tools/permissions/types';
 import { readLocatorSchemes } from '../tools/native-files';
 import { type ToolResult } from '../tools/types';
@@ -16,13 +16,10 @@ type HarnessOptions = {
   /** `machines.local` and `machines.default` of the harness's process. */
   readonly localMachine?: string;
   readonly defaultMachine?: string;
-  readonly hostAvailable?: boolean;
   readonly knowledgeAvailable?: boolean;
   readonly machineAvailable?: boolean;
   readonly sshAvailable?: boolean;
-  /** The identity-checked handshake's verdict for local targets. */
-  readonly verifyLocal?: () => Promise<boolean>;
-  /** Host paths a probe finds. */
+  /** Host paths this process's Machine answers as existing. */
   readonly existing?: ReadonlyArray<string>;
   /** Machine targets a probe finds, keyed `<name>` + absolute Machine path. */
   readonly machine?: Readonly<Record<string, string>>;
@@ -53,7 +50,14 @@ type HarnessOptions = {
 const OK: ToolResult = { status: 'success', truncated: false };
 
 /** The canonical locator of one host path on the harness's own Machine. */
-const local = (path: string) => `machine://host-a${path}`;
+function local(path: string): string {
+  const locator = formatMachineLocator('host-a', path);
+
+  if (locator === undefined)
+    throw new Error(`the harness cannot address ${path}`);
+
+  return locator;
+}
 
 function createHarness(options: HarnessOptions = {}) {
   let now = 1000;
@@ -79,31 +83,31 @@ function createHarness(options: HarnessOptions = {}) {
       workspaceRoot: '/repo',
       localMachine: 'host-a',
       defaultMachine: 'host-a',
-      hostAvailable: true,
       knowledgeAvailable: true,
       machineAvailable: true,
       sshAvailable: true,
-      verifyLocal: () => Promise.resolve(true),
       ...options,
       admitsRead: (path) => {
         calls.admits.push(path);
 
         return !(options.reject?.(path) ?? false);
       },
-      probeHost: (path) => {
-        calls.hostProbes.push(path);
+      probeMachine: (name, path) => {
+        // A host target probes this process's own Machine exactly as any
+        // other Machine does, through its daemon.
+        if (name === 'host-a') calls.hostProbes.push(path);
+        else calls.machineProbes.push({ name, path });
         now += options.probeCostMs ?? 0;
         options.onProbe?.(controller);
 
-        return Promise.resolve(existing.has(path));
-      },
-      probeMachine: (name, path) => {
-        calls.machineProbes.push({ name, path });
-        now += options.probeCostMs ?? 0;
-
         return (
           options.probeMachine?.(name, path) ??
-          Promise.resolve(options.machine?.[`${name}${path}`])
+          Promise.resolve(
+            options.machine?.[`${name}${path}`] ??
+              (name === 'host-a' && existing.has(path)
+                ? local(path)
+                : undefined),
+          )
         );
       },
       probeKnowledge: (locator) => {
@@ -357,21 +361,6 @@ describe('resolvePromptImports resolution', () => {
       'a.md',
     ],
     [
-      'an absolute path without a native executor',
-      { hostAvailable: false },
-      '/tmp/a.md',
-    ],
-    [
-      'a file alias without a native executor',
-      { hostAvailable: false },
-      'file:///tmp/a.md',
-    ],
-    [
-      'a relative target without a native executor',
-      { hostAvailable: false },
-      'a.md',
-    ],
-    [
       'a kb target without a Knowledge root',
       { knowledgeAvailable: false },
       'kb://notes/a.md',
@@ -392,6 +381,19 @@ describe('resolvePromptImports resolution', () => {
     expect(calls.admits).toEqual([]);
     expect(calls.hostProbes).toEqual([]);
     expect(calls.knowledgeProbes).toEqual([]);
+    expect(calls.reads).toEqual([]);
+    expect(result).toEqual({ outcomes: [], omitted: [] });
+  });
+
+  it.each([
+    ['an absolute path', '/tmp/a.md'],
+    ['a file alias', 'file:///tmp/a.md'],
+    ['a relative target', 'a.md'],
+  ])('keeps %s the Machine does not answer prose', async (_name, target) => {
+    const { calls, run } = createHarness({ existing: [] });
+
+    const result = await run(`@${target}`);
+
     expect(calls.reads).toEqual([]);
     expect(result).toEqual({ outcomes: [], omitted: [] });
   });
@@ -463,7 +465,7 @@ describe('resolvePromptImports Machine targets', () => {
     ]);
   });
 
-  it('probes the selector-free Machine path and reads the selector-bearing locator', async () => {
+  it('probes the literal Machine path first, then the selector-free path, and reads the selector-bearing locator', async () => {
     const { calls, run } = createHarness({
       machine: { 'dev/notes/a.md': MACHINE },
     });
@@ -471,7 +473,10 @@ describe('resolvePromptImports Machine targets', () => {
     const result = await run(`@${MACHINE}:10-12`);
 
     expect(calls.admits).toEqual([`${MACHINE}:10-12`]);
-    expect(calls.machineProbes).toEqual([{ name: 'dev', path: '/notes/a.md' }]);
+    expect(calls.machineProbes).toEqual([
+      { name: 'dev', path: '/notes/a.md:10-12' },
+      { name: 'dev', path: '/notes/a.md' },
+    ]);
     expect(calls.reads).toEqual([{ path: `${MACHINE}:10-12`, ordinal: 0 }]);
     expect(result.outcomes).toEqual([
       {
@@ -488,7 +493,6 @@ describe('resolvePromptImports Machine targets', () => {
 
     const { calls, run } = createHarness({
       workspaceRoot: 'machine://dev/work/repo',
-      hostAvailable: false,
       machine: { 'dev/work/repo/notes/a.md': target },
     });
 
@@ -526,7 +530,6 @@ describe('resolvePromptImports Machine targets', () => {
 
   it('imports a Machine marker without the local native executor', async () => {
     const { calls, run } = createHarness({
-      hostAvailable: false,
       machine: { 'dev/notes/a.md': MACHINE },
     });
 
@@ -614,17 +617,8 @@ describe('resolvePromptImports Machine targets', () => {
 });
 
 describe('resolvePromptImports on this process’s Machine', () => {
-  it('imports a bare absolute target in process after only the handshake', async () => {
-    const connector = localMachineConnector();
-
-    const { calls, run } = createHarness({
-      existing: ['/work/a.md'],
-      verifyLocal: () =>
-        connector.verifyLocal().then(
-          () => true,
-          () => false,
-        ),
-    });
+  it('probes a bare absolute target on this process’s Machine', async () => {
+    const { calls, run } = createHarness({ existing: ['/work/a.md'] });
 
     const result = await run('@/work/a.md');
 
@@ -636,14 +630,11 @@ describe('resolvePromptImports on this process’s Machine', () => {
         body: 'body of machine://host-a/work/a.md',
       },
     ]);
+    expect(calls.hostProbes).toEqual(['/work/a.md']);
     expect(calls.machineProbes).toEqual([]);
-    // The local daemon answered the handshake and nothing else.
-    const session = await connector.peer.session(0);
-
-    expect(session.requests).toEqual([]);
   });
 
-  it('imports a canonical local locator in process', async () => {
+  it('imports a canonical host locator through the same probe', async () => {
     const { calls, run } = createHarness({ existing: ['/work/a.md'] });
 
     const result = await run('@machine://host-a/work/a.md');
@@ -671,15 +662,18 @@ describe('resolvePromptImports on this process’s Machine', () => {
     expect(calls.hostProbes).toEqual([]);
   });
 
-  it('keeps a local target prose when the daemon cannot prove its identity', async () => {
+  it('keeps a host target prose when its daemon cannot answer', async () => {
     const { calls, run } = createHarness({
       existing: ['/work/a.md'],
-      verifyLocal: () => Promise.resolve(false),
+      probeMachine: (name) =>
+        Promise.resolve(
+          name === 'host-a' ? undefined : `machine://${name}/work/a.md`,
+        ),
     });
 
     const result = await run('@/work/a.md');
 
-    expect(calls.hostProbes).toEqual([]);
+    expect(calls.hostProbes).toEqual(['/work/a.md']);
     expect(calls.reads).toEqual([]);
     expect(result).toEqual({ outcomes: [], omitted: [] });
   });
@@ -1233,7 +1227,6 @@ describe('resolvePromptImports image entries', () => {
 
   it('probes an owned media locator and imports it as an image entry', async () => {
     const { calls, run } = createHarness({
-      hostAvailable: false,
       knowledgeAvailable: false,
       media: [MEDIA],
       result: () => mediaResult,

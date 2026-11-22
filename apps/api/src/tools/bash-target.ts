@@ -136,7 +136,7 @@ function machineTarget(
       name: resolved.name,
       path,
       ...(locator !== undefined && { locator }),
-      local: resolved.local,
+      local: isLocalName(resolved.name, facts.localMachine),
     };
   }
 

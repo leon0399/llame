@@ -161,17 +161,12 @@ type WorkspaceSkillResult = {
 function workspaceSkillResult(
   catalog: SkillCatalogPort | undefined,
   root: string,
-  localMachine: string | undefined,
 ): WorkspaceSkillResult {
   if (catalog === undefined) return { skills: [], skillsOmitted: 0 };
 
-  // The result is produced only after the entry's local directory verified
-  // its Machine identity (or for a root on another Machine, which yields no
-  // host-path sources at all).
-  const sources = workspaceSkillSources(root, {
-    localMachine,
-    localVerified: true,
-  });
+  // The attempt's snapshot read every source on the Workspace's Machine, the
+  // host Machine included, so the entry reports exactly those packages.
+  const sources = workspaceSkillSources(root);
 
   const snapshot = catalog.getSnapshot(sources);
 
@@ -326,16 +321,15 @@ export async function boundResult(
     binding.state !== 'unchanged',
   );
 
+  const skillCatalog =
+    (await context.skillCatalogFor?.(binding.root)) ?? context.skillCatalog;
+
   return {
     status: 'success',
     root: binding.root,
     state: binding.state,
     authority: MACHINE_WORKSPACE_AUTHORITY,
-    ...workspaceSkillResult(
-      context.skillCatalog,
-      binding.root,
-      context.localMachine,
-    ),
+    ...workspaceSkillResult(skillCatalog, binding.root),
     mcpServers,
     ...(binding.worktree !== undefined && { worktree: binding.worktree }),
   };

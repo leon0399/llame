@@ -40,6 +40,8 @@ import {
   machineAvailabilityNarration,
   machineInstructionAvailability,
   machineInstructionWorld,
+  prepareMachineSkills,
+  type AttemptSkillCatalog,
   type MachineWorkspaceState,
 } from './machine-workspace';
 import { MachineConnector } from '../machines/machine-connector.service';
@@ -50,7 +52,6 @@ import {
   type SshClient,
   type SshClientFactory,
 } from '../ssh/ssh-client';
-import { statHostPath } from '@workspace/native-file-tools';
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import * as Sentry from '@sentry/nestjs';
 import {
@@ -317,7 +318,6 @@ import {
   type PromptImportTriggerGates,
 } from '../prompt-imports/prompt-import-triggers';
 import { nativeReadTool } from '../tools/native-files';
-import { verifyLocalMachine } from '../tools/local-machine';
 import {
   type InterruptFate,
   type KnowledgeToolResolver,
@@ -467,6 +467,7 @@ import {
 import {
   createWorkspaceRootCell,
   currentMachine,
+  machineWorkspaceRoot,
   type WorkspaceRootCell,
 } from '../tools/workspace-path';
 import { workspaceSkillSources } from '../skills/workspace-skill-sources';
@@ -565,11 +566,6 @@ type WorkspaceStagedContext = {
 type TurnInstructions = {
   /** The bound root the accepted-turn trigger loads; undefined without one. */
   readonly root: string | undefined;
-  /**
-   * The turn's audited HOST page reader; undefined when the `read` gate or the
-   * native executor bars host instruction files.
-   */
-  readonly readPage: ReadPage | undefined;
   /** The Knowledge world; undefined without `read` and a Knowledge root. */
   readonly knowledge: InRunAttempt['knowledge'];
   /** The Machine world; undefined without `read` and a configured Machine. */
@@ -641,13 +637,6 @@ type PreparedAttemptContext = ModelRequestContext & {
   skillCatalogNoticeTold?: NonNullable<Chat['skillCatalogTold']>;
   /** Written by the dispatch transaction that stores the workspace items. */
   workspaceWrites?: WorkspaceWrites;
-  /**
-   * Whether this attempt's Machine verified, so its host skill paths may be
-   * read. Decided once by the binding check and carried by every epoch re-bake
-   * of the same attempt (remote-machines "In-process host operations need a
-   * verified host Machine daemon").
-   */
-  machineVerified: boolean;
   untitled: boolean;
 };
 
@@ -1426,7 +1415,10 @@ export class RunExecutionService {
    * preparation for the same root replaces it; the bound keeps one worker's
    * memory flat while several Chats run.
    */
-  private readonly machineSkillCatalogs = new Map<string, SkillCatalogPort>();
+  private readonly machineSkillCatalogs = new Map<
+    string,
+    AttemptSkillCatalog
+  >();
 
   /** Built on first use: every Run of this worker shares it. */
   private bashProcessLimiter: BashProcessLimiter | undefined;
@@ -2070,10 +2062,12 @@ export class RunExecutionService {
     Sentry.setConversationId(request.chatId);
     Sentry.setUser({ id: request.userId });
 
-    // An in-process host operation is the only thing a native mutation can
-    // leave unrecorded, and only this process's own Machine serves one.
+    // A native mutation can be left unrecorded on any Machine: the daemon may
+    // have applied it before the link died, and every Machine, the host
+    // included, now serves those mutations over that link. One controller per
+    // Run fences the model loop when a mutation's outcome is unknown.
     const nativeAbort =
-      this.machineConnector?.localMachine() !== undefined
+      this.machineConnector?.enabled() === true
         ? new AbortController()
         : undefined;
 
@@ -2560,6 +2554,7 @@ export class RunExecutionService {
       workspacePreparation,
       workspaceRoot,
       effectivePermissionMode,
+      attemptId,
     );
 
     const workspaceMcpListing: WorkspaceMcpListingCell = {};
@@ -2580,6 +2575,7 @@ export class RunExecutionService {
       nativeDeliverySequence,
       workspaceRoot,
       effectivePermissionMode,
+      attemptId,
       continued !== undefined,
     );
 
@@ -3192,7 +3188,9 @@ export class RunExecutionService {
       tenantDb: this.tenantDb,
       abortSignal: input.abortSignal,
       knowledgeResolver: this.knowledgeResolver,
-      skillCatalog: this.skillCatalogFor(workspaceRoot.current()),
+      skillCatalog: this.skillCatalogFor(workspaceRoot.current(), attemptId),
+      skillCatalogFor: (root) =>
+        this.entrySkillCatalog(toolContext, root, input.abortSignal),
       // A manual-only skill the user named stays readable for this Run's tool
       // calls, references and scripts included; a turn that did not name it
       // carries an empty set and refuses again.
@@ -6650,6 +6648,7 @@ export class RunExecutionService {
       toolAllowlist: this.instanceConfig.config.tools.allowed,
       permissionPolicy: this.permissionPolicy,
       identity,
+      attemptId,
       skillCatalogs: this.machineSkillCatalogs,
       skillDirectories: this.instanceConfig.config.skills.directories,
       warn: (message) => this.logger.warn(message),
@@ -6751,6 +6750,7 @@ export class RunExecutionService {
     nativeDeliverySequence: number,
     workspaceRoot: WorkspaceRootCell,
     effectivePermissionMode: PermissionMode,
+    attemptId: string,
     followUp: boolean,
   ): Promise<ReadonlySet<string>> {
     const config = this.instanceConfig.config;
@@ -6775,6 +6775,7 @@ export class RunExecutionService {
       nativeDeliverySequence,
       workspaceRoot,
       effectivePermissionMode,
+      attemptId,
     );
 
     // What a prior attempt of this Run already resolved. Reading it first is
@@ -6934,6 +6935,7 @@ export class RunExecutionService {
         step.nativeDeliverySequence,
         step.workspaceRoot,
         step.effectivePermissionMode,
+        step.attemptId,
       ),
       skillSelection: step.skillSelection,
       abortSignal: signal,
@@ -6946,9 +6948,6 @@ export class RunExecutionService {
       workspaceRoot: step.workspaceRoot.current(),
       localMachine: context.localMachine,
       defaultMachine: context.defaultMachine,
-      verifyLocal: async () =>
-        (await verifyLocalMachine(context)) === undefined,
-      hostAvailable: this.hostInstructionsLoadable(),
       knowledgeAvailable: this.knowledgeInstructionsLoadable(),
       machineAvailable: machineInstructionAvailability({
         connector: this.machineConnector,
@@ -6959,11 +6958,6 @@ export class RunExecutionService {
         this.instanceConfig.config.tools.allowed.includes('read'),
       admitsRead: (path) =>
         previewToolPermission(nativeReadTool, { path }, context),
-      probeHost: async (path) => {
-        const { kind } = await statHostPath(path);
-
-        return kind === 'file' || kind === 'directory';
-      },
       probeMachine: (name, path) =>
         probeMachinePromptTarget(
           this.machineConnector,
@@ -7045,25 +7039,10 @@ export class RunExecutionService {
   }
 
   /**
-   * Whether HOST instruction files may load at all: the `read` tool must be in
-   * the operator allowlist and this process must host a Machine for those files
-   * to be read on, so no trigger can disclose a file the model could not have
-   * read itself (spec: Read not allowlisted / Missing candidates leave no audit
-   * trail). A current Machine that is this process's own counts as that host;
-   * another Machine's instruction files load through the Machine gate.
-   */
-  private hostInstructionsLoadable(): boolean {
-    return (
-      this.machineConnector?.localMachine() !== undefined &&
-      this.instanceConfig.config.tools.allowed.includes('read')
-    );
-  }
-
-  /**
-   * Whether KNOWLEDGE SPACE instruction files may load: the same `read`
-   * allowlist, and a configured `knowledge.root`. No native executor is needed,
-   * because a Space candidate is resolved and read through the owner-scoped
-   * Knowledge capability rather than the host executor.
+   * Whether KNOWLEDGE SPACE instruction files may load: the `read` allowlist,
+   * and a configured `knowledge.root`. No native executor is needed, because
+   * a Space candidate is resolved and read through the owner-scoped Knowledge
+   * capability rather than a Machine.
    */
   private knowledgeInstructionsLoadable(): boolean {
     const config = this.instanceConfig.config;
@@ -7087,6 +7066,7 @@ export class RunExecutionService {
     nativeDeliverySequence: number,
     workspaceRoot: WorkspaceRootCell,
     effectivePermissionMode: PermissionMode,
+    attemptId: string,
   ): ToolContext {
     return {
       runId: input.runId,
@@ -7100,7 +7080,7 @@ export class RunExecutionService {
       tenantDb: this.tenantDb,
       abortSignal: input.abortSignal,
       knowledgeResolver: this.knowledgeResolver,
-      skillCatalog: this.skillCatalogFor(workspaceRoot.current()),
+      skillCatalog: this.skillCatalogFor(workspaceRoot.current(), attemptId),
       permissionPolicy: this.permissionPolicy,
       configuredCredentials: configuredCredentials(this.instanceConfig.config),
       webAdapters: this.instanceConfig.config.tools.webAdapters,
@@ -7168,25 +7148,22 @@ export class RunExecutionService {
     seenInstructionPaths: ReadonlySet<string>,
     stagedParts: Array<MessagePart>,
   ): Promise<TurnInstructions> {
-    const localMachine = this.machineConnector?.localMachine();
-
     const gates = {
-      host: this.hostInstructionsLoadable(),
       knowledge: this.knowledgeInstructionsLoadable(),
       machine: machineInstructionAvailability({
         connector: this.machineConnector,
         toolAllowlist: this.instanceConfig.config.tools.allowed,
       }),
-      ...(localMachine !== undefined && { localMachine }),
     };
 
     const toolContext =
-      gates.host || gates.knowledge || gates.machine
+      gates.knowledge || gates.machine
         ? this.buildSystemReadContext(
             input,
             nativeDeliverySequence,
             workspaceRoot,
             effectivePermissionMode,
+            attemptId,
           )
         : undefined;
 
@@ -7226,23 +7203,18 @@ export class RunExecutionService {
 
   /**
    * The worlds the accepted-turn load may read in, one audited reader for
-   * all: the host world only with a native executor, the Knowledge world
-   * only with a configured Knowledge root, and the Machine world only with a
-   * configured Machine, so a trigger whose world this Run may not load is
-   * ignored before anything is probed.
+   * all: the Knowledge world only with a configured Knowledge root, and the
+   * Machine world only with a configured Machine, so a trigger whose world
+   * this Run may not load is ignored before anything is probed.
    */
   private turnInstructionWorlds(
     input: ExecuteRunInput,
     toolContext: ToolContext | undefined,
     gates: PromptImportTriggerGates,
     nextToolCallId: () => string,
-  ): Pick<
-    TurnInstructions,
-    'readPage' | 'knowledge' | 'machines' | 'admitsRead'
-  > {
+  ): Pick<TurnInstructions, 'knowledge' | 'machines' | 'admitsRead'> {
     if (toolContext === undefined) {
       return {
-        readPage: undefined,
         knowledge: undefined,
         machines: undefined,
         admitsRead: undefined,
@@ -7262,7 +7234,6 @@ export class RunExecutionService {
       ).result;
 
     return {
-      readPage: gates.host ? readPage : undefined,
       knowledge: this.knowledgeInstructionWorld(input, readPage),
       machines: machineInstructionWorld({
         enabled: gates.machine,
@@ -7290,7 +7261,7 @@ export class RunExecutionService {
   ): Promise<ReadonlyArray<PromptImportTrigger>> {
     if (this.inRunProducer?.prepareTurn === undefined) return [];
 
-    if (!gates.host && !gates.knowledge && !gates.machine) return [];
+    if (!gates.knowledge && !gates.machine) return [];
 
     const stored = await this.tenantDb.runAs(input.userId, (tx) =>
       new PromptImportPartsRepository(tx).find({
@@ -7346,9 +7317,8 @@ export class RunExecutionService {
     const producer = this.inRunProducer;
     const admitsRead = turn.admitsRead;
 
-    // The root load needs a binding and the host world; prompt-import
-    // triggers need neither a binding nor the host world (design D4). The
-    // producer ignores a host trigger of a Run without the host reader.
+    // The root load needs a binding; a prompt-import trigger needs none. A
+    // trigger whose world this Run may not load is ignored by the producer.
     if (
       producer?.prepareTurn === undefined ||
       admitsRead === undefined ||
@@ -7363,7 +7333,6 @@ export class RunExecutionService {
     const part = await producer.prepareTurn({
       runId: input.runId,
       workspaceRoot: turn.root,
-      readPage: turn.readPage,
       admitsRead,
       knowledge: turn.knowledge,
       machines: turn.machines,
@@ -8384,7 +8353,6 @@ export class RunExecutionService {
       // The accepted-turn load's keys count as disclosed: a file it staged
       // must not reload on the attempt's first in-Run trigger.
       seenKeys: turn.seenCanonicalPaths,
-      readPage: this.hostInstructionsLoadable() ? readPage : undefined,
       admitsRead,
       knowledge: this.knowledgeInstructionWorld(input, readPage),
       machines: turn.machines,
@@ -8452,6 +8420,7 @@ export class RunExecutionService {
     preparation: WorkspacePreparation,
     workspaceRoot: WorkspaceRootCell,
     effectivePermissionMode: PermissionMode,
+    attemptId: string,
   ): Promise<GitObservation> | undefined {
     const { root, machine } = preparation;
     const snapshots = this.gitSnapshots;
@@ -8465,6 +8434,7 @@ export class RunExecutionService {
       nativeDeliverySequence,
       workspaceRoot,
       effectivePermissionMode,
+      attemptId,
     );
 
     return this.observeGit(
@@ -8708,14 +8678,12 @@ export class RunExecutionService {
     // Resolve owner/model/digest inputs before admission so descriptions and
     // the system prompt share one attempt context. Admission still completes
     // before either surface is rendered.
-    const machineVerified = machine?.available === true;
-
     const promptInputs = await this.resolveAttemptPrompt(
       tx,
       input,
+      attemptId,
       workspaceChat,
       workspaceRoot,
-      machineVerified,
     );
 
     const disclosures: Array<PromptChatsDisclosure> = [];
@@ -8855,7 +8823,6 @@ export class RunExecutionService {
       ...(staged.workspaceWrites !== undefined && {
         workspaceWrites: staged.workspaceWrites,
       }),
-      machineVerified,
       untitled: prompt.chat.title === null,
     };
   }
@@ -9009,7 +8976,6 @@ export class RunExecutionService {
           focus: compactionSet.focus,
           model: input.context.model,
           workspaceRoot: input.workspaceRoot.current(),
-          machineVerified: input.context.machineVerified,
           digestCandidate,
           quotaRequest: input.quotaRequest,
         });
@@ -9984,7 +9950,6 @@ export class RunExecutionService {
         summary,
         model: estimatePass.model,
         workspaceRoot: input.workspacePreparation.root,
-        machineVerified: estimatePass.machineVerified,
         quotaRequest: input.quotaRequest,
       });
 
@@ -10118,8 +10083,6 @@ export class RunExecutionService {
     summary: CompactionSummary;
     model: SystemModelCatalogEntry;
     workspaceRoot: string | undefined;
-    /** The attempt's Machine verification, for the epoch's skill baseline. */
-    machineVerified: boolean;
     quotaRequest?: QuotaRequestState;
   }): Promise<void> {
     const { candidate: digestCandidate } = await this.resolveCompactionDigest({
@@ -10141,8 +10104,6 @@ export class RunExecutionService {
       focus?: string | null;
       model: SystemModelCatalogEntry;
       workspaceRoot: string | undefined;
-      /** The attempt's Machine verification, for the epoch's skill baseline. */
-      machineVerified: boolean;
       digestCandidate: RecencyDigestResolution | null;
       quotaRequest?: QuotaRequestState;
     },
@@ -10199,8 +10160,8 @@ export class RunExecutionService {
       chat,
       checkpointId: checkpoint.id,
       model: input.model,
+      attemptId: input.attemptId,
       workspaceRoot: input.workspaceRoot,
-      machineVerified: input.machineVerified,
       shareRecentChats,
       digestCandidate: input.digestCandidate,
     });
@@ -10215,9 +10176,8 @@ export class RunExecutionService {
     chat: Chat | undefined;
     checkpointId: string;
     model: SystemModelCatalogEntry;
+    attemptId: string;
     workspaceRoot: string | undefined;
-    /** The attempt's Machine verification, for the epoch's skill baseline. */
-    machineVerified: boolean;
     shareRecentChats: ResolvedMemorySettings;
     digestCandidate: RecencyDigestResolution | null;
   }): Promise<void> {
@@ -10230,9 +10190,9 @@ export class RunExecutionService {
             run: input.run,
             chat: input.chat,
             model: input.model,
+            attemptId: input.attemptId,
             workspaceRoot: input.workspaceRoot,
             latestCheckpointId: input.checkpointId,
-            machineVerified: input.machineVerified,
           });
 
     await this.rebakeCheckpointDigest({
@@ -10316,9 +10276,9 @@ export class RunExecutionService {
   private async resolveAttemptPrompt(
     tx: Db,
     input: ExecuteRunInput,
+    attemptId: string,
     workspaceChat: Chat | undefined,
     workspaceRoot: string | undefined,
-    machineVerified: boolean,
   ): Promise<AttemptPromptInputs> {
     const chatsRepo = new ChatsRepository(tx);
     const chat = workspaceChat;
@@ -10360,9 +10320,9 @@ export class RunExecutionService {
       run: input,
       chat,
       model,
+      attemptId,
       workspaceRoot,
       latestCheckpointId: checkpoint?.id ?? null,
-      machineVerified,
     });
 
     return {
@@ -10378,19 +10338,81 @@ export class RunExecutionService {
   }
 
   /**
-   * The skill catalog one attempt reads through: the operator catalog for a
-   * local (or unbound) Workspace root, and the Machine Workspace snapshot this
-   * attempt's preparation took for a Machine root, so a Machine package is
-   * discovered and read on the Machine. A Machine root this process never
-   * snapshotted (a code path that skipped preparation) falls back to the
-   * operator catalog, whose Machine extra sources are simply unreadable and
-   * contribute nothing — a Machine path is never read from the hub's own
-   * filesystem.
+   * The skill catalog one attempt reads through: the operator catalog when no
+   * Workspace is bound, and the Machine Workspace snapshot this attempt took
+   * for a bound root, so a Machine package is discovered and read on the
+   * Machine. A snapshot belongs to one attempt, so another attempt's entry for
+   * the root is a miss; a root this process never snapshotted (a code path that
+   * skipped preparation) falls back to the operator catalog, whose Machine
+   * extra sources are simply unreadable and contribute nothing — a Machine path
+   * is never read from the hub's own filesystem.
    */
-  private skillCatalogFor(root: string | undefined): SkillCatalogPort {
-    if (root === undefined) return this.skillCatalog;
+  private skillCatalogFor(
+    root: string | undefined,
+    attemptId: string | undefined,
+  ): SkillCatalogPort {
+    if (root === undefined || attemptId === undefined) return this.skillCatalog;
+    const entry = this.machineSkillCatalogs.get(root);
 
-    return this.machineSkillCatalogs.get(root) ?? this.skillCatalog;
+    return entry !== undefined && entry.attemptId === attemptId
+      ? entry.catalog
+      : this.skillCatalog;
+  }
+
+  /**
+   * The catalog a mid-Run Workspace entry reports from: the same preparation a
+   * bound attempt runs, so the root's sources are read on its Machine under the
+   * `read` gate and the per-root snapshot cache. A snapshot belongs to one
+   * attempt, so the attempt refreshes a root another attempt snapshotted rather
+   * than reporting stale packages; a root it already snapshotted is reused. The
+   * attempt's own cell takes the catalog preparation installs, so the
+   * `skill://` reads that follow the entry resolve the Workspace's packages. A
+   * root with no Machine path, or a Machine that cannot snapshot it, leaves the
+   * attempt's catalog as it is.
+   */
+  private async entrySkillCatalog(
+    context: ToolContext,
+    root: string,
+    signal: AbortSignal | undefined,
+  ): Promise<SkillCatalogPort | undefined> {
+    const attemptId = context.attemptId;
+    const parsed = machineWorkspaceRoot(root);
+    const connector = this.machineConnector;
+
+    if (parsed === undefined || attemptId === undefined)
+      return context.skillCatalog;
+
+    // Activation is a `read`: a Run without it reads no Workspace source, even
+    // when another attempt already snapshotted this root.
+    if (!this.instanceConfig.config.tools.allowed.includes('read'))
+      return context.skillCatalog;
+
+    const cached = this.machineSkillCatalogs.get(root);
+
+    if (cached !== undefined && cached.attemptId === attemptId) {
+      Object.assign(context, { skillCatalog: cached.catalog });
+
+      return cached.catalog;
+    }
+
+    if (connector === undefined) return context.skillCatalog;
+
+    await prepareMachineSkills(this.machineSkillCatalogs, {
+      connector,
+      machineName: parsed.name,
+      root,
+      attemptId,
+      signal,
+      toolAllowlist: this.instanceConfig.config.tools.allowed,
+      skillDirectories: this.instanceConfig.config.skills.directories,
+    });
+
+    const entry = this.machineSkillCatalogs.get(root);
+
+    if (entry === undefined || entry.attemptId !== attemptId) return undefined;
+    Object.assign(context, { skillCatalog: entry.catalog });
+
+    return entry.catalog;
   }
 
   /**
@@ -10403,22 +10425,19 @@ export class RunExecutionService {
     run: ExecuteRunInput;
     chat: Chat;
     model: SystemModelCatalogEntry;
+    attemptId: string;
     workspaceRoot: string | undefined;
     latestCheckpointId: string | null;
-    /** Whether this attempt's Machine verified, so its host skill paths may be read. */
-    machineVerified: boolean;
   }): SkillTurnState {
-    const localMachine = this.machineConnector?.localMachine();
-
     return resolveTurnSkillState(
       {
-        skillCatalog: this.skillCatalogFor(input.workspaceRoot),
+        skillCatalog: this.skillCatalogFor(
+          input.workspaceRoot,
+          input.attemptId,
+        ),
         skillDirectories: this.instanceConfig.config.skills.directories,
         ...(input.workspaceRoot !== undefined && {
-          extraSources: workspaceSkillSources(input.workspaceRoot, {
-            ...(localMachine !== undefined && { localMachine }),
-            localVerified: input.machineVerified,
-          }),
+          extraSources: workspaceSkillSources(input.workspaceRoot),
         }),
         // Operator-facing: an unreadable operator catalog is logged, never
         // shown to the model. Workspace-source failures are intentionally

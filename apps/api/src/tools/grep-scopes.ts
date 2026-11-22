@@ -7,8 +7,6 @@
  * `machine://` scope (host-as-machine design D8).
  */
 
-import path from 'node:path';
-
 import {
   decodeGrepLiteralSpelling,
   normalizeHostScope,
@@ -26,10 +24,9 @@ import {
 import { MEDIA_LOCATOR_SCHEME } from '../media/media-locator';
 import { isValidSkillName } from '../skills/skill-name';
 import {
-  formatSkillLocator,
-  validateSkillResourcePath,
-} from '../skills/skill-locator';
-import { type SkillCatalogSnapshot } from '../skills/skill-catalog';
+  type SkillCatalogEntry,
+  type SkillCatalogSnapshot,
+} from '../skills/skill-catalog';
 import {
   NO_SKILL_SELECTION,
   skillCatalogUnavailableResult,
@@ -38,19 +35,19 @@ import {
   skillUnavailableResult,
   type SkillSelection,
 } from '../skills/skill-target';
-import { verifiedWorkspaceSkillSources } from '../skills/workspace-skill-sources';
+import { workspaceSkillSources } from '../skills/workspace-skill-sources';
 import { type GrepReadAdmission, grepScopeStrings } from './grep-admission';
 import {
   resolveKnowledgeScope,
   refuseUnsearchableKnowledgeScope,
 } from './grep-knowledge-scope';
 import {
+  isMachineGrepScope,
   machineScopeOf,
   resolveMachineScope,
   type MachineGrepScope,
 } from './grep-machine';
 import { decodeFileAlias, isFileAlias } from './permissions/file-alias';
-import { createSkillWalkPort, joinedPath, probeSkillPath } from './grep-ports';
 import {
   invalidPathResult,
   selectorColonResult,
@@ -58,15 +55,13 @@ import {
   type GrepToolError,
 } from './grep-results';
 import {
-  buildScope,
   hasGlobOperator,
   hostLiteralStart,
-  splitScopePath,
   type ResolvedScopes,
   type ScopeOutcome,
 } from './grep-scope-shape';
+import { resolveSkillPackage } from './grep-skill-package';
 import { type ToolContext } from './types';
-import { verifyLocalMachine } from './local-machine';
 import {
   literalTargetPath,
   locatorContext,
@@ -165,6 +160,9 @@ type ScopeRequest = {
   readonly deadlineAt: number;
 };
 
+/** The call state one skill package expansion spends. */
+type SkillCall = Pick<ScopeRequest, 'context' | 'admission' | 'deadlineAt'>;
+
 export async function resolveScopes(
   context: ToolContext,
   submitted: ReadonlyArray<string>,
@@ -196,13 +194,31 @@ export async function resolveScopes(
       continue;
     }
 
-    for (const resolved of outcome.scopes) {
-      scopes.push({ ...resolved, index: ordinal });
+    // One expansion mixes host and Machine packages; its segments keep the
+    // order the packages were expanded in, whatever backend walks each.
+    for (const resolved of orderedExpansion(outcome)) {
+      if (isMachineGrepScope(resolved))
+        machines.push({ ...resolved, index: ordinal });
+      else scopes.push({ ...resolved, index: ordinal });
+
       ordinal += 1;
     }
   }
 
   return { scopes, machines };
+}
+
+/**
+ * One expansion's segments in package order, whatever their backend. A package
+ * expansion numbers its segments; a Knowledge one shares the submitted index,
+ * whose stable sort keeps the Space order it listed.
+ */
+function orderedExpansion(
+  outcome: ResolvedScopes,
+): ReadonlyArray<GrepScope | MachineGrepScope> {
+  return [...outcome.scopes, ...(outcome.machines ?? [])].sort(
+    (left, right) => left.index - right.index,
+  );
 }
 
 async function resolveScope(request: ScopeRequest): Promise<ScopeOutcome> {
@@ -218,7 +234,7 @@ async function resolveScope(request: ScopeRequest): Promise<ScopeOutcome> {
     case KNOWLEDGE_SCHEME:
       return resolveKnowledgeScope(context, scheme.rest, index, admission);
     case SKILL_SCHEME:
-      return resolveSkillScope(context, scheme.rest, index, admission);
+      return resolveSkillScope(request, scheme.rest);
     case MACHINE_SCHEME:
       return resolveMachineScope(request);
     default:
@@ -327,12 +343,12 @@ function decodedHostPrefix(
 }
 
 async function resolveSkillScope(
-  context: ToolContext,
+  request: ScopeRequest,
   rest: string,
-  index: number,
-  admission: GrepReadAdmission,
 ): Promise<ScopeOutcome> {
-  if (rest.length === 0) return resolveEverySkill(context, index, admission);
+  const { context, index, admission, deadlineAt } = request;
+
+  if (rest.length === 0) return resolveEverySkill(request);
   const refused = refuseUnsearchableSkillScope(rest);
 
   if (refused !== undefined) return { result: refused };
@@ -344,22 +360,19 @@ async function resolveSkillScope(
     return { result: invalidPathResult('The skill locator is invalid.') };
   }
 
-  const entry = await readableSkillPackage(context, name);
+  const entry = readableSkillPackage(context, name);
 
   if ('result' in entry) return entry;
 
-  const outcome = await resolveSkillPackage({
+  return resolveSkillPackage({
+    context,
     skillDirectory: entry.skillDirectory,
     name: entry.name,
     rawPath,
     index,
     admission,
-    signal: context.abortSignal,
+    deadlineAt,
   });
-
-  if ('result' in outcome || 'machine' in outcome) return outcome;
-
-  return { scopes: outcome.scopes };
 }
 
 /** A package whose directory this process can walk. */
@@ -369,11 +382,11 @@ type ReadableSkillPackage = {
 };
 
 /** The package a `skill://<name>` scope names, once its access is settled. */
-async function readableSkillPackage(
+function readableSkillPackage(
   context: ToolContext,
   name: string,
-): Promise<ReadableSkillPackage | { readonly result: GrepToolError }> {
-  const snapshot = await readSkillCatalog(context);
+): ReadableSkillPackage | { readonly result: GrepToolError } {
+  const snapshot = readSkillCatalog(context);
 
   if ('result' in snapshot) return snapshot;
   const entry = snapshot.entries.find((candidate) => candidate.name === name);
@@ -391,13 +404,11 @@ async function readableSkillPackage(
   return { name: entry.name, skillDirectory: entry.skillDirectory };
 }
 
-async function resolveEverySkill(
-  context: ToolContext,
-  index: number,
-  admission: GrepReadAdmission,
-): Promise<ScopeOutcome> {
-  if (context.skillCatalog === undefined) return { scopes: [] };
-  const snapshot = await readSkillCatalog(context);
+async function resolveEverySkill(request: ScopeRequest): Promise<ScopeOutcome> {
+  const { context, admission, deadlineAt } = request;
+
+  if (context.skillCatalog === undefined) return { scopes: [], machines: [] };
+  const snapshot = readSkillCatalog(context);
 
   if ('result' in snapshot) return snapshot;
   const selection = selectionOf(context);
@@ -412,26 +423,50 @@ async function resolveEverySkill(
     );
 
   const scopes: Array<GrepScope> = [];
+  const machines: Array<MachineGrepScope> = [];
+  // A package keeps its place in the byte order, whether a host path or a
+  // Machine locator: a mixed catalog stays one expansion in package order.
+  let ordinal = request.index;
 
   for (const entry of packages) {
-    if (!entry.available || entry.skillDirectory === null) {
-      return { result: skillUnavailableResult() };
-    }
+    const outcome = await expandSkill(
+      { context, admission, deadlineAt },
+      entry,
+      ordinal,
+    );
 
-    const outcome = await resolveSkillPackage({
-      skillDirectory: entry.skillDirectory,
-      name: entry.name,
-      rawPath: '',
-      index,
-      admission,
-      signal: context.abortSignal,
-    });
+    if ('result' in outcome) return outcome;
 
-    if ('result' in outcome || 'machine' in outcome) return outcome;
-    scopes.push(...outcome.scopes);
+    if ('machine' in outcome) machines.push(outcome.machine);
+    else scopes.push(...outcome.scopes);
+
+    ordinal += 1;
   }
 
-  return { scopes };
+  return { scopes, machines };
+}
+
+/** One package of a bare scope, expanded at its place in the byte order. */
+function expandSkill(
+  call: SkillCall,
+  entry: SkillCatalogEntry,
+  index: number,
+): Promise<ScopeOutcome> {
+  const { context } = call;
+
+  if (!entry.available || entry.skillDirectory === null) {
+    return Promise.resolve({ result: skillUnavailableResult() });
+  }
+
+  return resolveSkillPackage({
+    context,
+    skillDirectory: entry.skillDirectory,
+    name: entry.name,
+    rawPath: '',
+    index,
+    admission: call.admission,
+    deadlineAt: call.deadlineAt,
+  });
 }
 
 function selectionOf(context: ToolContext): SkillSelection {
@@ -440,84 +475,22 @@ function selectionOf(context: ToolContext): SkillSelection {
 
 /**
  * The skill catalog a `skill://` scope searches. A bound Workspace's own roots
- * are host reads on this Machine, so they are offered only after this call's
- * identity-checked handshake; a refused handshake leaves operator skills only.
+ * are Machine locators the attempt's snapshot read from the Workspace's
+ * Machine; operator skills stay installation resources.
  */
-async function readSkillCatalog(
+function readSkillCatalog(
   context: ToolContext,
-): Promise<SkillCatalogSnapshot | { readonly result: GrepToolError }> {
+): SkillCatalogSnapshot | { readonly result: GrepToolError } {
   const catalog = context.skillCatalog;
 
   if (catalog === undefined) return { result: skillCatalogUnavailableResult() };
   const root = context.workspaceRoot?.current();
 
   const snapshot = catalog.getSnapshot(
-    root === undefined
-      ? undefined
-      : await verifiedWorkspaceSkillSources(root, {
-          localMachine: context.localMachine,
-          verifyLocal: async () =>
-            (await verifyLocalMachine(context)) === undefined,
-        }),
+    root === undefined ? undefined : workspaceSkillSources(root),
   );
 
   return snapshot.available
     ? snapshot
     : { result: skillCatalogUnavailableResult() };
-}
-
-type SkillPackageScope = {
-  readonly skillDirectory: string;
-  readonly name: string;
-  readonly rawPath: string;
-  readonly index: number;
-  readonly admission: GrepReadAdmission;
-  readonly signal: AbortSignal | undefined;
-};
-
-/**
- * One package's scope: the raw path part split at its first glob segment, then
- * probed only when it names one path. Package directories are host paths; a
- * package that lives on a Machine is refused rather than walked locally.
- */
-async function resolveSkillPackage(
-  input: SkillPackageScope,
-): Promise<ScopeOutcome> {
-  const parsed = splitScopePath(input.rawPath, isSkillResourcePath);
-
-  if ('status' in parsed) return { result: parsed };
-
-  if (!path.isAbsolute(input.skillDirectory)) {
-    return { result: skillUnavailableResult() };
-  }
-
-  const root =
-    parsed.prefixPath.length === 0
-      ? input.skillDirectory
-      : path.join(input.skillDirectory, ...parsed.prefixPath.split('/'));
-
-  return buildScope({
-    index: input.index,
-    locatorFor: (rel) => {
-      const relativePath = joinedPath(parsed.prefixPath, rel);
-
-      return formatSkillLocator(
-        relativePath.length === 0
-          ? { name: input.name }
-          : { name: input.name, relativePath },
-      );
-    },
-    glob: parsed.glob,
-    port: () => createSkillWalkPort(root, input.signal),
-    probe: () => probeSkillPath(root, input.signal),
-    endsWithSeparator: parsed.endsWithSeparator,
-    admission: input.admission,
-  });
-}
-
-function isSkillResourcePath(relativePath: string): boolean {
-  return (
-    relativePath.length === 0 ||
-    validateSkillResourcePath(relativePath) !== undefined
-  );
 }

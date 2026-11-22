@@ -743,3 +743,30 @@ describe('SkillCatalog invocation controls', () => {
     expect(entry.available).toBe(false);
   });
 });
+
+describe('the host filesystem seam', () => {
+  it('refuses a path that is not absolute instead of resolving it against the working directory', () => {
+    expect(() =>
+      NODE_SKILL_FILE_SYSTEM.readDirectory('machine://devl/srv/skills'),
+    ).toThrow('not an absolute host path');
+    expect(() =>
+      NODE_SKILL_FILE_SYSTEM.readTextFile('relative/SKILL.md'),
+    ).toThrow('not an absolute host path');
+    expect(NODE_SKILL_FILE_SYSTEM.fileKind('machine://devl/srv/skills/p')).toBe(
+      'unavailable',
+    );
+  });
+
+  it('drops a Machine-locator extra source without reading the hub filesystem', () => {
+    const snapshot = new SkillCatalog([]).getSnapshot([
+      'machine://devl/home/me/shop/.agents/skills',
+    ]);
+
+    expect(snapshot).toEqual({
+      available: true,
+      directories: [],
+      entries: [],
+      diagnostics: [],
+    });
+  });
+});

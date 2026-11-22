@@ -484,6 +484,21 @@ describe('createGrepReadAdmission', () => {
     expect(admission.admit(`kb://${SPACE}/notes/a.md`)).toBe(false);
   });
 
+  it('judges a hit on no reject text the caller did not name', () => {
+    const admission = createGrepReadAdmission(
+      contextWith({
+        read: {
+          allow: true,
+          reject: [{ field: 'path', literal: 'Stryker was here' }],
+        },
+      }),
+    );
+
+    // Only the caller's own texts can refuse a file; the default extra list
+    // is empty, so this unrelated reject hides nothing.
+    expect(admission.admit('/home/u/repo/a.md')).toBe(true);
+  });
+
   it('judges a hit as the read of its canonical locator', () => {
     const admission = createGrepReadAdmission(
       contextWith({

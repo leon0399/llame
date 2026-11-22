@@ -93,8 +93,8 @@ host software.
 
 ## Workspace MCP
 
-A bound Workspace loads its MCP configuration from `<root>/.mcp.json` and
-`<root>/.llame/mcp.json`. Each file accepts either a top-level `mcpServers`
+A bound Workspace's Machine loads its MCP configuration from `<root>/.mcp.json`
+and `<root>/.llame/mcp.json`. Each file accepts either a top-level `mcpServers`
 named map or a bare named map. The `.llame/mcp.json` map is applied second:
 an entry there replaces the entry with the same server name from `.mcp.json`,
 while entries with other names from both files remain available.
@@ -130,12 +130,27 @@ arguments are passed directly and are never shell-interpreted.
 ### Interpolation and redaction
 
 Workspace string values support `${VAR}`, `${VAR:-default}`, `{env:VAR}`, and
-`{path:LOCATION}`. Resolution uses the executing llame process's environment
-and filesystem, including llame's own environment. A relative `{path:...}`
-location is resolved from the Workspace root; an absolute location is used as
-written. `${VAR:-default}` uses its literal default when the variable is unset
-or empty. Resolution is single-pass: a resolved value is not scanned again
-for interpolation.
+`{path:LOCATION}`. Resolution runs on the Workspace's Machine: the daemon
+interpolates against its own environment and filesystem, the host Machine
+included. A relative `{path:...}` location is resolved from the Workspace
+root. An absolute location is used as written. `${VAR:-default}` uses its
+literal default when the variable is unset or empty. Resolution is
+single-pass: a resolved value is not scanned again for interpolation.
+
+The host daemon child receives only a base environment, described under
+[Machines](machines.md#the-host-machine). A host Workspace declaration that
+reads a variable only the worker defines therefore leaves that server
+unavailable with the unset-variable diagnostic. Set the variable in the
+daemon's environment, for example in a wrapper script named by
+`LLAME_MACHINE_COMMAND`. A remote Machine never receives a hub value at all.
+
+That host boundary covers variables, not files. The host daemon runs as the
+worker's OS user, so an absolute `{path:...}` location can read any file that
+user can read — worker credential files and `.env.local` included — and a stdio
+server it starts can read the worker's `/proc/<pid>/environ`. Run the daemon as
+a separate OS user through the `LLAME_MACHINE_COMMAND` wrapper when hub
+credentials must stay out of host Workspaces; that user still needs the
+registered roots and the files its Workspaces use.
 
 `{{` is not an escape in Workspace files: `--template={{name}}` remains
 verbatim.
@@ -182,10 +197,11 @@ reaches the server.
 Workspace clients are separate from the process-wide operator MCP runtime.
 Each client set is owned by one Chat and keyed by
 `(chatId, canonicalRoot, workspaceGeneration)`. A successful entry starts the
-matching clients in the executing process and awaits initial connect/discovery
-within the existing MCP startup/discovery bounds. A bound Chat whose clients
-are not running in the process starts them at attempt start and awaits initial
-connect/discovery before tool composition.
+matching clients and awaits initial connect/discovery within the existing MCP
+startup/discovery bounds. Each server process runs on the Workspace's Machine,
+the host Machine included. A bound Chat whose clients are not running starts
+them at attempt start and awaits initial connect/discovery before tool
+composition.
 `workspaceGeneration` increments when entry establishes a binding, a switch
 replaces it, an exit clears it, or preparation detaches it. Same-root re-entry
 and exit on an unbound Chat leave the generation unchanged.
@@ -221,15 +237,15 @@ from its start, so the normal tool-availability announcement reports them.
 
 ### Machine Workspaces
 
-A Workspace whose root is a [`machine://`](../reference/locators/machine.md)
-locator resolves and runs its MCP servers on that Machine. The hub sends only
-a server's name: the Machine reads `<root>/.mcp.json` and
-`<root>/.llame/mcp.json`, reapplying the same overlay and entry rules above,
-interpolates against its own environment and filesystem, and starts stdio
-servers or opens HTTP servers with the hub's own HTTP safeguards. A
-`localhost` URL therefore means the Machine, not the hub, and a variable only
-the hub defines leaves that server unavailable with the unset-variable
-diagnostic — its value never travels to the Machine.
+A Workspace's root names a Machine, so its MCP servers resolve and run on that
+Machine, the host Machine included. The hub sends only a server's name: the
+Machine reads `<root>/.mcp.json` and `<root>/.llame/mcp.json`, reapplying the
+same overlay and entry rules above, interpolates against its own environment
+and filesystem, and starts stdio servers or opens HTTP servers with the hub's
+own HTTP safeguards. A `localhost` URL therefore means the Machine, not the
+hub, and a variable only the hub's worker defines leaves that server
+unavailable with the unset-variable diagnostic, so its value never travels to
+the Machine.
 
 Declarations, admission, shadowing, permissions, redaction, lifetime, and
 isolation are unchanged. Starting a server returns the protected values of the

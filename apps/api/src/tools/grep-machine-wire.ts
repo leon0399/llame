@@ -36,7 +36,22 @@ export function machineScopeLocator(
   scope: MachineGrepScope,
   rel: string,
 ): string | undefined {
+  if (scope.locatorOf !== undefined) return scope.locatorOf(rel);
+
   return formatMachineLocator(scope.name, machinePath(scope.path, rel));
+}
+
+/**
+ * The `read` verdict for one Machine file: its scope locator allows, and a
+ * reject also matching any of the scope's extra texts refuses it.
+ */
+export function admitMachineFile(
+  admission: GrepReadAdmission,
+  scope: MachineGrepScope,
+  rel: string,
+  locator: string,
+): boolean {
+  return admission.admit(locator, scope.rejectTextsOf?.(rel));
 }
 
 /**
@@ -51,7 +66,8 @@ export function namedUnfinished(
 ): string | undefined {
   const locator = machineScopeLocator(scope, rel);
 
-  return locator !== undefined && admission.admit(locator)
+  return locator !== undefined &&
+    admitMachineFile(admission, scope, rel, locator)
     ? locator
     : undefined;
 }

@@ -37,7 +37,10 @@ import { BASH_SETTLEMENT_GRACE_MS } from '../tools/bash-limits';
 import { webSearchTool } from '../tools/web-search/tool';
 import { compileTestPermissionPolicy } from '../testing/tool-permission-policy';
 import { createProtocolPeer } from '../testing/machine-protocol-peer';
-import { machineFilesTransportFactory } from '../testing/machine-files-peer';
+import {
+  machineFilesConnector,
+  machineFilesTransportFactory,
+} from '../testing/machine-files-peer';
 import { MachineConnector } from '../machines/machine-connector.service';
 import { parseMachineLocator } from '../machines/machine-locator';
 import { ExecutorGit } from '../machines/executor-git.service';
@@ -261,6 +264,7 @@ import {
   type RecencyDigestResolver,
 } from '../chats/recency-digest.service';
 import {
+  NATIVE_MUTATION_ABORT_REASON,
   compactionSummaryPrefixFingerprint,
   RunExecutionService,
   RunNotRunnableError,
@@ -1575,6 +1579,15 @@ describe('RunExecutionService executeRun', () => {
       path.join(tmpdir(), 'workspace-binding-metadata-'),
     );
 
+    writeFileSync(
+      path.join(root, '.mcp.json'),
+      JSON.stringify({
+        mcpServers: {
+          web: { type: 'http', url: 'https://workspace.example.test/mcp' },
+        },
+      }),
+    );
+
     const operator = new McpRuntimeService({});
 
     const workspaceExecute = vi.fn(() =>
@@ -1585,15 +1598,7 @@ describe('RunExecutionService executeRun', () => {
     );
 
     const workspaceMcp = new WorkspaceMcpClients(operator, {
-      readConfig: () =>
-        Promise.resolve([
-          {
-            id: 'web',
-            state: 'configured' as const,
-            definition: { url: 'https://workspace.example.test/mcp' },
-            protectedValues: [],
-          },
-        ]),
+      connector: machineFilesConnector(),
       clientFactory: () =>
         Promise.resolve({
           discover: () =>
@@ -1617,7 +1622,7 @@ describe('RunExecutionService executeRun', () => {
 
     vi.spyOn(ChatsRepository.prototype, 'findById').mockResolvedValue({
       ...chat,
-      workspaceRoot: root,
+      workspaceRoot: onHostA(root),
       workspaceExecutorId: 'host-a',
       workspaceGeneration: 4,
       artifactSeq: 0,
@@ -1628,7 +1633,7 @@ describe('RunExecutionService executeRun', () => {
     ).mockResolvedValue(true);
     vi.spyOn(WorkspaceBindingRepository.prototype, 'exit').mockResolvedValue({
       status: 'cleared',
-      previousRoot: root,
+      previousRoot: onHostA(root),
       generation: 5,
     });
     const capturing = makeCapturingClient();
@@ -1654,7 +1659,7 @@ describe('RunExecutionService executeRun', () => {
       expect(repositories.setTold).toHaveBeenCalledWith({
         chatId,
         ownerUserId: userId,
-        told: `host-a\n${root}`,
+        told: `host-a\n${onHostA(root)}`,
         toldFrom: null,
         clearDetachReason: false,
       });
@@ -1697,9 +1702,7 @@ describe('RunExecutionService executeRun', () => {
 
     const operator = new McpRuntimeService({});
 
-    const workspaceMcp = new WorkspaceMcpClients(operator, {
-      readConfig: () => Promise.resolve([]),
-    });
+    const workspaceMcp = new WorkspaceMcpClients(operator, {});
 
     const observedContexts: Array<ToolContext> = [];
 
@@ -1768,9 +1771,7 @@ describe('RunExecutionService executeRun', () => {
     const root = mkdtempSync(path.join(tmpdir(), 'grep-bounds-context-'));
     const operator = new McpRuntimeService({});
 
-    const workspaceMcp = new WorkspaceMcpClients(operator, {
-      readConfig: () => Promise.resolve([]),
-    });
+    const workspaceMcp = new WorkspaceMcpClients(operator, {});
 
     const observedContexts: Array<ToolContext> = [];
 
@@ -1850,13 +1851,87 @@ describe('RunExecutionService executeRun', () => {
     }
   });
 
+  it('fences an unknown native mutation on a worker that hosts no Machine', async () => {
+    mockNormalExecutionRepositories();
+
+    const contexts: Array<ToolContext> = [];
+
+    const capture: Tool = {
+      id: toolDeclaration.id,
+      description: toolDeclaration.description,
+      classification: 'unverified',
+      inputSchema: toolDeclaration.inputSchema,
+      execute: (context) => {
+        contexts.push(context);
+
+        return { status: 'success' as const };
+      },
+    };
+
+    // The worker reaches a remote Machine only: it hosts no `machines.local`,
+    // yet its file mutations still go over a daemon link that can leave an
+    // outcome unrecorded.
+    const peer = createProtocolPeer({});
+
+    const connector = new MachineConnector({
+      machines: { hosts: { devl: { destination: 'box' } } },
+      hubVersion: 'test',
+      bindIdentity: () => Promise.resolve('match'),
+      transportFactory: peer.factory,
+      handshakeTimeoutMs: 1000,
+    });
+
+    const capturing = makeCapturingClient();
+
+    const execution = makeExecutionService(
+      capturing.client,
+      makeDynamicResolver(capture),
+      undefined,
+      {
+        allowed: [toolDeclaration.id],
+        permissionPolicy: compileTestPermissionPolicy([toolDeclaration.id]),
+        machineConnector: connector,
+        dynamicCandidates: [
+          {
+            source: { type: 'mcp', serverId: 'demo' },
+            state: 'available',
+            tool: capture,
+          },
+        ],
+      },
+    );
+
+    try {
+      await execution.service.executeRun(executionInput(capturing.client));
+      const options = capturing.streamOptions();
+
+      await executeBoundTool(options, { q: 'context' }, 'native-fence');
+
+      const context = contexts[0];
+
+      if (context === undefined) throw new Error('expected a tool context');
+      expect(context.abortSignal?.aborted).toBe(false);
+
+      context.onNativeMutationUnknown?.();
+
+      expect(context.abortSignal?.aborted).toBe(true);
+      expect(context.abortSignal?.reason).toBe(NATIVE_MUTATION_ABORT_REASON);
+      await options.onFinish?.({
+        text: 'answer',
+        usage: ZERO_USAGE,
+        finishReason: 'stop',
+        stepCount: 1,
+      });
+    } finally {
+      connector.onModuleDestroy();
+    }
+  });
+
   it('stops Workspace MCP clients when the Run has no bound Workspace', async () => {
     mockNormalExecutionRepositories();
     const operator = new McpRuntimeService({});
 
-    const workspaceMcp = new WorkspaceMcpClients(operator, {
-      readConfig: () => Promise.resolve([]),
-    });
+    const workspaceMcp = new WorkspaceMcpClients(operator, {});
 
     const stopForChat = vi.spyOn(workspaceMcp, 'stopForChat');
 
@@ -1891,9 +1966,7 @@ describe('RunExecutionService executeRun', () => {
     });
     const operator = new McpRuntimeService({});
 
-    const workspaceMcp = new WorkspaceMcpClients(operator, {
-      readConfig: () => Promise.resolve([]),
-    });
+    const workspaceMcp = new WorkspaceMcpClients(operator, {});
 
     const stopForChat = vi.spyOn(workspaceMcp, 'stopForChat');
     const stopStale = vi.spyOn(workspaceMcp, 'stopStale');
@@ -1942,9 +2015,7 @@ describe('RunExecutionService executeRun', () => {
     });
     const operator = new McpRuntimeService({});
 
-    const workspaceMcp = new WorkspaceMcpClients(operator, {
-      readConfig: () => Promise.resolve([]),
-    });
+    const workspaceMcp = new WorkspaceMcpClients(operator, {});
 
     const stopStale = vi.spyOn(workspaceMcp, 'stopStale');
     const listUnstartedOnce = vi.spyOn(workspaceMcp, 'listUnstartedOnce');
@@ -1990,9 +2061,7 @@ describe('RunExecutionService executeRun', () => {
     mockNormalExecutionRepositories();
     const operator = new McpRuntimeService({});
 
-    const workspaceMcp = new WorkspaceMcpClients(operator, {
-      readConfig: () => Promise.resolve([]),
-    });
+    const workspaceMcp = new WorkspaceMcpClients(operator, {});
 
     const endAttempt = vi.spyOn(workspaceMcp, 'endAttempt');
     const capturing = makeCapturingClient();
@@ -2028,6 +2097,14 @@ describe('RunExecutionService executeRun', () => {
   it('releases clients from an unbound executeRun after enter_workspace', async () => {
     mockNormalExecutionRepositories();
     const root = mkdtempSync(path.join(tmpdir(), 'workspace-unbound-hold-'));
+    writeFileSync(
+      path.join(root, '.mcp.json'),
+      JSON.stringify({
+        mcpServers: {
+          web: { type: 'http', url: 'https://workspace.example.test/mcp' },
+        },
+      }),
+    );
     let clock = 1e3;
     const operator = new McpRuntimeService({});
     const close = vi.fn<() => Promise<void>>(() => Promise.resolve());
@@ -2035,17 +2112,9 @@ describe('RunExecutionService executeRun', () => {
     const workspaceMcp = new WorkspaceMcpClients(operator, {
       now: () => clock,
       // The bound root is the local Machine's canonical locator, so the clients
-      // must resolve it the way production does: through the connector.
-      connector: localMachineConnector({ name: 'host-a' }),
-      readConfig: () =>
-        Promise.resolve([
-          {
-            id: 'web',
-            state: 'configured' as const,
-            definition: { url: 'https://workspace.example.test/mcp' },
-            protectedValues: [],
-          },
-        ]),
+      // must resolve it the way production does: through the connector, whose
+      // daemon reads the root's own declaration.
+      connector: machineFilesConnector(),
       clientFactory: () =>
         Promise.resolve({
           discover: () =>
@@ -2127,6 +2196,308 @@ describe('RunExecutionService executeRun', () => {
       rmSync(root, { recursive: true, force: true });
     }
   });
+  it('installs an entered Machine root skill catalog for the following reads', async () => {
+    const root = realpathSync(mkdtempSync(path.join(tmpdir(), 'entry-skill-')));
+    const packageDir = path.join(root, '.agents', 'skills', 'pdf');
+
+    mkdirSync(packageDir, { recursive: true });
+    writeFileSync(
+      path.join(packageDir, 'SKILL.md'),
+      '---\nname: pdf\ndescription: PDF skill\n---\n# PDF instructions\n',
+    );
+
+    try {
+      mockNormalExecutionRepositories();
+      vi.spyOn(
+        WorkspaceBindingRepository.prototype,
+        'isCurrentDelivery',
+      ).mockResolvedValue(true);
+      vi.spyOn(WorkspaceBindingRepository.prototype, 'enter').mockResolvedValue(
+        {
+          status: 'bound',
+          previousRoot: null,
+          generation: 1,
+        },
+      );
+      vi.spyOn(ChatsRepository.prototype, 'findById').mockResolvedValue(chat);
+
+      const { client } = createToolLoopClient([
+        providerToolCallInput('enter_workspace', 'enter-skill', {
+          path: root,
+          i: 'Entering the workspace',
+        }),
+        providerToolCallInput('read', 'read-skill', {
+          path: 'skill://pdf/SKILL.md',
+          i: 'Reading the skill',
+        }),
+        providerText('answer'),
+      ]);
+
+      const append = vi.spyOn(RunEventsRepository.prototype, 'append');
+
+      const execution = makeExecutionService(client, undefined, 'host-a', {
+        allowed: ['enter_workspace', 'read'],
+        permissionPolicy: compileTestPermissionPolicy([
+          'enter_workspace',
+          'read',
+        ]),
+        machineConnector: machineFilesConnector({ roots: ['/'] }),
+        skillCatalog: new SkillCatalog([]),
+        skillDirectories: [],
+      });
+
+      const result = await execution.service.executeRun(executionInput(client));
+
+      await expect(result.text).resolves.toBe('answer');
+
+      // The fetch of the next step reads through the catalog the entry
+      // installed, so the Workspace package resolves on its Machine.
+      const readCompleted = append.mock.calls.flatMap(
+        ([, eventType, payload]) =>
+          eventType === 'tool.completed' &&
+          isRecord(payload) &&
+          payload['toolCallId'] === 'read-skill'
+            ? [payload]
+            : [],
+      );
+
+      expect(readCompleted).toHaveLength(1);
+      expect(readCompleted[0]).toMatchObject({ status: 'success' });
+      expect(JSON.stringify(readCompleted[0])).toContain('# PDF instructions');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('keeps a per-root Machine skill snapshot between entries', async () => {
+    const first = realpathSync(
+      mkdtempSync(path.join(tmpdir(), 'entry-cached-')),
+    );
+
+    const second = realpathSync(
+      mkdtempSync(path.join(tmpdir(), 'entry-other-')),
+    );
+
+    for (const [directory, name] of [
+      [first, 'pdf'],
+      [second, 'beta'],
+    ] as const) {
+      const packageDir = path.join(directory, '.agents', 'skills', name);
+
+      mkdirSync(packageDir, { recursive: true });
+      writeFileSync(
+        path.join(packageDir, 'SKILL.md'),
+        `---\nname: ${name}\ndescription: ${name} skill\n---\n# ${name}\n`,
+      );
+    }
+
+    try {
+      mockNormalExecutionRepositories();
+      vi.spyOn(
+        WorkspaceBindingRepository.prototype,
+        'isCurrentDelivery',
+      ).mockResolvedValue(true);
+      vi.spyOn(WorkspaceBindingRepository.prototype, 'enter').mockResolvedValue(
+        {
+          status: 'bound',
+          previousRoot: null,
+          generation: 1,
+        },
+      );
+      vi.spyOn(ChatsRepository.prototype, 'findById').mockResolvedValue(chat);
+
+      const { client } = createToolLoopClient([
+        providerToolCallInput('enter_workspace', 'enter-first', {
+          path: first,
+          i: 'Entering the first workspace',
+        }),
+        providerToolCallInput('enter_workspace', 'enter-second', {
+          path: second,
+          i: 'Entering the second workspace',
+        }),
+        providerToolCallInput('enter_workspace', 'enter-first-again', {
+          path: first,
+          i: 'Entering the first workspace again',
+        }),
+        providerToolCallInput('read', 'read-first', {
+          path: 'skill://pdf/SKILL.md',
+          i: 'Reading the skill',
+        }),
+        providerText('answer'),
+      ]);
+
+      const append = vi.spyOn(RunEventsRepository.prototype, 'append');
+      const connector = machineFilesConnector({ roots: ['/'] });
+
+      const execution = makeExecutionService(client, undefined, 'host-a', {
+        allowed: ['enter_workspace', 'read'],
+        permissionPolicy: compileTestPermissionPolicy([
+          'enter_workspace',
+          'read',
+        ]),
+        machineConnector: connector,
+        skillCatalog: new SkillCatalog([]),
+        skillDirectories: [],
+      });
+
+      const result = await execution.service.executeRun(executionInput(client));
+
+      await expect(result.text).resolves.toBe('answer');
+
+      // One snapshot read per root: the third entry reuses the first root's.
+      expect(
+        connector.peer.sessions
+          .flatMap((session) => session.calls)
+          .filter(
+            (call) =>
+              call.method === 'fs.list' &&
+              isRecord(call.params) &&
+              isString(call.params['path']) &&
+              /\/\.(?:claude|agents|llame)\/skills$/u.test(call.params['path']),
+          ),
+      ).toHaveLength(6);
+
+      // The re-entry installs the first root's snapshot again, so its package
+      // resolves, not the root entered between.
+      const readCompleted = append.mock.calls.flatMap(
+        ([, eventType, payload]) =>
+          eventType === 'tool.completed' &&
+          isRecord(payload) &&
+          payload['toolCallId'] === 'read-first'
+            ? [payload]
+            : [],
+      );
+
+      expect(readCompleted).toHaveLength(1);
+      expect(readCompleted[0]).toMatchObject({ status: 'success' });
+      expect(JSON.stringify(readCompleted[0])).toContain('# pdf');
+    } finally {
+      rmSync(first, { recursive: true, force: true });
+      rmSync(second, { recursive: true, force: true });
+    }
+  });
+
+  it('refreshes a root’s skill snapshot for the next attempt that enters it', async () => {
+    const root = realpathSync(
+      mkdtempSync(path.join(tmpdir(), 'entry-refresh-')),
+    );
+
+    const oldPackage = path.join(root, '.agents', 'skills', 'old');
+
+    mkdirSync(oldPackage, { recursive: true });
+    writeFileSync(
+      path.join(oldPackage, 'SKILL.md'),
+      '---\nname: old\ndescription: Old skill\n---\n# old\n',
+    );
+
+    try {
+      const repositories = mockNormalExecutionRepositories();
+      vi.spyOn(
+        WorkspaceBindingRepository.prototype,
+        'isCurrentDelivery',
+      ).mockResolvedValue(true);
+      vi.spyOn(WorkspaceBindingRepository.prototype, 'enter').mockResolvedValue(
+        {
+          status: 'bound',
+          previousRoot: null,
+          generation: 1,
+        },
+      );
+      vi.spyOn(ChatsRepository.prototype, 'findById').mockResolvedValue(chat);
+
+      const append = vi.spyOn(RunEventsRepository.prototype, 'append');
+      const connector = machineFilesConnector({ roots: ['/'] });
+
+      const execution = makeExecutionService(
+        createFakeModelClient(['answer']),
+        undefined,
+        'host-a',
+        {
+          allowed: ['enter_workspace', 'read'],
+          permissionPolicy: compileTestPermissionPolicy([
+            'enter_workspace',
+            'read',
+          ]),
+          machineConnector: connector,
+          skillCatalog: new SkillCatalog([]),
+          skillDirectories: [],
+        },
+      );
+
+      // The first attempt enters the root and snapshots it.
+      const first = createToolLoopClient([
+        providerToolCallInput('enter_workspace', 'enter-old', {
+          path: root,
+          i: 'Entering the workspace',
+        }),
+        providerText('first answer'),
+      ]);
+
+      const firstRun = await execution.service.executeRun(
+        executionInput(first.client),
+      );
+
+      await expect(firstRun.text).resolves.toBe('first answer');
+
+      // A skill the first attempt's snapshot never saw.
+      const addedPackage = path.join(root, '.agents', 'skills', 'added');
+
+      mkdirSync(addedPackage, { recursive: true });
+      writeFileSync(
+        path.join(addedPackage, 'SKILL.md'),
+        '---\nname: added\ndescription: Added later\n---\n# added\n',
+      );
+
+      // The second attempt starts unbound and enters the same root mid-Run.
+      repositories.markStarted.mockResolvedValueOnce({
+        ...run,
+        activeAttemptId: '00000000-0000-4000-8000-000000000009',
+      });
+
+      const second = createToolLoopClient([
+        providerToolCallInput('enter_workspace', 'enter-added', {
+          path: root,
+          i: 'Entering the workspace again',
+        }),
+        providerText('second answer'),
+      ]);
+
+      const secondRun = await execution.service.executeRun(
+        executionInput(second.client),
+      );
+
+      await expect(secondRun.text).resolves.toBe('second answer');
+
+      const enterCompleted = append.mock.calls.flatMap(
+        ([, eventType, payload]) =>
+          eventType === 'tool.completed' &&
+          isRecord(payload) &&
+          payload['toolCallId'] === 'enter-added'
+            ? [payload]
+            : [],
+      );
+
+      expect(enterCompleted).toHaveLength(1);
+      expect(JSON.stringify(enterCompleted[0])).toContain('"added"');
+
+      // Each attempt read the root's three sources: the second refreshed its
+      // own snapshot instead of reusing the first attempt's.
+      expect(
+        connector.peer.sessions
+          .flatMap((session) => session.calls)
+          .filter(
+            (call) =>
+              call.method === 'fs.list' &&
+              isRecord(call.params) &&
+              isString(call.params['path']) &&
+              /\/\.(?:claude|agents|llame)\/skills$/u.test(call.params['path']),
+          ),
+      ).toHaveLength(6);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it('detaches when the executing worker has no Machine at all', async () => {
     await executeWorkspaceDetachCase({
       reason: 'executor_absent',
@@ -4402,11 +4773,11 @@ describe('RunExecutionService executeRun', () => {
       mockNormalExecutionRepositories();
       vi.spyOn(ChatsRepository.prototype, 'findById').mockResolvedValue({
         ...chat,
-        workspaceRoot: root,
+        workspaceRoot: onHostA(root),
         workspaceExecutorId: 'host-a',
         workspaceGeneration: 4,
         artifactSeq: 0,
-        workspaceTold: root,
+        workspaceTold: onHostA(root),
         workspaceToldFrom: null,
         workspaceDetachReason: null,
       });
@@ -8729,6 +9100,18 @@ function providerResponse(
 function providerToolCall(toolName: string, toolCallId: string) {
   return providerResponse(
     [{ type: 'tool-call', toolCallId, toolName, input: '{}' }],
+    'tool-calls',
+  );
+}
+
+/** A scripted native tool call, whose input the tool's schema must accept. */
+function providerToolCallInput(
+  toolName: string,
+  toolCallId: string,
+  input: UnknownRecord,
+) {
+  return providerResponse(
+    [{ type: 'tool-call', toolCallId, toolName, input: JSON.stringify(input) }],
     'tool-calls',
   );
 }
@@ -20117,6 +20500,8 @@ describe('RunExecutionService instruction files', () => {
   it('stages the accepted turn root chain after the workspace item and before the skill notice', async () => {
     const root = instructionsRoot();
 
+    const operatorSkills = mkdtempSync(path.join(tmpdir(), 'operator-skills-'));
+
     try {
       const repositories = mockNormalExecutionRepositories();
       bindChatTo(root);
@@ -20131,7 +20516,7 @@ describe('RunExecutionService instruction files', () => {
       ).mockResolvedValue(undefined);
       vi.spyOn(ChatsRepository.prototype, 'findById').mockResolvedValue({
         ...chat,
-        workspaceRoot: root,
+        workspaceRoot: onHostA(root),
         workspaceExecutorId: 'host-a',
         workspaceGeneration: 4,
         artifactSeq: 0,
@@ -20147,7 +20532,7 @@ describe('RunExecutionService instruction files', () => {
         skillEntry('research', 'Plan it'),
       ]);
 
-      const getSnapshot = vi.spyOn(catalog, 'getSnapshot');
+      const connector = machineFilesConnector({ roots: ['/'] });
 
       const execution = makeExecutionService(
         createFakeModelClient(['answer']),
@@ -20155,8 +20540,9 @@ describe('RunExecutionService instruction files', () => {
         'host-a',
         {
           ...executionOptions(),
+          machineConnector: connector,
           skillCatalog: catalog,
-          skillDirectories: ['/opt/skills'],
+          skillDirectories: [operatorSkills],
           model: { ...testModelEntry, referencesSkills: true },
         },
       );
@@ -20166,7 +20552,19 @@ describe('RunExecutionService instruction files', () => {
       );
 
       await expect(result.text).resolves.toBe('answer');
-      expect(getSnapshot).toHaveBeenCalledWith(
+
+      // The host Machine is an ordinary Machine: its Workspace skill sources
+      // were discovered by the attempt's snapshot over its daemon.
+      const session = await connector.peer.session(0);
+
+      const listedSkills = session.calls.flatMap((call) => {
+        if (call.method !== 'fs.list' || !isRecord(call.params)) return [];
+        const listed = call.params['path'];
+
+        return isString(listed) ? [listed] : [];
+      });
+
+      expect(listedSkills).toEqual(
         expect.arrayContaining([
           path.join(root, '.claude', 'skills'),
           path.join(root, '.agents', 'skills'),
@@ -20191,6 +20589,7 @@ describe('RunExecutionService instruction files', () => {
       );
     } finally {
       rmSync(root, { recursive: true, force: true });
+      rmSync(operatorSkills, { recursive: true, force: true });
     }
   });
 
@@ -22722,7 +23121,7 @@ describe('RunExecutionService retained read media', () => {
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
-  });
+  }, 30_000);
 
   it("counts a Continue Run's kept bytes toward the message bound", async () => {
     const root = repoRoot();
@@ -30092,7 +30491,6 @@ describe('RunExecutionService quota resume boundaries', () => {
     latestCheckpoint: undefined,
     seenInstructionPaths: new Set<string>(),
     toldGit: { text: undefined, root: undefined },
-    machineVerified: true,
     untitled: false,
   };
 
@@ -31063,7 +31461,6 @@ describe('RunExecutionService wake boundary preparation', () => {
       latestCheckpoint: undefined,
       seenInstructionPaths: new Set<string>(),
       toldGit: { text: undefined, root: undefined },
-      machineVerified: true,
       untitled: false,
     };
   }
