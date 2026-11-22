@@ -15,8 +15,9 @@ configured_by:
 # Locators
 
 Native `read`, `edit`, and `write` select their authority from the scheme of
-their `path` argument. An absolute path executes on the current Machine with
-that Machine's OS user authority. A `kb://<knowledgeSpaceId>/<path>[:selector]` locator
+their `path` argument. An absolute path executes on the current Machine, through
+its daemon, with that Machine's OS user authority and inside its registered
+roots. A `kb://<knowledgeSpaceId>/<path>[:selector]` locator
 resolves through the trusted Run owner's current Knowledge Space access instead
 and never binds the Run to a Machine. This alpha capability supplies no
 per-user or per-path filesystem permissions or sandbox on either path; `kb://`
@@ -67,7 +68,9 @@ results, and [`job://`](job.md) only its jobs, both under its owner's row-level
 security. A [`machine://`](machine.md) locator runs on a
 configured Machine as that Machine's OS user, through its daemon; the host
 Machine's daemon is a child of the serving process, and another Machine's is
-reached over SSH. An `ssh://` locator runs on an external host as its login user over
+reached over SSH. The absolute-path and `file://` rows are the current Machine's
+own locator, so the same daemon serves them and the same roots bound them. An
+`ssh://` locator runs on an external host as its login user over
 the operator's own SSH configuration, with nothing installed there. The first
 three rows of the table bind the Run to one Machine. A
 [`projects://`](projects.md) read uses the owner's Project rows and needs no
@@ -106,7 +109,9 @@ of a path or URL ending in `:outline`; see
 symbolic-link component on `kb://`, an absent path, a `media://` id the owner
 does not hold, an `artifact://` or `job://` locator of another Chat or a missing
 part, and a missing or foreign [`projects://`](projects.md) UUID. A Project
-mutation is `unsupported_operation`. The shared native vocabulary is in
+mutation is `unsupported_operation`. `path_not_registered` reports a target
+outside the current Machine's registered roots, and `machine_unavailable` an
+unreachable Machine. The shared native vocabulary is in
 [read](../tools/read.md#errors).
 
 ## Configured by

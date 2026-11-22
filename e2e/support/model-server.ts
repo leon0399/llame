@@ -39,6 +39,8 @@
 
 import http, { type ServerResponse } from "node:http";
 
+import { E2E_HOST_READ_PATH } from "./host-paths";
+
 const port = Number(process.env.E2E_MODEL_PORT ?? "4303");
 
 const ANSWER_TOKENS = [
@@ -155,7 +157,7 @@ const BACKGROUND_JOB_TOKEN_RE = /BACKGROUND_JOB_TOKEN:([A-Za-z0-9_-]+)/u;
 // Permission-gate acceptance: a rejected Bash call, then an allowed read.
 const PERMISSION_PROMPT_MARKER = "permission rejection e2e";
 const PERMISSION_DENIED_COMMAND = "e2e-permission-denied";
-const PERMISSION_READ_PATH = "/etc/hostname";
+const PERMISSION_READ_PATH = E2E_HOST_READ_PATH;
 
 const PERMISSION_ANSWER_TOKENS = [
   "Blocked",

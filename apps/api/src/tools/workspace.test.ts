@@ -925,7 +925,6 @@ describe('Workspace host tools', () => {
       expect.objectContaining({
         root: onLocal(target),
         executorId: LOCAL,
-        bindExecutorId: LOCAL,
       }),
     );
   });
@@ -1354,7 +1353,6 @@ describe('Workspace host tools', () => {
       expect.objectContaining({
         root: onLocal(await realpath(root)),
         executorId: LOCAL,
-        bindExecutorId: LOCAL,
       }),
     );
 
@@ -1895,7 +1893,7 @@ describe('Machine Workspace entry', () => {
     });
   });
 
-  it('pins the Run to this process Machine on a local entry', async () => {
+  it('leaves the Run unpinned on a local entry', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'workspace-pin-'));
 
     const enter = vi
@@ -1908,19 +1906,22 @@ describe('Machine Workspace entry', () => {
 
     try {
       await enterWorkspaceTool.execute(context(), { path: directory });
-      expect(enter).toHaveBeenCalledWith(
-        expect.objectContaining({
-          executorId: LOCAL,
-          bindExecutorId: LOCAL,
-          root: onLocal(directory),
-        }),
-      );
+      // A Machine root names its Machine, so any worker that reaches it can
+      // serve the next attempt: the entry fences on the delivery alone and
+      // never pins the Run (design D15).
+      const input = enter.mock.calls[0]?.[0];
+
+      expect(input).toMatchObject({
+        executorId: LOCAL,
+        root: onLocal(directory),
+      });
+      expect(Object.hasOwn(input ?? {}, 'bindExecutorId')).toBe(false);
     } finally {
       await rm(directory, { recursive: true, force: true });
     }
   });
 
-  it('pins the local Machine on exit when the bound root is on it', async () => {
+  it('leaves the Run unpinned on exit, even when the bound root is local', async () => {
     const exit = vi
       .spyOn(WorkspaceBindingRepository.prototype, 'exit')
       .mockResolvedValue({ status: 'unbound' });
@@ -1937,8 +1938,10 @@ describe('Machine Workspace entry', () => {
       root: null,
       state: 'unbound',
     });
-    expect(exit).toHaveBeenCalledWith(
-      expect.objectContaining({ bindExecutorId: LOCAL, runId: 'run-1' }),
-    );
+
+    const input = exit.mock.calls[0]?.[0];
+
+    expect(input).toMatchObject({ runId: 'run-1' });
+    expect(Object.hasOwn(input ?? {}, 'bindExecutorId')).toBe(false);
   });
 });

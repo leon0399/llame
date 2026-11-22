@@ -43,10 +43,12 @@ argument of `enter_workspace`; `file://` does not, and `bash` uses its own
 ## Authority
 
 An absolute path or alias executes on the current Machine with that Machine's OS
-user authority and binds the Run to that Machine. A valid alias binds the
-Run exactly as an absolute path does; Workspace root does not affect them.
-Every result reports the canonical `machine://` locator of the decoded path,
-never the submitted spelling.
+user authority and records its attempt against the Machine locator; it does not
+bind the Run to a worker. The Machine's daemon serves it, so the path must lie
+inside that Machine's registered roots. A valid alias addresses the same Machine
+exactly as an absolute path does; Workspace root does not affect them. Every
+result reports the canonical `machine://` locator of the decoded path, never the
+submitted spelling.
 Permission matching strips a `read`'s selector and not an `edit`'s or `write`'s,
 whose suffix is part of the filename; see
 [tool-call permissions](../../operator/tool-call-permissions.md#matching).
@@ -71,7 +73,8 @@ target is a directory, and links and special entries are never opened. Child
 directories show up to 20 entries followed by `… N more`. Empty directories
 render `(empty directory)`.
 
-A trailing separator is optional: `/dir/` and `/dir` both work. A line member
+A trailing separator is optional on a directory: `/dir/` and `/dir` both work.
+On a file it fails with `not_found`, and the file is not read. A line member
 selects a flat listing of root-level entries only (see
 [selectors](../selectors.md#line-selectors)); directories over 10,000 entries
 fail with `directory_too_large`.
@@ -83,12 +86,14 @@ truncated with `nextOffset`.
 
 ## Errors
 
-`invalid_path` for a refused alias; `invalid_selector` for a suffix outside the
-selector grammar ([selectors](../selectors.md#malformed-selectors));
-`not_found` for an absent path; `directory_too_large` for a directory over the
-traversal budget; `not_regular_file` and `file_exists` for mutations.
-`machine_unavailable` when the current Machine is unreachable. The shared
-vocabulary is in [read](../tools/read.md#errors).
+`invalid_path` reports a refused alias, and `invalid_selector` a suffix outside
+the selector grammar ([selectors](../selectors.md#malformed-selectors)).
+`not_found` reports an absent path or a trailing separator on a file, and
+`directory_too_large` a directory over the traversal budget. `not_regular_file`
+and `file_exists` belong to mutations. `path_not_registered` reports a target
+outside the current Machine's registered roots, and `machine_unavailable` a
+Machine that is unreachable. The shared vocabulary is in
+[read](../tools/read.md#errors).
 
 ## Configured by
 

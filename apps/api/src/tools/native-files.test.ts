@@ -11,6 +11,7 @@ import { tmpdir } from 'node:os';
 import { drizzle } from 'drizzle-orm/postgres-js';
 
 import { join } from 'node:path';
+import { PATH_NOT_REGISTERED_MESSAGE } from '@workspace/machine-protocol';
 import {
   MAX_RESULT_CODE_UNITS,
   readFile as readNativeFile,
@@ -48,10 +49,8 @@ import {
 } from '../skills/skill-catalog';
 import { MachineConnector } from '../machines/machine-connector.service';
 import { localMachineConnector } from '../testing/local-machine';
-import {
-  MachineIdentityMismatchError,
-  MachineUnavailableError,
-} from '../machines/machine-session';
+import { machineFilesConnector } from '../testing/machine-files-peer';
+import { MachineIdentityMismatchError } from '../machines/machine-session';
 import {
   createProtocolPeer,
   type ProtocolPeerOptions,
@@ -120,7 +119,7 @@ function trustedContext(root?: string): ToolContext {
     runId: 'run',
     localMachine: LOCAL_MACHINE,
     defaultMachine: LOCAL_MACHINE,
-    machines: localMachineConnector(),
+    machines: machineFilesConnector(),
     nativeDeliverySequence: 1,
     toolCallId: 'call',
     permissionPolicy: compileTestPermissionPolicy(),
@@ -237,7 +236,7 @@ describe('native tool admission', () => {
         runId: 'run',
         localMachine: LOCAL_MACHINE,
         defaultMachine: LOCAL_MACHINE,
-        machines: localMachineConnector(),
+        machines: machineFilesConnector(),
         toolCallId: 'call',
       };
 
@@ -272,10 +271,6 @@ describe('Workspace-relative native paths', () => {
     await mkdir(join(root, 'src'));
     await writeFile(file, 'export const app = true;');
 
-    const begin = vi
-      .spyOn(NativeFilesRepository.prototype, 'begin')
-      .mockResolvedValue(undefined);
-
     try {
       const result = await runTool(
         nativeReadTool,
@@ -284,16 +279,12 @@ describe('Workspace-relative native paths', () => {
         5,
       );
 
+      // The read resolves from the root on its Machine and reports the
+      // canonical locator; a read records no native attempt (design D15).
       expect(result).toMatchObject({
         status: 'success',
         path: `${LOCAL_PREFIX}${file}`,
       });
-      expect(begin).toHaveBeenCalledWith(
-        expect.objectContaining({
-          operation: 'read',
-          path: `${LOCAL_PREFIX}${file}`,
-        }),
-      );
     } finally {
       await rm(root, { recursive: true, force: true });
     }
@@ -680,10 +671,12 @@ describe('Workspace-relative native paths', () => {
         5,
       );
 
-      await vi.waitFor(() => expect(begin).toHaveBeenCalledTimes(2));
+      // The read completes while the mutation's result is still appending,
+      // and it takes no mutation fence of its own: only a mutation settles one.
+      await expect(read).resolves.toMatchObject({ status: 'success' });
+      expect(begin).toHaveBeenCalledTimes(1);
 
       releaseReadMutation();
-      await expect(read).resolves.toMatchObject({ status: 'success' });
       await expect(mutation).resolves.toMatchObject({ status: 'success' });
     } finally {
       releaseReadMutation();
@@ -904,41 +897,48 @@ describe('file: alias dispatch', () => {
     }
   });
 
-  it('hands the Run signal to a host mutation, so an abort during it publishes nothing', async () => {
+  it('hands the Run signal to a Machine mutation, so an aborted call settles nothing', async () => {
     const root = await mkdtemp(join(tmpdir(), 'native-write-abort-'));
     const file = join(root, 'new.md');
     vi.spyOn(NativeFilesRepository.prototype, 'begin').mockResolvedValue(
       undefined,
     );
-    vi.spyOn(RunEventsRepository.prototype, 'append').mockImplementation(() =>
-      Promise.resolve({
-        runId: 'run',
-        sequence: 1,
-        eventType: 'native.result' as const,
-        payload: null,
-        createdAt: new Date(),
-      }),
-    );
-    const abort = new AbortController();
-    let checks = 0;
-    // The executor's own two checks pass; the abort lands inside the write.
-    vi.spyOn(abort.signal, 'throwIfAborted').mockImplementation(() => {
-      checks += 1;
 
-      if (checks === 3) abort.abort();
-      AbortSignal.prototype.throwIfAborted.call(abort.signal);
+    const append = vi
+      .spyOn(RunEventsRepository.prototype, 'append')
+      .mockImplementation(() =>
+        Promise.resolve({
+          runId: 'run',
+          sequence: 1,
+          eventType: 'native.result' as const,
+          payload: null,
+          createdAt: new Date(),
+        }),
+      );
+
+    const abort = new AbortController();
+
+    // The abort lands while the write request is on the wire, exactly as a
+    // cancelled Run does: the Machine may still have written the file.
+    const connector = machineFilesConnector({
+      onRequest: (method) => {
+        if (method === 'fs.write') abort.abort();
+      },
     });
 
     try {
-      const result = await nativeWriteTool.execute(
-        { ...trustedContext(), abortSignal: abort.signal },
-        { path: file, content: 'created' },
+      const result = await runTool(
+        nativeWriteTool,
+        { path: `file://${file}`, content: 'created' },
+        { ...trustedContext(), machines: connector, abortSignal: abort.signal },
+        5,
       );
 
-      expect(result).toMatchObject({ status: 'error' });
-      await expect(readFile(file, 'utf8')).rejects.toMatchObject({
-        code: 'ENOENT',
+      expect(result).toMatchObject({
+        status: 'error',
+        type: 'outcome_unknown',
       });
+      expect(append).not.toHaveBeenCalled();
     } finally {
       await rm(root, { recursive: true, force: true });
     }
@@ -950,15 +950,11 @@ describe('local Machine routing', () => {
     vi.restoreAllMocks();
   });
 
-  it('serves a machine:// locator for the local Machine in process', async () => {
+  it('serves a machine:// locator for the local Machine through its daemon', async () => {
     const root = await mkdtemp(join(tmpdir(), 'local-machine-read-'));
     const file = join(root, 'note.md');
     await writeFile(file, 'local bytes');
-    const connector = localMachineConnector();
-
-    vi.spyOn(NativeFilesRepository.prototype, 'begin').mockResolvedValue(
-      undefined,
-    );
+    const connector = machineFilesConnector();
 
     try {
       const result = await runTool(
@@ -978,14 +974,40 @@ describe('local Machine routing', () => {
         expect.stringContaining('local bytes'),
       );
 
-      // The target was served in process: the hello handshake ran on the
-      // control stream, and no request of any method reached the daemon (its
-      // answer throws on one).
+      // Design D8: the host Machine is an ordinary Machine, so the read is a
+      // request on the daemon's stream, not an in-process call.
       const session = await connector.peer.session(0);
-      expect(session.requests).toEqual([]);
+      expect(session.requests).toContain('fs.read');
       expect(connector.peer.sessions).toHaveLength(1);
     } finally {
       await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('refuses a host read outside the registered roots', async () => {
+    const allowed = await mkdtemp(join(tmpdir(), 'local-machine-root-'));
+    const outside = await mkdtemp(join(tmpdir(), 'local-machine-outside-'));
+    const file = join(outside, 'secret.md');
+    await writeFile(file, 'must not be read');
+    const connector = machineFilesConnector({ roots: [allowed] });
+
+    try {
+      const result = await runTool(
+        nativeReadTool,
+        { path: file },
+        { ...trustedContext(), machines: connector },
+        5,
+      );
+
+      expect(result).toMatchObject({
+        status: 'error',
+        type: 'path_not_registered',
+        message: PATH_NOT_REGISTERED_MESSAGE,
+      });
+      expect(JSON.stringify(result)).not.toContain('must not be read');
+    } finally {
+      await rm(allowed, { recursive: true, force: true });
+      await rm(outside, { recursive: true, force: true });
     }
   });
 
@@ -1026,21 +1048,24 @@ describe('local Machine routing', () => {
     expect(session.requests).toContain('fs.read');
   });
 
-  it('refuses a local target when the local daemon does not verify', async () => {
+  it('fails a host call machine_unavailable when the local daemon is unreachable', async () => {
     const root = await mkdtemp(join(tmpdir(), 'local-machine-verify-'));
     const file = join(root, 'secret.md');
     await writeFile(file, 'must not be read');
 
-    const connector = localMachineConnector({
-      verify: () =>
-        Promise.reject(
-          new MachineUnavailableError(
-            LOCAL_MACHINE,
-            'unreachable',
-            false,
-            'local daemon is unreachable',
-          ),
-        ),
+    const peer = createProtocolPeer({
+      openFailure: () => 'local daemon is unreachable',
+    });
+
+    const connector = new MachineConnector({
+      machines: {
+        local: LOCAL_MACHINE,
+        default: LOCAL_MACHINE,
+        hosts: { [LOCAL_MACHINE]: {} },
+      },
+      hubVersion: '9.9.9',
+      bindIdentity: () => Promise.resolve('match'),
+      localTransportFactory: peer.factory,
     });
 
     const begin = vi.spyOn(NativeFilesRepository.prototype, 'begin');
@@ -1053,12 +1078,14 @@ describe('local Machine routing', () => {
         5,
       );
 
+      // Fail closed: no silent local fallback serves the file.
       expect(result).toMatchObject({
         status: 'error',
         type: 'machine_unavailable',
       });
-      // The operation never ran in process.
+      expect(JSON.stringify(result)).not.toContain('must not be read');
       expect(begin).not.toHaveBeenCalled();
+      expect(peer.sessions).toHaveLength(0);
     } finally {
       await rm(root, { recursive: true, force: true });
     }
@@ -1747,19 +1774,21 @@ describe('knowledge locator resolution', () => {
     ).toMatchObject({ type: 'knowledge_space_unavailable' });
   });
 
-  it('still binds an absolute-path read on the same context', async () => {
-    await runTool(
+  it('reads an absolute path on the same context without a database visit', async () => {
+    const result = await runTool(
       nativeReadTool,
       { path: join(root, 'outside.md') },
       {
         ...knowledgeContext(),
         localMachine: LOCAL_MACHINE,
         defaultMachine: LOCAL_MACHINE,
-        machines: localMachineConnector(),
+        machines: machineFilesConnector(),
       },
       5,
     );
-    expect(runAsCalls).toBe(1);
+
+    expect(result).toMatchObject({ status: 'error', type: 'not_found' });
+    expect(runAsCalls).toBe(0);
   });
 
   it('answers a replace on a missing locator leaf with the replace contract', async () => {

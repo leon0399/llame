@@ -15,8 +15,9 @@ type WorkspaceChatState = {
  *
  * Callers construct this repository with the transaction supplied by
  * TenantDbService.runAs. Enter, exit, and detach deliberately keep the Run
- * lock, worker binding, and Chat mutation in that transaction so a caller
- * cannot observe or commit only part of a Workspace transition.
+ * lock and the Chat mutation in that transaction so a caller cannot observe or
+ * commit only part of a Workspace transition; none of them pins the Run to a
+ * worker (design D15).
  */
 export class WorkspaceBindingRepository {
   constructor(private readonly db: Db) {}
@@ -44,13 +45,6 @@ export class WorkspaceBindingRepository {
     attemptId?: string;
     executorId: string;
     root: string;
-    /**
-     * The executor this transition pins the Run to, if any. A root on this
-     * process's own Machine passes that Machine's name, so the Run cannot
-     * later execute on another worker. A Machine this worker only reaches
-     * passes nothing: the Run stays free to use other Machines.
-     */
-    bindExecutorId?: string;
   }): Promise<
     | {
         status: 'bound' | 'switched' | 'unchanged';
@@ -59,7 +53,7 @@ export class WorkspaceBindingRepository {
       }
     | { status: 'fence_lost' }
   > {
-    if (!(await this.fenceRun(input))) return { status: 'fence_lost' };
+    if (!(await this.admitsEffect(input))) return { status: 'fence_lost' };
     const current = await this.lockChat(input.chatId, input.ownerUserId);
 
     if (current === undefined) return { status: 'fence_lost' };
@@ -85,14 +79,12 @@ export class WorkspaceBindingRepository {
     runId: string;
     deliverySequence: number;
     attemptId?: string;
-    /** The executor this exit pins the Run to, if any; a Machine binding passes none. */
-    bindExecutorId?: string;
   }): Promise<
     | { status: 'cleared'; previousRoot: string; generation: number }
     | { status: 'unbound' }
     | { status: 'fence_lost' }
   > {
-    if (!(await this.fenceRun(input))) return { status: 'fence_lost' };
+    if (!(await this.admitsExit(input))) return { status: 'fence_lost' };
 
     const current = await this.lockChat(input.chatId, input.ownerUserId);
 
@@ -120,7 +112,7 @@ export class WorkspaceBindingRepository {
     expectedGeneration: number;
     reason: WorkspaceDetachReason;
   }): Promise<'detached' | 'stale' | 'fence_lost'> {
-    if (!(await this.fenceRun(input))) return 'fence_lost';
+    if (!(await this.isCurrentDelivery(input))) return 'fence_lost';
 
     const current = await this.lockChat(input.chatId, input.ownerUserId);
 
@@ -392,29 +384,36 @@ export class WorkspaceBindingRepository {
     return updated.length;
   }
 
-  private async fenceRun(input: {
+  /** Entering changes the bound root, so it also needs an uncancelled Run. */
+  private async admitsEffect(input: {
     runId: string;
     ownerUserId: string;
     deliverySequence: number | undefined;
-    attemptId?: string | undefined;
-    /** The executor to pin the Run to; absent leaves the Run unbound. */
-    bindExecutorId?: string;
+    attemptId?: string;
   }): Promise<boolean> {
-    const native = new NativeFilesRepository(this.db);
+    return new NativeFilesRepository(this.db).admitsEffect({
+      runId: input.runId,
+      userId: input.ownerUserId,
+      deliverySequence: input.deliverySequence,
+      attemptId: input.attemptId,
+    });
+  }
 
-    if (
-      !(await native.isCurrentDelivery({
-        runId: input.runId,
-        userId: input.ownerUserId,
-        deliverySequence: input.deliverySequence,
-        attemptId: input.attemptId,
-      }))
-    ) {
-      return false;
-    }
-
-    return input.bindExecutorId === undefined
-      ? true
-      : native.bind(input.runId, input.ownerUserId, input.bindExecutorId);
+  /**
+   * Exiting changes the bound root too, so a finished Run accepts no exit. A
+   * cancel-requested Run still clears its binding while it settles.
+   */
+  private async admitsExit(input: {
+    runId: string;
+    ownerUserId: string;
+    deliverySequence: number;
+    attemptId?: string;
+  }): Promise<boolean> {
+    return new NativeFilesRepository(this.db).isCurrentUnfinishedDelivery({
+      runId: input.runId,
+      userId: input.ownerUserId,
+      deliverySequence: input.deliverySequence,
+      attemptId: input.attemptId,
+    });
   }
 }

@@ -36,7 +36,6 @@ import { executeMediaRead } from './media-read';
 import { readAttributionReserve } from './model-text';
 import { MEDIA_LOCATOR_SCHEME } from '../media/media-locator';
 import {
-  executeLocalNative,
   executeMachineNative,
   performMutation,
   rewriteNativeCallPath,
@@ -80,15 +79,15 @@ function replacing(call: NativeCall): boolean {
 /**
  * The `path` argument selects the authority (design D6). A bare or `file:`
  * path resolves on the current Machine; a relative path resolves from the
- * entered Workspace root; `machine://<name>/<path>` names its own Machine. A
- * target on `machines.local` runs the existing host code in process after the
- * identity check and reports canonical locators; a target on another Machine
- * goes through `MachineConnector`. Every other locator scheme keeps its own
- * reader: `kb://` resolves through the Run owner's current Knowledge access on
- * every call, `http://`/`https://` use the API process's own outbound HTTP,
- * `media://`, `projects://`, `skill://`, `artifact://`, `job://`, and `ssh://`
- * keep their existing routing, and none of them binds the local executor. An
- * unimplemented scheme fails closed.
+ * entered Workspace root; `machine://<name>/<path>` names its own Machine.
+ * Every Machine target — this process's own Machine included — runs on that
+ * Machine through `MachineConnector` (design D8), and every reported path is a
+ * canonical locator. Every other locator scheme keeps its own reader: `kb://`
+ * resolves through the Run owner's current Knowledge access on every call,
+ * `http://`/`https://` use the API process's own outbound HTTP, `media://`,
+ * `projects://`, `skill://`, `artifact://`, `job://`, and `ssh://` keep their
+ * existing routing, and none of them binds a worker. An unimplemented scheme
+ * fails closed.
  */
 function executeNative(
   context: ToolContext,
@@ -108,13 +107,11 @@ function executeNative(
     });
 
   if (target.kind === 'machine')
-    return target.local
-      ? executeLocalNative(context, call, call.input.path, target)
-      : executeMachineNative(
-          context,
-          rewriteNativeCallPath(call, target.locator),
-          call.input.path,
-        );
+    return executeMachineNative(
+      context,
+      rewriteNativeCallPath(call, target.locator),
+      call.input.path,
+    );
 
   const scheme = parsePathScheme(call.input.path);
 

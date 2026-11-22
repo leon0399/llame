@@ -345,7 +345,12 @@ describe('native files through the model loop and durable worker', () => {
         new NativeFilesRepository(tx).begin({
           runId: seeded.runId,
           userId,
-          fence: { bound: true, executorId: 'lost-host' },
+          // Only in-process host `bash` pins a worker; a file mutation names
+          // its Machine and must be found by a retry on any worker (D15).
+          fence:
+            operation === 'bash'
+              ? { bound: true as const, executorId: 'lost-host' }
+              : { bound: false as const },
           deliverySequence,
           toolCallId: 'native-edit',
           operation,

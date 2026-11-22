@@ -42,7 +42,11 @@ import { compileTestPermissionPolicy } from '../testing/tool-permission-policy';
 import { grepInputSchema, nativeGrepTool, pageFixedReserve } from './grep';
 import { renderToolResultText } from './model-text';
 import { createGrepReadAdmission } from './grep-admission';
-import { executeMachineScope, type MachineGrepSearch } from './grep-machine';
+import {
+  executeMachineScope,
+  resolveMachineScope,
+  type MachineGrepSearch,
+} from './grep-machine';
 import { machineNotFoundResult } from './machine-call';
 import { compileToolPermissionMap } from './permissions/compile-permissions';
 import { type ToolPermissionMap } from './permissions/types';
@@ -626,6 +630,40 @@ describe('Machine scope addresses', () => {
     expect(session.calls.map((call) => call.method)).toEqual(['fs.stat']);
   });
 
+  it('answers not_found for a directory-only scope that names a regular file', async () => {
+    const { peer, connector } = fixture({
+      answers: { 'fs.stat': { value: { kind: 'file', isLink: false } } },
+    });
+
+    const result = await run(context(connector), {
+      patterns: ['needle'],
+      scopes: ['machine://devl/srv/app/a.go/'],
+    });
+
+    expect(result).toEqual({
+      status: 'error',
+      type: 'not_found',
+      message: 'The target does not exist.',
+    });
+    const session = await peer.session(0);
+    expect(session.calls.map((call) => call.method)).toEqual(['fs.stat']);
+  });
+
+  it('walks a directory scope written with a trailing separator', async () => {
+    const { peer, connector } = fixture({
+      answers: { 'fs.grep': { value: page([passage('a.go', 1, 1)]) } },
+    });
+
+    const result = await run(context(connector), {
+      patterns: ['needle'],
+      scopes: ['machine://devl/srv/app/'],
+    });
+
+    expect(locatorsOf(result)).toEqual(['machine://devl/srv/app/a.go:1-1']);
+    const session = await peer.session(0);
+    expect(session.calls[0]?.params).toMatchObject({ path: '/srv/app' });
+  });
+
   it('walks a glob-free directory the read group refuses as a path', async () => {
     const { connector } = fixture({
       answers: { 'fs.grep': { value: page([passage('a.go', 1, 1)]) } },
@@ -841,6 +879,7 @@ describe('Machine scope addresses', () => {
           name: 'nope',
           path: '/srv/app',
           globSuffix: undefined,
+          endsWithSeparator: false,
         },
         args: { patterns: ['needle'], literal: false, ignoreCase: false },
         budget: BUDGET,
@@ -850,6 +889,95 @@ describe('Machine scope addresses', () => {
       }),
     ).toEqual({ status: 'error', result: machineNotFoundResult('nope') });
     expect(peer.sessions).toHaveLength(0);
+  });
+
+  it('opens no session for a probe whose call was aborted before it left', async () => {
+    const { peer, connector } = fixture();
+    const controller = new AbortController();
+    controller.abort();
+    const contextOf = context(connector, { abortSignal: controller.signal });
+
+    await expect(
+      resolveMachineScope({
+        context: contextOf,
+        scope: 'machine://devl/srv/app/a.go',
+        index: 0,
+        admission: createGrepReadAdmission(contextOf),
+        deadlineAt: Date.now() + 30_000,
+      }),
+    ).rejects.toMatchObject({ name: 'AbortError' });
+    expect(peer.sessions).toHaveLength(0);
+  });
+
+  it('probes nothing once the walk deadline is spent', async () => {
+    const { peer, connector } = fixture();
+    const contextOf = context(connector);
+
+    // The probe asks nothing on an expired walk, and a scope it could not
+    // probe stays a directory scope: no walk ever counts it as one file.
+    await expect(
+      resolveMachineScope({
+        context: contextOf,
+        scope: 'machine://devl/srv/app/a.go',
+        index: 0,
+        admission: createGrepReadAdmission(contextOf),
+        deadlineAt: Date.now() - 1,
+      }),
+    ).resolves.toEqual({
+      machine: {
+        index: 0,
+        name: 'devl',
+        path: '/srv/app/a.go',
+        globSuffix: undefined,
+        endsWithSeparator: false,
+      },
+    });
+    expect(peer.sessions).toHaveLength(0);
+  });
+
+  it('walks a glob-free scope whose probe ran out of its own budget', async () => {
+    const { peer, connector } = fixture({
+      answers: {
+        'fs.stat': { error: 'budget_exhausted' },
+        'fs.grep': { value: page([passage('', 1, 1)]) },
+      },
+    });
+
+    const result = await run(context(connector), {
+      patterns: ['needle'],
+      scopes: ['machine://devl/srv/app/a.go'],
+    });
+
+    // The daemon's budget ends where the walk's deadline does, so the probe
+    // ended the walk rather than failing the scope.
+    expect(locatorsOf(result)).toEqual(['machine://devl/srv/app/a.go:1-1']);
+    const session = await peer.session(0);
+    expect(session.calls.map((call) => call.method)).toEqual([
+      'fs.stat',
+      'fs.grep',
+    ]);
+  });
+
+  it("reports a probe failure as the read's own Machine failure", async () => {
+    const { peer, connector } = fixture({
+      answers: {
+        'fs.stat': { error: 'internal' },
+        'fs.grep': { value: page([passage('', 1, 1)]) },
+      },
+    });
+
+    const result = await run(context(connector), {
+      patterns: ['needle'],
+      scopes: ['machine://devl/srv/app/a.go'],
+    });
+
+    expect(result).toMatchObject({
+      status: 'error',
+      type: 'machine_protocol_error',
+    });
+    // A failed probe leaves no scope to search.
+    const session = await peer.session(0);
+    expect(session.calls.map((call) => call.method)).toEqual(['fs.stat']);
   });
 
   it('cancels a request whose call was aborted before it left', async () => {
@@ -868,6 +996,7 @@ describe('Machine scope addresses', () => {
         name: 'devl',
         path: '/srv/app',
         globSuffix: undefined,
+        endsWithSeparator: false,
       },
       args: { patterns: ['needle'], literal: false, ignoreCase: false },
       budget: BUDGET,
@@ -1453,6 +1582,103 @@ describe('Machine pages within one call', () => {
     expect(asked[1]?.params).toMatchObject({ cursor: 'daemon-next' });
   });
 
+  it('stops at a page that neither charged nor progressed', async () => {
+    let searches = 0;
+
+    const { connector } = fixture({
+      answer: (call) => {
+        if (call.method !== 'fs.grep') return undefined;
+        searches += 1;
+
+        return {
+          value:
+            searches === 1
+              ? page([passage('a.go', 1, 1)], {
+                  complete: false,
+                  cursor: 'daemon-next',
+                  consumed: { files: 0, entries: 0, bytes: 0 },
+                })
+              : page([passage('b.go', 1, 1)]),
+        };
+      },
+    });
+
+    const result = await run(context(connector), {
+      patterns: ['needle'],
+      scopes: ['machine://devl/srv/app/**'],
+    });
+
+    // Asking after a page that charged nothing and did not progress would
+    // fetch the same page again.
+    expect(locatorsOf(result)).toEqual(['machine://devl/srv/app/a.go:1-1']);
+    expect(success(result).complete).toBe(false);
+    expect(searches).toBe(1);
+  });
+
+  it('asks after a page that charged files and entries only', async () => {
+    let searches = 0;
+
+    const { connector } = fixture({
+      answer: (call) => {
+        if (call.method !== 'fs.grep') return undefined;
+        searches += 1;
+
+        return {
+          value:
+            searches === 1
+              ? page([], {
+                  complete: false,
+                  cursor: 'daemon-next',
+                  consumed: { files: 1, entries: 1, bytes: 0 },
+                })
+              : page([passage('b.go', 1, 1)]),
+        };
+      },
+    });
+
+    const result = await run(context(connector), {
+      patterns: ['needle'],
+      scopes: ['machine://devl/srv/app/**'],
+    });
+
+    // A directory and the file it listed are a charge even with no bytes.
+    expect(locatorsOf(result)).toEqual(['machine://devl/srv/app/b.go:1-1']);
+    expect(searches).toBe(2);
+  });
+
+  it('asks after a page that progressed without charging anything', async () => {
+    let searches = 0;
+
+    const { connector } = fixture({
+      answer: (call) => {
+        if (call.method !== 'fs.grep') return undefined;
+        searches += 1;
+
+        return {
+          value:
+            searches === 1
+              ? page([], {
+                  complete: false,
+                  cursor: 'daemon-next',
+                  progressed: true,
+                  consumed: { files: 0, entries: 0, bytes: 0 },
+                })
+              : page([passage('b.go', 1, 1)]),
+        };
+      },
+    });
+
+    const result = await run(context(connector), {
+      patterns: ['needle'],
+      scopes: ['machine://devl/srv/app/**'],
+    });
+
+    // A resumed page re-opens the file its cursor names without counting it,
+    // so progress alone carries the walk to the next page.
+    expect(locatorsOf(result)).toEqual(['machine://devl/srv/app/b.go:1-1']);
+    expect(searches).toBe(2);
+  });
+
   it('joins a passage a daemon page cut and its continuation', async () => {
     let searches = 0;
 
@@ -1541,6 +1767,46 @@ describe('Machine pages within one call', () => {
     // The stop came before the call progressed, so the next request says so
     // and the daemon names the file its own stop hides.
     expect(boundsOf(asked[1]?.params)['progressed']).toBe(false);
+  });
+
+  it('skips a file a page stopped inside when the probe ran out of budget', async () => {
+    let searches = 0;
+
+    const { connector } = fixture({
+      answer: (call) => {
+        if (call.method === 'fs.stat') return { error: 'budget_exhausted' };
+
+        if (call.method !== 'fs.grep') return undefined;
+
+        searches += 1;
+
+        return {
+          value:
+            searches === 1
+              ? page([], {
+                  complete: false,
+                  unfinished: 'a.go',
+                  cursor: 'daemon-next',
+                  consumed: { files: 1, entries: 1, bytes: 10 },
+                })
+              : page([passage('b.go', 1, 1)]),
+        };
+      },
+    });
+
+    const result = await run(context(connector), {
+      patterns: ['needle'],
+      scopes: ['machine://devl/srv/app'],
+    });
+
+    // The failed probe left the scope to the search, which lists entries as a
+    // directory does: the file the page stopped inside is skipped, not ended.
+    expect(locatorsOf(result)).toEqual(['machine://devl/srv/app/b.go:1-1']);
+    expect(success(result)).toMatchObject({
+      complete: false,
+      unfinishedFile: 'machine://devl/srv/app/a.go',
+    });
+    expect(searches).toBe(2);
   });
 
   it('ends the scope at a second skipped file and keeps the first', async () => {
@@ -2128,6 +2394,46 @@ describe('grep deadline', () => {
         callTimeoutSeconds: 60,
       }),
     ).toEqual({ walkMs: 54_000, daemonMs: 48_600 });
+  });
+
+  it('bounds a scope probe by the walk deadline and skips it once spent', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+
+    try {
+      vi.setSystemTime(0);
+
+      const { peer, connector } = fixture({
+        answer: (call) => {
+          if (call.method !== 'fs.stat') return undefined;
+          // The first scope's probe spends the rest of the 3-second walk.
+          vi.setSystemTime(3000);
+
+          return DIRECTORY_STAT;
+        },
+      });
+
+      const result = await run(
+        context(connector, { timeoutMs: undefined, callTimeoutSeconds: 6 }),
+        {
+          patterns: ['needle'],
+          scopes: ['machine://devl/srv/a', 'machine://devl/srv/b'],
+        },
+      );
+
+      expect(success(result).complete).toBe(false);
+      expect(success(result).warnings).toEqual([
+        { kind: 'deadline', count: 1 },
+      ]);
+      const session = await peer.session(0);
+      // The probe carried the walk's remaining time, not the call's timeout,
+      // and the spent walk probes the second scope for nothing.
+      expect(session.calls).toHaveLength(1);
+      expect(session.calls[0]?.params).toMatchObject({
+        envelope: { budgetMs: 3000 },
+      });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

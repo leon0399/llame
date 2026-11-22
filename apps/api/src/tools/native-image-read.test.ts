@@ -22,7 +22,7 @@ import { createToolMediaStore } from '../media/tool-media-store';
 import { SkillCatalog } from '../skills/skill-catalog';
 import { NativeFilesRepository } from '../runs/native-files-repository';
 import { compileTestPermissionPolicy } from '../testing/tool-permission-policy';
-import { localMachineConnector } from '../testing/local-machine';
+import { machineFilesConnector } from '../testing/machine-files-peer';
 import {
   nativeEditTool,
   nativeReadTool,
@@ -145,7 +145,7 @@ describe('native media reads', () => {
       runId: 'run',
       localMachine: HOST,
       defaultMachine: HOST,
-      machines: localMachineConnector(),
+      machines: machineFilesConnector(),
       nativeDeliverySequence: 1,
       toolCallId: 'call',
       permissionPolicy: compileTestPermissionPolicy(),
@@ -415,6 +415,57 @@ describe('native media reads', () => {
       });
     },
   );
+
+  /**
+   * A one-page PDF whose every byte is ASCII, so a text read of it would succeed
+   * and a signature-blind read would return the source lines instead.
+   */
+  function asciiPdf(): Buffer {
+    const content = '0 0 0 rg 72 720 100 20 re f\n';
+
+    const bodies = [
+      '<< /Type /Catalog /Pages 2 0 R >>',
+      '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+      '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R >>',
+      `<< /Length ${Buffer.byteLength(content, 'latin1')} >>\nstream\n${content}endstream`,
+    ];
+
+    let text = '%PDF-1.4\n';
+    const offsets: Array<number> = [];
+
+    bodies.forEach((body, index) => {
+      offsets.push(Buffer.byteLength(text, 'latin1'));
+      text += `${index + 1} 0 obj\n${body}\nendobj\n`;
+    });
+
+    const startxref = Buffer.byteLength(text, 'latin1');
+    text += `xref\n0 ${bodies.length + 1}\n0000000000 65535 f \n`;
+
+    for (const offset of offsets)
+      text += `${String(offset).padStart(10, '0')} 00000 n \n`;
+    text += `trailer\n<< /Size ${bodies.length + 1} /Root 1 0 R >>\nstartxref\n${startxref}\n%%EOF\n`;
+
+    return Buffer.from(text, 'latin1');
+  }
+
+  it('reads an ASCII-only PDF as a PDF instead of its text', async () => {
+    const bytes = asciiPdf();
+    const path = join(directory, 'ascii.pdf');
+    await writeFile(path, bytes);
+    expect([...bytes].every((byte) => byte < 0x80)).toBe(true);
+
+    const result = await runTool(nativeReadTool, { path }, context(), 5);
+
+    expect(result).toEqual({
+      status: 'success',
+      kind: 'pdf',
+      mediaType: 'application/pdf',
+      pages: 1,
+      byteSize: bytes.byteLength,
+      path: at(path),
+    });
+    expect(JSON.stringify(result)).not.toContain('0 0 0 rg');
+  });
 
   it('refuses an encrypted PDF without falling back to text or retaining bytes', async () => {
     const path = join(directory, 'private.pdf');

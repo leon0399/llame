@@ -9,7 +9,7 @@ import { type Db } from '../db/tenant-db.service';
 import { isWorkspaceDetachReason } from './workspace-binding';
 import { WorkspaceBindingRepository } from './workspace-binding.repository';
 
-type QueryValue = string | number | null | SQL;
+type QueryValue = string | number | null | SQL | Date;
 
 type QueryRow = Readonly<Record<string, QueryValue>>;
 
@@ -94,7 +94,7 @@ function makeDb(options: {
   return { db, calls };
 }
 
-const run = [{ id: 'run-1' }];
+const run = [{ id: 'run-1', status: 'running', cancelRequestedAt: null }];
 const started = [{ sequence: 7 }];
 
 const current = {
@@ -226,12 +226,34 @@ describe('WorkspaceBindingRepository', () => {
         runId: 'run-1',
         deliverySequence: 7,
         executorId: 'worker-a',
-        bindExecutorId: 'worker-a',
         root: '/work/new',
       }),
     ).resolves.toEqual({ status: 'fence_lost' });
     expect(calls.filter(({ method }) => method === 'set')).toHaveLength(0);
   });
+  it('refuses an entry while the Run is cancel-requested', async () => {
+    const { db, calls } = makeDb({
+      select: [
+        [{ id: 'run-1', status: 'running', cancelRequestedAt: new Date() }],
+        started,
+        [current],
+      ],
+      update: [[{ id: 'run-1' }], [{ workspaceGeneration: 5 }]],
+    });
+
+    await expect(
+      new WorkspaceBindingRepository(db).enter({
+        chatId: 'chat-a',
+        ownerUserId: 'owner-a',
+        runId: 'run-1',
+        deliverySequence: 7,
+        executorId: 'worker-a',
+        root: '/work/new',
+      }),
+    ).resolves.toEqual({ status: 'fence_lost' });
+    expect(calls.filter(({ method }) => method === 'set')).toHaveLength(0);
+  });
+
   it('fences a stale exit before it can clear the binding', async () => {
     const { db, calls } = makeDb({
       select: [run, [{ sequence: 6 }], [current]],
@@ -244,10 +266,55 @@ describe('WorkspaceBindingRepository', () => {
         ownerUserId: 'owner-a',
         runId: 'run-1',
         deliverySequence: 7,
-        bindExecutorId: 'worker-a',
       }),
     ).resolves.toEqual({ status: 'fence_lost' });
     expect(calls.filter(({ method }) => method === 'set')).toHaveLength(0);
+  });
+
+  it('refuses an exit from a finished Run before it clears the binding', async () => {
+    const { db, calls } = makeDb({
+      select: [
+        [{ id: 'run-1', status: 'completed', cancelRequestedAt: null }],
+        started,
+        [current],
+      ],
+      update: [[{ workspaceGeneration: 6 }]],
+    });
+
+    await expect(
+      new WorkspaceBindingRepository(db).exit({
+        chatId: 'chat-a',
+        ownerUserId: 'owner-a',
+        runId: 'run-1',
+        deliverySequence: 7,
+      }),
+    ).resolves.toEqual({ status: 'fence_lost' });
+    expect(calls.filter(({ method }) => method === 'set')).toHaveLength(0);
+  });
+
+  it('clears the binding on an exit while the Run is cancel-requested', async () => {
+    const { db, calls } = makeDb({
+      select: [
+        [{ id: 'run-1', status: 'running', cancelRequestedAt: new Date() }],
+        started,
+        [current],
+      ],
+      update: [[{ workspaceGeneration: 5 }]],
+    });
+
+    await expect(
+      new WorkspaceBindingRepository(db).exit({
+        chatId: 'chat-a',
+        ownerUserId: 'owner-a',
+        runId: 'run-1',
+        deliverySequence: 7,
+      }),
+    ).resolves.toEqual({
+      status: 'cleared',
+      previousRoot: current.workspaceRoot,
+      generation: 5,
+    });
+    expect(calls.filter(({ method }) => method === 'set')).toHaveLength(1);
   });
 
   it('records Machine availability only for a narration that passes one', async () => {
@@ -383,14 +450,13 @@ describe('WorkspaceBindingRepository', () => {
         runId: 'run-1',
         deliverySequence: 7,
         executorId: 'worker-a',
-        bindExecutorId: 'worker-a',
         root: '/work/old',
       }),
     ).resolves.toMatchObject({
       status: 'unchanged',
       previousRoot: '/work/old',
     });
-    expect(same.calls.filter(({ method }) => method === 'set')).toHaveLength(1);
+    expect(same.calls.filter(({ method }) => method === 'set')).toHaveLength(0);
 
     const switched = makeDb({
       select: fenceSelect(),
@@ -404,7 +470,6 @@ describe('WorkspaceBindingRepository', () => {
         runId: 'run-1',
         deliverySequence: 7,
         executorId: 'worker-a',
-        bindExecutorId: 'worker-a',
         root: '/work/new',
       }),
     ).resolves.toMatchObject({
@@ -416,13 +481,16 @@ describe('WorkspaceBindingRepository', () => {
       .filter(({ method, value }) => method === 'set' && value !== undefined)
       .map(({ value }) => value);
 
-    expect(sets[0]).toMatchObject({ workerId: 'worker-a' });
-    expect(sets[1]).toMatchObject({
+    // A Machine root names its Machine: the entry writes the binding and no
+    // worker pin (design D15).
+    expect(sets).toHaveLength(1);
+    expect(sets[0]).toMatchObject({
       workspaceRoot: '/work/new',
       workspaceExecutorId: 'worker-a',
       workspaceDetachReason: null,
     });
-    const bindGeneration = sets[1]?.workspaceGeneration;
+    expect(sets[0]).not.toHaveProperty('workerId');
+    const bindGeneration = sets[0]?.workspaceGeneration;
 
     if (bindGeneration === undefined) {
       throw new Error('expected a bind generation SQL expression');
@@ -444,7 +512,6 @@ describe('WorkspaceBindingRepository', () => {
         runId: 'run-1',
         deliverySequence: 7,
         executorId: 'worker-b',
-        bindExecutorId: 'worker-b',
         root: '/work/old',
       }),
     ).resolves.toMatchObject({
@@ -472,7 +539,6 @@ describe('WorkspaceBindingRepository', () => {
         runId: 'run-1',
         deliverySequence: 7,
         executorId: 'worker-a',
-        bindExecutorId: 'worker-a',
         root: '/work/new',
       }),
     ).resolves.toMatchObject({
@@ -493,7 +559,6 @@ describe('WorkspaceBindingRepository', () => {
         ownerUserId: 'owner-a',
         runId: 'run-1',
         deliverySequence: 7,
-        bindExecutorId: 'worker-a',
       }),
     ).resolves.toMatchObject({
       status: 'cleared',
@@ -504,13 +569,14 @@ describe('WorkspaceBindingRepository', () => {
       .filter(({ method, value }) => method === 'set' && value !== undefined)
       .map(({ value }) => value);
 
-    expect(exitSets[0]).toMatchObject({ workerId: 'worker-a' });
-    expect(exitSets[1]).toMatchObject({
+    expect(exitSets).toHaveLength(1);
+    expect(exitSets[0]).toMatchObject({
       workspaceRoot: null,
       workspaceExecutorId: null,
       workspaceDetachReason: null,
     });
-    const exitGeneration = exitSets[1]?.workspaceGeneration;
+    expect(exitSets[0]).not.toHaveProperty('workerId');
+    const exitGeneration = exitSets[0]?.workspaceGeneration;
 
     if (exitGeneration === undefined) {
       throw new Error('expected an exit generation SQL expression');

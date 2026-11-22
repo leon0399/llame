@@ -104,6 +104,35 @@ An unreachable or unknown Machine MUST fail the call with the Machine failure re
 - **THEN** the `devl` Machine daemon does the walk and the match
 - **AND** each hit locator starts with `machine://devl/`
 
+### Requirement: Ignore files from the scope and above it apply
+
+A host or Machine walk MUST apply `.ignore` files from the registered root that
+holds the prefix down to each candidate. It MUST apply `.gitignore` files in the
+same way, under the repository limit of the next requirement. On a Machine, the
+walk starts at the registered root that holds the prefix. A deeper ignore file
+outranks a shallower one. In one directory, `.ignore` outranks `.gitignore`.
+The walk MUST NOT take either file as a candidate of a directory scope.
+
+#### Scenario: A rule at the repository root applies to a narrower scope
+
+- **WHEN** `/home/u` is the registered root, `/home/u/repo/.git` exists,
+  `/home/u/repo/.gitignore` names `dist/`, and a scope is `/home/u/repo/apps`
+- **THEN** the walk examines no file below `/home/u/repo/apps/web/dist`
+
+#### Scenario: An ignore file outside a repository applies
+
+- **WHEN** `/mnt/d/Projects` is the registered root,
+  `/mnt/d/Projects/.ignore` names `.build-cache/`, and a scope is
+  `/mnt/d/Projects/Arduino`
+- **THEN** the walk examines no file below
+  `/mnt/d/Projects/Arduino/libraries/.build-cache`
+
+#### Scenario: An ignore file is not searched
+
+- **WHEN** `/home/u/repo/.ignore` contains a match and a scope is
+  `/home/u/repo`
+- **THEN** no passage names `/home/u/repo/.ignore`
+
 ## REMOVED Requirements
 
 ### Requirement: The tool is advertised when a backend can serve

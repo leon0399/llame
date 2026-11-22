@@ -1,6 +1,7 @@
 import { lstat, mkdir, opendir, readFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import {
+  compareEntries,
   createFile,
   DIRECTORY_TRAVERSAL_BUDGET,
   editFile,
@@ -33,6 +34,21 @@ import {
   type SerializableValue,
 } from "@workspace/machine-protocol";
 import { MachineRequestError } from "./errors";
+import {
+  failure,
+  FILE_READ_FAILED_MESSAGE,
+  literalTargetOf,
+  mediaTypeOf,
+  MEDIA_SIGNATURE_HOOK,
+  NOT_FOUND_MESSAGE,
+  NOT_MEDIA_MESSAGE,
+  OCTET_STREAM,
+  readSignature,
+  SIGNATURE_BYTES,
+  spellingFailure,
+  suggestionsSuppressed,
+  tooLargeFailure,
+} from "./file-targets";
 import type { GuardedPath, RootGuard } from "./guard";
 import {
   optionalBoolean,
@@ -42,19 +58,9 @@ import {
 } from "./params";
 import type { OperationContext } from "./dispatch-types";
 
-const SIGNATURE_BYTES = 12;
-const OCTET_STREAM = "application/octet-stream";
 const NOT_REGULAR_FILE = "The target is not a regular file.";
 const NOT_DIRECTORY_MESSAGE = "The target is not a directory.";
 const LISTING_FAILED_MESSAGE = "The directory could not be listed.";
-const MEDIA_TOO_LARGE_MESSAGE = "The file exceeds the media byte bound.";
-
-function failure(
-  type: NativeFailureResult["type"],
-  message: string,
-): NativeFailureResult {
-  return { status: "error", type, message };
-}
 
 /** The Machine-locator form of a path: the hub supplies the `machine://name`. */
 function displayPathFor(prefix: string, path: string): string {
@@ -124,14 +130,7 @@ async function entriesOf(directory: string): Promise<Array<FsListEntry>> {
     });
   }
 
-  return entries.sort((left, right) => {
-    const leftDirectory = left.kind === "directory" ? 0 : 1;
-    const rightDirectory = right.kind === "directory" ? 0 : 1;
-
-    return leftDirectory === rightDirectory
-      ? left.name.localeCompare(right.name)
-      : leftDirectory - rightDirectory;
-  });
+  return entries.sort(compareEntries);
 }
 
 export async function listOperation(
@@ -141,6 +140,9 @@ export async function listOperation(
   const source = paramRecord(params, FS_LIST_METHOD);
   const path = requireString(source, "path", FS_LIST_METHOD);
   const guarded = await context.guard.resolvePath(path);
+  const spelling = await spellingFailure(path, guarded);
+
+  if (spelling !== undefined) return spelling;
 
   if (guarded.kind !== "directory")
     return failure("not_regular_file", NOT_DIRECTORY_MESSAGE);
@@ -164,6 +166,7 @@ export async function listOperation(
 function readOptions(
   options: NativeDisplayOptions,
   displayPath: string,
+  selector: string | undefined,
   signal: AbortSignal,
 ): NativeReadOptions {
   return {
@@ -172,8 +175,11 @@ function readOptions(
     // A listing never names where a link leads: a target outside the roots
     // would leak an address this Machine does not serve.
     linkTargets: false,
-    selector: options.selector,
+    selector,
     reserveCodeUnits: options.reserveCodeUnits,
+    // An image or PDF refuses the text path by signature, before any decode,
+    // so a PDF whose bytes happen to be ASCII still takes the bytes path.
+    media: MEDIA_SIGNATURE_HOOK,
     signal,
   };
 }
@@ -194,6 +200,13 @@ function withCanonicalPath(
     : { ...result, realPath: displayPathFor(prefix, guarded.canonical) };
 }
 
+/**
+ * A read hands the library the address the request means: the literal text
+ * when it names an existing entry, otherwise the path the selector was split
+ * from. The guard's normalised path is that same address for the split case,
+ * and a trailing separator the caller wrote is refused above unless the
+ * target is a directory.
+ */
 export async function readOperation(
   params: SerializableValue,
   context: OperationContext,
@@ -202,19 +215,30 @@ export async function readOperation(
   const path = requireString(source, "path", FS_READ_METHOD);
   const options = requireDisplayOptions(source, FS_READ_METHOD);
   const guarded = await context.guard.resolvePath(path);
+  const spelling = await spellingFailure(path, guarded);
+
+  if (spelling !== undefined) return spelling;
+
+  if (suggestionsSuppressed(context.guard, guarded))
+    return failure("not_found", NOT_FOUND_MESSAGE);
+
+  const literal = await literalTargetOf(context.guard, path, options.selector);
+  const requested = literal?.requested ?? path;
+  const target = literal?.guarded ?? guarded;
 
   const result = await readResolvedFile(
-    guarded.path,
+    target.path,
     readOptions(
       options,
-      displayPathFor(options.displayPrefix, guarded.path),
+      displayPathFor(options.displayPrefix, target.path),
+      literal === undefined ? options.selector : undefined,
       context.signal,
     ),
   );
 
-  await verifyUnchanged(context.guard, path, guarded);
+  await verifyUnchanged(context.guard, requested, target);
 
-  return withCanonicalPath(result, guarded, options.displayPrefix);
+  return withCanonicalPath(result, target, options.displayPrefix);
 }
 
 function mutateOptions(
@@ -273,6 +297,9 @@ export async function editOperation(
   const path = requireString(source, "path", FS_EDIT_METHOD);
   const options = requireDisplayOptions(source, FS_EDIT_METHOD);
   const guarded = await context.guard.resolvePath(path);
+  const spelling = await spellingFailure(path, guarded);
+
+  if (spelling !== undefined) return spelling;
 
   const result = await editFile(
     {
@@ -297,6 +324,9 @@ export async function writeOperation(
   const path = requireString(source, "path", FS_WRITE_METHOD);
   const options = requireDisplayOptions(source, FS_WRITE_METHOD);
   const guarded = await context.guard.resolvePath(path);
+  const spelling = await spellingFailure(path, guarded);
+
+  if (spelling !== undefined) return spelling;
 
   const input = {
     path: guarded.canonical,
@@ -316,23 +346,13 @@ export async function writeOperation(
   return result;
 }
 
-function mediaTypeOf(bytes: Buffer): string {
-  const head = bytes.subarray(0, SIGNATURE_BYTES).toString("latin1");
-
-  if (head.startsWith("\u0089PNG\r\n\u001a\n")) return "image/png";
-
-  if (bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff)
-    return "image/jpeg";
-
-  if (head.startsWith("GIF87a") || head.startsWith("GIF89a"))
-    return "image/gif";
-
-  if (head.startsWith("RIFF") && head.slice(8, 12) === "WEBP")
-    return "image/webp";
-
-  if (head.startsWith("%PDF-")) return "application/pdf";
-
-  return OCTET_STREAM;
+/** Refuse a file whose leading bytes are not an image or PDF without a byte
+ *  read, and hold an image or PDF over the media bound to the one wording its
+ *  signature names. */
+function nonMediaFailure(head: Buffer): NativeFailureResult | undefined {
+  return mediaTypeOf(head) === OCTET_STREAM
+    ? failure("unsupported_media_type", NOT_MEDIA_MESSAGE)
+    : undefined;
 }
 
 function sendChunks(context: OperationContext, bytes: Buffer): void {
@@ -358,16 +378,31 @@ export async function bytesOperation(
   const source = paramRecord(params, FS_BYTES_METHOD);
   const path = requireString(source, "path", FS_BYTES_METHOD);
   const guarded = await context.guard.resolvePath(path);
+  const spelling = await spellingFailure(path, guarded);
+
+  if (spelling !== undefined) return spelling;
 
   if (guarded.kind !== "file")
     return failure("not_regular_file", NOT_REGULAR_FILE);
-  const tooLarge = failure("media_too_large", MEDIA_TOO_LARGE_MESSAGE);
+  const signature = await readSignature(guarded.canonical);
 
-  if ((guarded.size ?? 0) > MEDIA_MAX_BYTES) return tooLarge;
+  if (signature === undefined)
+    return failure("executor_unavailable", FILE_READ_FAILED_MESSAGE);
+  const notMedia = nonMediaFailure(signature);
+
+  // The signature decides before the size: a file matching none stays on the
+  // text path whatever its size, and none of its bytes stream to the hub.
+  if (notMedia !== undefined) return notMedia;
+
+  if ((guarded.size ?? 0) > MEDIA_MAX_BYTES) return tooLargeFailure(signature);
   const bytes = await readFile(guarded.path);
 
-  // The size probe and the read are two syscalls; the bytes themselves decide.
-  if (bytes.byteLength > MEDIA_MAX_BYTES) return tooLarge;
+  if (bytes.byteLength > MEDIA_MAX_BYTES)
+    return tooLargeFailure(bytes.subarray(0, SIGNATURE_BYTES));
+  // A file replaced between the probe and the read is judged by its own bytes.
+  const swapped = nonMediaFailure(bytes);
+
+  if (swapped !== undefined) return swapped;
   // Re-verify before any byte leaves, as `read` and `list` do.
   await verifyUnchanged(context.guard, path, guarded);
   sendChunks(context, bytes);

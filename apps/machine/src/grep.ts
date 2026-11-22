@@ -43,7 +43,6 @@ import {
 } from "./params";
 
 const NOT_FOUND_MESSAGE = "The target does not exist.";
-const NOT_REGULAR_FILE = "The target is not a regular file.";
 
 /** The one scope a request searches; the daemon cursor names it as index 0. */
 const SCOPE_INDEX = 0;
@@ -112,13 +111,15 @@ async function scopeOf(
 ): Promise<GrepScope> {
   const guarded = await context.guard.resolvePath(request.path);
 
-  // The walk never starts at a link: a host grep treats one as an absent path,
-  // and this Machine reports the same.
-  if (guarded.isLink || guarded.kind === "missing")
+  // The walk never starts at a link or a special entry: a host grep treats
+  // either as an absent path, and this Machine reports the same.
+  if (guarded.isLink || guarded.kind === "missing" || guarded.kind === "other")
     throw new GrepWalkFailure(failure("not_found", NOT_FOUND_MESSAGE));
 
-  if (guarded.kind === "other")
-    throw new GrepWalkFailure(failure("not_regular_file", NOT_REGULAR_FILE));
+  // A glob narrows a directory tree. A regular file cannot be listed, and a
+  // host grep treats its scope root as an absent path rather than a refusal.
+  if (guarded.kind === "file" && request.globSuffix !== undefined)
+    throw new GrepWalkFailure(failure("not_found", NOT_FOUND_MESSAGE));
   const prefix = guarded.path;
 
   return {
@@ -243,9 +244,10 @@ export async function grepOperation(
       FS_GREP_METHOD,
       "the cursor does not belong to this request",
     );
-  const scope = await scopeOf(request, context);
 
   try {
+    const scope = await scopeOf(request, context);
+
     return resultOf(
       await runGrepScan({
         scopes: [scope],
@@ -261,6 +263,8 @@ export async function grepOperation(
       }),
     );
   } catch (error) {
+    // An absent, linked, or non-regular scope root is the same `not_found`
+    // result `read` answers, not a protocol failure.
     if (error instanceof GrepWalkFailure) return error.result;
     throw error;
   }

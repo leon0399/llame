@@ -46,27 +46,27 @@ export const MACHINE_WORKSPACE_AUTHORITY =
 
 /**
  * The Machine a Workspace transition binds, and the fence it applies. The
- * executor id IS the Machine name. Only a root on this process's own Machine
- * pins the Run: every other root stays reachable from any worker, so pinning it
- * would turn a queue retry elsewhere into `executor_unavailable`.
+ * executor id IS the Machine name. No Machine root pins the Run: the root
+ * names its Machine, so any worker that reaches that Machine can serve the
+ * next attempt, and the delivery fence alone decides whether this call may
+ * act (design D15).
  */
 export type WorkspaceAuthority = {
   readonly runId: string;
   readonly toolCallId: string;
   /** The executor id the Chat binds: the Machine name. */
   readonly executorId: string;
-  /** The executor this transition pins the Run to; absent leaves it unbound. */
-  readonly bindExecutorId?: string;
 };
 
 /**
- * The authority one entry binds. A local Machine pins the Run to its name; a
- * Machine this worker only reaches leaves the Run free to use `file:` aliases
- * and other Machines, and needs no local executor at all.
+ * The authority one entry binds. The fence checks the delivery alone: a
+ * Machine root is reachable from any worker, so pinning the Run to this one
+ * would turn a queue retry elsewhere into `executor_unavailable` for a root
+ * that worker can reach.
  */
 export function workspaceAuthority(
   context: ToolContext,
-  machine: { readonly name: string; readonly local: boolean },
+  machineName: string,
 ): WorkspaceAuthority | ToolResult {
   if (!context.runId || !context.toolCallId) {
     return {
@@ -79,8 +79,7 @@ export function workspaceAuthority(
   return {
     runId: context.runId,
     toolCallId: context.toolCallId,
-    executorId: machine.name,
-    ...(machine.local && { bindExecutorId: machine.name }),
+    executorId: machineName,
   };
 }
 
@@ -293,9 +292,6 @@ export async function bindCanonicalRoot(
       attemptId: context.attemptId,
       executorId: authority.executorId,
       root: canonical,
-      ...(authority.bindExecutorId !== undefined && {
-        bindExecutorId: authority.bindExecutorId,
-      }),
     }),
   );
 

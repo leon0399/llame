@@ -28,15 +28,19 @@ file as it is. It is the tool for a partial change.
 
 An absolute path on the current Machine, a `file://` alias, a `machine://`
 locator, or a `kb://`
-locator; see [locators](../locators/index.md). The selector grammar is not part
-of `edit`: a `kb://` locator that carries one is refused with
+locator; see [locators](../locators/index.md). An absolute path, a `file://`
+alias, and a Workspace-relative path run on the current Machine through its
+daemon and must lie inside that Machine's registered roots. The selector
+grammar is not part of `edit`: a `kb://` locator that carries one is refused
+with
 `invalid_selector`, and on an absolute `path` or `file://` alias a trailing
 `:N-M` or
 `:raw` is part of the filename, so the edit targets a file whose name ends in
-that text. A `machine://` mutation takes no selector either and binds the Run to
-its Machine; the attempt is fenced and recorded with the locator, and an
-edit whose session is lost after dispatch settles as `outcome_unknown` rather
-than being retried; see [machine](../locators/machine.md#behavior).
+that text. A `machine://` mutation takes no selector either and records its
+attempt with the locator; it does not bind the Run to a worker, so a retry on
+another worker reaches the same Machine. An edit whose session is lost after
+dispatch settles as `outcome_unknown` rather than being retried; see
+[machine](../locators/machine.md#behavior).
 
 ## Result
 
@@ -104,10 +108,15 @@ chain of the directory it touches; see
 
 ## Errors
 
-A missing or ambiguous match fails without a change; `not_regular_file` for a
-target that is not a regular file; `not_found` for an absent path or a refused
-`kb://` symbolic-link component. The shared vocabulary is in
-[read](read.md#errors).
+A missing or ambiguous match fails without a change. `not_regular_file` reports
+a target that is not a regular file. `not_found` reports an absent path or a
+refused `kb://` symbolic-link component. A target outside the current Machine's
+registered roots fails with `path_not_registered`, and a daemon that cannot
+serve before the request is sent fails with `machine_unavailable`. A connection
+lost after the request was sent settles as `outcome_unknown`: the edit may have
+committed, so read the file before authoring a new attempt (see
+[mutation recovery](../mutation-recovery.md#unknown-outcome)). The shared
+vocabulary is in [read](read.md#errors).
 
 ## Configured by
 

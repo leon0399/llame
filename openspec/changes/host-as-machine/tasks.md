@@ -169,19 +169,19 @@ against its parent before publication.
 
 ## 4. file-tools
 
-- [ ] 4.1 Route host `read`, `edit`, and `write` through the daemon and delete their host branches.
+- [x] 4.1 Route host `read`, `edit`, and `write` through the daemon and delete their host branches.
       Keep the native mutation fence on the Machine name. Verify that a host read outside the
       registered roots fails with `path_not_registered`, and that an unavailable host daemon fails
       the call with `machine_unavailable`.
-- [ ] 4.2 Route host grep scopes through `fs.grep` and delete the host walk port. Keep the
+- [x] 4.2 Route host grep scopes through `fs.grep` and delete the host walk port. Keep the
       Knowledge and skill walk ports. Verify the `grep-tool` scenarios.
-- [ ] 4.3 Move host file and grep integration tests to a real daemon child, and stop file
+- [x] 4.3 Move host file and grep integration tests to a real daemon child, and stop file
       mutations and Workspace entry from pinning `runs.worker_id` (design D15). Keep the pin for
       in-process host `bash`. Verify "A Machine mutation is fenced on any worker" and that `pnpm dev`
       serves a host read through the daemon child.
-- [ ] 4.4 Docs: `native-files.md` and the tool reference pages, and a dated `CHANGELOG.md` entry
+- [x] 4.4 Docs: `native-files.md` and the tool reference pages, and a dated `CHANGELOG.md` entry
       that names the newly refused host calls.
-- [ ] 4.5 Focused checks as in 3.14.
+- [x] 4.5 Focused checks as in 3.14.
 - [ ] 4.6 SR before ready; GR per [CONTRIBUTING.md](../../../CONTRIBUTING.md#ready-pr-monitoring).
 
 ## 5. git

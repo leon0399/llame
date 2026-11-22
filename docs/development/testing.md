@@ -44,9 +44,11 @@ Tooling guards may live in the owning workspace's test directory.
 3. Integration global setup provisions a non-superuser, schema-owning Postgres
    through Testcontainers, migrates, provisions RLS, and clones the result into
    one database per Vitest worker, so integration files run in parallel without
-   sharing rows, locks or notifications. Docker is the only prerequisite;
-   `TEST_DATABASE_URL` overrides and runs the files sequentially against that
-   one database. Missing DB fails loudly.
+   sharing rows, locks or notifications. Docker is the only prerequisite for the
+   database; the suites that drive a real Machine daemon also need the built
+   bundle (`pnpm --filter machine build`), and fail naming that command when it
+   is absent. `TEST_DATABASE_URL` overrides and runs the files sequentially
+   against that one database. Missing DB fails loudly.
 4. Test gates are uncached. Unit/coverage disable Turbo cache; integration,
    eval, and E2E run outside Turbo.
 5. Component DOM/interaction assertions belong in story play functions. Keep

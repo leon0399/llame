@@ -37,6 +37,7 @@ import { BASH_SETTLEMENT_GRACE_MS } from '../tools/bash-limits';
 import { webSearchTool } from '../tools/web-search/tool';
 import { compileTestPermissionPolicy } from '../testing/tool-permission-policy';
 import { createProtocolPeer } from '../testing/machine-protocol-peer';
+import { machineFilesTransportFactory } from '../testing/machine-files-peer';
 import { MachineConnector } from '../machines/machine-connector.service';
 import { parseMachineLocator } from '../machines/machine-locator';
 import { ExecutorGit, localGitSurface } from '../machines/executor-git.service';
@@ -758,13 +759,15 @@ function makeExecutionService(
       (machines === undefined
         ? undefined
         : // The same configuration the instance reads, so a binding names a
-          // Machine exactly as the operator declared it. The in-process peer
-          // answers the handshake and nothing else.
+          // Machine exactly as the operator declared it. Reads of instruction
+          // files and prompt imports are file-family reads and run on the
+          // Machine, so the peer answers the file methods from the real
+          // filesystem; its discovery walks stay in process.
           new MachineConnector({
             machines,
             hubVersion: 'harness-local',
             bindIdentity: () => Promise.resolve('match'),
-            transportFactory: createProtocolPeer().factory,
+            transportFactory: machineFilesTransportFactory(),
           })),
     // No Machine status reader in these tests.
     undefined,

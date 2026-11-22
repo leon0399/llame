@@ -1,4 +1,10 @@
 /**
+ * The artifact producer over a real host walk (host-as-machine design D8,
+ * D12): every scope on the current Machine is a Machine scope, so the suite
+ * starts the built `llame-machine` bundle as a child and registers its root.
+ */
+
+/**
  * `grep` result artifacts (tool-result-artifacts D3, D7): the whole result is
  * stored as Markdown while the walk runs, its inline part is the head of that
  * text, the framing lines follow, and the walk stops at the artifact bound. A
@@ -46,7 +52,7 @@ import {
   type JudgeCandidatesInput,
 } from '../decisions/decisions.service';
 import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
-import { localMachineConnector } from '../testing/local-machine';
+import { startLocalDaemon, type LocalDaemon } from '../testing/local-daemon';
 import { ArtifactsRepository } from './artifacts/artifacts-repository';
 import { finishGrepCall } from './grep-artifact';
 import { rankGrepRuns } from './grep-rerank';
@@ -76,6 +82,9 @@ type ArtifactWrites = {
 let writes: ArtifactWrites;
 let root: string;
 
+/** The host Machine daemon every host scope of a test walks through. */
+let daemon: LocalDaemon;
+
 /** One call's trusted context with a mocked tenant database. */
 function contextOf(overrides: Partial<ToolContext> = {}): ToolContext {
   const db: Db = drizzle.mock();
@@ -87,7 +96,7 @@ function contextOf(overrides: Partial<ToolContext> = {}): ToolContext {
     toolCallId: 'call-a',
     localMachine: 'host-a',
     defaultMachine: 'host-a',
-    machines: localMachineConnector(),
+    machines: daemon.connector,
     permissionPolicy: compileToolPermissionMap(
       { grep: { allow: true }, read: { allow: true } },
       'test',
@@ -258,6 +267,7 @@ beforeEach(async () => {
   // A repository at the root seals the walk: nothing above it can change which
   // ignore files apply.
   await mkdir(path.join(root, '.git'), { recursive: true });
+  daemon = startLocalDaemon({ roots: [root] });
   writes = {
     nextSeq: vi
       .spyOn(ArtifactsRepository.prototype, 'nextSeq')
@@ -272,6 +282,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
+  daemon.dispose();
   await rm(root, { recursive: true, force: true });
 });
 

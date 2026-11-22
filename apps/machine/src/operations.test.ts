@@ -1,5 +1,13 @@
 import { existsSync } from "node:fs";
-import { chmod, readFile, truncate, writeFile } from "node:fs/promises";
+import {
+  chmod,
+  mkdir,
+  readFile,
+  rm,
+  symlink,
+  truncate,
+  writeFile,
+} from "node:fs/promises";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { readFile as nativeReadFile } from "@workspace/native-file-tools";
@@ -129,6 +137,15 @@ describe("fs.list", () => {
     });
   });
 
+  it("lists a directory named with a trailing separator", async () => {
+    await expect(
+      daemon.call("fs.list", {
+        envelope: envelope(),
+        path: `${fixture.root}/`,
+      }),
+    ).resolves.toMatchObject({ totalCount: 4, truncated: false });
+  });
+
   it("refuses a target that is not a directory", async () => {
     await expect(
       daemon.call("fs.list", { envelope: envelope(), path: fixture.notes }),
@@ -163,6 +180,21 @@ describe("fs.read", () => {
     ).resolves.toEqual(locatorize(local, PREFIX));
   });
 
+  it("reads the filename a selector would otherwise split away", async () => {
+    const literal = join(fixture.root, "report:2-3");
+    await writeFile(literal, "alpha\nbeta\ngamma\n");
+    const local = await nativeReadFile({ path: literal });
+
+    if (!isLocalFileRead(local)) throw new Error("the local read failed");
+    await expect(
+      daemon.call("fs.read", {
+        envelope: envelope(),
+        path: join(fixture.root, "report"),
+        options: { displayPrefix: PREFIX, selector: "2-3" },
+      }),
+    ).resolves.toEqual(locatorize(local, PREFIX));
+  });
+
   it("reads a whole file exactly as a local read of it does", async () => {
     const local = await nativeReadFile({ path: fixture.notes });
 
@@ -176,6 +208,29 @@ describe("fs.read", () => {
     ).resolves.toEqual(locatorize(local, PREFIX));
   });
 
+  it("refuses an ASCII PDF's text read so its bytes are streamed", async () => {
+    const pdf = join(fixture.root, "ascii.pdf");
+    const text = "%PDF-1.4\n1 0 obj\n<<>>\nendobj\n";
+    await writeFile(pdf, text);
+
+    await expect(
+      daemon.call("fs.read", {
+        envelope: envelope(),
+        path: pdf,
+        options: { displayPrefix: PREFIX },
+      }),
+    ).resolves.toMatchObject({ status: "error", type: "invalid_utf8" });
+
+    const { channel } = daemon.open();
+    await expect(
+      channel.request("fs.bytes", { envelope: envelope(), path: pdf }),
+    ).resolves.toEqual({
+      size: Buffer.byteLength(text),
+      mediaType: "application/pdf",
+    });
+    channel.close();
+  });
+
   it("lists a directory with a locator header and hides link targets", async () => {
     const result = await daemon.call("fs.read", {
       envelope: envelope(),
@@ -187,6 +242,58 @@ describe("fs.read", () => {
     const content = JSON.stringify(result);
     expect(content).toContain(`${PREFIX}${fixture.root}`);
     expect(content).not.toContain(fixture.outside);
+  });
+
+  it("refuses a trailing separator on a file and accepts it on a directory", async () => {
+    await expect(
+      daemon.call("fs.read", {
+        envelope: envelope(),
+        path: `${fixture.notes}/`,
+        options: { displayPrefix: PREFIX },
+      }),
+    ).resolves.toMatchObject({ status: "error", type: "not_found" });
+
+    await expect(
+      daemon.call("fs.read", {
+        envelope: envelope(),
+        path: `${fixture.root}/`,
+        options: { displayPrefix: PREFIX },
+      }),
+    ).resolves.toMatchObject({ status: "success", kind: "directory" });
+  });
+
+  it("refuses every directory spelling on a regular file", async () => {
+    for (const suffix of ["/", "/.", "/.."]) {
+      await expect(
+        daemon.call("fs.read", {
+          envelope: envelope(),
+          path: `${fixture.notes}${suffix}`,
+          options: { displayPrefix: PREFIX },
+        }),
+      ).resolves.toMatchObject({ status: "error", type: "not_found" });
+      await expect(
+        daemon.call("fs.list", {
+          envelope: envelope(),
+          path: `${fixture.notes}${suffix}`,
+        }),
+      ).resolves.toMatchObject({ status: "error", type: "not_found" });
+    }
+  });
+
+  it("refuses a `..` that follows a non-directory instead of listing its parent", async () => {
+    const project = join(fixture.root, "project");
+    await mkdir(project);
+    await writeFile(join(project, "one.md"), "one\n");
+
+    // Lexically this is the directory itself; the kernel refuses to climb out
+    // of a regular file, so the daemon must not serve the directory.
+    await expect(
+      daemon.call("fs.read", {
+        envelope: envelope(),
+        path: `${project}/one.md/..`,
+        options: { displayPrefix: PREFIX },
+      }),
+    ).resolves.toMatchObject({ status: "error", type: "not_found" });
   });
 
   it("reports the canonical locator when the address is a link", async () => {
@@ -264,6 +371,25 @@ describe("fs.read", () => {
     expect(absent.error).toEqual(existing.error);
   });
 
+  it("lists no sibling names for a root that was removed", async () => {
+    await writeFile(join(fixture.base, "root-old"), "");
+    await rm(fixture.root, { recursive: true });
+
+    // The parent of the removed root is outside every registered root, so a
+    // similar name there must never reach the answer.
+    await expect(
+      daemon.call("fs.read", {
+        envelope: envelope(),
+        path: fixture.root,
+        options: { displayPrefix: PREFIX },
+      }),
+    ).resolves.toEqual({
+      status: "error",
+      type: "not_found",
+      message: "File not found.",
+    });
+  });
+
   it("requires display options", async () => {
     daemon.write(
       requestFrame(
@@ -332,6 +458,46 @@ describe("fs.edit and fs.write", () => {
     await expect(readFile(target, "utf8")).resolves.toBe("hello\n");
   });
 
+  it("refuses a missing target whose `..` after a link names another directory", async () => {
+    const project = join(fixture.root, "project");
+    const nested = join(project, "nested");
+    const child = join(nested, "child");
+    await mkdir(child, { recursive: true });
+    await symlink(child, join(project, "link"));
+
+    // The kernel climbs from the link's target, so this names
+    // project/nested/new.txt; the lexical guard names project/new.txt. The
+    // daemon must not create either for a spelling it cannot honor.
+    await expect(
+      daemon.call("fs.write", {
+        envelope: envelope(),
+        path: `${project}/link/../new.txt`,
+        options: { displayPrefix: PREFIX },
+        content: "no\n",
+      }),
+    ).resolves.toMatchObject({ status: "error", type: "not_found" });
+    await expect(readFile(join(project, "new.txt"))).rejects.toThrow(/ENOENT/u);
+    await expect(readFile(join(nested, "new.txt"))).rejects.toThrow(/ENOENT/u);
+  });
+
+  it("refuses a missing target reached through a dangling link", async () => {
+    // The kernel cannot traverse the link at all, so rejoining it as a literal
+    // directory name must not let the request act on the normalized sibling.
+    await symlink(join(fixture.root, "missing"), join(fixture.root, "link"));
+
+    await expect(
+      daemon.call("fs.write", {
+        envelope: envelope(),
+        path: `${fixture.root}/link/../new.txt`,
+        options: { displayPrefix: PREFIX },
+        content: "no\n",
+      }),
+    ).resolves.toMatchObject({ status: "error", type: "not_found" });
+    await expect(readFile(join(fixture.root, "new.txt"))).rejects.toThrow(
+      /ENOENT/u,
+    );
+  });
+
   it("creates two files under the same new directory chain at once", async () => {
     const write = (name: string) =>
       daemon.call("fs.write", {
@@ -383,6 +549,41 @@ describe("fs.edit and fs.write", () => {
 
     expect(outcome.error).toMatchObject(refusal("path_not_registered"));
   });
+
+  it("creates and edits nothing for a directory spelling on a file", async () => {
+    const fresh = join(fixture.root, "fresh");
+
+    await expect(
+      daemon.call("fs.write", {
+        envelope: envelope(),
+        path: `${fresh}/`,
+        options: { displayPrefix: PREFIX },
+        content: "no\n",
+      }),
+    ).resolves.toMatchObject({ status: "error", type: "not_found" });
+    await expect(
+      daemon.call("fs.write", {
+        envelope: envelope(),
+        path: `${fixture.notes}/.`,
+        options: { displayPrefix: PREFIX },
+        content: "no\n",
+      }),
+    ).resolves.toMatchObject({ status: "error", type: "not_found" });
+    await expect(
+      daemon.call("fs.edit", {
+        envelope: envelope(),
+        path: `${fixture.notes}/..`,
+        options: { displayPrefix: PREFIX },
+        oldText: "one\n",
+        newText: "ONE\n",
+      }),
+    ).resolves.toMatchObject({ status: "error", type: "not_found" });
+
+    expect(existsSync(fresh)).toBe(false);
+    await expect(readFile(fixture.notes, "utf8")).resolves.toBe(
+      "one\ntwo\nthree\nfour\n",
+    );
+  });
 });
 
 describe("fs.bytes", () => {
@@ -416,24 +617,55 @@ describe("fs.bytes", () => {
     channel.close();
   });
 
-  it("sends no chunk for an empty file", async () => {
+  it("refuses the bytes of a file matching no media signature", async () => {
     const empty = join(fixture.root, "empty.bin");
     await writeFile(empty, "");
     const { channel, notifications } = daemon.open();
     await expect(
       channel.request("fs.bytes", { envelope: envelope(), path: empty }),
-    ).resolves.toEqual({ size: 0, mediaType: "application/octet-stream" });
+    ).resolves.toMatchObject({
+      status: "error",
+      type: "unsupported_media_type",
+    });
     expect(notifications).toHaveLength(0);
     channel.close();
   });
 
-  it("refuses bytes above the media bound without reading them", async () => {
+  it("refuses a large non-media binary without a stream or a media bound", async () => {
     const huge = join(fixture.root, "huge.bin");
     await writeFile(huge, "");
     await truncate(huge, 21 * 1024 * 1024);
+    const { channel, notifications } = daemon.open();
+    await expect(
+      channel.request("fs.bytes", { envelope: envelope(), path: huge }),
+    ).resolves.toMatchObject({
+      status: "error",
+      type: "unsupported_media_type",
+    });
+    expect(notifications).toHaveLength(0);
+    channel.close();
+  });
+
+  it("refuses a large image with its own wording before reading it whole", async () => {
+    const huge = join(fixture.root, "huge.png");
+    await writeFile(huge, Buffer.from("\u0089PNG\r\n\u001a\n", "latin1"));
+    await truncate(huge, 21 * 1024 * 1024);
     await expect(
       daemon.call("fs.bytes", { envelope: envelope(), path: huge }),
-    ).resolves.toMatchObject({ status: "error", type: "media_too_large" });
+    ).resolves.toEqual({
+      status: "error",
+      type: "media_too_large",
+      message: "Image exceeds 20 MiB or 40 megapixels",
+    });
+  });
+
+  it("refuses a directory spelling on a file", async () => {
+    await expect(
+      daemon.call("fs.bytes", {
+        envelope: envelope(),
+        path: `${fixture.notes}/.`,
+      }),
+    ).resolves.toMatchObject({ status: "error", type: "not_found" });
   });
 
   it("refuses a directory", async () => {

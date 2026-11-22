@@ -14,6 +14,7 @@ const SCOPE: MachineGrepScope = {
   name: 'devl',
   path: '/srv',
   globSuffix: undefined,
+  endsWithSeparator: false,
 };
 
 function pageOf(paths: ReadonlyArray<string>): FsGrepSuccess {

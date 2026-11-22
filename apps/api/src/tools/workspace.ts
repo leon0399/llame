@@ -47,11 +47,7 @@ import {
 } from './workspace-worktree';
 import { locatorContext } from './workspace-path';
 import { enterWorktree } from './workspace-worktree-entry';
-import {
-  machineWorkspaceRoot,
-  resolveMachinePath,
-  type MachineTarget,
-} from './workspace-path';
+import { resolveMachinePath, type MachineTarget } from './workspace-path';
 
 type EnterWorkspaceInput = {
   path: string;
@@ -198,7 +194,7 @@ async function enterMachineWorkspace(
     return machineNotFoundResult(target.name);
   }
 
-  const authority = workspaceAuthority(context, target);
+  const authority = workspaceAuthority(context, target.name);
 
   if ('status' in authority) return authority;
 
@@ -410,19 +406,9 @@ export const exitWorkspaceTool: Tool<ExitWorkspaceInput> = {
 
     context.abortSignal?.throwIfAborted();
 
-    // A Run is pinned only for a Workspace on this process's own Machine; any
-    // other root pins nothing. Exit never touches the Machine: it must clear
-    // the binding while the Machine is offline, and a worker with no local
-    // executor fences on the delivery alone rather than refusing the exit.
-    const boundMachine = machineWorkspaceRoot(
-      context.workspaceRoot?.current(),
-    )?.name;
-
-    const pin =
-      boundMachine !== undefined && boundMachine === context.localMachine
-        ? boundMachine
-        : undefined;
-
+    // Exit never touches the Machine and never pins the Run: it must clear the
+    // binding while the Machine is offline, and a Machine root is reachable
+    // from any worker, so the delivery fence alone decides (design D15).
     const result = await context.tenantDb.runAs(context.userId, (db) =>
       new WorkspaceBindingRepository(db).exit({
         chatId: context.chatId,
@@ -430,7 +416,6 @@ export const exitWorkspaceTool: Tool<ExitWorkspaceInput> = {
         runId,
         deliverySequence,
         attemptId: context.attemptId,
-        ...(pin !== undefined && { bindExecutorId: pin }),
       }),
     );
 

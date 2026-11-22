@@ -30,7 +30,9 @@ entire contents. It is the tool for a whole-file change; use
 An absolute path on the current Machine, a `file://` alias, a `machine://`
 locator, or a `kb://`
 locator; while a Workspace is entered, a relative path is resolved beneath its
-root on the Workspace's Machine. See
+root on the Workspace's Machine. An absolute path, a `file://` alias, and a
+Workspace-relative path run on the current Machine through its daemon and must
+lie inside that Machine's registered roots. See
 [locators](../locators/index.md) and
 [enter_workspace](enter-workspace.md#bounds).
 
@@ -38,9 +40,10 @@ The selector grammar is not part of `write`. A `kb://` locator that carries one
 is refused with `invalid_selector`; on an absolute `path` or `file://` alias a
 trailing `:N-M` or `:raw` is part of the filename, so such a write creates or
 replaces a file whose name ends in that text. A `machine://` mutation likewise
-takes no selector, binds the Run to its Machine, and records its attempt with the
-locator; a session lost after dispatch settles as `outcome_unknown` rather than
-being retried; see [machine](../locators/machine.md#behavior).
+takes no selector and records its attempt with the locator; it does not bind the
+Run to a worker, so a retry on another worker reaches the same Machine. A
+session lost after dispatch settles as `outcome_unknown` rather than being
+retried; see [machine](../locators/machine.md#behavior).
 
 ## Result
 
@@ -101,11 +104,16 @@ chain of the directory it touches; see
 
 ## Errors
 
-`file_exists` for an existing target in create mode, `not_regular_file` for an
-intermediate component that is a regular file, `not_found` for an absent replace
-target or a refused `kb://` symbolic-link component, and `invalid_selector` for
-a `kb://` locator carrying a selector. The shared vocabulary is in
-[read](read.md#errors).
+`file_exists` reports an existing target in create mode, and `not_regular_file`
+an intermediate component that is a regular file. `not_found` reports an absent
+replace target or a refused `kb://` symbolic-link component. `invalid_selector`
+reports a `kb://` locator carrying a selector. A target outside the current
+Machine's registered roots fails with `path_not_registered`, and a daemon that
+cannot serve before the request is sent fails with `machine_unavailable`. A
+connection lost after the request was sent settles as `outcome_unknown`: the
+write may have committed, so inspect the file before authoring a new attempt
+(see [mutation recovery](../mutation-recovery.md#unknown-outcome)). The shared
+vocabulary is in [read](read.md#errors).
 
 ## Configured by
 

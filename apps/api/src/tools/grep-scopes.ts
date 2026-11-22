@@ -1,23 +1,21 @@
 /**
  * The `grep` scope dispatch: a scheme becomes a walkable engine scope, or the
  * closed result that ends the call. Knowledge and skill scopes are resolved by
- * their own modules; a host path and a scope naming this process's own Machine
- * are walked in process, reported by canonical `machine://` locators; and
- * every other Machine scope is walked by its own daemon.
+ * their own modules. Every path scope is a Machine scope: a bare path, a
+ * `file:` alias, and a Workspace-relative path land on the current Machine,
+ * and that Machine's daemon walks it exactly as it walks a spelled
+ * `machine://` scope (host-as-machine design D8).
  */
 
 import path from 'node:path';
 
 import {
-  compileGlob,
   decodeGrepLiteralSpelling,
   normalizeHostScope,
   parsePathScheme,
   spellGrepMachineScopeLocator,
   splitGrepScope,
-  type CompiledGlob,
   type GrepScope,
-  type GrepScopeSplit,
 } from '@workspace/native-file-tools';
 import { type UnknownRecord } from '@workspace/runtime-safety';
 
@@ -52,17 +50,9 @@ import {
   type MachineGrepScope,
 } from './grep-machine';
 import { decodeFileAlias, isFileAlias } from './permissions/file-alias';
+import { createSkillWalkPort, joinedPath, probeSkillPath } from './grep-ports';
 import {
-  createHostWalkPort,
-  createSkillWalkPort,
-  joinedPath,
-  probeHostPath,
-  probeSkillPath,
-} from './grep-ports';
-import {
-  executorUnavailableResult,
   invalidPathResult,
-  isGrepToolError,
   selectorColonResult,
   unsupportedGlobResult,
   type GrepToolError,
@@ -75,8 +65,8 @@ import {
   type ResolvedScopes,
   type ScopeOutcome,
 } from './grep-scope-shape';
-import { verifyLocalMachine } from './local-machine';
 import { type ToolContext } from './types';
+import { verifyLocalMachine } from './local-machine';
 import {
   literalTargetPath,
   locatorContext,
@@ -165,10 +155,22 @@ function unsearchableSchemeResult(scheme: string): GrepToolError {
   }
 }
 
+/** One submitted scope and the call state its resolution may spend. */
+type ScopeRequest = {
+  readonly context: ToolContext;
+  readonly scope: string;
+  readonly index: number;
+  readonly admission: GrepReadAdmission;
+  /** The absolute instant the walk stops, shared with every probe. */
+  readonly deadlineAt: number;
+};
+
 export async function resolveScopes(
   context: ToolContext,
   submitted: ReadonlyArray<string>,
   admission: GrepReadAdmission,
+  // A caller without a walk clock probes under the operation's own bound.
+  deadlineAt: number = Number.POSITIVE_INFINITY,
 ): Promise<ResolvedScopes | { readonly result: GrepToolError }> {
   const scopes: Array<GrepScope> = [];
   // A bare `kb://` or `skill://` scope expands to one scope per Space or
@@ -178,7 +180,13 @@ export async function resolveScopes(
   const machines: Array<MachineGrepScope> = [];
 
   for (const [index, scope] of submitted.entries()) {
-    const outcome = await resolveScope(context, scope, index, admission);
+    const outcome = await resolveScope({
+      context,
+      scope,
+      index,
+      admission,
+      deadlineAt,
+    });
 
     if ('result' in outcome) return outcome;
 
@@ -197,18 +205,14 @@ export async function resolveScopes(
   return { scopes, machines };
 }
 
-async function resolveScope(
-  context: ToolContext,
-  scope: string,
-  index: number,
-  admission: GrepReadAdmission,
-): Promise<ScopeOutcome> {
+async function resolveScope(request: ScopeRequest): Promise<ScopeOutcome> {
+  const { context, scope, index, admission } = request;
   const scheme = parsePathScheme(scope);
 
   // A `file:` alias is a host path (design D6), placed by the locator rule
   // like a bare one; a scheme-less scope is a host path too.
   if (isFileAlias(scope) || scheme === undefined)
-    return resolveHostScope(context, scope, index, admission);
+    return resolveHostScope(request);
 
   switch (scheme.scheme) {
     case KNOWLEDGE_SCHEME:
@@ -216,7 +220,7 @@ async function resolveScope(
     case SKILL_SCHEME:
       return resolveSkillScope(context, scheme.rest, index, admission);
     case MACHINE_SCHEME:
-      return resolveMachineScheme(context, scope, index, admission);
+      return resolveMachineScope(request);
     default:
       return { result: unsearchableSchemeResult(scheme.scheme) };
   }
@@ -241,16 +245,11 @@ function refuseUnsearchableSkillScope(rest: string): GrepToolError | undefined {
 /**
  * One host scope: the locator rule places it on its Machine, lexical
  * normalization settles `.` and `..` before any policy text is read, and the
- * glob split sets where the walk starts. A target on this process's own
- * Machine is walked in process after the identity-checked handshake; a target
- * on another Machine keeps its daemon walk (design D8).
+ * glob split sets where the walk starts. The placed Machine's daemon walks it,
+ * whether that Machine is this process's own or another one (design D8).
  */
-async function resolveHostScope(
-  context: ToolContext,
-  scope: string,
-  index: number,
-  admission: GrepReadAdmission,
-): Promise<ScopeOutcome> {
+async function resolveHostScope(request: ScopeRequest): Promise<ScopeOutcome> {
+  const { context, scope } = request;
   const target = resolveMachinePath(scope, locatorContext(context));
 
   if (target.kind !== 'machine')
@@ -262,29 +261,26 @@ async function resolveHostScope(
       ),
     };
 
-  return resolveTarget(context, { scope, target, index, admission });
+  return resolvePlacedScope({ ...request, target });
 }
 
 /**
  * One host scope after the locator rule placed it on its Machine: the text the
- * model wrote, the resolved target, and the call's own ordinal and admission.
+ * model wrote, the resolved target, and the call's own ordinal, admission, and
+ * walk clock.
  */
-type HostTarget = {
-  readonly scope: string;
+type HostTarget = ScopeRequest & {
   readonly target: MachineTarget;
-  readonly index: number;
-  readonly admission: GrepReadAdmission;
 };
 
 /**
- * One resolved Machine address: this process walks a target naming its own
- * Machine, and every other target is the named Machine's daemon walk.
+ * One placed Machine scope: lexical normalization settles `.` and `..` before
+ * any policy text is read, the glob split sets where the walk starts, and the
+ * spelled locator text reaches that Machine's daemon, whether that Machine is
+ * this process's own or another one (design D8).
  */
-async function resolveTarget(
-  context: ToolContext,
-  host: HostTarget,
-): Promise<ScopeOutcome> {
-  const { target } = host;
+async function resolvePlacedScope(host: HostTarget): Promise<ScopeOutcome> {
+  const { context, target } = host;
   // The resolver splits a valid read selector off a bare path; grep parses no
   // selector, so the suffix stays the path text the model wrote.
   const normalized = normalizeHostScope(literalTargetPath(target));
@@ -294,46 +290,10 @@ async function resolveTarget(
   if ('error' in split)
     return { result: unsupportedGlobResult(split.operator) };
 
-  if (!target.local) return resolveRemoteTarget(context, host, split);
-
-  const refused = await localScopeRefusal(context, normalized);
-
-  if (refused !== undefined) return { result: refused };
-
-  return buildLocalScope(context, {
-    name: target.name,
-    index: host.index,
-    admission: host.admission,
-    path: decodedHostPrefix(
-      split.prefix.length > 1 && split.prefix.endsWith('/')
-        ? split.prefix.slice(0, -1)
-        : split.prefix,
-      hostLiteralStart(
-        host.scope,
-        context.workspaceRoot?.current(),
-        target.path,
-      ),
-    ),
-    glob:
-      split.globSuffix === undefined
-        ? undefined
-        : compileGlob(split.globSuffix),
-    endsWithSeparator: split.endsWithSeparator,
-  });
-}
-
-/** One other Machine's scope: its daemon walks the spelled locator text. */
-function resolveRemoteTarget(
-  context: ToolContext,
-  host: HostTarget,
-  split: GrepScopeSplit,
-): Promise<ScopeOutcome> {
-  const { target } = host;
-
   // The scope text decodes the literal spellings the model's part carries,
-  // exactly as the local walk does, then spells each glob character back:
-  // a directory named `a[b]` must reach the daemon as scope text its own
-  // parser reads as one literal path.
+  // exactly as the daemon's own parse does, then spells each glob character
+  // back: a directory named `a[b]` must reach the daemon as scope text its
+  // own parser reads as one literal path.
   const decoded = decodedHostPrefix(
     split.prefix,
     hostLiteralStart(host.scope, context.workspaceRoot?.current(), target.path),
@@ -341,81 +301,13 @@ function resolveRemoteTarget(
 
   const literal = formatMachineLocator(target.name, decoded) ?? split.prefix;
 
-  return resolveMachineScope(
+  return resolveMachineScope({
     context,
-    `${spellGrepMachineScopeLocator(literal)}${split.globSuffix ?? ''}`,
-    host.index,
-    host.admission,
-  );
-}
-
-/**
- * One `machine://` scope: a target naming this process's own Machine shares
- * the in-process walk its bare form takes (design D8), and every other
- * Machine keeps its daemon walk.
- */
-async function resolveMachineScheme(
-  context: ToolContext,
-  scope: string,
-  index: number,
-  admission: GrepReadAdmission,
-): Promise<ScopeOutcome> {
-  const parsed = machineScopeOf(scope, index);
-
-  if ('status' in parsed) return { result: parsed };
-  const local = context.localMachine;
-
-  if (local === undefined || parsed.name !== local.toLowerCase())
-    return resolveMachineScope(context, scope, index, admission);
-
-  const refused = await localScopeRefusal(context, parsed.path);
-
-  if (refused !== undefined) return { result: refused };
-
-  return buildLocalScope(context, {
-    name: parsed.name,
-    index,
-    admission,
-    path: parsed.path,
-    glob:
-      parsed.globSuffix === undefined
-        ? undefined
-        : compileGlob(parsed.globSuffix),
-    endsWithSeparator: scope.endsWith('/'),
+    scope: `${spellGrepMachineScopeLocator(literal)}${split.globSuffix ?? ''}`,
+    index: host.index,
+    admission: host.admission,
+    deadlineAt: host.deadlineAt,
   });
-}
-
-/**
- * The refusals every in-process scope passes before it is walked: the worker's
- * own authority and path text first, then the identity-checked handshake.
- */
-async function localScopeRefusal(
-  context: ToolContext,
-  normalized: string,
-): Promise<GrepToolError | undefined> {
-  const refused = hostScopeRefusal(context, normalized);
-
-  if (refused !== undefined) return refused;
-  const verification = await verifyLocalMachine(context);
-
-  return verification === undefined
-    ? undefined
-    : isGrepToolError(verification)
-      ? verification
-      : executorUnavailableResult();
-}
-
-/** The authority and path checks every in-process scope passes first. */
-function hostScopeRefusal(
-  context: ToolContext,
-  normalized: string,
-): GrepToolError | undefined {
-  if (context.runId === undefined || context.localMachine === undefined)
-    return executorUnavailableResult();
-
-  return !path.isAbsolute(normalized) || normalized.includes('\0')
-    ? invalidPathResult('The scope path is invalid.')
-    : undefined;
 }
 
 /**
@@ -432,43 +324,6 @@ function decodedHostPrefix(
     encodedPrefix.slice(0, literalStart) +
     decodeGrepLiteralSpelling(encodedPrefix.slice(literalStart))
   );
-}
-
-/** One scope this process walks in process, reported by canonical locators. */
-type LocalScopeInput = {
-  /** Lowercase Machine name every reported locator starts with. */
-  readonly name: string;
-  readonly index: number;
-  readonly admission: GrepReadAdmission;
-  /** Normalized absolute path, with no trailing separator but for `/`. */
-  readonly path: string;
-  readonly glob: CompiledGlob | undefined;
-  readonly endsWithSeparator: boolean;
-};
-
-/** One in-process scope: the host tree's own walk, reported by locator. */
-function buildLocalScope(
-  context: ToolContext,
-  input: LocalScopeInput,
-): Promise<ScopeOutcome> {
-  return buildScope({
-    index: input.index,
-    locatorFor: (rel) => {
-      const pathText =
-        rel.length === 0
-          ? input.path
-          : input.path === '/'
-            ? `/${rel}`
-            : `${input.path}/${rel}`;
-
-      return formatMachineLocator(input.name, pathText) ?? pathText;
-    },
-    glob: input.glob,
-    port: () => createHostWalkPort(input.path, context.abortSignal),
-    probe: () => probeHostPath(input.path, context.abortSignal),
-    endsWithSeparator: input.endsWithSeparator,
-    admission: input.admission,
-  });
 }
 
 async function resolveSkillScope(

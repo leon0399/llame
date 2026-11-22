@@ -1,8 +1,8 @@
 /**
- * The call's results across its segments. Each segment — one host scope or one
- * Machine — reports what it kept and what it consumed, and this module appends
- * it, so the bounds, the counts, and the order never depend on which backend
- * produced a passage. The engine's pages are internal to a walk: a passage it
+ * The call's results across its segments. Each segment — one installation
+ * scope or one Machine — reports what it kept and what it consumed, and this
+ * module appends it, so the bounds, the counts, and the order never depend on
+ * which backend produced a passage. The engine's pages are internal to a walk: a passage it
  * cut at its own page bound and the passage that continues it are one passage
  * of the result.
  *

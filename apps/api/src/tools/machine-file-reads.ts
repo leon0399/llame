@@ -8,6 +8,7 @@
 import {
   BYTES_NOTIFICATION,
   type JsonValue,
+  type NativeFailureResult,
   type RequestEnvelope,
 } from '@workspace/machine-protocol';
 import {
@@ -80,8 +81,9 @@ export async function readMachinePath(
     if (result.status === 'success')
       return canonicalizeMachineResult(machine, { ...result });
 
-    // The daemon reads text only; bytes of an image or PDF are not valid UTF-8
-    // here, and the media path streams them instead. Any other refusal is the
+    // The daemon reads text only. Its media probe refuses an image or PDF by
+    // signature before any decode, and bytes that are not UTF-8 refuse too:
+    // the media path streams those bytes instead. Any other refusal is the
     // read's own result.
     if (result.type !== 'invalid_utf8' || context.media === undefined)
       return result;
@@ -97,6 +99,12 @@ export async function readMachinePath(
  * byte-buffer preparation, so the result is the one a local read of the same
  * bytes produces. `undefined` means the bytes are not an image or PDF after
  * all, and the text read's refusal stands.
+ *
+ * A literal filename that ends in a selector-shaped suffix is the target the
+ * daemon's text read selected, because the literal-path probe takes precedence
+ * over the selector split. Its bytes are asked for first, and the split
+ * selector applies only to the path it was split from; a genuine media
+ * selector is refused exactly as before.
  */
 async function readMachineMedia(
   context: ToolContext,
@@ -109,6 +117,56 @@ async function readMachineMedia(
 
   if (connector === undefined || store === undefined) return undefined;
 
+  const media: MachineMediaRead = {
+    context,
+    connector,
+    store,
+    envelope,
+    submitted,
+  };
+
+  if (machine.selector !== undefined) {
+    const literal = await machineMediaAttempt({
+      ...media,
+      machine: {
+        ...machine,
+        path: `${machine.path}:${machine.selector}`,
+        selector: undefined,
+      },
+    });
+
+    if (literal.status === 'settled') return literal.result;
+  }
+
+  const split = await machineMediaAttempt({ ...media, machine });
+
+  return split.status === 'settled' ? split.result : split.failure;
+}
+
+/** One Machine media read's shared inputs. */
+type MachineMediaRead = {
+  readonly context: ToolContext;
+  readonly connector: MachineConnector;
+  readonly store: ToolMediaStore;
+  readonly envelope: RequestEnvelope;
+  readonly submitted: string;
+};
+
+/** What one media attempt settled: a result, or no regular file to read. */
+type MediaAttempt =
+  | { readonly status: 'settled'; readonly result: ToolResult | undefined }
+  | { readonly status: 'no_target'; readonly failure: NativeFailureResult };
+
+/**
+ * The bytes of one candidate target. A target that is not a regular file has
+ * no bytes, so a literal filename that does not exist is the caller's cue to
+ * try the split path; every other answer is the read's own.
+ */
+async function machineMediaAttempt(
+  attempt: MachineMediaRead & { readonly machine: MachinePath },
+): Promise<MediaAttempt> {
+  const { context, connector, machine, envelope } = attempt;
+
   const { raw, bytes } = await readMachineBytes(
     context,
     connector,
@@ -118,22 +176,39 @@ async function readMachineMedia(
 
   const meta = readFsBytesResult(raw);
 
-  if (meta === undefined) return machineUnusableResult(machine.name);
+  if (meta === undefined)
+    return { status: 'settled', result: machineUnusableResult(machine.name) };
 
-  if ('status' in meta) return meta;
+  if ('status' in meta) {
+    const noTarget =
+      meta.type === 'not_regular_file' || meta.type === 'not_found';
+
+    // The daemon refuses bytes matching no image or PDF signature, so the text
+    // read that asked for them is the read's result and none of them stream.
+    return noTarget
+      ? { status: 'no_target', failure: meta }
+      : {
+          status: 'settled',
+          result: meta.type === 'unsupported_media_type' ? undefined : meta,
+        };
+  }
 
   if (bytes.byteLength !== meta.size)
-    return machineUnusableResult(machine.name);
+    return { status: 'settled', result: machineUnusableResult(machine.name) };
   const locator = formatMachineLocator(machine.name, machine.path);
 
-  if (locator === undefined) return machineUnusableResult(machine.name);
+  if (locator === undefined)
+    return { status: 'settled', result: machineUnusableResult(machine.name) };
 
-  return handMachineBytes(context, store, {
-    bytes,
-    locator,
-    selector: machine.selector,
-    submitted,
-  });
+  return {
+    status: 'settled',
+    result: await handMachineBytes(context, attempt.store, {
+      bytes,
+      locator,
+      selector: machine.selector,
+      submitted: attempt.submitted,
+    }),
+  };
 }
 
 /** The bytes of one Machine media read, as the shared media store takes them. */

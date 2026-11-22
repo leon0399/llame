@@ -890,12 +890,14 @@ describe('run steering interrupts', () => {
   describe('a stale attempt', () => {
     it('a tool admission after the interrupt delivery writes no attempt', async () => {
       const held = Promise.withResolvers<void>();
+      const target = join(fx.directory, `delivered-${randomUUID()}.txt`);
       const seeded = await seed();
       await launch(seeded, [
         [
           { type: 'text', id: 't1', text: 'working' },
           { type: 'hold', onHeld: held.resolve },
         ],
+        call('w', 'write', { path: target, content: 'after the delivery' }),
         answer('done'),
       ]);
       await held.promise;
@@ -945,17 +947,49 @@ describe('run steering interrupts', () => {
           (event) => event.eventType === 'native.attempt',
         );
 
+      // The delivery fence itself names the delivered attempt, not the
+      // interrupted one; a read records nothing, so the delivery decides it
+      // even now that the Run has finished.
+      expect(
+        await db((tx) =>
+          new NativeFilesRepository(tx).isCurrentDelivery({
+            runId: seeded.runId,
+            userId: fx.userId,
+            deliverySequence,
+            attemptId: first,
+          }),
+        ),
+      ).toBe(false);
+      expect(
+        await db((tx) =>
+          new NativeFilesRepository(tx).isCurrentDelivery({
+            runId: seeded.runId,
+            userId: fx.userId,
+            deliverySequence,
+            attemptId: run?.activeAttemptId ?? '',
+          }),
+        ),
+      ).toBe(true);
+
       // A call of the interrupted segment that reaches admission after the
-      // delivery is refused and records nothing.
+      // delivery is refused and records nothing more.
       expect(await admit(first, 'late')).toMatchObject({
         status: 'error',
         type: 'executor_unavailable',
       });
-      expect(await attempts()).toHaveLength(0);
-      // The delivered segment's own attempt is admitted.
-      expect(
-        await admit(run?.activeAttemptId ?? '', 'current'),
-      ).toBeUndefined();
+      expect(await attempts()).toHaveLength(1);
+      // The delivered segment's own call was admitted under its own attempt:
+      // the delivery fence names that attempt, not the interrupted one.
+      expect(await attempts()).toMatchObject([
+        { payload: { toolCallId: 'w', operation: 'write' } },
+      ]);
+      expect(await readFile(target, 'utf8')).toBe('after the delivery');
+      // The Run has finished since, so no later effect is admitted, not even
+      // under its active attempt (durable-runs "Native effect admission").
+      expect(await admit(run?.activeAttemptId ?? '', 'current')).toMatchObject({
+        status: 'error',
+        type: 'executor_unavailable',
+      });
       expect(await attempts()).toHaveLength(1);
     });
   });

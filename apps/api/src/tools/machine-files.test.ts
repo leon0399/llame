@@ -5,6 +5,7 @@ import {
   PATH_NOT_REGISTERED_MESSAGE,
 } from '@workspace/machine-protocol';
 import { type MediaReadHook } from '@workspace/native-file-tools';
+import { isRecord } from '@workspace/runtime-safety';
 
 import { type Db } from '../db/tenant-db.service';
 import { MachineConnector } from '../machines/machine-connector.service';
@@ -586,7 +587,7 @@ describe('Machine media', () => {
     expect(handed[0]?.bytes.equals(bytes)).toBe(true);
   });
 
-  it('refuses a selector on an image', async () => {
+  it('asks the bytes for a literal filename a selector-shaped suffix named', async () => {
     const bytes = Buffer.concat([
       Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
       Buffer.alloc(32, 7),
@@ -603,13 +604,73 @@ describe('Machine media', () => {
 
     const call = runTool(
       nativeReadTool,
-      { path: 'machine://devl/srv/shot.png:1-2' },
+      { path: 'machine://devl/srv/shot.png:1' },
       context(connector, { media: mediaStore().store }),
       5,
     );
 
     const session = await peer.session(0);
     await session.awaitRequests(2);
+    // The daemon's text read preferred the literal file, so the bytes must be
+    // that file's, without the split selector applied to them.
+    expect(session.calls[1]?.params).toMatchObject({ path: '/srv/shot.png:1' });
+    await flushMicrotasks();
+    sendChunks(session, bytes);
+    session.release('fs.bytes', {
+      size: bytes.byteLength,
+      mediaType: 'image/png',
+    });
+    await expect(call).resolves.toEqual({
+      status: 'success',
+      kind: 'image',
+      mediaType: 'image/png',
+      width: 10,
+      height: 20,
+      path: 'machine://devl/srv/shot.png%3A1',
+    });
+    expect(session.calls).toHaveLength(2);
+  });
+
+  it('refuses a selector on an image', async () => {
+    const bytes = Buffer.concat([
+      Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+      Buffer.alloc(32, 7),
+    ]);
+
+    const { peer, connector } = fixture({
+      answer: (call) => {
+        if (call.method !== 'fs.bytes') return undefined;
+        const path = isRecord(call.params) ? call.params['path'] : undefined;
+
+        // No literal file ends in the selector, so the split path is the one
+        // the daemon read, and its selector still refuses.
+        return path === '/srv/shot.png:1-2'
+          ? {
+              value: {
+                status: 'error',
+                type: 'not_regular_file',
+                message: 'no',
+              },
+            }
+          : undefined;
+      },
+      answers: {
+        'fs.read': {
+          value: { status: 'error', type: 'invalid_utf8', message: 'no' },
+        },
+        'fs.bytes': { hold: true },
+      },
+    });
+
+    const call = runTool(
+      nativeReadTool,
+      { path: 'machine://devl/srv/shot.png:1-2' },
+      context(connector, { media: mediaStore().store }),
+      5,
+    );
+
+    const session = await peer.session(0);
+    await session.awaitRequests(3);
     await flushMicrotasks();
     sendChunks(session, bytes);
     session.release('fs.bytes', {
@@ -621,6 +682,66 @@ describe('Machine media', () => {
       type: 'invalid_selector',
       message: 'An image or PDF is read without a selector.',
     });
+    expect(session.calls.map((request) => request.method)).toEqual([
+      'fs.read',
+      'fs.bytes',
+      'fs.bytes',
+    ]);
+  });
+
+  it('asks the split path when the literal filename does not exist', async () => {
+    const bytes = Buffer.concat([
+      Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+      Buffer.alloc(32, 7),
+    ]);
+
+    const { peer, connector } = fixture({
+      answer: (call) => {
+        if (call.method !== 'fs.bytes') return undefined;
+        const path = isRecord(call.params) ? call.params['path'] : undefined;
+
+        // No literal file ends in the selector: the daemon says so, and the
+        // split path is the file to read.
+        return path === '/srv/shot.png:1'
+          ? { value: { status: 'error', type: 'not_found', message: 'no' } }
+          : undefined;
+      },
+      answers: {
+        'fs.read': {
+          value: { status: 'error', type: 'invalid_utf8', message: 'no' },
+        },
+        'fs.bytes': { hold: true },
+      },
+    });
+
+    const call = runTool(
+      nativeReadTool,
+      { path: 'machine://devl/srv/shot.png:1' },
+      context(connector, { media: mediaStore().store }),
+      5,
+    );
+
+    const session = await peer.session(0);
+    await session.awaitRequests(3);
+    await flushMicrotasks();
+    sendChunks(session, bytes);
+    session.release('fs.bytes', {
+      size: bytes.byteLength,
+      mediaType: 'image/png',
+    });
+    // The missing literal file is no answer to the read: the split path's own
+    // selector refusal is what the call reports.
+    await expect(call).resolves.toMatchObject({
+      status: 'error',
+      type: 'invalid_selector',
+      message: 'An image or PDF is read without a selector.',
+    });
+    expect(session.calls.map((request) => request.method)).toEqual([
+      'fs.read',
+      'fs.bytes',
+      'fs.bytes',
+    ]);
+    expect(session.calls[2]?.params).toMatchObject({ path: '/srv/shot.png' });
   });
 
   it('keeps the text refusal when the bytes are not media', async () => {
@@ -703,6 +824,32 @@ describe('Machine media', () => {
         5,
       ),
     ).resolves.toMatchObject({ status: 'error', type: 'media_too_large' });
+  });
+
+  it('keeps the text refusal when the byte answer says the target is not media', async () => {
+    const { connector } = fixture({
+      answers: {
+        'fs.read': {
+          value: { status: 'error', type: 'invalid_utf8', message: 'no' },
+        },
+        'fs.bytes': {
+          value: {
+            status: 'error',
+            type: 'unsupported_media_type',
+            message: 'no',
+          },
+        },
+      },
+    });
+
+    await expect(
+      runTool(
+        nativeReadTool,
+        { path: 'machine://devl/srv/app/libfoo.so' },
+        context(connector, { media: mediaStore().store }),
+        5,
+      ),
+    ).resolves.toMatchObject({ status: 'error', type: 'invalid_utf8' });
   });
 
   it('does not take the media path without a media store', async () => {

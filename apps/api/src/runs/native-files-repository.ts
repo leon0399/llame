@@ -11,7 +11,7 @@ import {
 } from '@workspace/runtime-safety';
 import { runEvents, runs, type Run } from '../db/schema';
 import { type Db } from '../db/tenant-db.service';
-import { nonTerminalRun } from './run-status';
+import { nonTerminalRun, isTerminalRunStatus } from './run-status';
 import { isArtifactLocator } from '../tools/artifacts/locator';
 
 /** Absolute paths bind the Run to one host; a resolved locator binds nothing. */
@@ -22,6 +22,21 @@ export type NativeFenceMode =
 export type HostPromotionRecoveryResult = {
   readonly disposition: 'recovery_won' | 'receipt' | 'fenced';
   readonly result: ToolResult;
+};
+
+/** The Run row state a fence decides under its lock. */
+type LockedRun = {
+  readonly activeAttemptId: string | null;
+  readonly status: Run['status'];
+  readonly cancelRequestedAt: Date | null;
+};
+
+/** The delivery identity a fence decides; the caller's attempt is optional. */
+type DeliveryFenceInput = {
+  runId: string;
+  userId: string;
+  deliverySequence: number | undefined;
+  attemptId?: string;
 };
 
 /** Uses the existing owner-scoped Run row and append-only event log. */
@@ -124,17 +139,56 @@ export class NativeFilesRepository {
    * active attempt: a delivery moves the Run to a new attempt, so a call of the
    * segment it closed cannot record anything after `run.delivered`.
    */
-  async isCurrentDelivery(input: {
-    runId: string;
-    userId: string;
-    deliverySequence: number | undefined;
-    attemptId?: string;
-  }): Promise<boolean> {
+  async isCurrentDelivery(input: DeliveryFenceInput): Promise<boolean> {
+    if (input.deliverySequence === undefined) return false;
+    const locked = await this.lockRun(input.runId, input.userId);
+
+    return locked !== undefined && (await this.matchesDelivery(locked, input));
+  }
+
+  /**
+   * Whether this delivery may still change the Chat's Workspace binding: the
+   * delivery is current and the Run has not finished. A cancellation request
+   * stays admitted, because a stopped Run still clears its binding while it
+   * settles and the Machine may be offline; a finished Run accepts no new
+   * transition, so a late exit cannot clear a later Run's binding.
+   */
+  async isCurrentUnfinishedDelivery(
+    input: DeliveryFenceInput,
+  ): Promise<boolean> {
+    if (input.deliverySequence === undefined) return false;
+    const locked = await this.lockRun(input.runId, input.userId);
+
+    if (locked === undefined || isTerminalRunStatus(locked.status))
+      return false;
+
+    return this.matchesDelivery(locked, input);
+  }
+
+  /**
+   * Whether the Run may still admit an effect: its current delivery, and a Run
+   * that is neither cancelled nor finished. A cancellation request is a
+   * committed decision the worker settles later, so an effect admitted after it
+   * would outlive the owner's stop; a finished Run accepts nothing new
+   * (durable-runs "Native effect admission").
+   */
+  async admitsEffect(input: DeliveryFenceInput): Promise<boolean> {
     if (input.deliverySequence === undefined) return false;
     const locked = await this.lockRun(input.runId, input.userId);
 
     if (locked === undefined) return false;
 
+    if (locked.cancelRequestedAt !== null) return false;
+
+    if (isTerminalRunStatus(locked.status)) return false;
+
+    return this.matchesDelivery(locked, input);
+  }
+
+  private async matchesDelivery(
+    locked: LockedRun,
+    input: DeliveryFenceInput,
+  ): Promise<boolean> {
     if (
       input.attemptId !== undefined &&
       locked.activeAttemptId !== input.attemptId
@@ -154,6 +208,9 @@ export class NativeFilesRepository {
    * `executor_unavailable` for a target that worker can reach. The caller
    * states which it means — an omitted executor would otherwise silently
    * unbind a path that required it.
+   *
+   * A read only records nothing, so the delivery fence decides it. Every other
+   * operation admits an effect and needs an uncancelled, unfinished Run.
    */
   async begin(input: {
     runId: string;
@@ -165,15 +222,19 @@ export class NativeFilesRepository {
     operation: 'read' | 'edit' | 'write' | 'bash' | 'mcp' | 'worktree';
     path: string;
   }): Promise<ToolResult | undefined> {
-    if (
-      !(await this.isCurrentDelivery({
-        runId: input.runId,
-        userId: input.userId,
-        deliverySequence: input.deliverySequence,
-        attemptId: input.attemptId,
-      }))
-    )
-      return executorUnavailable();
+    const delivery = {
+      runId: input.runId,
+      userId: input.userId,
+      deliverySequence: input.deliverySequence,
+      attemptId: input.attemptId,
+    };
+
+    if (input.operation === 'read')
+      return (await this.isCurrentDelivery(delivery))
+        ? undefined
+        : executorUnavailable();
+
+    if (!(await this.admitsEffect(delivery))) return executorUnavailable();
 
     if (
       input.fence.bound &&
@@ -181,7 +242,20 @@ export class NativeFilesRepository {
     )
       return executorUnavailable();
 
-    if (input.operation === 'read') return undefined;
+    return this.recordAttempt({
+      runId: input.runId,
+      toolCallId: input.toolCallId,
+      operation: input.operation,
+      path: input.path,
+    });
+  }
+
+  private async recordAttempt(input: {
+    runId: string;
+    toolCallId: string;
+    operation: 'edit' | 'write' | 'bash' | 'mcp' | 'worktree';
+    path: string;
+  }): Promise<ToolResult | undefined> {
     const outcome = await this.priorOutcome(input.runId, input.toolCallId);
 
     if (outcome) return outcome;
@@ -201,9 +275,13 @@ export class NativeFilesRepository {
   private async lockRun(
     runId: string,
     userId: string,
-  ): Promise<{ activeAttemptId: string | null } | undefined> {
+  ): Promise<LockedRun | undefined> {
     const [row] = await this.db
-      .select({ activeAttemptId: runs.activeAttemptId })
+      .select({
+        activeAttemptId: runs.activeAttemptId,
+        status: runs.status,
+        cancelRequestedAt: runs.cancelRequestedAt,
+      })
       .from(runs)
       .where(and(eq(runs.id, runId), eq(runs.userId, userId)))
       .for('update')
@@ -227,7 +305,7 @@ export class NativeFilesRepository {
     return latestStarted?.sequence;
   }
 
-  async bind(
+  private async bind(
     runId: string,
     userId: string,
     executorId: string,

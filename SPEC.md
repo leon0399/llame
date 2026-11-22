@@ -307,16 +307,17 @@ render as recorded. See
 
 The scheme of `read`, `edit`, and `write`'s `path` argument selects authority.
 An absolute path or a `file:` locator addresses the current Machine: the Workspace's Machine, or `machines.default` when no Workspace is bound. Reads stream bounded source windows, edits replace one exact unique current match, and writes create a new file or, when the caller sets
-`replace: true`, replace an existing one's entire contents. Host process
-mutations are serialized, including symlink aliases; other processes and
+`replace: true`, replace an existing one's entire contents. Mutations on one
+Machine are serialized by its daemon, including symlink aliases; other processes and
 external editors are outside that guarantee. A `file://` or minimal `file:` URL is decoded to its absolute path before native dispatch; the decoded path is the canonical identity for permissions, Machine binding, and the result `path`, which is reported as a `machine://` locator. A
 `kb://<space-id>/<path>[:selector]` locator instead resolves through the
 trusted Run owner's current Knowledge Space access on every call, under RLS,
 outside Machine authority. A `machine://<name><path>` locator resolves on a configured Machine through its `llame-machine` daemon, the host Machine included, and a bare path and `machine://<machines.local>/...` share one authority (see [docs/product/operator/machines.md](docs/product/operator/machines.md)). An `ssh://[user@]host[:port]/<path>[:selector]` locator reads a file or one directory level on a host the operator's SSH configuration reaches, without a Machine and with nothing installed on that host; it exists only when the instance configuration has a top-level `ssh` section, and without that section the scheme stays unknown. Its destination resolves locally through the SSH configuration before permission is evaluated, the group decides on the resolved locator `ssh://<user>@<hostname>:<port><path>`, and the connection uses exactly that user, hostname, and port under the generated safety block shared with Machines. A read transfers at most 1 MiB of UTF-8 text with the local selectors and result bound, or one level of a directory in the local listing form capped at 1,000 entries; a larger file, bytes outside UTF-8, and a FIFO, socket, or device are typed refusals, a missing path is `not_found`, and an unreadable one is the local `executor_unavailable` result. Missing prerequisites and refused connections are `ssh_unsupported_host` and `ssh_unavailable` with a reason. `edit` and `write` refuse an `ssh://` locator as `unsupported_operation`, `enter_workspace` refuses it, and no Workspace is ever bound to one. A `bash` call with an `ssh://` `cwd` runs its command with `bash -s` on that host as the login user, inside the directory the locator names, bounded like a local command; its `env` keys are identifiers and travel inside the script, an unenterable directory is refused before the command runs, and a session that ends after the command started is `outcome_unknown` and is never replayed (see [docs/product/operator/ssh.md](docs/product/operator/ssh.md)). A `projects://` locator reads the Run owner's Projects through the datastore with no executor or Workspace binding. The bare form lists active Projects, `archived` lists archived Projects, and `<uuid>` returns one Project with its literal instructions, linked repositories, and registered checkout locators. It is read-only, so `edit` and `write` refuse it as `unsupported_operation`. See [Project locators](docs/product/reference/locators/projects.md). The three tools are advertised
 whenever they are allowlisted, because startup requires `machines.default` for
 every allowlisted native tool. An absolute path fails closed with
-`machine_unavailable` when the current Machine is unreachable, while `kb://`,
-skill, media, Project, and web locators still run. A `read` of an absolute path,
+`path_not_registered` when it lies outside the current Machine's registered
+roots, and with `machine_unavailable` when that Machine is unreachable, while
+`kb://`, skill, media, Project, and web locators still run. A `read` of an absolute path,
 `kb://`, or `skill://` regular file whose leading bytes are a PNG, JPEG, GIF, or
 WebP image decodes it without creating a media object and returns an image
 result with its format, dimensions, and a display-only thumbnail instead of
@@ -369,7 +370,7 @@ entry and on a later accepted turn when effective context no longer carries it,
 as one `instructions` context item ordered after `workspace`
 (see [`instruction-files`](openspec/specs/instruction-files/spec.md)).
 
-The first absolute-path native mutation or Workspace entry on the host Machine binds the Run's existing `worker_id` to that worker; a `kb://` call never binds or requires one. Native
+A native `edit` or `write` records its attempt against the canonical locator and never binds the Run to a worker, so a retry on another worker that reaches the Machine reports `outcome_unknown` instead of running again. Host `bash` still writes the Run's existing `worker_id`, and a `kb://` call never binds or requires one. Native
 and `kb://` mutation attempts and results share the owner-scoped event log,
 recorded against the locator for `kb://`; an unsettled attempt never executes
 again, and an unknown result aborts the model loop. Native files have no

@@ -328,6 +328,22 @@ function reserveForFile(state: ScanState, event: GrepCandidateEvent): void {
   );
 }
 
+/**
+ * Charge one read's file and bytes to the call's bounds. The cursor's file was
+ * charged by the page that ended in it: re-opening it to show its tail is not
+ * a second file examined, and its bytes are not spent twice.
+ */
+function chargeConsumed(
+  state: ScanState,
+  event: GrepCandidateEvent,
+  bytes: number,
+): void {
+  if (event.resume !== undefined) return;
+
+  state.consumed.files += 1;
+  state.consumed.bytes += bytes;
+}
+
 /** Apply one read's outcome; true once the call stops. */
 function applyOutcome(
   state: ScanState,
@@ -342,24 +358,21 @@ function applyOutcome(
       return true;
     case "skip":
       if (!addWarning(state, outcome.warning)) return true;
-      state.consumed.files += 1;
+      chargeConsumed(state, event, 0);
 
       return false;
     case "stopped":
-      state.consumed.files += 1;
-      state.consumed.bytes += outcome.bytes;
+      chargeConsumed(state, event, outcome.bytes);
       stopInsideFile(state, event, outcome.reason);
 
       return true;
     case "refused":
       if (!addWarning(state, outcome.refusal)) return true;
-      state.consumed.files += 1;
-      state.consumed.bytes += outcome.bytes;
+      chargeConsumed(state, event, outcome.bytes);
 
       return false;
     case "passages":
-      state.consumed.files += 1;
-      state.consumed.bytes += outcome.bytes;
+      chargeConsumed(state, event, outcome.bytes);
 
       // A file whose hold limit kept content out may hold matches the page
       // never saw, so the call cannot claim to be complete.
