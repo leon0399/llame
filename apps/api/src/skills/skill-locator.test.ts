@@ -1,5 +1,9 @@
 import { formatSkillLocator, parseSkillLocator } from './skill-locator';
 
+/** The shared refusal, pinned once so a reverted form set fails this file. */
+const SHARED_REFUSAL =
+  'A line selector is :L5, :L5-10, :L5+10, :L5-, or :-L5, or a comma-separated list of them. A bare number also reads as a line. :raw is the whole file, or :raw: followed by a list of them, and :outline takes one of them after the colon. A line number starts at 1.';
+
 describe('parseSkillLocator', () => {
   it('addresses the catalog for the bare and selector-only forms', () => {
     expect(parseSkillLocator('')).toEqual({ catalog: true });
@@ -104,9 +108,6 @@ describe('parseSkillLocator', () => {
     // catalog and a package root address no resource, so nothing is spelled.
     ['pdf/references/a:b.md', 'skill://pdf/references/a%3Ab.md'],
     ['pdf/references/x:5-10,,20-30', 'skill://pdf/references/x%3A5-10,,20-30'],
-    // A letter that is not the unit, and a `+` with no length after it, are
-    // outside the grammar: the shared refusal still names the `%3A` spelling.
-    ['pdf/ref.md:5-10x', 'skill://pdf/ref.md%3A5-10x'],
     ['pdf:raw:outline', undefined],
     [':5-10,,20-30', undefined],
     ['pdf:notaselector', undefined],
@@ -126,6 +127,15 @@ describe('parseSkillLocator', () => {
         expect.stringContaining(spelling),
       );
     }
+  });
+
+  it('answers a malformed selector with the shared forms and the spelling', () => {
+    // A letter that is not the unit is outside the grammar, so the suffix is
+    // refused: the forms come first, then the `%3A` spelling of the locator.
+    expect(parseSkillLocator('pdf/ref.md:5-10x')).toStrictEqual({
+      type: 'invalid_selector',
+      message: `${SHARED_REFUSAL} For a literal colon, write this locator as skill://pdf/ref.md%3A5-10x`,
+    });
   });
 
   it('encodes a percent in the suffix so the hint reads the same file', () => {

@@ -464,21 +464,26 @@ const MEMBER_LIST_SOURCE = `${MEMBER_SOURCE}(?:,${MEMBER_SOURCE})*`;
  * bounds it admits.
  */
 const SELECTOR_SUFFIX = new RegExp(
-  `^(?:raw(?::${MEMBER_LIST_SOURCE})?|outline(?::${MEMBER_SOURCE})?|${MEMBER_LIST_SOURCE}:raw|${MEMBER_LIST_SOURCE}|\\d+:\\d+|raw:\\d+:\\d+|outline:\\d+:\\d+)$`,
+  `^(?:raw(?::${MEMBER_LIST_SOURCE})?|outline(?::${MEMBER_SOURCE})?|${MEMBER_LIST_SOURCE}:raw|${MEMBER_LIST_SOURCE}|(?:raw:|outline:)?\\d+:\\d+)$`,
   "u",
 );
 
 /** A `<list>:raw` split claims the segment before `:raw` only in this shape. */
 const MEMBER_LIST = new RegExp(`^${MEMBER_LIST_SOURCE}$`, "u");
 
-/** The line members alone, the shape a canonical spelling is written for. */
-const LINE_MEMBER_LIST = new RegExp(
-  `^${LINE_MEMBER_SOURCE}(?:,${LINE_MEMBER_SOURCE})*$`,
+/** A suffix of two bare whole numbers: a line and the column after it. */
+const LINE_AND_COLUMN = /^(\d+):\d+$/u;
+
+/** A misplaced line unit alone, e.g. `L-5`: the one refused member with its
+ *  own hint. Built from the unit constants, so a new reserved unit is refused
+ *  by the shared sentence rather than reaching the member parsing. */
+const MISPLACED_LINE_MEMBER = new RegExp(
+  `^${misplacedMemberSource(LINE_UNIT)}$`,
   "u",
 );
 
-/** A suffix of two bare whole numbers: a line and the column after it. */
-const LINE_AND_COLUMN = /^(\d+):\d+$/u;
+/** Any member that names a reserved unit, at its start or after a minus. */
+const RESERVED_MEMBER = new RegExp(`^-?${RESERVED_UNIT}`, "u");
 
 export function isSelectorSuffix(value: string): boolean {
   return SELECTOR_SUFFIX.test(value);
@@ -490,27 +495,56 @@ export function formatLineRange(start: number, end: number): string {
 }
 
 /**
- * The canonical spelling of a selector the grammar admits for a read: every
- * line member carries an upper-case `L`, a representation keeps its prefix,
- * and a line and column drops the column. `undefined` means a refused shape or
- * something outside the grammar, so a caller prints only what reads back.
+ * The unit letter is accepted on input only: a member reaches the digit-only
+ * placement, the `pending` field, and the canonical spelling as `N`, `N-M`,
+ * `N+K`, `N-`, or `-K`. The separator before the letter is captured so the
+ * replacement keeps it.
+ */
+const UNIT_LETTER = /(^|[-,])[Ll](?=\d)/gu;
+
+/**
+ * A selector's representation and its member list, read once for every step
+ * that needs them: the canonical spelling, the refusal, and the applier.
+ */
+type SelectorParts = {
+  readonly representation?: "raw" | "outline";
+  readonly list: string;
+};
+
+function selectorParts(selector: string): SelectorParts {
+  if (selector.startsWith("raw:"))
+    return { representation: "raw", list: selector.slice(4) };
+
+  if (selector.startsWith("outline:"))
+    return { representation: "outline", list: selector.slice(8) };
+
+  if (selector.endsWith(":raw"))
+    return { representation: "raw", list: selector.slice(0, -4) };
+
+  return { list: selector };
+}
+
+/**
+ * The canonical spelling of a selector a read accepts: every line member
+ * carries an upper-case `L`, a representation keeps its prefix, and a line and
+ * column drops the column. `undefined` means a refused shape, something
+ * outside the grammar, or a member whose bounds no read places, so a caller
+ * prints only what reads back.
  */
 export function canonicalSelector(selector: string): string | undefined {
   if (selector === "raw" || selector === "outline") return selector;
+
+  if (!isSelectorSuffix(selector)) return undefined;
+
   const lineAndColumn = LINE_AND_COLUMN.exec(selector);
 
-  if (lineAndColumn !== null) return `L${lineAndColumn[1]}`;
-  const raw = /^raw:(.*)$/u.exec(selector);
+  if (lineAndColumn !== null) return canonicalMembers(lineAndColumn[1]);
 
-  if (raw !== null) return canonicalMembers(raw[1], "raw");
-  const outline = /^outline:(.*)$/u.exec(selector);
+  const { representation, list } = selectorParts(selector);
 
-  if (outline !== null) return canonicalMembers(outline[1], "outline");
-  const trailingRaw = /^(.*):raw$/u.exec(selector);
+  if (selectorRefusal(representation, list) !== undefined) return undefined;
 
-  if (trailingRaw !== null) return canonicalMembers(trailingRaw[1], "raw");
-
-  return canonicalMembers(selector);
+  return canonicalMembers(list, representation);
 }
 
 /** The canonical spelling of one member list, under its representation. */
@@ -518,32 +552,36 @@ function canonicalMembers(
   value: string,
   representation?: "raw" | "outline",
 ): string | undefined {
-  if (!LINE_MEMBER_LIST.test(value)) return undefined;
+  const members = readableMembers(value);
 
-  const members = value
-    .split(",")
-    .map((member) => {
-      const bare = bareMember(member);
+  if (members === undefined) return undefined;
 
-      return bare.startsWith("-") ? `-L${bare.slice(1)}` : `L${bare}`;
-    })
+  const canonical = members
+    .map((member) =>
+      member.startsWith("-") ? `-L${member.slice(1)}` : `L${member}`,
+    )
     .join(",");
 
   return representation === undefined
-    ? members
-    : `${representation}:${members}`;
+    ? canonical
+    : `${representation}:${canonical}`;
 }
 
 /**
- * The unit letter is accepted on input only: a member reaches the digit-only
- * placement, and the `pending` field, as `N`, `N-M`, `N+K`, `N-`, or `-K`.
+ * The members of a list in their bare spelling, when a read places every one:
+ * the count, the forms, and the bounds all pass. `undefined` otherwise, so a
+ * canonical spelling is printed only for a selector that reads back.
  */
-function bareMember(member: string): string {
-  return member.replaceAll(/(^|-)[Ll](?=\d)/gu, "$1");
-}
+function readableMembers(value: string): Array<string> | undefined {
+  try {
+    const members = splitMembers(value.replaceAll(UNIT_LETTER, "$1"));
 
-function bareMembers(value: string): string {
-  return value.split(",").map(bareMember).join(",");
+    for (const member of members) parseMember(member, 0);
+
+    return members;
+  } catch {
+    return undefined;
+  }
 }
 
 /**
@@ -552,24 +590,23 @@ function bareMembers(value: string): string {
  * representation. The first refused member in list order decides the message,
  * so one list names one rule.
  */
-function selectorRefusal(selector: string): string | undefined {
-  const representation = /^(?:raw|outline):(.*)$/u.exec(selector);
-
-  if (representation !== null && LINE_AND_COLUMN.test(representation[1]))
+function selectorRefusal(
+  representation: "raw" | "outline" | undefined,
+  list: string,
+): string | undefined {
+  if (representation !== undefined && LINE_AND_COLUMN.test(list))
     return invalidSelectorMessage();
-  const trailingRaw = /^(.*):raw$/u.exec(selector);
-  const members = representation?.[1] ?? trailingRaw?.[1] ?? selector;
 
-  for (const member of members.split(",")) {
+  for (const member of list.split(",")) {
     // A misplaced letter has two readings, so the hint names both rather than
     // choosing one; the number is the member's own, as written.
-    if (/^[Ll]-\d+$/u.test(member)) {
+    if (MISPLACED_LINE_MEMBER.test(member)) {
       const count = member.slice(2);
 
       return `Write -L${count} for the last ${count} lines, or L1-${count} for the first ${count}.`;
     }
 
-    if (/^-?[PpMm]/u.test(member)) return invalidSelectorMessage();
+    if (RESERVED_MEMBER.test(member)) return invalidSelectorMessage();
   }
 
   return undefined;
@@ -593,26 +630,14 @@ export function applySelectorSuffix(
 
   if (lineAndColumn !== null)
     return applyMembers(path, lineAndColumn[1], false);
-  const refusal = selectorRefusal(selector);
+  const { representation, list } = selectorParts(selector);
+  const refusal = selectorRefusal(representation, list);
 
   if (refusal !== undefined)
     throw new NativeFileError("invalid_selector", refusal);
-  const trailingRaw = /^(.*):raw$/u.exec(selector);
+  const target = applyMembers(path, list, representation === "raw");
 
-  if (trailingRaw !== null && MEMBER_LIST.test(trailingRaw[1]))
-    return applyMembers(path, bareMembers(trailingRaw[1]), true);
-  const outline = /^outline:(.*)$/u.exec(selector);
-
-  if (outline)
-    return {
-      ...applyMembers(path, bareMembers(outline[1]), false),
-      outline: true,
-    };
-  const raw = /^raw:(.*)$/u.exec(selector);
-
-  if (raw) return applyMembers(path, bareMembers(raw[1]), true);
-
-  return applyMembers(path, bareMembers(selector), false);
+  return representation === "outline" ? { ...target, outline: true } : target;
 }
 
 /**
@@ -623,14 +648,15 @@ export function applySelectorSuffix(
  * list pending, in its bare spelling, for the resolution step.
  */
 function applyMembers(path: string, value: string, raw: boolean): ReadTarget {
-  const members = splitMembers(value);
+  const bare = value.replaceAll(UNIT_LETTER, "$1");
+  const members = splitMembers(bare);
   // A count of zero validates every member's bounds and places an
   // end-relative one to nothing, so a member the count must place is exactly
   // the one that comes back empty.
   const intervals = members.map((member) => parseMember(member, 0));
 
   if (intervals.some((member) => member.limit === 0))
-    return { path, offset: 0, raw, pending: value };
+    return { path, offset: 0, raw, pending: bare };
 
   return {
     path,
@@ -646,20 +672,33 @@ export interface SelectorSplit {
 }
 
 /**
+ * The trailing `:raw` claim: the marker, its representation operand, or a
+ * `:N:M` tail the applier refuses. Each splitter that keeps unknown suffixes
+ * as part of a path shares these three patterns and gates them on its own
+ * rule for where a selector may open.
+ */
+export const RAW_SUFFIX = /:raw(?::(\d+:\d+|[^:/]*))?$/u;
+
+export const OUTLINE_SUFFIX = /:outline(?::(\d+:\d+|[^:/]*))?$/u;
+
+/** A trailing `:N:M` pair, claimed before the last-colon fallback. */
+export const LINE_COLUMN_SUFFIX = /:\d+:\d+$/u;
+
+/**
  * Split the `path:selector` suffix off `input`: the `:raw` and `:outline`
  * forms claim everything after their marker, a line and column splits before
  * the last-colon fallback, and everything else is a path with no selector. A
  * trailing `:raw` takes the colon segment before it as the range list when
- * that segment has the member-list shape and emits the canonical `raw:<list>`
- * spelling; any other segment stays on the path, so `notes:draft:raw` is still
- * the raw read of `notes:draft`. Each trailing representation also claims a
- * `:N:M` tail, which the applier then refuses, so `x.ts:raw:12:5` is not line
- * 12 of `x.ts:raw`. The suffix is returned unvalidated — a caller that acts on
- * it applies the shared grammar, which rejects what the shape gate admits but
- * the read does not.
+ * that segment has the member-list shape; any other segment stays on the path,
+ * so `notes:draft:raw` is still the raw read of `notes:draft`. Each trailing
+ * representation also claims a `:N:M` tail, which the applier then refuses, so
+ * `x.ts:raw:12:5` is not line 12 of `x.ts:raw`. The suffix is returned as
+ * written — a caller that probes `${path}:${selector}` must test the text the
+ * model wrote — and unvalidated: a caller that acts on it applies the shared
+ * grammar, which rejects what the shape gate admits but the read does not.
  */
 export function splitSelectorSuffix(input: string): SelectorSplit {
-  const raw = /:raw(?::(\d+:\d+|[^:/]*))?$/u.exec(input);
+  const raw = RAW_SUFFIX.exec(input);
 
   if (raw) {
     const before = input.slice(0, raw.index);
@@ -670,7 +709,7 @@ export function splitSelectorSuffix(input: string): SelectorSplit {
     return rawSplit(before);
   }
 
-  const outline = /:outline(?::(\d+:\d+|[^:/]*))?$/u.exec(input);
+  const outline = OUTLINE_SUFFIX.exec(input);
 
   if (outline) {
     return {
@@ -679,18 +718,12 @@ export function splitSelectorSuffix(input: string): SelectorSplit {
     };
   }
 
-  // The pattern's group is greedy, so the two colons it leaves are the text's
-  // last two; the first of them must sit after the last path separator, as
-  // the fallback below requires.
-  const lineAndColumn = /^(.*):\d+:\d+$/u.exec(input);
+  const lineAndColumn = LINE_COLUMN_SUFFIX.exec(input);
 
-  if (
-    lineAndColumn !== null &&
-    lineAndColumn[1].length > input.lastIndexOf("/")
-  )
+  if (lineAndColumn !== null && lineAndColumn.index > input.lastIndexOf("/"))
     return {
-      path: lineAndColumn[1],
-      selector: input.slice(lineAndColumn[1].length + 1),
+      path: input.slice(0, lineAndColumn.index),
+      selector: input.slice(lineAndColumn.index + 1),
     };
 
   const colon = input.lastIndexOf(":");
@@ -703,7 +736,9 @@ export function splitSelectorSuffix(input: string): SelectorSplit {
 /**
  * The `<list>:raw` spelling: the segment before a trailing `:raw` is the range
  * list only when it has the member-list shape, so a path segment that merely
- * ends in digits keeps its colon and stays the raw read of that path.
+ * ends in digits keeps its colon and stays the raw read of that path. The
+ * suffix comes back as written, so `notes.md:L4-5:raw` names `L4-5:raw` rather
+ * than a spelling the model never typed.
  */
 function rawSplit(before: string): SelectorSplit {
   const colon = before.lastIndexOf(":");
@@ -713,7 +748,7 @@ function rawSplit(before: string): SelectorSplit {
   const list = before.slice(colon + 1);
 
   return MEMBER_LIST.test(list)
-    ? { path: before.slice(0, colon), selector: `raw:${list}` }
+    ? { path: before.slice(0, colon), selector: `${list}:raw` }
     : { path: before, selector: "raw" };
 }
 

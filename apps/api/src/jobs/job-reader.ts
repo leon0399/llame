@@ -10,7 +10,12 @@ import { type Db } from '../db/tenant-db.service';
 import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
 import { ArtifactsRepository } from '../tools/artifacts/artifacts-repository';
 import { artifactLineCount, artifactText } from '../tools/artifacts/lines';
-import { renderListing } from '../tools/listing-window';
+import {
+  BARE_NUMBER_NOTE,
+  LISTING_RANGE_FORMS,
+  renderListing,
+  type ListingRefusal,
+} from '../tools/listing-window';
 import { nativeErrorResult, selectInMemoryText } from '../tools/text-selection';
 import { type ToolContext, type ToolResult } from '../tools/types';
 import { ChatJobsRepository } from './chat-jobs.repository';
@@ -226,12 +231,18 @@ async function readText(
   }
 }
 
-const listingRefusal = (): ToolResult => ({
-  status: 'error',
-  type: 'invalid_selector',
-  message:
-    'A job listing or record accepts a single :L5-10, :L5+10, :L5-, or :-L5 range; comma ranges, :raw, and :outline are not supported. A bare number also reads as a line.',
-});
+const JOB_LISTING_REFUSAL = `A job listing or record accepts ${LISTING_RANGE_FORMS}; comma ranges, :raw, and :outline are not supported. ${BARE_NUMBER_NOTE}`;
+
+/** The job's wording of a refusal. A selector the applier judged itself keeps
+ *  the applier's text, so a misplaced unit letter shows its own hint. */
+function listingRefusal(refusal: ListingRefusal): ToolResult {
+  const message =
+    refusal.kind === 'invalid' && refusal.message !== undefined
+      ? refusal.message
+      : JOB_LISTING_REFUSAL;
+
+  return { status: 'error', type: 'invalid_selector', message };
+}
 
 function invalidLocatorResult(): ToolResult {
   return {

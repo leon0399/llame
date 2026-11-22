@@ -204,6 +204,31 @@ describe('readArtifact', () => {
     }
   });
 
+  it('shows the misplaced-unit hint for a listing selector', async () => {
+    scriptRepository().listChat.mockResolvedValue([]);
+
+    await expect(
+      readArtifact(contextOf(), 'read', 'artifact://:L-5'),
+    ).resolves.toEqual({
+      status: 'error',
+      type: 'invalid_selector',
+      message: 'Write -L5 for the last 5 lines, or L1-5 for the first 5.',
+    });
+  });
+
+  it('shows the shared refusal for a reserved-unit listing selector', async () => {
+    scriptRepository().listChat.mockResolvedValue([]);
+
+    await expect(
+      readArtifact(contextOf(), 'read', 'artifact://:P3'),
+    ).resolves.toEqual({
+      status: 'error',
+      type: 'invalid_selector',
+      message:
+        'A line selector is :L5, :L5-10, :L5+10, :L5-, or :-L5, or a comma-separated list of them. A bare number also reads as a line. :raw is the whole file, or :raw: followed by a list of them, and :outline takes one of them after the colon. A line number starts at 1.',
+    });
+  });
+
   it('pages a listing that exceeds the read bound', async () => {
     const scripted = scriptRepository();
     scripted.listChat.mockResolvedValue(

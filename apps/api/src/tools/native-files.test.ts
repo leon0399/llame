@@ -2480,6 +2480,16 @@ describe('skill locator resolution', () => {
     });
   });
 
+  it('shows the misplaced-unit hint for a catalog selector', async () => {
+    await expect(
+      runTool(nativeReadTool, { path: 'skill://:L-5' }, skillContext(), 5),
+    ).resolves.toEqual({
+      status: 'error',
+      type: 'invalid_selector',
+      message: 'Write -L5 for the last 5 lines, or L1-5 for the first 5.',
+    });
+  });
+
   it('refuses catalog selectors the listing cannot express', async () => {
     await writePackage('research');
 

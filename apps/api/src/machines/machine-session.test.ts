@@ -566,7 +566,7 @@ describe('MachineSession handshake', () => {
       m: {
         jsonrpc: '2.0',
         id: request.m.id,
-        result: { ...HELLO, protocolVersion: PROTOCOL_VERSION - 1 },
+        result: { ...HELLO, protocolVersion: 2 },
       },
     });
     const error = refusal(await failedCall(answer));

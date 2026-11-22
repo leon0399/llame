@@ -217,49 +217,41 @@ describe("fs.read", () => {
     });
   });
 
-  it("reads the line a line-and-column suffix names when no literal file exists", async () => {
-    const file = join(fixture.root, "x.ts");
-    const lines = Array.from({ length: 12 }, (_, index) => `line ${index + 1}`);
-    await writeFile(file, `${lines.join("\n")}\n`);
-    const local = await nativeReadFile({ path: `${file}:12:5` });
-
-    if (!isLocalFileRead(local)) throw new Error("the local read failed");
-
-    const result = await daemon.call("fs.read", {
-      envelope: envelope(),
-      path: file,
-      options: { displayPrefix: PREFIX, selector: "12:5" },
-    });
-
-    expect(result).toEqual(locatorize(local, PREFIX));
-    expect(result).toMatchObject({
+  it.each([
+    {
+      name: "x.ts",
+      selector: "12:5",
       content: "11: line 11\n12: line 12\n",
-      requestedRange: { startLine: 12, endLine: 12 },
-    });
-  });
-
-  it("reads the lines a lettered range names", async () => {
-    const file = join(fixture.root, "notes");
-    const lines = Array.from({ length: 12 }, (_, index) => `line ${index + 1}`);
-    await writeFile(file, `${lines.join("\n")}\n`);
-    const local = await nativeReadFile({ path: `${file}:L5-10` });
-
-    if (!isLocalFileRead(local)) throw new Error("the local read failed");
-
-    const result = await daemon.call("fs.read", {
-      envelope: envelope(),
-      path: file,
-      options: { displayPrefix: PREFIX, selector: "L5-10" },
-    });
-
-    expect(result).toEqual(locatorize(local, PREFIX));
-    expect(result).toMatchObject({
+      range: { startLine: 12, endLine: 12 },
+    },
+    {
+      name: "notes",
+      selector: "L5-10",
       content:
         "4: line 4\n5: line 5\n6: line 6\n7: line 7\n" +
         "8: line 8\n9: line 9\n10: line 10\n11: line 11\n",
-      requestedRange: { startLine: 5, endLine: 10 },
-    });
-  });
+      range: { startLine: 5, endLine: 10 },
+    },
+  ])(
+    "reads the lines a $selector selector names in $name",
+    async ({ name, selector, content, range }) => {
+      const file = join(fixture.root, name);
+      const lines = Array.from({ length: 12 }, (_, n) => `line ${n + 1}`);
+      await writeFile(file, `${lines.join("\n")}\n`);
+      const local = await nativeReadFile({ path: `${file}:${selector}` });
+
+      if (!isLocalFileRead(local)) throw new Error("the local read failed");
+
+      const result = await daemon.call("fs.read", {
+        envelope: envelope(),
+        path: file,
+        options: { displayPrefix: PREFIX, selector },
+      });
+
+      expect(result).toEqual(locatorize(local, PREFIX));
+      expect(result).toMatchObject({ content, requestedRange: range });
+    },
+  );
 
   it("refuses a reserved-unit selector that names no literal file", async () => {
     await expect(

@@ -3,6 +3,7 @@ import {
   boundFlatResult,
   directoryResult,
   MAX_RESULT_CODE_UNITS,
+  NativeFileError,
   resolveEndRelativeSelector,
   type ReadTarget,
 } from '@workspace/native-file-tools';
@@ -16,8 +17,21 @@ export type ListingWindow = {
   readonly limit?: number;
 };
 
+/** The single-range forms a listing accepts, shared so each reader names them
+ *  the same way. */
+export const LISTING_RANGE_FORMS =
+  'a single :L5-10, :L5+10, :L5-, or :-L5 range';
+
+/** The sentence every listing refusal adds: a bare number reads as a line. */
+export const BARE_NUMBER_NOTE = 'A bare number also reads as a line.';
+
 /** Why a listing refused its selector, for the caller's own wording. */
-export type ListingRefusal = 'invalid' | 'outline' | 'range';
+export type ListingRefusal = {
+  readonly kind: 'invalid' | 'outline' | 'range';
+  /** The applier's own text, when it judged the selector itself; a caller
+   *  keeps its own wording when this is absent. */
+  readonly message?: string;
+};
 
 /**
  * Place a listing selector against the requested level's entry count. A
@@ -35,18 +49,23 @@ export function placeListingSelector(
 
   try {
     target = applySelectorSuffix(locator, selector);
-  } catch {
-    return { refusal: 'invalid' };
+  } catch (error) {
+    if (!(error instanceof NativeFileError)) throw error;
+
+    // A bare refusal names only its type, which the caller words itself.
+    const message = error.message === error.type ? undefined : error.message;
+
+    return { refusal: { kind: 'invalid', message } };
   }
 
-  if (target.outline) return { refusal: 'outline' };
+  if (target.outline) return { refusal: { kind: 'outline' } };
 
   if (
     target.raw ||
     target.ranges !== undefined ||
     target.pending?.includes(',') === true
   ) {
-    return { refusal: 'range' };
+    return { refusal: { kind: 'range' } };
   }
 
   return { window: resolveEndRelativeSelector(target, count) };

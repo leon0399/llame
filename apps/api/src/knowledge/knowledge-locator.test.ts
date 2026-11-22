@@ -12,6 +12,10 @@ import { type KnowledgeToolResolver, type ToolContext } from '../tools/types';
 
 const SPACE = '6f5d8a0f-7dd3-4f6b-b6ed-9e0f0b1c2d3e';
 
+/** The shared refusal, pinned once so a reverted form set fails this file. */
+const SHARED_REFUSAL =
+  'A line selector is :L5, :L5-10, :L5+10, :L5-, or :-L5, or a comma-separated list of them. A bare number also reads as a line. :raw is the whole file, or :raw: followed by a list of them, and :outline takes one of them after the colon. A line number starts at 1.';
+
 const INVALID_PATH = {
   type: 'invalid_path',
   message: 'The Knowledge locator is invalid.',
@@ -182,9 +186,6 @@ describe('knowledge locator parsing', () => {
   it.each([
     [`${SPACE}/notes/a:b.md`, `kb://${SPACE}/notes/a%3Ab.md`],
     [`${SPACE}/note.md:5-10,,20-30`, `kb://${SPACE}/note.md%3A5-10,,20-30`],
-    // A letter that is not the unit, and a `+` with no length after it, are
-    // outside the grammar: the shared refusal still names the `%3A` spelling.
-    [`${SPACE}/notes.md:5-10x`, `kb://${SPACE}/notes.md%3A5-10x`],
     [`${SPACE}/note.md:raw:outline`, `kb://${SPACE}/note.md%3Araw%3Aoutline`],
     [`${SPACE}/note.md:outline:1,3`, `kb://${SPACE}/note.md%3Aoutline%3A1,3`],
     // The Space directory has no resource path, so nothing is spelled for it.
@@ -199,6 +200,15 @@ describe('knowledge locator parsing', () => {
         expect.stringContaining(spelling),
       );
     }
+  });
+
+  it('answers a malformed selector with the shared forms and the spelling', () => {
+    // A letter that is not the unit is outside the grammar, so the suffix is
+    // refused: the forms come first, then the `%3A` spelling of the locator.
+    expect(parseKnowledgeLocator(`${SPACE}/notes.md:5-10x`)).toStrictEqual({
+      type: 'invalid_selector',
+      message: `${SHARED_REFUSAL} For a literal colon, write this locator as kb://${SPACE}/notes.md%3A5-10x`,
+    });
   });
 
   it('encodes a percent in the suffix so the hint reads the same file', () => {

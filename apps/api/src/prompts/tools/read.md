@@ -38,7 +38,7 @@ Append `:<sel>` to `path` (e.g. `src/foo.ts:L50-200`, `src/foo.ts:raw`{{!, `db.s
 ### Outline Selector
 
 - `:outline` - Selects Markdown structure as ordinary line-numbered source lines.
-- `:outline:L5-10` - Limits the outline to source lines 5 through 10, prepending the headings enclosing them (e.g. `src/foo.ts:outline:L5-40`); one line member, not a list.
+- `:outline:L5-10` - Limits the outline to source lines 5 through 10, prepending the headings enclosing them (e.g. `docs/guide.md:outline:L5-40`); one line member, not a list.
 {{!--
 
 ### Vision Selectors

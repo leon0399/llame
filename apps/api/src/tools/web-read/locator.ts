@@ -1,6 +1,9 @@
 import {
   canonicalSelector,
   isSelectorSuffix,
+  LINE_COLUMN_SUFFIX,
+  OUTLINE_SUFFIX,
+  RAW_SUFFIX,
 } from '@workspace/native-file-tools';
 
 import {
@@ -15,26 +18,6 @@ import {
  * and exactly what policy matches.
  */
 export type WebLocator = { readonly url: string; readonly selector?: string };
-
-/**
- * The shipped trailing-selector grammar, reused unchanged: the `:raw` forms
- * first, then the `:outline` forms, then the line-and-column form, else the
- * last colon after the last slash. A URL's own scheme colon can never win,
- * because it always precedes the authority's slashes; whether a match may
- * split at all is `opensSelector`'s call. A trailing `:raw` claims the colon
- * segment before it as the range list when that segment has the member-list
- * shape and emits the canonical `raw:<list>` suffix, so `guide:60-64:raw` and
- * `guide:raw:60-64` are one selector downstream while `notes:draft:raw` stays
- * the raw read of `notes:draft`.
- *
- * A `:N:M` tail is claimed whole by the representation patterns, so
- * `x.ts:raw:12:5` is the refused shape `raw:12:5` rather than line 12 of
- * `x.ts:raw`, and the standalone `N:M` form is claimed before the last-colon
- * fallback, so `x.ts:12:5` is line 12 of `x.ts`.
- */
-const RAW_SELECTOR = /:raw(?::(\d+:\d+|[^:/]*))?$/u;
-const OUTLINE_SELECTOR = /:outline(?::(\d+:\d+|[^:/]*))?$/u;
-const LINE_COLUMN_SELECTOR = /:\d+:\d+$/u;
 
 const INVALID_URL_MESSAGE =
   'Write this locator as an absolute http:// or https:// URL.';
@@ -71,9 +54,23 @@ function opensSelector(text: string, index: number): boolean {
 /**
  * The split {@link parseWebLocator} makes, exposed so permission matching
  * strips exactly what the read tool splits off and nothing else.
+ *
+ * The shared patterns are tried in the splitter's own order: the `:raw` forms
+ * first, then the `:outline` forms, then the line-and-column form, else the
+ * last colon after the last slash. A URL's own scheme colon can never win,
+ * because it always precedes the authority's slashes; whether a match may
+ * split at all is `opensSelector`'s call. A trailing `:raw` claims the colon
+ * segment before it as the range list when that segment has the member-list
+ * shape and keeps the suffix as written, so `guide:60-64:raw` is `60-64:raw`
+ * downstream while `notes:draft:raw` stays the raw read of `notes:draft`.
+ *
+ * A `:N:M` tail is claimed whole by the representation patterns, so
+ * `x.ts:raw:12:5` is the refused shape `raw:12:5` rather than line 12 of
+ * `x.ts:raw`, and the standalone `N:M` form is claimed before the last-colon
+ * fallback, so `x.ts:12:5` is line 12 of `x.ts`.
  */
 export function splitWebSelector(text: string): SplitLocator {
-  const raw = RAW_SELECTOR.exec(text);
+  const raw = RAW_SUFFIX.exec(text);
 
   if (raw !== null && opensSelector(text, raw.index)) {
     const before = text.slice(0, raw.index);
@@ -94,18 +91,19 @@ export function splitWebSelector(text: string): SplitLocator {
       // The claim is the grammar's own `<list>:raw` spelling, so the segment
       // behind a trailing `:raw` is the range list exactly when the shared
       // grammar admits that suffix. A segment that merely ends in digits keeps
-      // its colon and stays the raw read of that path.
+      // its colon and stays the raw read of that path. The suffix is the text
+      // the model wrote, so it names the same selector the path splitter does.
       const list = before.slice(colon + 1);
 
       if (isSelectorSuffix(`${list}:raw`)) {
-        return { url: before.slice(0, colon), selector: `raw:${list}` };
+        return { url: before.slice(0, colon), selector: `${list}:raw` };
       }
     }
 
     return { url: before, selector: 'raw' };
   }
 
-  const outline = OUTLINE_SELECTOR.exec(text);
+  const outline = OUTLINE_SUFFIX.exec(text);
 
   if (outline !== null && opensSelector(text, outline.index)) {
     return {
@@ -116,7 +114,7 @@ export function splitWebSelector(text: string): SplitLocator {
 
   // A compiler-style `:N:M` names line `N`: the pair is one selector form, so
   // it is claimed before the last-colon fallback would read only the column.
-  const lineColumn = LINE_COLUMN_SELECTOR.exec(text);
+  const lineColumn = LINE_COLUMN_SUFFIX.exec(text);
 
   if (lineColumn !== null && opensSelector(text, lineColumn.index)) {
     return {

@@ -100,52 +100,52 @@ describe('parseWebLocator', () => {
     });
   });
 
-  it('splits the lettered, line-and-column, and refused shapes as written', () => {
+  it.each([
     // The unit letter reaches this source unchanged: the split hands the text
     // on as written, and the applier is what drops the letter.
-    expect(parseWebLocator('https://example.test/guide:L10-20')).toEqual({
-      url: 'https://example.test/guide',
-      selector: 'L10-20',
-    });
-    expect(parseWebLocator('https://example.test/guide:l10-L20')).toEqual({
-      url: 'https://example.test/guide',
-      selector: 'l10-L20',
-    });
+    [
+      'https://example.test/guide:L10-20',
+      'https://example.test/guide',
+      'L10-20',
+    ],
+    [
+      'https://example.test/guide:l10-L20',
+      'https://example.test/guide',
+      'l10-L20',
+    ],
     // A compiler location is one selector form, so the column never becomes
-    // the line: line 12 is what this reads.
-    expect(parseWebLocator('https://example.test/src/x.ts:12:5')).toEqual({
-      url: 'https://example.test/src/x.ts',
-      selector: '12:5',
-    });
-    // A representation plus a line and column is claimed whole, so the refusal
-    // names `raw:12:5` rather than reading line 5 of `…:raw:12`.
-    expect(parseWebLocator('https://example.test/src/x.ts:raw:12:5')).toEqual({
-      url: 'https://example.test/src/x.ts',
-      selector: 'raw:12:5',
-    });
-    expect(
-      parseWebLocator('https://example.test/src/x.ts:outline:12:5'),
-    ).toEqual({
-      url: 'https://example.test/src/x.ts',
-      selector: 'outline:12:5',
-    });
+    // the line: line 12 is what this reads, and a representation plus a line
+    // and column is claimed whole so the refusal names `raw:12:5` rather than
+    // reading line 5 of `…:raw:12`.
+    [
+      'https://example.test/src/x.ts:12:5',
+      'https://example.test/src/x.ts',
+      '12:5',
+    ],
+    [
+      'https://example.test/src/x.ts:raw:12:5',
+      'https://example.test/src/x.ts',
+      'raw:12:5',
+    ],
+    [
+      'https://example.test/src/x.ts:outline:12:5',
+      'https://example.test/src/x.ts',
+      'outline:12:5',
+    ],
     // A reserved unit and a misplaced letter are selector shapes the grammar
     // refuses: the split claims them, and the applier refuses them after the
     // read is placed.
-    expect(parseWebLocator('https://example.test/guide:P3')).toEqual({
-      url: 'https://example.test/guide',
-      selector: 'P3',
-    });
-    expect(parseWebLocator('https://example.test/guide:L-5')).toEqual({
-      url: 'https://example.test/guide',
-      selector: 'L-5',
-    });
-    // A lettered list behind a trailing `:raw` is claimed like a bare one: the
-    // grammar's member list is shared, so the canonical raw spelling follows.
-    expect(parseWebLocator('https://example.test/guide:L4-5:raw')).toEqual({
-      url: 'https://example.test/guide',
-      selector: 'raw:L4-5',
-    });
+    ['https://example.test/guide:P3', 'https://example.test/guide', 'P3'],
+    ['https://example.test/guide:L-5', 'https://example.test/guide', 'L-5'],
+    // A lettered list behind a trailing `:raw` is claimed like a bare one and
+    // keeps the order the model wrote.
+    [
+      'https://example.test/guide:L4-5:raw',
+      'https://example.test/guide',
+      'L4-5:raw',
+    ],
+  ])('splits %s as written', (locator, url, selector) => {
+    expect(parseWebLocator(locator)).toEqual({ url, selector });
   });
 
   it('recognizes outline selectors before the numeric fallback', () => {
@@ -424,7 +424,8 @@ describe('parseWebLocator', () => {
       selector: '-5',
     });
     // A trailing `:raw` claims the colon segment before it only when that
-    // segment is a member list, and emits the canonical spelling either way.
+    // segment is a member list, and keeps the suffix the model wrote either
+    // way, so the two raw orders name one read without being rewritten.
     expect(
       parseWebLocator('https://w.example/wiki/Special:Search:raw'),
     ).toEqual({
@@ -433,7 +434,7 @@ describe('parseWebLocator', () => {
     });
     expect(parseWebLocator('https://example.test/guide:60-64:raw')).toEqual({
       url: 'https://example.test/guide',
-      selector: 'raw:60-64',
+      selector: '60-64:raw',
     });
     expect(parseWebLocator('https://example.test/guide:raw:60-64')).toEqual({
       url: 'https://example.test/guide',
@@ -441,7 +442,7 @@ describe('parseWebLocator', () => {
     });
     expect(parseWebLocator('https://example.test/docs/2024:10:raw')).toEqual({
       url: 'https://example.test/docs/2024',
-      selector: 'raw:10',
+      selector: '10:raw',
     });
     expect(parseWebLocator('https://h/doc.md:notes:draft:raw')).toEqual({
       url: 'https://h/doc.md:notes:draft',
