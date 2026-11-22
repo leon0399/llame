@@ -521,9 +521,9 @@ test.describe("personal Knowledge tools (browser, full stack)", () => {
     await continuedRead.click();
     const continuedReadDetails = continuedRead.locator("..");
     await expect(continuedReadDetails).toContainText(longNotePath);
-    // The continuation locator carries an explicit `:L<start>-<end>` selector
-    // with its unit letter, derived from the first read's own `nextOffset`,
-    // not a separate offset/limit argument.
+    // The continuation locator carries an explicit `:L<start>-<end>` selector,
+    // derived from the first read's own `nextOffset`, not a separate
+    // offset/limit argument.
     await expect(continuedReadDetails).toContainText(
       /notes\/long-note\.md:L\d+-\d+/u,
     );

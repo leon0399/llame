@@ -137,7 +137,7 @@ below 2,000 code units; an entry that does not fit is left out.
 The artifact notice is the last bracketed line:
 
 ```text
-[full result: artifact://grep-7 (4812 lines); continue with artifact://grep-7:201-]
+[full result: artifact://grep-7 (4812 lines); continue with artifact://grep-7:L201-]
 ```
 
 `<next>` is the artifact line after the last inline passage. When the writer

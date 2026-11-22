@@ -89,8 +89,6 @@ function asRanges(value: unknown): Array<LineRange> {
   return ranges;
 }
 
-/** One stored range as the printed selector member (`L11-41`), shared by the
- *  header and every resuming selector so both name the same lines. */
 function formatRange(range: LineRange): string {
   return formatLineRange(range.startLine, range.endLine);
 }
@@ -211,8 +209,6 @@ function rangeSelector(
 function multiSelector(ranges: Array<LineRange>, nextOffset: number): string {
   const line = nextOffset + 1;
   const at = ranges.findIndex((range) => line <= range.endLine);
-
-  if (at < 0) return `L${line}-`;
   const member = ranges[at];
 
   if (member === undefined) return `L${line}-`;

@@ -233,16 +233,6 @@ const KNOWLEDGE_LOCATOR_ANSWER_TOKENS = [
   " exactly.",
 ];
 
-/** A `kb://` path component never contains `:`, so a trailing `:selector`
- *  suffix is always the last one — matches native-files.ts's own grammar,
- *  whose line members take the `L` unit. A stored locator keeps the bare
- *  spelling it printed before the unit letter, so both parse. */
-const KNOWLEDGE_SELECTOR_SUFFIX = /:(?:raw(?::L?\d+-\d+)?|L?\d+[-+]\d+)$/u;
-
-function stripKnowledgeSelector(locator: string): string {
-  return locator.replace(KNOWLEDGE_SELECTOR_SUFFIX, "");
-}
-
 function knowledgeLocator(
   spaceId: string | undefined,
   relativePath: string,
@@ -511,7 +501,7 @@ function findCanonicalCoordinates(
  *  stored before the unit letter keeps its bare `locator:<start>-<end>`, so
  *  both spellings parse. */
 const READ_HEADER_RE =
-  /^(\S+?):(?:raw:|outline:)?L?(?:\d| empty| line \d+ exceeds)/u;
+  /^(\S+?):(?:raw:|outline:)?(?:L?\d| empty| line \d+ exceeds)/u;
 
 /** A cut read ends with one bracketed continuation line naming the locator
  *  and the one-based line the next read resumes at, in either spelling. */
@@ -1016,7 +1006,7 @@ function tryKnowledgeLocatorAnswerTurn(ctx: ChunkContext): boolean {
 }
 
 // `read`'s only argument is `path`; a Knowledge read selects `kb://` and
-// carries any selector, spelled with its `L` unit, inside that one string.
+// carries any selector inside that one string.
 function knowledgeReadArguments(ctx: ChunkContext) {
   const explicitRange = ctx.lastUserContent.includes("explicit range");
 
@@ -1092,8 +1082,7 @@ function tryKnowledgeContinuationTurn(ctx: ChunkContext): boolean {
 
   // A continuation carries no separate offset/limit arguments; it re-derives
   // a `kb://` selector from the PREVIOUS read result's own continuation line:
-  // its locator and the one-based line the result names, written in the
-  // canonical `L` spelling the result prints.
+  // its locator and the one-based line the result names.
   const continuation = ctx.knowledgeContinuation;
   const continuationStart = continuation?.start;
   writeToolCall(ctx.res, {
@@ -1106,7 +1095,7 @@ function tryKnowledgeContinuationTurn(ctx: ChunkContext): boolean {
           path:
             continuation === undefined || continuationStart === undefined
               ? undefined
-              : `${stripKnowledgeSelector(continuation.locator)}:L${continuationStart}-${continuationStart + 1999}`,
+              : `${continuation.locator}:L${continuationStart}-${continuationStart + 1999}`,
         }
       : {
           query: KNOWLEDGE_PAGED_QUERY,

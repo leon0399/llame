@@ -14,11 +14,13 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   `artifact://<tool>-<n>:L1-`, and a bash spill reads
   `[lines 41-4880 omitted; read artifact://bash-5/stdout:L41-4880]`. The bare
   forms remain valid input, so a selector copied from a stored result still
-  reads the same lines. A stored result replays through the same renderer, so
-  the headers, continuations, and notices of earlier turns print the new
-  spelling too. **Breaking**: a client that parses the printed `path:5-10` form
-  or the printed artifact and bash notices must accept the `L` spelling. The
-  JSON fields, the stored parts, and the input grammar are otherwise unchanged.
+  reads the same lines. A stored read result replays through the same
+  renderer, so the headers and continuations of earlier turns print the new
+  spelling too; an artifact, web_search, head-spill, or bash notice is stored as
+  text and keeps the spelling it was written with. **Breaking**: a client that
+  parses the printed `path:5-10` form or the printed artifact and bash notices
+  must accept the `L` spelling. The JSON fields, the stored parts, and the input
+  grammar are otherwise unchanged.
 
 - Accept the unit letter `L` on every `read` line selector, reserve `P` and `M`,
   fold a pasted `file:12:5` to line 12, and answer `L-5` with a fixed hint. A

@@ -603,7 +603,7 @@ describe('McpRuntimeService', () => {
     }
 
     expect(result.truncationNotice).toContain(locator);
-    expect(result.truncationNotice).toContain(':1-');
+    expect(result.truncationNotice).toContain(`${locator}:L1-`);
     expect(append.mock.calls[0]?.[2]).toMatchObject({
       result: { artifact: locator },
     });
