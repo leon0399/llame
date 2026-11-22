@@ -382,9 +382,7 @@ function catalogWindow(
 /** The catalog's wording of a refusal: the applier's own text when it judged
  *  the selector, and the catalog's sentence for each shape it names. */
 function catalogRefusal(refusal: ListingRefusal): string {
-  if (refusal.kind === 'invalid') {
-    return refusal.message ?? 'The skill catalog selector is invalid.';
-  }
+  if (refusal.kind === 'invalid') return refusal.message;
 
   return refusal.kind === 'outline'
     ? 'The :outline member is not supported for the skill catalog.'

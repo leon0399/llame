@@ -197,7 +197,15 @@ describe('readArtifact', () => {
   it('refuses an outline, a raw form, and an invalid listing selector', async () => {
     scriptRepository().listChat.mockResolvedValue([]);
 
-    for (const selector of [':outline', ':raw', ':abc']) {
+    await expect(
+      readArtifact(contextOf(), 'read', 'artifact://:outline'),
+    ).resolves.toEqual({
+      status: 'error',
+      type: 'invalid_selector',
+      message: 'The :outline member is not supported for artifact listings.',
+    });
+
+    for (const selector of [':raw', ':abc']) {
       expect(
         await readArtifact(contextOf(), 'read', `artifact://${selector}`),
       ).toMatchObject({ status: 'error', type: 'invalid_selector' });

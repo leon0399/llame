@@ -26,12 +26,11 @@ export const LISTING_RANGE_FORMS =
 export const BARE_NUMBER_NOTE = 'A bare number also reads as a line.';
 
 /** Why a listing refused its selector, for the caller's own wording. */
-export type ListingRefusal = {
-  readonly kind: 'invalid' | 'outline' | 'range';
-  /** The applier's own text, when it judged the selector itself; a caller
-   *  keeps its own wording when this is absent. */
-  readonly message?: string;
-};
+export type ListingRefusal =
+  /** The applier's own text for a selector it judged itself. */
+  | { readonly kind: 'invalid'; readonly message: string }
+  | { readonly kind: 'outline' }
+  | { readonly kind: 'range' };
 
 /**
  * Place a listing selector against the requested level's entry count. A
@@ -52,10 +51,7 @@ export function placeListingSelector(
   } catch (error) {
     if (!(error instanceof NativeFileError)) throw error;
 
-    // A bare refusal names only its type, which the caller words itself.
-    const message = error.message === error.type ? undefined : error.message;
-
-    return { refusal: { kind: 'invalid', message } };
+    return { refusal: { kind: 'invalid', message: error.message } };
   }
 
   if (target.outline) return { refusal: { kind: 'outline' } };

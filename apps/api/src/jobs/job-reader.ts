@@ -237,9 +237,7 @@ const JOB_LISTING_REFUSAL = `A job listing or record accepts ${LISTING_RANGE_FOR
  *  the applier's text, so a misplaced unit letter shows its own hint. */
 function listingRefusal(refusal: ListingRefusal): ToolResult {
   const message =
-    refusal.kind === 'invalid' && refusal.message !== undefined
-      ? refusal.message
-      : JOB_LISTING_REFUSAL;
+    refusal.kind === 'invalid' ? refusal.message : JOB_LISTING_REFUSAL;
 
   return { status: 'error', type: 'invalid_selector', message };
 }

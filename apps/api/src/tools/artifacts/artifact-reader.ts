@@ -206,7 +206,7 @@ async function readStoredPart(
 function listingRefusal(refusal: ListingRefusal): ToolResult {
   const message =
     refusal.kind === 'invalid'
-      ? (refusal.message ?? 'The artifact listing selector is invalid.')
+      ? refusal.message
       : refusal.kind === 'outline'
         ? 'The :outline member is not supported for artifact listings.'
         : `An artifact listing accepts ${LISTING_RANGE_FORMS}; comma ranges and :raw are not supported. ${BARE_NUMBER_NOTE}`;
