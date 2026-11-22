@@ -266,7 +266,12 @@ export function resolveMachinePath(
 
     if (parsed.kind !== 'path') return { kind: 'scheme' };
 
-    return machineTarget(parsed.name, parsed.path, context, parsed.selector);
+    // The parser split the selector off the raw locator before decoding, so a
+    // percent-encoded colon is path text and the decoded path is read as is.
+    return machineTarget(parsed.name, parsed.path, context, {
+      path: parsed.path,
+      selector: parsed.selector,
+    });
   }
 
   const scheme = parsePathScheme(value);
@@ -306,27 +311,25 @@ function relativeTarget(
   const trailing =
     split.path.endsWith('/') && resolved !== '/' ? `${resolved}/` : resolved;
 
-  return machineTarget(name, trailing, context, split.selector);
+  return machineTarget(name, trailing, context, {
+    path: trailing,
+    selector: split.selector,
+  });
 }
 
 /**
- * One Machine address from a decoded path. The path is split into the file it
- * names and a valid trailing read selector, so a locator for a file whose name
- * holds `#` or `:` round-trips through the canonical text.
+ * One Machine address from a decoded path. The split the caller supplies is
+ * the authority on what the locator names: a appended selector stays a
+ * selector, and a path a locator already decoded keeps its literal colons.
  */
 function machineTarget(
   name: string | undefined,
   value: string,
   context: LocatorContext,
-  selector?: string,
+  split: ReadSplit = splitReadSelector(value),
 ): ResolvedLocator {
   if (name === undefined)
     return { kind: 'invalid', message: NO_CURRENT_MACHINE_MESSAGE };
-
-  const split =
-    selector === undefined
-      ? splitReadSelector(value)
-      : { path: value, selector };
 
   const locator = formatMachineLocator(name, split.path, split.selector);
 
@@ -349,11 +352,14 @@ function machineTarget(
   };
 }
 
-/** A path and the read selector a valid trailing suffix spells, if any. */
-function splitReadSelector(value: string): {
+/** A path and the read selector split off it, if the text held one. */
+type ReadSplit = {
   readonly path: string;
   readonly selector?: string;
-} {
+};
+
+/** A path and the read selector a valid trailing suffix spells, if any. */
+function splitReadSelector(value: string): ReadSplit {
   const split = splitSelectorSuffix(value);
 
   return split.selector !== undefined && isSelectorSuffix(split.selector)

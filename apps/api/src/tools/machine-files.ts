@@ -14,6 +14,7 @@ import {
 } from '@workspace/machine-protocol';
 import {
   formatMachineLocator,
+  isMachineLocator,
   machinePrefix,
   parseMachineLocator,
   type MachineLocator,
@@ -155,6 +156,9 @@ export function serializeNativeMutation(
 type ReportedNativePath = {
   readonly locator: string;
   readonly reportPath: (hostPath: string) => string;
+  /** The submitted path was a `machine://` locator, so its host path is
+   *  decoded and its selector is already split off. */
+  readonly decoded?: { readonly selector?: string };
 };
 
 /**
@@ -173,10 +177,14 @@ export async function executeLocalNative(
 
   if (refusal !== undefined) return refusal;
 
-  // A read takes the literal suffix as written, exactly as a bare host path
-  // does; a mutation's selector was already refused by the Machine grammar.
+  // A `machine://` read takes the name the parser decoded, so a colon the
+  // path still holds is part of the file name. A bare host path keeps the
+  // host grammar, where the literal-path probe decides what a suffix means;
+  // and a mutation's selector was already refused by the Machine grammar.
+  const decoded = call.operation === 'read' && isMachineLocator(submitted);
+
   const path =
-    target.selector === undefined
+    decoded || target.selector === undefined
       ? target.path
       : `${target.path}:${target.selector}`;
 
@@ -186,6 +194,11 @@ export async function executeLocalNative(
     locator: target.locator,
     reportPath: (hostPath) =>
       formatMachineLocator(target.name, hostPath) ?? hostPath,
+    ...(decoded && {
+      decoded: {
+        ...(target.selector !== undefined && { selector: target.selector }),
+      },
+    }),
   };
 
   const operation = () =>
@@ -282,12 +295,7 @@ async function executeNativeBound(
   if (prior) return prior;
   context.abortSignal?.throwIfAborted();
 
-  const result = await performNative(
-    call,
-    context,
-    submitted,
-    reported?.reportPath,
-  );
+  const result = await performNative(call, context, submitted, reported);
 
   if (call.operation !== 'read')
     await commitNativeResult(context, result, bound);
@@ -299,14 +307,20 @@ function performNative(
   call: MachineFileCall,
   context: ToolContext,
   submitted: string,
-  reportPath?: (hostPath: string) => string,
+  reported?: ReportedNativePath,
 ): Promise<ToolResult> {
+  const reportPath = reported?.reportPath;
+  const decoded = reported?.decoded;
+
   return call.operation === 'read'
     ? readFile(
         call.input,
         context.abortSignal,
         context.media?.readMedia(submitted, context.toolCallId),
-        reportPath === undefined ? {} : { reportPath },
+        {
+          ...(reportPath !== undefined && { reportPath }),
+          ...(decoded !== undefined && { decoded }),
+        },
       )
     : performMutation(call, call.input.path, {
         signal: context.abortSignal,

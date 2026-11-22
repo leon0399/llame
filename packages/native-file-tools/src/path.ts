@@ -353,7 +353,17 @@ async function realPathField(path: string): Promise<{ realPath?: string }> {
   }
 }
 
-export async function resolveReadTarget(input: string): Promise<ReadTarget> {
+/** The literal-path probe's answer: the target the whole text names, or the
+ *  filesystem error that leaves the text to selector parsing. */
+type HostProbe =
+  | { readonly kind: "target"; readonly target: ReadTarget }
+  | { readonly kind: "missing"; readonly error: NodeJS.ErrnoException };
+
+/**
+ * Probe the whole input as one literal path. A missing or overlong name is the
+ * caller's cue that the text may carry a read selector instead.
+ */
+async function probeHostPath(input: string): Promise<HostProbe> {
   if (parsePathScheme(input) || !isAbsolute(input) || input.includes("\0"))
     throw new NativeFileError("invalid_path");
 
@@ -362,16 +372,22 @@ export async function resolveReadTarget(input: string): Promise<ReadTarget> {
 
   try {
     if (await isDirectoryTarget(cleanPath)) {
-      return { path: cleanPath, offset: 0, raw: false, directory: true };
+      return {
+        kind: "target",
+        target: { path: cleanPath, offset: 0, raw: false, directory: true },
+      };
     }
 
     if (hasTrailingSep) throw new NativeFileError("not_found");
 
     return {
-      path: cleanPath,
-      offset: 0,
-      raw: false,
-      ...(await realPathField(cleanPath)),
+      kind: "target",
+      target: {
+        path: cleanPath,
+        offset: 0,
+        raw: false,
+        ...(await realPathField(cleanPath)),
+      },
     };
   } catch (error) {
     if (error instanceof NativeFileError) throw error;
@@ -384,13 +400,45 @@ export async function resolveReadTarget(input: string): Promise<ReadTarget> {
     // An overlong name cannot exist as a literal path, so it falls through
     // to selector parsing instead of surfacing a filesystem error.
     if (code !== "ENOENT" && code !== "ENAMETOOLONG") throw error;
-  }
 
-  if (hasTrailingSep) throw new NativeFileError("not_found");
+    return { kind: "missing", error };
+  }
+}
+
+export async function resolveReadTarget(input: string): Promise<ReadTarget> {
+  const probe = await probeHostPath(input);
+
+  if (probe.kind === "target") return probe.target;
+
+  if (input.length > 1 && input.endsWith("/"))
+    throw new NativeFileError("not_found");
 
   const parsed = parseSelector(input);
 
   return classifyParsedTarget(parsed);
+}
+
+/**
+ * The read of a decoded `machine://` path whose read selector the locator
+ * parser already split: that split is the authority, so the name is read as
+ * written and the selector, when the parser found one, applies verbatim.
+ */
+export async function resolveDecodedReadTarget(
+  input: string,
+  selector?: string,
+): Promise<ReadTarget> {
+  const probe = await probeHostPath(input);
+
+  if (probe.kind === "missing") throw probe.error;
+  const { target } = probe;
+
+  if (selector === undefined) return target;
+
+  return {
+    ...applySelectorSuffix(target.path, selector),
+    ...(target.directory === true && { directory: true }),
+    ...(target.realPath !== undefined && { realPath: target.realPath }),
+  };
 }
 
 /** One member: `N`, `N-M`, `N+K`, `N-`, or `-K`. */

@@ -150,6 +150,34 @@ describe('resolveMachinePath', () => {
     });
   });
 
+  it('keeps the parser split of a machine:// locator', () => {
+    // The parser splits the selector off the RAW text and decodes the rest, so
+    // an encoded colon is a file name and is never split a second time.
+    expect(resolveMachinePath('machine://gpu/srv/report%3A2', BOUND)).toEqual({
+      kind: 'machine',
+      name: 'gpu',
+      path: '/srv/report:2',
+      locator: 'machine://gpu/srv/report%3A2',
+      local: false,
+    });
+    // A colon written literally is still a selector, and a suffix outside the
+    // grammar is still part of the file name.
+    expect(
+      resolveMachinePath('machine://gpu/srv/report:2', BOUND),
+    ).toMatchObject({
+      path: '/srv/report',
+      selector: '2',
+      locator: 'machine://gpu/srv/report:2',
+    });
+    expect(resolveMachinePath('machine://gpu/srv/notes:draft', BOUND)).toEqual({
+      kind: 'machine',
+      name: 'gpu',
+      path: '/srv/notes:draft',
+      locator: 'machine://gpu/srv/notes%3Adraft',
+      local: false,
+    });
+  });
+
   it('refuses a malformed machine:// path', () => {
     expect(resolveMachinePath('machine://bad_name/x', BOUND)).toMatchObject({
       kind: 'invalid',

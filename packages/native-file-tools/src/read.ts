@@ -11,6 +11,7 @@ import {
   isNodeError,
   NativeFileError,
   openFlags,
+  resolveDecodedReadTarget,
   resolveReadTarget,
   type ReadTarget,
 } from "./path";
@@ -92,6 +93,10 @@ export type NativeReadOptions = {
 /** Options for a read that keeps its host path and only reports another. */
 export type NativeReadFileOptions = {
   readonly reportPath?: (hostPath: string) => string;
+  /** The path is a decoded `machine://` path and `selector` is the suffix the
+   *  locator parser already split off it. The name is read as written: a
+   *  colon it still holds is part of the file name, never a selector. */
+  readonly decoded?: { readonly selector?: string };
 };
 
 export async function loadText(
@@ -128,7 +133,11 @@ export async function readFile(
   let hostPath = input.path;
 
   try {
-    const target = await resolveReadTarget(input.path);
+    const target =
+      options.decoded === undefined
+        ? await resolveReadTarget(input.path)
+        : await resolveDecodedReadTarget(input.path, options.decoded.selector);
+
     hostPath = target.path;
     const reported = reportTarget(target, options.reportPath);
 
@@ -161,30 +170,6 @@ function reportTarget(
     path: report(target.path),
     ...(realPath !== undefined && { realPath: report(realPath) }),
   };
-}
-
-/** A listing's link targets are reported paths too; a raw relative target is
- *  text the link itself holds and stays as written. */
-function rewriteLinkTargets(
-  content: string,
-  report: ((hostPath: string) => string) | undefined,
-): string {
-  if (report === undefined) return content;
-  const marker = " -> ";
-
-  return content
-    .split("\n")
-    .map((line) => {
-      const index = line.lastIndexOf(marker);
-
-      if (index === -1) return line;
-      const target = line.slice(index + marker.length);
-
-      return target.startsWith("/")
-        ? `${line.slice(0, index + marker.length)}${report(target)}`
-        : line;
-    })
-    .join("\n");
 }
 
 /**
@@ -294,6 +279,28 @@ function listingOptions(target: ReadTarget): DirectoryListingOptions {
   return options;
 }
 
+/**
+ * The port whose link metadata is already reported: a link target is a path in
+ * the result, so a caller that reports another address for the same file (a
+ * canonical locator) rewrites it before the listing renders, and a listing
+ * built from names can never forge one. A relative raw link text is the link's
+ * own text and stays as written.
+ */
+function reportingDirectoryPort(
+  report: ((hostPath: string) => string) | undefined,
+): DirectoryPort {
+  if (report === undefined) return NODE_DIRECTORY_PORT;
+
+  const target = (value: string) =>
+    value.startsWith("/") ? report(value) : value;
+
+  return {
+    ...NODE_DIRECTORY_PORT,
+    realpath: async (path) => target(await realpath(path)),
+    readlink: async (path) => target(await readlink(path)),
+  };
+}
+
 async function runListing(
   hostPath: string,
   target: ReadTarget,
@@ -303,18 +310,11 @@ async function runListing(
 
   if (refusal !== undefined) return refusal;
 
-  const listing = await listDirectory(
+  return listDirectory(
     hostPath,
-    NODE_DIRECTORY_PORT,
+    reportingDirectoryPort(reportPath),
     listingOptions(target),
   );
-
-  return "content" in listing
-    ? {
-        ...listing,
-        content: rewriteLinkTargets(listing.content, reportPath),
-      }
-    : listing;
 }
 
 async function readFailure(

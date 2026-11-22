@@ -1130,6 +1130,136 @@ describe('local Machine routing', () => {
       await rm(root, { recursive: true, force: true });
     }
   });
+
+  it('reads a Machine path whose name encodes a colon, not its sibling', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'local-colon-read-'));
+    const file = join(root, 'report:2');
+    await writeFile(file, 'literal bytes');
+    await writeFile(join(root, 'report'), 'one\ntwo\nthree');
+
+    vi.spyOn(NativeFilesRepository.prototype, 'begin').mockResolvedValue(
+      undefined,
+    );
+
+    try {
+      // `%3A` decodes to `:`, which is part of this file name: the locator
+      // names the file, not line 2 of its selector-free neighbour.
+      const result = await runTool(
+        nativeReadTool,
+        { path: `${LOCAL_PREFIX}${root}/report%3A2` },
+        trustedContext(),
+        5,
+      );
+
+      expect(result).toMatchObject({
+        status: 'success',
+        kind: 'file',
+        path: `${LOCAL_PREFIX}${root}/report%3A2`,
+      });
+      expect(result).toHaveProperty(
+        'content',
+        expect.stringContaining('literal bytes'),
+      );
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('misses an encoded colon path instead of reading line 2 of its sibling', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'local-colon-miss-'));
+    await writeFile(join(root, 'report'), 'one\ntwo\nthree');
+
+    vi.spyOn(NativeFilesRepository.prototype, 'begin').mockResolvedValue(
+      undefined,
+    );
+
+    try {
+      const result = await runTool(
+        nativeReadTool,
+        { path: `${LOCAL_PREFIX}${root}/report%3A2` },
+        trustedContext(),
+        5,
+      );
+
+      expect(result).toMatchObject({ status: 'error', type: 'not_found' });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('edits a Machine path whose name encodes a colon', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'local-colon-edit-'));
+    const file = join(root, 'report:2');
+    await writeFile(file, 'Hello world');
+
+    vi.spyOn(NativeFilesRepository.prototype, 'begin').mockResolvedValue(
+      undefined,
+    );
+    vi.spyOn(RunEventsRepository.prototype, 'append').mockResolvedValue({
+      runId: 'run',
+      sequence: 1,
+      eventType: 'native.result',
+      payload: null,
+      createdAt: new Date(),
+    });
+
+    try {
+      const result = await runTool(
+        nativeEditTool,
+        {
+          path: `${LOCAL_PREFIX}${root}/report%3A2`,
+          oldText: 'Hello',
+          newText: 'Goodbye',
+        },
+        trustedContext(),
+        5,
+      );
+
+      expect(result).toMatchObject({
+        status: 'success',
+        path: `${LOCAL_PREFIX}${root}/report%3A2`,
+      });
+      expect(await readFile(file, 'utf8')).toBe('Goodbye world');
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('writes a Machine path whose name encodes a colon', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'local-colon-write-'));
+    const file = join(root, 'report:2');
+
+    vi.spyOn(NativeFilesRepository.prototype, 'begin').mockResolvedValue(
+      undefined,
+    );
+    vi.spyOn(RunEventsRepository.prototype, 'append').mockResolvedValue({
+      runId: 'run',
+      sequence: 1,
+      eventType: 'native.result',
+      payload: null,
+      createdAt: new Date(),
+    });
+
+    try {
+      const result = await runTool(
+        nativeWriteTool,
+        {
+          path: `${LOCAL_PREFIX}${root}/report%3A2`,
+          content: 'created',
+        },
+        trustedContext(),
+        5,
+      );
+
+      expect(result).toMatchObject({
+        status: 'success',
+        path: `${LOCAL_PREFIX}${root}/report%3A2`,
+      });
+      expect(await readFile(file, 'utf8')).toBe('created');
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
 });
 
 describe('knowledge locator resolution', () => {

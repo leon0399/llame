@@ -228,6 +228,40 @@ describe('Machine native reads', () => {
     });
   });
 
+  it('sends an encoded colon as path text, not as a selector', async () => {
+    const { peer, connector } = fixture({
+      answers: {
+        'fs.read': {
+          value: { ...READ_FILE, path: 'machine://devl/srv/report:2' },
+        },
+      },
+    });
+
+    const result = await runTool(
+      nativeReadTool,
+      { path: 'machine://devl/srv/report%3A2' },
+      context(connector),
+      5,
+    );
+
+    expect(result).toMatchObject({
+      status: 'success',
+      path: 'machine://devl/srv/report%3A2',
+    });
+    const session = await peer.session(0);
+    expect(session.calls[0]?.params).toStrictEqual({
+      envelope: {
+        runId: 'run',
+        attemptId: 'attempt-1',
+        toolCallId: 'call',
+        deliverySeq: 1,
+        budgetMs: 5000,
+      },
+      path: '/srv/report:2',
+      options: { displayPrefix: 'machine://devl' },
+    });
+  });
+
   it('re-encodes a reported path so a locator with # round-trips', async () => {
     const { peer, connector } = fixture({
       answers: {
@@ -858,6 +892,87 @@ describe('Machine mutations', () => {
     ).resolves.toMatchObject({ status: 'error', type: 'invalid_selector' });
     expect(begin).not.toHaveBeenCalled();
     expect(peer.sessions).toHaveLength(0);
+  });
+
+  it('edits a path whose name encodes a colon', async () => {
+    stubFence();
+
+    const { peer, connector } = fixture({
+      answers: {
+        'fs.edit': {
+          value: {
+            status: 'success',
+            operation: 'edit',
+            path: 'machine://devl/srv/report:2',
+            replacements: 1,
+            content: '1: new\n',
+            shownRange: { startLine: 1, endLine: 1 },
+            truncated: false,
+            lineCount: 1,
+            display: { startLine: 1 },
+          },
+        },
+      },
+    });
+
+    const result = await runTool(
+      nativeEditTool,
+      {
+        path: 'machine://devl/srv/report%3A2',
+        oldText: 'old',
+        newText: 'new',
+      },
+      context(connector),
+      5,
+    );
+
+    expect(result).toMatchObject({
+      status: 'success',
+      path: 'machine://devl/srv/report%3A2',
+    });
+    const session = await peer.session(0);
+    expect(session.calls.at(-1)?.params).toMatchObject({
+      path: '/srv/report:2',
+      oldText: 'old',
+      newText: 'new',
+    });
+    expect(session.calls.at(-1)?.params).not.toHaveProperty('options.selector');
+  });
+
+  it('writes a path whose name encodes a colon', async () => {
+    stubFence();
+
+    const { peer, connector } = fixture({
+      answers: {
+        'fs.write': {
+          value: {
+            status: 'success',
+            operation: 'write',
+            path: 'machine://devl/srv/report:2',
+            created: true,
+            lineCount: 1,
+          },
+        },
+      },
+    });
+
+    await expect(
+      runTool(
+        nativeWriteTool,
+        { path: 'machine://devl/srv/report%3A2', content: 'x' },
+        context(connector),
+        5,
+      ),
+    ).resolves.toMatchObject({
+      status: 'success',
+      created: true,
+      path: 'machine://devl/srv/report%3A2',
+    });
+    const session = await peer.session(0);
+    expect(session.calls.at(-1)?.params).toMatchObject({
+      path: '/srv/report:2',
+      content: 'x',
+    });
   });
 
   it('records no attempt when the Machine is unreachable before dispatch', async () => {
