@@ -45,10 +45,7 @@ import { MachineConnector } from '../machines/machine-connector.service';
 import { MachinesStatusRepository } from '../machines/machines-status.repository';
 import { ModelsService } from '../models/models.service';
 import { CanonicalSearchCoverageService } from '../search/canonical-search-activation.service';
-import {
-  createProtocolPeer,
-  type ProtocolPeerOptions,
-} from '../testing/machine-protocol-peer';
+import { machineFilesTransportFactory } from '../testing/machine-files-peer';
 import {
   FakeModelsService,
   cookieOf,
@@ -243,18 +240,17 @@ function configFor(): LlameConfig {
  */
 async function boot(
   config: LlameConfig = configFor(),
-  {
-    workers = true,
-    peer = {},
-  }: { workers?: boolean; peer?: ProtocolPeerOptions } = {},
+  { workers = true }: { workers?: boolean } = {},
 ): Promise<Harness> {
   const models = new FakeModelsService();
-  // The host Machine's daemon is an in-process peer: the identity-checked
-  // handshake a local target needs answers without spawning a child, and any
-  // other request reaching it fails the call loudly. The session events go to
-  // the real status writer, because a Machine is only online once its contact
-  // row exists — exactly as the production factory wires it.
-  const daemon = createProtocolPeer({ roots: ['/srv'], ...peer });
+  // The host Machine's daemon runs in process (`serveMachine` over pipes), so
+  // registration and git state exercise the daemon's own real filesystem and
+  // git under the temporary roots the fixtures clone into. The session events
+  // go to the real status writer, because a Machine is only online once its
+  // contact row exists — exactly as the production factory wires it. Every
+  // other Machine keeps the production SSH transport, so `nas` stays offline
+  // until a call contacts it.
+  const hostDaemon = machineFilesTransportFactory({ roots: [tmpdir()] });
 
   const builder = Test.createTestingModule({ imports: [AppModule] })
     .overrideProvider(CanonicalSearchCoverageService)
@@ -271,7 +267,7 @@ async function boot(
         new MachineConnector({
           machines: config.machines,
           hubVersion: 'llame/test',
-          transportFactory: daemon.factory,
+          localTransportFactory: hostDaemon,
           onContact: (contact) => status.recordContact(contact),
           bindIdentity: (name, instanceId) =>
             bindings.bindOrCompare(name, instanceId),
