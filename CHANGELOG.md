@@ -115,6 +115,11 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   OS and architecture. **Breaking**: upgrade every Machine daemon before the
   API. References
   [#1831](https://github.com/leon0399/llame/issues/1831).
+
+- Clarify that the tool intent argument `i` is required on every call to a tool
+  that declares it. Its description now names the top-level argument and warns
+  that omission rejects the call before execution. Validation is unchanged.
+
 - Continue a Run after a model send that failed once it had streamed a complete
   tool call. The Run waits for each started call to settle, keeps the reply
   through its last tool part, drops the text and reasoning after it, and stores a

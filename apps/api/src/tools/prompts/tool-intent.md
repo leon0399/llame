@@ -1,1 +1,1 @@
-Concise intent: what this call is for, in 2-6 words, starting with a present participle, e.g. "Checking lint errors". Shown to the owner as the title of this step.
+REQUIRED on every call to this tool. Include `i` as a top-level argument alongside the tool's other arguments. Omitting `i` rejects the call before execution. Write a non-empty intent label in 2-6 words, starting with a present participle, e.g. "Checking lint errors". Shown to the owner as the title of this step.

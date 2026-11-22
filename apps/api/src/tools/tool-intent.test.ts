@@ -1,5 +1,8 @@
+import { isRecord, isString } from '@workspace/runtime-safety';
+
 import { safeParseArgs } from './schema-utils';
 import { splitToolIntent, withToolIntent } from './tool-intent';
+import { type JsonSchemaDocument } from './types';
 
 const executorSchema = {
   type: 'object',
@@ -8,9 +11,21 @@ const executorSchema = {
   additionalProperties: false,
 };
 
+/** The model-facing description of the `i` argument, or an empty string. */
+function intentDescriptionOf(schema: JsonSchemaDocument): string {
+  const properties = isRecord(schema.properties) ? schema.properties : {};
+  const property = isRecord(properties.i) ? properties.i : {};
+
+  return isString(property.description) ? property.description : '';
+}
+
 it('requires intent on the model envelope without changing executor validation', () => {
   const modelSchema = withToolIntent('bash', executorSchema);
   const submitted = { i: 'Checking the working directory', command: 'pwd' };
+
+  expect(intentDescriptionOf(modelSchema)).toContain(
+    'REQUIRED on every call to this tool.',
+  );
 
   expect(safeParseArgs(modelSchema, { command: 'pwd' }).success).toBe(false);
   expect(safeParseArgs(modelSchema, submitted).success).toBe(true);
