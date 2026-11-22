@@ -17,6 +17,7 @@ shipped code win any disagreement. Authoring rules are in [AGENTS.md](./AGENTS.m
 
 ## Studies
 
+- [Replication](./replication/index.md) - Knowledge and repository synchronization across Machines, with separate transfer, working-copy, approval, and durability guarantees.
 - [Long-term memory](./long-term-memory/index.md) - Cross-chat memory landscape, deep dives and later memory studies.
 - [Chat search and episodic recall](./chat-search/index.md) - Conversation search architecture and episodic recall reviews.
 - [Tool harness](./tool-harness/index.md) - Tool loop, MCP, code mode, judgments, reads, permissions and prompt caching.

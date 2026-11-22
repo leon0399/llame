@@ -1,0 +1,88 @@
+{
+  "schema_version": 1,
+  "observed_at": "2026-11-21",
+  "kind": "sanitized observation summary, not raw command output",
+  "provenance": "Source inspection and read-only installation probes recorded in the research conversation. Private raw evidence is intentionally not bundled.",
+  "source_revisions": {
+    "leon0399/llame": "0dbed28362e1d6f6b804b15c2f540749d62af695",
+    "bos/jj-musubi": "6e415cb46c8580c93ba2e9b73ddb326c4a51694b",
+    "baptiste0928/jj-mesh": "eb271cb63dd57e8125fa6debd1b63c26d997dbe1",
+    "vrtmrz/obsidian-livesync": "2eb38f9e37c67c5df75db01aa6b6cbe964193a1e"
+  },
+  "knowledge": {
+    "older_vault": {
+      "markdown_files_inventoried": 161,
+      "git_metadata_present": false,
+      "jj_metadata_present": false
+    },
+    "active_vault": {
+      "markdown_files_outside_vcs_metadata": 292,
+      "git_metadata_present": true,
+      "jj_metadata_present": true,
+      "remote_name": "forgejo",
+      "head_detached": true,
+      "head_vs_cached_remote_master": { "ahead": 1, "behind": 1 },
+      "master_vs_cached_remote_master": { "ahead": 0, "behind": 0 },
+      "git_status_entries": 30,
+      "staged_diff": { "files": 25, "insertions": 846, "deletions": 9 },
+      "unstaged_diff": { "files": 4, "insertions": 415 },
+      "working_copy_diff_against_master": {
+        "files": 30,
+        "insertions": 1364,
+        "deletions": 6
+      },
+      "counts_are_jj_track_counts": false,
+      "documented_approval": "Owner advances master. Pushing requires approval. Separate tracks feed a merge working copy.",
+      "jj_graph_inspected": false,
+      "jj_graph_blocker": "jj executable unavailable",
+      "live_remote_ref_query": "failed SSH host-key verification",
+      "host_key_check_bypassed": false,
+      "live_forge_freshness": "unknown",
+      "root_listing": "succeeded",
+      "unscoped_knowledge_search": {
+        "complete": false,
+        "warning": "knowledge_path_invalid",
+        "older_vault_results_returned": true,
+        "exact_failing_entry": "not identified",
+        "vcs_metadata_causality": "unproven"
+      }
+    },
+    "limitations": [
+      "Counts describe one inspection, not current state or product limits.",
+      "Cached remote refs do not establish live Forgejo freshness.",
+      "Git index and working-copy differences do not enumerate jj tracks.",
+      "No complete symlink inventory was established."
+    ]
+  },
+  "public_discovery": {
+    "issue_bodies_inspected": [1778, 1792, 1794, 1797, 1727, 757, 760, 761],
+    "map_child_count": 24,
+    "sync_issue_search_limit": 100,
+    "issue_search_exhaustive": false,
+    "musubi_release_tags_returned": ["v0.47.1", "v0.47.0"],
+    "musubi_auto_snapshot_changelog_section": "Unreleased",
+    "issue_content_is_immutable": false
+  },
+  "inspection_depth": {
+    "jj_musubi": "README, mechanics, safety, protocol, changelog, hub, workspace naming, and snapshot source",
+    "jj_mesh": "README, settings, and workspace task source",
+    "syncthing": "primary synchronization documentation",
+    "obsidian_livesync": "README only"
+  },
+  "not_performed": [
+    "Upstream test execution",
+    "Formal proof execution or independent proof audit",
+    "Performance benchmarks",
+    "Multi-Machine synchronization experiments",
+    "Power-loss recovery experiments",
+    "Synchronization daemon installation or startup",
+    "Knowledge history or forge ref mutation",
+    "Independent reviewer assessment"
+  ],
+  "redactions": [
+    "Knowledge Space identifiers and private document contents",
+    "Private repository commit hashes",
+    "Filesystem bindings and connection details",
+    "Credential-like filenames and credential contents"
+  ]
+}
