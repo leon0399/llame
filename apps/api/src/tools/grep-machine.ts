@@ -507,7 +507,9 @@ function spentBound(
 /**
  * The cursor the next page is asked with, or undefined when this page ended
  * the scope's walk: the page is complete, or asking again would fetch the same
- * page (the daemon consumed nothing, or named the cursor it was asked with).
+ * page. A page that progressed made the walk advance even when it charged
+ * nothing: a resumed page re-opens the file its cursor names without counting
+ * that file or its bytes again.
  */
 function nextCursor(
   page: FsGrepSuccess,
@@ -515,8 +517,10 @@ function nextCursor(
 ): string | undefined {
   if (page.complete) return undefined;
 
-  if (page.consumed.files + page.consumed.entries + page.consumed.bytes === 0)
-    return undefined;
+  const consumed =
+    page.consumed.files + page.consumed.entries + page.consumed.bytes > 0;
+
+  if (!consumed && !page.progressed) return undefined;
 
   return page.cursor === undefined || page.cursor === cursor
     ? undefined

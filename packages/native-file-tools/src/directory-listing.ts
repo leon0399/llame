@@ -194,7 +194,10 @@ function formatLink(entry: DirEntry, indent: string): string {
   return `${line}? -> ${entry.target}`;
 }
 
-export function compareEntries(a: DirEntry, b: DirEntry): number {
+type SortableEntry = { readonly name: string; readonly kind: string };
+
+/** Directories first, then by name; a daemon's listing type shares it. */
+export function compareEntries(a: SortableEntry, b: SortableEntry): number {
   const aDir = a.kind === "directory" ? 0 : 1;
   const bDir = b.kind === "directory" ? 0 : 1;
 

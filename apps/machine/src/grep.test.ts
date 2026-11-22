@@ -528,6 +528,22 @@ describe("fs.grep", () => {
     });
   });
 
+  it("answers not_found for a glob scope whose root is a regular file", async () => {
+    await writeAt("project/note.md", "needle\n");
+
+    const outcome = await daemon.attempt(
+      FS_GREP_METHOD,
+      request(join(fixture.root, "project", "note.md"), { globSuffix: "**" }),
+    );
+
+    expect(outcome.ok).toBe(true);
+    expect(outcome.value).toMatchObject({
+      status: "error",
+      type: "not_found",
+      message: NOT_FOUND_MESSAGE,
+    });
+  });
+
   it("reports a consumed budget across the files it opened", async () => {
     await writeAt("project/a.go", "needle\n");
     await writeAt("project/b.go", "needle\n");
@@ -580,6 +596,8 @@ describe("fs.grep", () => {
     const second = await grep(request(prefix, { cursor: page.cursor }));
     expect(pathsOf(second)).toEqual(["b.go"]);
     expect(second.complete).toBe(true);
+    // Re-opening the cursor's file must not charge the bound a second time.
+    expect(second.consumed).toEqual({ files: 1, entries: 2, bytes: 11 });
   });
 
   it("skips a file over the file-size bound the request carries", async () => {

@@ -194,7 +194,7 @@ async function enterMachineWorkspace(
     return machineNotFoundResult(target.name);
   }
 
-  const authority = workspaceAuthority(context, target);
+  const authority = workspaceAuthority(context, target.name);
 
   if ('status' in authority) return authority;
 

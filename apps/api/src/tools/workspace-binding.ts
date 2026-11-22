@@ -66,7 +66,7 @@ export type WorkspaceAuthority = {
  */
 export function workspaceAuthority(
   context: ToolContext,
-  machine: { readonly name: string },
+  machineName: string,
 ): WorkspaceAuthority | ToolResult {
   if (!context.runId || !context.toolCallId) {
     return {
@@ -79,7 +79,7 @@ export function workspaceAuthority(
   return {
     runId: context.runId,
     toolCallId: context.toolCallId,
-    executorId: machine.name,
+    executorId: machineName,
   };
 }
 

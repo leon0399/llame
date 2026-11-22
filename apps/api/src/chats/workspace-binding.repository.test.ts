@@ -9,7 +9,7 @@ import { type Db } from '../db/tenant-db.service';
 import { isWorkspaceDetachReason } from './workspace-binding';
 import { WorkspaceBindingRepository } from './workspace-binding.repository';
 
-type QueryValue = string | number | null | SQL;
+type QueryValue = string | number | null | SQL | Date;
 
 type QueryRow = Readonly<Record<string, QueryValue>>;
 
@@ -94,7 +94,7 @@ function makeDb(options: {
   return { db, calls };
 }
 
-const run = [{ id: 'run-1' }];
+const run = [{ id: 'run-1', status: 'running', cancelRequestedAt: null }];
 const started = [{ sequence: 7 }];
 
 const current = {
@@ -231,6 +231,29 @@ describe('WorkspaceBindingRepository', () => {
     ).resolves.toEqual({ status: 'fence_lost' });
     expect(calls.filter(({ method }) => method === 'set')).toHaveLength(0);
   });
+  it('refuses an entry while the Run is cancel-requested', async () => {
+    const { db, calls } = makeDb({
+      select: [
+        [{ id: 'run-1', status: 'running', cancelRequestedAt: new Date() }],
+        started,
+        [current],
+      ],
+      update: [[{ id: 'run-1' }], [{ workspaceGeneration: 5 }]],
+    });
+
+    await expect(
+      new WorkspaceBindingRepository(db).enter({
+        chatId: 'chat-a',
+        ownerUserId: 'owner-a',
+        runId: 'run-1',
+        deliverySequence: 7,
+        executorId: 'worker-a',
+        root: '/work/new',
+      }),
+    ).resolves.toEqual({ status: 'fence_lost' });
+    expect(calls.filter(({ method }) => method === 'set')).toHaveLength(0);
+  });
+
   it('fences a stale exit before it can clear the binding', async () => {
     const { db, calls } = makeDb({
       select: [run, [{ sequence: 6 }], [current]],

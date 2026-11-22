@@ -11,9 +11,17 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   `llame-machine roots add /` to restore the reach of an earlier process.
   `pnpm dev` registers the development roots through
   `apps/api/scripts/dev-machine-host.mts`. A `read` of a path whose trailing
-  separator names a regular file now returns `not_found` through the daemon.
+  separator names a regular file now returns `not_found` through the daemon, and
+  so does a `/.`, `/..`, or `..`-after-a-non-directory spelling, so a path whose
+  policy text does not match cannot reach the file it normalizes to. A literal
+  `name:selector` file still wins over selector interpretation on the host. An
+  image or PDF is recognised by its leading bytes before any text decode, so an
+  ASCII-only PDF reads as a PDF, and a non-media byte request is refused
+  without streaming it.
   Instruction-file and prompt-import reads on the host also go through the
-  daemon and its roots; their directory walks still run in the worker.
+  daemon and its roots; their directory walks still run in the worker. Host
+  `grep` applies `.ignore` files above the scope only up to the daemon's
+  registered root that holds the prefix, as every Machine walk does.
   File mutations and Workspace entry no longer write `runs.worker_id`, so a
   retry of a file mutation on another worker reports `outcome_unknown` instead
   of `executor_unavailable`. Host `bash` still writes it. **Breaking**: register

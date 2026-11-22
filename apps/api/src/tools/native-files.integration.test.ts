@@ -51,6 +51,7 @@ describe('native file authority and durable effects', () => {
   let path: string;
   let context: ToolContext;
   let runId: string;
+  let daemon: LocalDaemon;
 
   beforeAll(async () => {
     const url = process.env.TEST_DATABASE_URL;
@@ -59,15 +60,14 @@ describe('native file authority and durable effects', () => {
     sql = postgres(url, { max: 2 });
     tenantDb = new TenantDbService(drizzle({ client: sql }));
     await sql`INSERT INTO users (id, name, email) VALUES (${owner}, 'Native', ${`${owner}@test.com`}), (${otherOwner}, 'Other', ${`${otherOwner}@test.com`})`;
+    // A dev-like root set: these tests read and write arbitrary temporary
+    // directories, and root refusal has its own test below. One daemon serves
+    // the suite; it snapshots the environment that exists before any stub.
+    daemon = startLocalDaemon({ roots: ['/'] });
   });
-
-  let daemon: LocalDaemon;
 
   beforeEach(async () => {
     directory = await mkdtemp(join(tmpdir(), 'native-runtime-'));
-    // A dev-like root set: these tests read and write arbitrary temporary
-    // directories, and root refusal has its own test below.
-    daemon = startLocalDaemon({ roots: ['/'] });
     path = join(directory, 'notes');
     await writeFile(path, 'before\nFoo\nafter\n');
     const chatId = randomUUID();
@@ -132,10 +132,11 @@ describe('native file authority and durable effects', () => {
 
   afterEach(async () => {
     vi.unstubAllEnvs();
-    daemon.dispose();
     await rm(directory, { recursive: true, force: true });
   });
   afterAll(async () => {
+    daemon.dispose();
+
     if (sql) {
       await sql`DELETE FROM users WHERE id IN (${owner}, ${otherOwner})`;
       await sql.end();
@@ -594,6 +595,49 @@ describe('native file authority and durable effects', () => {
       ),
     ).toMatchObject({ type: 'file_exists' });
     expect(await readFile(createdPath, 'utf8')).toBe('new');
+  });
+
+  it('refuses a dot or trailing-separator spelling instead of the file it names', async () => {
+    const secret = join(directory, '.env');
+    await writeFile(secret, 'TOKEN=secret\n');
+
+    // The permission text names `.env`, which `${secret}/.` does not match; the
+    // daemon must answer that spelling as not found rather than read the file
+    // a kernel would resolve it to.
+    const read = await runTool(
+      nativeReadTool,
+      { path: `${secret}/.` },
+      { ...context, toolCallId: randomUUID() },
+      5,
+    );
+
+    expect(read).toMatchObject({ status: 'error', type: 'not_found' });
+    expect(JSON.stringify(read)).not.toContain('TOKEN=secret');
+
+    const mcp = join(directory, '.mcp.json');
+
+    const write = await runTool(
+      nativeWriteTool,
+      { path: `${mcp}/`, content: '{"mcpServers":{}}' },
+      { ...context, toolCallId: randomUUID() },
+      5,
+    );
+
+    expect(write).toMatchObject({ status: 'error', type: 'not_found' });
+    await expect(lstat(mcp)).rejects.toMatchObject({ code: 'ENOENT' });
+
+    const source = join(directory, 'a.ts');
+    await writeFile(source, 'before\n');
+
+    const edit = await runTool(
+      nativeEditTool,
+      { path: `${source}/..`, oldText: 'before', newText: 'after' },
+      { ...context, toolCallId: randomUUID() },
+      5,
+    );
+
+    expect(edit).toMatchObject({ status: 'error', type: 'not_found' });
+    expect(await readFile(source, 'utf8')).toBe('before\n');
   });
 
   it('names replace in the create refusal and rejects a non-boolean flag before dispatch', async () => {

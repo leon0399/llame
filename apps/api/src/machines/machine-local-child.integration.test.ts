@@ -13,7 +13,7 @@
 import { execFileSync } from 'node:child_process';
 import { mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { join } from 'node:path';
 
 import {
   PROTOCOL_VERSION,
@@ -23,12 +23,10 @@ import {
 } from '@workspace/machine-protocol';
 import { isRecord, isString } from '@workspace/runtime-safety';
 
+import { MACHINE_BUNDLE } from '../testing/local-daemon';
 import { createLocalChildTransportFactory } from './local-child-transport';
 import { readFsReadResult } from './machine-results';
 import { MachineSession } from './machine-session';
-
-/** The daemon bundle the suite starts; built by `pnpm --filter machine build`. */
-const BUNDLE = resolve(__dirname, '../../..', 'machine/dist/llame-machine.cjs');
 
 const HUB_VERSION = '0.0.0-local-child-test';
 const NAME = 'host-a';
@@ -47,7 +45,7 @@ describe('the local Machine link (host-as-machine)', () => {
     writeFileSync(join(root, 'notes.txt'), NOTES);
     // Register the root with the daemon's own command, exactly as the dev
     // helper and an operator do.
-    execFileSync(process.execPath, [BUNDLE, 'roots', 'add', root], {
+    execFileSync(process.execPath, [MACHINE_BUNDLE, 'roots', 'add', root], {
       env: { ...process.env, LLAME_MACHINE_CONFIG_DIR: configDir },
       stdio: 'pipe',
     });
@@ -67,7 +65,7 @@ describe('the local Machine link (host-as-machine)', () => {
     };
 
     const factory = createLocalChildTransportFactory({
-      command: `${process.execPath} ${BUNDLE}`,
+      command: `${process.execPath} ${MACHINE_BUNDLE}`,
       env,
     });
 

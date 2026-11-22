@@ -53,7 +53,7 @@ export class WorkspaceBindingRepository {
       }
     | { status: 'fence_lost' }
   > {
-    if (!(await this.fenceRun(input))) return { status: 'fence_lost' };
+    if (!(await this.admitsEffect(input))) return { status: 'fence_lost' };
     const current = await this.lockChat(input.chatId, input.ownerUserId);
 
     if (current === undefined) return { status: 'fence_lost' };
@@ -84,7 +84,7 @@ export class WorkspaceBindingRepository {
     | { status: 'unbound' }
     | { status: 'fence_lost' }
   > {
-    if (!(await this.fenceRun(input))) return { status: 'fence_lost' };
+    if (!(await this.isCurrentDelivery(input))) return { status: 'fence_lost' };
 
     const current = await this.lockChat(input.chatId, input.ownerUserId);
 
@@ -112,7 +112,7 @@ export class WorkspaceBindingRepository {
     expectedGeneration: number;
     reason: WorkspaceDetachReason;
   }): Promise<'detached' | 'stale' | 'fence_lost'> {
-    if (!(await this.fenceRun(input))) return 'fence_lost';
+    if (!(await this.isCurrentDelivery(input))) return 'fence_lost';
 
     const current = await this.lockChat(input.chatId, input.ownerUserId);
 
@@ -384,13 +384,14 @@ export class WorkspaceBindingRepository {
     return updated.length;
   }
 
-  private async fenceRun(input: {
+  /** Entering changes the bound root, so it also needs an uncancelled Run. */
+  private async admitsEffect(input: {
     runId: string;
     ownerUserId: string;
     deliverySequence: number | undefined;
-    attemptId?: string | undefined;
+    attemptId?: string;
   }): Promise<boolean> {
-    return new NativeFilesRepository(this.db).isCurrentDelivery({
+    return new NativeFilesRepository(this.db).admitsEffect({
       runId: input.runId,
       userId: input.ownerUserId,
       deliverySequence: input.deliverySequence,

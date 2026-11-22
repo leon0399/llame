@@ -4,7 +4,7 @@
  * TEST_DATABASE_URL-gated; the integration project provisions a FORCE-RLS
  * database when no external URL is supplied.
  */
-import { and, eq } from 'drizzle-orm';
+import { and, eq, sql as sqlStatement } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import postgres, { type Sql } from 'postgres';
 
@@ -311,5 +311,45 @@ describeIfDb('WorkspaceBindingRepository — PostgreSQL lifecycle', () => {
     });
     expect(await readWorkspace()).toEqual(beforeSuperseded);
     expect(await readRun()).toEqual({ workerId: null });
+  });
+
+  it('refuses an entry after cancellation but still clears the binding on exit', async () => {
+    const root = 'machine://executor-a/work/project-a';
+
+    const unbound: WorkspaceRow = {
+      workspaceRoot: null,
+      workspaceExecutorId: null,
+      workspaceGeneration: 0,
+      workspaceTold: null,
+      workspaceToldFrom: null,
+      workspaceToldAvailable: null,
+      workspaceDetachReason: null,
+    };
+
+    await expect(enter(root)).resolves.toMatchObject({ status: 'bound' });
+    await tenantDb.runAs(owner, (tx) =>
+      tx.execute(
+        sqlStatement`update runs set cancel_requested_at = now() where id = ${runId}`,
+      ),
+    );
+
+    await expect(enter('machine://executor-a/work/project-b')).resolves.toEqual(
+      { status: 'fence_lost' },
+    );
+    expect(await readWorkspace()).toMatchObject({
+      workspaceRoot: root,
+      workspaceGeneration: 1,
+    });
+
+    // Exit must still clear the binding of a cancelled Run.
+    await expect(exit()).resolves.toEqual({
+      status: 'cleared',
+      previousRoot: root,
+      generation: 2,
+    });
+    expect(await readWorkspace()).toEqual({
+      ...unbound,
+      workspaceGeneration: 2,
+    });
   });
 });

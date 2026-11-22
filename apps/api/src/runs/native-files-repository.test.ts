@@ -380,3 +380,87 @@ describe('NativeFilesRepository.isCurrentDelivery', () => {
     ).resolves.toBe(true);
   });
 });
+
+describe('NativeFilesRepository.begin effect admission', () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  const edit = {
+    runId: 'run-1',
+    userId: 'owner-1',
+    fence: { bound: false },
+    deliverySequence: 4,
+    attemptId: 'attempt-1',
+    toolCallId: 'call-1',
+    operation: 'edit',
+    path: 'machine://host-a/work/a.ts',
+  } as const;
+
+  const executorUnavailableResult = {
+    status: 'error',
+    type: 'executor_unavailable',
+    message: 'This Run cannot use this native executor.',
+  };
+
+  function admitted(answers: Array<Array<unknown>>) {
+    const append = vi
+      .spyOn(RunEventsRepository.prototype, 'append')
+      .mockResolvedValue(asDouble<RunEvent>({}));
+
+    return { ...sequencedRepository(...answers), append };
+  }
+
+  it('refuses a cancel-requested Run and records no native attempt', async () => {
+    const { repository, append } = admitted([
+      [
+        {
+          activeAttemptId: 'attempt-1',
+          status: 'running',
+          cancelRequestedAt: new Date(),
+        },
+      ],
+    ]);
+
+    await expect(repository.begin(edit)).resolves.toEqual(
+      executorUnavailableResult,
+    );
+    expect(append).not.toHaveBeenCalled();
+  });
+
+  it('refuses a finished Run and records no native attempt', async () => {
+    const { repository, append } = admitted([
+      [
+        {
+          activeAttemptId: 'attempt-1',
+          status: 'completed',
+          cancelRequestedAt: null,
+        },
+      ],
+    ]);
+
+    await expect(
+      repository.begin({ ...edit, operation: 'worktree' }),
+    ).resolves.toEqual(executorUnavailableResult);
+    expect(append).not.toHaveBeenCalled();
+  });
+
+  it('records the attempt of an uncancelled running Run', async () => {
+    const { repository, append } = admitted([
+      [
+        {
+          activeAttemptId: 'attempt-1',
+          status: 'running',
+          cancelRequestedAt: null,
+        },
+      ],
+      [{ sequence: 4 }],
+      [],
+    ]);
+
+    await expect(repository.begin(edit)).resolves.toBeUndefined();
+    expect(append).toHaveBeenCalledWith('run-1', 'native.attempt', {
+      toolCallId: 'call-1',
+      operation: 'edit',
+      path: 'machine://host-a/work/a.ts',
+    });
+  });
+});

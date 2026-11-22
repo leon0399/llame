@@ -8,7 +8,6 @@ import { nativeReadTool } from '../tools/native-files';
 import { nativeGrepTool } from '../tools/grep';
 import { type Tool } from '../tools/types';
 import { waitFor } from '../testing/support';
-import { grepAnswer } from '../testing/grep-machine-answer';
 import {
   answer,
   call,
@@ -26,9 +25,6 @@ describe('Run segment yield', () => {
   const fx = useSegmentsFixture('run-yield', {
     allowedTools: ['bash', 'read', 'grep'],
     localMachine: 'run-yield-host',
-    // This suite tests steering, not the walk: the spy blocks inside the
-    // tool before the walk runs, so one scripted page is the right answer.
-    machineAnswer: grepAnswer(),
   });
 
   afterEach(() => vi.restoreAllMocks());

@@ -96,27 +96,6 @@ describe("directory listing", () => {
     expect(opened).not.toHaveBeenCalled();
   });
 
-  it("reports structured link targets instead of rewriting rendered text", async () => {
-    // A directory name may hold ` -> `: it is a name, never a link.
-    await mkdir(join(root, "x -> "));
-    // A link target may hold ` -> `: the whole target is one reported path.
-    const target = join(root, "target -> dir");
-    await mkdir(target);
-    await symlink(target, join(root, "link"));
-
-    const result = await readFile({ path: root }, undefined, undefined, {
-      reportPath: (hostPath) => `machine://box${hostPath}`,
-    });
-
-    if (result.status !== "success" || result.kind !== "directory")
-      throw new Error();
-    const lines = result.content.split("\n").filter(Boolean);
-
-    expect(lines).toContain("  - x -> /");
-    expect(lines).toContain(`  - link@/ -> machine://box${target}`);
-    expect(result.content).not.toContain("x -> machine://box/");
-  });
-
   it("follows a symbolic link given as the target path", async () => {
     await mkdir(join(root, "real"));
     await writeFile(join(root, "real", "file.txt"), "");

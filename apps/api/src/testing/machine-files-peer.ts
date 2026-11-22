@@ -1,471 +1,208 @@
 /**
- * A real `MachineConnector` whose own Machine answers the file methods
- * against the real filesystem (host-as-machine layer 3). After that layer the
- * host file tools go through the Machine surface like any other Machine, and
- * the api unit project cannot build the daemon bundle, so unit tests need a
- * daemon peer that can read and write real files. The answers mirror
- * `apps/machine/src/guard.ts` and `apps/machine/src/files.ts`: root
- * enforcement, the same `@workspace/native-file-tools` operations, and the
- * same wire shapes. The daemon suite owns the behaviour's parity; this module
- * exists so a tool test keeps asserting user-visible results.
+ * A real `MachineConnector` whose own Machine is the actual daemon, run in
+ * process (host-as-machine layer 3). After that layer the host file tools go
+ * through the Machine surface like any other Machine, so a tool test that wants
+ * the daemon's real behaviour — root guard, media sniffing, byte streaming —
+ * needs a daemon it can reach without SSH. The transport is two `PassThrough`s
+ * into `apps/machine/src/serve.ts`, the entry the `llame-machine` bundle runs,
+ * so a test asserts the daemon's behaviour instead of a copy of it.
  *
  * Deliberately under `src/testing/`: scaffolding, excluded from coverage and
  * mutation, never imported by production code.
  */
 
-import { mkdir, open, opendir, readFile } from 'node:fs/promises';
-import { dirname } from 'node:path';
+import { PassThrough } from 'node:stream';
 
-import {
-  BYTES_CHUNK_BYTES,
-  BYTES_NOTIFICATION,
-  FS_BYTES_METHOD,
-  FS_EDIT_METHOD,
-  FS_LIST_METHOD,
-  FS_READ_METHOD,
-  FS_STAT_METHOD,
-  FS_WRITE_METHOD,
-  MEDIA_MAX_BYTES,
-  ROOTS_LIST_METHOD,
-  type FsListEntry,
-  type FsListResult,
-  type FsMutateResult,
-  type FsReadResult,
-  type FsStatResult,
-  type JsonValue,
-  type NativeDisplayOptions,
-  type NativeFailureResult,
-} from '@workspace/machine-protocol';
-import {
-  createFile,
-  DIRECTORY_TRAVERSAL_BUDGET,
-  editFile,
-  readResolvedFile,
-  replaceFile,
-  type EditSuccess,
-  type FileFailure,
-  type NativeReadOptions,
-} from '@workspace/native-file-tools';
-import { isRecord, isString } from '@workspace/runtime-safety';
-import { z } from 'zod';
+import { createLineFramer, decodeFrame } from '@workspace/machine-protocol';
+import { serveMachine, type SessionEndReason } from 'machine/src/serve';
 
 import { MachineConnector } from '../machines/machine-connector.service';
 import {
-  PeerRefusal,
-  rootGuard,
-  type GuardedPath,
-} from './machine-files-guard';
-import {
-  createProtocolPeer,
-  type PeerAnswer,
-  type PeerCall,
-  type ProtocolPeer,
-} from './machine-protocol-peer';
+  type MachineLinkEnd,
+  type MachineTransport,
+  type MachineTransportFactory,
+} from '../machines/machine-transport';
+import { DEFAULT_LOCAL_MACHINE_NAME } from './local-machine';
 
-/** The default local Machine name the helper configures. */
-const DEFAULT_NAME = 'host-a';
+/** A fixed identity, so an in-process daemon reads and writes no real config. */
+const TEST_INSTANCE_ID = '00000000-0000-4000-8000-000000000001';
+const TEST_BUILD_ID = '000000000000';
 
-const SIGNATURE_BYTES = 12;
-const OCTET_STREAM = 'application/octet-stream';
-const NOT_REGULAR_FILE = 'The target is not a regular file.';
-const NOT_DIRECTORY_MESSAGE = 'The target is not a directory.';
-const LISTING_FAILED_MESSAGE = 'The directory could not be listed.';
-const MEDIA_TOO_LARGE_MESSAGE = 'The file exceeds the media byte bound.';
-const IMAGE_TOO_LARGE_MESSAGE = 'Image exceeds 20 MiB or 40 megapixels';
-const PDF_TOO_LARGE_MESSAGE = 'PDF exceeds 20 MiB or 100 pages';
+/** One in-process daemon session, as the hub side saw it. */
+export type MachineFilesSession = {
+  /** Every method the hub sent, in order. */
+  readonly requests: ReadonlyArray<string>;
+};
+
+export type MachineFilesPeer = {
+  readonly sessions: ReadonlyArray<MachineFilesSession>;
+  session(index: number): Promise<MachineFilesSession>;
+};
 
 export type MachineFilesPeerOptions = {
   /** `machines.local` and `machines.default`, both this name. */
   readonly name?: string;
   /** The registered roots; a path outside all of them is refused. Default `/`. */
   readonly roots?: ReadonlyArray<string>;
-  /** Consulted before the default answers, for methods this peer does not serve. */
-  readonly answer?: (
-    call: PeerCall,
-  ) => PeerAnswer | Promise<PeerAnswer> | undefined;
+  /** Called for each request as it leaves the hub, before the daemon answers. */
+  readonly onRequest?: (method: string) => void;
 };
 
 export type MachineFilesConnector = MachineConnector & {
-  /** The daemon side; its sessions hold the requests the tools sent. */
-  readonly peer: ProtocolPeer;
+  /** The daemon side: the sessions it served and the methods each saw. */
+  readonly peer: MachineFilesPeer;
 };
 
-function failure(
-  type: FileFailure['type'],
-  message: string,
-): NativeFailureResult {
-  return { status: 'error', type, message };
-}
+/** Forward every hub frame to the daemon, naming each method it asks for. */
+function observeRequests(input: {
+  readonly observing: PassThrough;
+  readonly fromHub: PassThrough;
+  readonly requests: Array<string>;
+  readonly onRequest: ((method: string) => void) | undefined;
+}): void {
+  const framer = createLineFramer();
 
-function readOptions(
-  options: NativeDisplayOptions,
-  displayPath: string,
-  signal: AbortSignal,
-): NativeReadOptions {
-  return {
-    displayPath,
-    followSymlinks: true,
-    linkTargets: false,
-    selector: options.selector,
-    reserveCodeUnits: options.reserveCodeUnits,
-    signal,
-  };
-}
+  input.observing.on('data', (chunk: Buffer) => {
+    for (const event of framer.push(chunk)) {
+      if (event.kind !== 'line') continue;
+      const decoded = decodeFrame(event.line);
 
-function withCanonicalPath(
-  result: FsReadResult,
-  guarded: GuardedPath,
-  prefix: string,
-): FsReadResult {
-  if (result.status !== 'success' || result.kind !== 'file') return result;
+      if (!decoded.ok) continue;
+      const message = decoded.frame.m;
 
-  return guarded.canonical === guarded.path
-    ? result
-    : { ...result, realPath: `${prefix}${guarded.canonical}` };
-}
+      if (!('method' in message)) continue;
+      input.requests.push(message.method);
+      input.onRequest?.(message.method);
+    }
 
-/** The path and display options a read, edit, or write request carries. */
-type FileRequest = {
-  readonly path: string;
-  readonly options: NativeDisplayOptions;
-};
-
-const pathParams = z.looseObject({ path: z.string() });
-
-const displayOptions = z.looseObject({
-  displayPrefix: z.string(),
-  selector: z.string().optional(),
-  reserveCodeUnits: z.number().optional(),
-});
-
-const fileParams = z.looseObject({
-  path: z.string(),
-  options: displayOptions,
-});
-
-function requestPath(call: PeerCall): string {
-  const parsed = pathParams.safeParse(call.params);
-
-  if (!parsed.success) throw new PeerRefusal('invalid_params');
-
-  return parsed.data.path;
-}
-
-function readParams(call: PeerCall): FileRequest {
-  const parsed = fileParams.safeParse(call.params);
-
-  if (!parsed.success) throw new PeerRefusal('invalid_params');
-
-  return parsed.data;
-}
-
-function statAnswer(guarded: GuardedPath): FsStatResult {
-  const result: FsStatResult = { kind: guarded.kind, isLink: guarded.isLink };
-
-  return guarded.kind === 'missing'
-    ? result
-    : { ...result, realPath: guarded.canonical, size: guarded.size };
-}
-
-/**
- * The path a read hands to the filesystem library, with the trailing
- * separator the caller wrote: the library answers a file with one as
- * `not_found` (the daemon's `readTargetPath`).
- */
-function readTargetPath(requested: string, guarded: GuardedPath): string {
-  return requested.length > 1 && requested.endsWith('/')
-    ? `${guarded.path}/`
-    : guarded.path;
-}
-
-async function readAnswer(
-  requested: string,
-  guarded: GuardedPath,
-  options: NativeDisplayOptions,
-): Promise<FsReadResult> {
-  const displayPath = `${options.displayPrefix}${guarded.path}`;
-
-  const result = await readResolvedFile(
-    readTargetPath(requested, guarded),
-    readOptions(options, displayPath, new AbortController().signal),
-  );
-
-  return withCanonicalPath(result, guarded, options.displayPrefix);
-}
-
-async function listEntries(directory: string): Promise<Array<FsListEntry>> {
-  const entries: Array<FsListEntry> = [];
-
-  for await (const entry of await opendir(directory)) {
-    entries.push({
-      name: entry.name,
-      kind: entry.isSymbolicLink()
-        ? 'link'
-        : entry.isDirectory()
-          ? 'directory'
-          : entry.isFile()
-            ? 'file'
-            : 'other',
-    });
-  }
-
-  return entries.sort((left, right) => {
-    const leftDirectory = left.kind === 'directory' ? 0 : 1;
-    const rightDirectory = right.kind === 'directory' ? 0 : 1;
-
-    return leftDirectory === rightDirectory
-      ? left.name.localeCompare(right.name)
-      : leftDirectory - rightDirectory;
+    input.fromHub.write(chunk);
   });
 }
 
-async function listAnswer(guarded: GuardedPath): Promise<FsListResult> {
-  if (guarded.kind !== 'directory')
-    return failure('not_regular_file', NOT_DIRECTORY_MESSAGE);
-
-  let entries: Array<FsListEntry>;
-
-  try {
-    entries = await listEntries(guarded.path);
-  } catch {
-    return failure('executor_unavailable', LISTING_FAILED_MESSAGE);
-  }
-
-  return {
-    entries: entries.slice(0, DIRECTORY_TRAVERSAL_BUDGET),
-    totalCount: entries.length,
-    truncated: entries.length > DIRECTORY_TRAVERSAL_BUDGET,
-  };
-}
-
-async function writeAnswer(
-  guarded: GuardedPath,
-  call: PeerCall,
-  options: NativeDisplayOptions,
-): Promise<FsMutateResult> {
-  if (!isRecord(call.params) || !isString(call.params.content))
-    throw new PeerRefusal('invalid_params');
-  const input = { path: guarded.canonical, content: call.params.content };
-
-  const runtime = {
-    displayPath: `${options.displayPrefix}${guarded.path}`,
-    reserveCodeUnits: options.reserveCodeUnits,
-  };
-
-  if (call.params.replace === true)
-    return replaceFile(input, new AbortController().signal, runtime);
-  await mkdir(dirname(guarded.canonical), { recursive: true });
-
-  return createFile(input, new AbortController().signal, runtime);
-}
-
-function withoutEchoedText(result: EditSuccess | FileFailure): FsMutateResult {
-  if (result.status !== 'success') return result;
-
-  return { ...result, display: { startLine: result.display.startLine } };
-}
-
-async function editAnswer(
-  guarded: GuardedPath,
-  call: PeerCall,
-  options: NativeDisplayOptions,
-): Promise<FsMutateResult> {
-  if (
-    !isRecord(call.params) ||
-    !isString(call.params.oldText) ||
-    !isString(call.params.newText)
-  )
-    throw new PeerRefusal('invalid_params');
-
-  return withoutEchoedText(
-    await editFile(
-      {
-        path: guarded.canonical,
-        oldText: call.params.oldText,
-        newText: call.params.newText,
-      },
-      new AbortController().signal,
-      {
-        displayPath: `${options.displayPrefix}${guarded.path}`,
-        reserveCodeUnits: options.reserveCodeUnits,
-      },
-    ),
-  );
-}
-
-function mediaTypeOf(bytes: Buffer): string {
-  const head = bytes.subarray(0, SIGNATURE_BYTES).toString('latin1');
-
-  if (head.startsWith('\u0089PNG\r\n\u001a\n')) return 'image/png';
-
-  if (bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff)
-    return 'image/jpeg';
-
-  if (head.startsWith('GIF87a') || head.startsWith('GIF89a'))
-    return 'image/gif';
-
-  if (head.startsWith('RIFF') && head.slice(8, 12) === 'WEBP')
-    return 'image/webp';
-
-  if (head.startsWith('%PDF-')) return 'application/pdf';
-
-  return OCTET_STREAM;
-}
-
-function byteNotifications(
-  bytes: Buffer,
-): ReadonlyArray<{ notification: string; params: JsonValue }> {
-  const chunks: Array<{ notification: string; params: JsonValue }> = [];
-
-  for (
-    let offset = 0, seq = 1;
-    offset < bytes.byteLength;
-    offset += BYTES_CHUNK_BYTES, seq += 1
-  ) {
-    chunks.push({
-      notification: BYTES_NOTIFICATION,
-      params: {
-        seq,
-        data: bytes
-          .subarray(offset, offset + BYTES_CHUNK_BYTES)
-          .toString('base64'),
-      },
-    });
-  }
-
-  return chunks;
-}
-
-async function bytesAnswer(guarded: GuardedPath): Promise<PeerAnswer> {
-  if (guarded.kind !== 'file')
-    return { value: failure('not_regular_file', NOT_REGULAR_FILE) };
-
-  const bound = async () => {
-    const head = Buffer.alloc(SIGNATURE_BYTES);
-
-    try {
-      const file = await open(guarded.path, 'r');
-
-      try {
-        await file.read(head, 0, SIGNATURE_BYTES, 0);
-      } finally {
-        await file.close();
-      }
-    } catch {
-      return { value: failure('media_too_large', MEDIA_TOO_LARGE_MESSAGE) };
-    }
-
-    const mediaType = mediaTypeOf(head);
-
-    return {
-      value: failure(
-        'media_too_large',
-        mediaType.startsWith('image/')
-          ? IMAGE_TOO_LARGE_MESSAGE
-          : mediaType === 'application/pdf'
-            ? PDF_TOO_LARGE_MESSAGE
-            : MEDIA_TOO_LARGE_MESSAGE,
-      ),
-    };
-  };
-
-  if ((guarded.size ?? 0) > MEDIA_MAX_BYTES) return bound();
-
-  const bytes = await readFile(guarded.path);
-
-  if (bytes.byteLength > MEDIA_MAX_BYTES) return bound();
-
-  return {
-    value: { size: bytes.byteLength, mediaType: mediaTypeOf(bytes) },
-    notifications: byteNotifications(bytes),
-  };
-}
-
-/** One file request as the answer the daemon would send. */
-async function fileAnswer(
-  resolvePath: (path: string) => Promise<GuardedPath>,
-  call: PeerCall,
-): Promise<PeerAnswer> {
-  const guarded = await resolvePath(requestPath(call));
-
-  if (call.method === FS_STAT_METHOD) return { value: statAnswer(guarded) };
-
-  if (call.method === FS_LIST_METHOD)
-    return { value: await listAnswer(guarded) };
-
-  if (call.method === FS_BYTES_METHOD) return bytesAnswer(guarded);
-  const request = readParams(call);
-
-  if (call.method === FS_READ_METHOD)
-    return { value: await readAnswer(request.path, guarded, request.options) };
-
-  if (call.method === FS_EDIT_METHOD)
-    return { value: await editAnswer(guarded, call, request.options) };
-
-  return { value: await writeAnswer(guarded, call, request.options) };
-}
-
-function refusalAnswer(error: unknown): PeerAnswer {
-  return error instanceof PeerRefusal
-    ? { error: error.code }
-    : { error: 'internal' };
+/** How the link ended once the daemon stopped, for the session's classifier. */
+function daemonLinkEnd(
+  done: Promise<SessionEndReason>,
+  closedByHub: () => boolean,
+): Promise<MachineLinkEnd> {
+  return done.then((reason) => ({
+    code: closedByHub() ? null : 0,
+    signal: null,
+    diagnostic: reason === 'closed' || reason === 'input_ended' ? '' : reason,
+    closedByHub: closedByHub(),
+  }));
 }
 
 /**
- * The answers this peer gives: the file methods against the real filesystem
- * under the configured roots, and `roots.list` from the same roots.
+ * One daemon session over two pipes. The hub side counts the methods it sends,
+ * so a test can prove a request left the process instead of a local shortcut.
  */
-export function machineFilesAnswer(
-  options: MachineFilesPeerOptions = {},
-): (call: PeerCall) => PeerAnswer | Promise<PeerAnswer> | undefined {
-  const roots = options.roots ?? ['/'];
-  const resolvePath = rootGuard(roots);
+function daemonTransport(options: {
+  readonly roots: ReadonlyArray<string>;
+  readonly requests: Array<string>;
+  readonly onRequest: ((method: string) => void) | undefined;
+}): MachineTransport {
+  const fromHub = new PassThrough();
+  const toHub = new PassThrough();
+  const observing = new PassThrough();
+  let closedByHub = false;
 
-  return (call) => {
-    const custom = options.answer?.(call);
+  const daemon = serveMachine(fromHub, toHub, {
+    roots: [...options.roots],
+    instanceId: TEST_INSTANCE_ID,
+    buildId: TEST_BUILD_ID,
+    heartbeatIntervalMs: 600_000,
+  });
 
-    if (custom !== undefined) return custom;
+  observeRequests({
+    observing,
+    fromHub,
+    requests: options.requests,
+    onRequest: options.onRequest,
+  });
 
-    if (call.method === ROOTS_LIST_METHOD)
-      return { value: { roots: [...roots] } };
-
-    const known = [
-      FS_STAT_METHOD,
-      FS_LIST_METHOD,
-      FS_READ_METHOD,
-      FS_EDIT_METHOD,
-      FS_WRITE_METHOD,
-      FS_BYTES_METHOD,
-    ];
-
-    return known.includes(call.method)
-      ? fileAnswer(resolvePath, call).catch(refusalAnswer)
-      : undefined;
+  return {
+    input: toHub,
+    output: observing,
+    close: () => {
+      if (closedByHub) return;
+      closedByHub = true;
+      observing.end();
+      fromHub.end();
+      daemon.stop('closed');
+      toHub.destroy();
+    },
+    ended: daemonLinkEnd(daemon.done, () => closedByHub),
   };
 }
 
 /**
- * A connector whose own Machine answers files from the real filesystem, so a
- * tool test keeps exercising real reads and mutations after the host file
- * family moved onto the Machine surface.
+ * A transport factory that answers every Machine this connector names with a
+ * fresh in-process daemon session, for a test that supplies its own
+ * `machines` configuration.
+ */
+export function machineFilesTransportFactory(
+  options: Pick<MachineFilesPeerOptions, 'roots' | 'onRequest'> = {},
+): MachineTransportFactory {
+  const roots = options.roots ?? ['/'];
+
+  return {
+    open: () =>
+      daemonTransport({
+        roots,
+        requests: [],
+        onRequest: options.onRequest,
+      }),
+  };
+}
+
+/**
+ * A connector whose own Machine is a real daemon in process, so a tool test
+ * exercises real reads and mutations after the host file family moved onto the
+ * Machine surface.
  */
 export function machineFilesConnector(
   options: MachineFilesPeerOptions = {},
 ): MachineFilesConnector {
-  const name = options.name ?? DEFAULT_NAME;
+  const name = options.name ?? DEFAULT_LOCAL_MACHINE_NAME;
   const roots = options.roots ?? ['/'];
+  const sessions: Array<MachineFilesSession> = [];
+  const waiters: Array<() => void> = [];
 
-  const peer = createProtocolPeer({
-    roots,
-    answer: machineFilesAnswer({ ...options, roots }),
-  });
+  const factory: MachineTransportFactory = {
+    open: () => {
+      const requests: Array<string> = [];
+      sessions.push({ requests });
+
+      for (const wake of waiters.splice(0)) wake();
+
+      return daemonTransport({ roots, requests, onRequest: options.onRequest });
+    },
+  };
 
   const connector = new MachineConnector({
     machines: { local: name, default: name, hosts: { [name]: {} } },
     hubVersion: '0.0.0-machine-files-test',
     bindIdentity: () => Promise.resolve('match'),
-    localTransportFactory: peer.factory,
+    localTransportFactory: factory,
   });
 
-  return Object.assign(connector, { peer });
+  return Object.assign(connector, {
+    peer: {
+      sessions,
+      session: async (index: number) => {
+        while (sessions.length <= index) {
+          const { promise, resolve } = Promise.withResolvers<void>();
+
+          waiters.push(resolve);
+          await promise;
+        }
+
+        const session = sessions[index];
+
+        if (session === undefined) throw new Error('the daemon has no session');
+
+        return session;
+      },
+    } satisfies MachineFilesPeer,
+  });
 }

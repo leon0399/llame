@@ -705,6 +705,32 @@ describe('Machine media', () => {
     ).resolves.toMatchObject({ status: 'error', type: 'media_too_large' });
   });
 
+  it('keeps the text refusal when the byte answer says the target is not media', async () => {
+    const { connector } = fixture({
+      answers: {
+        'fs.read': {
+          value: { status: 'error', type: 'invalid_utf8', message: 'no' },
+        },
+        'fs.bytes': {
+          value: {
+            status: 'error',
+            type: 'unsupported_media_type',
+            message: 'no',
+          },
+        },
+      },
+    });
+
+    await expect(
+      runTool(
+        nativeReadTool,
+        { path: 'machine://devl/srv/app/libfoo.so' },
+        context(connector, { media: mediaStore().store }),
+        5,
+      ),
+    ).resolves.toMatchObject({ status: 'error', type: 'invalid_utf8' });
+  });
+
   it('does not take the media path without a media store', async () => {
     const { connector } = fixture({
       answers: {

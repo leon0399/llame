@@ -25,7 +25,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { join } from 'node:path';
 
 import {
   GenericContainer,
@@ -39,6 +39,7 @@ import {
 
 import type { MachinesConfig } from '../../instance-config/machines-config';
 import { createSshConfigFile, type SshConfigFile } from '../../ssh/ssh-config';
+import { MACHINE_BUNDLE } from '../local-daemon';
 import {
   SSHD_STARTUP_MS,
   ensureRunning,
@@ -58,13 +59,6 @@ export type {
 } from './ssh-connections';
 
 const FIXTURES = __dirname;
-
-/** The daemon bundle the box runs; built by `pnpm --filter machine build`. */
-const DAEMON_BUNDLE = resolve(
-  FIXTURES,
-  '../../../..',
-  'machine/dist/llame-machine.cjs',
-);
 
 /** Where the daemon lives inside the box, as the forced command names it. */
 const DAEMON_TARGET = '/usr/local/bin/llame-machine';
@@ -222,10 +216,10 @@ function builder(): GenericContainerBuilder {
 /** The daemon bundled for this checkout. */
 function daemonBundle(): Buffer {
   try {
-    return readFileSync(DAEMON_BUNDLE);
+    return readFileSync(MACHINE_BUNDLE);
   } catch (error) {
     throw new Error(
-      `The Machine SSH integration suite needs the built daemon at ${DAEMON_BUNDLE}: run \`pnpm --filter machine build\`.`,
+      `The Machine SSH integration suite needs the built daemon at ${MACHINE_BUNDLE}: run \`pnpm --filter machine build\`.`,
       { cause: error },
     );
   }

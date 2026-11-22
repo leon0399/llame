@@ -46,19 +46,9 @@ export type PeerCall = {
   readonly params?: JsonValue;
 };
 
-/** One notification the peer sends on a request's stream before its result. */
-export type PeerNotification = {
-  readonly notification: string;
-  readonly params?: JsonValue;
-};
-
 /** What the peer answers one method with. */
 export type PeerAnswer =
-  | {
-      readonly value: JsonValue;
-      /** Streamed before the result, as `fs.bytes` sends its chunks. */
-      readonly notifications?: ReadonlyArray<PeerNotification>;
-    }
+  | { readonly value: JsonValue }
   | { readonly error: MachineErrorCode }
   /** Answer later, by name, through `release`. */
   | { readonly hold: true };
@@ -381,8 +371,6 @@ class PeerSessionImpl implements PeerSession {
     if ('error' in answer) {
       channel.error(answer.error, `the peer refused ${method}`);
     } else {
-      for (const sent of answer.notifications ?? [])
-        channel.notify(sent.notification, sent.params);
       channel.result(answer.value);
     }
 

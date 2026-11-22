@@ -1,5 +1,12 @@
 import { existsSync } from "node:fs";
-import { chmod, readFile, truncate, writeFile } from "node:fs/promises";
+import {
+  chmod,
+  mkdir,
+  readFile,
+  rm,
+  truncate,
+  writeFile,
+} from "node:fs/promises";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { readFile as nativeReadFile } from "@workspace/native-file-tools";
@@ -172,6 +179,21 @@ describe("fs.read", () => {
     ).resolves.toEqual(locatorize(local, PREFIX));
   });
 
+  it("reads the filename a selector would otherwise split away", async () => {
+    const literal = join(fixture.root, "report:2-3");
+    await writeFile(literal, "alpha\nbeta\ngamma\n");
+    const local = await nativeReadFile({ path: literal });
+
+    if (!isLocalFileRead(local)) throw new Error("the local read failed");
+    await expect(
+      daemon.call("fs.read", {
+        envelope: envelope(),
+        path: join(fixture.root, "report"),
+        options: { displayPrefix: PREFIX, selector: "2-3" },
+      }),
+    ).resolves.toEqual(locatorize(local, PREFIX));
+  });
+
   it("reads a whole file exactly as a local read of it does", async () => {
     const local = await nativeReadFile({ path: fixture.notes });
 
@@ -183,6 +205,29 @@ describe("fs.read", () => {
         options: { displayPrefix: PREFIX },
       }),
     ).resolves.toEqual(locatorize(local, PREFIX));
+  });
+
+  it("refuses an ASCII PDF's text read so its bytes are streamed", async () => {
+    const pdf = join(fixture.root, "ascii.pdf");
+    const text = "%PDF-1.4\n1 0 obj\n<<>>\nendobj\n";
+    await writeFile(pdf, text);
+
+    await expect(
+      daemon.call("fs.read", {
+        envelope: envelope(),
+        path: pdf,
+        options: { displayPrefix: PREFIX },
+      }),
+    ).resolves.toMatchObject({ status: "error", type: "invalid_utf8" });
+
+    const { channel } = daemon.open();
+    await expect(
+      channel.request("fs.bytes", { envelope: envelope(), path: pdf }),
+    ).resolves.toEqual({
+      size: Buffer.byteLength(text),
+      mediaType: "application/pdf",
+    });
+    channel.close();
   });
 
   it("lists a directory with a locator header and hides link targets", async () => {
@@ -214,6 +259,40 @@ describe("fs.read", () => {
         options: { displayPrefix: PREFIX },
       }),
     ).resolves.toMatchObject({ status: "success", kind: "directory" });
+  });
+
+  it("refuses every directory spelling on a regular file", async () => {
+    for (const suffix of ["/", "/.", "/.."]) {
+      await expect(
+        daemon.call("fs.read", {
+          envelope: envelope(),
+          path: `${fixture.notes}${suffix}`,
+          options: { displayPrefix: PREFIX },
+        }),
+      ).resolves.toMatchObject({ status: "error", type: "not_found" });
+      await expect(
+        daemon.call("fs.list", {
+          envelope: envelope(),
+          path: `${fixture.notes}${suffix}`,
+        }),
+      ).resolves.toMatchObject({ status: "error", type: "not_found" });
+    }
+  });
+
+  it("refuses a `..` that follows a non-directory instead of listing its parent", async () => {
+    const project = join(fixture.root, "project");
+    await mkdir(project);
+    await writeFile(join(project, "one.md"), "one\n");
+
+    // Lexically this is the directory itself; the kernel refuses to climb out
+    // of a regular file, so the daemon must not serve the directory.
+    await expect(
+      daemon.call("fs.read", {
+        envelope: envelope(),
+        path: `${project}/one.md/..`,
+        options: { displayPrefix: PREFIX },
+      }),
+    ).resolves.toMatchObject({ status: "error", type: "not_found" });
   });
 
   it("reports the canonical locator when the address is a link", async () => {
@@ -289,6 +368,25 @@ describe("fs.read", () => {
     });
 
     expect(absent.error).toEqual(existing.error);
+  });
+
+  it("lists no sibling names for a root that was removed", async () => {
+    await writeFile(join(fixture.base, "root-old"), "");
+    await rm(fixture.root, { recursive: true });
+
+    // The parent of the removed root is outside every registered root, so a
+    // similar name there must never reach the answer.
+    await expect(
+      daemon.call("fs.read", {
+        envelope: envelope(),
+        path: fixture.root,
+        options: { displayPrefix: PREFIX },
+      }),
+    ).resolves.toEqual({
+      status: "error",
+      type: "not_found",
+      message: "File not found.",
+    });
   });
 
   it("requires display options", async () => {
@@ -410,6 +508,41 @@ describe("fs.edit and fs.write", () => {
 
     expect(outcome.error).toMatchObject(refusal("path_not_registered"));
   });
+
+  it("creates and edits nothing for a directory spelling on a file", async () => {
+    const fresh = join(fixture.root, "fresh");
+
+    await expect(
+      daemon.call("fs.write", {
+        envelope: envelope(),
+        path: `${fresh}/`,
+        options: { displayPrefix: PREFIX },
+        content: "no\n",
+      }),
+    ).resolves.toMatchObject({ status: "error", type: "not_found" });
+    await expect(
+      daemon.call("fs.write", {
+        envelope: envelope(),
+        path: `${fixture.notes}/.`,
+        options: { displayPrefix: PREFIX },
+        content: "no\n",
+      }),
+    ).resolves.toMatchObject({ status: "error", type: "not_found" });
+    await expect(
+      daemon.call("fs.edit", {
+        envelope: envelope(),
+        path: `${fixture.notes}/..`,
+        options: { displayPrefix: PREFIX },
+        oldText: "one\n",
+        newText: "ONE\n",
+      }),
+    ).resolves.toMatchObject({ status: "error", type: "not_found" });
+
+    expect(existsSync(fresh)).toBe(false);
+    await expect(readFile(fixture.notes, "utf8")).resolves.toBe(
+      "one\ntwo\nthree\nfour\n",
+    );
+  });
 });
 
 describe("fs.bytes", () => {
@@ -443,24 +576,55 @@ describe("fs.bytes", () => {
     channel.close();
   });
 
-  it("sends no chunk for an empty file", async () => {
+  it("refuses the bytes of a file matching no media signature", async () => {
     const empty = join(fixture.root, "empty.bin");
     await writeFile(empty, "");
     const { channel, notifications } = daemon.open();
     await expect(
       channel.request("fs.bytes", { envelope: envelope(), path: empty }),
-    ).resolves.toEqual({ size: 0, mediaType: "application/octet-stream" });
+    ).resolves.toMatchObject({
+      status: "error",
+      type: "unsupported_media_type",
+    });
     expect(notifications).toHaveLength(0);
     channel.close();
   });
 
-  it("refuses bytes above the media bound without reading them", async () => {
+  it("refuses a large non-media binary without a stream or a media bound", async () => {
     const huge = join(fixture.root, "huge.bin");
     await writeFile(huge, "");
     await truncate(huge, 21 * 1024 * 1024);
+    const { channel, notifications } = daemon.open();
+    await expect(
+      channel.request("fs.bytes", { envelope: envelope(), path: huge }),
+    ).resolves.toMatchObject({
+      status: "error",
+      type: "unsupported_media_type",
+    });
+    expect(notifications).toHaveLength(0);
+    channel.close();
+  });
+
+  it("refuses a large image with its own wording before reading it whole", async () => {
+    const huge = join(fixture.root, "huge.png");
+    await writeFile(huge, Buffer.from("\u0089PNG\r\n\u001a\n", "latin1"));
+    await truncate(huge, 21 * 1024 * 1024);
     await expect(
       daemon.call("fs.bytes", { envelope: envelope(), path: huge }),
-    ).resolves.toMatchObject({ status: "error", type: "media_too_large" });
+    ).resolves.toEqual({
+      status: "error",
+      type: "media_too_large",
+      message: "Image exceeds 20 MiB or 40 megapixels",
+    });
+  });
+
+  it("refuses a directory spelling on a file", async () => {
+    await expect(
+      daemon.call("fs.bytes", {
+        envelope: envelope(),
+        path: `${fixture.notes}/.`,
+      }),
+    ).resolves.toMatchObject({ status: "error", type: "not_found" });
   });
 
   it("refuses a directory", async () => {

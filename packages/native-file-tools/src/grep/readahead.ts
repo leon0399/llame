@@ -297,7 +297,10 @@ async function queueCandidate(
     return emit(state, { ...candidate, read: undefined });
 
   if (!(await state.queue.room())) return false;
-  state.started += 1;
+
+  // The cursor's file was charged to the file bound by the page that ended in
+  // it; re-opening it to show its tail is not a second file examined.
+  if (candidate.resume === undefined) state.started += 1;
   const head = state.nextHead;
   state.nextHead += 1;
 

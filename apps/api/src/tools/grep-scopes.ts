@@ -16,7 +16,6 @@ import {
   spellGrepMachineScopeLocator,
   splitGrepScope,
   type GrepScope,
-  type GrepScopeSplit,
 } from '@workspace/native-file-tools';
 import { type UnknownRecord } from '@workspace/runtime-safety';
 
@@ -252,7 +251,7 @@ async function resolveHostScope(
       ),
     };
 
-  return resolveTarget(context, { scope, target, index, admission });
+  return resolvePlacedScope(context, { scope, target, index, admission });
 }
 
 /**
@@ -267,10 +266,12 @@ type HostTarget = {
 };
 
 /**
- * One placed Machine target: its Machine's daemon walks the spelled locator
- * text, whether that Machine is this process's own or another one.
+ * One placed Machine scope: lexical normalization settles `.` and `..` before
+ * any policy text is read, the glob split sets where the walk starts, and the
+ * spelled locator text reaches that Machine's daemon, whether that Machine is
+ * this process's own or another one (design D8).
  */
-async function resolveTarget(
+async function resolvePlacedScope(
   context: ToolContext,
   host: HostTarget,
 ): Promise<ScopeOutcome> {
@@ -283,17 +284,6 @@ async function resolveTarget(
 
   if ('error' in split)
     return { result: unsupportedGlobResult(split.operator) };
-
-  return resolvePlacedScope(context, host, split);
-}
-
-/** One placed Machine scope: its daemon walks the spelled locator text. */
-function resolvePlacedScope(
-  context: ToolContext,
-  host: HostTarget,
-  split: GrepScopeSplit,
-): Promise<ScopeOutcome> {
-  const { target } = host;
 
   // The scope text decodes the literal spellings the model's part carries,
   // exactly as the daemon's own parse does, then spells each glob character

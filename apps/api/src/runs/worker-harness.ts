@@ -57,10 +57,6 @@ import { MachinesService } from '../machines/machines.service';
 import { type MachinesConfig } from '../instance-config/machines-config';
 import { type MachineTransportFactory } from '../machines/machine-transport';
 import { machineFilesConnector } from '../testing/machine-files-peer';
-import {
-  type PeerAnswer,
-  type PeerCall,
-} from '../testing/machine-protocol-peer';
 // ---- Harness boot ----------------------------------------------------------
 
 export type WorkerHarness = {
@@ -100,13 +96,6 @@ type HarnessOverrides = {
    * no suite exercises today.
    */
   machineTransportFactory?: MachineTransportFactory;
-  /**
-   * One extra answer for the local Machine peer, consulted before the file
-   * methods it serves by default. A family that has moved onto the Machine
-   * surface but has no real walk in the peer (grep) scripts it here, so a
-   * suite tests its own behaviour instead of the walk.
-   */
-  machineAnswer?: (call: PeerCall) => PeerAnswer | undefined;
   /** Deterministic pg-boss schema for restart/recovery integration tests. */
   queueSchema?: string;
   /** `null` boots a process that does not consume `runs`, like an API-only process. */
@@ -269,16 +258,10 @@ export async function bootWorkerHarness(
     overrides?.machines === undefined &&
     machines?.local !== undefined
   ) {
-    // A suite that only names its own Machine asks for an in-process host:
-    // the peer answers the identity handshake and the file methods against
-    // the real filesystem (the host file family runs through the Machine
-    // surface since layer 3), and any other request fails loudly.
-    connector = machineFilesConnector({
-      name: machines.local,
-      ...(overrides?.machineAnswer !== undefined && {
-        answer: overrides.machineAnswer,
-      }),
-    });
+    // A suite that only names its own Machine asks for an in-process host: the
+    // real daemon serves that Machine's files and grep, so the suite exercises
+    // the wire a running process sees.
+    connector = machineFilesConnector({ name: machines.local });
   }
 
   if (connector !== undefined) {

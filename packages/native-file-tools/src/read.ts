@@ -11,7 +11,6 @@ import {
   isNodeError,
   NativeFileError,
   openFlags,
-  resolveDecodedReadTarget,
   resolveReadTarget,
   type ReadTarget,
 } from "./path";
@@ -71,13 +70,6 @@ type ReadOutcome =
  *
  * `media` opts the read into image and PDF detection; without it a file is
  * always read as text.
- *
- * `reportPath` rewrites a path the result REPORTS (the read path, its
- * `realPath`, a listing header, and a listing's link targets) without changing
- * the path that is opened. It is separate from `displayPath`, which also
- * changes the open and the selector handling: a caller that serves the host
- * filesystem itself reports a canonical locator while still opening the
- * decoded host path.
  */
 export type NativeReadOptions = {
   readonly displayPath: string;
@@ -87,16 +79,6 @@ export type NativeReadOptions = {
   readonly linkTargets?: boolean;
   readonly signal?: AbortSignal | undefined;
   readonly media?: MediaReadHook | undefined;
-  readonly reportPath?: (hostPath: string) => string;
-};
-
-/** Options for a read that keeps its host path and only reports another. */
-export type NativeReadFileOptions = {
-  readonly reportPath?: (hostPath: string) => string;
-  /** The path is a decoded `machine://` path and `selector` is the suffix the
-   *  locator parser already split off it. The name is read as written: a
-   *  colon it still holds is part of the file name, never a selector. */
-  readonly decoded?: { readonly selector?: string };
 };
 
 export async function loadText(
@@ -128,22 +110,17 @@ export async function readFile(
   input: { path: string },
   signal?: AbortSignal,
   media?: MediaReadHook,
-  options: NativeReadFileOptions = {},
 ): Promise<ReadOutcome | MediaReadSuccess> {
   let hostPath = input.path;
 
   try {
-    const target =
-      options.decoded === undefined
-        ? await resolveReadTarget(input.path)
-        : await resolveDecodedReadTarget(input.path, options.decoded.selector);
+    const target = await resolveReadTarget(input.path);
 
     hostPath = target.path;
-    const reported = reportTarget(target, options.reportPath);
 
     return target.directory
-      ? await runListing(hostPath, reported, options.reportPath)
-      : await streamFileWindow(reported, {
+      ? await runListing(hostPath, target)
+      : await streamFileWindow(target, {
           hostPath,
           followSymlinks: true,
           signal,
@@ -155,24 +132,6 @@ export async function readFile(
 }
 
 /**
- * The target as a result reports it: the path and a differing `realPath` pass
- * through the caller's rewrite, while `hostPath` still opens the same file.
- */
-function reportTarget(
-  target: ReadTarget,
-  report: ((hostPath: string) => string) | undefined,
-): ReadTarget {
-  if (report === undefined) return target;
-  const { realPath } = target;
-
-  return {
-    ...target,
-    path: report(target.path),
-    ...(realPath !== undefined && { realPath: report(realPath) }),
-  };
-}
-
-/**
  * Read a target a scheme resolver has already authorized and resolved.
  * Without a `media` hook every file is read as text.
  */
@@ -181,7 +140,7 @@ export async function readResolvedFile(
   options: NativeReadOptions,
 ): Promise<ReadOutcome | MediaReadSuccess> {
   const followSymlinks = options.followSymlinks ?? false;
-  const displayPath = options.reportPath?.(hostPath) ?? options.displayPath;
+  const displayPath = options.displayPath;
 
   try {
     const target = await resolveResolvedTarget(hostPath, {
@@ -190,7 +149,7 @@ export async function readResolvedFile(
     });
 
     return target.directory
-      ? await runListing(hostPath, target, options.reportPath)
+      ? await runListing(hostPath, target)
       : await streamFileWindow(target, {
           hostPath,
           followSymlinks,
@@ -279,42 +238,15 @@ function listingOptions(target: ReadTarget): DirectoryListingOptions {
   return options;
 }
 
-/**
- * The port whose link metadata is already reported: a link target is a path in
- * the result, so a caller that reports another address for the same file (a
- * canonical locator) rewrites it before the listing renders, and a listing
- * built from names can never forge one. A relative raw link text is the link's
- * own text and stays as written.
- */
-function reportingDirectoryPort(
-  report: ((hostPath: string) => string) | undefined,
-): DirectoryPort {
-  if (report === undefined) return NODE_DIRECTORY_PORT;
-
-  const target = (value: string) =>
-    value.startsWith("/") ? report(value) : value;
-
-  return {
-    ...NODE_DIRECTORY_PORT,
-    realpath: async (path) => target(await realpath(path)),
-    readlink: async (path) => target(await readlink(path)),
-  };
-}
-
 async function runListing(
   hostPath: string,
   target: ReadTarget,
-  reportPath?: (hostPath: string) => string,
 ): Promise<DirectorySuccess | DirectoryFailure | FileFailure> {
   const refusal = listingSelectorRefusal(target);
 
   if (refusal !== undefined) return refusal;
 
-  return listDirectory(
-    hostPath,
-    reportingDirectoryPort(reportPath),
-    listingOptions(target),
-  );
+  return listDirectory(hostPath, NODE_DIRECTORY_PORT, listingOptions(target));
 }
 
 async function readFailure(

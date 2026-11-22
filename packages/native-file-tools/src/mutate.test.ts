@@ -30,52 +30,6 @@ describe("native exact mutations", () => {
     await rm(directory, { recursive: true, force: true });
   });
 
-  it("reports a rewritten path without changing the edit", async () => {
-    await writeFile(path, "Foo\n");
-    const report = (hostPath: string) => `machine://host-a${hostPath}`;
-
-    expect(
-      await editFile({ path, oldText: "Foo", newText: "Bar" }, undefined, {
-        reportPath: report,
-      }),
-    ).toMatchObject({
-      status: "success",
-      operation: "edit",
-      path: `machine://host-a${path}`,
-      content: "1: Bar\n",
-    });
-    expect(await readFile(path, "utf8")).toBe("Bar\n");
-  });
-
-  it("creates missing parents and reports a rewritten path", async () => {
-    const nested = join(directory, "missing", "parents", "note.md");
-    const report = (hostPath: string) => `machine://host-a${hostPath}`;
-
-    expect(
-      await createFile({ path: nested, content: "created\n" }, undefined, {
-        reportPath: report,
-      }),
-    ).toMatchObject({
-      status: "success",
-      operation: "write",
-      created: true,
-      path: `machine://host-a${nested}`,
-    });
-    expect(await readFile(nested, "utf8")).toBe("created\n");
-  });
-
-  it("keeps displayPath's resolved-target behavior distinct from reportPath", async () => {
-    const nested = join(directory, "missing", "note.md");
-
-    // A resolved target (displayPath present) creates no parent itself, so the
-    // report-only option must not inherit that refusal.
-    expect(
-      await createFile({ path: nested, content: "x" }, undefined, {
-        displayPath: "kb://space/note.md",
-      }),
-    ).toMatchObject({ status: "error" });
-  });
-
   it("replaces exactly one match and returns the numbered post-edit region", async () => {
     await writeFile(path, "before\nFoo\nafter\n");
     const result = await editFile({ path, oldText: "Foo", newText: "Bar" });

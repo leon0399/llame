@@ -921,10 +921,8 @@ describe('file: alias dispatch', () => {
     // The abort lands while the write request is on the wire, exactly as a
     // cancelled Run does: the Machine may still have written the file.
     const connector = machineFilesConnector({
-      answer: (call) => {
-        if (call.method === 'fs.write') abort.abort();
-
-        return undefined;
+      onRequest: (method) => {
+        if (method === 'fs.write') abort.abort();
       },
     });
 

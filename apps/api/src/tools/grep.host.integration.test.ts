@@ -26,8 +26,10 @@ import { type Db } from '../db/tenant-db.service';
 import { type GrepBoundsConfig } from '../instance-config/llame-config';
 import { type SkillCatalogPort } from '../skills/skill-catalog';
 import { startLocalDaemon, type LocalDaemon } from '../testing/local-daemon';
-import { createProtocolPeer } from '../testing/machine-protocol-peer';
-import { MachineConnector } from '../machines/machine-connector.service';
+import {
+  DEFAULT_LOCAL_MACHINE_NAME,
+  localMachineConnector,
+} from '../testing/local-machine';
 import { ArtifactsRepository } from './artifacts/artifacts-repository';
 import { grepInputSchema, nativeGrepTool } from './grep';
 import { machineNotFoundResult } from './machine-call';
@@ -118,28 +120,15 @@ function runningDaemon(): LocalDaemon {
 }
 
 /**
- * A configured Machine whose daemon a refusal test never reaches: resolution
- * answers before any request leaves, so the peer needs no answer at all.
+ * A context with the current Machine, for a test that walks nothing: the
+ * handshake-only connector throws if a request ever leaves.
  */
-function idleConnector(): MachineConnector {
-  const peer = createProtocolPeer({});
-
-  return new MachineConnector({
-    machines: { local: 'host-a', default: 'host-a', hosts: { 'host-a': {} } },
-    hubVersion: 'test',
-    bindIdentity: () => Promise.resolve('match'),
-    transportFactory: peer.factory,
-    handshakeTimeoutMs: 1000,
-  });
-}
-
-/** A context with the current Machine, for a test that walks nothing. */
 function idleContext(options: ContextOptions = {}): ToolContext {
   return {
     ...contextOf({ ...options, machine: false }),
-    localMachine: 'host-a',
-    defaultMachine: 'host-a',
-    machines: idleConnector(),
+    localMachine: DEFAULT_LOCAL_MACHINE_NAME,
+    defaultMachine: DEFAULT_LOCAL_MACHINE_NAME,
+    machines: localMachineConnector(),
   };
 }
 
@@ -489,11 +478,11 @@ describe('host walk policy', () => {
         scopes: [`${root}/one.md/**`],
       });
 
-      // A regular file cannot be listed: the daemon answers with `read`'s
-      // `not_regular_file`, not the absent path's `not_found`.
+      // A glob scope rooted at a regular file names a path that cannot be
+      // listed, and the daemon reports that as the absent path does.
       expect(fileRoot).toMatchObject({
         status: 'error',
-        type: 'not_regular_file',
+        type: 'not_found',
       });
     });
   });
@@ -1259,11 +1248,10 @@ describe('host pages inside one call', () => {
         { patterns: ['needle'], scopes: [`${root}/**`] },
       );
 
-      // The walk spends its file bound and never takes the 251st file. Each
-      // daemon page after the first re-opens the file its position cursor
-      // names, and the bound counts that file again: twelve pages of twenty
-      // passages spend 11 of the 250 on resumption, so 239 files are kept.
-      expect(artifactHeadings()).toHaveLength(239);
+      // The walk spends its file bound and never takes the 251st file. A
+      // resumed page re-opens the file its position cursor names without
+      // counting it again, so the bound keeps exactly 250 files.
+      expect(artifactHeadings()).toHaveLength(250);
       expect(success(result).complete).toBe(false);
       expect(warningsOf(result)).toEqual([{ kind: 'file_bound', count: 1 }]);
     });
@@ -1284,9 +1272,9 @@ describe('host pages inside one call', () => {
         { patterns: ['needle'], scopes: [`${root}/**`] },
       );
 
-      // Each page after the first re-opens its resume file and spends its
-      // bytes again, so the 1,407-byte bound keeps 192 files, not 201.
-      expect(artifactHeadings()).toHaveLength(192);
+      // A resumed page spends no new bytes on its resume file, so the
+      // 1,407-byte bound keeps exactly 201 files.
+      expect(artifactHeadings()).toHaveLength(201);
       expect(success(result).complete).toBe(false);
       expect(warningsOf(result)).toEqual([{ kind: 'byte_bound', count: 1 }]);
     });
@@ -1416,8 +1404,9 @@ describe("this process's own Machine", () => {
     await withRoot(async (root) => {
       await writeAt(root, 'a.md', 'needle\n');
 
+      // The program never starts, so the roots it would serve are moot.
       const unreachable = startLocalDaemon({
-        roots: [root],
+        roots: [],
         command: '/nonexistent/llame-machine',
       });
 

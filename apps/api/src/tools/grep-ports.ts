@@ -112,13 +112,13 @@ export function createSkillWalkPort(
   return {
     followsLinks: true,
     list: (rel) => listSkillDirectory(root, rel, signal),
-    open: (rel) =>
-      openFileStream(
-        rel.length === 0 ? root : path.join(root, rel),
-        true,
-        signal,
-      ),
+    open: (rel) => openFileStream(skillPath(root, rel), true, signal),
   };
+}
+
+/** One package-relative path as the operating system spells it. */
+function skillPath(root: string, rel: string): string {
+  return rel.length === 0 ? root : path.join(root, rel);
 }
 
 async function listSkillDirectory(
@@ -127,7 +127,7 @@ async function listSkillDirectory(
   signal: AbortSignal | undefined,
 ): Promise<ReadonlyArray<GrepEntry>> {
   signal?.throwIfAborted();
-  const directory = rel.length === 0 ? root : path.join(root, rel);
+  const directory = skillPath(root, rel);
   let dirents: Array<Dirent>;
 
   try {

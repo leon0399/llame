@@ -418,29 +418,6 @@ export async function resolveReadTarget(input: string): Promise<ReadTarget> {
   return classifyParsedTarget(parsed);
 }
 
-/**
- * The read of a decoded `machine://` path whose read selector the locator
- * parser already split: that split is the authority, so the name is read as
- * written and the selector, when the parser found one, applies verbatim.
- */
-export async function resolveDecodedReadTarget(
-  input: string,
-  selector?: string,
-): Promise<ReadTarget> {
-  const probe = await probeHostPath(input);
-
-  if (probe.kind === "missing") throw probe.error;
-  const { target } = probe;
-
-  if (selector === undefined) return target;
-
-  return {
-    ...applySelectorSuffix(target.path, selector),
-    ...(target.directory === true && { directory: true }),
-    ...(target.realPath !== undefined && { realPath: target.realPath }),
-  };
-}
-
 /** One member: `N`, `N-M`, `N+K`, `N-`, or `-K`. */
 const MEMBER_SOURCE = String.raw`\d+(?:[+-]\d+|-)?|-\d+`;
 const MEMBER = `(?:${MEMBER_SOURCE})`;

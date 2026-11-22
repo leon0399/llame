@@ -37,7 +37,7 @@ import { BASH_SETTLEMENT_GRACE_MS } from '../tools/bash-limits';
 import { webSearchTool } from '../tools/web-search/tool';
 import { compileTestPermissionPolicy } from '../testing/tool-permission-policy';
 import { createProtocolPeer } from '../testing/machine-protocol-peer';
-import { machineFilesAnswer } from '../testing/machine-files-peer';
+import { machineFilesTransportFactory } from '../testing/machine-files-peer';
 import { MachineConnector } from '../machines/machine-connector.service';
 import { parseMachineLocator } from '../machines/machine-locator';
 import { ExecutorGit, localGitSurface } from '../machines/executor-git.service';
@@ -767,9 +767,7 @@ function makeExecutionService(
             machines,
             hubVersion: 'harness-local',
             bindIdentity: () => Promise.resolve('match'),
-            transportFactory: createProtocolPeer({
-              answer: machineFilesAnswer(),
-            }).factory,
+            transportFactory: machineFilesTransportFactory(),
           })),
     // No Machine status reader in these tests.
     undefined,

@@ -80,8 +80,9 @@ export async function readMachinePath(
     if (result.status === 'success')
       return canonicalizeMachineResult(machine, { ...result });
 
-    // The daemon reads text only; bytes of an image or PDF are not valid UTF-8
-    // here, and the media path streams them instead. Any other refusal is the
+    // The daemon reads text only. Its media probe refuses an image or PDF by
+    // signature before any decode, and bytes that are not UTF-8 refuse too:
+    // the media path streams those bytes instead. Any other refusal is the
     // read's own result.
     if (result.type !== 'invalid_utf8' || context.media === undefined)
       return result;
@@ -120,7 +121,10 @@ async function readMachineMedia(
 
   if (meta === undefined) return machineUnusableResult(machine.name);
 
-  if ('status' in meta) return meta;
+  // The daemon refuses bytes matching no image or PDF signature, so the text
+  // read that asked for them is the read's result and none of them stream.
+  if ('status' in meta)
+    return meta.type === 'unsupported_media_type' ? undefined : meta;
 
   if (bytes.byteLength !== meta.size)
     return machineUnusableResult(machine.name);

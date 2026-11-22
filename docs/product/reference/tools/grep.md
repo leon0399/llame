@@ -297,12 +297,12 @@ a host scope in its own process.
 A path or Machine walk applies `.ignore` and `.gitignore`. From the scope
 prefix it reads both files in each directory it enters, and `.ignore` outranks
 `.gitignore` in one directory. Above the prefix it reads `.ignore` files up to
-`/` on the Machine, and up to the registered root on a Machine. It reads
-`.gitignore` above the prefix only inside the repository: the nearest
-directory at or above the prefix that holds a `.git` entry. A Machine looks for
-that repository only up to its registered root, and without one there, the
-root counts as the repository. Neither file is searched by a directory scope;
-an exact-file scope still searches either file.
+the registered root that holds the prefix; the host is a Machine, so a host
+scope stops there too. It reads `.gitignore` above the prefix only inside the
+repository: the nearest directory at or above the prefix that holds a `.git`
+entry. A Machine looks for that repository only up to its registered root, and
+without one there, the root counts as the repository. Neither file is searched
+by a directory scope; an exact-file scope still searches either file.
 
 A rule decides an entry only when its own pattern matches that entry's path.
 In one file the last matching rule decides, a negation included, and a deeper

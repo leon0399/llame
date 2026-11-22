@@ -14,7 +14,6 @@ import {
 } from '@workspace/machine-protocol';
 import {
   formatMachineLocator,
-  isMachineLocator,
   machinePrefix,
   parseMachineLocator,
   type MachineLocator,
@@ -122,7 +121,8 @@ type HostMutationCall = Exclude<
 
 let nativeMutations: Promise<void> = Promise.resolve();
 
-/** One host mutation at a time, whatever scheme resolved the target. */
+/** One Knowledge mutation at a time, so aliases of the same file cannot
+ *  interleave. Machine mutations are serialized by their connector. */
 export function serializeNativeMutation(
   operation: () => Promise<ToolResult>,
 ): Promise<ToolResult> {
@@ -136,8 +136,8 @@ export function serializeNativeMutation(
   return pending;
 }
 
-/** The host path is the argument for an absolute path and the resolved target
- *  for a scheme, so the mutation itself is the same call either way. */
+/** The resolved host path is the argument, so a Knowledge mutation is the
+ *  same call whatever locator named the target. */
 export function performMutation(
   call: HostMutationCall,
   hostPath: string,
@@ -145,22 +145,16 @@ export function performMutation(
     signal?: AbortSignal;
     displayPath?: string;
     reserveCodeUnits?: number;
-    reportPath?: (hostPath: string) => string;
   },
 ): Promise<ToolResult> {
-  if (call.operation === 'edit')
-    return editFile({ ...call.input, path: hostPath }, runtime.signal, {
-      displayPath: runtime.displayPath,
-      reserveCodeUnits: runtime.reserveCodeUnits,
-      reportPath: runtime.reportPath,
-    });
-  const input = { path: hostPath, content: call.input.content };
-
   const options = {
     displayPath: runtime.displayPath,
     reserveCodeUnits: runtime.reserveCodeUnits,
-    reportPath: runtime.reportPath,
   };
+
+  if (call.operation === 'edit')
+    return editFile({ ...call.input, path: hostPath }, runtime.signal, options);
+  const input = { path: hostPath, content: call.input.content };
 
   return call.input.replace === true
     ? replaceFile(input, runtime.signal, options)
