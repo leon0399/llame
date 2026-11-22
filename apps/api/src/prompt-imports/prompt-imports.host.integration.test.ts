@@ -129,7 +129,7 @@ describe('host prompt imports through the daemon', () => {
         // The body is native `read`'s own rendering of the file it read
         // through the daemon.
         expect(imported.body).toContain(
-          `${daemon.locator(file)}:1-1 of 1 line`,
+          `${daemon.locator(file)}:L1-1 of 1 line`,
         );
         expect(imported.body).toContain('1: the host notes');
         expect(resolution.omitted).toEqual([]);

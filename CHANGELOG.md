@@ -2,6 +2,24 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-11-22
 
+- Print the unit letter `L` in the selectors that read results and spill
+  notices show. A read header now reads `src/app.ts:L11-41 of 216 lines`, a
+  multi-range header `src/app.ts:L9-13,L39-43`, a raw header
+  `notes.md:raw:L3-4`, and an outline header `README.md:outline:L401-900`. A
+  continuation reads `[1000 more lines. Use src/app.ts:L2001- to continue]`
+  and keeps the window (`:L1501-2000`), the later members
+  (`:L2001-2500,L4000-4010`), or the representation (`:raw:L2001-`,
+  `:outline:L401-900`). A listing pages with `:L51-`. An artifact notice
+  continues with `artifact://grep-7:L201-`, a head spill names
+  `artifact://<tool>-<n>:L1-`, and a bash spill reads
+  `[lines 41-4880 omitted; read artifact://bash-5/stdout:L41-4880]`. The bare
+  forms remain valid input, so a selector copied from a stored result still
+  reads the same lines. A stored result replays through the same renderer, so
+  the headers, continuations, and notices of earlier turns print the new
+  spelling too. **Breaking**: a client that parses the printed `path:5-10` form
+  or the printed artifact and bash notices must accept the `L` spelling. The
+  JSON fields, the stored parts, and the input grammar are otherwise unchanged.
+
 - Accept the unit letter `L` on every `read` line selector, reserve `P` and `M`,
   fold a pasted `file:12:5` to line 12, and answer `L-5` with a fixed hint. A
   line member now takes `L` before its first number, in either case, so `L5`,

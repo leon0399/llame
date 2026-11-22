@@ -283,7 +283,7 @@ it('ends the notice with the artifact line after the last inline result', async 
   // before the first result the inline text leaves out.
   expect(notice).toMatch(
     new RegExp(
-      `; continue with artifact://web_search-5:${(blocks[9]?.end ?? 0) + 1}-$`,
+      `; continue with artifact://web_search-5:L${(blocks[9]?.end ?? 0) + 1}-$`,
       'u',
     ),
   );
@@ -674,7 +674,7 @@ it('continues after the last inline result when an answer follows', async () => 
   // the blank line, not the heading that follows it.
   expect(blocks[10]?.start).toBe((blocks[9]?.end ?? 0) + 2);
   expect(spilled(result).truncationNotice).toMatch(
-    new RegExp(`:${(blocks[9]?.end ?? 0) + 1}-$`, 'u'),
+    new RegExp(`:L${(blocks[9]?.end ?? 0) + 1}-$`, 'u'),
   );
 });
 
@@ -905,7 +905,7 @@ it('continues from the first block when an answer output is trimmed', async () =
     { limit: 10, fetchSize: 20 },
   );
 
-  expect(spilled(result).truncationNotice).toMatch(/:2-$/u);
+  expect(spilled(result).truncationNotice).toMatch(/:L2-$/u);
 });
 
 it('counts dropped answers once and kept answers’ lost citations', async () => {
@@ -1010,7 +1010,7 @@ it('re-reads a partially reproduced answer instead of skipping its tail', async 
   expect(inlineBlocks[1]?.end).toBe(fullBlocks[1]?.end);
   expect(inlineBlocks[1]?.text).not.toBe(fullBlocks[1]?.text);
   expect(inline.truncationNotice).toMatch(
-    new RegExp(`:${(fullBlocks[0]?.end ?? 0) + 1}-$`, 'u'),
+    new RegExp(`:L${(fullBlocks[0]?.end ?? 0) + 1}-$`, 'u'),
   );
 });
 

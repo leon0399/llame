@@ -32,7 +32,7 @@ describe("artifactNotice", () => {
         continueWith: { locator: "artifact://grep-7", next: 201 },
       }),
     ).toBe(
-      "[full result: artifact://grep-7 (4812 lines); continue with artifact://grep-7:201-]",
+      "[full result: artifact://grep-7 (4812 lines); continue with artifact://grep-7:L201-]",
     );
   });
 
@@ -42,7 +42,7 @@ describe("artifactNotice", () => {
         continueWith: { locator: "artifact://a-1", next: 3 },
       }),
     ).toBe(
-      "[full result: artifact://a-1 b (2 lines); continue with artifact://a-1:3-]",
+      "[full result: artifact://a-1 b (2 lines); continue with artifact://a-1:L3-]",
     );
   });
 
@@ -83,7 +83,7 @@ describe("artifactNotice", () => {
         },
       }),
     ).toBe(
-      "[full result: artifact://grep-7 (3 lines); continue with artifact://grep-7:2-; host files only on Machine devl]",
+      "[full result: artifact://grep-7 (3 lines); continue with artifact://grep-7:L2-; host files only on Machine devl]",
     );
   });
 

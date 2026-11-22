@@ -234,8 +234,10 @@ const KNOWLEDGE_LOCATOR_ANSWER_TOKENS = [
 ];
 
 /** A `kb://` path component never contains `:`, so a trailing `:selector`
- *  suffix is always the last one — matches native-files.ts's own grammar. */
-const KNOWLEDGE_SELECTOR_SUFFIX = /:(?:raw(?::\d+-\d+)?|\d+[-+]\d+)$/u;
+ *  suffix is always the last one — matches native-files.ts's own grammar,
+ *  whose line members take the `L` unit. A stored locator keeps the bare
+ *  spelling it printed before the unit letter, so both parse. */
+const KNOWLEDGE_SELECTOR_SUFFIX = /:(?:raw(?::L?\d+-\d+)?|L?\d+[-+]\d+)$/u;
 
 function stripKnowledgeSelector(locator: string): string {
   return locator.replace(KNOWLEDGE_SELECTOR_SUFFIX, "");
@@ -505,14 +507,16 @@ function findCanonicalCoordinates(
 }
 
 /** A `read` success reaches the model as its text shape, whose first line is
- *  `locator:range` (or an empty or skipped-line form). */
+ *  `locator:L<start>-<end>` (or an empty or skipped-line form). A result
+ *  stored before the unit letter keeps its bare `locator:<start>-<end>`, so
+ *  both spellings parse. */
 const READ_HEADER_RE =
-  /^(\S+?):(?:raw:|outline:)?(?:\d| empty| line \d+ exceeds)/u;
+  /^(\S+?):(?:raw:|outline:)?L?(?:\d| empty| line \d+ exceeds)/u;
 
 /** A cut read ends with one bracketed continuation line naming the locator
- *  and the one-based line the next read resumes at. */
+ *  and the one-based line the next read resumes at, in either spelling. */
 const READ_CONTINUATION_RE =
-  /Use (\S+?):(?:raw:|outline:)?(\d+)(?:-\S*)? to continue\]/u;
+  /Use (\S+?):(?:raw:|outline:)?L?(\d+)(?:-\S*)? to continue\]/u;
 
 /**
  * The contents of the current turn's `read` tool results, oldest first. A
@@ -1012,7 +1016,7 @@ function tryKnowledgeLocatorAnswerTurn(ctx: ChunkContext): boolean {
 }
 
 // `read`'s only argument is `path`; a Knowledge read selects `kb://` and
-// carries any selector inside that one string.
+// carries any selector, spelled with its `L` unit, inside that one string.
 function knowledgeReadArguments(ctx: ChunkContext) {
   const explicitRange = ctx.lastUserContent.includes("explicit range");
 
@@ -1020,7 +1024,7 @@ function knowledgeReadArguments(ctx: ChunkContext) {
     path: knowledgeLocator(
       ctx.knowledgeSpaceId,
       ctx.knowledgeReadPath,
-      explicitRange ? "3-5" : undefined,
+      explicitRange ? "L3-5" : undefined,
     ),
   };
 }
@@ -1088,7 +1092,8 @@ function tryKnowledgeContinuationTurn(ctx: ChunkContext): boolean {
 
   // A continuation carries no separate offset/limit arguments; it re-derives
   // a `kb://` selector from the PREVIOUS read result's own continuation line:
-  // its locator and the one-based line the result names.
+  // its locator and the one-based line the result names, written in the
+  // canonical `L` spelling the result prints.
   const continuation = ctx.knowledgeContinuation;
   const continuationStart = continuation?.start;
   writeToolCall(ctx.res, {
@@ -1101,7 +1106,7 @@ function tryKnowledgeContinuationTurn(ctx: ChunkContext): boolean {
           path:
             continuation === undefined || continuationStart === undefined
               ? undefined
-              : `${stripKnowledgeSelector(continuation.locator)}:${continuationStart}-${continuationStart + 1999}`,
+              : `${stripKnowledgeSelector(continuation.locator)}:L${continuationStart}-${continuationStart + 1999}`,
         }
       : {
           query: KNOWLEDGE_PAGED_QUERY,

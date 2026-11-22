@@ -96,17 +96,17 @@ cut it, one bracketed continuation line — while the owner's UI reads the store
 object:
 
 ```text
-src/app.ts:1-2001 of 2162 lines
+src/app.ts:L1-2001 of 2162 lines
 1: import { app } from './app.ts';
 …
 2001: export default app;
-[162 more lines. Use src/app.ts:2001- to continue]
+[162 more lines. Use src/app.ts:L2001- to continue]
 ```
 
-The header names the source and the shown range: `path:start-end` for one range,
-`path:a-b,c-d` for a comma list, `path:raw:start-end` for a raw read, and
-`path:outline:start-end` for an outline, then, after one space,
-`of <total> lines` when `lineCount` is stored. A null shown range renders
+The header names the source and the shown range: `path:L<start>-<end>` for one
+range, `path:L<a>-<b>,L<c>-<d>` for a comma list, `path:raw:L<start>-<end>` for
+a raw read, and `path:outline:L<start>-<end>` for an outline, then, after one
+space, `of <total> lines` when `lineCount` is stored. A null shown range renders
 `path: empty`, or
 `path: line <N> exceeds the result bound and was skipped` when the first line
 itself is larger than the bound; the continuation line resumes after it. A part
@@ -115,11 +115,11 @@ renders the bare locator with `of <total> lines` when one is stored. A directory
 listing renders its `content` as-is (its first line is the path) with no header
 line. The attribution lines follow the header, or a listing's entries, in the
 order the source adds them. The continuation line names the exact read that
-resumes the source in its own form, open-ended once the requested range is
-spent, and states how many lines or entries remain when the count is stored. A
-web locator that carries a query or a fragment takes no selector, so its line
-states the remaining lines and that the locator takes no line selector instead
-of naming a read.
+resumes the source in its own form and canonical `L` spelling, open-ended once
+the requested range is spent, and states how many lines or entries remain when
+the count is stored. A web locator that carries a query or a fragment takes no
+selector, so its line states the remaining lines and that the locator takes no
+line selector instead of naming a read.
 
 | Field                                | Meaning                                                                                    |
 | ------------------------------------ | ------------------------------------------------------------------------------------------ |

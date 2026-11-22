@@ -29,7 +29,7 @@
  * Two differences from the proposal's table are expected and explained by later
  * decisions rather than by drift: the read header's ` of <total> lines` and the
  * continuation line's stored requested end were both chosen after that table
- * was measured, so the bound-limited row resumes to `:387-2000` instead of the
+ * was measured, so the bound-limited row resumes to `:L387-2000` instead of the
  * file's last line and costs one token more.
  *
  * Run: `pnpm --filter @workspace/native-file-tools build && pnpm --filter
@@ -62,9 +62,10 @@ const READ_LINE_COUNT = 562;
 
 /** The stored display path of a read case. The fixture records the submitted
  *  locator, whose selector the tool splits off before it stores `path`, so a
- *  header built from it would repeat the selector. */
+ *  header built from it would repeat the selector. The grammar admits the
+ *  `L` unit, so a recorded selector strips in either spelling. */
 const storedPath = (locator) =>
-  locator.replace(/:(?:raw:|outline:)?[\d,-]+$/u, "");
+  locator.replace(/:(?:raw:|outline:)?L?[\d,-]+$/u, "");
 
 const tokens = (text) => encode(text).length;
 

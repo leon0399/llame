@@ -134,7 +134,7 @@ never break a line, and every snippet and answer line begins with a `>` mark
 and one space, so text inside a result cannot start a line of the shape. When
 the call did not fit every fetched result, answer, or citation inline, one
 bracketed `[full result: artifact://web_search-<n> (<lines> lines); continue
-with artifact://web_search-<n>:<next>-]` line ends the text, after the notes.
+with artifact://web_search-<n>:L<next>-]` line ends the text, after the notes.
 `<next>` is the artifact line after the last inline result. When the Run
 cannot read the artifact, the last line is instead `[left out: <count>
 results; full result not stored]`.
