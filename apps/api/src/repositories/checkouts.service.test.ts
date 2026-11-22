@@ -3,6 +3,8 @@ import { drizzle } from 'drizzle-orm/postgres-js';
 
 import { type Checkout } from '../db/schema';
 import { TenantDbService, type Db } from '../db/tenant-db.service';
+import { type MachineConnector } from '../machines/machine-connector.service';
+import { localMachineConnector } from '../testing/local-machine';
 import { type CheckoutRegistrationService } from './checkout-registration.service';
 import { CheckoutsService } from './checkouts.service';
 import { RepositoriesRepository } from './repositories.repository';
@@ -11,8 +13,8 @@ const checkout: Checkout = {
   id: '0b6f5499-dde4-43cf-89fe-037998a0fe64',
   ownerUserId: 'owner-a',
   repositoryId: '1b6f5499-dde4-43cf-89fe-037998a0fe64',
-  executorId: 'local-exec',
-  path: '/home/me/llame',
+  executorId: 'host-a',
+  path: 'machine://host-a/home/me/llame',
   kind: 'main',
   parentCheckoutId: null,
   branch: 'main',
@@ -25,7 +27,7 @@ const checkout: Checkout = {
 const worktree: Checkout = {
   ...checkout,
   id: '2b6f5499-dde4-43cf-89fe-037998a0fe64',
-  path: '/home/me/llame-feature',
+  path: 'machine://host-a/home/me/llame-feature',
   kind: 'worktree',
   parentCheckoutId: checkout.id,
   branch: 'feature',
@@ -34,12 +36,15 @@ const worktree: Checkout = {
 const other: Checkout = {
   ...checkout,
   id: '3b6f5499-dde4-43cf-89fe-037998a0fe64',
-  path: '/home/me/other',
+  path: 'machine://host-a/home/me/other',
 };
 
 // The service is the app layer over the repository: every data call is spied on
 // the prototype, so the assertions are the arguments and the merged summary,
 // and the RLS-scoped SQL itself stays in `checkouts.integration.test.ts`.
+// `machines.local` and `machines.default` are both `host-a`.
+const opened: Array<MachineConnector> = [];
+
 function makeService() {
   const db: Db = drizzle.mock();
 
@@ -56,7 +61,15 @@ function makeService() {
     .fn<CheckoutRegistrationService['register']>()
     .mockResolvedValue(checkout);
 
-  const service = new CheckoutsService(tenantDb, registrationDouble(register));
+  const connector = localMachineConnector({ name: 'host-a' });
+  opened.push(connector);
+
+  const service = new CheckoutsService(
+    tenantDb,
+    registrationDouble(register),
+    connector,
+  );
+
   vi.spyOn(RepositoriesRepository.prototype, 'chatsBoundTo').mockResolvedValue(
     new Map(),
   );
@@ -110,6 +123,7 @@ function invalidWorktreeBase(message: string) {
 }
 
 afterEach(() => {
+  for (const connector of opened.splice(0)) connector.onModuleDestroy();
   vi.restoreAllMocks();
 });
 
@@ -232,7 +246,7 @@ describe('CheckoutsService', () => {
       expect(setWorktreeBase).not.toHaveBeenCalled();
     });
 
-    it('accepts an absolute host path on a local checkout', async () => {
+    it('stores a bare base on the default Machine as its canonical locator', async () => {
       const { service } = makeService();
       vi.spyOn(
         RepositoriesRepository.prototype,
@@ -241,7 +255,10 @@ describe('CheckoutsService', () => {
 
       const setWorktreeBase = vi
         .spyOn(RepositoriesRepository.prototype, 'setWorktreeBase')
-        .mockResolvedValue({ ...checkout, worktreeBase: '/srv/worktrees' });
+        .mockResolvedValue({
+          ...checkout,
+          worktreeBase: 'machine://host-a/srv/worktrees',
+        });
 
       vi.spyOn(
         RepositoriesRepository.prototype,
@@ -252,7 +269,7 @@ describe('CheckoutsService', () => {
         service.setWorktreeBase('owner-a', checkout.id, '/srv/worktrees'),
       ).resolves.toEqual({
         ...checkout,
-        worktreeBase: '/srv/worktrees',
+        worktreeBase: 'machine://host-a/srv/worktrees',
         chatIds: ['chat-a'],
         leaseChatId: null,
       });
@@ -260,11 +277,11 @@ describe('CheckoutsService', () => {
       expect(setWorktreeBase).toHaveBeenCalledWith(
         'owner-a',
         checkout.id,
-        '/srv/worktrees',
+        'machine://host-a/srv/worktrees',
       );
     });
 
-    it('refuses a relative path on a local checkout', async () => {
+    it('refuses a relative path on a default-Machine checkout', async () => {
       const { service } = makeService();
       vi.spyOn(
         RepositoriesRepository.prototype,
@@ -280,7 +297,7 @@ describe('CheckoutsService', () => {
         failureOf(service.setWorktreeBase('owner-a', checkout.id, 'worktrees')),
       ).resolves.toEqual(
         invalidWorktreeBase(
-          'A worktree base on a local checkout must be an absolute path.',
+          'A worktree base must be an absolute path on machines.default, or a machine:// locator.',
         ),
       );
 
@@ -305,7 +322,7 @@ describe('CheckoutsService', () => {
         ),
       ).resolves.toEqual(
         invalidWorktreeBase(
-          'A worktree base on a local checkout must be an absolute path.',
+          'A worktree base must be an absolute path on machines.default, or a machine:// locator.',
         ),
       );
 
@@ -317,7 +334,7 @@ describe('CheckoutsService', () => {
 
       const machine: Checkout = {
         ...checkout,
-        executorId: 'machine:devl',
+        executorId: 'devl',
         path: 'machine://devl/srv/repo',
       };
 
@@ -360,7 +377,7 @@ describe('CheckoutsService', () => {
 
       const machine: Checkout = {
         ...checkout,
-        executorId: 'machine:devl',
+        executorId: 'devl',
         path: 'machine://devl/srv/repo',
       };
 
@@ -392,7 +409,7 @@ describe('CheckoutsService', () => {
 
       const machine: Checkout = {
         ...checkout,
-        executorId: 'machine:devl',
+        executorId: 'devl',
         path: 'machine://devl/srv/repo',
       };
 
@@ -420,7 +437,7 @@ describe('CheckoutsService', () => {
       expect(setWorktreeBase).not.toHaveBeenCalled();
     });
 
-    it('refuses a locator on a local checkout', async () => {
+    it('refuses a base locator of another Machine on a default-Machine checkout', async () => {
       const { service } = makeService();
       vi.spyOn(
         RepositoriesRepository.prototype,
@@ -432,9 +449,12 @@ describe('CheckoutsService', () => {
         'setWorktreeBase',
       );
 
+      // `host-a` is the checkout's Machine and the default one: a base of
+      // `gpu` would place the worktree on a filesystem this row does not
+      // address.
       await expect(
         failureOf(
-          service.setWorktreeBase('owner-a', checkout.id, 'machine://devl/srv'),
+          service.setWorktreeBase('owner-a', checkout.id, 'machine://gpu/srv'),
         ),
       ).resolves.toEqual(
         invalidWorktreeBase(
@@ -445,13 +465,13 @@ describe('CheckoutsService', () => {
       expect(setWorktreeBase).not.toHaveBeenCalled();
     });
 
-    it('refuses a host path on a Machine checkout', async () => {
+    it('refuses a bare base on a checkout that is not the default Machine', async () => {
       const { service } = makeService();
 
       const machine: Checkout = {
         ...checkout,
-        executorId: 'machine:devl',
-        path: 'machine://devl/srv/repo',
+        executorId: 'gpu',
+        path: 'machine://gpu/srv/repo',
       };
 
       vi.spyOn(
@@ -464,13 +484,15 @@ describe('CheckoutsService', () => {
         'setWorktreeBase',
       );
 
+      // `machines.default` is `host-a`, so a bare path names host-a's
+      // filesystem: it cannot place a worktree of a gpu checkout.
       await expect(
         failureOf(
           service.setWorktreeBase('owner-a', machine.id, '/srv/worktrees'),
         ),
       ).resolves.toEqual(
         invalidWorktreeBase(
-          'A worktree base on a Machine checkout must be a machine:// locator.',
+          'A worktree base on a Machine that is not machines.default must be a machine:// locator of its checkout.',
         ),
       );
 

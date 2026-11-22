@@ -11,8 +11,9 @@ import type { CheckoutResponseOrigin } from "./checkoutResponseOrigin";
 export interface CheckoutResponse {
   id: string;
   repositoryId: string;
-  /** The local executor id, or machine:<name>. */
+  /** The Machine name of the executor. */
   executorId: string;
+  /** The canonical `machine://` locator of this checkout. */
   path: string;
   kind: CheckoutResponseKind;
   /** @nullable */
@@ -23,7 +24,10 @@ export interface CheckoutResponse {
    */
   branch: string | null;
   origin: CheckoutResponseOrigin;
-  /** @nullable */
+  /**
+   * The canonical `machine://` locator new worktrees are created under; null when unset.
+   * @nullable
+   */
   worktreeBase: string | null;
   /** The ids of this owner's chats whose Workspace root equals path. */
   chatIds: string[];

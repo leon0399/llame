@@ -230,12 +230,19 @@ describe('interrupt fate (run-steering D7)', () => {
     },
   };
 
-  const fateOfId = (id: string) => {
+  /** The Machine this process hosts is also `machines.default`. */
+  const hostContext: ToolContext = {
+    ...context,
+    localMachine: 'host-a',
+    defaultMachine: 'host-a',
+  };
+
+  const fateOfId = (id: string, target: ToolContext = hostContext) => {
     const tool = TOOL_REGISTRY.get(id);
 
     if (tool === undefined) throw new Error(`Tool "${id}" is not registered.`);
 
-    return interruptFateOf(tool, { command: 'true' }, context);
+    return interruptFateOf(tool, { command: 'true' }, target);
   };
 
   it('backgrounds host bash and cancels read-only tools on interrupt', () => {
@@ -243,6 +250,12 @@ describe('interrupt fate (run-steering D7)', () => {
     expect(fateOfId('read')).toBe('cancel');
     expect(fateOfId('grep')).toBe('cancel');
     expect(fateOfId('web_search')).toBe('cancel');
+  });
+
+  it('cancels bash when no Machine is configured to run it', () => {
+    // No Workspace, no `machines.default`, no `machines.local`: the call has no
+    // Machine to run on, so it never becomes a job.
+    expect(fateOfId('bash', context)).toBe('cancel');
   });
 
   it.each([

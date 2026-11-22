@@ -26,7 +26,7 @@ if (!process.env['TEST_DATABASE_URL']) {
 describe('step-boundary compaction admission', () => {
   const fx = useSegmentsFixture('run-boundary-compaction-admission', {
     allowedTools: ['bash', 'wait'],
-    nativeExecutorId: 'run-boundary-compaction-admission-host',
+    localMachine: 'run-boundary-compaction-admission-host',
   });
 
   const awaiting = (runId: string) =>

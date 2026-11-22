@@ -978,14 +978,14 @@ describe("truncateOversizedResult head spill", () => {
       locator: LOCATOR,
       lineCount: 900,
       hostFiles: {
-        directory: "/tmp/llame/chats/c/artifacts",
+        locator: "machine://host-a/tmp/llame/chats/c/artifacts",
+        machine: "host-a",
         elsewhere: false,
-        readable: false,
       },
     });
 
     expect(noticeOf(result)).toContain(
-      `[full result: ${LOCATOR} (900 lines); continue with ${LOCATOR}:1-; host files in /tmp/llame/chats/c/artifacts]`,
+      `[full result: ${LOCATOR} (900 lines); continue with ${LOCATOR}:1-; host files in machine://host-a/tmp/llame/chats/c/artifacts]`,
     );
   });
 

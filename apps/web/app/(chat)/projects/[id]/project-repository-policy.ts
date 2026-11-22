@@ -31,19 +31,11 @@ export const ISOLATION_OPTIONS: ReadonlyArray<{
   },
 ];
 
-const MACHINE_EXECUTOR = "machine:";
-
-/** Whether the checkout lives on a Machine rather than this instance. */
-export function isOnMachine(checkout: CheckoutResponse): boolean {
-  return checkout.executorId.startsWith(MACHINE_EXECUTOR);
-}
-
-/** Where a checkout lives, in the words the reader knows it by: a Machine by
- *  its configured name, anything else as this instance's own executor. */
+/** The Machine a checkout lives on, in the words the reader knows it by: its
+ *  executor id, which is the Machine's configured name. The host is a Machine
+ *  like any other. */
 export function executorLabel(checkout: CheckoutResponse): string {
-  return isOnMachine(checkout)
-    ? checkout.executorId.slice(MACHINE_EXECUTOR.length)
-    : "Local";
+  return checkout.executorId;
 }
 
 /** "1 checkout", "3 worktrees": a count with its noun, singular at one. */

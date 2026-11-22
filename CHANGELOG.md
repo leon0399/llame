@@ -2,6 +2,34 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-11-21
 
+- Treat the host as an ordinary Machine: the `machines.hosts` entry named by
+  `machines.local`, reached through `llame-machine serve --stdio` as a child
+  process. `machines.default` names the Machine of an unbound Chat. Every
+  executor id is a plain Machine name, and every stored root, result, and
+  permission decision uses a canonical `machine://` locator. A bare, relative,
+  or `file:` path addresses the current Machine, and `machine://<name>/…` is the
+  only form that names a Machine. A path regex that begins with `^/` now fails
+  startup. Host file tools still run in the worker and contact the host daemon
+  only for the identity check; a later release moves them to the daemon.
+  **Breaking**: add a `hosts` entry named after the old `tools.nativeExecutorId`
+  value, set `machines.local` and `machines.default`, remove
+  `tools.nativeExecutorId`, and rewrite `^/` path allows as
+  `^machine://[^/]+/`. Register host roots with `llame-machine roots add`, and
+  deploy the database migration with a backup, because a rollback restores that
+  backup. A Chat whose
+  executor names no configured Machine detaches with `executor_absent`. Rename
+  an old id outside `[a-z0-9-]{1,63}` before the upgrade:
+
+  ```sql
+  UPDATE chats SET workspace_executor_id = 'personal-host-a' WHERE workspace_executor_id = 'personal_host';
+  UPDATE checkouts SET executor_id = 'personal-host-a' WHERE executor_id = 'personal_host';
+  UPDATE project_repository_defaults SET executor_id = 'personal-host-a' WHERE executor_id = 'personal_host';
+  UPDATE projects SET default_executor_id = 'personal-host-a' WHERE default_executor_id = 'personal_host';
+  ```
+
+  References
+  [#1831](https://github.com/leon0399/llame/issues/1831).
+
 - Report a Machine daemon's persistent instance id, build id, and static facts
   (OS, architecture, kernel, CPU count, memory, and per-root disk size) at
   protocol version 2. The installation binds each Machine name to the first

@@ -239,6 +239,10 @@ export interface InRunTurnContext {
   readonly runId: string;
   /** The bound Workspace root the turn starts from; absent for an unbound Chat. */
   readonly workspaceRoot?: string;
+  /** `machines.local`: the Machine this process hosts, for a bare path's Machine. */
+  readonly localMachine?: string;
+  /** `machines.default`: the Machine an unbound Chat's bare path addresses. */
+  readonly defaultMachine?: string;
   /**
    * Reads one host page under the Run's own permission decision and audit
    * trail. Never a model-visible tool call. Absent when the producer may not
@@ -282,6 +286,10 @@ export interface InRunAttempt {
   readonly runId: string;
   readonly chatId: string;
   readonly userId: string;
+  /** `machines.local`: the Machine this process hosts, for a bare path's Machine. */
+  readonly localMachine?: string;
+  /** `machines.default`: the Machine an unbound Chat's bare path addresses. */
+  readonly defaultMachine?: string;
   /** Keys already disclosed to the attempt's effective context. */
   readonly seenKeys?: ReadonlySet<string>;
   /**

@@ -21,6 +21,7 @@ import {
   BUILT_IN_DEFAULTS,
 } from '../instance-config/llame-config';
 import { compileToolPermissionMap } from '../tools/permissions/compile-permissions';
+import { WorkspaceEntryAdmission } from '../tools/permissions/workspace-entry-admission';
 import { type PermissionGroup } from '../tools/permissions/types';
 import {
   ExecutorGit,
@@ -62,14 +63,22 @@ const PARENT_ID = '11111111-1111-4111-8111-111111111111';
 const CHILD_ID = '22222222-2222-4222-8222-222222222222';
 
 const ALLOWED_LOCAL: Partial<LlameConfig['tools']> = {
-  nativeExecutorId: EXECUTOR,
   allowed: ['enter_workspace'],
 };
+
+/** The Machines the harness knows: the host Machine, reachable in process. */
+const MACHINES = {
+  local: EXECUTOR,
+  default: EXECUTOR,
+  hosts: { [EXECUTOR]: {} },
+} satisfies NonNullable<LlameConfig['machines']>;
 
 // A field clause, not `allow: true`: a whole-tool allow would keep admitting a
 // call whose `path` argument went missing.
 const ANY_ABSOLUTE_PATH: PermissionGroup = {
-  allow: [{ field: 'path', regex: '^/' }],
+  // A bare path projects to its Machine's canonical locator, which is the text
+  // an allow is decided on.
+  allow: [{ field: 'path', regex: '^(?:/|machine://)' }],
 };
 
 const repository: Repository = {
@@ -142,6 +151,7 @@ function makeService(options: {
   readonly tools?: Partial<LlameConfig['tools']>;
   readonly group?: PermissionGroup;
   readonly inspection?: GitInspectResult;
+  readonly machines?: LlameConfig['machines'];
 }) {
   const db: Db = drizzle.mock();
 
@@ -165,8 +175,16 @@ function makeService(options: {
   const connector = new MachineConnector({
     hubVersion: 'test-hub',
     bindIdentity: () => Promise.resolve('match'),
-    machines: undefined,
-    transportFactory: createProtocolPeer().factory,
+    machines: options.machines ?? MACHINES,
+    transportFactory: createProtocolPeer({
+      answer: (call) => {
+        if (call.method === 'hello') return undefined;
+
+        throw new Error(
+          `the peer received a ${call.method} request; only the handshake may reach the host Machine's daemon`,
+        );
+      },
+    }).factory,
     idleCloseMs: 1000,
   });
 
@@ -174,6 +192,7 @@ function makeService(options: {
 
   const config = {
     ...BUILT_IN_DEFAULTS,
+    machines: options.machines ?? MACHINES,
     tools: {
       ...BUILT_IN_DEFAULTS.tools,
       ...(options.tools ?? ALLOWED_LOCAL),
@@ -182,11 +201,14 @@ function makeService(options: {
 
   const service = new CheckoutRegistrationService(
     tenantDb,
-    { config },
-    new ExecutorGit({ config }, connector, local),
-    compileToolPermissionMap(
-      { enter_workspace: options.group ?? ANY_ABSOLUTE_PATH },
-      'test-policy',
+    new ExecutorGit(connector, local),
+    new WorkspaceEntryAdmission(
+      { config },
+      connector,
+      compileToolPermissionMap(
+        { enter_workspace: options.group ?? ANY_ABSOLUTE_PATH },
+        'test-policy',
+      ),
     ),
   );
 
@@ -325,13 +347,12 @@ describe('CheckoutRegistrationService gates', () => {
     // A Machine path runs on its daemon; storing a row this hub cannot reach is
     // worse than refusing, so the derivation fails before any probe.
     await expect(
-      failureOf(
-        service.register(OWNER, { path: `machine://${EXECUTOR}/work/proj` }),
-      ),
+      failureOf(service.register(OWNER, { path: 'machine://ghost/work/proj' })),
     ).resolves.toEqual({
       statusCode: 503,
       error: 'Service Unavailable',
-      message: `No Machine named ${EXECUTOR} is configured, so its git surface cannot run.`,
+      message:
+        'No Machine named ghost is configured, so its git surface cannot run.',
       code: 'executor_unavailable',
     });
     expect(inspect).not.toHaveBeenCalled();
@@ -339,7 +360,7 @@ describe('CheckoutRegistrationService gates', () => {
 
   it('refuses when tools.allowed omits the workspace group', async () => {
     const { service, inspect } = makeService({
-      tools: { nativeExecutorId: EXECUTOR, allowed: [] },
+      tools: { allowed: [] },
     });
 
     await expect(
@@ -355,9 +376,10 @@ describe('CheckoutRegistrationService gates', () => {
     expect(inspect).not.toHaveBeenCalled();
   });
 
-  it('refuses when the serving process holds no native executor id', async () => {
+  it('refuses a bare path when machines.default names no Machine', async () => {
     const { service, inspect } = makeService({
       tools: { allowed: ['enter_workspace'] },
+      machines: { hosts: { [EXECUTOR]: {} } },
     });
 
     await expect(
@@ -366,7 +388,7 @@ describe('CheckoutRegistrationService gates', () => {
       statusCode: 503,
       error: 'Service Unavailable',
       message:
-        'The serving process holds no tools.nativeExecutorId, so it cannot run git for a local path.',
+        'No machines.default is configured, so a bare path names no Machine.',
       code: 'executor_unavailable',
     });
     expect(inspect).not.toHaveBeenCalled();
@@ -392,7 +414,14 @@ describe('CheckoutRegistrationService gates', () => {
 
   it('decides the canonical path before inspecting it', async () => {
     const { service, inspect } = makeService({
-      group: { allow: [{ field: 'path', literal: '/work/proj/sub' }] },
+      group: {
+        allow: [
+          { field: 'path', literal: `machine://${EXECUTOR}/work/proj/sub` },
+        ],
+        reject: [
+          { field: 'path', literal: `machine://${EXECUTOR}/work/elsewhere` },
+        ],
+      },
     });
 
     // A symlink target outside the allow list is refused even though the
@@ -413,8 +442,8 @@ describe('CheckoutRegistrationService gates', () => {
   it('decides the main clone of a worktree before storing it', async () => {
     const { service, inspect } = makeService({
       group: {
-        allow: [{ field: 'path', regex: '^/' }],
-        reject: [{ field: 'path', literal: '/work/proj' }],
+        allow: [{ field: 'path', regex: '^machine://' }],
+        reject: [{ field: 'path', literal: `machine://${EXECUTOR}/work/proj` }],
       },
       inspection: inspected({
         toplevel: '/work/wt',
@@ -438,10 +467,10 @@ describe('CheckoutRegistrationService gates', () => {
   it('decides the toplevel of a worktree registered through a subdirectory', async () => {
     const { service, inspect } = makeService({
       group: {
-        allow: [{ field: 'path', regex: '^/' }],
+        allow: [{ field: 'path', regex: '^machine://' }],
         // Anchored: a literal is a substring search, so `/work/wt` would also
         // match the subdirectory this case submits.
-        reject: [{ field: 'path', regex: '^/work/wt$' }],
+        reject: [{ field: 'path', regex: `^machine://${EXECUTOR}/work/wt$` }],
       },
       inspection: inspected({
         toplevel: '/work/wt',
@@ -524,7 +553,9 @@ describe('canonical directory probes', () => {
     // The stored path is the toplevel git reports, so a subdirectory records
     // the clone once.
     expect(data.createCheckout).toHaveBeenCalledWith(
-      expect.objectContaining({ path: '/work/proj' }),
+      expect.objectContaining({
+        path: `machine://${EXECUTOR}/work/proj`,
+      }),
     );
   });
 });
@@ -639,7 +670,7 @@ describe('storing the checkout', () => {
       ownerUserId: OWNER,
       repositoryId: REPOSITORY_ID,
       executorId: EXECUTOR,
-      path: '/work/proj',
+      path: `machine://${EXECUTOR}/work/proj`,
       kind: 'main',
       parentCheckoutId: null,
       branch: 'main',
@@ -679,14 +710,14 @@ describe('storing the checkout', () => {
     expect(data.findCheckoutByPath).toHaveBeenCalledWith(
       OWNER,
       EXECUTOR,
-      '/work/proj',
+      `machine://${EXECUTOR}/work/proj`,
     );
     expect(data.createCheckout).toHaveBeenCalledTimes(1);
     expect(data.createCheckout).toHaveBeenCalledWith({
       ownerUserId: OWNER,
       repositoryId: REPOSITORY_ID,
       executorId: EXECUTOR,
-      path: '/work/wt',
+      path: `machine://${EXECUTOR}/work/wt`,
       kind: 'worktree',
       parentCheckoutId: PARENT_ID,
       branch: 'feature',
@@ -1022,7 +1053,7 @@ describe('the main clone of a worktree', () => {
       ownerUserId: OWNER,
       repositoryId: REPOSITORY_ID,
       executorId: EXECUTOR,
-      path: '/work/proj',
+      path: `machine://${EXECUTOR}/work/proj`,
       kind: 'main',
       parentCheckoutId: null,
       branch: null,
@@ -1032,7 +1063,7 @@ describe('the main clone of a worktree', () => {
       ownerUserId: OWNER,
       repositoryId: REPOSITORY_ID,
       executorId: EXECUTOR,
-      path: '/work/wt',
+      path: `machine://${EXECUTOR}/work/wt`,
       kind: 'worktree',
       parentCheckoutId: PARENT_ID,
       branch: 'feature',

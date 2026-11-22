@@ -7,6 +7,7 @@ import {
   mkdtemp,
   realpath,
   rm,
+  stat,
   symlink,
   writeFile,
 } from 'node:fs/promises';
@@ -21,10 +22,17 @@ import {
   MachineConnector,
   type MachineConnectorDeps,
 } from '../machines/machine-connector.service';
+import { MachineUnavailableError } from '../machines/machine-session';
+import { formatMachineLocator } from '../machines/machine-locator';
 import {
   createProtocolPeer,
   type ProtocolPeerOptions,
 } from '../testing/machine-protocol-peer';
+import {
+  DEFAULT_LOCAL_MACHINE_NAME,
+  localMachineConnector,
+  type LocalMachineConnector,
+} from '../testing/local-machine';
 import { SkillCatalog } from '../skills/skill-catalog';
 import { McpRuntimeService } from '../mcp/mcp-runtime.service';
 import {
@@ -37,18 +45,40 @@ import { resolveAdvertisedTools, TOOL_REGISTRY } from './registry';
 import { runTool } from './runner';
 import { AttemptToolAdditions } from './attempt-tool-additions';
 import type { ToolContext } from './types';
-import {
-  MACHINE_WORKSPACE_AUTHORITY,
-  WORKSPACE_AUTHORITY,
-} from './workspace-binding';
+import { MACHINE_WORKSPACE_AUTHORITY } from './workspace-binding';
 import { enterWorkspaceTool, exitWorkspaceTool } from './workspace';
 import { createWorkspaceRootCell } from './workspace-path';
 
 vi.mock('node:fs/promises', async (importOriginal) => {
   const actual = await importOriginal<typeof NodeFsPromises>();
 
-  return { ...actual, realpath: vi.fn(actual.realpath) };
+  return {
+    ...actual,
+    realpath: vi.fn(actual.realpath),
+    stat: vi.fn(actual.stat),
+  };
 });
+
+/** The Machine this process hosts in every context of this suite. */
+const LOCAL = DEFAULT_LOCAL_MACHINE_NAME;
+
+/** The canonical locator of one absolute path on the local Machine. */
+function onLocal(path: string): string {
+  return `machine://${LOCAL}${path}`;
+}
+
+const connectors: Array<MachineConnector> = [];
+
+afterEach(() => {
+  for (const connector of connectors.splice(0)) connector.onModuleDestroy();
+});
+
+function localConnector(): LocalMachineConnector {
+  const connector = localMachineConnector();
+  connectors.push(connector);
+
+  return connector;
+}
 
 function permissivePolicy() {
   return compileToolPermissionMap(
@@ -67,7 +97,9 @@ function context(overrides: Partial<ToolContext> = {}): ToolContext {
 
   return {
     runId: 'run-1',
-    nativeExecutorId: 'worker-1',
+    localMachine: LOCAL,
+    defaultMachine: LOCAL,
+    ...(overrides.machines === undefined && { machines: localConnector() }),
     nativeDeliverySequence: 4,
     toolCallId: 'call-1',
     userId: 'owner-1',
@@ -163,6 +195,7 @@ function fakeWorkspaceMcp(state: WorkspaceMcpEntryState) {
   const operator = new McpRuntimeService({});
 
   const clients = new WorkspaceMcpClients(operator, {
+    connector: localConnector(),
     readConfig: () => Promise.resolve([]),
   });
 
@@ -293,7 +326,7 @@ describe('Workspace host tools', () => {
 
     expect(result).toMatchObject({
       status: 'success',
-      root,
+      root: onLocal(root),
       skills: [],
       skillsOmitted: 0,
     });
@@ -669,11 +702,11 @@ describe('Workspace host tools', () => {
     firstFence.resolve(true);
     await expect(first).resolves.toMatchObject({
       status: 'success',
-      root,
+      root: onLocal(root),
       state: 'bound',
     });
     cell.beginStep();
-    expect(cell.current()).toBe(root);
+    expect(cell.current()).toBe(onLocal(root));
   });
 
   it('lets the first enter own a slower fence before a same-step second enter', async () => {
@@ -716,11 +749,11 @@ describe('Workspace host tools', () => {
     firstFence.resolve(true);
     await expect(first).resolves.toMatchObject({
       status: 'success',
-      root,
+      root: onLocal(root),
       state: 'bound',
     });
     cell.beginStep();
-    expect(cell.current()).toBe(root);
+    expect(cell.current()).toBe(onLocal(root));
   });
 
   it('records a canonical-path no_allow decision and does not bind', async () => {
@@ -765,7 +798,7 @@ describe('Workspace host tools', () => {
     expect(decisions).toHaveLength(1);
     expect(decisions[0]).toMatchObject({
       kind: 'canonical',
-      url: target,
+      url: onLocal(target),
       decision: { decision: 'reject', reason: 'no_allow' },
     });
     expect(enter).not.toHaveBeenCalled();
@@ -813,7 +846,7 @@ describe('Workspace host tools', () => {
 
     expect(result).toMatchObject({
       status: 'success',
-      root: target,
+      root: onLocal(target),
       state: 'bound',
     });
     expect(admitted).toEqual([
@@ -827,7 +860,7 @@ describe('Workspace host tools', () => {
     expect(decisions).toEqual([
       {
         kind: 'canonical',
-        url: target,
+        url: onLocal(target),
         decision: {
           policyId: 'workspace-test',
           decision: 'allow',
@@ -837,7 +870,7 @@ describe('Workspace host tools', () => {
       },
     ]);
     expect(enter).toHaveBeenCalledWith(
-      expect.objectContaining({ root: target }),
+      expect.objectContaining({ root: onLocal(target), executorId: LOCAL }),
     );
   });
 
@@ -852,8 +885,8 @@ describe('Workspace host tools', () => {
       {
         enter_workspace: {
           allow: [
-            { field: 'path', literal: alias },
-            { field: 'path', literal: target },
+            { field: 'path', literal: onLocal(alias) },
+            { field: 'path', literal: onLocal(target) },
           ],
         },
       },
@@ -880,16 +913,55 @@ describe('Workspace host tools', () => {
 
     expect(result).toMatchObject({
       status: 'success',
-      root: target,
+      root: onLocal(target),
       state: 'bound',
     });
     expect(decisions[0]).toMatchObject({
       kind: 'canonical',
-      url: target,
+      url: onLocal(target),
       decision: { decision: 'allow' },
     });
     expect(enter).toHaveBeenCalledWith(
-      expect.objectContaining({ root: target }),
+      expect.objectContaining({
+        root: onLocal(target),
+        executorId: LOCAL,
+        bindExecutorId: LOCAL,
+      }),
+    );
+  });
+
+  it('enters a local directory whose name ends in a selector-shaped suffix', async () => {
+    const directory = join(root, 'build:2');
+    await mkdir(directory);
+
+    // The canonical locator re-encodes the trailing colon, so the directory's
+    // own name round-trips through the locator grammar.
+    const canonical = formatMachineLocator(LOCAL, await realpath(directory));
+
+    const enter = vi
+      .spyOn(WorkspaceBindingRepository.prototype, 'enter')
+      .mockResolvedValue({
+        status: 'bound',
+        previousRoot: null,
+        generation: 1,
+      });
+
+    const result = await runTool(
+      enterWorkspaceTool,
+      { path: directory },
+      context(),
+      5,
+    );
+
+    // The literal directory, never the selector-free `/build` the locator
+    // grammar would split off.
+    expect(result).toMatchObject({
+      status: 'success',
+      root: canonical,
+      state: 'bound',
+    });
+    expect(enter).toHaveBeenCalledWith(
+      expect.objectContaining({ root: canonical }),
     );
   });
 
@@ -938,26 +1010,30 @@ describe('Workspace host tools', () => {
 
     expect(first).toMatchObject({
       status: 'success',
-      root,
+      root: onLocal(root),
       state: 'bound',
-      authority: WORKSPACE_AUTHORITY,
+      authority: MACHINE_WORKSPACE_AUTHORITY,
     });
-    expect(same).toMatchObject({ status: 'success', root, state: 'unchanged' });
+    expect(same).toMatchObject({
+      status: 'success',
+      root: onLocal(root),
+      state: 'unchanged',
+    });
     expect(switched).toMatchObject({
       status: 'success',
-      root: nextRoot,
+      root: onLocal(nextRoot),
       state: 'switched',
     });
     expect(cell.commit).toHaveBeenCalledTimes(2);
-    expect(cell.commit).toHaveBeenNthCalledWith(1, root);
-    expect(cell.commit).toHaveBeenNthCalledWith(2, nextRoot);
+    expect(cell.commit).toHaveBeenNthCalledWith(1, onLocal(root));
+    expect(cell.commit).toHaveBeenNthCalledWith(2, onLocal(nextRoot));
   });
   it('keeps Workspace MCP state and transfers only a started attempt', async () => {
     const { additions } = seededAdditions();
     additions.disableAll();
 
     const state: WorkspaceMcpEntryState = {
-      key: { chatId: 'chat-1', root, generation: 1 },
+      key: { chatId: 'chat-1', root: onLocal(root), generation: 1 },
       servers: [
         { id: 'workspace', state: 'available' },
         { id: 'other', state: 'available' },
@@ -1044,6 +1120,7 @@ describe('Workspace host tools', () => {
     const operator = new McpRuntimeService({});
 
     const clients = new WorkspaceMcpClients(operator, {
+      connector: localConnector(),
       readConfig: () =>
         Promise.resolve([
           {
@@ -1058,7 +1135,7 @@ describe('Workspace host tools', () => {
     // A start would report the server as available; a read-only entry never
     // asks for one.
     const startForChat = vi.spyOn(clients, 'startForChat').mockResolvedValue({
-      key: { chatId: 'chat-1', root, generation: 1 },
+      key: { chatId: 'chat-1', root: onLocal(root), generation: 1 },
       servers: [{ id: 'web', state: 'available' }],
     });
 
@@ -1091,19 +1168,23 @@ describe('Workspace host tools', () => {
 
       expect(first).toMatchObject({
         status: 'success',
-        root,
+        root: onLocal(root),
         mcpServers: servers,
       });
       expect(same).toMatchObject({
         status: 'success',
-        root,
+        root: onLocal(root),
         state: 'unchanged',
         mcpServers: servers,
       });
       expect(startForChat).not.toHaveBeenCalled();
       expect(listing.listing?.servers).toEqual(servers);
       expect(
-        clients.stateForKey({ chatId: 'chat-1', root, generation: 1 }),
+        clients.stateForKey({
+          chatId: 'chat-1',
+          root: onLocal(root),
+          generation: 1,
+        }),
       ).toBeUndefined();
     } finally {
       await clients.onModuleDestroy();
@@ -1135,35 +1216,171 @@ describe('Workspace host tools', () => {
     });
   });
 
-  it('returns executor_unavailable when the native identity is missing', async () => {
+  it('refuses an entry when no current Machine is configured', async () => {
     const runAs = vi.fn();
 
     const result = await enterWorkspaceTool.execute(
-      context({ nativeExecutorId: undefined, tenantDb: { runAs } }),
+      context({
+        tenantDb: { runAs },
+        defaultMachine: undefined,
+        localMachine: undefined,
+        machines: undefined,
+      }),
       { path: root },
     );
 
     expect(result).toEqual({
       status: 'error',
-      type: 'executor_unavailable',
-      message: 'Native host authority is unavailable.',
+      type: 'invalid_path',
+      message:
+        'No current Machine: configure machines.default or enter a Workspace.',
     });
+    expect(runAs).not.toHaveBeenCalled();
   });
 
-  it('exits without a local executor, fencing on the delivery alone', async () => {
-    // A Machine Workspace's Chat may live on a worker with no local native
-    // executor, and exit must clear the binding while the Machine is offline,
-    // so the exit fence binds the delivered attempt and no executor id.
+  it('refuses a local entry whose Machine daemon does not verify', async () => {
+    const unverified = localMachineConnector({
+      verify: () =>
+        Promise.reject(
+          new MachineUnavailableError('machine', 'unreachable', false, 'down'),
+        ),
+    });
+
+    connectors.push(unverified);
+    const enter = vi.spyOn(WorkspaceBindingRepository.prototype, 'enter');
+
+    const result = await enterWorkspaceTool.execute(
+      context({ machines: unverified }),
+      { path: root },
+    );
+
+    expect(result).toMatchObject({
+      status: 'error',
+      type: 'machine_unavailable',
+    });
+    expect(enter).not.toHaveBeenCalled();
+  });
+
+  it('refuses a submitted path a reject names before any filesystem probe', async () => {
+    const secret = join(root, 'secret');
+    await mkdir(secret);
+
+    const permissionPolicy = compileToolPermissionMap(
+      {
+        enter_workspace: {
+          allow: [{ field: 'path', regex: '^machine://[^/]+/' }],
+          reject: [{ field: 'path', regex: '^\\/.*\\/secret$' }],
+        },
+      },
+      'workspace-test',
+    );
+
+    vi.mocked(realpath).mockClear();
+    vi.mocked(stat).mockClear();
+
+    const result = await enterWorkspaceTool.execute(
+      context({ permissionPolicy }),
+      { path: secret },
+    );
+
+    expect(result).toMatchObject({
+      status: 'error',
+      type: 'permission_denied',
+    });
+    expect(realpath).not.toHaveBeenCalled();
+    expect(stat).not.toHaveBeenCalled();
+  });
+
+  it('admits a bare path through a canonical allow', async () => {
+    const repo = join(root, 'repo');
+    await mkdir(repo);
+
+    const enter = vi
+      .spyOn(WorkspaceBindingRepository.prototype, 'enter')
+      .mockResolvedValue({
+        status: 'bound',
+        previousRoot: null,
+        generation: 1,
+      });
+
+    const permissionPolicy = compileToolPermissionMap(
+      {
+        enter_workspace: {
+          allow: [{ field: 'path', regex: `^machine://${LOCAL}/` }],
+        },
+      },
+      'workspace-test',
+    );
+
+    const result = await enterWorkspaceTool.execute(
+      context({ permissionPolicy }),
+      { path: repo },
+    );
+
+    expect(result).toMatchObject({
+      status: 'success',
+      root: onLocal(repo),
+      state: 'bound',
+    });
+    expect(enter).toHaveBeenCalledWith(
+      expect.objectContaining({ root: onLocal(repo), executorId: LOCAL }),
+    );
+  });
+
+  it('enters the same binding through a locator of this process Machine', async () => {
+    const enter = vi
+      .spyOn(WorkspaceBindingRepository.prototype, 'enter')
+      .mockResolvedValue({
+        status: 'bound',
+        previousRoot: null,
+        generation: 1,
+      });
+
+    const connector = localConnector();
+    const verifyLocal = vi.spyOn(connector, 'verifyLocal');
+
+    const result = await enterWorkspaceTool.execute(
+      context({ machines: connector }),
+      { path: onLocal(root) },
+    );
+
+    expect(result).toMatchObject({
+      status: 'success',
+      root: onLocal(await realpath(root)),
+      state: 'bound',
+      authority: MACHINE_WORKSPACE_AUTHORITY,
+    });
+    expect(enter).toHaveBeenCalledWith(
+      expect.objectContaining({
+        root: onLocal(await realpath(root)),
+        executorId: LOCAL,
+        bindExecutorId: LOCAL,
+      }),
+    );
+
+    // A local entry proves the daemon's identity first; the helper's peer
+    // throws on any request but the handshake, so a success proves the rest.
+    expect(verifyLocal).toHaveBeenCalledTimes(1);
+  });
+
+  it('exits a Machine this process does not host, fencing on the delivery alone', async () => {
+    // A remote Machine Workspace's Chat may live on a worker that hosts no
+    // other Machine, and exit must clear the binding while the Machine is
+    // offline, so the exit fence binds the delivered attempt and no executor.
     const exit = vi
       .spyOn(WorkspaceBindingRepository.prototype, 'exit')
       .mockResolvedValue({
         status: 'cleared',
-        previousRoot: root,
+        previousRoot: 'machine://build-1/home/operator/app',
         generation: 2,
       });
 
     const result = await exitWorkspaceTool.execute(
-      context({ nativeExecutorId: undefined }),
+      context({
+        workspaceRoot: createWorkspaceRootCell(
+          'machine://build-1/home/operator/app',
+        ),
+      }),
       {},
     );
 
@@ -1171,7 +1388,7 @@ describe('Workspace host tools', () => {
       status: 'success',
       root: null,
       state: 'exited',
-      previousRoot: root,
+      previousRoot: 'machine://build-1/home/operator/app',
     });
     expect(exit).toHaveBeenCalledTimes(1);
     expect(exit.mock.calls[0]?.[0]).toMatchObject({
@@ -1423,7 +1640,7 @@ describe('Machine Workspace entry', () => {
     expect(input).toMatchObject({
       chatId: 'chat-1',
       ownerUserId: 'owner-1',
-      executorId: 'machine:devl',
+      executorId: 'devl',
       root: 'machine://devl/srv/app',
       runId: 'run-1',
       deliverySequence: 4,
@@ -1585,7 +1802,9 @@ describe('Machine Workspace entry', () => {
 
   it('keeps the machine scheme unknown without a machines section', async () => {
     await expect(
-      enterWorkspaceTool.execute(context(), { path: 'machine://devl/srv/app' }),
+      enterWorkspaceTool.execute(context({ machines: undefined }), {
+        path: 'machine://devl/srv/app',
+      }),
     ).resolves.toEqual({
       status: 'error',
       type: 'invalid_path',
@@ -1676,7 +1895,7 @@ describe('Machine Workspace entry', () => {
     });
   });
 
-  it('pins the local executor on a local entry', async () => {
+  it('pins the Run to this process Machine on a local entry', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'workspace-pin-'));
 
     const enter = vi
@@ -1691,8 +1910,9 @@ describe('Machine Workspace entry', () => {
       await enterWorkspaceTool.execute(context(), { path: directory });
       expect(enter).toHaveBeenCalledWith(
         expect.objectContaining({
-          executorId: 'worker-1',
-          bindExecutorId: 'worker-1',
+          executorId: LOCAL,
+          bindExecutorId: LOCAL,
+          root: onLocal(directory),
         }),
       );
     } finally {
@@ -1700,18 +1920,25 @@ describe('Machine Workspace entry', () => {
     }
   });
 
-  it('pins the local executor on exit when the Run has one', async () => {
+  it('pins the local Machine on exit when the bound root is on it', async () => {
     const exit = vi
       .spyOn(WorkspaceBindingRepository.prototype, 'exit')
       .mockResolvedValue({ status: 'unbound' });
 
-    await expect(exitWorkspaceTool.execute(context(), {})).resolves.toEqual({
+    await expect(
+      exitWorkspaceTool.execute(
+        context({
+          workspaceRoot: createWorkspaceRootCell(onLocal('/work/repo')),
+        }),
+        {},
+      ),
+    ).resolves.toEqual({
       status: 'success',
       root: null,
       state: 'unbound',
     });
     expect(exit).toHaveBeenCalledWith(
-      expect.objectContaining({ bindExecutorId: 'worker-1', runId: 'run-1' }),
+      expect.objectContaining({ bindExecutorId: LOCAL, runId: 'run-1' }),
     );
   });
 });

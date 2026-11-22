@@ -35,7 +35,11 @@ const git = (observation: GitObservation) =>
   createGitItem({ runId: RUN_ID, observation });
 
 const workspace = () =>
-  createWorkspaceSnapshotItem({ runId: RUN_ID, root: '/repo' });
+  createWorkspaceSnapshotItem({
+    runId: RUN_ID,
+    root: '/repo',
+    machine: 'host-a',
+  });
 
 function entry(state: 'bound' | 'switched' | 'unchanged') {
   return {
@@ -78,7 +82,7 @@ describe('gitToldState', () => {
   const told = (...parts: Array<unknown>) => gitToldState(parts).text;
 
   const rootedAt = (root: string) =>
-    createWorkspaceSnapshotItem({ runId: RUN_ID, root });
+    createWorkspaceSnapshotItem({ runId: RUN_ID, root, machine: 'host-a' });
 
   it('holds nothing for an empty history', () => {
     expect(gitToldState([])).toEqual({ text: undefined, root: undefined });
@@ -116,7 +120,11 @@ describe('gitToldState', () => {
   });
 
   it('voids a git item when a snapshot names no root', () => {
-    const none = createWorkspaceSnapshotItem({ runId: RUN_ID, root: null });
+    const none = createWorkspaceSnapshotItem({
+      runId: RUN_ID,
+      root: null,
+      machine: 'host-a',
+    });
 
     expect(told(workspace(), git(STATE), none)).toBeUndefined();
   });

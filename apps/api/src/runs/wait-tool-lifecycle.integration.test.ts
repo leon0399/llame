@@ -37,7 +37,7 @@ vi.setConfig({ testTimeout: 90_000 });
 describe('wait tool lifecycle through real Run streams', () => {
   const fx = useSegmentsFixture('wait-tool-lifecycle', {
     allowedTools: ['read', 'wait'],
-    nativeExecutorId: 'wait-tool-lifecycle-host',
+    localMachine: 'wait-tool-lifecycle-host',
   });
 
   async function seedJob(

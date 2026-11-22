@@ -54,7 +54,7 @@ describe('wait tool native-queue recovery', () => {
       const options = {
         queueSchema,
         allowedTools: ['read', 'bash', 'wait'],
-        nativeExecutorId: 'wait-recovery-host',
+        localMachine: 'wait-recovery-host',
       };
 
       harness = await bootWorkerHarness(options);

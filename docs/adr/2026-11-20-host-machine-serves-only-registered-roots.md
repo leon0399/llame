@@ -22,7 +22,7 @@ only. They are not a Sandbox, and the same OS user can change them.
   remote entries would expect the same field.
 - Start the host daemon child with `/` as its only root. We rejected it
   because the host would behave differently from every other Machine, which
-  undoes the one executor contract.
+  undoes the one Machine contract.
 
 ## Consequences
 

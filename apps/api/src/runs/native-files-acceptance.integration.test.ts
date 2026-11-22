@@ -15,6 +15,7 @@ import { RunsRepository, RunEventsRepository } from './runs-repository';
 import { NativeFilesRepository } from './native-files-repository';
 import { KnowledgeSpaceLocalResolver } from '../knowledge/knowledge-space.local-resolver';
 import { KnowledgeSpaceService } from '../knowledge/knowledge-space.service';
+import { formatMachineLocator } from '../machines/machine-locator';
 import { waitFor } from '../testing/support';
 
 describe('native files through the model loop and durable worker', () => {
@@ -32,7 +33,7 @@ describe('native files through the model loop and durable worker', () => {
     knowledgeRoot = await mkdtemp(join(tmpdir(), 'native-acceptance-kb-'));
     harness = await bootWorkerHarness({
       allowedTools: tools,
-      nativeExecutorId: 'native-acceptance-host',
+      localMachine: 'native-acceptance-host',
       knowledgeRoot,
     });
     userId = await createUser(harness.db, 'native-acceptance');
@@ -191,13 +192,15 @@ describe('native files through the model loop and durable worker', () => {
       (event) => event.eventType === 'tool.completed',
     )?.payload;
 
+    // The result reports the canonical locator of the Machine that served the
+    // write, not the bare host path the harness passed in.
     expect(completed).toMatchObject({
       toolName: 'write',
       output: {
         status: 'success',
         operation: 'write',
         replaced: true,
-        path,
+        path: formatMachineLocator('native-acceptance-host', path),
       },
     });
     expect(

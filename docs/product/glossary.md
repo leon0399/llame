@@ -361,6 +361,9 @@ The Machine that a bare or relative path and a `file:` locator refer to: the
 Machine of the Chat's Workspace, or the installation's default Machine when no
 Workspace is bound.
 
+**Default Machine**:
+The Machine that serves a Chat with no Workspace, named by `machines.default`.
+
 **Machine**:
 A computer or execution environment running the Machine daemon and reached by
 the installation, including the host and recipe instances.
@@ -416,7 +419,7 @@ tool has the full authority of the executor's OS user.
 _Avoid_: jail, container (for the boundary itself)
 
 **Workspace**:
-The binding of a Chat to one directory tree on one executor, where relative
+The binding of a Chat to one directory tree on one Machine, where relative
 paths resolve and file and shell tools work by default. It is not confinement.
 _Avoid_: project, folder
 

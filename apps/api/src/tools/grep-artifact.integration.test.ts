@@ -25,6 +25,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { ChatsRepository } from '../chats/chats-repository';
 import { TenantDbService } from '../db/tenant-db.service';
+import { localMachineConnector } from '../testing/local-machine';
 import { readArtifact } from './artifacts/artifact-reader';
 import { ArtifactsRepository } from './artifacts/artifacts-repository';
 import { grepInputSchema, nativeGrepTool } from './grep';
@@ -98,7 +99,9 @@ d('grep artifact producer', () => {
       chatId,
       runId: crypto.randomUUID(),
       toolCallId: crypto.randomUUID(),
-      nativeExecutorId: 'host-a',
+      localMachine: 'host-a',
+      defaultMachine: 'host-a',
+      machines: localMachineConnector(),
       tenantDb,
       artifactReadable: true,
       artifactHostFiles: true,
@@ -186,13 +189,14 @@ d('grep artifact producer', () => {
     }
 
     const locator = result['artifact'];
-    const secretDir = `${root}/secrets/`;
+    const secretDir = `machine://host-a${root}/secrets/`;
     const secretFile = `${secretDir}a.ts`;
+    const publicFile = `machine://host-a${root}/public/file-000.ts`;
 
     // A whole-artifact read is paged at the read bound; the secret directory
     // sorts after `public/`, so its heading is outside the first page.
     const firstPage = await read(locator, { read: { allow: true } });
-    expect(firstPage).toContain(`## ${root}/public/file-000.ts`);
+    expect(firstPage).toContain(`## ${publicFile}`);
 
     // The artifact is Markdown: its outline names one heading per file, and
     // the stored finding range of each file starts at that heading line.
@@ -201,7 +205,7 @@ d('grep artifact producer', () => {
     });
 
     expect(outline).toContain(`## ${secretFile}`);
-    expect(outline).toContain(`## ${root}/public/file-000.ts`);
+    expect(outline).toContain(`## ${publicFile}`);
     const findings = await storedFindings();
     const text = await storedText();
     const textLines = text.split('\n');
@@ -254,7 +258,6 @@ d('grep artifact producer', () => {
     expect(withheld).not.toContain('needle');
 
     // A file next to it keeps its own heading and lines.
-    const publicFile = `${root}/public/file-000.ts`;
     const publicFinding = findingOf(findings, publicFile);
 
     const visible = await read(

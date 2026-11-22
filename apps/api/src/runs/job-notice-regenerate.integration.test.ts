@@ -25,8 +25,10 @@ vi.setConfig({ testTimeout: 90_000 });
 
 describe('Regenerate restores consumed job notices', () => {
   const fx = useSegmentsFixture('job-notice-regenerate', {
-    allowedTools: ['read', 'stop'],
-    nativeExecutorId: 'job-notice-regenerate-host',
+    // `stop` is advertised only alongside `bash` (host-as-machine D11): it
+    // ends the jobs a host `bash` call starts.
+    allowedTools: ['read', 'bash', 'stop'],
+    localMachine: 'job-notice-regenerate-host',
     maxStepsPerRun: 2,
   });
 

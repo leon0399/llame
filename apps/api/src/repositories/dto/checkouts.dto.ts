@@ -21,7 +21,8 @@ export class CreateCheckoutDto {
   @ApiProperty({
     maxLength: PATH_MAX,
     pattern: ABSOLUTE_LOCATION,
-    description: 'An absolute local path or a configured `machine://` locator.',
+    description:
+      'An absolute path on `machines.default`, or a `machine://<name>/<path>` locator of a configured Machine.',
   })
   @IsString()
   @Matches(/\S/, { message: 'path must not be blank' })
@@ -83,10 +84,12 @@ export class CheckoutResponse {
   @ApiProperty({ format: 'uuid' })
   repositoryId!: string;
 
-  @ApiProperty({ description: 'The local executor id, or machine:<name>.' })
+  @ApiProperty({ description: 'The Machine name of the executor.' })
   executorId!: string;
 
-  @ApiProperty()
+  @ApiProperty({
+    description: 'The canonical `machine://` locator of this checkout.',
+  })
   path!: string;
 
   @ApiProperty({ enum: ['main', 'worktree'] })
@@ -105,7 +108,12 @@ export class CheckoutResponse {
   @ApiProperty({ enum: ['registered', 'adopted', 'created'] })
   origin!: CheckoutOrigin;
 
-  @ApiProperty({ type: String, nullable: true })
+  @ApiProperty({
+    type: String,
+    nullable: true,
+    description:
+      'The canonical `machine://` locator new worktrees are created under; null when unset.',
+  })
   worktreeBase!: string | null;
 
   @ApiProperty({

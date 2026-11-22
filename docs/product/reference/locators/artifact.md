@@ -38,7 +38,7 @@ A `bash` `cwd` does not accept it.
 The locator resolves only inside the Chat that made the artifact, under its
 owner's row-level security. Another Chat of the same owner, another owner, and
 a process with no identity read nothing; a missing part is `not_found`. The
-read needs no native executor and no `bash`: the store is the Chat's own rows,
+read needs no Machine and no `bash`: the store is the Chat's own rows,
 and a process that allowlists `read` serves it, gated by the `read` permission
 group, which matches the locator without its selector. A field-allow `read`
 group admits it only with a `^artifact://` allow; see
@@ -84,16 +84,18 @@ stored.
 
 ### Host files
 
-When `bash` is allowlisted and the process has a native executor, every part is
-also a file on the llame host under
+When `bash` is allowlisted and the process has a `machines.local` Machine, every
+part is
+also a file on that Machine under
 `$TMPDIR/llame/chats/<chatId>/artifacts/`: `<toolName>-<n>.<ext>` for a tool's
 single part, and `bash-<n>/<stream>.<ext>` for a `bash` stream, with `.md`,
 `.json`, or `.txt` chosen from the content type so the ordinary readers apply.
-The notice names that directory, or says `; host files on the llame host only`
-in a Machine Workspace and when `bash` runs on an `ssh://` host, because
-neither opens a llame host path; a Run whose only route is a host `bash` is
-given the directory with `on the llame host` after it, so the notice always
-names a usable route.
+The notice names that directory as a canonical `machine://` locator. It says
+`; host files only on Machine <name>` when the current Machine is another
+Machine or when `bash` runs on an `ssh://` host, because neither one opens the
+`machines.local` filesystem; a Run whose only route is a `bash` call on that
+Machine is given the directory itself, so the notice always names a usable
+route.
 
 A host file holds the content as it was admitted; only `read` on
 `artifact://` checks findings again, so a command that opens the file sees what

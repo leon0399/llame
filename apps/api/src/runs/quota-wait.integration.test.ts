@@ -275,7 +275,7 @@ describe('a quota wait after a started tool call', () => {
     allowedTools: ['read'],
     runsConcurrency: 1,
     quotaWaitMaxSeconds: 7 * 24 * 60 * 60,
-    nativeExecutorId: 'quota-started-call-host',
+    localMachine: 'quota-started-call-host',
     queueSchema: `quota_started_${randomUUID().replaceAll('-', '').slice(0, 12)}`,
   });
 

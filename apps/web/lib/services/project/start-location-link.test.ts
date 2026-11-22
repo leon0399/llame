@@ -18,8 +18,8 @@ function checkout(
   return {
     id,
     repositoryId: "repo-1",
-    executorId: "local",
-    path: `/home/leo/src/llame-${id}`,
+    executorId: "host",
+    path: `machine://host/home/leo/src/llame-${id}`,
     kind: "main",
     parentCheckoutId: null,
     branch: "main",
@@ -44,12 +44,12 @@ describe("startLocationDeepLink", () => {
       startLocationDeepLink({
         projectId: "p1",
         repositoryId: "repo-1",
-        executorId: "machine:nas",
+        executorId: "nas",
         checkoutId: "c1",
         worktree: true,
       }),
     ).toBe(
-      "/chat/new?project=p1&repository=repo-1&executor=machine%3Anas&checkout=c1&worktree=1",
+      "/chat/new?project=p1&repository=repo-1&executor=nas&checkout=c1&worktree=1",
     );
   });
 
@@ -81,7 +81,7 @@ describe("prefillFromSearchParams", () => {
       startLocationDeepLink({
         projectId: "p1",
         repositoryId: "repo-1",
-        executorId: "machine:nas",
+        executorId: "nas",
         checkoutId: "c1",
         worktree: true,
       }),
@@ -90,7 +90,7 @@ describe("prefillFromSearchParams", () => {
     expect(prefillFromSearchParams(params)).toEqual({
       selection: {
         repositoryId: "repo-1",
-        executorId: "machine:nas",
+        executorId: "nas",
         checkoutId: "c1",
       },
       isolation: "worktree",
@@ -145,12 +145,12 @@ describe("projectStartRedirect", () => {
       projectStartRedirect({
         project: "p1",
         repository: "repo-1",
-        executor: "local",
+        executor: "host",
         checkout: "c1",
         worktree: "1",
       }),
     ).toBe(
-      "/projects/p1?repository=repo-1&executor=local&checkout=c1&worktree=1",
+      "/projects/p1?repository=repo-1&executor=host&checkout=c1&worktree=1",
     );
   });
 
@@ -169,12 +169,12 @@ describe("projectStartRedirect", () => {
 describe("startLocationFromRoot", () => {
   it("copies a main checkout and asks for a worktree of it", () => {
     expect(
-      startLocationFromRoot("/home/leo/src/llame-c1", [
-        checkout("c1", { path: "/home/leo/src/llame-c1" }),
+      startLocationFromRoot("machine://host/home/leo/src/llame-c1", [
+        checkout("c1"),
       ]),
     ).toEqual({
       repositoryId: "repo-1",
-      executorId: "local",
+      executorId: "host",
       checkoutId: "c1",
       worktree: true,
     });
@@ -182,18 +182,21 @@ describe("startLocationFromRoot", () => {
 
   it("copies a worktree root's source main checkout", () => {
     expect(
-      startLocationFromRoot("/home/leo/.llame-worktrees/llame/clear-field", [
-        checkout("c1", { path: "/home/leo/src/llame-c1" }),
-        checkout("w1", {
-          kind: "worktree",
-          path: "/home/leo/.llame-worktrees/llame/clear-field",
-          parentCheckoutId: "c1",
-          branch: "llame/clear-field",
-        }),
-      ]),
+      startLocationFromRoot(
+        "machine://host/home/leo/.llame-worktrees/llame/clear-field",
+        [
+          checkout("c1"),
+          checkout("w1", {
+            kind: "worktree",
+            path: "machine://host/home/leo/.llame-worktrees/llame/clear-field",
+            parentCheckoutId: "c1",
+            branch: "llame/clear-field",
+          }),
+        ],
+      ),
     ).toEqual({
       repositoryId: "repo-1",
-      executorId: "local",
+      executorId: "host",
       checkoutId: "c1",
       worktree: true,
     });
@@ -201,7 +204,9 @@ describe("startLocationFromRoot", () => {
 
   it("asks for a worktree even when the catalog does not hold the root", () => {
     expect(
-      startLocationFromRoot("/srv/src/unregistered", [checkout("c1")]),
+      startLocationFromRoot("machine://host/srv/src/unregistered", [
+        checkout("c1"),
+      ]),
     ).toEqual({ worktree: true });
   });
 

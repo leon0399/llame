@@ -1,40 +1,82 @@
 import { ExecutorGitError } from '../machines/executor-git-error';
+import {
+  formatMachineLocator,
+  isMachineLocator,
+} from '../machines/machine-locator';
 import { type ExecutorTarget } from '../machines/executor-git.service';
-import { parseMachineLocator } from '../machines/machine-locator';
 import { type WorkspaceAuthority } from './workspace-binding';
+import {
+  canonicalMachineLocator,
+  machineWorkspaceRoot,
+  type MachineWorkspaceRoot,
+} from './workspace-path';
 
 /**
- * The executor target of one already-canonical worktree source: the local
- * executor keeps the absolute path, and a Machine address decodes to the path
- * its daemon knows. The caller has already decided the canonical address, so
- * this function only refuses an address that names no single Machine path.
+ * The Machine one worktree entry runs on. The executor surface accepts every
+ * address as its canonical locator and decides in process versus daemon from
+ * the Machine name itself, so the flow keeps one form — the locator — and
+ * decodes it only where placement does lexical math.
  */
-export function targetOf(input: {
+export type EntryMachine = {
+  /** The Machine name: the executor id the rows record. */
+  readonly name: string;
+  /** The executor `git` runs on. */
+  readonly target: ExecutorTarget;
+  /** The canonical locator of one path or stored address on the Machine. */
+  readonly locator: (address: string) => string;
+  /** The absolute path on the Machine of a locator or a legacy stored path. */
+  readonly pathOf: (address: string) => string;
+};
+
+/**
+ * The Machine of one already-decided canonical source root. The caller has
+ * decided the locator, so this only refuses a value that names no single
+ * Machine path, then derives the executor target and the two conversions.
+ */
+export function entryMachine(input: {
   readonly authority: WorkspaceAuthority;
   readonly canonical: string;
-}): ExecutorTarget {
-  const { authority, canonical } = input;
+}): EntryMachine {
+  const root = machineRootOf(input.canonical);
 
-  if (authority.machine === undefined) {
-    return {
-      executorId: authority.executorId,
-      machine: undefined,
-      path: canonical,
-    };
-  }
+  return {
+    name: root.name,
+    target: {
+      executorId: input.authority.executorId,
+      machine: root.name,
+      path: root.path,
+    },
+    locator: (address) =>
+      isMachineLocator(address)
+        ? canonicalMachineLocator(address)
+        : locatorOf(root.name, address),
+    pathOf: (address) => machineWorkspaceRoot(address)?.path ?? address,
+  };
+}
 
-  const parsed = parseMachineLocator(canonical);
+/** The Machine and path a canonical source root names. */
+function machineRootOf(canonical: string): MachineWorkspaceRoot {
+  const root = machineWorkspaceRoot(canonical);
 
-  if (parsed.kind !== 'path') {
+  if (root === undefined) {
     throw new ExecutorGitError(
       'invalid_path',
       'The canonical Machine address does not name one absolute path.',
     );
   }
 
-  return {
-    executorId: authority.executorId,
-    machine: authority.machine.name,
-    path: parsed.path,
-  };
+  return root;
+}
+
+function locatorOf(name: string, path: string): string {
+  const locator = formatMachineLocator(name, path);
+
+  if (locator === undefined) {
+    throw new ExecutorGitError(
+      'invalid_path',
+      'This path cannot be written as a Machine locator.',
+    );
+  }
+
+  return locator;
 }

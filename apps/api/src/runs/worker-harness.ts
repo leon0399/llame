@@ -56,6 +56,7 @@ import { MachineConnector } from '../machines/machine-connector.service';
 import { MachinesService } from '../machines/machines.service';
 import { type MachinesConfig } from '../instance-config/machines-config';
 import { type MachineTransportFactory } from '../machines/machine-transport';
+import { localMachineConnector } from '../testing/local-machine';
 // ---- Harness boot ----------------------------------------------------------
 
 export type WorkerHarness = {
@@ -71,7 +72,11 @@ export type WorkerHarness = {
 type DrizzleWithClient = Db & { $client: Sql };
 
 type HarnessOverrides = {
-  nativeExecutorId?: string;
+  /**
+   * The Machine this harness process hosts: `machines.local` and
+   * `machines.default` under that name, answered by an in-process daemon peer.
+   */
+  localMachine?: string;
   /** Operator-configured Knowledge root, so `kb://` locators resolve in the
    *  worker exactly as they do in production. Absent leaves the capability
    *  unconfigured, and an absolute path fails closed as before. */
@@ -134,13 +139,22 @@ function resolveHarnessConfig(overrides: HarnessOverrides = {}): LlameConfig {
 
   const { runs: defaultRuns, ...withoutRuns } = BUILT_IN_DEFAULTS.workers.all;
 
+  const machines =
+    overrides.machines ??
+    (overrides.localMachine === undefined
+      ? undefined
+      : {
+          local: overrides.localMachine,
+          default: overrides.localMachine,
+          hosts: { [overrides.localMachine]: {} },
+        });
+
   return {
     ...BUILT_IN_DEFAULTS,
-    ...(overrides.machines !== undefined && { machines: overrides.machines }),
+    ...(machines !== undefined && { machines }),
     tools: {
       ...BUILT_IN_DEFAULTS.tools,
       allowed: [...(overrides.allowedTools ?? [])],
-      nativeExecutorId: overrides.nativeExecutorId,
       ...(overrides.maxStepsPerRun !== undefined && {
         maxStepsPerRun: overrides.maxStepsPerRun,
       }),
@@ -221,28 +235,40 @@ export async function bootWorkerHarness(
     .overrideProvider(InstanceConfigService)
     .useValue({ config });
 
+  const machines = config.machines;
+  let connector: MachineConnector | undefined;
+
   if (overrides?.machineTransportFactory !== undefined) {
     // A Machine suite injects its scripted transport; the production module
-    // would otherwise open SSH to a configured destination. The connector is
-    // the only provider overridden, plus a status double that reads no
-    // database row: `machineStatus.list` is the `machine://` listing read,
-    // and the prepared Runs under test narrate availability themselves.
-    const machines = config.machines;
-
+    // would otherwise open SSH to a configured destination.
     if (machines === undefined) {
       throw new Error(
         'bootWorkerHarness: machineTransportFactory requires machines config',
       );
     }
 
-    const connector = new MachineConnector({
+    connector = new MachineConnector({
       machines,
       hubVersion: 'llame-harness',
       bindIdentity: () => Promise.resolve('match'),
       transportFactory: overrides.machineTransportFactory,
       handshakeTimeoutMs: 2000,
     });
+  } else if (
+    overrides?.machines === undefined &&
+    machines?.local !== undefined
+  ) {
+    // A suite that only names its own Machine asks for the same in-process
+    // host it always had: the daemon side answers the identity handshake and
+    // nothing else, so a local target that ever spends a Machine request fails
+    // loudly.
+    connector = localMachineConnector({ name: machines.local });
+  }
 
+  if (connector !== undefined) {
+    // The connector is the only provider overridden, plus a status double that
+    // reads no database row: `machineStatus.list` is the `machine://` listing
+    // read, and the prepared Runs under test narrate availability themselves.
     builder = builder
       .overrideProvider(MachineConnector)
       .useValue(connector)

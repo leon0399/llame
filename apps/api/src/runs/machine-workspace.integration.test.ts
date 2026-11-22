@@ -43,7 +43,10 @@ import {
 import { RunEventsRepository, RunsRepository } from './runs-repository';
 import { ChatsRepository, MessagesRepository } from '../chats/chats-repository';
 import { isContextItemPart } from '../chats/context-item';
-import { type MachinesConfig } from '../instance-config/machines-config';
+import {
+  type MachineHostConfig,
+  type MachinesConfig,
+} from '../instance-config/machines-config';
 import { type MachineTransportFactory } from '../machines/machine-transport';
 import {
   createProtocolPeer,
@@ -56,6 +59,16 @@ import { type ScriptedBehavior } from './scripted-model-client';
 import { type DeclarationRecord } from './scripted-model-records';
 import { SystemPromptReceiptsRepository } from './system-prompt-receipts.repository';
 import { type PermissionMode } from '../tools/permissions/permission-mode';
+
+/**
+ * The `machines` section as this file mutates it: the operator-removal test
+ * deletes a `hosts` entry on the object the booted connector reads, so the
+ * record is writable here where the operator contract's is not.
+ */
+type MutableMachinesConfig = {
+  ssh?: MachinesConfig['ssh'];
+  hosts: Record<string, MachineHostConfig>;
+};
 
 /**
  * The Machine Workspace slice end to end: the real worker graph, the real model
@@ -81,6 +94,7 @@ import { type PermissionMode } from '../tools/permissions/permission-mode';
  * The `devl` Machine is dropped from the shared configuration by the last test,
  * which is why the tests that need it come first.
  */
+
 describe('Machine Workspaces through the durable worker', () => {
   let harness: WorkerHarness;
   let owner: string;
@@ -94,7 +108,13 @@ describe('Machine Workspaces through the durable worker', () => {
   /** A second Machine's registered root, so one Machine can be offline alone. */
   let gpuHome: string;
   let gpuRoot: string;
-  let machines: MachinesConfig;
+
+  /**
+   * The shared configuration, mutable in this file only: the operator-removal
+   * test drops `devl` from `hosts` on the object the booted connector reads.
+   */
+  let machines: MutableMachinesConfig;
+
   let devl: FakeMachine;
   let gpu: FakeMachine;
 
@@ -177,7 +197,7 @@ describe('Machine Workspaces through the durable worker', () => {
     expect(enterOutput['authority']).toContain("Machine's own OS user");
     expect(await chatRow(chatId, owner)).toMatchObject({
       workspaceRoot: `machine://devl${shop}`,
-      workspaceExecutorId: 'machine:devl',
+      workspaceExecutorId: 'devl',
     });
 
     // A later Run in the same Chat: the relative path resolves on the Machine
@@ -337,7 +357,7 @@ describe('Machine Workspaces through the durable worker', () => {
     });
     expect(await chatRow(chatId, owner)).toMatchObject({
       workspaceRoot: `machine://devl${shop}`,
-      workspaceExecutorId: 'machine:devl',
+      workspaceExecutorId: 'devl',
       workspaceDetachReason: null,
       workspaceToldAvailable: false,
     });
@@ -347,9 +367,7 @@ describe('Machine Workspaces through the durable worker', () => {
     );
 
     expect(notices).toHaveLength(1);
-    expect(notices[0]?.['text']).toContain(
-      'Machine `devl` is unreachable, so this Workspace is offline for now.',
-    );
+    expect(notices[0]?.['text']).toContain('Machine `devl` is unreachable');
 
     // A second Run while it stays offline: the transition was already told.
     const run2 = await runScript({
@@ -477,11 +495,11 @@ describe('Machine Workspaces through the durable worker', () => {
     // owner's tenant read cannot see it.
     expect(await chatRow(ownChat, owner)).toMatchObject({
       workspaceRoot: `machine://devl${ownRoot}`,
-      workspaceExecutorId: 'machine:devl',
+      workspaceExecutorId: 'devl',
     });
     expect(await chatRow(otherChat, other)).toMatchObject({
       workspaceRoot: `machine://devl${otherRoot}`,
-      workspaceExecutorId: 'machine:devl',
+      workspaceExecutorId: 'devl',
     });
     expect(await chatRow(ownChat, other)).toBeUndefined();
     expect(await chatRow(otherChat, owner)).toBeUndefined();

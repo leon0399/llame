@@ -41,8 +41,8 @@ the process can serve.
 
 A scope is one of these locators:
 
-- an absolute host path,
-- a relative host path, which resolves from the entered Workspace root,
+- an absolute path on the current Machine,
+- a relative path, which resolves from the entered Workspace root on its Machine,
 - a `machine://<name><absolute path>` locator on a configured Machine,
 - a `kb://<space-id>/<path>` locator, or bare `kb://` for every Space of the
   owner,
@@ -59,14 +59,14 @@ a glob. The tool refuses `{a,b}`, `[ab]`, and any other operator as
 `invalid_path`, and names the operator.
 
 The scheme, a Machine name, a Space identifier, and a skill name never hold a
-glob operator. `grep` parses no read selector. In a host or Machine scope a
+glob operator. `grep` parses no read selector. In a path or Machine scope a
 colon is part of the path. In a `kb://` or `skill://` scope a literal colon is
 refused as `invalid_path`, and the message names `%3A`, the escape that keeps
 it literal text.
 
-`grep` refuses a `media://` or `http(s)://` scope and a `file://` alias with a
-remote host, because they hold no text to search. It refuses an unknown
-scheme.
+`grep` refuses a `media://` or `http(s)://` scope and a `file://` alias whose
+host is not `localhost`, because they hold no text to search. It refuses an
+unknown scheme.
 
 ## Result
 
@@ -140,8 +140,8 @@ The artifact notice is the last bracketed line:
 ```
 
 `<next>` is the artifact line after the last inline passage. When the writer
-also made host files, the notice adds `host files in <directory>`, or
-`host files on the llame host only` in a Machine Workspace; see
+also made host files, the notice adds `host files in <machine:// locator>`, or
+`host files only on Machine <name>` in a Workspace on another Machine; see
 [artifact](../locators/artifact.md) and the
 [native files runbook](../../operator/native-files.md#host-files).
 
@@ -237,7 +237,7 @@ named, and these directory decisions are never recorded one by one.
 
 A result with at least one `kb://` passage carries the closed
 untrusted-content `notice`, the same text a `kb://` read and
-`knowledge_search` return. A result whose passages are all host or
+`knowledge_search` return. A result whose passages are all path or
 `skill://` passages carries no `notice`.
 
 A hit holds one matched line with one line of context on each side. Windows
@@ -252,7 +252,7 @@ way that scheme's canonical formatter does. A `*` in a returned locator is
 part of the file name for `read`. In a `grep` scope it is a glob operator. To
 search that one file again, write the character as `%2A`.
 
-In a host scope, the seven literal spellings `%25`, `%2A`, `%3F`, `%5B`,
+In a path scope, the seven literal spellings `%25`, `%2A`, `%3F`, `%5B`,
 `%5D`, `%7B`, and `%7D` decode once in the literal prefix, so a reported
 locator such as `app/%5Bid%5D` searches `app/[id]`. No other percent sequence
 decodes, so `100%41` stays that path, and `%252A` names `%2A` rather than `*`.
@@ -288,10 +288,10 @@ The `read` group then admits every candidate file on its canonical locator.
 A file that `read` refuses contributes no hit, no count, and no name. The
 completion audit records how many files policy hid, on every outcome.
 
-A host or Machine walk applies `.ignore` and `.gitignore`. From the scope
+A path or Machine walk applies `.ignore` and `.gitignore`. From the scope
 prefix it reads both files in each directory it enters, and `.ignore` outranks
 `.gitignore` in one directory. Above the prefix it reads `.ignore` files up to
-`/` on the host, and up to the registered root on a Machine. It reads
+`/` on the Machine, and up to the registered root on a Machine. It reads
 `.gitignore` above the prefix only inside the repository: the nearest
 directory at or above the prefix that holds a `.git` entry. A Machine looks for
 that repository only up to its registered root, and without one there, the
@@ -395,7 +395,7 @@ refused call. A file that disappears between the listing and the read is an
 | `invalid_pattern`                | the engine refused a pattern, and the message names its index          |
 | `invalid_path`                   | a scope is outside the grammar, or names no searchable source          |
 | `permission_denied`              | the `grep` group refused one scope, so no scope is searched            |
-| `executor_unavailable`           | a host scope ran without accepted native host authority                |
+| `machine_unavailable`            | a path scope's Machine is unreachable, or its daemon is unusable       |
 | `knowledge_space_unavailable`    | a `kb://` scope ran without a configured Knowledge root                |
 | `knowledge_space_not_configured` | bare `kb://` found no Space of the owner                               |
 | `knowledge_space_not_found`      | a Space is absent or belongs to another owner                          |
@@ -415,8 +415,7 @@ that a matched line contains.
 - [Tool-call permissions](../../operator/tool-call-permissions.md#matching)
   configures the `grep` group that admits every scope and the `read` group that
   admits every candidate file.
-- [Native files](../../operator/native-files.md) enables the host executor that
-  host scopes need. Without it they answer `executor_unavailable`, as `read`
-  does.
-- [Machines](../../operator/machines.md) configures the Machines that
-  `machine://` scopes search.
+- [Native files](../../operator/native-files.md) enables the `grep` entry, and
+  [Machines](../../operator/machines.md) declares the Machine a path scope
+  searches and the Machines that `machine://` scopes search. An unreachable
+  Machine answers `machine_unavailable`.

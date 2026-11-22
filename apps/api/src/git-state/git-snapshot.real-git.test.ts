@@ -9,10 +9,6 @@ import {
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import {
-  BUILT_IN_DEFAULTS,
-  type LlameConfig,
-} from '../instance-config/llame-config';
 import { ExecutorGit, localGitSurface } from '../machines/executor-git.service';
 import { MachineConnector } from '../machines/machine-connector.service';
 import { createProtocolPeer } from '../testing/machine-protocol-peer';
@@ -66,31 +62,29 @@ function repository(): string {
   return directory;
 }
 
+/** The Machine this test process hosts, configured as `machines.local`. */
+const HOST = 'snapshot-host';
+
 function service(): GitSnapshotService {
   const connector = new MachineConnector({
     hubVersion: 'test-hub',
     bindIdentity: () => Promise.resolve('match'),
-    machines: undefined,
-    transportFactory: createProtocolPeer().factory,
+    machines: { local: HOST, default: HOST, hosts: { [HOST]: {} } },
+    transportFactory: createProtocolPeer({ roots: [tmpdir()] }).factory,
     idleCloseMs: 1000,
   });
 
   connectors.push(connector);
 
-  const config: LlameConfig = {
-    ...BUILT_IN_DEFAULTS,
-    tools: { ...BUILT_IN_DEFAULTS.tools, nativeExecutorId: 'snapshot-host' },
-  };
+  const executors = new ExecutorGit(connector, localGitSurface());
 
-  return new GitSnapshotService(
-    new ExecutorGit({ config }, connector, localGitSurface()),
-  );
+  return new GitSnapshotService(executors, connector);
 }
 
 async function body(root: string, admit = () => true): Promise<string> {
   return renderGitObservation(
     await service().observe({
-      target: { executorId: 'snapshot-host', machine: undefined, path: root },
+      target: { executorId: HOST, machine: HOST, path: root },
       root,
       admit,
     }),
@@ -115,7 +109,7 @@ describe('GitSnapshotService with real git', () => {
     const text = await body(root);
     const lines = text.split('\n');
 
-    expect(lines).toContain(`Repository: \`${root}\``);
+    expect(lines).toContain(`Repository: \`machine://${HOST}${root}\``);
     expect(lines).toContain(
       `HEAD: \`${runGit(root, ['rev-parse', '--short=7', 'HEAD']).trim()}\``,
     );
@@ -149,6 +143,8 @@ describe('GitSnapshotService with real git', () => {
     expect(await body(root, admit)).toBe(
       'git state unavailable: not permitted',
     );
-    expect(admit).toHaveBeenCalledExactlyOnceWith(join(root, '.git'));
+    expect(admit).toHaveBeenCalledExactlyOnceWith(
+      `machine://${HOST}${join(root, '.git')}`,
+    );
   });
 });

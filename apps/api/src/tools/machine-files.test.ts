@@ -228,6 +228,40 @@ describe('Machine native reads', () => {
     });
   });
 
+  it('sends an encoded colon as path text, not as a selector', async () => {
+    const { peer, connector } = fixture({
+      answers: {
+        'fs.read': {
+          value: { ...READ_FILE, path: 'machine://devl/srv/report:2' },
+        },
+      },
+    });
+
+    const result = await runTool(
+      nativeReadTool,
+      { path: 'machine://devl/srv/report%3A2' },
+      context(connector),
+      5,
+    );
+
+    expect(result).toMatchObject({
+      status: 'success',
+      path: 'machine://devl/srv/report%3A2',
+    });
+    const session = await peer.session(0);
+    expect(session.calls[0]?.params).toStrictEqual({
+      envelope: {
+        runId: 'run',
+        attemptId: 'attempt-1',
+        toolCallId: 'call',
+        deliverySeq: 1,
+        budgetMs: 5000,
+      },
+      path: '/srv/report:2',
+      options: { displayPrefix: 'machine://devl' },
+    });
+  });
+
   it('re-encodes a reported path so a locator with # round-trips', async () => {
     const { peer, connector } = fixture({
       answers: {
@@ -376,16 +410,16 @@ describe('Machine native reads', () => {
     });
   });
 
-  it('still refuses a local path without a native executor', async () => {
+  it('refuses a local path with no current Machine', async () => {
     const { connector } = fixture();
     await expect(
-      runTool(
-        nativeReadTool,
-        { path: '/etc/hostname' },
-        context(connector, { nativeExecutorId: undefined }),
-        5,
-      ),
-    ).resolves.toMatchObject({ status: 'error', type: 'executor_unavailable' });
+      runTool(nativeReadTool, { path: '/etc/hostname' }, context(connector), 5),
+    ).resolves.toMatchObject({
+      status: 'error',
+      type: 'invalid_path',
+      message:
+        'No current Machine: configure machines.default or enter a Workspace.',
+    });
   });
 
   it('treats an unconfigured feature as an unknown scheme', async () => {
@@ -860,6 +894,87 @@ describe('Machine mutations', () => {
     expect(peer.sessions).toHaveLength(0);
   });
 
+  it('edits a path whose name encodes a colon', async () => {
+    stubFence();
+
+    const { peer, connector } = fixture({
+      answers: {
+        'fs.edit': {
+          value: {
+            status: 'success',
+            operation: 'edit',
+            path: 'machine://devl/srv/report:2',
+            replacements: 1,
+            content: '1: new\n',
+            shownRange: { startLine: 1, endLine: 1 },
+            truncated: false,
+            lineCount: 1,
+            display: { startLine: 1 },
+          },
+        },
+      },
+    });
+
+    const result = await runTool(
+      nativeEditTool,
+      {
+        path: 'machine://devl/srv/report%3A2',
+        oldText: 'old',
+        newText: 'new',
+      },
+      context(connector),
+      5,
+    );
+
+    expect(result).toMatchObject({
+      status: 'success',
+      path: 'machine://devl/srv/report%3A2',
+    });
+    const session = await peer.session(0);
+    expect(session.calls.at(-1)?.params).toMatchObject({
+      path: '/srv/report:2',
+      oldText: 'old',
+      newText: 'new',
+    });
+    expect(session.calls.at(-1)?.params).not.toHaveProperty('options.selector');
+  });
+
+  it('writes a path whose name encodes a colon', async () => {
+    stubFence();
+
+    const { peer, connector } = fixture({
+      answers: {
+        'fs.write': {
+          value: {
+            status: 'success',
+            operation: 'write',
+            path: 'machine://devl/srv/report:2',
+            created: true,
+            lineCount: 1,
+          },
+        },
+      },
+    });
+
+    await expect(
+      runTool(
+        nativeWriteTool,
+        { path: 'machine://devl/srv/report%3A2', content: 'x' },
+        context(connector),
+        5,
+      ),
+    ).resolves.toMatchObject({
+      status: 'success',
+      created: true,
+      path: 'machine://devl/srv/report%3A2',
+    });
+    const session = await peer.session(0);
+    expect(session.calls.at(-1)?.params).toMatchObject({
+      path: '/srv/report:2',
+      content: 'x',
+    });
+  });
+
   it('records no attempt when the Machine is unreachable before dispatch', async () => {
     const { begin } = stubFence();
 
@@ -1220,7 +1335,7 @@ describe('Machine bash', () => {
       runTool(
         bashTool,
         { command: 'pwd', cwd: 'machine://devl/srv/app' },
-        context(connector, { nativeExecutorId: undefined }),
+        context(connector),
         5,
       ),
     ).resolves.toMatchObject({ status: 'success', stdout: '/srv/app\n' });
@@ -1244,7 +1359,7 @@ describe('Machine bash', () => {
     const result = await runTool(
       bashTool,
       { command: 'pwd', cwd: 'machine://devl/srv/app' },
-      context(connector, { nativeExecutorId: undefined }),
+      context(connector),
       5,
     );
 
@@ -1267,7 +1382,7 @@ describe('Machine bash', () => {
       runTool(
         bashTool,
         { command: 'pwd', cwd: 'machine://devl/srv/app' },
-        context(connector, { nativeExecutorId: undefined }),
+        context(connector),
         5,
       ),
     ).resolves.toMatchObject({ status: 'success', wallTimeMs: 1240 });
@@ -1336,16 +1451,11 @@ describe('Machine bash', () => {
     });
   });
 
-  it('still refuses a local cwd without a native executor', async () => {
+  it('refuses a local cwd with no current Machine without opening a session', async () => {
     const { peer, connector } = fixture();
     await expect(
-      runTool(
-        bashTool,
-        { command: 'pwd', cwd: '/tmp' },
-        context(connector, { nativeExecutorId: undefined }),
-        5,
-      ),
-    ).resolves.toMatchObject({ status: 'error', type: 'executor_unavailable' });
+      runTool(bashTool, { command: 'pwd', cwd: '/tmp' }, context(connector), 5),
+    ).resolves.toMatchObject({ status: 'error', type: 'invalid_path' });
     expect(peer.sessions).toHaveLength(0);
   });
 
@@ -2468,23 +2578,29 @@ describe('Machine bash working directories', () => {
     truncated: false,
   };
 
-  it('refuses a Machine cwd carrying a selector before any effect', async () => {
-    const { peer, connector } = fixture();
+  it('takes a selector-shaped suffix in a Machine cwd as path text', async () => {
+    stubFence();
+    const request = vi.spyOn(MachineConnector.prototype, 'request');
+
+    const { connector } = fixture({
+      answers: { 'proc.bash': { value: BASH_OK } },
+    });
 
     await expect(
-      runTool(
-        bashTool,
-        { command: 'pwd', cwd: 'machine://devl/srv/app:1-5' },
-        context(connector),
-        5,
-      ),
-    ).resolves.toEqual({
-      status: 'error',
-      type: 'invalid_path',
-      message:
-        'A Machine working directory is one absolute Machine path without a selector.',
-    });
-    expect(peer.sessions).toHaveLength(0);
+      bashTool.execute(context(connector), {
+        command: 'pwd',
+        cwd: 'machine://devl/srv/app:1-5',
+      }),
+    ).resolves.toMatchObject({ status: 'success' });
+
+    // grep parses no selector and bash takes its directory literally, so the
+    // daemon receives the directory the model named.
+    expect(request).toHaveBeenCalledWith(
+      'devl',
+      'proc.bash',
+      expect.objectContaining({ cwd: '/srv/app:1-5' }),
+      expect.anything(),
+    );
   });
 
   it('refuses a non-absolute cwd inside a Machine Workspace', async () => {
@@ -2499,11 +2615,9 @@ describe('Machine bash working directories', () => {
         }),
         5,
       ),
-    ).resolves.toEqual({
+    ).resolves.toMatchObject({
       status: 'error',
       type: 'invalid_path',
-      message:
-        'The working directory must be a local absolute path or a machine:// locator.',
     });
     expect(peer.sessions).toHaveLength(0);
   });

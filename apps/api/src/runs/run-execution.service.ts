@@ -1,4 +1,3 @@
-import { realpath, stat } from 'node:fs/promises';
 import { setTimeout as delay } from 'node:timers/promises';
 
 import { BashProcessLimiter } from '@workspace/bash-executor';
@@ -36,6 +35,7 @@ import { machineAttemptKey } from './machine-attempt';
 import { probeMachinePromptTarget } from './machine-prompt-probe';
 import {
   decideMachineWorkspace,
+  decideUnboundMachine,
   detachedBinding,
   machineAvailabilityNarration,
   machineInstructionAvailability,
@@ -44,7 +44,6 @@ import {
 } from './machine-workspace';
 import { MachineConnector } from '../machines/machine-connector.service';
 import { ExecutorGit } from '../machines/executor-git.service';
-import { parseMachineExecutorId } from '../machines/machine-locator';
 import {
   createSshClient,
   SSH_CLIENT_FACTORY,
@@ -193,9 +192,9 @@ import {
 import {
   createWorkspaceDetachNoticeItem,
   createWorkspaceSnapshotItem,
+  formatWorkspaceTold,
+  parseWorkspaceTold,
   createModelChangeItem,
-  createRecencyDigestDeltaItem,
-  createRecencyDigestSupersessionItem,
   createToolAvailabilityItem,
   createTemporalItem,
   deriveToolAvailabilityPayload,
@@ -203,6 +202,10 @@ import {
   createCompactionCheckpointPart,
   toContextCheckpoint,
 } from '../chats/context-item-producers';
+import {
+  createRecencyDigestDeltaItem,
+  createRecencyDigestSupersessionItem,
+} from '../chats/recency-digest-item';
 import {
   isContextItemPart,
   type AuthoredContextItemPart,
@@ -314,6 +317,7 @@ import {
   type PromptImportTriggerGates,
 } from '../prompt-imports/prompt-import-triggers';
 import { nativeReadTool } from '../tools/native-files';
+import { verifyLocalMachine } from '../tools/local-machine';
 import {
   type InterruptFate,
   type KnowledgeToolResolver,
@@ -462,10 +466,10 @@ import {
 } from '../chats/workspace-binding';
 import {
   createWorkspaceRootCell,
+  currentMachine,
   type WorkspaceRootCell,
 } from '../tools/workspace-path';
 import { workspaceSkillSources } from '../skills/workspace-skill-sources';
-import { decidePermission } from '../tools/permissions/admit';
 import { isTerminalRunStatus, type TerminalRunStatus } from './run-status';
 import { promoteNextQueueItem } from './queue-promotion';
 import { RunDispatchService, type RunDispatcher } from './run-dispatch.service';
@@ -637,6 +641,13 @@ type PreparedAttemptContext = ModelRequestContext & {
   skillCatalogNoticeTold?: NonNullable<Chat['skillCatalogTold']>;
   /** Written by the dispatch transaction that stores the workspace items. */
   workspaceWrites?: WorkspaceWrites;
+  /**
+   * Whether this attempt's Machine verified, so its host skill paths may be
+   * read. Decided once by the binding check and carried by every epoch re-bake
+   * of the same attempt (remote-machines "In-process host operations need a
+   * verified host Machine daemon").
+   */
+  machineVerified: boolean;
   untitled: boolean;
 };
 
@@ -1546,9 +1557,9 @@ export class RunExecutionService {
     this.sshClient?.dispose();
   }
 
-  /** `bash` allowlisted on a process with a native executor (D10). */
+  /** `bash` allowlisted on a process that hosts a Machine (D10). */
   private artifactHostFilesEnabled(): boolean {
-    return hostFilesEnabled(this.instanceConfig.config.tools);
+    return hostFilesEnabled(this.instanceConfig.config);
   }
 
   /**
@@ -2059,9 +2070,12 @@ export class RunExecutionService {
     Sentry.setConversationId(request.chatId);
     Sentry.setUser({ id: request.userId });
 
-    const nativeAbort = this.instanceConfig.config.tools.nativeExecutorId
-      ? new AbortController()
-      : undefined;
+    // An in-process host operation is the only thing a native mutation can
+    // leave unrecorded, and only this process's own Machine serves one.
+    const nativeAbort =
+      this.machineConnector?.localMachine() !== undefined
+        ? new AbortController()
+        : undefined;
 
     const input = nativeAbort
       ? {
@@ -3163,7 +3177,8 @@ export class RunExecutionService {
     // ToolContext (tools/types.ts) exactly.
     const toolContext: ToolContext = {
       runId: input.runId,
-      nativeExecutorId: this.instanceConfig.config.tools.nativeExecutorId,
+      localMachine: this.machineConnector?.localMachine(),
+      defaultMachine: this.machineConnector?.defaultMachine(),
       nativeDeliverySequence,
       attemptId,
       onNativeMutationUnknown: () =>
@@ -6582,6 +6597,14 @@ export class RunExecutionService {
 
     return { chatId: chat.id, root, generation };
   }
+  /**
+   * The attempt's binding re-check, and the availability of the Machine it
+   * addresses. An unreachable Machine is NOT a detached Workspace: the binding
+   * persists, every operation that addresses that Machine fails with
+   * `machine_unavailable`, and the attempt records the availability transition
+   * it tells. Only a Machine the operator removed, or one this worker cannot
+   * reach at all, detaches.
+   */
   private async prepareWorkspace(
     input: ExecuteRunInput,
     nativeDeliverySequence: number,
@@ -6593,76 +6616,40 @@ export class RunExecutionService {
     const executorId = chat?.workspaceExecutorId;
     const generation = chat?.workspaceGeneration;
 
-    if (root === undefined || root === null || executorId === undefined) {
-      return { root: undefined, chat, detaching: false };
-    }
+    const identity = {
+      runId: input.runId,
+      deliverySequence: nativeDeliverySequence,
+      signal: input.abortSignal,
+    };
 
-    if (executorId === null || generation === undefined) {
-      return { root: undefined, chat, detaching: false };
-    }
-
-    const machineName = parseMachineExecutorId(executorId);
-
-    if (machineName !== undefined) {
-      return this.prepareMachineWorkspace({
-        input,
-        nativeDeliverySequence,
-        attemptId,
+    if (
+      root === undefined ||
+      root === null ||
+      executorId === undefined ||
+      executorId === null ||
+      generation === undefined
+    ) {
+      // An unbound Chat still addresses a Machine: `machines.default`.
+      return {
+        root: undefined,
         chat,
-        root,
-        machineName,
-        generation,
-        effectivePermissionMode,
-      });
+        detaching: false,
+        machine: await decideUnboundMachine({
+          connector: this.machineConnector,
+          identity,
+        }),
+      };
     }
 
-    const reason = await this.workspaceDetachReason(
-      root,
-      executorId,
-      effectivePermissionMode,
-    );
-
-    if (reason === undefined) return { root, chat, detaching: false };
-
-    return this.detachWorkspace({
-      input,
-      nativeDeliverySequence,
-      attemptId,
-      chat,
-      generation,
-      reason,
-    });
-  }
-
-  /**
-   * The binding check for a Workspace on a Machine. An unreachable Machine is
-   * NOT a detached Workspace: the binding persists, every operation that
-   * addresses that Machine fails with `machine_unavailable`, and the attempt
-   * records the availability transition it tells. Only a Machine the operator
-   * removed detaches, narrated as a removed Machine.
-   */
-  private async prepareMachineWorkspace(params: {
-    input: ExecuteRunInput;
-    nativeDeliverySequence: number;
-    attemptId: string;
-    chat: Chat | undefined;
-    root: string;
-    machineName: string;
-    generation: number;
-    effectivePermissionMode: PermissionMode;
-  }): Promise<WorkspacePreparation> {
     const decision = await decideMachineWorkspace({
       connector: this.machineConnector,
-      machineName: params.machineName,
-      root: params.root,
-      effectivePermissionMode: params.effectivePermissionMode,
+      // The stored executor id IS the Machine name (host-as-machine D3).
+      machineName: executorId,
+      root,
+      effectivePermissionMode,
       toolAllowlist: this.instanceConfig.config.tools.allowed,
       permissionPolicy: this.permissionPolicy,
-      identity: {
-        runId: params.input.runId,
-        deliverySequence: params.nativeDeliverySequence,
-        signal: params.input.abortSignal,
-      },
+      identity,
       skillCatalogs: this.machineSkillCatalogs,
       skillDirectories: this.instanceConfig.config.skills.directories,
       warn: (message) => this.logger.warn(message),
@@ -6670,19 +6657,19 @@ export class RunExecutionService {
 
     if (decision.kind === 'detach') {
       return this.detachWorkspace({
-        input: params.input,
-        nativeDeliverySequence: params.nativeDeliverySequence,
-        attemptId: params.attemptId,
-        chat: params.chat,
-        generation: params.generation,
+        input,
+        nativeDeliverySequence,
+        attemptId,
+        chat,
+        generation,
         reason: decision.reason,
         removedMachine: decision.removedMachine,
       });
     }
 
     return {
-      root: params.root,
-      chat: params.chat,
+      root,
+      chat,
       detaching: false,
       machine: decision.machine,
     };
@@ -6739,41 +6726,6 @@ export class RunExecutionService {
     // A concurrent enter/exit won the generation compare-and-set. Do not
     // reuse the root that failed this attempt's checks.
     return { root: undefined, chat: params.chat, detaching: false };
-  }
-
-  private async workspaceDetachReason(
-    root: string,
-    executorId: string,
-    effectivePermissionMode: PermissionMode,
-  ): Promise<WorkspaceDetachReason | undefined> {
-    const currentExecutorId = this.instanceConfig.config.tools.nativeExecutorId;
-
-    if (currentExecutorId === undefined) return 'executor_absent';
-
-    if (currentExecutorId !== executorId) return 'executor_mismatch';
-
-    try {
-      const entry = await stat(root);
-
-      if (!entry.isDirectory()) return 'root_missing';
-
-      if ((await realpath(root)) !== root) return 'root_moved';
-    } catch {
-      return 'root_missing';
-    }
-
-    if (!this.instanceConfig.config.tools.allowed.includes('enter_workspace')) {
-      return 'tool_not_allowed';
-    }
-
-    const decision = decidePermission(
-      this.permissionPolicy,
-      effectivePermissionMode,
-      (evaluate) =>
-        evaluate({ toolId: 'enter_workspace', args: { path: root } }),
-    );
-
-    return decision.decision === 'allow' ? undefined : 'permission_rejected';
   }
 
   /**
@@ -6992,6 +6944,10 @@ export class RunExecutionService {
       text: partsToText(input.userMessage.parts),
       signal,
       workspaceRoot: step.workspaceRoot.current(),
+      localMachine: context.localMachine,
+      defaultMachine: context.defaultMachine,
+      verifyLocal: async () =>
+        (await verifyLocalMachine(context)) === undefined,
       hostAvailable: this.hostInstructionsLoadable(),
       knowledgeAvailable: this.knowledgeInstructionsLoadable(),
       machineAvailable: machineInstructionAvailability({
@@ -7090,15 +7046,16 @@ export class RunExecutionService {
 
   /**
    * Whether HOST instruction files may load at all: the `read` tool must be in
-   * the operator allowlist and a native executor configured, so no trigger can
-   * disclose a file the model could not have read itself (spec: Read not
-   * allowlisted / Missing candidates leave no audit trail).
+   * the operator allowlist and this process must host a Machine for those files
+   * to be read on, so no trigger can disclose a file the model could not have
+   * read itself (spec: Read not allowlisted / Missing candidates leave no audit
+   * trail). A current Machine that is this process's own counts as that host;
+   * another Machine's instruction files load through the Machine gate.
    */
   private hostInstructionsLoadable(): boolean {
-    const tools = this.instanceConfig.config.tools;
-
     return (
-      tools.nativeExecutorId !== undefined && tools.allowed.includes('read')
+      this.machineConnector?.localMachine() !== undefined &&
+      this.instanceConfig.config.tools.allowed.includes('read')
     );
   }
 
@@ -7133,7 +7090,8 @@ export class RunExecutionService {
   ): ToolContext {
     return {
       runId: input.runId,
-      nativeExecutorId: this.instanceConfig.config.tools.nativeExecutorId,
+      localMachine: this.machineConnector?.localMachine(),
+      defaultMachine: this.machineConnector?.defaultMachine(),
       nativeDeliverySequence,
       productUserAgent: this.instanceConfig.productUserAgent,
       userId: input.userId,
@@ -7210,6 +7168,8 @@ export class RunExecutionService {
     seenInstructionPaths: ReadonlySet<string>,
     stagedParts: Array<MessagePart>,
   ): Promise<TurnInstructions> {
+    const localMachine = this.machineConnector?.localMachine();
+
     const gates = {
       host: this.hostInstructionsLoadable(),
       knowledge: this.knowledgeInstructionsLoadable(),
@@ -7217,6 +7177,7 @@ export class RunExecutionService {
         connector: this.machineConnector,
         toolAllowlist: this.instanceConfig.config.tools.allowed,
       }),
+      ...(localMachine !== undefined && { localMachine }),
     };
 
     const toolContext =
@@ -7396,14 +7357,20 @@ export class RunExecutionService {
       return;
     }
 
+    const localMachine = this.machineConnector?.localMachine();
+    const defaultMachine = this.machineConnector?.defaultMachine();
+
     const part = await producer.prepareTurn({
       runId: input.runId,
       workspaceRoot: turn.root,
       readPage: turn.readPage,
       admitsRead,
       knowledge: turn.knowledge,
+      machines: turn.machines,
       promptImportTriggers: turn.promptImportTriggers,
       seenKeys: seenCanonicalPaths,
+      ...(localMachine !== undefined && { localMachine }),
+      ...(defaultMachine !== undefined && { defaultMachine }),
       abortSignal: input.abortSignal,
     });
 
@@ -8407,6 +8374,9 @@ export class RunExecutionService {
     readPage: ReadPage,
     admitsRead: (path: string) => boolean,
   ): InRunAttemptProducer | undefined {
+    const localMachine = this.machineConnector?.localMachine();
+    const defaultMachine = this.machineConnector?.defaultMachine();
+
     const attempt: InRunAttempt = {
       runId: input.runId,
       chatId: input.chatId,
@@ -8418,6 +8388,8 @@ export class RunExecutionService {
       admitsRead,
       knowledge: this.knowledgeInstructionWorld(input, readPage),
       machines: turn.machines,
+      ...(localMachine !== undefined && { localMachine }),
+      ...(defaultMachine !== undefined && { defaultMachine }),
       abortSignal: input.abortSignal,
       git: this.gitWorld(input, turnGit, workspaceRoot, admitsRead),
     };
@@ -8736,11 +8708,14 @@ export class RunExecutionService {
     // Resolve owner/model/digest inputs before admission so descriptions and
     // the system prompt share one attempt context. Admission still completes
     // before either surface is rendered.
+    const machineVerified = machine?.available === true;
+
     const promptInputs = await this.resolveAttemptPrompt(
       tx,
       input,
       workspaceChat,
       workspaceRoot,
+      machineVerified,
     );
 
     const disclosures: Array<PromptChatsDisclosure> = [];
@@ -8880,6 +8855,7 @@ export class RunExecutionService {
       ...(staged.workspaceWrites !== undefined && {
         workspaceWrites: staged.workspaceWrites,
       }),
+      machineVerified,
       untitled: prompt.chat.title === null,
     };
   }
@@ -9033,6 +9009,7 @@ export class RunExecutionService {
           focus: compactionSet.focus,
           model: input.context.model,
           workspaceRoot: input.workspaceRoot.current(),
+          machineVerified: input.context.machineVerified,
           digestCandidate,
           quotaRequest: input.quotaRequest,
         });
@@ -10007,6 +9984,7 @@ export class RunExecutionService {
         summary,
         model: estimatePass.model,
         workspaceRoot: input.workspacePreparation.root,
+        machineVerified: estimatePass.machineVerified,
         quotaRequest: input.quotaRequest,
       });
 
@@ -10140,6 +10118,8 @@ export class RunExecutionService {
     summary: CompactionSummary;
     model: SystemModelCatalogEntry;
     workspaceRoot: string | undefined;
+    /** The attempt's Machine verification, for the epoch's skill baseline. */
+    machineVerified: boolean;
     quotaRequest?: QuotaRequestState;
   }): Promise<void> {
     const { candidate: digestCandidate } = await this.resolveCompactionDigest({
@@ -10161,6 +10141,8 @@ export class RunExecutionService {
       focus?: string | null;
       model: SystemModelCatalogEntry;
       workspaceRoot: string | undefined;
+      /** The attempt's Machine verification, for the epoch's skill baseline. */
+      machineVerified: boolean;
       digestCandidate: RecencyDigestResolution | null;
       quotaRequest?: QuotaRequestState;
     },
@@ -10218,6 +10200,7 @@ export class RunExecutionService {
       checkpointId: checkpoint.id,
       model: input.model,
       workspaceRoot: input.workspaceRoot,
+      machineVerified: input.machineVerified,
       shareRecentChats,
       digestCandidate: input.digestCandidate,
     });
@@ -10233,6 +10216,8 @@ export class RunExecutionService {
     checkpointId: string;
     model: SystemModelCatalogEntry;
     workspaceRoot: string | undefined;
+    /** The attempt's Machine verification, for the epoch's skill baseline. */
+    machineVerified: boolean;
     shareRecentChats: ResolvedMemorySettings;
     digestCandidate: RecencyDigestResolution | null;
   }): Promise<void> {
@@ -10247,6 +10232,7 @@ export class RunExecutionService {
             model: input.model,
             workspaceRoot: input.workspaceRoot,
             latestCheckpointId: input.checkpointId,
+            machineVerified: input.machineVerified,
           });
 
     await this.rebakeCheckpointDigest({
@@ -10332,6 +10318,7 @@ export class RunExecutionService {
     input: ExecuteRunInput,
     workspaceChat: Chat | undefined,
     workspaceRoot: string | undefined,
+    machineVerified: boolean,
   ): Promise<AttemptPromptInputs> {
     const chatsRepo = new ChatsRepository(tx);
     const chat = workspaceChat;
@@ -10375,6 +10362,7 @@ export class RunExecutionService {
       model,
       workspaceRoot,
       latestCheckpointId: checkpoint?.id ?? null,
+      machineVerified,
     });
 
     return {
@@ -10417,13 +10405,20 @@ export class RunExecutionService {
     model: SystemModelCatalogEntry;
     workspaceRoot: string | undefined;
     latestCheckpointId: string | null;
+    /** Whether this attempt's Machine verified, so its host skill paths may be read. */
+    machineVerified: boolean;
   }): SkillTurnState {
+    const localMachine = this.machineConnector?.localMachine();
+
     return resolveTurnSkillState(
       {
         skillCatalog: this.skillCatalogFor(input.workspaceRoot),
         skillDirectories: this.instanceConfig.config.skills.directories,
         ...(input.workspaceRoot !== undefined && {
-          extraSources: workspaceSkillSources(input.workspaceRoot),
+          extraSources: workspaceSkillSources(input.workspaceRoot, {
+            ...(localMachine !== undefined && { localMachine }),
+            localVerified: input.machineVerified,
+          }),
         }),
         // Operator-facing: an unreadable operator catalog is logged, never
         // shown to the model. Workspace-source failures are intentionally
@@ -10979,16 +10974,41 @@ export class RunExecutionService {
     runId: string;
     chat: Chat;
     latestCheckpointId: string | null;
-    /** The bound Machine Workspace's availability as this attempt decided it. */
+    /** The current Machine's availability as this attempt decided it. */
     machine: MachineWorkspaceState | undefined;
   }): WorkspaceStagedContext {
     const currentRoot = input.chat.workspaceRoot;
     const latestCheckpointId = input.latestCheckpointId;
+    const defaultMachine = this.machineConnector?.defaultMachine();
 
-    const toldRoot =
+    // The bound root's Machine, else `machines.default`: the same current
+    // Machine every path of this attempt resolves on.
+    const machineName = currentMachine({
+      ...(currentRoot !== null && { workspaceRoot: currentRoot }),
+      ...(defaultMachine !== undefined && { defaultMachine }),
+    });
+
+    // Epoch rule: a told state recorded against an earlier checkpoint (or
+    // none) is absent, so the first request after a checkpoint re-tells.
+    const told =
       input.chat.workspaceToldFrom === latestCheckpointId
-        ? input.chat.workspaceTold
-        : null;
+        ? parseWorkspaceTold(input.chat.workspaceTold)
+        : undefined;
+
+    const toldValue =
+      machineName === undefined
+        ? null
+        : formatWorkspaceTold(machineName, currentRoot);
+
+    // A snapshot is owed whenever the current Machine or root differs from
+    // what this epoch told. A value written before the format carried a
+    // Machine compares on its root alone. Nothing can be named without a
+    // current Machine, so an unbound Chat with no default narrates nothing.
+    const snapshotOwed =
+      machineName !== undefined &&
+      (told === undefined ||
+        told.root !== currentRoot ||
+        (told.machine !== undefined && told.machine !== machineName));
 
     const rawDetachReason = input.chat.workspaceDetachReason;
 
@@ -11001,18 +11021,16 @@ export class RunExecutionService {
     let writes: WorkspaceWrites | undefined;
     let toldAvailable: boolean | undefined;
 
-    if (
-      currentRoot !== toldRoot &&
-      (currentRoot !== null || toldRoot !== null)
-    ) {
+    if (snapshotOwed && machineName !== undefined) {
       parts.push(
         createWorkspaceSnapshotItem({
           runId: input.runId,
           root: currentRoot,
+          machine: machineName,
         }),
       );
       writes = {
-        told: currentRoot,
+        told: toldValue,
         toldFrom: latestCheckpointId,
         clearDetachReason: detachReason !== null,
       };
@@ -11020,20 +11038,26 @@ export class RunExecutionService {
 
     // One narration per availability transition: the state the Chat was last
     // told about against the one this attempt decided. A removed Machine is
-    // the detach notice's story, not this one.
+    // the detach notice's story, not this one. The told availability belongs
+    // to the Machine it was told for: a new current Machine (`machines.default`
+    // changed, a new binding) starts from nothing told, so its first
+    // observation only narrates an unreachable Machine.
     const machine = input.machine;
+
+    const toldAvailability =
+      told?.machine === machineName ? input.chat.workspaceToldAvailable : null;
 
     const narration = machineAvailabilityNarration({
       runId: input.runId,
       machine,
-      toldAvailable: input.chat.workspaceToldAvailable,
+      toldAvailable: toldAvailability,
     });
 
     if (narration !== undefined) {
       parts.push(narration.part);
       toldAvailable = narration.available;
       writes ??= {
-        told: currentRoot,
+        told: toldValue,
         toldFrom: latestCheckpointId,
         clearDetachReason: false,
       };
@@ -11048,7 +11072,7 @@ export class RunExecutionService {
         }),
       );
       writes ??= {
-        told: currentRoot,
+        told: toldValue,
         toldFrom: latestCheckpointId,
         clearDetachReason: true,
       };

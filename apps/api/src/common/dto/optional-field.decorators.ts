@@ -8,9 +8,9 @@ import {
   ValidateIf,
 } from 'class-validator';
 
-// Bound on an executor id: `tools.nativeExecutorId` or `machine:<name>`, both
-// operator-authored and short. Shared by every field that takes one — the
-// project default executor and the start-location triple.
+// Bound on an executor id, which is a Machine name: operator-authored and
+// short. Shared by every field that takes one — the project default executor
+// and the start-location triple.
 export const EXECUTOR_ID_MAX = 200;
 
 // Only absence skips validation: `IsOptional` would also wave an explicit

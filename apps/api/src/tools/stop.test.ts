@@ -14,7 +14,8 @@ function context(over: Partial<ToolContext> = {}): ToolContext {
     configuredCredentials: [],
     userId: 'owner',
     chatId: 'chat',
-    nativeExecutorId: 'host',
+    localMachine: 'host-a',
+    defaultMachine: 'host-a',
     tenantDb: unreachableDb,
     permissionPolicy: compileToolPermissionMap({ stop: { allow: true } }, 'p'),
     ...over,
@@ -24,17 +25,20 @@ function context(over: Partial<ToolContext> = {}): ToolContext {
 const input = { jobs: ['job://bash-4'] };
 
 describe('stop admission', () => {
-  it('fails closed before any database read without a native host identity', async () => {
+  it('fails closed before any database read without a local Machine', async () => {
     const result = await runTool(
       stopTool,
       input,
-      context({ nativeExecutorId: undefined }),
+      context({ localMachine: undefined }),
       5,
     );
 
-    expect(result).toMatchObject({
+    expect(result).toEqual({
       status: 'error',
       type: 'executor_unavailable',
+      message:
+        'No local Machine is configured: set machines.local to the Machine ' +
+        'this process hosts before a job can be stopped in process.',
     });
   });
 

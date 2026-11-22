@@ -8,16 +8,11 @@ import {
 } from '@nestjs/common';
 
 import { assertNotArchived } from '../db/assert-not-archived';
-import {
-  type Chat,
-  type Checkout,
-  type Project,
-  type Repository,
-} from '../db/schema';
+import { type Chat, type Project } from '../db/schema';
 import { TenantDbService, type Db } from '../db/tenant-db.service';
 import { InstanceConfigService } from '../instance-config/instance-config.service';
+import { MachineConnector } from '../machines/machine-connector.service';
 import { MachinesService } from '../machines/machines.service';
-import { ProjectLinksRepository } from '../projects/project-links.repository';
 import { ProjectsRepository } from '../projects/projects-repository';
 import { ProjectsService } from '../projects/projects.service';
 import {
@@ -40,28 +35,17 @@ import { toChatResponse } from './dto/chats.dto';
 import {
   creationLocationSource,
   executorOnline,
-  executorTarget,
-  isConfiguredExecutor,
 } from './chat-creation-executors';
 import {
   type AdmitContext,
   type AdmittedChat,
-  type CreationLease,
 } from './chat-creation-admission';
 import { recordCreationDefault } from './chat-creation-defaults';
-import {
-  recordedWorktreeUnknown,
-  storedBinding,
-  worktreeOf,
-} from './chat-creation-outcomes';
 import { ChatCreationLock } from './chat-creation-lock';
 import { ChatCreationRecordRepository } from './chat-creation-record.repository';
-import {
-  ChatCreationWorkspace,
-  type CreationWorkspaceResult,
-} from './chat-creation-workspace';
+import { ChatCreationWorkspace } from './chat-creation-workspace';
+import { enterCreatedWorkspace } from './chat-creation-workspace-step';
 import { ChatLoopService, type ValidatedChatTurn } from './chat-loop.service';
-import { WorkspaceBindingRepository } from './workspace-binding.repository';
 
 /*
  * `POST /api/v1/chats` (openspec `chat-start-location`, design D9): one request
@@ -82,6 +66,7 @@ export class ChatCreationService {
     private readonly tenantDb: TenantDbService,
     @Inject(InstanceConfigService)
     private readonly config: Pick<InstanceConfigService, 'config'>,
+    private readonly connector: MachineConnector,
     private readonly machines: MachinesService,
     private readonly projects: ProjectsService,
     private readonly locks: ChatCreationLock,
@@ -110,7 +95,7 @@ export class ChatCreationService {
 
     if (
       input.executorId !== undefined &&
-      !isConfiguredExecutor(input.executorId, this.config.config)
+      !this.connector.isConfigured(input.executorId)
     ) {
       throw new UnprocessableEntityException({
         statusCode: 422,
@@ -188,11 +173,9 @@ export class ChatCreationService {
   ): Promise<CreateChatResponse> {
     const admitted = await this.admitChat(userId, input);
 
-    const workspace = await this.enterWorkspace(
-      userId,
-      admitted,
-      worktree,
-      turn,
+    const workspace = await enterCreatedWorkspace(
+      { tenantDb: this.tenantDb, workspace: this.workspace },
+      { userId, admitted, worktree, turn },
     );
 
     if (workspace.status === 'conflict') {
@@ -250,7 +233,7 @@ export class ChatCreationService {
     const machines = await this.machines.list(userId);
 
     const online = (executorId: string): boolean =>
-      executorOnline(executorId, { config: this.config.config, machines });
+      executorOnline(executorId, { machines });
 
     return this.tenantDb.runAs(userId, (tx) =>
       this.admitIn({ tx, userId, input, online }),
@@ -461,160 +444,6 @@ export class ChatCreationService {
         }),
       },
     );
-  }
-
-  /** The Workspace step of one request, in the response's closed status set. */
-  private async enterWorkspace(
-    userId: string,
-    admitted: AdmittedChat,
-    worktree: WorktreeRequest | undefined,
-    turn: ValidatedChatTurn | undefined,
-  ): Promise<CreationWorkspaceResult> {
-    const { chat, lease } = admitted;
-
-    if (chat.workspaceRoot !== null) {
-      return storedBinding(chat.workspaceRoot, chat.workspaceExecutorId, lease);
-    }
-
-    if (lease !== null) return this.rebindLease(userId, chat, lease);
-
-    if (admitted.recordedWorktree !== null) {
-      return recordedWorktreeUnknown(admitted.recordedWorktree);
-    }
-
-    return this.enterLocated(userId, admitted, worktree, turn);
-  }
-
-  /** The bind or worktree the resolved location decides, on an online executor. */
-  private async enterLocated(
-    userId: string,
-    admitted: AdmittedChat,
-    worktree: WorktreeRequest | undefined,
-    turn: ValidatedChatTurn | undefined,
-  ): Promise<CreationWorkspaceResult> {
-    const located = await this.readLocated(userId, admitted.location);
-
-    if (located === null) return { status: 'unbound' };
-
-    // An implicit step never reaches an offline executor (the resolver saw only
-    // online ones), so this is an explicit, named, or remembered executor.
-    if (!admitted.online(located.executorId)) {
-      return {
-        status: 'machine_unavailable',
-        message: `The executor ${located.executorId} is offline.`,
-      };
-    }
-
-    const target = executorTarget(located.executorId, located.checkout.path);
-
-    if (target === undefined) {
-      return {
-        status: 'bind_failed',
-        code: 'not_found',
-        message: 'The resolved checkout does not belong to its executor.',
-      };
-    }
-
-    return this.workspace.enter({
-      ownerUserId: userId,
-      chatId: admitted.chat.id,
-      permissionMode: turn?.permissionMode ?? 'default',
-      target,
-      checkout: located.checkout,
-      repository: located.repository,
-      worktree,
-    });
-  }
-
-  /**
-   * The resolved checkout and repository rows, or null when no location
-   * resolved. A `main` row is the only source a start may bind.
-   */
-  private async readLocated(
-    userId: string,
-    location: StartLocation | null,
-  ): Promise<{
-    readonly checkout: Checkout;
-    readonly repository: Repository;
-    readonly executorId: string;
-  } | null> {
-    const executorId = location?.executorId ?? null;
-    const checkoutId = location?.checkoutId ?? null;
-    const repositoryId = location?.repositoryId ?? null;
-
-    if (executorId === null || checkoutId === null) return null;
-
-    const located = await this.readCheckoutAndRepository(
-      userId,
-      checkoutId,
-      repositoryId,
-    );
-
-    if (located.checkout === undefined || located.repository === undefined) {
-      throw new NotFoundException(
-        'The resolved checkout or repository no longer exists.',
-      );
-    }
-
-    if (located.checkout.kind !== 'main') {
-      throw new UnprocessableEntityException(
-        'A worktree checkout cannot start a chat; name its main checkout.',
-      );
-    }
-
-    return {
-      checkout: located.checkout,
-      repository: located.repository,
-      executorId,
-    };
-  }
-
-  /** The two rows a resolved location names, read in one transaction. */
-  private async readCheckoutAndRepository(
-    userId: string,
-    checkoutId: string,
-    repositoryId: string | null,
-  ): Promise<{ checkout?: Checkout; repository?: Repository }> {
-    return this.tenantDb.runAs(userId, async (tx) => {
-      const links = new ProjectLinksRepository(tx);
-
-      return {
-        checkout: await links.findCheckout(userId, checkoutId),
-        repository:
-          repositoryId === null
-            ? undefined
-            : await links.findRepository(userId, repositoryId),
-      };
-    });
-  }
-
-  /** A resend with a creation lease reuses that worktree and root. */
-  private async rebindLease(
-    userId: string,
-    chat: Chat,
-    lease: CreationLease,
-  ): Promise<CreationWorkspaceResult> {
-    const result = await this.tenantDb.runAs(userId, (tx) =>
-      new WorkspaceBindingRepository(tx).bindAtCreation({
-        chatId: chat.id,
-        ownerUserId: userId,
-        executorId: lease.checkout.executorId,
-        root: lease.checkout.path,
-      }),
-    );
-
-    if (result.status === 'conflict') return { status: 'conflict' };
-
-    if (result.status === 'not_found') {
-      throw new NotFoundException(`Chat ${chat.id} not found`);
-    }
-
-    return {
-      status: 'bound',
-      root: lease.checkout.path,
-      executorId: lease.checkout.executorId,
-      worktree: worktreeOf(lease),
-    };
   }
 
   private async readChat(userId: string, chatId: string): Promise<Chat> {

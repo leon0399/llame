@@ -32,6 +32,11 @@ import { runTool } from './runner';
 import { type ToolContext } from './types';
 import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
 import { createWorkspaceRootCell } from './workspace-path';
+import { MachineConnector } from '../machines/machine-connector.service';
+import { formatMachineLocator } from '../machines/machine-locator';
+import { MachineIdentityMismatchError } from '../machines/machine-session';
+import { localMachineConnector } from '../testing/local-machine';
+import { createProtocolPeer } from '../testing/machine-protocol-peer';
 import { compileTestPermissionPolicy } from '../testing/tool-permission-policy';
 import { expectRedacted, stubArtifactWrites } from '../testing/support';
 
@@ -62,7 +67,9 @@ function testContext(
     runId: 'run',
     attemptId: 'attempt-1',
     toolCallId,
-    nativeExecutorId: 'host',
+    localMachine: 'host-a',
+    defaultMachine: 'host-a',
+    machines: localMachineConnector(),
     nativeDeliverySequence: 1,
     bashProcessLimiter: new BashProcessLimiter(64),
     bashJobs: new BashJobRegistry(
@@ -176,10 +183,9 @@ describe('bash durable admission', () => {
     expect(begin).not.toHaveBeenCalled();
   });
 
-  it('uses absolute and relative cwd values per call, then returns to the default', async () => {
+  it('uses an absolute cwd per call, then returns to the default', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'bash-cwd-'));
     const nested = join(directory, 'nested');
-    const relativeCwd = 'nested';
     await mkdir(nested);
 
     const begin = vi
@@ -211,20 +217,8 @@ describe('bash durable admission', () => {
       await expect(
         runTool(
           bashTool,
-          { command: 'printf relative > relative-effect', cwd: relativeCwd },
-          { ...testContext('call-2'), nativeDeliverySequence: 1 },
-          5,
-        ),
-      ).resolves.toMatchObject({ status: 'success' });
-      await expect(
-        readFile(join(nested, 'relative-effect'), 'utf8'),
-      ).resolves.toBe('relative');
-
-      await expect(
-        runTool(
-          bashTool,
           { command: 'printf default > default-effect' },
-          { ...testContext('call-3'), nativeDeliverySequence: 1 },
+          { ...testContext('call-2'), nativeDeliverySequence: 1 },
           5,
         ),
       ).resolves.toMatchObject({ status: 'success' });
@@ -234,19 +228,39 @@ describe('bash durable admission', () => {
 
       expect(begin).toHaveBeenNthCalledWith(
         1,
-        expect.objectContaining({ operation: 'bash', path: nested }),
+        expect.objectContaining({
+          operation: 'bash',
+          path: `machine://host-a${nested}`,
+        }),
       );
       expect(begin).toHaveBeenNthCalledWith(
         2,
-        expect.objectContaining({ operation: 'bash', path: nested }),
-      );
-      expect(begin).toHaveBeenNthCalledWith(
-        3,
-        expect.objectContaining({ operation: 'bash', path: directory }),
+        expect.objectContaining({
+          operation: 'bash',
+          path: `machine://host-a${directory}`,
+        }),
       );
     } finally {
       await rm(directory, { recursive: true, force: true });
     }
+  });
+
+  it('refuses a relative cwd with no entered Workspace', async () => {
+    const begin = vi.spyOn(NativeFilesRepository.prototype, 'begin');
+
+    await expect(
+      runTool(
+        bashTool,
+        { command: 'printf never', cwd: 'nested' },
+        testContext(),
+        5,
+      ),
+    ).resolves.toEqual({
+      status: 'error',
+      type: 'invalid_path',
+      message: 'A relative path needs an entered Workspace to resolve from.',
+    });
+    expect(begin).not.toHaveBeenCalled();
   });
 
   it('uses the entered root for omitted cwd and resolves relative cwd', async () => {
@@ -297,11 +311,17 @@ describe('bash durable admission', () => {
       ).resolves.toBe('nested');
       expect(begin).toHaveBeenNthCalledWith(
         1,
-        expect.objectContaining({ operation: 'bash', path: root }),
+        expect.objectContaining({
+          operation: 'bash',
+          path: `machine://host-a${root}`,
+        }),
       );
       expect(begin).toHaveBeenNthCalledWith(
         2,
-        expect.objectContaining({ operation: 'bash', path: nested }),
+        expect.objectContaining({
+          operation: 'bash',
+          path: `machine://host-a${nested}`,
+        }),
       );
     } finally {
       await rm(root, { recursive: true, force: true });
@@ -323,12 +343,12 @@ describe('bash durable admission', () => {
     ).resolves.toEqual({
       status: 'error',
       type: 'invalid_path',
-      message: 'The working directory must be a local path.',
+      message: 'This path scheme is not available.',
     });
     expect(begin).not.toHaveBeenCalled();
   });
 
-  it('leaves a non-local cwd literal alone when no Workspace root is entered', async () => {
+  it('refuses an unknown cwd scheme without a Workspace root', async () => {
     await expect(
       runTool(
         bashTool,
@@ -338,9 +358,8 @@ describe('bash durable admission', () => {
       ),
     ).resolves.toEqual({
       status: 'error',
-      type: 'unavailable',
-      message:
-        'Working directory argument "vault://notes" is not usable. The command did not run; the argument was taken literally with no ~ or variable expansion. List its parent or create the directory.',
+      type: 'invalid_path',
+      message: 'This path scheme is not available.',
     });
   });
 
@@ -417,27 +436,26 @@ describe('bash durable admission', () => {
     );
   });
 
-  it('requires the local executor for a local cwd when only ssh is configured', async () => {
-    const client: SshClient = {
-      resolve: () => Promise.reject(new Error('a local cwd resolves nothing')),
-      run: () => Promise.reject(new Error('a local cwd runs nothing')),
-      sshConfigText: () => undefined,
-      dispose: () => undefined,
-    };
-
+  it('refuses a local cwd when no Machine is current', async () => {
     const begin = vi.spyOn(NativeFilesRepository.prototype, 'begin');
 
     const result = await runTool(
       bashTool,
       { command: 'printf never', cwd: '/tmp' },
-      { ...testContext(), nativeExecutorId: undefined, sshClient: client },
+      {
+        ...testContext(),
+        localMachine: undefined,
+        defaultMachine: undefined,
+        machines: undefined,
+      },
       5,
     );
 
     expect(result).toEqual({
       status: 'error',
-      type: 'executor_unavailable',
-      message: 'Native host authority is unavailable.',
+      type: 'invalid_path',
+      message:
+        'No current Machine: configure machines.default or enter a Workspace.',
     });
     expect(begin).not.toHaveBeenCalled();
   });
@@ -1349,6 +1367,226 @@ describe('bash process bound', () => {
       ).resolves.toMatchObject({ status: 'success' });
     } finally {
       for (const slot of held) slot?.release();
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('bash routing', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllEnvs();
+  });
+
+  function machineFixture() {
+    const peer = createProtocolPeer({
+      answers: {
+        'proc.bash': {
+          value: {
+            status: 'success',
+            exitCode: 0,
+            stdout: 'gpu\n',
+            stderr: '',
+            truncated: false,
+          },
+        },
+      },
+    });
+
+    const connector = new MachineConnector({
+      machines: {
+        ssh: { knownHostsFile: '/etc/llame/machine_known_hosts' },
+        local: 'host-a',
+        default: 'host-a',
+        hosts: { 'host-a': {}, gpu: { destination: 'gpu.lan' } },
+      },
+      hubVersion: '0.0.0-bash-routing',
+      bindIdentity: () => Promise.resolve('match'),
+      transportFactory: peer.factory,
+    });
+
+    return { peer, connector };
+  }
+
+  function stubDurableRecords() {
+    const begin = vi
+      .spyOn(NativeFilesRepository.prototype, 'begin')
+      .mockResolvedValue(undefined);
+
+    vi.spyOn(RunEventsRepository.prototype, 'append').mockResolvedValue({
+      runId: 'run',
+      sequence: 1,
+      eventType: 'native.result',
+      payload: null,
+      createdAt: new Date(),
+    });
+
+    return begin;
+  }
+
+  it('runs a bare cwd in process and sends only the handshake', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'bash-routing-local-'));
+    const { peer, connector } = machineFixture();
+    const begin = stubDurableRecords();
+    vi.stubEnv('BASH_WORKING_DIRECTORY', directory);
+
+    try {
+      const result = await runTool(
+        bashTool,
+        { command: 'printf local > local-effect' },
+        {
+          ...testContext(),
+          machines: connector,
+          localMachine: 'host-a',
+          defaultMachine: 'host-a',
+        },
+        5,
+      );
+
+      expect(result).toMatchObject({ status: 'success' });
+      await expect(
+        readFile(join(directory, 'local-effect'), 'utf8'),
+      ).resolves.toBe('local');
+      expect(begin).toHaveBeenCalledWith(
+        expect.objectContaining({
+          fence: { bound: true, executorId: 'host-a' },
+          path: `machine://host-a${directory}`,
+        }),
+      );
+
+      // The handshake travels on the control stream; no request reached it.
+      const session = await peer.session(0);
+      expect(session.requests).toEqual([]);
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it('runs a machine:// cwd naming this process Machine in process', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'bash-routing-locator-'));
+    const { peer, connector } = machineFixture();
+    stubDurableRecords();
+    const locator = formatMachineLocator('host-a', directory);
+
+    if (locator === undefined) throw new Error('Expected a Machine locator');
+
+    try {
+      const result = await runTool(
+        bashTool,
+        { command: 'printf locator > locator-effect', cwd: locator },
+        {
+          ...testContext(),
+          machines: connector,
+          localMachine: 'host-a',
+          defaultMachine: 'host-a',
+        },
+        5,
+      );
+
+      expect(result).toMatchObject({ status: 'success' });
+      await expect(
+        readFile(join(directory, 'locator-effect'), 'utf8'),
+      ).resolves.toBe('locator');
+
+      const session = await peer.session(0);
+      expect(session.requests).toEqual([]);
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it('takes a selector-shaped suffix in a local cwd as path text', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'bash-routing-suffix-'));
+    const target = join(directory, 'build:2');
+    await mkdir(target);
+    const { peer, connector } = machineFixture();
+    const begin = stubDurableRecords();
+
+    try {
+      const result = await runTool(
+        bashTool,
+        { command: 'printf suffix > suffix-effect', cwd: target },
+        {
+          ...testContext(),
+          machines: connector,
+          localMachine: 'host-a',
+          defaultMachine: 'host-a',
+        },
+        5,
+      );
+
+      expect(result).toMatchObject({ status: 'success' });
+      await expect(
+        readFile(join(target, 'suffix-effect'), 'utf8'),
+      ).resolves.toBe('suffix');
+      expect(begin).toHaveBeenCalledWith(
+        expect.objectContaining({
+          path: formatMachineLocator('host-a', target),
+        }),
+      );
+
+      // The local Machine answered the handshake and nothing else.
+      const session = await peer.session(0);
+      expect(session.requests).toEqual([]);
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it('runs a cwd on another Machine through its daemon', async () => {
+    const { peer, connector } = machineFixture();
+    stubDurableRecords();
+
+    const result = await runTool(
+      bashTool,
+      { command: 'pwd', cwd: 'machine://gpu/srv/app' },
+      {
+        ...testContext(),
+        machines: connector,
+        localMachine: 'host-a',
+        defaultMachine: 'host-a',
+      },
+      5,
+    );
+
+    expect(result).toMatchObject({ status: 'success', stdout: 'gpu\n' });
+
+    const session = await peer.session(0);
+    expect(session.requests).toEqual(['proc.bash']);
+    expect(session.calls.at(-1)).toMatchObject({ method: 'proc.bash' });
+    expect(session.calls.at(-1)?.params).toMatchObject({
+      command: 'pwd',
+      cwd: '/srv/app',
+    });
+  });
+
+  it('refuses a local Machine whose identity does not match, and starts no process', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'bash-routing-mismatch-'));
+    const effect = join(directory, 'effect');
+    const begin = vi.spyOn(NativeFilesRepository.prototype, 'begin');
+    vi.stubEnv('BASH_WORKING_DIRECTORY', directory);
+
+    try {
+      const result = await bashTool.execute(
+        {
+          ...testContext(),
+          machines: localMachineConnector({
+            verify: () =>
+              Promise.reject(new MachineIdentityMismatchError('host-a')),
+          }),
+        },
+        { command: `printf never > '${effect}'` },
+      );
+
+      expect(result).toMatchObject({
+        status: 'error',
+        type: 'machine_identity_mismatch',
+      });
+      expect(begin).not.toHaveBeenCalled();
+      await expect(readFile(effect, 'utf8')).rejects.toMatchObject({
+        code: 'ENOENT',
+      });
+    } finally {
       await rm(directory, { recursive: true, force: true });
     }
   });

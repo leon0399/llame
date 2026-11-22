@@ -8,7 +8,10 @@ import { beforeEach, describe, expect, it } from 'vitest';
 
 import { decidePermission } from '../tools/permissions/admit';
 import { isBashCommandField } from '../tools/permissions/bash-command-field';
-import { nativeFileProjection } from '../tools/permissions/locator-projection';
+import {
+  projectNativeFilePath,
+  withoutReadSelector,
+} from '../tools/permissions/locator-projection';
 import { buildToolPermissionPolicy } from '../tools/permissions/policy-provider';
 import {
   type CompiledPolicy,
@@ -17,6 +20,26 @@ import {
 } from '../tools/permissions/types';
 import { PORTABLE_TOOL_PERMISSIONS } from '../testing/portable-tool-policy';
 import { loadInstanceConfig } from './config-loader';
+
+/** The Machine the tests resolve bare paths on. */
+const LOCAL_MACHINE = {
+  defaultMachine: 'host-a',
+  localMachine: 'host-a',
+} as const;
+
+/**
+ * The evaluator projection the runner supplies: an allow is decided on the
+ * canonical locator `projectNativeFilePath` yields for a native `path`, and a
+ * `read` matches that resource without the selector that windowed the call.
+ */
+function projectionFor(toolId: string) {
+  return (field: string, value: string): string => {
+    if (field !== 'path') return value;
+    const { canonical } = projectNativeFilePath(value, LOCAL_MACHINE);
+
+    return toolId === 'read' ? withoutReadSelector(canonical) : canonical;
+  };
+}
 
 function decideDefault(
   policy: CompiledPolicy,
@@ -218,7 +241,7 @@ describe('shipped example configuration', () => {
         allow: [
           {
             field: 'path',
-            regex: String.raw`^/(?:home/operator|tmp|var/tmp)(?:/.*)?$`,
+            regex: String.raw`^machine://[^/]+/(?:home/operator|tmp|var/tmp)(?:/.*)?$`,
           },
         ],
         reject: entryGroup.reject,
@@ -236,7 +259,7 @@ describe('shipped example configuration', () => {
       const decision = decideDefault(policy, {
         toolId: 'enter_workspace',
         args: { path: entryPath },
-        projectFieldValue: nativeFileProjection('enter_workspace'),
+        projectFieldValue: projectionFor('enter_workspace'),
       });
 
       expect(decision).toMatchObject({
@@ -253,7 +276,7 @@ describe('shipped example configuration', () => {
     const allowedDecision = decideDefault(policy, {
       toolId: 'enter_workspace',
       args: { path: '/home/operator/projects/app' },
-      projectFieldValue: nativeFileProjection('enter_workspace'),
+      projectFieldValue: projectionFor('enter_workspace'),
     });
 
     expect(allowedDecision).toMatchObject(ALLOW);
@@ -269,7 +292,7 @@ describe('shipped example configuration', () => {
     const decision = decideDefault(policy, {
       toolId: 'enter_workspace',
       args: { path: '/home/operator/projects/app/sub' },
-      projectFieldValue: nativeFileProjection('enter_workspace'),
+      projectFieldValue: projectionFor('enter_workspace'),
     });
 
     expect(decision).toMatchObject({
@@ -362,7 +385,7 @@ describe('shipped example configuration', () => {
         args,
         isFlexibleWhitespaceField: (field: string) =>
           isBashCommandField(toolId, field),
-        projectFieldValue: nativeFileProjection(toolId),
+        projectFieldValue: projectionFor(toolId),
       };
 
       const left = decideDefault(fromExample, options);
@@ -384,7 +407,7 @@ describe('shipped example configuration', () => {
         allow: [
           {
             field: 'path',
-            regex: String.raw`^/home/operator(?:/.*)?$`,
+            regex: String.raw`^machine://[^/]+/home/operator(?:/.*)?$`,
           },
         ],
         reject: PORTABLE_TOOL_PERMISSIONS.enter_workspace.reject,
@@ -394,7 +417,7 @@ describe('shipped example configuration', () => {
     const decision = decideDefault(policy, {
       toolId: 'enter_workspace',
       args: { path: '/home/operator/.ssh' },
-      projectFieldValue: nativeFileProjection('enter_workspace'),
+      projectFieldValue: projectionFor('enter_workspace'),
     });
 
     expect(decision).toMatchObject(EXPLICIT_REJECT);
@@ -413,7 +436,7 @@ describe('shipped example configuration', () => {
       decideDefault(policy, {
         toolId: 'read',
         args: { path },
-        projectFieldValue: nativeFileProjection('read'),
+        projectFieldValue: projectionFor('read'),
       });
 
     for (const path of [

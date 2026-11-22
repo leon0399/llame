@@ -112,7 +112,8 @@ describe('stop lifecycle', () => {
       chatId: 'chat',
       runId: 'run',
       toolCallId: 'call',
-      nativeExecutorId: 'host',
+      localMachine: 'host-a',
+      defaultMachine: 'host-a',
       configuredCredentials: [],
       tenantDb,
     };

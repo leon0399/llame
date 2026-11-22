@@ -27,16 +27,17 @@ exactly as before.
 
 The Workspace step needs the same three settings that `enter_workspace` needs:
 
-- `tools.nativeExecutorId` must be set for a local checkout, and it must equal
-  the resolved executor id; otherwise the start answers `bind_failed` with
-  `executor_unavailable`.
+- The resolved Machine must be one this process can reach: its
+  `machines.local` entry, or an entry with a `destination`. An entry this
+  process cannot reach answers `bind_failed` with `executor_unavailable`, and
+  `machines.default` must be configured.
 - `enter_workspace` must be listed in `tools.allowed`; otherwise the start
   answers `bind_failed` with `tool_not_allowed`.
 - The `enter_workspace` group in `tools.permissions` must allow each decided
-  path: the submitted checkout path, its canonical form, the main tree git
-  reports when it differs, and the canonical worktree directory. A path no
-  allow covers answers `bind_failed` with `permission_denied` before the git call
-  it would have guarded.
+  path in canonical form: the submitted checkout path, its canonical form, the
+  main tree git reports when it differs, and the canonical worktree directory. A
+  path no allow covers answers `bind_failed` with `permission_denied` before the
+  git call it would have guarded.
 
 A request that carries a message is validated as a send is: the model, its
 effort, the permission mode, the parts, and the sender's ownership of every
@@ -47,15 +48,15 @@ before anything is stored.
 
 ## The request
 
-| Field          | Type   | Meaning                                                                             |
-| -------------- | ------ | ----------------------------------------------------------------------------------- |
-| `id`           | uuid   | Client-chosen Chat id. Required.                                                    |
-| `projectId`    | uuid   | Files the Chat into this Project.                                                   |
-| `repositoryId` | uuid   | The repository to start from; it need not be linked to the named Project.           |
-| `executorId`   | string | The executor that holds the checkout: `tools.nativeExecutorId` or `machine:<name>`. |
-| `checkoutId`   | uuid   | A `main` checkout; it decides its own repository and executor.                      |
-| `worktree`     | object | `name` and `baseRef` of a worktree to create before the bind.                       |
-| `message`      | object | `id`, `parts`, `modelId`, optional `effort` and `permissionMode`.                   |
+| Field          | Type   | Meaning                                                                            |
+| -------------- | ------ | ---------------------------------------------------------------------------------- |
+| `id`           | uuid   | Client-chosen Chat id. Required.                                                   |
+| `projectId`    | uuid   | Files the Chat into this Project.                                                  |
+| `repositoryId` | uuid   | The repository to start from; it need not be linked to the named Project.          |
+| `executorId`   | string | The Machine that holds the checkout, by name; a bare path uses `machines.default`. |
+| `checkoutId`   | uuid   | A `main` checkout; it decides its own repository and Machine.                      |
+| `worktree`     | object | `name` and `baseRef` of a worktree to create before the bind.                      |
+| `message`      | object | `id`, `parts`, `modelId`, optional `effort` and `permissionMode`.                  |
 
 The location is opt-in. A request that names no `repositoryId`, `executorId`,
 or `checkoutId` binds nothing and answers `unbound`, whatever the Project's
@@ -94,12 +95,12 @@ name, and never picks a primary silently.
 1. **Repository** — the request's `repositoryId` or `checkoutId`, else the
    Project's primary link, else its only link, else none. Several links and no
    primary resolve no repository.
-2. **Executor** — the request's `executorId`, else the most recently written
+2. **Machine** — the request's `executorId`, else the most recently written
    default of the link, else the Project's `default_executor_id`, else the only
-   executor that holds a `main` checkout of the repository, else the online
-   executor with the lowest id that holds one.
+   Machine that holds a `main` checkout of the repository, else the online
+   Machine with the lowest name that holds one.
 3. **Checkout** — the request's `checkoutId`, else the remembered default for
-   the link and executor, else the only `main` checkout on that executor, else
+   the link and Machine, else the only `main` checkout on that Machine, else
    none.
 
 The implicit steps skip an offline Machine. An explicit `executorId`, a named
@@ -147,7 +148,7 @@ change is legitimate (see [machines](machines.md#machine-identity)). The
 Machine reads offline until the next handshake binds the new id.
 
 A successful start records the source `main` checkout as the link's default for
-that executor, so the next preview in the same Project suggests it again. A
+that Machine, so the next preview in the same Project suggests it again. A
 worktree start records the source checkout, never the worktree it just created.
 That write runs after the commit, it is best-effort, and its failure changes
 nothing else: the create still answers `bound`, and the previous default stays.
@@ -189,7 +190,7 @@ reached a path decision, newest last:
       "createdAt": "2026-10-24T16:00:00.000Z",
       "decisions": [
         {
-          "path": "/home/me/src/llame",
+          "path": "machine://host/home/me/src/llame",
           "policyId": "…",
           "decision": "allow",
           "reason": "matched_allow",

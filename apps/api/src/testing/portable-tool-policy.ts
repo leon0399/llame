@@ -21,7 +21,7 @@ const F1_CREDENTIAL_DIRECTORY = String.raw`(^|[/\\])(\.ssh|\.aws|\.azure|\.gnupg
 const F2_CREDENTIAL_FILE = String.raw`(^|[/\\])(\.git-credentials|\.npmrc|\.pypirc)([/\\]|$|:)`;
 const F3_TOOL_CREDENTIAL = String.raw`(^|[/\\])(\.docker[/\\]config\.json|\.gem[/\\]credentials|\.config[/\\]gh)([/\\]|$|:)`;
 const E1_WORKSPACE_NODE_MODULES = String.raw`(^|[/\\])node_modules([/\\]|$)`;
-const E2_WORKSPACE_TEMP_ROOT = String.raw`^/(tmp|var/tmp)(/|$)`;
+const E2_WORKSPACE_TEMP_ROOT = String.raw`^machine://[^/]+/(tmp|var/tmp)(/|$)`;
 const E3_WORKSPACE_DOWNLOADS = String.raw`(^|[/\\])Downloads([/\\]|$)`;
 const F4_ENV_FILE = String.raw`(^|[/\\])\.env($|:|\.(local|development|production|staging|test)(\.local)?($|:))`;
 const F5A_CLEARTEXT_PUBLIC_IPV4_FIRST_OCTET = String.raw`^http://(?:[1-9]|1[1-9]|[2-9]\d|10[1-9]|11\d|12[0-689]|1[3-5]\d|16[0-8]|17[013-9]|18\d|19[013-9]|2[0-4]\d|25[0-5])\.\d{1,3}\.\d{1,3}\.\d{1,3}[:/]`;
@@ -92,7 +92,7 @@ const ENTRY_REJECTS: ReadonlyArray<PermissionClause> = [
 
 const ENTRY_ALLOW: PermissionClause = {
   field: 'path',
-  regex: '^/home/operator/projects/[^/]+/?$',
+  regex: '^machine://[^/]+/home/operator/projects/[^/]+/?$',
 };
 
 export const PORTABLE_TOOL_PERMISSIONS: ToolPermissionMap = {

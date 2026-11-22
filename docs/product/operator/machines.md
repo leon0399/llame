@@ -1,6 +1,7 @@
 ---
-summary: "Configuring experimental remote Machines: SSH routes, the llame-machine daemon, registered roots, permissions, and threats"
+summary: "Configuring Machines: the host entry, SSH routes, the llame-machine daemon, registered roots, permissions, and threats"
 read_when:
+  - you are moving the host from tools.nativeExecutorId to machines.local
   - you are adding a remote Machine that Runs reach over SSH
   - you are deciding which Machine paths a permission policy admits
   - you need to diagnose a Machine reported offline
@@ -15,28 +16,37 @@ behavior:
   - ../reference/instruction-files.md
 ---
 
-# Remote Machines
+# Machines
 
-**Experimental.** A Machine is a remote box a Run reaches over SSH. Its files,
-shell, Workspace instructions, skills, and Workspace MCP servers behave as on
-the local executor, addressed as `machine://<name><absolute path>`. The hub
-keeps the Run loop, provider credentials, and the native effect fence; the box
-runs the `llame-machine` daemon, which hub workers start over SSH for each
-session. The behavior contract is the
+**Experimental.** A Machine is a computer a Run reaches through the
+`llame-machine` daemon. The host Machine is the entry named by `machines.local`,
+and this process reaches it through a daemon child. Every other Machine is a
+remote box reached over SSH. A Machine's files, shell, Workspace instructions,
+skills, and Workspace MCP servers are addressed as
+`machine://<name><absolute path>`, and the host Machine is no exception. The hub
+keeps the Run loop, provider credentials, and the native effect fence; the
+daemon runs on the Machine. The behavior contract is the
 [remote-machines spec](../../../openspec/specs/remote-machines/spec.md).
 
-Machines and the local executor (`tools.nativeExecutorId`) are independent:
-configure either, both, or neither. Machines are operator-wide: every user
-whose Run passes `tools.allowed` and `tools.permissions` can address them.
+`machines.local` is the only host identity. `tools.nativeExecutorId` no longer
+exists, and a configuration that sets it fails startup. Machines are
+operator-wide: every user whose Run passes `tools.allowed` and
+`tools.permissions` can address them.
 
 ## Configure
 
-The smallest configuration reuses the worker user's own SSH setup:
+The smallest configuration names the host entry and reuses the worker user's own
+SSH setup for every other Machine:
 
 ```jsonc
 {
   "machines": {
+    // This process's own entry. Another Machine needs a destination.
+    "local": "host",
+    // The Machine an unbound Chat uses. Set the same value on every worker.
+    "default": "host",
     "hosts": {
+      "host": {}, // this computer, reached as a child
       "devl": { "destination": "box" }, // an alias from ~/.ssh/config
       "gpu": { "destination": "me@gpu.lan:2222" },
     },
@@ -44,9 +54,30 @@ The smallest configuration reuses the worker user's own SSH setup:
 }
 ```
 
+`local` and `default` each take a Machine name or one whole-value `{env:...}`
+token, resolved once at startup. An entry without a `destination` is reachable
+only where it is the `local` entry. Startup fails, naming the field, in these
+cases:
+
+- `tools.nativeExecutorId` is present. The message names `machines.local` as its
+  replacement.
+- `machines.local` or `machines.default` names no entry in `hosts`.
+- `machines.default` is not this process's `machines.local` and has no
+  `destination`.
+- A native tool (`read`, `edit`, `write`, `grep`, `bash`, `enter_workspace`,
+  `exit_workspace`, `stop`) is allowlisted and `machines.default` is absent.
+- A regex clause on a path parameter begins with `^/`. The message names the
+  group, the list, and the clause index.
+
+A `{env:...}` token lets two workers resolve different defaults. llame cannot
+detect that divergence, and each attempt's Workspace snapshot names the Machine
+it used. Configure one `machines.default` on every worker.
+
 Without `ssh`, host keys are checked against the worker user's
 `~/.ssh/known_hosts` and `~/.ssh/config` is included, so existing aliases,
-bastions, and keys work as they do in your terminal. Checking stays strict:
+bastions, and keys work as they do in your terminal. The `machines.ssh` block
+applies only to entries with a `destination`; the host child never uses SSH.
+Checking stays strict:
 every hop, jump hosts included, must already be in that file (connect once by
 hand, or `ssh-keyscan` and verify), and nothing is learned on first use.
 Override any of the three files:
@@ -74,6 +105,30 @@ the llame process user's home. Every API and worker process needs an `ssh`
 client, the pinned file, and whatever the included configuration references.
 
 ## How the hub connects
+
+### The host Machine
+
+The process starts `LLAME_MACHINE_COMMAND serve --stdio` as a child with
+`shell: false`. The variable splits on whitespace into the executable and its
+leading arguments. The default is `llame-machine` on `PATH`, and development
+sets `node apps/machine/dist/llame-machine.cjs`.
+
+The child receives `PATH`, `LANG`, `TERM`, `HOME`, `TMPDIR`, `USER`, `LOGNAME`,
+`LLAME_MACHINE_CONFIG_DIR`, `XDG_CONFIG_HOME`, `SENTRY_DSN`,
+`SENTRY_ENVIRONMENT`, and `SENTRY_RELEASE`, each only when it is set. It receives
+no other variable of the worker environment. Database and provider credentials,
+and tokens such as `SENTRY_AUTH_TOKEN`, therefore stay out of the daemon and out
+of any process it starts.
+
+A spawn failure reports `unreachable`. A child exit reports `session_lost`. The
+next call starts a new child.
+
+Before any in-process host operation, the process completes an identity-checked
+handshake with its child. A worker that sets `machines.local` to another
+computer's name therefore fails the call, and no operation runs on the wrong
+computer.
+
+### Another Machine
 
 Each worker writes a private SSH configuration and runs
 `ssh -F <generated> -T -- <destination> llame-machine serve --stdio`. The
@@ -128,8 +183,8 @@ The daemon also answers the typed git methods (`git.inspect`, `git.locate`,
 `git.state`, `git.worktreeAdd`, `git.worktreeList`, `git.worktreeRemove`) that
 checkout registration, worktree entry, and worktree removal use. `git.locate`
 finds the nearest `.git` entry inside the registered roots without starting git,
-and `git.state` reads the repository state of that entry. They are additive to the protocol: the
-version did not change, and the handshake lists every method a daemon answers.
+and `git.state` reads the repository state of that entry. The handshake lists
+every method a daemon answers.
 After updating the hub, replace the daemon binary on each box with the same
 build. A box whose handshake lacks a git method keeps serving files and
 `bash`, and a git call that needs the missing method (worktree removal needs
@@ -152,9 +207,9 @@ daemon. A hub newer than the daemon still accepts an old daemon's `edit` and
 that carries `display` drops its `diff`. An old write keeps only `created`,
 `replaced`, and `lineCount`. A hub older than the daemon refuses a status-only
 write or a display-carrying edit, because it still requires the fields this
-protocol revision stopped sending. The change does not bump `PROTOCOL_VERSION`,
-so the handshake stays compatible in both directions; only the result mapping
-differs.
+protocol revision stopped sending. Those result shapes did not change `PROTOCOL_VERSION`, so only the result
+mapping differs. Protocol version 2, described under Upgrading, is the version
+match the hub requires.
 
 ## Machine identity
 
@@ -173,6 +228,11 @@ the hub. The next handshake binds the new id. Copying the configuration
 directory also copies the id, so the binding catches misconfiguration rather
 than impersonation.
 
+The local child and any SSH login for one Machine must use one configuration
+directory. A second directory creates a second instance id, and the second path
+to answer for the name gets `machine_identity_mismatch`. Set
+`LLAME_MACHINE_CONFIG_DIR` identically for both paths.
+
 ## Upgrading
 
 Protocol version 2 carries the instance id, the build id, and the static facts
@@ -183,6 +243,48 @@ offline with "update required" until you replace the binary.
 
 The Machines list and the `machine://` listing show each Machine's OS and
 architecture once a handshake reports them.
+
+This release removes `tools.nativeExecutorId` and moves the host into
+`machines.hosts`. Deploy the configuration change and the database migration
+together, and take a backup first: a rollback from this release restores that
+backup.
+
+1. Add a `machines.hosts` entry named after the old `tools.nativeExecutorId`
+   value. Bound host Chats keep their executor, because the stored value stays
+   the same.
+2. Set `machines.local` and `machines.default`. Set one value on every worker.
+3. Remove `tools.nativeExecutorId`. Startup fails while it remains.
+4. Rewrite every `^/` path allow to `^machine://[^/]+/`. A `^/` regex fails
+   startup and names the clause. Reject clauses in any spelling keep working,
+   because a reject also sees the projected path.
+5. Register the host's roots with `llame-machine roots add`, as described
+   under Register roots.
+
+An existing host Chat detaches with `executor_absent` when the configuration has
+no entry named after its stored executor. A Chat that names a Machine the
+configuration no longer declares detaches the same way.
+
+An old `tools.nativeExecutorId` outside the Machine name grammar
+(`[a-z0-9-]{1,63}`), such as `personal_host`, stops the migration with a named
+error, and nothing changes. Rename it in the database before the upgrade, then
+name the host entry after the new value:
+
+```sql
+BEGIN;
+UPDATE chats SET workspace_executor_id = 'personal-host-a' WHERE workspace_executor_id = 'personal_host';
+UPDATE checkouts SET executor_id = 'personal-host-a' WHERE executor_id = 'personal_host';
+UPDATE project_repository_defaults SET executor_id = 'personal-host-a' WHERE executor_id = 'personal_host';
+UPDATE projects SET default_executor_id = 'personal-host-a' WHERE default_executor_id = 'personal_host';
+COMMIT;
+```
+
+The migration converts every stored `machine:<name>` executor to `<name>` and
+every stored bare root to a `machine://` locator. It rewrites one transaction
+and fails on an unknown executor value, so a failed run changes nothing.
+
+This release uses the host daemon child to verify the host's identity. Host file
+tools still run in the worker process, and host git and Workspace context follow
+in later releases.
 
 ## Register roots
 
@@ -198,6 +300,14 @@ Roots live in `$XDG_CONFIG_HOME/llame-machine/roots.json`. The daemon refuses
 every path outside them with `path_not_registered`. Roots bound addressing
 only: anything running as that user, including Machine `bash` and Workspace MCP
 servers, can edit the roots file. The hub has no operation that changes roots.
+
+The host Machine needs roots too, registered on the host as the llame process
+user. A host Chat served by another worker over SSH is already root-bounded, so
+register the directories you work in before the upgrade. In development,
+`pnpm dev` sets `LLAME_MACHINE_COMMAND` and `LLAME_MACHINE_CONFIG_DIR` and
+registers the repository's parent directory and the operating system's
+temporary directory. Those cover the default `.llame-worktrees` directory beside
+the clone.
 
 A git worktree on a Machine must lie inside a registered root, because the
 daemon decides the worktree directory before any git call. By default a new
@@ -216,23 +326,48 @@ than reported as a locator.
 
 Permission groups match the canonical, decoded Machine locator, for example
 `machine://devl/home/me/work/shop/src/app.ts`, including `bash` `cwd` and both
-`enter_workspace` spellings. A rule anchored at `^/` never admits a Machine
-path. The recommended portable policy allows `read`, `edit`, `write`, and
-`bash` for every path, so configuring Machines with it exposes every registered
-root to every eligible user. To scope access, allow per Machine and repeat the
-local rejects in Machine form:
+`enter_workspace` spellings. An allow is decided on that locator, so a rule
+names the Machine it admits:
 
 ```jsonc
 {
   "tools": {
     "permissions": {
-      "read": [
-        { "decision": "allow", "path": "^machine://devl/home/me/work/" },
-        {
-          "decision": "reject",
-          "path": "^machine://[a-z0-9-]+/.*/\\.ssh(/|$)",
-        },
-      ],
+      "read": {
+        "allow": true,
+        "reject": [
+          { "field": "path", "regex": "^machine://[^/]+/opt/secret(/|$)" },
+          { "field": "path", "regex": "^machine://[^/]+/home/me/\\.ssh(/|$)" },
+        ],
+      },
+    },
+  },
+}
+```
+
+A path regex that begins with `^/` fails startup and names the group, the list,
+and the clause index. Rewrite it once in canonical form. A literal clause
+stays a substring match, so `"/opt/secret"` matches
+`machine://devl/opt/secret/key` too. A reject also sees the projected path
+without the scheme and Machine name, so an older reject spelling keeps
+refusing every Machine.
+
+The recommended portable policy allows `read`, `edit`, `write`, and `bash` for
+every path, so configuring Machines with it exposes every registered root to
+every eligible user. To scope access, allow per Machine:
+
+```jsonc
+{
+  "tools": {
+    "permissions": {
+      "read": {
+        "allow": [
+          { "field": "path", "regex": "^machine://devl/home/me/work/" },
+        ],
+        "reject": [
+          { "field": "path", "regex": "^machine://[a-z0-9-]+/.*/\\.ssh(/|$)" },
+        ],
+      },
     },
   },
 }
@@ -245,6 +380,9 @@ sidebar list each Machine's state, last seen time, last failure reason
 (`unreachable`, `host_key_mismatch`, `auth_failed`, `incompatible_version`,
 `session_lost`, `identity_mismatch`), versions, the OS and architecture the
 daemon reported, and roots. A probe runs every minute on a `runs` worker. A
+process probes and records status only for an entry it can reach: its
+`machines.local` entry or an entry with a destination. A worker therefore
+records nothing for a host entry of another computer. A
 Machine is online when it was reached within 150 seconds and after its last
 failure. A Chat bound to an offline Machine keeps its Workspace, and only
 operations on that Machine fail.
@@ -264,10 +402,14 @@ as expected rather than as evidence the Machine is reachable.
 
 - **Model-addressed remote execution.** The model chooses among the
   `machine://` addresses your permission groups admit. Machine operations run
-  as the box user without a sandbox.
+  as the Machine user without a sandbox, the host Machine included.
+- **The host Machine is the worker's computer.** `machines.local` names it, and
+  a wrong name fails the identity handshake instead of running the operation.
+  It shares that computer with the worker process, so give its entry the roots
+  and permissions the worker user should reach.
 - **Shared boxes run repository commands.** Entering a Machine Workspace is the
-  trust decision for its `.mcp.json`, as on the local executor: any user allowed
-  to enter it starts that repository's servers as the box user.
+  trust decision for its `.mcp.json`: any user allowed to enter it starts that
+  repository's servers as the Machine user.
 - **No isolation between users on a box.** All users act as one OS user and can
   read or change each other's files, instructions, and MCP configuration on
   that box. Hub-held state (bindings, Workspace MCP clients, results) stays

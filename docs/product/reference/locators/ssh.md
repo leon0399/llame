@@ -188,5 +188,5 @@ hop's host key, and writes the permission rules; without that configuration
 `ssh://` is an unknown scheme and no process starts. See
 [SSH locators](../../operator/ssh.md). The `read` group gates each read and the
 `bash` group each command, and a `path` rule is matched against the resolved
-locator `ssh://<user>@<hostname>:<port><absolute path>`, so a local `^/` rule
-never admits one.
+locator `ssh://<user>@<hostname>:<port><absolute path>`, so a rule written
+against an absolute path never admits one.

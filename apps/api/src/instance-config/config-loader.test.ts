@@ -770,19 +770,24 @@ describe('loadInstanceConfig — opt-in Run limits (opt-in-run-limits D1)', () =
 });
 
 describe('loadInstanceConfig — tools.* (openspec/changes/tool-calling-loop)', () => {
-  it('accepts an explicit native host identity and exact native tool ids', () => {
-    writeConfig(
-      '{ "tools": { "nativeExecutorId": "personal-host-a", "allowed": ["read", "edit", "write"] } }',
+  it('fails startup naming tools.nativeExecutorId and machines.local as its replacement (host-as-machine D3)', () => {
+    writeConfig('{ "tools": { "nativeExecutorId": "personal-host-a" } }');
+
+    expect(() => loadInstanceConfig()).toThrow(
+      'tools.nativeExecutorId was removed. Declare this host as a machines.hosts entry named "personal-host-a" and set machines.local to it, so existing bindings keep resolving.',
     );
-    expect(loadInstanceConfig().tools).toMatchObject({
-      nativeExecutorId: 'personal-host-a',
-      allowed: ['read', 'edit', 'write'],
-    });
   });
 
-  it('rejects an empty native host identity', () => {
-    writeConfig('{ "tools": { "nativeExecutorId": "" } }');
-    expect(() => loadInstanceConfig()).toThrow(InstanceConfigError);
+  it('fails startup for the removed field whatever it holds, including a Machine-shaped value or an empty one', () => {
+    for (const value of ['machine:devl', '']) {
+      writeConfig(
+        `{ "tools": { "nativeExecutorId": ${JSON.stringify(value)} } }`,
+      );
+
+      expect(() => loadInstanceConfig()).toThrow(
+        /tools\.nativeExecutorId was removed/,
+      );
+    }
   });
 
   it('resolves tools.allowed from the file when every id is registered', () => {

@@ -1,5 +1,5 @@
 ---
-summary: "Registering the git repositories and checkouts a Chat can start from, linking them to Projects, storing and applying a Project's instructions, and the host paths registration may inspect"
+summary: "Registering the git repositories and checkouts a Chat can start from, linking them to Projects, storing and applying a Project's instructions, and the Machine paths registration may inspect"
 read_when:
   - you want llame to know which clone or worktree a Chat runs on
   - you need to register, inspect, or remove a checkout
@@ -8,7 +8,7 @@ read_when:
     Project page
   - you are saving or clearing a Project's instructions through the API
   - you are checking when Project instructions reach a model, or what they share
-  - you are deciding which host paths a checkout registration may inspect
+  - you are deciding which Machine paths a checkout registration may inspect
 behavior:
   - ../reference/tools/enter-workspace.md
   - ../reference/context-documents.md
@@ -18,12 +18,12 @@ behavior:
 
 A repository is the owner's record of one git repository, identified by its
 normalized remote, and a checkout is where that repository exists: one
-canonical path on one executor, either a `main` clone or a `worktree` of a
+canonical `machine://` path on one Machine, either a `main` clone or a `worktree` of a
 `main` checkout. The catalog is owner-scoped: each user sees only their own
-repositories, aliases, checkouts, and worktree leases, and one host path may be
+repositories, aliases, checkouts, and worktree leases, and one path may be
 registered by two users independently.
 
-The records are intent, not observation. llame never sweeps an executor, never
+The records are intent, not observation. llame never sweeps a Machine, never
 reconciles a row against `git worktree list`, and never deletes a directory:
 removing a checkout or a repository deletes rows only. A Chat keeps its stored
 Workspace path, and its next Run re-checks that binding as before.
@@ -38,9 +38,11 @@ registration of that remote always joins the repository its alias names.
 Registration runs git, so the serving process must be allowed to. Three
 settings decide that, and none of them has a default that admits anything:
 
-- `tools.nativeExecutorId` (in `llame.config.jsonc`) must be set. It is the
-  identity a local checkout is stored under; a process without it answers
-  `executor_unavailable` and starts no git.
+- A Machine must serve the checkout. An absolute path uses `machines.default`,
+  and a locator must name a Machine the configuration declares. A process that
+  cannot reach the resolved Machine answers `executor_unavailable` and starts no
+  git. Startup requires `machines.default` whenever `enter_workspace` is
+  allowlisted.
 - `enter_workspace` must be listed in `tools.allowed`. Otherwise registration
   answers `tool_not_allowed` before any git call.
 - The `enter_workspace` group in `tools.permissions` must allow the path. The
@@ -58,12 +60,13 @@ The recommended portable policy in
 group is enough, and a narrower group limits registration to the same
 directories the model may enter.
 
-The executor is derived from the submitted path. An absolute local path runs
-in process on the serving process's `tools.nativeExecutorId`. A
-`machine://<name>/<absolute path>` locator runs on that Machine through the
-protocol, and the row stores the locator — the same text a Chat's bound root
-carries — with the executor `machine:<name>`. A locator that names no
-configured Machine answers `executor_unavailable` and starts no git call. A
+The Machine is derived from the submitted path. An absolute path resolves on
+`machines.default`. A
+`machine://<name>/<absolute path>` locator names its Machine. The row stores the
+canonical `machine://` locator — the same text a Chat's bound root
+carries — with the Machine name as its executor. A locator that names no
+configured Machine answers `executor_unavailable` and starts no git call. On a
+Machine that a worker reaches through its daemon, a
 git result path outside every registered root is the daemon's refusal, so the
 route answers `403` `permission_denied` and stores no row.
 
@@ -98,7 +101,7 @@ curl 'localhost:3001/api/v1/checkouts?repositoryId=<id>' -b "session=…"
 
 # Placement override for new worktrees of a main checkout.
 curl -X PATCH localhost:3001/api/v1/checkouts/<id> -b "session=…" \
-  -H 'content-type: application/json' -d '{"worktreeBase":"/home/me/trees"}'
+  -H 'content-type: application/json' -d '{"worktreeBase":"machine://devl/home/me/trees"}'
 
 # Rows only: the directories stay on disk.
 curl -X DELETE localhost:3001/api/v1/checkouts/<id> -b "session=…"
@@ -138,7 +141,7 @@ repository:
 - The stored path is the toplevel git reports, so registering a subdirectory
   inside a clone records that clone once rather than a second checkout.
 
-One owner, executor, and path triple holds at most one checkout, so a repeated
+One owner, Machine, and path triple holds at most one checkout, so a repeated
 registration of one path is a conflict, not a second row.
 
 Failures answer with a typed `code`: `403` `tool_not_allowed` or
@@ -153,8 +156,8 @@ or `machine_update_required`.
 
 ### The typed git surface
 
-Both executors answer six typed methods, and no owner or model string ever
-becomes a command line on either side:
+Every Machine daemon answers six typed methods, and no owner or model string ever
+becomes a command line:
 
 | Method               | Inputs                                     | Answer                                                                        |
 | -------------------- | ------------------------------------------ | ----------------------------------------------------------------------------- |
@@ -173,9 +176,8 @@ bounded, redacted standard error.
 
 On a Machine, every path in an answer is a locator, and each registered-root
 prefix in a failure's standard error is rewritten to the locator form, so a host
-path for a registered root never reaches the hub. The methods are additive: the
-protocol version did not change, and the daemon's handshake lists the git
-methods it answers.
+path for a registered root never reaches the hub. The handshake lists the git
+methods a daemon answers.
 
 ### Hooks, monitors, and filter drivers
 
@@ -188,7 +190,7 @@ daemon through either of them.
 Filter drivers do still run. `filter.<driver>.smudge`, `.clean`, and
 `.process` from the repository or the user configuration run during the
 operations that read or materialize a working tree, and they run as the
-executor user — the same identity that runs `bash` for the owner. That is the
+Machine user — the same identity that runs `bash` for the owner. That is the
 trust boundary `enter_workspace` already carries as `execute_code`: a clone
 whose configuration names a filter command can run that command when llame
 inspects it. Disabling filters entirely is rejected: it would break a Git LFS
@@ -205,7 +207,11 @@ linked worktree of it: the source is the main tree git reports.
   `<parent>` is the parent directory of the clone's real path, and `<slug>` is
   the worktree name with each `/` replaced by `-`. A `worktree_base` on the main
   checkout replaces `<parent>/.llame-worktrees`, so one machine can keep every
-  tree under one directory. Nothing is ever created inside the clone.
+  tree under one directory. Nothing is ever created inside the clone. A
+  `worktree_base` must be on the Machine of that main checkout: a
+  `machine://<same name>/` locator, or an absolute path when that Machine is
+  `machines.default`. The system stores the canonical `machine://` locator, and
+  a value on another Machine answers `422`.
 - **Name and branch.** An omitted name becomes `<adjective>-<noun>-<4 hex>`, and
   a supplied name is used as written. A name must not start with `-`, contain a
   `.` or `..` segment, or break git's ref rules. The branch is `llame/<name>`,
@@ -260,15 +266,15 @@ outcome:
 - `always_worktree` starts a worktree, so two Chats never share one tree.
 - `never` reuses the checkout.
 
-### Defaults per executor
+### Defaults per Machine
 
-For each link and each executor, the Project remembers one default checkout: the
+For each link and each Machine, the Project remembers one default checkout: the
 one the last successful Chat start used. A worktree start records the `main`
 checkout it was cut from, and a worktree checkout is never a default target. The
 row is replaced in place on every write, so `updated_at` is the time of the last
-choice and the newest row wins when a link holds defaults on several executors.
+choice and the newest row wins when a link holds defaults on several Machines.
 Chat creation reads that row, then `projects.default_executor_id`, then the
-executor that holds the repository's only `main` checkout.
+Machine that holds the repository's only `main` checkout.
 
 Deleting a Project removes its links and their defaults, and so does unlinking,
 deleting the repository, and deleting the checkout a default names. No route
@@ -292,9 +298,9 @@ curl -X DELETE \
   localhost:3001/api/v1/projects/<project>/repositories/<repository> \
   -b "session=…"
 
-# Set or clear the project default executor.
+# Set or clear the project default Machine.
 curl -X PATCH localhost:3001/api/v1/projects/<project> -b "session=…" \
-  -H 'content-type: application/json' -d '{"defaultExecutorId":"machine:nas"}'
+  -H 'content-type: application/json' -d '{"defaultExecutorId":"nas"}'
 
 # Read every link with its alias, flags, policy, and defaults rows.
 curl localhost:3001/api/v1/projects/<project>/repositories -b "session=…"
@@ -305,19 +311,19 @@ curl 'localhost:3001/api/v1/projects/<project>/start-location?repositoryId=<id>&
 ```
 
 `GET /api/v1/projects/:id/repositories` returns each link with its alias,
-primary flag, and isolation policy, and each defaults row with its executor,
+primary flag, and isolation policy, and each defaults row with its Machine,
 checkout, and `updated_at`. `GET /api/v1/projects/:id/start-location` takes the
 same `repositoryId`, `executorId`, and `checkoutId` the create request takes,
-resolves them in its order, and answers the repository, executor, checkout, and
+resolves them in its order, and answers the repository, Machine, checkout, and
 isolation default with its reason (`project_policy`, `clone_in_use`, or
 `no_link`). It writes nothing and starts no git call.
 
 A Project or repository of another owner, and an id that no longer exists, both
 answer `404`, so a foreign row is indistinguishable from a missing one. A
 repository the caller owns but the Project does not link answers `422`, as does
-a named checkout that disagrees with the named repository or executor. Every
+a named checkout that disagrees with the named repository or Machine. Every
 link write on an archived Project answers `409` and changes nothing, including
-a change to its default executor. Linking a repository the Project already
+a change to its default Machine. Linking a repository the Project already
 links answers `409`, and so does a concurrent change that collides on the
 one-primary rule; a sequential primary change clears the previous one and
 answers `200`.
@@ -359,8 +365,8 @@ A row opens the repository's sheet:
   Codeberg, or sourcehut when the remote is on one of them, and its menu holds
   **Unlink from Project**, which confirms once and removes only the link.
 
-A checkout or worktree row copies its location: a local path at once, a
-Machine one as the path on that Machine or as its `machine://` locator. The
+A checkout or worktree row copies its location as the canonical
+`machine://` locator. The
 branch shown is the one recorded when the checkout was registered or the
 worktree created; a later rename or switch is not read back
 ([#1417](https://github.com/leon0399/llame/issues/1417)).

@@ -71,7 +71,7 @@ authorization (including ownership checks for `kb://`), native
 locator validation, Workspace path projection or other Workspace re-check
 conditions, the native recovery fence, web-read header, call, body, and redirect
 bounds, Run step or call-timeout caps, or MCP environment isolation. The
-configured native executor, existing-directory checks, and `realpath` validation
+configured Machine, existing-directory checks, and `realpath` validation
 still apply.
 
 ## Recorded decisions

@@ -24,9 +24,9 @@ read](../reference/locators/web.md#what-is-not-read).
 ## Enabling
 
 `read` must be named in `tools.allowed`. It is advertised whenever it is
-allowlisted, because a web locator needs no `tools.nativeExecutorId` and binds
-no executor identity; an absolute path on a process without accepted native
-authority still fails closed with `executor_unavailable` (see
+allowlisted, because a web locator needs no Machine and binds none; an absolute
+path still uses the current Machine and fails closed with `machine_unavailable`
+when it is unreachable (see
 [native files](native-files.md)).
 
 Restriction and reach are the `read` group in `tools.permissions` — there is no

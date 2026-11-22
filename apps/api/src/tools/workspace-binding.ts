@@ -1,5 +1,4 @@
 import { WorkspaceBindingRepository } from '../chats/workspace-binding.repository';
-import { machineExecutorId } from '../machines/machine-locator';
 import {
   type WorkspaceMcpClients,
   type WorkspaceMcpEntryState,
@@ -8,7 +7,11 @@ import {
 import { boundSkillCatalog } from '../skills/skill-prompt-baseline';
 import { type SkillCatalogPort } from '../skills/skill-catalog';
 import { workspaceSkillSources } from '../skills/workspace-skill-sources';
-import { admitPermission } from './permissions/admit';
+import {
+  admitPermission,
+  canonicalPathEvaluation,
+  evaluateCanonicalWithRejectTexts,
+} from './permissions/admit';
 import { projectNativeFilePath } from './permissions/locator-projection';
 import { permissionDeniedResult } from './permissions/messages';
 import {
@@ -16,6 +19,7 @@ import {
   type ToolErrorResult,
   type ToolResult,
 } from './types';
+import { locatorContext } from './workspace-path';
 import { type WorktreeBinding } from './workspace-worktree-entry';
 
 /*
@@ -32,61 +36,37 @@ import { type WorktreeBinding } from './workspace-worktree-entry';
  * the records of one worktree call apart.
  */
 
-/** Workspace chooses a working root; it is not an isolation boundary. */
-export const WORKSPACE_AUTHORITY =
-  "Workspace selects a working root but is not filesystem confinement; host operations retain the host user's authority.";
-
 /**
- * The same disclosure for a Machine Workspace: the root is remote, and the
- * authority the model's operations carry is the Machine's own OS user, which
- * every hub user bound to that Machine shares.
+ * The disclosure of a bound root. Every root is on a Machine — the one this
+ * process hosts included — so the authority the model's operations carry is
+ * that Machine's own OS user, shared by every hub user bound to it.
  */
 export const MACHINE_WORKSPACE_AUTHORITY =
   "Workspace selects a working root on the Machine; Machine operations run as that Machine's own OS user without sandboxing, which every hub user bound to it shares, and its registered roots bound addressing only.";
 
 /**
- * The executor a Workspace transition binds, and the fence it applies. An
- * absolute host path pins the Run to the local executor; a Machine Workspace
- * binds `machine:<name>` without pinning anything, because the Run stays free
- * to use `file:` aliases and other Machines and needs no local executor at all.
+ * The Machine a Workspace transition binds, and the fence it applies. The
+ * executor id IS the Machine name. Only a root on this process's own Machine
+ * pins the Run: every other root stays reachable from any worker, so pinning it
+ * would turn a queue retry elsewhere into `executor_unavailable`.
  */
 export type WorkspaceAuthority = {
   readonly runId: string;
   readonly toolCallId: string;
-  /** The executor id the Chat binds: the local executor, or `machine:<name>`. */
+  /** The executor id the Chat binds: the Machine name. */
   readonly executorId: string;
   /** The executor this transition pins the Run to; absent leaves it unbound. */
   readonly bindExecutorId?: string;
-  /** The Machine this Workspace names, when it names one. */
-  readonly machine?: { readonly name: string; readonly path: string };
 };
 
-export function localAuthority(
-  context: ToolContext,
-): WorkspaceAuthority | ToolResult {
-  if (!context.runId || !context.nativeExecutorId || !context.toolCallId) {
-    return {
-      status: 'error',
-      type: 'executor_unavailable',
-      message: 'Native host authority is unavailable.',
-    };
-  }
-
-  return {
-    runId: context.runId,
-    toolCallId: context.toolCallId,
-    executorId: context.nativeExecutorId,
-    bindExecutorId: context.nativeExecutorId,
-  };
-}
-
 /**
- * A Machine entry needs no local executor: it needs the Run identity the fence
- * and the durable attempt are keyed by, and nothing else.
+ * The authority one entry binds. A local Machine pins the Run to its name; a
+ * Machine this worker only reaches leaves the Run free to use `file:` aliases
+ * and other Machines, and needs no local executor at all.
  */
-export function machineAuthority(
+export function workspaceAuthority(
   context: ToolContext,
-  machine: { readonly name: string; readonly path: string },
+  machine: { readonly name: string; readonly local: boolean },
 ): WorkspaceAuthority | ToolResult {
   if (!context.runId || !context.toolCallId) {
     return {
@@ -99,16 +79,9 @@ export function machineAuthority(
   return {
     runId: context.runId,
     toolCallId: context.toolCallId,
-    executorId: machineExecutorId(machine.name),
-    machine,
+    executorId: machine.name,
+    ...(machine.local && { bindExecutorId: machine.name }),
   };
-}
-
-/** The authority text one bound root discloses; the Machine's own when remote. */
-export function authorityDisclosure(authority: WorkspaceAuthority): string {
-  return authority.machine === undefined
-    ? WORKSPACE_AUTHORITY
-    : MACHINE_WORKSPACE_AUTHORITY;
 }
 
 /** One submitted entry path under the `enter_workspace` group. */
@@ -116,11 +89,16 @@ export function requireSubmittedPermission(
   context: ToolContext,
   submittedPath: string,
 ): ToolErrorResult | undefined {
+  const projected = projectNativeFilePath(
+    submittedPath,
+    locatorContext(context),
+  );
+
   const decision = admitPermission(context, (evaluate) =>
-    evaluate({
-      toolId: 'enter_workspace',
-      args: { path: submittedPath },
-    }),
+    evaluateCanonicalWithRejectTexts(
+      evaluate,
+      canonicalPathEvaluation('enter_workspace', submittedPath, projected),
+    ),
   );
 
   if (decision === undefined) return permissionDeniedResult('no_allow');
@@ -140,11 +118,13 @@ export function requireDerivedPermission(
   kind: 'canonical' | 'main_clone' | 'worktree_directory',
   address: string,
 ): ToolErrorResult | undefined {
+  const projected = projectNativeFilePath(address, locatorContext(context));
+
   const decision = admitPermission(context, (evaluate) =>
-    evaluate({
-      toolId: 'enter_workspace',
-      args: { path: projectNativeFilePath(address) },
-    }),
+    evaluateCanonicalWithRejectTexts(
+      evaluate,
+      canonicalPathEvaluation('enter_workspace', address, projected),
+    ),
   );
 
   if (decision === undefined) return permissionDeniedResult('no_allow');
@@ -182,10 +162,18 @@ type WorkspaceSkillResult = {
 function workspaceSkillResult(
   catalog: SkillCatalogPort | undefined,
   root: string,
+  localMachine: string | undefined,
 ): WorkspaceSkillResult {
   if (catalog === undefined) return { skills: [], skillsOmitted: 0 };
 
-  const sources = workspaceSkillSources(root);
+  // The result is produced only after the entry's local directory verified
+  // its Machine identity (or for a root on another Machine, which yields no
+  // host-path sources at all).
+  const sources = workspaceSkillSources(root, {
+    localMachine,
+    localVerified: true,
+  });
+
   const snapshot = catalog.getSnapshot(sources);
 
   if (!snapshot.available) return { skills: [], skillsOmitted: 0 };
@@ -314,7 +302,7 @@ export async function bindCanonicalRoot(
   if (result.status === 'fence_lost') return executorUnavailable();
   await applyBindingTransition(context, canonical, result.status);
 
-  return boundResult(context, authority, {
+  return boundResult(context, {
     root: canonical,
     state: result.status,
     generation: result.generation,
@@ -328,7 +316,6 @@ export async function bindCanonicalRoot(
  */
 export async function boundResult(
   context: ToolContext,
-  authority: WorkspaceAuthority,
   binding: {
     readonly root: string;
     readonly state: 'bound' | 'switched' | 'unchanged';
@@ -347,8 +334,12 @@ export async function boundResult(
     status: 'success',
     root: binding.root,
     state: binding.state,
-    authority: authorityDisclosure(authority),
-    ...workspaceSkillResult(context.skillCatalog, binding.root),
+    authority: MACHINE_WORKSPACE_AUTHORITY,
+    ...workspaceSkillResult(
+      context.skillCatalog,
+      binding.root,
+      context.localMachine,
+    ),
     mcpServers,
     ...(binding.worktree !== undefined && { worktree: binding.worktree }),
   };

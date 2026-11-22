@@ -35,7 +35,7 @@ Future behavior belongs in [VISION.md](VISION.md) until sequenced in the roadmap
 
 ### 1.1 Distributed direction is not current architecture
 
-The future Surface, Node, Personal Realm, Sandbox, and governing-authority boundaries described in [VISION.md](VISION.md) are not current runtime objects merely because the terminology is canonical. An entered Workspace is the current-runtime exception: it is an owner-scoped binding on the configured native executor or on an operator-configured remote Machine, represented by a canonical root (an absolute host path or a `machine://` locator), executor identity, and generation. Remote Machines are experimental: hub workers reach them over SSH and only tool execution crosses to them; the Run loop, credentials, and native effect fence stay on the hub (see [`remote-machines`](openspec/specs/remote-machines/spec.md) and [docs/product/operator/machines.md](docs/product/operator/machines.md)). No Workspace registry, Node enrollment, cross-node execution placement or handoff, or foreign-authority mount ships.
+The future Surface, Node, Personal Realm, Sandbox, and governing-authority boundaries described in [VISION.md](VISION.md) are not current runtime objects merely because the terminology is canonical. An entered Workspace is the current-runtime exception: it is an owner-scoped binding on one Machine, represented by a canonical `machine://` root, the Machine name, and a generation. Machines are experimental: the host Machine is the `machines.hosts` entry named by `machines.local` and is reached through its own daemon child; another Machine is reached over SSH, and only tool execution crosses to it; the Run loop, credentials, and native effect fence stay on the hub (see [`remote-machines`](openspec/specs/remote-machines/spec.md) and [docs/product/operator/machines.md](docs/product/operator/machines.md)). No Workspace registry, Node enrollment, cross-node execution placement or handoff, or foreign-authority mount ships.
 
 No first-party CLI or Android Node, standalone personal store, Node enrollment, Personal Realm mirroring, or foreign-authority mount ships. The current web, API, and worker processes form one installation and one PostgreSQL ownership boundary. A dedicated worker is an operational process role inside that installation, not an autonomous personal Node. A current Project is not a filesystem Workspace, Knowledge Space, Personal Realm, or security boundary. The hosted Knowledge Space ID is a portable logical identity, while its owner row and configured filesystem child remain installation-local bindings. Future terminology must not be projected onto present APIs, database rows, or deployment roles without a shipped capability spec.
 
@@ -306,18 +306,17 @@ render as recorded. See
 ### 13.7 Native file execution
 
 The scheme of `read`, `edit`, and `write`'s `path` argument selects authority.
-An operator-provided `tools.nativeExecutorId` enables host authority for
-absolute paths: reads stream bounded source windows, edits replace one exact
-unique current match, and writes create a new file or, when the caller sets
+An absolute path or a `file:` locator addresses the current Machine: the Workspace's Machine, or `machines.default` when no Workspace is bound. Reads stream bounded source windows, edits replace one exact unique current match, and writes create a new file or, when the caller sets
 `replace: true`, replace an existing one's entire contents. Host process
 mutations are serialized, including symlink aliases; other processes and
-external editors are outside that guarantee. A `file://` or minimal `file:` URL is decoded to its absolute host path before native dispatch; the decoded path is the canonical identity for permissions, executor binding, and result `path`. A
+external editors are outside that guarantee. A `file://` or minimal `file:` URL is decoded to its absolute path before native dispatch; the decoded path is the canonical identity for permissions, Machine binding, and the result `path`, which is reported as a `machine://` locator. A
 `kb://<space-id>/<path>[:selector]` locator instead resolves through the
 trusted Run owner's current Knowledge Space access on every call, under RLS,
-never through `tools.nativeExecutorId`. A `machine://<name><path>` locator resolves on an operator-configured remote Machine through its `llame-machine` daemon, also without `tools.nativeExecutorId` (see [docs/product/operator/machines.md](docs/product/operator/machines.md)). An `ssh://[user@]host[:port]/<path>[:selector]` locator reads a file or one directory level on a host the operator's SSH configuration reaches, without `tools.nativeExecutorId` and with nothing installed on that host; it exists only when the instance configuration has a top-level `ssh` section, and without that section the scheme stays unknown. Its destination resolves locally through the SSH configuration before permission is evaluated, the group decides on the resolved locator `ssh://<user>@<hostname>:<port><path>`, and the connection uses exactly that user, hostname, and port under the generated safety block shared with Machines. A read transfers at most 1 MiB of UTF-8 text with the local selectors and result bound, or one level of a directory in the local listing form capped at 1,000 entries; a larger file, bytes outside UTF-8, and a FIFO, socket, or device are typed refusals, a missing path is `not_found`, and an unreadable one is the local `executor_unavailable` result. Missing prerequisites and refused connections are `ssh_unsupported_host` and `ssh_unavailable` with a reason. `edit` and `write` refuse an `ssh://` locator as `unsupported_operation`, `enter_workspace` refuses it, and no Workspace is ever bound to one. A `bash` call with an `ssh://` `cwd` runs its command with `bash -s` on that host as the login user, inside the directory the locator names, bounded like a local command; its `env` keys are identifiers and travel inside the script, an unenterable directory is refused before the command runs, and a session that ends after the command started is `outcome_unknown` and is never replayed (see [docs/product/operator/ssh.md](docs/product/operator/ssh.md)). A `projects://` locator reads the Run owner's Projects through the datastore with no executor or Workspace binding. The bare form lists active Projects, `archived` lists archived Projects, and `<uuid>` returns one Project with its literal instructions, linked repositories, and registered checkout locators. It is read-only, so `edit` and `write` refuse it as `unsupported_operation`. See [Project locators](docs/product/reference/locators/projects.md). The three tools are advertised when
-the process has accepted native host authority or has a configured
-`knowledge.root`, and an absolute path on a process without accepted native
-authority fails closed with `executor_unavailable`. A `read` of a host,
+outside Machine authority. A `machine://<name><path>` locator resolves on a configured Machine through its `llame-machine` daemon, the host Machine included, and a bare path and `machine://<machines.local>/...` share one authority (see [docs/product/operator/machines.md](docs/product/operator/machines.md)). An `ssh://[user@]host[:port]/<path>[:selector]` locator reads a file or one directory level on a host the operator's SSH configuration reaches, without a Machine and with nothing installed on that host; it exists only when the instance configuration has a top-level `ssh` section, and without that section the scheme stays unknown. Its destination resolves locally through the SSH configuration before permission is evaluated, the group decides on the resolved locator `ssh://<user>@<hostname>:<port><path>`, and the connection uses exactly that user, hostname, and port under the generated safety block shared with Machines. A read transfers at most 1 MiB of UTF-8 text with the local selectors and result bound, or one level of a directory in the local listing form capped at 1,000 entries; a larger file, bytes outside UTF-8, and a FIFO, socket, or device are typed refusals, a missing path is `not_found`, and an unreadable one is the local `executor_unavailable` result. Missing prerequisites and refused connections are `ssh_unsupported_host` and `ssh_unavailable` with a reason. `edit` and `write` refuse an `ssh://` locator as `unsupported_operation`, `enter_workspace` refuses it, and no Workspace is ever bound to one. A `bash` call with an `ssh://` `cwd` runs its command with `bash -s` on that host as the login user, inside the directory the locator names, bounded like a local command; its `env` keys are identifiers and travel inside the script, an unenterable directory is refused before the command runs, and a session that ends after the command started is `outcome_unknown` and is never replayed (see [docs/product/operator/ssh.md](docs/product/operator/ssh.md)). A `projects://` locator reads the Run owner's Projects through the datastore with no executor or Workspace binding. The bare form lists active Projects, `archived` lists archived Projects, and `<uuid>` returns one Project with its literal instructions, linked repositories, and registered checkout locators. It is read-only, so `edit` and `write` refuse it as `unsupported_operation`. See [Project locators](docs/product/reference/locators/projects.md). The three tools are advertised
+whenever they are allowlisted, because startup requires `machines.default` for
+every allowlisted native tool. An absolute path fails closed with
+`machine_unavailable` when the current Machine is unreachable, while `kb://`,
+skill, media, Project, and web locators still run. A `read` of an absolute path,
 `kb://`, or `skill://` regular file whose leading bytes are a PNG, JPEG, GIF, or
 WebP image decodes it without creating a media object and returns an image
 result with its format, dimensions, and a display-only thumbnail instead of
@@ -332,17 +331,18 @@ result and records that the bound is exceeded, and each later request carries
 the limit placeholder for it. Retained bytes never reach a client response, a
 stream frame, model-facing text, or a queue job. Every selector on an image or
 PDF is refused. `media://<id>` reads an image or PDF the Run owner uploaded
-without an executor and can replay it across attempts; it is read-only, takes no
+without a Machine and can replay it across attempts; it is read-only, takes no
 selector, and another owner's id is `not_found`.
 
-The native host also exposes `enter_workspace({ path, worktree? })` and
+The native tools also expose `enter_workspace({ path, worktree? })` and
 `exit_workspace({})` when both tools are allowlisted with their own permission
-groups. Entry accepts an absolute path, evaluates the submitted spelling
+groups. Entry accepts an absolute path on the current Machine or a
+`machine://` locator, evaluates the submitted spelling
 before any filesystem probe, canonicalizes it, and independently evaluates the
 canonical path; both must obtain an allow and avoid rejects. A successful entry
-binds the Chat to that canonical root and native executor across Runs until
+binds the Chat to that canonical root and its Machine across Runs until
 exit, switch, or a failed preparation re-check. Preparation detaches on
-executor absence or mismatch, a missing/non-directory or moved root, current
+Machine absence or mismatch, a missing/non-directory or moved root, current
 permission rejection, or removal of `enter_workspace` from the allowlist.
 Relative native paths and Bash `cwd` values project lexically from the root,
 preserving trailing separators; `..` may leave it, and an omitted Bash `cwd`
@@ -356,7 +356,7 @@ write; the Worktree checkout, its lease, any adopted repository and main checkou
 the recorded `worktree` attempt and its result, and the bound root commit in one
 transaction, so a failure leaves the previous binding and generation unchanged.
 The owner's repository catalog records repositories by normalized remote, the
-checkouts where each exists on an executor, and the leases that say which Chat
+checkouts where each exists on a Machine, and the leases that say which Chat
 created a worktree; an owner removes a clean worktree through
 `DELETE /api/v1/checkouts/:id/worktree`, and deleting rows never deletes a
 directory. This is host-user authority, not filesystem confinement.
@@ -369,8 +369,7 @@ entry and on a later accepted turn when effective context no longer carries it,
 as one `instructions` context item ordered after `workspace`
 (see [`instruction-files`](openspec/specs/instruction-files/spec.md)).
 
-The first absolute-path native call binds the Run's existing `worker_id` to
-that stable host identity; a `kb://` call never binds or requires one. Native
+The first absolute-path native mutation or Workspace entry on the host Machine binds the Run's existing `worker_id` to that worker; a `kb://` call never binds or requires one. Native
 and `kb://` mutation attempts and results share the owner-scoped event log,
 recorded against the locator for `kb://`; an unsettled attempt never executes
 again, and an unknown result aborts the model loop. Native files have no
@@ -428,13 +427,16 @@ sources admit `read` without admitting absolute-path host authority. See
 
 ### 13.9 Managed bash contract
 
-`@workspace/bash-executor` runs the model-facing `bash` tool on the alpha host
-when `tools.nativeExecutorId` is configured and `bash` is allowlisted. The host
-runs the model's shell text as `bash -c` under the host OS user. A `machine://`
-or `ssh://` `cwd` runs it on that remote host instead, under that host's login
-user and the shared bounds. This is
-explicit host authority, not tenant isolation: the model cannot select the
-executor or network mode. The owner, not the model, selects the Run's
+`@workspace/bash-executor` runs the model-facing `bash` tool when `bash` is
+allowlisted and `machines.default` is configured. A command whose working
+directory resolves on the process's `machines.local` Machine runs in the worker,
+as `bash -c` under that Machine's OS user. A `machine://` `cwd` naming another
+Machine runs it through that Machine's daemon, and an `ssh://` `cwd` runs it on
+that host, each under that host's login user and the shared bounds. Host `bash`
+and its background jobs stay in the worker until background jobs run on every
+Machine. This is
+explicit Machine authority, not tenant isolation: the model cannot select the
+Machine except through `cwd`, or select the network mode. The owner, not the model, selects the Run's
 `default`, `read-only`, or `bypass` permission mode per send; that mode is never model-visible.
 A future managed Sandbox adapter and a separate permission proposal may
 strengthen isolation.
@@ -552,8 +554,7 @@ specified by `knowledge-tools`. The cursor is a live keyset continuation, not a
 filesystem snapshot or revision receipt.
 
 `kb://<space-id>/<path>[:selector]` resolves through the trusted Run owner's
-current access on every call under RLS, never through
-`tools.nativeExecutorId`. An absent, removed, malformed, or other-owner
+current access on every call under RLS, outside Machine authority. An absent, removed, malformed, or other-owner
 identifier returns `knowledge_space_not_found`; an unresolvable root or
 stable-ID child returns `knowledge_space_unavailable`. `kb://` reads carry no
 Markdown-only suffix rule and no 1 MiB size cap — a Space is a directory of

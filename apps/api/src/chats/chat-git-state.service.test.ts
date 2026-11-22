@@ -13,10 +13,6 @@ import { NotFoundException } from '@nestjs/common';
 
 import { type Chat } from '../db/schema';
 import { GitSnapshotService } from '../git-state/git-snapshot.service';
-import {
-  BUILT_IN_DEFAULTS,
-  type LlameConfig,
-} from '../instance-config/llame-config';
 import { ExecutorGit, localGitSurface } from '../machines/executor-git.service';
 import {
   MachineConnector,
@@ -104,8 +100,12 @@ function chatAt(
 
 function realExecutors(
   options: ProtocolPeerOptions = {},
-  machines?: MachineConnectorDeps['machines'],
-): ExecutorGit {
+  machines: MachineConnectorDeps['machines'] = {
+    local: EXECUTOR,
+    default: EXECUTOR,
+    hosts: { [EXECUTOR]: {} },
+  },
+) {
   const connector = new MachineConnector({
     hubVersion: 'test-hub',
     bindIdentity: () => Promise.resolve('match'),
@@ -116,17 +116,18 @@ function realExecutors(
 
   connectors.push(connector);
 
-  const config: LlameConfig = {
-    ...BUILT_IN_DEFAULTS,
-    tools: { ...BUILT_IN_DEFAULTS.tools, nativeExecutorId: EXECUTOR },
+  return {
+    executors: new ExecutorGit(connector, localGitSurface()),
+    connector,
   };
-
-  return new ExecutorGit({ config }, connector, localGitSurface());
 }
 
 function serviceFor(
   chat: Chat | undefined,
   executors: Pick<ExecutorGit, 'locate' | 'locateEntry' | 'state'>,
+  connector: Pick<MachineConnector, 'localMachine'> = {
+    localMachine: () => EXECUTOR,
+  },
 ) {
   const getChatById = vi
     .fn<(id: string, owner: string) => Promise<Chat | undefined>>()
@@ -134,7 +135,7 @@ function serviceFor(
 
   const service = new ChatGitStateService(
     { getChatById },
-    new GitSnapshotService(executors),
+    new GitSnapshotService(executors, connector),
     executors,
   );
 
@@ -144,7 +145,8 @@ function serviceFor(
 describe('ChatGitStateService', () => {
   it('shows a branch switch at once', async () => {
     const root = repository();
-    const { service } = serviceFor(chatAt(root), realExecutors());
+    const { executors } = realExecutors();
+    const { service } = serviceFor(chatAt(root), executors);
 
     const before = await service.read(CHAT_ID, OWNER);
     runGit(root, ['switch', '--quiet', '--create', 'feature/x']);
@@ -162,7 +164,8 @@ describe('ChatGitStateService', () => {
       'origin',
       'https://x-access-token:ghp_secret@github.com/leon0399/llame.git',
     ]);
-    const { service } = serviceFor(chatAt(root), realExecutors());
+    const { executors } = realExecutors();
+    const { service } = serviceFor(chatAt(root), executors);
 
     const state = await service.read(CHAT_ID, OWNER);
 
@@ -174,7 +177,8 @@ describe('ChatGitStateService', () => {
   });
 
   it('reads git state without consulting a model permission policy', async () => {
-    const { service } = serviceFor(chatAt(repository()), realExecutors());
+    const { executors } = realExecutors();
+    const { service } = serviceFor(chatAt(repository()), executors);
 
     await expect(service.read(CHAT_ID, OWNER)).resolves.toMatchObject({
       status: 'ok',
@@ -185,7 +189,8 @@ describe('ChatGitStateService', () => {
   it('answers a Chat that is not a repository with its line', async () => {
     const base = mkdtempSync(join(tmpdir(), 'chat-git-state-plain-'));
     created.push(base);
-    const { service } = serviceFor(chatAt(realpathSync(base)), realExecutors());
+    const { executors } = realExecutors();
+    const { service } = serviceFor(chatAt(realpathSync(base)), executors);
 
     await expect(service.read(CHAT_ID, OWNER)).resolves.toEqual({
       status: 'not_a_repository',
@@ -194,9 +199,9 @@ describe('ChatGitStateService', () => {
   });
 
   it('has no git state for an unbound Chat', async () => {
-    const executors = realExecutors();
+    const { executors, connector } = realExecutors();
     const locate = vi.spyOn(executors, 'locate');
-    const { service } = serviceFor(chatAt(null, null), executors);
+    const { service } = serviceFor(chatAt(null, null), executors, connector);
 
     await expect(service.read(CHAT_ID, OWNER)).resolves.toEqual({
       status: 'unbound',
@@ -205,13 +210,14 @@ describe('ChatGitStateService', () => {
   });
 
   it('is unavailable for a binding on another executor, with no git call', async () => {
-    const executors = realExecutors();
+    const { executors, connector } = realExecutors();
     const locateEntry = vi.spyOn(executors, 'locateEntry');
     const state = vi.spyOn(executors, 'state');
 
     const { service } = serviceFor(
       chatAt(repository(), 'some-other-host'),
       executors,
+      connector,
     );
 
     await expect(service.read(CHAT_ID, OWNER)).resolves.toEqual({
@@ -224,9 +230,14 @@ describe('ChatGitStateService', () => {
   });
 
   it('is not found for a Chat the owner does not hold, with no git call', async () => {
-    const executors = realExecutors();
+    const { executors, connector } = realExecutors();
     const locate = vi.spyOn(executors, 'locate');
-    const { service, getChatById } = serviceFor(undefined, executors);
+
+    const { service, getChatById } = serviceFor(
+      undefined,
+      executors,
+      connector,
+    );
 
     await expect(service.read(CHAT_ID, OWNER)).rejects.toThrow(
       new NotFoundException(`Chat ${CHAT_ID} not found`),
@@ -236,19 +247,25 @@ describe('ChatGitStateService', () => {
   });
 
   it('answers an offline Machine as unavailable without touching the reachability cache', async () => {
-    const executors = realExecutors(
+    const { executors, connector } = realExecutors(
       { openFailure: () => 'ssh: connect to host nas port 22: refused' },
       {
         ssh: { knownHostsFile: '/dev/null' },
-        hosts: { nas: { destination: 'nas.example' } },
+        local: EXECUTOR,
+        default: EXECUTOR,
+        hosts: {
+          [EXECUTOR]: {},
+          nas: { destination: 'nas.example' },
+        },
       },
     );
 
-    const reachable = vi.spyOn(connectors[0], 'reachable');
+    const reachable = vi.spyOn(connector, 'reachable');
 
     const { service } = serviceFor(
-      chatAt('machine://nas/srv/repo', 'machine:nas'),
+      chatAt('machine://nas/srv/repo', 'nas'),
       executors,
+      connector,
     );
 
     await expect(service.read(CHAT_ID, OWNER)).resolves.toEqual({

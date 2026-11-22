@@ -88,7 +88,7 @@ rules described above.
 Successful Workspace entry is the trust decision for these sources: the
 operator's `enter_workspace` permission grants the entered Chat permission to
 read its Workspace skills. Entry selects a working root but is not a
-filesystem-confinement boundary; host operations retain the native executor's
+filesystem-confinement boundary; operations retain the Machine user's
 authority. A failed or later-detached binding contributes no Workspace skill
 activation or `skill://` resolution for that Run, and a later accepted turn
 announces the removal from the Chat's skill catalog.

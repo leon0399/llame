@@ -2,8 +2,8 @@
  * Host files for tool-result artifacts (tool-result-artifacts D10).
  *
  * Postgres is the authority; these files are a cache a `bash` call can open
- * with its own host authority. They exist only when the process has a native
- * executor and `bash` is allowlisted, and they are written after the artifact
+ * with its own host authority. They exist only when `bash` is allowlisted and
+ * this process hosts a Machine, and they are written after the artifact
  * commits, reconciled by size and modification time, and swept after seven
  * days. Any failure here leaves the artifact intact: the next reconcile
  * writes the file again.
@@ -65,12 +65,21 @@ export type ArtifactHostContext = Pick<
   | 'moveSignal'
 >;
 
+/**
+ * The instance facts the host-file cache needs: `bash` is allowlisted (only it
+ * opens the files) and the process hosts a Machine, because the files live on
+ * that Machine's filesystem.
+ */
+export type ArtifactHostFilesConfig = {
+  readonly tools: { readonly allowed: ReadonlyArray<string> };
+  readonly machines?: { readonly local?: string } | undefined;
+};
+
 /** Whether this process keeps artifact host files (D10). */
-export function hostFilesEnabled(tools: {
-  readonly allowed: ReadonlyArray<string>;
-  readonly nativeExecutorId?: string | undefined;
-}): boolean {
-  return tools.allowed.includes('bash') && tools.nativeExecutorId !== undefined;
+export function hostFilesEnabled(config: ArtifactHostFilesConfig): boolean {
+  const local = config.machines?.local;
+
+  return config.tools.allowed.includes('bash') && local !== undefined;
 }
 
 /** The Chat's artifact directory on the llame host (D10). */
@@ -403,11 +412,10 @@ async function repairPart(
 }
 
 /** Sweep only when this process keeps host files (D10); never rejects. */
-export async function sweepWhenHostFilesEnabled(tools: {
-  readonly allowed: ReadonlyArray<string>;
-  readonly nativeExecutorId?: string | undefined;
-}): Promise<void> {
-  if (!hostFilesEnabled(tools)) return;
+export async function sweepWhenHostFilesEnabled(
+  config: ArtifactHostFilesConfig,
+): Promise<void> {
+  if (!hostFilesEnabled(config)) return;
   await sweepArtifactDirectories();
 }
 

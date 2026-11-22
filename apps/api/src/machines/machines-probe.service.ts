@@ -1,9 +1,11 @@
 /**
  * MachinesProbeService — the background retry the Machines list needs
  * (remote-machines spec "Machine status is derived from contact and visible").
- * Once a minute it asks the connector whether each configured Machine is
- * reachable, which opens a session when none is open and re-stamps the contact
- * on one that is, and prunes the rows of Machines the operator removed.
+ * Once a minute it asks the connector whether each configured Machine this
+ * process can reach is reachable, which opens a session when none is open and
+ * re-stamps the contact on one that is, and prunes the rows of Machines the
+ * operator removed. An entry this process cannot reach keeps its row and is
+ * never dialed.
  *
  * Gated on the `runs` group, deliberately: Machines exist to execute Runs on,
  * so a process that consumes no Runs — an HTTP-only profile — never dials one,
@@ -52,6 +54,14 @@ export class MachinesProbeService implements OnApplicationBootstrap {
 
   private async probe(): Promise<void> {
     const names = this.connector.names();
+
+    // A configured entry without a link this process can use (no SSH
+    // destination and not this process's own Machine) is never dialed; it
+    // keeps its row, and only the entries that can answer are asked.
+    const reachableNames = names.filter((name) =>
+      this.connector.canReach(name),
+    );
+
     // One attempt key per tick, so a Machine that just recovered is retried on
     // the NEXT tick rather than repeatedly inside this one. Machines are
     // probed together: an unreachable one spends its whole connect timeout,
@@ -59,7 +69,7 @@ export class MachinesProbeService implements OnApplicationBootstrap {
     // contact past the online window.
     const attemptKey = `probe:${Date.now()}`;
     await Promise.all(
-      names.map((name) => this.connector.reachable(name, attemptKey)),
+      reachableNames.map((name) => this.connector.reachable(name, attemptKey)),
     );
     const pruned = await this.status.pruneExcept(names);
 

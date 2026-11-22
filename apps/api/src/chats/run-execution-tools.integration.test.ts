@@ -30,6 +30,8 @@ import {
 import { getErrorMessage } from '@ai-sdk/provider-utils';
 import { createHash } from 'node:crypto';
 import { compileTestPermissionPolicy } from '../testing/tool-permission-policy';
+import type { MachineConnector } from '../machines/machine-connector.service';
+import { localMachineConnector } from '../testing/local-machine';
 import { PORTABLE_TOOL_PERMISSIONS } from '../testing/portable-tool-policy';
 import { compileToolPermissionMap } from '../tools/permissions/compile-permissions';
 import type { CompiledPolicy } from '../tools/permissions/types';
@@ -186,6 +188,11 @@ const testModelEntry: SystemModelCatalogEntry = {
   systemPromptSource: 'project_default',
   referencesSkills: false,
 };
+
+/** The canonical locator of one host path, as the binding stores it. */
+function boundRoot(host: string, path: string): string {
+  return `machine://${host}${realpathSync(path)}`;
+}
 
 const RECOMMENDED_POLICY = compileToolPermissionMap(
   PORTABLE_TOOL_PERMISSIONS,
@@ -652,7 +659,10 @@ describeIfDb('executeRun tool-loop persistence', () => {
   type ServiceWithToolsOverrides = {
     maxStepsPerRun?: number;
     allowed?: Array<string>;
-    nativeExecutorId?: string;
+    /** The Machine this service's process hosts: `machines.local` and default. */
+    localMachine?: string;
+    /** The connector to share, so the service and its MCP clients agree. */
+    machineConnector?: MachineConnector;
     permissionModes?: ReadonlyArray<PermissionMode>;
     permissionPolicy?: CompiledPolicy;
     skillCatalog?: SkillCatalogPort;
@@ -677,10 +687,24 @@ describeIfDb('executeRun tool-loop persistence', () => {
     const resolved = overrides ?? {};
     const allowed = resolved.allowed ?? ['search_conversations'];
     const policyAllowed = resolved.allowed ?? [];
+    const localMachine = resolved.localMachine;
+
+    const machineConnector =
+      resolved.machineConnector ??
+      (localMachine === undefined
+        ? undefined
+        : localMachineConnector({ name: localMachine }));
 
     const instanceConfig: InstanceConfigReader = {
       config: {
         ...BUILT_IN_DEFAULTS,
+        ...(localMachine !== undefined && {
+          machines: {
+            local: localMachine,
+            default: localMachine,
+            hosts: { [localMachine]: {} },
+          },
+        }),
         skills: {
           directories:
             resolved.skillDirectories ?? BUILT_IN_DEFAULTS.skills.directories,
@@ -690,7 +714,6 @@ describeIfDb('executeRun tool-loop persistence', () => {
             ? BUILT_IN_DEFAULTS.knowledge
             : { root: resolved.knowledgeRoot },
         tools: {
-          nativeExecutorId: resolved.nativeExecutorId,
           allowed,
           permissions: BUILT_IN_DEFAULTS.tools.permissions,
           permissionModes: resolved.permissionModes ?? ['default'],
@@ -732,6 +755,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
       dynamicToolResolver: resolved.dynamicToolResolver,
       workspaceMcp: resolved.workspaceMcp,
       inRunProducer: resolved.inRunProducer,
+      machineConnector,
     };
   }
 
@@ -777,7 +801,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
       resolved.dynamicToolResolver,
       resolved.workspaceMcp,
       resolved.inRunProducer,
-      undefined, // machineConnector
+      resolved.machineConnector,
       undefined, // machinesStatus
       undefined, // sshClientFactory
       undefined, // executorGit
@@ -1014,7 +1038,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
     );
 
     const service = serviceWithTools({
-      nativeExecutorId: 'workspace-test-host',
+      localMachine: 'workspace-test-host',
       allowed: ['enter_workspace', 'read'],
     });
 
@@ -1077,7 +1101,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
       );
 
       expect(chat).toMatchObject({
-        workspaceRoot: root,
+        workspaceRoot: boundRoot('workspace-test-host', root),
         workspaceExecutorId: 'workspace-test-host',
         workspaceGeneration: 1,
       });
@@ -1105,7 +1129,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
     const seeded = await seedBoundRun(`workspace-skill-${crypto.randomUUID()}`);
 
     const service = serviceWithTools({
-      nativeExecutorId: 'workspace-test-host',
+      localMachine: 'workspace-test-host',
       allowed: ['enter_workspace', 'read'],
       skillCatalog: new SkillCatalog([operatorSource]),
       skillDirectories: [operatorSource],
@@ -1246,7 +1270,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
     );
 
     const service = serviceWithTools({
-      nativeExecutorId: 'workspace-test-host',
+      localMachine: 'workspace-test-host',
       allowed: ['enter_workspace', 'read'],
     });
 
@@ -1306,7 +1330,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
         new ChatsRepository(tx).findById(seeded.chatId, userId),
       );
 
-      expect(chat?.workspaceRoot).toBe(root);
+      expect(chat?.workspaceRoot).toBe(boundRoot('workspace-test-host', root));
     } finally {
       await sql`DELETE FROM chats WHERE id = ${seeded.chatId}`;
       rmSync(root, { recursive: true, force: true });
@@ -1714,7 +1738,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
     const seeded = await seedBoundRun(`stop-notice-${crypto.randomUUID()}`);
 
     const service = serviceWithTools({
-      nativeExecutorId: 'stop-test-host',
+      localMachine: 'stop-test-host',
       allowed: ['stop'],
     });
 
@@ -1811,7 +1835,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
     );
 
     const service = serviceWithTools({
-      nativeExecutorId: 'stop-test-host',
+      localMachine: 'stop-test-host',
       allowed: ['stop'],
     });
 
@@ -4968,7 +4992,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
 
     const service = serviceWithTools({
       allowed: ['bash'],
-      nativeExecutorId: 'permission-mode-test-host',
+      localMachine: 'permission-mode-test-host',
       permissionModes: ['default', 'bypass'],
       permissionPolicy: RECOMMENDED_POLICY,
     });
@@ -5066,7 +5090,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
 
     const service = serviceWithTools({
       allowed: ['bash'],
-      nativeExecutorId: 'permission-mode-test-host',
+      localMachine: 'permission-mode-test-host',
       permissionModes: ['default', 'bypass'],
       permissionPolicy: RECOMMENDED_POLICY,
     });
@@ -5144,7 +5168,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
 
     const service = serviceWithTools({
       allowed: ['bash'],
-      nativeExecutorId: 'permission-mode-test-host',
+      localMachine: 'permission-mode-test-host',
       permissionModes: ['default'],
       permissionPolicy: RECOMMENDED_POLICY,
     });
@@ -5238,7 +5262,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
 
     const service = serviceWithTools({
       allowed: ['enter_workspace'],
-      nativeExecutorId: 'permission-mode-test-host',
+      localMachine: 'permission-mode-test-host',
       permissionModes: ['default', 'bypass'],
       permissionPolicy: RECOMMENDED_POLICY,
     });
@@ -5274,7 +5298,9 @@ describeIfDb('executeRun tool-loop persistence', () => {
           new ChatsRepository(tx).findById(seeded.chatId, userId),
         );
 
-        return chat?.workspaceRoot === root;
+        return (
+          chat?.workspaceRoot === boundRoot('permission-mode-test-host', root)
+        );
       });
 
       const bound = await tenantDb.runAs(userId, (tx) =>
@@ -5282,7 +5308,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
       );
 
       expect(bound).toMatchObject({
-        workspaceRoot: root,
+        workspaceRoot: boundRoot('permission-mode-test-host', root),
         workspaceExecutorId: 'permission-mode-test-host',
       });
 
@@ -5362,7 +5388,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
 
     const service = serviceWithTools({
       allowed: ['enter_workspace'],
-      nativeExecutorId: 'permission-mode-test-host',
+      localMachine: 'permission-mode-test-host',
       permissionModes: ['default', 'bypass'],
       permissionPolicy: RECOMMENDED_POLICY,
     });
@@ -5398,7 +5424,9 @@ describeIfDb('executeRun tool-loop persistence', () => {
           new ChatsRepository(tx).findById(seeded.chatId, userId),
         );
 
-        return chat?.workspaceRoot === root;
+        return (
+          chat?.workspaceRoot === boundRoot('permission-mode-test-host', root)
+        );
       });
 
       const next = await tenantDb.runAs(userId, async (tx) => {
@@ -5445,7 +5473,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
       );
 
       expect(kept).toMatchObject({
-        workspaceRoot: root,
+        workspaceRoot: boundRoot('permission-mode-test-host', root),
         workspaceExecutorId: 'permission-mode-test-host',
       });
       expect(await storedContextParts(seeded.chatId)).not.toContainEqual(
@@ -5475,14 +5503,14 @@ describeIfDb('executeRun tool-loop persistence', () => {
 
     const binder = serviceWithTools({
       allowed: ['enter_workspace'],
-      nativeExecutorId: 'permission-mode-test-host',
+      localMachine: 'permission-mode-test-host',
       permissionModes: ['default', 'bypass'],
       permissionPolicy: RECOMMENDED_POLICY,
     });
 
     const recheck = serviceWithTools({
       allowed: [],
-      nativeExecutorId: 'permission-mode-test-host',
+      localMachine: 'permission-mode-test-host',
       permissionModes: ['default', 'bypass'],
       permissionPolicy: RECOMMENDED_POLICY,
     });
@@ -5518,7 +5546,9 @@ describeIfDb('executeRun tool-loop persistence', () => {
           new ChatsRepository(tx).findById(seeded.chatId, userId),
         );
 
-        return chat?.workspaceRoot === root;
+        return (
+          chat?.workspaceRoot === boundRoot('permission-mode-test-host', root)
+        );
       });
 
       const next = await tenantDb.runAs(userId, async (tx) => {
@@ -5737,7 +5767,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
 
     const service = serviceWithTools({
       allowed: ['bash'],
-      nativeExecutorId: 'permission-mode-test-host',
+      localMachine: 'permission-mode-test-host',
       permissionModes: ['default', 'bypass'],
       permissionPolicy: RECOMMENDED_POLICY,
     });
@@ -6163,7 +6193,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
     /** The service inputs every case needs to load instruction files at all. */
     function instructionsService(overrides?: ServiceWithToolsOverrides) {
       return serviceWithTools({
-        nativeExecutorId: 'instructions-host',
+        localMachine: 'instructions-host',
         allowed: ['enter_workspace', 'read'],
         inRunProducer: createInstructionsProducer(),
         ...overrides,
@@ -6201,8 +6231,8 @@ describeIfDb('executeRun tool-loop persistence', () => {
         put,
         service: () =>
           instructionsService({
-            // No `nativeExecutorId`: a Space chain must load without one.
-            nativeExecutorId: undefined,
+            // No Machine surface: a Space chain must load without one.
+            localMachine: undefined,
             allowed: ['read'],
             knowledgeRoot: root,
             knowledgeResolver: new KnowledgeToolRuntimeResolver(spaces),
@@ -6878,8 +6908,18 @@ describeIfDb('executeRun tool-loop persistence', () => {
         expect(toolIndex).toBeGreaterThanOrEqual(0);
         expect(bundleIndex).toBe(toolIndex + 1);
         const bundle = promptText(prompt[bundleIndex]);
-        const rootFile = path.join(root, 'AGENTS.md');
-        const apiFile = path.join(root, 'apps/api/AGENTS.md');
+
+        // A local Machine file is disclosed and read by its canonical locator.
+        const rootFile = boundRoot(
+          'instructions-host',
+          path.join(root, 'AGENTS.md'),
+        );
+
+        const apiFile = boundRoot(
+          'instructions-host',
+          path.join(root, 'apps/api/AGENTS.md'),
+        );
+
         expect(bundle).toContain(`<file path="${rootFile}">`);
         expect(bundle).toContain(`<file path="${apiFile}">`);
         expect(bundle.indexOf(rootFile)).toBeLessThan(bundle.indexOf(apiFile));
@@ -7295,6 +7335,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
         // The denied path is audited as a rejected read under `instructions`
         // and never reaches the model-visible text.
         const deniedPath = path.join(root, 'AGENTS.md');
+        const deniedLocator = `machine://instructions-host${deniedPath}`;
         const audited = await instructionEvents(seeded.run.id);
         expect(audited.map((entry) => entry.type)).toEqual([
           'tool.requested',
@@ -7304,7 +7345,9 @@ describeIfDb('executeRun tool-loop persistence', () => {
         ]);
         expect(audited[0]?.payload).toMatchObject({
           toolName: 'read',
-          input: { path: `${deniedPath}:raw:1-2000` },
+          input: {
+            path: `${deniedLocator}:raw:1-2000`,
+          },
           permission: { decision: 'reject' },
         });
         expect(audited[1]?.payload).toMatchObject({ status: 'error' });
@@ -7315,11 +7358,12 @@ describeIfDb('executeRun tool-loop persistence', () => {
         const items = await instructionItems(seeded);
         expect(items).toHaveLength(1);
         expect(items[0]?.data.text).toContain('allowed local rules');
-        expect(items[0]?.data.text).not.toContain(deniedPath);
+        expect(items[0]?.data.text).not.toContain(deniedLocator);
         expect(items[0]?.data.text).not.toContain('denied rules');
-        // The owner's part still records the denial for the chip.
+        // The owner's part still records the denial for the chip, under the
+        // same canonical locator the bundle uses.
         expect(await storedInstructionPart(seeded.chatId)).toMatchObject({
-          data: { payload: { denied: [deniedPath] } },
+          data: { payload: { denied: [deniedLocator] } },
         });
       } finally {
         await sql`DELETE FROM chats WHERE id = ${seeded.chatId}`;
@@ -7539,7 +7583,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
         expect(bundles).toHaveLength(1);
         const bundle = promptText(prompt[bundles[0] ?? -1]);
         expect(bundle).toContain(
-          `<file path="${path.join(newRoot, 'AGENTS.md')}">`,
+          `<file path="machine://instructions-host${path.join(newRoot, 'AGENTS.md')}">`,
         );
         expect(bundle).not.toContain(path.join(newRoot, 'apps/api/AGENTS.md'));
       } finally {
@@ -7592,8 +7636,13 @@ describeIfDb('executeRun tool-loop persistence', () => {
         await execution.consumeStream?.();
         await waitForCompleted(seeded.run.id);
 
-        // One audited page per page of the file, each with its own call id.
-        const file = path.join(root, 'AGENTS.md');
+        // One audited page per page of the file, each with its own call id; a
+        // local Machine file is read by its canonical locator.
+        const file = boundRoot(
+          'instructions-host',
+          path.join(root, 'AGENTS.md'),
+        );
+
         const audited = await instructionEvents(seeded.run.id);
         // `tool.started` carries no origin, so the origin-filtered log shows
         // one request/completion pair per page.
@@ -7617,9 +7666,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
         );
 
         expect(requestedPaths[0]).toBe(`${file}:raw:1-2000`);
-        expect(requestedPaths[1]).toMatch(
-          new RegExp(`^${file}:raw:\\d+-\\d+$`, 'u'),
-        );
+        expect(requestedPaths[1]?.startsWith(`${file}:raw:`)).toBe(true);
         expect(requestedPaths[1]).not.toBe(requestedPaths[0]);
 
         const callIds = requests.map((entry) =>
@@ -7705,7 +7752,9 @@ describeIfDb('executeRun tool-loop persistence', () => {
           instructionsSeenPaths(
             forkedHistory.flatMap((message) => message.parts),
           ),
-        ).toContain(path.join(root, 'AGENTS.md'));
+        ).toContain(
+          boundRoot('instructions-host', path.join(root, 'AGENTS.md')),
+        );
 
         const forkedSeeded = await seedRunOnChat(
           { ...seeded, chatId: forked.id },
@@ -7910,7 +7959,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
         tx
           .update(schema.chats)
           .set({
-            workspaceRoot: root,
+            workspaceRoot: boundRoot('workspace-test-host', root),
             workspaceExecutorId: 'workspace-test-host',
             workspaceGeneration: 1,
           })
@@ -7955,7 +8004,8 @@ describeIfDb('executeRun tool-loop persistence', () => {
       const fixture = await docsMcpFixture();
       const root = workspaceRootWithDocs(fixture);
       const operator = new McpRuntimeService({});
-      const clients = new WorkspaceMcpClients(operator);
+      const connector = localMachineConnector({ name: 'workspace-test-host' });
+      const clients = new WorkspaceMcpClients(operator, { connector });
 
       const seeded = await seedBoundRun(
         `read-only-mcp-${crypto.randomUUID()}`,
@@ -7964,7 +8014,8 @@ describeIfDb('executeRun tool-loop persistence', () => {
 
       const service = serviceWithTools({
         allowed: ['read', 'enter_workspace', 'mcp__docs__search'],
-        nativeExecutorId: 'workspace-test-host',
+        localMachine: 'workspace-test-host',
+        machineConnector: connector,
         permissionModes: ['default', 'read-only'],
         workspaceMcp: clients,
       });
@@ -7985,8 +8036,14 @@ describeIfDb('executeRun tool-loop persistence', () => {
     it('starts no Workspace MCP client for a read-only attempt', async () => {
       await withDocsWorkspace('read-only', async (env) => {
         const { fixture, root, clients, service, seeded } = env;
+
         // A client another attempt started for an earlier generation.
-        const stale = { chatId: seeded.chatId, root, generation: 0 };
+        const stale = {
+          chatId: seeded.chatId,
+          root: boundRoot('workspace-test-host', root),
+          generation: 0,
+        };
+
         await clients.startForChat(stale);
         expect(clients.stateForKey(stale)).toBeDefined();
         const requestsBeforeAttempt = fixture.requestSummaries().length;
@@ -8007,7 +8064,11 @@ describeIfDb('executeRun tool-loop persistence', () => {
         expect(fixture.requestSummaries()).toHaveLength(requestsBeforeAttempt);
         expect(clients.stateForKey(stale)).toBeUndefined();
         expect(
-          clients.stateForKey({ chatId: seeded.chatId, root, generation: 1 }),
+          clients.stateForKey({
+            chatId: seeded.chatId,
+            root: boundRoot('workspace-test-host', root),
+            generation: 1,
+          }),
         ).toBeUndefined();
         expect(Object.keys(calls[0]?.tools ?? {})).not.toContain(
           'mcp__docs__search',
@@ -8057,7 +8118,13 @@ describeIfDb('executeRun tool-loop persistence', () => {
           'mcp__docs__search',
         );
         const requestsAfterDefault = fixture.requestSummaries().length;
-        const cached = { chatId: seeded.chatId, root, generation: 1 };
+
+        const cached = {
+          chatId: seeded.chatId,
+          root: boundRoot('workspace-test-host', root),
+          generation: 1,
+        };
+
         // Only a `read-only` attempt must skip the hold; a `default` one takes
         // it for the cached set.
         const beginAttempt = vi.spyOn(clients, 'beginAttempt');

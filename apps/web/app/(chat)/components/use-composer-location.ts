@@ -29,7 +29,7 @@ import type { ProjectRepositoryLink } from "@/lib/services/project/types";
 export type WorkingDirectoryOption = {
   checkoutId: string;
   path: string;
-  /** The Machine (or local executor) that holds it. */
+  /** The Machine that holds it. */
   machine: string;
   /** The project links its repository, so it is offered first. */
   linked: boolean;

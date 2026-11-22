@@ -197,7 +197,7 @@ async function knownResult(
         },
       },
     ),
-    // An `ssh://` host cannot open a llame host path (D10).
+    // An `ssh://` host cannot open this Machine's artifact path (D10).
     true,
   );
 }

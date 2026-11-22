@@ -1,12 +1,8 @@
 import { z } from 'zod';
 import { loadPackagedToolDescription } from '../prompts/tool-descriptions';
 import {
-  createFile,
-  editFile,
   parsePathScheme,
-  readFile,
   readResolvedFile,
-  replaceFile,
   REPLACE_TARGET_MISSING_MESSAGE,
   serializeNativeModelOutput,
   type NativeReadOptions,
@@ -24,7 +20,7 @@ import {
   skillResultEnvelope,
 } from '../skills/skill-results';
 import { SKILL_LOCATOR_SCHEME } from '../skills/skill-locator';
-import { workspaceSkillSources } from '../skills/workspace-skill-sources';
+import { verifiedWorkspaceSkillSources } from '../skills/workspace-skill-sources';
 import {
   NO_SKILL_SELECTION,
   isSkillCatalogResult,
@@ -32,18 +28,20 @@ import {
   skillCatalogUnavailableResult,
   type ResolvedSkillTarget,
 } from '../skills/skill-target';
+import { verifyLocalMachine } from './local-machine';
 import { type Tool, type ToolContext, type ToolResult } from './types';
-import {
-  isWorkspaceRelative,
-  mapToWorkspaceHost,
-  resolveWorkspacePath,
-} from './workspace-path';
+import { resolveMachinePath } from './workspace-path';
 import { executeWebRead } from './web-read/execute';
-import { isFileAlias, decodeFileAlias } from './permissions/file-alias';
 import { executeMediaRead } from './media-read';
 import { readAttributionReserve } from './model-text';
 import { MEDIA_LOCATOR_SCHEME } from '../media/media-locator';
-import { executeMachineNative } from './machine-files';
+import {
+  executeLocalNative,
+  executeMachineNative,
+  performMutation,
+  rewriteNativeCallPath,
+  serializeNativeMutation,
+} from './machine-files';
 import {
   formatMachineLocator,
   isMachineLocator,
@@ -79,61 +77,53 @@ function replacing(call: NativeCall): boolean {
   return call.operation === 'write' && call.input.replace === true;
 }
 
-let nativeMutations: Promise<void> = Promise.resolve();
-
 /**
- * The scheme of the `path` argument selects the authority: an absolute path
- * runs under the trusted host process's OS authority, while `kb://` resolves
- * through the Run owner's current Knowledge access on every call and never
- * binds the Run to an executor. `http://` and `https://` are fetched by the
- * API process's own outbound HTTP and bind no executor either, and `media://`
- * reads the Run owner's stored media. `machine://` runs on an operator-
- * configured Machine and never binds the local executor. `projects://` reads
- * the Run owner's Project rows and binds neither an executor nor a Workspace.
- * An unimplemented scheme fails closed.
+ * The `path` argument selects the authority (design D6). A bare or `file:`
+ * path resolves on the current Machine; a relative path resolves from the
+ * entered Workspace root; `machine://<name>/<path>` names its own Machine. A
+ * target on `machines.local` runs the existing host code in process after the
+ * identity check and reports canonical locators; a target on another Machine
+ * goes through `MachineConnector`. Every other locator scheme keeps its own
+ * reader: `kb://` resolves through the Run owner's current Knowledge access on
+ * every call, `http://`/`https://` use the API process's own outbound HTTP,
+ * `media://`, `projects://`, `skill://`, `artifact://`, `job://`, and `ssh://`
+ * keep their existing routing, and none of them binds the local executor. An
+ * unimplemented scheme fails closed.
  */
 function executeNative(
   context: ToolContext,
   call: NativeCall,
 ): Promise<ToolResult> {
-  let hostCall: NativeCall;
+  const target = resolveMachinePath(call.input.path, {
+    workspaceRoot: context.workspaceRoot?.current(),
+    defaultMachine: context.defaultMachine,
+    localMachine: context.localMachine,
+  });
 
-  if (isFileAlias(call.input.path)) {
-    const alias = decodeFileAlias(call.input.path);
+  if (target.kind === 'invalid')
+    return Promise.resolve({
+      status: 'error',
+      type: 'invalid_path',
+      message: target.message,
+    });
 
-    if (!alias.ok)
-      return Promise.resolve({
-        status: 'error' as const,
-        type: 'invalid_path' as const,
-        message: alias.message,
-      });
-    hostCall = rewritePath(call, alias.hostPath);
-  } else {
-    const scheme = parsePathScheme(call.input.path);
+  if (target.kind === 'machine')
+    return target.local
+      ? executeLocalNative(context, call, call.input.path, target)
+      : executeMachineNative(
+          context,
+          rewriteNativeCallPath(call, target.locator),
+          call.input.path,
+        );
 
-    if (scheme !== undefined) {
-      const reader = LOCATOR_READERS.get(scheme.scheme);
+  const scheme = parsePathScheme(call.input.path);
 
-      return reader === undefined
-        ? Promise.resolve(unknownSchemeResult())
-        : reader(context, call, scheme.rest);
-    }
+  if (scheme === undefined) return Promise.resolve(unknownSchemeResult());
+  const reader = LOCATOR_READERS.get(scheme.scheme);
 
-    hostCall = projectNativeCall(context, call);
-
-    // A Machine Workspace maps relative and absolute paths to the Machine's
-    // own locator, so they take the Machine branch like a written one.
-    if (isMachineLocator(hostCall.input.path))
-      return executeMachineNative(context, hostCall, call.input.path);
-  }
-
-  // A media placeholder names the path as submitted, not the host path.
-  if (hostCall.operation === 'read')
-    return executeNativeBound(context, hostCall, call.input.path);
-
-  return serializeMutation(() =>
-    executeNativeBound(context, hostCall, call.input.path),
-  );
+  return reader === undefined
+    ? Promise.resolve(unknownSchemeResult())
+    : reader(context, call, scheme.rest);
 }
 
 type LocatorReader = (
@@ -186,40 +176,6 @@ export function readLocatorSchemes(): ReadonlyArray<string> {
   return [...LOCATOR_READERS.keys()];
 }
 
-function projectNativeCall(context: ToolContext, call: NativeCall): NativeCall {
-  const root = context.workspaceRoot?.current();
-
-  if (root === undefined) return call;
-
-  if (isWorkspaceRelative(call.input.path))
-    return rewritePath(call, resolveWorkspacePath(root, call.input.path));
-  const mapped = mapToWorkspaceHost(root, call.input.path);
-
-  return mapped === call.input.path ? call : rewritePath(call, mapped);
-}
-
-function rewritePath(call: NativeCall, path: string): NativeCall {
-  if (call.operation === 'read') return { operation: 'read', input: { path } };
-
-  if (call.operation === 'edit')
-    return { operation: 'edit', input: { ...call.input, path } };
-
-  return { operation: 'write', input: { ...call.input, path } };
-}
-
-/** One host mutation at a time, whatever scheme resolved the target. */
-function serializeMutation(
-  operation: () => Promise<ToolResult>,
-): Promise<ToolResult> {
-  const pending = nativeMutations.then(operation);
-  nativeMutations = pending.then(
-    () => {},
-    () => {},
-  );
-
-  return pending;
-}
-
 async function executeKnowledge(
   context: ToolContext,
   call: NativeCall,
@@ -246,7 +202,9 @@ async function executeKnowledge(
   // A `const` keeps the narrowing across the closure the queue runs later.
   const mutation = call;
 
-  return serializeMutation(() => mutateKnowledge(context, mutation, target));
+  return serializeNativeMutation(() =>
+    mutateKnowledge(context, mutation, target),
+  );
 }
 
 /**
@@ -267,8 +225,16 @@ async function executeSkill(
   if (catalog === undefined) return skillCatalogUnavailableResult();
   const root = context.workspaceRoot?.current();
 
+  // The bound Workspace's own roots are host reads on this Machine, so they
+  // are offered only after this call's identity-checked handshake.
   const extraSources =
-    root === undefined ? undefined : workspaceSkillSources(root);
+    root === undefined
+      ? undefined
+      : await verifiedWorkspaceSkillSources(root, {
+          localMachine: context.localMachine,
+          verifyLocal: async () =>
+            (await verifyLocalMachine(context)) === undefined,
+        });
 
   const resolved = await resolveSkillLocator(
     catalog,
@@ -500,98 +466,6 @@ async function settleKnowledgeMutation(
   });
 
   return result.status === 'success' ? { ...result, ...envelope } : result;
-}
-
-/**
- * `submitted` is the path as the model wrote it, before a `file:` alias is
- * decoded or a Workspace-relative path projected; an image read is held in
- * the attempt's memory under it.
- */
-async function executeNativeBound(
-  context: ToolContext,
-  call: NativeCall,
-  submitted: string,
-): Promise<ToolResult> {
-  const { runId, nativeExecutorId, toolCallId, userId } = context;
-  const nativeDeliverySequence = context.nativeDeliverySequence;
-
-  if (!runId || !nativeExecutorId || !toolCallId)
-    return {
-      status: 'error',
-      type: 'executor_unavailable',
-      message: 'Native host authority is unavailable.',
-    };
-  context.abortSignal?.throwIfAborted();
-
-  const prior = await context.tenantDb.runAs(userId, (db) =>
-    new NativeFilesRepository(db).begin({
-      runId,
-      userId,
-      fence: { bound: true, executorId: nativeExecutorId },
-      deliverySequence: nativeDeliverySequence,
-      attemptId: context.attemptId,
-      toolCallId,
-      operation: call.operation,
-      path: call.input.path,
-    }),
-  );
-
-  if (prior) return prior;
-  context.abortSignal?.throwIfAborted();
-  const result = await performNative(call, context, submitted);
-
-  if (call.operation !== 'read') {
-    await context.tenantDb.runAs(userId, async (db) => {
-      await new RunEventsRepository(db).append(runId, 'native.result', {
-        toolCallId,
-        result,
-      });
-    });
-  }
-
-  return result;
-}
-
-function performNative(
-  call: NativeCall,
-  context: ToolContext,
-  submitted: string,
-): Promise<ToolResult> {
-  return call.operation === 'read'
-    ? readFile(
-        call.input,
-        context.abortSignal,
-        context.media?.readMedia(submitted, context.toolCallId),
-      )
-    : performMutation(call, call.input.path, { signal: context.abortSignal });
-}
-
-/** The host path is the argument for an absolute path and the resolved target
- *  for a scheme, so the mutation itself is the same call either way. */
-function performMutation(
-  call: NativeMutationCall,
-  hostPath: string,
-  runtime: {
-    signal?: AbortSignal;
-    displayPath?: string;
-    reserveCodeUnits?: number;
-  },
-): Promise<ToolResult> {
-  if (call.operation === 'edit')
-    return editFile({ ...call.input, path: hostPath }, runtime.signal, {
-      displayPath: runtime.displayPath,
-      reserveCodeUnits: runtime.reserveCodeUnits,
-    });
-  const input = { path: hostPath, content: call.input.content };
-
-  const options = {
-    displayPath: runtime.displayPath,
-    reserveCodeUnits: runtime.reserveCodeUnits,
-  };
-
-  return replacing(call)
-    ? replaceFile(input, runtime.signal, options)
-    : createFile(input, runtime.signal, options);
 }
 
 function unknownSchemeResult(): ToolResult {

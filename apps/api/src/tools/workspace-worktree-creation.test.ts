@@ -19,12 +19,9 @@ import {
   TenantDbService,
   type TenantRunner,
 } from '../db/tenant-db.service';
-import {
-  BUILT_IN_DEFAULTS,
-  type LlameConfig,
-} from '../instance-config/llame-config';
 import { ExecutorGit, localGitSurface } from '../machines/executor-git.service';
 import { MachineConnector } from '../machines/machine-connector.service';
+import { localMachineConnector } from '../testing/local-machine';
 import { RepositoriesRepository } from '../repositories/repositories.repository';
 import { type ToolErrorResult } from '../tools/types';
 import { WorkspaceBindingRepository } from '../chats/workspace-binding.repository';
@@ -67,6 +64,11 @@ const NAME: WorktreeName = {
   slug: 'clear-field-0192',
   branch: 'llame/clear-field-0192',
 };
+
+const MACHINE = 'creation-host';
+
+/** The canonical locator of one host path on the creation Machine. */
+const at = (path: string): string => `machine://${MACHINE}${path}`;
 
 const created: Array<string> = [];
 const connectors: Array<MachineConnector> = [];
@@ -122,31 +124,12 @@ function linkedWorktree(main: string, branch: string): string {
   return target;
 }
 
-function configWith(): LlameConfig {
-  return {
-    ...BUILT_IN_DEFAULTS,
-    tools: {
-      ...BUILT_IN_DEFAULTS.tools,
-      nativeExecutorId: 'creation-host',
-    },
-  };
-}
-
 function executors(): ExecutorGit {
-  const connector = new MachineConnector({
-    hubVersion: 'test-hub',
-    bindIdentity: () => Promise.resolve('match'),
-    machines: undefined,
-    idleCloseMs: 1000,
-  });
+  const connector = localMachineConnector({ name: MACHINE });
 
   connectors.push(connector);
 
-  return new ExecutorGit(
-    { config: configWith() },
-    connector,
-    localGitSurface(),
-  );
+  return new ExecutorGit(connector, localGitSurface());
 }
 
 function repositoryRow(overrides: Partial<Repository> = {}): Repository {
@@ -197,12 +180,12 @@ function creationInput(
   overrides: Partial<CreationWorktreeInput> = {},
 ): CreationWorktreeInput {
   return {
-    target: { executorId: 'creation-host', machine: undefined, path: source },
+    target: { executorId: MACHINE, machine: MACHINE, path: source },
     source: {
       checkout: checkoutRow({ path: source }),
       repository: repositoryRow(),
     },
-    canonical: source,
+    canonical: at(source),
     name: NAME,
     baseRef: undefined,
     decide: () => undefined,
@@ -276,14 +259,14 @@ describe('planCreationWorktree', () => {
     );
 
     expect(plan).toEqual({
-      mainClone: source,
-      directory,
+      mainClone: at(source),
+      directory: at(directory),
       branch: 'llame/clear-field-0192',
       sourceHead: headOf(source),
     });
     // The canonical clone IS the main tree here, so only the directory is a
     // derived address; a linked source adds the `main_clone` decision.
-    expect(decisions).toEqual([['worktree_directory', directory]]);
+    expect(decisions).toEqual([['worktree_directory', at(directory)]]);
     expect(worktreeAdd).not.toHaveBeenCalled();
     expect(existsSync(directory)).toBe(false);
   });
@@ -305,7 +288,10 @@ describe('planCreationWorktree', () => {
     );
 
     expect(decisions).toEqual(['main_clone', 'worktree_directory']);
-    expect(plan).toMatchObject({ mainClone: main, sourceHead: headOf(main) });
+    expect(plan).toMatchObject({
+      mainClone: at(main),
+      sourceHead: headOf(main),
+    });
   });
 
   it('answers the rejection that ends the plan, before any write', async () => {
@@ -365,13 +351,9 @@ describe('addCreationWorktree', () => {
       executors(),
       creationInput(source),
       {
-        mainClone: source,
-        directory: join(
-          source,
-          '..',
-          '.llame-worktrees',
-          'llame',
-          'clear-field-0192',
+        mainClone: at(source),
+        directory: at(
+          join(source, '..', '.llame-worktrees', 'llame', 'clear-field-0192'),
         ),
         branch: 'llame/clear-field-0192',
         sourceHead: base,
@@ -388,9 +370,9 @@ describe('addCreationWorktree', () => {
 
     expect(outcome).toEqual({
       status: 'bound',
-      root: directory,
+      root: at(directory),
       worktree: {
-        path: directory,
+        path: at(directory),
         branch: 'llame/clear-field-0192',
         baseCommit: base,
       },
@@ -402,7 +384,7 @@ describe('addCreationWorktree', () => {
       ownerUserId: OWNER,
       repositoryId: '22222222-2222-4222-8222-222222222222',
       executorId: 'creation-host',
-      path: directory,
+      path: at(directory),
       kind: 'worktree',
       parentCheckoutId: '55555555-5555-4555-8555-555555555555',
       branch: 'llame/clear-field-0192',
@@ -419,7 +401,7 @@ describe('addCreationWorktree', () => {
       chatId: CHAT_ID,
       ownerUserId: OWNER,
       executorId: 'creation-host',
-      root: directory,
+      root: at(directory),
     });
   });
 
@@ -433,13 +415,9 @@ describe('addCreationWorktree', () => {
     const second = headOf(source);
 
     const plan: CreationPlan = {
-      mainClone: source,
-      directory: join(
-        source,
-        '..',
-        '.llame-worktrees',
-        'llame',
-        'clear-field-0192',
+      mainClone: at(source),
+      directory: at(
+        join(source, '..', '.llame-worktrees', 'llame', 'clear-field-0192'),
       ),
       branch: 'llame/clear-field-0192',
       sourceHead: second,
@@ -471,13 +449,9 @@ describe('addCreationWorktree', () => {
       executors(),
       creationInput(source),
       {
-        mainClone: source,
-        directory: join(
-          source,
-          '..',
-          '.llame-worktrees',
-          'llame',
-          'clear-field-0192',
+        mainClone: at(source),
+        directory: at(
+          join(source, '..', '.llame-worktrees', 'llame', 'clear-field-0192'),
         ),
         branch: 'llame/clear-field-0192',
         sourceHead: headOf(source),
@@ -508,13 +482,9 @@ describe('addCreationWorktree', () => {
       executors(),
       creationInput(source),
       {
-        mainClone: source,
-        directory: join(
-          source,
-          '..',
-          '.llame-worktrees',
-          'llame',
-          'clear-field-0192',
+        mainClone: at(source),
+        directory: at(
+          join(source, '..', '.llame-worktrees', 'llame', 'clear-field-0192'),
         ),
         branch: 'llame/clear-field-0192',
         sourceHead: headOf(source),
@@ -541,13 +511,9 @@ describe('addCreationWorktree', () => {
 
     await expect(
       addCreationWorktree(context(), executors(), creationInput(source), {
-        mainClone: source,
-        directory: join(
-          source,
-          '..',
-          '.llame-worktrees',
-          'llame',
-          'clear-field-0192',
+        mainClone: at(source),
+        directory: at(
+          join(source, '..', '.llame-worktrees', 'llame', 'clear-field-0192'),
         ),
         branch: 'llame/clear-field-0192',
         sourceHead: headOf(source),
@@ -563,13 +529,9 @@ describe('addCreationWorktree', () => {
 
     await expect(
       addCreationWorktree(context(), executors(), creationInput(source), {
-        mainClone: source,
-        directory: join(
-          source,
-          '..',
-          '.llame-worktrees',
-          'llame',
-          'clear-field-0192',
+        mainClone: at(source),
+        directory: at(
+          join(source, '..', '.llame-worktrees', 'llame', 'clear-field-0192'),
         ),
         branch: 'llame/clear-field-0192',
         sourceHead: headOf(source),
@@ -583,13 +545,9 @@ describe('addCreationWorktree', () => {
     const removeWorktree = vi.spyOn(ExecutorGit.prototype, 'removeWorktree');
 
     await addCreationWorktree(context(), executors(), creationInput(source), {
-      mainClone: source,
-      directory: join(
-        source,
-        '..',
-        '.llame-worktrees',
-        'llame',
-        'clear-field-0192',
+      mainClone: at(source),
+      directory: at(
+        join(source, '..', '.llame-worktrees', 'llame', 'clear-field-0192'),
       ),
       branch: 'llame/clear-field-0192',
       sourceHead: headOf(source),

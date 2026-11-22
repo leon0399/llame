@@ -74,7 +74,7 @@ function checkout(
   return {
     id,
     repositoryId: "repo-1",
-    executorId: "machine:nas",
+    executorId: "nas",
     path: "machine://nas/srv/src/llame",
     kind: "main",
     parentCheckoutId: null,
@@ -114,7 +114,7 @@ function preview(
   return {
     projectId: "p1",
     repositoryId: "repo-1",
-    executorId: "machine:nas",
+    executorId: "nas",
     checkoutId: "checkout-1",
     isolation: "reuse",
     isolationReason: "project_policy",
@@ -303,7 +303,7 @@ export const OfflineMachine: Story = {
     checkouts = [
       checkout("checkout-1"),
       checkout("checkout-2", {
-        executorId: "machine:builder",
+        executorId: "builder",
         path: "machine://builder/srv/src/llame",
       }),
     ];
@@ -334,7 +334,7 @@ export const OutdatedDaemon: Story = {
   args: {
     failed: {
       status: "machine_update_required",
-      executorId: "machine:nas",
+      executorId: "nas",
       message: "Update the llame-machine daemon on nas.",
     },
   },
@@ -511,11 +511,7 @@ export const OtherFolderRefused: Story = {
       jsonResponse({ message: "That folder is not a git clone." }, 422);
   },
   play: async ({ canvasElement }) => {
-    const dialog = await typeOtherFolder(
-      canvasElement,
-      "This server",
-      "/tmp/plain",
-    );
+    const dialog = await typeOtherFolder(canvasElement, "nas", "/tmp/plain");
 
     await userEvent.click(
       within(dialog).getByRole("button", { name: "Use folder" }),

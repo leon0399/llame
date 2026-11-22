@@ -98,13 +98,17 @@
   // One declared Machine that never answers: chat-start-location.spec.ts proves
   // the composer disables an offline Machine with its reason and that a create
   // naming it answers `machine_unavailable` instead of guessing a fallback.
+  // This process hosts `e2e-host` (no destination: it runs in process), which
+  // also serves unbound Chats; the stored executor id is the Machine name.
   "machines": {
+    "local": "e2e-host",
+    "default": "e2e-host",
     "hosts": {
+      "e2e-host": {},
       "e2e-offline": { "destination": "e2e-offline.invalid" }
     }
   },
   "tools": {
-    "nativeExecutorId": "e2e-host",
     "allowed": [
       "bash",
       "search_conversations",

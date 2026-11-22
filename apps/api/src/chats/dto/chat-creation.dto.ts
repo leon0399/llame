@@ -116,6 +116,7 @@ export class CreateChatRequest {
   repositoryId?: string;
 
   @OptionalExecutorId()
+  @ApiPropertyOptional({ description: 'The Machine name of the executor.' })
   executorId?: string;
 
   @OptionalUuid()
@@ -170,7 +171,10 @@ export const WORKTREE_FAILURE_CODES = ['path_not_registered'] as const;
 export type WorktreeFailureCode = (typeof WORKTREE_FAILURE_CODES)[number];
 
 export class CreationWorktreeResponse {
-  @ApiProperty()
+  @ApiProperty({
+    description:
+      'The canonical `machine://` locator of the new worktree directory.',
+  })
   path!: string;
 
   @ApiProperty()
@@ -184,10 +188,16 @@ export class CreationWorkspaceResponse {
   @ApiProperty({ enum: CREATION_WORKSPACE_STATUSES })
   status!: CreationWorkspaceStatus;
 
-  @ApiPropertyOptional({ type: String })
+  @ApiPropertyOptional({
+    type: String,
+    description: 'The canonical `machine://` locator of the bound root.',
+  })
   root?: string;
 
-  @ApiPropertyOptional({ type: String })
+  @ApiPropertyOptional({
+    type: String,
+    description: 'The Machine name of the executor.',
+  })
   executorId?: string;
 
   @ApiPropertyOptional({ type: () => CreationWorktreeResponse })

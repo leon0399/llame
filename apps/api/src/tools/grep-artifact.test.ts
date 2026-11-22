@@ -46,6 +46,7 @@ import {
   type JudgeCandidatesInput,
 } from '../decisions/decisions.service';
 import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
+import { localMachineConnector } from '../testing/local-machine';
 import { ArtifactsRepository } from './artifacts/artifacts-repository';
 import { finishGrepCall } from './grep-artifact';
 import { rankGrepRuns } from './grep-rerank';
@@ -84,7 +85,9 @@ function contextOf(overrides: Partial<ToolContext> = {}): ToolContext {
     chatId: 'chat-a',
     runId: 'run-a',
     toolCallId: 'call-a',
-    nativeExecutorId: 'host-a',
+    localMachine: 'host-a',
+    defaultMachine: 'host-a',
+    machines: localMachineConnector(),
     permissionPolicy: compileToolPermissionMap(
       { grep: { allow: true }, read: { allow: true } },
       'test',
@@ -454,7 +457,9 @@ describe('grep artifacts', () => {
     );
     const artifact = artifactText().split('\n');
     expect(artifact).toHaveLength(401);
-    expect(artifact[0]).toBe(`## ${path.join(root, 'd/big.ts')}`);
+    expect(artifact[0]).toBe(
+      `## machine://host-a${path.join(root, 'd/big.ts')}`,
+    );
 
     // Every source line of the passage appears exactly once.
     const numbered = artifact.flatMap((entry) => {
@@ -1669,7 +1674,7 @@ describe('grep rerank', () => {
     const cards = answers.calls[0]?.cards ?? [];
     expect(cards.map((card) => card.key)).toEqual(['p0', 'p1']);
     expect(cards.map((card) => card.text.split('\n')[0])).toEqual([
-      `${root}/d/a.ts`,
+      `machine://host-a${root}/d/a.ts`,
       `kb://${space}/notes/a.md`,
     ]);
     expect(JSON.stringify(cards)).not.toContain('secret');

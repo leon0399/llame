@@ -1,6 +1,7 @@
 import { drizzle } from 'drizzle-orm/postgres-js';
 
 import { TenantDbService, type Db } from '../db/tenant-db.service';
+import { localMachineConnector } from '../testing/local-machine';
 import { type CheckoutRegistrationService } from './checkout-registration.service';
 import { CheckoutsController } from './checkouts.controller';
 import { type CheckoutSummary, CheckoutsService } from './checkouts.service';
@@ -73,7 +74,12 @@ function makeController() {
     transaction: async <T>(callback: (tx: Db) => Promise<T>) => callback(db),
   });
 
-  const service = new CheckoutsService(tenantDb, unusedRegistration());
+  const service = new CheckoutsService(
+    tenantDb,
+    unusedRegistration(),
+    localMachineConnector({ name: 'local-exec' }),
+  );
+
   const register = vi.spyOn(service, 'register').mockResolvedValue(summary);
 
   const listCheckouts = vi

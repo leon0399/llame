@@ -52,7 +52,11 @@ import type {
   WebSearchEngineConfig,
 } from './web-search-config';
 import { WEB_SEARCH_FETCH_LIMIT_DEFAULT } from './web-search-config';
-import type { MachineHostConfig } from './machines-config';
+import type {
+  MachineHostConfig,
+  MachinesConfig,
+  RawMachinesConfig,
+} from './machines-config';
 import {
   COHERE_DEFAULT_BASE_URL,
   type CohereRerankProviderConfig,
@@ -259,25 +263,21 @@ function resolveToolsConfig(
   { env, credentials }: LoaderContext,
   decisionModelIds: ReadonlySet<string>,
 ): LlameConfig['tools'] {
-  const nativeExecutorId = resolveNullableString({
-    configPath: 'tools.nativeExecutorId',
-    ...readLeaf(raw, 'tools', 'nativeExecutorId'),
-    env,
-  });
+  // `tools.nativeExecutorId` is gone (host-as-machine D3): the host is now a
+  // `machines.hosts` entry named by `machines.local`. The schema keeps the
+  // property only so this targeted error can name the replacement; a stored
+  // executor id equals the Machine name, so the old value is the entry name.
+  const removedExecutorId = readLeaf(raw, 'tools', 'nativeExecutorId');
 
-  // A Machine Workspace binds `workspace_executor_id = machine:<name>` (D5), so
-  // a local executor identity wearing that prefix would be indistinguishable
-  // from a Machine binding — the two columns could agree while naming
-  // different things. Checked on the RESOLVED value, so a token cannot smuggle
-  // the prefix in either.
-  // Case-insensitively, as the Machine executor parser reads the prefix.
-  if (nativeExecutorId?.toLowerCase().startsWith('machine:')) {
+  if (removedExecutorId.present) {
+    const value = isString(removedExecutorId.raw) ? removedExecutorId.raw : '';
+
     throw new InstanceConfigError(
-      'tools.nativeExecutorId: must not begin with "machine:" — that prefix names a Machine Workspace binding',
+      `tools.nativeExecutorId was removed. Declare this host as a machines.hosts entry named "${value}" and set machines.local to it, so existing bindings keep resolving.`,
     );
   }
 
-  const tools: LlameConfig['tools'] = {
+  return {
     allowed: resolveToolAllowlist({
       configPath: 'tools.allowed',
       ...readLeaf(raw, 'tools', 'allowed'),
@@ -299,10 +299,6 @@ function resolveToolsConfig(
     promptFiles: resolveToolPromptFiles(raw),
     webAdapters: resolveWebAdaptersConfig(raw, { env, credentials }),
   };
-
-  if (nativeExecutorId) tools.nativeExecutorId = nativeExecutorId;
-
-  return tools;
 }
 
 /**
@@ -772,9 +768,75 @@ export function loadInstanceConfig(
     ...(webSearch !== undefined && { webSearch }),
   };
 
+  assertMachineConfiguration(config);
+
   recordConfiguredCredentials(config, credentials.snapshot());
 
   return config;
+}
+
+/**
+ * The tools that need a Machine backend (host-as-machine D3, H4 A). Every path
+ * they take resolves on a Machine before execution, so a process that can
+ * admit one must name the Machine that serves an unbound Chat.
+ */
+const NATIVE_TOOL_IDS = {
+  read: true,
+  edit: true,
+  write: true,
+  grep: true,
+  bash: true,
+  enter_workspace: true,
+  exit_workspace: true,
+  stop: true,
+} satisfies Readonly<Record<string, true>>;
+
+/**
+ * The cross-section Machine boot checks of design D3. Each failure names the
+ * operator field, because the fix is always a config edit. A bound Chat on a
+ * Machine this process cannot reach is NOT a boot failure: another worker can
+ * serve it. A non-default `machines.default` divergence between workers is
+ * likewise allowed and narrated in the attempt's Workspace snapshot.
+ */
+function assertMachineConfiguration(config: LlameConfig): void {
+  const machines = config.machines;
+  const local = machines?.local;
+  const defaultMachine = machines?.default;
+  const hosts = machines?.hosts ?? {};
+
+  if (local !== undefined && !Object.hasOwn(hosts, local)) {
+    throw new InstanceConfigError(
+      `machines.local: "${local}" names no entry in machines.hosts`,
+    );
+  }
+
+  if (defaultMachine !== undefined && !Object.hasOwn(hosts, defaultMachine)) {
+    throw new InstanceConfigError(
+      `machines.default: "${defaultMachine}" names no entry in machines.hosts`,
+    );
+  }
+
+  if (
+    defaultMachine !== undefined &&
+    defaultMachine !== local &&
+    hosts[defaultMachine]?.destination === undefined
+  ) {
+    throw new InstanceConfigError(
+      `machines.default: "${defaultMachine}" is not this process's machines.local and its entry has no destination, so this process cannot reach it`,
+    );
+  }
+
+  if (defaultMachine !== undefined) return;
+
+  const nativeTool = config.tools.allowed.find((id) =>
+    Object.hasOwn(NATIVE_TOOL_IDS, id),
+  );
+
+  if (nativeTool !== undefined) {
+    throw new InstanceConfigError(
+      `machines.default: required because tools.allowed lists the native tool "${nativeTool}"; it names the Machine that serves an unbound Chat`,
+    );
+  }
 }
 
 /** The sections that name no credential: runs, http, db, knowledge, skills, remote hosts, workers. */
@@ -789,7 +851,7 @@ function resolveOperationalSections(
     db: resolveDbConfig(raw, env),
     knowledge: resolveKnowledge(raw, env),
     skills: resolveSkillsConfig(raw, configPath),
-    ...resolveRemoteSections(raw, configPath),
+    ...resolveRemoteSections(raw, env, configPath),
     workers: resolveWorkerProfiles(raw),
   };
 }
@@ -1554,6 +1616,7 @@ const MACHINE_DESTINATION_PATTERN =
  */
 function resolveRemoteSections(
   raw: RawInstanceConfig | undefined,
+  env: NodeJS.ProcessEnv,
   configPath: string,
 ): Pick<LlameConfig, 'machines' | 'ssh'> {
   const configDirectory = path.dirname(configPath);
@@ -1562,10 +1625,7 @@ function resolveRemoteSections(
 
   return {
     ...(machines !== undefined && {
-      machines: {
-        ssh: resolveSshFiles(machines.ssh, 'machines.ssh', configDirectory),
-        hosts: resolveMachineHosts(machines.hosts),
-      },
+      machines: resolveMachinesConfig(machines, env, configDirectory),
     }),
     ...(ssh !== undefined && {
       ssh: {
@@ -1579,6 +1639,90 @@ function resolveRemoteSections(
       },
     }),
   };
+}
+
+/**
+ * `machines` (host-as-machine D3): the hosts map, this process's own entry,
+ * and the Machine an unbound Chat uses. `ssh` is resolved only when something
+ * can use it — an entry declares a `destination`, or the operator wrote the
+ * block — so a section that only names this process's Machine carries no
+ * unused SSH settings.
+ */
+function resolveMachinesConfig(
+  machines: RawMachinesConfig,
+  env: NodeJS.ProcessEnv,
+  configDirectory: string,
+): MachinesConfig {
+  const hosts = resolveMachineHosts(machines.hosts);
+  const local = resolveMachineName(machines.local, 'machines.local', env);
+
+  const defaultMachine = resolveMachineName(
+    machines.default,
+    'machines.default',
+    env,
+  );
+
+  const needsSsh =
+    machines.ssh !== undefined ||
+    Object.values(hosts).some((host) => host.destination !== undefined);
+
+  return {
+    ...(needsSsh && {
+      ssh: resolveSshFiles(machines.ssh, 'machines.ssh', configDirectory),
+    }),
+    ...(local !== undefined && { local }),
+    ...(defaultMachine !== undefined && { default: defaultMachine }),
+    hosts,
+  };
+}
+
+/**
+ * The whole-value token `machines.local` / `machines.default` accept: only
+ * `{env:...}` (design D3). A `{path:...}` token is refused here rather than
+ * read at boot, because this field names a Machine, never a secret.
+ */
+const MACHINE_NAME_ENV_TOKEN_PATTERN = /^\{env:[A-Za-z0-9_]+(?::-[^}]*)?\}$/u;
+
+/**
+ * `machines.local` / `machines.default`: a Machine name, or one whole-value
+ * `{env:...}` token resolved like `webAdapters[].token`. The resolved value is
+ * trimmed and then held to the same name grammar as a `hosts` key, so a token
+ * cannot introduce a name the operator could not write directly. A resolved
+ * value never reaches the error: it may be a secret (`{env:}` pointed at the
+ * wrong variable), so a token's grammar failure names the field only, and a
+ * literal is echoed because the operator wrote it in the file.
+ */
+function resolveMachineName(
+  value: string | undefined,
+  configPath: string,
+  env: NodeJS.ProcessEnv,
+): string | undefined {
+  if (value === undefined) return undefined;
+
+  const fromToken = MACHINE_NAME_ENV_TOKEN_PATTERN.test(value);
+
+  const resolved = (
+    fromToken ? resolveInterpolatedString(value, configPath, env) : value
+  ).trim();
+
+  if (resolved === '') {
+    throw new InstanceConfigError(
+      fromToken
+        ? `${configPath}: must resolve to a nonblank Machine name`
+        : `${configPath}: must be a nonblank Machine name`,
+    );
+  }
+
+  // A grammar miss names the field only when the value came from a token.
+  if (!MACHINE_NAME_PATTERN.test(resolved)) {
+    throw new InstanceConfigError(
+      fromToken
+        ? `${configPath}: must resolve to a Machine name matching [a-z0-9-]{1,63}`
+        : `${configPath}: "${resolved}" must be a Machine name matching [a-z0-9-]{1,63}`,
+    );
+  }
+
+  return resolved;
 }
 
 /** The three SSH file settings shared by `machines.ssh` and `ssh`. */
@@ -1628,10 +1772,11 @@ function resolveIdentityAgent(value: string, configDirectory: string): string {
 }
 
 /**
- * `machines.hosts`: name → destination. The published schema already fixes the
- * entry shape (an object whose `destination` is a non-empty string); the name
- * grammar and the destination's own rules are checked here, at startup, so the
- * failure names the operator's exact key.
+ * `machines.hosts`: name → optional destination. The published schema already
+ * fixes the entry shape (an object, `destination` optional); the name grammar
+ * and the destination's own rules are checked here, at startup, so the failure
+ * names the operator's exact key. An entry without a destination is this
+ * process's own Machine, held in process when `machines.local` names it.
  */
 function resolveMachineHosts(
   hosts: Record<string, MachineHostConfig> | undefined,
@@ -1645,9 +1790,12 @@ function resolveMachineHosts(
       );
     }
 
-    resolved[name] = {
-      destination: resolveMachineDestination(name, host.destination),
-    };
+    const destination = host.destination;
+
+    resolved[name] =
+      destination === undefined
+        ? {}
+        : { destination: resolveMachineDestination(name, destination) };
   }
 
   return resolved;

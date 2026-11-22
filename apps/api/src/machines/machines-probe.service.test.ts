@@ -31,7 +31,13 @@ import { MachinesStatusRepository } from './machines-status.repository';
 
 const MACHINES: MachinesConfig = {
   ssh: { knownHostsFile: '/etc/llame/machine_known_hosts' },
-  hosts: { devl: { destination: 'box' }, ci: { destination: 'ci-box' } },
+  // `edge` has no destination, so this process cannot reach it: it keeps its
+  // status row but is never dialed.
+  hosts: {
+    devl: { destination: 'box' },
+    ci: { destination: 'ci-box' },
+    edge: {},
+  },
 };
 
 const NOW = new Date('2026-10-19T10:00:00.000Z');
@@ -224,7 +230,7 @@ describe('MachinesProbeService', () => {
     );
   });
 
-  it('asks about every configured Machine under one attempt key, then prunes', async () => {
+  it('asks about every reachable Machine under one attempt key, then prunes every configured name', async () => {
     const fixture = makeService({ enabled: true, concurrency: 1, pruned: 0 });
     await fixture.service.onApplicationBootstrap();
 
@@ -235,7 +241,7 @@ describe('MachinesProbeService', () => {
       ['devl', attemptKey],
       ['ci', attemptKey],
     ]);
-    expect(fixture.pruneExcept).toHaveBeenCalledWith(['devl', 'ci']);
+    expect(fixture.pruneExcept).toHaveBeenCalledWith(['devl', 'ci', 'edge']);
     expect(fixture.log).not.toHaveBeenCalled();
   });
 

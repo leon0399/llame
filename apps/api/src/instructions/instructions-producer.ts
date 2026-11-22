@@ -40,10 +40,7 @@
 
 import { posix } from 'node:path';
 
-import {
-  parsePathScheme,
-  splitSelectorSuffix,
-} from '@workspace/native-file-tools';
+import { parsePathScheme } from '@workspace/native-file-tools';
 import { isRecord, isString } from '@workspace/runtime-safety';
 
 import { compareCodePoints } from '../canonical-json';
@@ -56,7 +53,7 @@ import {
 import { isKnowledgeSpaceId } from '../knowledge/knowledge-filesystem-validation';
 import { spaceInstructionScope } from '../knowledge/knowledge-instruction-probe';
 import {
-  isMachineLocator,
+  MACHINE_SCHEME,
   parseMachineLocator,
 } from '../machines/machine-locator';
 import type {
@@ -72,12 +69,12 @@ import {
   nativeReadTool,
   nativeWriteTool,
 } from '../tools/native-files';
-import { decodeFileAlias, isFileAlias } from '../tools/permissions/file-alias';
+import { isFileAlias } from '../tools/permissions/file-alias';
 import type { ToolResult } from '../tools/types';
 import { enterWorkspaceTool } from '../tools/workspace';
 import {
-  isWorkspaceRelative,
-  resolveWorkspacePath,
+  resolveMachinePath,
+  type LocatorContext,
 } from '../tools/workspace-path';
 import {
   hostInstructionScope,
@@ -119,56 +116,43 @@ interface PendingTrigger extends PromptImportTrigger {
 
 /**
  * The one world a native file tool's input names, projected the way the tool
- * itself projects it: a `machine://` locator names a Machine path, a `file:`
- * alias decodes to a host path, a `kb://` locator resolves inside its Space,
- * another scheme names no local file, and a relative path resolves against the
- * Workspace root in effect for the call — with no root bound there is nothing
- * to resolve. Every branch normalizes the path it produces with `posix.resolve`
- * (host and Machine alike), so `.` and `..` segments cannot walk a directory
- * the path merely spells or bypass the candidate exclusion.
+ * itself projects it: the locator rule places a bare absolute path, a `file:`
+ * alias, a relative path (against the Workspace root in effect), and a
+ * `machine://` locator on their Machine; a `kb://` locator resolves inside its
+ * Space; another scheme names no local file. A path with no current Machine
+ * and a listing form load nothing. Every Machine target is normalized with
+ * `posix.resolve`, so `.` and `..` segments cannot walk a directory the path
+ * merely spells or bypass the candidate exclusion.
  */
 function projectTarget(input: {
   readonly args: unknown;
   readonly root: string | undefined;
+  readonly defaultMachine: string | undefined;
+  readonly localMachine: string | undefined;
 }): PromptImportTrigger | undefined {
   if (!isRecord(input.args)) return undefined;
   const path = input.args['path'];
 
   if (!isString(path) || path.length === 0) return undefined;
 
-  if (isMachineLocator(path)) return machineTarget(path);
+  // The `file:` classifier runs first, as it does in the tool itself.
+  const scheme = isFileAlias(path) ? undefined : parsePathScheme(path);
 
-  if (isFileAlias(path)) {
-    const alias = decodeFileAlias(path);
+  if (scheme?.scheme === KNOWLEDGE_LOCATOR_SCHEME)
+    return spaceTarget(scheme.rest);
 
-    return alias.ok ? hostTarget(alias.hostPath) : undefined;
-  }
+  // Another scheme keeps its own reader and names no local file;
+  // `machine://` is the locator rule's own.
+  if (scheme !== undefined && scheme.scheme !== MACHINE_SCHEME)
+    return undefined;
 
-  const scheme = parsePathScheme(path);
+  const target = resolveMachinePath(path, {
+    workspaceRoot: input.root,
+    defaultMachine: input.defaultMachine,
+    localMachine: input.localMachine,
+  });
 
-  if (scheme !== undefined) {
-    return scheme.scheme === KNOWLEDGE_LOCATOR_SCHEME
-      ? spaceTarget(scheme.rest)
-      : undefined;
-  }
-
-  if (isWorkspaceRelative(path)) {
-    if (input.root === undefined) return undefined;
-    // The root in effect decides the world: a Machine Workspace resolves a
-    // relative path on its Machine, a host Workspace on this worker.
-    const resolved = resolveWorkspacePath(input.root, path);
-
-    return isMachineLocator(resolved)
-      ? machineTarget(resolved)
-      : hostTarget(resolved);
-  }
-
-  return hostTarget(path);
-}
-
-/** One host path, selector and representation suffix split off. */
-function hostTarget(selectorPath: string): PromptImportTrigger {
-  return { key: posix.resolve(splitSelectorSuffix(selectorPath).path) };
+  return target.kind === 'machine' ? machineTarget(target.locator) : undefined;
 }
 
 /**
@@ -195,16 +179,30 @@ export function machineTarget(
 }
 
 /**
- * One trigger in the world its path names. A trigger that already names its
- * Machine — a Workspace root and a prompt import are both resolved before the
- * producer sees them — is taken as it is, and a path spelled as a Machine
- * locator becomes the Machine trigger a native tool call of it would produce,
- * so a Machine root is never probed as a host path.
+ * One trigger in the world its path names, by the one locator rule: a trigger
+ * that already names its Machine or Space is taken as it is, and every other
+ * key — a bare or `file:` path, a relative path, or a `machine://` locator —
+ * becomes the Machine trigger a native tool call of it would produce. A trigger
+ * the rule refuses names no local file and loads nothing, so one filesystem is
+ * never talked to as a host world and a Machine world under two identities.
  */
-function worldTrigger(target: PromptImportTrigger): PromptImportTrigger {
-  return target.machine !== undefined
-    ? target
-    : (machineTarget(target.key) ?? target);
+function worldTrigger(
+  target: PromptImportTrigger,
+  locator: LocatorContext,
+  machineWorld: boolean,
+): PromptImportTrigger | undefined {
+  if (target.machine !== undefined || target.space !== undefined) return target;
+
+  // A Run without the Machine capability has only the host world to read a
+  // local path with; a Run with it places the path on its Machine, so one
+  // filesystem is never loaded as a host world and a Machine world at once.
+  if (!machineWorld) return target;
+
+  const resolved = resolveMachinePath(target.key, locator);
+
+  return resolved.kind === 'machine'
+    ? machineTarget(resolved.locator)
+    : undefined;
 }
 
 /**
@@ -246,8 +244,21 @@ function enteredRoot(result: ToolResult | undefined): string | undefined {
   return isString(root) ? root : undefined;
 }
 
+/** The trigger facts of one attempt: both Machine names, never a root. */
+function attemptLocator(
+  attempt: Pick<InRunAttempt, 'defaultMachine' | 'localMachine' | 'machines'>,
+): LocatorContext {
+  return {
+    defaultMachine: attempt.defaultMachine,
+    localMachine: attempt.localMachine,
+  };
+}
+
 /** The trigger one observed tool call marks, if it marks one at all. */
-function observedTrigger(call: InRunToolCall): PendingTrigger | undefined {
+function observedTrigger(
+  call: InRunToolCall,
+  attempt: Pick<InRunAttempt, 'defaultMachine' | 'localMachine' | 'machines'>,
+): PendingTrigger | undefined {
   if (FILE_TOOL_IDS.includes(call.toolName)) {
     // A file tool marks at admission; its settled observation repeats the very
     // same call and input, so it adds nothing.
@@ -256,6 +267,8 @@ function observedTrigger(call: InRunToolCall): PendingTrigger | undefined {
     const target = projectTarget({
       args: call.input,
       root: call.workspaceRoot,
+      defaultMachine: attempt.defaultMachine,
+      localMachine: attempt.localMachine,
     });
 
     return target === undefined
@@ -268,7 +281,13 @@ function observedTrigger(call: InRunToolCall): PendingTrigger | undefined {
 
   // A Machine entry binds a Machine locator, so the bound root's own directory
   // load happens on that Machine, exactly as an entry at a host root does here.
-  return root === undefined ? undefined : worldTrigger({ key: root });
+  return root === undefined
+    ? undefined
+    : worldTrigger(
+        { key: root },
+        attemptLocator(attempt),
+        attempt.machines !== undefined,
+      );
 }
 
 /** One directory's pending exclusions, collected across the trigger set. */
@@ -668,7 +687,7 @@ function createAttemptProducer(attempt: InRunAttempt): InRunAttemptProducer {
 
   return {
     observeToolCall(call): void {
-      const trigger = observedTrigger(call);
+      const trigger = observedTrigger(call, attempt);
 
       if (trigger !== undefined) pending.push(trigger);
     },
@@ -702,15 +721,27 @@ function createAttemptProducer(attempt: InRunAttempt): InRunAttemptProducer {
 function turnTriggers(context: InRunTurnContext): Array<PendingTrigger> {
   const root = context.workspaceRoot;
 
+  const locator: LocatorContext = {
+    workspaceRoot: context.workspaceRoot,
+    defaultMachine: context.defaultMachine,
+    localMachine: context.localMachine,
+  };
+
+  const machineWorld = context.machines !== undefined;
+
+  const rootTrigger =
+    root === undefined
+      ? undefined
+      : worldTrigger({ key: root }, locator, machineWorld);
+
   const triggers: Array<PendingTrigger> =
-    root === undefined ? [] : [worldTrigger({ key: root })];
+    rootTrigger === undefined ? [] : [rootTrigger];
 
   for (const imported of context.promptImportTriggers ?? []) {
-    triggers.push({
-      ...worldTrigger(imported),
-      excludeCandidate: true,
-      yieldsToWalk: true,
-    });
+    const target = worldTrigger(imported, locator, machineWorld);
+
+    if (target === undefined) continue;
+    triggers.push({ ...target, excludeCandidate: true, yieldsToWalk: true });
   }
 
   return triggers;

@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 
 import { AuthModule } from '../auth/auth.module';
 import { MachinesModule } from '../machines/machines.module';
+import { WorkspaceEntryAdmission } from '../tools/permissions/workspace-entry-admission';
 import { CheckoutRegistrationService } from './checkout-registration.service';
 import { CheckoutsController } from './checkouts.controller';
 import { CheckoutsService } from './checkouts.service';
@@ -25,6 +26,7 @@ import { WorktreeRemovalService } from './worktree-removal.service';
     CheckoutsService,
     CheckoutRegistrationService,
     WorktreeRemovalService,
+    WorkspaceEntryAdmission,
   ],
 })
 export class RepositoriesModule {}

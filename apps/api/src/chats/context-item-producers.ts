@@ -27,10 +27,8 @@ import {
   formatTemporalAnchor,
   isIanaTimeZone,
 } from '../prompts/temporal-anchor';
-import { type Message, type RecencyDigestEntry } from '../db/schema';
+import { type Message } from '../db/schema';
 import {
-  isBoolean,
-  isNumber,
   isRecord,
   isString,
   type UnknownRecord,
@@ -41,10 +39,8 @@ import {
   createRenderedContextItem,
   isExactRecord,
 } from './context-item-shared';
-import {
-  isMachineName,
-  renderMachineWorkspaceSnapshot,
-} from './machine-context-item-producers';
+import { isMachineName } from './machine-context-item-producers';
+import { isRecencyDigestDeltaPayload } from './recency-digest-item';
 import {
   createToolAvailabilityItem,
   deriveToolAvailabilityPayload,
@@ -65,6 +61,11 @@ import {
 
 export interface WorkspaceSnapshotPayload extends UnknownRecord {
   readonly root: string | null;
+  /**
+   * The current Machine the snapshot named. Absent only on a payload written
+   * before the snapshot carried one (history replay).
+   */
+  readonly machine?: string;
 }
 
 export interface WorkspaceDetachPayload extends UnknownRecord {
@@ -76,12 +77,16 @@ export interface WorkspaceDetachPayload extends UnknownRecord {
   readonly machine?: string;
 }
 
-function isWorkspaceRoot(value: unknown): value is string {
+/** Whether one known text is a Workspace root: no NUL byte, one address form. */
+function isWorkspaceRootText(value: string): boolean {
   return (
-    isString(value) &&
     !value.includes('\0') &&
     (value.startsWith('/') || machineWorkspaceRoot(value) !== undefined)
   );
+}
+
+function isWorkspaceRoot(value: unknown): value is string {
+  return isString(value) && isWorkspaceRootText(value);
 }
 
 export function isWorkspaceSnapshotPayload(
@@ -93,9 +98,15 @@ export function isWorkspaceSnapshotPayload(
 export function isWorkspaceSnapshotPayload(
   value: unknown,
 ): value is WorkspaceSnapshotPayload {
-  if (!isExactRecord(value, ['root'])) return false;
+  if (!isRecord(value)) return false;
+  const machine = value['machine'];
+  const keys = machine === undefined ? ['root'] : ['root', 'machine'];
 
-  return value['root'] === null || isWorkspaceRoot(value['root']);
+  if (!isExactRecord(value, keys)) return false;
+
+  if (!(value['root'] === null || isWorkspaceRoot(value['root']))) return false;
+
+  return machine === undefined || isMachineName(machine);
 }
 
 export function isWorkspaceDetachPayload(
@@ -123,6 +134,7 @@ export function isWorkspaceDetachPayload(
 const renderWorkspaceSnapshotTemplate = loadPackagedTemplate<{
   readonly hasWorkspace: boolean;
   readonly root?: string;
+  readonly machine: string;
 }>(__dirname, 'workspace-snapshot');
 
 const renderWorkspaceDetachTemplate = loadPackagedTemplate<{
@@ -130,23 +142,59 @@ const renderWorkspaceDetachTemplate = loadPackagedTemplate<{
   readonly machine?: string;
 }>(__dirname, 'workspace-detach');
 
-function renderWorkspaceSnapshot(root: string | null): string {
-  const machineSnapshot =
-    root === null ? undefined : renderMachineWorkspaceSnapshot(root);
+/**
+ * The `workspace_told` value: the current Machine on its own line, then the
+ * root it applies to (empty for an unbound Chat). A change of either re-tells
+ * the Chat, so a changed `machines.default` reaches an unbound Chat.
+ */
+export function formatWorkspaceTold(
+  machine: string,
+  root: string | null,
+): string {
+  return `${machine}\n${root ?? ''}`;
+}
 
-  if (machineSnapshot !== undefined) return machineSnapshot;
+/** What a `workspace_told` value narrates: the current Machine and the root. */
+export type ToldWorkspaceState = {
+  /** Absent on a value written before the told format carried a Machine. */
+  readonly machine?: string;
+  readonly root: string | null;
+};
 
-  return renderWorkspaceSnapshotTemplate({
-    hasWorkspace: root !== null,
-    ...(root !== null && { root }),
-  });
+/**
+ * Read a `workspace_told` value. A value without a newline is a root written
+ * before the format carried a Machine; an unreadable value counts as absent, so
+ * the next attempt re-tells rather than suppressing a narration it cannot
+ * compare.
+ */
+export function parseWorkspaceTold(
+  value: string | null,
+): ToldWorkspaceState | undefined {
+  if (value === null || value === '') return undefined;
+  const separator = value.indexOf('\n');
+
+  if (separator === -1)
+    return isWorkspaceRootText(value) ? { root: value } : undefined;
+
+  const machine = value.slice(0, separator);
+  const root = value.slice(separator + 1);
+
+  if (!isMachineName(machine)) return undefined;
+
+  if (root !== '' && !isWorkspaceRootText(root)) return undefined;
+
+  return { machine, root: root === '' ? null : root };
 }
 
 export function createWorkspaceSnapshotItem(input: {
   readonly runId: string;
   readonly root: string | null;
+  readonly machine: string;
 }): AuthoredContextItemPart {
-  const payload: WorkspaceSnapshotPayload = { root: input.root };
+  const payload: WorkspaceSnapshotPayload = {
+    root: input.root,
+    machine: input.machine,
+  };
 
   if (!isWorkspaceSnapshotPayload(payload)) {
     throw new TypeError('Invalid server-authored Workspace snapshot metadata');
@@ -157,7 +205,11 @@ export function createWorkspaceSnapshotItem(input: {
     form: 'snapshot',
     runId: input.runId,
     payload,
-    body: renderWorkspaceSnapshot(input.root),
+    body: renderWorkspaceSnapshotTemplate({
+      hasWorkspace: input.root !== null,
+      ...(input.root !== null && { root: input.root }),
+      machine: input.machine,
+    }),
   });
 }
 
@@ -339,164 +391,6 @@ function renderModelChange(
     oldModel: toModelChangeModelView(oldModel),
     newModel: toModelChangeModelView(newModel),
   });
-}
-
-/* ------------------------------------------------------------------ *
- * recency-digest
- * ------------------------------------------------------------------ */
-
-type RecencyDigestDeltaEntry = RecencyDigestEntry & { pinned: boolean };
-
-export interface RecencyDigestDeltaPayload extends UnknownRecord {
-  readonly entries: ReadonlyArray<RecencyDigestDeltaEntry>;
-  readonly pinChanges: ReadonlyArray<{
-    readonly title: string;
-    readonly pinned: boolean;
-  }>;
-}
-
-const ISO_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
-
-function isDigestEntry(value: unknown): value is RecencyDigestDeltaEntry {
-  if (
-    !isExactRecord(value, [
-      'date',
-      'excerpt',
-      'messageCount',
-      'pinned',
-      'title',
-    ]) &&
-    !isExactRecord(value, ['date', 'messageCount', 'pinned', 'title'])
-  ) {
-    return false;
-  }
-
-  return (
-    isString(value['title']) &&
-    value['title'].trim().length > 0 &&
-    isString(value['date']) &&
-    ISO_DATE_PATTERN.test(value['date']) &&
-    isNumber(value['messageCount']) &&
-    Number.isSafeInteger(value['messageCount']) &&
-    value['messageCount'] >= 0 &&
-    isBoolean(value['pinned']) &&
-    (value['excerpt'] === undefined || isString(value['excerpt']))
-  );
-}
-
-export function isRecencyDigestDeltaPayload(
-  value: unknown,
-): value is RecencyDigestDeltaPayload {
-  if (!isExactRecord(value, ['entries', 'pinChanges'])) return false;
-  const { entries, pinChanges } = value;
-
-  if (!Array.isArray(entries) || !entries.every(isDigestEntry)) return false;
-
-  if (
-    !Array.isArray(pinChanges) ||
-    !pinChanges.every(
-      (change) =>
-        isExactRecord(change, ['pinned', 'title']) &&
-        isString(change['title']) &&
-        change['title'].trim().length > 0 &&
-        isBoolean(change['pinned']),
-    )
-  ) {
-    return false;
-  }
-
-  return entries.length + pinChanges.length > 0;
-}
-
-export function createRecencyDigestDeltaItem(input: {
-  readonly runId: string;
-  readonly payload: RecencyDigestDeltaPayload;
-}): AuthoredContextItemPart {
-  if (!isRecencyDigestDeltaPayload(input.payload)) {
-    throw new TypeError('Invalid server-authored recency digest metadata');
-  }
-
-  return createRenderedContextItem({
-    producer: 'recency-digest',
-    form: 'notice',
-    runId: input.runId,
-    payload: input.payload,
-    body: renderRecencyDigestDelta(input.payload),
-  });
-}
-
-/**
- * The supersession marker is a `snapshot`, whose defined meaning already is
- * that a later snapshot from the same producer supersedes an earlier one — so
- * it needs no marker shape of its own.
- */
-export function createRecencyDigestSupersessionItem(input: {
-  readonly runId: string;
-}): AuthoredContextItemPart {
-  return createRenderedContextItem({
-    producer: 'recency-digest',
-    form: 'snapshot',
-    runId: input.runId,
-    payload: {},
-    body: renderRecencyDigestSupersession(),
-  });
-}
-
-/** One digest entry as the template sees it: the title and excerpt the
- *  producer neutralizes, and the pin flag the template branches on. */
-type RecencyDigestDeltaEntryView = {
-  readonly title: string;
-  readonly date: string;
-  readonly messageCount: number;
-  readonly pinned: boolean;
-  readonly excerpt?: string;
-};
-
-/** One pin change as the template sees it. */
-type RecencyDigestDeltaPinChangeView = {
-  readonly title: string;
-  readonly pinned: boolean;
-};
-
-/**
- * The digest carries another chat's title and excerpt — content llame did not
- * author — so this item states its own precedence rather than relying on the
- * packaged prompt, which an operator may replace wholesale.
- *
- * The engine has no comparison helper and neutralizes nothing, so the entry
- * heading and every pin sentence branch on values derived here, and both
- * untrusted fields arrive already neutralized.
- */
-const renderRecencyDigestDeltaTemplate = loadPackagedTemplate<{
-  readonly hasEntries: boolean;
-  readonly entries: ReadonlyArray<RecencyDigestDeltaEntryView>;
-  readonly pinChanges: ReadonlyArray<RecencyDigestDeltaPinChangeView>;
-}>(__dirname, 'recency-digest-delta');
-
-/** The supersession marker body: fixed text, no values. */
-const renderRecencyDigestSupersessionTemplate = loadPackagedTemplate<
-  Record<string, never>
->(__dirname, 'recency-digest-supersession');
-
-function renderRecencyDigestDelta(payload: RecencyDigestDeltaPayload): string {
-  return renderRecencyDigestDeltaTemplate({
-    hasEntries: payload.entries.length > 0,
-    entries: payload.entries.map((entry) => ({
-      title: sanitizeAuthoredText(entry.title),
-      date: entry.date,
-      messageCount: entry.messageCount,
-      pinned: entry.pinned,
-      excerpt: entry.excerpt ? sanitizeAuthoredText(entry.excerpt) : undefined,
-    })),
-    pinChanges: payload.pinChanges.map((change) => ({
-      title: sanitizeAuthoredText(change.title),
-      pinned: change.pinned,
-    })),
-  });
-}
-
-function renderRecencyDigestSupersession(): string {
-  return renderRecencyDigestSupersessionTemplate({});
 }
 
 /* ------------------------------------------------------------------ *

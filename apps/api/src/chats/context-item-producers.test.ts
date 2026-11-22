@@ -1,8 +1,6 @@
 import {
   createCompactionCheckpointPart,
   createModelChangeItem,
-  createRecencyDigestDeltaItem,
-  createRecencyDigestSupersessionItem,
   createTemporalItem,
   createToolAvailabilityItem,
   deriveToolAvailabilityPayload,
@@ -11,6 +9,10 @@ import {
   TOOL_RECOVERY_REASON_LABELS,
   TOOL_RECOVERY_REASONS,
 } from './context-item-producers';
+import {
+  createRecencyDigestDeltaItem,
+  createRecencyDigestSupersessionItem,
+} from './recency-digest-item';
 import {
   type ToolAvailabilityManifestV1,
   type ToolUnavailableReason,

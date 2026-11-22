@@ -42,6 +42,8 @@ import {
 } from '../instance-config/llame-config';
 import { InstanceConfigService } from '../instance-config/instance-config.service';
 import { LOCAL_GIT, localGitSurface } from '../machines/executor-git.service';
+import { MachineConnector } from '../machines/machine-connector.service';
+import { createProtocolPeer } from '../testing/machine-protocol-peer';
 import { CanonicalSearchCoverageService } from '../search/canonical-search-activation.service';
 import { cookieOf, expectRegisteredUserId } from '../testing/support';
 import { type PermissionGroup } from '../tools/permissions/types';
@@ -106,8 +108,24 @@ function tools(overrides: Partial<LlameConfig['tools']>): LlameConfig['tools'] {
   return { ...BUILT_IN_DEFAULTS.tools, ...overrides };
 }
 
+/** The host Machine these fixtures configure: `machines.local` and default. */
+const HOST = 'test-host';
+
+const MACHINES: NonNullable<LlameConfig['machines']> = {
+  local: HOST,
+  default: HOST,
+  hosts: { [HOST]: {} },
+};
+
+/** The canonical locator of one host path, as every result reports it. */
+function rootOf(path: string): string {
+  return `machine://${HOST}${path}`;
+}
+
+// The allow is decided on the canonical locator, which is what a stored
+// checkout carries; a bare spelling is only a reject text.
 const ALLOW_TMP: PermissionGroup = {
-  allow: [{ field: 'path', regex: '^/tmp/' }],
+  allow: [{ field: 'path', regex: `^machine://${HOST}/tmp/` }],
 };
 
 const idSchema = z.object({ id: z.guid() });
@@ -153,6 +171,7 @@ type Harness = {
 
 type BootOptions = {
   readonly tools: LlameConfig['tools'];
+  readonly machines?: LlameConfig['machines'];
   readonly inspect?: (path: string) => Promise<GitInspectResult>;
 };
 
@@ -163,11 +182,30 @@ type CheckoutBody = {
 };
 
 async function boot(options: BootOptions): Promise<Harness> {
+  const machines = options.machines ?? MACHINES;
+  // The host Machine's daemon is an in-process peer: the identity-checked
+  // handshake a local target needs answers without spawning a child, and any
+  // other request reaching it fails the call loudly.
+  const daemon = createProtocolPeer({ roots: ['/'] });
+
   const builder = Test.createTestingModule({ imports: [AppModule] })
     .overrideProvider(CanonicalSearchCoverageService)
     .useValue({ assertReady: () => Promise.resolve() })
     .overrideProvider(InstanceConfigService)
-    .useValue({ config: { ...BUILT_IN_DEFAULTS, tools: options.tools } });
+    .useValue({
+      config: { ...BUILT_IN_DEFAULTS, machines, tools: options.tools },
+      productUserAgent: 'llame/test',
+    })
+    .overrideProvider(MachineConnector)
+    .useValue(
+      new MachineConnector({
+        machines,
+        hubVersion: 'llame/test',
+        bindIdentity: () => Promise.resolve('match'),
+        transportFactory: daemon.factory,
+        idleCloseMs: 1000,
+      }),
+    );
 
   if (options.inspect !== undefined) {
     const { inspect } = options;
@@ -225,7 +263,6 @@ describe('/api/v1/checkouts with a permissive local executor', () => {
   beforeAll(async () => {
     harness = await boot({
       tools: tools({
-        nativeExecutorId: 'test-host',
         allowed: ['enter_workspace'],
         permissions: { enter_workspace: ALLOW_TMP },
       }),
@@ -251,8 +288,8 @@ describe('/api/v1/checkouts with a permissive local executor', () => {
     const registered = checkoutSchema.parse(response.body);
 
     expect(registered).toMatchObject({
-      executorId: 'test-host',
-      path: clone,
+      executorId: HOST,
+      path: rootOf(clone),
       kind: 'main',
       origin: 'registered',
       branch: 'main',
@@ -490,7 +527,10 @@ describe('/api/v1/checkouts with a permissive local executor', () => {
       .send({ worktreeBase: '/tmp/llame-trees' })
       .expect(200);
 
-    expect(updated.body).toMatchObject({ worktreeBase: '/tmp/llame-trees' });
+    // The stored value is the canonical locator of the row's Machine.
+    expect(updated.body).toMatchObject({
+      worktreeBase: rootOf('/tmp/llame-trees'),
+    });
 
     const relative = await request(harness.http)
       .patch(`/api/v1/checkouts/${mainCheckoutId}`)
@@ -526,10 +566,10 @@ describe('/api/v1/checkouts with a permissive local executor', () => {
       await tx`SELECT set_config('app.current_user_id', ${harness.userId}, true)`;
 
       for (const [chatId, root] of [
-        [first, clone],
-        [second, clone],
-        [leased, worktreePath],
-        [sibling, worktreePath],
+        [first, rootOf(clone)],
+        [second, rootOf(clone)],
+        [leased, rootOf(worktreePath)],
+        [sibling, rootOf(worktreePath)],
       ] as const) {
         await tx`INSERT INTO chats (id, owner_user_id, title, workspace_root)
                   VALUES (${chatId}, ${harness.userId}, 'bound', ${root})`;
@@ -560,7 +600,6 @@ describe('/api/v1/checkouts with a permissive local executor', () => {
   it('answers 404 for a foreign repository, checkout, or selector', async () => {
     const foreign = await boot({
       tools: tools({
-        nativeExecutorId: 'test-host',
         allowed: ['enter_workspace'],
         permissions: { enter_workspace: ALLOW_TMP },
       }),
@@ -656,7 +695,7 @@ describe('/api/v1/checkouts with a permissive local executor', () => {
     );
 
     expect(registered).toMatchObject({
-      path: parent,
+      path: rootOf(parent),
       kind: 'main',
       branch: 'main',
     });
@@ -692,7 +731,7 @@ describe('/api/v1/checkouts with a permissive local executor', () => {
     await sql.begin(async (tx) => {
       await tx`SELECT set_config('app.current_user_id', ${harness.userId}, true)`;
       await tx`INSERT INTO chats (id, owner_user_id, title, workspace_root)
-                VALUES (${chatId}, ${harness.userId}, 'pre-bound', ${clone})`;
+                VALUES (${chatId}, ${harness.userId}, 'pre-bound', ${rootOf(clone)})`;
     });
 
     const registered = checkoutSchema.parse(
@@ -801,15 +840,15 @@ describe('/api/v1/checkouts with a permissive local executor', () => {
 });
 
 describe('checkout registration gates', () => {
-  it('refuses a local path on a process without a native executor', async () => {
+  it('refuses a bare path on a process without machines.default', async () => {
     const inspect = vi.fn();
 
     const harness = await boot({
       tools: tools({
-        nativeExecutorId: undefined,
         allowed: ['enter_workspace'],
         permissions: { enter_workspace: ALLOW_TMP },
       }),
+      machines: { hosts: { 'test-host': {} } },
       inspect,
     });
 
@@ -839,7 +878,6 @@ describe('checkout registration gates', () => {
 
     const harness = await boot({
       tools: tools({
-        nativeExecutorId: 'test-host',
         allowed: [],
         permissions: { enter_workspace: ALLOW_TMP },
       }),
@@ -867,10 +905,11 @@ describe('checkout registration gates', () => {
 
     const harness = await boot({
       tools: tools({
-        nativeExecutorId: 'test-host',
         allowed: ['enter_workspace'],
         permissions: {
-          enter_workspace: { allow: [{ field: 'path', regex: '^/srv/' }] },
+          enter_workspace: {
+            allow: [{ field: 'path', regex: `^machine://${HOST}/srv/` }],
+          },
         },
       }),
       inspect,
@@ -895,12 +934,18 @@ describe('checkout registration gates', () => {
 
     const harness = await boot({
       tools: tools({
-        nativeExecutorId: 'test-host',
         allowed: ['enter_workspace'],
         permissions: {
           enter_workspace: {
-            allow: [{ field: 'path', regex: `^${escapeRegex(clone)}/` }],
-            reject: [{ field: 'path', regex: `^${escapeRegex(clone)}$` }],
+            allow: [
+              {
+                field: 'path',
+                regex: `^${escapeRegex(rootOf(clone))}/`,
+              },
+            ],
+            reject: [
+              { field: 'path', regex: `^${escapeRegex(rootOf(clone))}$` },
+            ],
           },
         },
       }),
@@ -928,12 +973,15 @@ describe('checkout registration gates', () => {
 
     const harness = await boot({
       tools: tools({
-        nativeExecutorId: 'test-host',
         allowed: ['enter_workspace'],
         permissions: {
           enter_workspace: {
-            allow: [{ field: 'path', regex: `^${escapeRegex(worktree)}$` }],
-            reject: [{ field: 'path', regex: `^${escapeRegex(main)}$` }],
+            allow: [
+              { field: 'path', regex: `^${escapeRegex(rootOf(worktree))}$` },
+            ],
+            reject: [
+              { field: 'path', regex: `^${escapeRegex(rootOf(main))}$` },
+            ],
           },
         },
       }),
@@ -955,7 +1003,6 @@ describe('checkout registration gates', () => {
   it('maps a git timeout and a git failure to 502', async () => {
     const timedOut = await boot({
       tools: tools({
-        nativeExecutorId: 'test-host',
         allowed: ['enter_workspace'],
         permissions: { enter_workspace: ALLOW_TMP },
       }),
@@ -969,7 +1016,6 @@ describe('checkout registration gates', () => {
 
     const failed = await boot({
       tools: tools({
-        nativeExecutorId: 'test-host',
         allowed: ['enter_workspace'],
         permissions: { enter_workspace: ALLOW_TMP },
       }),

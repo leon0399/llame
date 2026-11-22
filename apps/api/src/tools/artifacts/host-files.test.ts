@@ -951,7 +951,10 @@ describe('sweeping host directories', () => {
   it('sweeps only when the worker keeps host files', async () => {
     const stale = seed(CHAT, new Date(NOW.getTime() - 8 * DAY_MS));
 
-    await sweepWhenHostFilesEnabled({ allowed: ['read'] });
+    await sweepWhenHostFilesEnabled({
+      tools: { allowed: ['read'] },
+      machines: { local: 'host-a' },
+    });
 
     expect(existsSync(stale)).toBe(true);
   });
@@ -960,8 +963,8 @@ describe('sweeping host directories', () => {
     const stale = seed(CHAT, new Date(NOW.getTime() - 8 * DAY_MS));
 
     await sweepWhenHostFilesEnabled({
-      allowed: ['bash'],
-      nativeExecutorId: 'host-a',
+      tools: { allowed: ['bash'] },
+      machines: { local: 'host-a' },
     });
 
     expect(existsSync(stale)).toBe(false);

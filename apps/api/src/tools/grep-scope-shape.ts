@@ -14,7 +14,7 @@ import {
 
 import { decodeRelativePath } from './locator-spelling';
 import { isFileAlias } from './permissions/file-alias';
-import { isWorkspaceRelative } from './workspace-path';
+import { isWorkspaceRelative, machineWorkspaceRoot } from './workspace-path';
 import { type GrepReadAdmission } from './grep-admission';
 import { type MachineGrepScope } from './grep-machine';
 import {
@@ -53,28 +53,31 @@ export function sameHostPath(left: string, right: string): boolean {
 }
 
 /**
- * Where a placed host path stops being the Workspace root's own text. A
+ * Where a resolved host path stops being the Workspace root's own text. A
  * relative scope shares only the root segments its `..` segments leave in
  * place, so its decoded part starts after that shared prefix. An absolute
  * scope is model text whole, except one that names the root itself; a file
- * alias is already a decoded host path.
+ * alias is already a decoded host path. The root's own text is its path: a
+ * `machine://` root's scheme and name are never part of the walked path.
  */
 export function hostLiteralStart(
   scope: string,
   root: string | undefined,
-  placed: string,
+  resolvedPath: string,
 ): number {
-  if (isFileAlias(scope)) return normalizeHostScope(placed).length;
+  if (isFileAlias(scope)) return normalizeHostScope(resolvedPath).length;
 
-  if (root === undefined) return 0;
-  const rootText = normalizeHostScope(root);
-  const placedText = normalizeHostScope(placed);
+  const rootPath = machineWorkspaceRoot(root)?.path ?? root;
+
+  if (rootPath === undefined) return 0;
+  const rootText = normalizeHostScope(rootPath);
+  const resolvedText = normalizeHostScope(resolvedPath);
 
   if (isWorkspaceRelative(scope))
-    return sharedSegmentPrefix(rootText, placedText);
+    return sharedSegmentPrefix(rootText, resolvedText);
 
   return sameHostPath(normalizeHostScope(scope), rootText)
-    ? placedText.length
+    ? resolvedText.length
     : 0;
 }
 

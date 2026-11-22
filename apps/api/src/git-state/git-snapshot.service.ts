@@ -6,6 +6,7 @@ import {
   ExecutorGit,
   type ExecutorTarget,
 } from '../machines/executor-git.service';
+import { MachineConnector } from '../machines/machine-connector.service';
 import { normalizeGitState } from './git-state-normalize';
 import { type GitAbsenceReason, type GitObservation } from './git-state-view';
 
@@ -76,6 +77,8 @@ export class GitSnapshotService {
   constructor(
     @Inject(ExecutorGit)
     private readonly executors: Pick<ExecutorGit, 'locateEntry' | 'state'>,
+    @Inject(MachineConnector)
+    private readonly connector: Pick<MachineConnector, 'localMachine'>,
   ) {}
 
   async observe(input: GitObserveInput): Promise<GitObservation> {
@@ -106,8 +109,11 @@ export class GitSnapshotService {
     signal: AbortSignal,
   ): Promise<GitObservation> {
     try {
+      // The host Machine runs in process: it has no link to probe, and its
+      // executor call verifies the local daemon itself. Every other Machine
+      // is asked first, so a known-offline one costs no request.
       if (
-        input.target.machine !== undefined &&
+        input.target.machine !== this.connector.localMachine() &&
         input.reachable !== undefined &&
         !(await input.reachable())
       )

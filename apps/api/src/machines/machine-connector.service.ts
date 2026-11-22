@@ -25,9 +25,13 @@ import {
   type MachineMethodParams,
 } from '@workspace/machine-protocol';
 
-import type { MachinesConfig } from '../instance-config/machines-config';
+import type {
+  MachineHostConfig,
+  MachinesConfig,
+} from '../instance-config/machines-config';
 
 import type { BindOutcome } from './machine-bindings.repository';
+import { createLocalChildTransportFactory } from './local-child-transport';
 import {
   MachineIdentityMismatchError,
   MachineSession,
@@ -64,6 +68,11 @@ export type MachineConnectorDeps = {
   readonly hubVersion: string;
   /** Test seam: how a session's link is opened. */
   readonly transportFactory?: MachineTransportFactory;
+  /**
+   * Test seam: the local Machine's link, when `transportFactory` is not given.
+   * Production builds it from {@link createLocalChildTransportFactory}.
+   */
+  readonly localTransportFactory?: MachineTransportFactory;
   /** Where session events go (the `machines_status` writer). */
   readonly onContact?: (contact: MachineContact) => Promise<void> | void;
   /**
@@ -114,7 +123,9 @@ export class MachineConnector {
   private readonly refusals = new Map<string, MachineUnavailableError>();
   private readonly mutations = new Map<string, Promise<void>>();
   private readonly injected: MachineTransportFactory | undefined;
+  private readonly injectedLocal: MachineTransportFactory | undefined;
   private ssh: MachineSshTransportFactory | undefined;
+  private local: MachineTransportFactory | undefined;
 
   constructor(deps: MachineConnectorDeps) {
     this.machines = deps.machines;
@@ -126,6 +137,7 @@ export class MachineConnector {
     this.idleCloseMs = deps.idleCloseMs ?? MACHINE_IDLE_CLOSE_MS;
     this.handshakeTimeoutMs = deps.handshakeTimeoutMs;
     this.injected = deps.transportFactory;
+    this.injectedLocal = deps.localTransportFactory;
   }
 
   /** Whether Machines exist at all: an absent section means no Machine surface. */
@@ -140,6 +152,50 @@ export class MachineConnector {
 
   isConfigured(name: string): boolean {
     return Object.hasOwn(this.hosts(), name);
+  }
+
+  /** `machines.local`: the Machine this process hosts, served without SSH. */
+  localMachine(): string | undefined {
+    return this.machines?.local;
+  }
+
+  /** `machines.default`: the Machine an unbound Chat's tool calls address. */
+  defaultMachine(): string | undefined {
+    return this.machines?.default;
+  }
+
+  /**
+   * Whether this process can reach the Machine at all: its own Machine needs
+   * no link, and every other one needs an SSH destination.
+   */
+  canReach(name: string): boolean {
+    return (
+      name === this.localMachine() ||
+      this.hosts()[name]?.destination !== undefined
+    );
+  }
+
+  /**
+   * Open (or reuse) the identity-checked session to `machines.local`. Every
+   * in-process host operation calls this first: the host runs tool code inside
+   * this process, so the daemon behind its Machine must be alive and bound to
+   * the same instance id a remote one would have to be.
+   */
+  async verifyLocal(): Promise<void> {
+    const name = this.localMachine();
+
+    if (name === undefined)
+      throw new MachineUnavailableError(
+        'machine',
+        'unreachable',
+        false,
+        'No local Machine is configured.',
+      );
+
+    await this.session(name);
+    // A successful open is the most recent outcome: `lastRefusal` must not
+    // keep answering for a refusal the Machine already recovered from.
+    this.refusals.delete(name);
   }
 
   /**
@@ -238,7 +294,7 @@ export class MachineConnector {
     this.ssh = undefined;
   }
 
-  private hosts(): Record<string, { readonly destination: string }> {
+  private hosts(): Record<string, MachineHostConfig> {
     return this.machines?.hosts ?? {};
   }
 
@@ -317,19 +373,22 @@ export class MachineConnector {
   }
 
   private async startSession(name: string): Promise<MachineSession> {
+    const local = name === this.localMachine();
     const destination = this.hosts()[name]?.destination;
 
-    if (destination === undefined)
+    // The local Machine is a child of this process and needs no destination;
+    // every other Machine is only reachable through SSH.
+    if (!local && destination === undefined)
       throw new MachineUnavailableError(
         name,
         'unreachable',
         false,
-        'This Machine is not configured.',
+        'This process cannot reach this Machine.',
       );
 
     const session = new MachineSession({
       name,
-      transport: this.factory().open({ name, destination }),
+      transport: this.factory(name).open({ name, destination }),
       hubVersion: this.hubVersion,
       handshakeTimeoutMs: this.handshakeTimeoutMs,
     });
@@ -466,8 +525,14 @@ export class MachineConnector {
     entry.session.close();
   }
 
-  private factory(): MachineTransportFactory {
+  private factory(name: string): MachineTransportFactory {
     if (this.injected !== undefined) return this.injected;
+
+    // The local Machine is a child process of this hub, never SSH: the same
+    // session, protocol, and identity bind, with a pipe where ssh would be.
+    if (name === this.localMachine())
+      return (this.local ??=
+        this.injectedLocal ?? createLocalChildTransportFactory());
     const ssh = this.machines?.ssh;
 
     if (ssh === undefined)

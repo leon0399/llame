@@ -4,15 +4,15 @@
  *
  * A stored artifact is worth its bytes only when the Run reaches it. There are
  * two paths: `read` with an admitted `artifact://` locator, and the host files
- * a `bash` on the llame host opens with its own authority. The second path
- * needs the files (the process has a native executor and `bash` is
- * allowlisted), a Workspace bound to the llame host rather than a Machine, and
- * a `bash` group that does not reject the call.
+ * a `bash` on this process's Machine opens with its own authority. The second
+ * path needs the files (`bash` is allowlisted and the process hosts a
+ * Machine), a current Machine that is that Machine, and a `bash` group that
+ * does not reject the call.
  */
 
 import { admitPermission } from '../permissions/admit';
 import { type ToolContext } from '../types';
-import { machineWorkspaceRoot } from '../workspace-path';
+import { currentMachine, locatorContext } from '../workspace-path';
 import { formatArtifactLocator } from './locator';
 
 /**
@@ -55,15 +55,19 @@ export function readAdmitsArtifact(
 }
 
 /**
- * `bash` reaches the host files: they exist, the Workspace is not bound to a
- * Machine, and the `bash` group admits a call. A Machine Workspace or an
- * `ssh://` `bash` reads no llame host path, so the files stay a cache there
- * and `read` is the only way to the artifact.
+ * `bash` reaches the host files: they exist, the current Machine is the one
+ * this process hosts, and the `bash` group admits a call. A Workspace on
+ * another Machine or an `ssh://` `bash` reads no path of that Machine, so the
+ * files stay a cache there and `read` is the only way to the artifact.
  */
 function hostFilesReachArtifact(context: ToolContext): boolean {
+  const local = context.localMachine;
+
   return (
     context.artifactHostFiles === true &&
-    machineWorkspaceRoot(context.workspaceRoot?.current()) === undefined &&
+    local !== undefined &&
+    currentMachine(locatorContext(context))?.toLowerCase() ===
+      local.toLowerCase() &&
     bashGroupAdmits(context)
   );
 }

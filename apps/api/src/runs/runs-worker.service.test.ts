@@ -12,7 +12,10 @@ import { drizzle } from 'drizzle-orm/postgres-js';
 
 import { type ConsumeOptions, type QueueConsumer } from '../queue/queue';
 import { type InstanceConfigReader } from '../instance-config/instance-config.service';
-import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
+import {
+  BUILT_IN_DEFAULTS,
+  type LlameConfig,
+} from '../instance-config/llame-config';
 import { type WorkerConcurrencyResolver } from '../instance-config/worker-profile.service';
 import {
   ModelNotAvailableError,
@@ -84,7 +87,7 @@ function makeService(
     runWait?: Pick<RunWaitService, 'wakeInTransaction'>;
     canonicalSearchCoverage?: CanonicalSearchCoverageGate;
     allowedTools?: Array<string>;
-    nativeExecutorId?: string;
+    machines?: LlameConfig['machines'];
     runsConcurrency?: number | null;
     compactionRun?: Pick<CompactionRunService, 'execute'>;
     tenantDb?: TenantRunner;
@@ -113,10 +116,10 @@ function makeService(
             ? overrides.timeoutSeconds
             : 300,
       },
+      machines: overrides.machines,
       tools: {
         ...BUILT_IN_DEFAULTS.tools,
         allowed: overrides.allowedTools ?? [],
-        nativeExecutorId: overrides.nativeExecutorId,
       },
     },
   };
@@ -344,7 +347,7 @@ describe('RunsWorkerService — runs.dead retry-exhaustion consumer (design D7)'
 
     const { service } = makeService(tx, {
       allowedTools: ['bash'],
-      nativeExecutorId: 'host-a',
+      machines: { local: 'host-a', default: 'host-a', hosts: { 'host-a': {} } },
     });
 
     await service.onApplicationBootstrap();

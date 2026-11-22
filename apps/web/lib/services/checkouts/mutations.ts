@@ -25,8 +25,8 @@ function authenticatedFetch(): typeof fetch {
 /**
  * What the registration form collects: the path, and optionally the repository
  * or the remote that selects one. The executor is not a field — the route
- * derives it from the path itself, a plain path being this instance's local
- * executor and `machine://<name>/…` naming a Machine.
+ * derives it from the path itself: a `machine://<name>/…` locator names its
+ * own Machine, and a plain absolute path names `machines.default`.
  */
 export type RegisterCheckoutInput = {
   path: string;

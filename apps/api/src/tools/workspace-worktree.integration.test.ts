@@ -4,6 +4,7 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
+  realpathSync,
   rmSync,
   writeFileSync,
 } from 'node:fs';
@@ -101,6 +102,19 @@ function headOf(directory: string): string {
   return runGit(directory, ['rev-parse', 'HEAD']).trim();
 }
 
+/** The Machine every entry in this suite runs on: `machines.local` and default. */
+const HOST = 'worktree-host';
+
+/** The canonical locator of an existing host path, as every result reports it. */
+function locatorOf(path: string): string {
+  return `machine://${HOST}${realpathSync(path)}`;
+}
+
+/** The canonical locator of a path an entry will create. */
+function plannedLocator(path: string): string {
+  return `machine://${HOST}${path}`;
+}
+
 /** One `enter_workspace` call, then a final answer, from the scripted model. */
 function worktreeCall(
   path: string,
@@ -136,7 +150,7 @@ describeIfDb('enter_workspace with a worktree, over the real worker', () => {
 
   beforeAll(async () => {
     harness = await bootWorkerHarness({
-      nativeExecutorId: 'worktree-host',
+      localMachine: 'worktree-host',
       allowedTools: ['enter_workspace'],
       runsConcurrency: 2,
     });
@@ -317,18 +331,20 @@ describeIfDb('enter_workspace with a worktree, over the real worker', () => {
       name: 'clear-field-0192',
     });
 
+    const canonicalDirectory = locatorOf(directory);
+
     expect(await observationOf(runId, 'worktree-entry')).toMatchObject({
       status: 'success',
-      root: directory,
+      root: canonicalDirectory,
       worktree: {
-        path: directory,
+        path: canonicalDirectory,
         branch: 'llame/clear-field-0192',
         baseCommit: base,
       },
     });
     const chat = await chatOf(chatId);
     expect(chat).toMatchObject({
-      workspaceRoot: directory,
+      workspaceRoot: canonicalDirectory,
       workspaceExecutorId: 'worktree-host',
       workspaceGeneration: 1,
     });
@@ -340,14 +356,18 @@ describeIfDb('enter_workspace with a worktree, over the real worker', () => {
     );
 
     expect(repository).toMatchObject({ displayName: 'llame' });
-    const main = rows.checkouts.find((row) => row.path === source);
+    const main = rows.checkouts.find((row) => row.path === locatorOf(source));
     expect(main).toMatchObject({
       kind: 'main',
       origin: 'adopted',
       parentCheckoutId: null,
       branch: null,
     });
-    const worktree = rows.checkouts.find((row) => row.path === directory);
+
+    const worktree = rows.checkouts.find(
+      (row) => row.path === canonicalDirectory,
+    );
+
     expect(worktree).toMatchObject({
       kind: 'worktree',
       origin: 'created',
@@ -373,7 +393,7 @@ describeIfDb('enter_workspace with a worktree, over the real worker', () => {
     const attempt = attempts[0]?.payload;
     expect(isRecord(attempt) ? attempt : {}).toMatchObject({
       toolCallId: 'worktree-entry',
-      path: directory,
+      path: canonicalDirectory,
     });
 
     const results = events.filter(
@@ -386,11 +406,20 @@ describeIfDb('enter_workspace with a worktree, over the real worker', () => {
     expect(results).toHaveLength(1);
     const result = results[0]?.payload;
     expect(isRecord(result) ? result : {}).toMatchObject({
-      result: expect.objectContaining({ status: 'success', root: directory }),
+      result: expect.objectContaining({
+        status: 'success',
+        root: canonicalDirectory,
+      }),
     });
-    // The `workspace` producer narrates a changed binding on the next accepted
-    // turn, so the creating Run stores no item for it.
-    expect(await workspaceItems(chatId, runId)).toHaveLength(0);
+    // The creating Run's request narrates the Chat's default Machine and no
+    // root; the changed binding is narrated on the next accepted turn, so no
+    // item of this Run names the new root.
+    const creatingItems = await workspaceItems(chatId, runId);
+    expect(creatingItems).toHaveLength(1);
+    expect(creatingItems[0]).toMatchObject({
+      form: 'snapshot',
+      payload: { root: null, machine: 'worktree-host' },
+    });
 
     const turn = await runTurn(chatId);
 
@@ -399,9 +428,11 @@ describeIfDb('enter_workspace with a worktree, over the real worker', () => {
     );
 
     expect(snapshots).toHaveLength(1);
-    expect(snapshots[0]).toMatchObject({ payload: { root: directory } });
+    expect(snapshots[0]).toMatchObject({
+      payload: { root: canonicalDirectory },
+    });
     expect(isString(snapshots[0]?.['text'])).toBe(true);
-    expect(String(snapshots[0]?.['text'])).toContain(directory);
+    expect(String(snapshots[0]?.['text'])).toContain(canonicalDirectory);
   });
 
   it('reuses an adopted clone instead of recording it twice', async () => {
@@ -420,7 +451,7 @@ describeIfDb('enter_workspace with a worktree, over the real worker', () => {
     expect(ofRemote(afterSecond)).toHaveLength(1);
 
     const mainRows = afterSecond.checkouts.filter(
-      (row) => row.path === source && row.kind === 'main',
+      (row) => row.path === locatorOf(source) && row.kind === 'main',
     );
 
     expect(mainRows).toHaveLength(1);
@@ -461,7 +492,7 @@ describeIfDb('enter_workspace with a worktree, over the real worker', () => {
       const rows = await catalog();
 
       const mains = rows.checkouts.filter(
-        (row) => row.path === source && row.kind === 'main',
+        (row) => row.path === locatorOf(source) && row.kind === 'main',
       );
 
       expect(mains).toHaveLength(1);
@@ -489,7 +520,7 @@ describeIfDb('enter_workspace with a worktree, over the real worker', () => {
       for (const run of [runA, runB]) {
         const chat = await chatOf(run.chatId);
         expect(chat.workspaceRoot).toContain(
-          join(source, '..', '.llame-worktrees'),
+          `machine://${HOST}${join(source, '..', '.llame-worktrees')}`,
         );
         expect(chat.workspaceGeneration).toBe(1);
       }
@@ -500,7 +531,7 @@ describeIfDb('enter_workspace with a worktree, over the real worker', () => {
     const source = clone();
     const { runId } = await runEntry(source, { name: 'no-remote' });
     const rows = await catalog();
-    const main = rows.checkouts.find((row) => row.path === source);
+    const main = rows.checkouts.find((row) => row.path === locatorOf(source));
 
     const repository = rows.repositories.find(
       (row) => row.id === main?.repositoryId,
@@ -521,24 +552,24 @@ describeIfDb('enter_workspace with a worktree, over the real worker', () => {
     const { runId } = await runEntry(linked, { name: 'clear-field-0192' });
 
     const rows = await catalog();
-    const main = rows.checkouts.find((row) => row.path === source);
-    const recorded = rows.checkouts.find((row) => row.path === linked);
+    const main = rows.checkouts.find((row) => row.path === locatorOf(source));
+
+    const recorded = rows.checkouts.find(
+      (row) => row.path === locatorOf(linked),
+    );
 
     // Scoped to this clone's own parent directory: another test of this file
     // creates a worktree on the same branch name beside a different clone.
     const worktree = rows.checkouts.find(
       (row) =>
-        row.kind === 'worktree' && row.path.startsWith(join(source, '..')),
+        row.kind === 'worktree' &&
+        row.path.startsWith(`machine://${HOST}${join(source, '..')}`),
     );
 
     expect(await observationOf(runId, 'worktree-entry')).toMatchObject({
       status: 'success',
-      root: join(
-        source,
-        '..',
-        '.llame-worktrees',
-        'linked',
-        'clear-field-0192',
+      root: locatorOf(
+        join(source, '..', '.llame-worktrees', 'linked', 'clear-field-0192'),
       ),
     });
     expect(main).toMatchObject({ kind: 'main', origin: 'adopted' });
@@ -571,10 +602,10 @@ describeIfDb('enter_workspace with a worktree, over the real worker', () => {
     });
 
     const rows = await catalog();
-    const main = rows.checkouts.find((row) => row.path === source);
+    const main = rows.checkouts.find((row) => row.path === locatorOf(source));
 
     const recorded = rows.checkouts.filter(
-      (row) => row.path === linked && row.kind === 'worktree',
+      (row) => row.path === locatorOf(linked) && row.kind === 'worktree',
     );
 
     expect(recorded).toHaveLength(1);
@@ -587,7 +618,8 @@ describeIfDb('enter_workspace with a worktree, over the real worker', () => {
     expect(
       rows.checkouts.filter(
         (row) =>
-          row.path === join(linked, 'src') || row.path === join(linked, 'docs'),
+          row.path === locatorOf(join(linked, 'src')) ||
+          row.path === locatorOf(join(linked, 'docs')),
       ),
     ).toEqual([]);
 
@@ -623,7 +655,7 @@ describeIfDb('enter_workspace with a worktree, over the real worker', () => {
     const source = clone({ remote: 'git@github.com:leon0399/switch.git' });
     const first = await runEntry(source, undefined);
     expect(await chatOf(first.chatId)).toMatchObject({
-      workspaceRoot: source,
+      workspaceRoot: locatorOf(source),
       workspaceGeneration: 1,
     });
 
@@ -643,11 +675,11 @@ describeIfDb('enter_workspace with a worktree, over the real worker', () => {
 
     expect(await observationOf(second.runId, 'worktree-switch')).toMatchObject({
       status: 'success',
-      root: directory,
+      root: locatorOf(directory),
       state: 'switched',
     });
     expect(await chatOf(first.chatId)).toMatchObject({
-      workspaceRoot: directory,
+      workspaceRoot: locatorOf(directory),
       workspaceGeneration: 2,
     });
   });
@@ -680,7 +712,9 @@ describeIfDb('enter_workspace with a worktree, over the real worker', () => {
         ownerUserId: userId,
         repositoryId: repository.id,
         executorId: 'worktree-host',
-        path: join(tempDirectory('worktree-elsewhere-'), 'elsewhere'),
+        path: plannedLocator(
+          join(tempDirectory('worktree-elsewhere-'), 'elsewhere'),
+        ),
         kind: 'main',
         parentCheckoutId: null,
         branch: null,
@@ -692,7 +726,7 @@ describeIfDb('enter_workspace with a worktree, over the real worker', () => {
         ownerUserId: userId,
         repositoryId: repository.id,
         executorId: 'worktree-host',
-        path: directory,
+        path: plannedLocator(directory),
         kind: 'worktree',
         parentCheckoutId: main.id,
         branch: 'llame/elsewhere',
@@ -711,9 +745,9 @@ describeIfDb('enter_workspace with a worktree, over the real worker', () => {
     const after = await catalog();
     expect(after.repositories).toHaveLength(before.repositories.length);
     expect(after.checkouts).toHaveLength(before.checkouts.length);
-    expect(after.checkouts.filter((row) => row.path === source)).toHaveLength(
-      0,
-    );
+    expect(
+      after.checkouts.filter((row) => row.path === locatorOf(source)),
+    ).toHaveLength(0);
     expect(await chatOf(chatId)).toMatchObject({
       workspaceRoot: null,
       workspaceGeneration: 0,
@@ -743,7 +777,7 @@ describeIfDb('enter_workspace with a worktree, over the real worker', () => {
     expect(await observationOf(runId, 'worktree-entry')).toMatchObject({
       status: 'error',
       type: 'executor_unavailable',
-      leftDirectory: directory,
+      leftDirectory: locatorOf(directory),
     });
     // The directory the add created stays, and no row describes it.
     expect(existsSync(directory)).toBe(true);

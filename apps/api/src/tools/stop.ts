@@ -191,12 +191,15 @@ export const stopTool: Tool<StopInput> = {
       };
     context.abortSignal?.throwIfAborted();
 
-    // Without a trusted native host identity the tool fails closed before any read.
-    if (context.nativeExecutorId === undefined)
+    // Without a host Machine of this process the tool fails closed before any
+    // read: only that Machine's jobs can be running in this process.
+    if (context.localMachine === undefined)
       return {
         status: 'error',
         type: 'executor_unavailable',
-        message: 'Native host authority is unavailable.',
+        message:
+          'No local Machine is configured: set machines.local to the Machine ' +
+          'this process hosts before a job can be stopped in process.',
       };
 
     const rows = await recordRequests(context, locators);

@@ -107,8 +107,8 @@ advertisement condition, and `edit` and `write` reject a web locator with
 
 ## Authority
 
-A web read needs no executor: a web locator binds no executor identity and no
-host path. The only authority is the public web, and the `read` permission
+A web read needs no Machine: a web locator binds no Machine identity and no
+path. The only authority is the public web, and the `read` permission
 group is the only boundary.
 
 **Fetched text is untrusted input.** The tool neutralizes nothing and adds no

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { KnowledgeFilesystemError } from '../knowledge/knowledge-filesystem';
+import { localMachineConnector } from '../testing/local-machine';
 import type { PermissionDecision } from '../tools/permissions/types';
 import { readLocatorSchemes } from '../tools/native-files';
 import { type ToolResult } from '../tools/types';
@@ -12,10 +13,15 @@ import {
 
 type HarnessOptions = {
   readonly workspaceRoot?: string | undefined;
+  /** `machines.local` and `machines.default` of the harness's process. */
+  readonly localMachine?: string;
+  readonly defaultMachine?: string;
   readonly hostAvailable?: boolean;
   readonly knowledgeAvailable?: boolean;
   readonly machineAvailable?: boolean;
   readonly sshAvailable?: boolean;
+  /** The identity-checked handshake's verdict for local targets. */
+  readonly verifyLocal?: () => Promise<boolean>;
   /** Host paths a probe finds. */
   readonly existing?: ReadonlyArray<string>;
   /** Machine targets a probe finds, keyed `<name>` + absolute Machine path. */
@@ -46,6 +52,9 @@ type HarnessOptions = {
 
 const OK: ToolResult = { status: 'success', truncated: false };
 
+/** The canonical locator of one host path on the harness's own Machine. */
+const local = (path: string) => `machine://host-a${path}`;
+
 function createHarness(options: HarnessOptions = {}) {
   let now = 1000;
 
@@ -68,10 +77,13 @@ function createHarness(options: HarnessOptions = {}) {
       text,
       signal: controller.signal,
       workspaceRoot: '/repo',
+      localMachine: 'host-a',
+      defaultMachine: 'host-a',
       hostAvailable: true,
       knowledgeAvailable: true,
       machineAvailable: true,
       sshAvailable: true,
+      verifyLocal: () => Promise.resolve(true),
       ...options,
       admitsRead: (path) => {
         calls.admits.push(path);
@@ -174,7 +186,7 @@ describe('resolvePromptImports marker cap', () => {
 
     const result = await run('ping @leo');
 
-    expect(calls.admits).toEqual(['/repo/leo']);
+    expect(calls.admits).toEqual([local('/repo/leo')]);
     expect(calls.hostProbes).toEqual(['/repo/leo']);
     expect(calls.reads).toEqual([]);
     expect(result).toEqual({ outcomes: [], omitted: [] });
@@ -197,20 +209,20 @@ describe('resolvePromptImports resolution', () => {
 
     const result = await run('see @README.md:30-35');
 
-    expect(calls.admits).toEqual(['/repo/README.md:30-35']);
+    expect(calls.admits).toEqual(['machine://host-a/repo/README.md:30-35']);
     expect(calls.hostProbes).toEqual([
       '/repo/README.md:30-35',
       '/repo/README.md',
     ]);
     expect(calls.reads).toEqual([
-      { path: '/repo/README.md:30-35', ordinal: 0 },
+      { path: 'machine://host-a/repo/README.md:30-35', ordinal: 0 },
     ]);
     expect(result.outcomes).toEqual([
       {
         locator: 'README.md:30-35',
-        resolved: '/repo/README.md',
+        resolved: 'machine://host-a/repo/README.md',
         outcome: 'imported',
-        body: 'body of /repo/README.md:30-35',
+        body: 'body of machine://host-a/repo/README.md:30-35',
       },
     ]);
   });
@@ -223,9 +235,11 @@ describe('resolvePromptImports resolution', () => {
     const result = await run('@/tmp/x.md:10-12');
 
     expect(calls.hostProbes).toEqual(['/tmp/x.md:10-12']);
-    expect(calls.reads).toEqual([{ path: '/tmp/x.md:10-12', ordinal: 0 }]);
+    expect(calls.reads).toEqual([
+      { path: 'machine://host-a/tmp/x.md:10-12', ordinal: 0 },
+    ]);
     expect(result.outcomes[0]).toMatchObject({
-      resolved: '/tmp/x.md:10-12',
+      resolved: 'machine://host-a/tmp/x.md%3A10-12',
       outcome: 'imported',
     });
   });
@@ -243,21 +257,25 @@ describe('resolvePromptImports resolution', () => {
 
     await run('@/etc/notes.md');
 
-    expect(calls.admits).toEqual(['/etc/notes.md']);
-    expect(calls.reads).toEqual([{ path: '/etc/notes.md', ordinal: 0 }]);
+    expect(calls.admits).toEqual(['machine://host-a/etc/notes.md']);
+    expect(calls.reads).toEqual([
+      { path: 'machine://host-a/etc/notes.md', ordinal: 0 },
+    ]);
   });
 
-  it('decodes a file alias for the probe and submits it as written', async () => {
+  it('decodes a file alias for the probe and submits the canonical locator', async () => {
     const { calls, run } = createHarness({ existing: ['/tmp/a b.md'] });
 
     const result = await run('@file:///tmp/a%20b.md');
 
-    expect(calls.admits).toEqual(['file:///tmp/a%20b.md']);
+    expect(calls.admits).toEqual(['machine://host-a/tmp/a b.md']);
     expect(calls.hostProbes).toEqual(['/tmp/a b.md']);
-    expect(calls.reads).toEqual([{ path: 'file:///tmp/a%20b.md', ordinal: 0 }]);
+    expect(calls.reads).toEqual([
+      { path: 'machine://host-a/tmp/a b.md', ordinal: 0 },
+    ]);
     expect(result.outcomes[0]).toMatchObject({
       locator: 'file:///tmp/a%20b.md',
-      resolved: '/tmp/a b.md',
+      resolved: 'machine://host-a/tmp/a b.md',
     });
   });
 
@@ -491,17 +509,19 @@ describe('resolvePromptImports Machine targets', () => {
     ]);
   });
 
-  it('leaves a bare absolute marker on the host while the root is a Machine', async () => {
+  it('plans a bare absolute marker on the root’s Machine', async () => {
     const { calls, run } = createHarness({
       workspaceRoot: 'machine://dev/work/repo',
-      existing: ['/etc/notes.md'],
+      machine: { 'dev/etc/notes.md': 'machine://dev/etc/notes.md' },
     });
 
     await run('@/etc/notes.md');
 
-    expect(calls.admits).toEqual(['/etc/notes.md']);
-    expect(calls.hostProbes).toEqual(['/etc/notes.md']);
-    expect(calls.machineProbes).toEqual([]);
+    expect(calls.admits).toEqual(['machine://dev/etc/notes.md']);
+    expect(calls.hostProbes).toEqual([]);
+    expect(calls.machineProbes).toEqual([
+      { name: 'dev', path: '/etc/notes.md' },
+    ]);
   });
 
   it('imports a Machine marker without the local native executor', async () => {
@@ -593,19 +613,91 @@ describe('resolvePromptImports Machine targets', () => {
   });
 });
 
+describe('resolvePromptImports on this process’s Machine', () => {
+  it('imports a bare absolute target in process after only the handshake', async () => {
+    const connector = localMachineConnector();
+
+    const { calls, run } = createHarness({
+      existing: ['/work/a.md'],
+      verifyLocal: () =>
+        connector.verifyLocal().then(
+          () => true,
+          () => false,
+        ),
+    });
+
+    const result = await run('@/work/a.md');
+
+    expect(result.outcomes).toEqual([
+      {
+        locator: '/work/a.md',
+        resolved: 'machine://host-a/work/a.md',
+        outcome: 'imported',
+        body: 'body of machine://host-a/work/a.md',
+      },
+    ]);
+    expect(calls.machineProbes).toEqual([]);
+    // The local daemon answered the handshake and nothing else.
+    const session = await connector.peer.session(0);
+
+    expect(session.requests).toEqual([]);
+  });
+
+  it('imports a canonical local locator in process', async () => {
+    const { calls, run } = createHarness({ existing: ['/work/a.md'] });
+
+    const result = await run('@machine://host-a/work/a.md');
+
+    expect(result.outcomes).toEqual([
+      {
+        locator: 'machine://host-a/work/a.md',
+        resolved: 'machine://host-a/work/a.md',
+        outcome: 'imported',
+        body: 'body of machine://host-a/work/a.md',
+      },
+    ]);
+    expect(calls.machineProbes).toEqual([]);
+    expect(calls.hostProbes).toEqual(['/work/a.md']);
+  });
+
+  it('probes another Machine through the connector', async () => {
+    const { calls, run } = createHarness({
+      machine: { 'gpu/work/a.md': 'machine://gpu/work/a.md' },
+    });
+
+    await run('@machine://gpu/work/a.md');
+
+    expect(calls.machineProbes).toEqual([{ name: 'gpu', path: '/work/a.md' }]);
+    expect(calls.hostProbes).toEqual([]);
+  });
+
+  it('keeps a local target prose when the daemon cannot prove its identity', async () => {
+    const { calls, run } = createHarness({
+      existing: ['/work/a.md'],
+      verifyLocal: () => Promise.resolve(false),
+    });
+
+    const result = await run('@/work/a.md');
+
+    expect(calls.hostProbes).toEqual([]);
+    expect(calls.reads).toEqual([]);
+    expect(result).toEqual({ outcomes: [], omitted: [] });
+  });
+});
+
 describe('resolvePromptImports admission', () => {
   it('reports a rejected existing and a rejected missing target identically', async () => {
     const { calls, run } = createHarness({
       existing: ['/secret/here.md'],
-      reject: (path) => path.startsWith('/secret/'),
+      reject: (path) => path.startsWith('machine://host-a/secret/'),
     });
 
     const result = await run('@/secret/here.md @/secret/gone.md');
 
     expect(calls.hostProbes).toEqual([]);
     expect(calls.reads).toEqual([
-      { path: '/secret/here.md', ordinal: 0 },
-      { path: '/secret/gone.md', ordinal: 1 },
+      { path: 'machine://host-a/secret/here.md', ordinal: 0 },
+      { path: 'machine://host-a/secret/gone.md', ordinal: 1 },
     ]);
     expect(result.outcomes).toEqual([
       { locator: '/secret/here.md', outcome: 'denied' },
@@ -615,12 +707,14 @@ describe('resolvePromptImports admission', () => {
 
   it('pre-evaluates the exact selector-bearing string the read submits', async () => {
     const { calls, run } = createHarness({
-      reject: (path) => path === '/repo/a.md:1-2',
+      reject: (path) => path === 'machine://host-a/repo/a.md:1-2',
     });
 
     const result = await run('@a.md:1-2');
 
-    expect(calls.reads).toEqual([{ path: '/repo/a.md:1-2', ordinal: 0 }]);
+    expect(calls.reads).toEqual([
+      { path: 'machine://host-a/repo/a.md:1-2', ordinal: 0 },
+    ]);
     expect(result.outcomes).toEqual([
       { locator: 'a.md:1-2', outcome: 'denied' },
     ]);
@@ -643,7 +737,7 @@ describe('resolvePromptImports admission', () => {
   it('does not count a denied target toward the read bound', async () => {
     const { calls, run } = createHarness({
       existing: ['/repo/ok.md'],
-      reject: (path) => path === '/repo/no.md',
+      reject: (path) => path === 'machine://host-a/repo/no.md',
     });
 
     const result = await run(
@@ -671,7 +765,7 @@ describe('resolvePromptImports admission', () => {
     const result = await run('@a.md');
 
     expect(result.outcomes).toEqual([
-      { locator: 'a.md', resolved: '/repo/a.md', outcome: 'failed' },
+      { locator: 'a.md', resolved: local('/repo/a.md'), outcome: 'failed' },
     ]);
   });
 
@@ -1022,14 +1116,16 @@ describe('resolvePromptImports image entries', () => {
 
     const result = await run('see @shot.png');
 
-    expect(calls.reads).toEqual([{ path: '/repo/shot.png', ordinal: 0 }]);
+    expect(calls.reads).toEqual([
+      { path: local('/repo/shot.png'), ordinal: 0 },
+    ]);
     expect(calls.readLocators).toEqual(['shot.png']);
     expect(result.outcomes).toEqual([
       {
         locator: 'shot.png',
-        resolved: '/repo/shot.png',
+        resolved: local('/repo/shot.png'),
         outcome: 'imported',
-        body: envelope('/repo/shot.png'),
+        body: envelope(local('/repo/shot.png')),
         attachment: UNSTORED,
       },
     ]);
@@ -1054,9 +1150,9 @@ describe('resolvePromptImports image entries', () => {
     expect(result.outcomes).toEqual([
       {
         locator: 'noise.png',
-        resolved: '/repo/noise.png',
+        resolved: local('/repo/noise.png'),
         outcome: 'imported',
-        body: envelope('/repo/noise.png'),
+        body: envelope(local('/repo/noise.png')),
         attachment: original,
       },
     ]);
@@ -1073,7 +1169,7 @@ describe('resolvePromptImports image entries', () => {
     );
 
     expect(calls.reads.map(({ path }) => path)).toEqual([
-      '/repo/shot.png',
+      local('/repo/shot.png'),
       ...Array.from({ length: 7 }, (_, index) => `https://x.test/${index}`),
     ]);
     expect(result.outcomes[0]).toMatchObject({ attachment: UNSTORED });
@@ -1101,14 +1197,14 @@ describe('resolvePromptImports image entries', () => {
   it('audits a denied image target without a probe or an image entry', async () => {
     const { calls, run } = createHarness({
       existing: ['/tmp/shot.png'],
-      reject: (path) => path === '/tmp/shot.png',
+      reject: (path) => path === local('/tmp/shot.png'),
       result: imageResult,
     });
 
     const result = await run('@/tmp/shot.png');
 
     expect(calls.hostProbes).toEqual([]);
-    expect(calls.reads).toEqual([{ path: '/tmp/shot.png', ordinal: 0 }]);
+    expect(calls.reads).toEqual([{ path: local('/tmp/shot.png'), ordinal: 0 }]);
     expect(result.outcomes).toEqual([
       { locator: '/tmp/shot.png', outcome: 'denied' },
     ]);
@@ -1127,7 +1223,11 @@ describe('resolvePromptImports image entries', () => {
     const result = await run('@huge.png');
 
     expect(result.outcomes).toEqual([
-      { locator: 'huge.png', resolved: '/repo/huge.png', outcome: 'failed' },
+      {
+        locator: 'huge.png',
+        resolved: local('/repo/huge.png'),
+        outcome: 'failed',
+      },
     ]);
   });
 
@@ -1215,7 +1315,7 @@ describe('resolvePromptImports PDF entries', () => {
   const envelope = (path: string) => JSON.stringify(result(path));
 
   it.each([
-    ['paper.pdf', '/repo/paper.pdf', { existing: ['/repo/paper.pdf'] }],
+    ['paper.pdf', local('/repo/paper.pdf'), { existing: ['/repo/paper.pdf'] }],
     [MEDIA, MEDIA, { media: [MEDIA] }],
   ])(
     'imports %s with its exact read envelope and private PDF metadata',
@@ -1259,14 +1359,14 @@ describe('resolvePromptImports PDF entries', () => {
   });
 
   it('charges only the PDF envelope so a following text target still fits', async () => {
-    const pdfPath = '/repo/paper.pdf';
+    const pdfPath = local('/repo/paper.pdf');
 
     const text = 'a'.repeat(
       MAX_PROMPT_IMPORT_BYTES - Buffer.byteLength(envelope(pdfPath)),
     );
 
     const { run } = createHarness({
-      existing: [pdfPath],
+      existing: ['/repo/paper.pdf'],
       result: (path) => (path === pdfPath ? result(path) : OK),
       body: (path) => (path === pdfPath ? envelope(path) : text),
     });

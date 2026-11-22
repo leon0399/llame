@@ -14,6 +14,7 @@ export interface CreateChatRequest {
   projectId?: string;
   repositoryId?: string;
   /**
+   * The Machine name of the executor.
    * @maxLength 200
    * @pattern \S
    */

@@ -50,7 +50,10 @@ import {
 } from '../machines/machine-results';
 import { machineAttemptKey } from '../runs/machine-attempt';
 
-import { type InstructionScope } from './instruction-files';
+import {
+  hostInstructionScope,
+  type InstructionScope,
+} from './instruction-files';
 
 /**
  * The registered-root view of one Machine target: the scope its chain is walked
@@ -84,42 +87,137 @@ export function createMachineInstructionProbe(input: {
     input.envelope.deliverySeq,
   );
 
+  // The local Machine is this process's own filesystem, so its identity check
+  // runs once per probe, on the first trigger that names it, and its chain is
+  // walked here. A Machine that cannot prove its identity contributes no
+  // files, exactly as an unreachable one does.
+  const state: TriggerScopeState = {
+    localName: input.connector.localMachine()?.toLowerCase(),
+    verifiedLocal: localIdentity(input.connector),
+    rootsOf: cachedRoots({ ...input, attemptKey }),
+    ask: (name, method, path) => ask({ ...input, name, method, path }),
+  };
+
+  return (target) => triggerScope(state, target);
+}
+
+/** The per-attempt state one trigger's scope is resolved through. */
+type TriggerScopeState = {
+  readonly localName: string | undefined;
+  readonly verifiedLocal: () => Promise<boolean>;
+  readonly rootsOf: (
+    name: string,
+  ) => Promise<ReadonlyArray<string> | undefined>;
+  readonly ask: (
+    name: string,
+    method: typeof FS_STAT_METHOD | typeof FS_LIST_METHOD,
+    path: string,
+  ) => Promise<JsonValue | undefined>;
+};
+
+/**
+ * One instruction trigger's scope: the local Machine's own filesystem when the
+ * trigger names this process's Machine and its identity check passes, else the
+ * registered root that contains the target, else none.
+ */
+async function triggerScope(
+  state: TriggerScopeState,
+  target: {
+    readonly name: string;
+    readonly path: string;
+  },
+): Promise<InstructionScope | undefined> {
+  const { name, path } = target;
+
+  if (state.localName !== undefined && name === state.localName) {
+    return (await state.verifiedLocal())
+      ? localMachineInstructionScope(name)
+      : undefined;
+  }
+
+  const registered = await state.rootsOf(name);
+
+  if (registered === undefined) return undefined;
+  // The path grammar is absolute; anything else contains no root.
+  const resolved = path.startsWith('/') ? posix.resolve(path) : path;
+  const root = containingRoot(registered, resolved);
+
+  if (root === undefined) return undefined;
+
+  return machineInstructionScope({
+    name,
+    root,
+    // The scope asks with the probe's own identity, signal, and budget.
+    ask: (method, absolutePath) => state.ask(name, method, absolutePath),
+  });
+}
+
+/**
+ * One Machine's roots, cached for one probe's lifetime: a Machine that could
+ * not answer is not asked again, so one unreachable Machine costs one timeout
+ * per attempt rather than one per instruction trigger.
+ */
+function cachedRoots(input: {
+  readonly connector: MachineConnector;
+  readonly envelope: RequestEnvelope;
+  readonly signal?: AbortSignal;
+  readonly attemptKey: string;
+}): TriggerScopeState['rootsOf'] {
   const roots = new Map<string, Promise<ReadonlyArray<string> | undefined>>();
 
-  /**
-   * One Machine's roots, cached for this probe's lifetime: a Machine that could
-   * not answer is not asked again, so one unreachable Machine costs one
-   * timeout per attempt rather than one per instruction trigger.
-   */
-  const rootsOf = (
-    name: string,
-  ): Promise<ReadonlyArray<string> | undefined> => {
+  return (name) => {
     const cached = roots.get(name);
 
     if (cached !== undefined) return cached;
-    const pending = loadRoots({ ...input, attemptKey, name });
+    const pending = loadRoots({ ...input, name });
     roots.set(name, pending);
 
     return pending;
   };
+}
 
-  return async ({ name, path }) => {
-    const registered = await rootsOf(name);
+/** The local Machine's identity check, run once per probe instance. */
+function localIdentity(connector: MachineConnector): () => Promise<boolean> {
+  let verified: Promise<boolean> | undefined;
 
-    if (registered === undefined) return undefined;
-    // The path grammar is absolute; anything else contains no root.
-    const target = path.startsWith('/') ? posix.resolve(path) : path;
-    const root = containingRoot(registered, target);
+  return () => {
+    verified ??= connector.verifyLocal().then(
+      () => true,
+      () => false,
+    );
 
-    if (root === undefined) return undefined;
+    return verified;
+  };
+}
 
-    return machineInstructionScope({
-      name,
-      root,
-      // The scope asks with the probe's own identity, signal, and budget.
-      ask: (method, absolutePath) =>
-        ask({ ...input, name, method, path: absolutePath }),
-    });
+/**
+ * One target on this process's own Machine: the host filesystem's own walk,
+ * with every entry labelled and keyed by the Machine's canonical locator, so
+ * nothing a Machine path names reaches the model as a bare host path. The walk
+ * stays host-wide here (layers below bound the local chain by its registered
+ * roots), exactly as a host Workspace loads today.
+ */
+function localMachineInstructionScope(name: string): InstructionScope {
+  const host = hostInstructionScope();
+
+  return {
+    ...host,
+    label: (key) => formatMachineLocator(name, key) ?? key,
+    // The file identity a seen set and the canonical read decision compare is
+    // the link target's locator on this Machine: the import is decided on
+    // `machine://<local>/<realpath>`, never on the current Machine.
+    probe: async (key) => {
+      const probe = await host.probe(key);
+
+      return probe.kind === 'missing'
+        ? probe
+        : {
+            ...probe,
+            canonicalPath:
+              formatMachineLocator(name, probe.canonicalPath) ??
+              probe.canonicalPath,
+          };
+    },
   };
 }
 

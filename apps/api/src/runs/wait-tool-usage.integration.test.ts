@@ -20,7 +20,7 @@ vi.setConfig({ testTimeout: 90_000 });
 describe('wait usage accounting across a durable wake', () => {
   const fx = useSegmentsFixture('wait-tool-usage', {
     allowedTools: ['read', 'wait'],
-    nativeExecutorId: 'wait-tool-usage-host',
+    localMachine: 'wait-tool-usage-host',
     maxStepsPerRun: 3,
   });
 

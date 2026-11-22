@@ -421,7 +421,7 @@ rereads the current source, so an old range may return different text.
 
 ## Configured by
 
-- [Native files](../operator/native-files.md) enables the host executor and the
-  `read` entry.
+- [Native files](../operator/native-files.md) configures the Machine behind
+  absolute paths and the `read` entry.
 - [Web reads](../operator/web-read.md) configures web adapters; the web document
   bound is fixed.

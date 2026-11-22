@@ -28,6 +28,8 @@ import {
   type LlameConfig,
 } from '../instance-config/llame-config';
 import { ExecutorGit } from '../machines/executor-git.service';
+import { MachineConnector } from '../machines/machine-connector.service';
+import { localMachineConnector } from '../testing/local-machine';
 import { ModelsService } from '../models/models.service';
 import { CanonicalSearchCoverageService } from '../search/canonical-search-activation.service';
 import {
@@ -81,7 +83,11 @@ function clone(): string {
 
 const config: LlameConfig = {
   ...BUILT_IN_DEFAULTS,
-  tools: { ...BUILT_IN_DEFAULTS.tools, nativeExecutorId: EXECUTOR },
+  machines: {
+    local: EXECUTOR,
+    default: EXECUTOR,
+    hosts: { [EXECUTOR]: {} },
+  },
 };
 
 describe('the git state route over HTTP', () => {
@@ -114,6 +120,11 @@ describe('the git state route over HTTP', () => {
       .useValue({ assertReady: () => Promise.resolve() })
       .overrideProvider(InstanceConfigService)
       .useValue({ config })
+      // The host Machine's daemon is an in-process peer: the identity-checked
+      // handshake a local git call needs answers without spawning a child, and
+      // any other request reaching it fails the call loudly.
+      .overrideProvider(MachineConnector)
+      .useValue(localMachineConnector({ name: EXECUTOR }))
       .overrideProvider(ModelsService)
       .useValue(new FakeModelsService())
       .compile();

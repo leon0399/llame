@@ -40,7 +40,7 @@ prose, as an `@artifact://` marker does.
 The locator resolves only inside the Chat of the job, under its owner's
 row-level security. Another Chat of the same owner, another owner, and a
 process with no identity read nothing, and each answer is `not_found`. The read
-needs no native executor. The `read` permission group gates it and matches the
+needs no Machine. The `read` permission group gates it and matches the
 locator with its scheme in lower case and without its selector, so a reject
 written against `^job://` also refuses `JOB://bash-4/stdout:1-5`.
 

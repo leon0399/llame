@@ -96,7 +96,7 @@ export async function finishGrepCall(
   return artifactResult({
     state,
     written,
-    hostFiles: artifactHostFiles(context, 'grep', written),
+    hostFiles: artifactHostFiles(context, written),
     findings,
     limit,
     trailing,

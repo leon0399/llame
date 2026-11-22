@@ -103,29 +103,30 @@ trigger names the projected absolute path itself when it is an existing
 directory, and otherwise that path's parent, whether or not the parent exists.
 Ancestors above the Workspace root and above any Git root are included, so
 `/home/operator/AGENTS.md` enters every Chat that touches a path beneath it on
-that executor. A reject rule on the `read` group excludes such a path from every
+that Machine. A reject rule on the `read` group excludes such a path from every
 load.
 
 Entry loads the root chain when it establishes or switches the binding, never on
 a same-root re-entry, and exit and detach load nothing; every load is effective
 from the next model step. Each native `read`, `edit`, or `write` whose `path`
-resolves to a local host path loads its directory's chain from the next model
-step, whatever the call's own outcome — a denied call loads nothing — and a read
-selector or representation suffix (`:40-80`, `:outline`) does not change the
-trigger directory, while a `file://` alias triggers as the path it decodes to.
+resolves to a path on the host Machine loads its directory's chain from the
+next model step, whatever the call's own outcome — a denied call loads nothing —
+and a read selector or representation suffix (`:40-80`, `:outline`) does not
+change the trigger directory, while a `file://` alias triggers as the path it
+decodes to.
 Each accepted turn on a Chat with a live binding re-stages the bound root's chain
 before the first model request when any file of it is not already in effective
 context; a Chat without a binding stages no root load. `bash`, `skill://`, `http://`,
 and `https://` never trigger a load, and a model read of a candidate file itself
 neither loads nor marks that file.
 
-Loading requires `read` to be allowlisted and a configured native executor for
-host triggers, and does not require `enter_workspace`.
+Loading requires `read` to be allowlisted and a configured Machine for host
+triggers, and does not require `enter_workspace`.
 
 An admitted host or Knowledge [prompt import](prompt-imports.md) triggers the
 same way, as a native `read` of its path, on the accepted turn and before the
 first model request. It does so whether or not a Workspace is bound: a host
-import needs the native executor and a `kb://` import needs the Knowledge root,
+import needs a configured Machine and a `kb://` import needs the Knowledge root,
 and both need `read` allowlisted. The import's read outcome does not matter, so
 a failed read still loads its directory's chain. A denied, missing, web, or
 `skill://` target loads nothing, and importing an instruction file itself
@@ -162,7 +163,7 @@ chain from the next model step whatever the call's own outcome, and an admitted
 prompt import whose target is on a Machine loads on its accepted turn.
 
 Loading a Machine chain needs `read` to be allowlisted and a Machine the
-operator configured; it binds no executor identity and needs no local executor.
+operator configured; it binds no Workspace and needs no local Machine.
 A Machine that is unconfigured or unreachable, or that answers an unusable
 result, contributes no files: this load is best-effort context and never an error
 the Run has to handle.
@@ -191,7 +192,7 @@ import does load its Space chain on its accepted turn (see
 [Host triggers](#host-triggers)).
 
 Loading a Space chain needs `read` to be allowlisted and a configured Knowledge
-root; it binds no executor identity.
+root; it binds no Machine.
 
 ## Once per epoch
 
@@ -285,12 +286,12 @@ exports, and search projections expose neither the item's text nor its metadata.
 
 ## Configured by
 
-- [Native files](../operator/native-files.md) enables the host executor and the
-  `read` entry that host triggers need.
+- [Native files](../operator/native-files.md) configures the Machine behind
+  absolute paths and the `read` entry that host triggers need.
 - [Personal Knowledge](../operator/knowledge.md) configures the Knowledge root
   behind `kb://` triggers.
 
-Machine triggers need the operator's Machines instead of the host executor; see
+Machine triggers need the target Machine's registered roots; see
 [machine locators](locators/machine.md#configured-by).
 
 The `read` reject rule that excludes a path from every load is configured under

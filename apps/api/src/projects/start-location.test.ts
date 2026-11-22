@@ -327,7 +327,7 @@ describe('resolveStartLocation executor and checkout steps', () => {
 
     const newer = checkoutRow({
       id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
-      executorId: 'machine:nas',
+      executorId: 'nas',
       path: 'machine://nas/srv/llame',
     });
 
@@ -339,7 +339,7 @@ describe('resolveStartLocation executor and checkout steps', () => {
           defaultRow({ checkoutId: older.id, updatedAt: INSTANT }),
           defaultRow({
             id: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
-            executorId: 'machine:nas',
+            executorId: 'nas',
             checkoutId: newer.id,
             updatedAt: LATER,
           }),
@@ -350,7 +350,7 @@ describe('resolveStartLocation executor and checkout steps', () => {
       {},
     );
 
-    expect(location.executorId).toBe('machine:nas');
+    expect(location.executorId).toBe('nas');
     expect(location.checkoutId).toBe(newer.id);
   });
 
@@ -361,7 +361,7 @@ describe('resolveStartLocation executor and checkout steps', () => {
         checkouts: [checkoutRow()],
         defaults: [
           defaultRow({
-            executorId: 'machine:nas',
+            executorId: 'nas',
             checkoutId: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
           }),
         ],
@@ -405,11 +405,11 @@ describe('resolveStartLocation executor and checkout steps', () => {
     const location = await resolveStartLocation(
       makeSource({ links: [linkRow()], checkouts: [checkoutRow()] }),
       OWNER,
-      projectRow({ defaultExecutorId: 'machine:nas' }),
+      projectRow({ defaultExecutorId: 'nas' }),
       {},
     );
 
-    expect(location.executorId).toBe('machine:nas');
+    expect(location.executorId).toBe('nas');
     expect(location.checkoutId).toBeNull();
   });
 
@@ -418,7 +418,7 @@ describe('resolveStartLocation executor and checkout steps', () => {
 
     const nas = checkoutRow({
       id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
-      executorId: 'machine:nas',
+      executorId: 'nas',
     });
 
     const location = await resolveStartLocation(
@@ -451,7 +451,7 @@ describe('resolveStartLocation executor and checkout steps', () => {
   });
 
   it('lets a named checkout decide its repository and executor', async () => {
-    const checkout = checkoutRow({ executorId: 'machine:nas' });
+    const checkout = checkoutRow({ executorId: 'nas' });
 
     const location = await resolveStartLocation(
       makeSource({ links: [linkRow()], checkouts: [checkout] }),
@@ -462,7 +462,7 @@ describe('resolveStartLocation executor and checkout steps', () => {
 
     expect(location).toMatchObject({
       repositoryId: REPOSITORY_ID,
-      executorId: 'machine:nas',
+      executorId: 'nas',
       checkoutId: checkout.id,
     });
   });
@@ -528,7 +528,7 @@ describe('resolveStartLocation executor and checkout steps', () => {
       makeSource({ links: [linkRow()], checkouts: [checkout] }),
       OWNER,
       projectRow(),
-      { checkoutId: checkout.id, executorId: 'machine:nas' },
+      { checkoutId: checkout.id, executorId: 'nas' },
     );
 
     await expect(resolution).rejects.toBeInstanceOf(
@@ -682,7 +682,7 @@ describe('resolveStartLocation executor and checkout steps', () => {
 
     const nas = checkoutRow({
       id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
-      executorId: 'machine:nas',
+      executorId: 'nas',
     });
 
     const source: StartLocationSource = {
@@ -804,12 +804,12 @@ describe('resolveStartLocation without a resolved repository', () => {
       makeSource({}),
       OWNER,
       projectRow(),
-      { executorId: 'machine:nas' },
+      { executorId: 'nas' },
     );
 
     expect(location).toEqual({
       repositoryId: null,
-      executorId: 'machine:nas',
+      executorId: 'nas',
       checkoutId: null,
       isolation: 'reuse',
       isolationReason: 'no_link',
@@ -821,13 +821,13 @@ describe('resolveStartLocation without a resolved repository', () => {
     const location = await resolveStartLocation(
       makeSource({ links: [] }),
       OWNER,
-      projectRow({ defaultExecutorId: 'machine:nas' }),
+      projectRow({ defaultExecutorId: 'nas' }),
       {},
     );
 
     expect(location).toMatchObject({
       repositoryId: null,
-      executorId: 'machine:nas',
+      executorId: 'nas',
       checkoutId: null,
       isolationReason: 'no_link',
     });
@@ -879,7 +879,7 @@ describe('resolveStartLocation repository and checkout edge cases', () => {
         links: [linkRow()],
         defaults: [
           defaultRow({
-            executorId: 'machine:nas',
+            executorId: 'nas',
             checkoutId: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
           }),
         ],
@@ -891,7 +891,7 @@ describe('resolveStartLocation repository and checkout edge cases', () => {
 
     expect(location).toEqual({
       repositoryId: REPOSITORY_ID,
-      executorId: 'machine:nas',
+      executorId: 'nas',
       checkoutId: null,
       isolation: 'reuse',
       isolationReason: 'project_policy',
@@ -904,11 +904,11 @@ describe('resolveStartLocation repository and checkout edge cases', () => {
       makeSource({ links: [linkRow()], checkouts: [checkoutRow()] }),
       OWNER,
       projectRow(),
-      { executorId: 'machine:nas' },
+      { executorId: 'nas' },
     );
 
     expect(location).toMatchObject({
-      executorId: 'machine:nas',
+      executorId: 'nas',
       checkoutId: null,
     });
   });

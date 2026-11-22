@@ -13,8 +13,8 @@ import {
   clearFieldWorktree,
   link,
   llame,
-  localClone,
-  machineClone,
+  hostClone,
+  devboxClone,
   routeFetch,
   sentBody,
   sentRoutes,
@@ -54,7 +54,7 @@ const meta = {
     repository: llame,
     checkouts: {
       status: "loaded",
-      rows: [localClone, machineClone, clearFieldWorktree],
+      rows: [hostClone, devboxClone, clearFieldWorktree],
     },
     open: true,
     onOpenChange: fn(),
@@ -63,6 +63,18 @@ const meta = {
     api.refusal = null;
     useMachinesQuery.mockReturnValue({
       data: [
+        {
+          name: "host",
+          status: "online",
+          lastSeenAt: "2026-10-24T10:00:00.000Z",
+          failureReason: null,
+          hubProtocolVersion: 1,
+          daemonProtocolVersion: 1,
+          daemonVersion: "0.1.0",
+          facts: null,
+          factsCapturedAt: null,
+          roots: ["/home/leo/src"],
+        },
         {
           name: "devbox",
           status: "online",
@@ -93,12 +105,13 @@ async function sheet() {
 }
 
 /**
- * The sheet's three bands: settings, the clones, and the worktrees. A
- * Machine clone shows the path a terminal there takes and whether the
- * Machine is reachable; the worktree names the chat that made it, as a link
- * to that chat, and how many others share it.
+ * The sheet's three bands: settings, the clones, and the worktrees. Every
+ * checkout is on a Machine — the host included — so each names its Machine
+ * and whether llame can reach it, and shows the path a terminal there takes;
+ * the worktree names the chat that made it, as a link to that chat, and how
+ * many others share it.
  *
- * @summary settings, local and Machine clones, and a worktree with its chats
+ * @summary settings, Machine clones, and a worktree with its chats
  */
 export const Overview: Story = {
   tags: ["ai-generated"],
@@ -109,7 +122,8 @@ export const Overview: Story = {
     await expect(view.getByRole("switch", { name: "Primary" })).toBeChecked();
     await expect(view.getByText("/home/leo/src/llame")).toBeVisible();
     await expect(view.getByText("/home/box/work/llame")).toBeVisible();
-    await expect(view.getAllByText(", Online")).toHaveLength(1);
+    // Two clones and the worktree: every row names a reachable Machine.
+    await expect(view.getAllByText(", Online")).toHaveLength(3);
     await expect(view.getByText("llame/clear-field-0192")).toBeVisible();
     await expect(
       await view.findByRole("link", { name: "Clear field" }),
@@ -202,21 +216,40 @@ export const AddCheckout: Story = {
   },
 };
 
+/** The part of a `within` view the row lookup uses. */
+type SheetView = { getByText: (text: string) => HTMLElement };
+
+/** The row of the clone shown at `path`, for the per-row controls. */
+function cloneRow(view: SheetView, path: string): HTMLElement {
+  const row = view.getByText(path).closest("li");
+
+  if (row === null) throw new Error(`no clone row for ${path}`);
+
+  return row;
+}
+
 /**
- * A host path copies at once; the icon turns into a check for a moment.
+ * A clone's copy offers the path on its Machine or the locator the tools
+ * take; the path item copies what a terminal there would take.
  *
- * @summary copying a local clone's path
+ * @summary copying a clone's path on its Machine
  */
-export const CopyPath: Story = {
+export const CopyMachinePath: Story = {
   tags: ["ai-generated"],
   beforeEach: stubClipboard,
   play: async () => {
     const view = await sheet();
+    const row = cloneRow(view, "/home/leo/src/llame");
 
-    const [localCopy] = view.getAllByRole("button", { name: "Copy path" });
+    await userEvent.click(
+      within(row).getByRole("button", { name: "Copy path or locator" }),
+    );
 
-    if (localCopy === undefined) throw new Error("no local copy button");
-    await userEvent.click(localCopy);
+    const item = await screen.findByRole("menuitem", { name: "Path on host" });
+
+    // The menu fades in; its items are visible once that ends.
+    await waitFor(() => expect(item).toBeVisible());
+    await userEvent.click(item);
     await waitFor(() =>
       expect(writeText).toHaveBeenCalledWith("/home/leo/src/llame"),
     );
@@ -227,19 +260,19 @@ export const CopyPath: Story = {
 };
 
 /**
- * A Machine clone's copy offers the path on that Machine or the locator the
- * tools take.
+ * The same menu's other item is the canonical locator the tools take.
  *
- * @summary copying a Machine clone's locator
+ * @summary copying a clone's locator
  */
 export const CopyLocator: Story = {
   tags: ["ai-generated"],
   beforeEach: stubClipboard,
   play: async () => {
     const view = await sheet();
+    const row = cloneRow(view, "/home/box/work/llame");
 
     await userEvent.click(
-      view.getByRole("button", { name: "Copy path or locator" }),
+      within(row).getByRole("button", { name: "Copy path or locator" }),
     );
 
     const item = await screen.findByRole("menuitem", {

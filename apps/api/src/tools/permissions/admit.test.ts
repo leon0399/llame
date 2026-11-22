@@ -3,11 +3,13 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   admitPermission,
   decidePermission,
-  evaluatesPermission,
   type EvaluateCall,
+  evaluateCanonicalWithRejectTexts,
+  evaluatesPermission,
   OWNER_ROUTE,
 } from './admit';
 import { compileToolPermissionMap } from './compile-permissions';
+import { evaluatePermission } from './evaluator';
 import { type ToolContext } from '../types';
 import { type PermissionDecision } from './types';
 
@@ -100,5 +102,90 @@ describe('evaluatesPermission', () => {
     [undefined, true],
   ] as const)('evaluates %s as %s', (mode, expected) => {
     expect(evaluatesPermission(context(mode))).toBe(expected);
+  });
+});
+
+describe('evaluateCanonicalWithRejectTexts', () => {
+  const canonicalAllow = compileToolPermissionMap(
+    { read: { allow: [{ field: 'path', regex: '^machine://devl/srv(/|$)' }] } },
+    'process-policy',
+  );
+
+  const projectedAllow = compileToolPermissionMap(
+    { read: { allow: [{ field: 'path', regex: String.raw`^\/srv\/` }] } },
+    'process-policy',
+  );
+
+  const projectedReject = compileToolPermissionMap(
+    {
+      read: {
+        allow: true,
+        reject: [{ field: 'path', regex: String.raw`^\/etc\/` }],
+      },
+    },
+    'process-policy',
+  );
+
+  const evaluateWith =
+    (map: typeof canonicalAllow): EvaluateCall =>
+    (options) =>
+      evaluatePermission(map, options);
+
+  const canonical = {
+    toolId: 'read',
+    args: { path: 'machine://devl/srv/a.ts' },
+  };
+
+  it('admits through the canonical locator alone', () => {
+    expect(
+      evaluateCanonicalWithRejectTexts(evaluateWith(canonicalAllow), {
+        canonical,
+        rejectTexts: [{ toolId: 'read', args: { path: '/srv/a.ts' } }],
+      }),
+    ).toMatchObject({ decision: 'allow', reason: 'matched_allow' });
+  });
+
+  it('refuses when a reject matches the projected path', () => {
+    const decision = evaluateCanonicalWithRejectTexts(
+      evaluateWith(projectedReject),
+      {
+        canonical: {
+          toolId: 'read',
+          args: { path: 'machine://devl/etc/passwd' },
+        },
+        rejectTexts: [{ toolId: 'read', args: { path: '/etc/passwd' } }],
+      },
+    );
+
+    expect(decision).toEqual({
+      policyId: 'process-policy',
+      decision: 'reject',
+      reason: 'explicit_reject',
+      reference: { groupId: 'read', list: 'reject', clauseIndex: 0 },
+    });
+  });
+
+  it('never admits through an allow that only matches a non-canonical text', () => {
+    const decision = evaluateCanonicalWithRejectTexts(
+      evaluateWith(projectedAllow),
+      {
+        canonical,
+        rejectTexts: [{ toolId: 'read', args: { path: '/srv/a.ts' } }],
+      },
+    );
+
+    expect(decision).toMatchObject({ decision: 'reject', reason: 'no_allow' });
+  });
+
+  it('keeps a canonical reject even when every other text would allow', () => {
+    const decision = evaluateCanonicalWithRejectTexts(
+      evaluateWith(projectedAllow),
+      {
+        canonical: { toolId: 'read', args: { path: 'machine://devl/etc/x' } },
+        rejectTexts: [{ toolId: 'read', args: { path: '/srv/a.ts' } }],
+      },
+    );
+
+    expect(decision).toMatchObject({ decision: 'reject', reason: 'no_allow' });
   });
 });

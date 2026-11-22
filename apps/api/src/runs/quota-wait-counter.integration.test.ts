@@ -28,7 +28,7 @@ describe('quota wait request allowance against the worker', () => {
   const fx = useSegmentsFixture('quota-counter', {
     allowedTools: ['read'],
     maxStepsPerRun: 4,
-    nativeExecutorId: 'quota-counter-host',
+    localMachine: 'quota-counter-host',
     runsConcurrency: 1,
     queueSchema,
   });

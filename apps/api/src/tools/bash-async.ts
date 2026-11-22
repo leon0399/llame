@@ -22,7 +22,7 @@ import { type ToolContext, type ToolResult } from './types';
 
 type AsyncContext = ToolContext &
   Required<
-    Pick<ToolContext, 'runId' | 'nativeExecutorId' | 'toolCallId' | 'attemptId'>
+    Pick<ToolContext, 'runId' | 'localMachine' | 'toolCallId' | 'attemptId'>
   >;
 
 const renderPromotionFailure = loadPackagedTemplate<{
@@ -59,6 +59,45 @@ const CANCELLED_BEFORE_START = {
   message: 'Command was cancelled before start.',
 } as const;
 
+/** One host command: its parsed input, the directory it enters, its slot, and
+ *  the canonical locator the durable attempt records. */
+export type HostCommand = {
+  readonly input: BashInput;
+  /** The absolute directory the executor enters. */
+  readonly cwd: string;
+  /** The canonical locator the durable attempt records. */
+  readonly recordedPath: string;
+  readonly slot: ManagedProcessSlot;
+};
+
+/** One host command whose recorded path defaults to the directory it enters. */
+export function hostCommand(
+  input: BashInput,
+  cwd: string,
+  slot: ManagedProcessSlot,
+  recordedPath = cwd,
+): HostCommand {
+  return { input, cwd, recordedPath, slot };
+}
+
+/** The move deadline this attempt is fenced by, whatever its cause. */
+function moveDeadline(context: AsyncContext): number | undefined {
+  return (
+    messageMoveWindow(context.moveSignal)?.deadlineAt ?? context.moveDeadlineAt
+  );
+}
+
+/** The refusal a call with no worker job runtime records. */
+function jobRuntimeUnavailable(): Started {
+  return {
+    result: {
+      status: 'error',
+      type: 'executor_unavailable',
+      message: 'The worker job runtime is unavailable.',
+    },
+  };
+}
+
 /**
  * Fence, then spawn on the worker registry. A call whose Run was cancelled
  * before the spawn records a known `cancelled` result, never an unknown one.
@@ -66,9 +105,7 @@ const CANCELLED_BEFORE_START = {
  */
 async function startHostCommand(
   context: AsyncContext,
-  input: BashInput,
-  cwd: string,
-  slot: ManagedProcessSlot,
+  command: HostCommand,
 ): Promise<Started> {
   let started: Started | undefined;
   // The call never spawns once its Run aborts, or once the fence has taken
@@ -79,17 +116,13 @@ async function startHostCommand(
   const closeGate = () => {
     controller.abort();
 
-    if (!gate.spawned) slot.release();
+    if (!gate.spawned) command.slot.release();
   };
 
   let timer: NodeJS.Timeout | undefined;
 
   const onMove = () => {
-    const deadline =
-      messageMoveWindow(context.moveSignal)?.deadlineAt ??
-      context.moveDeadlineAt;
-
-    const remaining = settlementGraceMs(deadline);
+    const remaining = settlementGraceMs(moveDeadline(context));
 
     if (remaining <= 0) closeGate();
     else timer = setTimeout(closeGate, remaining);
@@ -102,9 +135,10 @@ async function startHostCommand(
   else if (context.moveSignal?.aborted) onMove();
 
   try {
-    started = await fenceAndSpawn(context, input, cwd, gate);
+    started = await fenceAndSpawn(context, command, gate);
 
-    if ('handle' in started) void started.handle.settled.finally(slot.release);
+    if ('handle' in started)
+      void started.handle.settled.finally(command.slot.release);
 
     return started;
   } finally {
@@ -112,34 +146,25 @@ async function startHostCommand(
     context.abortSignal?.removeEventListener('abort', closeGate);
     context.moveSignal?.removeEventListener('abort', onMove);
 
-    if (started === undefined || 'result' in started) slot.release();
+    if (started === undefined || 'result' in started) command.slot.release();
   }
 }
 
 async function fenceAndSpawn(
   context: AsyncContext,
-  input: BashInput,
-  cwd: string,
+  command: HostCommand,
   gate: SpawnGate,
 ): Promise<Started> {
   const { bashJobs, jobSettings } = context;
 
   if (bashJobs === undefined || jobSettings === undefined)
-    return {
-      result: {
-        status: 'error',
-        type: 'executor_unavailable',
-        message: 'The worker job runtime is unavailable.',
-      },
-    };
+    return jobRuntimeUnavailable();
 
-  const prior = await beginHostCommand(context, cwd);
+  const prior = await beginHostCommand(context, command.recordedPath);
 
   if (prior) return { result: prior };
   const startedAt = new Date();
-
-  const deadline =
-    messageMoveWindow(context.moveSignal)?.deadlineAt ?? context.moveDeadlineAt;
+  const deadline = moveDeadline(context);
 
   const expired = deadline !== undefined && performance.now() >= deadline;
 
@@ -147,12 +172,17 @@ async function fenceAndSpawn(
     gate.signal.aborted || expired
       ? CANCELLED_BEFORE_START
       : bashJobs.start(
-          { command: 'bash', args: ['-c', input.command], cwd, env: input.env },
+          {
+            command: 'bash',
+            args: ['-c', command.input.command],
+            cwd: command.cwd,
+            env: command.input.env,
+          },
           managedBashContext(context),
           {
             toolCallId: context.toolCallId,
             protectedValues: context.configuredCredentials,
-            unlimited: input.unlimited === true,
+            unlimited: command.input.unlimited === true,
           },
         );
 
@@ -166,21 +196,26 @@ async function fenceAndSpawn(
   return { result: await recordResult(context, toToolResult(started)) };
 }
 
-/** `async: true`: promote at spawn and return `backgrounded`. */
+/**
+ * `async: true`: promote at spawn and return `backgrounded`.
+ */
 export async function runAsyncBash(
   context: AsyncContext,
-  input: BashInput,
-  cwd: string,
-  slot: ManagedProcessSlot,
+  command: HostCommand,
 ): Promise<ToolResult> {
-  const started = await startHostCommand(context, input, cwd, slot);
+  const started = await startHostCommand(context, command);
 
   if ('result' in started) return started.result;
 
-  const promoted = await promoteCommand(context, started.handle, input, {
-    startedAt: started.startedAt,
-    cause: 'async',
-  });
+  const promoted = await promoteCommand(
+    context,
+    started.handle,
+    command.input,
+    {
+      startedAt: started.startedAt,
+      cause: 'async',
+    },
+  );
 
   return promoted.recordResult
     ? recordResult(context, promoted.result)
@@ -247,18 +282,18 @@ function promotionJobResult(job: ChatJob, move: Move): ToolResult {
 
 function beginHostCommand(
   context: AsyncContext,
-  cwd: string,
+  path: string,
 ): Promise<ToolResult | undefined> {
   return context.tenantDb.runAs(context.userId, (db) =>
     new NativeFilesRepository(db).begin({
       runId: context.runId,
       userId: context.userId,
-      fence: { bound: true, executorId: context.nativeExecutorId },
+      fence: { bound: true, executorId: context.localMachine },
       deliverySequence: context.nativeDeliverySequence,
       attemptId: context.attemptId,
       toolCallId: context.toolCallId,
       operation: 'bash',
-      path: cwd,
+      path,
     }),
   );
 }
@@ -333,15 +368,13 @@ async function waitForReceiptRetry(): Promise<void> {
  */
 export async function runForegroundBash(
   context: AsyncContext,
-  input: BashInput,
-  cwd: string,
-  slot: ManagedProcessSlot,
+  command: HostCommand,
 ): Promise<ToolResult> {
-  const started = await startHostCommand(context, input, cwd, slot);
+  const started = await startHostCommand(context, command);
 
   if ('result' in started) return started.result;
 
-  const moved = await foregroundResult(context, started, input);
+  const moved = await foregroundResult(context, started, command.input);
 
   return moved.recordResult
     ? recordResult(context, moved.result)

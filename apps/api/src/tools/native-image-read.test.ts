@@ -22,6 +22,7 @@ import { createToolMediaStore } from '../media/tool-media-store';
 import { SkillCatalog } from '../skills/skill-catalog';
 import { NativeFilesRepository } from '../runs/native-files-repository';
 import { compileTestPermissionPolicy } from '../testing/tool-permission-policy';
+import { localMachineConnector } from '../testing/local-machine';
 import {
   nativeEditTool,
   nativeReadTool,
@@ -35,6 +36,10 @@ import { createWorkspaceRootCell } from './workspace-path';
 const OWNED = '0190f5e2-7c1a-7b3e-9d4f-2a6b8c0d1e2f';
 const SPACE = '6f5d8a0f-7dd3-4f6b-b6ed-9e0f0b1c2d3e';
 const OTHER_SPACE = '11111111-2222-4333-8444-555555555555';
+const HOST = 'host-a';
+
+/** The canonical locator of a host path on the process's own Machine. */
+const at = (path: string): string => `machine://${HOST}${path}`;
 
 const pdfFixture = (name: string) =>
   readFile(join(__dirname, '../media/testing/pdf', name));
@@ -138,7 +143,9 @@ describe('native media reads', () => {
       userId: 'owner',
       chatId: 'chat',
       runId: 'run',
-      nativeExecutorId: 'host',
+      localMachine: HOST,
+      defaultMachine: HOST,
+      machines: localMachineConnector(),
       nativeDeliverySequence: 1,
       toolCallId: 'call',
       permissionPolicy: compileTestPermissionPolicy(),
@@ -196,7 +203,7 @@ describe('native media reads', () => {
 
     const result = await runTool(nativeReadTool, { path }, context(), 5);
 
-    expect(shown(result)).toEqual({ ...IMAGE, path });
+    expect(shown(result)).toEqual({ ...IMAGE, path: at(path) });
     expect(result).not.toHaveProperty('media');
     expect(result).not.toHaveProperty('content');
     expect(media.lookups).toEqual([]);
@@ -223,7 +230,7 @@ describe('native media reads', () => {
 
     const result = await runTool(nativeReadTool, { path }, textOnly, 5);
 
-    expect(shown(result)).toEqual({ ...IMAGE, path });
+    expect(shown(result)).toEqual({ ...IMAGE, path: at(path) });
     expect(held()).toEqual({
       locator: path,
       width: 160,
@@ -279,19 +286,19 @@ describe('native media reads', () => {
 
     expect(shown(result)).toEqual({
       ...IMAGE,
-      path: join(directory, 'app', '[slug]', 'shot.png'),
+      path: at(join(directory, 'app', '[slug]', 'shot.png')),
     });
     expect(held()?.locator).toBe('app/[slug]/shot.png');
   });
 
-  it('holds a file: alias image under the submitted URL and reports its host path', async () => {
+  it('holds a file: alias image under the submitted URL and reports its canonical locator', async () => {
     const path = join(directory, 'shot.png');
     await writeFile(path, shot);
     const submitted = `file://${path}`;
 
     expect(
       shown(await runTool(nativeReadTool, { path: submitted }, context(), 5)),
-    ).toEqual({ ...IMAGE, path });
+    ).toEqual({ ...IMAGE, path: at(path) });
     expect(held()?.locator).toBe(submitted);
   });
 
@@ -310,7 +317,7 @@ describe('native media reads', () => {
           5,
         ),
       ),
-    ).toEqual({ ...IMAGE, width: 320, height: 180, path });
+    ).toEqual({ ...IMAGE, width: 320, height: 180, path: at(path) });
     expect(held('one')).toMatchObject({ width: 160, height: 90 });
     expect(held('two')).toMatchObject({ width: 320, height: 180 });
   });
@@ -399,7 +406,7 @@ describe('native media reads', () => {
         mediaType: 'application/pdf',
         pages: 15,
         byteSize: bytes.byteLength,
-        path,
+        path: at(path),
       });
       expect(memory.get('call')).toEqual({
         locator,
@@ -425,7 +432,9 @@ describe('native media reads', () => {
   describe('Knowledge and skill media', () => {
     function knowledgeContext(): ToolContext {
       return context({
-        nativeExecutorId: undefined,
+        localMachine: undefined,
+        defaultMachine: undefined,
+        machines: undefined,
         knowledgeResolver: {
           listForOwnerPage: () => Promise.resolve({ spaces: [] }),
           resolveBindingForOwnerById: (_owner, id) =>
@@ -531,7 +540,9 @@ describe('native media reads', () => {
         nativeReadTool,
         { path: 'skill://pdf/assets/sample.png' },
         context({
-          nativeExecutorId: undefined,
+          localMachine: undefined,
+          defaultMachine: undefined,
+          machines: undefined,
           skillCatalog: new SkillCatalog([source]),
         }),
         5,
@@ -566,7 +577,9 @@ describe('native media reads', () => {
         nativeReadTool,
         { path: locator },
         context({
-          nativeExecutorId: undefined,
+          localMachine: undefined,
+          defaultMachine: undefined,
+          machines: undefined,
           skillCatalog: new SkillCatalog([source]),
         }),
         5,
@@ -596,7 +609,9 @@ describe('native media reads', () => {
     /** A process with no executor and no Knowledge, inside a Workspace. */
     const mediaContext = (overrides: Partial<ToolContext> = {}) =>
       context({
-        nativeExecutorId: undefined,
+        localMachine: undefined,
+        defaultMachine: undefined,
+        machines: undefined,
         runId: undefined,
         workspaceRoot: createWorkspaceRootCell(directory),
         ...overrides,

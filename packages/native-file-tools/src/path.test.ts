@@ -4,6 +4,7 @@ import { join } from "node:path";
 import {
   applySelectorSuffix,
   parsePathScheme,
+  resolveDecodedReadTarget,
   resolveEndRelativeSelector,
   resolveReadTarget,
   splitSelectorSuffix,
@@ -75,6 +76,36 @@ describe("native read selectors", () => {
     expect(await resolveReadTarget(path)).toEqual({
       path,
       offset: 0,
+      raw: false,
+    });
+  });
+
+  it("reads a decoded path as written, without splitting a selector off it", async () => {
+    const notes = join(directory, "notes");
+    await writeFile(notes, "one\ntwo\nthree\n");
+
+    // The locator parser already decided this path holds no selector, so the
+    // `:2` suffix is a file name and the selector-free neighbour is not read.
+    await expect(resolveDecodedReadTarget(`${notes}:2`)).rejects.toMatchObject({
+      code: "ENOENT",
+    });
+
+    const literal = join(directory, "report:2");
+    await writeFile(literal, "literal");
+    expect(await resolveDecodedReadTarget(literal)).toEqual({
+      path: literal,
+      offset: 0,
+      raw: false,
+    });
+  });
+
+  it("applies the decoded path's own selector verbatim", async () => {
+    const notes = join(directory, "notes");
+    await writeFile(notes, "one\ntwo\nthree\n");
+    expect(await resolveDecodedReadTarget(notes, "2")).toEqual({
+      path: notes,
+      offset: 1,
+      limit: 1,
       raw: false,
     });
   });

@@ -167,12 +167,12 @@ credentials in `env` instead.
 Entering a Workspace is the trust decision for reading and starting its MCP
 configuration, including later client starts; there is no separate per-server
 permission check. This is an audited-repository boundary: repository config
-may read the executing llame process's host environment and files, and stdio
-servers run unsandboxed as the llame OS user. Allowing entry to a directory
+may read the executing Machine's environment and files, and stdio servers run
+unsandboxed as that Machine's OS user. Allowing entry to a directory
 where any allowlisted tool can write — `bash`, native `write`/`edit` without
 the W1/W2 rejects in [Native file tools](native-files.md#workspace-entry), or
 write-capable operator or Workspace MCP tools — is equivalent to
-`execute_code` and host-secret exfiltration. Workspace MCP calls still require
+`execute_code` and Machine-secret exfiltration. Workspace MCP calls still require
 their normal `tools.allowed` eligibility and `tools.permissions` authorization.
 A call rejected by a permission rule fails before execution, so it never
 reaches the server.
@@ -236,8 +236,8 @@ isolation are unchanged. Starting a server returns the protected values of the
 definition the Machine actually started, and the hub treats them as secrets
 from arrival, including values the Machine learns later such as an HTTP
 session id. The Machine's stderr arrives as bounded, redacted diagnostics. A
-client set's executor dimension is the Machine its root locator names, so one
-Chat never shares declarations or call state across executors. Stopping a
+client set is keyed by the Machine its root locator names, so one Chat never
+shares declarations or call state across Machines. Stopping a
 client cancels its channel, which terminates the server on the Machine. A lost
 channel is a crashed server: calls in that Run fail, and the server returns on
 a later start once the Machine is reachable again.

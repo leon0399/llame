@@ -44,9 +44,14 @@ const PATH = '/srv/app';
 const LOCATOR = `machine://${MACHINE}${PATH}`;
 const HEAD = 'a'.repeat(40);
 
+/** The host Machine, reachable in process: `machines.local` and default. */
+const HOST = 'hub-host';
+
 const MACHINES: MachinesConfig = {
   ssh: { knownHostsFile: '/dev/null' },
-  hosts: { [MACHINE]: { destination: 'nas.example' } },
+  local: HOST,
+  default: HOST,
+  hosts: { [HOST]: {}, [MACHINE]: { destination: 'nas.example' } },
 };
 
 /** The locator answer a current daemon gives for one clone. */
@@ -190,7 +195,6 @@ describe('/api/v1/checkouts on a Machine', () => {
   it('stores the canonical locator and lists the chat bound to it', async () => {
     const harness = await boot({
       tools: tools({
-        nativeExecutorId: 'hub-host',
         allowed: ['enter_workspace'],
         permissions: { enter_workspace: ALLOW_MACHINE },
       }),
@@ -209,7 +213,7 @@ describe('/api/v1/checkouts on a Machine', () => {
 
       const checkout = checkoutSchema.parse(response.body);
       expect(checkout).toMatchObject({
-        executorId: `machine:${MACHINE}`,
+        executorId: MACHINE,
         path: LOCATOR,
         kind: 'main',
         chatIds: [],
@@ -261,7 +265,6 @@ describe('/api/v1/checkouts on a Machine', () => {
   it('answers machine_unavailable when the session cannot open', async () => {
     const harness = await boot({
       tools: tools({
-        nativeExecutorId: 'hub-host',
         allowed: ['enter_workspace'],
         permissions: { enter_workspace: ALLOW_MACHINE },
       }),
@@ -296,7 +299,6 @@ describe('/api/v1/checkouts on a Machine', () => {
   it('answers machine_update_required on a daemon that lists no git methods', async () => {
     const harness = await boot({
       tools: tools({
-        nativeExecutorId: 'hub-host',
         allowed: ['enter_workspace'],
         permissions: { enter_workspace: ALLOW_MACHINE },
       }),
@@ -335,7 +337,6 @@ describe('/api/v1/checkouts on a Machine', () => {
 
     const harness = await boot({
       tools: tools({
-        nativeExecutorId: 'hub-host',
         allowed: ['enter_workspace'],
         permissions: { enter_workspace: ALLOW_MACHINE },
       }),
@@ -364,7 +365,7 @@ describe('/api/v1/checkouts on a Machine', () => {
         .expect(201);
 
       expect(checkoutSchema.parse(response.body)).toMatchObject({
-        executorId: `machine:${MACHINE}`,
+        executorId: MACHINE,
         path: canonical,
         kind: 'main',
       });
@@ -376,7 +377,6 @@ describe('/api/v1/checkouts on a Machine', () => {
   it('refuses a canonical Machine path the policy rejects, before any git call', async () => {
     const harness = await boot({
       tools: tools({
-        nativeExecutorId: 'hub-host',
         allowed: ['enter_workspace'],
         permissions: {
           enter_workspace: {
@@ -418,7 +418,6 @@ describe('/api/v1/checkouts on a Machine', () => {
   it('answers 403 permission_denied when the daemon refuses the address', async () => {
     const harness = await boot({
       tools: tools({
-        nativeExecutorId: 'hub-host',
         allowed: ['enter_workspace'],
         permissions: { enter_workspace: ALLOW_MACHINE },
       }),
@@ -451,7 +450,6 @@ describe('/api/v1/checkouts on a Machine', () => {
   it('refuses a locator the host policy rejects before any git call', async () => {
     const harness = await boot({
       tools: tools({
-        nativeExecutorId: 'hub-host',
         allowed: ['enter_workspace'],
         permissions: {
           enter_workspace: {

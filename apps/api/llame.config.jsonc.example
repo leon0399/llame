@@ -658,9 +658,9 @@
 
   // Empty allowed disables tools. MCP ids are mcp__<server>__<tool>.
   // Exact ids are safer; use mcp__<server>__* only for an entirely read-only server.
-  // Workspace entry/exit are native host tools; add both ids only when a
-  // trusted nativeExecutorId is configured and their permission groups below
-  // are intentionally enabled.
+  // Workspace entry/exit are Machine tools; add both ids only when
+  // machines.default is configured and their permission groups below are
+  // intentionally enabled.
   "tools": {
     // Built-in or discovered MCP tool ids to allow. To enable Knowledge after
     // mounting the root above, add "knowledge_search" and "read"; search
@@ -671,7 +671,7 @@
     // line reads; see docs/product/operator/conversation-recall.md.
     // Add "wait" independently to wait for owner-scoped background job records.
     // Jobs continue after a wait timeout or interruption; they are not stopped.
-    // To enable Workspace entry/exit on a native host, also add
+    // To enable Workspace entry/exit on the current Machine, also add
     // "enter_workspace" and "exit_workspace" to this allowlist.
     "allowed": ["search_conversations"],
     // Ordered web adapters; absent means none, and a present array is the
@@ -958,7 +958,7 @@
         "allow": [
           {
             "field": "path",
-            "regex": "^/home/operator/projects/[^/]+/?$",
+            "regex": "^machine://[^/]+/home/operator/projects/[^/]+/?$",
           },
         ],
         "reject": [
@@ -980,7 +980,7 @@
           },
           {
             "field": "path",
-            "regex": "^/(tmp|var/tmp)(/|$)",
+            "regex": "^machine://[^/]+/(tmp|var/tmp)(/|$)",
           },
           {
             "field": "path",
@@ -1062,17 +1062,29 @@
   // rejected, a relative path resolves against this file's directory, and "~/"
   // against the llame user's home. A destination is an SSH host alias or
   // [user@]host[:port], and rejects interpolation and option-shaped values.
-  // tools.nativeExecutorId must not begin with "machine:".
+  // "local" names the Machine this process hosts and must be a hosts key; its
+  // entry needs no destination, because this process serves it in process.
+  // "default" names the Machine an unbound Chat uses and must be reachable
+  // from every worker, so an entry without a destination works only as the
+  // local Machine. Startup fails naming the field when either names no entry,
+  // when "default" is unreachable here, or when a native tool (read, edit,
+  // write, grep, bash, enter_workspace, exit_workspace, stop) is allowlisted
+  // and "default" is absent. Both accept one whole-value {env:...} token,
+  // resolved once at startup; configure the same "default" on every worker.
   // See docs/product/operator/machines.md.
   // "machines": {
+  //   "local": "{env:LLAME_MACHINE:-host}",
+  //   "default": "host",
   //   "ssh": {
   //     "knownHostsFile": "~/.ssh/known_hosts",
   //     "identityFile": "/etc/llame/machine_ed25519",
   //     "configFile": "~/.ssh/config"
   //   },
   //   "hosts": {
-  //     "devl": { "destination": "box" },
-  //     "gpu": { "destination": "me@gpu.lan:2222" }
+  //     // This computer. Give it a destination only if workers on other
+  //     // computers must reach it.
+  //     "host": {},
+  //     "docker": { "destination": "box" }
   //   }
   // },
 

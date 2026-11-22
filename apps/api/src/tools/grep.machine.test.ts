@@ -703,6 +703,51 @@ describe('Machine scope addresses', () => {
     expect(peer.sessions).toHaveLength(0);
   });
 
+  it('refuses a Machine scope with a literal fragment', async () => {
+    const { peer, connector } = fixture();
+    expect(
+      await run(context(connector), {
+        patterns: ['needle'],
+        scopes: ['machine://devl/srv/a#b'],
+      }),
+    ).toEqual({
+      status: 'error',
+      type: 'invalid_path',
+      message: 'The Machine scope path is invalid.',
+    });
+    expect(peer.sessions).toHaveLength(0);
+  });
+
+  it('refuses a Machine scope that decodes to a path the grammar refuses', async () => {
+    // A literal `#` is no glob operator, so the lenient parse used to walk the
+    // decoded `/etc` while policy matched the raw text.
+    const { peer, connector } = fixture();
+    expect(
+      await run(context(connector), {
+        patterns: ['needle'],
+        scopes: ['machine://devl/a#b/../%65tc/'],
+      }),
+    ).toEqual({
+      status: 'error',
+      type: 'invalid_path',
+      message: 'The Machine scope path is invalid.',
+    });
+    expect(peer.sessions).toHaveLength(0);
+  });
+
+  it('keeps a colon in a Machine scope as path text', async () => {
+    const { connector } = fixture({
+      answers: { 'fs.grep': { value: page([passage('a.go', 1, 1)]) } },
+    });
+
+    const result = await run(context(connector), {
+      patterns: ['needle'],
+      scopes: ['machine://devl/srv/app:v1'],
+    });
+
+    expect(locatorsOf(result)).toEqual(['machine://devl/srv/app:v1/a.go:1-1']);
+  });
+
   it('searches the submitted path without adding a separator', async () => {
     const { peer, connector } = fixture({
       answers: { 'fs.grep': { value: page([passage('a.go', 1, 1)]) } },

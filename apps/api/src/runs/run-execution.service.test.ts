@@ -38,6 +38,7 @@ import { webSearchTool } from '../tools/web-search/tool';
 import { compileTestPermissionPolicy } from '../testing/tool-permission-policy';
 import { createProtocolPeer } from '../testing/machine-protocol-peer';
 import { MachineConnector } from '../machines/machine-connector.service';
+import { parseMachineLocator } from '../machines/machine-locator';
 import { ExecutorGit, localGitSurface } from '../machines/executor-git.service';
 import { createGitProducer } from '../git-state/git-context-producer';
 import { createGitItem } from '../git-state/git-item';
@@ -246,6 +247,8 @@ import type {
 import type { ChatEmbedDispatcher } from '../search/search-embed-dispatch.service';
 import type { ChatReindexDispatcher } from '../search/search-reindex-dispatch.service';
 import { noopSkillCatalog } from '../skills/skill-catalog.stub';
+import { localMachineConnector } from '../testing/local-machine';
+import { type MachinesConfig } from '../instance-config/machines-config';
 import {
   SkillCatalog,
   type SkillCatalogEntry,
@@ -366,6 +369,9 @@ const now = new Date('2026-09-01T00:00:00.000Z');
 
 /** A Workspace root bound on the Machine the machine cases configure. */
 const machineRoot = 'machine://devl/srv/app';
+
+/** The canonical locator of an absolute path on the harness's own Machine. */
+const onHostA = (value: string): string => `machine://host-a${value}`;
 
 const chat: Chat = {
   id: chatId,
@@ -547,6 +553,8 @@ type ExecutionServiceOptions = {
   inRunProducer?: InRunContextProducer;
   /** The Machine connector a Machine-bound Workspace is prepared through. */
   machineConnector?: MachineConnector;
+  /** The operator `machines` section; defaults to the local Machine alone. */
+  machines?: MachinesConfig;
   permissionModes?: InstanceConfigReader['config']['tools']['permissionModes'];
   knowledgeRoot?: string;
   knowledgeResolver?: KnowledgeToolResolver;
@@ -584,7 +592,7 @@ type ExecutionServiceOptions = {
 function makeExecutionService(
   client: ModelClient = createFakeModelClient(['answer']),
   dynamicToolResolver?: DynamicToolExecutorResolver,
-  nativeExecutorId?: string,
+  localMachine?: string,
   options: ExecutionServiceOptions = {},
 ) {
   vi.spyOn(ChatsRepository.prototype, 'lock').mockResolvedValue(chat);
@@ -622,16 +630,29 @@ function makeExecutionService(
     options.permissionPolicy ??
     compileTestPermissionPolicy(['mcp__demo__lookup']);
 
+  // The worker's own Machine: `machines.local` and `machines.default` under the
+  // name a case passes, answered by the in-process daemon peer the helper at
+  // `testing/local-machine.ts` supplies.
+  const machines =
+    options.machines ??
+    (localMachine === undefined
+      ? undefined
+      : {
+          local: localMachine,
+          default: localMachine,
+          hosts: { [localMachine]: {} },
+        });
+
   const instanceConfig: InstanceConfigReader = {
     configPath: options.configPath,
     config: {
       ...BUILT_IN_DEFAULTS,
+      ...(machines !== undefined && { machines }),
       tools: {
         ...BUILT_IN_DEFAULTS.tools,
         allowed: options.allowed ?? [],
         maxStepsPerRun:
           options.maxStepsPerRun ?? BUILT_IN_DEFAULTS.tools.maxStepsPerRun,
-        nativeExecutorId,
         promptFiles:
           options.toolPromptFiles ?? BUILT_IN_DEFAULTS.tools.promptFiles,
         permissionModes:
@@ -733,7 +754,18 @@ function makeExecutionService(
     dynamicToolResolver,
     options.workspaceMcp,
     options.inRunProducer,
-    options.machineConnector,
+    options.machineConnector ??
+      (machines === undefined
+        ? undefined
+        : // The same configuration the instance reads, so a binding names a
+          // Machine exactly as the operator declared it. The in-process peer
+          // answers the handshake and nothing else.
+          new MachineConnector({
+            machines,
+            hubVersion: 'harness-local',
+            bindIdentity: () => Promise.resolve('match'),
+            transportFactory: createProtocolPeer().factory,
+          })),
     // No Machine status reader in these tests.
     undefined,
     options.sshClientFactory,
@@ -1615,11 +1647,11 @@ describe('RunExecutionService executeRun', () => {
 
     try {
       await execution.service.executeRun(executionInput(capturing.client));
-      // The dispatch transaction records the bound root it disclosed.
+      // The dispatch transaction records the bound root and its Machine.
       expect(repositories.setTold).toHaveBeenCalledWith({
         chatId,
         ownerUserId: userId,
-        told: root,
+        told: `host-a\n${root}`,
         toldFrom: null,
         clearDetachReason: false,
       });
@@ -1999,6 +2031,9 @@ describe('RunExecutionService executeRun', () => {
 
     const workspaceMcp = new WorkspaceMcpClients(operator, {
       now: () => clock,
+      // The bound root is the local Machine's canonical locator, so the clients
+      // must resolve it the way production does: through the connector.
+      connector: localMachineConnector({ name: 'host-a' }),
       readConfig: () =>
         Promise.resolve([
           {
@@ -2089,11 +2124,12 @@ describe('RunExecutionService executeRun', () => {
       rmSync(root, { recursive: true, force: true });
     }
   });
-  it('detaches when the executing worker has no native executor', async () => {
+  it('detaches when the executing worker has no Machine at all', async () => {
     await executeWorkspaceDetachCase({
       reason: 'executor_absent',
       root: '/workspace/project',
       boundExecutorId: 'host-a',
+      localMachine: 'host-b',
       toldRoot: '/workspace/project',
       allowed: ['enter_workspace'],
     });
@@ -2104,7 +2140,8 @@ describe('RunExecutionService executeRun', () => {
       reason: 'executor_mismatch',
       root: '/workspace/project',
       boundExecutorId: 'host-a',
-      nativeExecutorId: 'host-b',
+      localMachine: 'host-b',
+      declaredHosts: ['host-a'],
       allowed: ['enter_workspace'],
     });
   });
@@ -2114,7 +2151,7 @@ describe('RunExecutionService executeRun', () => {
       reason: 'root_missing',
       root: path.join(tmpdir(), 'workspace-entry-root-does-not-exist'),
       boundExecutorId: 'host-a',
-      nativeExecutorId: 'host-a',
+      localMachine: 'host-a',
       allowed: ['enter_workspace'],
     });
   });
@@ -2128,7 +2165,7 @@ describe('RunExecutionService executeRun', () => {
         reason: 'root_missing',
         root,
         boundExecutorId: 'host-a',
-        nativeExecutorId: 'host-a',
+        localMachine: 'host-a',
         allowed: ['enter_workspace'],
       });
     } finally {
@@ -2150,7 +2187,7 @@ describe('RunExecutionService executeRun', () => {
         reason: 'root_moved',
         root,
         boundExecutorId: 'host-a',
-        nativeExecutorId: 'host-a',
+        localMachine: 'host-a',
         allowed: ['enter_workspace'],
       });
     } finally {
@@ -2166,7 +2203,7 @@ describe('RunExecutionService executeRun', () => {
         reason: 'permission_rejected',
         root,
         boundExecutorId: 'host-a',
-        nativeExecutorId: 'host-a',
+        localMachine: 'host-a',
         allowed: ['enter_workspace'],
         permissionPolicy: compileToolPermissionMap(
           { read: { allow: true } },
@@ -2186,7 +2223,7 @@ describe('RunExecutionService executeRun', () => {
         reason: 'permission_rejected',
         root,
         boundExecutorId: 'host-a',
-        nativeExecutorId: 'host-a',
+        localMachine: 'host-a',
         allowed: ['enter_workspace'],
         permissionPolicy: compileToolPermissionMap(
           {
@@ -2211,7 +2248,7 @@ describe('RunExecutionService executeRun', () => {
         reason: 'tool_not_allowed',
         root,
         boundExecutorId: 'host-a',
-        nativeExecutorId: 'host-a',
+        localMachine: 'host-a',
         allowed: [],
         permissionPolicy: compileTestPermissionPolicy(['enter_workspace']),
       });
@@ -2335,16 +2372,10 @@ describe('RunExecutionService executeRun', () => {
       'workspace',
     );
 
-    expect(workspaceItems).toHaveLength(1);
-    expect(workspaceItems[0]?.data.form).toBe('snapshot');
-    expect(workspaceItems[0]?.data.payload).toEqual({ root });
-    expect(repositories.setTold).toHaveBeenCalledWith({
-      chatId,
-      ownerUserId: userId,
-      told: root,
-      toldFrom: null,
-      clearDetachReason: false,
-    });
+    // The losing attempt serves no root, and this process has no Machine to
+    // name one on, so the turn narrates nothing.
+    expect(workspaceItems).toEqual([]);
+    expect(repositories.setTold).not.toHaveBeenCalled();
   });
 
   it('keeps and clears a valid Workspace binding under its exact entry policy', async () => {
@@ -2402,7 +2433,7 @@ describe('RunExecutionService executeRun', () => {
       expect(repositories.setTold).toHaveBeenCalledWith({
         chatId,
         ownerUserId: userId,
-        told: root,
+        told: `host-a\n${root}`,
         toldFrom: null,
         clearDetachReason: true,
       });
@@ -2452,13 +2483,15 @@ describe('RunExecutionService executeRun', () => {
 
     const notice = workspaceItems.find((item) => item.data.form === 'notice');
     expect(notice?.data.payload).toEqual({ reason: 'root_missing' });
+    // The Chat is unbound, so this turn narrates that and names the Machine a
+    // bare path would resolve on.
     expect(workspaceItems.some((item) => item.data.form === 'snapshot')).toBe(
-      false,
+      true,
     );
     expect(repositories.setTold).toHaveBeenCalledWith({
       chatId,
       ownerUserId: userId,
-      told: null,
+      told: 'host-a\n',
       toldFrom: null,
       clearDetachReason: true,
     });
@@ -5482,10 +5515,10 @@ describe('RunExecutionService executeRun', () => {
     vi.spyOn(ChatsRepository.prototype, 'findById').mockResolvedValue({
       ...chat,
       workspaceRoot: machineRoot,
-      workspaceExecutorId: 'machine:devl',
+      workspaceExecutorId: 'devl',
       workspaceGeneration: 4,
       artifactSeq: 0,
-      workspaceTold: machineRoot,
+      workspaceTold: `devl\n${machineRoot}`,
       workspaceToldFrom: null,
       workspaceToldAvailable: false,
     });
@@ -5528,10 +5561,76 @@ describe('RunExecutionService executeRun', () => {
     expect(repositories.setTold).toHaveBeenCalledWith({
       chatId,
       ownerUserId: userId,
-      told: machineRoot,
+      told: `devl\n${machineRoot}`,
       toldFrom: null,
       clearDetachReason: false,
       available: true,
+    });
+  });
+
+  it('does not narrate a recovery for a Machine that was never told as lost', async () => {
+    const repositories = mockNormalExecutionRepositories();
+
+    const peer = createProtocolPeer({
+      roots: ['/srv'],
+      answer: (call) =>
+        call.method === 'fs.stat' && call.params?.['path'] === '/srv/app'
+          ? {
+              value: { kind: 'directory', isLink: false, realPath: '/srv/app' },
+            }
+          : undefined,
+    });
+
+    vi.spyOn(ChatsRepository.prototype, 'findById').mockResolvedValue({
+      ...chat,
+      workspaceRoot: machineRoot,
+      workspaceExecutorId: 'devl',
+      workspaceGeneration: 4,
+      artifactSeq: 0,
+      // The loss was told for another Machine: `devl` was never lost.
+      workspaceTold: `gpu\n${machineRoot}`,
+      workspaceToldFrom: null,
+      workspaceToldAvailable: false,
+    });
+
+    const execution = makeExecutionService(
+      createFakeModelClient(['answer']),
+      undefined,
+      undefined,
+      {
+        allowed: ['enter_workspace'],
+        machineConnector: new MachineConnector({
+          machines: {
+            ssh: { knownHostsFile: '/etc/llame/machine_known_hosts' },
+            hosts: { devl: { destination: 'box' } },
+          },
+          hubVersion: '9.9.9',
+          bindIdentity: () => Promise.resolve('match'),
+          transportFactory: peer.factory,
+        }),
+      },
+    );
+
+    const result = await execution.service.executeRun(
+      executionInput(execution.client),
+    );
+
+    await expect(result.text).resolves.toBe('answer');
+
+    // The epoch changed Machines, so it re-tells the snapshot and says nothing
+    // about a recovery this Machine never had.
+    const workspaceItems = stagedItemsOf(
+      repositories.storeAtDispatch,
+      'workspace',
+    );
+
+    expect(workspaceItems.map((item) => item.data.form)).toEqual(['snapshot']);
+    expect(repositories.setTold).toHaveBeenCalledWith({
+      chatId,
+      ownerUserId: userId,
+      told: `devl\n${machineRoot}`,
+      toldFrom: null,
+      clearDetachReason: false,
     });
   });
 
@@ -5545,7 +5644,7 @@ describe('RunExecutionService executeRun', () => {
     vi.spyOn(ChatsRepository.prototype, 'findById').mockResolvedValue({
       ...chat,
       workspaceRoot: machineRoot,
-      workspaceExecutorId: 'machine:devl',
+      workspaceExecutorId: 'devl',
       workspaceGeneration: 4,
       artifactSeq: 0,
       workspaceTold: null,
@@ -5814,7 +5913,10 @@ type WorkspaceDetachCase = {
   readonly reason: WorkspaceDetachReason;
   readonly root: string;
   readonly boundExecutorId: string;
-  readonly nativeExecutorId?: string;
+  /** `machines.local`: absent leaves the process with no Machine at all. */
+  readonly localMachine?: string;
+  /** Every declared entry besides the local Machine, so absence is separable. */
+  readonly declaredHosts?: ReadonlyArray<string>;
   readonly allowed: ReadonlyArray<string>;
   readonly permissionPolicy?: CompiledPolicy;
   /** A named root was already disclosed before the detach. */
@@ -5842,10 +5944,24 @@ async function executeWorkspaceDetachCase(input: WorkspaceDetachCase) {
   const execution = makeExecutionService(
     createFakeModelClient(['answer']),
     undefined,
-    input.nativeExecutorId,
+    input.localMachine,
     {
       allowed: input.allowed,
       permissionPolicy: input.permissionPolicy ?? compileTestPermissionPolicy(),
+      ...(input.declaredHosts !== undefined && {
+        machines: {
+          ...(input.localMachine !== undefined && {
+            local: input.localMachine,
+            default: input.localMachine,
+          }),
+          hosts: Object.fromEntries(
+            [
+              ...(input.localMachine === undefined ? [] : [input.localMachine]),
+              ...input.declaredHosts,
+            ].map((name) => [name, {}]),
+          ),
+        },
+      }),
     },
   );
 
@@ -5874,13 +5990,21 @@ async function executeWorkspaceDetachCase(input: WorkspaceDetachCase) {
   );
 
   const notice = workspaceItems.find((item) => item.data.form === 'notice');
-  expect(notice?.data.payload).toEqual({ reason: input.reason });
+
+  // A removed Machine is named by its notice; every other reason is not.
+  expect(notice?.data.payload).toEqual(
+    input.reason === 'executor_absent'
+      ? { reason: input.reason, machine: input.boundExecutorId }
+      : { reason: input.reason },
+  );
 
   const snapshots = workspaceItems.filter(
     (item) => item.data.form === 'snapshot',
   );
 
-  expect(snapshots).toHaveLength(input.toldRoot === undefined ? 0 : 1);
+  // A current Machine exists only when this process has a `machines.default`,
+  // and an absent told state is re-told once it does.
+  expect(snapshots).toHaveLength(input.localMachine === undefined ? 0 : 1);
   expect(stream).toHaveBeenCalled();
 }
 
@@ -17886,13 +18010,65 @@ describe('RunExecutionService runtime-context lifecycle', () => {
 
   it("narrates an owner's copied Workspace root on the first accepted turn", async () => {
     const repositories = mockNormalExecutionRepositories();
+    const dir = realpathSync(mkdtempSync(path.join(tmpdir(), 'copied-root-')));
+    const root = `machine://host-a${dir}`;
+
+    try {
+      vi.spyOn(ChatsRepository.prototype, 'findById').mockResolvedValue({
+        ...chat,
+        workspaceRoot: root,
+        workspaceExecutorId: 'host-a',
+        workspaceGeneration: 4,
+        workspaceTold: null,
+        workspaceToldFrom: null,
+      });
+
+      const execution = makeExecutionService(
+        createFakeModelClient(['answer']),
+        undefined,
+        'host-a',
+        { allowed: ['enter_workspace'] },
+      );
+
+      const result = await execution.service.executeRun(
+        executionInput(execution.client),
+      );
+
+      await expect(result.text).resolves.toBe('answer');
+
+      const workspaceItems = stagedItemsOf(
+        repositories.storeAtDispatch,
+        'workspace',
+      );
+
+      expect(workspaceItems).toHaveLength(1);
+      expect(workspaceItems[0]?.data.form).toBe('snapshot');
+      expect(workspaceItems[0]?.data.payload).toEqual({
+        root,
+        machine: 'host-a',
+      });
+      expect(workspaceItems[0]?.data.text).toContain(
+        'no isolation between them',
+      );
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('narrates Workspace exit when a named root is no longer bound', async () => {
+    const repositories = mockNormalExecutionRepositories();
     vi.spyOn(ChatsRepository.prototype, 'findById').mockResolvedValue({
       ...chat,
-      workspaceRoot: '/workspace/project',
-      workspaceTold: null,
+      workspaceRoot: null,
+      workspaceTold: 'host-a\nmachine://host-a/workspace/project',
       workspaceToldFrom: null,
     });
-    const execution = makeExecutionService(createFakeModelClient(['answer']));
+
+    const execution = makeExecutionService(
+      createFakeModelClient(['answer']),
+      undefined,
+      'host-a',
+    );
 
     const result = await execution.service.executeRun(
       executionInput(execution.client),
@@ -17908,37 +18084,9 @@ describe('RunExecutionService runtime-context lifecycle', () => {
     expect(workspaceItems).toHaveLength(1);
     expect(workspaceItems[0]?.data.form).toBe('snapshot');
     expect(workspaceItems[0]?.data.payload).toEqual({
-      root: '/workspace/project',
+      root: null,
+      machine: 'host-a',
     });
-    expect(workspaceItems[0]?.data.text).toContain(
-      'does not confine host authority',
-    );
-  });
-
-  it('narrates Workspace exit when a named root is no longer bound', async () => {
-    const repositories = mockNormalExecutionRepositories();
-    vi.spyOn(ChatsRepository.prototype, 'findById').mockResolvedValue({
-      ...chat,
-      workspaceRoot: null,
-      workspaceTold: '/workspace/project',
-      workspaceToldFrom: null,
-    });
-    const execution = makeExecutionService(createFakeModelClient(['answer']));
-
-    const result = await execution.service.executeRun(
-      executionInput(execution.client),
-    );
-
-    await expect(result.text).resolves.toBe('answer');
-
-    const workspaceItems = stagedItemsOf(
-      repositories.storeAtDispatch,
-      'workspace',
-    );
-
-    expect(workspaceItems).toHaveLength(1);
-    expect(workspaceItems[0]?.data.form).toBe('snapshot');
-    expect(workspaceItems[0]?.data.payload).toEqual({ root: null });
     expect(workspaceItems[0]?.data.text).toContain('No Workspace is entered.');
   });
 
@@ -17980,40 +18128,60 @@ describe('RunExecutionService runtime-context lifecycle', () => {
   it('re-narrates a Workspace snapshot on the first turn after compaction', async () => {
     const compactionId = '77777777-7777-4777-8777-777777777777';
     const repositories = mockNormalExecutionRepositories();
-    vi.spyOn(ChatsRepository.prototype, 'findById').mockResolvedValue({
-      ...chat,
-      workspaceRoot: '/workspace/project',
-      workspaceTold: '/workspace/project',
-      workspaceToldFrom: '66666666-6666-4666-8666-666666666666',
-    });
-    repositories.findActiveCheckpoint.mockResolvedValue(
-      activeCheckpoint({ uptoSeq: 1, createdAt: now, id: compactionId }),
-    );
-    const execution = makeExecutionService(createFakeModelClient(['answer']));
 
-    const result = await execution.service.executeRun(
-      executionInput(execution.client),
+    const dir = realpathSync(
+      mkdtempSync(path.join(tmpdir(), 'compacted-root-')),
     );
 
-    await expect(result.text).resolves.toBe('answer');
+    const root = `machine://host-a${dir}`;
 
-    const workspaceItems = stagedItemsOf(
-      repositories.storeAtDispatch,
-      'workspace',
-    );
+    try {
+      vi.spyOn(ChatsRepository.prototype, 'findById').mockResolvedValue({
+        ...chat,
+        workspaceRoot: root,
+        workspaceExecutorId: 'host-a',
+        workspaceGeneration: 4,
+        workspaceTold: `host-a\n${root}`,
+        workspaceToldFrom: '66666666-6666-4666-8666-666666666666',
+      });
+      repositories.findActiveCheckpoint.mockResolvedValue(
+        activeCheckpoint({ uptoSeq: 1, createdAt: now, id: compactionId }),
+      );
 
-    expect(workspaceItems).toHaveLength(1);
-    expect(workspaceItems[0]?.data.form).toBe('snapshot');
-    expect(workspaceItems[0]?.data.payload).toEqual({
-      root: '/workspace/project',
-    });
-    expect(repositories.setTold).toHaveBeenCalledWith({
-      chatId,
-      ownerUserId: userId,
-      told: '/workspace/project',
-      toldFrom: compactionId,
-      clearDetachReason: false,
-    });
+      const execution = makeExecutionService(
+        createFakeModelClient(['answer']),
+        undefined,
+        'host-a',
+        { allowed: ['enter_workspace'] },
+      );
+
+      const result = await execution.service.executeRun(
+        executionInput(execution.client),
+      );
+
+      await expect(result.text).resolves.toBe('answer');
+
+      const workspaceItems = stagedItemsOf(
+        repositories.storeAtDispatch,
+        'workspace',
+      );
+
+      expect(workspaceItems).toHaveLength(1);
+      expect(workspaceItems[0]?.data.form).toBe('snapshot');
+      expect(workspaceItems[0]?.data.payload).toEqual({
+        root,
+        machine: 'host-a',
+      });
+      expect(repositories.setTold).toHaveBeenCalledWith({
+        chatId,
+        ownerUserId: userId,
+        told: `host-a\n${root}`,
+        toldFrom: compactionId,
+        clearDetachReason: false,
+      });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it('stages the rebake marker on the first turn of a re-baked epoch', async () => {
@@ -18680,6 +18848,11 @@ describe('RunExecutionService instruction files', () => {
     };
   }
 
+  /** The canonical locator of one host path on this test's local Machine. */
+  function localAt(file: string): string {
+    return `machine://host-a${file}`;
+  }
+
   /** Binds the Chat the run executes against to `root` for this worker. */
   function bindChatTo(root: string): void {
     vi.spyOn(ChatsRepository.prototype, 'findById').mockResolvedValue({
@@ -18746,7 +18919,10 @@ describe('RunExecutionService instruction files', () => {
     vi.spyOn(nativeReadTool, 'execute').mockImplementation(
       (_context, input) => {
         const marker = input.path.lastIndexOf(':raw:');
-        const file = marker < 0 ? input.path : input.path.slice(0, marker);
+        const target = marker < 0 ? input.path : input.path.slice(0, marker);
+        // The producer reads a local Machine file by its canonical locator.
+        const parsed = parseMachineLocator(target);
+        const file = parsed.kind === 'path' ? parsed.path : target;
         const content = readFileSync(file, 'utf8');
 
         return Promise.resolve({
@@ -18765,7 +18941,7 @@ describe('RunExecutionService instruction files', () => {
 
   /** One stored instructions part naming the root's `AGENTS.md`. */
   function instructionItem(root: string): AuthoredContextItemPart {
-    const file = path.join(root, 'AGENTS.md');
+    const file = localAt(path.join(root, 'AGENTS.md'));
 
     return createInstructionsItem({
       runId,
@@ -18901,7 +19077,7 @@ describe('RunExecutionService instruction files', () => {
       ]);
       expect(reads[0]?.payload).toMatchObject({
         toolName: 'read',
-        input: { path: `${path.join(root, 'AGENTS.md')}:raw:1-2000` },
+        input: { path: `${localAt(path.join(root, 'AGENTS.md'))}:raw:1-2000` },
         permission: { decision: 'allow' },
       });
       expect(reads[1]?.payload).toMatchObject({
@@ -19173,10 +19349,12 @@ describe('RunExecutionService instruction files', () => {
         'tool.completed',
       ]);
       expect(reads[0]?.payload).toMatchObject({
-        input: { path: `${path.join(root, 'AGENTS.md')}:raw:1-2000` },
+        input: { path: `${localAt(path.join(root, 'AGENTS.md'))}:raw:1-2000` },
       });
       expect(reads[2]?.payload).toMatchObject({
-        input: { path: `${path.join(root, 'apps/api/AGENTS.md')}:raw:1-2000` },
+        input: {
+          path: `${localAt(path.join(root, 'apps/api/AGENTS.md'))}:raw:1-2000`,
+        },
       });
       expect(callIdOf(reads[2]?.payload)).toBe(
         `instructions-${runId}-${testAttemptId}-2`,
@@ -19226,7 +19404,7 @@ describe('RunExecutionService instruction files', () => {
           enter_workspace: { allow: true },
           read: {
             allow: true,
-            reject: [{ field: 'path', literal: canonical }],
+            reject: [{ field: 'path', literal: localAt(canonical) }],
           },
         },
         'test-policy',
@@ -19247,7 +19425,9 @@ describe('RunExecutionService instruction files', () => {
       const importedRequest = reads.find(
         (record) =>
           record.type === 'tool.requested' &&
-          JSON.stringify(record.payload).includes(`${imported}:raw:1-2000`),
+          JSON.stringify(record.payload).includes(
+            `${localAt(imported)}:raw:1-2000`,
+          ),
       );
 
       expect(importedRequest?.payload).toMatchObject({
@@ -19278,7 +19458,7 @@ describe('RunExecutionService instruction files', () => {
         expect(repositories.createAssistantReplyIfAbsent).toHaveBeenCalled(),
       );
       expect(storedInstructionPart(repositories)?.data.payload).toMatchObject({
-        denied: [imported],
+        denied: [localAt(imported)],
       });
     } finally {
       rmSync(root, { recursive: true, force: true });
@@ -19865,7 +20045,7 @@ describe('RunExecutionService instruction files', () => {
       expect(
         eventsWithOrigin(append, 'instructions')[0]?.payload,
       ).toMatchObject({
-        input: { path: `${path.join(root, 'AGENTS.md')}:raw:1-2000` },
+        input: { path: `${localAt(path.join(root, 'AGENTS.md'))}:raw:1-2000` },
       });
     } finally {
       rmSync(root, { recursive: true, force: true });
@@ -20696,13 +20876,13 @@ describe('RunExecutionService prompt imports', () => {
   function serviceFor(
     allowed: ReadonlyArray<string>,
     permissionPolicy: CompiledPolicy = compileTestPermissionPolicy(),
-    nativeExecutorId: string | undefined = 'host-a',
+    localMachine: string | undefined = 'host-a',
     permissionModes?: ExecutionServiceOptions['permissionModes'],
   ) {
     return makeExecutionService(
       createFakeModelClient(['answer']),
       undefined,
-      nativeExecutorId,
+      localMachine,
       { allowed, permissionPolicy, permissionModes },
     );
   }
@@ -20838,7 +21018,7 @@ describe('RunExecutionService prompt imports', () => {
       expect(find).toHaveBeenCalledOnce();
       expect(read).toHaveBeenCalledOnce();
       expect(read.mock.calls[0]?.[1]).toEqual({
-        path: `${root}/README.md:30-35`,
+        path: onHostA(`${root}/README.md:30-35`),
       });
       expect(importEvents(events)[1]?.payload['output']).toMatchObject({
         status: 'success',
@@ -20886,7 +21066,7 @@ describe('RunExecutionService prompt imports', () => {
       ]);
       expect(audit[0]?.payload).toMatchObject({
         toolName: 'read',
-        input: { path: `${root}/README.md:30-35` },
+        input: { path: onHostA(`${root}/README.md:30-35`) },
         permission: { decision: 'allow' },
       });
       expect(audit[1]?.payload).toMatchObject({
@@ -20953,7 +21133,7 @@ describe('RunExecutionService prompt imports', () => {
         'The prompt target `secret.md` was not imported.',
       );
 
-      const denied = requestFor(events, `${root}/secret.md`);
+      const denied = requestFor(events, onHostA(`${root}/secret.md`));
       expect(denied).toMatchObject({
         permission: { decision: 'reject', reason: 'explicit_reject' },
       });
@@ -20961,7 +21141,7 @@ describe('RunExecutionService prompt imports', () => {
         'tool.requested',
         'tool.completed',
       ]);
-      const admitted = requestFor(events, `${root}/README.md`);
+      const admitted = requestFor(events, onHostA(`${root}/README.md`));
       expect(typesForCall(events, callIdOf(admitted))).toEqual([
         'tool.requested',
         'tool.started',
@@ -21228,7 +21408,7 @@ describe('RunExecutionService prompt imports', () => {
           mediaType: 'application/pdf',
           pages: 15,
           byteSize: bytes.byteLength,
-          path: pdfPath,
+          path: onHostA(pdfPath),
         });
 
         // A system-origin read keeps its bytes in the import's own entry, so
@@ -21246,7 +21426,7 @@ describe('RunExecutionService prompt imports', () => {
           imports: [
             {
               locator: 'paper.pdf',
-              resolved: pdfPath,
+              resolved: onHostA(pdfPath),
               outcome: 'imported',
               kind: 'pdf',
               mediaType: 'application/pdf',
@@ -21297,7 +21477,7 @@ describe('RunExecutionService prompt imports', () => {
           imports: [
             {
               locator: 'paper.pdf',
-              resolved: pdfPath,
+              resolved: onHostA(pdfPath),
               outcome: 'imported',
               kind: 'pdf',
               mediaType: 'application/pdf',
@@ -21423,7 +21603,7 @@ describe('RunExecutionService prompt imports', () => {
           outcomes: [
             {
               locator: 'paper.pdf',
-              resolved: pdfPath,
+              resolved: onHostA(pdfPath),
               outcome: 'imported',
               body: '{"status":"success","kind":"pdf"}',
               attachment: {
@@ -21576,7 +21756,7 @@ describe('RunExecutionService prompt imports', () => {
           mediaType: 'image/png',
           width: 160,
           height: 90,
-          path: `${root}/shot.png`,
+          path: onHostA(`${root}/shot.png`),
           display: { thumbnail: webpDataUrl },
         });
 
@@ -21596,7 +21776,7 @@ describe('RunExecutionService prompt imports', () => {
         expect(payload.imports).toMatchObject([
           {
             locator: 'shot.png',
-            resolved: `${root}/shot.png`,
+            resolved: onHostA(`${root}/shot.png`),
             outcome: 'imported',
             thumbnail,
             width: 160,
@@ -21726,7 +21906,7 @@ describe('RunExecutionService prompt imports', () => {
           outcomes: [
             {
               locator: 'shot.png',
-              resolved: `${root}/shot.png`,
+              resolved: onHostA(`${root}/shot.png`),
               outcome: 'imported',
               body: '{"status":"success","kind":"image"}',
               attachment: {
@@ -21970,7 +22150,7 @@ describe('RunExecutionService prompt imports', () => {
 
       await expect(result.text).resolves.toBe('answer');
 
-      expect(requestFor(events, `${root}/README.md`)).toMatchObject({
+      expect(requestFor(events, onHostA(`${root}/README.md`))).toMatchObject({
         permission: { decision: 'allow', reason: 'permission_mode_bypass' },
       });
     } finally {
@@ -22854,20 +23034,10 @@ describe('RunExecutionService git state', () => {
   const itemOf = (observation: GitObservation) =>
     createGitItem({ runId, observation });
 
-  /** The real local executor surface: `locate` needs only the config. */
+  /** The real local executor surface, reached through its own Machine. */
   function localExecutors(): ExecutorGit {
     return new ExecutorGit(
-      {
-        config: {
-          ...BUILT_IN_DEFAULTS,
-          tools: { ...BUILT_IN_DEFAULTS.tools, nativeExecutorId: 'host-a' },
-        },
-      },
-      new MachineConnector({
-        machines: undefined,
-        hubVersion: 'test',
-        bindIdentity: () => Promise.resolve('match'),
-      }),
+      localMachineConnector({ name: 'host-a' }),
       localGitSurface(),
     );
   }
@@ -22910,11 +23080,11 @@ describe('RunExecutionService git state', () => {
   function bindChat(root: string, told: string | null = root): void {
     vi.spyOn(ChatsRepository.prototype, 'findById').mockResolvedValue({
       ...chat,
-      workspaceRoot: root,
+      workspaceRoot: `machine://host-a${root}`,
       workspaceExecutorId: 'host-a',
       workspaceGeneration: 4,
       artifactSeq: 0,
-      workspaceTold: told,
+      workspaceTold: told === null ? null : `host-a\nmachine://host-a${told}`,
       workspaceToldFrom: null,
     });
   }
@@ -22929,7 +23099,7 @@ describe('RunExecutionService git state', () => {
     toolCallId: 'enter-1',
     state: 'output-available',
     input: { path: root },
-    output: { status: 'success', root, state },
+    output: { status: 'success', root: `machine://host-a${root}`, state },
   });
 
   const EXIT_PART = {
@@ -23023,8 +23193,12 @@ describe('RunExecutionService git state', () => {
 
     expect(observe).toHaveBeenCalledOnce();
     expect(observe.mock.calls[0]?.[0]).toMatchObject({
-      root,
-      target: { executorId: 'host-a', machine: undefined, path: root },
+      root: `machine://host-a${root}`,
+      target: {
+        executorId: 'host-a',
+        machine: 'host-a',
+        path: root,
+      },
     });
     const staged = stagedPartsOf(repositories.storeAtDispatch);
 
@@ -23152,7 +23326,11 @@ describe('RunExecutionService git state', () => {
       const root = workspaceRootDir();
 
       const { repositories, userTurn } = lagging(root, [
-        createWorkspaceSnapshotItem({ runId, root }),
+        createWorkspaceSnapshotItem({
+          runId,
+          root: `machine://host-a${root}`,
+          machine: 'host-a',
+        }),
         itemOf(STATE),
       ]);
 
@@ -23168,7 +23346,11 @@ describe('RunExecutionService git state', () => {
       const root = workspaceRootDir();
 
       const { repositories, userTurn } = lagging(root, [
-        createWorkspaceSnapshotItem({ runId, root: '/old/repo' }),
+        createWorkspaceSnapshotItem({
+          runId,
+          root: 'machine://host-a/old/repo',
+          machine: 'host-a',
+        }),
         itemOf(STATE),
       ]);
 
@@ -23291,7 +23473,9 @@ describe('RunExecutionService git state', () => {
     const { model } = await runEntry(root, observe);
 
     expect(observe).toHaveBeenCalledOnce();
-    expect(observe.mock.calls[0]?.[0]).toMatchObject({ root });
+    expect(observe.mock.calls[0]?.[0]).toMatchObject({
+      root: `machine://host-a${root}`,
+    });
     expect(entryTail(repositories).slice(0, 2)).toEqual([
       'tool-enter_workspace',
       'git',
@@ -23621,7 +23805,10 @@ describe('RunExecutionService git state', () => {
     // The producer's page reads go through the native read tool.
     vi.spyOn(nativeReadTool, 'execute').mockImplementation(
       (_context, input) => {
-        const file = input.path.slice(0, input.path.lastIndexOf(':raw:'));
+        const located = input.path.slice(0, input.path.lastIndexOf(':raw:'));
+        // The chain reads through the canonical locator; the fake reads the
+        // Machine's own filesystem, which this process hosts.
+        const file = located.replace(/^machine:\/\/host-a/u, '');
         const content = readFileSync(file, 'utf8');
 
         return Promise.resolve({
@@ -29902,6 +30089,7 @@ describe('RunExecutionService quota resume boundaries', () => {
     latestCheckpoint: undefined,
     seenInstructionPaths: new Set<string>(),
     toldGit: { text: undefined, root: undefined },
+    machineVerified: true,
     untitled: false,
   };
 
@@ -30872,6 +31060,7 @@ describe('RunExecutionService wake boundary preparation', () => {
       latestCheckpoint: undefined,
       seenInstructionPaths: new Set<string>(),
       toldGit: { text: undefined, root: undefined },
+      machineVerified: true,
       untitled: false,
     };
   }

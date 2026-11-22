@@ -4,15 +4,17 @@ import path from 'node:path';
 
 import { describe, expect, it } from 'vitest';
 
+import { MachineConnector } from '../machines/machine-connector.service';
+import { MachineIdentityMismatchError } from '../machines/machine-session';
 import {
+  SkillCatalog,
   type SkillCatalogEntry,
   type SkillCatalogPort,
 } from '../skills/skill-catalog';
+import { localMachineConnector } from '../testing/local-machine';
+import { createProtocolPeer } from '../testing/machine-protocol-peer';
 import { type GrepReadAdmission } from './grep-admission';
-import {
-  executorUnavailableResult,
-  machineUnsupportedResult,
-} from './grep-results';
+import { machineUnsupportedResult } from './grep-results';
 import { resolveScopes, refuseUnsearchableGrepScopes } from './grep-scopes';
 import { type ScopeOutcome } from './grep-scope-shape';
 import { type ToolContext } from './types';
@@ -78,7 +80,13 @@ function contextOf(
 
 /** A context holding the native host authority a Run on this host has. */
 function hostContext(options: { readonly root?: string } = {}): ToolContext {
-  return { ...contextOf(options), runId: 'run-a', nativeExecutorId: 'host-a' };
+  return {
+    ...contextOf(options),
+    runId: 'run-a',
+    localMachine: 'host-a',
+    defaultMachine: 'host-a',
+    machines: localMachineConnector(),
+  };
 }
 
 async function withPackage<T>(
@@ -236,11 +244,21 @@ describe('resolveScopes', () => {
     });
   });
 
-  it('places a file: alias on the host layer that owns it', async () => {
+  it('refuses a host scope with no current Machine', async () => {
     const context = contextOf({ root: '/home/u/repo' });
+
+    const refusal = {
+      result: {
+        status: 'error',
+        type: 'invalid_path',
+        message:
+          'No current Machine: configure machines.default or enter a Workspace.',
+      },
+    };
+
     expect(
       await resolveScopes(context, ['file://localhost/etc/x'], admission),
-    ).toEqual({ result: executorUnavailableResult() });
+    ).toEqual(refusal);
     expect(
       await resolveScopes(context, ['file://nas/share'], admission),
     ).toEqual({
@@ -248,13 +266,13 @@ describe('resolveScopes', () => {
         status: 'error',
         type: 'invalid_path',
         message:
-          'A file:// URL with a host other than localhost names another machine. ' +
-          "Only this host's files are readable; write the absolute path instead.",
+          'A file:// URL with a host other than localhost names another Machine. ' +
+          'Use machine://<name>/<path> to reach a configured Machine.',
       },
     });
     expect(
       await resolveScopes(context, ['/home/u/repo/src/**'], admission),
-    ).toEqual({ result: executorUnavailableResult() });
+    ).toEqual(refusal);
   });
 
   it('refuses a skill scope with a selector, a glob, or an invalid name', async () => {
@@ -322,7 +340,7 @@ describe('resolveScopes', () => {
 
     const scope = outcome.scopes[0];
 
-    expect(scope?.locatorFor('etc/hosts')).toBe('/etc/hosts');
+    expect(scope?.locatorFor('etc/hosts')).toBe('machine://host-a/etc/hosts');
     // The walk starts at the root itself, not at an empty path that names
     // nothing: an empty prefix would make this listing fail.
     const listed = await scope?.port.list('');
@@ -336,9 +354,84 @@ describe('resolveScopes', () => {
       result: {
         status: 'error',
         type: 'invalid_path',
-        message: 'The scope path is invalid.',
+        message: 'A Machine path must be absolute and contain no NUL bytes.',
       },
     });
+  });
+
+  it("walks a scope on this process's own Machine in process", async () => {
+    const connector = localMachineConnector();
+    const context = { ...hostContext(), machines: connector };
+
+    const outcome = scopesOf(
+      await resolveScopes(context, ['machine://host-a/**'], admission),
+    );
+
+    const scope = outcome.scopes[0];
+
+    expect(scope?.locatorFor('')).toBe('machine://host-a/');
+    expect(scope?.locatorFor('etc/hosts')).toBe('machine://host-a/etc/hosts');
+    const listed = await scope?.port.list('');
+    expect(listed?.length).toBeGreaterThan(0);
+    // The identity handshake is the only traffic the local daemon sees: no
+    // request stream ever opens for the walk itself.
+    expect((await connector.peer.session(0)).requests).toEqual([]);
+  });
+
+  it('leaves a scope on another Machine to its daemon', async () => {
+    const peer = createProtocolPeer({
+      answers: { 'fs.stat': { value: { kind: 'directory', isLink: false } } },
+    });
+
+    const connector = new MachineConnector({
+      machines: {
+        local: 'host-a',
+        default: 'host-a',
+        hosts: { gpu: { destination: 'gpu-box' } },
+      },
+      hubVersion: 'test',
+      bindIdentity: () => Promise.resolve('match'),
+      transportFactory: peer.factory,
+      handshakeTimeoutMs: 1000,
+    });
+
+    const context = { ...hostContext(), machines: connector };
+
+    expect(
+      await resolveScopes(context, ['machine://gpu/srv'], admission),
+    ).toMatchObject({ machines: [{ name: 'gpu', path: '/srv' }] });
+    // The other scope's exact path went to its daemon; nothing else did.
+    expect((await peer.session(0)).requests).toEqual(['fs.stat']);
+  });
+
+  it('spells a decoded glob character in a remote host scope', async () => {
+    const peer = createProtocolPeer({
+      answers: { 'fs.stat': { value: { kind: 'directory', isLink: false } } },
+    });
+
+    const connector = new MachineConnector({
+      machines: {
+        default: 'gpu',
+        hosts: { gpu: { destination: 'gpu-box' } },
+      },
+      hubVersion: 'test',
+      bindIdentity: () => Promise.resolve('match'),
+      transportFactory: peer.factory,
+      handshakeTimeoutMs: 1000,
+    });
+
+    const context = {
+      ...contextOf(),
+      runId: 'run-a',
+      defaultMachine: 'gpu',
+      machines: connector,
+    };
+
+    // The literal spelling decodes to `[`, which the Machine scope grammar
+    // carries as `%5B` so its own parser does not read a glob operator.
+    expect(
+      await resolveScopes(context, ['/srv/a%5Bb%5D'], admission),
+    ).toMatchObject({ machines: [{ name: 'gpu', path: '/srv/a[b]' }] });
   });
 
   it('refuses a package that lives on another host', async () => {
@@ -416,6 +509,65 @@ describe('resolveScopes', () => {
     });
   });
 
+  it('searches no Workspace skill when the local daemon answers another identity', async () => {
+    const workspace = await realpath(
+      await mkdtemp(path.join(tmpdir(), 'grep-workspace-')),
+    );
+
+    try {
+      const packageDirectory = path.join(
+        workspace,
+        '.agents',
+        'skills',
+        'ws-only',
+      );
+
+      await mkdir(packageDirectory, { recursive: true });
+      await writeFile(
+        path.join(packageDirectory, 'SKILL.md'),
+        '---\nname: ws-only\ndescription: Workspace only\n---\nneedle\n',
+      );
+
+      const root = `machine://host-a${workspace}`;
+      const catalog = new SkillCatalog([]);
+
+      const verified = scopesOf(
+        await resolveScopes(
+          { ...hostContext({ root }), skillCatalog: catalog },
+          ['skill://ws-only/SKILL.md'],
+          admission,
+        ),
+      );
+
+      expect(verified.scopes[0]?.locatorPrefix).toBe(
+        'skill://ws-only/SKILL.md',
+      );
+
+      // The same read without the identity-checked handshake contributes no
+      // Workspace skill, so the package is not found.
+      const mismatched = {
+        ...hostContext({ root }),
+        skillCatalog: catalog,
+        machines: localMachineConnector({
+          verify: () =>
+            Promise.reject(new MachineIdentityMismatchError('host-a')),
+        }),
+      };
+
+      await expect(
+        resolveScopes(mismatched, ['skill://ws-only/SKILL.md'], admission),
+      ).resolves.toEqual({
+        result: {
+          status: 'error',
+          type: 'not_found',
+          message: 'File not found.',
+        },
+      });
+    } finally {
+      await rm(workspace, { recursive: true, force: true });
+    }
+  });
+
   it('expands a bare skill scope to nothing without a catalog', async () => {
     expect(await resolveScopes(contextOf(), ['skill://'], admission)).toEqual({
       scopes: [],
@@ -479,8 +631,8 @@ describe('refuseUnsearchableGrepScopes', () => {
       status: 'error',
       type: 'invalid_path',
       message:
-        'A file:// URL with a host other than localhost names another machine. ' +
-        "Only this host's files are readable; write the absolute path instead.",
+        'A file:// URL with a host other than localhost names another Machine. ' +
+        'Use machine://<name>/<path> to reach a configured Machine.',
     });
   });
 

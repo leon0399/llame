@@ -227,7 +227,11 @@ export class StartLocationResponse {
   @ApiProperty({ type: String, format: 'uuid', nullable: true })
   repositoryId!: string | null;
 
-  @ApiProperty({ type: String, nullable: true })
+  @ApiProperty({
+    type: String,
+    nullable: true,
+    description: 'The Machine name of the executor.',
+  })
   executorId!: string | null;
 
   @ApiProperty({ type: String, format: 'uuid', nullable: true })

@@ -52,8 +52,8 @@ never sent.
 Keys must name a registered llame-owned tool id. An MCP id, a wildcard, or a
 typo fails startup of the process that reads the files.
 
-Paths are literal host paths — `{env:...}` and `{path:...}` interpolation does
-not apply, because the resolved description is visible to Chat owners. A
+Paths are literal filesystem paths — `{env:...}` and `{path:...}` interpolation
+does not apply, because the resolved description is visible to Chat owners. A
 relative path resolves against the directory of the active config file;
 an absolute path stays absolute. Line endings are normalized and trailing
 whitespace is trimmed, so an override that reduces to nothing is an error rather
@@ -223,7 +223,7 @@ Every attempt that reaches prompt preparation writes one immutable receipt.
 system prompt selection only.
 
 A receipt is system-only. It carries no tool catalog, declaration, schema,
-rendered description, or availability manifest, and no host path; a `promptHash`
+rendered description, or availability manifest, and no filesystem path; a `promptHash`
 covers the rendered system prompt alone. Because descriptions are rendered per
 attempt and never stored, a receipt is not a historical record of what the model
 was shown: editing a template changes nothing already stored, and no surface can

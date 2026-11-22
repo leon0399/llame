@@ -1,3 +1,7 @@
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
 import { z } from 'zod';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Logger } from '@nestjs/common';
@@ -15,6 +19,7 @@ import {
   createProtocolPeer,
   type PeerSession,
 } from '../testing/machine-protocol-peer';
+import { localMachineConnector } from '../testing/local-machine';
 import { MachineConnector } from '../machines/machine-connector.service';
 import { drizzle } from 'drizzle-orm/postgres-js';
 
@@ -1276,6 +1281,82 @@ describe('WorkspaceMcpClients over a Machine', () => {
     const session = await machine.peer.session(0);
     expect([...session.requests]).toEqual(['mcp.servers']);
     expect(provider.stateForKey(workspace)).toBeUndefined();
+
+    await provider.onModuleDestroy();
+    await runtime.stop();
+  });
+});
+
+describe('WorkspaceMcpClients on this process’s Machine', () => {
+  it('starts a local Machine Workspace’s stdio server in process', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'local-workspace-mcp-'));
+    await writeFile(
+      join(directory, '.mcp.json'),
+      JSON.stringify({
+        mcpServers: {
+          storybook: { command: 'node', args: ['server.mjs'] },
+        },
+      }),
+    );
+
+    const connector = localMachineConnector();
+    const { runtime } = operatorRuntime();
+    const started: Array<unknown> = [];
+
+    const provider = new WorkspaceMcpClients(runtime, {
+      connector,
+      clientFactory: (input) => {
+        started.push(input);
+
+        return Promise.resolve(client(input.serverId, 'local'));
+      },
+    });
+
+    const workspace = key('chat-1', `machine://host-a${directory}`);
+
+    try {
+      const state = await provider.startForChat(workspace);
+
+      expect(started).toMatchObject([
+        { serverId: 'storybook', transport: 'stdio', command: 'node' },
+      ]);
+      expect(state.servers).toEqual([{ id: 'storybook', state: 'available' }]);
+      // The local daemon answered the handshake and was asked to open nothing.
+      const session = await connector.peer.session(0);
+
+      expect(session.requests).toEqual([]);
+    } finally {
+      await provider.onModuleDestroy();
+      await runtime.stop();
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it('reports the servers unavailable when the local daemon cannot prove its identity', async () => {
+    const connector = localMachineConnector({
+      verify: () => Promise.reject(new Error('identity mismatch')),
+    });
+
+    const { runtime } = operatorRuntime();
+    const factory = vi.fn(() => Promise.resolve(client('web', 'local')));
+
+    const provider = new WorkspaceMcpClients(runtime, {
+      connector,
+      readConfig: () => Promise.resolve([config('web', 'local')]),
+      clientFactory: factory,
+    });
+
+    const workspace = key('chat-1', 'machine://host-a/work/repo');
+    const state = await provider.startForChat(workspace);
+
+    expect(state.servers).toEqual([
+      {
+        id: 'workspace',
+        state: 'unavailable',
+        reason: 'Workspace MCP configuration unavailable',
+      },
+    ]);
+    expect(factory).not.toHaveBeenCalled();
 
     await provider.onModuleDestroy();
     await runtime.stop();

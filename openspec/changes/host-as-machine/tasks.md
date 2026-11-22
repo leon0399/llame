@@ -108,61 +108,61 @@ against its parent before publication.
 
 ## 3. host-machine
 
-- [ ] 3.1 Config: add `machines.local` and `machines.default` with whole-value `{env:...}`, make
+- [x] 3.1 Config: add `machines.local` and `machines.default` with whole-value `{env:...}`, make
       `destination` optional, delete `tools.nativeExecutorId`, and add the boot failures of
       design D3. Verify each boot failure in config-loader tests, with the error naming the field.
-- [ ] 3.2 Local transport: spawn `LLAME_MACHINE_COMMAND serve --stdio` for the `machines.local`
+- [x] 3.2 Local transport: spawn `LLAME_MACHINE_COMMAND serve --stdio` for the `machines.local`
       entry with the base environment (design D4), and probe only reachable entries. Verify that a
       database URL and `SENTRY_AUTH_TOKEN` in the worker environment do not reach the child, that a
       missing command reports `machine_unavailable`, that no call falls back to in-process
       execution, and "A worker that cannot reach a host entry records nothing".
-- [ ] 3.3 Locator rule: one resolution for bare, relative, `file:`, and `machine://` paths on the
+- [x] 3.3 Locator rule: one resolution for bare, relative, `file:`, and `machine://` paths on the
       current Machine, and the `file://<other>` refusal (design D6). Intercept
       `machine://<local>/...` at every dispatch point that D8 lists, and route it to the in-process
       target until each family moves. Require the identity-checked handshake before any in-process
       host operation. Verify the `native-file-tools` and `remote-machines` locator scenarios, "A
       wrong local name is refused before host bash", and a test that a host-bound Chat reaches no
       `MachineConnector` method for the families that have not moved.
-- [ ] 3.4 Canonical results and permissions: report canonical `machine://` locators for host
+- [x] 3.4 Canonical results and permissions: report canonical `machine://` locators for host
       results and in the artifact notice (`tool-artifacts`, `tool-result-rendering`), normalize every path parameter and `bash` `cwd` before matching, and fail startup on
       a `^/` path regex (design D7). Verify the `tool-call-permissions` scenarios, including the
       negative scenario that an allow for one Machine does not admit another, the reject in another
       bare spelling, and the all-fields reject, and the `workspace-entry` submitted-path decision.
-- [ ] 3.5 Migration: the custom migration of design D5 under the P2 wrapping. Verify in an
+- [x] 3.5 Migration: the custom migration of design D5 under the P2 wrapping. Verify in an
       integration test that a host-bound Chat keeps its binding as `machine://<id>/...`, that
       `machine:<name>` loses its prefix, that an invalid id or a unique-index collision fails the
       migration with a named error and changes nothing, that `workspace_told` and
       `chat_creation_records` worktree directories are rewritten, that the SQL root encoding equals
       `formatMachineLocator` for each encoded character, and that `chat_jobs.executor` is
       untouched.
-- [ ] 3.6 Binding and detach: bind Workspace entry to the Machine name, detach a Chat bound to an
+- [x] 3.6 Binding and detach: bind Workspace entry to the Machine name, detach a Chat bound to an
       unreachable entry with `executor_mismatch`, and resolve chat-creation executors by Machine
       name. Accept a canonical `machine://<checkout executor>/` worktree base in `checkouts.service.ts`. Verify the `workspace-entry` and `chat-creation` scenarios and that a bare worktree base on a remote Machine checkout is stored on that Machine.
-- [ ] 3.7 `bash` routing: run in process for this process's `machines.local`, run daemon
+- [x] 3.7 `bash` routing: run in process for this process's `machines.local`, run daemon
       `proc.bash` elsewhere, and refuse `async` with the placement-neutral hint (design D9). Verify
       the `bash-execution` scenarios.
-- [ ] 3.8 Advertisement: gate tools on `machines.default` (design D11). Verify the `tool-calling`
+- [x] 3.8 Advertisement: gate tools on `machines.default` (design D11). Verify the `tool-calling`
       advertisement scenarios.
-- [ ] 3.9 Snapshot: one Workspace snapshot prompt for both states, told again when the current
+- [x] 3.9 Snapshot: one Workspace snapshot prompt for both states, told again when the current
       Machine changes, and unavailable and recovered items keyed on the current Machine (design
       D10). Verify the `context-injection` scenarios.
-- [ ] 3.10 Development and tests: make `dev` and the integration suites depend on `machine#build`,
+- [x] 3.10 Development and tests: make `dev` and the integration suites depend on `machine#build`,
       set `LLAME_MACHINE_COMMAND` and `LLAME_MACHINE_CONFIG_DIR` in development, and write the
       development roots file (design D12). Verify that `pnpm dev` starts, completes an identity handshake with the development daemon child, and serves a host read in process.
-- [ ] 3.11 Web: replace the `machine:` prefix logic in `start-location.ts` and
+- [x] 3.11 Web: replace the `machine:` prefix logic in `start-location.ts` and
       `project-repository-policy.ts` with Machine names from `GET /api/v1/machines`, update the DTO
       descriptions in `checkoutResponse` and `startLocationResponse`, regenerate the OpenAPI
       document and the orval client, and update the stories. Verify the start-location tests and
       the Storybook story tests.
-- [ ] 3.12 Prompts: update `read.md`, `edit.md`, `write.md`, `grep.md`, `bash.md`,
+- [x] 3.12 Prompts: update `read.md`, `edit.md`, `write.md`, `grep.md`, `bash.md`,
       `enter_workspace.md`, and `exit_workspace.md` for the current Machine and canonical results,
       and update `llame.config.jsonc.example` to the canonical recommended policy (design D7).
-- [ ] 3.13 Docs: update `SPEC.md` sections 1.1, 13.7, 13.9, and 15 (H16), the glossary ("Default
+- [x] 3.13 Docs: update `SPEC.md` sections 1.1, 13.7, 13.9, and 15 (H16), the glossary ("Default
       Machine"), the operator runbooks (`machines.md`, `native-files.md`, `chat-creation.md`,
       `repositories.md`, `knowledge.md`, `ssh.md`, `web-read.md`, `skills.md`, `index.md`), the
       tool reference pages, `apps/api/llame.config.jsonc.example`, and a dated `CHANGELOG.md` entry
       with the upgrade steps of the design migration plan.
-- [ ] 3.14 Focused checks: `pnpm --filter api lint`, `pnpm --filter api typecheck`, the changed
+- [x] 3.14 Focused checks: `pnpm --filter api lint`, `pnpm --filter api typecheck`, the changed
       test files, the API integration suite for the migration, `pnpm lint:markdown`,
       `pnpm format:check`, `git diff --check`.
 - [ ] 3.15 SR before ready; GR per [CONTRIBUTING.md](../../../CONTRIBUTING.md#ready-pr-monitoring).

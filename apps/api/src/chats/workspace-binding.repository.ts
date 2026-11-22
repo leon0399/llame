@@ -1,7 +1,6 @@
 import { and, eq, isNotNull, sql } from 'drizzle-orm';
 import { chats, checkouts, messages, runs, worktreeLeases } from '../db/schema';
 import { type Db } from '../db/tenant-db.service';
-import { isMachineExecutorId } from '../machines/machine-locator';
 import { NativeFilesRepository } from '../runs/native-files-repository';
 import { type WorkspaceDetachReason } from './workspace-binding';
 
@@ -46,11 +45,10 @@ export class WorkspaceBindingRepository {
     executorId: string;
     root: string;
     /**
-     * The executor this transition pins the Run to, if any. An absolute host
-     * path passes the local executor id, so the Run cannot later execute on
-     * another host. A `machine:<name>` binding passes nothing: the Run stays
-     * free to use `file:` aliases and other Machines, and no local executor is
-     * required to enter a Machine Workspace at all.
+     * The executor this transition pins the Run to, if any. A root on this
+     * process's own Machine passes that Machine's name, so the Run cannot
+     * later execute on another worker. A Machine this worker only reaches
+     * passes nothing: the Run stays free to use other Machines.
      */
     bindExecutorId?: string;
   }): Promise<
@@ -322,13 +320,10 @@ export class WorkspaceBindingRepository {
         workspaceExecutorId: input.executorId,
         workspaceGeneration: sql<number>`${chats.workspaceGeneration} + 1`,
         workspaceDetachReason: null,
-        // Entering a Machine Workspace proves it reachable — the entry's own
-        // `fs.stat` went through it — so the availability the next Run
-        // compares against is "available". A local binding narrates no
-        // availability at all and clears any earlier Machine state.
-        workspaceToldAvailable: isMachineExecutorId(input.executorId)
-          ? true
-          : null,
+        // Entering a Workspace proves its Machine reachable — the entry
+        // contacted it, in process or through the daemon — so the
+        // availability the next Run compares against is "available".
+        workspaceToldAvailable: true,
       })
       .where(
         and(

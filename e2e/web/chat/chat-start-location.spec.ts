@@ -42,7 +42,6 @@ const apiUrl =
   `http://localhost:${process.env.E2E_API_PORT ?? "4301"}`;
 
 const OFFICE_MACHINE = "e2e-offline";
-const MACHINE_OFFLINE = `machine:${OFFICE_MACHINE}`;
 const PROJECT_TITLE = "E2E start location";
 const ANSWER = "Mocked answer from the e2e model server.";
 
@@ -273,14 +272,14 @@ test.describe("chat start location (browser, full stack)", () => {
     // The declared Machine never answers, but its checkout is a row like any
     // other, so the Machine level offers it and the create can name it.
     runSeedSql(
-      `INSERT INTO checkouts (owner_user_id, repository_id, executor_id, path, kind, branch, origin) VALUES ('${account.id}', '${started.checkout.repositoryId}', '${MACHINE_OFFLINE}', '${MACHINE_OFFLINE}/srv/src/llame-e2e', 'main', 'main', 'registered');`,
+      `INSERT INTO checkouts (owner_user_id, repository_id, executor_id, path, kind, branch, origin) VALUES ('${account.id}', '${started.checkout.repositoryId}', '${OFFICE_MACHINE}', 'machine://${OFFICE_MACHINE}/srv/src/llame-e2e', 'main', 'main', 'registered');`,
       account.id,
     );
 
     // The deep link pre-fills the offline Machine, which is how the pill and
     // the create see it without a click on a disabled option.
     await page.goto(
-      `/chat/new?project=${started.project.id}&repository=${started.checkout.repositoryId}&executor=${MACHINE_OFFLINE}`,
+      `/chat/new?project=${started.project.id}&repository=${started.checkout.repositoryId}&executor=${OFFICE_MACHINE}`,
     );
     await expect(page).toHaveURL(
       new RegExp(`/projects/${started.project.id}\\?`),
@@ -307,7 +306,7 @@ test.describe("chat start location (browser, full stack)", () => {
     await expect(
       page
         .getByRole("alert")
-        .filter({ hasText: `The executor ${MACHINE_OFFLINE} is offline.` }),
+        .filter({ hasText: `The executor ${OFFICE_MACHINE} is offline.` }),
     ).toBeVisible();
     await expect(composer).toHaveValue(draft);
     // The failed create keeps the deep link's pre-fill in the query, so the
@@ -329,7 +328,7 @@ test.describe("chat start location (browser, full stack)", () => {
     // (owner, executor, path) is unique, and both tests share the worker's
     // account when they land in one worker.
     runSeedSql(
-      `INSERT INTO checkouts (owner_user_id, repository_id, executor_id, path, kind, branch, origin) VALUES ('${account.id}', '${started.checkout.repositoryId}', '${MACHINE_OFFLINE}', '${MACHINE_OFFLINE}/srv/src/llame-e2e-outdated', 'main', 'main', 'registered');`,
+      `INSERT INTO checkouts (owner_user_id, repository_id, executor_id, path, kind, branch, origin) VALUES ('${account.id}', '${started.checkout.repositoryId}', '${OFFICE_MACHINE}', 'machine://${OFFICE_MACHINE}/srv/src/llame-e2e-outdated', 'main', 'main', 'registered');`,
       account.id,
     );
 
@@ -355,7 +354,7 @@ test.describe("chat start location (browser, full stack)", () => {
           chat: { id: sent.id, projectId: started.project.id },
           workspace: {
             status: "machine_update_required",
-            executorId: MACHINE_OFFLINE,
+            executorId: OFFICE_MACHINE,
             message: daemonWarning,
           },
         }),
@@ -363,7 +362,7 @@ test.describe("chat start location (browser, full stack)", () => {
     });
 
     await page.goto(
-      `/projects/${started.project.id}?repository=${started.checkout.repositoryId}&executor=${MACHINE_OFFLINE}`,
+      `/projects/${started.project.id}?repository=${started.checkout.repositoryId}&executor=${OFFICE_MACHINE}`,
     );
     const draft = "Keep this draft for an outdated daemon";
     const composer = await readyComposer(page);

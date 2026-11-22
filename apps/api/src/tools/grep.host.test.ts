@@ -16,10 +16,14 @@ import { describe, expect, it, vi, type MockInstance } from 'vitest';
 
 import { type Db } from '../db/tenant-db.service';
 import { type GrepBoundsConfig } from '../instance-config/llame-config';
+import { MachineConnector } from '../machines/machine-connector.service';
+import { MachineUnavailableError } from '../machines/machine-session';
 import { type SkillCatalogPort } from '../skills/skill-catalog';
+import { localMachineConnector } from '../testing/local-machine';
+import { createProtocolPeer } from '../testing/machine-protocol-peer';
 import { ArtifactsRepository } from './artifacts/artifacts-repository';
 import { grepInputSchema, nativeGrepTool } from './grep';
-import { machineUnsupportedResult } from './grep-results';
+import { machineNotFoundResult } from './machine-call';
 import { compileToolPermissionMap } from './permissions/compile-permissions';
 import { type ToolPermissionMap } from './permissions/types';
 import { type ToolContext, type ToolResult } from './types';
@@ -79,8 +83,8 @@ type ContextOptions = {
   readonly root?: string;
   /** The Run can read artifacts, so a result too large for the head is stored. */
   readonly artifacts?: boolean;
-  /** `false` omits the first condition of the host authority gate. */
-  readonly executor?: boolean;
+  /** `false` removes the current Machine, so a bare scope names none. */
+  readonly machine?: boolean;
   readonly run?: boolean;
   readonly map?: ToolPermissionMap;
   /** Operator `tools.grep` bounds; absent means every bound is unset. */
@@ -92,7 +96,7 @@ type ContextOptions = {
 };
 
 function contextOf(options: ContextOptions = {}): ToolContext {
-  const trusted = options.executor !== false;
+  const trusted = options.machine !== false;
   const db: Db = drizzle.mock();
 
   return {
@@ -101,7 +105,11 @@ function contextOf(options: ContextOptions = {}): ToolContext {
     configuredCredentials: [],
     toolCallId: 'call-a',
     runId: options.run === false ? undefined : 'run-a',
-    nativeExecutorId: trusted ? 'host-a' : undefined,
+    ...(trusted && {
+      localMachine: 'host-a',
+      defaultMachine: 'host-a',
+      machines: localMachineConnector(),
+    }),
     permissionPolicy: compileToolPermissionMap(
       options.map ?? PERMISSIVE,
       'test',
@@ -266,7 +274,9 @@ describe('host walk policy', () => {
         scopes: [`${root}/**`],
       });
 
-      expect(locatorsOf(result)).toEqual([`${root}/src/app.js:1-1`]);
+      expect(locatorsOf(result)).toEqual([
+        `machine://host-a${root}/src/app.js:1-1`,
+      ]);
     });
   });
 
@@ -280,7 +290,9 @@ describe('host walk policy', () => {
         scopes: [`${root}/dist/app.js`],
       });
 
-      expect(locatorsOf(result)).toEqual([`${root}/dist/app.js:1-1`]);
+      expect(locatorsOf(result)).toEqual([
+        `machine://host-a${root}/dist/app.js:1-1`,
+      ]);
     });
   });
 
@@ -294,7 +306,9 @@ describe('host walk policy', () => {
         scopes: [`${root}/**`],
       });
 
-      expect(locatorsOf(result)).toEqual([`${root}/.editorconfig:1-1`]);
+      expect(locatorsOf(result)).toEqual([
+        `machine://host-a${root}/.editorconfig:1-1`,
+      ]);
     });
   });
 
@@ -311,7 +325,9 @@ describe('host walk policy', () => {
         scopes: [`${inside}/**`],
       });
 
-      expect(locatorsOf(result)).toEqual([`${inside}/near.md:1-1`]);
+      expect(locatorsOf(result)).toEqual([
+        `machine://host-a${inside}/near.md:1-1`,
+      ]);
     });
   });
 
@@ -334,8 +350,8 @@ describe('host walk policy', () => {
       });
 
       expect(locatorsOf(result)).toEqual([
-        `${root}/large.txt:1-2`,
-        `${root}/plain.txt:1-1`,
+        `machine://host-a${root}/large.txt:1-2`,
+        `machine://host-a${root}/plain.txt:1-1`,
       ]);
       expect(warningsOf(result)).toEqual([{ kind: 'binary', count: 1 }]);
     });
@@ -350,7 +366,9 @@ describe('host walk policy', () => {
         scopes: [`${root}/v:1/**`],
       });
 
-      expect(locatorsOf(result)).toEqual([`${root}/v:1/a.md:1-1`]);
+      expect(locatorsOf(result)).toEqual([
+        `machine://host-a${root}/v:1/a.md:1-1`,
+      ]);
     });
   });
 
@@ -366,7 +384,9 @@ describe('host walk policy', () => {
         scopes: [`${repo}/../elsewhere/**`],
       });
 
-      expect(locatorsOf(result)).toEqual([`${elsewhere}/a.md:1-1`]);
+      expect(locatorsOf(result)).toEqual([
+        `machine://host-a${elsewhere}/a.md:1-1`,
+      ]);
     });
   });
 
@@ -431,7 +451,9 @@ describe('host walk policy', () => {
         scopes: [`${root}/one.md`],
       });
 
-      expect(locatorsOf(result)).toEqual([`${root}/one.md:1-1`]);
+      expect(locatorsOf(result)).toEqual([
+        `machine://host-a${root}/one.md:1-1`,
+      ]);
     });
   });
 });
@@ -448,7 +470,9 @@ describe('host ignore files above the scope', () => {
         scopes: [`${root}/apps`],
       });
 
-      expect(locatorsOf(result)).toEqual([`${root}/apps/web/keep.js:1-1`]);
+      expect(locatorsOf(result)).toEqual([
+        `machine://host-a${root}/apps/web/keep.js:1-1`,
+      ]);
     });
   });
 
@@ -468,7 +492,7 @@ describe('host ignore files above the scope', () => {
       });
 
       expect(locatorsOf(result)).toEqual([
-        `${root}/Projects/Arduino/libraries/keep.h:1-1`,
+        `machine://host-a${root}/Projects/Arduino/libraries/keep.h:1-1`,
       ]);
     });
   });
@@ -483,7 +507,9 @@ describe('host ignore files above the scope', () => {
         scopes: [`${root}/`],
       });
 
-      expect(locatorsOf(result)).toEqual([`${root}/plain.md:1-1`]);
+      expect(locatorsOf(result)).toEqual([
+        `machine://host-a${root}/plain.md:1-1`,
+      ]);
     });
   });
 
@@ -498,7 +524,9 @@ describe('host ignore files above the scope', () => {
         scopes: [`${root}/inner`],
       });
 
-      expect(locatorsOf(result)).toEqual([`${root}/inner/README.md:1-1`]);
+      expect(locatorsOf(result)).toEqual([
+        `machine://host-a${root}/inner/README.md:1-1`,
+      ]);
     });
   });
 
@@ -514,7 +542,9 @@ describe('host ignore files above the scope', () => {
         scopes: [`${root}/repo/apps/web`],
       });
 
-      expect(locatorsOf(result)).toEqual([`${root}/repo/apps/web/keep.js:1-1`]);
+      expect(locatorsOf(result)).toEqual([
+        `machine://host-a${root}/repo/apps/web/keep.js:1-1`,
+      ]);
     });
   });
 
@@ -530,7 +560,7 @@ describe('host ignore files above the scope', () => {
       });
 
       expect(locatorsOf(result)).toEqual([
-        `${root}/worktree/sub/README.md:1-1`,
+        `machine://host-a${root}/worktree/sub/README.md:1-1`,
       ]);
     });
   });
@@ -546,7 +576,9 @@ describe('host ignore files above the scope', () => {
         scopes: [`${root}/repo`],
       });
 
-      expect(locatorsOf(result)).toEqual([`${root}/repo/README.md:1-1`]);
+      expect(locatorsOf(result)).toEqual([
+        `machine://host-a${root}/repo/README.md:1-1`,
+      ]);
     });
   });
 
@@ -568,7 +600,7 @@ describe('host ignore files above the scope', () => {
       });
 
       expect(locatorsOf(result)).toEqual([
-        `${root}/Projects/Arduino/README.md:1-1`,
+        `machine://host-a${root}/Projects/Arduino/README.md:1-1`,
       ]);
     } finally {
       await rm(root, { recursive: true, force: true });
@@ -589,7 +621,7 @@ describe('host excluded-directory report', () => {
 
       expect(ignoredOf(first)).toEqual({
         count: 1,
-        locators: [`${root}/node_modules`],
+        locators: [`machine://host-a${root}/node_modules`],
         atLeast: false,
       });
 
@@ -598,7 +630,9 @@ describe('host excluded-directory report', () => {
         scopes: [`${root}/node_modules`],
       });
 
-      expect(locatorsOf(second)).toEqual([`${root}/node_modules/dep.js:1-1`]);
+      expect(locatorsOf(second)).toEqual([
+        `machine://host-a${root}/node_modules/dep.js:1-1`,
+      ]);
     });
   });
 
@@ -645,7 +679,7 @@ describe('host excluded-directory report', () => {
 
       expect(ignoredOf(result)).toEqual({
         count: 1,
-        locators: [`${root}/node_modules`],
+        locators: [`machine://host-a${root}/node_modules`],
         atLeast: false,
       });
     });
@@ -696,7 +730,9 @@ describe('host excluded-directory report', () => {
         scopes: [root],
       });
 
-      expect(ignoredOf(result)?.locators).toEqual([`${root}/node_modules`]);
+      expect(ignoredOf(result)?.locators).toEqual([
+        `machine://host-a${root}/node_modules`,
+      ]);
     });
   });
 
@@ -730,7 +766,7 @@ describe('host excluded-directory report', () => {
       });
 
       expect(ignoredOf(first)?.locators).toEqual([
-        `${root}/app/%5Bid%5D/node_modules`,
+        `machine://host-a${root}/app/%5Bid%5D/node_modules`,
       ]);
 
       const second = await run(contextOf(), {
@@ -739,7 +775,7 @@ describe('host excluded-directory report', () => {
       });
 
       expect(locatorsOf(second)).toEqual([
-        `${root}/app/[id]/node_modules/dep.js:1-1`,
+        `machine://host-a${root}/app/[id]/node_modules/dep.js:1-1`,
       ]);
     });
   });
@@ -755,7 +791,7 @@ describe('host excluded-directory report', () => {
       });
 
       expect(ignoredOf(first)?.locators).toEqual([
-        `${root}/100%2541/node_modules`,
+        `machine://host-a${root}/100%2541/node_modules`,
       ]);
 
       const second = await run(contextOf(), {
@@ -764,7 +800,7 @@ describe('host excluded-directory report', () => {
       });
 
       expect(locatorsOf(second)).toEqual([
-        `${root}/100%41/node_modules/dep.js:1-1`,
+        `machine://host-a${root}/100%2541/node_modules/dep.js:1-1`,
       ]);
     });
   });
@@ -780,7 +816,9 @@ describe('host scope spellings', () => {
         scopes: [`${root}/a%2Ab`],
       });
 
-      expect(locatorsOf(result)).toEqual([`${root}/a*b/one.js:1-1`]);
+      expect(locatorsOf(result)).toEqual([
+        `machine://host-a${root}/a*b/one.js:1-1`,
+      ]);
     });
   });
 
@@ -793,7 +831,9 @@ describe('host scope spellings', () => {
         scopes: [`${root}/100%41`],
       });
 
-      expect(locatorsOf(result)).toEqual([`${root}/100%41/one.js:1-1`]);
+      expect(locatorsOf(result)).toEqual([
+        `machine://host-a${root}/100%2541/one.js:1-1`,
+      ]);
     });
   });
 
@@ -806,7 +846,9 @@ describe('host scope spellings', () => {
         scopes: [`${root}/a%252A`],
       });
 
-      expect(locatorsOf(result)).toEqual([`${root}/a%2A/one.js:1-1`]);
+      expect(locatorsOf(result)).toEqual([
+        `machine://host-a${root}/a%252A/one.js:1-1`,
+      ]);
     });
   });
 
@@ -819,7 +861,9 @@ describe('host scope spellings', () => {
         scopes: [`file://${root}/a%252A`],
       });
 
-      expect(locatorsOf(result)).toEqual([`${root}/a%2A/one.js:1-1`]);
+      expect(locatorsOf(result)).toEqual([
+        `machine://host-a${root}/a%252A/one.js:1-1`,
+      ]);
     });
   });
 });
@@ -834,14 +878,18 @@ describe('host Workspace rule', () => {
         patterns: ['needle'],
       });
 
-      expect(locatorsOf(absolute)).toEqual([`${workspace}/a.md:1-1`]);
+      expect(locatorsOf(absolute)).toEqual([
+        `machine://host-a${root}/100%252541/a.md:1-1`,
+      ]);
 
       const relative = await run(contextOf({ root: workspace }), {
         patterns: ['needle'],
         scopes: ['a.md'],
       });
 
-      expect(locatorsOf(relative)).toEqual([`${workspace}/a.md:1-1`]);
+      expect(locatorsOf(relative)).toEqual([
+        `machine://host-a${root}/100%252541/a.md:1-1`,
+      ]);
     });
   });
 
@@ -849,7 +897,7 @@ describe('host Workspace rule', () => {
     await withRoot(async (root) => {
       await writeAt(root, 'a.md', 'needle\n');
       const result = await run(contextOf({ root }), { patterns: ['needle'] });
-      expect(locatorsOf(result)).toEqual([`${root}/a.md:1-1`]);
+      expect(locatorsOf(result)).toEqual([`machine://host-a${root}/a.md:1-1`]);
     });
   });
 
@@ -861,7 +909,7 @@ describe('host Workspace rule', () => {
 
     expect(result).toMatchObject({ status: 'error', type: 'invalid_input' });
     const message = 'message' in result ? result.message : '';
-    expect(message).toContain('host paths');
+    expect(message).toContain('paths on the current Machine');
     expect(message).not.toContain('kb://');
     expect(message).not.toContain('skill://');
   });
@@ -876,7 +924,9 @@ describe('host Workspace rule', () => {
         scopes: ['src/**'],
       });
 
-      expect(locatorsOf(result)).toEqual([`${root}/src/a.ts:1-1`]);
+      expect(locatorsOf(result)).toEqual([
+        `machine://host-a${root}/src/a.ts:1-1`,
+      ]);
     });
   });
 
@@ -889,7 +939,7 @@ describe('host Workspace rule', () => {
     expect(result).toEqual({
       status: 'error',
       type: 'invalid_path',
-      message: 'A relative scope needs an entered Workspace.',
+      message: 'A relative path needs an entered Workspace to resolve from.',
     });
   });
 
@@ -900,35 +950,47 @@ describe('host Workspace rule', () => {
         patterns: ['needle'],
         scopes: ['/home/me/shop/src/**'],
       }),
-    ).toEqual(machineUnsupportedResult());
+    ).toEqual(machineNotFoundResult('devl'));
     expect(
       await run(context, { patterns: ['needle'], scopes: ['src/**'] }),
-    ).toEqual(machineUnsupportedResult());
+    ).toEqual(machineNotFoundResult('devl'));
   });
 });
 
 describe('host authority', () => {
-  it.each([
-    ['no native executor', { executor: false }],
-    ['no Run identity', { run: false }],
-  ])(
-    'fails a host scope with %s as executor_unavailable',
-    async (_case, options) => {
-      await withRoot(async (root) => {
-        await writeAt(root, 'a.md', 'needle\n');
+  it('fails a host scope with no Run identity as executor_unavailable', async () => {
+    await withRoot(async (root) => {
+      await writeAt(root, 'a.md', 'needle\n');
 
-        const result = await run(contextOf(options), {
-          patterns: ['needle'],
-          scopes: [`${root}/**`],
-        });
-
-        expect(result).toMatchObject({
-          status: 'error',
-          type: 'executor_unavailable',
-        });
+      const result = await run(contextOf({ run: false }), {
+        patterns: ['needle'],
+        scopes: [`${root}/**`],
       });
-    },
-  );
+
+      expect(result).toMatchObject({
+        status: 'error',
+        type: 'executor_unavailable',
+      });
+    });
+  });
+
+  it('fails a host scope with no current Machine as invalid_path', async () => {
+    await withRoot(async (root) => {
+      await writeAt(root, 'a.md', 'needle\n');
+
+      const result = await run(contextOf({ machine: false }), {
+        patterns: ['needle'],
+        scopes: [`${root}/**`],
+      });
+
+      expect(result).toMatchObject({
+        status: 'error',
+        type: 'invalid_path',
+        message:
+          'No current Machine: configure machines.default or enter a Workspace.',
+      });
+    });
+  });
 
   it('opens no tenant transaction for a host walk', async () => {
     await withRoot(async (root) => {
@@ -952,10 +1014,10 @@ describe('host authority', () => {
   it('serves a skill source alone while host and Knowledge scopes fail closed', async () => {
     // The `tool-calling` scenario "Grep is admitted by any serving backend":
     // a skill source admits the tool, and each other backend keeps failing.
-    const context = contextOf({ executor: false });
+    const context = contextOf({ machine: false });
     expect(
       await run(context, { patterns: ['x'], scopes: ['/srv/data/**'] }),
-    ).toMatchObject({ status: 'error', type: 'executor_unavailable' });
+    ).toMatchObject({ status: 'error', type: 'invalid_path' });
     expect(
       await run(context, {
         patterns: ['x'],
@@ -1042,7 +1104,7 @@ describe('operator bounds', () => {
       expect(result).toMatchObject({
         status: 'success',
         results: [],
-        unfinishedFile: `${root}/data/big.log`,
+        unfinishedFile: `machine://host-a${root}/data/big.log`,
       });
       expect(warningsOf(result)).toEqual([{ kind: 'byte_bound', count: 1 }]);
       expect(result).not.toHaveProperty('cursor');
@@ -1061,7 +1123,9 @@ describe('operator bounds', () => {
         { patterns: ['needle'], scopes: [`${root}/**`] },
       );
 
-      expect(locatorsOf(result)).toEqual([`${root}/small.md:1-1`]);
+      expect(locatorsOf(result)).toEqual([
+        `machine://host-a${root}/small.md:1-1`,
+      ]);
       expect(warningsOf(result)).toEqual([{ kind: 'oversized', count: 1 }]);
     });
   });
@@ -1080,7 +1144,7 @@ describe('operator bounds', () => {
 
       // The third file is the one that matches, and the bound stops the walk
       // after it: its passage is in the result, not lost behind the stop.
-      expect(locatorsOf(result)).toEqual([`${root}/c.md:1-1`]);
+      expect(locatorsOf(result)).toEqual([`machine://host-a${root}/c.md:1-1`]);
       expect(success(result).complete).toBe(false);
       expect(warningsOf(result)).toEqual([{ kind: 'file_bound', count: 1 }]);
     });
@@ -1204,8 +1268,8 @@ describe('host scope pages', () => {
 
       // One engine call per scope, appended in the submitted order.
       expect(locatorsOf(result)).toEqual([
-        `${root}/b/one.md:1-1`,
-        `${root}/a/two.md:1-1`,
+        `machine://host-a${root}/b/one.md:1-1`,
+        `machine://host-a${root}/a/two.md:1-1`,
       ]);
       expect(success(result).complete).toBe(true);
     });
@@ -1226,14 +1290,133 @@ describe('host scope pages', () => {
 
       // `limit` bounds the inline part alone: the walk still visits every
       // scope and the artifact holds all three files.
-      expect(locatorsOf(result)).toEqual([`${root}/a/one.md:1-1`]);
+      expect(locatorsOf(result)).toEqual([
+        `machine://host-a${root}/a/one.md:1-1`,
+      ]);
       expect(artifactHeadings()).toEqual([
-        `## ${root}/a/one.md`,
-        `## ${root}/b/one.md`,
-        `## ${root}/b/two.md`,
+        `## machine://host-a${root}/a/one.md`,
+        `## machine://host-a${root}/b/one.md`,
+        `## machine://host-a${root}/b/two.md`,
       ]);
       expect(success(result).complete).toBe(true);
       expect(result).not.toHaveProperty('cursor');
+    });
+  });
+});
+
+describe("this process's own Machine", () => {
+  it('walks a host scope in process and reports canonical locators', async () => {
+    await withRoot(async (root) => {
+      await writeAt(root, 'a.md', 'needle\n');
+
+      const connector = localMachineConnector();
+      const context: ToolContext = { ...contextOf(), machines: connector };
+
+      const result = await run(context, {
+        patterns: ['needle'],
+        scopes: [`${root}/**`],
+      });
+
+      expect(locatorsOf(result)).toEqual([`machine://host-a${root}/a.md:1-1`]);
+      // The identity handshake is the only traffic the local daemon sees.
+      expect((await connector.peer.session(0)).requests).toEqual([]);
+    });
+  });
+
+  it('walks a machine:// scope on its own Machine in process', async () => {
+    await withRoot(async (root) => {
+      await writeAt(root, 'a.md', 'needle\n');
+
+      const connector = localMachineConnector();
+      const context: ToolContext = { ...contextOf(), machines: connector };
+
+      const result = await run(context, {
+        patterns: ['needle'],
+        scopes: [`machine://host-a${root}/**`],
+      });
+
+      expect(locatorsOf(result)).toEqual([`machine://host-a${root}/a.md:1-1`]);
+      expect((await connector.peer.session(0)).requests).toEqual([]);
+    });
+  });
+
+  it('walks another Machine scope through its daemon', async () => {
+    await withRoot(async (root) => {
+      const peer = createProtocolPeer({
+        answers: {
+          'fs.grep': {
+            value: {
+              ok: true,
+              results: [
+                {
+                  path: 'a.md',
+                  startLine: 1,
+                  endLine: 1,
+                  content: '1: needle',
+                  matches: [1],
+                },
+              ],
+              complete: true,
+              warnings: [],
+              consumed: { files: 1, entries: 1, bytes: 12 },
+              progressed: false,
+            },
+          },
+        },
+      });
+
+      const connector = new MachineConnector({
+        machines: {
+          local: 'host-a',
+          default: 'host-a',
+          hosts: { 'host-a': {}, gpu: { destination: 'gpu-box' } },
+        },
+        hubVersion: 'test',
+        bindIdentity: () => Promise.resolve('match'),
+        transportFactory: peer.factory,
+        handshakeTimeoutMs: 1000,
+      });
+
+      const context: ToolContext = { ...contextOf(), machines: connector };
+
+      const result = await run(context, {
+        patterns: ['needle'],
+        scopes: [`machine://gpu${root}/**`],
+      });
+
+      expect(locatorsOf(result)).toEqual([`machine://gpu${root}/a.md:1-1`]);
+      expect((await peer.session(0)).requests).toEqual(['fs.grep']);
+    });
+  });
+
+  it('returns machine_unavailable before any walk when the identity fails', async () => {
+    await withRoot(async (root) => {
+      await writeAt(root, 'a.md', 'needle\n');
+
+      const connector = localMachineConnector({
+        verify: () =>
+          Promise.reject(
+            new MachineUnavailableError(
+              'host-a',
+              'unreachable',
+              false,
+              'The local daemon is gone.',
+            ),
+          ),
+      });
+
+      const context: ToolContext = { ...contextOf(), machines: connector };
+
+      const result = await run(context, {
+        patterns: ['needle'],
+        scopes: [`${root}/**`],
+      });
+
+      expect(result).toMatchObject({
+        status: 'error',
+        type: 'machine_unavailable',
+      });
+      expect(result).not.toHaveProperty('results');
     });
   });
 });

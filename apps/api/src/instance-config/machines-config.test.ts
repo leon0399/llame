@@ -1,7 +1,8 @@
 /**
  * `machines` instance-configuration tests (openspec/changes/remote-machines,
  * task 4.1 — "Machines exist only when the operator configures them" and
- * "Machine configuration is validated at startup").
+ * "Machine configuration is validated at startup"; host-as-machine D3 adds
+ * `machines.local`/`machines.default` and the boot invariants).
  */
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
@@ -84,7 +85,7 @@ describe('machines configuration', () => {
       },
     });
 
-    expect(load().machines?.ssh.knownHostsFile).toBe(
+    expect(load().machines?.ssh?.knownHostsFile).toBe(
       path.join(cwd, 'known_hosts'),
     );
   });
@@ -109,7 +110,7 @@ describe('machines configuration', () => {
       },
     });
 
-    expect(load().machines?.ssh.knownHostsFile).toBe(
+    expect(load().machines?.ssh?.knownHostsFile).toBe(
       path.join(cwd, 'not-mounted'),
     );
   });
@@ -128,10 +129,9 @@ describe('machines configuration', () => {
   it('accepts a present but empty section with no Machines', () => {
     writeConfig({ machines: {} });
 
-    expect(load().machines).toEqual({
-      ssh: { knownHostsFile: path.join(homedir(), '.ssh', 'known_hosts') },
-      hosts: {},
-    });
+    // No entry declares a destination and no ssh block was written, so the
+    // section carries no unused SSH settings (host-as-machine D3).
+    expect(load().machines).toEqual({ hosts: {} });
   });
 
   it('rejects interpolation syntax in a pinned path without printing the resolved value', () => {
@@ -294,34 +294,157 @@ describe('machines configuration', () => {
   });
 });
 
-describe('tools.nativeExecutorId cannot impersonate a Machine', () => {
-  it('fails startup naming tools.nativeExecutorId for a literal machine: identity', () => {
-    writeConfig({ tools: { nativeExecutorId: 'machine:devl' } });
+describe('machines.local and machines.default (host-as-machine D3)', () => {
+  it('resolves a literal local and default that name host entries', () => {
+    writeConfig({
+      machines: {
+        local: 'host',
+        default: 'host',
+        hosts: { host: {}, gpu: { destination: 'me@gpu.lan:2222' } },
+      },
+    });
+
+    expect(load().machines).toMatchObject({
+      local: 'host',
+      default: 'host',
+      hosts: { host: {}, gpu: { destination: 'me@gpu.lan:2222' } },
+    });
+  });
+
+  it("accepts a destination-less entry as this process's own Machine", () => {
+    writeConfig({
+      machines: { local: 'host', default: 'host', hosts: { host: {} } },
+    });
+
+    const machines = load().machines;
+
+    expect(machines?.hosts).toEqual({ host: {} });
+    expect(machines?.ssh).toBeUndefined();
+  });
+
+  it('resolves a whole-value {env:...} token once, at startup', () => {
+    writeConfig({
+      machines: {
+        local: '{env:LLAME_MACHINE}',
+        default: '{env:LLAME_MACHINE:-host}',
+        hosts: { gpu: {} },
+      },
+    });
+
+    expect(load({ LLAME_MACHINE: 'gpu' }).machines).toMatchObject({
+      local: 'gpu',
+      default: 'gpu',
+    });
+  });
+
+  it.each([
+    [
+      'local',
+      { local: '{env:LLAME_MACHINE}', hosts: { host: {} } },
+      'machines.local',
+    ],
+    [
+      'default',
+      { default: '{env:LLAME_MACHINE}', hosts: { host: {} } },
+      'machines.default',
+    ],
+  ])(
+    'fails startup naming machines.%s for an env value outside the name grammar',
+    (_field, machines, configPath) => {
+      writeConfig({ machines });
+
+      const message = loadError({ LLAME_MACHINE: 'GPU_1' });
+
+      expect(message).toContain(configPath);
+      expect(message).toContain('[a-z0-9-]{1,63}');
+      // A resolved token may be a secret (an {env:} pointed at the wrong
+      // variable), so its value never reaches the startup error.
+      expect(message).not.toContain('GPU_1');
+    },
+  );
+
+  it.each(['local', 'default'])(
+    'refuses a {path:...} token for machines.%s without reading the file',
+    (field) => {
+      writeConfig({
+        machines: { [field]: '{path:/run/secrets/machine-name}', hosts: {} },
+      });
+
+      const message = loadError();
+
+      expect(message).toContain(`/machines/${field}`);
+      // The token is refused before it is ever read, and nothing of it is
+      // echoed back.
+      expect(message).not.toContain('/run/secrets');
+    },
+  );
+
+  it('fails startup naming machines.local when it names no entry', () => {
+    writeConfig({ machines: { local: 'ghost', hosts: { host: {} } } });
+
+    expect(loadError()).toContain(
+      'machines.local: "ghost" names no entry in machines.hosts',
+    );
+  });
+
+  it('fails startup naming machines.default when it names no entry', () => {
+    writeConfig({
+      machines: { local: 'host', default: 'ghost', hosts: { host: {} } },
+    });
+
+    expect(loadError()).toContain(
+      'machines.default: "ghost" names no entry in machines.hosts',
+    );
+  });
+
+  it('fails startup naming machines.default when this process cannot reach it', () => {
+    writeConfig({
+      machines: {
+        local: 'gpu',
+        default: 'devl',
+        hosts: { gpu: {}, devl: {} },
+      },
+    });
+
+    const message = loadError();
+
+    expect(message).toContain('machines.default');
+    expect(message).toContain('no destination');
+  });
+
+  it('fails startup naming machines.default when a native tool is allowlisted and it is absent', () => {
+    writeConfig({ tools: { allowed: ['read'] } });
+
+    expect(loadError()).toContain(
+      'machines.default: required because tools.allowed lists the native tool "read"',
+    );
+  });
+
+  it('fails startup for a Knowledge root and read but no machines.default (H4 A)', () => {
+    writeConfig({
+      knowledge: { root: '/srv/knowledge' },
+      tools: { allowed: ['read'] },
+    });
+
+    expect(loadError()).toContain('machines.default');
+  });
+
+  it('leaves a process with only installation-backed tools and no Machine loadable', () => {
+    writeConfig({ tools: { allowed: ['search_conversations'] } });
+
+    expect(load().machines).toBeUndefined();
+  });
+});
+
+describe('tools.nativeExecutorId is removed in favor of machines.local (host-as-machine D3)', () => {
+  it('fails startup naming the field and the machines.hosts entry that replaces it', () => {
+    writeConfig({ tools: { nativeExecutorId: 'personal-host-a' } });
 
     const message = loadError();
 
     expect(message).toContain('tools.nativeExecutorId');
-    expect(message).toContain('machine:');
-  });
-
-  it('fails startup for the prefix in another case', () => {
-    writeConfig({ tools: { nativeExecutorId: 'MACHINE:devl' } });
-
-    expect(loadError()).toContain('tools.nativeExecutorId');
-  });
-
-  it('fails startup naming tools.nativeExecutorId when an interpolation resolves to a machine: identity', () => {
-    writeConfig({ tools: { nativeExecutorId: '{env:EXECUTOR_ID}' } });
-
-    expect(loadError({ EXECUTOR_ID: 'machine:gpu' })).toContain(
-      'tools.nativeExecutorId',
-    );
-  });
-
-  it('accepts an identity that merely contains the prefix later', () => {
-    writeConfig({ tools: { nativeExecutorId: 'host-machine:devl' } });
-
-    expect(load().tools.nativeExecutorId).toBe('host-machine:devl');
+    expect(message).toContain('"personal-host-a"');
+    expect(message).toContain('machines.local');
   });
 });
 

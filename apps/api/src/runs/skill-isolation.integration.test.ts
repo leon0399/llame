@@ -328,10 +328,11 @@ describe('skills cannot escalate authority through the Run boundary', () => {
       (event) => event.eventType === 'tool.completed',
     );
 
-    // No executor identity exists here, so an absolute path fails closed rather
-    // than resolving through the skill directory or a Knowledge root.
+    // No current Machine exists here (no `machines.default`, no Workspace), so
+    // an absolute path fails closed rather than resolving through the skill
+    // directory or a Knowledge root.
     expect(completed?.payload).toMatchObject({
-      output: { status: 'error', type: 'executor_unavailable' },
+      output: { status: 'error', type: 'invalid_path' },
     });
     expect(JSON.stringify(completed?.payload ?? {})).not.toContain('root:');
   });

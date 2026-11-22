@@ -699,8 +699,6 @@ export type LlameConfig = {
    * the ENTIRE availability story this slice — no policy engine exists yet.
    */
   tools: {
-    /** Stable trusted alpha host identity; absent means native tools are unavailable. */
-    nativeExecutorId?: string;
     /** Code-owned ids or exact / canonical configured-MCP namespace permissions admitted for advertisement/execution. Default: empty. */
     allowed: ReadonlyArray<string>;
     /**
@@ -755,11 +753,13 @@ export type LlameConfig = {
    */
   skills: SkillsConfig;
   /**
-   * Operator-declared remote Machines (remote-machines D12). Absent means the
-   * feature does not exist: no Machine tool argument, route, status read, or
-   * UI surface, and a `machine://` locator stays an unknown scheme. Present
-   * Machines are operator-wide — every authenticated user whose Run passes
-   * tool eligibility and permissions may address them.
+   * Operator-declared remote Machines (remote-machines D12, host-as-machine
+   * D3). Absent means the feature does not exist: no Machine tool argument,
+   * route, status read, or UI surface, and a `machine://` locator stays an
+   * unknown scheme. Present Machines are operator-wide — every authenticated
+   * user whose Run passes tool eligibility and permissions may address them.
+   * `local` names the entry this process hosts and `default` the one an
+   * unbound Chat uses; both are checked against `hosts` at boot.
    */
   machines?: MachinesConfig;
   /**

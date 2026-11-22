@@ -12,6 +12,17 @@
  */
 
 import {
+  mkdir,
+  mkdtemp,
+  readFile,
+  realpath,
+  rm,
+  writeFile,
+} from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
+import {
   FS_LIST_METHOD,
   FS_STAT_METHOD,
   MachineProtocolError,
@@ -35,6 +46,7 @@ import { parseMachineLocator } from '../machines/machine-locator';
 import type { MachineRequestOptions } from '../machines/machine-session';
 import { machineEnvelope } from '../runs/machine-attempt';
 import type { InRunToolCall } from '../runs/in-run-context-items';
+import { localMachineConnector } from '../testing/local-machine';
 import { type InstructionScope, type ReadPage } from './instruction-files';
 import {
   createInstructionsProducer,
@@ -374,6 +386,8 @@ function attemptOf(
     };
     /** `null` builds the attempt with no host page reader at all. */
     readonly hostReadPage?: ReadPage | null;
+    readonly localMachine?: string;
+    readonly defaultMachine?: string;
   } = {},
 ) {
   const staged: Array<AuthoredContextItemPart> = [];
@@ -400,6 +414,12 @@ function attemptOf(
     admitsRead: () => true,
     ...(hostReadPage !== undefined && { readPage: hostReadPage }),
     ...(input.machines !== undefined && { machines: input.machines }),
+    ...(input.localMachine !== undefined && {
+      localMachine: input.localMachine,
+    }),
+    ...(input.defaultMachine !== undefined && {
+      defaultMachine: input.defaultMachine,
+    }),
   });
 
   return {
@@ -1071,6 +1091,51 @@ describe('instructions producer Machine world', () => {
     expect(blockPaths(part)).toEqual([locator(`${ROOT}/AGENTS.md`)]);
   });
 
+  it('places a bare path on the default Machine, never the worker filesystem', async () => {
+    const world = machineWorld({
+      roots: [ROOT],
+      files: {
+        [`${ROOT}/AGENTS.md`]: 'shop rules\n',
+        [`${ROOT}/src/app.ts`]: 'app\n',
+      },
+    });
+
+    const { producer, staged, hostReads, prepare } = attemptOf({
+      machines: world,
+      defaultMachine: MACHINE,
+    });
+
+    producer.observeToolCall?.({
+      toolName: 'read',
+      input: { path: `${ROOT}/src/app.ts` },
+      workspaceRoot: undefined,
+    });
+    await prepare();
+
+    expect(blockPaths(lastStaged(staged))).toEqual([
+      locator(`${ROOT}/AGENTS.md`),
+    ]);
+    expect(world.probed).toEqual([
+      { name: MACHINE, path: `${ROOT}/src/app.ts` },
+    ]);
+    // The worker's own filesystem is never probed or read for the call.
+    expect(hostReads).toEqual([]);
+  });
+
+  it('loads nothing for a bare path with no current Machine', async () => {
+    const { producer, staged, hostReads, prepare } = attemptOf();
+
+    producer.observeToolCall?.({
+      toolName: 'read',
+      input: { path: `${ROOT}/src/app.ts` },
+      workspaceRoot: undefined,
+    });
+    await prepare();
+
+    expect(staged).toEqual([]);
+    expect(hostReads).toEqual([]);
+  });
+
   it('treats a Machine entry as a Machine trigger', async () => {
     const world = machineWorld({
       roots: [ROOT],
@@ -1190,5 +1255,188 @@ describe('instructions producer Machine world', () => {
     expect(world.reads).toEqual([]);
     // The reachability verdict decides once: not even the root list is asked.
     expect(world.connector.recorded).toEqual([]);
+  });
+});
+
+describe('instructions on this process’s Machine', () => {
+  it('loads a local Machine root in process, labelled by its locators', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'local-instructions-'));
+    const root = await realpath(directory);
+    await writeFile(join(root, 'AGENTS.md'), 'shop rules\n');
+
+    const connector = localMachineConnector();
+
+    const probe = createMachineInstructionProbe({
+      connector,
+      envelope: machineEnvelope({ runId: RUN_ID, deliverySequence: 1 }),
+    });
+
+    const reads: Array<string> = [];
+
+    const readPage: ReadPage = async (selectorPath) => {
+      reads.push(selectorPath);
+      const marker = selectorPath.lastIndexOf(':raw:');
+
+      const parsed = parseMachineLocator(
+        marker < 0 ? selectorPath : selectorPath.slice(0, marker),
+      );
+
+      if (parsed.kind !== 'path') {
+        return { status: 'error', type: 'not_found', message: 'No such file.' };
+      }
+
+      try {
+        return {
+          status: 'success',
+          kind: 'file',
+          content: await readFile(parsed.path, 'utf8'),
+          truncated: false,
+        };
+      } catch {
+        return { status: 'error', type: 'not_found', message: 'No such file.' };
+      }
+    };
+
+    try {
+      const part = await createInstructionsProducer().prepareTurn?.({
+        runId: RUN_ID,
+        workspaceRoot: locator(root, 'host-a'),
+        admitsRead: () => true,
+        seenKeys: new Set(),
+        machines: { readPage, probe },
+      });
+
+      if (part === undefined)
+        throw new Error('the accepted turn loaded nothing');
+      expect(blockPaths(part)).toEqual([
+        locator(`${root}/AGENTS.md`, 'host-a'),
+      ]);
+      expect(reads).toEqual([
+        `${locator(`${root}/AGENTS.md`, 'host-a')}:raw:1-2000`,
+      ]);
+      // The local daemon answered the handshake and nothing else.
+      const session = await connector.peer.session(0);
+
+      expect(session.requests).toEqual([]);
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it('keys a local file by its Machine locator, not the host realpath', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'local-instructions-'));
+    const root = await realpath(directory);
+    await writeFile(join(root, 'AGENTS.md'), 'shop rules\n');
+
+    try {
+      const probe = createMachineInstructionProbe({
+        connector: localMachineConnector(),
+        envelope: machineEnvelope({ runId: RUN_ID, deliverySequence: 1 }),
+      });
+
+      const scope = await probe({ name: 'host-a', path: root });
+
+      if (scope === undefined) throw new Error('no local scope');
+
+      const probed = await scope.probe(`${root}/AGENTS.md`);
+
+      expect(probed).toMatchObject({
+        kind: 'file',
+        canonicalPath: locator(`${root}/AGENTS.md`, 'host-a'),
+      });
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it('labels a bare read on the local Machine with its locators', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'local-instructions-'));
+    const root = await realpath(directory);
+    await mkdir(join(root, 'src'));
+    await writeFile(join(root, 'AGENTS.md'), 'shop rules\n');
+    await writeFile(join(root, 'src/app.ts'), 'app\n');
+
+    const readPage: ReadPage = async (selectorPath) => {
+      const marker = selectorPath.lastIndexOf(':raw:');
+
+      const parsed = parseMachineLocator(
+        marker < 0 ? selectorPath : selectorPath.slice(0, marker),
+      );
+
+      if (parsed.kind !== 'path') {
+        return { status: 'error', type: 'not_found', message: 'No such file.' };
+      }
+
+      try {
+        return {
+          status: 'success',
+          kind: 'file',
+          content: await readFile(parsed.path, 'utf8'),
+          truncated: false,
+        };
+      } catch {
+        return { status: 'error', type: 'not_found', message: 'No such file.' };
+      }
+    };
+
+    try {
+      const probe = createMachineInstructionProbe({
+        connector: localMachineConnector(),
+        envelope: machineEnvelope({ runId: RUN_ID, deliverySequence: 1 }),
+      });
+
+      const { producer, staged, prepare } = attemptOf({
+        machines: { readPage, probe },
+        localMachine: 'host-a',
+      });
+
+      producer.observeToolCall?.({
+        toolName: 'read',
+        input: { path: `${root}/src/app.ts` },
+        workspaceRoot: locator(root, 'host-a'),
+      });
+      await prepare();
+
+      expect(blockPaths(lastStaged(staged))).toEqual([
+        locator(`${root}/AGENTS.md`, 'host-a'),
+      ]);
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
+  it('loads nothing when the local daemon cannot prove its identity', async () => {
+    const connector = localMachineConnector({
+      verify: () => Promise.reject(new Error('identity mismatch')),
+    });
+
+    const probe = createMachineInstructionProbe({
+      connector,
+      envelope: machineEnvelope({ runId: RUN_ID, deliverySequence: 1 }),
+    });
+
+    const reads: Array<string> = [];
+
+    const part = await createInstructionsProducer().prepareTurn?.({
+      runId: RUN_ID,
+      workspaceRoot: locator(ROOT, 'host-a'),
+      admitsRead: () => true,
+      seenKeys: new Set(),
+      machines: {
+        readPage: (selectorPath) => {
+          reads.push(selectorPath);
+
+          return Promise.resolve({
+            status: 'error',
+            type: 'not_found',
+            message: 'No such file.',
+          });
+        },
+        probe,
+      },
+    });
+
+    expect(part).toBeUndefined();
+    expect(reads).toEqual([]);
   });
 });

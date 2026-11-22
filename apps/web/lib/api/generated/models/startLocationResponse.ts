@@ -12,7 +12,10 @@ export interface StartLocationResponse {
   projectId: string;
   /** @nullable */
   repositoryId: string | null;
-  /** @nullable */
+  /**
+   * The Machine name of the executor.
+   * @nullable
+   */
   executorId: string | null;
   /** @nullable */
   checkoutId: string | null;

@@ -36,6 +36,13 @@ type WriteInput = { path: string; content: string };
 export type NativeMutateOptions = {
   readonly displayPath?: string | undefined;
   readonly reserveCodeUnits?: number | undefined;
+  /**
+   * Rewrites the path the result reports without changing `displayPath`'s
+   * behavior: a caller that serves the host filesystem itself reports a
+   * canonical locator while still creating parents and resolving links as an
+   * absolute path does.
+   */
+  readonly reportPath?: ((hostPath: string) => string) | undefined;
 };
 
 /** Display-only data for the owner UI: the exact replaced and replacement
@@ -200,7 +207,7 @@ function describeWrite(
   return {
     status: "success",
     operation: "write",
-    path: options.displayPath ?? input.path,
+    path: options.reportPath?.(input.path) ?? options.displayPath ?? input.path,
     ...(kind === "replace"
       ? { replaced: true as const }
       : { created: true as const }),
@@ -238,7 +245,8 @@ function describeEdit(
     {
       status: "success",
       operation: "edit",
-      path: options.displayPath ?? input.path,
+      path:
+        options.reportPath?.(input.path) ?? options.displayPath ?? input.path,
       replacements: 1,
       content: shownRange === null ? "" : regionContent(lines, shownRange),
       shownRange,
@@ -338,6 +346,7 @@ export function editFile(
     const result = describeEdit(input, change, {
       displayPath,
       reserveCodeUnits: options.reserveCodeUnits,
+      reportPath: options.reportPath,
     });
 
     if (input.oldText !== input.newText) {
@@ -362,7 +371,11 @@ export function createFile(
     validateContent(input.path, "", signal);
     await requireAbsent(input.path);
     validateContent(input.path, input.content, signal);
-    const result = describeWrite(input, "create", { displayPath });
+
+    const result = describeWrite(input, "create", {
+      displayPath,
+      reportPath: options.reportPath,
+    });
 
     // A resolved target's directories were created by its scheme owner, one
     // component at a time under its own symlink refusal; a recursive create
@@ -416,7 +429,12 @@ export function replaceFile(
     );
 
     validateContent(input.path, input.content, signal);
-    const result = describeWrite(input, "replace", { displayPath });
+
+    const result = describeWrite(input, "replace", {
+      displayPath,
+      reportPath: options.reportPath,
+    });
+
     await publishFile(
       { path: target.path, content: input.content },
       { create: false, mode: target.mode, signal },

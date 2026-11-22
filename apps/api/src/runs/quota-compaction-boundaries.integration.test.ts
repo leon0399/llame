@@ -24,7 +24,7 @@ vi.setConfig({ testTimeout: 90_000 });
 describe('quota waits at compaction boundaries', () => {
   const fx = useSegmentsFixture('quota-compaction-boundaries', {
     allowedTools: ['read'],
-    nativeExecutorId: 'quota-compaction-boundaries-host',
+    localMachine: 'quota-compaction-boundaries-host',
   });
 
   const quotaFailure = () =>

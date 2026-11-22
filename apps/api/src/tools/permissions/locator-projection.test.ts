@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import { type UnknownRecord } from '@workspace/runtime-safety';
 
+import { evaluateCanonicalWithRejectTexts } from './admit';
 import { compileToolPermissionMap } from './compile-permissions';
 import { evaluatePermission } from './evaluator';
 import {
@@ -11,112 +12,154 @@ import {
 } from './locator-projection';
 import { type ToolPermissionMap } from './types';
 
+/** The Machine this process hosts; the tests resolve bare paths on it. */
+const MACHINE = 'host-a';
+const CONTEXT = { defaultMachine: MACHINE, localMachine: MACHINE };
+
+function canonical(value: string, workspaceRoot?: string): string {
+  return projectNativeFilePath(value, { ...CONTEXT, workspaceRoot }).canonical;
+}
+
+function projectedPath(
+  value: string,
+  workspaceRoot?: string,
+): string | undefined {
+  return projectNativeFilePath(value, { ...CONTEXT, workspaceRoot })
+    .projectedPath;
+}
+
+/**
+ * One call decided as the runner decides it: the allow on the canonical
+ * locator, and a reject on the submitted text or the projected Machine path.
+ */
 function decideNative(
   map: ToolPermissionMap,
   toolId: string,
   args: UnknownRecord,
   workspaceRoot?: string,
 ) {
-  return evaluatePermission(compileToolPermissionMap(map, 'p'), {
-    toolId,
-    args,
-    projectFieldValue: nativeFileProjection(toolId, workspaceRoot),
-  });
+  const policy = compileToolPermissionMap(map, 'p');
+  const project = nativeFileProjection(toolId, { ...CONTEXT, workspaceRoot });
+
+  return evaluateCanonicalWithRejectTexts(
+    (options) => evaluatePermission(policy, options),
+    {
+      canonical: {
+        toolId,
+        args,
+        projectFieldValue: (field, value) => project(field, value).canonical,
+      },
+      rejectTexts: [
+        { toolId, args },
+        {
+          toolId,
+          args,
+          projectFieldValue: (field, value) =>
+            project(field, value).projectedPath ??
+            project(field, value).canonical,
+        },
+      ],
+    },
+  );
 }
 
 describe('projectNativeFilePath', () => {
-  it('projects a valid file alias to its decoded host path', () => {
-    expect(projectNativeFilePath('file:///srv/docs/guide.md')).toBe(
+  it('projects a valid file alias to its path on the current Machine', () => {
+    expect(canonical('file:///srv/docs/guide.md')).toBe(
+      'machine://host-a/srv/docs/guide.md',
+    );
+    expect(projectedPath('file:///srv/docs/guide.md')).toBe(
       '/srv/docs/guide.md',
     );
   });
 
   it('projects a file alias with percent-encoded characters', () => {
-    expect(projectNativeFilePath('file:///etc/%70asswd')).toBe('/etc/passwd');
+    expect(canonical('file:///etc/%70asswd')).toBe(
+      'machine://host-a/etc/passwd',
+    );
   });
 
   it('preserves dot segments in file alias projection', () => {
-    expect(projectNativeFilePath('file:///tmp/%2e%2e/secret')).toBe(
-      '/tmp/../secret',
+    expect(canonical('file:///tmp/%2e%2e/secret')).toBe(
+      'machine://host-a/tmp/../secret',
     );
   });
 
   it('leaves an invalid file alias unchanged', () => {
-    expect(projectNativeFilePath('file:///srv/docs/guide.md?')).toBe(
+    expect(canonical('file:///srv/docs/guide.md?')).toBe(
       'file:///srv/docs/guide.md?',
     );
+    expect(projectedPath('file:///srv/docs/guide.md?')).toBeUndefined();
   });
 
   it('leaves a remote file authority unchanged', () => {
-    expect(
-      projectNativeFilePath('file://other.example/srv/docs/guide.md'),
-    ).toBe('file://other.example/srv/docs/guide.md');
-  });
-
-  it('projects a minimal-form alias before Workspace resolution', () => {
-    expect(projectNativeFilePath('file:/etc/%70asswd', '/work/project')).toBe(
-      '/etc/passwd',
+    expect(canonical('file://other.example/srv/docs/guide.md')).toBe(
+      'file://other.example/srv/docs/guide.md',
     );
   });
 
-  it('does not project a file alias from the Workspace root', () => {
-    expect(projectNativeFilePath('file:///etc/passwd', '/work/project')).toBe(
-      '/etc/passwd',
+  it('projects an alias on the current Machine, never from the Workspace root', () => {
+    expect(canonical('file:/etc/%70asswd', '/work/project')).toBe(
+      'machine://host-a/etc/passwd',
     );
+    expect(canonical('file:///etc/passwd', '/work/project')).toBe(
+      'machine://host-a/etc/passwd',
+    );
+  });
+
+  it('leaves a bare path unchanged when there is no current Machine', () => {
+    expect(projectNativeFilePath('/etc/passwd', {})).toEqual({
+      canonical: '/etc/passwd',
+    });
+    expect(projectNativeFilePath('src/app.ts', {})).toEqual({
+      canonical: 'src/app.ts',
+    });
   });
 
   it('retains Knowledge selectors until read projection', () => {
-    expect(projectNativeFilePath('kb://Space/notes/a:10-20')).toBe(
+    expect(canonical('kb://Space/notes/a:10-20')).toBe(
       'kb://Space/notes/a:10-20',
     );
-    expect(projectNativeFilePath('kb://Space/notes/a:raw')).toBe(
-      'kb://Space/notes/a:raw',
-    );
-    expect(projectNativeFilePath('kb://Space/notes/a')).toBe(
-      'kb://Space/notes/a',
-    );
-    expect(projectNativeFilePath('kb://Space/notes/a:outline')).toBe(
+    expect(canonical('kb://Space/notes/a:raw')).toBe('kb://Space/notes/a:raw');
+    expect(canonical('kb://Space/notes/a')).toBe('kb://Space/notes/a');
+    expect(canonical('kb://Space/notes/a:outline')).toBe(
       'kb://Space/notes/a:outline',
     );
-    expect(projectNativeFilePath('kb://Space/notes/a:outline:3-9')).toBe(
+    expect(canonical('kb://Space/notes/a:outline:3-9')).toBe(
       'kb://Space/notes/a:outline:3-9',
     );
     expect(
       nativeFileProjection('read')('path', 'kb://Space/notes/a:outline:3-9'),
-    ).toBe('kb://Space/notes/a');
+    ).toEqual({ canonical: 'kb://Space/notes/a' });
   });
 
   it('retains comma read selectors in non-read projections', () => {
-    expect(projectNativeFilePath('kb://Space/notes/a:10-20,30-40')).toBe(
+    expect(canonical('kb://Space/notes/a:10-20,30-40')).toBe(
       'kb://Space/notes/a:10-20,30-40',
     );
-    expect(projectNativeFilePath('kb://Space/notes/a:raw:10-20,30-40')).toBe(
+    expect(canonical('kb://Space/notes/a:raw:10-20,30-40')).toBe(
       'kb://Space/notes/a:raw:10-20,30-40',
     );
   });
 
   it('canonically encodes an equivalent spelling', () => {
-    expect(projectNativeFilePath('kb://Space/a b')).toBe('kb://Space/a%20b');
-    expect(projectNativeFilePath('kb://Space/a%20b')).toBe('kb://Space/a%20b');
-    expect(projectNativeFilePath('kb://Space/notes/%61')).toBe(
-      'kb://Space/notes/a',
-    );
+    expect(canonical('kb://Space/a b')).toBe('kb://Space/a%20b');
+    expect(canonical('kb://Space/a%20b')).toBe('kb://Space/a%20b');
+    expect(canonical('kb://Space/notes/%61')).toBe('kb://Space/notes/a');
   });
 
   it('preserves empty Space roots and trailing separators', () => {
-    expect(projectNativeFilePath('kb://Space')).toBe('kb://Space');
-    expect(projectNativeFilePath('kb://Space/dir/')).toBe('kb://Space/dir/');
+    expect(canonical('kb://Space')).toBe('kb://Space');
+    expect(canonical('kb://Space/dir/')).toBe('kb://Space/dir/');
   });
 
   it('projects a skill locator to its canonical resource identity', () => {
-    expect(projectNativeFilePath('skill://pdf')).toBe('skill://pdf');
-    expect(projectNativeFilePath('skill://pdf:raw')).toBe('skill://pdf:raw');
-    expect(projectNativeFilePath('skill://pdf:10-20')).toBe(
-      'skill://pdf:10-20',
-    );
-    expect(projectNativeFilePath('skill://pdf/')).toBe('skill://pdf/');
-    expect(projectNativeFilePath('skill://')).toBe('skill://');
-    expect(projectNativeFilePath('skill://pdf/references/a%20b.md:5+10')).toBe(
+    expect(canonical('skill://pdf')).toBe('skill://pdf');
+    expect(canonical('skill://pdf:raw')).toBe('skill://pdf:raw');
+    expect(canonical('skill://pdf:10-20')).toBe('skill://pdf:10-20');
+    expect(canonical('skill://pdf/')).toBe('skill://pdf/');
+    expect(canonical('skill://')).toBe('skill://');
+    expect(canonical('skill://pdf/references/a%20b.md:5+10')).toBe(
       'skill://pdf/references/a%20b.md:5+10',
     );
     expect(
@@ -124,69 +167,184 @@ describe('projectNativeFilePath', () => {
         'path',
         'skill://pdf/references/a%20b.md:5+10',
       ),
-    ).toBe('skill://pdf/references/a%20b.md');
+    ).toEqual({ canonical: 'skill://pdf/references/a%20b.md' });
   });
 
   it('leaves an invalid skill locator unchanged', () => {
-    expect(projectNativeFilePath('skill://PDF')).toBe('skill://PDF');
-    expect(projectNativeFilePath('skill://pdf/%2F')).toBe('skill://pdf/%2F');
+    expect(canonical('skill://PDF')).toBe('skill://PDF');
+    expect(canonical('skill://pdf/%2F')).toBe('skill://pdf/%2F');
   });
 
   it('projects a web locator to the text its request will use', () => {
     // The fragment the request drops is gone before matching, the pathless
     // host carries the slash its request carries, and the selector stays in
     // the spelling it was written in.
-    expect(projectNativeFilePath('https://example.test/guide#top')).toBe(
+    expect(canonical('https://example.test/guide#top')).toBe(
       'https://example.test/guide',
     );
-    expect(projectNativeFilePath('https://example.test:88')).toBe(
+    expect(canonical('https://example.test:88')).toBe(
       'https://example.test:88/',
     );
-    expect(projectNativeFilePath('https://example.test/guide:10-20')).toBe(
+    expect(canonical('https://example.test/guide:10-20')).toBe(
       'https://example.test/guide:10-20',
     );
-    expect(projectNativeFilePath('https://example.test/guide:5#frag')).toBe(
+    expect(canonical('https://example.test/guide:5#frag')).toBe(
       'https://example.test/guide:5',
     );
     // A spelling the parser normalizes projects to what will be requested.
-    expect(projectNativeFilePath('https://EXAMPLE.test/x')).toBe(
-      'https://example.test/x',
-    );
+    expect(canonical('https://EXAMPLE.test/x')).toBe('https://example.test/x');
     // A locator the read tool refuses outright is matched as written.
-    expect(projectNativeFilePath('https://user:secret@example.test/x')).toBe(
+    expect(canonical('https://user:secret@example.test/x')).toBe(
       'https://user:secret@example.test/x',
     );
   });
 
   it('leaves an invalid locator unchanged', () => {
-    expect(projectNativeFilePath('kb://Space/%2F')).toBe('kb://Space/%2F');
+    expect(canonical('kb://Space/%2F')).toBe('kb://Space/%2F');
   });
 
-  it('projects relative host paths from the Workspace root', () => {
-    expect(projectNativeFilePath('src/app.ts', '/work/project')).toBe(
+  it('projects relative paths from the Workspace root on its Machine', () => {
+    expect(canonical('src/app.ts', '/work/project')).toBe(
+      'machine://host-a/work/project/src/app.ts',
+    );
+    expect(projectedPath('src/app.ts', '/work/project')).toBe(
       '/work/project/src/app.ts',
     );
-    expect(projectNativeFilePath('../shared/data.json', '/work/project')).toBe(
-      '/work/shared/data.json',
+    expect(canonical('../shared/data.json', '/work/project')).toBe(
+      'machine://host-a/work/shared/data.json',
     );
-    expect(projectNativeFilePath('app.ts/', '/work/project')).toBe(
-      '/work/project/app.ts/',
+    expect(canonical('app.ts/', '/work/project')).toBe(
+      'machine://host-a/work/project/app.ts/',
+    );
+    expect(canonical('src/app.ts', 'machine://devl/home/me/shop')).toBe(
+      'machine://devl/home/me/shop/src/app.ts',
     );
   });
 
   it('leaves non-filesystem schemes unchanged during Workspace projection', () => {
-    expect(projectNativeFilePath('kb://Space/notes/a', '/work/project')).toBe(
+    expect(canonical('kb://Space/notes/a', '/work/project')).toBe(
       'kb://Space/notes/a',
     );
-    expect(projectNativeFilePath('skill://pdf/SKILL.md', '/work/project')).toBe(
+    expect(canonical('skill://pdf/SKILL.md', '/work/project')).toBe(
       'skill://pdf/SKILL.md',
     );
-    expect(
-      projectNativeFilePath('https://example.test/guide', '/work/project'),
-    ).toBe('https://example.test/guide');
-    expect(projectNativeFilePath('vault://notes/a.md', '/work/project')).toBe(
+    expect(canonical('https://example.test/guide', '/work/project')).toBe(
+      'https://example.test/guide',
+    );
+    expect(canonical('vault://notes/a.md', '/work/project')).toBe(
       'vault://notes/a.md',
     );
+  });
+});
+
+describe('Machine path projection', () => {
+  it('gives every Machine value a canonical locator and a projected path', () => {
+    const cases = [
+      ['/srv/app.ts', 'machine://host-a/srv/app.ts', '/srv/app.ts'],
+      ['file:///srv/app.ts', 'machine://host-a/srv/app.ts', '/srv/app.ts'],
+      ['file:/srv/app.ts', 'machine://host-a/srv/app.ts', '/srv/app.ts'],
+      ['machine://devl/srv/app.ts', 'machine://devl/srv/app.ts', '/srv/app.ts'],
+      [
+        'machine://DEVL/srv/a%23b.ts',
+        'machine://devl/srv/a%23b.ts',
+        '/srv/a#b.ts',
+      ],
+      [
+        'machine://devl/srv/../app/',
+        'machine://devl/srv/../app/',
+        '/srv/../app/',
+      ],
+    ] as const;
+
+    for (const [value, canonicalText, path] of cases) {
+      expect(projectNativeFilePath(value, CONTEXT)).toEqual({
+        canonical: canonicalText,
+        projectedPath: path,
+      });
+    }
+  });
+
+  it('keeps a selector for a mutation and drops it from a read', () => {
+    expect(projectNativeFilePath('machine://devl/a.ts:5-6', CONTEXT)).toEqual({
+      canonical: 'machine://devl/a.ts:5-6',
+      projectedPath: '/a.ts:5-6',
+    });
+    expect(
+      nativeFileProjection('read', CONTEXT)('path', 'machine://devl/a.ts:5-6'),
+    ).toEqual({ canonical: 'machine://devl/a.ts', projectedPath: '/a.ts' });
+  });
+
+  it('keeps an installation locator out of the Machine projection', () => {
+    expect(projectNativeFilePath('kb://Space/notes/a', CONTEXT)).toEqual({
+      canonical: 'kb://Space/notes/a',
+    });
+  });
+
+  it('projects the enter_workspace submitted path', () => {
+    // The entry decision is the projection too (design D7): a bare-path entry
+    // finds a canonical allow only if the entry path is projected.
+    expect(
+      nativeFileProjection('enter_workspace', CONTEXT)(
+        'path',
+        '/home/operator/projects/app',
+      ),
+    ).toEqual({
+      canonical: 'machine://host-a/home/operator/projects/app',
+      projectedPath: '/home/operator/projects/app',
+    });
+  });
+
+  it('admits a bare entry path through a canonical enter_workspace allow', () => {
+    const map: ToolPermissionMap = {
+      enter_workspace: {
+        allow: [
+          {
+            field: 'path',
+            regex: '^machine://[^/]+/home/operator/projects/[^/]+/?$',
+          },
+        ],
+      },
+    };
+
+    expect(
+      decideNative(map, 'enter_workspace', {
+        path: '/home/operator/projects/app',
+      }),
+    ).toMatchObject({ decision: 'allow' });
+
+    expect(
+      decideNative(
+        {
+          enter_workspace: {
+            allow: [{ field: 'path', regex: '^/home/operator/' }],
+          },
+        },
+        'enter_workspace',
+        { path: '/home/operator/projects/app' },
+      ),
+    ).toMatchObject({ decision: 'reject', reason: 'no_allow' });
+  });
+
+  it('never admits one Machine through an allow written for another', () => {
+    const map: ToolPermissionMap = {
+      read: {
+        allow: [{ field: 'path', regex: '^machine://devl/home/leo/proj(/|$)' }],
+      },
+    };
+
+    expect(
+      decideNative(
+        map,
+        'read',
+        { path: '/home/leo/proj/README.md' },
+        'machine://gpu/home/leo/proj',
+      ),
+    ).toMatchObject({ decision: 'reject', reason: 'no_allow' });
+    expect(
+      decideNative(map, 'read', {
+        path: 'machine://devl/home/leo/proj/README.md',
+      }),
+    ).toMatchObject({ decision: 'allow' });
   });
 });
 
@@ -219,14 +377,29 @@ describe('native file permission projection', () => {
     ).toMatchObject({ decision: 'reject', reason: 'explicit_reject' });
   });
 
-  it('admits a file alias through a host-path allow', () => {
+  it('admits a file alias through a canonical Machine allow', () => {
+    const map: ToolPermissionMap = {
+      read: {
+        allow: [{ field: 'path', regex: '^machine://[^/]+/srv/docs(?:/|$)' }],
+      },
+    };
+
+    expect(
+      decideNative(map, 'read', { path: 'file:///srv/docs/guide.md' }),
+    ).toMatchObject({ decision: 'allow' });
+  });
+
+  it('never admits a Machine value through a bare-path allow', () => {
     const map: ToolPermissionMap = {
       read: { allow: [{ field: 'path', regex: '^/srv/docs(?:/|$)' }] },
     };
 
     expect(
       decideNative(map, 'read', { path: 'file:///srv/docs/guide.md' }),
-    ).toMatchObject({ decision: 'allow' });
+    ).toMatchObject({ decision: 'reject', reason: 'no_allow' });
+    expect(
+      decideNative(map, 'read', { path: '/srv/docs/guide.md' }),
+    ).toMatchObject({ decision: 'reject', reason: 'no_allow' });
   });
 
   it('rejects a file-form allow as inert against a valid alias', () => {
@@ -239,18 +412,18 @@ describe('native file permission projection', () => {
     ).toMatchObject({ decision: 'reject', reason: 'no_allow' });
   });
 
-  it('does not reject a valid alias on the projected path when the clause targets the URL scheme', () => {
-    // A reject for ^file:// only catches the submitted text, which the
-    // runner's two-pass evaluateToolPermission handles. The projection-level
-    // evaluator sees the decoded host path, so the clause does not match here.
+  it('refuses a file-form reject through the submitted text', () => {
+    // The projection is the alias's Machine locator, but a reject also sees
+    // the text the model wrote, so a clause for another scheme still refuses
+    // the call.
     const map: ToolPermissionMap = {
       read: { allow: true, reject: [{ field: 'path', regex: '^file://' }] },
     };
 
     expect(
       decideNative(map, 'read', { path: 'file:///srv/docs/guide.md' }),
-    ).toMatchObject({ decision: 'allow' });
-    // The equivalent absolute path also does not match
+    ).toMatchObject({ decision: 'reject', reason: 'explicit_reject' });
+    // A bare path never carries the scheme, so the same clause misses it.
     expect(
       decideNative(map, 'read', { path: '/srv/docs/guide.md' }),
     ).toMatchObject({ decision: 'allow' });
@@ -265,15 +438,25 @@ describe('native file permission projection', () => {
       decideNative(map, 'read', { path: 'file:///srv/docs/guide.md?' }),
     ).toMatchObject({ decision: 'reject', reason: 'no_allow' });
   });
+
   it('keeps an invalid file alias selector-shaped tail unchanged for read', () => {
     for (const path of ['file:///srv/a?:1-5', 'file://other/srv/a:1-5']) {
-      expect(nativeFileProjection('read')('path', path)).toBe(path);
+      expect(nativeFileProjection('read')('path', path)).toEqual({
+        canonical: path,
+      });
     }
   });
 
   it('matches a file alias read without its selector', () => {
     const map: ToolPermissionMap = {
-      read: { allow: [{ field: 'path', regex: '^/srv/docs/guide\\.md$' }] },
+      read: {
+        allow: [
+          {
+            field: 'path',
+            regex: `^machine://${MACHINE}/srv/docs/guide\\.md$`,
+          },
+        ],
+      },
     };
 
     expect(
@@ -324,6 +507,7 @@ describe('native file permission projection', () => {
       ),
     ).toMatchObject({ decision: 'reject', reason: 'no_allow' });
   });
+
   it('matches projected relative paths rather than their submitted spelling', () => {
     const map: ToolPermissionMap = {
       read: {
@@ -346,6 +530,7 @@ describe('native file permission projection', () => {
       ),
     ).toMatchObject({ decision: 'reject', reason: 'explicit_reject' });
   });
+
   it('rejects a selector-bearing Workspace-relative path after projection', () => {
     const map: ToolPermissionMap = {
       read: {
@@ -358,11 +543,14 @@ describe('native file permission projection', () => {
       decideNative(map, 'read', { path: 'src/secret:raw' }, '/work/project'),
     ).toMatchObject({ decision: 'reject', reason: 'explicit_reject' });
   });
-  it('admits a selector spelling through an anchored exact allow', () => {
+
+  it('admits a selector spelling through an anchored canonical allow', () => {
     // Admission is text-only, so a literal file named `/tmp/file:1-2` is the
-    // same text the suffix names: the clause cannot tell them apart.
+    // same address the suffix names: the clause cannot tell them apart.
     const map: ToolPermissionMap = {
-      read: { allow: [{ field: 'path', regex: '^/tmp/file$' }] },
+      read: {
+        allow: [{ field: 'path', regex: `^machine://${MACHINE}/tmp/file$` }],
+      },
     };
 
     expect(decideNative(map, 'read', { path: '/tmp/file:1-2' })).toMatchObject({
@@ -371,6 +559,7 @@ describe('native file permission projection', () => {
     expect(decideNative(map, 'read', { path: '/tmp/file:raw' })).toMatchObject({
       decision: 'allow',
     });
+    // A mutation keeps the suffix, so the same clause does not admit it.
     expect(decideNative(map, 'write', { path: '/tmp/file:1-2' })).toMatchObject(
       {
         decision: 'reject',
@@ -436,7 +625,10 @@ describe('native file permission projection', () => {
     ).toMatchObject({ decision: 'allow' });
   });
 
-  it('matches no read against a clause written with a selector spelling', () => {
+  it('refuses a clause written for a selector spelling on the submitted text', () => {
+    // A reject also sees the submitted text, so a clause that names a
+    // selector refuses every call that wrote one — on any scheme. That is the
+    // fail-closed direction: a read no longer hides its written suffix.
     const clause = { field: 'path', literal: ':raw' } as const;
 
     const map: ToolPermissionMap = {
@@ -452,7 +644,8 @@ describe('native file permission projection', () => {
       'skill://pdf/SKILL.md:raw',
     ]) {
       expect(decideNative(map, 'read', { path })).toMatchObject({
-        decision: 'allow',
+        decision: 'reject',
+        reason: 'explicit_reject',
       });
     }
 
@@ -460,6 +653,7 @@ describe('native file permission projection', () => {
       decideNative(map, 'write', { path: '/srv/app/config.json:raw' }),
     ).toMatchObject({ decision: 'reject', reason: 'explicit_reject' });
   });
+
   it('keeps valid selectors for Knowledge and skill mutations', () => {
     const cases = [
       {
@@ -498,16 +692,21 @@ describe('native file permission projection', () => {
     }
   });
 
-  it('applies the same selector-free text when all-fields rejection visits path', () => {
+  it('applies the selector-free text when all-fields rejection visits path', () => {
     const rejectWith = (literal: string): ToolPermissionMap => ({
       read: { allow: true, reject: [{ allFields: true, literal }] },
     });
 
+    // A read drops its selector before the canonical text is matched.
     expect(
-      decideNative(rejectWith('/srv/private/notes.md:1-5'), 'read', {
-        path: '/srv/private/notes.md:1-5',
-      }),
-    ).toMatchObject({ decision: 'allow' });
+      nativeFileProjection('read', CONTEXT)(
+        'path',
+        '/srv/private/notes.md:1-5',
+      ),
+    ).toEqual({
+      canonical: 'machine://host-a/srv/private/notes.md',
+      projectedPath: '/srv/private/notes.md',
+    });
     expect(
       decideNative(rejectWith('/srv/private/notes.md'), 'read', {
         path: '/srv/private/notes.md:1-5',
@@ -638,7 +837,7 @@ describe('native file permission projection', () => {
         path: 'https://example.test/%70rivate',
       }),
     ).toMatchObject({ decision: 'reject', reason: 'explicit_reject' });
-    expect(projectNativeFilePath('https://example.test/%%370rivate')).toBe(
+    expect(canonical('https://example.test/%%370rivate')).toBe(
       'https://example.test/%2570rivate',
     );
     expect(
@@ -647,10 +846,11 @@ describe('native file permission projection', () => {
       }),
     ).toMatchObject({ decision: 'allow' });
   });
+
   it('leaves non-path native permission fields unchanged', () => {
-    expect(nativeFileProjection('read')('other', 'kb://Space/notes/%61')).toBe(
-      'kb://Space/notes/%61',
-    );
+    expect(
+      nativeFileProjection('read')('other', 'kb://Space/notes/%61'),
+    ).toEqual({ canonical: 'kb://Space/notes/%61' });
   });
 
   it('removes encoded selectors from valid file aliases only', () => {
@@ -674,6 +874,7 @@ describe('native file permission projection', () => {
       'file:///srv/a%3Ab/c%e2%82%ac',
     );
   });
+
   it('strips valid selectors with the Knowledge and skill parsers', () => {
     expect(withoutReadSelector('kb://Space/notes/a.md:raw')).toBe(
       'kb://Space/notes/a.md',
@@ -685,11 +886,13 @@ describe('native file permission projection', () => {
       'skill://pdf/SKILL.md:old:raw',
     );
   });
+
   it('cuts the selector the read tool splits off', () => {
     expect(withoutReadSelector('https://example.test/guide:1-5')).toBe(
       'https://example.test/guide',
     );
   });
+
   it('strips a selector before a fragment and keeps the fragment', () => {
     expect(withoutReadSelector('https://example.test/guide:raw#fragment')).toBe(
       'https://example.test/guide#fragment',
@@ -747,18 +950,18 @@ describe('artifact locator permission projection', () => {
 
   it('matches an artifact locator as its text without the read selector', () => {
     expect(withoutReadSelector(ARTIFACT)).toBe('artifact://bash-3/stdout');
-    expect(nativeFileProjection('read')('path', ARTIFACT)).toBe(
-      'artifact://bash-3/stdout',
-    );
+    expect(nativeFileProjection('read')('path', ARTIFACT)).toEqual({
+      canonical: 'artifact://bash-3/stdout',
+    });
     // `projectNativeFilePath` keeps the selector; only the `read` projection
     // removes it.
-    expect(projectNativeFilePath('artifact://bash-3/stderr:1-50')).toBe(
+    expect(canonical('artifact://bash-3/stderr:1-50')).toBe(
       'artifact://bash-3/stderr:1-50',
     );
   });
 
   it('never substitutes a host path for an artifact locator', () => {
-    expect(projectNativeFilePath('artifact://grep-7', '/work/project')).toBe(
+    expect(canonical('artifact://grep-7', '/work/project')).toBe(
       'artifact://grep-7',
     );
   });
@@ -792,17 +995,15 @@ describe('job locator permission projection', () => {
     );
     expect(
       nativeFileProjection('read')('path', 'JOB://bash-4/stdout:1-5'),
-    ).toBe('job://bash-4/stdout');
+    ).toEqual({ canonical: 'job://bash-4/stdout' });
     // `projectNativeFilePath` keeps the selector; only the `read` projection
     // removes it.
-    expect(projectNativeFilePath('Job://bash-4:1-3')).toBe('job://bash-4:1-3');
+    expect(canonical('Job://bash-4:1-3')).toBe('job://bash-4:1-3');
   });
 
   it('never substitutes a host path for a job locator', () => {
-    expect(projectNativeFilePath('JOB://bash-4', '/work/project')).toBe(
-      'job://bash-4',
-    );
-    expect(projectNativeFilePath('job://', '/work/project')).toBe('job://');
+    expect(canonical('JOB://bash-4', '/work/project')).toBe('job://bash-4');
+    expect(canonical('job://', '/work/project')).toBe('job://');
   });
 
   // Scenario: An upper-case scheme does not pass a reject
@@ -833,26 +1034,26 @@ describe('job locator permission projection', () => {
 
 describe('machine locator permission projection', () => {
   it('projects a Machine locator to its canonical text', () => {
-    expect(projectNativeFilePath('MACHINE://DEVL/srv/app/README.md')).toBe(
+    expect(canonical('MACHINE://DEVL/srv/app/README.md')).toBe(
       'machine://devl/srv/app/README.md',
     );
-    expect(projectNativeFilePath('machine://devl/home/me/%2Essh/id')).toBe(
+    expect(canonical('machine://devl/home/me/%2Essh/id')).toBe(
       'machine://devl/home/me/.ssh/id',
     );
-    expect(projectNativeFilePath('machine://devl/srv/a%23b.md')).toBe(
+    expect(canonical('machine://devl/srv/a%23b.md')).toBe(
       'machine://devl/srv/a%23b.md',
     );
     // `.`, `..`, and trailing separators stay as written.
-    expect(projectNativeFilePath('machine://devl/srv/../app/')).toBe(
+    expect(canonical('machine://devl/srv/../app/')).toBe(
       'machine://devl/srv/../app/',
     );
     // A selector is preserved for a mutation and removed from a read.
-    expect(projectNativeFilePath('machine://devl/a.ts:5-6')).toBe(
+    expect(canonical('machine://devl/a.ts:5-6')).toBe(
       'machine://devl/a.ts:5-6',
     );
     expect(
       nativeFileProjection('read')('path', 'machine://devl/a.ts:5-6'),
-    ).toBe('machine://devl/a.ts');
+    ).toEqual({ canonical: 'machine://devl/a.ts', projectedPath: '/a.ts' });
   });
 
   it('leaves a listing and a malformed Machine locator as written', () => {
@@ -863,7 +1064,7 @@ describe('machine locator permission projection', () => {
       'machine://Dev_L/srv',
       'machine://devl/srv/%ZZ',
     ]) {
-      expect(projectNativeFilePath(value)).toBe(value);
+      expect(canonical(value)).toBe(value);
     }
   });
 
@@ -932,16 +1133,19 @@ describe('machine locator permission projection', () => {
     ).toMatchObject({ decision: 'reject', reason: 'no_allow' });
   });
 
-  it('keeps a file alias on the local authority in a Machine Workspace', () => {
+  it('resolves a file alias on the Workspace Machine', () => {
     const map: ToolPermissionMap = {
       read: { allow: true, reject: [{ field: 'path', regex: '^/etc/' }] },
     };
 
+    expect(canonical('file:/etc/%70asswd', 'machine://devl/home/me/shop')).toBe(
+      'machine://devl/etc/passwd',
+    );
     expect(
       decideNative(
         map,
         'read',
-        { path: 'file:/etc/%70asswd' },
+        { path: 'file:/etc/%70passwd' },
         'machine://devl/home/me/shop',
       ),
     ).toMatchObject({ decision: 'reject', reason: 'explicit_reject' });
@@ -959,26 +1163,24 @@ describe('media locator permission projection', () => {
       },
     };
 
-    expect(nativeFileProjection('read')('path', `media://${ID}:raw`)).toBe(
-      `media://${ID}`,
-    );
+    expect(nativeFileProjection('read')('path', `media://${ID}:raw`)).toEqual({
+      canonical: `media://${ID}`,
+    });
     expect(
       decideNative(map, 'read', { path: `media://${ID}:raw` }),
     ).toMatchObject({ decision: 'reject', reason: 'explicit_reject' });
   });
 
   it('keeps a media locator canonical, outside the Workspace root', () => {
-    expect(projectNativeFilePath(`media://${ID}`, '/work/project')).toBe(
-      `media://${ID}`,
-    );
-    expect(projectNativeFilePath('media://', '/work/project')).toBe('media://');
+    expect(canonical(`media://${ID}`, '/work/project')).toBe(`media://${ID}`);
+    expect(canonical('media://', '/work/project')).toBe('media://');
   });
 
   it('admits owner media through the domain-restricted read alternative only when it lists ^media://', () => {
     const restricted: ToolPermissionMap = {
       read: {
         allow: [
-          { field: 'path', regex: '^/' },
+          { field: 'path', regex: '^machine://' },
           { field: 'path', regex: '^kb://' },
           { field: 'path', regex: '^skill://' },
           { field: 'path', regex: '^media://' },
@@ -1015,27 +1217,25 @@ describe('Project locator permission projection', () => {
   const CANONICAL = `projects://${PROJECT_ID}`;
 
   it('canonicalizes the scheme, root alias, and UUID', () => {
-    expect(projectNativeFilePath('PROJECTS://')).toBe('projects://');
-    expect(projectNativeFilePath('Projects:///')).toBe('projects://');
-    expect(
-      projectNativeFilePath(`PROJECTS://${PROJECT_ID.toUpperCase()}`),
-    ).toBe(CANONICAL);
-    expect(projectNativeFilePath('PROJECTS://archived')).toBe(
-      'projects://archived',
-    );
+    expect(canonical('PROJECTS://')).toBe('projects://');
+    expect(canonical('Projects:///')).toBe('projects://');
+    expect(canonical(`PROJECTS://${PROJECT_ID.toUpperCase()}`)).toBe(CANONICAL);
+    expect(canonical('PROJECTS://archived')).toBe('projects://archived');
   });
 
   it('keeps a native selector for a mutation and removes it from a read', () => {
     const submitted = `PROJECTS://${PROJECT_ID.toUpperCase()}:raw:1-5`;
 
-    expect(projectNativeFilePath(submitted)).toBe(`${CANONICAL}:raw:1-5`);
-    expect(nativeFileProjection('read')('path', submitted)).toBe(CANONICAL);
-    expect(nativeFileProjection('write')('path', submitted)).toBe(
-      `${CANONICAL}:raw:1-5`,
-    );
-    expect(nativeFileProjection('edit')('path', submitted)).toBe(
-      `${CANONICAL}:raw:1-5`,
-    );
+    expect(canonical(submitted)).toBe(`${CANONICAL}:raw:1-5`);
+    expect(nativeFileProjection('read')('path', submitted)).toEqual({
+      canonical: CANONICAL,
+    });
+    expect(nativeFileProjection('write')('path', submitted)).toEqual({
+      canonical: `${CANONICAL}:raw:1-5`,
+    });
+    expect(nativeFileProjection('edit')('path', submitted)).toEqual({
+      canonical: `${CANONICAL}:raw:1-5`,
+    });
   });
 
   it('strips every native read selector from a Project resource', () => {
@@ -1049,18 +1249,18 @@ describe('Project locator permission projection', () => {
       { submitted: '1-5:raw', canonical: 'raw:1-5' },
     ];
 
-    for (const { submitted, canonical } of selectors) {
+    for (const { submitted, canonical: suffix } of selectors) {
       expect(
         nativeFileProjection('read')('path', `${CANONICAL}:${submitted}`),
-      ).toBe(CANONICAL);
-      expect(projectNativeFilePath(`${CANONICAL}:${submitted}`)).toBe(
-        `${CANONICAL}:${canonical}`,
+      ).toEqual({ canonical: CANONICAL });
+      expect(canonical(`${CANONICAL}:${submitted}`)).toBe(
+        `${CANONICAL}:${suffix}`,
       );
     }
 
-    expect(nativeFileProjection('read')('path', 'PROJECTS:///:raw')).toBe(
-      'projects://',
-    );
+    expect(nativeFileProjection('read')('path', 'PROJECTS:///:raw')).toEqual({
+      canonical: 'projects://',
+    });
   });
 
   it('leaves an invalid Project locator as written', () => {
@@ -1074,8 +1274,10 @@ describe('Project locator permission projection', () => {
       'projects://archived/',
       'projects://%61rchived',
     ]) {
-      expect(projectNativeFilePath(value)).toBe(value);
-      expect(nativeFileProjection('read')('path', value)).toBe(value);
+      expect(canonical(value)).toBe(value);
+      expect(nativeFileProjection('read')('path', value)).toEqual({
+        canonical: value,
+      });
     }
   });
 
@@ -1087,21 +1289,21 @@ describe('Project locator permission projection', () => {
     for (const suffix of ['nonsense', '', 'outline:1,3']) {
       const submitted = `PROJECTS://${PROJECT_ID.toUpperCase()}:${suffix}`;
 
-      expect(projectNativeFilePath(submitted)).toBe(`${CANONICAL}:${suffix}`);
-      expect(nativeFileProjection('read')('path', submitted)).toBe(CANONICAL);
-      expect(nativeFileProjection('write')('path', submitted)).toBe(
-        `${CANONICAL}:${suffix}`,
-      );
+      expect(canonical(submitted)).toBe(`${CANONICAL}:${suffix}`);
+      expect(nativeFileProjection('read')('path', submitted)).toEqual({
+        canonical: CANONICAL,
+      });
+      expect(nativeFileProjection('write')('path', submitted)).toEqual({
+        canonical: `${CANONICAL}:${suffix}`,
+      });
     }
   });
 
   it('keeps the Project locator independent of the Workspace root', () => {
     for (const root of ['/work/project', 'machine://devl/home/me/shop']) {
-      expect(projectNativeFilePath(`PROJECTS://${PROJECT_ID}`, root)).toBe(
-        CANONICAL,
-      );
-      expect(projectNativeFilePath('projects://', root)).toBe('projects://');
-      expect(projectNativeFilePath('projects://archived', root)).toBe(
+      expect(canonical(`PROJECTS://${PROJECT_ID}`, root)).toBe(CANONICAL);
+      expect(canonical('projects://', root)).toBe('projects://');
+      expect(canonical('projects://archived', root)).toBe(
         'projects://archived',
       );
     }

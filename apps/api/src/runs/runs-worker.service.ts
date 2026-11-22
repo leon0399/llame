@@ -139,7 +139,7 @@ export class RunsWorkerService implements OnApplicationBootstrap {
     // startup.
     // In the background: the walk cannot reject, and it must not delay queue
     // consumption or an HTTP listen in the co-located API process.
-    void sweepWhenHostFilesEnabled(this.instanceConfig.config.tools);
+    void sweepWhenHostFilesEnabled(this.instanceConfig.config);
     await this.canonicalSearchCoverage.assertReady();
     await this.queue.ensureQueue(
       runsQueueDefinition(this.instanceConfig.config),

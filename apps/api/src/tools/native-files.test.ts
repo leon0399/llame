@@ -47,6 +47,11 @@ import {
   type SkillCatalogPort,
 } from '../skills/skill-catalog';
 import { MachineConnector } from '../machines/machine-connector.service';
+import { localMachineConnector } from '../testing/local-machine';
+import {
+  MachineIdentityMismatchError,
+  MachineUnavailableError,
+} from '../machines/machine-session';
 import {
   createProtocolPeer,
   type ProtocolPeerOptions,
@@ -64,6 +69,9 @@ import { compileToolPermissionMap } from './permissions/compile-permissions';
 
 /** The same shape with a two-column table whose rows are told apart, so a
  *  range inside it can only report its columns through the header pair. */
+const LOCAL_MACHINE = 'host-a';
+const LOCAL_PREFIX = `machine://${LOCAL_MACHINE}`;
+
 const RANGED_TABLE_MARKDOWN =
   [
     '# Root',
@@ -110,7 +118,9 @@ function trustedContext(root?: string): ToolContext {
     userId: 'owner',
     chatId: 'chat',
     runId: 'run',
-    nativeExecutorId: 'host',
+    localMachine: LOCAL_MACHINE,
+    defaultMachine: LOCAL_MACHINE,
+    machines: localMachineConnector(),
     nativeDeliverySequence: 1,
     toolCallId: 'call',
     permissionPolicy: compileTestPermissionPolicy(),
@@ -175,18 +185,22 @@ describe('native tool admission', () => {
     ]);
   });
 
-  it('rejects model-supplied authority fields and missing trusted host context', async () => {
+  it('rejects model-supplied authority fields and a path with no current Machine', async () => {
     expect(
       await runTool(
         nativeReadTool,
-        { path: '/tmp/file', nativeExecutorId: 'other' },
+        { path: '/tmp/file', localMachine: 'other' },
         context,
         5,
       ),
     ).toMatchObject({ type: 'invalid_input' });
     expect(
       await runTool(nativeReadTool, { path: '/tmp/file' }, context, 5),
-    ).toMatchObject({ type: 'executor_unavailable' });
+    ).toMatchObject({
+      type: 'invalid_path',
+      message:
+        'No current Machine: configure machines.default or enter a Workspace.',
+    });
   });
 
   it('reads a directory through the native read tool and returns kind: directory', async () => {
@@ -221,7 +235,9 @@ describe('native tool admission', () => {
       const trusted = {
         ...context,
         runId: 'run',
-        nativeExecutorId: 'host',
+        localMachine: LOCAL_MACHINE,
+        defaultMachine: LOCAL_MACHINE,
+        machines: localMachineConnector(),
         toolCallId: 'call',
       };
 
@@ -268,9 +284,15 @@ describe('Workspace-relative native paths', () => {
         5,
       );
 
-      expect(result).toMatchObject({ status: 'success', path: file });
+      expect(result).toMatchObject({
+        status: 'success',
+        path: `${LOCAL_PREFIX}${file}`,
+      });
       expect(begin).toHaveBeenCalledWith(
-        expect.objectContaining({ operation: 'read', path: file }),
+        expect.objectContaining({
+          operation: 'read',
+          path: `${LOCAL_PREFIX}${file}`,
+        }),
       );
     } finally {
       await rm(root, { recursive: true, force: true });
@@ -296,7 +318,7 @@ describe('Workspace-relative native paths', () => {
       expect(result).toEqual({
         status: 'success',
         kind: 'file',
-        path: file,
+        path: `${LOCAL_PREFIX}${file}`,
         representation: 'text',
         content: '1: # Root\n3: ## Details\n5: \n6: Selected body\n7: Tail\n',
         requestedRanges: [{ startLine: 6, endLine: 6 }],
@@ -333,7 +355,7 @@ describe('Workspace-relative native paths', () => {
       expect(result).toEqual({
         status: 'success',
         kind: 'file',
-        path: file,
+        path: `${LOCAL_PREFIX}${file}`,
         representation: 'text',
         content:
           '1: # Root\n' +
@@ -393,7 +415,7 @@ describe('Workspace-relative native paths', () => {
       expect(outline).toEqual({
         status: 'success',
         kind: 'file',
-        path: markdown,
+        path: `${LOCAL_PREFIX}${markdown}`,
         representation: 'outline',
         content:
           '1: # Root\n' +
@@ -487,7 +509,10 @@ describe('Workspace-relative native paths', () => {
         5,
       );
 
-      expect(result).toMatchObject({ status: 'success', path: file });
+      expect(result).toMatchObject({
+        status: 'success',
+        path: `${LOCAL_PREFIX}${file}`,
+      });
     } finally {
       await rm(base, { recursive: true, force: true });
     }
@@ -655,7 +680,7 @@ describe('Workspace-relative native paths', () => {
         5,
       );
 
-      expect(begin).toHaveBeenCalledTimes(2);
+      await vi.waitFor(() => expect(begin).toHaveBeenCalledTimes(2));
 
       releaseReadMutation();
       await expect(read).resolves.toMatchObject({ status: 'success' });
@@ -743,8 +768,7 @@ describe('file: alias dispatch', () => {
   });
 
   it('rejects an invalid file alias before binding a native executor', async () => {
-    const { nativeExecutorId: _nativeExecutorId, ...withoutExecutor } =
-      trustedContext();
+    const { machines: _machines, ...withoutExecutor } = trustedContext();
 
     const begin = vi.spyOn(NativeFilesRepository.prototype, 'begin');
 
@@ -766,8 +790,8 @@ describe('file: alias dispatch', () => {
       status: 'error',
       type: 'invalid_path',
       message:
-        'A file:// URL with a host other than localhost names another machine. ' +
-        "Only this host's files are readable; write the absolute path instead.",
+        'A file:// URL with a host other than localhost names another Machine. ' +
+        'Use machine://<name>/<path> to reach a configured Machine.',
     });
   });
 
@@ -915,6 +939,323 @@ describe('file: alias dispatch', () => {
       await expect(readFile(file, 'utf8')).rejects.toMatchObject({
         code: 'ENOENT',
       });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('local Machine routing', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('serves a machine:// locator for the local Machine in process', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'local-machine-read-'));
+    const file = join(root, 'note.md');
+    await writeFile(file, 'local bytes');
+    const connector = localMachineConnector();
+
+    vi.spyOn(NativeFilesRepository.prototype, 'begin').mockResolvedValue(
+      undefined,
+    );
+
+    try {
+      const result = await runTool(
+        nativeReadTool,
+        { path: `${LOCAL_PREFIX}${file}` },
+        { ...trustedContext(), machines: connector },
+        5,
+      );
+
+      expect(result).toMatchObject({
+        status: 'success',
+        kind: 'file',
+        path: `${LOCAL_PREFIX}${file}`,
+      });
+      expect(result).toHaveProperty(
+        'content',
+        expect.stringContaining('local bytes'),
+      );
+
+      // The target was served in process: the hello handshake ran on the
+      // control stream, and no request of any method reached the daemon (its
+      // answer throws on one).
+      const session = await connector.peer.session(0);
+      expect(session.requests).toEqual([]);
+      expect(connector.peer.sessions).toHaveLength(1);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('routes a machine:// locator for another Machine through the connector', async () => {
+    const peer = createProtocolPeer({
+      answers: {
+        'fs.read': {
+          value: {
+            status: 'success',
+            kind: 'file',
+            path: 'machine://gpu/srv/app/README.md',
+            content: 'remote bytes',
+            truncated: false,
+          },
+        },
+      },
+    });
+
+    const connector = new MachineConnector({
+      machines: { hosts: { gpu: { destination: 'gpu.lan' } } },
+      hubVersion: '9.9.9',
+      bindIdentity: () => Promise.resolve('match'),
+      transportFactory: peer.factory,
+    });
+
+    const result = await runTool(
+      nativeReadTool,
+      { path: 'machine://gpu/srv/app/README.md' },
+      { ...trustedContext(), machines: connector },
+      5,
+    );
+
+    expect(result).toMatchObject({
+      status: 'success',
+      path: 'machine://gpu/srv/app/README.md',
+    });
+    const session = await peer.session(0);
+    expect(session.requests).toContain('fs.read');
+  });
+
+  it('refuses a local target when the local daemon does not verify', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'local-machine-verify-'));
+    const file = join(root, 'secret.md');
+    await writeFile(file, 'must not be read');
+
+    const connector = localMachineConnector({
+      verify: () =>
+        Promise.reject(
+          new MachineUnavailableError(
+            LOCAL_MACHINE,
+            'unreachable',
+            false,
+            'local daemon is unreachable',
+          ),
+        ),
+    });
+
+    const begin = vi.spyOn(NativeFilesRepository.prototype, 'begin');
+
+    try {
+      const result = await runTool(
+        nativeReadTool,
+        { path: file },
+        { ...trustedContext(), machines: connector },
+        5,
+      );
+
+      expect(result).toMatchObject({
+        status: 'error',
+        type: 'machine_unavailable',
+      });
+      // The operation never ran in process.
+      expect(begin).not.toHaveBeenCalled();
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('reports an edit result path as a canonical locator', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'local-machine-edit-'));
+    const file = join(root, 'note.md');
+    await writeFile(file, 'Hello world');
+
+    vi.spyOn(NativeFilesRepository.prototype, 'begin').mockResolvedValue(
+      undefined,
+    );
+    vi.spyOn(RunEventsRepository.prototype, 'append').mockResolvedValue({
+      runId: 'run',
+      sequence: 1,
+      eventType: 'native.result',
+      payload: null,
+      createdAt: new Date(),
+    });
+
+    try {
+      const result = await runTool(
+        nativeEditTool,
+        { path: file, oldText: 'Hello', newText: 'Goodbye' },
+        trustedContext(),
+        5,
+      );
+
+      expect(result).toMatchObject({
+        status: 'success',
+        path: `${LOCAL_PREFIX}${file}`,
+      });
+      expect(await readFile(file, 'utf8')).toBe('Goodbye world');
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('still creates missing parent directories for a local write', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'local-machine-write-'));
+    const file = join(root, 'nested', 'dir', 'new.md');
+
+    vi.spyOn(NativeFilesRepository.prototype, 'begin').mockResolvedValue(
+      undefined,
+    );
+    vi.spyOn(RunEventsRepository.prototype, 'append').mockResolvedValue({
+      runId: 'run',
+      sequence: 1,
+      eventType: 'native.result',
+      payload: null,
+      createdAt: new Date(),
+    });
+
+    try {
+      const result = await runTool(
+        nativeWriteTool,
+        { path: file, content: 'created' },
+        trustedContext(),
+        5,
+      );
+
+      expect(result).toMatchObject({
+        status: 'success',
+        path: `${LOCAL_PREFIX}${file}`,
+      });
+      expect(await readFile(file, 'utf8')).toBe('created');
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('reads a Machine path whose name encodes a colon, not its sibling', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'local-colon-read-'));
+    const file = join(root, 'report:2');
+    await writeFile(file, 'literal bytes');
+    await writeFile(join(root, 'report'), 'one\ntwo\nthree');
+
+    vi.spyOn(NativeFilesRepository.prototype, 'begin').mockResolvedValue(
+      undefined,
+    );
+
+    try {
+      // `%3A` decodes to `:`, which is part of this file name: the locator
+      // names the file, not line 2 of its selector-free neighbour.
+      const result = await runTool(
+        nativeReadTool,
+        { path: `${LOCAL_PREFIX}${root}/report%3A2` },
+        trustedContext(),
+        5,
+      );
+
+      expect(result).toMatchObject({
+        status: 'success',
+        kind: 'file',
+        path: `${LOCAL_PREFIX}${root}/report%3A2`,
+      });
+      expect(result).toHaveProperty(
+        'content',
+        expect.stringContaining('literal bytes'),
+      );
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('misses an encoded colon path instead of reading line 2 of its sibling', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'local-colon-miss-'));
+    await writeFile(join(root, 'report'), 'one\ntwo\nthree');
+
+    vi.spyOn(NativeFilesRepository.prototype, 'begin').mockResolvedValue(
+      undefined,
+    );
+
+    try {
+      const result = await runTool(
+        nativeReadTool,
+        { path: `${LOCAL_PREFIX}${root}/report%3A2` },
+        trustedContext(),
+        5,
+      );
+
+      expect(result).toMatchObject({ status: 'error', type: 'not_found' });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('edits a Machine path whose name encodes a colon', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'local-colon-edit-'));
+    const file = join(root, 'report:2');
+    await writeFile(file, 'Hello world');
+
+    vi.spyOn(NativeFilesRepository.prototype, 'begin').mockResolvedValue(
+      undefined,
+    );
+    vi.spyOn(RunEventsRepository.prototype, 'append').mockResolvedValue({
+      runId: 'run',
+      sequence: 1,
+      eventType: 'native.result',
+      payload: null,
+      createdAt: new Date(),
+    });
+
+    try {
+      const result = await runTool(
+        nativeEditTool,
+        {
+          path: `${LOCAL_PREFIX}${root}/report%3A2`,
+          oldText: 'Hello',
+          newText: 'Goodbye',
+        },
+        trustedContext(),
+        5,
+      );
+
+      expect(result).toMatchObject({
+        status: 'success',
+        path: `${LOCAL_PREFIX}${root}/report%3A2`,
+      });
+      expect(await readFile(file, 'utf8')).toBe('Goodbye world');
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('writes a Machine path whose name encodes a colon', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'local-colon-write-'));
+    const file = join(root, 'report:2');
+
+    vi.spyOn(NativeFilesRepository.prototype, 'begin').mockResolvedValue(
+      undefined,
+    );
+    vi.spyOn(RunEventsRepository.prototype, 'append').mockResolvedValue({
+      runId: 'run',
+      sequence: 1,
+      eventType: 'native.result',
+      payload: null,
+      createdAt: new Date(),
+    });
+
+    try {
+      const result = await runTool(
+        nativeWriteTool,
+        {
+          path: `${LOCAL_PREFIX}${root}/report%3A2`,
+          content: 'created',
+        },
+        trustedContext(),
+        5,
+      );
+
+      expect(result).toMatchObject({
+        status: 'success',
+        path: `${LOCAL_PREFIX}${root}/report%3A2`,
+      });
+      expect(await readFile(file, 'utf8')).toBe('created');
     } finally {
       await rm(root, { recursive: true, force: true });
     }
@@ -1072,7 +1413,7 @@ describe('knowledge locator resolution', () => {
 
     expect(host).toMatchObject({
       status: 'success',
-      path: hostPath,
+      path: `${LOCAL_PREFIX}${hostPath}`,
       representation: 'outline',
     });
     expect(knowledge).toMatchObject({
@@ -1410,7 +1751,12 @@ describe('knowledge locator resolution', () => {
     await runTool(
       nativeReadTool,
       { path: join(root, 'outside.md') },
-      { ...knowledgeContext(), nativeExecutorId: 'host' },
+      {
+        ...knowledgeContext(),
+        localMachine: LOCAL_MACHINE,
+        defaultMachine: LOCAL_MACHINE,
+        machines: localMachineConnector(),
+      },
       5,
     );
     expect(runAsCalls).toBe(1);
@@ -1487,6 +1833,8 @@ describe('skill locator resolution', () => {
       readonly catalog?: SkillCatalogPort;
       readonly selection?: ReadonlySet<string>;
       readonly workspaceRoot?: string;
+      readonly localMachine?: string;
+      readonly machines?: ToolContext['machines'];
     } = {},
   ): ToolContext {
     const base: ToolContext = {
@@ -1502,6 +1850,12 @@ describe('skill locator resolution', () => {
       },
       ...(overrides.workspaceRoot !== undefined && {
         workspaceRoot: createWorkspaceRootCell(overrides.workspaceRoot),
+      }),
+      ...(overrides.localMachine !== undefined && {
+        localMachine: overrides.localMachine,
+      }),
+      ...(overrides.machines !== undefined && {
+        machines: overrides.machines,
       }),
     };
 
@@ -1540,7 +1894,11 @@ describe('skill locator resolution', () => {
 
   it('resolves Workspace skill locators live and isolates Chats without a root', async () => {
     const workspace = join(source, 'workspace');
-    const [claude, agents, llame] = workspaceSkillSources(workspace);
+
+    const [claude, agents, llame] = workspaceSkillSources(workspace, {
+      localVerified: true,
+    });
+
     await mkdir(claude, { recursive: true });
     await mkdir(agents, { recursive: true });
     await mkdir(llame, { recursive: true });
@@ -1566,7 +1924,11 @@ describe('skill locator resolution', () => {
     const workspaceResult = await runTool(
       nativeReadTool,
       { path: 'skill://pdf' },
-      skillContext({ workspaceRoot: workspace }),
+      skillContext({
+        workspaceRoot: workspace,
+        localMachine: 'host-a',
+        machines: localMachineConnector({ name: 'host-a' }),
+      }),
       5,
     );
 
@@ -1587,6 +1949,57 @@ describe('skill locator resolution', () => {
       status: 'error',
       type: 'not_found',
     });
+  });
+
+  it('serves no Workspace skill when the local daemon answers another identity', async () => {
+    const workspace = join(source, 'workspace');
+
+    const [, agents] = workspaceSkillSources(workspace, {
+      localVerified: true,
+    });
+
+    await mkdir(join(agents, 'ws-only'), { recursive: true });
+    await writeFile(
+      join(agents, 'ws-only', 'SKILL.md'),
+      '---\nname: ws-only\ndescription: Workspace only\n---\n# Workspace only\n',
+    );
+
+    const root = `machine://host-a${workspace}`;
+    const verified = localMachineConnector({ name: 'host-a' });
+
+    await expect(
+      runTool(
+        nativeReadTool,
+        { path: 'skill://ws-only' },
+        skillContext({
+          workspaceRoot: root,
+          localMachine: 'host-a',
+          machines: verified,
+        }),
+        5,
+      ),
+    ).resolves.toMatchObject({
+      status: 'success',
+      skillDirectory: join(agents, 'ws-only'),
+    });
+
+    const mismatched = localMachineConnector({
+      name: 'host-a',
+      verify: () => Promise.reject(new MachineIdentityMismatchError('host-a')),
+    });
+
+    await expect(
+      runTool(
+        nativeReadTool,
+        { path: 'skill://ws-only' },
+        skillContext({
+          workspaceRoot: root,
+          localMachine: 'host-a',
+          machines: mismatched,
+        }),
+        5,
+      ),
+    ).resolves.toMatchObject({ status: 'error', type: 'not_found' });
   });
 
   it('reads the package root and publishes the real paths and instruction', async () => {

@@ -92,7 +92,7 @@ describeIfDb('whole-step scripted model client', () => {
     await writeFile(filePath, 'hello\n');
     harness = await bootWorkerHarness({
       allowedTools: ['read'],
-      nativeExecutorId: 'step-script-harness',
+      localMachine: 'step-script-harness',
     });
     userId = await createUser(harness.db, 'step-script-harness');
   });

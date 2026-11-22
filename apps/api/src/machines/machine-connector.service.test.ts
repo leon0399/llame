@@ -186,7 +186,9 @@ describe('MachineConnector configuration surface', () => {
     expect(error.machine).toBe('devl');
     expect(error.reason).toBe('unreachable');
     expect(error.sent).toBe(false);
-    expect(error.message).toBe('This Machine is not configured.');
+    // A declared entry with no destination is a Machine this process cannot
+    // reach; the local entry is the one that needs none.
+    expect(error.message).toBe('This process cannot reach this Machine.');
     expect(peer.sessions).toHaveLength(0);
   });
 
@@ -980,5 +982,139 @@ describe('MachineConnector identity binding', () => {
     expect(session.requests).toEqual([]);
     await awaitContacts(1);
     expect(contacts.at(0)).toMatchObject({ failure: 'identity_mismatch' });
+  });
+});
+
+describe('MachineConnector local Machine', () => {
+  it('names this process’s Machine, its default, and what it can reach', () => {
+    const connector = new MachineConnector({
+      machines: {
+        local: 'host-a',
+        default: 'host-b',
+        hosts: {
+          'host-a': {},
+          'host-b': { destination: 'box' },
+          edge: {},
+        },
+      },
+      hubVersion: '9.9.9',
+      bindIdentity: () => Promise.resolve('match'),
+    });
+
+    expect(connector.localMachine()).toBe('host-a');
+    expect(connector.defaultMachine()).toBe('host-b');
+    expect(connector.canReach('host-a')).toBe(true);
+    expect(connector.canReach('host-b')).toBe(true);
+    // Configured, but this process has no link to it.
+    expect(connector.canReach('edge')).toBe(false);
+    expect(connector.canReach('nope')).toBe(false);
+  });
+
+  it('opens the local entry without a destination through the local factory', async () => {
+    const peer = createProtocolPeer({
+      answers: { 'roots.list': { value: { roots: [] } } },
+    });
+
+    const opened: Array<string> = [];
+
+    const connector = new MachineConnector({
+      machines: { local: 'host-a', hosts: { 'host-a': {} } },
+      hubVersion: '9.9.9',
+      localTransportFactory: {
+        open: (request) => {
+          opened.push(request.name);
+
+          return peer.factory.open(request);
+        },
+      },
+      bindIdentity: () => Promise.resolve('bound'),
+    });
+
+    await expect(
+      connector.request('host-a', 'roots.list', { envelope: ENVELOPE }),
+    ).resolves.toEqual({ roots: [] });
+    expect(opened).toEqual(['host-a']);
+    expect(peer.sessions).toHaveLength(1);
+  });
+
+  it('refuses a non-local entry without a destination and spawns nothing', async () => {
+    const opened: Array<string> = [];
+
+    const connector = new MachineConnector({
+      machines: {
+        local: 'host-a',
+        hosts: { 'host-a': {}, gpu: {} },
+      },
+      hubVersion: '9.9.9',
+      bindIdentity: () => Promise.resolve('match'),
+      localTransportFactory: {
+        open: (request) => {
+          opened.push(request.name);
+
+          throw new Error('no link should be opened');
+        },
+      },
+    });
+
+    const error = refusal(
+      await connector
+        .request('gpu', 'roots.list', { envelope: ENVELOPE })
+        .catch((error: unknown) => rejection(error)),
+    );
+
+    expect(error.reason).toBe('unreachable');
+    expect(error.sent).toBe(false);
+    expect(error.message).toBe('This process cannot reach this Machine.');
+    expect(opened).toEqual([]);
+  });
+
+  it('verifies the local Machine with the same identity bind as any other', async () => {
+    const bindIdentity = vi.fn<
+      NonNullable<MachineConnectorDeps['bindIdentity']>
+    >(() => Promise.resolve('bound'));
+
+    const connector = new MachineConnector({
+      machines: { local: 'host-a', hosts: { 'host-a': {} } },
+      hubVersion: '9.9.9',
+      transportFactory: createProtocolPeer().factory,
+      bindIdentity,
+    });
+
+    await expect(connector.verifyLocal()).resolves.toBeUndefined();
+    expect(bindIdentity).toHaveBeenCalledWith(
+      'host-a',
+      DEFAULT_PEER_INSTANCE_ID,
+    );
+    expect(connector.lastRefusal('host-a')).toBeUndefined();
+  });
+
+  it('fails verifyLocal for a daemon under another identity', async () => {
+    const connector = new MachineConnector({
+      machines: { local: 'host-a', hosts: { 'host-a': {} } },
+      hubVersion: '9.9.9',
+      transportFactory: createProtocolPeer().factory,
+      bindIdentity: () => Promise.resolve('mismatch'),
+    });
+
+    await expect(connector.verifyLocal()).rejects.toBeInstanceOf(
+      MachineIdentityMismatchError,
+    );
+  });
+
+  it('refuses verifyLocal when this process hosts no Machine', async () => {
+    const connector = new MachineConnector({
+      machines: { hosts: { devl: { destination: 'box' } } },
+      hubVersion: '9.9.9',
+      bindIdentity: () => Promise.resolve('match'),
+    });
+
+    const error = refusal(
+      await connector.verifyLocal().catch((error: unknown) => rejection(error)),
+    );
+
+    expect(error.machine).toBe('machine');
+    expect(error.reason).toBe('unreachable');
+    expect(error.sent).toBe(false);
+    expect(error.message).toBe('No local Machine is configured.');
   });
 });

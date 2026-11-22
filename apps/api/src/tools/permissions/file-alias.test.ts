@@ -37,8 +37,8 @@ describe('decodeFileAlias', () => {
   });
 
   const remoteMessage =
-    'A file:// URL with a host other than localhost names another machine. ' +
-    "Only this host's files are readable; write the absolute path instead.";
+    'A file:// URL with a host other than localhost names another Machine. ' +
+    'Use machine://<name>/<path> to reach a configured Machine.';
 
   it.each([
     'file://other.example/x',

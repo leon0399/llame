@@ -23,11 +23,13 @@ import { projectStoredToolPart } from './tool-observation-part';
 import {
   createCompactionCheckpointPart,
   createModelChangeItem,
-  createRecencyDigestDeltaItem,
-  createRecencyDigestSupersessionItem,
   createToolAvailabilityItem,
   toContextCheckpoint,
 } from './context-item-producers';
+import {
+  createRecencyDigestDeltaItem,
+  createRecencyDigestSupersessionItem,
+} from './recency-digest-item';
 import {
   createPromptImportsItem,
   promptImportMediaKey,

@@ -59,7 +59,7 @@ listing reads only that owner's archived rows. An individual read returns an
 active or archived Project of that owner. Row-level security and the owner
 filter decide this. The locator text grants no cross-owner access.
 
-The read needs no executor and no Workspace binding. It performs no filesystem
+The read needs no Machine and no Workspace binding. It performs no filesystem
 probe, git operation, Machine contact, or Workspace change. A Chat with a
 Workspace reads the same owner Projects as one without, and a relative path or
 Workspace root does not change the result.
@@ -95,8 +95,7 @@ change the Run's Project affiliation, bind a Workspace, or make a checkout
 current.
 
 Every location is labelled registered and unverified. The locator is the stored
-value: an absolute path for a main or worktree checkout on a local executor,
-and a canonical `machine://` locator with its executor identity for a Machine
+value: a canonical `machine://` locator naming the Machine that hosts the
 checkout. The read does not probe the location, run git, or contact the Machine.
 A registered location that happens to equal a private configuration path is
 returned as the registration's locator, without identifying or consulting that
@@ -171,5 +170,5 @@ or a missing Project. Missing Run identity returns no Project content.
   the `read` rules that admit or reject a Project locator. A field-allow `read`
   group admits `projects://` only with a `^projects://` allow.
 
-The scheme needs no executor and no separate operator enablement. It is served
+The scheme needs no Machine and no separate operator enablement. It is served
 wherever `read` is allowlisted and the owner has Projects.

@@ -70,6 +70,33 @@ async function validateCodeOwnedFields(
   }
 }
 
+/**
+ * The path parameter each tool decides on with a Machine locator (design D7).
+ * A regex on one of these that is anchored at a bare root — `^/` — could only
+ * ever miss, because every Machine value is matched as its `machine://`
+ * locator; it fails startup instead of silently never matching.
+ */
+const PATH_FIELDS = {
+  read: 'path',
+  edit: 'path',
+  write: 'path',
+  enter_workspace: 'path',
+  grep: GREP_SCOPES_FIELD,
+  bash: 'cwd',
+} satisfies Readonly<Record<string, string>>;
+
+/** Whether a tool id names a tool whose path parameter is decided on. */
+function isPathFieldTool(toolId: string): toolId is keyof typeof PATH_FIELDS {
+  return toolId in PATH_FIELDS;
+}
+
+const BARE_ROOT_ANCHOR = '^/';
+
+const BARE_ROOT_HINT =
+  'a regex on a path parameter must not start with "^/": every Machine value ' +
+  'is matched as its machine:// locator, so write the rule against it instead ' +
+  '(e.g. ^machine://[^/]+/srv/docs(/|$) for that path on every Machine).';
+
 function assertMatcherFields(
   toolId: string,
   list: 'allow' | 'reject',
@@ -77,14 +104,28 @@ function assertMatcherFields(
   allowedFields: ReadonlySet<string>,
 ): void {
   if (matcher === undefined || matcher === true) return;
+  const pathField = isPathFieldTool(toolId) ? PATH_FIELDS[toolId] : undefined;
+
   matcher.forEach((clause, index) => {
     if (!('field' in clause)) return;
 
+    const clausePath = `tools.permissions.${toolId}.${list}[${index}]`;
+
     if (!allowedFields.has(clause.field)) {
       throw new PermissionCompileError(
-        `tools.permissions.${toolId}.${list}[${index}]`,
+        clausePath,
         `field "${clause.field}" is not a declared string input of tool "${toolId}"`,
       );
+    }
+
+    // A literal clause stays a substring match, so `"/opt/secret"` keeps
+    // working on every Machine; only an anchored regex is refused.
+    if (
+      clause.field === pathField &&
+      'regex' in clause &&
+      clause.regex.startsWith(BARE_ROOT_ANCHOR)
+    ) {
+      throw new PermissionCompileError(clausePath, BARE_ROOT_HINT);
     }
   });
 }

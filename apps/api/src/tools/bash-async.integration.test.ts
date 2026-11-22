@@ -23,6 +23,7 @@ import { ChatsService } from '../chats/chats.service';
 import { noopQueryEmbedder } from '../search/chat-search-query-embedder.stub';
 import { noopEmbedDispatch } from '../search/search-embed-dispatch.stub';
 import { noopReindexDispatch } from '../search/search-reindex-dispatch.stub';
+import { localMachineConnector } from '../testing/local-machine';
 import { compileTestPermissionPolicy } from '../testing/tool-permission-policy';
 import { bashTool } from './bash';
 import { runTool } from './runner';
@@ -113,7 +114,12 @@ describe('real host async jobs', () => {
       chatId: seeded.chat.id,
       tenantDb: tenant,
       runId: seeded.run.id,
-      nativeExecutorId: 'async-host',
+      localMachine: 'async-host',
+      defaultMachine: 'async-host',
+      machines: localMachineConnector({
+        name: 'async-host',
+        verify: () => Promise.resolve(),
+      }),
       attemptId: seeded.run.activeAttemptId!,
       toolCallId: crypto.randomUUID(),
       nativeDeliverySequence: seeded.sequence,

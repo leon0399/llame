@@ -5,11 +5,12 @@
  * files per hit").
  *
  * The call is evaluated once per scope with `scopes` replaced by that scope's
- * projected literal prefix, so a field clause on `scopes` sees one string. An
- * all-fields reject additionally traverses the submitted scope texts and every
- * prefix through two internal keys no clause can name. Each candidate file is
- * then judged against the `read` group as a `read` of its canonical locator,
- * so a hit never names content that `read` refuses.
+ * canonical prefix, so a field clause on `scopes` sees one string. A reject
+ * may also match the submitted spelling or the decoded path on its Machine,
+ * and an all-fields reject traverses every submitted scope, prefix, and
+ * projected path through internal keys no clause can name. Each candidate file
+ * is then judged against the `read` group as a `read` of its canonical
+ * locator, so a hit never names content that `read` refuses.
  */
 
 import {
@@ -21,21 +22,33 @@ import {
 import { isString, type UnknownRecord } from '@workspace/runtime-safety';
 
 import { KNOWLEDGE_LOCATOR_SCHEME } from '../knowledge/knowledge-locator';
-import { MACHINE_SCHEME } from '../machines/machine-locator';
+import {
+  formatMachineLocator,
+  MACHINE_SCHEME,
+} from '../machines/machine-locator';
 import { SKILL_LOCATOR_SCHEME } from '../skills/skill-locator';
-import { admitPermission } from './permissions/admit';
+import {
+  admitPermission,
+  type CanonicalEvaluation,
+  evaluateCanonicalWithRejectTexts,
+} from './permissions/admit';
 import { isFileAlias } from './permissions/file-alias';
 import {
   nativeFileProjection,
   projectNativeFilePath,
+  type NativeFileProjection,
 } from './permissions/locator-projection';
-import { type PermissionDecision } from './permissions/types';
+import {
+  type EvaluatePermissionOptions,
+  type PermissionDecision,
+} from './permissions/types';
 import { hostLiteralStart } from './grep-scope-shape';
 import { type ToolContext } from './types';
 import {
-  isWorkspaceRelative,
-  mapToWorkspaceHost,
-  resolveWorkspacePath,
+  literalTargetPath,
+  locatorContext,
+  resolveMachinePath,
+  type LocatorContext,
 } from './workspace-path';
 
 /** The one array-valued input a clause may name (tool-call-permissions). */
@@ -44,15 +57,11 @@ export const GREP_SCOPES_FIELD = 'scopes';
 /** A submitted scope with the identity policy matches it as. */
 export interface ProjectedGrepScope {
   readonly submitted: string;
-  /** The literal prefix, canonical for its scheme; policy matches this. */
+  /** The canonical locator prefix, canonical for its scheme; policy matches this. */
   readonly prefix: string;
+  /** The decoded absolute prefix on its Machine, without scheme or name. */
+  readonly projectedPath?: string;
 }
-
-const LOGICAL_SCHEMES = {
-  [KNOWLEDGE_LOCATOR_SCHEME]: true,
-  [SKILL_LOCATOR_SCHEME]: true,
-  [MACHINE_SCHEME]: true,
-} as const;
 
 /**
  * The scope strings a call admits: the submitted `scopes`, or the Workspace
@@ -75,46 +84,35 @@ export function grepScopeStrings(
 }
 
 /**
- * Project one scope to the literal prefix policy matches. A relative or bare
- * absolute host scope is first placed by the Workspace rule, host and Machine
- * paths are normalized lexically, and a `file:` alias is decoded before that
- * normalization, so its `..` text is matched as the path it resolves to. Any
- * other prefix is cut at the first glob segment of the submitted text before
- * decoding; `kb://`, `skill://`, and `machine://` prefixes then take the
- * canonical spelling `read` matches.
+ * Project one scope to the prefix policy matches as an allow, plus the decoded
+ * absolute path a reject written as a bare path also matches. A host scope —
+ * bare, relative, or a `file:` alias — is placed by the locator rule on its
+ * Machine and normalized lexically, exactly as the walk resolves it; a
+ * `machine://` scope takes the same canonical spelling `read` matches, and a
+ * `kb://` or `skill://` prefix keeps its logical identity.
  */
 export function projectGrepScope(
   scope: string,
-  root: string | undefined,
+  context: LocatorContext = {},
 ): ProjectedGrepScope {
-  const placed =
-    root === undefined || isFileAlias(scope)
-      ? scope
-      : isWorkspaceRelative(scope)
-        ? resolveWorkspacePath(root, scope)
-        : mapToWorkspaceHost(root, scope);
+  const alias = isFileAlias(scope);
+  const scheme = alias ? undefined : parsePathScheme(scope);
 
-  const scheme = parsePathScheme(placed);
+  if (scheme === undefined || scheme.scheme === MACHINE_SCHEME)
+    return projectMachineScope(scope, context, scheme !== undefined, alias);
 
-  if (scheme === undefined || !Object.hasOwn(LOGICAL_SCHEMES, scheme.scheme)) {
-    // A `file:` alias is decoded first, then normalized like any host path, so
-    // `..` text it carried cannot be matched by policy as written.
-    const normalized = normalizeHostScope(projectNativeFilePath(placed));
-    // The host prefix decodes the seven literal spellings, exactly as the walk
-    // probes it, so a scope written `app/%5Bid%5D` is judged as `app/[id]`,
-    // the path it searches.
-    // A Workspace root is a real path: only the text after it is decoded.
-    const prefix = prefixOf(normalized);
-    const start = hostLiteralStart(scope, root, placed);
-
+  if (
+    scheme.scheme !== KNOWLEDGE_LOCATOR_SCHEME &&
+    scheme.scheme !== SKILL_LOCATOR_SCHEME
+  )
     return {
       submitted: scope,
-      prefix:
-        prefix.slice(0, start) + decodeGrepLiteralSpelling(prefix.slice(start)),
+      prefix: projectNativeFilePath(prefixOf(scope), context).canonical,
     };
-  }
 
-  const head = placed.slice(0, placed.length - scheme.rest.length);
+  // The logical authority is never cut: a glob in it is the reader's to
+  // refuse, and only the path part holds the literal prefix.
+  const head = scope.slice(0, scope.length - scheme.rest.length);
   const authorityEnd = scheme.rest.indexOf('/');
 
   const authority =
@@ -125,7 +123,56 @@ export function projectGrepScope(
 
   const prefix = `${head}${authority}${prefixOf(pathPart)}`;
 
-  return { submitted: scope, prefix: projectNativeFilePath(prefix) };
+  return { submitted: scope, prefix: projectNativeFilePath(prefix).canonical };
+}
+
+/**
+ * One host or `machine://` scope's canonical prefix. A Machine scope cuts its
+ * glob from the submitted text before it decodes, exactly as its own walk
+ * does; a host scope resolves whole and normalizes lexically first, so a `..`
+ * segment settles the way the engine settles it. The seven literal spellings
+ * decode in the model's part only: a Workspace root is a real path, and a
+ * `file:` alias is already decoded once by its own grammar.
+ */
+function projectMachineScope(
+  scope: string,
+  context: LocatorContext,
+  machine: boolean,
+  alias: boolean,
+): ProjectedGrepScope {
+  const cut = splitGrepScope(scope);
+
+  if ('error' in cut) return { submitted: scope, prefix: scope };
+
+  const target = resolveMachinePath(machine ? cut.prefix : scope, context);
+
+  // A scope the resolver refuses never reaches the walk: policy matches the
+  // text the refusal names, as it does for `read`.
+  if (target.kind !== 'machine') return { submitted: scope, prefix: scope };
+
+  const normalized = normalizeHostScope(literalTargetPath(target));
+  const split = machine ? cut : splitGrepScope(normalized);
+
+  if ('error' in split) return { submitted: scope, prefix: scope };
+
+  const prefixText = machine ? normalized : split.prefix;
+
+  const start =
+    alias || machine
+      ? 0
+      : hostLiteralStart(scope, context.workspaceRoot, target.path);
+
+  const projectedPath =
+    alias || machine
+      ? prefixText
+      : prefixText.slice(0, start) +
+        decodeGrepLiteralSpelling(prefixText.slice(start));
+
+  return {
+    submitted: scope,
+    prefix: formatMachineLocator(target.name, projectedPath) ?? projectedPath,
+    projectedPath,
+  };
 }
 
 function prefixOf(pathText: string): string {
@@ -152,23 +199,24 @@ export function evaluateGrepPermission(
     );
   }
 
-  const projected = scopes.map((scope) => projectGrepScope(scope, root));
-  const prefixes = projected.map((scope) => scope.prefix);
+  const projected = projectScopes(scopes, context);
+
+  const texts: GrepCallTexts = {
+    scopes,
+    prefixes: projected.map((scope) => scope.prefix),
+    projectedPaths: projected.flatMap((scope) =>
+      scope.projectedPath === undefined ? [] : [scope.projectedPath],
+    ),
+  };
 
   return admitPermission(context, (evaluate) => {
     let last: PermissionDecision | undefined;
 
     for (const scope of projected) {
-      last = evaluate({
-        toolId: 'grep',
-        args: {
-          ...args,
-          [GREP_SCOPES_FIELD]: scope.prefix,
-          // Internal keys: traversed by all-fields rejects, never a clause field.
-          grepSubmittedScopes: scopes,
-          grepScopePrefixes: prefixes,
-        },
-      });
+      last = evaluateCanonicalWithRejectTexts(
+        evaluate,
+        scopeDecisionTexts(args, scope, texts),
+      );
 
       if (last.decision === 'reject') return last;
     }
@@ -176,6 +224,62 @@ export function evaluateGrepPermission(
     // `scopes` is non-empty by schema, so `last` is always decided here.
     return last ?? evaluate({ toolId: 'grep', args });
   });
+}
+
+/** Every scope projected against this call's own Machine placement. */
+function projectScopes(
+  scopes: ReadonlyArray<string>,
+  context: ToolContext,
+): ReadonlyArray<ProjectedGrepScope> {
+  const locator = locatorContext(context);
+
+  return scopes.map((scope) => projectGrepScope(scope, locator));
+}
+
+/** Every projected text one call carries through its all-fields rejects. */
+type GrepCallTexts = {
+  readonly scopes: ReadonlyArray<string>;
+  readonly prefixes: ReadonlyArray<string>;
+  readonly projectedPaths: ReadonlyArray<string>;
+};
+
+/**
+ * One scope's texts: its submitted spelling and decoded path are the rejects'
+ * to match, and its canonical prefix is the allow's. Every text carries the
+ * call's other inputs unchanged.
+ */
+function scopeDecisionTexts(
+  args: UnknownRecord,
+  scope: ProjectedGrepScope,
+  texts: GrepCallTexts,
+): CanonicalEvaluation {
+  const rejectTexts: Array<EvaluatePermissionOptions> = [
+    {
+      toolId: 'grep',
+      args: { ...args, [GREP_SCOPES_FIELD]: scope.submitted },
+    },
+  ];
+
+  if (scope.projectedPath !== undefined)
+    rejectTexts.push({
+      toolId: 'grep',
+      args: { ...args, [GREP_SCOPES_FIELD]: scope.projectedPath },
+    });
+
+  return {
+    canonical: {
+      toolId: 'grep',
+      args: {
+        ...args,
+        [GREP_SCOPES_FIELD]: scope.prefix,
+        // Internal keys: traversed by all-fields rejects, never a clause field.
+        grepSubmittedScopes: texts.scopes,
+        grepScopePrefixes: texts.prefixes,
+        grepProjectedPaths: texts.projectedPaths,
+      },
+    },
+    rejectTexts,
+  };
 }
 
 /** The per-file `read` check and the refusals it counted for the audit. */
@@ -197,17 +301,39 @@ export interface GrepReadAdmission {
   recordRefusals(): void;
 }
 
-/** The `read` group's decision for one locator, projected as `read` sees it. */
+/**
+ * The `read` group's decision for one locator, projected as `read` sees it:
+ * the allow is decided on the canonical locator, while a reject also matches
+ * the projected path, so a bare-spelled reject keeps its effect on a hit.
+ */
 export function readDecision(
   context: ToolContext,
-  project: (field: string, value: string) => string,
+  project: NativeFileProjection,
   locator: string,
 ): PermissionDecision | undefined {
+  const canonical = (field: string, value: string): string =>
+    project(field, value).canonical;
+
+  const projectedPath = (field: string, value: string): string => {
+    const projection = project(field, value);
+
+    return projection.projectedPath ?? projection.canonical;
+  };
+
   return admitPermission(context, (evaluate) =>
-    evaluate({
-      toolId: 'read',
-      args: { path: locator },
-      projectFieldValue: project,
+    evaluateCanonicalWithRejectTexts(evaluate, {
+      canonical: {
+        toolId: 'read',
+        args: { path: locator },
+        projectFieldValue: canonical,
+      },
+      rejectTexts: [
+        {
+          toolId: 'read',
+          args: { path: locator },
+          projectFieldValue: projectedPath,
+        },
+      ],
     }),
   );
 }
@@ -273,10 +399,7 @@ function recordRefusal(context: ToolContext, state: ReadAdmissionState): void {
 export function createGrepReadAdmission(
   context: ToolContext,
 ): GrepReadAdmission {
-  const project = nativeFileProjection(
-    'read',
-    context.workspaceRoot?.current(),
-  );
+  const project = nativeFileProjection('read', locatorContext(context));
 
   const judge = (locator: string) => readDecision(context, project, locator);
   // One verdict per file for the whole call: overlapping scopes and a file a

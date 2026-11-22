@@ -16,9 +16,10 @@ import { formatJobLocator } from '../jobs/job-locator';
 import { JobPromotionError } from '../jobs/job-promotion-error';
 import { NativeFilesRepository } from '../runs/native-files-repository';
 import { RunEventsRepository } from '../runs/runs-repository';
+import { localMachineConnector } from '../testing/local-machine';
 import { compileTestPermissionPolicy } from '../testing/tool-permission-policy';
 import { foregroundBoundMs, messageMoveWindow } from './bash-limits';
-import { runAsyncBash } from './bash-async';
+import { hostCommand, runAsyncBash } from './bash-async';
 import { bashTool } from './bash';
 import { runTool } from './runner';
 import { type ToolContext, type ToolResult } from './types';
@@ -185,7 +186,9 @@ describe('foreground host bash move', () => {
       runId: 'run',
       attemptId: 'attempt-1',
       toolCallId: 'call-1',
-      nativeExecutorId: 'host',
+      localMachine: 'host-a',
+      defaultMachine: 'host-a',
+      machines: localMachineConnector({ verify: () => Promise.resolve() }),
       nativeDeliverySequence: 1,
       bashProcessLimiter: new BashProcessLimiter(4),
       bashJobs: registry,
@@ -267,13 +270,11 @@ describe('foreground host bash move', () => {
         {
           ...contextFor({ abortSignal: abort.signal }),
           runId: 'run',
-          nativeExecutorId: 'host',
+          localMachine: 'host-a',
           toolCallId: 'call-1',
           attemptId: 'attempt',
         },
-        { command: 'make test', async: true },
-        process.cwd(),
-        slot,
+        hostCommand({ command: 'make test', async: true }, process.cwd(), slot),
       ),
     ).resolves.toMatchObject({ type: 'cancelled' });
     expect(start).not.toHaveBeenCalled();

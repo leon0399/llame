@@ -27,17 +27,17 @@ export type ArtifactNoticeContinuation = {
 };
 
 /**
- * The host files a spilled artifact also has on the llame host
+ * The host files a spilled artifact also has on the producer's Machine
  * (tool-result-artifacts "The notice names the host files"). Present only when
  * the write actually made them.
  */
 export type ArtifactNoticeHostFiles = {
-  /** The absolute directory that holds this artifact's files. */
-  readonly directory: string;
-  /** This call ran away from the llame host, so its shell cannot open them. */
+  /** The canonical `machine://` locator of the directory that holds them. */
+  readonly locator: string;
+  /** The `machines.local` Machine whose filesystem holds them. */
+  readonly machine: string;
+  /** This call ran away from that Machine, so its shell cannot open them. */
   readonly elsewhere: boolean;
-  /** `read` can serve the artifact, so its locator is a route here. */
-  readonly readable: boolean;
 };
 
 export type ArtifactNoticeOptions = {
@@ -73,23 +73,18 @@ export function artifactNotice(
 }
 
 /**
- * Where the host files are. A call on the llame host names the directory; one
- * away from it (a Machine, an `ssh://` cwd) cannot open that path, so the
- * notice says the files are on the llame host only when `read` is a route, and
- * otherwise names the directory with that qualification so a later host `bash`
- * can use it.
+ * Where the host files are. A call on that Machine names its directory as a
+ * `machine://` locator; one that ran elsewhere (another Machine, an `ssh://`
+ * host) cannot open that path, so the notice says which Machine holds it.
  */
 function hostFilesPhrase(
   hostFiles: ArtifactNoticeHostFiles | undefined,
 ): string {
   if (hostFiles === undefined) return "";
-  const directory = oneLine(hostFiles.directory);
 
-  if (!hostFiles.elsewhere) return `; host files in ${directory}`;
-
-  return hostFiles.readable
-    ? "; host files on the llame host only"
-    : `; host files in ${directory} on the llame host`;
+  return hostFiles.elsewhere
+    ? `; host files only on Machine ${oneLine(hostFiles.machine)}`
+    : `; host files in ${oneLine(hostFiles.locator)}`;
 }
 
 /**

@@ -29,7 +29,7 @@ vi.setConfig({ testTimeout: 60_000 });
 describe('host bash promotion and recovery database arbitration', () => {
   const fx = useSegmentsFixture('bash-promotion-recovery', {
     allowedTools: ['bash'],
-    nativeExecutorId: 'bash-promotion-recovery-host',
+    localMachine: 'bash-promotion-recovery-host',
   });
 
   it('reconciles a committed promotion after its transaction acknowledgement is lost', async () => {

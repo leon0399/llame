@@ -27,9 +27,8 @@ import {
 import { decodeFileAlias } from '../tools/permissions/file-alias';
 import { encodeLocatorPath } from '../tools/permissions/locator-path';
 
-/** The locator scheme, and the prefix a Workspace executor id carries. */
+/** The locator scheme. */
 export const MACHINE_SCHEME = 'machine';
-export const MACHINE_EXECUTOR_PREFIX = 'machine:';
 
 /** Machine names are the operator's configuration keys: lowercase and dashed. */
 export const MACHINE_NAME_PATTERN = /^[a-z0-9-]{1,63}$/u;
@@ -165,23 +164,4 @@ export function formatMachineLocator(
   const locator = `${MACHINE_SCHEME}://${canonicalName}${encoded}`;
 
   return selector === undefined ? locator : `${locator}:${selector}`;
-}
-
-/** The executor id a Machine Workspace binds: `machine:<name>`. */
-export function machineExecutorId(name: string): string {
-  return `${MACHINE_EXECUTOR_PREFIX}${name.toLowerCase()}`;
-}
-
-/** Does this text name a Machine executor (`machine:<name>`)? */
-export function isMachineExecutorId(value: string): boolean {
-  return parseMachineExecutorId(value) !== undefined;
-}
-
-/** The Machine a `machine:<name>` executor id names, or undefined. */
-export function parseMachineExecutorId(value: string): string | undefined {
-  if (!value.toLowerCase().startsWith(MACHINE_EXECUTOR_PREFIX))
-    return undefined;
-  const name = value.slice(MACHINE_EXECUTOR_PREFIX.length).toLowerCase();
-
-  return MACHINE_NAME_PATTERN.test(name) ? name : undefined;
 }

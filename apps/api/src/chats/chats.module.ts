@@ -9,6 +9,7 @@ import { RunWorkerModule } from '../runs/run-worker.module';
 import { RunsModule } from '../runs/runs.module';
 import { SearchModule } from '../search/search.module';
 import { TitlesModule } from '../titles/titles.module';
+import { WorkspaceEntryAdmission } from '../tools/permissions/workspace-entry-admission';
 import { ChatCommandsService } from './commands/chat-commands.service';
 import { ChatGitStateController } from './chat-git-state.controller';
 import { ChatGitStateService } from './chat-git-state.service';
@@ -68,6 +69,7 @@ import { SharedChatsController } from './shared-chats.controller';
     ChatCreationLock,
     ChatCreationService,
     ChatCreationWorkspace,
+    WorkspaceEntryAdmission,
   ],
   exports: [ChatsService],
 })

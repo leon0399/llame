@@ -608,7 +608,7 @@ describe('ProjectsService project links', () => {
       defaultRow({
         id: '88888888-8888-4888-8888-888888888888',
         projectRepositoryId: other.id,
-        executorId: 'machine:nas',
+        executorId: 'nas',
         updatedAt: INSTANT,
       }),
     ]);
@@ -622,9 +622,7 @@ describe('ProjectsService project links', () => {
     expect(rows[0].defaults.map((row) => row.projectRepositoryId)).toEqual([
       linkRow().id,
     ]);
-    expect(rows[1].defaults.map((row) => row.executorId)).toEqual([
-      'machine:nas',
-    ]);
+    expect(rows[1].defaults.map((row) => row.executorId)).toEqual(['nas']);
     expect(listLinks).toHaveBeenCalledWith(OWNER, projectRow().id);
   });
 

@@ -14,6 +14,7 @@ import { drizzle } from 'drizzle-orm/postgres-js';
 
 import { type Db } from '../db/tenant-db.service';
 import { NativeFilesRepository } from '../runs/native-files-repository';
+import { localMachineConnector } from '../testing/local-machine';
 import { compileTestPermissionPolicy } from '../testing/tool-permission-policy';
 import { nativeReadTool } from '../tools/native-files';
 import { compileToolPermissionMap } from '../tools/permissions/compile-permissions';
@@ -58,10 +59,12 @@ function readingContext(permissionPolicy: CompiledPolicy): ToolContext {
     userId: 'owner',
     chatId: 'chat',
     runId: 'run',
-    nativeExecutorId: 'host',
     nativeDeliverySequence: 1,
     toolCallId: 'call',
     permissionPolicy,
+    localMachine: 'host',
+    defaultMachine: 'host',
+    machines: localMachineConnector({ name: 'host' }),
     tenantDb: {
       runAs: async <T>(_userId: string, callback: (tx: Db) => Promise<T>) =>
         callback(db),

@@ -46,7 +46,7 @@ vi.setConfig({ testTimeout: 90_000 });
 describe('run steering segments', () => {
   const fx = useSegmentsFixture('run-segments', {
     allowedTools: ['read', 'bash', 'stop'],
-    nativeExecutorId: 'run-segments-host',
+    localMachine: 'run-segments-host',
     maxStepsPerRun: 2,
   });
 
@@ -1589,7 +1589,7 @@ describe('run steering segments without tools', () => {
 describe('run steering segments and the time limits', () => {
   const fx = useSegmentsFixture('run-segments-budget', {
     allowedTools: ['bash'],
-    nativeExecutorId: 'run-segments-budget-host',
+    localMachine: 'run-segments-budget-host',
     timeoutSeconds: 4,
   });
 

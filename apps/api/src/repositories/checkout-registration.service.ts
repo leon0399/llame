@@ -1,4 +1,4 @@
-import { HttpException, Inject, Injectable } from '@nestjs/common';
+import { HttpException, Injectable } from '@nestjs/common';
 import {
   type GitFailure,
   type GitInspectSuccess,
@@ -10,16 +10,16 @@ import {
   type Repository,
 } from '../db/schema';
 import { TenantDbService } from '../db/tenant-db.service';
-import { InstanceConfigService } from '../instance-config/instance-config.service';
 import { ExecutorGitError } from '../machines/executor-git-error';
 import {
   ExecutorGit,
   type ExecutorTarget,
 } from '../machines/executor-git.service';
-import { decidePermission, OWNER_ROUTE } from '../tools/permissions/admit';
-import { projectNativeFilePath } from '../tools/permissions/locator-projection';
-import { TOOL_PERMISSION_POLICY } from '../tools/permissions/permission-policy.module';
-import { type CompiledPolicy } from '../tools/permissions/types';
+import { OWNER_ROUTE } from '../tools/permissions/admit';
+import {
+  WORKSPACE_TOOL_ID,
+  WorkspaceEntryAdmission,
+} from '../tools/permissions/workspace-entry-admission';
 import { derivedDisplayName } from './display-name';
 import { checkoutFailureCode, notFound, repositoryFailure } from './failure';
 import { canonicalOrigin, normalizeRemote } from './remote';
@@ -36,11 +36,11 @@ import { RepositoriesRepository } from './repositories.repository';
  * enter, and the inspected origin — never a caller's claim — decides which
  * repository the checkout joins.
  *
- * The executor is derived from the submitted path: an absolute local path runs
- * in-process on this process's `tools.nativeExecutorId`, and a
- * `machine://<name>/<abs>` locator reaches that Machine through the protocol.
- * Both store the address form in `checkouts.path`: the absolute path locally,
- * the locator on a Machine, which is the same text a bound root carries.
+ * The executor is derived from the submitted path: an absolute path names
+ * `machines.default`, and a `machine://<name>/<abs>` locator names its own
+ * Machine. Both store the canonical locator in `checkouts.path` and the Machine
+ * name in `checkouts.executor_id`, which is the same text a bound root carries;
+ * the host Machine's git runs in process only after its own daemon verified.
  */
 
 export type RegisterCheckoutInput = {
@@ -63,20 +63,12 @@ type RegistrationPlan = {
   readonly canonicalRemote: string | null;
 };
 
-/** The one tool group these routes are gated by. */
-const WORKSPACE_TOOL_ID = 'enter_workspace';
-
 @Injectable()
 export class CheckoutRegistrationService {
   constructor(
     private readonly tenantDb: TenantDbService,
-    // Explicit token: the parameter is narrowed to the reader capability, so
-    // the emitted design type is not the class Nest would resolve.
-    @Inject(InstanceConfigService)
-    private readonly config: Pick<InstanceConfigService, 'config'>,
     private readonly executors: ExecutorGit,
-    @Inject(TOOL_PERMISSION_POLICY)
-    private readonly policy: CompiledPolicy,
+    private readonly admission: WorkspaceEntryAdmission,
   ) {}
 
   async register(
@@ -104,7 +96,7 @@ export class CheckoutRegistrationService {
   ): Promise<RegistrationPlan> {
     const target = this.executors.locate(submittedPath);
 
-    if (!this.config.config.tools.allowed.includes(WORKSPACE_TOOL_ID)) {
+    if (!this.admission.allowsTool()) {
       throw repositoryFailure(
         'tool_not_allowed',
         `${WORKSPACE_TOOL_ID} is not in tools.allowed, so this path may not be inspected.`,
@@ -152,12 +144,7 @@ export class CheckoutRegistrationService {
    * nothing allows the path.
    */
   private requirePathAllowed(value: string): void {
-    const decision = decidePermission(this.policy, OWNER_ROUTE, (evaluate) =>
-      evaluate({
-        toolId: WORKSPACE_TOOL_ID,
-        args: { path: projectNativeFilePath(value) },
-      }),
-    );
+    const decision = this.admission.decide(value, OWNER_ROUTE);
 
     if (decision.decision === 'reject') {
       throw repositoryFailure(
