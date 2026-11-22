@@ -260,4 +260,4 @@ None. Exact export names in D4 are an implementation choice.
   web port hint only for admitted suffixes; `2024:10:raw:L1-N`. Rejected as pre-existing canonical
   text unchanged in behavior here: multiline `knowledge_search` queries, outline `lineCount` versus
   the open continuation, and the bound-cut scenario order (CodeRabbit). Rejected as no change
-  needed: pullfrog's finalize reconciliation note, which task 7.3 already covers.
+  needed: pullfrog's finalize reconciliation note, which finalize task 6.3 already covers.
