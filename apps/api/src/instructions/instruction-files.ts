@@ -254,9 +254,7 @@ function loaded(
 
 /**
  * Read one candidate as consecutive bounded `:raw` pages, cut at
- * INSTRUCTION_FILE_BYTE_LIMIT UTF-8 bytes on a character boundary. Every page
- * is requested in the canonical `:raw:L<from>-<to>` spelling, so the `read`
- * group evaluates the same text the item is built from.
+ * INSTRUCTION_FILE_BYTE_LIMIT UTF-8 bytes on a character boundary.
  *
  * Each page starts after the last complete line collected, never at the
  * previous page's `nextOffset`: that offset points past a line the native

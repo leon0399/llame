@@ -28,10 +28,6 @@ import {
   parseKnowledgeLocator,
 } from '../knowledge/knowledge-locator';
 import {
-  MACHINE_SCHEME,
-  parseMachineLocator,
-} from '../machines/machine-locator';
-import {
   boundRetained,
   retainedEntry,
   type RetainedMedia,
@@ -57,6 +53,7 @@ import {
   SKILL_LOCATOR_SCHEME,
 } from '../skills/skill-locator';
 import { parseSshLocator, SSH_SCHEME } from '../ssh/ssh-locator';
+import { decodeFileAlias, isFileAlias } from '../tools/permissions/file-alias';
 import { splitWebSelector, stripFragment } from '../tools/web-read/locator';
 
 import {
@@ -429,50 +426,39 @@ type ImportLabelSplit = {
  * name as one file, when it names no selector, or when the grammar refuses its
  * selector, because no read of the canonical spelling would name it.
  */
-function importLabel(outcome: PromptImportOutcome): string {
-  if (outcome.literal === true) return outcome.locator;
+function importLabel(locator: string, literal = false): string {
+  if (literal) return locator;
 
-  const split = splitImportTarget(outcome.locator);
+  const split = splitImportTarget(locator);
 
-  const canonical =
-    split === undefined ? undefined : canonicalSelector(split.selector);
+  if (split === undefined) return locator;
+  const canonical = canonicalSelector(split.selector);
 
-  return split === undefined || canonical === undefined
-    ? outcome.locator
-    : `${split.path}:${canonical}`;
+  return canonical === undefined ? locator : `${split.path}:${canonical}`;
 }
 
-/**
- * Split one target the way its scheme's `read` locator does. Permission
- * matching strips the same selector in `withoutReadSelector`; this keeps it,
- * because the label prints its canonical spelling.
- */
+/** Split one target the way its scheme's `read` locator does. */
 function splitImportTarget(locator: string): ImportLabelSplit | undefined {
+  if (isFileAlias(locator)) return fileAliasSplit(locator);
+
   const scheme = parsePathScheme(locator);
 
   if (scheme === undefined) return localSplit(locator);
 
-  switch (scheme.scheme) {
-    case KNOWLEDGE_LOCATOR_SCHEME: {
-      const parsed = parseKnowledgeLocator(scheme.rest);
-
-      return 'type' in parsed ? undefined : tailSplit(locator, parsed.selector);
-    }
-
-    case SKILL_LOCATOR_SCHEME: {
-      const parsed = parseSkillLocator(scheme.rest);
-
-      return 'type' in parsed ? undefined : tailSplit(locator, parsed.selector);
-    }
-
-    case MACHINE_SCHEME: {
-      const parsed = parseMachineLocator(locator);
-
-      return parsed.kind === 'path'
-        ? tailSplit(locator, parsed.selector)
+  const parse =
+    scheme.scheme === KNOWLEDGE_LOCATOR_SCHEME
+      ? parseKnowledgeLocator
+      : scheme.scheme === SKILL_LOCATOR_SCHEME
+        ? parseSkillLocator
         : undefined;
-    }
 
+  if (parse !== undefined) {
+    const parsed = parse(scheme.rest);
+
+    return 'type' in parsed ? undefined : tailSplit(locator, parsed.selector);
+  }
+
+  switch (scheme.scheme) {
     case SSH_SCHEME: {
       const parsed = parseSshLocator(locator);
 
@@ -489,7 +475,7 @@ function splitImportTarget(locator: string): ImportLabelSplit | undefined {
   }
 }
 
-/** A host, `file:`, media, or relative target's own split. */
+/** A host, media, Project, or relative target's own split. */
 function localSplit(locator: string): ImportLabelSplit | undefined {
   const { path, selector } = splitSelectorSuffix(locator);
 
@@ -497,9 +483,26 @@ function localSplit(locator: string): ImportLabelSplit | undefined {
 }
 
 /**
- * The split the Knowledge, skill, Machine, and `ssh://` parsers report: each
- * separates the selector at a colon, so the selector they return is a tail of
- * the text and the path is what precedes its colon.
+ * A `file:` alias splits its decoded host path, as `resolveMachinePath` does,
+ * so a percent-encoded colon stays path text. The label prints the decoded
+ * form, because that is the file the read opens.
+ */
+function fileAliasSplit(locator: string): ImportLabelSplit | undefined {
+  const alias = decodeFileAlias(locator);
+
+  if (!alias.ok) return undefined;
+
+  const { path, selector } = splitSelectorSuffix(alias.hostPath);
+
+  return selector === undefined
+    ? undefined
+    : { path: `file://${path}`, selector };
+}
+
+/**
+ * The split the Knowledge, skill, and `ssh://` parsers report: each separates
+ * the selector at a colon, so the selector they return is a tail of the text
+ * and the path is what precedes its colon.
  */
 function tailSplit(
   locator: string,
@@ -528,7 +531,7 @@ function renderPromptImports(
   const notImported: Array<{ locator: string }> = [];
 
   for (const outcome of outcomes) {
-    const label = importLabel(outcome);
+    const label = importLabel(outcome.locator, outcome.literal === true);
 
     if (outcome.outcome === 'imported') {
       imports.push({
@@ -544,7 +547,7 @@ function renderPromptImports(
     omitted.length === 0
       ? undefined
       : omitted
-          .map((locator) => `\`${sanitizeAuthoredText(locator)}\``)
+          .map((locator) => `\`${sanitizeAuthoredText(importLabel(locator))}\``)
           .join(', ');
 
   return renderPromptImportsTemplate({

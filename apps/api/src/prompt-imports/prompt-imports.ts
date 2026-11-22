@@ -301,18 +301,16 @@ async function handleTarget(
     target,
     ordinal,
     readPath: plan.readPath,
-    ...probe,
+    probe,
   });
 }
 
 /**
  * What a probe found: the canonical locator of the file the read opens, and
- * whether the literal probe found a file whose whole name is the target. A
- * target whose selector the literal probe claimed is not the selector's
- * resource, so the label step prints it as written.
+ * whether the literal path matched.
  */
 type ProbeResolution = {
-  readonly resolved?: string;
+  readonly resolved: string;
   readonly literal?: true;
 };
 
@@ -399,17 +397,11 @@ type ReadAttempt = {
   readonly target: string;
   readonly ordinal: number;
   readonly readPath: string;
-  readonly resolved?: string;
-  /** The literal probe found the whole target as one file name. */
-  readonly literal?: true;
+  readonly probe?: ProbeResolution;
 };
 
 function outcomeBase(attempt: ReadAttempt) {
-  return {
-    locator: attempt.target,
-    ...(attempt.resolved !== undefined && { resolved: attempt.resolved }),
-    ...(attempt.literal === true && { literal: true }),
-  };
+  return { locator: attempt.target, ...attempt.probe };
 }
 
 /**

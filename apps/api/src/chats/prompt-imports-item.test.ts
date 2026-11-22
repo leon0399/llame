@@ -415,17 +415,27 @@ describe('prompt imports labels', () => {
     });
   });
 
-  it('prints a refused selector as written', () => {
-    const item = itemOf([{ locator: 'notes.md:L-5', outcome: 'failed' }]);
+  it('prints an omitted target with its unit and keeps it raw in the payload', () => {
+    const item = createPromptImportsItem({
+      retainedBefore: 0,
+      runId: RUN_ID,
+      outcomes: [],
+      omitted: ['notes.md:30-35'],
+      retained: new Map(),
+    });
 
     expect(item.data.text).toContain(
-      'The prompt target `notes.md:L-5` was not imported.',
+      'The following prompt targets were omitted: `notes.md:L30-35`.',
     );
+    expect(item.data.payload).toEqual({
+      imports: [],
+      omitted: ['notes.md:30-35'],
+    });
   });
 
   it.each([
     ['/repo/notes.md:5', '/repo/notes.md:L5'],
-    ['machine://box/repo/a.md:5', 'machine://box/repo/a.md:L5'],
+    ['machine://devl/a:30-35', 'machine://devl/a:L30-35'],
     [
       `kb://${SPACE_ID}/notes.md:raw:30-35`,
       `kb://${SPACE_ID}/notes.md:raw:L30-35`,
@@ -436,6 +446,7 @@ describe('prompt imports labels', () => {
     ],
     ['skill://pdf:5', 'skill://pdf:L5'],
     ['ssh://box/etc/hosts:5', 'ssh://box/etc/hosts:L5'],
+    ['file:///repo/a%3A30-35', 'file:///repo/a:L30-35'],
     ['https://x.test/a.md:5-10', 'https://x.test/a.md:L5-10'],
     [`media://${MEDIA_ID}:5`, `media://${MEDIA_ID}:L5`],
     ['notes.md:12:5', 'notes.md:L12'],
@@ -453,6 +464,7 @@ describe('prompt imports labels', () => {
       'the Knowledge reader splits at its first colon',
     ],
     ['ssh://box:2222', 'a destination with no path is refused'],
+    ['notes.md:L-5', 'the grammar refuses the selector'],
   ] as const)('prints %s as written (%s)', (locator, _reason) => {
     const item = itemOf([{ locator, outcome: 'failed' }]);
 
