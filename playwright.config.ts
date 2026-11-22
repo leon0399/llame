@@ -3,6 +3,8 @@ import { tmpdir } from "node:os";
 
 import { defineConfig, devices } from "@playwright/test";
 
+import { E2E_HOST_ROOTS } from "./e2e/support/host-paths";
+
 function readPort(name: string, fallback: string): string {
   const value = process.env[name] ?? fallback;
   const port = Number(value);
@@ -179,6 +181,13 @@ export default defineConfig({
           __dirname,
           "e2e/support/fixtures/llame.config.e2e.json",
         ),
+        // `pnpm --filter api dev` prepares its own Machine (dev-machine-host)
+        // and replaces LLAME_MACHINE_COMMAND/CONFIG_DIR on its command line,
+        // but it reads this list from the environment. The fixture host paths
+        // (`permission-gate.spec.ts` reads E2E_HOST_READ_PATH) lie outside the
+        // checkout and the temp directory, so the Machine must register them
+        // or every such read fails `path_not_registered`.
+        LLAME_MACHINE_EXTRA_ROOTS: E2E_HOST_ROOTS.join(path.delimiter),
       }),
       url: apiUrl,
       timeout: 120_000,
