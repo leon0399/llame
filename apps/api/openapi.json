@@ -1459,9 +1459,6 @@
                       "$ref": "#/components/schemas/GitStateUnboundResponse"
                     },
                     {
-                      "$ref": "#/components/schemas/GitStateNotARepositoryResponse"
-                    },
-                    {
                       "$ref": "#/components/schemas/GitStateUnavailableResponse"
                     }
                   ],
@@ -1470,7 +1467,6 @@
                     "mapping": {
                       "ok": "#/components/schemas/GitStateOkResponse",
                       "unbound": "#/components/schemas/GitStateUnboundResponse",
-                      "not_a_repository": "#/components/schemas/GitStateNotARepositoryResponse",
                       "unavailable": "#/components/schemas/GitStateUnavailableResponse"
                     }
                   }
@@ -6373,20 +6369,6 @@
           }
         },
         "required": ["status"]
-      },
-      "GitStateNotARepositoryResponse": {
-        "type": "object",
-        "properties": {
-          "status": {
-            "type": "string",
-            "enum": ["not_a_repository"]
-          },
-          "line": {
-            "type": "string",
-            "description": "`not a git repository`"
-          }
-        },
-        "required": ["status", "line"]
       },
       "GitStateUnavailableResponse": {
         "type": "object",

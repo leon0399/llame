@@ -110,9 +110,9 @@ export class CheckoutRegistrationService {
 
     // Every path this route probes has been admitted by the operator's policy
     // in its submitted form, and its canonical form is admitted again below.
-    // The canonical form is decided before any git call: `realpath` locally,
-    // and the daemon's own `fs.stat` real path on a Machine, as
-    // `enter_workspace` decides a root before it binds one.
+    // The canonical form is decided before any git call by the Machine's own
+    // `fs.stat` real path, as `enter_workspace` decides a root before it binds
+    // one.
     const canonicalPath = await this.executors.canonical(target, submitted);
 
     if (canonicalPath !== submitted) this.requirePathAllowed(canonicalPath);

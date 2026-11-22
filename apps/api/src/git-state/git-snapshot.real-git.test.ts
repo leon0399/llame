@@ -11,8 +11,7 @@ import { join } from 'node:path';
 
 import { ExecutorGit } from '../machines/executor-git.service';
 import { MachineConnector } from '../machines/machine-connector.service';
-import { createProtocolPeer } from '../testing/machine-protocol-peer';
-import { GIT_SURFACE, gitMachineAnswers } from '../testing/machine-git-peer';
+import { machineFilesConnector } from '../testing/machine-files-peer';
 import { GitSnapshotService } from './git-snapshot.service';
 import { renderGitObservation } from './git-state-render';
 
@@ -67,19 +66,7 @@ function repository(): string {
 const HOST = 'snapshot-host';
 
 function service(): GitSnapshotService {
-  const roots = [tmpdir()];
-
-  const connector = new MachineConnector({
-    hubVersion: 'test-hub',
-    bindIdentity: () => Promise.resolve('match'),
-    machines: { local: HOST, default: HOST, hosts: { [HOST]: {} } },
-    transportFactory: createProtocolPeer({
-      roots,
-      methods: GIT_SURFACE,
-      answer: gitMachineAnswers({ roots }),
-    }).factory,
-    idleCloseMs: 1000,
-  });
+  const connector = machineFilesConnector({ name: HOST, roots: [tmpdir()] });
 
   connectors.push(connector);
 

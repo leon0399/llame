@@ -180,10 +180,12 @@ bounded, redacted standard error.
 On every Machine, the host Machine included, each path in an answer is a
 locator, and each registered-root prefix in a failure's standard error is
 rewritten to the locator form, so a host path for a registered root never
-reaches the hub. The handshake lists the git methods a daemon answers. No git
-process runs in the API or a worker: host git and worktree calls run on the host
-Machine's own daemon, under the same argv, environment, timeout, and root
-enforcement as a remote Machine.
+reaches the hub. The handshake lists the git methods a daemon answers. llame's
+own git calls run on a Machine's daemon, never in the API or a worker: host
+registration, git state, and worktree calls run on the host Machine's own
+daemon, under the same argv, environment, timeout, and root enforcement as a
+remote Machine. Model `bash` commands and background jobs still run git in the
+worker, on the host Machine's files.
 
 ### Hooks, monitors, and filter drivers
 

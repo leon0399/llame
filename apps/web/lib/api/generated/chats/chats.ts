@@ -23,7 +23,6 @@ import type {
   ForkChatDto,
   GetChatMessagesParams,
   GetSharedChatParams,
-  GitStateNotARepositoryResponse,
   GitStateOkResponse,
   GitStateUnavailableResponse,
   GitStateUnboundResponse,
@@ -639,10 +638,7 @@ export const getChatGitState = async (
   options: RequestInit | undefined,
   fetchFn: typeof globalThis.fetch,
 ): Promise<
-  | GitStateOkResponse
-  | GitStateUnboundResponse
-  | GitStateNotARepositoryResponse
-  | GitStateUnavailableResponse
+  GitStateOkResponse | GitStateUnboundResponse | GitStateUnavailableResponse
 > => {
   const res = await fetchFn(getGetChatGitStateUrl(id), {
     ...options,
@@ -671,7 +667,6 @@ export const getChatGitState = async (
   const data:
     | GitStateOkResponse
     | GitStateUnboundResponse
-    | GitStateNotARepositoryResponse
     | GitStateUnavailableResponse = body ? JSON.parse(body) : {};
   return data;
 };

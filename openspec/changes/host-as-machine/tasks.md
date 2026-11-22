@@ -199,7 +199,9 @@ against its parent before publication.
       entry.
   - Evidence: `repositories.md` and `enter-workspace.md` state that host git runs on the host
     daemon under its registered roots, and the 2026-11-22 `CHANGELOG.md` entry names every host
-    call that now fails with `path_not_registered` and the `llame-machine roots add` restore.
+    call that now fails with `path_not_registered` and the `llame-machine roots add` restore. The
+    `workspace-git-state` delta moves the plain-folder answer to "no repository inside the
+    registered root" and drops the "not a git repository" line, and `git-state.md` matches it.
 - [ ] 5.3 Focused checks as in 3.14.
 - [ ] 5.4 SR before ready; GR per [CONTRIBUTING.md](../../../CONTRIBUTING.md#ready-pr-monitoring).
 

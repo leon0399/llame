@@ -30,6 +30,7 @@ import { join } from 'node:path';
 import { type INestApplication } from '@nestjs/common';
 import { type GitInspectResult } from '@workspace/git-executor';
 import { Test } from '@nestjs/testing';
+import { GIT_METHODS } from '@workspace/machine-protocol';
 import postgres, { type Sql } from 'postgres';
 import request from 'supertest';
 import { z } from 'zod';
@@ -45,9 +46,10 @@ import { MachineConnector } from '../machines/machine-connector.service';
 import {
   createProtocolPeer,
   type PeerCall,
+  wireJson,
 } from '../testing/machine-protocol-peer';
-import { GIT_SURFACE, wireJson } from '../testing/machine-git-peer';
 import { startLocalDaemon, type LocalDaemon } from '../testing/local-daemon';
+import { DEFAULT_LOCAL_MACHINE_NAME } from '../testing/local-machine';
 import { CanonicalSearchCoverageService } from '../search/canonical-search-activation.service';
 import { cookieOf, expectRegisteredUserId } from '../testing/support';
 import { type PermissionGroup } from '../tools/permissions/types';
@@ -113,7 +115,7 @@ function tools(overrides: Partial<LlameConfig['tools']>): LlameConfig['tools'] {
 }
 
 /** The host Machine these fixtures configure: `machines.local` and default. */
-const HOST = 'test-host';
+const HOST = DEFAULT_LOCAL_MACHINE_NAME;
 
 const MACHINES: NonNullable<LlameConfig['machines']> = {
   local: HOST,
@@ -208,7 +210,7 @@ function scriptedConnector(
 ): MachineConnector {
   const peer = createProtocolPeer({
     roots: [tmpdir()],
-    methods: GIT_SURFACE,
+    methods: GIT_METHODS,
     answer: (call) => {
       if (call.method === 'fs.stat') {
         const path = pathOf(call);
@@ -290,7 +292,6 @@ async function boot(options: BootOptions): Promise<Harness> {
 /** One real daemon child over these roots, remembered for the suite's cleanup. */
 function startedConnector(options: BootOptions): MachineConnector {
   const daemon = startLocalDaemon({
-    name: HOST,
     roots: options.roots ?? [tmpdir()],
     ...(options.command !== undefined && { command: options.command }),
   });

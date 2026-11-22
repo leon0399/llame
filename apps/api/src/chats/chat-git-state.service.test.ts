@@ -14,15 +14,12 @@ import { NotFoundException } from '@nestjs/common';
 import { type Chat } from '../db/schema';
 import { GitSnapshotService } from '../git-state/git-snapshot.service';
 import { ExecutorGit } from '../machines/executor-git.service';
-import {
-  MachineConnector,
-  type MachineConnectorDeps,
-} from '../machines/machine-connector.service';
+import { MachineConnector } from '../machines/machine-connector.service';
 import {
   createProtocolPeer,
   type ProtocolPeerOptions,
 } from '../testing/machine-protocol-peer';
-import { GIT_SURFACE, gitMachineAnswers } from '../testing/machine-git-peer';
+import { machineFilesConnector } from '../testing/machine-files-peer';
 import { ChatGitStateService } from './chat-git-state.service';
 
 for (const name of execFileSync('git', ['rev-parse', '--local-env-vars'])
@@ -99,26 +96,35 @@ function chatAt(
   };
 }
 
-function realExecutors(
-  options: ProtocolPeerOptions = {},
-  machines: MachineConnectorDeps['machines'] = {
-    local: EXECUTOR,
-    default: EXECUTOR,
-    hosts: { [EXECUTOR]: {} },
-  },
-) {
-  const roots = [tmpdir()];
+function realExecutors() {
+  const connector = machineFilesConnector({
+    name: EXECUTOR,
+    roots: [tmpdir()],
+  });
 
+  connectors.push(connector);
+
+  return {
+    executors: new ExecutorGit(connector),
+    connector,
+  };
+}
+
+/** The default Machines plus one that refuses every link. */
+function offlineExecutors(options: ProtocolPeerOptions) {
   const connector = new MachineConnector({
     hubVersion: 'test-hub',
     bindIdentity: () => Promise.resolve('match'),
-    machines,
-    transportFactory: createProtocolPeer({
-      roots,
-      methods: GIT_SURFACE,
-      answer: gitMachineAnswers({ roots }),
-      ...options,
-    }).factory,
+    machines: {
+      ssh: { knownHostsFile: '/dev/null' },
+      local: EXECUTOR,
+      default: EXECUTOR,
+      hosts: {
+        [EXECUTOR]: {},
+        nas: { destination: 'nas.example' },
+      },
+    },
+    transportFactory: createProtocolPeer(options).factory,
     idleCloseMs: 1000,
   });
 
@@ -251,18 +257,9 @@ describe('ChatGitStateService', () => {
   });
 
   it('answers an offline Machine as unavailable without touching the reachability cache', async () => {
-    const { executors, connector } = realExecutors(
-      { openFailure: () => 'ssh: connect to host nas port 22: refused' },
-      {
-        ssh: { knownHostsFile: '/dev/null' },
-        local: EXECUTOR,
-        default: EXECUTOR,
-        hosts: {
-          [EXECUTOR]: {},
-          nas: { destination: 'nas.example' },
-        },
-      },
-    );
+    const { executors, connector } = offlineExecutors({
+      openFailure: () => 'ssh: connect to host nas port 22: refused',
+    });
 
     const reachable = vi.spyOn(connector, 'reachable');
 

@@ -5,6 +5,7 @@ import type { MockInstance } from 'vitest';
 import { z } from 'zod';
 
 import { isRecord, isString } from '@workspace/runtime-safety';
+import { GIT_METHODS } from '@workspace/machine-protocol';
 
 import {
   type Checkout,
@@ -28,8 +29,8 @@ import { MachineConnector } from '../machines/machine-connector.service';
 import {
   createProtocolPeer,
   type PeerCall,
+  wireJson,
 } from '../testing/machine-protocol-peer';
-import { GIT_SURFACE, wireJson } from '../testing/machine-git-peer';
 import { CheckoutRegistrationService } from './checkout-registration.service';
 import { RepositoriesRepository } from './repositories.repository';
 
@@ -175,7 +176,7 @@ function makeService(options: {
   // daemon answers, so the gate order and the locator mapping stay production.
   const peer = createProtocolPeer({
     roots: [tmpdir()],
-    methods: GIT_SURFACE,
+    methods: GIT_METHODS,
     answer: (call) => {
       if (call.method === 'fs.stat') {
         const path = pathOf(call);

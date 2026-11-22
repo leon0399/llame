@@ -117,10 +117,7 @@ export class GitSnapshotService {
         { signal },
       );
 
-      if (located.status === 'error')
-        return located.type === 'not_a_repository'
-          ? { kind: 'not_a_repository' }
-          : failureObservation(located);
+      if (located.status === 'error') return failureObservation(located);
 
       if (!input.admit(located.gitEntry)) return unavailable('not_permitted');
 

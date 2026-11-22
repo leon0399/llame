@@ -21,8 +21,7 @@ import {
 } from '../db/tenant-db.service';
 import { ExecutorGit } from '../machines/executor-git.service';
 import { MachineConnector } from '../machines/machine-connector.service';
-import { localMachineConnector } from '../testing/local-machine';
-import { GIT_SURFACE, gitMachineAnswers } from '../testing/machine-git-peer';
+import { machineFilesConnector } from '../testing/machine-files-peer';
 import { RepositoriesRepository } from '../repositories/repositories.repository';
 import { type ToolErrorResult } from '../tools/types';
 import { WorkspaceBindingRepository } from '../chats/workspace-binding.repository';
@@ -126,13 +125,7 @@ function linkedWorktree(main: string, branch: string): string {
 }
 
 function executors(): ExecutorGit {
-  const roots = [tmpdir()];
-
-  const connector = localMachineConnector({
-    name: MACHINE,
-    methods: GIT_SURFACE,
-    answer: gitMachineAnswers({ roots }),
-  });
+  const connector = machineFilesConnector({ name: MACHINE, roots: [tmpdir()] });
 
   connectors.push(connector);
 

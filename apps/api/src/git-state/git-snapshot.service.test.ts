@@ -142,15 +142,6 @@ describe('GitSnapshotService.observe', () => {
     expect(admit).toHaveBeenCalledExactlyOnceWith(ENTRY);
   });
 
-  it('reports a plain folder as not a repository and starts no state call', async () => {
-    const { service, calls } = harness(() =>
-      Promise.resolve(failure('not_a_repository')),
-    );
-
-    expect(await line(service)).toBe('not a git repository');
-    expect(calls.state).toHaveLength(0);
-  });
-
   it.each([
     ['no_repository_in_root', 'no repository inside the registered root'],
     ['root_missing', 'Workspace root not found'],

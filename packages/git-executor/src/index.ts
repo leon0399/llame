@@ -23,7 +23,7 @@ export {
 
 /*
  * The result shapes are the wire protocol's own: one declaration serves the
- * daemon's answers and the hub's local executor, so the two cannot drift.
+ * daemon's answers and the hub's reads of them, so the two cannot drift.
  */
 export type {
   GitFailure,

@@ -9,7 +9,12 @@ import { createGitItem } from './git-item';
 import { type GitObservation } from './git-state-view';
 
 const RUN_ID = '3b0f5b8e-6d2e-4c0a-9c1d-0f6a7c8d9e10';
-const CLEAN: GitObservation = { kind: 'not_a_repository' };
+
+const ABSENT: GitObservation = {
+  kind: 'unavailable',
+  reason: 'no_repository_in_root',
+};
+
 const FAILED: GitObservation = { kind: 'unavailable', reason: 'git_failed' };
 
 const textOf = (observation: GitObservation) =>
@@ -62,20 +67,20 @@ function worldOf(
 
 describe('git producer, in-Run entry', () => {
   it('stages the state after an entry that bound the root', async () => {
-    const world = worldOf(() => Promise.resolve(CLEAN), textOf(CLEAN));
+    const world = worldOf(() => Promise.resolve(ABSENT), textOf(ABSENT));
     const producer = attempt(world);
 
     producer.observeToolCall?.(entered('bound'));
     const staged = await step(producer);
 
     // Told text equals the new text, yet a new binding always tells.
-    expect(staged.map((part) => part.data.text)).toEqual([textOf(CLEAN)]);
+    expect(staged.map((part) => part.data.text)).toEqual([textOf(ABSENT)]);
     expect(world.observe).toHaveBeenCalledExactlyOnceWith('/repo');
   });
 
   it('observes the root the result names, not the submitted spelling', async () => {
     const world = worldOf(
-      () => Promise.resolve(CLEAN),
+      () => Promise.resolve(ABSENT),
       undefined,
       '/real/repo',
     );
@@ -92,7 +97,7 @@ describe('git producer, in-Run entry', () => {
   });
 
   it('stages nothing for a step without an entry', async () => {
-    const world = worldOf(() => Promise.resolve(CLEAN));
+    const world = worldOf(() => Promise.resolve(ABSENT));
     const producer = attempt(world);
 
     expect(await step(producer)).toEqual([]);
@@ -100,7 +105,7 @@ describe('git producer, in-Run entry', () => {
   });
 
   it('observes at the step after the result, once', async () => {
-    const world = worldOf(() => Promise.resolve(CLEAN));
+    const world = worldOf(() => Promise.resolve(ABSENT));
     const producer = attempt(world);
 
     // The admission observation carries no result and triggers nothing.
@@ -117,7 +122,7 @@ describe('git producer, in-Run entry', () => {
   });
 
   it('adds nothing for an unchanged re-entry whose text matches the history', async () => {
-    const world = worldOf(() => Promise.resolve(CLEAN), textOf(CLEAN));
+    const world = worldOf(() => Promise.resolve(ABSENT), textOf(ABSENT));
     const producer = attempt(world);
 
     producer.observeToolCall?.(entered('unchanged'));
@@ -127,7 +132,7 @@ describe('git producer, in-Run entry', () => {
   });
 
   it('tells a changed state after an unchanged re-entry', async () => {
-    const world = worldOf(() => Promise.resolve(FAILED), textOf(CLEAN));
+    const world = worldOf(() => Promise.resolve(FAILED), textOf(ABSENT));
     const producer = attempt(world);
 
     producer.observeToolCall?.(entered('unchanged'));
@@ -137,8 +142,12 @@ describe('git producer, in-Run entry', () => {
   });
 
   it('compares a later re-entry with what this attempt just told', async () => {
-    const observations = [CLEAN, CLEAN, FAILED];
-    const world = worldOf(() => Promise.resolve(observations.shift() ?? CLEAN));
+    const observations = [ABSENT, ABSENT, FAILED];
+
+    const world = worldOf(() =>
+      Promise.resolve(observations.shift() ?? ABSENT),
+    );
+
     const producer = attempt(world);
 
     producer.observeToolCall?.(entered('bound'));
@@ -152,7 +161,7 @@ describe('git producer, in-Run entry', () => {
   });
 
   it('keeps telling when one step holds a binding entry and a re-entry', async () => {
-    const world = worldOf(() => Promise.resolve(CLEAN), textOf(CLEAN), '/b');
+    const world = worldOf(() => Promise.resolve(ABSENT), textOf(ABSENT), '/b');
     const producer = attempt(world);
 
     producer.observeToolCall?.(entered('switched', '/a'));
@@ -163,7 +172,7 @@ describe('git producer, in-Run entry', () => {
   });
 
   it('stages nothing for a failed entry or another tool', async () => {
-    const world = worldOf(() => Promise.resolve(CLEAN));
+    const world = worldOf(() => Promise.resolve(ABSENT));
     const producer = attempt(world);
 
     producer.observeToolCall?.(entered('bound', '/repo', 'error'));
@@ -179,7 +188,7 @@ describe('git producer, in-Run entry', () => {
   });
 
   it('stages nothing when the step holds another root than the entry named', async () => {
-    const world = worldOf(() => Promise.resolve(CLEAN), undefined, '/other');
+    const world = worldOf(() => Promise.resolve(ABSENT), undefined, '/other');
     const producer = attempt(world);
 
     producer.observeToolCall?.(entered('bound'));

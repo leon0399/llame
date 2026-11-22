@@ -1,5 +1,5 @@
 /**
- * The Machine-facing half of the git surface (openspec `repositories`
+ * The Machine request helpers `ExecutorGit` uses (openspec `repositories`
  * "Executors expose typed git operations"): one git or `fs.stat` method sent to
  * a Machine's daemon, and every path its answer carries rendered as the
  * canonical `machine://<name>/<abs>` locator. Every git call leaves the process

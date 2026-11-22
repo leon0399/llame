@@ -30,6 +30,7 @@ import {
 import { ExecutorGit } from '../machines/executor-git.service';
 import { MachineConnector } from '../machines/machine-connector.service';
 import { startLocalDaemon, type LocalDaemon } from '../testing/local-daemon';
+import { DEFAULT_LOCAL_MACHINE_NAME } from '../testing/local-machine';
 import { ModelsService } from '../models/models.service';
 import { CanonicalSearchCoverageService } from '../search/canonical-search-activation.service';
 import {
@@ -46,7 +47,7 @@ for (const name of execFileSync('git', ['rev-parse', '--local-env-vars'])
 
 vi.setConfig({ testTimeout: 120_000 });
 
-const EXECUTOR = 'git-state-host';
+const EXECUTOR = DEFAULT_LOCAL_MACHINE_NAME;
 
 const SECRET_REMOTE =
   'https://x-access-token:ghp_secret@github.com/leon0399/llame.git';
@@ -118,7 +119,7 @@ describe('the git state route over HTTP', () => {
   beforeAll(async () => {
     // The host Machine's git runs on the real daemon bundle a running process
     // spawns, with the suite's own clone inside its registered root.
-    daemon = startLocalDaemon({ name: EXECUTOR, roots: [tmpdir()] });
+    daemon = startLocalDaemon({ roots: [tmpdir()] });
 
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
       .overrideProvider(CanonicalSearchCoverageService)

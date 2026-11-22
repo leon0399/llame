@@ -35,11 +35,11 @@ import {
   type PeerCall,
   type ProtocolPeerOptions,
 } from '../testing/machine-protocol-peer';
-import { GIT_SURFACE, gitMachineAnswers } from '../testing/machine-git-peer';
 import {
   localMachineConnector,
   type LocalMachineConnector,
 } from '../testing/local-machine';
+import { machineFilesConnector } from '../testing/machine-files-peer';
 import { machineIdentityMismatchResult } from './machine-call';
 import { compileToolPermissionMap } from './permissions/compile-permissions';
 import { type CompiledPolicy, type PermissionGroup } from './permissions/types';
@@ -155,19 +155,7 @@ function hostile(repository: string): string {
 }
 
 function executors(): ExecutorGit {
-  const roots = [tmpdir()];
-
-  const connector = new MachineConnector({
-    hubVersion: 'test-hub',
-    bindIdentity: () => Promise.resolve('match'),
-    machines: { local: HOST, default: HOST, hosts: { [HOST]: {} } },
-    transportFactory: createProtocolPeer({
-      roots,
-      methods: GIT_SURFACE,
-      answer: gitMachineAnswers({ roots }),
-    }).factory,
-    idleCloseMs: 1000,
-  });
+  const connector = machineFilesConnector({ name: HOST, roots: [tmpdir()] });
 
   connectors.push(connector);
 

@@ -13,9 +13,9 @@ import {
 
 /**
  * The Machine one worktree entry runs on. The executor surface accepts every
- * address as its canonical locator and decides in process versus daemon from
- * the Machine name itself, so the flow keeps one form — the locator — and
- * decodes it only where placement does lexical math.
+ * address as its canonical locator and reads the Machine name from it, so the
+ * flow keeps one form — the locator — and decodes it only where placement does
+ * lexical math.
  */
 export type EntryMachine = {
   /** The Machine name: the executor id the rows record. */

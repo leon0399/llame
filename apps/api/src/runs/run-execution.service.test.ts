@@ -23037,7 +23037,10 @@ describe('RunExecutionService git state', () => {
   const itemOf = (observation: GitObservation) =>
     createGitItem({ runId, observation });
 
-  /** The real local executor surface, reached through its own Machine. */
+  /**
+   * An ExecutorGit for `locate` only: its Machine answers the handshake and
+   * nothing else, and every observation in this suite is a stub.
+   */
   function localExecutors(): ExecutorGit {
     return new ExecutorGit(localMachineConnector({ name: 'host-a' }));
   }

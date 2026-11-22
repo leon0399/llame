@@ -12,7 +12,12 @@ import { type GitObservation } from '../git-state/git-state-view';
 import { placeRailPart, refreshTurnGit, type TurnGit } from './turn-git';
 
 const RUN_ID = '3b0f5b8e-6d2e-4c0a-9c1d-0f6a7c8d9e10';
-const CLEAN: GitObservation = { kind: 'not_a_repository' };
+
+const ABSENT: GitObservation = {
+  kind: 'unavailable',
+  reason: 'no_repository_in_root',
+};
+
 const FAILED: GitObservation = { kind: 'unavailable', reason: 'git_failed' };
 
 const textOf = (observation: GitObservation) =>
@@ -101,7 +106,7 @@ describe('refreshTurnGit', () => {
   });
 
   it('stages the item after the workspace snapshot', () => {
-    const turn = fresh(CLEAN);
+    const turn = fresh(ABSENT);
 
     const workspace = createWorkspaceSnapshotItem({
       runId: RUN_ID,
@@ -115,21 +120,21 @@ describe('refreshTurnGit', () => {
 
     expect(staged[0]).toBe(workspace);
     expect(staged[1]).toBe(turn.part);
-    expect(turn.part?.data.text).toBe(textOf(CLEAN));
+    expect(turn.part?.data.text).toBe(textOf(ABSENT));
   });
 
   it('adds nothing when the history told the same text', () => {
-    const turn = fresh(CLEAN);
+    const turn = fresh(ABSENT);
     const staged: Array<MessagePart> = [];
 
-    refresh(turn, staged, history(textOf(CLEAN)));
+    refresh(turn, staged, history(textOf(ABSENT)));
 
     expect(staged).toEqual([]);
-    expect(turn.toldText).toBe(textOf(CLEAN));
+    expect(turn.toldText).toBe(textOf(ABSENT));
   });
 
   it('tells again when this turn stages a snapshot of another root', () => {
-    const turn = fresh(CLEAN);
+    const turn = fresh(ABSENT);
 
     const staged: Array<MessagePart> = [
       createWorkspaceSnapshotItem({
@@ -139,15 +144,15 @@ describe('refreshTurnGit', () => {
       }),
     ];
 
-    refresh(turn, staged, history(textOf(CLEAN)));
+    refresh(turn, staged, history(textOf(ABSENT)));
 
     expect(staged[1]).toBe(turn.part);
-    expect(turn.part?.data.text).toBe(textOf(CLEAN));
+    expect(turn.part?.data.text).toBe(textOf(ABSENT));
     expect(turn.toldText).toBeUndefined();
   });
 
   it('adds nothing when this turn re-tells the root the history holds', () => {
-    const turn = fresh(CLEAN);
+    const turn = fresh(ABSENT);
 
     const staged: Array<MessagePart> = [
       createWorkspaceSnapshotItem({
@@ -157,14 +162,14 @@ describe('refreshTurnGit', () => {
       }),
     ];
 
-    refresh(turn, staged, history(textOf(CLEAN)));
+    refresh(turn, staged, history(textOf(ABSENT)));
 
     expect(staged).toHaveLength(1);
     expect(turn.part).toBeUndefined();
   });
 
   it('tells again when this turn stages a detach notice', () => {
-    const turn = fresh(CLEAN);
+    const turn = fresh(ABSENT);
 
     const staged: Array<MessagePart> = [
       createWorkspaceDetachNoticeItem({
@@ -173,9 +178,9 @@ describe('refreshTurnGit', () => {
       }),
     ];
 
-    refresh(turn, staged, history(textOf(CLEAN)));
+    refresh(turn, staged, history(textOf(ABSENT)));
 
-    expect(turn.part?.data.text).toBe(textOf(CLEAN));
+    expect(turn.part?.data.text).toBe(textOf(ABSENT));
   });
 
   it('replaces its earlier item on a second pass with the same observation', () => {
@@ -194,11 +199,11 @@ describe('refreshTurnGit', () => {
   });
 
   it('drops its earlier item when the rebuilt history already told the state', () => {
-    const turn = fresh(CLEAN);
+    const turn = fresh(ABSENT);
     const staged: Array<MessagePart> = [];
     refresh(turn, staged, history(undefined));
 
-    refresh(turn, staged, history(textOf(CLEAN)));
+    refresh(turn, staged, history(textOf(ABSENT)));
 
     expect(staged).toEqual([]);
     expect(turn.part).toBeUndefined();
