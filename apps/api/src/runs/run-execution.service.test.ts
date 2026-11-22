@@ -19473,6 +19473,19 @@ describe('RunExecutionService instruction files', () => {
         i: 'Reading the file',
         path: touch,
       });
+
+      // The request event records the submitted input too, so a reply rebuilt
+      // from events replays the same call.
+      const modelRequest = append.mock.calls.find(
+        ([, eventType, payload]) =>
+          eventType === 'tool.requested' &&
+          isRecord(payload) &&
+          payload['toolCallId'] === toolReads[0]?.['toolCallId'],
+      )?.[2];
+
+      expect(modelRequest).toMatchObject({
+        input: { i: 'Reading the file', path: touch },
+      });
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

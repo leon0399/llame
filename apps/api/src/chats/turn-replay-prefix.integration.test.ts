@@ -398,6 +398,7 @@ describeIfDb('turn replay prefix equality', () => {
     // The member order a `json` column keeps and a `jsonb` column would sort.
     const searchInput = searchPart?.['input'];
     expect(isRecord(searchInput) ? Object.keys(searchInput) : []).toEqual([
+      'i',
       'after',
       'mode',
     ]);
@@ -408,7 +409,7 @@ describeIfDb('turn replay prefix equality', () => {
     const liveSearchInput = toolCallOf(turnOneLast, 'call-search')?.['input'];
     expect(
       isRecord(liveSearchInput) ? Object.keys(liveSearchInput) : [],
-    ).toEqual(['after', 'mode']);
+    ).toEqual(['i', 'after', 'mode']);
 
     const imagePart = toolParts.find(
       (part) => part['toolCallId'] === 'call-image',
