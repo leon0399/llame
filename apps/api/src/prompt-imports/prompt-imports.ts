@@ -122,6 +122,8 @@ type ImportPlan =
       readonly name: string;
       /** Decoded absolute Machine path, without the read selector. */
       readonly machinePath: string;
+      /** A read selector split off the target, exactly as written. */
+      readonly selector?: string;
       /** The canonical locator the read submits. */
       readonly readPath: string;
     }
@@ -214,6 +216,7 @@ function planMachineTarget(
     kind: 'machine',
     name: target.name,
     machinePath: target.path,
+    ...(target.selector !== undefined && { selector: target.selector }),
     readPath: target.locator,
   };
 }
@@ -303,10 +306,11 @@ async function handleTarget(
 }
 
 /**
- * A Machine target is probed once, over the absolute path the locator names
- * (its selector is never a path character), on every Machine including the
- * host. Knowledge and media locators have no literal colon, so only the
- * selector-free locator is probed.
+ * A Machine target probes its literal path first, as `read` does, then the
+ * selector-free path: the daemon keeps literal-path precedence, so
+ * `x.md:10-12` names the regular file `x.md:10-12` when one exists. The
+ * resolved locator always names the file the read opens. Knowledge and media
+ * locators have no literal colon, so only the selector-free locator is probed.
  */
 async function probePlan(
   run: ImportRun,
@@ -315,7 +319,7 @@ async function probePlan(
   const { request } = run;
 
   if (plan.kind === 'machine') {
-    return request.probeMachine(plan.name, plan.machinePath);
+    return probeMachineTarget(request, plan);
   }
 
   if (plan.kind === 'media') {
@@ -337,6 +341,28 @@ async function probePlan(
   }
 
   return undefined;
+}
+
+/**
+ * The first probe that finds a file wins: the literal path a selector was
+ * split from, then the selector-free path. The import read submits the
+ * selector-bearing locator, and the daemon's literal-path precedence opens the
+ * same file this probe resolved.
+ */
+async function probeMachineTarget(
+  request: PromptImportRequest,
+  plan: Extract<ImportPlan, { kind: 'machine' }>,
+): Promise<string | undefined> {
+  if (plan.selector !== undefined) {
+    const literal = await request.probeMachine(
+      plan.name,
+      `${plan.machinePath}:${plan.selector}`,
+    );
+
+    if (literal !== undefined) return literal;
+  }
+
+  return request.probeMachine(plan.name, plan.machinePath);
 }
 
 /** `path` up to the first colon after its scheme's `prefix`. */

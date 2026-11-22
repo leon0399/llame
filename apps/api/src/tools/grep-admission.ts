@@ -284,8 +284,11 @@ function scopeDecisionTexts(
 
 /** The per-file `read` check and the refusals it counted for the audit. */
 export interface GrepReadAdmission {
-  /** `true` only when the `read` group allows a read of this canonical locator. */
-  admit(locator: string): boolean;
+  /**
+   * `true` only when the `read` group allows this canonical locator, and no
+   * `read` reject matches one of the extra texts the caller supplies.
+   */
+  admit(locator: string, rejectTexts?: ReadonlyArray<string>): boolean;
   /**
    * Whether the `read` group would admit this locator, judged without a file
    * record: an excluded directory is counted nowhere and audited nowhere.
@@ -310,6 +313,7 @@ export function readDecision(
   context: ToolContext,
   project: NativeFileProjection,
   locator: string,
+  extraRejectTexts: ReadonlyArray<string> = [],
 ): PermissionDecision | undefined {
   const canonical = (field: string, value: string): string =>
     project(field, value).canonical;
@@ -333,6 +337,10 @@ export function readDecision(
           args: { path: locator },
           projectFieldValue: projectedPath,
         },
+        ...extraRejectTexts.map((text) => ({
+          toolId: 'read',
+          args: { path: text },
+        })),
       ],
     }),
   );
@@ -344,23 +352,30 @@ type ReadAdmissionState = {
   firstRejection: PermissionDecision | undefined;
 };
 
+/** One file's judgement: the call's state, its judge, and the file's texts. */
+type FileAdmission = {
+  readonly state: ReadAdmissionState;
+  readonly verdicts: Map<string, boolean>;
+  readonly judge: (
+    locator: string,
+    rejectTexts?: ReadonlyArray<string>,
+  ) => PermissionDecision | undefined;
+  readonly locator: string;
+  readonly rejectTexts: ReadonlyArray<string> | undefined;
+};
+
 /** One file's verdict, counted once for the audit when it is refused. */
-function admitFile(
-  state: ReadAdmissionState,
-  verdicts: Map<string, boolean>,
-  judge: (locator: string) => PermissionDecision | undefined,
-  locator: string,
-): boolean {
-  const known = verdicts.get(locator);
+function admitFile(input: FileAdmission): boolean {
+  const known = input.verdicts.get(input.locator);
 
   if (known !== undefined) return known;
-  const decision = judge(locator);
+  const decision = input.judge(input.locator, input.rejectTexts);
   const allowed = decision?.decision === 'allow';
-  verdicts.set(locator, allowed);
+  input.verdicts.set(input.locator, allowed);
 
   if (allowed) return true;
-  state.refused += 1;
-  state.firstRejection ??= decision;
+  input.state.refused += 1;
+  input.state.firstRejection ??= decision;
 
   return false;
 }
@@ -372,7 +387,10 @@ function admitFile(
  */
 function allowsDirectory(
   directories: Map<string, boolean>,
-  judge: (locator: string) => PermissionDecision | undefined,
+  judge: (
+    locator: string,
+    rejectTexts?: ReadonlyArray<string>,
+  ) => PermissionDecision | undefined,
   locator: string,
 ): boolean {
   const known = directories.get(locator);
@@ -401,7 +419,9 @@ export function createGrepReadAdmission(
 ): GrepReadAdmission {
   const project = nativeFileProjection('read', locatorContext(context));
 
-  const judge = (locator: string) => readDecision(context, project, locator);
+  const judge = (locator: string, rejectTexts?: ReadonlyArray<string>) =>
+    readDecision(context, project, locator, rejectTexts);
+
   // One verdict per file for the whole call: overlapping scopes and a file a
   // Machine returns on two pages count one refused file once. Directory
   // verdicts stay apart: they are never a refused file.
@@ -410,7 +430,14 @@ export function createGrepReadAdmission(
   const state: ReadAdmissionState = { refused: 0, firstRejection: undefined };
 
   return {
-    admit: (locator) => admitFile(state, verdicts, judge, locator),
+    admit: (locator, rejectTexts) =>
+      admitFile({
+        state,
+        verdicts,
+        judge,
+        locator,
+        rejectTexts,
+      }),
     allows: (locator) => allowsDirectory(directories, judge, locator),
     get refused() {
       return state.refused;

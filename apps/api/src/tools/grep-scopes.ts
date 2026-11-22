@@ -371,7 +371,6 @@ async function resolveSkillScope(
     rawPath,
     index,
     admission,
-    signal: context.abortSignal,
     deadlineAt,
   });
 }
@@ -466,7 +465,6 @@ function expandSkill(
     rawPath: '',
     index,
     admission: call.admission,
-    signal: context.abortSignal,
     deadlineAt: call.deadlineAt,
   });
 }

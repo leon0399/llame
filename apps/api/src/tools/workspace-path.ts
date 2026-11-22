@@ -203,8 +203,7 @@ export function currentMachine(context: LocatorContext): string | undefined {
   return bound === undefined ? context.defaultMachine : bound.name;
 }
 
-/** One address on one Machine: the decoded path, its canonical text, and
- *  whether this process serves it in process. */
+/** One address on one Machine: the decoded path and its canonical text. */
 export type MachineTarget = {
   readonly kind: 'machine';
   /** Lowercase Machine name. */
@@ -212,8 +211,6 @@ export type MachineTarget = {
   /** Decoded absolute POSIX path, trailing separator kept. */
   readonly path: string;
   readonly locator: string;
-  /** `name === localMachine`: serve in process at `path`. */
-  readonly local: boolean;
   /** A read selector split off `path`, exactly as written. */
   readonly selector?: string;
 };
@@ -255,7 +252,7 @@ export function resolveMachinePath(
 
     if (!alias.ok) return { kind: 'invalid', message: alias.message };
 
-    return machineTarget(currentMachine(context), alias.hostPath, context);
+    return machineTarget(currentMachine(context), alias.hostPath);
   }
 
   if (isMachineLocator(value)) {
@@ -268,7 +265,7 @@ export function resolveMachinePath(
 
     // The parser split the selector off the raw locator before decoding, so a
     // percent-encoded colon is path text and the decoded path is read as is.
-    return machineTarget(parsed.name, parsed.path, context, {
+    return machineTarget(parsed.name, parsed.path, {
       path: parsed.path,
       selector: parsed.selector,
     });
@@ -282,7 +279,7 @@ export function resolveMachinePath(
       : { kind: 'invalid', message: UNKNOWN_SCHEME_MESSAGE };
 
   return value.startsWith('/')
-    ? machineTarget(currentMachine(context), value, context)
+    ? machineTarget(currentMachine(context), value)
     : relativeTarget(value, context);
 }
 
@@ -311,7 +308,7 @@ function relativeTarget(
   const trailing =
     split.path.endsWith('/') && resolved !== '/' ? `${resolved}/` : resolved;
 
-  return machineTarget(name, trailing, context, {
+  return machineTarget(name, trailing, {
     path: trailing,
     selector: split.selector,
   });
@@ -325,7 +322,6 @@ function relativeTarget(
 function machineTarget(
   name: string | undefined,
   value: string,
-  context: LocatorContext,
   split: ReadSplit = splitReadSelector(value),
 ): ResolvedLocator {
   if (name === undefined)
@@ -336,18 +332,11 @@ function machineTarget(
   if (locator === undefined)
     return { kind: 'invalid', message: BAD_MACHINE_PATH_MESSAGE };
 
-  const canonicalName = name.toLowerCase();
-
-  const local =
-    context.localMachine !== undefined &&
-    canonicalName === context.localMachine.toLowerCase();
-
   return {
     kind: 'machine',
-    name: canonicalName,
+    name: name.toLowerCase(),
     path: split.path,
     locator,
-    local,
     ...(split.selector !== undefined && { selector: split.selector }),
   };
 }

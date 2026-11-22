@@ -10,16 +10,17 @@ import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { drizzle } from 'drizzle-orm/postgres-js';
 import { describe, expect, it } from 'vitest';
 
-import { type Db } from '../db/tenant-db.service';
 import { probeMachinePromptTarget } from '../runs/machine-prompt-probe';
-import { startLocalDaemon, type LocalDaemon } from '../testing/local-daemon';
-import { compileTestPermissionPolicy } from '../testing/tool-permission-policy';
+import {
+  daemonReadContext,
+  type LocalDaemon,
+  withLocalDaemon,
+} from '../testing/local-daemon';
 import { nativeReadTool } from '../tools/native-files';
 import { renderToolResultText } from '../tools/model-text';
-import { type ToolContext, type ToolResult } from '../tools/types';
+import { type ToolResult } from '../tools/types';
 import {
   resolvePromptImports,
   type PromptImportRequest,
@@ -27,53 +28,14 @@ import {
 } from './prompt-imports';
 
 const RUN_ID = '11111111-1111-4111-8111-111111111111';
-const HOST = 'host-a';
-
-/** The canonical locator of one host path on the started daemon. */
-function locator(path: string): string {
-  return `machine://${HOST}${path}`;
-}
-
-/** Start the real daemon over `roots`, dispose it after the body. */
-async function withDaemon<T>(
-  roots: ReadonlyArray<string>,
-  body: (daemon: LocalDaemon) => Promise<T>,
-): Promise<T> {
-  const daemon = startLocalDaemon({ roots });
-
-  try {
-    return await body(daemon);
-  } finally {
-    daemon.dispose();
-  }
-}
-
-/** The context a native `read` needs to address the running daemon. */
-function contextOf(daemon: LocalDaemon): ToolContext {
-  const db: Db = drizzle.mock();
-
-  return {
-    configuredCredentials: [],
-    userId: 'owner',
-    chatId: 'chat',
-    runId: RUN_ID,
-    tenantDb: {
-      runAs: <T>(_userId: string, operation: (tx: Db) => Promise<T>) =>
-        operation(db),
-    },
-    localMachine: HOST,
-    defaultMachine: HOST,
-    machines: daemon.connector,
-    permissionPolicy: compileTestPermissionPolicy(['read']),
-  };
-}
 
 /** One audited read over the daemon, as the Run issues it. */
 async function readThrough(
   daemon: LocalDaemon,
   path: string,
 ): Promise<{ result: ToolResult; text: string; admission: undefined }> {
-  const result = await nativeReadTool.execute(contextOf(daemon), { path });
+  const context = daemonReadContext(daemon, { runId: RUN_ID });
+  const result = await nativeReadTool.execute(context, { path });
 
   return {
     result,
@@ -101,8 +63,8 @@ function harnessOf(
     text: '',
     signal: controller.signal,
     workspaceRoot: undefined,
-    localMachine: HOST,
-    defaultMachine: HOST,
+    localMachine: daemon.name,
+    defaultMachine: daemon.name,
     knowledgeAvailable: false,
     machineAvailable: true,
     sshAvailable: false,
@@ -146,12 +108,12 @@ describe('host prompt imports through the daemon', () => {
       await mkdir(root, { recursive: true });
       await writeFile(file, 'the host notes\n');
 
-      await withDaemon([root], async (daemon) => {
+      await withLocalDaemon([root], async (daemon) => {
         const harness = harnessOf(daemon);
         const resolution = await harness.run(`@${file}`);
 
-        expect(harness.probes).toEqual([{ name: HOST, path: file }]);
-        expect(harness.reads).toEqual([locator(file)]);
+        expect(harness.probes).toEqual([{ name: daemon.name, path: file }]);
+        expect(harness.reads).toEqual([daemon.locator(file)]);
         expect(resolution.outcomes).toHaveLength(1);
 
         const imported = resolution.outcomes[0];
@@ -162,11 +124,13 @@ describe('host prompt imports through the daemon', () => {
 
         expect(imported).toMatchObject({
           locator: file,
-          resolved: locator(file),
+          resolved: daemon.locator(file),
         });
         // The body is native `read`'s own rendering of the file it read
         // through the daemon.
-        expect(imported.body).toContain(`${locator(file)}:1-1 of 1 line`);
+        expect(imported.body).toContain(
+          `${daemon.locator(file)}:1-1 of 1 line`,
+        );
         expect(imported.body).toContain('1: the host notes');
         expect(resolution.omitted).toEqual([]);
       });
@@ -185,16 +149,57 @@ describe('host prompt imports through the daemon', () => {
 
       await writeFile(file, 'do not import\n');
 
-      await withDaemon([root], async (daemon) => {
+      await withLocalDaemon([root], async (daemon) => {
         const harness = harnessOf(daemon, { admitsRead: () => false });
         const resolution = await harness.run(`@${file}`);
 
         // Existence never shows: the denial runs without a probe.
         expect(harness.probes).toEqual([]);
-        expect(harness.reads).toEqual([locator(file)]);
+        expect(harness.reads).toEqual([daemon.locator(file)]);
         expect(resolution.outcomes).toEqual([
           { locator: file, outcome: 'denied' },
         ]);
+      });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('keeps literal-path precedence over a selector, as the daemon reads it', async () => {
+    const root = await realpath(
+      await mkdtemp(join(tmpdir(), 'prompt-imports-literal-')),
+    );
+
+    try {
+      const file = join(root, 'notes.md');
+      const literal = `${file}:10-12`;
+
+      await writeFile(literal, 'the literal notes\n');
+      await writeFile(file, 'the selector-free notes\n');
+
+      await withLocalDaemon([root], async (daemon) => {
+        const harness = harnessOf(daemon);
+        const resolution = await harness.run(`@${literal}`);
+
+        // The literal file exists, so it is probed as itself and the
+        // selector-free path is never probed.
+        expect(harness.probes).toEqual([{ name: daemon.name, path: literal }]);
+        expect(harness.reads).toEqual([`${daemon.locator(file)}:10-12`]);
+        expect(resolution.outcomes).toHaveLength(1);
+
+        const imported = resolution.outcomes[0];
+
+        if (imported?.outcome !== 'imported') {
+          throw new Error('expected an imported outcome');
+        }
+
+        // The daemon reads the literal file without applying `10-12`.
+        expect(imported).toMatchObject({
+          locator: literal,
+          resolved: daemon.locator(literal),
+        });
+        expect(imported.body).toContain('the literal notes');
+        expect(imported.body).not.toContain('the selector-free notes');
       });
     } finally {
       await rm(root, { recursive: true, force: true });
@@ -213,13 +218,13 @@ describe('host prompt imports through the daemon', () => {
       await mkdir(registered, { recursive: true });
       await writeFile(outside, 'outside the roots\n');
 
-      await withDaemon([registered], async (daemon) => {
+      await withLocalDaemon([registered], async (daemon) => {
         const harness = harnessOf(daemon);
         const resolution = await harness.run(`@${outside}`);
 
         // The daemon refused the probe, so no read was issued and the marker
         // stays prose rather than importing another Machine's file.
-        expect(harness.probes).toEqual([{ name: HOST, path: outside }]);
+        expect(harness.probes).toEqual([{ name: daemon.name, path: outside }]);
         expect(harness.reads).toEqual([]);
         expect(resolution.outcomes).toEqual([]);
         expect(resolution.omitted).toEqual([]);

@@ -12,72 +12,33 @@ import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 
-import { drizzle } from 'drizzle-orm/postgres-js';
 import { describe, expect, it } from 'vitest';
 
 import type { AuthoredContextItemPart } from '../chats/context-item';
 import { isInstructionsPayload } from '../chats/instructions-item';
-import { type Db } from '../db/tenant-db.service';
 import { machineEnvelope } from '../runs/machine-attempt';
 import { type InRunToolCall } from '../runs/in-run-context-items';
-import { startLocalDaemon, type LocalDaemon } from '../testing/local-daemon';
-import { compileTestPermissionPolicy } from '../testing/tool-permission-policy';
+import {
+  daemonReadContext,
+  type LocalDaemon,
+  withLocalDaemon,
+} from '../testing/local-daemon';
 import { nativeReadTool } from '../tools/native-files';
-import { type ToolContext } from '../tools/types';
 import { type ReadPage } from './instruction-files';
 import { createInstructionsProducer } from './instructions-producer';
 import { createMachineInstructionProbe } from './machine-instruction-scope';
 
 const RUN_ID = '11111111-1111-4111-8111-111111111111';
-const HOST = 'host-a';
-
-/** The canonical locator of one host path on the started daemon. */
-function locator(path: string): string {
-  return `machine://${HOST}${path}`;
-}
 
 /** A fresh directory every test creates its tree under, then removes. */
 async function temporaryBase(): Promise<string> {
   return realpath(await mkdtemp(join(tmpdir(), 'instructions-host-')));
 }
 
-/** Start the real daemon over `roots`, dispose it after the body. */
-async function withDaemon<T>(
-  roots: ReadonlyArray<string>,
-  body: (daemon: LocalDaemon) => Promise<T>,
-): Promise<T> {
-  const daemon = startLocalDaemon({ roots });
-
-  try {
-    return await body(daemon);
-  } finally {
-    daemon.dispose();
-  }
-}
-
-/** The context a native `read` needs to address the running daemon. */
-function contextOf(daemon: LocalDaemon): ToolContext {
-  const db: Db = drizzle.mock();
-
-  return {
-    configuredCredentials: [],
-    userId: 'owner',
-    chatId: 'chat',
-    tenantDb: {
-      runAs: <T>(_userId: string, operation: (tx: Db) => Promise<T>) =>
-        operation(db),
-    },
-    localMachine: HOST,
-    defaultMachine: HOST,
-    machines: daemon.connector,
-    permissionPolicy: compileTestPermissionPolicy(['read']),
-  };
-}
-
 /** One attempt over the running daemon: the production probe and page reader. */
 function attemptOf(daemon: LocalDaemon) {
   const staged: Array<AuthoredContextItemPart> = [];
-  const context = contextOf(daemon);
+  const context = daemonReadContext(daemon);
 
   const readPage: ReadPage = async (selectorPath) =>
     await nativeReadTool.execute(context, { path: selectorPath });
@@ -87,8 +48,8 @@ function attemptOf(daemon: LocalDaemon) {
     chatId: '22222222-2222-4222-8222-222222222222',
     userId: 'owner',
     admitsRead: () => true,
-    localMachine: HOST,
-    defaultMachine: HOST,
+    localMachine: daemon.name,
+    defaultMachine: daemon.name,
     machines: {
       probe: createMachineInstructionProbe({
         connector: daemon.connector,
@@ -159,17 +120,17 @@ describe('host instruction files through the daemon', () => {
       await writeAt(base, 'repo/AGENTS.md', 'repo rules\n');
       await writeAt(base, 'repo/apps/api/AGENTS.md', 'api rules\n');
 
-      await withDaemon([base], async (daemon) => {
+      await withLocalDaemon([base], async (daemon) => {
         const attempt = attemptOf(daemon);
-        const root = locator(join(base, 'repo', 'apps', 'api'));
+        const root = daemon.locator(join(base, 'repo', 'apps', 'api'));
 
         attempt.producer.observeToolCall?.(entryCall(root));
         await attempt.prepare();
 
         expect(attempt.staged).not.toEqual([]);
         expect(blockPaths(attempt.staged[0])).toEqual([
-          locator(join(base, 'repo', 'AGENTS.md')),
-          locator(join(base, 'repo', 'apps', 'api', 'AGENTS.md')),
+          daemon.locator(join(base, 'repo', 'AGENTS.md')),
+          daemon.locator(join(base, 'repo', 'apps', 'api', 'AGENTS.md')),
         ]);
       });
     } finally {
@@ -185,18 +146,20 @@ describe('host instruction files through the daemon', () => {
       await writeAt(base, 'repo/AGENTS.md', 'inside the root rules\n');
 
       // Only `/repo` is registered: the chain may not read the file above it.
-      await withDaemon([join(base, 'repo')], async (daemon) => {
+      await withLocalDaemon([join(base, 'repo')], async (daemon) => {
         const attempt = attemptOf(daemon);
 
         attempt.producer.observeToolCall?.(
-          entryCall(locator(join(base, 'repo'))),
+          entryCall(daemon.locator(join(base, 'repo'))),
         );
         await attempt.prepare();
 
         const loaded = attempt.staged.flatMap(blockPaths);
 
-        expect(loaded).toEqual([locator(join(base, 'repo', 'AGENTS.md'))]);
-        expect(loaded).not.toContain(locator(join(base, 'AGENTS.md')));
+        expect(loaded).toEqual([
+          daemon.locator(join(base, 'repo', 'AGENTS.md')),
+        ]);
+        expect(loaded).not.toContain(daemon.locator(join(base, 'AGENTS.md')));
       });
     } finally {
       await rm(base, { recursive: true, force: true });
@@ -211,19 +174,22 @@ describe('host instruction files through the daemon', () => {
       await writeAt(base, 'other/src/x.ts', 'export const x = 1;\n');
       await writeAt(base, 'repo/AGENTS.md', 'repo rules\n');
 
-      await withDaemon([base], async (daemon) => {
+      await withLocalDaemon([base], async (daemon) => {
         const attempt = attemptOf(daemon);
-        const workspace = locator(join(base, 'repo'));
+        const workspace = daemon.locator(join(base, 'repo'));
 
         attempt.producer.observeToolCall?.(
-          readCall(locator(join(base, 'other', 'src', 'x.ts')), workspace),
+          readCall(
+            daemon.locator(join(base, 'other', 'src', 'x.ts')),
+            workspace,
+          ),
         );
         await attempt.prepare();
 
         // The file is outside the Workspace but inside the registered root,
         // and the Workspace root's own file was already loaded.
         expect(blockPaths(attempt.staged[0])).toEqual([
-          locator(join(base, 'other', 'AGENTS.md')),
+          daemon.locator(join(base, 'other', 'AGENTS.md')),
         ]);
       });
     } finally {
@@ -239,11 +205,11 @@ describe('host instruction files through the daemon', () => {
       await writeAt(base, 'other/AGENTS.md', 'other rules\n');
       await writeAt(base, 'other/x.ts', 'export const x = 1;\n');
 
-      await withDaemon([join(base, 'repo')], async (daemon) => {
+      await withLocalDaemon([join(base, 'repo')], async (daemon) => {
         const attempt = attemptOf(daemon);
 
         attempt.producer.observeToolCall?.(
-          readCall(locator(join(base, 'other', 'x.ts'))),
+          readCall(daemon.locator(join(base, 'other', 'x.ts'))),
         );
         await attempt.prepare();
 

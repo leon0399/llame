@@ -30,6 +30,11 @@ import {
 } from '../skills/skill-target';
 import { type Tool, type ToolContext, type ToolResult } from './types';
 import { resolveMachinePath } from './workspace-path';
+import {
+  admitPermission,
+  evaluateCanonicalWithRejectTexts,
+} from './permissions/admit';
+import { permissionDeniedResult } from './permissions/messages';
 import { executeWebRead } from './web-read/execute';
 import { executeMediaRead } from './media-read';
 import { readAttributionReserve } from './model-text';
@@ -242,7 +247,43 @@ async function executeSkill(
     return skillCatalogEnvelope(resolved.entries, window);
   }
 
+  const refusal = machineSkillRefusal(context, resolved);
+
+  if (refusal !== undefined) return refusal;
+
   return readResolvedSkillTarget(context, resolved);
+}
+
+/**
+ * A Machine package's file is judged again on its canonical Machine locator
+ * and that bare path: the `read` group allowed the `skill://` text, but a
+ * reject written for the Machine location must still refuse the bytes.
+ */
+function machineSkillRefusal(
+  context: ToolContext,
+  target: ResolvedSkillTarget,
+): ToolResult | undefined {
+  if (!isMachineLocator(target.skillDirectory)) return undefined;
+  const parsed = parseMachineLocator(target.hostPath);
+
+  if (parsed.kind !== 'path') return undefined;
+  const locator = formatMachineLocator(parsed.name, parsed.path);
+
+  if (locator === undefined) return undefined;
+
+  const decision = admitPermission(context, (evaluate) =>
+    evaluateCanonicalWithRejectTexts(evaluate, {
+      canonical: { toolId: 'read', args: { path: target.locator } },
+      rejectTexts: [
+        { toolId: 'read', args: { path: locator } },
+        { toolId: 'read', args: { path: parsed.path } },
+      ],
+    }),
+  );
+
+  return decision?.decision === 'reject'
+    ? permissionDeniedResult(decision.reason)
+    : undefined;
 }
 
 /**

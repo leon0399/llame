@@ -15,15 +15,8 @@ import { describe, expect, it } from 'vitest';
 
 import { type SkillCatalogPort } from './skill-catalog';
 import { prepareMachineSkills } from '../runs/machine-workspace';
-import { startLocalDaemon, type LocalDaemon } from '../testing/local-daemon';
+import { withLocalDaemon } from '../testing/local-daemon';
 import { workspaceSkillSources } from './workspace-skill-sources';
-
-const HOST = 'host-a';
-
-/** The canonical locator of one host path on the started daemon. */
-function locator(path: string): string {
-  return `machine://${HOST}${path}`;
-}
 
 /** Write one skill package's `SKILL.md` below `source`. */
 async function writeSkill(
@@ -38,20 +31,6 @@ async function writeSkill(
     document,
     `---\nname: ${name}\ndescription: ${description}\n---\n# ${name}\n`,
   );
-}
-
-/** Start the real daemon over `roots`, dispose it after the body. */
-async function withDaemon<T>(
-  roots: ReadonlyArray<string>,
-  body: (daemon: LocalDaemon) => Promise<T>,
-): Promise<T> {
-  const daemon = startLocalDaemon({ roots });
-
-  try {
-    return await body(daemon);
-  } finally {
-    daemon.dispose();
-  }
 }
 
 /** The catalog preparation installed for `root`, failing loudly when none did. */
@@ -79,13 +58,13 @@ describe('host Workspace skills through the daemon', () => {
 
       await writeSkill(source, 'deploy', 'Deploy the app');
 
-      await withDaemon([root], async (daemon) => {
+      await withLocalDaemon([root], async (daemon) => {
         const catalogs = new Map<string, SkillCatalogPort>();
-        const workspace = locator(root);
+        const workspace = daemon.locator(root);
 
         await prepareMachineSkills(catalogs, {
           connector: daemon.connector,
-          machineName: HOST,
+          machineName: daemon.name,
           root: workspace,
           toolAllowlist: ['read'],
           skillDirectories: [],
@@ -101,8 +80,8 @@ describe('host Workspace skills through the daemon', () => {
             name: 'deploy',
             description: 'Deploy the app',
             available: true,
-            sourceDirectory: locator(source),
-            skillDirectory: locator(join(source, 'deploy')),
+            sourceDirectory: daemon.locator(source),
+            skillDirectory: daemon.locator(join(source, 'deploy')),
           }),
         ]);
       });
@@ -124,13 +103,13 @@ describe('host Workspace skills through the daemon', () => {
       await writeSkill(join(root, '.llame', 'skills'), 'release', 'Ship it');
       await writeSkill(operator, 'review', 'Review a diff');
 
-      await withDaemon([root], async (daemon) => {
+      await withLocalDaemon([root], async (daemon) => {
         const catalogs = new Map<string, SkillCatalogPort>();
-        const workspace = locator(root);
+        const workspace = daemon.locator(root);
 
         await prepareMachineSkills(catalogs, {
           connector: daemon.connector,
-          machineName: HOST,
+          machineName: daemon.name,
           root: workspace,
           toolAllowlist: ['read'],
           skillDirectories: [operator],
@@ -143,7 +122,7 @@ describe('host Workspace skills through the daemon', () => {
         expect(snapshot.entries).toEqual([
           expect.objectContaining({
             name: 'release',
-            sourceDirectory: locator(join(root, '.llame', 'skills')),
+            sourceDirectory: daemon.locator(join(root, '.llame', 'skills')),
           }),
           expect.objectContaining({
             name: 'review',

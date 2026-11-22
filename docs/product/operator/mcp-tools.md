@@ -144,6 +144,14 @@ unavailable with the unset-variable diagnostic. Set the variable in the
 daemon's environment, for example in a wrapper script named by
 `LLAME_MACHINE_COMMAND`. A remote Machine never receives a hub value at all.
 
+That host boundary covers variables, not files. The host daemon runs as the
+worker's OS user, so an absolute `{path:...}` location can read any file that
+user can read — worker credential files and `.env.local` included — and a stdio
+server it starts can read the worker's `/proc/<pid>/environ`. Run the daemon as
+a separate OS user through the `LLAME_MACHINE_COMMAND` wrapper when hub
+credentials must stay out of host Workspaces; that user still needs the
+registered roots and the files its Workspaces use.
+
 `{{` is not an escape in Workspace files: `--template={{name}}` remains
 verbatim.
 

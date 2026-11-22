@@ -264,12 +264,15 @@ export async function decideUnboundMachine(params: {
     return undefined;
   }
 
-  if (!connector.canReach(name)) return undefined;
-
-  const available = await connector.reachable(
-    name,
-    machineAttemptKey(params.identity.runId, params.identity.deliverySequence),
-  );
+  const available =
+    connector.canReach(name) &&
+    (await connector.reachable(
+      name,
+      machineAttemptKey(
+        params.identity.runId,
+        params.identity.deliverySequence,
+      ),
+    ));
 
   return { name, available };
 }

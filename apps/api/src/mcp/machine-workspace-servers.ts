@@ -21,7 +21,6 @@ import {
   type JsonValue,
   type McpServerEntry,
 } from '@workspace/machine-protocol';
-import { type WorkspaceMcpServerConfig } from '@workspace/mcp-workspace';
 
 import {
   McpServerClient,
@@ -52,7 +51,11 @@ export type MachineWorkspaceTarget = Readonly<{
  *  the diagnostic that kept it unavailable. The hub never holds a command, a
  *  URL, or a header. */
 export type WorkspaceServerConfig =
-  | WorkspaceMcpServerConfig
+  | Readonly<{
+      id: string;
+      state: 'unavailable';
+      reason: string;
+    }>
   | Readonly<{
       id: string;
       state: 'configured';
@@ -68,13 +71,13 @@ export type ConfiguredServerConfig = Extract<
 export function unavailableConfig(
   id: string,
   reason: string,
-): WorkspaceMcpServerConfig {
+): WorkspaceServerConfig {
   return { id, state: 'unavailable', reason };
 }
 
 /** The one entry a client set holds when the binding's configuration could
  *  not be read at all. */
-export function unavailableWorkspaceConfig(): WorkspaceMcpServerConfig {
+export function unavailableWorkspaceConfig(): WorkspaceServerConfig {
   return unavailableConfig(UNAVAILABLE_ID, UNAVAILABLE_REASON);
 }
 

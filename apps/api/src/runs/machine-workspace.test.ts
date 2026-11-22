@@ -512,6 +512,19 @@ describe('decideUnboundMachine', () => {
     ).resolves.toEqual({ name: 'host-a', available: false });
   });
 
+  it('is unavailable without a request when this worker cannot reach the default Machine', async () => {
+    const machine = fakeConnector({
+      defaultMachine: 'devl',
+      configured: ['host-a', 'devl'],
+      canReach: () => false,
+    });
+
+    await expect(
+      decideUnboundMachine({ connector: machine.connector, identity }),
+    ).resolves.toEqual({ name: 'devl', available: false });
+    expect(machine.reachability).toEqual([]);
+  });
+
   it('asks another Machine once, under the attempt key', async () => {
     const machine = fakeConnector({
       defaultMachine: 'devl',

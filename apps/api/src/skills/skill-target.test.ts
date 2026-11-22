@@ -6,16 +6,24 @@ import {
   symlinkSync,
   writeFileSync,
 } from 'node:fs';
+import { realpath } from 'node:fs/promises';
+import type * as NodeFsPromises from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path, { join } from 'node:path';
 
-import { SkillCatalog } from './skill-catalog';
+import { NODE_SKILL_FILE_SYSTEM, SkillCatalog } from './skill-catalog';
 import {
   NO_SKILL_SELECTION,
   SKILL_PATH_INSTRUCTION,
   isSkillCatalogResult,
   resolveSkillLocator,
 } from './skill-target';
+
+vi.mock('node:fs/promises', async (importOriginal) => {
+  const actual = await importOriginal<typeof NodeFsPromises>();
+
+  return { ...actual, realpath: vi.fn(actual.realpath) };
+});
 
 let temporaryDirectories: Array<string> = [];
 
@@ -307,6 +315,40 @@ describe('resolveSkillLocator', () => {
     expect(listing).toMatchObject({
       hostPath: `${join(link, 'pdf')}${path.sep}`,
     });
+  });
+
+  it('does not canonicalize a Machine package on the hub filesystem', async () => {
+    const host = temporaryDirectory('machine-package');
+    createPackage(host, 'pdf');
+    const authority = 'machine://devl';
+    const source = `${authority}${host}`;
+
+    // The Machine's spelling carries the same absolute path the temp
+    // directory holds, so stripping the authority reads the host view.
+    const view = (value: string): string =>
+      value.startsWith(authority) ? value.slice(authority.length) : value;
+
+    const catalog = new SkillCatalog([source], {
+      readDirectory: (value) =>
+        NODE_SKILL_FILE_SYSTEM.readDirectory(view(value)),
+      fileKind: (value) => NODE_SKILL_FILE_SYSTEM.fileKind(view(value)),
+      readTextFile: (value) => NODE_SKILL_FILE_SYSTEM.readTextFile(view(value)),
+    });
+
+    vi.mocked(realpath).mockClear();
+
+    const resolved = await resolveSkillLocator(
+      catalog,
+      'pdf',
+      NO_SKILL_SELECTION,
+    );
+
+    expect(resolved).toMatchObject({
+      hostPath: `${source}/pdf/SKILL.md`,
+      skillDirectory: `${source}/pdf`,
+    });
+    expect(resolved).not.toHaveProperty('realSkillDirectory');
+    expect(vi.mocked(realpath)).not.toHaveBeenCalled();
   });
 
   it('publishes realSkillDirectory only when the package path is not canonical', async () => {

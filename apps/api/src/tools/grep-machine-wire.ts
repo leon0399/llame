@@ -42,6 +42,19 @@ export function machineScopeLocator(
 }
 
 /**
+ * The `read` verdict for one Machine file: its scope locator allows, and a
+ * reject also matching any of the scope's extra texts refuses it.
+ */
+export function admitMachineFile(
+  admission: GrepReadAdmission,
+  scope: MachineGrepScope,
+  rel: string,
+  locator: string,
+): boolean {
+  return admission.admit(locator, scope.rejectTextsOf?.(rel));
+}
+
+/**
  * A daemon's unfinished file as a locator, or undefined when it is not one the
  * `read` group admits: a refused file is never named, and the cursor still
  * moves past it.
@@ -53,7 +66,8 @@ export function namedUnfinished(
 ): string | undefined {
   const locator = machineScopeLocator(scope, rel);
 
-  return locator !== undefined && admission.admit(locator)
+  return locator !== undefined &&
+    admitMachineFile(admission, scope, rel, locator)
     ? locator
     : undefined;
 }

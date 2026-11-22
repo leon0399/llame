@@ -117,10 +117,16 @@ The child receives `PATH`, `LANG`, `TERM`, `HOME`, `TMPDIR`, `USER`, `LOGNAME`,
 `LLAME_MACHINE_CONFIG_DIR`, `XDG_CONFIG_HOME`, `SENTRY_DSN`,
 `SENTRY_ENVIRONMENT`, and `SENTRY_RELEASE`, each only when it is set. It receives
 no other variable of the worker environment. Database and provider credentials,
-and tokens such as `SENTRY_AUTH_TOKEN`, therefore stay out of the daemon and out
-of any process it starts. A host Workspace's MCP declarations interpolate
-against this base environment, never the worker's. See
-[Workspace MCP](mcp-tools.md#interpolation-and-redaction).
+and tokens such as `SENTRY_AUTH_TOKEN`, therefore stay out of the daemon's
+environment and out of the environment of any process it starts. This is an
+environment boundary only: the child runs as the worker's OS user with that
+user's file access. A `{path:...}` interpolation in a host Workspace `.mcp.json`
+can therefore read any file that user can read, including credential files and
+`.env.local`, and a stdio server can read the worker's `/proc/<pid>/environ`.
+See [Workspace MCP](mcp-tools.md#interpolation-and-redaction). To keep hub
+credentials out of host Workspaces, name a wrapper in `LLAME_MACHINE_COMMAND`
+that starts `llame-machine` as a separate OS user with access to the registered
+roots and the files its Workspaces need.
 
 A spawn failure reports `unreachable`. A child exit reports `session_lost`. The
 next call starts a new child.
@@ -428,7 +434,10 @@ as expected rather than as evidence the Machine is reachable.
   the daemon; identities from your included configuration keep whatever
   authority you gave them.
 - **Secrets.** `.mcp.json` interpolation runs on the box with the box's
-  environment; the hub never sends commands, URLs, or headers. The host box
-  follows the same rule: its daemon gets only the base environment, so a
-  Workspace declaration cannot read a worker-only variable. Values the box
-  resolves come back only for redaction.
+  environment; the hub never sends commands, URLs, or headers. The host box's
+  daemon gets only the base environment, so a Workspace declaration cannot read
+  a worker-only variable by name. The daemon still runs as the worker's OS user:
+  a `{path:...}` location reaches every file that user can read, and a stdio
+  server can read the worker's process environment through `/proc`. Run the
+  host daemon as a separate OS user when hub credentials must stay out of host
+  Workspaces. Values the box resolves come back only for redaction.

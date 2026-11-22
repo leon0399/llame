@@ -43,9 +43,13 @@ import {
   readWorktreeRequest,
   type WorktreeRequest,
 } from './workspace-worktree';
-import { locatorContext } from './workspace-path';
 import { enterWorktree } from './workspace-worktree-entry';
-import { resolveMachinePath, type MachineTarget } from './workspace-path';
+import {
+  literalTargetPath,
+  locatorContext,
+  resolveMachinePath,
+  type MachineTarget,
+} from './workspace-path';
 
 type EnterWorkspaceInput = {
   path: string;
@@ -76,18 +80,6 @@ function notDirectory(): ToolResult {
 
 /** The canonical locator of an existing directory on one Machine. */
 type CanonicalDirectory = { readonly locator: string };
-
-/**
- * The literal path text a target names: the locator grammar splits a
- * read-selector-shaped suffix off a path, and a Workspace directory may itself
- * be named `build:2`, so the suffix is re-attached before anything resolves
- * the directory. The canonical locator the entry binds re-encodes the colon.
- */
-function literalTargetPath(target: MachineTarget): string {
-  return target.selector === undefined
-    ? target.path
-    : `${target.path}:${target.selector}`;
-}
 
 /**
  * The canonical locator of an existing Machine directory: the daemon's own

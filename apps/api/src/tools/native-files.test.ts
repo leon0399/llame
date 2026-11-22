@@ -1863,6 +1863,17 @@ describe('skill locator resolution', () => {
       : path;
   }
 
+  /** A catalog that reads Machine-locator sources through their host paths. */
+  function machineCatalog(): SkillCatalog {
+    return new SkillCatalog([source], {
+      readDirectory: (path) =>
+        NODE_SKILL_FILE_SYSTEM.readDirectory(machineView(path)),
+      fileKind: (path) => NODE_SKILL_FILE_SYSTEM.fileKind(machineView(path)),
+      readTextFile: (path) =>
+        NODE_SKILL_FILE_SYSTEM.readTextFile(machineView(path)),
+    });
+  }
+
   function skillContext(
     overrides: {
       readonly catalog?: SkillCatalogPort;
@@ -1870,6 +1881,7 @@ describe('skill locator resolution', () => {
       readonly workspaceRoot?: string;
       readonly localMachine?: string;
       readonly machines?: ToolContext['machines'];
+      readonly permissionPolicy?: ToolContext['permissionPolicy'];
     } = {},
   ): ToolContext {
     const base: ToolContext = {
@@ -1878,7 +1890,8 @@ describe('skill locator resolution', () => {
       chatId: 'chat',
       runId: 'run',
       toolCallId: 'call',
-      permissionPolicy: compileTestPermissionPolicy(),
+      permissionPolicy:
+        overrides.permissionPolicy ?? compileTestPermissionPolicy(),
       skillCatalog: overrides.catalog ?? new SkillCatalog([source]),
       tenantDb: {
         runAs: () => Promise.reject(new Error('Database unavailable')),
@@ -1995,6 +2008,85 @@ describe('skill locator resolution', () => {
     expect(operatorResult).toMatchObject({
       status: 'error',
       type: 'not_found',
+    });
+  });
+
+  it('refuses a Machine package file the read group rejects on its Machine locator', async () => {
+    const workspace = join(source, 'workspace');
+    const guarded = join(workspace, '.agents', 'skills', 'guarded');
+
+    await mkdir(guarded, { recursive: true });
+    await writeFile(
+      join(guarded, 'SKILL.md'),
+      '---\nname: guarded\ndescription: Guarded\n---\n# guarded\n',
+    );
+
+    const result = await runTool(
+      nativeReadTool,
+      { path: 'skill://guarded' },
+      skillContext({
+        workspaceRoot: `machine://host-a${workspace}`,
+        localMachine: 'host-a',
+        machines: machineFilesConnector({ name: 'host-a' }),
+        catalog: machineCatalog(),
+        permissionPolicy: compileToolPermissionMap(
+          {
+            read: {
+              allow: true,
+              reject: [
+                {
+                  field: 'path',
+                  regex: String.raw`^machine://host-a.*/workspace/\.agents/skills/guarded/`,
+                },
+              ],
+            },
+          },
+          'machine-skill-reject',
+        ),
+      }),
+      5,
+    );
+
+    expect(result).toMatchObject({
+      status: 'error',
+      type: 'permission_denied',
+    });
+  });
+
+  it('refuses a Machine package file the read group rejects on its bare path', async () => {
+    const workspace = join(source, 'workspace');
+    const guarded = join(workspace, '.agents', 'skills', 'guarded');
+
+    await mkdir(guarded, { recursive: true });
+    await writeFile(
+      join(guarded, 'SKILL.md'),
+      '---\nname: guarded\ndescription: Guarded\n---\n# guarded\n',
+    );
+
+    const result = await runTool(
+      nativeReadTool,
+      { path: 'skill://guarded' },
+      skillContext({
+        workspaceRoot: `machine://host-a${workspace}`,
+        localMachine: 'host-a',
+        machines: machineFilesConnector({ name: 'host-a' }),
+        catalog: machineCatalog(),
+        permissionPolicy: compileToolPermissionMap(
+          {
+            read: {
+              allow: true,
+              reject: [{ field: 'path', literal: join(guarded, 'SKILL.md') }],
+            },
+          },
+          'machine-skill-reject',
+        ),
+      }),
+      5,
+    );
+
+    expect(result).toMatchObject({
+      status: 'error',
+      type: 'permission_denied',
     });
   });
 

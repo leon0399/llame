@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { KnowledgeFilesystemError } from '../knowledge/knowledge-filesystem';
+import { formatMachineLocator } from '../machines/machine-locator';
 import type { PermissionDecision } from '../tools/permissions/types';
 import { readLocatorSchemes } from '../tools/native-files';
 import { type ToolResult } from '../tools/types';
@@ -49,7 +50,14 @@ type HarnessOptions = {
 const OK: ToolResult = { status: 'success', truncated: false };
 
 /** The canonical locator of one host path on the harness's own Machine. */
-const local = (path: string) => `machine://host-a${path}`;
+function local(path: string): string {
+  const locator = formatMachineLocator('host-a', path);
+
+  if (locator === undefined)
+    throw new Error(`the harness cannot address ${path}`);
+
+  return locator;
+}
 
 function createHarness(options: HarnessOptions = {}) {
   let now = 1000;
@@ -206,7 +214,10 @@ describe('resolvePromptImports resolution', () => {
     const result = await run('see @README.md:30-35');
 
     expect(calls.admits).toEqual(['machine://host-a/repo/README.md:30-35']);
-    expect(calls.hostProbes).toEqual(['/repo/README.md']);
+    expect(calls.hostProbes).toEqual([
+      '/repo/README.md:30-35',
+      '/repo/README.md',
+    ]);
     expect(calls.reads).toEqual([
       { path: 'machine://host-a/repo/README.md:30-35', ordinal: 0 },
     ]);
@@ -220,17 +231,19 @@ describe('resolvePromptImports resolution', () => {
     ]);
   });
 
-  it('probes the selector-free path, as every Machine does', async () => {
-    const { calls, run } = createHarness({ existing: ['/tmp/x.md'] });
+  it('probes a literal file named like a selector as itself', async () => {
+    const { calls, run } = createHarness({
+      existing: ['/tmp/x.md:10-12', '/tmp/x.md'],
+    });
 
     const result = await run('@/tmp/x.md:10-12');
 
-    expect(calls.hostProbes).toEqual(['/tmp/x.md']);
+    expect(calls.hostProbes).toEqual(['/tmp/x.md:10-12']);
     expect(calls.reads).toEqual([
       { path: 'machine://host-a/tmp/x.md:10-12', ordinal: 0 },
     ]);
     expect(result.outcomes[0]).toMatchObject({
-      resolved: 'machine://host-a/tmp/x.md',
+      resolved: 'machine://host-a/tmp/x.md%3A10-12',
       outcome: 'imported',
     });
   });
@@ -452,7 +465,7 @@ describe('resolvePromptImports Machine targets', () => {
     ]);
   });
 
-  it('probes the selector-free Machine path and reads the selector-bearing locator', async () => {
+  it('probes the literal Machine path first, then the selector-free path, and reads the selector-bearing locator', async () => {
     const { calls, run } = createHarness({
       machine: { 'dev/notes/a.md': MACHINE },
     });
@@ -460,7 +473,10 @@ describe('resolvePromptImports Machine targets', () => {
     const result = await run(`@${MACHINE}:10-12`);
 
     expect(calls.admits).toEqual([`${MACHINE}:10-12`]);
-    expect(calls.machineProbes).toEqual([{ name: 'dev', path: '/notes/a.md' }]);
+    expect(calls.machineProbes).toEqual([
+      { name: 'dev', path: '/notes/a.md:10-12' },
+      { name: 'dev', path: '/notes/a.md' },
+    ]);
     expect(calls.reads).toEqual([{ path: `${MACHINE}:10-12`, ordinal: 0 }]);
     expect(result.outcomes).toEqual([
       {

@@ -385,35 +385,17 @@ function attemptOf(
       readonly readPage: ReadPage;
       readonly probe: MachineInstructionProbe;
     };
-    /** `null` builds the attempt with no host page reader at all. */
-    readonly hostReadPage?: ReadPage | null;
     readonly localMachine?: string;
     readonly defaultMachine?: string;
   } = {},
 ) {
   const staged: Array<AuthoredContextItemPart> = [];
-  const hostReads: Array<string> = [];
-
-  const hostReadPage =
-    input.hostReadPage === null
-      ? undefined
-      : (input.hostReadPage ??
-        ((selectorPath: string) => {
-          hostReads.push(selectorPath);
-
-          return Promise.resolve({
-            status: 'error' as const,
-            type: 'not_found' as const,
-            message: 'No such file.',
-          });
-        }));
 
   const producer = createInstructionsProducer().beginAttempt({
     runId: RUN_ID,
     chatId: '22222222-2222-4222-8222-222222222222',
     userId: 'owner',
     admitsRead: () => true,
-    ...(hostReadPage !== undefined && { readPage: hostReadPage }),
     ...(input.machines !== undefined && { machines: input.machines }),
     ...(input.localMachine !== undefined && {
       localMachine: input.localMachine,
@@ -426,7 +408,6 @@ function attemptOf(
   return {
     producer,
     staged,
-    hostReads,
     prepare: async () => {
       await producer.prepareStep({
         messages: [],
@@ -860,7 +841,7 @@ describe('instructions producer Machine world', () => {
       },
     });
 
-    const { producer, staged, hostReads, prepare } = attemptOf({
+    const { producer, staged, prepare } = attemptOf({
       machines: world,
     });
 
@@ -883,7 +864,6 @@ describe('instructions producer Machine world', () => {
       { name: MACHINE, path: `${ROOT}/src/app.ts` },
     ]);
     expect(outside(world.connector.recorded, ROOT)).toEqual([]);
-    expect(hostReads).toEqual([]);
   });
 
   it('walks the registered root itself when the trigger is the root', async () => {
@@ -1101,7 +1081,7 @@ describe('instructions producer Machine world', () => {
       },
     });
 
-    const { producer, staged, hostReads, prepare } = attemptOf({
+    const { producer, staged, prepare } = attemptOf({
       machines: world,
       defaultMachine: MACHINE,
     });
@@ -1119,12 +1099,10 @@ describe('instructions producer Machine world', () => {
     expect(world.probed).toEqual([
       { name: MACHINE, path: `${ROOT}/src/app.ts` },
     ]);
-    // The worker's own filesystem is never probed or read for the call.
-    expect(hostReads).toEqual([]);
   });
 
   it('loads nothing for a bare path with no current Machine', async () => {
-    const { producer, staged, hostReads, prepare } = attemptOf();
+    const { producer, staged, prepare } = attemptOf();
 
     producer.observeToolCall?.({
       toolName: 'read',
@@ -1134,7 +1112,6 @@ describe('instructions producer Machine world', () => {
     await prepare();
 
     expect(staged).toEqual([]);
-    expect(hostReads).toEqual([]);
   });
 
   it('treats a Machine entry as a Machine trigger', async () => {

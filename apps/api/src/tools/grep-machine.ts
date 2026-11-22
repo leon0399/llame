@@ -59,6 +59,7 @@ import {
   type MachineFailureResult,
 } from './machine-call';
 import {
+  admitMachineFile,
   ignoredAccumulator,
   machineScopeLocator,
   mergePage,
@@ -92,6 +93,12 @@ export type MachineGrepScope = {
    * matches the same identity a `read` of that package matches.
    */
   readonly locatorOf?: (rel: string) => string;
+  /**
+   * The extra texts whose matching `read` reject refuses a file, by its path
+   * relative to `path`: a skill package on a Machine is also judged on its
+   * canonical `machine://` locator and that bare path.
+   */
+  readonly rejectTextsOf?: (rel: string) => ReadonlyArray<string>;
 };
 
 /** The compiled search the call resolved before either backend ran. */
@@ -284,7 +291,7 @@ async function exactPathVerdict(
 
     if (scope.endsWithSeparator) return { kind: 'refused' };
 
-    return probe.admission.admit(locator)
+    return admitMachineFile(probe.admission, scope, '', locator)
       ? { kind: 'walk', singleFile: true }
       : { kind: 'refused' };
   } catch (error) {
@@ -678,18 +685,29 @@ function locatorsOf(
   return locators;
 }
 
+/** One file's admission input: the call's admission, its scope, and its path. */
+type MachineFileAdmission = {
+  readonly admission: GrepReadAdmission;
+  readonly scope: MachineGrepScope;
+  readonly decided: Map<string, boolean>;
+  readonly rel: string;
+  readonly locator: string;
+};
+
 /** The `read` verdict for one file, judged once and shared by its passages. */
-function admitsFile(
-  admission: GrepReadAdmission,
-  decided: Map<string, boolean>,
-  rel: string,
-  locator: string,
-): boolean {
-  const known = decided.get(rel);
+function admitsFile(input: MachineFileAdmission): boolean {
+  const known = input.decided.get(input.rel);
 
   if (known !== undefined) return known;
-  const allowed = admission.admit(locator);
-  decided.set(rel, allowed);
+
+  const allowed = admitMachineFile(
+    input.admission,
+    input.scope,
+    input.rel,
+    input.locator,
+  );
+
+  input.decided.set(input.rel, allowed);
 
   return allowed;
 }
@@ -723,7 +741,16 @@ function renderPage(
   for (const [index, passage] of result.results.entries()) {
     const locator = locators[index];
 
-    if (!admitsFile(search.admission, decided, passage.path, locator)) continue;
+    if (
+      !admitsFile({
+        admission: search.admission,
+        scope: search.scope,
+        decided,
+        rel: passage.path,
+        locator,
+      })
+    )
+      continue;
     into.push(keptPassage(passage, locator));
   }
 

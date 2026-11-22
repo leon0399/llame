@@ -10,7 +10,10 @@ import path from 'node:path';
 
 import { normalizeHostScope } from '@workspace/native-file-tools';
 
-import { parseMachineLocator } from '../machines/machine-locator';
+import {
+  formatMachineLocator,
+  parseMachineLocator,
+} from '../machines/machine-locator';
 import {
   formatSkillLocator,
   validateSkillResourcePath,
@@ -33,7 +36,6 @@ export type SkillPackageScope = {
   readonly rawPath: string;
   readonly index: number;
   readonly admission: GrepReadAdmission;
-  readonly signal: AbortSignal | undefined;
   /** The absolute instant the walk stops, which bounds a Machine package's probe. */
   readonly deadlineAt: number;
 };
@@ -50,10 +52,10 @@ export async function resolveSkillPackage(
 
   if ('status' in parsed) return { result: parsed };
 
-  const machine = machinePackageOf(input.skillDirectory);
+  const machine = parseMachineLocator(input.skillDirectory);
 
-  if (machine !== undefined)
-    return resolveMachineSkillPackage(input, { machine, parsed });
+  if (machine.kind === 'path')
+    return resolveMachineSkillPackage(input, machine, parsed);
 
   if (!path.isAbsolute(input.skillDirectory)) {
     return { result: skillUnavailableResult() };
@@ -68,55 +70,51 @@ export async function resolveSkillPackage(
     index: input.index,
     locatorFor: skillPackageLocator(input.name, parsed.prefixPath),
     glob: parsed.glob,
-    port: () => createSkillWalkPort(root, input.signal),
-    probe: () => probeSkillPath(root, input.signal),
+    port: () => createSkillWalkPort(root, input.context.abortSignal),
+    probe: () => probeSkillPath(root, input.context.abortSignal),
     endsWithSeparator: parsed.endsWithSeparator,
     admission: input.admission,
   });
 }
 
-/** The Machine a package directory lives on, when the directory is a locator. */
-function machinePackageOf(
-  directory: string,
-): { readonly name: string; readonly path: string } | undefined {
-  const parsed = parseMachineLocator(directory);
-
-  return parsed.kind === 'path'
-    ? { name: parsed.name, path: parsed.path }
-    : undefined;
-}
-
-/** One Machine package: its Machine, and the resource path the scope names. */
-type MachineSkillPackage = {
-  readonly machine: { readonly name: string; readonly path: string };
-  readonly parsed: {
-    readonly prefixPath: string;
-    readonly globSuffix: string | undefined;
-    readonly endsWithSeparator: boolean;
-  };
-};
-
 /**
  * One package on a Machine: the Machine's daemon walks the package path, and
  * every path it reports is spelled as the `skill://` locator the package
- * names, so the `read` group and the result see the package rather than a
- * Machine path the catalog keeps.
+ * names, so the result sees the package rather than a Machine path the catalog
+ * keeps. The `read` group still judges each file on the package's canonical
+ * `machine://` locator and its bare path, so a reject written for either
+ * refuses it.
  */
 async function resolveMachineSkillPackage(
   input: SkillPackageScope,
-  target: MachineSkillPackage,
+  machine: { readonly name: string; readonly path: string },
+  parsed: {
+    readonly prefixPath: string;
+    readonly globSuffix?: string;
+    readonly endsWithSeparator: boolean;
+  },
 ): Promise<ScopeOutcome> {
-  const { machine, parsed } = target;
+  const prefix = normalizeHostScope(
+    packagePath(machine.path, parsed.prefixPath),
+  );
 
   return resolveParsedMachineScope(
     input.context,
     {
       index: input.index,
       name: machine.name,
-      path: normalizeHostScope(packagePath(machine.path, parsed.prefixPath)),
+      path: prefix,
       globSuffix: parsed.globSuffix,
       endsWithSeparator: parsed.endsWithSeparator,
       locatorOf: skillPackageLocator(input.name, parsed.prefixPath),
+      rejectTextsOf: (rel) => {
+        const absolute =
+          rel.length === 0 ? prefix : path.posix.join(prefix, rel);
+
+        const locator = formatMachineLocator(machine.name, absolute);
+
+        return locator === undefined ? [absolute] : [locator, absolute];
+      },
     },
     input.admission,
     input.deadlineAt,

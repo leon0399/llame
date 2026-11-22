@@ -9,7 +9,13 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   interpolates against the daemon child's base environment, so a declaration
   that reads a variable only the worker defines becomes unavailable with the
   unset-variable diagnostic. Move that variable to the daemon's environment,
-  for example a wrapper named by `LLAME_MACHINE_COMMAND`. The host daemon's
+  for example a wrapper named by `LLAME_MACHINE_COMMAND`. That boundary covers
+  variables only: the daemon shares the worker's OS user and file access, so a
+  host `.mcp.json` `{path:...}` token can read files that user can read
+  (credential files and `.env.local` included), and its stdio servers can read
+  the worker's `/proc/<pid>/environ`. Run the daemon as a separate OS user
+  through that wrapper when hub credentials must stay out of host Workspaces.
+  The host daemon's
   registered roots now bound Workspace entry, instruction walks, Workspace
   skill sources, and prompt imports: an entry outside every root fails with
   `path_not_registered`, an instruction file or skill source outside every root

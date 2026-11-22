@@ -573,6 +573,66 @@ describe('Machine grep', () => {
       globSuffix: '**/*.md',
     });
   });
+
+  it('judges a Machine skill file on its Machine locator and bare path', async () => {
+    const { connector } = fixture({
+      answers: {
+        'fs.grep': {
+          value: page([passage('SKILL.md', 1, 1), passage('creds/a.md', 2, 3)]),
+        },
+      },
+    });
+
+    const result = await run(
+      context(connector, {
+        workspaceRoot: createWorkspaceRootCell('machine://devl/home/me/shop'),
+        skillCatalog: {
+          getSnapshot: () => ({
+            available: true,
+            directories: [],
+            entries: [
+              {
+                name: 'pdf',
+                description: null,
+                proactive: true,
+                sourceDirectory: 'machine://devl/home/me/shop/.agents/skills',
+                skillDirectory:
+                  'machine://devl/home/me/shop/.agents/skills/pdf',
+                available: true,
+                diagnostics: [],
+              },
+            ],
+            diagnostics: [],
+          }),
+        },
+        permissionPolicy: compileToolPermissionMap(
+          {
+            grep: { allow: true },
+            read: {
+              allow: true,
+              reject: [
+                {
+                  field: 'path',
+                  regex: String.raw`^machine://devl/home/me/shop/\.agents/skills/pdf/creds/`,
+                },
+                {
+                  field: 'path',
+                  literal: '/home/me/shop/.agents/skills/pdf/SKILL.md',
+                },
+              ],
+            },
+          },
+          'test',
+        ),
+      }),
+      { patterns: ['needle'], scopes: ['skill://pdf'] },
+    );
+
+    // Both files were admitted as `skill://` texts; the rejects written for
+    // the Machine location still hide them.
+    expect(locatorsOf(result)).toEqual([]);
+    expect(JSON.stringify(result)).not.toContain('creds');
+  });
 });
 
 /** The bounds one request carried, as the peer received it. */

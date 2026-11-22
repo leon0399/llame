@@ -22,7 +22,6 @@ import {
   MachineConnector,
   type MachineConnectorDeps,
 } from '../machines/machine-connector.service';
-import { MachineUnavailableError } from '../machines/machine-session';
 import { formatMachineLocator } from '../machines/machine-locator';
 import {
   createProtocolPeer,
@@ -316,6 +315,42 @@ describe('Workspace host tools', () => {
         },
       ],
       skillsOmitted: 0,
+    });
+  });
+
+  it('asks the attempt for the catalog when it enters an unprepared root', async () => {
+    const operatorSource = join(root, 'operator-skills');
+    const workspace = join(root, 'entered-later');
+    const workspacePackage = join(workspace, '.agents', 'skills', 'late');
+
+    await mkdir(workspacePackage, { recursive: true });
+    await writeFile(
+      join(workspacePackage, 'SKILL.md'),
+      '---\nname: late\ndescription: Entered mid-Run\n---\n',
+    );
+    vi.spyOn(WorkspaceBindingRepository.prototype, 'enter').mockResolvedValue({
+      status: 'bound',
+      previousRoot: null,
+      generation: 1,
+    });
+
+    const connector = localConnector();
+    const prepared = await machineCatalog(connector, workspace);
+    const skillCatalogFor = vi.fn().mockResolvedValue(prepared);
+
+    const result = await enterWorkspaceTool.execute(
+      context({
+        machines: connector,
+        skillCatalog: new SkillCatalog([operatorSource]),
+        skillCatalogFor,
+      }),
+      { path: workspace },
+    );
+
+    expect(skillCatalogFor).toHaveBeenCalledWith(onLocal(workspace));
+    expect(result).toMatchObject({
+      status: 'success',
+      skills: [{ name: 'late', description: 'Entered mid-Run' }],
     });
   });
 
@@ -1283,19 +1318,16 @@ describe('Workspace host tools', () => {
     expect(runAs).not.toHaveBeenCalled();
   });
 
-  it('refuses a local entry whose Machine daemon does not verify', async () => {
-    const unverified = localMachineConnector({
-      verify: () =>
-        Promise.reject(
-          new MachineUnavailableError('machine', 'unreachable', false, 'down'),
-        ),
-    });
+  it('reports a local entry unavailable when its daemon cannot answer', async () => {
+    // The handshake succeeds, but this peer refuses every request: the root
+    // check now runs through the local daemon, so the entry cannot bind.
+    const silent = localMachineConnector();
 
-    connectors.push(unverified);
+    connectors.push(silent);
     const enter = vi.spyOn(WorkspaceBindingRepository.prototype, 'enter');
 
     const result = await enterWorkspaceTool.execute(
-      context({ machines: unverified }),
+      context({ machines: silent }),
       { path: root },
     );
 

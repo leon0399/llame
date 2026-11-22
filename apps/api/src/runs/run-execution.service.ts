@@ -40,6 +40,7 @@ import {
   machineAvailabilityNarration,
   machineInstructionAvailability,
   machineInstructionWorld,
+  prepareMachineSkills,
   type MachineWorkspaceState,
 } from './machine-workspace';
 import { MachineConnector } from '../machines/machine-connector.service';
@@ -465,6 +466,7 @@ import {
 import {
   createWorkspaceRootCell,
   currentMachine,
+  machineWorkspaceRoot,
   type WorkspaceRootCell,
 } from '../tools/workspace-path';
 import { workspaceSkillSources } from '../skills/workspace-skill-sources';
@@ -3181,9 +3183,8 @@ export class RunExecutionService {
       abortSignal: input.abortSignal,
       knowledgeResolver: this.knowledgeResolver,
       skillCatalog: this.skillCatalogFor(workspaceRoot.current()),
-      skillDirectories: this.instanceConfig.config.skills.directories,
-      onSkillCatalog: (catalog) =>
-        Object.assign(toolContext, { skillCatalog: catalog }),
+      skillCatalogFor: (root) =>
+        this.entrySkillCatalog(toolContext, root, input.abortSignal),
       // A manual-only skill the user named stays readable for this Run's tool
       // calls, references and scripts included; a turn that did not name it
       // carries an empty set and refuses again.
@@ -7069,7 +7070,6 @@ export class RunExecutionService {
       abortSignal: input.abortSignal,
       knowledgeResolver: this.knowledgeResolver,
       skillCatalog: this.skillCatalogFor(workspaceRoot.current()),
-      skillDirectories: this.instanceConfig.config.skills.directories,
       permissionPolicy: this.permissionPolicy,
       configuredCredentials: configuredCredentials(this.instanceConfig.config),
       webAdapters: this.instanceConfig.config.tools.webAdapters,
@@ -10330,6 +10330,56 @@ export class RunExecutionService {
     if (root === undefined) return this.skillCatalog;
 
     return this.machineSkillCatalogs.get(root) ?? this.skillCatalog;
+  }
+
+  /**
+   * The catalog a mid-Run Workspace entry reports from: the same preparation a
+   * bound attempt runs, so the root's sources are read on its Machine under the
+   * `read` gate and the per-root snapshot cache. The attempt's own cell takes
+   * the catalog preparation installs, so the `skill://` reads that follow the
+   * entry resolve the Workspace's packages. A root with no Machine path, or a
+   * Machine that cannot snapshot it, leaves the attempt's catalog as it is.
+   */
+  private async entrySkillCatalog(
+    context: ToolContext,
+    root: string,
+    signal: AbortSignal | undefined,
+  ): Promise<SkillCatalogPort | undefined> {
+    const parsed = machineWorkspaceRoot(root);
+    const connector = this.machineConnector;
+
+    if (parsed === undefined) return context.skillCatalog;
+
+    // Activation is a `read`: a Run without it reads no Workspace source, even
+    // when another attempt already snapshotted this root.
+    if (!this.instanceConfig.config.tools.allowed.includes('read'))
+      return context.skillCatalog;
+
+    const cached = this.machineSkillCatalogs.get(root);
+
+    if (cached !== undefined) {
+      Object.assign(context, { skillCatalog: cached });
+
+      return cached;
+    }
+
+    if (connector === undefined) return context.skillCatalog;
+
+    await prepareMachineSkills(this.machineSkillCatalogs, {
+      connector,
+      machineName: parsed.name,
+      root,
+      signal,
+      toolAllowlist: this.instanceConfig.config.tools.allowed,
+      skillDirectories: this.instanceConfig.config.skills.directories,
+    });
+
+    const catalog = this.machineSkillCatalogs.get(root);
+
+    if (catalog === undefined) return undefined;
+    Object.assign(context, { skillCatalog: catalog });
+
+    return catalog;
   }
 
   /**

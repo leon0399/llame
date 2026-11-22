@@ -152,17 +152,15 @@ export interface ToolContext {
    */
   readonly skillCatalog?: SkillCatalogPort;
   /**
-   * The operator's skill directories (`skills.directories`), so a catalog
-   * composed mid-Run from a Machine snapshot keeps the operator packages it
-   * would otherwise drop.
+   * Resolves the catalog a Workspace entry reports its skills from, for a root
+   * this attempt may not have prepared (a mid-Run entry). It reads the root's
+   * sources on their Machine exactly as attempt preparation does, keeping the
+   * `read` gate and the snapshot cache, and publishes the result for later
+   * calls of the same attempt. Absent means only the attempt's own catalog.
    */
-  readonly skillDirectories?: ReadonlyArray<string>;
-  /**
-   * Publishes a skill catalog an entry resolved mid-Run (it bound a root the
-   * attempt prepared unbound), so later tool calls of the same attempt read
-   * the Workspace's packages through the same snapshot.
-   */
-  readonly onSkillCatalog?: (catalog: SkillCatalogPort) => void;
+  readonly skillCatalogFor?: (
+    root: string,
+  ) => Promise<SkillCatalogPort | undefined>;
   /**
    * The current user turn's explicit `$skill` selections, derived by the
    * activation layer from the triggering user message and supplied to every

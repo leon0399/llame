@@ -124,7 +124,7 @@ function pageReader() {
 function attemptOf(
   input: {
     readonly seenKeys?: ReadonlySet<string>;
-    /** `null` builds the attempt with no page reader at all. */
+    /** `null` builds the attempt with no Machine world. */
     readonly readPage?: ReadPage | null;
     readonly admitsRead?: (path: string) => boolean;
     /** The Space capability; absent builds an attempt without one. */
@@ -170,7 +170,6 @@ function attemptOf(
     localMachine: 'host-a',
     defaultMachine: 'host-a',
     ...(input.seenKeys !== undefined && { seenKeys: input.seenKeys }),
-    ...(readPage !== undefined && { readPage }),
     ...(space !== undefined && {
       knowledge: { readPage: space.readPage, probe: space.knowledge },
     }),

@@ -169,9 +169,8 @@ const WORKSPACE_MACHINE = 'devl';
 /** The Machine this test process hosts, for the local-Machine cases. */
 const LOCAL_WORKSPACE_MACHINE = 'host-a';
 
-/** The Machine hosts a provider's roots name: a reachable remote Machine. */
-
-const WORKSPACE_HOSTS = {
+/** The SSH settings and hosts both harnesses name: `devl` is reachable. */
+const MACHINE_HOSTS = {
   ssh: { knownHostsFile: '/etc/llame/machine_known_hosts' },
   hosts: { [WORKSPACE_MACHINE]: { destination: 'box' } },
 };
@@ -215,11 +214,7 @@ function declarationLabel(config: WorkspaceMcpServerConfig): string {
  */
 function workspaceConnector(
   configs: (root: string) => ReadonlyArray<WorkspaceMcpServerConfig>,
-  options: { readonly local?: boolean } = {},
 ): MachineConnector {
-  const name =
-    options.local === true ? LOCAL_WORKSPACE_MACHINE : WORKSPACE_MACHINE;
-
   const peer = createProtocolPeer({
     answer: (call) => {
       if (call.method !== 'mcp.servers') return undefined;
@@ -236,10 +231,7 @@ function workspaceConnector(
   });
 
   const connector = new MachineConnector({
-    machines:
-      options.local === true
-        ? { local: name, hosts: { [name]: {} } }
-        : WORKSPACE_HOSTS,
+    machines: MACHINE_HOSTS,
     hubVersion: '9.9.9',
     bindIdentity: () => Promise.resolve('match'),
     transportFactory: peer.factory,
@@ -945,11 +937,6 @@ describe('WorkspaceMcpClients in a read-only attempt', () => {
  * server on the box.
  */
 
-const MACHINE_HOSTS = {
-  ssh: { knownHostsFile: '/etc/llame/machine_known_hosts' },
-  hosts: { devl: { destination: 'box' } },
-};
-
 const MACHINE_ROOT = 'machine://devl/srv/work';
 const START_SECRET = 'repo-token-sentinel';
 const LEARNED_SECRET = 'session-id-sentinel';
@@ -1054,6 +1041,8 @@ function fakeMachine(
     },
     handshakeTimeoutMs: 2000,
   });
+
+  workspaceConnectors.push(connector);
 
   return {
     peer,

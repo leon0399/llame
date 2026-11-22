@@ -1262,6 +1262,79 @@ describeIfDb('executeRun tool-loop persistence', () => {
     }
   });
 
+  it('reads no Workspace skill in an entry when the Run cannot read', async () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'workspace-no-read-'));
+
+    const operatorSource = mkdtempSync(
+      path.join(tmpdir(), 'workspace-no-read-operator-'),
+    );
+
+    const skillDirectory = path.join(root, '.llame', 'skills', 'guarded');
+
+    mkdirSync(skillDirectory, { recursive: true });
+    writeFileSync(
+      path.join(skillDirectory, 'SKILL.md'),
+      '---\nname: guarded\ndescription: Must stay unread.\n---\n# guarded\n',
+    );
+
+    const seeded = await seedBoundRun(
+      `workspace-no-read-${crypto.randomUUID()}`,
+    );
+
+    const service = serviceWithTools({
+      localMachine: 'workspace-no-read-host',
+      allowed: ['enter_workspace'],
+      skillCatalog: new SkillCatalog([operatorSource]),
+    });
+
+    let turn = 0;
+
+    const model = new MockLanguageModelV3({
+      doStream: () => {
+        turn += 1;
+
+        return Promise.resolve(
+          turn === 1
+            ? jsonToolCallResponse(
+                'workspace-no-read-enter',
+                'enter_workspace',
+                { path: root },
+              )
+            : textResponse('Entered without reading.'),
+        );
+      },
+    });
+
+    try {
+      const execution = await executeSeeded(
+        seeded,
+        service,
+        createMockModelClient(model),
+      );
+
+      await execution.consumeStream?.();
+
+      const events = await tenantDb.runAs(userId, (tx) =>
+        new RunEventsRepository(tx).listByRunId(seeded.run.id, userId),
+      );
+
+      expect(
+        events.find(
+          (event) =>
+            event.eventType === 'tool.completed' &&
+            isRecord(event.payload) &&
+            event.payload.toolCallId === 'workspace-no-read-enter',
+        )?.payload,
+      ).toMatchObject({
+        output: { status: 'success', skills: [] },
+      });
+    } finally {
+      await sql`DELETE FROM chats WHERE id = ${seeded.chatId}`;
+      rmSync(operatorSource, { recursive: true, force: true });
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it('uses the pre-step root for a same-step read beside entry', async () => {
     const root = mkdtempSync(path.join(tmpdir(), 'workspace-same-step-'));
     writeFileSync(path.join(root, 'file.txt'), 'workspace-content\n');
