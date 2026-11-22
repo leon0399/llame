@@ -480,6 +480,24 @@ describe("fs.edit and fs.write", () => {
     await expect(readFile(join(nested, "new.txt"))).rejects.toThrow(/ENOENT/u);
   });
 
+  it("refuses a missing target reached through a dangling link", async () => {
+    // The kernel cannot traverse the link at all, so rejoining it as a literal
+    // directory name must not let the request act on the normalized sibling.
+    await symlink(join(fixture.root, "missing"), join(fixture.root, "link"));
+
+    await expect(
+      daemon.call("fs.write", {
+        envelope: envelope(),
+        path: `${fixture.root}/link/../new.txt`,
+        options: { displayPrefix: PREFIX },
+        content: "no\n",
+      }),
+    ).resolves.toMatchObject({ status: "error", type: "not_found" });
+    await expect(readFile(join(fixture.root, "new.txt"))).rejects.toThrow(
+      /ENOENT/u,
+    );
+  });
+
   it("creates two files under the same new directory chain at once", async () => {
     const write = (name: string) =>
       daemon.call("fs.write", {

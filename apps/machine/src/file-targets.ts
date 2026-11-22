@@ -7,7 +7,7 @@
  */
 
 import { constants } from "node:fs";
-import { open, realpath, type FileHandle } from "node:fs/promises";
+import { lstat, open, realpath, type FileHandle } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 import { type MediaReadHook } from "@workspace/native-file-tools";
 import type { NativeFailureResult } from "@workspace/machine-protocol";
@@ -177,7 +177,8 @@ async function kernelResolution(requested: string): Promise<KernelResolution> {
  * Where the kernel would create a request text whose tail does not exist: the
  * deepest existing ancestor resolved as a whole, then the missing segments.
  * Never lexical, because a `..` after a link climbs from the link's target;
- * `undefined` when no ancestor resolves, so the request names no destination.
+ * `undefined` when no ancestor resolves, or when one is a link the kernel
+ * cannot traverse, so the request names no destination.
  */
 async function kernelDestination(
   requested: string,
@@ -197,6 +198,11 @@ async function kernelDestination(
         error instanceof Error && "code" in error ? error.code : undefined;
 
       if (code !== "ENOENT") return undefined;
+      // A dangling link makes the kernel refuse every path through it. Rejoin
+      // it as a literal name and the request would act on a sibling instead.
+      const entry = await lstat(current).catch(() => undefined);
+
+      if (entry?.isSymbolicLink() === true) return undefined;
       const parent = dirname(current);
 
       if (parent === current) return undefined;
