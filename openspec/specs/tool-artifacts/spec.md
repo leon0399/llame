@@ -398,11 +398,12 @@ gets its files back at its next reconcile.
 
 ### Requirement: The notice names the host files
 
-When the system wrote artifact files, the notice MUST also name their directory
-as a canonical `machine://` locator on the `machines.local` Machine of the
-process. The current Machine can be another Machine, or `bash` can run on an
-`ssh://` host. The notice MUST then say that the files are only on that
-`machines.local` Machine. Without files, the notice MUST name no path.
+The current Machine of the process can be its `machines.local` Machine, or
+another Machine. When the two are the same, the notice MUST name the artifact
+directory as a canonical `machine://` locator on it. When they differ, or
+`bash` runs on an `ssh://` host, the notice MUST instead say that the files
+are only on the `machines.local` Machine. Without files, the notice MUST name
+no path.
 
 #### Scenario: The host path is shown with bash
 

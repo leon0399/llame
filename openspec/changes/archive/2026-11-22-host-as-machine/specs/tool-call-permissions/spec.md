@@ -41,6 +41,11 @@ A regex clause on a path parameter MUST NOT start with `^/`. The path parameters
 - **WHEN** an all-fields `read` reject matches `^/home/u/\.ssh/` and the model reads `.ssh/id_rsa` in a Workspace at `machine://devl/home/u`
 - **THEN** the reject matches the projected path `/home/u/.ssh/id_rsa` and the call is refused
 
+#### Scenario: An all-fields reject sees the submitted relative spelling
+
+- **WHEN** an all-fields `read` reject matches `\.\./` and the model reads `../notes.md` in a Workspace at `machine://devl/home/u/project`
+- **THEN** the reject matches the submitted text and the call is refused
+
 ### Requirement: A path allow for one Machine does not admit another Machine
 
 The evaluator MUST decide an allow for a path parameter on the canonical locator, with the Machine name. A rule that names one Machine MUST NOT admit the same path on another Machine.
@@ -57,11 +62,15 @@ The evaluator MUST decide an allow for a path parameter on the canonical locator
 
 After the evaluator validates the call schema, it MUST match the parsed argument values as submitted, except for the native Workspace and locator projections below. It MUST NOT match trusted context, inserted defaults, object keys, JSON serialization syntax, or non-string values converted to strings. The SDK validation adapter MUST keep the submitted values unchanged for admission, and the tool receives separately validated arguments with their defaults. A selected field MUST match only an own top-level string property.
 
-An omitted or non-string field MUST NOT match, except for an omitted `bash.cwd` while a Workspace is entered. All-fields rejection MUST examine every submitted string value in nested objects and arrays separately, without concatenation. For a native path parameter, all-fields rejection MUST examine the projected path and the canonical locator in place of the submitted bare or relative text.
+An omitted or non-string field MUST NOT match, except for an omitted `bash.cwd` while a Workspace is entered. All-fields rejection MUST examine every submitted string value in nested objects and arrays separately, without concatenation. For a native path parameter, all-fields rejection MUST also examine the projected path and the canonical locator.
 
 Native `read`, `edit`, and `write` `path` values, `enter_workspace` `path` values, and `bash` `cwd` values MUST project to a canonical `machine://` locator. An absolute path `p` projects to `machine://<name>p` on the current Machine. The projected path of every Machine value is its decoded absolute path without the scheme and the Machine name. This holds for a bare path, a `file:` locator, a `machine://` locator, a `grep` scope prefix, and each derived or stored value: a canonical root, a main clone, a worktree directory, and the re-checked Workspace root. While a Workspace is entered, a relative path MUST first resolve from the canonical Workspace root. Resolution MUST be lexical like POSIX `path.posix.resolve`, it MUST keep a trailing separator, and `..` can leave the root.
 
-For `read`, the evaluator MUST remove the split-off read selector after resolution. The tool MUST receive exactly the projected path, with that trailing separator. Projection MUST NOT resolve symbolic links. The OS follows symbolic links in the projected path as for any absolute path.
+For `read`, the evaluator MUST remove the split-off read selector from the
+texts it matches, after resolution. The tool MUST keep the selector as the
+window of the read, and MUST reach the resolved path. That path MUST keep its
+trailing separator. Projection MUST NOT resolve symbolic links. The OS follows
+symbolic links in the projected path as for any absolute path.
 
 Here, a relative value does not start with `/`. It also has no `scheme:` prefix that the shared locator parser or the `file:` classifier knows. An unknown scheme MUST stay `invalid_path` and MUST NOT become a relative path. A `file:` locator is always absolute, and the classifier runs before Workspace projection. A reject clause MUST match the submitted value, the projected path, or the canonical locator, and any match refuses the call. A bare-path reject in a spelling other than `^/` thus keeps its effect on every Machine. An allow clause MUST match only the canonical locator.
 

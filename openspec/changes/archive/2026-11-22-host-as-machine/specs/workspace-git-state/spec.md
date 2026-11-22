@@ -26,7 +26,8 @@ MUST be "no repository inside the registered root".
 
 #### Scenario: A subdirectory root finds the repository entry
 
-- **WHEN** the root is `/home/dev/src/mono/apps/api` and `/home/dev/src/mono/.git` exists
+- **WHEN** the registered root is `/home/dev/src/mono`, the root is
+  `/home/dev/src/mono/apps/api`, and `/home/dev/src/mono/.git` exists
 - **THEN** the git entry is `/home/dev/src/mono/.git`
 
 #### Scenario: A linked worktree uses its own `.git` file
