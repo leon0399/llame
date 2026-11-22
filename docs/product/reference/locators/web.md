@@ -105,7 +105,7 @@ not — an allow written for `/docs/` does not admit `https://evil.test/x#/docs/
 A trailing separator stays inside the URL: `https://example.test/guide/` is
 fetched as written and is never read as a directory request.
 
-## GitHub line anchors
+### GitHub line anchors
 
 A GitHub blob link can carry the line anchor that GitHub's own page uses:
 `#L10`, `#L10-L20`, or a `C<c>` column after a line number, as in
