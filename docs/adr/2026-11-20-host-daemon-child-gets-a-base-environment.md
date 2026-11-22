@@ -41,4 +41,4 @@ Bounding `{path:...}` to the registered roots would need a separate decision.
 This was decided in the grilling session for
 [feat(machines): the host as a Machine](https://github.com/leon0399/llame/issues/1831)
 and is specified in the OpenSpec change
-[host-as-machine](../../openspec/changes/host-as-machine/proposal.md).
+[host-as-machine](../../openspec/changes/archive/2026-11-22-host-as-machine/proposal.md).

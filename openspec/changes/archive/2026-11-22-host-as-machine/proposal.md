@@ -21,17 +21,17 @@ The decisions come from the wayfinder map
 [the way to one executor contract with Sandboxes](https://github.com/leon0399/llame/issues/1778)
 and one grilling session. The ADRs that record the reasoning:
 
-- [Host tools run through the Machine daemon](../../../docs/adr/2026-11-20-host-tools-run-through-the-machine-daemon.md)
-- [Paths are machine-local, and permission rules match canonical locators](../../../docs/adr/2026-11-20-paths-are-machine-local.md)
-- [A frozen bootstrap service beside an exactly matched Machine protocol](../../../docs/adr/2026-11-20-machine-daemon-frozen-bootstrap-service.md)
+- [Host tools run through the Machine daemon](../../../../docs/adr/2026-11-20-host-tools-run-through-the-machine-daemon.md)
+- [Paths are machine-local, and permission rules match canonical locators](../../../../docs/adr/2026-11-20-paths-are-machine-local.md)
+- [A frozen bootstrap service beside an exactly matched Machine protocol](../../../../docs/adr/2026-11-20-machine-daemon-frozen-bootstrap-service.md)
 
 This change adds three ADRs from the grilling session:
 
-- [The host Machine serves only its registered roots](../../../docs/adr/2026-11-20-host-machine-serves-only-registered-roots.md)
+- [The host Machine serves only its registered roots](../../../../docs/adr/2026-11-20-host-machine-serves-only-registered-roots.md)
   (H3)
-- [Installation resources stay in the installation](../../../docs/adr/2026-11-20-installation-resources-stay-in-the-installation.md)
+- [Installation resources stay in the installation](../../../../docs/adr/2026-11-20-installation-resources-stay-in-the-installation.md)
   (H6)
-- [The host Machine daemon child gets a base environment](../../../docs/adr/2026-11-20-host-daemon-child-gets-a-base-environment.md)
+- [The host Machine daemon child gets a base environment](../../../../docs/adr/2026-11-20-host-daemon-child-gets-a-base-environment.md)
   (H18)
 
 The other H decisions sequence work or can be reversed cheaply, so they have no ADR. H4 is the
