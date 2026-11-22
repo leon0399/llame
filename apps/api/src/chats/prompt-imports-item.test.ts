@@ -463,7 +463,11 @@ describe('prompt imports labels', () => {
       `kb://${SPACE_ID}/a:b.md:5`,
       'the Knowledge reader splits at its first colon',
     ],
+    ['skill://pdf/a:b:5', 'the skill reader splits at its first colon'],
+    ['ssh://box/a%2Fb:5', 'the ssh reader refuses the encoded slash'],
     ['ssh://box:2222', 'a destination with no path is refused'],
+    ['http://x.test/a.md?time=10:30', 'a colon inside the query is URL text'],
+    ['https://x.test/a.md?time=10:30', 'a colon inside the query is URL text'],
     ['notes.md:L-5', 'the grammar refuses the selector'],
   ] as const)('prints %s as written (%s)', (locator, _reason) => {
     const item = itemOf([{ locator, outcome: 'failed' }]);

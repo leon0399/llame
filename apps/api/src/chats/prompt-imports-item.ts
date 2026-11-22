@@ -511,9 +511,7 @@ function tailSplit(
   if (selector === undefined) return undefined;
   const at = locator.length - selector.length - 1;
 
-  return at > 0 && locator[at] === ':'
-    ? { path: locator.slice(0, at), selector }
-    : undefined;
+  return { path: locator.slice(0, at), selector };
 }
 
 /** A web target splits after its fragment, which the request never sends. */
