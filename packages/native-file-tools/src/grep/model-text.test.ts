@@ -1,4 +1,4 @@
-import { passageStartLine } from "./passages";
+import { parsePassageLocator } from "./locator";
 import { spellGrepHostScopeLocator } from "./scope";
 import {
   grepArtifactLines,
@@ -47,8 +47,8 @@ describe("grep text rendering", () => {
 
     expect(text.split("\n")[0]).toBe("## notes.md");
     expect(grepFileLocator(stored.locator)).toBe("notes.md");
-    expect(passageStartLine(stored.locator)).toBe(5);
-    expect(passageStartLine("notes.md:L5-10")).toBe(5);
+    expect(parsePassageLocator(stored.locator)?.startLine).toBe(5);
+    expect(parsePassageLocator("notes.md:L5-10")?.startLine).toBe(5);
   });
 
   it("repeats the file line for an overlapping later scope", () => {

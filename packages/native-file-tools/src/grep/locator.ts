@@ -1,9 +1,9 @@
 import { formatLineRange } from "../path";
 
 /** The range a passage locator ends with: `L<start>-<end>`, or a stored bare one. */
-const PASSAGE_RANGE = /^[Ll]?(\d+)-(\d+)$/u;
+const PASSAGE_RANGE = /^L?(\d+)-(\d+)$/u;
 
-/** A passage locator's file, without the line range it ends with. */
+/** A passage locator split into its file and its one-based inclusive range. */
 export interface ParsedPassageLocator {
   readonly file: string;
   readonly startLine: number;

@@ -3,6 +3,7 @@
 import type { ReactElement } from "react";
 import { z } from "zod";
 
+import { PASSAGE_RANGE_SUFFIX } from "@workspace/ui/components/custom/passage-range";
 import {
   languageForPath,
   parseNumberedLines,
@@ -85,14 +86,9 @@ const warningLabels = new Map([
 
 type LocatorParts = { path: string; start: number };
 
-// A passage locator ends in its line range: the canonical `:L<start>-<end>`
-// spelling, or the bare `:<start>-<end>` a stored passage keeps.
-const locatorRangePattern = /:L?(\d+)-(\d+)$/u;
-
-/** The `<path>` and start line of a `<path>:<start>-<end>` passage locator.
- *  The path may itself contain `:`, so only the range is a suffix. */
+/** The `<path>` and start line of a passage locator's trailing range. */
 function locatorParts(locator: string): LocatorParts {
-  const range = locatorRangePattern.exec(locator);
+  const range = PASSAGE_RANGE_SUFFIX.exec(locator);
 
   if (!range) return { path: locator, start: 0 };
 

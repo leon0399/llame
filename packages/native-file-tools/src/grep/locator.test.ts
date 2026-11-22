@@ -26,6 +26,7 @@ describe("passage locators", () => {
   it("reads no passage range from any other suffix", () => {
     for (const locator of [
       "notes.md",
+      "notes.md:l5-10",
       "notes.md:L5",
       "notes.md:L5-",
       "notes.md:L5-10,L20-30",

@@ -3,6 +3,7 @@
 import type { ReactElement } from "react";
 import { z } from "zod";
 
+import { PASSAGE_RANGE_SUFFIX } from "@workspace/ui/components/custom/passage-range";
 import {
   ToolDetails,
   type ToolPartProps,
@@ -44,15 +45,11 @@ type KnowledgeResult = z.infer<typeof resultSchema>;
 /** Props for the dedicated `knowledge_search` tool row. */
 export type KnowledgeSearchToolProps = ToolPartProps;
 
-// A passage locator ends in its 1-based inclusive line range: the canonical
-// `:L<start>-<end>`, or the bare `:<start>-<end>` a stored passage keeps.
-const locatorRangePattern = /:L?(\d+)-(\d+)$/u;
-
 /** One passage: its path and lines, then the attribution knowledge-tools
  *  requires the UI to show (space name, stable id, and the exact `read`
  *  locator), so two spaces with one name stay distinguishable. */
 function KnowledgePassage({ result }: { result: KnowledgeResult }) {
-  const range = locatorRangePattern.exec(result.locator);
+  const range = PASSAGE_RANGE_SUFFIX.exec(result.locator);
 
   return (
     <li className="space-y-1">

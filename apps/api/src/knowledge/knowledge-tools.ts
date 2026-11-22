@@ -1,4 +1,4 @@
-import { formatLineRange } from '@workspace/native-file-tools';
+import { formatPassageLocator } from '@workspace/native-file-tools';
 import { z } from 'zod';
 import { loadPackagedToolDescription } from '../prompts/tool-descriptions';
 
@@ -518,17 +518,17 @@ function buildSearchPage(
 
 /** A ready `read` argument: the passage's own one-based inclusive line range,
  *  in the canonical `L` spelling, on the locator that carries its owner and
- *  Space authorization. Handing the model one coordinate system it can pass
- *  through unchanged removes the zero-based translation it used to have to
- *  make. */
+ *  Space authorization. */
 function passageLocator(match: AttributedMatch): string {
   const path = match.path.replaceAll(/[:?#%]/gu, (character) =>
     encodeURIComponent(character),
   );
 
-  const range = formatLineRange(match.offset + 1, match.offset + match.limit);
-
-  return `${KNOWLEDGE_LOCATOR_SCHEME}://${match.knowledgeSpaceId}/${path}:${range}`;
+  return formatPassageLocator(
+    `${KNOWLEDGE_LOCATOR_SCHEME}://${match.knowledgeSpaceId}/${path}`,
+    match.offset + 1,
+    match.offset + match.limit,
+  );
 }
 
 function attributeMatch(

@@ -4580,7 +4580,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
               knowledgeSpaceId: space.id,
               knowledgeSpaceName: 'Personal',
               path: relativePath,
-              locator: `kb://${space.id}/${relativePath}:1-1`,
+              locator: `kb://${space.id}/${relativePath}:L1-1`,
               excerpt: content,
             },
           ],
@@ -4622,7 +4622,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
             {
               knowledgeSpaceId: space.id,
               path: relativePath,
-              locator: `kb://${space.id}/${relativePath}:1-1`,
+              locator: `kb://${space.id}/${relativePath}:L1-1`,
               excerpt: content,
             },
           ],
@@ -4638,7 +4638,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
               expect.objectContaining({
                 knowledgeSpaceId: space.id,
                 path: relativePath,
-                locator: `kb://${space.id}/${relativePath}:1-1`,
+                locator: `kb://${space.id}/${relativePath}:L1-1`,
                 excerpt: content,
               }),
             ],
@@ -4661,7 +4661,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
               expect.objectContaining({
                 knowledgeSpaceId: space.id,
                 path: relativePath,
-                locator: `kb://${space.id}/${relativePath}:1-1`,
+                locator: `kb://${space.id}/${relativePath}:L1-1`,
                 excerpt: content,
               }),
             ],
