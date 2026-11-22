@@ -1,9 +1,9 @@
 import {
   createAssistantPartCollector,
   reconstructDurableAssistant,
-  toolActivityPart,
   type ToolActivityPart,
 } from './assistant-transcript';
+import { toolActivityPart } from './tool-activity-part';
 import { placeStoredContextItems } from './run-reply-finalizer';
 import { asDouble } from '../testing/support';
 import { createContextItemPart } from '../chats/context-item';
@@ -810,7 +810,7 @@ describe('reconstructDurableAssistant', () => {
     expect(result.openToolCalls).toEqual(new Map());
   });
 
-  it('retains display intent after recovery without adding it to model replay input', () => {
+  it('replays the recovered intent as the call argument the model sent', () => {
     const recovered = reconstructDurableAssistant([
       event('tool.requested', {
         toolCallId: 'intent-call',
@@ -827,7 +827,7 @@ describe('reconstructDurableAssistant', () => {
     expect(recovered).toEqual([
       expect.objectContaining({
         intent: 'Inspecting the working directory',
-        input: { command: 'pwd' },
+        input: { i: 'Inspecting the working directory', command: 'pwd' },
       }),
     ]);
 
@@ -837,7 +837,7 @@ describe('reconstructDurableAssistant', () => {
       type: 'tool-call',
       toolCallId: 'intent-call',
       toolName: 'bash',
-      input: { command: 'pwd' },
+      input: { i: 'Inspecting the working directory', command: 'pwd' },
     });
   });
 

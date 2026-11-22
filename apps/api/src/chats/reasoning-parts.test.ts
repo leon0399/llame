@@ -10,8 +10,8 @@ import { isRecord, isString } from '@workspace/runtime-safety';
 import {
   createAssistantPartCollector,
   reconstructDurableAssistant,
-  toolActivityPart,
 } from '../runs/assistant-transcript';
+import { toolActivityPart } from '../runs/tool-activity-part';
 import { createRunEventTranslator } from '../runs/run-stream-bridge';
 import { type UiChunk } from '../runs/run-event-chunks';
 import type { RunEvent } from '../db/schema';

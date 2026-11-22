@@ -18,7 +18,7 @@ import {
   type ToolResult,
   isToolClassification,
 } from '../tools/types';
-import { toolActivityPart } from './assistant-transcript';
+import { toolActivityPart } from './tool-activity-part';
 import {
   eventProviderMetadata,
   eventPayloadString,

@@ -229,10 +229,8 @@ import {
   readCompactionStepBudget,
 } from './compaction-step-budget';
 import { createDeltaBuffer } from './delta-buffer';
-import {
-  createAssistantPartCollector,
-  toolActivityPart,
-} from './assistant-transcript';
+import { createAssistantPartCollector } from './assistant-transcript';
+import { toolActivityPart } from './tool-activity-part';
 import {
   MAX_ADDRESS_DECISIONS,
   MAX_DERIVED_DECISIONS,
@@ -272,7 +270,7 @@ import {
   runTool,
 } from '../tools/runner';
 import { toFlexibleSchema } from '../tools/schema-utils';
-import { splitToolIntent, withoutToolIntents } from '../tools/tool-intent';
+import { splitToolIntent } from '../tools/tool-intent';
 import {
   AttemptToolAdditions,
   type AttemptToolBinding,
@@ -5674,9 +5672,7 @@ export class RunExecutionService {
               stepModelOutputStart = assistantPartCollector.parts().length;
 
               const preparedMessages = inRunItems.applyToStep(messages);
-              boundaryCallMessages = withoutToolIntents(
-                preparedMessages ?? messages,
-              );
+              boundaryCallMessages = preparedMessages ?? messages;
 
               if (
                 compactionStartedThisAttempt &&
@@ -5689,9 +5685,7 @@ export class RunExecutionService {
                 );
               }
 
-              return boundaryCallMessages === messages
-                ? preparedMessages
-                : boundaryCallMessages;
+              return preparedMessages;
             },
             // Fires once, the moment the model client disables tools for
             // the next step because maxStepsPerRun tool-requesting steps
@@ -5738,10 +5732,7 @@ export class RunExecutionService {
               // started in between). No permission decision: an unavailable or
               // invalid call is not a permission rejection.
               reserveToolRequest(toolCallId, toolName, args, {
-                sdkRefusal: {
-                  ...sdkRefusal,
-                  input: splitToolIntent(toolName, sdkRefusal.input).input,
-                },
+                sdkRefusal,
                 intent,
               });
               emitToolRequested(toolCallId, toolName, args, undefined);
