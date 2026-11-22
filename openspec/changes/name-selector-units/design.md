@@ -83,11 +83,17 @@ semantics.
 
 ### D2: Reserved letters are selector shapes that fail
 
-The gate recognizes a `P` or `M` member (`P3`, `P3-5`, `-M2`, either case) as a selector shape, so
-the splitters of `machine://` and `ssh://` treat it as a selector and not as part of a filename.
-The applier then refuses it with `invalid_selector` and the shared message. Any other letter stays
-outside the gate, which keeps `notes:X5` a filename on those schemes as today. `L-5` is matched by
-its own shape and refused with the fixed hint before the generic refusal.
+The gate recognizes a `P` or `M` member (`P3`, `P3-5`, `-M2`, either case), the misplaced `L-5`,
+and `:raw:N:M`/`:outline:N:M` as selector shapes. The hub splitters for Machine paths (bare,
+`file:`, relative, and `machine://`, through `workspace-path.ts:351-357` and `parseMachinePath`)
+and for `ssh://` therefore treat them as selectors, not as part of a filename. The applier then
+refuses each one: `P`/`M` and representation-plus-line-column with the shared message, `L-5` with
+its fixed hint. These refusals come from the grammar, which knows no locator spelling, so `kb://`,
+`skill://`, and web, which add `%3A` only when `isSelectorSuffix` fails
+(`knowledge-locator.ts:83-90`, `skill-locator.ts:144-149`, `web-read/locator.ts:298-305`), add none.
+Any other letter stays outside the gate, which keeps `notes:X5` a filename on Machine and `ssh://`
+paths as today. The web port hint (`locator.ts:234-238`) names `<href>/:<suffix>` only for a suffix
+the grammar admits, so `https://example.test:P3` gets the port message.
 
 Rejected: leaving `P` and `M` outside the gate until their features ship. A filename such as
 `notes:P3` on `ssh://` would then work today and break when pages ship, which is the exact cost
@@ -96,7 +102,10 @@ the reservation exists to avoid.
 ### D3: Line and column is one selector form, split before the last colon
 
 `splitSelectorSuffix` and the web splitter recognize a final `:N:M` of two bare numbers after
-`:raw` and `:outline` and before the last-colon fallback. They return the selector `N:M`, which the
+`:raw` and `:outline` and before the last-colon fallback. The `:raw` and `:outline` patterns
+(`path.ts:516,527`, `web-read/locator.ts:27-28`) widen to also claim a `:N:M` tail, so
+`x.ts:raw:12:5` splits as path `x.ts` with selector `raw:12:5`, which the gate treats as a refused
+shape (D2). Without that, the `:N:M` branch would read line 12 of a file `x.ts:raw`. They return the selector `N:M`, which the
 gate admits as its own form and the applier reads as the member `N`. `kb://` and `skill://` split at
 the first colon, so their suffix is already `N:M`.
 
@@ -113,8 +122,9 @@ Knowledge passages, instruction pages, and prompt-import labels call it.
 `packages/runtime-safety` cannot depend on `native-file-tools`, so `artifact-notice.ts` and
 `result-truncation.ts` write the `L` prefix inline, with their own tests.
 
-`grepFileLocator`, `passageStartLine`, `passageEndLine`, `grep.tsx`, `knowledge-search.tsx`, and the
-E2E parsers accept both `path:5-10` and `path:L5-10`, because stored passage locators keep their old
+`grepFileLocator`, `passageStartLine`, `passageEndLine`, `cutToFit` (`grep/page.ts:188-191`), the
+daemon's `passageOf` (`apps/machine/src/grep.ts:147-155`, which turns engine locators into wire line
+numbers for every Machine grep), `grep.tsx`, `knowledge-search.tsx`, and the E2E parsers accept both `path:5-10` and `path:L5-10`, because stored passage locators keep their old
 spelling. The formatter lands in the input-grammar layer, because the web refusal for
 `https://example.test:1-5` already names `https://example.test/:L1-5` there.
 
@@ -127,8 +137,12 @@ The planner splits the selector only for Machine targets today (`prompt-imports.
 `skill://`, `media://`, `ssh://`, and web targets go to `read` whole (`:216-251`). The label step
 therefore splits each target with the parser of its scheme, and prints the path plus
 `canonicalSelector(selector)` only when the read resolved that split. A Machine target whose
-literal probe found the whole name (`prompt-imports.ts:305-317`) prints as written, because
-`README.md:L30-35` would name a different resource. The owner message, the stored marker, and the
+literal probe found the whole name prints as written, because `README.md:L30-35` would name a
+different resource. The existing `resolved` field cannot tell the two apart: it holds the real
+path (`machine-prompt-probe.ts:66`), which equals the split locator when the literal name links to
+the split file. `probeMachineTarget` (`prompt-imports.ts:352-366`) therefore returns a new
+in-memory outcome field, `literal`, that the label step reads; it is not stored. A target whose
+selector the grammar refuses prints as written. The owner message, the stored marker, and the
 admission text stay as written, so permission evaluation is unchanged.
 
 ### D6: A GitHub line anchor becomes the selector after the adapter claims the blob
@@ -157,14 +171,18 @@ projected text drops it.
 Rejected: anchors on every web read. A fragment on an HTML page is a heading id, not a line, and a
 render's line numbers have no stable relation to the publisher's.
 
-### D7: Increment the Machine protocol version
+### D7: Increment the Machine protocol version once, with the whole daemon grammar
 
 A daemon older than the hub refuses `L5` or `12:5` from the model with `invalid_selector`, which is
 safe. It also refuses the `:raw:L1-2000` pages that llame writes for instruction files, and
 `readInstructionFile` treats that as a failed file (`instruction-files.ts:271-278`,
 `instruction-imports.ts:220`). A Machine `AGENTS.md` would then disappear from the Run with no
-message. The input-grammar layer therefore increments `PROTOCOL_VERSION`, so the hub refuses a stale
-daemon with the visible `incompatible_version` failure.
+message. The input-grammar layer therefore increments `PROTOCOL_VERSION` from 2 to 3
+(`remote-machines` MODIFIED), so the hub refuses a stale daemon with the visible
+`incompatible_version` failure (`machine-session.ts:489-496`). That layer also carries the
+line-and-column suffix: a second grammar change in a later layer would need a second increment,
+because a version-3 daemon would refuse the `12:5` selectors a newer hub forwards. No test pins the
+literal number; the CHANGELOG entry tells operators to update every daemon with the release.
 
 Rejected: a capability in `hello.methods`, which keeps two spellings alive in the hub for one
 release. Rejected: bare instruction pages, which break the canonical-spelling requirement for the
@@ -173,22 +191,26 @@ not cover `N:M` (D3).
 
 ### D8: Refusal messages
 
-`SELECTOR_FORMS` becomes the Q9 message in `native-file-tools` `The selector refusal teaches the
-canonical forms`. The artifact, job, and skill-catalog listing refusals and the web line-count
+`SELECTOR_FORMS` becomes the Q9 message in `native-file-tools`
+`The shared selector refusal names the lettered forms`. A message that quotes the model's selector,
+such as the web line-count refusal and the anchor conflict, quotes it as written. The artifact, job, and skill-catalog listing refusals and the web line-count
 refusal (`web-read/result.ts:241-255`) name `:L5-10`-style forms and add the bare clause. The
 `L-5` hint and the anchor conflict message are fixed texts in their requirements.
 
 ### D9: Delivery graph
 
 Input before output: a printed `L` must already parse when the model copies it. Each output layer
-is safe alone because input accepts both spellings. The line-and-column and anchor cutovers come
-last so their headers already print the canonical form. See tasks.md.
+is safe alone because input accepts both spellings. The input-grammar layer carries the
+line-and-column suffix and closes #1834, so the one protocol increment covers every daemon-side
+grammar change (D7). The anchor cutover comes last so its header already prints the canonical
+form. See tasks.md.
 
 ## Risks / Trade-offs
 
-- [A filename that ends in a new selector shape changes meaning on `ssh://`, `kb://`, `skill://`,
-  and web] -> Host and Machine keep literal-path precedence; the other schemes reach the name
-  through `%3A`. The proposal marks this **BREAKING**.
+- [A filename that ends in a new selector shape changes meaning on Machine and `ssh://` paths
+  (`notes:L5`), and `x:12:5` changes meaning on every text source] -> Literal-path precedence keeps
+  an existing whole name on host and Machine; `ssh://` reaches it through `%3A`; `x:12:L5` keeps the
+  old line-5 reading. The proposal marks this **BREAKING**.
 - [Replayed headers change once, so the provider prompt cache misses on each Chat's next request
   after deploy] -> One-time cost. No stored text changes, so nothing else moves.
 - [An external client parses `path:5-10` from tool results] -> Only the shipped UI and E2E parse
@@ -228,3 +250,14 @@ None. Exact export names in D4 are an implementation choice.
   `5-L10` refused, representation plus line-and-column refused, anchor case and `#L0`, `?plain=1`
   continuation, the source-without-lines rule narrowed to images, stale anchors, STE slips.
   Rejected none.
+- Round 2: two local reviewers (consistency P0 0/P1 3/P2 9; feasibility P0 0/P1 4/P2 3) and the
+  bots on d51b98f35 (Codex 1, CodeRabbit 6, pullfrog 2). Accepted: the `L-5` rule said "after its
+  minus sign"; host and Machine paths join the `ssh://` carve-out and "selector shape" is defined;
+  `:raw:N:M`/`:outline:N:M` claimed by the representation split (D3); `cutToFit` and the daemon
+  `passageOf` added (D4); `remote-machines` MODIFIED for version 3; the line-and-column suffix
+  moved into the input-grammar layer so one increment covers it (Codex, CodeRabbit); `L-5` and
+  reserved refusals add no `%3A`; quoted model selectors stay as written; D5 `literal` field; the
+  web port hint only for admitted suffixes; `2024:10:raw:L1-N`. Rejected as pre-existing canonical
+  text unchanged in behavior here: multiline `knowledge_search` queries, outline `lineCount` versus
+  the open continuation, and the bound-cut scenario order (CodeRabbit). Rejected as no change
+  needed: pullfrog's finalize reconciliation note, which task 7.3 already covers.

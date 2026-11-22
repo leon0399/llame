@@ -15,7 +15,7 @@ gate of each source MUST admit both spellings, and the canonical spelling is the
 or web split can find a final `:raw`. It MUST then take the colon segment before it as the list
 only when that segment has the member-list shape. Any other segment MUST stay on the path. Thus
 `notes:draft:raw` is the raw read of `notes:draft`, and `2024:10:raw` is line 10 of `2024`, read
-raw. A literal file named `2024:10` is read raw only as `2024:10:raw:1-N`.
+raw. A literal file named `2024:10` is read raw only as `2024:10:raw:L1-N`.
 
 `read` MUST also accept the `outline` representation member with at most one optional source
 range: `:outline`, `:outline:N`, `:outline:N-M`, `:outline:N+K`, `:outline:N-`, or `:outline:-K`.
@@ -24,19 +24,22 @@ grammar and MUST fail with `invalid_selector`. The tool MUST normalize a valid s
 internal zero-based ranges.
 
 A final suffix can split off a locator that itself parses, and lie outside the grammar. That suffix
-MUST fail with `invalid_selector`, with the shared refusal message. This applies on every source
-except `ssh://` and `machine://`, where a suffix outside the selector shapes stays on the path. On a source with an encoded spelling for a literal colon, the `%3A` spelling of
-the same locator MUST follow that message. These sources are a `kb://` or `skill://` resource path,
+MUST fail with `invalid_selector`, with the shared refusal message. A path on a Machine and an
+`ssh://` path are the exception. There, a suffix that is not a selector shape MUST stay on the
+path. A selector shape is a suffix that the grammar admits, or a reserved-unit or misplaced-letter
+member. On a source with an encoded spelling for a literal colon, the `%3A` spelling of
+the same locator MUST follow the shared refusal message. These sources are a `kb://` or `skill://` resource path,
 and web. A malformed locator part MUST stay `invalid_path`.
 
 The tool MUST recognize a `scheme://` prefix before it splits a selector from the end. Thus it never
 reads the colon of a scheme as a selector. For absolute paths, an existing literal path MUST take
 precedence over the selector split. After that literal probe, the split MUST recognize the `:raw`
-form first and the `:outline` form second. It MUST then recognize the line-and-column form, and
+form first and the `:outline` form second. Each of these forms MUST also claim a line-and-column
+suffix after it, which then fails. The split MUST then recognize the line-and-column suffix, and
 then use the last-colon fallback.
 
 A `kb://` path component MUST NOT contain `:`, so its split needs no probe. A `kb://` or
-`skill://` selector MUST be a line form, the line-and-column form, or a `raw` or `outline` member. A web
+`skill://` selector MUST be a line form, the line-and-column suffix, or a `raw` or `outline` member. A web
 locator MUST recognize the `:outline` form before its last-colon fallback. It MUST keep its path,
 query, fragment, and port rules. A `path` that starts with a `scheme://` prefix MUST NOT be treated
 as a relative or literal filename.
@@ -412,7 +415,7 @@ letter MUST mean lines.
 
 #### Scenario: A letter in another position is outside the grammar
 
-- **WHEN** the model reads `/tmp/notes.md:L5+L10` or `/tmp/notes.md:5-L10`, and no file has that literal name
+- **WHEN** the model reads `kb://<id>/notes.md:L5+L10` or `kb://<id>/notes.md:5-L10`
 - **THEN** the tool returns `invalid_selector` with the shared refusal message
 
 ### Requirement: A selector list names one unit
@@ -434,10 +437,10 @@ fail the list.
 
 ### Requirement: A misplaced unit letter is refused with a fixed hint
 
-A member that puts `L` after its minus sign, such as `L-5`, MUST fail with `invalid_selector` on
-every source, after any literal-path probe. The message MUST start with
+A member that puts `L` before its minus sign, such as `L-5`, MUST fail with `invalid_selector` on
+every source, after any literal-path probe. The message MUST be
 `Write -L5 for the last 5 lines, or L1-5 for the first 5.`, with the number of the member in place
-of `5`. On a source with a `%3A` spelling, that spelling MUST follow the hint.
+of `5`. This refusal MUST NOT add the `%3A` spelling.
 
 #### Scenario: The hint names both readings
 
@@ -448,16 +451,16 @@ of `5`. On a source with a `%3A` spelling, that spelling MUST follow the hint.
 #### Scenario: The hint applies on a remote path
 
 - **WHEN** the model reads `ssh://box/notes:L-5` or `kb://<id>/notes.md:L-5`
-- **THEN** the tool returns `invalid_selector` with the hint
-- **AND** on `kb://` the `%3A` spelling `kb://<id>/notes.md%3AL-5` follows it
+- **THEN** the tool returns `invalid_selector` with the hint and no other text
+- **AND** the read opens no file named `notes:L-5`
 
 ### Requirement: Unit letters are reserved
 
 The unit letters `L` for lines, `P` for pages, and `M` for messages MUST be reserved, in upper or
-lower case. No source accepts `P` or `M` yet. A suffix with a `P` or `M` member MUST fail with
-`invalid_selector` on every source, after any literal-path probe. This also applies on `ssh://` and
-`machine://`, where another unknown suffix stays on the path. Another letter MUST stay outside the
-grammar.
+lower case. No source accepts `P` or `M` yet. The tool MUST refuse a suffix with a `P` or `M` member
+with `invalid_selector` on every source, after any literal-path probe. This also applies on `ssh://`
+and on a Machine, where another unknown suffix stays on the path. Another letter MUST stay outside
+the grammar.
 
 #### Scenario: A reserved unit fails on a text file
 
@@ -480,11 +483,11 @@ grammar.
 - **WHEN** a host file named `/tmp/notes:P3` exists and the model reads `/tmp/notes:P3`
 - **THEN** the read returns that file
 
-### Requirement: An image refuses a lettered member
+### Requirement: A media source refuses a lettered member
 
 An image, a PDF, and a `media://` locator take no selector. A line member with the letter `L` MUST
 fail on them with `invalid_selector` and the message `An image or PDF is read without a selector.`,
-as a bare member does. The tool MUST then decode no image.
+as a bare member does. The tool MUST then decode no image or PDF.
 
 #### Scenario: A lettered member on an image is refused
 
@@ -494,8 +497,8 @@ as a bare member does. The tool MUST then decode no image.
 
 ### Requirement: The shared selector refusal names the lettered forms
 
-A suffix outside the grammar MUST fail with this `invalid_selector` message on every source that
-refuses it. On a source with a `%3A` spelling, that spelling MUST follow the message.
+Each source that refuses a suffix outside the grammar MUST give this `invalid_selector` message. On a
+source with a `%3A` spelling, that spelling MUST follow the message.
 
 ```text
 A line selector is :L5, :L5-10, :L5+10, :L5-, or :-L5, or a comma-separated list of them. A bare number also reads as a line. :raw is the whole file, or :raw: followed by a list of them, and :outline takes one of them after the colon. A line number starts at 1.
@@ -503,8 +506,8 @@ A line selector is :L5, :L5-10, :L5+10, :L5-, or :-L5, or a comma-separated list
 
 #### Scenario: A malformed suffix gets the shared message
 
-- **WHEN** the model reads `/tmp/notes.md:5-10x` and no file has that literal name
-- **THEN** the tool returns `invalid_selector` with the shared message
+- **WHEN** the model reads `kb://<id>/notes.md:5-10x`
+- **THEN** the tool returns `invalid_selector` with the shared refusal message, then the `%3A` spelling
 
 ### Requirement: Other line refusals name the lettered forms
 
@@ -530,7 +533,7 @@ Each selector that llame prints, stores in a new result, or writes as a read arg
 canonical spelling. A line member MUST carry an upper-case `L`, as in `L5`, `L5-10`, `L5+10`,
 `L5-`, and `-L5`. Each list member MUST carry its letter, as in `L5-16,L960-973`. A raw range MUST
 be `raw:L4-5`, and an outline scope MUST be `outline:L5-40`. llame MUST NOT rewrite text that the
-owner wrote.
+owner wrote. A message that quotes a selector from the model MUST quote it as written.
 
 #### Scenario: A read argument that llame writes is canonical
 
@@ -578,8 +581,8 @@ part carries a letter or a range.
 
 ### Requirement: A line and column does not combine with a representation
 
-A raw or outline member MUST NOT take a line-and-column form. A suffix `:raw:N:M` or `:outline:N:M`
-MUST fail with `invalid_selector` on every source, after any literal-path probe. A final `:raw` after
+A raw or outline member MUST NOT take a line-and-column suffix. The tool MUST refuse a suffix
+`:raw:N:M` or `:outline:N:M` with `invalid_selector` on every source, after any literal-path probe. A final `:raw` after
 `:N:M` MUST keep the shipped raw split. Thus `x.ts:12:5:raw` is line 5 of `x.ts:12`, read raw.
 `2024:10:raw` MUST stay line 10 of `2024`, read raw.
 
@@ -625,11 +628,11 @@ A `C<c>` column after a line number MUST be ignored. The fragment MUST NOT reach
 
 ### Requirement: A line anchor outside its rule keeps the shipped fragment rule
 
-A fragment that is not a line anchor, such as `#readme` or `#l10`, MUST be dropped, as every web
-fragment is. An anchor MUST also be dropped when no enabled GitHub adapter matches the locator as a
-blob. It MUST also be dropped when that adapter fails and another method renders the read. An anchor that an adapter
-matches MUST fail with `invalid_selector` before any request when it ends before its start, or
-names line 0.
+The read MUST drop a fragment that is not a line anchor, such as `#readme` or `#l10`, as every web
+fragment is. The read MUST also drop an anchor when no enabled GitHub adapter matches the locator as
+a blob. It MUST also drop it when that adapter fails and another method renders the read. An
+anchor that an adapter matches MUST fail with `invalid_selector` before any request when it ends
+before its start, or names line 0.
 
 #### Scenario: Another fragment keeps its meaning
 
@@ -650,8 +653,8 @@ names line 0.
 ### Requirement: A line anchor and a selector together are refused
 
 An enabled GitHub adapter can match a blob locator that carries a line anchor and also a selector,
-`:raw` included. The match MUST be decided whether or not `:raw` bypasses the adapter. The read MUST
-then fail with `invalid_selector` before any request. The message MUST be
+`:raw` included. The read MUST then fail with `invalid_selector` before any request. This check
+MUST run also for `:raw`, which skips the adapter for the read itself. The message MUST be
 `This locator selects lines twice, with #<anchor> and with :<selector>. Write one of them.`, with
 the anchor and the selector as written.
 

@@ -2,8 +2,9 @@
 
 ### Requirement: A read selector of any spelling is removed before the resource match
 
-For `read`, the evaluator MUST remove a split-off read selector in each spelling that `read`
-accepts. This includes the `L` forms, the reserved-unit shapes, and the line-and-column form `N:M`.
+For `read`, the evaluator MUST remove a split-off read selector in each selector shape that the
+`read` split recognizes. These shapes include the `L` forms, the reserved-unit and misplaced-letter
+members, and the line-and-column suffix `N:M`.
 Thus a reject that names a file MUST refuse a read of that file in every selector spelling. A web
 locator MUST lose its fragment in the projected text, so a GitHub line anchor never changes the
 matched resource.
@@ -27,8 +28,13 @@ matched resource.
 ### Requirement: The literal-name gap covers the new selector shapes
 
 The projection uses text only, so it MUST NOT probe whether a literal file has the removed suffix in
-its name. The known text-only gap thus also covers a literal name that ends in an `L`, `P`, or `M`
-member, or in `:N:M`. A reject that ends in `([/\\]|$|:)` MUST still refuse such a literal name.
+its name. The known text-only gap thus also covers a literal name that ends in a new shape:
+
+- an `L`, `P`, or `M` member,
+- a misplaced-letter member such as `L-5`,
+- `:N:M`.
+
+A reject that ends in `([/\\]|$|:)` MUST still refuse such a literal name.
 
 #### Scenario: A literal name with a new shape is matched without its suffix
 

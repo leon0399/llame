@@ -4,8 +4,13 @@
 
 The `<file path="…">` label of an imported target and the not-imported line of a target MUST print
 its selector in the canonical selector spelling. Each scheme MUST split the selector as its `read`
-locator does. A target that the read resolved as a literal name, and a target without a selector,
-MUST print as written. The message of the owner MUST keep each marker as the owner wrote it.
+locator does. These targets MUST print as written:
+
+- a target that the read resolved as a literal name,
+- a target without a selector,
+- a target whose selector the grammar refuses.
+
+The message of the owner MUST keep each marker as the owner wrote it.
 
 #### Scenario: A bare range prints with its unit
 

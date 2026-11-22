@@ -25,7 +25,7 @@ Source: [#1833](https://github.com/leon0399/llame/issues/1833), its
   `L-5` fails with `invalid_selector` and a fixed hint. A list that mixes units fails.
 - **Reserved units.** `L` (lines), `P` (pages), and `M` (messages) are reserved. No source accepts
   `P` or `M` yet, so they fail with `invalid_selector` on every source, including `ssh://` and
-  `machine://`, where an unknown suffix stays on the path today.
+  Machine paths, where an unknown suffix stays on the path today.
 - **Printed spelling.** Every selector that llame prints or authors uses the canonical `L`
   spelling: read headers, continuation notices, listing paging, artifact notices, bash spill
   lines, grep and `knowledge_search` passage locators, the grep remainder line, Knowledge
@@ -42,19 +42,21 @@ Source: [#1833](https://github.com/leon0399/llame/issues/1833), its
   results replay with the new header and continuation spelling. Stored passage `locator` strings
   keep the spelling they were written with, and both spellings stay valid `read` input. A client
   that parses these strings must accept both; the shipped owner UI is updated in the same layer.
-- **BREAKING (filenames).** On `ssh://` and web locators, a name that ends in a new selector shape
-  now splits as a selector: `notes:L5`, `notes:P3`, `notes:L-5`, and `x:12:5`, which read line 5
-  of `x:12` until now. Host and Machine reads keep literal-path precedence. `ssh://` reaches such a
-  name through `%3A`, and web through `%3A` in the last path segment. `kb://` and `skill://` already
-  refuse a literal colon, so no readable name changes meaning there.
+- **BREAKING (filenames).** A name that ends in a new selector shape now splits as a selector
+  when no literal file has the whole name. On `ssh://` and Machine paths, `notes:L5`, `notes:P3`,
+  and `notes:L-5` were filenames and are now selectors; `ssh://` reaches the literal name through
+  `%3A`. On every text source, `x:12:5` read line 5 of a file `x:12` and now reads line 12 of `x`;
+  `x:12:L5` keeps the old meaning. `kb://`, `skill://`, and web already refused `notes:L5`.
 - **BREAKING (permission matching).** The projection strips the new shapes as it strips a bare
   range today, without a filesystem probe. The known text-only gap for literal names that look like
-  a selector thus also covers names that end in an `L`, `P`, or `M` member, or in `:N:M`. Rejects
+  a selector thus also covers names that end in an `L`, `P`, or `M` member, a misplaced `L-5`, or
+  `:N:M`. Rejects
   that end in `([/\\]|$|:)`, as the recommended portable policy writes them, still refuse those
   names.
-- **Machine protocol.** The input-grammar layer increments the Machine `PROTOCOL_VERSION`, so a
-  daemon without the new grammar is refused at the handshake. A silent skew would otherwise drop
-  Machine instruction files once llame writes `:raw:L1-2000` pages (design D7).
+- **Machine protocol.** The input-grammar layer, which also ships the line-and-column suffix,
+  increments the Machine `PROTOCOL_VERSION` from 2 to 3. A daemon without the new grammar is
+  refused at the handshake. A silent skew would otherwise drop Machine instruction files once
+  llame writes `:raw:L1-2000` pages, and refuse `N:M` reads (design D7).
 
 ## Assumptions, confirmed with Leo
 
@@ -90,12 +92,20 @@ Assumptions that follow from those decisions but were not asked:
 - Stored transcripts are not rewritten (pre-launch policy: no preservation backfills, and none is
   needed because both spellings stay valid input).
 
-## Deviation from the grilling record
+## Deviations and additions after grilling
 
-- **D7 skew handling.** The proposal first kept the Machine protocol version. Review found that an
-  older daemon refuses the `:raw:L1-2000` instruction pages that llame writes, and the instruction
-  loader then skips the file with no message. The change now increments `PROTOCOL_VERSION`, so a
-  stale daemon fails visibly at the handshake. Leo to confirm.
+- **D7 skew handling** (not a grilling decision). The first draft kept the Machine protocol
+  version. Review found that an older daemon refuses the `:raw:L1-2000` instruction pages that
+  llame writes, and the instruction loader then skips the file with no message. The change
+  increments `PROTOCOL_VERSION` once, in the input-grammar layer, which therefore also carries the
+  line-and-column suffix (#1834). Recorded for Leo in `.agents/notes/name-selector-units/`.
+- **Grilling Q4 narrowed.** Q4 says a source without lines refuses a bare range "with a hint that
+  names its units". The only sources without lines today, images, PDFs, and `media://`, take no
+  selector at all, so they keep the fixed `An image or PDF is read without a selector.` message.
+  A future source with its own units names them in its own requirement.
+- **`L-5` and reserved refusals add no `%3A` spelling.** The grammar produces them and knows no
+  locator spelling. A literal name that ends in such a shape is reachable on a Machine through the
+  literal probe and on `ssh://` through `%3A`.
 
 ## Capabilities
 
@@ -112,7 +122,7 @@ None.
   `An unselected read requests the whole source` (printed `:L51-`). ADDED
   `Line members can name the L unit`, `A selector list names one unit`,
   `A misplaced unit letter is refused with a fixed hint`, `Unit letters are reserved`,
-  `An image refuses a lettered member`, `The shared selector refusal names the lettered forms`,
+  `A media source refuses a lettered member`, `The shared selector refusal names the lettered forms`,
   `Other line refusals name the lettered forms`,
   `llame writes every selector in the canonical spelling`,
   `A line and column suffix reads the line`,
@@ -137,6 +147,8 @@ None.
 - `instruction-files`: MODIFIED `A Knowledge locator loads the chain within its Space` (page
   spelling `raw:L<from>-<to>`).
 - `prompt-imports`: ADDED `Import labels print the canonical selector`.
+- `remote-machines`: MODIFIED `Each Machine daemon reports a persistent instance id` (protocol
+  version 3).
 - `tool-call-permissions`: ADDED
   `A read selector of any spelling is removed before the resource match` and
   `The literal-name gap covers the new selector shapes`.
@@ -178,8 +190,8 @@ Deliberately unchanged, with the reading under which each holds:
   the tool prompts `read.md`, `grep.md`, `knowledge_search.md`, `bash.md`, `web_search.md`, and
   `chat-default.md`.
 - `packages/machine-protocol` and `apps/machine`: the daemon applies the new forms through the
-  shared package, and `PROTOCOL_VERSION` increments so a daemon without them is refused at the
-  handshake.
+  shared package, and `PROTOCOL_VERSION` increments from 2 to 3 so a daemon without them is
+  refused at the handshake. Operators update every Machine daemon with that release.
 - `packages/ui`: grep and Knowledge search cards parse both spellings.
 - `e2e/support/model-server.ts` and the Knowledge E2E spec: printed-text parsers.
 - Docs: `docs/product/reference/selectors.md`, the tool and locator reference pages, and the
