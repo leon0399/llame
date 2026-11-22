@@ -81,7 +81,7 @@ describe('parseProjectLocator', () => {
       detail(PROJECT_ID, 'raw'),
     );
     expect(parseProjectLocator(`${CANONICAL}:5-9:raw`)).toStrictEqual(
-      detail(PROJECT_ID, 'raw:5-9'),
+      detail(PROJECT_ID, '5-9:raw'),
     );
     expect(parseProjectLocator(`${CANONICAL}:10-20,30-40`)).toStrictEqual(
       detail(PROJECT_ID, '10-20,30-40'),
