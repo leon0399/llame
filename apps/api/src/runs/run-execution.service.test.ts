@@ -218,8 +218,8 @@ import { RunRowFenceRepository } from './run-row-fence.repository';
 import {
   createAssistantPartCollector,
   reconstructDurableAssistant,
+  toolActivityPart,
 } from './assistant-transcript';
-import { toolActivityPart } from './tool-activity-part';
 import type {
   CompactionCapability,
   CompactionSummary,

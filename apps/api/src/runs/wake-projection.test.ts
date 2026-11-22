@@ -452,11 +452,7 @@ describe('wakeStateFromEvents', () => {
       { type: 'text', text: 'unindexed' },
       expect.objectContaining({
         toolCallId: 'wait-1',
-        input: {
-          i: 'Waiting for the command',
-          jobs: ['job://executor-1'],
-          timeout: 30,
-        },
+        input: { jobs: ['job://executor-1'], timeout: 30 },
         step: 7,
         outcome: 'success',
       }),
@@ -577,7 +573,6 @@ describe('wakeStateFromEvents', () => {
 
     expect(activity).toHaveProperty('type', 'tool-wait');
     expect(activity).toHaveProperty('input', {
-      i: 'Waiting for the command',
       jobs: ['job://executor-1'],
     });
     expect(activity).not.toHaveProperty('input.timeout');

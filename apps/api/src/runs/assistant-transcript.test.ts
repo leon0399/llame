@@ -1,9 +1,9 @@
 import {
   createAssistantPartCollector,
   reconstructDurableAssistant,
+  toolActivityPart,
   type ToolActivityPart,
 } from './assistant-transcript';
-import { toolActivityPart } from './tool-activity-part';
 import { placeStoredContextItems } from './run-reply-finalizer';
 import { asDouble } from '../testing/support';
 import { createContextItemPart } from '../chats/context-item';
@@ -810,12 +810,12 @@ describe('reconstructDurableAssistant', () => {
     expect(result.openToolCalls).toEqual(new Map());
   });
 
-  it('replays the recovered intent as the call argument the model sent', () => {
+  it('keeps the recorded intent argument through recovery and replay', () => {
     const recovered = reconstructDurableAssistant([
       event('tool.requested', {
         toolCallId: 'intent-call',
         toolName: 'bash',
-        input: { command: 'pwd' },
+        input: { i: 'Inspecting the working directory', command: 'pwd' },
         intent: 'Inspecting the working directory',
       }),
       event('tool.completed', {

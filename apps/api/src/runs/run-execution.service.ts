@@ -229,8 +229,10 @@ import {
   readCompactionStepBudget,
 } from './compaction-step-budget';
 import { createDeltaBuffer } from './delta-buffer';
-import { createAssistantPartCollector } from './assistant-transcript';
-import { toolActivityPart } from './tool-activity-part';
+import {
+  createAssistantPartCollector,
+  toolActivityPart,
+} from './assistant-transcript';
 import {
   MAX_ADDRESS_DECISIONS,
   MAX_DERIVED_DECISIONS,
@@ -3274,6 +3276,7 @@ export class RunExecutionService {
       string,
       {
         toolName: string;
+        /** The input as the model submitted it, `i` included; recorded as-is. */
         toolInput: unknown;
         intent?: string;
         /** The step of the reply that requested the call (design D5). */
@@ -3907,7 +3910,14 @@ export class RunExecutionService {
         if (started) open.classification = classification;
       }
 
-      emitToolRequested(toolCallId, toolName, args, decision, origin);
+      // The record keeps the input the model submitted, `i` included.
+      emitToolRequested(
+        toolCallId,
+        toolName,
+        open?.toolInput ?? args,
+        decision,
+        origin,
+      );
 
       if (started) {
         enqueueEvent('tool.started', { toolCallId, toolName, classification });
@@ -4188,8 +4198,8 @@ export class RunExecutionService {
 
     const settleBoundTool = async (
       declaration: ModelToolDeclaration,
-      // eslint-disable-next-line anti-slop/no-unknown-parameters -- this value is the already schema-validated tool observation forwarded to settlement.
-      args: unknown,
+      // eslint-disable-next-line anti-slop/no-unknown-parameters -- the schema-validated input the model submitted, `i` included, recorded as-is.
+      submitted: unknown,
       toolCallId: string,
       executor: Tool,
       result: ToolResult,
@@ -4198,7 +4208,7 @@ export class RunExecutionService {
       // the result knows whether the binding was established or switched.
       inRunProducer?.observeToolCall?.({
         toolName: declaration.id,
-        input: args,
+        input: splitToolIntent(declaration.id, submitted).input,
         workspaceRoot: workspaceRoot.current(),
         result,
       });
@@ -4220,7 +4230,7 @@ export class RunExecutionService {
           recordToolCompleted(
             toolCallId,
             declaration.id,
-            args,
+            submitted,
             interruptSettlementOf({
               toolName: declaration.id,
               started: false,
@@ -4230,7 +4240,13 @@ export class RunExecutionService {
           );
         } else if (provenBash) {
           stoppedCalls.push({ toolName: declaration.id, toolCallId });
-          recordToolCompleted(toolCallId, declaration.id, args, result, true);
+          recordToolCompleted(
+            toolCallId,
+            declaration.id,
+            submitted,
+            result,
+            true,
+          );
         } else {
           await interruptSettlement;
         }
@@ -4244,12 +4260,12 @@ export class RunExecutionService {
           !(result.status === 'error' && result.type === 'outcome_unknown');
 
         if (settledAfterAbort) {
-          recordToolCompleted(toolCallId, declaration.id, args, result);
+          recordToolCompleted(toolCallId, declaration.id, submitted, result);
         } else {
           await parentAbortSettlement;
         }
       } else {
-        recordToolCompleted(toolCallId, declaration.id, args, result);
+        recordToolCompleted(toolCallId, declaration.id, submitted, result);
       }
 
       // Live bash and MCP unknowns stay observations; only uncertain native
@@ -4280,7 +4296,7 @@ export class RunExecutionService {
         submitted,
       );
 
-      reserveToolRequest(toolCallId, declaration.id, args, { intent });
+      reserveToolRequest(toolCallId, declaration.id, submitted, { intent });
 
       const completion = Promise.withResolvers<void>();
       const open = openToolCalls.get(toolCallId);
@@ -4304,7 +4320,7 @@ export class RunExecutionService {
 
           return settleBoundTool(
             declaration,
-            args,
+            submitted,
             toolCallId,
             executor,
             result,
@@ -5717,10 +5733,7 @@ export class RunExecutionService {
               // so it ends the kept output the same way (D3).
               persistCutAnchor();
 
-              const { input: args, intent } = splitToolIntent(
-                toolName,
-                callInput,
-              );
+              const { intent } = splitToolIntent(toolName, callInput);
 
               const result =
                 reason === 'not_available'
@@ -5731,12 +5744,12 @@ export class RunExecutionService {
               // is distinguished downstream by requested+completed with no
               // started in between). No permission decision: an unavailable or
               // invalid call is not a permission rejection.
-              reserveToolRequest(toolCallId, toolName, args, {
+              reserveToolRequest(toolCallId, toolName, callInput, {
                 sdkRefusal,
                 intent,
               });
-              emitToolRequested(toolCallId, toolName, args, undefined);
-              recordToolCompleted(toolCallId, toolName, args, result);
+              emitToolRequested(toolCallId, toolName, callInput, undefined);
+              recordToolCompleted(toolCallId, toolName, callInput, result);
             },
           }),
           // The call's opaque metadata, held before the call can execute or be
