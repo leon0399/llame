@@ -2525,13 +2525,12 @@ describe('skill locator resolution', () => {
       5,
     );
 
-    expect(raw).toMatchObject({
+    expect(raw).toEqual({
       status: 'error',
       type: 'invalid_selector',
+      message:
+        'The skill catalog accepts a single :L5-10, :L5+10, :L5-, or :-L5 range; comma ranges and :raw are not supported. A bare number also reads as a line.',
     });
-    expect(String(raw.message)).toContain(
-      'comma ranges and :raw are not supported',
-    );
   });
 
   it('reads the catalog’s tail and its last entries through the count', async () => {

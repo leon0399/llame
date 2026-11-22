@@ -556,6 +556,16 @@ describe('native file permission projection', () => {
     expect(decideNative(map, 'read', { path: '/tmp/file:1-2' })).toMatchObject({
       decision: 'allow',
     });
+    expect(decideNative(map, 'read', { path: '/tmp/file:L1-2' })).toMatchObject(
+      {
+        decision: 'allow',
+      },
+    );
+    expect(decideNative(map, 'read', { path: '/tmp/file:12:5' })).toMatchObject(
+      {
+        decision: 'allow',
+      },
+    );
     expect(decideNative(map, 'read', { path: '/tmp/file:raw' })).toMatchObject({
       decision: 'allow',
     });
@@ -578,6 +588,10 @@ describe('native file permission projection', () => {
 
     for (const path of [
       '/home/u/.ssh/id_rsa:1-5',
+      '/home/u/.ssh/id_rsa:L1-5',
+      '/home/u/.ssh/id_rsa:l1-L5',
+      '/home/u/.ssh/id_rsa:-L5',
+      '/home/u/.ssh/id_rsa:1:1',
       '/home/u/.ssh/id_rsa:raw',
       '/home/u/.ssh/id_rsa:outline:3-9',
       '/home/u/.ssh/id_rsa:1-5:raw',
@@ -587,6 +601,25 @@ describe('native file permission projection', () => {
         reason: 'explicit_reject',
       });
     }
+  });
+
+  it('projects a literal reserved-unit name without its suffix', () => {
+    const context = { defaultMachine: 'devl', localMachine: 'devl' };
+    expect(nativeFileProjection('read', context)('/home/u/secret:P3')).toEqual({
+      canonical: 'machine://devl/home/u/secret',
+      projectedPath: '/home/u/secret',
+    });
+
+    const map: ToolPermissionMap = {
+      read: {
+        allow: true,
+        reject: [{ field: 'path', regex: '^/home/u/secret([/\\\\]|$|:)' }],
+      },
+    };
+
+    expect(
+      decideNative(map, 'read', { path: '/home/u/secret:P3' }),
+    ).toMatchObject({ decision: 'reject', reason: 'explicit_reject' });
   });
 
   it('keeps a literal colon outside the grammar in the matched text', () => {
@@ -922,7 +955,7 @@ describe('native file permission projection', () => {
     }
 
     expect(withoutReadSelector('https://example.test/a:5:6')).toBe(
-      'https://example.test/a:5',
+      'https://example.test/a',
     );
   });
 

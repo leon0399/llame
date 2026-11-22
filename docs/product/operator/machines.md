@@ -216,7 +216,7 @@ that carries `display` drops its `diff`. An old write keeps only `created`,
 `replaced`, and `lineCount`. A hub older than the daemon refuses a status-only
 write or a display-carrying edit, because it still requires the fields this
 protocol revision stopped sending. Those result shapes did not change `PROTOCOL_VERSION`, so only the result
-mapping differs. Protocol version 2, described under Upgrading, is the version
+mapping differs. Protocol version 3, described under Upgrading, is the version
 match the hub requires.
 
 ## Machine identity
@@ -243,8 +243,8 @@ to answer for the name gets `machine_identity_mismatch`. Set
 
 ## Upgrading
 
-Protocol version 2 carries the instance id, the build id, and the static facts
-of the Machine. Upgrade every Machine daemon before the API. Run
+Protocol version 3 carries the instance id, the build id, the static facts
+of the Machine, and the unit-letter and line-and-column read selectors. Upgrade every Machine daemon before the API. Run
 `llame-machine --version` on each box to read the release, the build, the
 protocol version, and the instance id. A box that runs an older daemon shows as
 offline with "update required" until you replace the binary.

@@ -373,7 +373,7 @@ function catalogWindow(
         ? 'The skill catalog selector is invalid.'
         : placed.refusal === 'outline'
           ? 'The :outline member is not supported for the skill catalog.'
-          : 'The skill catalog accepts a single :N-M, :N+K, :N-, or :-K range; comma ranges and :raw are not supported.',
+          : 'The skill catalog accepts a single :L5-10, :L5+10, :L5-, or :-L5 range; comma ranges and :raw are not supported. A bare number also reads as a line.',
     );
   }
 

@@ -3,11 +3,23 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   applySelectorSuffix,
+  canonicalSelector,
+  formatLineRange,
+  isSelectorSuffix,
   parsePathScheme,
   resolveEndRelativeSelector,
   resolveReadTarget,
   splitSelectorSuffix,
 } from "./path";
+import { readFile } from "./read";
+
+/** The shared refusal, as a model that wrote a malformed selector reads it. */
+const SHARED_REFUSAL =
+  "A line selector is :L5, :L5-10, :L5+10, :L5-, or :-L5, or a comma-separated list of them. A bare number also reads as a line. :raw is the whole file, or :raw: followed by a list of them, and :outline takes one of them after the colon. A line number starts at 1.";
+
+/** A source of `count` short lines, so a read's shown context is evident. */
+const numbered = (count: number): string =>
+  Array.from({ length: count }, (_, i) => `line ${i + 1}\n`).join("");
 
 describe("native read selectors", () => {
   let directory: string;
@@ -577,6 +589,14 @@ describe("splitSelectorSuffix", () => {
     ["/root/a.md:outline", "/root/a.md", "outline"],
     ["/root/a.md:outline:5+3", "/root/a.md", "outline:5+3"],
     ["/root/a.md:outline:raw", "/root/a.md:outline", "raw"],
+    ["/root/a.md:L5-10", "/root/a.md", "L5-10"],
+    ["/root/a.md:-L20", "/root/a.md", "-L20"],
+    ["/root/a.md:outline:L5-40", "/root/a.md", "outline:L5-40"],
+    ["/root/a.md:12:5", "/root/a.md", "12:5"],
+    ["/root/a.md:raw:12:5", "/root/a.md", "raw:12:5"],
+    ["/root/a.md:outline:12:5", "/root/a.md", "outline:12:5"],
+    ["/root/notes:P3", "/root/notes", "P3"],
+    ["/root/notes:L-5", "/root/notes", "L-5"],
   ])("splits %s", (input, path, selector) => {
     expect(splitSelectorSuffix(input)).toStrictEqual({ path, selector });
   });
@@ -586,11 +606,24 @@ describe("splitSelectorSuffix", () => {
     ["/root/a.md:raw:41-53", "/root/a.md", "raw:41-53"],
     ["/root/a.md:5-:raw", "/root/a.md", "raw:5-"],
     ["/root/a.md:raw:-5", "/root/a.md", "raw:-5"],
+    ["/root/a.md:L4-5:raw", "/root/a.md", "raw:L4-5"],
+    ["/root/a.md:raw:L4-5", "/root/a.md", "raw:L4-5"],
+    ["/root/x.ts:12:5:raw", "/root/x.ts:12", "raw:5"],
     ["/root/notes:draft:raw", "/root/notes:draft", "raw"],
     ["/root/2024:10:raw", "/root/2024", "raw:10"],
     ["/root/a.md:-20", "/root/a.md", "-20"],
   ])("splits %s to the canonical selector", (input, path, selector) => {
     expect(splitSelectorSuffix(input)).toStrictEqual({ path, selector });
+  });
+
+  it("keeps a colon inside a directory name on the path before a line", () => {
+    expect(splitSelectorSuffix("/root/dir:12/a.ts:5:3")).toStrictEqual({
+      path: "/root/dir:12/a.ts",
+      selector: "5:3",
+    });
+    expect(splitSelectorSuffix("/root/dir:12/a.ts")).toStrictEqual({
+      path: "/root/dir:12/a.ts",
+    });
   });
 
   it("prefers an existing literal filename to the trailing-raw split", async () => {
@@ -624,5 +657,311 @@ describe("splitSelectorSuffix", () => {
       path: "/root/notes",
       selector: "nonsense",
     });
+  });
+});
+
+describe("native line units", () => {
+  let directory: string;
+  beforeEach(async () => {
+    directory = await mkdtemp(join(tmpdir(), "native-unit-"));
+  });
+  afterEach(async () => {
+    await rm(directory, { recursive: true, force: true });
+  });
+
+  it("reads the same lines for every line spelling", async () => {
+    const path = join(directory, "notes.md");
+    await writeFile(path, numbered(20));
+
+    const results = await Promise.all(
+      ["5-10", "L5-10", "l5-L10", "L5+6"].map((selector) =>
+        readFile({ path: `${path}:${selector}` }),
+      ),
+    );
+
+    for (const result of results) expect(result).toEqual(results[0]);
+    expect(results[0]).toMatchObject({
+      status: "success",
+      content:
+        "4: line 4\n5: line 5\n6: line 6\n7: line 7\n8: line 8\n9: line 9\n10: line 10\n11: line 11\n",
+      requestedRange: { startLine: 5, endLine: 10 },
+      shownRange: { startLine: 4, endLine: 11 },
+    });
+  });
+
+  it.each([
+    ["L5-", "5-"],
+    ["-L5", "-5"],
+    ["raw:L4-5", "raw:4-5"],
+    ["L4-5:raw", "4-5:raw"],
+    ["outline:L5-40", "outline:5-40"],
+  ])("applies %s as the bare %s", (lettered, bare) => {
+    expect(applySelectorSuffix("/root/a.md", lettered)).toStrictEqual(
+      applySelectorSuffix("/root/a.md", bare),
+    );
+  });
+
+  it("carries the pending list without its unit letters", () => {
+    expect(applySelectorSuffix("/root/a.md", "L5-,l9")).toStrictEqual({
+      path: "/root/a.md",
+      offset: 0,
+      raw: false,
+      pending: "5-,9",
+    });
+  });
+
+  it("prefers an existing literal lettered filename", async () => {
+    const path = join(directory, "notes:L5");
+    await writeFile(path, "literal");
+    expect(await resolveReadTarget(path)).toEqual({
+      path,
+      offset: 0,
+      raw: false,
+    });
+  });
+
+  it.each(["L5+L10", "5-L10"])(
+    "refuses %s as outside the grammar",
+    async (selector) => {
+      const path = join(directory, "notes.md");
+      await writeFile(path, numbered(20));
+      const target = resolveReadTarget(`${path}:${selector}`);
+      await expect(target).rejects.toMatchObject({
+        type: "invalid_selector",
+        message: SHARED_REFUSAL,
+      });
+    },
+  );
+
+  it("combines bare and lettered members in one list", async () => {
+    const path = join(directory, "notes.md");
+    const lettered = await resolveReadTarget(`${path}:L5-16,L960-973`);
+    expect(lettered).toEqual(await resolveReadTarget(`${path}:5-16,L960-973`));
+    expect(lettered).toMatchObject({
+      offset: 4,
+      ranges: [
+        { offset: 4, limit: 12 },
+        { offset: 959, limit: 14 },
+      ],
+      expandedRanges: [
+        { offset: 3, limit: 14 },
+        { offset: 958, limit: 16 },
+      ],
+    });
+  });
+
+  it("refuses a list that names a reserved unit", async () => {
+    const path = join(directory, "notes.md");
+    await writeFile(path, numbered(20));
+    expect(await readFile({ path: `${path}:L5,P2` })).toEqual({
+      status: "error",
+      type: "invalid_selector",
+      message: SHARED_REFUSAL,
+    });
+  });
+
+  it("refuses a letter before the minus sign with the fixed hint", async () => {
+    const path = join(directory, "notes.md");
+    await writeFile(path, numbered(30));
+    expect(await readFile({ path: `${path}:L-20` })).toEqual({
+      status: "error",
+      type: "invalid_selector",
+      message: "Write -L20 for the last 20 lines, or L1-20 for the first 20.",
+    });
+  });
+
+  it.each([
+    ["l-5", "Write -L5 for the last 5 lines, or L1-5 for the first 5."],
+    ["5-10,L-3", "Write -L3 for the last 3 lines, or L1-3 for the first 3."],
+  ])("refuses %s with the fixed hint", async (selector, message) => {
+    const path = join(directory, "notes.md");
+    const target = resolveReadTarget(`${path}:${selector}`);
+    await expect(target).rejects.toMatchObject({
+      type: "invalid_selector",
+      message,
+    });
+  });
+
+  it("splits a misplaced letter as a selector the applier refuses", () => {
+    // A remote split has no literal probe, so the shape must claim the suffix
+    // and the applier must be the one that names both readings.
+    expect(splitSelectorSuffix("/notes:L-5")).toStrictEqual({
+      path: "/notes",
+      selector: "L-5",
+    });
+    expect(() => applySelectorSuffix("/notes", "L-5")).toThrow(
+      expect.objectContaining({
+        type: "invalid_selector",
+        message: "Write -L5 for the last 5 lines, or L1-5 for the first 5.",
+      }),
+    );
+  });
+
+  it.each(["P3", "p3", "-M2", "M2-5", "P3+2", "raw:P3", "M1:raw"])(
+    "refuses the reserved unit in %s",
+    async (selector) => {
+      const path = join(directory, "notes.md");
+      await writeFile(path, numbered(20));
+      expect(await readFile({ path: `${path}:${selector}` })).toEqual({
+        status: "error",
+        type: "invalid_selector",
+        message: SHARED_REFUSAL,
+      });
+    },
+  );
+
+  it("admits a refused shape as a selector and keeps another letter on the path", () => {
+    for (const selector of [
+      "P3",
+      "-M2",
+      "L-5",
+      "raw:12:5",
+      "outline:12:5",
+      "12:5",
+    ])
+      expect(isSelectorSuffix(selector)).toBe(true);
+    expect(isSelectorSuffix("X5")).toBe(false);
+  });
+
+  it("prefers an existing literal reserved-unit filename", async () => {
+    const path = join(directory, "notes:P3");
+    await writeFile(path, "literal");
+    expect(await resolveReadTarget(path)).toEqual({
+      path,
+      offset: 0,
+      raw: false,
+    });
+  });
+});
+
+describe("native line and column", () => {
+  let directory: string;
+  beforeEach(async () => {
+    directory = await mkdtemp(join(tmpdir(), "native-line-column-"));
+  });
+  afterEach(async () => {
+    await rm(directory, { recursive: true, force: true });
+  });
+
+  it("reads the line of a compiler location with its context", async () => {
+    const path = join(directory, "x.ts");
+    await writeFile(path, numbered(20));
+    expect(await readFile({ path: `${path}:12:5` })).toMatchObject({
+      status: "success",
+      content: "11: line 11\n12: line 12\n13: line 13\n",
+      requestedRange: { startLine: 12, endLine: 12 },
+      shownRange: { startLine: 11, endLine: 13 },
+    });
+  });
+
+  it("reads a line and column as its line member", () => {
+    expect(applySelectorSuffix("/root/a.md", "12:5")).toStrictEqual({
+      path: "/root/a.md",
+      offset: 11,
+      limit: 1,
+      raw: false,
+    });
+  });
+
+  it("prefers an existing literal line-and-column filename", async () => {
+    const path = join(directory, "x:12:5");
+    await writeFile(path, "literal");
+    expect(await resolveReadTarget(path)).toEqual({
+      path,
+      offset: 0,
+      raw: false,
+    });
+  });
+
+  it("reads a lettered line of a filename that carries a colon", async () => {
+    const path = join(directory, "x.ts:12");
+    await writeFile(path, numbered(20));
+    expect(await readFile({ path: `${path}:L5` })).toMatchObject({
+      status: "success",
+      content: "4: line 4\n5: line 5\n6: line 6\n",
+      requestedRange: { startLine: 5, endLine: 5 },
+    });
+  });
+
+  it("refuses a zero line", async () => {
+    const path = join(directory, "x.ts");
+    await writeFile(path, numbered(20));
+    expect(await readFile({ path: `${path}:0:5` })).toEqual({
+      status: "error",
+      type: "invalid_selector",
+      message: SHARED_REFUSAL,
+    });
+  });
+
+  it("keeps a final raw as line 10 of the file before it", async () => {
+    const path = join(directory, "2024");
+    await writeFile(path, numbered(12));
+    expect(await readFile({ path: `${path}:10:raw` })).toMatchObject({
+      status: "success",
+      content: "line 10\n",
+      requestedRange: { startLine: 10, endLine: 10 },
+      shownRange: { startLine: 10, endLine: 10 },
+    });
+  });
+
+  it.each(["raw:12:5", "outline:12:5"])(
+    "refuses a representation with a line and column: %s",
+    async (selector) => {
+      const path = join(directory, "x.ts");
+      await writeFile(path, numbered(20));
+      expect(await readFile({ path: `${path}:${selector}` })).toEqual({
+        status: "error",
+        type: "invalid_selector",
+        message: SHARED_REFUSAL,
+      });
+    },
+  );
+
+  it("keeps the raw split when a line and column comes before the raw", async () => {
+    const path = join(directory, "x.ts:12");
+    await writeFile(path, numbered(20));
+    expect(await readFile({ path: `${path}:5:raw` })).toMatchObject({
+      status: "success",
+      content: "line 5\n",
+      requestedRange: { startLine: 5, endLine: 5 },
+    });
+  });
+});
+
+describe("canonicalSelector", () => {
+  it.each([
+    ["5", "L5"],
+    ["l5", "L5"],
+    ["5-10", "L5-10"],
+    ["l5-L10", "L5-10"],
+    ["5+10", "L5+10"],
+    ["5-", "L5-"],
+    ["-5", "-L5"],
+    ["-l5", "-L5"],
+    ["5,L10", "L5,L10"],
+    ["L5-16,L960-973", "L5-16,L960-973"],
+    ["raw", "raw"],
+    ["raw:5-10", "raw:L5-10"],
+    ["5-10:raw", "raw:L5-10"],
+    ["raw:-5", "raw:-L5"],
+    ["outline", "outline"],
+    ["outline:5-40", "outline:L5-40"],
+    ["12:5", "L12"],
+  ])("writes %s as %s", (selector, canonical) => {
+    expect(canonicalSelector(selector)).toBe(canonical);
+  });
+
+  it.each(["P3", "M2-5", "L-5", "raw:12:5", "outline:12:5", "X5", "", "5-10x"])(
+    "writes nothing for %s",
+    (selector) => {
+      expect(canonicalSelector(selector)).toBeUndefined();
+    },
+  );
+});
+
+describe("formatLineRange", () => {
+  it("writes the region as one canonical range", () => {
+    expect(formatLineRange(1, 5)).toBe("L1-5");
+    expect(formatLineRange(11, 13)).toBe("L11-13");
   });
 });

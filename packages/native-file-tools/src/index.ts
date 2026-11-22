@@ -1,6 +1,8 @@
 export {
   applySelectorSuffix,
   assertResolvedTarget,
+  canonicalSelector,
+  formatLineRange,
   invalidSelectorMessage,
   isSelectorSuffix,
   NativeFileError,

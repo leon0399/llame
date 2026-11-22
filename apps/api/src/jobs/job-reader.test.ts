@@ -166,9 +166,11 @@ describe('readJob', () => {
       script().list.mockResolvedValue([job({ seq: 1 }), job({ seq: 2 })]);
 
       expect(text(await read('job://:2-2'))).toContain('job://bash-2');
-      await expect(read('job://:1,2')).resolves.toMatchObject({
+      await expect(read('job://:1,2')).resolves.toEqual({
         status: 'error',
         type: 'invalid_selector',
+        message:
+          'A job listing or record accepts a single :L5-10, :L5+10, :L5-, or :-L5 range; comma ranges, :raw, and :outline are not supported. A bare number also reads as a line.',
       });
     });
   });

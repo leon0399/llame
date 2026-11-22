@@ -1,8 +1,8 @@
 ---
-summary: "The trailing selector a read path may carry: line ranges including open-ended and tail members, :raw, :outline, Markdown ancestors, and the shared result bound"
+summary: "The trailing selector a read path may carry: line ranges with the optional L unit letter, line and column, :raw, :outline, Markdown ancestors, and the shared result bound"
 read_when:
   - you are choosing a selector or deciding how a read was bounded
-  - you need the range, raw, or outline grammar and the errors it can produce
+  - you need the line, unit-letter, line-and-column, raw, or outline grammar and the errors it can produce
 spec: native-file-tools
 configured_by:
   - ../operator/native-files.md
@@ -23,13 +23,19 @@ the suffix-bearing path for those calls; the rule and its consequences are in
 
 ## Line selectors
 
-`read({ path: "/absolute/file.md:10-20" })` returns lines 10 through 20, plus
-one live line of context on either side when available. `:10+11` selects the
-same requested range. The members are `N`, `N-M`, `N+K`, `N-` (line N through
-the source's last line), and `-K` (its last K lines), and they are one set: a
-comma list, a `raw:` list, and the outline's single scope each accept every one
-of them. Existing literal filenames take precedence over selector syntax, so a
-file whose name ends in `:20` is still read as that file.
+`read({ path: "/absolute/file.md:L10-20" })` returns lines 10 through 20, plus
+one live line of context on either side when available. `:L10+11` selects the
+same requested range. The five member forms are `N`, `N-M`, `N+K`, `N-` (line N
+through the source's last line), and `-K` (its last K lines). Each form accepts
+the unit letter `L` before its first number, in upper or lower case: `L5`,
+`L5-10`, `L5+10`, `L5-`, and `-L5`. A range can also carry the letter on its
+second number, as in `L5-L10`. A member without a letter means lines.
+
+The members are one set: a comma list, a `raw:` list, and the outline's single
+scope each accept every one of them. A list may mix bare and lettered members,
+as in `L5-16,L960-973`, because both name lines. On a source with a literal-path
+probe, an existing file name takes precedence over selector syntax, so a file
+whose name ends in `:20` or `:L5` is still read as that file.
 
 Each member is resolved against the source's own count before any other rule
 runs, and the reported `requestedRange` and `requestedRanges` are the resolved
@@ -43,53 +49,95 @@ not a snapshot: a file that grows between the passes is reported from the count
 the pass found.
 
 A `-K` larger than the count resolves to the whole source rather than failing,
-and `:-0` fails with `invalid_selector`. A member that resolves to no lines,
+and `:-L0` fails with `invalid_selector`. A member that resolves to no lines,
 such as an `N-` past the last line, is dropped when an earlier sorted member
 selected lines and otherwise fails as a start past the end does; an empty file
 or render answers `-K` and `1-` with the empty result.
 
-Comma-separated ranges such as `:4-5,7-8` read several passages in one bounded
+Comma-separated ranges such as `:L4-5,7-8` read several passages in one bounded
 call: ranges sort, merge, grow one context line per side, and merge again when
-the grown windows touch, so `:4-5,7-8` renders lines 3 through 9. A comma list
-mixes the members freely, so `:50-,-10` reads the last ten lines together with
+the grown windows touch, so `:L4-5,7-8` renders lines 3 through 9. A comma list
+mixes the members freely, so `:L50-,-L10` reads the last ten lines together with
 everything from line 50 on. Up to 64 ranges per read. Multi-range results report
 `requestedRanges` (the merged request) and `shownRanges` (emitted lines).
 
-A directory read, and the skill catalog, take one range member too: `:1-5`
+A directory read, and the skill catalog, take one range member too: `:L1-5`
 returns a flat listing of root-level entries only, with no child content, and
-`:-20` returns the last twenty of those entries. The member resolves against that
-level's entry count; `N-` past the end returns the empty page. Comma lists,
+`:-L20` returns the last twenty of those entries. The member resolves against
+that level's entry count; `N-` past the end returns the empty page. Comma lists,
 `:raw`, and `:outline` are refused with `invalid_selector` rather than being
 reinterpreted as a listing.
+
+## Units
+
+`L` is the unit letter for lines. `P` and `M` are reserved for pages and
+messages, in either case. No source accepts `P` or `M` yet, so a member that
+carries either fails with `invalid_selector` on every source, after any
+literal-path probe, as `P3`, `P3-5`, `-M2`, and `p3` do. A list with such a
+member fails whole. Another letter lies outside the grammar. On `ssh://` and a
+Machine path it stays on the path, so `notes:X5` names a file there.
+
+Two more shapes are refused rather than left outside the grammar. `L-5` puts the
+letter before the minus sign, and the tool answers `Write -L5 for the last 5
+lines, or L1-5 for the first 5.` with the member's number. `raw:N:M` and
+`outline:N:M` add a line and column to a representation and get the shared forms
+message. A count after `+` takes no letter, so `L5+10` is valid and `L5+L10` is
+refused. The second number of a range carries the letter only when the first
+does, so `5-L10` is refused.
+
+A literal-path probe runs first where one exists. A host or Machine file named
+`notes:L5`, `notes:P3`, or `notes:L-5` is read as that file. On `ssh://` a name
+ending in a selector shape is a selector, because that source has no probe, and
+`%3A` spells the literal colon.
+
+## Line and column
+
+A suffix of two bare numbers, `:N:M`, reads line `N` of the locator before it and
+ignores the column `M`. `read("src/x.ts:12:5")` therefore returns line 12 of
+`src/x.ts`, with the context lines of a `:L12` read. Every text source reads the
+form, including `kb://`, `skill://`, `ssh://`, and web.
+
+A literal-path probe runs first, so a host or Machine file named `x:12:5` is
+read as that file. The splitter recognizes the form after the `:raw` and
+`:outline` forms and before the last-colon fallback. The rule needs two bare
+numbers. A letter or a range in either part leaves the suffix outside the form,
+and the last colon decides the selector: `x.ts:12:L5` is line 5 of a file
+`x.ts:12`, and `x.ts:12:5:raw` is line 5 of `x.ts:12`, read raw. A zero line
+fails with `invalid_selector`. A representation cannot take a line and column,
+so `:raw:12:5` and `:outline:12:5` fail with the shared forms message on every
+source.
 
 ## Raw
 
 `:raw` and `:raw:<ranges>` return verbatim source, without line numbers or added
-context. `:raw:4-5,7-8` stays verbatim without context. Only a raw read is
+context. `:raw:L4-5,7-8` stays verbatim without context. Only a raw read is
 byte-for-byte source. `:raw` is not supported for directories.
 
-The two separators are one read in either order: `guide.md:60-64:raw` and
-`guide.md:raw:60-64` return the same lines, on every source, and the canonical
+The two separators are one read in either order: `guide.md:L60-64:raw` and
+`guide.md:raw:L60-64` return the same lines, on every source, and the canonical
 spelling everything downstream sees is the `raw:` one. A host or web split takes
 the colon segment before a trailing `:raw` as the range list only when that
-segment has the member-list shape, so `notes:draft:raw` remains the raw read of
-`notes:draft` and `2024:10:raw` is line 10 of `2024`, read raw; a file literally
-named `name:10` is read raw as `name:10:raw:1-`. An existing file whose name is
-itself the selector, such as `x:60-64:raw`, still wins the literal-path probe.
+segment has the member-list shape, and that shape admits lettered members. So
+`notes.md:L4-5:raw` is the raw read of lines 4 through 5, `notes:draft:raw`
+remains the raw read of `notes:draft`, and `2024:10:raw` is line 10 of `2024`,
+read raw. A file literally named `name:10` is read raw as `name:10:raw:L1-`. An
+existing file whose name is itself the selector, such as `x:60-64:raw`, still
+wins the literal-path probe.
 
 ## Markdown outline
 
 Representation selectors are chosen after source admission and content
-acquisition. The grammar accepts `:raw`, `:raw:<ranges>`, `:outline`,
-`:outline:<N>`, `:outline:<N-M>`, `:outline:<N+K>`, `:outline:<N->`, and
-`:outline:<-K>`. `<ranges>` uses the raw-range grammar, including
-comma-separated ranges; an outline scope accepts exactly one member and never a
-comma list. `:outline:N` means source line N only, `:outline:N+K` means K source
-lines from N (N through N+K-1), and `:outline:N-` and `:outline:-K` mean the
-same scopes they mean in a line read, resolved against the source's count.
-Ordinary bounded reads add one preceding and one following live line when
-available; these are called **context lines**. Outline reads do not add context
-lines.
+acquisition. The grammar accepts `:raw`, `:raw:<ranges>`, `:outline`, and
+`:outline:<member>`, where the scope is one line member: `:outline:<N>`,
+`:outline:<N-M>`, `:outline:<N+K>`, `:outline:<N->`, or `:outline:<-K>`. Each
+scope accepts the optional unit letter, as `:outline:L5-40` does. `<ranges>` uses
+the raw-range grammar, including comma-separated ranges; an outline scope
+accepts exactly one member and never a comma list. `:outline:N` means source
+line N only, `:outline:N+K` means K source lines from N (N through N+K-1), and
+`:outline:N-` and `:outline:-K` mean the same scopes they mean in a line read,
+resolved against the source's count. Ordinary bounded reads add one preceding
+and one following live line when available; these are called **context lines**.
+Outline reads do not add context lines.
 
 Host literal-path probing still happens first, and host and web split the outline
 form after the raw form and before the last-colon numeric fallback. Thus
@@ -220,10 +268,10 @@ the first and last emitted source line, or null when no source line is emitted;
 an empty source has null ranges.
 
 For a file with `# Title` at line 1, `## Setup` at line 30, `### Linux` at line
-44, `### macOS` at line 70, and `## Use` at line 100, `:outline:60-90` returns the
+44, `### macOS` at line 70, and `## Use` at line 100, `:outline:L60-90` returns the
 ancestor chain of line 60 (`1: # Title`, `30: ## Setup`, and `44: ### Linux`, with
 their excerpt lines before line 60), then `70: ### macOS` with its excerpt line;
-`100: ## Use` lies outside the scope. `:outline:65` returns `1: # Title`,
+`100: ## Use` lies outside the scope. `:outline:L65` returns `1: # Title`,
 `30: ## Setup`, and `44: ### Linux`, with their excerpt lines, and nothing after
 line 65.
 
@@ -253,7 +301,7 @@ output stays in source order. Lines are deduplicated by source line against ever
 earlier emitted passage or chain. Ancestors never enter `requestedRanges`.
 
 For example, if `VISION.md` has `# Level one` at line 13, `## Level two` at line
-32, and `### Level three` at line 54, a read of `VISION.md:60-72` includes the
+32, and `### Level three` at line 54, a read of `VISION.md:L60-72` includes the
 ordinary context lines at 59 and 73:
 
 ```text
@@ -321,8 +369,21 @@ shared [result bounds](#result-bounds) apply.
 
 A trailing suffix that splits off a locator which itself parses and then lies
 outside the grammar is `invalid_selector` on every source, with one message that
-names the forms that work: `:N`, `:N-M`, `:N+K`, `:N-`, `:-K`, comma-separated
-lists of them, `:raw`, `:raw:<list>`, and `:outline` with at most one member.
+names the forms that work:
+
+> A line selector is :L5, :L5-10, :L5+10, :L5-, or :-L5, or a comma-separated
+> list of them. A bare number also reads as a line. :raw is the whole file, or
+> :raw: followed by a list of them, and :outline takes one of them after the
+> colon. A line number starts at 1.
+
+The list mixes bare and lettered members. A reserved `P` or `M` member, a
+misplaced `L-5`, and `raw:N:M` or `outline:N:M` are selector shapes too, and the
+tool refuses each one. `L-5` takes its fixed hint instead, as [Units](#units)
+gives it. Those refusals add no `%3A` spelling, because the grammar produced
+them and knows no locator spelling. Only a suffix outside the grammar reaches
+the spelling sentence below, and only on a source with a resource path. A
+Machine path and an `ssh://` path split only a selector shape, so any other
+suffix stays on the path there instead of failing.
 
 A locator with a resource path to spell appends a second sentence, `For a
 literal colon, write this locator as <spelling>`, carrying the `%3A` spelling of
@@ -350,8 +411,8 @@ many lines it holds, while a file whose requested start is past its last line
 keeps the bare error type as its message, because the spelling was inside the
 grammar and only its start was not.
 
-On web, a locator ending in `:12-` is a selector and one ending in `:12+` is not:
-it has no count, so it is refused with the forms message.
+On web, a locator ending in `:L12-` is a selector and one ending in `:12+` is
+not: it has no count, so it is refused with the forms message.
 
 ## Result bounds
 
@@ -371,7 +432,7 @@ File outlines stream the source and have no whole-file input ceiling, but the
 shared 2,000-emitted-line and 16,000-UTF-16-code-unit result bounds still apply.
 When those bounds cut an outline, `truncated` is true and `nextOffset` is the
 zero-based index of the first omitted entry's source line. Resume with
-`:outline:<nextOffset + 1>-M`; a cut at the frontmatter elision line reports the
+`:outline:L<nextOffset + 1>-M`; a cut at the frontmatter elision line reports the
 closer's source line.
 
 ## Media types and errors

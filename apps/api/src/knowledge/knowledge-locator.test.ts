@@ -182,6 +182,9 @@ describe('knowledge locator parsing', () => {
   it.each([
     [`${SPACE}/notes/a:b.md`, `kb://${SPACE}/notes/a%3Ab.md`],
     [`${SPACE}/note.md:5-10,,20-30`, `kb://${SPACE}/note.md%3A5-10,,20-30`],
+    // A letter that is not the unit, and a `+` with no length after it, are
+    // outside the grammar: the shared refusal still names the `%3A` spelling.
+    [`${SPACE}/notes.md:5-10x`, `kb://${SPACE}/notes.md%3A5-10x`],
     [`${SPACE}/note.md:raw:outline`, `kb://${SPACE}/note.md%3Araw%3Aoutline`],
     [`${SPACE}/note.md:outline:1,3`, `kb://${SPACE}/note.md%3Aoutline%3A1,3`],
     // The Space directory has no resource path, so nothing is spelled for it.
@@ -243,16 +246,27 @@ describe('knowledge locator parsing', () => {
   });
 
   it.each([
-    [`${SPACE}/notes.md:5-`, '5-'],
-    [`${SPACE}/notes.md:1-5:raw`, '1-5:raw'],
-    [`${SPACE}/notes.md:raw:1-5`, 'raw:1-5'],
-  ])('accepts the members and both raw spellings in %s', (rest, selector) => {
-    expect(parseKnowledgeLocator(rest)).toStrictEqual({
-      knowledgeSpaceId: SPACE,
-      relativePath: 'notes.md',
-      selector,
-    });
-  });
+    [`${SPACE}/notes.md:5-`, 'notes.md', '5-'],
+    [`${SPACE}/notes.md:1-5:raw`, 'notes.md', '1-5:raw'],
+    [`${SPACE}/notes.md:raw:1-5`, 'notes.md', 'raw:1-5'],
+    // The unit letter, the refused shapes, and the line-and-column form all
+    // reach this layer as written: the split hands the selector on and the
+    // applier is what drops the letter or refuses the shape.
+    [`${SPACE}/a.md:L5-10`, 'a.md', 'L5-10'],
+    [`${SPACE}/notes.md:L-5`, 'notes.md', 'L-5'],
+    [`${SPACE}/notes.md:P3`, 'notes.md', 'P3'],
+    [`${SPACE}/notes.md:outline:12:5`, 'notes.md', 'outline:12:5'],
+    [`${SPACE}/a.md:12:5`, 'a.md', '12:5'],
+  ])(
+    'accepts the members, the raw forms, and the line-and-column form in %s',
+    (rest, relativePath, selector) => {
+      expect(parseKnowledgeLocator(rest)).toStrictEqual({
+        knowledgeSpaceId: SPACE,
+        relativePath,
+        selector,
+      });
+    },
+  );
 });
 
 describe('knowledge locator resolution', () => {

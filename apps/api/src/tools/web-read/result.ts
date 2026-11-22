@@ -1,6 +1,7 @@
 import {
   NativeFileError,
   applySelectorSuffix,
+  formatLineRange,
   outlineReader,
   renderCollectedDirectory,
   resolveEndRelativeSelector,
@@ -248,8 +249,8 @@ function selectorFailureMessage(
   // A render with no lines has no range to point at, so the sentence that
   // would name one is left out rather than naming `1-0`.
   if (lines === 0) {
-    return `The selector ${written}selected no line of this page, which rendered no text.`;
+    return `The selector ${written}selected no line of this page, which rendered no text. Write :L5, :L5-10, or :L5+10, or omit the selector to read from the start. A bare number also reads as a line.`;
   }
 
-  return `The selector ${written}selected no line of this page, which rendered ${lines} line${lines === 1 ? '' : 's'} numbered from 1. Write :N, :N-M, or :N+K within 1-${lines}, or omit the selector to read from the start.`;
+  return `The selector ${written}selected no line of this page, which rendered ${lines} line${lines === 1 ? '' : 's'} numbered from 1. Write :L5, :L5-10, or :L5+10 within ${formatLineRange(1, lines)}, or omit the selector to read from the start. A bare number also reads as a line.`;
 }

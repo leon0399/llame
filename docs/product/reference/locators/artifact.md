@@ -17,7 +17,9 @@ configured_by:
 `<toolName>` is the registered name of the tool that made it and `<n>` is the
 Chat's counter value. `artifact://<toolName>-<n>/<part>` names one part of it.
 A `bash` artifact always names each stream as its part (`stdout`, `stderr`);
-every other artifact has one part, addressed without a part segment.
+every other artifact has one part, addressed without a part segment. A read of
+a part takes the ordinary line selector forms, such as
+`artifact://grep-1:L5-7` or `artifact://bash-7/stdout:-L50`.
 
 The scheme is read case-insensitively, as every locator scheme is. `<n>` is a
 Postgres `integer`, so a larger number is `invalid_path` rather than a store
@@ -124,9 +126,9 @@ sets and explains.
 `read("artifact://")` lists the Chat's artifacts, oldest first, one line each:
 the locator, the tool name, the size in lines and bytes, and the creation time.
 Reading a `bash` artifact's locator lists its streams in the same form. Both
-listings take a single `:N`, `:N-M`, `:N+K`, `:N-`, or `:-K` member; `:raw`,
-`:outline`, and comma lists are `invalid_selector`. A listing longer than the
-result bound is paged with a continuation line.
+listings take one line member, with or without the unit letter, such as
+`:L5-10`; `:raw`, `:outline`, and comma lists are `invalid_selector`. A listing
+longer than the result bound is paged with a continuation line.
 
 ## Errors
 

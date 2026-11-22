@@ -14,7 +14,10 @@ configured_by:
 ## Form
 
 `read`, `edit`, and `write` accept `kb://<knowledgeSpaceId>/<path>[:selector]`;
-a selector selects lines to read and is rejected on `edit` and `write`.
+a selector selects lines to read and is rejected on `edit` and `write`. The
+line forms take the optional unit letter and a line and column selects its line,
+so `:L5-10` reads lines 5 through 10 and `a.md:12:5` reads line 12 of `a.md`
+(see [selectors](../selectors.md)).
 
 `<path>` applies component rules of its own: no empty component, no `.` or
 `..`, no backslash, no absolute form, and no NUL or other control character,

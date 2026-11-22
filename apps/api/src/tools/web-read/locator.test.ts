@@ -100,6 +100,54 @@ describe('parseWebLocator', () => {
     });
   });
 
+  it('splits the lettered, line-and-column, and refused shapes as written', () => {
+    // The unit letter reaches this source unchanged: the split hands the text
+    // on as written, and the applier is what drops the letter.
+    expect(parseWebLocator('https://example.test/guide:L10-20')).toEqual({
+      url: 'https://example.test/guide',
+      selector: 'L10-20',
+    });
+    expect(parseWebLocator('https://example.test/guide:l10-L20')).toEqual({
+      url: 'https://example.test/guide',
+      selector: 'l10-L20',
+    });
+    // A compiler location is one selector form, so the column never becomes
+    // the line: line 12 is what this reads.
+    expect(parseWebLocator('https://example.test/src/x.ts:12:5')).toEqual({
+      url: 'https://example.test/src/x.ts',
+      selector: '12:5',
+    });
+    // A representation plus a line and column is claimed whole, so the refusal
+    // names `raw:12:5` rather than reading line 5 of `…:raw:12`.
+    expect(parseWebLocator('https://example.test/src/x.ts:raw:12:5')).toEqual({
+      url: 'https://example.test/src/x.ts',
+      selector: 'raw:12:5',
+    });
+    expect(
+      parseWebLocator('https://example.test/src/x.ts:outline:12:5'),
+    ).toEqual({
+      url: 'https://example.test/src/x.ts',
+      selector: 'outline:12:5',
+    });
+    // A reserved unit and a misplaced letter are selector shapes the grammar
+    // refuses: the split claims them, and the applier refuses them after the
+    // read is placed.
+    expect(parseWebLocator('https://example.test/guide:P3')).toEqual({
+      url: 'https://example.test/guide',
+      selector: 'P3',
+    });
+    expect(parseWebLocator('https://example.test/guide:L-5')).toEqual({
+      url: 'https://example.test/guide',
+      selector: 'L-5',
+    });
+    // A lettered list behind a trailing `:raw` is claimed like a bare one: the
+    // grammar's member list is shared, so the canonical raw spelling follows.
+    expect(parseWebLocator('https://example.test/guide:L4-5:raw')).toEqual({
+      url: 'https://example.test/guide',
+      selector: 'raw:L4-5',
+    });
+  });
+
   it('recognizes outline selectors before the numeric fallback', () => {
     expect(parseWebLocator('https://h/doc.md:outline')).toEqual({
       url: 'https://h/doc.md',
@@ -247,11 +295,16 @@ describe('parseWebLocator', () => {
     // `https://host:1-5` is not a URL at all — `1-5` is an invalid port — so
     // the parser refuses the whole text. Answering with the generic "write an
     // absolute URL" leaves the model to guess; the spelling that works is the
-    // authority's own serialization carrying the same selector.
-    for (const selector of ['1-5', 'raw', '1-3,7-9']) {
+    // authority's own serialization carrying the same selector in its
+    // canonical lettered spelling.
+    for (const [selector, canonical] of [
+      ['1-5', 'L1-5'],
+      ['raw', 'raw'],
+      ['1-3,7-9', 'L1-3,L7-9'],
+    ] as const) {
       expect(parseWebLocator(`https://example.test:${selector}`)).toEqual({
         type: 'invalid_path',
-        message: `Write this locator as https://example.test/:${selector}`,
+        message: `Write this locator as https://example.test/:${canonical}`,
       });
       expect(parseWebLocator(`https://example.test/:${selector}`)).toEqual({
         url: 'https://example.test/',
@@ -269,6 +322,14 @@ describe('parseWebLocator', () => {
         'A port must be a number: write this locator with one, or as https://example.test/',
     });
     expect(parseWebLocator('https://example.test:notaselector')).toEqual({
+      type: 'invalid_path',
+      message:
+        'A port must be a number: write this locator with one, or as https://example.test/',
+    });
+    // A reserved unit is a selector shape the grammar refuses, so no working
+    // locator carries it and the hint cannot name one: the port answer is the
+    // one that teaches the model something it can use.
+    expect(parseWebLocator('https://example.test:P3')).toEqual({
       type: 'invalid_path',
       message:
         'A port must be a number: write this locator with one, or as https://example.test/',
@@ -314,7 +375,7 @@ describe('parseWebLocator', () => {
     expect(parseWebLocator('https://example.test/guide:12+')).toEqual({
       type: 'invalid_selector',
       message:
-        'A line selector is :N, :N-M, :N+K, :N-, or :-K, or a comma-separated list of them; :raw is the whole file, or :raw: followed by a list of them; and :outline takes one of them after the colon. A line number starts at 1. For a literal colon, write this locator as https://example.test/guide%3A12+',
+        'A line selector is :L5, :L5-10, :L5+10, :L5-, or :-L5, or a comma-separated list of them. A bare number also reads as a line. :raw is the whole file, or :raw: followed by a list of them, and :outline takes one of them after the colon. A line number starts at 1. For a literal colon, write this locator as https://example.test/guide%3A12+',
     });
     // A suffix that is a word, or names no line, is refused the same way: the
     // forms come first, and the spelling is the second sentence, not the whole
@@ -410,16 +471,26 @@ describe('parseWebLocator', () => {
       '-5',
       '1-2,4+1',
       '1-2,-4',
+      'L5',
+      'L5-9',
+      'l5-L9',
+      'L5+3',
+      'L5-',
+      '-L5',
+      'L1-2,L4+1',
+      '12:5',
       'raw:5',
       'raw:5-9',
       'raw:1-2,4-5',
       'raw:5+3',
       'raw:-5',
+      'raw:L5-9',
       '5-9:raw',
       'outline:5',
       'outline:5-9',
       'outline:5+3',
       'outline:-5',
+      'outline:L5-9',
     ];
 
     const unnamed = ['outline:1,3', 'nonsense', '-', '1--2'];

@@ -186,9 +186,11 @@ describe('readArtifact', () => {
       'artifact://:1-2,-3',
     );
 
-    expect(result).toMatchObject({
+    expect(result).toEqual({
       status: 'error',
       type: 'invalid_selector',
+      message:
+        'An artifact listing accepts a single :L5-10, :L5+10, :L5-, or :-L5 range; comma ranges and :raw are not supported. A bare number also reads as a line.',
     });
   });
 

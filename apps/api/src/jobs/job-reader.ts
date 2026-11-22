@@ -230,7 +230,7 @@ const listingRefusal = (): ToolResult => ({
   status: 'error',
   type: 'invalid_selector',
   message:
-    'A job listing or record accepts a single :N-M, :N+K, :N-, or :-K range; comma ranges, :raw, and :outline are not supported.',
+    'A job listing or record accepts a single :L5-10, :L5+10, :L5-, or :-L5 range; comma ranges, :raw, and :outline are not supported. A bare number also reads as a line.',
 });
 
 function invalidLocatorResult(): ToolResult {

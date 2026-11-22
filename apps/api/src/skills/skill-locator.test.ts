@@ -104,6 +104,9 @@ describe('parseSkillLocator', () => {
     // catalog and a package root address no resource, so nothing is spelled.
     ['pdf/references/a:b.md', 'skill://pdf/references/a%3Ab.md'],
     ['pdf/references/x:5-10,,20-30', 'skill://pdf/references/x%3A5-10,,20-30'],
+    // A letter that is not the unit, and a `+` with no length after it, are
+    // outside the grammar: the shared refusal still names the `%3A` spelling.
+    ['pdf/ref.md:5-10x', 'skill://pdf/ref.md%3A5-10x'],
     ['pdf:raw:outline', undefined],
     [':5-10,,20-30', undefined],
     ['pdf:notaselector', undefined],
@@ -184,9 +187,32 @@ describe('parseSkillLocator', () => {
       'pdf/ref.md:1-5:raw',
       { name: 'pdf', relativePath: 'ref.md', selector: '1-5:raw' },
     ],
-  ])('accepts the new members and both raw spellings in %s', (rest, parsed) => {
-    expect(parseSkillLocator(rest)).toStrictEqual(parsed);
-  });
+    // The unit letter, the refused shapes, and the line-and-column form all
+    // reach this layer as written: the split hands the selector on and the
+    // applier is what drops the letter or refuses the shape.
+    [
+      'pdf/ref.md:L5-10',
+      { name: 'pdf', relativePath: 'ref.md', selector: 'L5-10' },
+    ],
+    [
+      'pdf/ref.md:L-5',
+      { name: 'pdf', relativePath: 'ref.md', selector: 'L-5' },
+    ],
+    ['pdf/ref.md:P3', { name: 'pdf', relativePath: 'ref.md', selector: 'P3' }],
+    [
+      'pdf/ref.md:outline:12:5',
+      { name: 'pdf', relativePath: 'ref.md', selector: 'outline:12:5' },
+    ],
+    [
+      'pdf/ref.md:12:5',
+      { name: 'pdf', relativePath: 'ref.md', selector: '12:5' },
+    ],
+  ])(
+    'accepts the members, the raw forms, and the line-and-column form in %s',
+    (rest, parsed) => {
+      expect(parseSkillLocator(rest)).toStrictEqual(parsed);
+    },
+  );
 });
 
 describe('formatSkillLocator', () => {

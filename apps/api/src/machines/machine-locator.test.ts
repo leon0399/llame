@@ -62,6 +62,26 @@ describe('parseMachineLocator', () => {
     });
   });
 
+  it('splits every admitted member shape as a selector', () => {
+    for (const selector of ['M2', 'L-5', 'L5']) {
+      expect(
+        parseMachineLocator(`machine://devl/home/notes:${selector}`),
+      ).toEqual({
+        kind: 'path',
+        name: 'devl',
+        path: '/home/notes',
+        selector,
+      });
+    }
+
+    // A letter outside the reserved set leaves the suffix on the path.
+    expect(parseMachineLocator('machine://devl/home/notes:X5')).toEqual({
+      kind: 'path',
+      name: 'devl',
+      path: '/home/notes:X5',
+    });
+  });
+
   it('keeps a suffix that is not a read selector on the path', () => {
     expect(parseMachineLocator('machine://devl/home/me/notes:draft')).toEqual({
       kind: 'path',

@@ -155,6 +155,25 @@ describe('parseSshLocator paths', () => {
     ).toBe('ssh://box/etc/os-release:2-3');
   });
 
+  it('splits every admitted member shape as a selector', () => {
+    for (const selector of ['M2', 'L-5', 'L5']) {
+      const parsed = pathOf(`ssh://box/notes:${selector}`);
+      expect(parsed.path).toBe('/notes');
+      expect(parsed.selector).toBe(selector);
+    }
+
+    // A letter outside the reserved set leaves the suffix on the path.
+    const lettered = pathOf('ssh://box/notes:X5');
+    expect(lettered.path).toBe('/notes:X5');
+    expect(lettered.selector).toBeUndefined();
+  });
+
+  it('decodes an encoded colon to a literal name with no selector', () => {
+    const parsed = pathOf('ssh://box/notes%3AM2');
+    expect(parsed.path).toBe('/notes:M2');
+    expect(parsed.selector).toBeUndefined();
+  });
+
   it('treats a suffix that is not a read selector as part of the path', () => {
     const parsed = pathOf('ssh://box/notes:draft');
     expect(parsed.path).toBe('/notes:draft');

@@ -1,4 +1,7 @@
-import { isSelectorSuffix } from '@workspace/native-file-tools';
+import {
+  canonicalSelector,
+  isSelectorSuffix,
+} from '@workspace/native-file-tools';
 
 import {
   encodeSelectorSuffix,
@@ -15,17 +18,23 @@ export type WebLocator = { readonly url: string; readonly selector?: string };
 
 /**
  * The shipped trailing-selector grammar, reused unchanged: the `:raw` forms
- * first, then the `:outline` forms, else the last colon after the last slash.
- * A URL's own scheme colon can never win, because it always precedes the
- * authority's slashes; whether a match may split at all is `opensSelector`'s
- * call. A trailing `:raw` claims the colon segment before it as the range list
- * when that segment has the member-list shape and emits the canonical
- * `raw:<list>` suffix, so `guide:60-64:raw` and `guide:raw:60-64` are one
- * selector downstream while `notes:draft:raw` stays the raw read of
- * `notes:draft`.
+ * first, then the `:outline` forms, then the line-and-column form, else the
+ * last colon after the last slash. A URL's own scheme colon can never win,
+ * because it always precedes the authority's slashes; whether a match may
+ * split at all is `opensSelector`'s call. A trailing `:raw` claims the colon
+ * segment before it as the range list when that segment has the member-list
+ * shape and emits the canonical `raw:<list>` suffix, so `guide:60-64:raw` and
+ * `guide:raw:60-64` are one selector downstream while `notes:draft:raw` stays
+ * the raw read of `notes:draft`.
+ *
+ * A `:N:M` tail is claimed whole by the representation patterns, so
+ * `x.ts:raw:12:5` is the refused shape `raw:12:5` rather than line 12 of
+ * `x.ts:raw`, and the standalone `N:M` form is claimed before the last-colon
+ * fallback, so `x.ts:12:5` is line 12 of `x.ts`.
  */
-const RAW_SELECTOR = /:raw(?::([^:/]*))?$/u;
-const OUTLINE_SELECTOR = /:outline(?::([^:/]*))?$/u;
+const RAW_SELECTOR = /:raw(?::(\d+:\d+|[^:/]*))?$/u;
+const OUTLINE_SELECTOR = /:outline(?::(\d+:\d+|[^:/]*))?$/u;
+const LINE_COLUMN_SELECTOR = /:\d+:\d+$/u;
 
 const INVALID_URL_MESSAGE =
   'Write this locator as an absolute http:// or https:// URL.';
@@ -70,6 +79,9 @@ export function splitWebSelector(text: string): SplitLocator {
     const before = text.slice(0, raw.index);
 
     if (raw[1] !== undefined) {
+      // The group is the whole representation operand: a range list, or a
+      // `:N:M` tail the grammar refuses later, never a colon left behind for
+      // the fallback to read as the line.
       return { url: before, selector: `raw:${raw[1]}` };
     }
 
@@ -99,6 +111,17 @@ export function splitWebSelector(text: string): SplitLocator {
     return {
       url: text.slice(0, outline.index),
       selector: text.slice(outline.index + 1),
+    };
+  }
+
+  // A compiler-style `:N:M` names line `N`: the pair is one selector form, so
+  // it is claimed before the last-colon fallback would read only the column.
+  const lineColumn = LINE_COLUMN_SELECTOR.exec(text);
+
+  if (lineColumn !== null && opensSelector(text, lineColumn.index)) {
+    return {
+      url: text.slice(0, lineColumn.index),
+      selector: text.slice(lineColumn.index + 1),
     };
   }
 
@@ -215,7 +238,8 @@ function literalColonSpelling(href: string, selector: string): string {
  * written straight after the authority (`https://example.test:1-5`) sits
  * where the port belongs, and a port that is not a number
  * (`https://example.test:abc/`) is the only broken part of an otherwise
- * absolute URL.
+ * absolute URL. The first answer names the serialization with the selector in
+ * its canonical spelling (`https://example.test/:L1-5`).
  */
 function unparsableLocator(text: string): LocatorParseFailure {
   const generic: LocatorParseFailure = {
@@ -231,10 +255,15 @@ function unparsableLocator(text: string): LocatorParseFailure {
 
   if ('type' in target) return generic;
 
-  if (isSelectorSuffix(suffix)) {
+  // Only a selector the grammar reads is worth naming as the locator that
+  // works: the suffix sits where the port belongs, and a reserved or
+  // misplaced shape is refused downstream, so it gets the port answer.
+  const canonical = canonicalSelector(suffix);
+
+  if (canonical !== undefined) {
     return {
       type: 'invalid_path',
-      message: `Write this locator as ${target.href}:${suffix}`,
+      message: `Write this locator as ${target.href}:${canonical}`,
     };
   }
 

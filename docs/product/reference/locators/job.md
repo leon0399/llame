@@ -42,7 +42,7 @@ row-level security. Another Chat of the same owner, another owner, and a
 process with no identity read nothing, and each answer is `not_found`. The read
 needs no Machine. The `read` permission group gates it and matches the
 locator with its scheme in lower case and without its selector, so a reject
-written against `^job://` also refuses `JOB://bash-4/stdout:1-5`.
+written against `^job://` also refuses `JOB://bash-4/stdout:L1-5`.
 
 ## Behavior
 
@@ -75,7 +75,7 @@ record never holds the content of an output.
 ### Output
 
 A `read` of `job://<executor>-<n>/<output>` returns the stored text of that
-output with the ordinary read selectors, so `:-50` returns its last 50 lines.
+output with the ordinary read selectors, so `:-L50` returns its last 50 lines.
 For a running job the text is what the worker stored up to that moment. A job
 whose output did not fit inline keeps it in the artifact, and the read returns
 it from there. An output name that the job does not have is `not_found`. A quiet
@@ -113,9 +113,9 @@ the literal context items and remaps the reply target to the copied host turn.
 
 `read("job://")` lists the jobs of the Chat, the oldest first, one line each:
 the locator, the state, and the start time. An empty Chat answers
-`job://: empty`. The list takes a single `:N`, `:N-M`, `:N+K`, `:N-`, or `:-K`
-member; `:raw`, `:outline`, and comma lists are `invalid_selector`. A fork of a
-Chat holds no job of its source.
+`job://: empty`. The list takes one line member, with or without the unit
+letter, such as `:L5-10`; `:raw`, `:outline`, and comma lists are
+`invalid_selector`. A fork of a Chat holds no job of its source.
 
 ## Errors
 

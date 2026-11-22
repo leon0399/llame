@@ -254,9 +254,15 @@ _Avoid_: address
 
 **Selector**:
 The suffix on a `read` locator that picks which lines of the result are
-returned, such as `:N-M`, or which representation, such as `:raw` or
+returned, such as `:L5-10`, or which representation, such as `:raw` or
 `:outline`.
 _Avoid_: range argument, offset
+
+**Unit letter**:
+The letter before a number in a selector that names what the number counts.
+`L` counts lines, and a member without a letter counts lines too. `P` and `M`
+are reserved for pages and messages, and no source accepts them yet.
+_Avoid_: unit, suffix letter
 
 **Listing**:
 What `read` returns for a locator that names a collection rather than one

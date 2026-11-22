@@ -19,7 +19,8 @@ installed (see [skills](../../operator/skills.md)):
 - `skill://<name>` reads the package's `SKILL.md`; `skill://<name>:raw` returns
   it verbatim, still with the result envelope.
 - `skill://<name>/<path>[:selector]` reads a supporting file, with the same
-  selector, truncation, and context behavior as any other read.
+  selector, truncation, and context behavior as any other read, such as
+  `skill://<name>/ref.md:L20-30`.
 - `skill://<name>/` lists the package directory, and `skill://` with one
   optional member lists the catalog (see [Listing](#listing)).
 
@@ -81,8 +82,8 @@ with a trailing ellipsis) and counts the rest.
 
 `skill://<name>/` lists the package directory and `skill://` lists the catalog,
 paging through `nextOffset` like a directory listing. A catalog request accepts
-one member — `:N`, `:N-M`, `:N+K`, `:N-`, or `:-K` — so `skill://:-10` is the last
-ten entries and `skill://:3-` every entry from the third on. A start past the
+one line member, with or without the unit letter, so `skill://:-L10` is the last
+ten entries and `skill://:L3-` every entry from the third on. A start past the
 last entry returns the empty page rather than a refusal, still carrying
 `skillCount`; comma lists, `:raw`, and `:outline` are refused as
 `invalid_selector`. A manual-only package is omitted from the catalog until the
