@@ -65,17 +65,23 @@ function repository(): string {
 /** The Machine this test process hosts, configured as `machines.local`. */
 const HOST = 'snapshot-host';
 
-function service(): GitSnapshotService {
-  const connector = machineFilesConnector({ name: HOST, roots: [tmpdir()] });
+function service(
+  roots: ReadonlyArray<string> = [tmpdir()],
+): GitSnapshotService {
+  const connector = machineFilesConnector({ name: HOST, roots });
 
   connectors.push(connector);
 
   return new GitSnapshotService(new ExecutorGit(connector));
 }
 
-async function body(root: string, admit = () => true): Promise<string> {
+async function body(
+  root: string,
+  admit = () => true,
+  roots: ReadonlyArray<string> = [tmpdir()],
+): Promise<string> {
   return renderGitObservation(
-    await service().observe({
+    await service(roots).observe({
       target: { executorId: HOST, machine: HOST, path: root },
       root,
       admit,
@@ -129,6 +135,40 @@ describe('GitSnapshotService with real git', () => {
     // absence a remote Machine reports for a plain folder.
     expect(await body(realpathSync(base))).toBe(
       'git state unavailable: no repository inside the registered root',
+    );
+  });
+
+  it('refuses a worktree whose git data lies outside the registered root', async () => {
+    const base = mkdtempSync(join(tmpdir(), 'git-snapshot-worktree-'));
+    created.push(base);
+    const main = join(realpathSync(base), 'main');
+    mkdirSync(main);
+    runGit(main, ['init', '--quiet', '--initial-branch=main', '.']);
+    runGit(main, ['config', 'user.name', 'llame tests']);
+    runGit(main, ['config', 'user.email', 'llame@test.invalid']);
+    runGit(main, ['config', 'core.autocrlf', 'false']);
+    writeFileSync(join(main, 'tracked.txt'), 'one\n');
+    runGit(main, ['add', '.']);
+    runGit(main, ['commit', '--quiet', '--message', 'first commit']);
+    const worktree = join(realpathSync(base), 'worktree');
+    runGit(main, ['worktree', 'add', '--quiet', '--detach', worktree]);
+
+    // The registered root is the worktree itself, so the git directory its
+    // `.git` file names lives in the main clone beside it, outside every root.
+    expect(await body(worktree, () => true, [worktree])).toBe(
+      'git state unavailable: repository outside the registered root',
+    );
+  });
+
+  it('refuses a checkout outside every registered root', async () => {
+    const checkout = repository();
+    const base = mkdtempSync(join(tmpdir(), 'git-snapshot-root-'));
+    created.push(base);
+
+    // The daemon refuses the address before any git call; the closed list of
+    // git-state reasons has no separate entry for an unregistered root.
+    expect(await body(checkout, () => true, [realpathSync(base)])).toBe(
+      'git state unavailable: git failed',
     );
   });
 
