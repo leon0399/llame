@@ -2,9 +2,9 @@
  * The Machine-facing half of the git surface (openspec `repositories`
  * "Executors expose typed git operations"): one git or `fs.stat` method sent to
  * a Machine's daemon, and every path its answer carries rendered as the
- * canonical `machine://<name>/<abs>` locator. `executor-git.service` decides
- * which Machine serves an address and which half runs; this module is the half
- * that leaves the process.
+ * canonical `machine://<name>/<abs>` locator. Every git call leaves the process
+ * this way, the host Machine's included; `executor-git.service` decides which
+ * Machine an address runs on.
  */
 
 import path from 'node:path';
@@ -12,11 +12,6 @@ import path from 'node:path';
 import {
   DEFAULT_GIT_TIMEOUT_MS,
   WORKTREE_ADD_TIMEOUT_MS,
-  type GitInspectResult,
-  type GitLocateResult,
-  type GitStateResult,
-  type GitWorktreeAddResult,
-  type GitWorktreeListResult,
 } from '@workspace/git-executor';
 import {
   type FsStatResult,
@@ -161,83 +156,6 @@ export async function machineCanonicalTarget(
   // No ancestor exists, so the whole path is still the caller's: render it in
   // the same locator form every other Machine answer uses.
   return machineAddress(machine, `/${segments.join('/')}`);
-}
-
-/**
- * One absolute path on a Machine as its canonical locator. An in-process answer
- * carries bare host paths, and the hub reports every Machine — the host
- * included — in the same locator form, so no caller branches on it.
- */
-function locator(machine: string, value: string): string {
-  const rendered = formatMachineLocator(machine, value);
-
-  if (rendered === undefined) {
-    throw new ExecutorGitError(
-      'git_failed',
-      `The Machine ${machine} answered a path that cannot be a locator.`,
-    );
-  }
-
-  return rendered;
-}
-
-export function canonicalInspect(
-  machine: string,
-  result: GitInspectResult,
-): GitInspectResult {
-  if (result.status !== 'ok') return result;
-
-  return {
-    ...result,
-    toplevel: locator(machine, result.toplevel),
-    commonDir: locator(machine, result.commonDir),
-    mainWorktree:
-      result.mainWorktree === null
-        ? null
-        : locator(machine, result.mainWorktree),
-  };
-}
-
-export function canonicalLocate(
-  machine: string,
-  result: GitLocateResult,
-): GitLocateResult {
-  return result.status === 'ok'
-    ? { ...result, gitEntry: locator(machine, result.gitEntry) }
-    : result;
-}
-
-export function canonicalState(
-  machine: string,
-  result: GitStateResult,
-): GitStateResult {
-  return result.status === 'ok'
-    ? { ...result, toplevel: locator(machine, result.toplevel) }
-    : result;
-}
-
-export function canonicalWorktreeAdd(
-  machine: string,
-  result: GitWorktreeAddResult,
-): GitWorktreeAddResult {
-  return result.status === 'ok'
-    ? { ...result, path: locator(machine, result.path) }
-    : result;
-}
-
-export function canonicalWorktreeList(
-  machine: string,
-  result: GitWorktreeListResult,
-): GitWorktreeListResult {
-  return result.status === 'ok'
-    ? {
-        ...result,
-        worktrees: result.worktrees.map((entry) => ({
-          ...entry,
-          path: locator(machine, entry.path),
-        })),
-      }
-    : result;
 }
 
 /** One git method's request builder and answer reader. */

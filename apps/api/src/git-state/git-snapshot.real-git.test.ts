@@ -9,9 +9,10 @@ import {
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { ExecutorGit, localGitSurface } from '../machines/executor-git.service';
+import { ExecutorGit } from '../machines/executor-git.service';
 import { MachineConnector } from '../machines/machine-connector.service';
 import { createProtocolPeer } from '../testing/machine-protocol-peer';
+import { GIT_SURFACE, gitMachineAnswers } from '../testing/machine-git-peer';
 import { GitSnapshotService } from './git-snapshot.service';
 import { renderGitObservation } from './git-state-render';
 
@@ -66,19 +67,23 @@ function repository(): string {
 const HOST = 'snapshot-host';
 
 function service(): GitSnapshotService {
+  const roots = [tmpdir()];
+
   const connector = new MachineConnector({
     hubVersion: 'test-hub',
     bindIdentity: () => Promise.resolve('match'),
     machines: { local: HOST, default: HOST, hosts: { [HOST]: {} } },
-    transportFactory: createProtocolPeer({ roots: [tmpdir()] }).factory,
+    transportFactory: createProtocolPeer({
+      roots,
+      methods: GIT_SURFACE,
+      answer: gitMachineAnswers({ roots }),
+    }).factory,
     idleCloseMs: 1000,
   });
 
   connectors.push(connector);
 
-  const executors = new ExecutorGit(connector, localGitSurface());
-
-  return new GitSnapshotService(executors, connector);
+  return new GitSnapshotService(new ExecutorGit(connector));
 }
 
 async function body(root: string, admit = () => true): Promise<string> {
@@ -129,11 +134,15 @@ describe('GitSnapshotService with real git', () => {
     expect(text).toContain('first commit');
   });
 
-  it('reports a plain folder as not a git repository', async () => {
+  it('reports a plain folder as holding no repository inside its root', async () => {
     const base = mkdtempSync(join(tmpdir(), 'git-snapshot-plain-'));
     created.push(base);
 
-    expect(await body(realpathSync(base))).toBe('not a git repository');
+    // The daemon stops its walk at the registered root, so this is the same
+    // absence a remote Machine reports for a plain folder.
+    expect(await body(realpathSync(base))).toBe(
+      'git state unavailable: no repository inside the registered root',
+    );
   });
 
   it('refuses without starting git when admission rejects the entry', async () => {

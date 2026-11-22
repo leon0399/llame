@@ -67,9 +67,9 @@ export class CheckoutsService {
 
   /**
    * Set the worktree base of a `main` checkout. The value must use that row's
-   * own executor: an absolute host path for a local checkout, and a
-   * `machine://<same name>/...` locator for a Machine checkout. A worktree row
-   * refuses the field, because placement hangs off the main clone.
+   * own executor: a `machine://<same name>/...` locator, or an absolute path
+   * when that Machine is `machines.default`. A worktree row refuses the field,
+   * because placement hangs off the main clone.
    */
   async setWorktreeBase(
     ownerUserId: string,

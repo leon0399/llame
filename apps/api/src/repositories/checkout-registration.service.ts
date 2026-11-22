@@ -40,7 +40,7 @@ import { RepositoriesRepository } from './repositories.repository';
  * `machines.default`, and a `machine://<name>/<abs>` locator names its own
  * Machine. Both store the canonical locator in `checkouts.path` and the Machine
  * name in `checkouts.executor_id`, which is the same text a bound root carries;
- * the host Machine's git runs in process only after its own daemon verified.
+ * the host Machine's git runs on its own daemon, exactly as a remote one does.
  */
 
 export type RegisterCheckoutInput = {

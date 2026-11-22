@@ -19,9 +19,10 @@ import {
   TenantDbService,
   type TenantRunner,
 } from '../db/tenant-db.service';
-import { ExecutorGit, localGitSurface } from '../machines/executor-git.service';
+import { ExecutorGit } from '../machines/executor-git.service';
 import { MachineConnector } from '../machines/machine-connector.service';
 import { localMachineConnector } from '../testing/local-machine';
+import { GIT_SURFACE, gitMachineAnswers } from '../testing/machine-git-peer';
 import { RepositoriesRepository } from '../repositories/repositories.repository';
 import { type ToolErrorResult } from '../tools/types';
 import { WorkspaceBindingRepository } from '../chats/workspace-binding.repository';
@@ -125,11 +126,17 @@ function linkedWorktree(main: string, branch: string): string {
 }
 
 function executors(): ExecutorGit {
-  const connector = localMachineConnector({ name: MACHINE });
+  const roots = [tmpdir()];
+
+  const connector = localMachineConnector({
+    name: MACHINE,
+    methods: GIT_SURFACE,
+    answer: gitMachineAnswers({ roots }),
+  });
 
   connectors.push(connector);
 
-  return new ExecutorGit(connector, localGitSurface());
+  return new ExecutorGit(connector);
 }
 
 function repositoryRow(overrides: Partial<Repository> = {}): Repository {

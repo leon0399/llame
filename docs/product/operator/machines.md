@@ -283,8 +283,8 @@ every stored bare root to a `machine://` locator. It rewrites one transaction
 and fails on an unknown executor value, so a failed run changes nothing.
 
 This release uses the host daemon child to verify the host's identity. Host file
-tools and `grep` run through that child, and host git and Workspace context
-follow in later releases.
+tools, `grep`, and every git and worktree call run through that child under its
+registered roots, and host Workspace context follows in a later release.
 
 ## Register roots
 

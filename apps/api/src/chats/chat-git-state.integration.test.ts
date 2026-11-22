@@ -29,7 +29,7 @@ import {
 } from '../instance-config/llame-config';
 import { ExecutorGit } from '../machines/executor-git.service';
 import { MachineConnector } from '../machines/machine-connector.service';
-import { localMachineConnector } from '../testing/local-machine';
+import { startLocalDaemon, type LocalDaemon } from '../testing/local-daemon';
 import { ModelsService } from '../models/models.service';
 import { CanonicalSearchCoverageService } from '../search/canonical-search-activation.service';
 import {
@@ -97,6 +97,7 @@ describe('the git state route over HTTP', () => {
   let owner: Owner;
   let other: Owner;
   let chatId = '';
+  let daemon: LocalDaemon;
 
   async function register(label: string): Promise<Owner> {
     const registered = await request(http)
@@ -115,16 +116,17 @@ describe('the git state route over HTTP', () => {
   }
 
   beforeAll(async () => {
+    // The host Machine's git runs on the real daemon bundle a running process
+    // spawns, with the suite's own clone inside its registered root.
+    daemon = startLocalDaemon({ name: EXECUTOR, roots: [tmpdir()] });
+
     const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
       .overrideProvider(CanonicalSearchCoverageService)
       .useValue({ assertReady: () => Promise.resolve() })
       .overrideProvider(InstanceConfigService)
       .useValue({ config })
-      // The host Machine's daemon is an in-process peer: the identity-checked
-      // handshake a local git call needs answers without spawning a child, and
-      // any other request reaching it fails the call loudly.
       .overrideProvider(MachineConnector)
-      .useValue(localMachineConnector({ name: EXECUTOR }))
+      .useValue(daemon.connector)
       .overrideProvider(ModelsService)
       .useValue(new FakeModelsService())
       .compile();
@@ -157,6 +159,7 @@ describe('the git state route over HTTP', () => {
   afterAll(async () => {
     await sql?.end();
     await app?.close();
+    daemon?.dispose();
 
     for (const directory of created.splice(0)) {
       rmSync(directory, { recursive: true, force: true });

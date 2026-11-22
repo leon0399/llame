@@ -1,5 +1,28 @@
 _Reverse-chronological record of shipped work — features, fixes, and chores. Newest first._
 
+# 2026-11-22
+
+- Run host git and worktree calls through the host Machine's `llame-machine`
+  daemon, and remove `ExecutorGit`'s in-process branch. No git process starts in
+  the API or a worker now: checkout registration (`git.inspect`), Workspace git
+  state (`git.locate`, `git.state`), worktree entry (`git.inspect`,
+  `git.worktreeAdd`), worktree listing, and worktree removal
+  (`git.worktreeRemove`) all run on the Machine named by the stored locator, the
+  host Machine included. A host path outside the daemon's registered roots now
+  fails with `path_not_registered`: registration answers `403`
+  `permission_denied`, worktree entry and removal name the refusal, and a
+  Workspace whose root is outside the roots reports the git state as
+  unavailable. An unavailable host daemon fails each call with
+  `machine_unavailable` instead of running git in the worker. Register the
+  directories you keep clones and worktrees in with
+  `llame-machine roots add <dir>` on the host, or `llame-machine roots add /` to
+  restore the reach of an earlier process. A Workspace root inside a registered
+  root that holds no repository inside that root now reports "no repository
+  inside the registered root" instead of "not a git repository". **Breaking**:
+  register host roots before the upgrade, and deploy the API and every daemon
+  together. References
+  [#1831](https://github.com/leon0399/llame/issues/1831).
+
 # 2026-11-21
 
 - Run host `read`, `edit`, `write`, and `grep` through the host Machine's

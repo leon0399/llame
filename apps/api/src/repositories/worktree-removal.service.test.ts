@@ -21,10 +21,11 @@ import {
   BUILT_IN_DEFAULTS,
   type LlameConfig,
 } from '../instance-config/llame-config';
-import { ExecutorGit, localGitSurface } from '../machines/executor-git.service';
+import { ExecutorGit } from '../machines/executor-git.service';
 import { MachineConnector } from '../machines/machine-connector.service';
 import { RepositoriesRepository } from './repositories.repository';
 import { createProtocolPeer } from '../testing/machine-protocol-peer';
+import { GIT_SURFACE, gitMachineAnswers } from '../testing/machine-git-peer';
 import { compileToolPermissionMap } from '../tools/permissions/compile-permissions';
 import { type PermissionGroup } from '../tools/permissions/types';
 import { WorkspaceEntryAdmission } from '../tools/permissions/workspace-entry-admission';
@@ -137,11 +138,17 @@ const DEFAULT_MACHINES: LlameConfig['machines'] = {
 function connectorOf(
   machines: LlameConfig['machines'] = DEFAULT_MACHINES,
 ): MachineConnector {
+  const roots = [tmpdir()];
+
   const connector = new MachineConnector({
     hubVersion: 'test-hub',
     bindIdentity: () => Promise.resolve('match'),
     machines,
-    transportFactory: createProtocolPeer().factory,
+    transportFactory: createProtocolPeer({
+      roots,
+      methods: GIT_SURFACE,
+      answer: gitMachineAnswers({ roots }),
+    }).factory,
     idleCloseMs: 1000,
   });
 
@@ -153,7 +160,7 @@ function connectorOf(
 function executors(
   machines: LlameConfig['machines'] = DEFAULT_MACHINES,
 ): ExecutorGit {
-  return new ExecutorGit(connectorOf(machines), localGitSurface());
+  return new ExecutorGit(connectorOf(machines));
 }
 
 function configWith(tools: Partial<LlameConfig['tools']> = {}): LlameConfig {
@@ -664,7 +671,7 @@ describe('WorktreeRemovalService', () => {
     });
 
     connectors.push(connector);
-    const executorsOf = new ExecutorGit(connector, localGitSurface());
+    const executorsOf = new ExecutorGit(connector);
     const locate = vi.spyOn(executorsOf, 'locateEntry');
 
     const { removal } = service({ executors: executorsOf });

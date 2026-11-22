@@ -13,7 +13,12 @@
 
 import { MachineConnector } from '../machines/machine-connector.service';
 
-import { createProtocolPeer, type ProtocolPeer } from './machine-protocol-peer';
+import {
+  createProtocolPeer,
+  type PeerAnswer,
+  type PeerCall,
+  type ProtocolPeer,
+} from './machine-protocol-peer';
 
 /** The default local Machine name the helper configures. */
 export const DEFAULT_LOCAL_MACHINE_NAME = 'host-a';
@@ -23,6 +28,15 @@ export type LocalMachineConnectorOptions = {
   readonly name?: string;
   /** Replaces the real handshake check, so a test can drive the refusal. */
   readonly verify?: () => Promise<void>;
+  /** The methods the handshake advertises; absent for a daemon without them. */
+  readonly methods?: ReadonlyArray<string>;
+  /**
+   * Answers one request before the refusal below: a family that now leaves the
+   * process needs a daemon side (`gitMachineAnswers` for git).
+   */
+  readonly answer?: (
+    call: PeerCall,
+  ) => PeerAnswer | Promise<PeerAnswer> | undefined;
 };
 
 export type LocalMachineConnector = MachineConnector & {
@@ -36,7 +50,12 @@ export function localMachineConnector(
   const name = options.name ?? DEFAULT_LOCAL_MACHINE_NAME;
 
   const peer = createProtocolPeer({
+    ...(options.methods !== undefined && { methods: options.methods }),
     answer: (call) => {
+      const answered = options.answer?.(call);
+
+      if (answered !== undefined) return answered;
+
       throw new Error(
         `the local Machine connector received a ${call.method} request; only the handshake may reach its daemon`,
       );
