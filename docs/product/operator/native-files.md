@@ -33,7 +33,11 @@ no Workspace is entered.
 
 The current Machine's daemon serves a host `read`, `edit`, `write`, or `grep`.
 It answers only inside the roots registered on that Machine, so a host path
-outside them fails with `path_not_registered`.
+outside them fails with `path_not_registered`. Host Workspace entry,
+instruction files, Workspace skills, Workspace MCP declarations, and prompt
+imports resolve through that same daemon and the same roots. Host `bash` and
+its background jobs remain the only host operations that run in the llame
+worker.
 
 This page covers enabling and policy only. What each tool does is documented in
 [read](../reference/tools/read.md),
@@ -74,8 +78,11 @@ path. Run `llame-machine roots add <dir>` as the daemon's user on the host. The
 daemon answers only inside those roots: a host `read`, `edit`, `write`, or `grep`
 outside every root fails with `path_not_registered`, and a host daemon that
 cannot start or answer fails the call with `machine_unavailable`. Neither falls
-back to an in-process operation. See [Machines](machines.md#register-roots) for
-the roots file, the development roots, and the root rules on worktrees.
+back to an in-process operation. The same roots bound host Workspace entry,
+instruction files, Workspace skills, and Workspace MCP declarations. A host
+prompt import outside every root stays prose. See
+[Machines](machines.md#register-roots) for the roots file, the development
+roots, and the root rules on worktrees.
 `llame-machine roots add /` restores the reach of an earlier process that
 served every host path. The development API runs
 `apps/api/scripts/dev-machine-host.mts` when you run `pnpm dev`, and it
@@ -474,6 +481,11 @@ ownership and mode as the provider pages describe.
 Per-directory project instruction files are loaded into the model's context by
 directory chain and trigger; the contract is in
 [instruction files](../reference/instruction-files.md).
+
+A host chain is a Machine chain on the current Machine. Its walk starts at the
+most specific registered root of the host daemon that contains the target, and
+a target outside every registered root loads no instruction file. Register the
+directories that hold instruction files with `llame-machine roots add`.
 
 Instruction imports on a Machine use the same `read` group and effective permission mode as
 ordinary path reads. A denied target is audited through `read` without a filesystem

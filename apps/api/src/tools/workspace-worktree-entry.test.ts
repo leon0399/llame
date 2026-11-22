@@ -36,10 +36,9 @@ import {
   type ProtocolPeerOptions,
 } from '../testing/machine-protocol-peer';
 import {
-  localMachineConnector,
-  type LocalMachineConnector,
-} from '../testing/local-machine';
-import { machineFilesConnector } from '../testing/machine-files-peer';
+  machineFilesConnector,
+  type MachineFilesConnector,
+} from '../testing/machine-files-peer';
 import { machineIdentityMismatchResult } from './machine-call';
 import { compileToolPermissionMap } from './permissions/compile-permissions';
 import { type CompiledPolicy, type PermissionGroup } from './permissions/types';
@@ -233,15 +232,15 @@ function onHost(path: string): string {
   return `machine://${HOST}${path}`;
 }
 
-const localConnectors: Array<LocalMachineConnector> = [];
+const localConnectors: Array<MachineFilesConnector> = [];
 
 afterEach(() => {
   for (const connector of localConnectors.splice(0))
     connector.onModuleDestroy();
 });
 
-function hostConnector(): LocalMachineConnector {
-  const connector = localMachineConnector({ name: HOST });
+function hostConnector(): MachineFilesConnector {
+  const connector = machineFilesConnector({ name: HOST, roots: ['/'] });
   localConnectors.push(connector);
 
   return connector;

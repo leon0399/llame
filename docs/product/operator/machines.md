@@ -118,13 +118,15 @@ The child receives `PATH`, `LANG`, `TERM`, `HOME`, `TMPDIR`, `USER`, `LOGNAME`,
 `SENTRY_ENVIRONMENT`, and `SENTRY_RELEASE`, each only when it is set. It receives
 no other variable of the worker environment. Database and provider credentials,
 and tokens such as `SENTRY_AUTH_TOKEN`, therefore stay out of the daemon and out
-of any process it starts.
+of any process it starts. A host Workspace's MCP declarations interpolate
+against this base environment, never the worker's. See
+[Workspace MCP](mcp-tools.md#interpolation-and-redaction).
 
 A spawn failure reports `unreachable`. A child exit reports `session_lost`. The
 next call starts a new child.
 
-Before any in-process host operation, the process completes an identity-checked
-handshake with its child. A worker that sets `machines.local` to another
+Before any host operation, the process completes an identity-checked handshake
+with its child. A worker that sets `machines.local` to another
 computer's name therefore fails the call, and no operation runs on the wrong
 computer.
 
@@ -282,9 +284,11 @@ The migration converts every stored `machine:<name>` executor to `<name>` and
 every stored bare root to a `machine://` locator. It rewrites one transaction
 and fails on an unknown executor value, so a failed run changes nothing.
 
-This release uses the host daemon child to verify the host's identity. Host file
-tools, `grep`, and every git and worktree call run through that child under its
-registered roots, and host Workspace context follows in a later release.
+This release uses the host daemon child for every host path a Run touches. Host
+file tools, `grep`, every git and worktree call, host Workspace entry, host
+Workspace MCP servers, host instruction files, Workspace skills, and prompt
+imports all run through that child under its registered roots. Host `bash` and
+its background jobs remain the only host operations that run in the worker.
 
 ## Register roots
 
@@ -308,6 +312,12 @@ register the directories you work in before the upgrade. In development,
 `apps/api/scripts/dev-machine-host.mts`, which registers the repository's
 parent directory and the operating system's temporary directory. Those cover the
 default `.llame-worktrees` directory beside the clone.
+
+Host Workspace context is bounded by the same roots. A Workspace must lie
+inside a root to be entered. A host instruction file or Workspace skill source
+outside every root contributes nothing, and a host prompt import outside every
+root stays prose. Register every directory that holds a Workspace, an
+instruction file, or a skill package a host Run must see.
 
 A git worktree on a Machine must lie inside a registered root, because the
 daemon decides the worktree directory before any git call. By default a new
@@ -418,5 +428,7 @@ as expected rather than as evidence the Machine is reachable.
   the daemon; identities from your included configuration keep whatever
   authority you gave them.
 - **Secrets.** `.mcp.json` interpolation runs on the box with the box's
-  environment; the hub never sends commands, URLs, or headers. Values the box
+  environment; the hub never sends commands, URLs, or headers. The host box
+  follows the same rule: its daemon gets only the base environment, so a
+  Workspace declaration cannot read a worker-only variable. Values the box
   resolves come back only for redaction.

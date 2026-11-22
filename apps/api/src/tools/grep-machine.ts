@@ -32,7 +32,6 @@ import {
 } from '../machines/machine-connector.service';
 import { MachineIdentityMismatchError } from '../machines/machine-session';
 import {
-  formatMachineLocator,
   MACHINE_NAME_PATTERN,
   parseMachineLocator,
 } from '../machines/machine-locator';
@@ -86,6 +85,13 @@ export type MachineGrepScope = {
    * Absent (a directory or glob scope) lists entries before any candidate.
    */
   readonly singleFile?: boolean;
+  /**
+   * The locator and `read` identity of a path relative to `path`. Absent for
+   * a `machine://` scope, whose locator is the Machine path itself; a skill
+   * package on a Machine reports its `skill://` locator instead, so admission
+   * matches the same identity a `read` of that package matches.
+   */
+  readonly locatorOf?: (rel: string) => string;
 };
 
 /** The compiled search the call resolved before either backend ran. */
@@ -171,17 +177,33 @@ export async function resolveMachineScope(
   const parsed = machineScopeOf(scope, index);
 
   if ('status' in parsed) return { result: parsed };
+
+  return resolveParsedMachineScope(context, parsed, admission, deadlineAt);
+}
+
+/**
+ * One Machine scope already parsed: its Machine must be reachable and
+ * configured, then the exact-path rule runs on the daemon. A caller that
+ * builds the scope itself — a skill package on a Machine, whose locators are
+ * `skill://` — settles the text before this point and passes the walk clock.
+ */
+export async function resolveParsedMachineScope(
+  context: ToolContext,
+  scope: MachineGrepScope,
+  admission: GrepReadAdmission,
+  deadlineAt: number,
+): Promise<MachineScopeResolution> {
   const connector = machineConnector(context);
 
   if (connector === undefined) return { result: machineUnsupportedResult() };
 
-  if (!connector.isConfigured(parsed.name))
-    return { result: machineNotFoundResult(parsed.name) };
+  if (!connector.isConfigured(scope.name))
+    return { result: machineNotFoundResult(scope.name) };
 
   const verdict = await exactPathVerdict({
     context,
     connector,
-    scope: parsed,
+    scope,
     admission,
     deadlineAt,
   });
@@ -192,7 +214,7 @@ export async function resolveMachineScope(
     return { result: machinePathNotFoundResult() };
 
   return {
-    machine: verdict.singleFile ? { ...parsed, singleFile: true } : parsed,
+    machine: verdict.singleFile ? { ...scope, singleFile: true } : scope,
   };
 }
 
@@ -231,7 +253,7 @@ async function exactPathVerdict(
 
   if (scope.globSuffix !== undefined)
     return { kind: 'walk', singleFile: false };
-  const locator = formatMachineLocator(scope.name, scope.path);
+  const locator = machineScopeLocator(scope, '');
 
   if (locator === undefined) return { kind: 'walk', singleFile: false };
 

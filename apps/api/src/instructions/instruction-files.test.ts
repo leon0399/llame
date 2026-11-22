@@ -23,19 +23,31 @@ import { runTool } from '../tools/runner';
 import { type ToolContext, type ToolResult } from '../tools/types';
 import {
   INSTRUCTION_FILE_BYTE_LIMIT,
-  hostInstructionScope,
+  listDirectoryNames,
   parentKey,
   readInstructionFile,
   selectCandidates,
   touchedPath,
   walkFrom,
   type InstructionCandidate,
+  type InstructionScope,
   type ReadPage,
-  type StatHostPath,
 } from './instruction-files';
 
-/** The host world every case below selects through. */
-const host = hostInstructionScope();
+/** A scope over real paths: keys and labels are the paths themselves. */
+function pathScope(
+  probe: (path: string) => ReturnType<typeof statHostPath> = statHostPath,
+): InstructionScope {
+  return {
+    root: '/',
+    label: (key) => key,
+    probe,
+    list: listDirectoryNames,
+  };
+}
+
+/** The filesystem scope every case below selects through. */
+const host = pathScope();
 
 let root: string;
 
@@ -289,12 +301,12 @@ describe('selectCandidates', () => {
     const claude = join(root, 'CLAUDE.md');
     await writeFile(claude, '# Claude\n');
 
-    const resolvesEveryName: StatHostPath = (path) =>
-      Promise.resolve({ kind: 'file', size: 9, canonicalPath: path });
+    const resolvesEveryName = (path: string) =>
+      Promise.resolve({ kind: 'file' as const, size: 9, canonicalPath: path });
 
-    expect(
-      await selectCandidates(hostInstructionScope(resolvesEveryName), root),
-    ).toEqual([{ path: claude, canonicalPath: claude, size: 9 }]);
+    expect(await selectCandidates(pathScope(resolvesEveryName), root)).toEqual([
+      { path: claude, canonicalPath: claude, size: 9 },
+    ]);
   });
 
   it('selects nothing from a directory that cannot be listed', async () => {

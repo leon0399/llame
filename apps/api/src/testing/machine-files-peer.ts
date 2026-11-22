@@ -13,7 +13,11 @@
 
 import { PassThrough } from 'node:stream';
 
-import { createLineFramer, decodeFrame } from '@workspace/machine-protocol';
+import {
+  createLineFramer,
+  decodeFrame,
+  type JsonValue,
+} from '@workspace/machine-protocol';
 import { serveMachine, type SessionEndReason } from 'machine/src/serve';
 
 import { MachineConnector } from '../machines/machine-connector.service';
@@ -28,10 +32,18 @@ import { DEFAULT_LOCAL_MACHINE_NAME } from './local-machine';
 const TEST_INSTANCE_ID = '00000000-0000-4000-8000-000000000001';
 const TEST_BUILD_ID = '000000000000';
 
+/** One request the hub sent, with the params its caller passed. */
+export type MachineFilesCall = {
+  readonly method: string;
+  readonly params?: JsonValue;
+};
+
 /** One in-process daemon session, as the hub side saw it. */
 export type MachineFilesSession = {
   /** Every method the hub sent, in order. */
   readonly requests: ReadonlyArray<string>;
+  /** Every request in arrival order, with the params it carried. */
+  readonly calls: ReadonlyArray<MachineFilesCall>;
 };
 
 export type MachineFilesPeer = {
@@ -58,6 +70,7 @@ function observeRequests(input: {
   readonly observing: PassThrough;
   readonly fromHub: PassThrough;
   readonly requests: Array<string>;
+  readonly calls: Array<MachineFilesCall>;
   readonly onRequest: ((method: string) => void) | undefined;
 }): void {
   const framer = createLineFramer();
@@ -72,6 +85,11 @@ function observeRequests(input: {
 
       if (!('method' in message)) continue;
       input.requests.push(message.method);
+      input.calls.push(
+        'params' in message
+          ? { method: message.method, params: message.params }
+          : { method: message.method },
+      );
       input.onRequest?.(message.method);
     }
 
@@ -99,6 +117,7 @@ function daemonLinkEnd(
 function daemonTransport(options: {
   readonly roots: ReadonlyArray<string>;
   readonly requests: Array<string>;
+  readonly calls: Array<MachineFilesCall>;
   readonly onRequest: ((method: string) => void) | undefined;
 }): MachineTransport {
   const fromHub = new PassThrough();
@@ -117,6 +136,7 @@ function daemonTransport(options: {
     observing,
     fromHub,
     requests: options.requests,
+    calls: options.calls,
     onRequest: options.onRequest,
   });
 
@@ -150,8 +170,34 @@ export function machineFilesTransportFactory(
       daemonTransport({
         roots,
         requests: [],
+        calls: [],
         onRequest: options.onRequest,
       }),
+  };
+}
+
+/** A factory that records every session it opens and wakes `session` waiters. */
+function sessionRecordingFactory(input: {
+  readonly roots: ReadonlyArray<string>;
+  readonly sessions: Array<MachineFilesSession>;
+  readonly waiters: Array<() => void>;
+  readonly onRequest: ((method: string) => void) | undefined;
+}): MachineTransportFactory {
+  return {
+    open: () => {
+      const requests: Array<string> = [];
+      const calls: Array<MachineFilesCall> = [];
+      input.sessions.push({ requests, calls });
+
+      for (const wake of input.waiters.splice(0)) wake();
+
+      return daemonTransport({
+        roots: input.roots,
+        requests,
+        calls,
+        onRequest: input.onRequest,
+      });
+    },
   };
 }
 
@@ -168,16 +214,12 @@ export function machineFilesConnector(
   const sessions: Array<MachineFilesSession> = [];
   const waiters: Array<() => void> = [];
 
-  const factory: MachineTransportFactory = {
-    open: () => {
-      const requests: Array<string> = [];
-      sessions.push({ requests });
-
-      for (const wake of waiters.splice(0)) wake();
-
-      return daemonTransport({ roots, requests, onRequest: options.onRequest });
-    },
-  };
+  const factory = sessionRecordingFactory({
+    roots,
+    sessions,
+    waiters,
+    onRequest: options.onRequest,
+  });
 
   const connector = new MachineConnector({
     machines: { local: name, default: name, hosts: { [name]: {} } },

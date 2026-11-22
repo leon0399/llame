@@ -265,7 +265,10 @@ and results remain Chat- and owner-isolated. Operator disconnect and discovery
 failures withdraw only that server; operator turns never wait for remote
 discovery or reconnect. `enter_workspace` and a bound Chat's attempt start
 await initial Workspace server connect/discovery within the existing MCP
-bounds before composing tools. Workers execute only an exact
+bounds before composing tools. A Workspace's servers resolve from its Machine,
+the host Machine included, and interpolate against that Machine's own
+environment, so a value only the hub defines never reaches them. Workers execute
+only an exact
 declaration-hash match against the attempt's admitted catalog. Configured
 endpoints are operator-approved outbound data boundaries. Redirects are
 disabled, while private endpoints are intentionally allowed for self-hosted
@@ -394,7 +397,9 @@ manual-only.
 While a Chat is entered into a Workspace, its effective skill sources append
 `<root>/.claude/skills`, `<root>/.agents/skills`, and `<root>/.llame/skills`
 after the configured operator sources; `.llame/skills` therefore has the
-highest precedence. These sources are scoped to that Chat and are trusted by
+highest precedence. Workspace sources are read on the Workspace's Machine
+through its daemon, the host Machine included, and that Machine's registered
+roots bound them. These sources are scoped to that Chat and are trusted by
 successful `enter_workspace` permission. Missing, unreadable, non-directory,
 and over-limit Workspace sources contribute nothing, do not make operator
 discovery unavailable, and do not count toward the 32-source operator bound.

@@ -19,7 +19,8 @@ import {
   type AttemptToolBinding,
 } from '../tools/attempt-tool-additions';
 import { compileTestPermissionPolicy } from '../testing/tool-permission-policy';
-import { localMachineConnector } from '../testing/local-machine';
+import { startLocalDaemon, type LocalDaemon } from '../testing/local-daemon';
+import { DEFAULT_LOCAL_MACHINE_NAME } from '../testing/local-machine';
 import { composeTurnToolCatalog } from '../tools/turn-tool-catalog';
 import { McpRuntimeService } from './mcp-runtime.service';
 import { WorkspaceMcpClients } from './workspace-mcp-clients';
@@ -37,14 +38,16 @@ const searchDeclaration = {
 };
 
 /** The Machine this test process hosts: `machines.local` and default. */
-const WORKER_MACHINE = 'integration-worker';
+const WORKER_MACHINE = DEFAULT_LOCAL_MACHINE_NAME;
 
-/** The Machine context every Workspace entry below runs with. */
-function machineContext() {
+/** The Machine context every Workspace entry below runs with: the real
+ *  `llame-machine` child this test process hosts, so the daemon resolves each
+ *  declaration against its own environment (host-as-machine H18). */
+function machineContext(daemon: LocalDaemon) {
   return {
-    localMachine: WORKER_MACHINE,
-    defaultMachine: WORKER_MACHINE,
-    machines: localMachineConnector({ name: WORKER_MACHINE }),
+    localMachine: daemon.name,
+    defaultMachine: daemon.name,
+    machines: daemon.connector,
   };
 }
 
@@ -148,10 +151,15 @@ describe('Workspace MCP production integration', () => {
     const secondFixture = await httpFixture('second');
     const firstRoot = await mkdtemp(join(tmpdir(), 'workspace-mcp-first-'));
     const secondRoot = await mkdtemp(join(tmpdir(), 'workspace-mcp-second-'));
+
+    const daemon = startLocalDaemon({
+      roots: [firstRoot, secondRoot],
+    });
+
     const operator = new McpRuntimeService({});
 
     const clients = new WorkspaceMcpClients(operator, {
-      connector: localMachineConnector({ name: WORKER_MACHINE }),
+      connector: daemon.connector,
     });
 
     const firstChat = crypto.randomUUID();
@@ -170,32 +178,32 @@ describe('Workspace MCP production integration', () => {
       // not started its own generation-matching client set.
       await clients.startForChat({
         chatId: firstChat,
-        root: firstRoot,
+        root: machineRoot(firstRoot),
         generation: 1,
       });
       expect(
         clients.snapshotCandidates({
           chatId: secondChat,
-          root: secondRoot,
+          root: machineRoot(secondRoot),
           generation: 1,
         }),
       ).toEqual([]);
       await clients.startForChat({
         chatId: secondChat,
-        root: secondRoot,
+        root: machineRoot(secondRoot),
         generation: 1,
       });
 
       const first = clients
         .resolverFor(
-          { chatId: firstChat, root: firstRoot, generation: 1 },
+          { chatId: firstChat, root: machineRoot(firstRoot), generation: 1 },
           undefined,
         )
         .resolveDynamicTool('mcp__web__search');
 
       const second = clients
         .resolverFor(
-          { chatId: secondChat, root: secondRoot, generation: 1 },
+          { chatId: secondChat, root: machineRoot(secondRoot), generation: 1 },
           undefined,
         )
         .resolveDynamicTool('mcp__web__search');
@@ -225,6 +233,7 @@ describe('Workspace MCP production integration', () => {
       expect(JSON.stringify(secondResult)).not.toContain('workspace-first');
     } finally {
       await clients.onModuleDestroy();
+      daemon.dispose();
       await operator.stop();
       await firstFixture.close();
       await secondFixture.close();
@@ -244,14 +253,18 @@ describe('Workspace MCP production integration', () => {
       join(tmpdir(), 'workspace-mcp-malformed-'),
     );
 
+    const daemon = startLocalDaemon({
+      roots: [oldRoot, currentRoot, malformedRoot],
+    });
+
     const operator = new McpRuntimeService({});
 
     const firstProcess = new WorkspaceMcpClients(operator, {
-      connector: localMachineConnector({ name: WORKER_MACHINE }),
+      connector: daemon.connector,
     });
 
     const secondProcess = new WorkspaceMcpClients(operator, {
-      connector: localMachineConnector({ name: WORKER_MACHINE }),
+      connector: daemon.connector,
     });
 
     const chatId = crypto.randomUUID();
@@ -264,22 +277,36 @@ describe('Workspace MCP production integration', () => {
         web: { type: 'streamable-http', url: fixture.url },
       });
       await writeFile(join(malformedRoot, '.mcp.json'), '{ malformed', 'utf8');
-      await firstProcess.startForChat({ chatId, root: oldRoot, generation: 1 });
-      await secondProcess.startForChat({
+      await firstProcess.startForChat({
         chatId,
-        root: oldRoot,
+        root: machineRoot(oldRoot),
         generation: 1,
       });
-      const current = { chatId, root: currentRoot, generation: 2 } as const;
+      await secondProcess.startForChat({
+        chatId,
+        root: machineRoot(oldRoot),
+        generation: 1,
+      });
+
+      const current = {
+        chatId,
+        root: machineRoot(currentRoot),
+        generation: 2,
+      } as const;
+
       const state = await secondProcess.startForChat(current);
       expect(
-        secondProcess.stateForKey({ chatId, root: oldRoot, generation: 1 }),
+        secondProcess.stateForKey({
+          chatId,
+          root: machineRoot(oldRoot),
+          generation: 1,
+        }),
       ).toBeUndefined();
       expect(state.servers).toEqual([{ id: 'web', state: 'available' }]);
 
       const malformed = await firstProcess.startForChat({
         chatId: crypto.randomUUID(),
-        root: malformedRoot,
+        root: machineRoot(malformedRoot),
         generation: 1,
       });
 
@@ -292,7 +319,7 @@ describe('Workspace MCP production integration', () => {
 
       const unsupported = await firstProcess.startForChat({
         chatId: crypto.randomUUID(),
-        root: malformedRoot,
+        root: machineRoot(malformedRoot),
         generation: 2,
       });
 
@@ -306,6 +333,7 @@ describe('Workspace MCP production integration', () => {
     } finally {
       await firstProcess.onModuleDestroy();
       await secondProcess.onModuleDestroy();
+      daemon.dispose();
       await operator.stop();
       await fixture.close();
       await rm(oldRoot, { recursive: true, force: true });
@@ -318,10 +346,15 @@ describe('Workspace MCP production integration', () => {
     const secret = 'workspace-literal-auth-secret';
     const fixture = await httpFixture('redaction', secret);
     const root = await mkdtemp(join(tmpdir(), 'workspace-mcp-redaction-'));
+
+    const daemon = startLocalDaemon({
+      roots: [root],
+    });
+
     const operator = new McpRuntimeService({});
 
     const clients = new WorkspaceMcpClients(operator, {
-      connector: localMachineConnector({ name: WORKER_MACHINE }),
+      connector: daemon.connector,
     });
 
     const chatId = crypto.randomUUID();
@@ -334,10 +367,17 @@ describe('Workspace MCP production integration', () => {
           headers: { Authorization: secret },
         },
       });
-      await clients.startForChat({ chatId, root, generation: 1 });
+      await clients.startForChat({
+        chatId,
+        root: machineRoot(root),
+        generation: 1,
+      });
 
       const resolution = clients
-        .resolverFor({ chatId, root, generation: 1 }, undefined)
+        .resolverFor(
+          { chatId, root: machineRoot(root), generation: 1 },
+          undefined,
+        )
         .resolveDynamicTool('mcp__web__search');
 
       if (resolution.state !== 'available')
@@ -353,8 +393,60 @@ describe('Workspace MCP production integration', () => {
       expect(fixture.receivedHeader(3, 'authorization', secret)).toBe(true);
     } finally {
       await clients.onModuleDestroy();
+      daemon.dispose();
       await operator.stop();
       await fixture.close();
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it('leaves a host Workspace server that reads a worker-only variable unavailable', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'workspace-mcp-worker-env-'));
+    const variable = 'LLAME_WORKER_ONLY_MCP_SECRET';
+    const previous = process.env[variable];
+    process.env[variable] = 'worker-only-sentinel';
+    // Started after the variable exists: the daemon child gets only its base
+    // environment, so the declaration resolves here as unset (H18).
+    const daemon = startLocalDaemon({ roots: [root] });
+    const operator = new McpRuntimeService({});
+
+    const clients = new WorkspaceMcpClients(operator, {
+      connector: daemon.connector,
+    });
+
+    const chatId = crypto.randomUUID();
+
+    try {
+      await writeConfig(root, {
+        secret: {
+          type: 'streamable-http',
+          url: 'http://127.0.0.1:1/mcp',
+          headers: { Authorization: `Bearer \${${variable}}` },
+        },
+      });
+
+      const state = await clients.startForChat({
+        chatId,
+        root: machineRoot(root),
+        generation: 1,
+      });
+
+      expect(state.servers).toEqual([
+        {
+          id: 'secret',
+          state: 'unavailable',
+          reason: `required environment variable ${variable} is not set`,
+        },
+      ]);
+      // The hub's value never travelled: the diagnostic names the variable
+      // and not the value the worker holds.
+      expect(JSON.stringify(state)).not.toContain('worker-only-sentinel');
+    } finally {
+      if (previous === undefined) delete process.env[variable];
+      else process.env[variable] = previous;
+      await clients.onModuleDestroy();
+      daemon.dispose();
+      await operator.stop();
       await rm(root, { recursive: true, force: true });
     }
   });
@@ -368,15 +460,21 @@ describe('Workspace MCP production integration', () => {
       'src/mcp/mcp-stdio-test-fixture.mjs',
     );
 
-    const operator = new McpRuntimeService({});
-
-    const clients = new WorkspaceMcpClients(operator, {
-      connector: localMachineConnector({ name: WORKER_MACHINE }),
-    });
-
     const chatId = crypto.randomUUID();
     const previous = process.env['LLAME_WORKSPACE_AMBIENT_ONLY'];
     process.env['LLAME_WORKSPACE_AMBIENT_ONLY'] = 'must-not-leak';
+    // Started after the variable exists: the daemon child and the stdio
+    // server it starts must not inherit it (host-as-machine H18, D4).
+
+    const daemon = startLocalDaemon({
+      roots: [root],
+    });
+
+    const operator = new McpRuntimeService({});
+
+    const clients = new WorkspaceMcpClients(operator, {
+      connector: daemon.connector,
+    });
 
     try {
       await writeConfig(root, {
@@ -391,7 +489,11 @@ describe('Workspace MCP production integration', () => {
           },
         },
       });
-      await clients.startForChat({ chatId, root, generation: 1 });
+      await clients.startForChat({
+        chatId,
+        root: machineRoot(root),
+        generation: 1,
+      });
       const dumpText = await readFile(dump, 'utf8');
       // SAFETY: JSON.parse returns any; asserting unknown forces the shape
       // checks below rather than silently inheriting any.
@@ -399,7 +501,10 @@ describe('Workspace MCP production integration', () => {
       expect(environment).not.toHaveProperty('LLAME_WORKSPACE_AMBIENT_ONLY');
 
       const resolution = clients
-        .resolverFor({ chatId, root, generation: 1 }, undefined)
+        .resolverFor(
+          { chatId, root: machineRoot(root), generation: 1 },
+          undefined,
+        )
         .resolveDynamicTool('mcp__stdio__search');
 
       expect(resolution.state).toBe('available');
@@ -408,6 +513,7 @@ describe('Workspace MCP production integration', () => {
         delete process.env['LLAME_WORKSPACE_AMBIENT_ONLY'];
       else process.env['LLAME_WORKSPACE_AMBIENT_ONLY'] = previous;
       await clients.onModuleDestroy();
+      daemon.dispose();
       await operator.stop();
       await rm(root, { recursive: true, force: true });
     }
@@ -416,11 +522,12 @@ describe('Workspace MCP production integration', () => {
   it('enters a Workspace in a real bound Run and exposes the tool addition', async () => {
     const fixture = await httpFixture('entering-run');
     const root = await mkdtemp(join(tmpdir(), 'workspace-mcp-enter-'));
+    const daemon = startLocalDaemon({ roots: [root] });
     const chatId = crypto.randomUUID();
     const operator = new McpRuntimeService({});
 
     const clients = new WorkspaceMcpClients(operator, {
-      connector: localMachineConnector({ name: WORKER_MACHINE }),
+      connector: daemon.connector,
     });
 
     try {
@@ -485,7 +592,7 @@ describe('Workspace MCP production integration', () => {
       const context = {
         configuredCredentials: [],
         runId: seeded.runId,
-        ...machineContext(),
+        ...machineContext(daemon),
         nativeDeliverySequence: seeded.deliverySequence,
         toolCallId: 'enter-workspace',
         userId,
@@ -609,6 +716,7 @@ describe('Workspace MCP production integration', () => {
         )
         .catch(() => undefined);
       await clients.onModuleDestroy();
+      daemon.dispose();
       await operator.stop();
       await fixture.close();
       await rm(root, { recursive: true, force: true });
@@ -656,16 +764,19 @@ describe('Workspace MCP production integration', () => {
     });
   }
 
-  function readOnlyEntryContext(
-    seeded: { runId: string; deliverySequence: number },
-    chatId: string,
-    clients: WorkspaceMcpClients,
-    toolCallId: string,
-  ) {
+  function readOnlyEntryContext(options: {
+    readonly seeded: { runId: string; deliverySequence: number };
+    readonly chatId: string;
+    readonly clients: WorkspaceMcpClients;
+    readonly daemon: LocalDaemon;
+    readonly toolCallId: string;
+  }) {
+    const { seeded, chatId, clients, daemon, toolCallId } = options;
+
     return {
       configuredCredentials: [],
       runId: seeded.runId,
-      ...machineContext(),
+      ...machineContext(daemon),
       nativeDeliverySequence: seeded.deliverySequence,
       toolCallId,
       userId,
@@ -681,11 +792,12 @@ describe('Workspace MCP production integration', () => {
 
   it('lists the servers a read-only entry did not start, once per binding', async () => {
     const root = await mkdtemp(join(tmpdir(), 'workspace-mcp-read-only-'));
+    const daemon = startLocalDaemon({ roots: [root] });
     const chatId = crypto.randomUUID();
     const operator = new McpRuntimeService({});
 
     const clients = new WorkspaceMcpClients(operator, {
-      connector: localMachineConnector({ name: WORKER_MACHINE }),
+      connector: daemon.connector,
     });
 
     try {
@@ -699,12 +811,13 @@ describe('Workspace MCP production integration', () => {
         'Enter the Workspace read-only.',
       );
 
-      const context = readOnlyEntryContext(
+      const context = readOnlyEntryContext({
         seeded,
         chatId,
         clients,
-        'enter-read-only',
-      );
+        daemon,
+        toolCallId: 'enter-read-only',
+      });
 
       const entry = await enterWorkspaceTool.execute(context, { path: root });
       expect(entry).toMatchObject({
@@ -755,6 +868,7 @@ describe('Workspace MCP production integration', () => {
       });
     } finally {
       await clients.onModuleDestroy();
+      daemon.dispose();
       await operator.stop();
       await rm(root, { recursive: true, force: true });
       await sql`DELETE FROM chats WHERE id = ${chatId}`;
@@ -763,11 +877,12 @@ describe('Workspace MCP production integration', () => {
 
   it('keeps a malformed read-only Workspace configuration diagnostic', async () => {
     const root = await mkdtemp(join(tmpdir(), 'workspace-mcp-read-only-bad-'));
+    const daemon = startLocalDaemon({ roots: [root] });
     const chatId = crypto.randomUUID();
     const operator = new McpRuntimeService({});
 
     const clients = new WorkspaceMcpClients(operator, {
-      connector: localMachineConnector({ name: WORKER_MACHINE }),
+      connector: daemon.connector,
     });
 
     try {
@@ -780,7 +895,13 @@ describe('Workspace MCP production integration', () => {
       );
 
       const entry = await enterWorkspaceTool.execute(
-        readOnlyEntryContext(seeded, chatId, clients, 'enter-read-only-bad'),
+        readOnlyEntryContext({
+          seeded,
+          chatId,
+          clients,
+          daemon,
+          toolCallId: 'enter-read-only-bad',
+        }),
         { path: root },
       );
 
@@ -796,6 +917,7 @@ describe('Workspace MCP production integration', () => {
       });
     } finally {
       await clients.onModuleDestroy();
+      daemon.dispose();
       await operator.stop();
       await rm(root, { recursive: true, force: true });
       await sql`DELETE FROM chats WHERE id = ${chatId}`;
@@ -805,11 +927,12 @@ describe('Workspace MCP production integration', () => {
   it('reports a same-root re-entry over default-started clients as read-only', async () => {
     const fixture = await httpFixture('read-only-same-root');
     const root = await mkdtemp(join(tmpdir(), 'workspace-mcp-read-only-same-'));
+    const daemon = startLocalDaemon({ roots: [root] });
     const chatId = crypto.randomUUID();
     const operator = new McpRuntimeService({});
 
     const clients = new WorkspaceMcpClients(operator, {
-      connector: localMachineConnector({ name: WORKER_MACHINE }),
+      connector: daemon.connector,
     });
 
     try {
@@ -843,12 +966,13 @@ describe('Workspace MCP production integration', () => {
       const requestsBefore = fixture.requestSummaries().length;
       const addToAttempt = vi.spyOn(clients, 'addToAttempt');
 
-      const context = readOnlyEntryContext(
+      const context = readOnlyEntryContext({
         seeded,
         chatId,
         clients,
-        're-enter-same-root',
-      );
+        daemon,
+        toolCallId: 're-enter-same-root',
+      });
 
       const entry = await enterWorkspaceTool.execute(context, { path: root });
 
@@ -868,6 +992,7 @@ describe('Workspace MCP production integration', () => {
       expect(addToAttempt).not.toHaveBeenCalled();
     } finally {
       await clients.onModuleDestroy();
+      daemon.dispose();
       await operator.stop();
       await fixture.close();
       await rm(root, { recursive: true, force: true });
@@ -884,11 +1009,15 @@ describe('Workspace MCP production integration', () => {
       join(tmpdir(), 'workspace-mcp-bad-type-'),
     );
 
+    const daemon = startLocalDaemon({
+      roots: [malformedRoot, unsupportedRoot],
+    });
+
     const chatId = crypto.randomUUID();
     const operator = new McpRuntimeService({});
 
     const clients = new WorkspaceMcpClients(operator, {
-      connector: localMachineConnector({ name: WORKER_MACHINE }),
+      connector: daemon.connector,
     });
 
     try {
@@ -937,7 +1066,7 @@ describe('Workspace MCP production integration', () => {
       const context = {
         configuredCredentials: [],
         runId: seeded.runId,
-        ...machineContext(),
+        ...machineContext(daemon),
         nativeDeliverySequence: seeded.deliverySequence,
         toolCallId: 'enter-malformed',
         userId,
@@ -982,6 +1111,7 @@ describe('Workspace MCP production integration', () => {
       });
     } finally {
       await clients.onModuleDestroy();
+      daemon.dispose();
       await operator.stop();
       await rm(malformedRoot, { recursive: true, force: true });
       await rm(unsupportedRoot, { recursive: true, force: true });

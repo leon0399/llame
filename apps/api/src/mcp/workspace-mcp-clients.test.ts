@@ -1,7 +1,3 @@
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-
 import { z } from 'zod';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Logger } from '@nestjs/common';
@@ -19,7 +15,6 @@ import {
   createProtocolPeer,
   type PeerSession,
 } from '../testing/machine-protocol-peer';
-import { localMachineConnector } from '../testing/local-machine';
 import { MachineConnector } from '../machines/machine-connector.service';
 import { drizzle } from 'drizzle-orm/postgres-js';
 
@@ -40,7 +35,10 @@ import {
   type WorkspaceMcpKey,
   type WorkspaceMcpListingCell,
 } from './workspace-mcp-clients';
-import { type WorkspaceMcpServerConfig } from '@workspace/mcp-workspace';
+import {
+  isStdio,
+  type WorkspaceMcpServerConfig,
+} from '@workspace/mcp-workspace';
 import {
   AttemptToolAdditions,
   type AttemptToolBinding,
@@ -165,20 +163,124 @@ function operatorRuntime(serverId?: string): RuntimeFixture {
   return { runtime, clients };
 }
 
+/** The Machine a Workspace root names in this suite's unit tests. */
+const WORKSPACE_MACHINE = 'devl';
+
+/** The Machine this test process hosts, for the local-Machine cases. */
+const LOCAL_WORKSPACE_MACHINE = 'host-a';
+
+/** The Machine hosts a provider's roots name: a reachable remote Machine. */
+
+const WORKSPACE_HOSTS = {
+  ssh: { knownHostsFile: '/etc/llame/machine_known_hosts' },
+  hosts: { [WORKSPACE_MACHINE]: { destination: 'box' } },
+};
+
+/** A canonical Workspace locator for one path on {@link WORKSPACE_MACHINE}. */
+function workspaceRoot(path: string): string {
+  return `machine://${WORKSPACE_MACHINE}${path}`;
+}
+
+/** Every connector a test opened, closed after it so no session outlives it. */
+const workspaceConnectors: Array<MachineConnector> = [];
+
+/**
+ * How one declared server looks to the hub: the daemon answers a name, a
+ * state, and the transport it resolved, never a command or a URL.
+ */
+function machineEntry(config: WorkspaceMcpServerConfig): McpServerEntry {
+  if (config.state === 'unavailable') {
+    return { name: config.id, state: 'unavailable', diagnostic: config.reason };
+  }
+
+  return {
+    name: config.id,
+    transport: isStdio(config.definition) ? 'stdio' : 'http',
+    state: 'available',
+  };
+}
+
+/** The label a test's resolved declaration carries into its fake results. */
+function declarationLabel(config: WorkspaceMcpServerConfig): string {
+  return config.state === 'configured' && !isStdio(config.definition)
+    ? (config.definition.url.split('//')[1] ?? config.id)
+    : config.id;
+}
+
+/**
+ * The daemon side of one Workspace's configuration: it answers `mcp.servers`
+ * from the test's declarations for the root it was asked about, as a real
+ * Machine does. A declaration function that throws is the Machine's own
+ * failure, reported as an unusable answer.
+ */
+function workspaceConnector(
+  configs: (root: string) => ReadonlyArray<WorkspaceMcpServerConfig>,
+  options: { readonly local?: boolean } = {},
+): MachineConnector {
+  const name =
+    options.local === true ? LOCAL_WORKSPACE_MACHINE : WORKSPACE_MACHINE;
+
+  const peer = createProtocolPeer({
+    answer: (call) => {
+      if (call.method !== 'mcp.servers') return undefined;
+      const root = field(call.params, 'root');
+
+      if (!isString(root)) return { error: 'invalid_params' };
+
+      try {
+        return { value: { servers: configs(root).map(machineEntry) } };
+      } catch {
+        return { error: 'internal' };
+      }
+    },
+  });
+
+  const connector = new MachineConnector({
+    machines:
+      options.local === true
+        ? { local: name, hosts: { [name]: {} } }
+        : WORKSPACE_HOSTS,
+    hubVersion: '9.9.9',
+    bindIdentity: () => Promise.resolve('match'),
+    transportFactory: peer.factory,
+    handshakeTimeoutMs: 2000,
+  });
+
+  workspaceConnectors.push(connector);
+
+  return connector;
+}
+
 function workspaceProvider(
   operator: McpRuntimeService,
   configs: (root: string) => ReadonlyArray<WorkspaceMcpServerConfig>,
   now?: () => number,
 ): WorkspaceFixture {
   const clients: Array<FakeClient> = [];
+  const labels = new Map<string, string>();
+
+  const connector = workspaceConnector((root) => {
+    const entries = configs(root);
+
+    for (const entry of entries) {
+      labels.set(`${root}\u0000${entry.id}`, declarationLabel(entry));
+    }
+
+    return entries;
+  });
 
   const provider = new WorkspaceMcpClients(operator, {
-    now,
-    readConfig: (root) => Promise.resolve(configs(root)),
+    ...(now !== undefined && { now }),
+    connector,
     clientFactory: (input) => {
-      const serverId = input.serverId;
-      const label = 'url' in input ? input.url.split('//')[1] : serverId;
-      const created = client(serverId, label);
+      const root = 'machine' in input ? input.root : undefined;
+
+      const label =
+        (root === undefined
+          ? undefined
+          : labels.get(`${root}\u0000${input.serverId}`)) ?? input.serverId;
+
+      const created = client(input.serverId, label);
       clients.push(created);
 
       return Promise.resolve(created);
@@ -217,6 +319,8 @@ const operatorTool = (id: string): Tool => ({
 });
 
 afterEach(() => {
+  for (const connector of workspaceConnectors) connector.onModuleDestroy();
+  workspaceConnectors.length = 0;
   vi.restoreAllMocks();
 });
 
@@ -228,8 +332,8 @@ describe('WorkspaceMcpClients', () => {
       config('web', root),
     ]);
 
-    const first = key('chat-a', '/workspace/a');
-    const second = key('chat-b', '/workspace/b');
+    const first = key('chat-a', workspaceRoot('/workspace/a'));
+    const second = key('chat-b', workspaceRoot('/workspace/b'));
 
     await provider.startForChat(first);
     await provider.startForChat(second);
@@ -271,8 +375,8 @@ describe('WorkspaceMcpClients', () => {
       config('web', 'current'),
     ]);
 
-    const oldKey = key('chat-1', '/old', 1);
-    const newKey = key('chat-1', '/new', 2);
+    const oldKey = key('chat-1', workspaceRoot('/old'), 1);
+    const newKey = key('chat-1', workspaceRoot('/new'), 2);
 
     await provider.startForChat(oldKey);
     await provider.startForChat(newKey);
@@ -294,8 +398,8 @@ describe('WorkspaceMcpClients', () => {
       config('web', 'same-root'),
     ]);
 
-    const oldKey = key('chat-1', '/same-root', 1);
-    const newKey = key('chat-1', '/same-root', 2);
+    const oldKey = key('chat-1', workspaceRoot('/same-root'), 1);
+    const newKey = key('chat-1', workspaceRoot('/same-root'), 2);
     await provider.startForChat(oldKey);
     await provider.startForChat(newKey);
     expect(clients[0]?.close).toHaveBeenCalledOnce();
@@ -309,10 +413,15 @@ describe('WorkspaceMcpClients', () => {
     const { runtime } = operatorRuntime();
 
     const provider = new WorkspaceMcpClients(runtime, {
-      readConfig: () => Promise.reject(new Error('read failed')),
+      connector: workspaceConnector(() => {
+        throw new Error('read failed');
+      }),
     });
 
-    const state = await provider.startForChat(key('chat-1', '/unreadable'));
+    const state = await provider.startForChat(
+      key('chat-1', workspaceRoot('/unreadable')),
+    );
+
     expect(state.servers).toEqual([
       {
         id: 'workspace',
@@ -328,17 +437,19 @@ describe('WorkspaceMcpClients', () => {
     const { runtime } = operatorRuntime();
 
     const provider = new WorkspaceMcpClients(runtime, {
-      readConfig: () =>
-        Promise.resolve([
-          {
-            id: 'bad',
-            state: 'unavailable' as const,
-            reason: 'invalid server entry',
-          },
-        ]),
+      connector: workspaceConnector(() => [
+        {
+          id: 'bad',
+          state: 'unavailable' as const,
+          reason: 'invalid server entry',
+        },
+      ]),
     });
 
-    const state = await provider.startForChat(key('chat-1', '/bad-entry'));
+    const state = await provider.startForChat(
+      key('chat-1', workspaceRoot('/bad-entry')),
+    );
+
     expect(state.servers).toEqual([
       { id: 'bad', state: 'unavailable', reason: 'invalid server entry' },
     ]);
@@ -348,14 +459,12 @@ describe('WorkspaceMcpClients', () => {
   it('reuses a matching key without rereading or restarting its clients', async () => {
     const { runtime } = operatorRuntime();
 
-    const readConfig = vi.fn(() =>
-      Promise.resolve([config('web', 'same-key')]),
-    );
+    const readConfig = vi.fn(() => [config('web', 'same-key')]);
 
     const clients: Array<FakeClient> = [];
 
     const provider = new WorkspaceMcpClients(runtime, {
-      readConfig,
+      connector: workspaceConnector(readConfig),
       clientFactory: (input) => {
         const created = client(input.serverId, 'same-key');
         clients.push(created);
@@ -364,7 +473,7 @@ describe('WorkspaceMcpClients', () => {
       },
     });
 
-    const current = key('chat-1', '/same', 1);
+    const current = key('chat-1', workspaceRoot('/same'), 1);
     await provider.startForChat(current);
     await provider.startForChat(current);
     expect(readConfig).toHaveBeenCalledOnce();
@@ -380,7 +489,7 @@ describe('WorkspaceMcpClients', () => {
     let factoryCalls = 0;
 
     const provider = new WorkspaceMcpClients(runtime, {
-      readConfig: () => Promise.resolve([config('web', 'pending')]),
+      connector: workspaceConnector(() => [config('web', 'pending')]),
       clientFactory: () => {
         factoryCalls += 1;
 
@@ -388,7 +497,7 @@ describe('WorkspaceMcpClients', () => {
       },
     });
 
-    const current = key('chat-1', '/pending', 1);
+    const current = key('chat-1', workspaceRoot('/pending'), 1);
     const first = provider.startForChat(current);
     await vi.waitFor(() => expect(factoryCalls).toBe(1));
     const second = provider.startForChat(current);
@@ -404,15 +513,20 @@ describe('WorkspaceMcpClients', () => {
     const { runtime } = operatorRuntime();
 
     const provider = new WorkspaceMcpClients(runtime, {
-      readConfig: () =>
-        Promise.resolve([config('bad', 'bad'), config('web', 'good')]),
+      connector: workspaceConnector(() => [
+        config('bad', 'bad'),
+        config('web', 'good'),
+      ]),
       clientFactory: (input) =>
         input.serverId === 'bad'
           ? Promise.reject(new Error('bad server'))
           : Promise.resolve(client(input.serverId, 'good')),
     });
 
-    const state = await provider.startForChat(key('chat-1', '/mixed'));
+    const state = await provider.startForChat(
+      key('chat-1', workspaceRoot('/mixed')),
+    );
+
     expect(state.servers).toEqual([
       { id: 'bad', state: 'unavailable', reason: 'source_disconnected' },
       { id: 'web', state: 'available' },
@@ -429,7 +543,7 @@ describe('WorkspaceMcpClients', () => {
       config('web', 'workspace'),
     ]);
 
-    const current = key('chat-1', '/workspace');
+    const current = key('chat-1', workspaceRoot('/workspace'));
     await provider.startForChat(current);
     const id = 'mcp__web__search';
 
@@ -467,7 +581,10 @@ describe('WorkspaceMcpClients', () => {
       config('WEB', 'workspace'),
     ]);
 
-    const state = await provider.startForChat(key('chat-1', '/workspace'));
+    const state = await provider.startForChat(
+      key('chat-1', workspaceRoot('/workspace')),
+    );
+
     expect(state.servers).toEqual([
       {
         id: 'WEB',
@@ -485,11 +602,11 @@ describe('WorkspaceMcpClients', () => {
     await runtime.start();
 
     const provider = new WorkspaceMcpClients(runtime, {
-      readConfig: () => Promise.resolve([config('web', 'workspace')]),
+      connector: workspaceConnector(() => [config('web', 'workspace')]),
       clientFactory: () => Promise.reject(new Error('offline')),
     });
 
-    const current = key('chat-1', '/workspace');
+    const current = key('chat-1', workspaceRoot('/workspace'));
     const state = await provider.startForChat(current);
     expect(state.servers).toEqual([
       { id: 'web', state: 'unavailable', reason: 'source_disconnected' },
@@ -508,7 +625,7 @@ describe('WorkspaceMcpClients', () => {
       config('web', 'workspace'),
     ]);
 
-    const current = key('chat-1', '/workspace');
+    const current = key('chat-1', workspaceRoot('/workspace'));
     await provider.startForChat(current);
 
     const declaration: ModelToolDeclaration = {
@@ -536,7 +653,7 @@ describe('WorkspaceMcpClients', () => {
       config('web', 'workspace'),
     ]);
 
-    const current = key('chat-1', '/workspace');
+    const current = key('chat-1', workspaceRoot('/workspace'));
     await provider.startForChat(current);
     const id = 'mcp__web__search';
 
@@ -574,7 +691,7 @@ describe('WorkspaceMcpClients', () => {
       config('web', 'workspace'),
     ]);
 
-    const current = key('chat-1', '/workspace');
+    const current = key('chat-1', workspaceRoot('/workspace'));
     await provider.startForChat(current);
     const id = 'mcp__web__search';
 
@@ -608,7 +725,7 @@ describe('WorkspaceMcpClients', () => {
     let factoryCalls = 0;
 
     const provider = new WorkspaceMcpClients(runtime, {
-      readConfig: () => Promise.resolve([config('web', 'workspace')]),
+      connector: workspaceConnector(() => [config('web', 'workspace')]),
       clientFactory: () => {
         factoryCalls += 1;
 
@@ -616,7 +733,7 @@ describe('WorkspaceMcpClients', () => {
       },
     });
 
-    const current = key('chat-1', '/workspace');
+    const current = key('chat-1', workspaceRoot('/workspace'));
     const starting = provider.startForChat(current);
     await vi.waitFor(() => expect(factoryCalls).toBe(1));
     const stopping = provider.stopForChat(current.chatId);
@@ -639,8 +756,8 @@ describe('WorkspaceMcpClients', () => {
       () => now,
     );
 
-    const oldKey = key('chat-1', '/old', 1);
-    const newKey = key('chat-1', '/new', 2);
+    const oldKey = key('chat-1', workspaceRoot('/old'), 1);
+    const newKey = key('chat-1', workspaceRoot('/new'), 2);
     await provider.startForChat(oldKey);
     provider.beginAttempt(oldKey);
     await provider.startForChat(newKey);
@@ -670,7 +787,7 @@ describe('WorkspaceMcpClients', () => {
       () => now,
     );
 
-    const current = key('chat-1', '/workspace');
+    const current = key('chat-1', workspaceRoot('/workspace'));
     await provider.startForChat(current);
     provider.beginAttempt(current);
     now += 30 * 60 * 1e3;
@@ -698,7 +815,7 @@ describe('WorkspaceMcpClients in a read-only attempt', () => {
       config('web', root),
     ]);
 
-    const workspace = key('chat-1', '/workspace/read-only');
+    const workspace = key('chat-1', workspaceRoot('/workspace/read-only'));
 
     const servers = await provider.listUnstarted(workspace);
 
@@ -719,17 +836,18 @@ describe('WorkspaceMcpClients in a read-only attempt', () => {
     const { runtime } = operatorRuntime();
 
     const provider = new WorkspaceMcpClients(runtime, {
-      readConfig: () =>
-        Promise.resolve([
-          {
-            id: '.mcp.json',
-            state: 'unavailable' as const,
-            reason: 'configuration file .mcp.json is malformed',
-          },
-        ]),
+      connector: workspaceConnector(() => [
+        {
+          id: '.mcp.json',
+          state: 'unavailable' as const,
+          reason: 'configuration file .mcp.json is malformed',
+        },
+      ]),
     });
 
-    const servers = await provider.listUnstarted(key('chat-1', '/malformed'));
+    const servers = await provider.listUnstarted(
+      key('chat-1', workspaceRoot('/malformed')),
+    );
 
     expect(servers).toEqual([
       {
@@ -749,7 +867,7 @@ describe('WorkspaceMcpClients in a read-only attempt', () => {
       config('web', 'same-key'),
     ]);
 
-    const current = key('chat-1', '/workspace/same');
+    const current = key('chat-1', workspaceRoot('/workspace/same'));
 
     await provider.startForChat(current);
     await provider.stopStale(current);
@@ -769,7 +887,7 @@ describe('WorkspaceMcpClients in a read-only attempt', () => {
     const created: Array<FakeClient> = [];
 
     const provider = new WorkspaceMcpClients(runtime, {
-      readConfig: () => Promise.resolve([config('web', 'in-flight')]),
+      connector: workspaceConnector(() => [config('web', 'in-flight')]),
       clientFactory: (input) => {
         const started = client(input.serverId, 'in-flight');
         created.push(started);
@@ -778,8 +896,8 @@ describe('WorkspaceMcpClients in a read-only attempt', () => {
       },
     });
 
-    const inFlight = key('chat-1', '/workspace/in-flight', 2);
-    const next = key('chat-1', '/workspace/next', 3);
+    const inFlight = key('chat-1', workspaceRoot('/workspace/in-flight'), 2);
+    const next = key('chat-1', workspaceRoot('/workspace/next'), 3);
 
     // A settled stop leaves a recorded epoch for the generation the in-flight
     // start will carry, so only the bump below can invalidate it.
@@ -806,8 +924,8 @@ describe('WorkspaceMcpClients in a read-only attempt', () => {
       config('web', 'stale'),
     ]);
 
-    const stale = key('chat-1', '/workspace/a', 1);
-    const current = key('chat-1', '/workspace/b', 2);
+    const stale = key('chat-1', workspaceRoot('/workspace/a'), 1);
+    const current = key('chat-1', workspaceRoot('/workspace/b'), 2);
 
     await provider.startForChat(stale);
     await provider.stopStale(current);
@@ -826,6 +944,7 @@ describe('WorkspaceMcpClients in a read-only attempt', () => {
  * the hub relays is answered here, exactly as the daemon would relay a real
  * server on the box.
  */
+
 const MACHINE_HOSTS = {
   ssh: { knownHostsFile: '/etc/llame/machine_known_hosts' },
   hosts: { devl: { destination: 'box' } },
@@ -868,7 +987,17 @@ const FAKE_TOOLS: ReadonlyArray<JsonValue> = [
   },
 ];
 
-function fakeMachine(servers: ReadonlyArray<McpServerEntry>): FakeMachine {
+type FakeMachineOptions = {
+  /** Answer as this process's `machines.local`, with no SSH destination. */
+  readonly local?: boolean;
+  /** The instance-id verdict for the handshake. */
+  readonly bindIdentity?: () => Promise<'match' | 'mismatch'>;
+};
+
+function fakeMachine(
+  servers: ReadonlyArray<McpServerEntry>,
+  options: FakeMachineOptions = {},
+): FakeMachine {
   const toolCalls: Array<string> = [];
   const protocolVersions: Array<string> = [];
   const state = { down: false, holdCalls: false };
@@ -906,13 +1035,18 @@ function fakeMachine(servers: ReadonlyArray<McpServerEntry>): FakeMachine {
     },
   });
 
+  const name = LOCAL_WORKSPACE_MACHINE;
+
   const connector = new MachineConnector({
-    machines: MACHINE_HOSTS,
+    machines:
+      options.local === true
+        ? { local: name, hosts: { [name]: {} } }
+        : MACHINE_HOSTS,
     hubVersion: '9.9.9',
-    bindIdentity: () => Promise.resolve('match'),
+    bindIdentity: options.bindIdentity ?? (() => Promise.resolve('match')),
     transportFactory: {
-      open: (options) => {
-        const transport = peer.factory.open(options);
+      open: (transportOptions) => {
+        const transport = peer.factory.open(transportOptions);
         latest = peer.sessions.at(-1);
 
         return transport;
@@ -1067,11 +1201,9 @@ describe('WorkspaceMcpClients over a Machine', () => {
     ]);
 
     const { runtime } = operatorRuntime();
-    const readConfig = vi.fn(() => Promise.reject(new Error('unreachable')));
 
     const provider = new WorkspaceMcpClients(runtime, {
       connector: machine.connector,
-      readConfig,
     });
 
     const workspace = key('chat-1', MACHINE_ROOT);
@@ -1079,7 +1211,7 @@ describe('WorkspaceMcpClients over a Machine', () => {
     const state = await startMachineWorkspace(provider, machine, workspace);
 
     // The Machine read and resolved the Workspace's configuration, here.
-    expect(readConfig).not.toHaveBeenCalled();
+    expect(configurationRequests(machine.peer)).toBe(1);
     expect(state.servers).toEqual([
       { id: 'storybook', state: 'available' },
       {
@@ -1213,10 +1345,10 @@ describe('WorkspaceMcpClients over a Machine', () => {
     const readConfig = vi.fn((root: string) => [config('web', root)]);
 
     const provider = new WorkspaceMcpClients(runtime, {
-      readConfig: (root) => Promise.resolve(readConfig(root)),
+      connector: workspaceConnector(readConfig),
     });
 
-    const workspace = key('chat-1', '/workspace/listed');
+    const workspace = key('chat-1', workspaceRoot('/workspace/listed'));
     const cell: WorkspaceMcpListingCell = {};
 
     const first = await provider.listUnstartedOnce(cell, workspace);
@@ -1233,9 +1365,10 @@ describe('WorkspaceMcpClients over a Machine', () => {
     expect(readConfig).toHaveBeenCalledOnce();
 
     // Another binding is a different listing: it reads configuration again.
+
     const next = await provider.listUnstartedOnce(
       cell,
-      key('chat-1', '/workspace/next', 2),
+      key('chat-1', workspaceRoot('/workspace/next'), 2),
     );
 
     expect(next).not.toBe(first);
@@ -1288,65 +1421,62 @@ describe('WorkspaceMcpClients over a Machine', () => {
 });
 
 describe('WorkspaceMcpClients on this process’s Machine', () => {
-  it('starts a local Machine Workspace’s stdio server in process', async () => {
-    const directory = await mkdtemp(join(tmpdir(), 'local-workspace-mcp-'));
-    await writeFile(
-      join(directory, '.mcp.json'),
-      JSON.stringify({
-        mcpServers: {
-          storybook: { command: 'node', args: ['server.mjs'] },
-        },
-      }),
+  it('opens a local Machine Workspace’s server on that Machine', async () => {
+    const machine = fakeMachine(
+      [{ name: 'storybook', transport: 'stdio', state: 'available' }],
+      { local: true },
     );
 
-    const connector = localMachineConnector();
     const { runtime } = operatorRuntime();
-    const started: Array<unknown> = [];
 
     const provider = new WorkspaceMcpClients(runtime, {
-      connector,
-      clientFactory: (input) => {
-        started.push(input);
-
-        return Promise.resolve(client(input.serverId, 'local'));
-      },
+      connector: machine.connector,
     });
 
-    const workspace = key('chat-1', `machine://host-a${directory}`);
+    const workspace = key(
+      'chat-1',
+      `machine://${LOCAL_WORKSPACE_MACHINE}/srv/work`,
+    );
 
     try {
-      const state = await provider.startForChat(workspace);
+      const state = await startMachineWorkspace(provider, machine, workspace);
 
-      expect(started).toMatchObject([
-        { serverId: 'storybook', transport: 'stdio', command: 'node' },
-      ]);
       expect(state.servers).toEqual([{ id: 'storybook', state: 'available' }]);
-      // The local daemon answered the handshake and was asked to open nothing.
-      const session = await connector.peer.session(0);
+      // The host Machine is served by its daemon: the same two requests a
+      // remote Machine sees, and no in-process declaration read.
+      const session = await machine.peer.session(0);
 
-      expect(session.requests).toEqual([]);
+      expect([...session.requests]).toEqual(['mcp.servers', 'mcp.open']);
+      expect(
+        provider
+          .snapshotCandidates(workspace)
+          .some((candidate) => candidate.source.type === 'mcp'),
+      ).toBe(true);
     } finally {
       await provider.onModuleDestroy();
       await runtime.stop();
-      await rm(directory, { recursive: true, force: true });
     }
   });
 
   it('reports the servers unavailable when the local daemon cannot prove its identity', async () => {
-    const connector = localMachineConnector({
-      verify: () => Promise.reject(new Error('identity mismatch')),
-    });
+    const machine = fakeMachine(
+      [{ name: 'web', transport: 'http', state: 'available' }],
+      { local: true, bindIdentity: () => Promise.resolve('mismatch') },
+    );
 
     const { runtime } = operatorRuntime();
     const factory = vi.fn(() => Promise.resolve(client('web', 'local')));
 
     const provider = new WorkspaceMcpClients(runtime, {
-      connector,
-      readConfig: () => Promise.resolve([config('web', 'local')]),
+      connector: machine.connector,
       clientFactory: factory,
     });
 
-    const workspace = key('chat-1', 'machine://host-a/work/repo');
+    const workspace = key(
+      'chat-1',
+      `machine://${LOCAL_WORKSPACE_MACHINE}/work/repo`,
+    );
+
     const state = await provider.startForChat(workspace);
 
     expect(state.servers).toEqual([
@@ -1357,6 +1487,8 @@ describe('WorkspaceMcpClients on this process’s Machine', () => {
       },
     ]);
     expect(factory).not.toHaveBeenCalled();
+    // The refusal happens at the handshake: no configuration request is sent.
+    expect(configurationRequests(machine.peer)).toBe(0);
 
     await provider.onModuleDestroy();
     await runtime.stop();

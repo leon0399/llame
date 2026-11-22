@@ -23,15 +23,8 @@ import type { PromptImportTrigger } from '../runs/in-run-context-items';
 
 /** Which worlds the Run may load instruction files in. */
 export type PromptImportTriggerGates = {
-  readonly host: boolean;
   readonly knowledge: boolean;
   readonly machine: boolean;
-  /**
-   * `machines.local`: a Machine entry naming it triggers through the host
-   * gate and loads in process, so a Machine this process hosts needs no
-   * Machine capability to contribute instructions.
-   */
-  readonly localMachine?: string;
 };
 
 /**
@@ -54,13 +47,7 @@ function triggerOf(
 
     if (parsed.kind !== 'path') return undefined;
 
-    // A Machine this process hosts is served in process, so its trigger needs
-    // the host gate; every other Machine keeps the Machine gate.
-    const local =
-      gates.localMachine !== undefined &&
-      parsed.name === gates.localMachine.toLowerCase();
-
-    if (!(local ? gates.host : gates.machine)) return undefined;
+    if (!gates.machine) return undefined;
 
     return {
       key: posix.resolve(parsed.path),
@@ -71,7 +58,10 @@ function triggerOf(
   const scheme = parsePathScheme(resolved);
 
   if (scheme === undefined) {
-    return gates.host && resolved.startsWith('/')
+    // A bare path is stored only by an item that predates Machine locators;
+    // the accepted turn projects it on the current Machine, exactly as a bare
+    // tool path is projected.
+    return resolved.startsWith('/')
       ? { key: posix.resolve(resolved) }
       : undefined;
   }
@@ -82,11 +72,11 @@ function triggerOf(
 }
 
 /**
- * The triggers of a persisted item's entries in entry order. A host trigger
- * needs the host gate, a Knowledge trigger the Knowledge gate, and a Machine
- * trigger the Machine gate unless it names this process's own Machine, which
- * the host gate covers; no Workspace binding is involved, because every
- * `resolved` path is absolute or canonical and is never projected again.
+ * The triggers of a persisted item's entries in entry order. A Knowledge
+ * trigger needs the Knowledge gate and a Machine trigger the Machine gate; a
+ * bare stored path is left for the accepted turn's locator rule to place, so
+ * no Workspace binding is involved — every `resolved` path is absolute or
+ * canonical and is never projected again.
  */
 export function derivePromptImportTriggers(
   entries: ReadonlyArray<PromptImportsPayloadEntry>,

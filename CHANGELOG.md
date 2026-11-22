@@ -2,6 +2,28 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-11-22
 
+- Run host Workspace MCP servers, host Workspace entry, host instruction files,
+  Workspace skills, and prompt imports through the host Machine's
+  `llame-machine` daemon, and leave host `bash` and its background jobs as the
+  only in-process host operations. A host Workspace's `.mcp.json` now
+  interpolates against the daemon child's base environment, so a declaration
+  that reads a variable only the worker defines becomes unavailable with the
+  unset-variable diagnostic. Move that variable to the daemon's environment,
+  for example a wrapper named by `LLAME_MACHINE_COMMAND`. The host daemon's
+  registered roots now bound Workspace entry, instruction walks, Workspace
+  skill sources, and prompt imports: an entry outside every root fails with
+  `path_not_registered`, an instruction file or skill source outside every root
+  contributes nothing, a prompt import outside every root stays prose, and an
+  unavailable or mismatched host daemon fails entry with `machine_unavailable`
+  or `machine_identity_mismatch` instead of canonicalizing in the worker.
+  Register the directories you work in with `llame-machine roots add <dir>`, or
+  `llame-machine roots add /` to restore the reach of an earlier process.
+  Operator skill directories still read in the worker. **Breaking**: a host
+  Workspace MCP declaration that needs a worker-only variable must move that
+  variable to the daemon's environment, and host roots must cover every
+  Workspace and instruction directory before the upgrade. References
+  [#1831](https://github.com/leon0399/llame/issues/1831).
+
 - Run host git and worktree calls through the host Machine's `llame-machine`
   daemon, and remove `ExecutorGit`'s in-process branch. llame's own git calls no
   longer start git in the API or a worker: checkout registration

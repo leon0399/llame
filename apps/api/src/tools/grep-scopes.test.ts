@@ -6,13 +6,13 @@ import { describe, expect, it } from 'vitest';
 
 import { MachineConnector } from '../machines/machine-connector.service';
 import { MachineIdentityMismatchError } from '../machines/machine-session';
+import { snapshotMachineSkillSources } from '../skills/machine-skill-sources';
 import {
   SkillCatalog,
   type SkillCatalogEntry,
   type SkillCatalogPort,
 } from '../skills/skill-catalog';
 import { createProtocolPeer } from '../testing/machine-protocol-peer';
-import { localMachineConnector } from '../testing/local-machine';
 import { type GrepReadAdmission } from './grep-admission';
 import { machineUnsupportedResult } from './grep-results';
 import { resolveScopes, refuseUnsearchableGrepScopes } from './grep-scopes';
@@ -456,22 +456,40 @@ describe('resolveScopes', () => {
     ).toMatchObject({ machines: [{ name: 'gpu', path: '/srv/a[b]' }] });
   });
 
-  it('refuses a package that lives on another host', async () => {
+  it('leaves a package that lives on another Machine to its daemon', async () => {
+    const peer = createProtocolPeer({
+      answers: { 'fs.stat': { value: { kind: 'directory', isLink: false } } },
+    });
+
+    const connector = new MachineConnector({
+      machines: {
+        default: 'dev',
+        hosts: { dev: { destination: 'dev-box' } },
+      },
+      hubVersion: 'test',
+      bindIdentity: () => Promise.resolve('match'),
+      transportFactory: peer.factory,
+      handshakeTimeoutMs: 1000,
+    });
+
     const outcome = await resolveScopes(
-      contextOf({
-        catalog: catalogOf([packageEntry('pdf', 'machine://dev/x/pdf')]),
-      }),
+      {
+        ...contextOf({
+          catalog: catalogOf([packageEntry('pdf', 'machine://dev/x/pdf')]),
+        }),
+        runId: 'run-a',
+        defaultMachine: 'dev',
+        machines: connector,
+      },
       ['skill://pdf'],
       admission,
     );
 
-    expect(outcome).toEqual({
-      result: {
-        status: 'error',
-        type: 'skill_unavailable',
-        message: 'The skill package is unavailable.',
-      },
+    expect(outcome).toMatchObject({
+      machines: [{ index: 0, name: 'dev', path: '/x/pdf' }],
     });
+    // The package's exact path went to its own daemon.
+    expect((await peer.session(0)).requests).toEqual(['fs.stat']);
   });
 
   it.each([
@@ -531,63 +549,85 @@ describe('resolveScopes', () => {
     });
   });
 
+  it('keeps package order when an expansion mixes host and Machine packages', async () => {
+    await withPackage(async (_root, directory) => {
+      const catalog = catalogOf([
+        packageEntry('zeta', directory),
+        packageEntry('alpha', 'machine://host-a/srv/alpha'),
+      ]);
+
+      const outcome = await resolveScopes(
+        { ...hostContext(), skillCatalog: catalog },
+        ['skill://'],
+        admission,
+      );
+
+      // `alpha` is a Machine package, `zeta` a host one, and the walk keeps
+      // the byte order of their names across the two backends.
+      expect(outcome).toMatchObject({
+        machines: [{ index: 0, name: 'host-a', path: '/srv/alpha' }],
+        scopes: [{ index: 1, locatorPrefix: 'skill://zeta/' }],
+      });
+    });
+  });
+
   it('searches no Workspace skill when the local daemon answers another identity', async () => {
-    const workspace = await realpath(
-      await mkdtemp(path.join(tmpdir(), 'grep-workspace-')),
+    const root = 'machine://host-a/home/me/shop';
+    const packageDirectory = '/home/me/shop/.agents/skills/ws-only';
+
+    const catalog = catalogOf([
+      packageEntry('ws-only', `machine://host-a${packageDirectory}`),
+    ]);
+
+    const peer = createProtocolPeer({
+      answers: { 'fs.stat': { value: { kind: 'directory', isLink: false } } },
+    });
+
+    const connector = new MachineConnector({
+      machines: { local: 'host-a', default: 'host-a', hosts: { 'host-a': {} } },
+      hubVersion: 'test',
+      bindIdentity: () => Promise.resolve('match'),
+      transportFactory: peer.factory,
+      handshakeTimeoutMs: 1000,
+    });
+
+    const verified = await resolveScopes(
+      { ...hostContext({ root }), skillCatalog: catalog, machines: connector },
+      ['skill://ws-only/SKILL.md'],
+      admission,
     );
 
-    try {
-      const packageDirectory = path.join(
-        workspace,
-        '.agents',
-        'skills',
-        'ws-only',
-      );
+    // The package's own Machine walks it; this process walks nothing.
+    expect(verified).toMatchObject({
+      machines: [
+        { index: 0, name: 'host-a', path: `${packageDirectory}/SKILL.md` },
+      ],
+    });
+    expect((await peer.session(0)).requests).toEqual(['fs.stat']);
 
-      await mkdir(packageDirectory, { recursive: true });
-      await writeFile(
-        path.join(packageDirectory, 'SKILL.md'),
-        '---\nname: ws-only\ndescription: Workspace only\n---\nneedle\n',
-      );
+    // A daemon answering another identity contributes no Workspace skill to
+    // the attempt's catalog, so the package is not found.
+    const refused = await snapshotMachineSkillSources({
+      root,
+      request: () => Promise.reject(new MachineIdentityMismatchError('host-a')),
+    });
 
-      const root = `machine://host-a${workspace}`;
-      const catalog = new SkillCatalog([]);
-
-      const verified = scopesOf(
-        await resolveScopes(
-          { ...hostContext({ root }), skillCatalog: catalog },
-          ['skill://ws-only/SKILL.md'],
-          admission,
-        ),
-      );
-
-      expect(verified.scopes[0]?.locatorPrefix).toBe(
-        'skill://ws-only/SKILL.md',
-      );
-
-      // The same read without the identity-checked handshake contributes no
-      // Workspace skill, so the package is not found.
-      const mismatched = {
-        ...hostContext({ root }),
-        skillCatalog: catalog,
-        machines: localMachineConnector({
-          verify: () =>
-            Promise.reject(new MachineIdentityMismatchError('host-a')),
-        }),
-      };
-
-      await expect(
-        resolveScopes(mismatched, ['skill://ws-only/SKILL.md'], admission),
-      ).resolves.toEqual({
-        result: {
-          status: 'error',
-          type: 'not_found',
-          message: 'File not found.',
+    await expect(
+      resolveScopes(
+        {
+          ...hostContext({ root }),
+          skillCatalog: new SkillCatalog([], refused?.fileSystem),
         },
-      });
-    } finally {
-      await rm(workspace, { recursive: true, force: true });
-    }
+        ['skill://ws-only/SKILL.md'],
+        admission,
+      ),
+    ).resolves.toEqual({
+      result: {
+        status: 'error',
+        type: 'not_found',
+        message: 'File not found.',
+      },
+    });
   });
 
   it('expands a bare skill scope to nothing without a catalog', async () => {

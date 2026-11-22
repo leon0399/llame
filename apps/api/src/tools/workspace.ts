@@ -1,4 +1,3 @@
-import { realpath, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { z } from 'zod';
 
@@ -14,7 +13,6 @@ import { readFsStatResult } from '../machines/machine-results';
 import { isSshLocator } from '../ssh/ssh-locator';
 import { type MachineConnector } from '../machines/machine-connector.service';
 import { MachineIdentityMismatchError } from '../machines/machine-session';
-import { verifyLocalMachine } from './local-machine';
 import {
   MACHINE_FILE_BUDGET_MS,
   machineBudgetMs,
@@ -92,41 +90,12 @@ function literalTargetPath(target: MachineTarget): string {
 }
 
 /**
- * The canonical locator of an existing directory on this process's own
- * Machine. The directory is resolved in process — the family runs here — but
- * only after the identity-checked handshake with the daemon behind the
- * Machine, so a worker whose `machines.local` names someone else's computer
- * never serves that Machine's filesystem unverified.
- */
-async function localDirectory(
-  context: ToolContext,
-  target: MachineTarget,
-): Promise<CanonicalDirectory | ToolResult> {
-  const refusal = await verifyLocalMachine(context);
-
-  if (refusal !== undefined) return refusal;
-
-  try {
-    const canonicalPath = await realpath(literalTargetPath(target));
-    const entry = await stat(canonicalPath);
-
-    if (!entry.isDirectory()) return notDirectory();
-
-    const locator = formatMachineLocator(target.name, canonicalPath);
-
-    return locator === undefined
-      ? machineUnusableResult(target.name)
-      : { locator };
-  } catch {
-    return notFound();
-  }
-}
-
-/**
  * The canonical locator of an existing Machine directory: the daemon's own
  * `realPath` inside the registered roots, rendered by the hub. A refusal —
  * including a path no registered root contains — is the Machine's answer, and
- * an answer this hub cannot use never becomes a binding.
+ * an answer this hub cannot use never becomes a binding. The host Machine is
+ * an ordinary Machine here: its entry is read through its daemon too, so the
+ * registered roots bound what a Chat can bind.
  */
 async function machineDirectory(
   context: ToolContext,
@@ -230,19 +199,20 @@ type CanonicalEntry =
  * fail, and the canonical locator is admitted by its own derived decision.
  *
  * The reachability verdict is a boolean, so the refusal itself is read back: a
- * mismatched identity is its own result, never a plain unavailability. The
- * local Machine is reached in process after its own identity check inside
- * `localDirectory`, so it never spends a daemon request here.
+ * mismatched identity is its own result, never a plain unavailability. Every
+ * Machine, the host included, is reached through its daemon from here.
  */
 async function canonicalEntryDirectory(
   context: ToolContext,
   connector: MachineConnector,
   target: MachineTarget,
 ): Promise<CanonicalEntry> {
-  if (
-    !target.local &&
-    !(await connector.reachable(target.name, machineCallAttemptKey(context)))
-  ) {
+  const reachable = await connector.reachable(
+    target.name,
+    machineCallAttemptKey(context),
+  );
+
+  if (!reachable) {
     const refusal = connector.lastRefusal(target.name);
 
     return {
@@ -253,9 +223,7 @@ async function canonicalEntryDirectory(
     };
   }
 
-  const canonicalResult = target.local
-    ? await localDirectory(context, target)
-    : await machineDirectory(context, connector, target);
+  const canonicalResult = await machineDirectory(context, connector, target);
 
   context.abortSignal?.throwIfAborted();
 

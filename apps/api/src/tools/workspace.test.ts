@@ -31,8 +31,13 @@ import {
 import {
   DEFAULT_LOCAL_MACHINE_NAME,
   localMachineConnector,
-  type LocalMachineConnector,
 } from '../testing/local-machine';
+import {
+  machineFilesConnector,
+  type MachineFilesConnector,
+  type MachineFilesPeerOptions,
+} from '../testing/machine-files-peer';
+import { snapshotMachineSkillSources } from '../skills/machine-skill-sources';
 import { SkillCatalog } from '../skills/skill-catalog';
 import { McpRuntimeService } from '../mcp/mcp-runtime.service';
 import {
@@ -73,11 +78,34 @@ afterEach(() => {
   for (const connector of connectors.splice(0)) connector.onModuleDestroy();
 });
 
-function localConnector(): LocalMachineConnector {
-  const connector = localMachineConnector();
+function localConnector(
+  options: MachineFilesPeerOptions = {},
+): MachineFilesConnector {
+  const connector = machineFilesConnector({ roots: ['/'], ...options });
   connectors.push(connector);
 
   return connector;
+}
+
+/**
+ * A catalog whose Workspace sources were snapshotted from the host Machine's
+ * daemon, exactly as Run preparation installs one: operator directories stay
+ * host paths, and every `machine://` source reads the in-memory snapshot.
+ */
+async function machineCatalog(
+  connector: MachineFilesConnector,
+  rootPath: string,
+  operatorDirectories: ReadonlyArray<string> = [],
+): Promise<SkillCatalog> {
+  const sources = await snapshotMachineSkillSources({
+    root: onLocal(rootPath),
+    request: (method, params, options) =>
+      connector.request(LOCAL, method, params, options),
+  });
+
+  if (sources === undefined) throw new Error('the root names no Machine path');
+
+  return new SkillCatalog(operatorDirectories, sources.fileSystem);
 }
 
 function permissivePolicy() {
@@ -196,7 +224,6 @@ function fakeWorkspaceMcp(state: WorkspaceMcpEntryState) {
 
   const clients = new WorkspaceMcpClients(operator, {
     connector: localConnector(),
-    readConfig: () => Promise.resolve([]),
   });
 
   const startForChat = vi
@@ -268,9 +295,13 @@ describe('Workspace host tools', () => {
       generation: 1,
     });
 
+    const connector = localConnector();
+    const catalog = await machineCatalog(connector, root, [operatorSource]);
+
     const result = await enterWorkspaceTool.execute(
       context({
-        skillCatalog: new SkillCatalog([operatorSource]),
+        skillCatalog: catalog,
+        machines: connector,
       }),
       { path: root },
     );
@@ -334,9 +365,9 @@ describe('Workspace host tools', () => {
 
   it('returns only available proactive Workspace entries from the selected sources', async () => {
     const sources = [
-      join(root, '.claude', 'skills'),
-      join(root, '.agents', 'skills'),
-      join(root, '.llame', 'skills'),
+      onLocal(join(root, '.claude', 'skills')),
+      onLocal(join(root, '.agents', 'skills')),
+      onLocal(join(root, '.llame', 'skills')),
     ];
 
     vi.spyOn(WorkspaceBindingRepository.prototype, 'enter').mockResolvedValue({
@@ -358,7 +389,7 @@ describe('Workspace host tools', () => {
       description: 'Workspace description',
       proactive: true,
       sourceDirectory: sources[2],
-      skillDirectory: join(sources[2], name),
+      skillDirectory: onLocal(join(root, '.llame', 'skills', name)),
       available: true,
       diagnostics: [],
       ...overrides,
@@ -393,17 +424,21 @@ describe('Workspace host tools', () => {
   });
 
   it('bounds the Workspace skill list', async () => {
-    const source = join(root, '.llame', 'skills');
+    const source = onLocal(join(root, '.llame', 'skills'));
 
-    for (let index = 0; index < 257; index += 1) {
+    const entries = Array.from({ length: 257 }, (_unused, index) => {
       const name = `workspace-${String(index).padStart(3, '0')}`;
-      const packageDirectory = join(source, name);
-      await mkdir(packageDirectory, { recursive: true });
-      await writeFile(
-        join(packageDirectory, 'SKILL.md'),
-        `---\nname: ${name}\ndescription: Workspace skill ${index}\n---\n`,
-      );
-    }
+
+      return {
+        name,
+        description: `Workspace skill ${index}`,
+        proactive: true,
+        sourceDirectory: source,
+        skillDirectory: onLocal(join(root, '.llame', 'skills', name)),
+        available: true,
+        diagnostics: [],
+      };
+    });
 
     vi.spyOn(WorkspaceBindingRepository.prototype, 'enter').mockResolvedValue({
       status: 'bound',
@@ -412,7 +447,16 @@ describe('Workspace host tools', () => {
     });
 
     const result = await enterWorkspaceTool.execute(
-      context({ skillCatalog: new SkillCatalog([]) }),
+      context({
+        skillCatalog: {
+          getSnapshot: () => ({
+            available: true,
+            directories: [source],
+            entries,
+            diagnostics: [],
+          }),
+        },
+      }),
       { path: root },
     );
 
@@ -548,7 +592,7 @@ describe('Workspace host tools', () => {
     controller.abort();
     probe.resolve(root);
 
-    await expect(resultPromise).rejects.toThrow(/aborted/u);
+    await expect(resultPromise).rejects.toThrow(/was cancelled/u);
     expect(enter).not.toHaveBeenCalled();
     cell.beginStep();
     expect(cell.current()).toBeUndefined();
@@ -1118,17 +1162,19 @@ describe('Workspace host tools', () => {
       });
     const operator = new McpRuntimeService({});
 
+    // The daemon resolves the declaration from the bound root's own config,
+    // exactly as every Machine does (host-as-machine MCP).
+    await writeFile(
+      join(root, '.mcp.json'),
+      JSON.stringify({
+        mcpServers: {
+          web: { type: 'http', url: 'https://workspace.example.test/mcp' },
+        },
+      }),
+    );
+
     const clients = new WorkspaceMcpClients(operator, {
       connector: localConnector(),
-      readConfig: () =>
-        Promise.resolve([
-          {
-            id: 'web',
-            state: 'configured' as const,
-            definition: { url: 'https://workspace.example.test/mcp' },
-            protectedValues: [],
-          },
-        ]),
     });
 
     // A start would report the server as available; a read-only entry never
@@ -1336,7 +1382,6 @@ describe('Workspace host tools', () => {
       });
 
     const connector = localConnector();
-    const verifyLocal = vi.spyOn(connector, 'verifyLocal');
 
     const result = await enterWorkspaceTool.execute(
       context({ machines: connector }),
@@ -1356,9 +1401,14 @@ describe('Workspace host tools', () => {
       }),
     );
 
-    // A local entry proves the daemon's identity first; the helper's peer
-    // throws on any request but the handshake, so a success proves the rest.
-    expect(verifyLocal).toHaveBeenCalledTimes(1);
+    // The host Machine is an ordinary Machine: the session's identity check
+    // passed and the directory was read through the daemon, so the handshake
+    // and one `fs.stat` are all it sent.
+    const session = await connector.peer.session(0);
+
+    expect(session.requests.filter((method) => method !== 'hello')).toEqual([
+      'fs.stat',
+    ]);
   });
 
   it('exits a Machine this process does not host, fencing on the delivery alone', async () => {

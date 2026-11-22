@@ -48,8 +48,9 @@ export type MachineWorkspaceTarget = Readonly<{
   path: string;
 }>;
 
-/** One Workspace server as the hub holds it: a local declaration it resolved
- *  itself, or a Machine server it knows only by name. */
+/** One Workspace server as the hub holds it: the name a Machine resolved, or
+ *  the diagnostic that kept it unavailable. The hub never holds a command, a
+ *  URL, or a header. */
 export type WorkspaceServerConfig =
   | WorkspaceMcpServerConfig
   | Readonly<{
@@ -71,16 +72,18 @@ export function unavailableConfig(
   return { id, state: 'unavailable', reason };
 }
 
-/** The one entry a client set holds when its configuration could not be read
- *  at all, local or Machine. */
+/** The one entry a client set holds when the binding's configuration could
+ *  not be read at all. */
 export function unavailableWorkspaceConfig(): WorkspaceMcpServerConfig {
   return unavailableConfig(UNAVAILABLE_ID, UNAVAILABLE_REASON);
 }
 
 /**
  * The Machine and absolute path a Workspace root names, when it names one.
- * `resolveWorkspacePath` produced the locator, so a Workspace root is either a
- * local absolute path or a `machine://<name>/<path>` with no selector.
+ * A bound Workspace root is a canonical `machine://<name>/<path>` locator with
+ * no selector (host-as-machine D5); anything else names no Machine, and the
+ * client set reports the Workspace's configuration as unavailable rather than
+ * reading this process's filesystem.
  */
 export function machineWorkspaceTarget(
   root: string,

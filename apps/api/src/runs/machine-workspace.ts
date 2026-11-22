@@ -10,8 +10,6 @@
  * that follow from it.
  */
 
-import { realpath, stat } from 'node:fs/promises';
-
 import { type FsStatResult } from '@workspace/machine-protocol';
 
 import { createWorkspaceMachineAvailabilityItem } from '../chats/machine-context-item-producers';
@@ -21,10 +19,7 @@ import { type Chat } from '../db/schema';
 import { createMachineInstructionProbe } from '../instructions/machine-instruction-scope';
 import { type ReadPage } from '../instructions/instruction-files';
 import { type MachineConnector } from '../machines/machine-connector.service';
-import {
-  MachineIdentityMismatchError,
-  MachineUnavailableError,
-} from '../machines/machine-session';
+import { MachineUnavailableError } from '../machines/machine-session';
 import {
   formatMachineLocator,
   parseMachineLocator,
@@ -79,10 +74,8 @@ export type MachinePreparationConnector = Pick<
   | 'isConfigured'
   | 'reachable'
   | 'request'
-  | 'localMachine'
   | 'defaultMachine'
   | 'canReach'
-  | 'verifyLocal'
 >;
 
 /** The attempt's Machine identity: where it goes, who it is, how long it may take. */
@@ -167,10 +160,7 @@ export async function decideMachineWorkspace(
   if (!connector.canReach(machineName))
     return { kind: 'detach', reason: 'executor_mismatch' };
 
-  const checked =
-    machineName === connector.localMachine()
-      ? await checkLocalMachine({ ...params, connector })
-      : await checkBoundMachine({ ...params, connector });
+  const checked = await checkBoundMachine({ ...params, connector });
 
   if (checked.kind !== 'bound') {
     params.skillCatalogs.delete(params.root);
@@ -193,53 +183,6 @@ export async function decideMachineWorkspace(
   };
 }
 
-/**
- * The binding check for a Workspace on this process's own Machine. The daemon
- * behind `machines.local` must answer and be bound to the identity this
- * installation stored, exactly as a remote daemon must; then the root is
- * re-checked in process, on the Machine's own filesystem.
- */
-async function checkLocalMachine(
-  params: BoundMachineRequest,
-): Promise<CheckedMachine> {
-  if (!(await localReachable(params.connector))) {
-    // The local daemon refused, or answered under another identity: this
-    // attempt tells the Machine as unavailable and keeps the binding. A
-    // mismatch is never-sent, so nothing of the Chat's changed.
-    return {
-      kind: 'unavailable',
-      machine: { name: params.machineName, available: false },
-    };
-  }
-
-  return checkLocalRoot(params);
-}
-
-/**
- * Whether this process's own daemon answered and is bound to the identity this
- * installation stored. A refusal is an unavailable Machine, never a defect: it
- * fails the attempt's host operations and leaves the binding alone. Any other
- * failure rethrows.
- */
-async function localReachable(
-  connector: MachinePreparationConnector,
-): Promise<boolean> {
-  try {
-    await connector.verifyLocal();
-
-    return true;
-  } catch (error) {
-    if (
-      error instanceof MachineUnavailableError ||
-      error instanceof MachineIdentityMismatchError
-    ) {
-      return false;
-    }
-
-    throw error;
-  }
-}
-
 /** The absolute path and canonical locator a stored root names on a Machine. */
 function boundRoot(
   root: string,
@@ -260,40 +203,6 @@ function boundRoot(
   const locator = formatMachineLocator(machineName, root);
 
   return locator === undefined ? undefined : { path: root, locator };
-}
-
-/**
- * The in-process counterpart of the Machine's root re-check: the stored root
- * must still be an existing directory whose canonical form is the stored
- * locator, and the operator gates apply exactly as they do for a remote one.
- */
-async function checkLocalRoot(
-  params: BoundMachineRequest,
-): Promise<CheckedMachine> {
-  const bound = boundRoot(params.root, params.machineName);
-
-  if (bound === undefined) return { kind: 'detach', reason: 'root_missing' };
-
-  let canonical: string | undefined;
-
-  try {
-    const entry = await stat(bound.path);
-
-    if (!entry.isDirectory()) return { kind: 'detach', reason: 'root_missing' };
-    canonical = formatMachineLocator(
-      params.machineName,
-      await realpath(bound.path),
-    );
-  } catch {
-    return { kind: 'detach', reason: 'root_missing' };
-  }
-
-  if (canonical !== bound.locator)
-    return { kind: 'detach', reason: 'root_moved' };
-
-  const reason = rootDetachReason(params, bound);
-
-  return reason === undefined ? { kind: 'bound' } : { kind: 'detach', reason };
 }
 
 /** One `enter_workspace` call over `path`, for a permission text. */
@@ -355,19 +264,12 @@ export async function decideUnboundMachine(params: {
     return undefined;
   }
 
-  if (name === connector.localMachine()) {
-    return { name, available: await localReachable(connector) };
-  }
+  if (!connector.canReach(name)) return undefined;
 
-  const available =
-    connector.canReach(name) &&
-    (await connector.reachable(
-      name,
-      machineAttemptKey(
-        params.identity.runId,
-        params.identity.deliverySequence,
-      ),
-    ));
+  const available = await connector.reachable(
+    name,
+    machineAttemptKey(params.identity.runId, params.identity.deliverySequence),
+  );
 
   return { name, available };
 }
@@ -418,10 +320,10 @@ type MachineRootVerdict =
   | { readonly verdict: 'detach'; readonly reason: WorkspaceDetachReason };
 
 /**
- * The Machine counterpart of the local Workspace detach check, run only once
- * the Machine answered: the registered root is re-probed through the Machine,
- * its canonical form must still be the bound locator, and the operator gates
- * apply exactly as they do locally.
+ * The root re-check of a bound Machine, run only once the Machine answered:
+ * the registered root is re-probed through the Machine, its canonical form
+ * must still be the bound locator, and the operator gates apply to every
+ * Machine, the host included.
  */
 async function checkMachineRoot(
   params: BoundMachineRequest,
@@ -513,11 +415,12 @@ async function probeMachineRoot(params: {
 
 /**
  * The Machine Workspace's skill sources, read from the Machine once per attempt
- * (spec: Machine Workspace skills come from the Machine). The local catalog
- * still does the discovery, the bounds, and the precedence; it is simply fed an
+ * (spec: Machine Workspace skills come from the Machine). The catalog still
+ * does the discovery, the bounds, and the precedence; it is simply fed an
  * in-memory filesystem built from a bounded Machine snapshot, so every later
  * `skill://` read of a Machine package reads the Machine and the hub's own
- * filesystem never sees a `machine://` path.
+ * filesystem never sees a `machine://` path. The host Machine takes this same
+ * path: its sources are read through its own daemon.
  */
 export async function prepareMachineSkills(
   catalogs: Map<string, SkillCatalogPort>,
@@ -534,13 +437,6 @@ export async function prepareMachineSkills(
   const parsed = machineWorkspaceRoot(params.root);
 
   if (parsed === undefined || parsed.name !== params.machineName) return;
-
-  // This process serves its own Machine in process (design D8): its binding
-  // check already completed the identity-checked handshake above, and every
-  // read of the host paths `workspaceSkillSources` derives for a local root
-  // re-checks that handshake itself, so a snapshot would be the wrong
-  // authority.
-  if (params.machineName === params.connector.localMachine()) return;
 
   const request: MachineSkillRequest = (method, requestParams, options) =>
     params.connector.request(

@@ -105,6 +105,8 @@ export function hasGlobOperator(text: string): boolean {
 type ParsedScopePath = {
   readonly prefixPath: string;
   readonly glob: CompiledGlob | undefined;
+  /** The glob text from its first segment onward, as submitted. */
+  readonly globSuffix: string | undefined;
   readonly endsWithSeparator: boolean;
 };
 
@@ -137,6 +139,7 @@ export function splitScopePath(
       split.globSuffix === undefined
         ? undefined
         : compileGlob(split.globSuffix),
+    globSuffix: split.globSuffix,
     endsWithSeparator: split.endsWithSeparator,
   };
 }

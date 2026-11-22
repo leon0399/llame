@@ -522,6 +522,57 @@ describe('Machine grep', () => {
       path: '/home/me/shop/src',
     });
   });
+
+  it('searches a Workspace skill on its Machine and reports skill locators', async () => {
+    const { peer, connector } = fixture({
+      answers: {
+        'fs.grep': {
+          value: page([passage('SKILL.md', 1, 1), passage('notes/a.md', 2, 3)]),
+        },
+      },
+    });
+
+    const result = await run(
+      context(connector, {
+        workspaceRoot: createWorkspaceRootCell('machine://devl/home/me/shop'),
+        skillCatalog: {
+          getSnapshot: () => ({
+            available: true,
+            directories: [],
+            entries: [
+              {
+                name: 'pdf',
+                description: null,
+                proactive: true,
+                sourceDirectory: 'machine://devl/home/me/shop/.agents/skills',
+                skillDirectory:
+                  'machine://devl/home/me/shop/.agents/skills/pdf',
+                available: true,
+                diagnostics: [],
+              },
+            ],
+            diagnostics: [],
+          }),
+        },
+        permissionPolicy: compileToolPermissionMap(
+          readingRejects('skill://pdf/notes/a.md'),
+          'test',
+        ),
+      }),
+      { patterns: ['needle'], scopes: ['skill://pdf/**/*.md'] },
+    );
+
+    // The Machine walks the package, and the result and the `read` group see
+    // the skill locator, not the Machine path the catalog keeps.
+    expect(locatorsOf(result)).toEqual(['skill://pdf/SKILL.md:1-1']);
+    expect(JSON.stringify(result)).not.toContain('a.md');
+    const session = await peer.session(0);
+    expect(session.calls).toHaveLength(1);
+    expect(session.calls[0].params).toMatchObject({
+      path: '/home/me/shop/.agents/skills/pdf',
+      globSuffix: '**/*.md',
+    });
+  });
 });
 
 /** The bounds one request carried, as the peer received it. */

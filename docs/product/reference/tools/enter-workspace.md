@@ -84,22 +84,26 @@ next model step carries a `git` item after the result, as described in
 ## Behavior
 
 Entry evaluates the submitted spelling against the `enter_workspace` group
-before probing the filesystem, then canonicalizes it with `realpath` and requires
-an existing directory. The canonical path is evaluated independently by the same
-group; both decisions need an allow and must avoid every reject. A reject or
-missing allow on either spelling vetoes entry, and the stored binding is always
-the canonical locator.
+before probing the filesystem, then requires an existing directory whose
+canonical form is answered by the target Machine's daemon. The canonical path
+is evaluated independently by the same group; both decisions need an allow and
+must avoid every reject. A reject or missing allow on either spelling vetoes
+entry, and the stored binding is always the canonical locator. No directory is
+resolved in the worker.
 
-An absolute path is evaluated the same way on the current Machine. A
-`machine://` locator is evaluated inside that Machine's address space.
-The submitted spelling is evaluated against the `enter_workspace` group first, a
-name the operator did not configure is refused without opening a connection, and
-an unreachable Machine fails before the directory is probed. The Machine then
-answers with the canonical locator of the named directory — its own `realpath`,
-inside its registered roots — and an existing directory is required. That
-canonical locator is evaluated independently by the same group, so both
-decisions need an allow and must avoid every reject, and the binding stores the
-canonical locator.
+An absolute path is placed on the current Machine, so that Machine's daemon
+answers exactly as it does for a `machine://` locator. A `machine://` locator
+is evaluated inside that Machine's address space. The submitted spelling is
+evaluated against the `enter_workspace` group first, a name the operator did not
+configure is refused without opening a connection, and an unreachable Machine
+fails before the directory is probed. The Machine then answers with the
+canonical locator of the named directory, its own `realpath` inside its
+registered roots, and an existing directory is required. That canonical locator
+is evaluated independently by the same group, so both decisions need an allow
+and must avoid every reject, and the binding stores the canonical locator. A
+host daemon that cannot start or answer fails the call as `machine_unavailable`,
+a wrong identity as `machine_identity_mismatch`, and a host path outside every
+registered root as `path_not_registered`.
 
 The binding belongs to the owner's Chat and is sticky across Runs. It records
 the Machine name as its executor id, so a worker that reaches the Machine can
@@ -119,8 +123,9 @@ when it binds or switches the root, and on a same-root re-entry only when the
 state changed. A failed git read never fails the entry.
 
 Entry loads the bound root's instruction chain when it establishes or switches
-the binding, never on a same-root re-entry; a Machine entry discovers that chain
-on the Machine, as described in [instruction files](../instruction-files.md).
+the binding, never on a same-root re-entry. The bound Machine's daemon discovers
+that chain inside its registered roots, as described in
+[instruction files](../instruction-files.md#machine-triggers).
 
 ## Bounds
 
@@ -160,7 +165,9 @@ stored; the refusals are the `enter_workspace` group's rejects, described in
 target adds that surface's failures: `machine_not_found` for a name the operator
 did not configure, `machine_unavailable` for a Machine that could not be reached,
 and the Machine's own refusal for a path no registered root contains; see
-[machine errors](../locators/machine.md#errors).
+[machine errors](../locators/machine.md#errors). An absolute path on the current
+Machine takes the same failures, because its own daemon answers the
+canonicalization.
 
 A worktree call adds `invalid_input` for a name or base ref git would refuse,
 `permission_denied` for a refused decision, and `worktree_failed` for a failed
@@ -175,8 +182,9 @@ answers `outcome_unknown`; the directory can remain on disk in both cases.
 
 [native files](../../operator/native-files.md) enables the
 `enter_workspace` entry and its permission group, and
-[Machines](../../operator/machines.md) declares the Machines it can bind. Workspace MCP servers,
-started on entry, are configured as described in
+[Machines](../../operator/machines.md) declares the Machines it can bind. The
+target directory must lie inside its Machine's registered roots. Workspace MCP
+servers, started on entry, are configured as described in
 [MCP tools](../../operator/mcp-tools.md#workspace-mcp).
 
 Entry and its permission group are all a Machine target needs, and without the

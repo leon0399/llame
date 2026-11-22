@@ -36,6 +36,8 @@ export function machineScopeLocator(
   scope: MachineGrepScope,
   rel: string,
 ): string | undefined {
+  if (scope.locatorOf !== undefined) return scope.locatorOf(rel);
+
   return formatMachineLocator(scope.name, machinePath(scope.path, rel));
 }
 

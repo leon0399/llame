@@ -32,6 +32,7 @@ import { createHash } from 'node:crypto';
 import { compileTestPermissionPolicy } from '../testing/tool-permission-policy';
 import type { MachineConnector } from '../machines/machine-connector.service';
 import { machineFilesConnector } from '../testing/machine-files-peer';
+import { startLocalDaemon } from '../testing/local-daemon';
 import { PORTABLE_TOOL_PERMISSIONS } from '../testing/portable-tool-policy';
 import { compileToolPermissionMap } from '../tools/permissions/compile-permissions';
 import type { CompiledPolicy } from '../tools/permissions/types';
@@ -7953,14 +7954,18 @@ describeIfDb('executeRun tool-loop persistence', () => {
       });
     }
 
-    /** Bind the Chat to `root` the way an entry commits it. */
-    async function bindChatWorkspace(chatId: string, root: string) {
+    /** Bind the Chat to `root` on `machine`, the way an entry commits it. */
+    async function bindChatWorkspace(
+      chatId: string,
+      root: string,
+      machine: string,
+    ) {
       await tenantDb.runAs(userId, (tx) =>
         tx
           .update(schema.chats)
           .set({
-            workspaceRoot: boundRoot('workspace-test-host', root),
-            workspaceExecutorId: 'workspace-test-host',
+            workspaceRoot: boundRoot(machine, root),
+            workspaceExecutorId: machine,
             workspaceGeneration: 1,
           })
           .where(eq(schema.chats.id, chatId)),
@@ -7996,6 +8001,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
       run: (input: {
         fixture: McpTestFixture;
         root: string;
+        machine: string;
         clients: WorkspaceMcpClients;
         service: RunExecutionService;
         seeded: Awaited<ReturnType<typeof seedBoundRun>>;
@@ -8003,13 +8009,17 @@ describeIfDb('executeRun tool-loop persistence', () => {
     ): Promise<void> {
       const fixture = await docsMcpFixture();
       const root = workspaceRootWithDocs(fixture);
+
+      // The host Machine answers this Workspace's servers from its daemon
+      // (host-as-machine MCP), so the declaration is resolved there.
+      const daemon = startLocalDaemon({ roots: [root] });
+      const machine = daemon.name;
+
       const operator = new McpRuntimeService({});
 
-      const connector = machineFilesConnector({
-        name: 'workspace-test-host',
+      const clients = new WorkspaceMcpClients(operator, {
+        connector: daemon.connector,
       });
-
-      const clients = new WorkspaceMcpClients(operator, { connector });
 
       const seeded = await seedBoundRun(
         `read-only-mcp-${crypto.randomUUID()}`,
@@ -8018,18 +8028,19 @@ describeIfDb('executeRun tool-loop persistence', () => {
 
       const service = serviceWithTools({
         allowed: ['read', 'enter_workspace', 'mcp__docs__search'],
-        localMachine: 'workspace-test-host',
-        machineConnector: connector,
+        localMachine: machine,
+        machineConnector: daemon.connector,
         permissionModes: ['default', 'read-only'],
         workspaceMcp: clients,
       });
 
-      await bindChatWorkspace(seeded.chatId, root);
+      await bindChatWorkspace(seeded.chatId, root, machine);
 
       try {
-        await run({ fixture, root, clients, service, seeded });
+        await run({ fixture, root, machine, clients, service, seeded });
       } finally {
         await clients.onModuleDestroy();
+        daemon.dispose();
         await operator.stop();
         await fixture.close();
         rmSync(root, { recursive: true, force: true });
@@ -8039,12 +8050,12 @@ describeIfDb('executeRun tool-loop persistence', () => {
 
     it('starts no Workspace MCP client for a read-only attempt', async () => {
       await withDocsWorkspace('read-only', async (env) => {
-        const { fixture, root, clients, service, seeded } = env;
+        const { fixture, root, machine, clients, service, seeded } = env;
 
         // A client another attempt started for an earlier generation.
         const stale = {
           chatId: seeded.chatId,
-          root: boundRoot('workspace-test-host', root),
+          root: boundRoot(machine, root),
           generation: 0,
         };
 
@@ -8070,7 +8081,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
         expect(
           clients.stateForKey({
             chatId: seeded.chatId,
-            root: boundRoot('workspace-test-host', root),
+            root: boundRoot(machine, root),
             generation: 1,
           }),
         ).toBeUndefined();
@@ -8107,7 +8118,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
 
     it('reports the Workspace MCP tools as removed on a read-only turn', async () => {
       await withDocsWorkspace('default', async (env) => {
-        const { fixture, root, clients, service, seeded } = env;
+        const { fixture, root, machine, clients, service, seeded } = env;
         const defaultCalls: Array<ModelStreamInput> = [];
 
         const first = await executeSeeded(
@@ -8125,7 +8136,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
 
         const cached = {
           chatId: seeded.chatId,
-          root: boundRoot('workspace-test-host', root),
+          root: boundRoot(machine, root),
           generation: 1,
         };
 

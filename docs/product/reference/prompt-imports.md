@@ -61,7 +61,7 @@ its selector attached. Every `read` locator is accepted:
 
 | Target                                                    | Resolves as                                                  |
 | --------------------------------------------------------- | ------------------------------------------------------------ |
-| absolute path, `file:` alias                              | the [host path](locators/host-path.md)                       |
+| absolute path, `file:` alias                              | the [current Machine's path](locators/host-path.md)          |
 | relative path                                             | against the Chat's entered Workspace root                    |
 | `kb://<space>/<path>`                                     | the [Knowledge Space](locators/kb.md) file                   |
 | `skill://<name>/<path>`                                   | a [skill package](locators/skill.md) file, as data           |
@@ -105,23 +105,26 @@ kind, accepts no selector: `read` refuses it with `invalid_selector`
 ([read errors](tools/read.md#errors)), so `@media://<id>:1-5`, `@shot.png:raw`,
 or `@paper.pdf:1-20` is reported as failed, not imported.
 
-A regular file literally named with a selector-shaped suffix wins over the
-selector, as for `read`.
+The probe names the selector-free path. A file whose name contains the selector
+text does not satisfy that probe, so when only that literal file exists the
+marker stays prose.
 
-A relative path in a Chat with no Workspace is prose. An absolute or `file:`
-target in an unbound Chat is imported only when the operator has enabled native
-host reads; a `kb://` target only when the operator has configured Knowledge
-(see [native files](../operator/native-files.md) and
-[Knowledge](../operator/knowledge.md)). A `kb://` Space that is not
-yours is not found, so its marker stays prose. A `media://` id that is unknown
-or names another owner's media is not found either, so its marker stays prose
-and nothing about that media is recorded.
+A relative path in a Chat with no Workspace is prose. A target that starts with
+`~/` stays literal. An absolute or `file:` target addresses the current
+Machine, so its daemon probes and reads it: a path outside every registered
+root stays prose, as a missing file does. Such a target imports only when the
+operator has configured Machines and allows `read` (see
+[Machines](../operator/machines.md)). A `kb://` target imports only when the
+operator has configured Knowledge (see [Knowledge](../operator/knowledge.md)).
+A `kb://` Space that is not yours is not found, so its marker stays prose. A
+`media://` id that is unknown or names another owner's media is not found
+either, so its marker stays prose and nothing about that media is recorded.
 
 ## Admission
 
 Imports use the same authority as a model `read`, not more:
 
-1. The `read` permission group is evaluated silently against each host,
+1. The `read` permission group is evaluated silently against each Machine,
    Knowledge, or `media://` target, before anything touches the filesystem or
    the media store. A denied target is audited and reported as not imported,
    without a probe, **whether or not the file exists**, so a denial never
@@ -201,12 +204,12 @@ A PDF target, including `@paper.pdf`, `@https://example.com/paper.pdf`, or
 private entry records its page count and byte size. An encrypted, unopenable,
 or oversized PDF that `read` refuses is reported only as not imported.
 
-For a PDF imported from a host file, Knowledge, a skill, or the web, a model
-declaring `pdf` input receives the original as a native file part immediately
-after the notice's text, if the shared media window admits it. The original
-stays with the entry in the stored message, and no media object is created, so
-every later request of the epoch replays it under the same window. Outside the
-window the model gets
+For a PDF imported from a file on a Machine, Knowledge, a skill, or the web, a
+model declaring `pdf` input receives the original as a native file part
+immediately after the notice's text, if the shared media window admits it. The
+original stays with the entry in the stored message, and no media object is
+created, so every later request of the epoch replays it under the same window.
+Outside the window the model gets
 `[pdf "paper.pdf" 15 pages, not attached: this context's PDF limit is reached]`.
 A model without PDF input always gets
 `[pdf "paper.pdf" 15 pages, omitted: this model has no PDF input]`.
@@ -224,19 +227,20 @@ printed in it triggers no instruction chain.
 
 ## Bounds
 
-| Bound              | Limit                                                                                                                                                                                                    |
-| ------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| markers considered | 64, in first-occurrence order; later ones are prose                                                                                                                                                      |
-| reads per message  | 8 admitted targets that survive the probe or need none, images and PDFs included; a denied host, Knowledge, or `media://` target (within the 64-marker cap) is audited without a read and does not count |
-| output             | 128 KiB for the whole item; each text result keeps `read`'s own truncation; an image or PDF counts only as its result text, never its bytes or an image thumbnail                                        |
-| work               | 30 s, probes included, or the Run's remaining deadline                                                                                                                                                   |
+| Bound              | Limit                                                                                                                                                                                                       |
+| ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| markers considered | 64, in first-occurrence order; later ones are prose                                                                                                                                                         |
+| reads per message  | 8 admitted targets that survive the probe or need none, images and PDFs included; a denied Machine, Knowledge, or `media://` target (within the 64-marker cap) is audited without a read and does not count |
+| output             | 128 KiB for the whole item; each text result keeps `read`'s own truncation; an image or PDF counts only as its result text, never its bytes or an image thumbnail                                           |
+| work               | 30 s, probes included, or the Run's remaining deadline                                                                                                                                                      |
 
 A target past the count or output bound, or one that survived probing when the
-time bound fires, is listed once as omitted and not read. A host or Knowledge
-target the time bound reaches before it is probed is dropped silently and stays
-prose. Prose tokens that fail the probe are never listed as omitted. The time
-bound also cuts off a read in flight, and a Run abort stops the pass with no
-further read: a target cut off that way is omitted, never reported as failed.
+time bound fires, is listed once as omitted and not read. A Machine or
+Knowledge target the time bound reaches before it is probed is dropped silently
+and stays prose. Prose tokens that fail the probe are never listed as omitted.
+The time bound also cuts off a read in flight, and a Run abort stops the pass
+with no further read: a target cut off that way is omitted, never reported as
+failed.
 
 ## Retries and detaching
 
@@ -251,7 +255,7 @@ Imports run after the attempt's Workspace binding re-check. An attempt that
 detaches the Workspace imports nothing and its markers stay prose; an item an
 earlier attempt stored still replays unchanged.
 
-An admitted host or Knowledge import also loads its directory's
+An admitted Machine or Knowledge import also loads its directory's
 [instruction files](instruction-files.md#host-triggers) on the same turn, before
 the first model request, whether or not a Workspace is bound, and whatever its
 read outcome; denied, missing, web, skill, `media://`, and `projects://` targets
@@ -274,7 +278,7 @@ and search see neither the item's text nor its metadata.
 ## Configured by
 
 - [Native files](../operator/native-files.md) configures the Machine behind
-  absolute paths and the `read` entry that host imports need.
+  absolute paths and the `read` entry that Machine imports need.
 - [Personal Knowledge](../operator/knowledge.md) configures the Knowledge root
   behind `kb://` imports.
 - [Tool-call permissions](../operator/tool-call-permissions.md) sets the `read`

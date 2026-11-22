@@ -82,27 +82,19 @@ function resolveImport(
       ? parseMachineLocator(importer)
       : undefined;
 
-    if (machine?.kind === 'path') {
-      // A file inside a Machine imports inside that Machine: the target is
-      // addressed in the Machine's own key space, its `..` segments resolve
-      // there, and the block is named by the canonical locator of the file the
-      // Machine actually read.
-      const key = target.startsWith('/')
-        ? posix.normalize(target)
-        : posix.resolve(posix.dirname(machine.path), target);
+    if (machine?.kind !== 'path') return undefined;
 
-      const path = formatMachineLocator(machine.name, key);
-
-      return path === undefined ? undefined : { key, path };
-    }
-
-    if (machine !== undefined) return undefined;
-
+    // A file inside a Machine imports inside that Machine: the target is
+    // addressed in the Machine's own key space, its `..` segments resolve
+    // there, and the block is named by the canonical locator of the file the
+    // Machine actually read.
     const key = target.startsWith('/')
       ? posix.normalize(target)
-      : posix.resolve(posix.dirname(importer), target);
+      : posix.resolve(posix.dirname(machine.path), target);
 
-    return { key, path: key };
+    const path = formatMachineLocator(machine.name, key);
+
+    return path === undefined ? undefined : { key, path };
   }
 
   if (target.startsWith('/')) return undefined;
@@ -125,16 +117,13 @@ function candidateDirectory(
   path: string,
 ): string | undefined {
   // A Machine file is named by its canonical locator, so the directory it
-  // activates is the absolute Machine path every other Machine key uses; a host
-  // path is the key itself.
+  // activates is the absolute Machine path every other Machine key uses.
   if (!group.knowledge) {
     const machine = isMachineLocator(path)
       ? parseMachineLocator(path)
       : undefined;
 
-    if (machine?.kind === 'path') return parentKey(machine.path, '/');
-
-    return parentKey(path, group.scope.root);
+    return machine?.kind === 'path' ? parentKey(machine.path, '/') : undefined;
   }
 
   const prefix = `${KNOWLEDGE_LOCATOR_SCHEME}://`;

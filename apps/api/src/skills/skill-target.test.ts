@@ -16,7 +16,6 @@ import {
   isSkillCatalogResult,
   resolveSkillLocator,
 } from './skill-target';
-import { workspaceSkillSources } from './workspace-skill-sources';
 
 let temporaryDirectories: Array<string> = [];
 
@@ -92,9 +91,9 @@ describe('resolveSkillLocator', () => {
     const operator = temporaryDirectory('operator');
     const workspace = temporaryDirectory('workspace');
 
-    const [claude, agents, llame] = workspaceSkillSources(workspace, {
-      localVerified: true,
-    });
+    const [claude, agents, llame] = ['.claude', '.agents', '.llame'].map(
+      (segment) => join(workspace, segment, 'skills'),
+    );
 
     mkdirSync(claude, { recursive: true });
     mkdirSync(agents, { recursive: true });
@@ -108,7 +107,7 @@ describe('resolveSkillLocator', () => {
       new SkillCatalog([operator]),
       'review',
       NO_SKILL_SELECTION,
-      workspaceSkillSources(workspace, { localVerified: true }),
+      [claude, agents, llame],
     );
 
     expect(resolved).toMatchObject({
@@ -122,7 +121,7 @@ describe('resolveSkillLocator', () => {
     const operator = temporaryDirectory('operator-only');
     const workspace = temporaryDirectory('workspace-only');
     createPackage(operator, 'operator-only');
-    const [claude] = workspaceSkillSources(workspace, { localVerified: true });
+    const claude = join(workspace, '.claude', 'skills');
     mkdirSync(claude, { recursive: true });
     createPackage(claude, 'workspace-only');
 

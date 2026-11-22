@@ -1,11 +1,13 @@
 import { WorkspaceBindingRepository } from '../chats/workspace-binding.repository';
+import { parseMachineLocator } from '../machines/machine-locator';
 import {
   type WorkspaceMcpClients,
   type WorkspaceMcpEntryState,
   type WorkspaceMcpKey,
 } from '../mcp/workspace-mcp-clients';
+import { snapshotMachineSkillSources } from '../skills/machine-skill-sources';
 import { boundSkillCatalog } from '../skills/skill-prompt-baseline';
-import { type SkillCatalogPort } from '../skills/skill-catalog';
+import { SkillCatalog, type SkillCatalogPort } from '../skills/skill-catalog';
 import { workspaceSkillSources } from '../skills/workspace-skill-sources';
 import {
   admitPermission,
@@ -161,17 +163,12 @@ type WorkspaceSkillResult = {
 function workspaceSkillResult(
   catalog: SkillCatalogPort | undefined,
   root: string,
-  localMachine: string | undefined,
 ): WorkspaceSkillResult {
   if (catalog === undefined) return { skills: [], skillsOmitted: 0 };
 
-  // The result is produced only after the entry's local directory verified
-  // its Machine identity (or for a root on another Machine, which yields no
-  // host-path sources at all).
-  const sources = workspaceSkillSources(root, {
-    localMachine,
-    localVerified: true,
-  });
+  // The attempt's snapshot read every source on the Workspace's Machine, the
+  // host Machine included, so the entry reports exactly those packages.
+  const sources = workspaceSkillSources(root);
 
   const snapshot = catalog.getSnapshot(sources);
 
@@ -192,6 +189,56 @@ function workspaceSkillResult(
     skills: bounded.entries,
     skillsOmitted: bounded.omitted,
   };
+}
+
+/**
+ * The catalog an entry reports its Workspace skills from. An entry can bind a
+ * root this attempt began unbound, so the attempt holds no snapshot of it; the
+ * root's sources are read on their own Machine here, exactly as attempt
+ * preparation reads them, and the operator directories stay in process. A
+ * catalog that already covers the root — this attempt prepared it, or a test
+ * supplied one — answers unchanged, and so does the attempt's own catalog when
+ * the root names no Machine path or the Machine cannot answer.
+ */
+async function entrySkillCatalog(
+  context: ToolContext,
+  root: string,
+): Promise<SkillCatalogPort | undefined> {
+  const catalog = context.skillCatalog;
+  const connector = context.machines;
+  const parsed = parseMachineLocator(root);
+
+  if (
+    catalog === undefined ||
+    connector === undefined ||
+    parsed.kind !== 'path'
+  ) {
+    return catalog;
+  }
+
+  const sources = workspaceSkillSources(root);
+
+  const covered = catalog
+    .getSnapshot(sources)
+    .entries.some(
+      (entry) =>
+        entry.available &&
+        entry.sourceDirectory !== null &&
+        sources.includes(entry.sourceDirectory),
+    );
+
+  if (covered) return catalog;
+
+  const snapshot = await snapshotMachineSkillSources({
+    root,
+    signal: context.abortSignal,
+    request: (method, params, options) =>
+      connector.request(parsed.name, method, params, options),
+  });
+
+  return snapshot === undefined
+    ? catalog
+    : new SkillCatalog(context.skillDirectories ?? [], snapshot.fileSystem);
 }
 
 export async function isCurrentDelivery(
@@ -326,16 +373,18 @@ export async function boundResult(
     binding.state !== 'unchanged',
   );
 
+  const skillCatalog = await entrySkillCatalog(context, binding.root);
+
+  if (skillCatalog !== undefined && skillCatalog !== context.skillCatalog) {
+    context.onSkillCatalog?.(skillCatalog);
+  }
+
   return {
     status: 'success',
     root: binding.root,
     state: binding.state,
     authority: MACHINE_WORKSPACE_AUTHORITY,
-    ...workspaceSkillResult(
-      context.skillCatalog,
-      binding.root,
-      context.localMachine,
-    ),
+    ...workspaceSkillResult(skillCatalog, binding.root),
     mcpServers,
     ...(binding.worktree !== undefined && { worktree: binding.worktree }),
   };
