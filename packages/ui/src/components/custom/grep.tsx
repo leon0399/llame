@@ -85,16 +85,20 @@ const warningLabels = new Map([
 
 type LocatorParts = { path: string; start: number };
 
-/** The `<path>` and start line of a `<path>:<start>-<end>` passage locator.
- *  The path may itself contain `:`, so only the last one separates the range. */
-function locatorParts(locator: string): LocatorParts {
-  const separator = locator.lastIndexOf(":");
+// A passage locator ends in its line range: the canonical `:L<start>-<end>`
+// spelling, or the bare `:<start>-<end>` a stored passage keeps.
+const locatorRangePattern = /:L?(\d+)-(\d+)$/u;
 
-  if (separator === -1) return { path: locator, start: 0 };
+/** The `<path>` and start line of a `<path>:<start>-<end>` passage locator.
+ *  The path may itself contain `:`, so only the range is a suffix. */
+function locatorParts(locator: string): LocatorParts {
+  const range = locatorRangePattern.exec(locator);
+
+  if (!range) return { path: locator, start: 0 };
 
   return {
-    path: locator.slice(0, separator),
-    start: Number.parseInt(locator.slice(separator + 1), 10) || 0,
+    path: locator.slice(0, range.index),
+    start: Number.parseInt(range[1], 10),
   };
 }
 

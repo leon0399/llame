@@ -29,11 +29,12 @@ deterministic pages under shared bounds. Access is resolved live under RLS.
 ## Locators
 
 Every match carries a one-based inclusive `locator`
-(`kb://<knowledgeSpaceId>/<path>:N-M`), which is a ready `read` argument: drop
-the `:N-M` suffix to read the whole note. A reserved character in the filename
-is emitted as its percent escape only, and a colon-named Markdown file is
-searched normally. See [kb locators](../locators/kb.md) for the escaping
-grammar.
+(`kb://<knowledgeSpaceId>/<path>:L<N>-<M>`), which is a ready `read` argument:
+drop the `:L<N>-<M>` suffix to read the whole note. A passage locator a stored
+result spells `kb://<knowledgeSpaceId>/<path>:N-M` names the same passage and
+stays valid input. A reserved character in the filename is emitted as its
+percent escape only, and a colon-named Markdown file is searched normally. See
+[kb locators](../locators/kb.md) for the escaping grammar.
 
 ## Result
 

@@ -11,8 +11,8 @@
  */
 
 import {
+  formatPassageLocator,
   GREP_LIMITS,
-  grepFileLocator,
   grepIgnoredUnits,
   grepLeftOutUnits,
   grepPassageBlockLines,
@@ -22,8 +22,8 @@ import {
   grepUnfinishedUnits,
   grepWarningsUnits,
   measureGrepRendering,
+  parsePassageLocator,
   passageEndLine,
-  passageStartLine,
   type GrepPassage,
   type GrepRemainder,
 } from '@workspace/native-file-tools';
@@ -308,14 +308,17 @@ function cutToInline(
   available: number,
   markCut: boolean,
 ): GrepPassage {
-  const start = passageStartLine(passage.locator);
-  const end = passageEndLine(passage.locator);
+  const range = parsePassageLocator(passage.locator);
+
+  if (range === undefined) return passage;
+
+  const { startLine: start, endLine: end } = range;
   const lines = passage.content.split('\n');
 
   if (lines.at(-1) === '') lines.pop();
 
   const cutAt = (last: number): GrepPassage => ({
-    locator: `${fileOf(passage)}:${String(start)}-${String(last)}`,
+    locator: formatPassageLocator(range.file, start, last),
     content: lines.slice(0, last - start + 1).join('\n'),
     matches: passage.matches.filter((match) => match <= last),
     // A cut is always the first passage, so it is never the file's twentieth:
@@ -348,11 +351,6 @@ function cutToInline(
 /** The files the artifact lists, by run of consecutive passages. */
 function filesOf(artifact: GrepArtifact): number {
   return artifact.blocks.filter((block) => block.newRun).length;
-}
-
-/** The file locator of a passage, its range removed. */
-function fileOf(passage: GrepPassage): string {
-  return grepFileLocator(passage.locator);
 }
 
 /** The rendered width of the framing lines after the passages. */

@@ -44,8 +44,9 @@ type KnowledgeResult = z.infer<typeof resultSchema>;
 /** Props for the dedicated `knowledge_search` tool row. */
 export type KnowledgeSearchToolProps = ToolPartProps;
 
-// A passage locator ends in its 1-based inclusive line range.
-const locatorRangePattern = /:(\d+)-(\d+)$/u;
+// A passage locator ends in its 1-based inclusive line range: the canonical
+// `:L<start>-<end>`, or the bare `:<start>-<end>` a stored passage keeps.
+const locatorRangePattern = /:L?(\d+)-(\d+)$/u;
 
 /** One passage: its path and lines, then the attribution knowledge-tools
  *  requires the UI to show (space name, stable id, and the exact `read`

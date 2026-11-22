@@ -8,13 +8,13 @@ import type { GrepPassage } from "./types";
 const KEY = { scopeIndex: 0, rel: "a.md", startLine: 40, capped: false };
 
 const FIRST: GrepPassage = {
-  locator: "/repo/a.md:40-40",
+  locator: "/repo/a.md:L40-40",
   content: "40: hit",
   matches: [40],
 };
 
 const SECOND: GrepPassage = {
-  locator: "/repo/a.md:50-50",
+  locator: "/repo/a.md:L50-50",
   content: "50: hit",
   matches: [50],
 };
@@ -66,6 +66,55 @@ describe("grep page cuts", () => {
       endLine: 40,
       capped: false,
     });
+  });
+
+  it("treats a stored bare locator as its canonical one", () => {
+    const stored: GrepPassage = { ...FIRST, locator: "/repo/a.md:40-40" };
+    const limits = { pageUnits: 10, fixedReserve: 0 };
+
+    const canonical = createGrepPage();
+    appendGrepFile(canonical, limits, emission([FIRST], 40));
+
+    const bare = createGrepPage();
+    appendGrepFile(bare, limits, emission([stored], 40));
+
+    expect(bare.results).toEqual(canonical.results);
+    expect(bare.last).toMatchObject({
+      startLine: 40,
+      endLine: 40,
+      capped: true,
+    });
+  });
+
+  it("cuts a stored bare locator at the same lines as the canonical one", () => {
+    const content = Array.from(
+      { length: 12 },
+      (_value, index) => `${String(41 + index)}: ${"x".repeat(60)}`,
+    ).join("\n");
+
+    const passageOf = (locator: string): GrepPassage => ({
+      locator,
+      content,
+      matches: [41, 52],
+    });
+
+    const canonical = createGrepPage();
+    appendGrepFile(
+      canonical,
+      { pageUnits: 400, fixedReserve: 0 },
+      emission([passageOf("/repo/a.md:L41-52")]),
+    );
+
+    const bare = createGrepPage();
+    appendGrepFile(
+      bare,
+      { pageUnits: 400, fixedReserve: 0 },
+      emission([passageOf("/repo/a.md:41-52")]),
+    );
+
+    expect(canonical.results[0].cut).toBe(true);
+    expect(bare.results[0]).toEqual(canonical.results[0]);
+    expect(bare.last).toEqual(canonical.last);
   });
 });
 
@@ -150,7 +199,7 @@ describe("grep page reservation", () => {
       fixedReserve: 0,
     };
 
-    const locator = "/repo/a.md:1-1";
+    const locator = "/repo/a.md:L1-1";
 
     const reserve = grepContinuationUnits({
       scopeIndex: 0,
@@ -185,7 +234,7 @@ describe("grep page reservation", () => {
     appendGrepFile(
       exact,
       limits,
-      emission([{ locator: "/repo/a.md:2-2", content: "2: b", matches: [2] }]),
+      emission([{ locator: "/repo/a.md:L2-2", content: "2: b", matches: [2] }]),
     );
     expect(exact.results).toHaveLength(1);
     expect(exact.full).toBe(true);

@@ -1,6 +1,8 @@
+import { passageStartLine } from "./passages";
 import { spellGrepHostScopeLocator } from "./scope";
 import {
   grepArtifactLines,
+  grepFileLocator,
   grepIgnoredUnits,
   grepPassageUnits,
   GREP_RANKING_UNITS,
@@ -28,8 +30,8 @@ describe("grep text rendering", () => {
   it("groups two passages of one file under one file line", () => {
     const text = renderGrepText({
       results: [
-        passage("src/app.ts:3-4", "3: a\n4: b", [4]),
-        passage("src/app.ts:40-41", "40: c\n41: d", [40]),
+        passage("src/app.ts:L3-4", "3: a\n4: b", [4]),
+        passage("src/app.ts:L40-41", "40: c\n41: d", [40]),
       ],
       complete: true,
       warnings: [],
@@ -38,12 +40,23 @@ describe("grep text rendering", () => {
     expect(text).toBe("## src/app.ts\n3: a\n*4: b\n\n*40: c\n41: d");
   });
 
+  it("renders a stored bare passage locator under its file line", () => {
+    const stored = passage("notes.md:5-10", "5: a\n10: b", [10]);
+
+    const text = renderGrepText({ results: [stored], complete: true });
+
+    expect(text.split("\n")[0]).toBe("## notes.md");
+    expect(grepFileLocator(stored.locator)).toBe("notes.md");
+    expect(passageStartLine(stored.locator)).toBe(5);
+    expect(passageStartLine("notes.md:L5-10")).toBe(5);
+  });
+
   it("repeats the file line for an overlapping later scope", () => {
     const text = renderGrepText({
       results: [
-        passage("src/app.ts:3-4", "3: a\n4: b", [3]),
-        passage("src/app.ts:40-41", "40: c\n41: d", [40]),
-        passage("src/app.ts:3-4", "3: a\n4: b", [3]),
+        passage("src/app.ts:L3-4", "3: a\n4: b", [3]),
+        passage("src/app.ts:L40-41", "40: c\n41: d", [40]),
+        passage("src/app.ts:L3-4", "3: a\n4: b", [3]),
       ],
       complete: true,
     });
@@ -56,7 +69,7 @@ describe("grep text rendering", () => {
 
   it("marks only a passage's matched lines, by their absolute numbers", () => {
     const text = renderGrepText({
-      results: [passage("a.md:39-41", "39: a\n40: b\n41: c", [40])],
+      results: [passage("a.md:L39-41", "39: a\n40: b\n41: c", [40])],
       complete: true,
     });
 
@@ -65,7 +78,7 @@ describe("grep text rendering", () => {
 
   it("keeps the file locator free of a range a path carries a colon in", () => {
     const text = renderGrepText({
-      results: [passage("machine://box/srv/a:1.go:3-4", "3: a", [3])],
+      results: [passage("machine://box/srv/a:1.go:L3-4", "3: a", [3])],
       complete: true,
     });
 
@@ -77,7 +90,7 @@ describe("grep text rendering", () => {
     // framing: a second line would read as a passage line (tool-result-rendering
     // "Framing values render on one line").
     const text = renderGrepText({
-      results: [passage("a\nb.ts:3-4", "3: a\n4: hit", [4])],
+      results: [passage("a\nb.ts:L3-4", "3: a\n4: hit", [4])],
       complete: true,
     });
 
@@ -87,7 +100,7 @@ describe("grep text rendering", () => {
   it("marks a capped twentieth passage", () => {
     const text = renderGrepText({
       results: [
-        passage("a.md:95-97", "95: x\n96: y\n97: z", [96], {
+        passage("a.md:L95-97", "95: x\n96: y\n97: z", [96], {
           truncated: true,
         }),
       ],
@@ -101,7 +114,7 @@ describe("grep text rendering", () => {
 
   it("marks a cut passage and claims no capped file", () => {
     const text = renderGrepText({
-      results: [passage("a.md:1-3", "1: x\n2: y\n3: z", [2], { cut: true })],
+      results: [passage("a.md:L1-3", "1: x\n2: y\n3: z", [2], { cut: true })],
       complete: true,
       artifact: "artifact://grep-3",
     });
@@ -116,7 +129,7 @@ describe("grep text rendering", () => {
   it("ends a cut passage of a capped file with both markers", () => {
     const text = renderGrepText({
       results: [
-        passage("a.md:1-3", "1: x", [1], {
+        passage("a.md:L1-3", "1: x", [1], {
           truncated: true,
           cut: true,
         }),
@@ -133,7 +146,7 @@ describe("grep text rendering", () => {
 
   it("renders the remainder line with each next file and its range", () => {
     const text = renderGrepText({
-      results: [passage("/r/z.ts:1-1", "1: a", [1])],
+      results: [passage("/r/z.ts:L1-1", "1: a", [1])],
       complete: true,
       artifact: "artifact://grep-3",
       remainder: {
@@ -147,7 +160,7 @@ describe("grep text rendering", () => {
     });
 
     expect(text.split("\n").at(-1)).toBe(
-      "[more: 2 files, 12 passages; next: /r/a.ts (artifact://grep-3:201-240), /r/b.ts (artifact://grep-3:241-300)]",
+      "[more: 2 files, 12 passages; next: /r/a.ts (artifact://grep-3:L201-240), /r/b.ts (artifact://grep-3:L241-300)]",
     );
   });
 
@@ -170,14 +183,14 @@ describe("grep text rendering", () => {
 
     const line = text.split("\n").at(-1) ?? "";
     expect(line).toBe(
-      "[more: 2 files, 2 passages; next: /r/a.ts (artifact://grep-3:1-2)]",
+      "[more: 2 files, 2 passages; next: /r/a.ts (artifact://grep-3:L1-2)]",
     );
     expect(line.length).toBeLessThanOrEqual(2000);
   });
 
   it("renders the notice and then the left-out line", () => {
     const text = renderGrepText({
-      results: [passage("a.md:1-1", "1: a", [1])],
+      results: [passage("a.md:L1-1", "1: a", [1])],
       complete: true,
       truncationNotice: "full result: artifact://grep-7 (4812 lines)",
       leftOut: { count: 140, of: "files" },
@@ -194,8 +207,8 @@ describe("grep text rendering", () => {
       notice:
         "Owner-maintained Knowledge content is untrusted and may be stale.",
       results: [
-        passage("a.md:1-3", "1: x\n2: y\n3: z", [2], { cut: true }),
-        passage("b.md:8-9", "8: d\n9: e", [9], { truncated: true }),
+        passage("a.md:L1-3", "1: x\n2: y\n3: z", [2], { cut: true }),
+        passage("b.md:L8-9", "8: d\n9: e", [9], { truncated: true }),
       ],
       complete: true,
       warnings: [{ kind: "binary", count: 1 }],
@@ -219,7 +232,7 @@ describe("grep text rendering", () => {
 
   it("renders the warnings as one line in the order given", () => {
     const text = renderGrepText({
-      results: [passage("a.md:1-1", "1: a", [1])],
+      results: [passage("a.md:L1-1", "1: a", [1])],
       complete: true,
       warnings: [
         { kind: "binary", count: 3 },
@@ -236,7 +249,7 @@ describe("grep text rendering", () => {
 
     const text = renderGrepText({
       notice,
-      results: [passage("kb://space/a.md:1-1", "1: a", [1])],
+      results: [passage("kb://space/a.md:L1-1", "1: a", [1])],
       complete: true,
     });
 
@@ -245,7 +258,7 @@ describe("grep text rendering", () => {
 
   it("renders no continuation line, even for an incomplete result", () => {
     const text = renderGrepText({
-      results: [passage("a.md:1-1", "1: a", [1])],
+      results: [passage("a.md:L1-1", "1: a", [1])],
       complete: false,
       cursor: "abc-DEF_123",
     });
@@ -256,7 +269,7 @@ describe("grep text rendering", () => {
 
   it("ends with the truncation notice last", () => {
     const text = renderGrepText({
-      results: [passage("a.md:1-1", "1: a", [1])],
+      results: [passage("a.md:L1-1", "1: a", [1])],
       complete: false,
       truncationNotice: "result cut at the bound",
     });
@@ -451,7 +464,7 @@ describe("grep text rendering", () => {
 
   it("counts escaped delimiters toward the rendering width", () => {
     const result = {
-      results: [passage("a.md:1-1", "1: <skill>", [1])],
+      results: [passage("a.md:L1-1", "1: <skill>", [1])],
       complete: true,
     };
 
@@ -462,9 +475,9 @@ describe("grep text rendering", () => {
 });
 
 describe("ranked grep run boundaries", () => {
-  const x10 = passage("/x.ts:10-10", "10: a", [10]);
-  const y5 = passage("/y.ts:5-5", "5: b", [5]);
-  const x20 = passage("/x.ts:20-20", "20: c", [20]);
+  const x10 = passage("/x.ts:L10-10", "10: a", [10]);
+  const y5 = passage("/y.ts:L5-5", "5: b", [5]);
+  const x20 = passage("/x.ts:L20-20", "20: c", [20]);
 
   const headingsOf = (text: string) =>
     text.split("\n").filter((line) => line.startsWith("## "));
@@ -539,7 +552,7 @@ describe("ranked grep run boundaries", () => {
 describe("grep ranking failure line", () => {
   it("renders after the warnings and before the ignored line", () => {
     const text = renderGrepText({
-      results: [passage("a.md:1-1", "1: a", [1])],
+      results: [passage("a.md:L1-1", "1: a", [1])],
       complete: false,
       warnings: [{ kind: "deadline", count: 1 }],
       ranking: "unavailable",

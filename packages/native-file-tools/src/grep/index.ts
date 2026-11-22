@@ -56,6 +56,12 @@ export { runGrepScan } from "./scan";
 
 export { passageEndLine, passageStartLine } from "./passages";
 
+export {
+  formatPassageLocator,
+  parsePassageLocator,
+  type ParsedPassageLocator,
+} from "./locator";
+
 export { compareRel } from "./walk";
 
 export {

@@ -7,6 +7,7 @@ import {
 
 import { decodeGrepCursor, grepContinuationUnits } from "./cursor";
 import type { DecodedGrepCursor, GrepPassageCursor } from "./cursor";
+import { parsePassageLocator } from "./locator";
 import {
   createMemoryPort,
   createSingleFilePort,
@@ -89,10 +90,10 @@ describe("grep walk order and ignore rules", () => {
     );
 
     expect(result.results.map((passage) => passage.locator)).toEqual([
-      "/repo/.editorconfig:1-2",
-      "/repo/.env:1-1",
-      "/repo/src/a.ts:1-2",
-      "/repo/src/nested/b.ts:1-1",
+      "/repo/.editorconfig:L1-2",
+      "/repo/.env:L1-1",
+      "/repo/src/a.ts:L1-2",
+      "/repo/src/nested/b.ts:L1-1",
     ]);
     expect(port.reads).toEqual([
       ".editorconfig",
@@ -116,8 +117,8 @@ describe("grep walk order and ignore rules", () => {
     );
 
     expect(result.results.map((passage) => passage.locator)).toEqual([
-      "/repo/～.md:1-1",
-      "/repo/😀.md:1-1",
+      "/repo/～.md:L1-1",
+      "/repo/😀.md:L1-1",
     ]);
   });
 
@@ -137,8 +138,8 @@ describe("grep walk order and ignore rules", () => {
     );
 
     expect(result.results.map((passage) => passage.locator)).toEqual([
-      "/pkg/a.md:1-1",
-      "/pkg/z.md:1-1",
+      "/pkg/a.md:L1-1",
+      "/pkg/z.md:L1-1",
     ]);
     expect(result.warnings).toEqual([{ kind: "link", count: 1 }]);
   });
@@ -168,7 +169,7 @@ describe("grep walk order and ignore rules", () => {
     );
 
     expect(result.results.map((passage) => passage.locator)).toEqual([
-      "/pkg/pkg/deep.md:1-1",
+      "/pkg/pkg/deep.md:L1-1",
     ]);
     expect(result.warnings).toEqual([{ kind: "link", count: 1 }]);
   });
@@ -186,7 +187,7 @@ describe("grep walk order and ignore rules", () => {
     );
 
     expect(result.results.map((passage) => passage.locator)).toEqual([
-      "/repo/dist/app.js:1-1",
+      "/repo/dist/app.js:L1-1",
     ]);
     expect(port.lists).toEqual([]);
     expect(port.reads).toEqual([""]);
@@ -233,7 +234,7 @@ describe("grep walk order and ignore rules", () => {
     );
 
     expect(result.results.map((passage) => passage.locator)).toEqual([
-      "/repo/a.md:1-1",
+      "/repo/a.md:L1-1",
     ]);
     expect(port.lists).not.toContain("sub");
   });
@@ -248,8 +249,8 @@ describe("grep walk order and ignore rules", () => {
     );
 
     expect(result.results.map((passage) => passage.locator)).toEqual([
-      "/first/a.md:1-1",
-      "/later/b.md:1-1",
+      "/first/a.md:L1-1",
+      "/later/b.md:L1-1",
     ]);
   });
 
@@ -269,7 +270,7 @@ describe("grep walk order and ignore rules", () => {
     );
 
     expect(result.results.map((passage) => passage.locator)).toEqual([
-      "kb://space/notes/a%2A.md:2-4",
+      "kb://space/notes/a%2A.md:L2-4",
     ]);
     expect(result.results[0].matches).toEqual([3]);
   });
@@ -287,7 +288,7 @@ describe("grep walk order and ignore rules", () => {
     );
 
     expect(result.results.map((passage) => passage.locator)).toEqual([
-      "/repo/x.log:1-1",
+      "/repo/x.log:L1-1",
     ]);
   });
 
@@ -306,7 +307,7 @@ describe("grep walk order and ignore rules", () => {
     );
 
     expect(result.results.map((passage) => passage.locator)).toEqual([
-      "/repo/sub/build/keep.js:1-1",
+      "/repo/sub/build/keep.js:L1-1",
     ]);
     expect(result.complete).toBe(true);
   });
@@ -322,7 +323,7 @@ describe("grep walk order and ignore rules", () => {
     );
 
     expect(result.results.map((passage) => passage.locator)).toEqual([
-      "/repo/node_modules/react/index.js:1-1",
+      "/repo/node_modules/react/index.js:L1-1",
     ]);
   });
 
@@ -356,7 +357,7 @@ describe("grep walk order and ignore rules", () => {
     );
 
     expect(result.results.map((passage) => passage.locator)).toEqual([
-      "/repo/node_modules/react/index.js:1-1",
+      "/repo/node_modules/react/index.js:L1-1",
     ]);
   });
 
@@ -373,7 +374,7 @@ describe("grep walk order and ignore rules", () => {
     );
 
     expect(result.results.map((passage) => passage.locator)).toEqual([
-      "/repo/src/a/b.js:1-1",
+      "/repo/src/a/b.js:L1-1",
     ]);
   });
 
@@ -389,7 +390,7 @@ describe("grep walk order and ignore rules", () => {
     );
 
     expect(result.results.map((passage) => passage.locator)).toEqual([
-      "/repo/build-tools/tool.js:1-1",
+      "/repo/build-tools/tool.js:L1-1",
     ]);
   });
 
@@ -423,7 +424,7 @@ describe("grep walk order and ignore rules", () => {
     );
 
     expect(result.results.map((passage) => passage.locator)).toEqual([
-      "/repo/build/app.js:1-1",
+      "/repo/build/app.js:L1-1",
     ]);
   });
 
@@ -443,8 +444,8 @@ describe("grep walk order and ignore rules", () => {
     );
 
     expect(result.results.map((passage) => passage.locator)).toEqual([
-      "/repo/node_modules/react/index.js:1-1",
-      "/repo/node_modules/react/lib/a.js:1-1",
+      "/repo/node_modules/react/index.js:L1-1",
+      "/repo/node_modules/react/lib/a.js:L1-1",
     ]);
   });
 
@@ -459,7 +460,7 @@ describe("grep walk order and ignore rules", () => {
     );
 
     expect(result.results.map((passage) => passage.locator)).toEqual([
-      "/repo/apps/a.md:1-1",
+      "/repo/apps/a.md:L1-1",
     ]);
   });
 });
@@ -492,7 +493,7 @@ describe("grep excluded-directory report", () => {
     );
 
     expect(second.results.map((passage) => passage.locator)).toEqual([
-      "/repo/node_modules/dep.js:1-1",
+      "/repo/node_modules/dep.js:L1-1",
     ]);
   });
 
@@ -541,7 +542,7 @@ describe("grep excluded-directory report", () => {
 
   it("keeps the ignored line's room back from the next passage", async () => {
     const expected = {
-      locator: "/repo/b.md:1-1",
+      locator: "/repo/b.md:L1-1",
       content: "1: hit",
       matches: [1],
     };
@@ -603,7 +604,7 @@ describe("grep excluded-directory report", () => {
     const line = (width: number): string => "a".repeat(width);
 
     const passageOf = (widthsOf: ReadonlyArray<number>) => ({
-      locator: `/repo/a.md:1-${widthsOf.length}`,
+      locator: `/repo/a.md:L1-${widthsOf.length}`,
       content: widthsOf
         .map((width, index) => `${String(index + 1)}: ${line(width)}`)
         .join("\n"),
@@ -646,7 +647,7 @@ describe("grep excluded-directory report", () => {
     });
 
     expect(first.results.map((passage) => passage.locator)).toEqual([
-      `/repo/a.md:1-${widths.length}`,
+      `/repo/a.md:L1-${widths.length}`,
     ]);
     expect(first.ignored).toBeUndefined();
     expect(first.complete).toBe(false);
@@ -711,7 +712,7 @@ describe("grep walk bounds", () => {
     );
 
     expect(result.results.map((passage) => passage.locator)).toEqual([
-      "/repo/txt.md:1-1",
+      "/repo/txt.md:L1-1",
     ]);
     expect(result.warnings).toEqual([{ kind: "binary", count: 1 }]);
   });
@@ -798,7 +799,7 @@ describe("grep walk bounds", () => {
     });
 
     expect(first.results.map((entry) => entry.locator)).toEqual([
-      "/repo/a.md:1-1",
+      "/repo/a.md:L1-1",
     ]);
     // The skip's line belongs to the next call, so this page reports no count
     // and still renders inside its bound.
@@ -872,7 +873,7 @@ describe("grep walk bounds", () => {
     });
     const second = await runMemoryScan([scope], ["hit"], { cursor });
     expect(second.results.map((passage) => passage.locator)).toEqual([
-      "/repo/c.md:1-1",
+      "/repo/c.md:L1-1",
     ]);
     expect(second.complete).toBe(true);
     expect(port.reads).toEqual(["a.md", "b.md", "c.md"]);
@@ -921,7 +922,7 @@ describe("grep walk bounds", () => {
     );
 
     expect(result.results.map((passage) => passage.locator)).toEqual([
-      "/repo/a.md:1-1",
+      "/repo/a.md:L1-1",
     ]);
     expect(result.warnings).toEqual([{ kind: "entry_bound", count: 1 }]);
     expect(result.complete).toBe(false);
@@ -972,7 +973,7 @@ describe("grep walk bounds", () => {
     });
     const second = await runMemoryScan([scope], ["hit"], { cursor });
     expect(second.results.map((passage) => passage.locator)).toEqual([
-      "/repo/a.md:1-1",
+      "/repo/a.md:L1-1",
     ]);
     expect(second.complete).toBe(true);
   });
@@ -1002,7 +1003,7 @@ describe("grep walk bounds", () => {
     });
 
     expect(second.results.map((passage) => passage.locator)).toEqual([
-      "/repo/z.md:1-1",
+      "/repo/z.md:L1-1",
     ]);
     expect(second.complete).toBe(true);
     // The re-listed links are exempt from the bound: only the two after it count.
@@ -1031,7 +1032,7 @@ describe("grep walk bounds", () => {
     expect(cursor).toMatchObject({ kind: "position", scopeIndex: 0, rel: "" });
     const second = await runMemoryScan([scope], ["hit"], { cursor });
     expect(second.results.map((passage) => passage.locator)).toEqual([
-      "/repo/a.md:1-1",
+      "/repo/a.md:L1-1",
     ]);
     expect(second.complete).toBe(true);
   });
@@ -1062,7 +1063,7 @@ describe("grep walk bounds", () => {
     });
 
     expect(second.results.map((passage) => passage.locator)).toEqual([
-      "/repo/dir/a.md:1-1",
+      "/repo/dir/a.md:L1-1",
     ]);
     expect(solo.reads).toEqual([""]);
   });
@@ -1126,7 +1127,7 @@ describe("grep walk bounds", () => {
     });
 
     expect(third.results.map((passage) => passage.locator)).toEqual([
-      "/repo/z.md:1-1",
+      "/repo/z.md:L1-1",
     ]);
     expect(third.complete).toBe(true);
     expect(port.reads).toEqual(["d/a.md", "d/b.md", "z.md"]);
@@ -1204,14 +1205,14 @@ describe("grep paging", () => {
 
     expect(first.results).toHaveLength(20);
     expect(first.results[19]).toMatchObject({
-      locator: "/repo/a.md:95-97",
+      locator: "/repo/a.md:L95-97",
       truncated: true,
     });
     const cursor = decode(first.cursor);
     expect(cursor).toMatchObject({ rel: "a.md", truncated: true });
     const second = await runMemoryScan([scope], ["hit"], { cursor });
     expect(second.results.map((passage) => passage.locator)).toEqual([
-      "/repo/b.md:1-1",
+      "/repo/b.md:L1-1",
     ]);
   });
 
@@ -1237,7 +1238,7 @@ describe("grep paging", () => {
     });
 
     expect(first.results.map((passage) => passage.locator)).toEqual([
-      "/repo/a.md:1-1",
+      "/repo/a.md:L1-1",
     ]);
     expect(first.warnings).toEqual([]);
     expect(first.ignored).toBeUndefined();
@@ -1249,7 +1250,7 @@ describe("grep paging", () => {
     });
 
     expect(second.results.map((passage) => passage.locator)).toEqual([
-      "/repo/c.md:1-60",
+      "/repo/c.md:L1-60",
     ]);
     // The counts the walk reached after the first page's cursor, counted once.
     expect(second.warnings).toEqual([{ kind: "binary", count: 1 }]);
@@ -1325,11 +1326,11 @@ describe("grep paging", () => {
     expect(result.results[0].cut).toBe(true);
     expect(result.results[0].truncated).toBeUndefined();
     expect(result.complete).toBe(false);
-    expect(result.results[0].locator).not.toBe("/repo/a.md:1-30");
+    expect(result.results[0].locator).not.toBe("/repo/a.md:L1-30");
     const cursor = passageCursor(result.cursor);
     expect(cursor).toMatchObject({ rel: "a.md", startLine: 1 });
     expect(cursor.endLine).toBe(
-      Number(result.results[0].locator.split(":")[1].split("-")[1]),
+      parsePassageLocator(result.results[0].locator)?.endLine,
     );
   });
 
@@ -1350,7 +1351,7 @@ describe("grep paging", () => {
     expect(emittedEnd).toBeLessThan(30);
     const second = await runMemoryScan([scope], ["hit"], { cursor });
     expect(second.results.map((passage) => passage.locator)).toEqual([
-      `/repo/a.md:${emittedEnd + 1}-30`,
+      `/repo/a.md:L${emittedEnd + 1}-30`,
     ]);
     expect(second.results[0].content.split("\n")[0]).toBe(
       `${emittedEnd + 1}: hit`,
@@ -1411,7 +1412,7 @@ describe("grep read admission", () => {
     );
 
     expect(result.results.map((passage) => passage.locator)).toEqual([
-      "/repo/a.md:1-1",
+      "/repo/a.md:L1-1",
     ]);
     expect(result.readRefused).toBe(1);
     expect(port.reads).toEqual(["a.md"]);
@@ -1444,7 +1445,7 @@ describe("grep streamed files", () => {
     );
 
     expect(result.results.map((passage) => passage.locator)).toEqual([
-      "/repo/big.md:2000-2001",
+      "/repo/big.md:L2000-2001",
     ]);
     expect(result.complete).toBe(true);
   });
@@ -1474,7 +1475,7 @@ describe("grep streamed files", () => {
     );
 
     expect(result.results.map((passage) => passage.locator)).toEqual([
-      "/repo/exact.md:1-1",
+      "/repo/exact.md:L1-1",
     ]);
     // Only the stream's own end closes it: no refusal closed it early.
     expect(port.closes).toEqual(["exact.md"]);
@@ -1497,7 +1498,7 @@ describe("grep streamed files", () => {
     );
 
     expect(result.results.map((passage) => passage.locator)).toEqual([
-      "/repo/exact.md:1-1",
+      "/repo/exact.md:L1-1",
     ]);
   });
 
@@ -1618,7 +1619,7 @@ describe("grep streamed files", () => {
     );
 
     expect(result.results.map((passage) => passage.locator)).toEqual([
-      "/repo/a.md:1-1",
+      "/repo/a.md:L1-1",
     ]);
     expect(result.warnings).toEqual([{ kind: "unreadable", count: 1 }]);
     // The refused file's bytes are still the consumer's; both count.
@@ -1638,8 +1639,8 @@ describe("grep streamed files", () => {
     );
 
     expect(result.results.map((passage) => passage.locator)).toEqual([
-      "/repo/gap.md:1-2",
-      "/repo/gap.md:2001-2002",
+      "/repo/gap.md:L1-2",
+      "/repo/gap.md:L2001-2002",
     ]);
     expect(result.complete).toBe(true);
   });
@@ -1673,7 +1674,7 @@ describe("grep streamed files", () => {
     const scope = memoryScope(0, "/repo/", port);
     const first = await runMemoryScan([scope], ["hit"]);
     expect(first.results.map((passage) => passage.locator)).toEqual([
-      "/repo/a.md:1-29",
+      "/repo/a.md:L1-29",
     ]);
     // The page could not hold the second passage, so the call continues.
     expect(first.complete).toBe(false);
@@ -1683,7 +1684,7 @@ describe("grep streamed files", () => {
     });
 
     expect(rest.results.map((passage) => passage.locator)).toEqual([
-      "/repo/a.md:34-35",
+      "/repo/a.md:L34-35",
     ]);
     expect(rest.results[0].matches).toEqual([35]);
   });
@@ -1709,14 +1710,14 @@ describe("grep streamed files", () => {
       complete = page.complete;
 
       for (const passage of page.results) {
-        const [start, end] = passage.locator
-          .split(":")[1]
-          .split("-")
-          .map((value) => Number(value));
+        const range = parsePassageLocator(passage.locator);
 
+        if (range === undefined) throw new Error("the passage has no range");
         expect(passage.matches.length).toBeGreaterThan(0);
 
-        for (let line = start; line <= end; line += 1) seen.push(line);
+        for (let line = range.startLine; line <= range.endLine; line += 1) {
+          seen.push(line);
+        }
       }
 
       if (!page.complete) cursor = passageCursor(page.cursor);

@@ -1,6 +1,6 @@
 import { grepContinuationUnits } from "./cursor";
+import { formatPassageLocator, parsePassageLocator } from "./locator";
 import { grepPassageUnits } from "./model-text";
-import { passageEndLine, passageStartLine } from "./passages";
 import type { GrepPassage } from "./types";
 
 /** The passage a page ends at; the next call resumes after it. */
@@ -102,12 +102,14 @@ export function appendGrepFile(
 
     if (page.results.length === 0) {
       const cut = cutToFit(page, limits, emission, passage);
+      const endLine = parsePassageLocator(cut.locator)?.endLine;
+
       page.units += grepPassageUnits(page.results.at(-1), cut);
       page.results.push(cut);
       emitted += 1;
       page.last = {
         ...pageKey(emission, cut),
-        endLine: passageEndLine(cut.locator),
+        ...(endLine !== undefined && { endLine }),
       };
     }
 
@@ -168,7 +170,7 @@ function pageKey(
   emission: GrepFileEmission,
   passage: GrepPassage,
 ): GrepPageKey {
-  const startLine = passageStartLine(passage.locator);
+  const startLine = parsePassageLocator(passage.locator)?.startLine ?? 0;
 
   return {
     scopeIndex: emission.scopeIndex,
@@ -185,15 +187,14 @@ function cutToFit(
   emission: GrepFileEmission,
   passage: GrepPassage,
 ): GrepPassage {
-  const [start, rangeEnd] = passage.locator
-    .slice(passage.locator.lastIndexOf(":") + 1)
-    .split("-")
-    .map(Number);
+  const range = parsePassageLocator(passage.locator);
+  const start = range?.startLine ?? 1;
+  const rangeEnd = range?.endLine ?? start;
 
   const lines = passage.content.split("\n");
 
   const cutAt = (end: number): GrepPassage => ({
-    locator: `${emission.fileLocator}:${start}-${end}`,
+    locator: formatPassageLocator(emission.fileLocator, start, end),
     content: lines.slice(0, end - start + 1).join("\n"),
     matches: passage.matches.filter((line) => line <= end),
     cut: true,

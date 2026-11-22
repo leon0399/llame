@@ -13,13 +13,13 @@
  */
 
 import {
+  formatPassageLocator,
   GREP_LIMITS,
   grepArtifactLines,
   grepFileLocator,
   grepPassageBlockLines,
   grepPassageContinues,
-  passageEndLine,
-  passageStartLine,
+  parsePassageLocator,
   spellGrepHostScopeLocator,
   spellGrepMachineScopeLocator,
   type GrepBudget,
@@ -429,21 +429,22 @@ function mergeCutPassage(
   next: GrepPassage,
 ): GrepPassage | undefined {
   if (previous.cut !== true) return undefined;
-  const file = grepFileLocator(previous.locator);
 
-  if (grepFileLocator(next.locator) !== file) return undefined;
+  const first = parsePassageLocator(previous.locator);
+  const second = parsePassageLocator(next.locator);
 
-  if (passageEndLine(previous.locator) + 1 !== passageStartLine(next.locator))
-    return undefined;
+  if (first === undefined || second === undefined) return undefined;
+
+  if (first.file !== second.file) return undefined;
+
+  if (first.endLine + 1 !== second.startLine) return undefined;
   // The continuation starts after the cut, so the pieces share no line and
   // their matches are already in line order.
   const matches = [...previous.matches, ...next.matches];
   const truncated = previous.truncated === true || next.truncated === true;
 
   return {
-    locator: `${file}:${String(passageStartLine(previous.locator))}-${String(
-      passageEndLine(next.locator),
-    )}`,
+    locator: formatPassageLocator(first.file, first.startLine, second.endLine),
     content: `${previous.content}\n${next.content}`,
     matches,
     ...(next.cut === true && { cut: true as const }),

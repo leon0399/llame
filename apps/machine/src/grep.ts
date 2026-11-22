@@ -21,6 +21,7 @@ import {
   compileGrepPatterns,
   decodeGrepCursor,
   GREP_LIMITS,
+  parsePassageLocator,
   runGrepScan,
   type GrepBudget,
   type GrepPassage,
@@ -145,14 +146,12 @@ function passageOf(
   passage: GrepPassage,
   capped: ReadonlySet<string>,
 ): FsGrepPassage {
-  const separator = passage.locator.lastIndexOf(":");
+  const range = parsePassageLocator(passage.locator);
 
-  const [startLine, endLine] = passage.locator
-    .slice(separator + 1)
-    .split("-")
-    .map(Number);
+  if (range === undefined)
+    throw new Error("The grep engine returned a passage without a line range");
 
-  const path = passage.locator.slice(0, separator);
+  const { file: path, startLine, endLine } = range;
 
   return {
     path,

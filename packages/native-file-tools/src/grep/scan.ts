@@ -3,6 +3,7 @@ import {
   grepContinuationUnits,
   type GrepPassageCursor,
 } from "./cursor";
+import { parsePassageLocator } from "./locator";
 import {
   grepIgnoredUnits,
   grepUnfinishedUnits,
@@ -15,7 +16,6 @@ import {
   type GrepPage,
   type GrepPageLimits,
 } from "./page";
-import { passageStartLine } from "./passages";
 import { spellGrepHostScopeLocator } from "./scope";
 import {
   startGrepWalk,
@@ -516,7 +516,7 @@ function cappedMark(state: ScanState, mark: CappedMark): void {
   if (cappedAt === undefined) return;
 
   const index = visible.findIndex(
-    (passage) => passageStartLine(passage.locator) === cappedAt,
+    (passage) => parsePassageLocator(passage.locator)?.startLine === cappedAt,
   );
 
   if (index === -1 || index >= emitted) return;
@@ -537,7 +537,7 @@ function exhaustedAt(
 ): number | undefined {
   if (resume?.truncated !== true || visible.length === 0) return undefined;
 
-  return passageStartLine(visible[0].locator);
+  return parsePassageLocator(visible[0].locator)?.startLine;
 }
 
 function stopAt(state: ScanState, kind: GrepWarningKind): boolean {

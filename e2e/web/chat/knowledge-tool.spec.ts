@@ -567,10 +567,11 @@ test.describe("personal Knowledge tools (browser, full stack)", () => {
     await expect(firstSearchDetails).toContainText(longNotePath);
     await expect(firstSearchDetails).toContainText(rangedSpace.id);
     await expect(firstSearchDetails).toContainText('"limit": 1');
-    // The result's `locator` is a ready `read` argument: a one-based
-    // inclusive `path:start-end` range, not the old zero-based offset/limit.
+    // The result's `locator` is a ready `read` argument: the canonical
+    // one-based inclusive `path:L<start>-<end>` range of the emitted window,
+    // not the old zero-based offset/limit.
     await expect(firstSearchDetails).toContainText(
-      `kb://${rangedSpace.id}/${longNotePath}:2-`,
+      `kb://${rangedSpace.id}/${longNotePath}:L2-4`,
     );
     await expect(firstSearchDetails).toContainText(
       "KNOWLEDGE_E2E_PAGED first passage",
@@ -589,7 +590,7 @@ test.describe("personal Knowledge tools (browser, full stack)", () => {
     await expect(secondSearchDetails).toContainText('"cursor":');
     await expect(secondSearchDetails).toContainText('"limit": 1');
     await expect(secondSearchDetails).toContainText(
-      `kb://${rangedSpace.id}/${longNotePath}:1102-`,
+      `kb://${rangedSpace.id}/${longNotePath}:L1102-1104`,
     );
     await expect(secondSearchDetails).toContainText(
       "KNOWLEDGE_E2E_PAGED second passage",
