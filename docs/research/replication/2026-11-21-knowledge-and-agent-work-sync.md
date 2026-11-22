@@ -6,10 +6,12 @@ tags: [replication, knowledge, workspaces, jujutsu, git]
 status: draft
 generated:
   by: "llame/system:codex:gpt-6-astra"
-  at: "2026-11-21"
+  at: "2026-11-22"
 observed:
   date: "2026-11-21"
   revision: "0dbed28362e1d6f6b804b15c2f540749d62af695"
+  knowledge_follow_up: "2026-11-22"
+  search_revision: "90a00babb2fabbcb67c38a4b3e193ab121309bf5"
 sources:
   - id: evidence
     resource: "./2026-11-21-knowledge-and-agent-work-sync.evidence.json"
@@ -30,7 +32,7 @@ sources:
   - id: knowledge
     resource: "https://github.com/leon0399/llame/blob/0dbed28362e1d6f6b804b15c2f540749d62af695/openspec/specs/knowledge-spaces/spec.md"
   - id: search
-    resource: "https://github.com/leon0399/llame/blob/0dbed28362e1d6f6b804b15c2f540749d62af695/apps/api/src/knowledge/knowledge-filesystem-search.ts"
+    resource: "https://github.com/leon0399/llame/blob/90a00babb2fabbcb67c38a4b3e193ab121309bf5/apps/api/src/knowledge/knowledge-filesystem.ts#L319-L345"
   - id: repositories
     resource: "https://github.com/leon0399/llame/blob/0dbed28362e1d6f6b804b15c2f540749d62af695/openspec/specs/repositories/spec.md"
   - id: mesh
@@ -103,10 +105,15 @@ The inspection found two owner-visible Knowledge Spaces. An older vault had 161
 inventoried Markdown files and no `.git` or `.jj`. The active vault had 292
 Markdown files outside VCS metadata and both metadata directories.[^evidence]
 
-The active vault used a Git remote named `forgejo`, not `origin`. Its detached
-HEAD diverged from cached `forgejo/master` by one commit on each side. However,
-local `master` matched cached `forgejo/master` exactly. HEAD divergence therefore
-does not establish that approved work needs pushing.[^evidence]
+The active vault uses a Git remote named `forgejo`, not `origin`. Local
+`master` is three commits behind live Forgejo `master`, with no local-only
+commits. Cached `forgejo/master` matches the live remote. All three remote
+commits already exist locally, so the comparison required no fetch.[^evidence]
+
+This establishes local branch lag, not necessarily stale working-copy files.
+The shared jj merge working copy can contain changes beyond `master`.
+The ref comparison and file inventory are separate observations, not an atomic
+snapshot of the repository.[^evidence]
 
 Git reported 30 status entries. The staged diff covered 25 files with 846
 insertions and 9 deletions. The unstaged diff covered four files with 415
@@ -117,9 +124,10 @@ The vault's documented workflow uses separate tracks and a merge working copy
 The `jj` executable was unavailable, so the live track graph and snapshot state
 were not inspected.[^evidence]
 
-A live remote-ref query failed SSH host-key verification. The inspection did
-not bypass that check. Cached remote refs cannot prove current Forgejo state,
-so live upstream freshness remains unknown.[^evidence]
+The live remote-ref query succeeded with SSH host verification enabled after
+the operator trusted the host. The inspection changed no trust configuration,
+refs, history, or working-copy files. Its result establishes remote state only
+at the recorded observation time.[^evidence]
 
 ### Search and identity are separate problems
 
@@ -128,14 +136,19 @@ contract does not require Git or initialize commits. A stable Knowledge Space
 identifier does not transfer installation-local authority or filesystem
 bindings.[^knowledge]
 
-The active vault's root listing succeeded. An unscoped Knowledge search returned
-`complete: false` and `knowledge_path_invalid` for that space, alongside results
-from the older vault.[^evidence]
+The active vault's root listing succeeds, but scoped Knowledge search fails
+with `knowledge_path_invalid`. A metadata-only inventory found 13 directory
+symlinks in a hidden skill directory and no invalid path names.[^evidence]
 
-The inspected search traversal validates paths and rejects symlinks. Its entry
-loop does not exclude `.git` and `.jj` directories. That is a diagnostic lead,
-not proof that VCS metadata caused the failure. The exact failing entry remains
-unknown.[^search]
+`processSearchEntry` throws on a symlink before testing the Markdown suffix.
+The filesystem walk identified the first symlink this traversal would reject.
+This explains the observed error without attributing it to `.git` or `.jj`.
+The diagnosis combines a reproduced tool error with filesystem and source
+inspection, not an instrumented trace of the deployed worker.[^search][^evidence]
+
+Search should skip symlinks without following them rather than require removal
+of valid skill links. This recommendation preserves the filesystem boundary.
+No traversal fix or KB mutation was performed.
 
 Repository identity currently derives its canonical remote from `origin`.
 A clone with only `forgejo` therefore lacks a canonical remote under that
@@ -335,9 +348,10 @@ proofs, benchmarks, or multi-Machine experiments were executed. No independent
 reviewer validated this study. Source inspection supports mechanism claims,
 not operational reliability or performance claims.
 
-Live Forgejo state, the jj track graph, the exact Knowledge search failure,
-and power-loss recovery remain unresolved. The evidence cannot establish that
-the owner's approved Knowledge is stale or that musubi permits safe VM teardown.
+The jj track graph, working-copy freshness relative to the live remote, and
+power-loss recovery remain unresolved. A local branch lag does not establish
+which files llame reads. The evidence does not establish that musubi permits
+safe VM teardown.
 
 ## Sources
 
@@ -359,7 +373,7 @@ the owner's approved Knowledge is stale or that musubi permits safe VM teardown.
 
 [^knowledge]: [Knowledge Space contract](https://github.com/leon0399/llame/blob/0dbed28362e1d6f6b804b15c2f540749d62af695/openspec/specs/knowledge-spaces/spec.md).
 
-[^search]: [Knowledge search traversal](https://github.com/leon0399/llame/blob/0dbed28362e1d6f6b804b15c2f540749d62af695/apps/api/src/knowledge/knowledge-filesystem-search.ts).
+[^search]: [Knowledge search traversal](https://github.com/leon0399/llame/blob/90a00babb2fabbcb67c38a4b3e193ab121309bf5/apps/api/src/knowledge/knowledge-filesystem.ts#L319-L345), inspected 2026-11-22.
 
 [^repositories]: [Repository contract](https://github.com/leon0399/llame/blob/0dbed28362e1d6f6b804b15c2f540749d62af695/openspec/specs/repositories/spec.md).
 

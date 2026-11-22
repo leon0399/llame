@@ -35,23 +35,43 @@
       "documented_approval": "Owner advances master. Pushing requires approval. Separate tracks feed a merge working copy.",
       "jj_graph_inspected": false,
       "jj_graph_blocker": "jj executable unavailable",
-      "live_remote_ref_query": "failed SSH host-key verification",
-      "host_key_check_bypassed": false,
-      "live_forge_freshness": "unknown",
+      "initial_git_observation_date": "2026-11-21",
+      "live_remote_observation": {
+        "observed_at": "2026-11-22T18:37:00Z",
+        "timestamp_precision": "minute",
+        "query": "git ls-remote forgejo HEAD refs/heads/master",
+        "exit_code": 0,
+        "host_key_check_bypassed": false,
+        "operator_confirmed_host_trusted": true,
+        "local_master_vs_live_master": { "ahead": 0, "behind": 3 },
+        "cached_remote_master_equals_live": true,
+        "remote_HEAD_equals_master": true,
+        "live_commit_available_locally": true,
+        "fetch_performed": false,
+        "working_copy_freshness": "not established",
+        "atomic_with_initial_git_observation": false
+      },
       "root_listing": "succeeded",
-      "unscoped_knowledge_search": {
-        "complete": false,
-        "warning": "knowledge_path_invalid",
-        "older_vault_results_returned": true,
-        "exact_failing_entry": "not identified",
-        "vcs_metadata_causality": "unproven"
+      "search_observation": {
+        "observed_at": "2026-11-22",
+        "scope": "active vault only",
+        "error": "knowledge_path_invalid",
+        "directory_symlinks": 13,
+        "symlink_location": "hidden skill directory",
+        "invalid_path_names": 0,
+        "first_rejected_entry_identified": true,
+        "private_entry_name_included": false,
+        "diagnosis": "Search traversal rejects a directory symlink before Markdown filtering.",
+        "basis": "Reproduced tool error, metadata-only filesystem walk, and source inspection. No deployed-worker instrumentation.",
+        "vcs_metadata_causality": "not established"
       }
     },
     "limitations": [
-      "Counts describe one inspection, not current state or product limits.",
-      "Cached remote refs do not establish live Forgejo freshness.",
+      "Top-level observed_at dates the original inspection. Nested observation dates identify subsequent probes.",
+      "Initial Git counts and the live remote comparison are not an atomic snapshot. Ref state changed between probes.",
+      "The live remote comparison establishes branch lag, not working-copy freshness.",
       "Git index and working-copy differences do not enumerate jj tracks.",
-      "No complete symlink inventory was established."
+      "The filesystem inventory counted directory symlinks without following targets."
     ]
   },
   "public_discovery": {
