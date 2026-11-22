@@ -449,54 +449,25 @@ the window. The tool MUST NOT report match columns, scores, or counts beyond
 
 ### Requirement: Scope backends fail closed per scheme
 
-A host scope on a process without accepted native host authority MUST fail as
-`executor_unavailable`. A `kb://` scope on a process without a configured
-Knowledge root MUST fail as `knowledge_space_unavailable`. A bare `kb://`
-scope for an owner with zero Spaces MUST fail as
-`knowledge_space_not_configured`. A bare `kb://` scope MUST check access to
-each Space again before the walk enters it.
+A host scope MUST run on the current Machine through the `fs.grep` protocol method, as a `machine://` scope on that Machine. A `kb://` scope on a process without a configured Knowledge root MUST fail as `knowledge_space_unavailable`. A bare `kb://` scope for an owner with zero Spaces MUST fail as `knowledge_space_not_configured`. A bare `kb://` scope MUST check access to each Space again before the walk enters it.
 
-A bare `skill://` scope on a Chat with no effective skill source names zero
-packages. The tool searches it, and it returns no passage and no failure. A
-`skill://<name>` scope there MUST fail as `not_found`, as `read` does. A
-`skill://` scope with no catalog snapshot MUST fail as
-`skill_catalog_unavailable`. A failure of one scope MUST fail the whole call.
-A partial result MUST NOT hide a scope that the tool did not search.
+A bare `skill://` scope on a Chat with no effective skill source names zero packages. The tool searches it, and it returns no passage and no failure. A `skill://<name>` scope there MUST fail as `not_found`, as `read` does. A `skill://` scope with no catalog snapshot MUST fail as `skill_catalog_unavailable`. A failure of one scope MUST fail the whole call. A partial result MUST NOT hide a scope that the tool did not search.
 
-A `machine://` scope MUST run on the named Machine through the `fs.grep`
-protocol method. The daemon MUST resolve the prefix through its registered
-roots. It MUST return `path_not_registered` for a prefix outside them, as
-`read` does. The daemon MUST walk, match, and bound the search locally under
-the rules of this capability.
+A `machine://` scope MUST run on the named Machine through the `fs.grep` protocol method. The daemon MUST resolve the prefix through its registered roots. It MUST return `path_not_registered` for a prefix outside them, as `read` does. The daemon MUST walk, match, and bound the search on its Machine under the rules of this capability.
 
-The request carries the file, entry, byte, and file-size bounds that are left
-for the call. An unset bound MUST travel as `null`, and the daemon then MUST
-apply no such bound. The daemon MUST stay inside each bound that the request
-sets. The request also carries whether the call progressed. The response
-carries whether the daemon walk progressed, as "A stop inside a file before
-progress names that file" defines progress.
+The request carries the file, entry, byte, and file-size bounds that are left for the call. An unset bound MUST travel as `null`, and the daemon then MUST apply no such bound. The daemon MUST stay inside each bound that the request sets. The request also carries whether the call progressed. The response carries whether the daemon walk progressed, as "A stop inside a file before progress names that file" defines progress.
 
-The request MUST give the daemon nine tenths of the time left to the call
-deadline. The daemon answer then arrives before the API stops the request. The
-API MUST stop the request at the call deadline.
+The request MUST give the daemon nine tenths of the time left to the call deadline. The daemon answer then arrives before the API stops the request. The API MUST stop the request at the call deadline.
 
-The daemon MUST return passages, excluded directories, and an unfinished
-file as paths relative to its display prefix only. The request carries a page
-budget that fits one protocol message. The API MUST ask for the next response
-after the daemon position of the previous response. A page of refused
-passages thus still advances the walk. It MUST ask again until the scope ends, the
-call stops, or the artifact bound cuts a daemon page. The API MUST apply the `read` group to each path that the
-daemon returns before the result names it.
+The daemon MUST return passages, excluded directories, and an unfinished file as paths relative to its display prefix only. The request carries a page budget that fits one protocol message. The API MUST ask for the next response after the daemon position of the previous response. A page of refused passages thus still advances the walk. It MUST ask again until the scope ends, the call stops, or the artifact bound cuts a daemon page. The API MUST apply the `read` group to each path that the daemon returns before the result names it.
 
-An unreachable or unknown Machine MUST fail the call with the Machine failure
-results that `read` uses. A daemon without the method MUST fail the call as
-Machine unusable. A daemon that refuses the request parameters MUST also fail
-the call as Machine unusable.
+An unreachable or unknown Machine MUST fail the call with the Machine failure results that `read` uses. The API MUST NOT walk a host scope in process. A daemon without the method MUST fail the call as Machine unusable. A daemon that refuses the request parameters MUST also fail the call as Machine unusable.
 
 #### Scenario: Host scope without an executor
 
-- **WHEN** a scope is `/srv/data/**` and the process has no accepted native host authority
-- **THEN** the tool returns `executor_unavailable`
+- **WHEN** a scope is `/srv/data/**` and the current Machine `devl` is unreachable
+- **THEN** the tool returns `machine_unavailable`
+- **AND** no directory is walked in the worker process
 
 #### Scenario: Knowledge scope without a root
 
@@ -558,26 +529,25 @@ the call as Machine unusable.
 - **WHEN** a daemon answers an `fs.grep` request with an invalid-parameters error
 - **THEN** the tool returns the Machine unusable result, not `invalid_input`
 
-### Requirement: The tool is advertised when a backend can serve
+#### Scenario: A host scope runs through the host Machine daemon
 
-The candidate resolver MUST admit `grep` when `tools.allowed` names it and
-at least one backend can serve. A backend can serve when the process holds
-accepted native host authority, a configured Knowledge root, a configured
-operator skill source, or a configured Machine. With no backend, the tool
-MUST stay unavailable. The packaged description MUST be a complete template
-under the tool-prompt-templates rules. `tools.grep` MUST be a true predicate
-when the tool is admitted.
+- **WHEN** the current Machine is the host Machine `devl` and a scope is `/srv/data/**`
+- **THEN** the `devl` Machine daemon does the walk and the match
+- **AND** each hit locator starts with `machine://devl/`
 
-#### Scenario: Knowledge root alone admits grep
+### Requirement: The tool is advertised whenever it is allowlisted
 
-- **WHEN** `tools.allowed` names `grep`, no native executor is accepted, and a Knowledge root is configured
+The candidate resolver MUST admit `grep` when `tools.allowed` names it. Startup MUST fail when `tools.allowed` names `grep` and `machines.default` is absent, so a Machine backend can always serve. The packaged description MUST be a complete template under the tool-prompt-templates rules. `tools.grep` MUST be a true predicate when the tool is admitted.
+
+#### Scenario: An allowlisted grep is advertised
+
+- **WHEN** `tools.allowed` names `grep` and `machines.default` is `devl`
 - **THEN** `grep` is advertised
-- **AND** a host scope still fails as `executor_unavailable`
 
-#### Scenario: No backend leaves grep unavailable
+#### Scenario: Grep without a default Machine fails startup
 
-- **WHEN** `tools.allowed` names `grep` and the process has no executor, no Knowledge root, no skill source, and no Machine
-- **THEN** `grep` is not advertised
+- **WHEN** `tools.allowed` names `grep`, a Knowledge root is configured, and `machines.default` is absent
+- **THEN** startup fails naming `machines.default`
 
 ### Requirement: Operator bounds limit a grep walk only when configured
 
@@ -746,26 +716,31 @@ ahead of a stop MUST NOT count as reached.
 
 ### Requirement: Ignore files from the scope and above it apply
 
-A host or Machine walk MUST apply `.ignore` files from the filesystem root
-down to each candidate. It MUST apply `.gitignore` files in the same way,
-under the repository limit of the next requirement. On a Machine, the walk
-starts at the registered root that holds the prefix. A deeper ignore file
+A host or Machine walk MUST apply `.ignore` files from the registered root that
+holds the prefix down to each candidate. It MUST apply `.gitignore` files in the
+same way, under the repository limit of the next requirement. On a Machine, the
+walk starts at the registered root that holds the prefix. A deeper ignore file
 outranks a shallower one. In one directory, `.ignore` outranks `.gitignore`.
 The walk MUST NOT take either file as a candidate of a directory scope.
 
 #### Scenario: A rule at the repository root applies to a narrower scope
 
-- **WHEN** `/home/u/repo/.git` exists, `/home/u/repo/.gitignore` names `dist/`, and a scope is `/home/u/repo/apps`
+- **WHEN** `/home/u` is the registered root, `/home/u/repo/.git` exists,
+  `/home/u/repo/.gitignore` names `dist/`, and a scope is `/home/u/repo/apps`
 - **THEN** the walk examines no file below `/home/u/repo/apps/web/dist`
 
 #### Scenario: An ignore file outside a repository applies
 
-- **WHEN** `/mnt/d/Projects/.ignore` names `.build-cache/` and a scope is `/mnt/d/Projects/Arduino`
-- **THEN** the walk examines no file below `/mnt/d/Projects/Arduino/libraries/.build-cache`
+- **WHEN** `/mnt/d/Projects` is the registered root,
+  `/mnt/d/Projects/.ignore` names `.build-cache/`, and a scope is
+  `/mnt/d/Projects/Arduino`
+- **THEN** the walk examines no file below
+  `/mnt/d/Projects/Arduino/libraries/.build-cache`
 
 #### Scenario: An ignore file is not searched
 
-- **WHEN** `/home/u/repo/.ignore` contains a match and a scope is `/home/u/repo`
+- **WHEN** `/home/u/repo/.ignore` contains a match and a scope is
+  `/home/u/repo`
 - **THEN** no passage names `/home/u/repo/.ignore`
 
 ### Requirement: A gitignore above the scope applies only in its repository

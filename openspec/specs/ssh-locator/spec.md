@@ -201,7 +201,7 @@ The hub MUST use the resolved text to evaluate the allow. All-fields rejects MUS
 
 #### Scenario: Local rule does not permit a remote path
 
-- **WHEN** the only `read` allow is `^/var/log/` and the model reads `ssh://box/var/log/syslog`
+- **WHEN** the only `read` allow is `^machine://[^/]+/var/log/` and the model reads `ssh://box/var/log/syslog`
 - **THEN** the hub refuses the call because no allow applies
 
 #### Scenario: Encoded spelling cannot go around a reject
@@ -212,7 +212,7 @@ The hub MUST use the resolved text to evaluate the allow. All-fields rejects MUS
 #### Scenario: Dot segments stay as written
 
 - **WHEN** the only `read` allow is `^ssh://box@box:22/var/log/` and the model reads `ssh://box/var/log/../../etc/shadow`
-- **THEN** the resolved locator keeps the `..` segments, and the allow matches, as for local and Machine paths
+- **THEN** the resolved locator keeps the `..` segments, and the allow matches, as for Machine paths
 
 #### Scenario: All-fields reject finds the resolved address
 
@@ -525,7 +525,7 @@ Native attempts, results, and events for `ssh://` operations MUST have the same 
 
 ### Requirement: ssh locators are prompt-import targets
 
-If the configuration has the `ssh` section and `read` in `tools.allowed`, an `ssh://` marker in a user prompt MUST be a prompt-import target. Such a target needs no native executor and no Knowledge root. The hub MUST read it once through `read` with system origin `prompt-import`, as for a web target, with no probe and no separate pre-evaluation. The read MUST use the same admission as a model call, and it MUST count toward the read and output bounds of prompt imports.
+If the configuration has the `ssh` section and `read` in `tools.allowed`, an `ssh://` marker in a user prompt MUST be a prompt-import target. Such a target needs no Machine and no Knowledge root. The hub MUST read it once through `read` with system origin `prompt-import`, as for a web target, with no probe and no separate pre-evaluation. The read MUST use the same admission as a model call, and it MUST count toward the read and output bounds of prompt imports.
 
 #### Scenario: ssh marker is imported
 
@@ -534,7 +534,8 @@ If the configuration has the `ssh` section and `read` in `tools.allowed`, an `ss
 
 #### Scenario: ssh marker needs no native executor
 
-- **WHEN** the configuration has the `ssh` section, no `tools.nativeExecutorId`, and `read` in `tools.allowed`, and the user writes an `ssh://` marker
+- **WHEN** the configuration has the `ssh` section and `read` in `tools.allowed`,
+  the current Machine is unreachable, and the user writes an `ssh://` marker
 - **THEN** the turn gets a `prompt-imports` item before the model request
 
 #### Scenario: Denied ssh marker is not imported
@@ -549,18 +550,18 @@ If the configuration has the `ssh` section and `read` in `tools.allowed`, an `ss
 
 ### Requirement: ssh locators extend local-only argument forms
 
-The `native-file-tools`, `bash-execution`, `tool-call-permissions`, `workspace-entry`, `tool-calling`, and `prompt-imports` capabilities change as follows for `ssh://` locators. Where one restricts an argument or root to a host path, or gates on a local executor identity, this capability replaces it. Where one forbids a model-selected executor or remote authority, only that clause changes: it applies to the local executor. Local and Machine behavior and the other clauses MUST stay the same.
+The `native-file-tools`, `bash-execution`, `tool-call-permissions`, `workspace-entry`, `tool-calling`, and `prompt-imports` capabilities change as follows for `ssh://` locators. One of them can restrict an argument or root to a path on a Machine, or gate on the current Machine. This capability then replaces that rule. Where one of them forbids a model-selected Machine or remote authority, only that clause changes: it applies to Machines. Machine behavior and the other clauses MUST stay the same.
 
 #### Scenario: Bash is offered without a local executor
 
-- **WHEN** the configuration has the `ssh` section and no `tools.nativeExecutorId`, and `bash` is in `tools.allowed`
+- **WHEN** the configuration has the `ssh` section, the worker has no `machines.local`, `machines.default` is `devl` with a `destination`, and `bash` is in `tools.allowed`
 - **THEN** `bash` is available to the model, and a command with an `ssh://` `cwd` runs on the remote host
-- **AND** a local `cwd` returns `executor_unavailable`
+- **AND** a bare `cwd` runs on `devl`
 
 #### Scenario: Local behavior stays the same
 
-- **WHEN** the configuration has the `ssh` section and the model reads an absolute local host path
-- **THEN** the read operates as before this change
+- **WHEN** the configuration has the `ssh` section and the model reads an absolute path
+- **THEN** the read operates on the current Machine, and the `ssh` section does not change it
 
 ### Requirement: ssh locators extend the local list and import rules
 

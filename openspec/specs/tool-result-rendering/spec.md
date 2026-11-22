@@ -704,11 +704,11 @@ it with one space.
 
 The artifact notice MUST be one bracketed line that names each part as
 `<locator> (<lines> lines)`, with a comma between two parts. A count of one
-MUST read `1 line`. A `grep` or
-`web_search` notice MUST add `; continue with <locator>:<next>-`. `<next>` is
-the artifact line after the last inline passage or result. A notice for
-host files MUST add `; host files in <directory>`, or `; host files on the
-llame host only`.
+MUST read `1 line`. A `grep` or `web_search` notice MUST add
+`; continue with <locator>:<next>-`. `<next>` is the artifact line after the
+last inline passage or result. A notice for artifact files MUST add
+`; host files in <locator>`, where `<locator>` is the `machine://` locator of
+the directory, or `; host files only on Machine <name>`.
 
 #### Scenario: A notice without a host file
 
@@ -727,8 +727,8 @@ llame host only`.
 
 #### Scenario: A notice with a host file
 
-- **WHEN** a `bash` artifact has two host files
-- **THEN** the notice names both parts with their line counts and then the absolute directory
+- **WHEN** a `bash` artifact has two files on the `machines.local` Machine `devl`
+- **THEN** the notice names both parts with their line counts and then the directory as a `machine://devl/...` locator
 
 ### Requirement: A grep passage cut at the inline bound names the artifact
 

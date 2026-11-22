@@ -162,7 +162,7 @@ This is the host form of the existing remote rule: a Machine resolves Workspace 
 against its own environment, and no hub value reaches it. From layer 5, a host Workspace MCP
 declaration that reads a variable only the worker defines becomes unavailable with the
 unset-variable diagnostic. The `mcp-tools` delta states this, and the ADR
-[The host Machine daemon child gets a base environment](../../../docs/adr/2026-11-20-host-daemon-child-gets-a-base-environment.md)
+[The host Machine daemon child gets a base environment](../../../../docs/adr/2026-11-20-host-daemon-child-gets-a-base-environment.md)
 records why (H18).
 
 A spawn failure (`ENOENT`, `EACCES`) is `unreachable`. A child exit is `session_lost`. Both map to

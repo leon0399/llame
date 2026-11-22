@@ -108,3 +108,80 @@ A malformed Workspace MCP file, an invalid server name or entry, an unsupported 
 - **WHEN** a Workspace MCP file is malformed or contains an invalid server name or entry
 - **THEN** Workspace entry succeeds
 - **AND** each affected server is reported unavailable rather than partially admitted
+
+### Requirement: Workspace MCP clients are isolated, generation-keyed, and lifecycle-managed per Chat
+
+Workspace MCP clients SHALL be owned by one Chat in the process executing that Chat's Run and SHALL be keyed by the tuple of Chat, canonical Workspace root, and integer binding generation. The binding generation SHALL increment on every enter that establishes a binding, switch, exit that clears a binding, or detach; a same-root re-entry and an exit on an unbound Chat leave it unchanged. One Chat's Workspace clients, discovered declarations, call state, and results SHALL never be used to serve another Chat or another owner. Workspace tools SHALL be resolved only from the current Chat's matching Workspace client set; they SHALL never be resolved for another Chat merely because server ids match.
+
+Workspace candidates and executors SHALL remain outside the process-wide operator MCP runtime. Attempt composition SHALL take Workspace candidates from the current Chat's client set for its `(chatId, canonical root, generation)` binding, apply shadowing per Chat, and layer that Chat's Workspace executors over the operator executors for the attempt.
+
+A Workspace client set SHALL start when the Chat enters the Workspace or, if it is not running in the current process, at the start of a Run for a bound Chat. At every attempt start, the executing process SHALL compare every client it holds for that Chat with the current binding, stop and discard each client whose Chat, canonical root, or generation does not match, and start clients keyed to the current binding before composing the Run's available tools. A process other than the one executing the binding change SHALL discard stale clients at its next attempt for that Chat or at the 30-minute idle timeout.
+
+Each new Workspace client start SHALL re-read the current Workspace MCP configuration and reapply interpolation. A same-root re-entry is a no-op success returning the current state; it SHALL neither restart clients nor re-read Workspace configuration. Exit, switch, and detach SHALL stop the old clients in the executing process after the new binding or clear commits; other processes SHALL discard them through the generation check. A subsequent Run for a still-bound Chat SHALL start its matching clients again before composing the Run's available tools. Failure to start or discover a Workspace server SHALL leave the Workspace binding intact and report that server as unavailable; it SHALL NOT fail Workspace entry or prevent unrelated tools from operating.
+
+Starting a Workspace MCP server SHALL NOT require a separate per-server permission check. Permission to enter the Workspace SHALL be the trust decision for reading and starting that Workspace's MCP configuration, including each later client start. This SHALL NOT waive the `tools.allowed` eligibility gate or `tools.permissions` authorization for any MCP tool call.
+
+#### Scenario: Entry starts clients for its Chat
+
+- **WHEN** a Chat successfully enters a Workspace containing a valid MCP server
+- **THEN** the executing process starts a Workspace MCP client keyed to that Chat, canonical root, and binding generation
+- **AND** the entry result reports that server's state
+
+#### Scenario: Bound Chat starts matching clients in a new process
+
+- **WHEN** a Run starts for a bound Chat whose matching Workspace clients are not running in that process
+- **THEN** that process discards any stale clients for the Chat
+- **AND** it starts clients keyed to the current binding before composing available tools
+
+#### Scenario: Generation mismatch discards stale clients in another process
+
+- **WHEN** another process holds Workspace clients for a Chat at an older root or binding generation and a later attempt observes a different current binding
+- **THEN** that process stops and discards the stale clients and their declarations
+- **AND** it starts only clients keyed to the current binding, if the Chat remains bound
+
+#### Scenario: Idle clients stop and restart on the next Run
+
+- **WHEN** a Chat has no Run in the executing process for 30 minutes and later runs again while still bound
+- **THEN** its idle Workspace clients have been stopped
+- **AND** its next Run re-reads Workspace configuration and starts a fresh matching client set before composing available tools
+
+#### Scenario: Exit, switch, and detach stop current clients
+
+- **WHEN** the Chat exits or switches Workspace, or detaches, and the new binding or clear commits with a new generation
+- **THEN** the executing process stops the clients for the previous binding and withdraws their tools
+- **AND** other processes discard those stale clients at their next attempt for the Chat or at the 30-minute idle timeout
+
+#### Scenario: Same-root re-entry preserves clients and configuration
+
+- **WHEN** a Chat is already bound to canonical root `machine://devl/workspace` and enters `machine://devl/workspace` again
+- **THEN** the operation succeeds with the current Workspace state
+- **AND** it does not restart clients or re-read Workspace configuration
+
+#### Scenario: A new client start re-reads Workspace configuration
+
+- **WHEN** a bound Chat needs a new client set after a process change, idle stop, or stale-generation discard
+- **THEN** the executing process reads the current Workspace MCP files before starting those clients
+- **AND** it does not reuse a prior process's configuration or declarations
+
+#### Scenario: Server start uses Workspace entry as the trust decision
+
+- **WHEN** `enter_workspace` permission is granted but no `tools.permissions` group authorizes a tool from a configured Workspace server
+- **THEN** the server may start and be reported as available
+- **AND** a call to its tool is rejected without an accepting permission
+
+#### Scenario: Chat B does not receive Chat A's Workspace tools
+
+- **WHEN** Chat A has started Workspace MCP clients and Chat B runs in the same process without those clients
+- **THEN** Chat B receives no Workspace declarations, clients, call state, or results belonging to Chat A
+- **AND** Chat B uses only its own eligible tools
+
+#### Scenario: Another owner does not receive Workspace clients
+
+- **WHEN** two different owners have Chats running in the same process
+- **THEN** neither owner's Workspace clients or tool state are available to the other owner's Chat
+
+#### Scenario: Chats with matching server ids use their own Workspace executors
+
+- **WHEN** Chat A and Chat B are bound to different Workspaces in one process and each Workspace defines server id `web` with an admitted tool of the same id
+- **THEN** Chat A's call to that tool is executed by Chat A's Workspace server and Chat B's call is executed by Chat B's Workspace server
+- **AND** neither Chat receives the other Chat's declaration, client, call state, result, or executor

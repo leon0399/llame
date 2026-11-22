@@ -92,11 +92,11 @@ An individual read MUST return the Project ID, name, description, archive state,
 
 ### Requirement: Repository details expose actionable registered locations
 
-Each linked repository MUST expose its ID, alias, display name, canonical remote, and primary flag. Each of its owner's registered checkouts MUST expose its ID, kind, parent ID, executor identity, and stored canonical locator. Local locators MUST be absolute paths. Machine locators MUST retain `machine://` authority. The read MUST NOT disclose another owner's checkouts.
+Each linked repository MUST expose its ID, alias, display name, canonical remote, and primary flag. Each of its owner's registered checkouts MUST expose its ID, kind, parent ID, executor identity, and stored canonical locator. Every stored locator MUST be the canonical Machine locator `machine://<name>/<absolute path>` of its Machine. This MUST apply to a checkout on the host Machine. The read MUST NOT disclose another owner's checkouts.
 
 #### Scenario: One repository has local and Machine checkouts
 
-- **WHEN** a linked repository has owner checkouts `/work/api` and `machine://nas/srv/api`
+- **WHEN** a linked repository has owner checkouts `machine://devl/work/api` and `machine://nas/srv/api`
 - **THEN** the detail returns both with their distinct executor identities
 - **AND** each location can serve as an explicit Workspace-entry target under existing policy
 

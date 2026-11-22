@@ -1,5 +1,5 @@
 Track [#1831](https://github.com/leon0399/llame/issues/1831) and its PR layers through
-[Project tracking](../../../CONTRIBUTING.md#project-tracking). Implementation waits for Leo's
+[Project tracking](../../../../CONTRIBUTING.md#project-tracking). Implementation waits for Leo's
 approval of the published proposal revision. Keep live status in the Project.
 
 ## Delivery stack
@@ -69,10 +69,15 @@ against its parent before publication.
     (spec 1 P1, 1 P2; feasibility 7 P2) fixed in `d827c21ac`. Design revision history v2 and v3
     record them. Round 2 still changed substance, so the review has not converged, and the GitHub
     review loop is the next round.
-- [ ] 1.3 Resolve H19 with Leo, and update the deltas if he switches H4 or overturns H18.
-- [ ] 1.4 Self-review the published draft PR (SR), mark it ready, and run the GitHub review loop
-      (GR) per [CONTRIBUTING.md](../../../CONTRIBUTING.md#pr-contract).
-- [ ] 1.5 Obtain Leo's approval of the published revision.
+- [x] 1.3 Resolve H19 with Leo, and update the deltas if he switches H4 or overturns H18.
+  - Evidence: H19 had no answer when delivery started. Leo delegated decisions during his absence,
+    so H4 A and H18 stay as merged: every native tool needs `machines.default`, and the host daemon
+    child gets only a base environment. No delta changed. Leo can overturn this before the merge.
+- [x] 1.4 Self-review the published draft PR (SR), mark it ready, and run the GitHub review loop
+      (GR) per [CONTRIBUTING.md](../../../../CONTRIBUTING.md#pr-contract).
+  - Evidence: proposal PR #1836 went through SR and GR and merged into `master` as `31274999d`.
+- [x] 1.5 Obtain Leo's approval of the published revision.
+  - Evidence: CONTRIBUTING.md treats a proposal committed to `master` as approved; #1836 merged.
 
 ## 2. daemon-identity
 
@@ -104,7 +109,9 @@ against its parent before publication.
 - [x] 2.6 Focused checks: `pnpm --filter machine test`, `pnpm --filter api lint`,
       `pnpm --filter api typecheck`, the changed test files, OpenAPI lint and second-generation
       clean diff, `pnpm format:check`, `git diff --check`.
-- [ ] 2.7 SR before ready; GR per [CONTRIBUTING.md](../../../CONTRIBUTING.md#ready-pr-monitoring).
+- [x] 2.7 SR before ready; GR per [CONTRIBUTING.md](../../../../CONTRIBUTING.md#ready-pr-monitoring).
+  - Evidence: #1871. Local correctness, security, and simplification reviews; GitHub review threads
+    resolved; CI and the mutation gate green.
 
 ## 3. host-machine
 
@@ -165,7 +172,9 @@ against its parent before publication.
 - [x] 3.14 Focused checks: `pnpm --filter api lint`, `pnpm --filter api typecheck`, the changed
       test files, the API integration suite for the migration, `pnpm lint:markdown`,
       `pnpm format:check`, `git diff --check`.
-- [ ] 3.15 SR before ready; GR per [CONTRIBUTING.md](../../../CONTRIBUTING.md#ready-pr-monitoring).
+- [x] 3.15 SR before ready; GR per [CONTRIBUTING.md](../../../../CONTRIBUTING.md#ready-pr-monitoring).
+  - Evidence: #1872. Local reviews fixed in `53a7e5d55`; GitHub review threads resolved; CI and the
+    mutation gate green.
 
 ## 4. file-tools
 
@@ -182,7 +191,9 @@ against its parent before publication.
 - [x] 4.4 Docs: `native-files.md` and the tool reference pages, and a dated `CHANGELOG.md` entry
       that names the newly refused host calls.
 - [x] 4.5 Focused checks as in 3.14.
-- [ ] 4.6 SR before ready; GR per [CONTRIBUTING.md](../../../CONTRIBUTING.md#ready-pr-monitoring).
+- [x] 4.6 SR before ready; GR per [CONTRIBUTING.md](../../../../CONTRIBUTING.md#ready-pr-monitoring).
+  - Evidence: #1874. Local reviews and two GitHub review rounds fixed; surviving mutants killed;
+    CI and the mutation gate green.
 
 ## 5. git
 
@@ -203,7 +214,9 @@ against its parent before publication.
     `workspace-git-state` delta moves the plain-folder answer to "no repository inside the
     registered root" and drops the "not a git repository" line, and `git-state.md` matches it.
 - [x] 5.3 Focused checks as in 3.14.
-- [ ] 5.4 SR before ready; GR per [CONTRIBUTING.md](../../../CONTRIBUTING.md#ready-pr-monitoring).
+- [x] 5.4 SR before ready; GR per [CONTRIBUTING.md](../../../../CONTRIBUTING.md#ready-pr-monitoring).
+  - Evidence: #1875. Local reviews fixed; GitHub review thread resolved; CI and the mutation gate
+    green.
 
 ## 6. workspace-context
 
@@ -247,21 +260,28 @@ against its parent before publication.
 - [x] 6.5 Docs: `skills.md`, `mcp-tools.md`, the instruction-file and prompt-import references,
       and a dated `CHANGELOG.md` entry.
 - [x] 6.6 Focused checks as in 3.14.
-- [ ] 6.7 SR before ready; GR per [CONTRIBUTING.md](../../../CONTRIBUTING.md#ready-pr-monitoring).
+- [x] 6.7 SR before ready; GR per [CONTRIBUTING.md](../../../../CONTRIBUTING.md#ready-pr-monitoring).
       This PR carries `Closes #1831`.
+  - Evidence: #1878. Local reviews fixed; GitHub review threads resolved; surviving mutants killed;
+    CI and the mutation gate green.
 
 ## 7. finalize
 
 Enter `host-as-machine/finalize` from `host-as-machine/workspace-context` with `$gh-stack` before
 `$openspec-sync-specs` writes.
 
-- [ ] 7.1 Run `$openspec-sync-specs`, inspect `openspec status --change host-as-machine --json`
+- [x] 7.1 Run `$openspec-sync-specs`, inspect `openspec status --change host-as-machine --json`
       and this file, and stop on any incomplete artifact or unchecked task.
+  - Evidence: 17 deltas synced; a block-by-block check against `HEAD` plus each delta passes for
+    every capability.
 
-- [ ] 7.2 Check MODIFIED requirements and cross-capability wording for semantic consistency, then
+- [x] 7.2 Check MODIFIED requirements and cross-capability wording for semantic consistency, then
       run `pnpm exec openspec validate --specs --strict` and
       `pnpm exec openspec validate --all --strict`.
-- [ ] 7.3 Run `$openspec-archive-change` after readiness is proved.
+  - Evidence: the sweep found five contradictions. Three are fixed by MODIFIED deltas in
+    `project-discovery`, `mcp-tools`, and `workspace-git-state`. The `bash-execution` and
+    `remote-machines` Purpose text goes to the design D13 chore. Both strict validations pass.
+- [x] 7.3 Run `$openspec-archive-change` after readiness is proved.
 
 SR and GR for finalize follow archive movement, as post-archive gates. After the merge, a separate
 chore PR moves `openspec/specs/remote-machines` to `openspec/specs/machines`, rewrites its Purpose

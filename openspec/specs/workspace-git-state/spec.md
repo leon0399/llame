@@ -22,18 +22,20 @@ Chat MUST get no `git` item and no git call.
 
 #### Scenario: A bound Chat gets git state
 
-- **WHEN** a Chat is bound to `/home/dev/src/llame` and starts its first Run
+- **WHEN** a Chat is bound to `machine://devl/home/dev/src/llame` and starts its first Run
 - **THEN** the first model request carries one `git` item for that root
 
 ### Requirement: The git entry is found without a git process
 
 The system MUST find the git entry before any git process starts. The git entry
-MUST be the nearest `.git` directory or `.git` file at or above the root. When
-no entry exists, the result MUST be "not a git repository".
+MUST be the nearest `.git` directory or `.git` file at or above the root, inside
+the registered root. When no entry exists inside the registered root, the result
+MUST be "no repository inside the registered root".
 
 #### Scenario: A subdirectory root finds the repository entry
 
-- **WHEN** the root is `/home/dev/src/mono/apps/api` and `/home/dev/src/mono/.git` exists
+- **WHEN** the registered root is `/home/dev/src/mono`, the root is
+  `/home/dev/src/mono/apps/api`, and `/home/dev/src/mono/.git` exists
 - **THEN** the git entry is `/home/dev/src/mono/.git`
 
 #### Scenario: A linked worktree uses its own `.git` file
@@ -43,8 +45,10 @@ no entry exists, the result MUST be "not a git repository".
 
 #### Scenario: A plain folder is not a repository
 
-- **WHEN** no `.git` entry exists at or above a local root
-- **THEN** the result is "not a git repository" and no git process starts
+- **WHEN** no `.git` entry exists at or above a Workspace root inside its
+  registered root
+- **THEN** the result is "no repository inside the registered root" and no git
+  process starts
 
 ### Requirement: Git processes use only the admitted git entry
 
@@ -342,9 +346,9 @@ that holds such text MUST state the precedence of third-party content.
 
 ### Requirement: Absence lines are fixed messages
 
-When the system cannot observe git state, it MUST tell one fixed line. The line
-MUST be "not a git repository", or "git state unavailable:" and one reason from
-the closed list of the next requirement.
+When the system cannot observe git state, it MUST tell one fixed line:
+"git state unavailable:" and one reason from the closed list of the next
+requirement.
 
 #### Scenario: An offline Machine is reported
 
