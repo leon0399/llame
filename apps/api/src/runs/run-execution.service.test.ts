@@ -2196,6 +2196,187 @@ describe('RunExecutionService executeRun', () => {
       rmSync(root, { recursive: true, force: true });
     }
   });
+  it('installs an entered Machine root skill catalog for the following reads', async () => {
+    const root = realpathSync(mkdtempSync(path.join(tmpdir(), 'entry-skill-')));
+    const packageDir = path.join(root, '.agents', 'skills', 'pdf');
+
+    mkdirSync(packageDir, { recursive: true });
+    writeFileSync(
+      path.join(packageDir, 'SKILL.md'),
+      '---\nname: pdf\ndescription: PDF skill\n---\n# PDF instructions\n',
+    );
+
+    try {
+      mockNormalExecutionRepositories();
+      vi.spyOn(
+        WorkspaceBindingRepository.prototype,
+        'isCurrentDelivery',
+      ).mockResolvedValue(true);
+      vi.spyOn(WorkspaceBindingRepository.prototype, 'enter').mockResolvedValue(
+        {
+          status: 'bound',
+          previousRoot: null,
+          generation: 1,
+        },
+      );
+      vi.spyOn(ChatsRepository.prototype, 'findById').mockResolvedValue(chat);
+
+      const { client } = createToolLoopClient([
+        providerToolCallInput('enter_workspace', 'enter-skill', {
+          path: root,
+          i: 'Entering the workspace',
+        }),
+        providerToolCallInput('read', 'read-skill', {
+          path: 'skill://pdf/SKILL.md',
+          i: 'Reading the skill',
+        }),
+        providerText('answer'),
+      ]);
+
+      const append = vi.spyOn(RunEventsRepository.prototype, 'append');
+
+      const execution = makeExecutionService(client, undefined, 'host-a', {
+        allowed: ['enter_workspace', 'read'],
+        permissionPolicy: compileTestPermissionPolicy([
+          'enter_workspace',
+          'read',
+        ]),
+        machineConnector: machineFilesConnector({ roots: ['/'] }),
+        skillCatalog: new SkillCatalog([]),
+        skillDirectories: [],
+      });
+
+      const result = await execution.service.executeRun(executionInput(client));
+
+      await expect(result.text).resolves.toBe('answer');
+
+      // The fetch of the next step reads through the catalog the entry
+      // installed, so the Workspace package resolves on its Machine.
+      const readCompleted = append.mock.calls.flatMap(
+        ([, eventType, payload]) =>
+          eventType === 'tool.completed' &&
+          isRecord(payload) &&
+          payload['toolCallId'] === 'read-skill'
+            ? [payload]
+            : [],
+      );
+
+      expect(readCompleted).toHaveLength(1);
+      expect(readCompleted[0]).toMatchObject({ status: 'success' });
+      expect(JSON.stringify(readCompleted[0])).toContain('# PDF instructions');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('keeps a per-root Machine skill snapshot between entries', async () => {
+    const first = realpathSync(
+      mkdtempSync(path.join(tmpdir(), 'entry-cached-')),
+    );
+
+    const second = realpathSync(
+      mkdtempSync(path.join(tmpdir(), 'entry-other-')),
+    );
+
+    for (const [directory, name] of [
+      [first, 'pdf'],
+      [second, 'beta'],
+    ] as const) {
+      const packageDir = path.join(directory, '.agents', 'skills', name);
+
+      mkdirSync(packageDir, { recursive: true });
+      writeFileSync(
+        path.join(packageDir, 'SKILL.md'),
+        `---\nname: ${name}\ndescription: ${name} skill\n---\n# ${name}\n`,
+      );
+    }
+
+    try {
+      mockNormalExecutionRepositories();
+      vi.spyOn(
+        WorkspaceBindingRepository.prototype,
+        'isCurrentDelivery',
+      ).mockResolvedValue(true);
+      vi.spyOn(WorkspaceBindingRepository.prototype, 'enter').mockResolvedValue(
+        {
+          status: 'bound',
+          previousRoot: null,
+          generation: 1,
+        },
+      );
+      vi.spyOn(ChatsRepository.prototype, 'findById').mockResolvedValue(chat);
+
+      const { client } = createToolLoopClient([
+        providerToolCallInput('enter_workspace', 'enter-first', {
+          path: first,
+          i: 'Entering the first workspace',
+        }),
+        providerToolCallInput('enter_workspace', 'enter-second', {
+          path: second,
+          i: 'Entering the second workspace',
+        }),
+        providerToolCallInput('enter_workspace', 'enter-first-again', {
+          path: first,
+          i: 'Entering the first workspace again',
+        }),
+        providerToolCallInput('read', 'read-first', {
+          path: 'skill://pdf/SKILL.md',
+          i: 'Reading the skill',
+        }),
+        providerText('answer'),
+      ]);
+
+      const append = vi.spyOn(RunEventsRepository.prototype, 'append');
+      const connector = machineFilesConnector({ roots: ['/'] });
+
+      const execution = makeExecutionService(client, undefined, 'host-a', {
+        allowed: ['enter_workspace', 'read'],
+        permissionPolicy: compileTestPermissionPolicy([
+          'enter_workspace',
+          'read',
+        ]),
+        machineConnector: connector,
+        skillCatalog: new SkillCatalog([]),
+        skillDirectories: [],
+      });
+
+      const result = await execution.service.executeRun(executionInput(client));
+
+      await expect(result.text).resolves.toBe('answer');
+
+      // One snapshot read per root: the third entry reuses the first root's.
+      expect(
+        connector.peer.sessions
+          .flatMap((session) => session.calls)
+          .filter(
+            (call) =>
+              call.method === 'fs.list' &&
+              isRecord(call.params) &&
+              isString(call.params['path']) &&
+              /\/\.(?:claude|agents|llame)\/skills$/u.test(call.params['path']),
+          ),
+      ).toHaveLength(6);
+
+      // The re-entry installs the first root's snapshot again, so its package
+      // resolves, not the root entered between.
+      const readCompleted = append.mock.calls.flatMap(
+        ([, eventType, payload]) =>
+          eventType === 'tool.completed' &&
+          isRecord(payload) &&
+          payload['toolCallId'] === 'read-first'
+            ? [payload]
+            : [],
+      );
+
+      expect(readCompleted).toHaveLength(1);
+      expect(readCompleted[0]).toMatchObject({ status: 'success' });
+      expect(JSON.stringify(readCompleted[0])).toContain('# pdf');
+    } finally {
+      rmSync(first, { recursive: true, force: true });
+      rmSync(second, { recursive: true, force: true });
+    }
+  });
+
   it('detaches when the executing worker has no Machine at all', async () => {
     await executeWorkspaceDetachCase({
       reason: 'executor_absent',
@@ -8798,6 +8979,18 @@ function providerResponse(
 function providerToolCall(toolName: string, toolCallId: string) {
   return providerResponse(
     [{ type: 'tool-call', toolCallId, toolName, input: '{}' }],
+    'tool-calls',
+  );
+}
+
+/** A scripted native tool call, whose input the tool's schema must accept. */
+function providerToolCallInput(
+  toolName: string,
+  toolCallId: string,
+  input: UnknownRecord,
+) {
+  return providerResponse(
+    [{ type: 'tool-call', toolCallId, toolName, input: JSON.stringify(input) }],
     'tool-calls',
   );
 }

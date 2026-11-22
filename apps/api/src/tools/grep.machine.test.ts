@@ -32,6 +32,7 @@ import {
   type MachineConnectorDeps,
 } from '../machines/machine-connector.service';
 import { type MachineStatusView } from '../machines/machines-status';
+import { type SkillCatalogPort } from '../skills/skill-catalog';
 import {
   createProtocolPeer,
   type PeerAnswer,
@@ -633,7 +634,101 @@ describe('Machine grep', () => {
     expect(locatorsOf(result)).toEqual([]);
     expect(JSON.stringify(result)).not.toContain('creds');
   });
+
+  it('probes an exact Machine skill file under its skill locator', async () => {
+    const { peer, connector } = fixture({
+      answers: { 'fs.stat': { value: { kind: 'file', isLink: false } } },
+    });
+
+    const result = await run(
+      context(connector, {
+        workspaceRoot: createWorkspaceRootCell('machine://devl/home/me/shop'),
+        skillCatalog: machineSkillCatalog(),
+        permissionPolicy: compileToolPermissionMap(
+          {
+            grep: { allow: true },
+            read: {
+              allow: true,
+              // The exact file, not the package: only the spelling the probe
+              // admits can refuse it.
+              reject: [{ field: 'path', regex: '^skill://pdf/SKILL\\.md$' }],
+            },
+          },
+          'test',
+        ),
+      }),
+      { patterns: ['needle'], scopes: ['skill://pdf/SKILL.md'] },
+    );
+
+    expect(result).toEqual({
+      status: 'error',
+      type: 'not_found',
+      message: 'The target does not exist.',
+    });
+    // The probe settled it; the daemon never searched the file.
+    const session = await peer.session(0);
+    expect(session.calls.map((call) => call.method)).toEqual(['fs.stat']);
+  });
+
+  it('probes an exact Machine skill file under its bare path', async () => {
+    const { peer, connector } = fixture({
+      answers: { 'fs.stat': { value: { kind: 'file', isLink: false } } },
+    });
+
+    const result = await run(
+      context(connector, {
+        workspaceRoot: createWorkspaceRootCell('machine://devl/home/me/shop'),
+        skillCatalog: machineSkillCatalog(),
+        permissionPolicy: compileToolPermissionMap(
+          {
+            grep: { allow: true },
+            read: {
+              allow: true,
+              reject: [
+                {
+                  field: 'path',
+                  regex: String.raw`^/home/me/shop/\.agents/skills/pdf/SKILL\.md$`,
+                },
+              ],
+            },
+          },
+          'test',
+        ),
+      }),
+      { patterns: ['needle'], scopes: ['skill://pdf/SKILL.md'] },
+    );
+
+    expect(result).toEqual({
+      status: 'error',
+      type: 'not_found',
+      message: 'The target does not exist.',
+    });
+    const session = await peer.session(0);
+    expect(session.calls.map((call) => call.method)).toEqual(['fs.stat']);
+  });
 });
+
+/** One Workspace package on `devl`, as the attempt's catalog publishes it. */
+function machineSkillCatalog(): SkillCatalogPort {
+  return {
+    getSnapshot: () => ({
+      available: true,
+      directories: [],
+      entries: [
+        {
+          name: 'pdf',
+          description: null,
+          proactive: true,
+          sourceDirectory: 'machine://devl/home/me/shop/.agents/skills',
+          skillDirectory: 'machine://devl/home/me/shop/.agents/skills/pdf',
+          available: true,
+          diagnostics: [],
+        },
+      ],
+      diagnostics: [],
+    }),
+  };
+}
 
 /** The bounds one request carried, as the peer received it. */
 function boundsOf(params: JsonValue | undefined): SerializableRecord {
@@ -977,6 +1072,24 @@ describe('Machine scope addresses', () => {
       type: 'invalid_path',
       message: 'Machine locators are not available on this process.',
     });
+  });
+
+  it('reports an unconfigured Machine before probing the daemon', async () => {
+    const { peer, connector } = fixture();
+
+    const result = await run(context(connector), {
+      patterns: ['needle'],
+      // A glob-free scope is probed before the walk, so a Machine this
+      // process does not name must be reported before that probe.
+      scopes: ['machine://nope/srv/app/a.go'],
+    });
+
+    expect(result).toEqual({
+      status: 'error',
+      type: 'machine_not_found',
+      message: 'No Machine named "nope" is configured.',
+    });
+    expect(peer.sessions).toHaveLength(0);
   });
 
   it('reports an unconfigured Machine without reaching it', async () => {

@@ -852,6 +852,23 @@ describe('WorkspaceMcpClients in a read-only attempt', () => {
     await runtime.stop();
   });
 
+  it('reports one unavailable server for a root that names no Machine', async () => {
+    const { runtime } = operatorRuntime();
+    const provider = new WorkspaceMcpClients(runtime);
+
+    const servers = await provider.listUnstarted(key('chat-1', '/plain/root'));
+
+    expect(servers).toEqual([
+      {
+        id: 'workspace',
+        state: 'unavailable',
+        reason: 'Workspace MCP configuration unavailable',
+      },
+    ]);
+    await provider.onModuleDestroy();
+    await runtime.stop();
+  });
+
   it('keeps a cached client set for the same key', async () => {
     const { runtime } = operatorRuntime();
 

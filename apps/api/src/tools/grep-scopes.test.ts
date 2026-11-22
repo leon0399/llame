@@ -456,6 +456,22 @@ describe('resolveScopes', () => {
     ).toMatchObject({ machines: [{ name: 'gpu', path: '/srv/a[b]' }] });
   });
 
+  it('refuses a package directory that is not an absolute host path', async () => {
+    const outcome = await resolveScopes(
+      contextOf({ catalog: catalogOf([packageEntry('pdf', 'relative/pdf')]) }),
+      ['skill://pdf'],
+      admission,
+    );
+
+    expect(outcome).toEqual({
+      result: {
+        status: 'error',
+        type: 'skill_unavailable',
+        message: 'The skill package is unavailable.',
+      },
+    });
+  });
+
   it('leaves a package that lives on another Machine to its daemon', async () => {
     const peer = createProtocolPeer({
       answers: { 'fs.stat': { value: { kind: 'directory', isLink: false } } },
