@@ -147,14 +147,6 @@ export class GitStateUnboundResponse {
   status!: 'unbound';
 }
 
-export class GitStateNotARepositoryResponse {
-  @ApiProperty({ enum: ['not_a_repository'] })
-  status!: 'not_a_repository';
-
-  @ApiProperty({ description: '`not a git repository`' })
-  line!: string;
-}
-
 export class GitStateUnavailableResponse {
   @ApiProperty({ enum: ['unavailable'] })
   status!: 'unavailable';
@@ -169,13 +161,11 @@ export class GitStateUnavailableResponse {
 export type GitStateResponse =
   | GitStateOkResponse
   | GitStateUnboundResponse
-  | GitStateNotARepositoryResponse
   | GitStateUnavailableResponse;
 
 export const GIT_STATE_RESPONSE_MODELS = [
   GitStateOkResponse,
   GitStateUnboundResponse,
-  GitStateNotARepositoryResponse,
   GitStateUnavailableResponse,
 ];
 
@@ -189,7 +179,6 @@ export const GIT_STATE_RESPONSE_SCHEMA = {
     mapping: {
       ok: getSchemaPath(GitStateOkResponse),
       unbound: getSchemaPath(GitStateUnboundResponse),
-      not_a_repository: getSchemaPath(GitStateNotARepositoryResponse),
       unavailable: getSchemaPath(GitStateUnavailableResponse),
     },
   },
@@ -261,11 +250,6 @@ export function toGitStateResponse(
   switch (observation.kind) {
     case 'state':
       return { status: 'ok', ...okFields(observation.view) };
-    case 'not_a_repository':
-      return {
-        status: 'not_a_repository',
-        line: renderGitObservation(observation),
-      };
     case 'unavailable':
       return {
         status: 'unavailable',

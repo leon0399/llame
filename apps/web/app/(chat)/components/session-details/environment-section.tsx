@@ -38,7 +38,6 @@ import { MACHINE_FAILURE_LABELS } from "@/lib/services/machines/labels";
 import { machinePathFromRoot } from "@/lib/services/machines/locator";
 import type { MachineResponse } from "@/lib/services/machines/queries";
 import type {
-  GitStateNotARepositoryResponse,
   GitStateOkResponse,
   GitStateUnavailableResponse,
   GitStateUnboundResponse,
@@ -65,7 +64,6 @@ export type EnvironmentGitState =
   | { status: "error" }
   | GitStateOkResponse
   | GitStateUnboundResponse
-  | GitStateNotARepositoryResponse
   | GitStateUnavailableResponse;
 
 export interface EnvironmentSectionProps {
@@ -412,7 +410,6 @@ function GitStateRows({
       );
     case "unbound":
       return null;
-    case "not_a_repository":
     case "unavailable":
       return <BranchRow label={gitState.line} muted worktree={worktree} />;
     case "ok":

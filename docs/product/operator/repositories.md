@@ -65,15 +65,18 @@ The Machine is derived from the submitted path. An absolute path resolves on
 `machine://<name>/<absolute path>` locator names its Machine. The row stores the
 canonical `machine://` locator — the same text a Chat's bound root
 carries — with the Machine name as its executor. A locator that names no
-configured Machine answers `executor_unavailable` and starts no git call. On a
-Machine that a worker reaches through its daemon, a
-git result path outside every registered root is the daemon's refusal, so the
-route answers `403` `permission_denied` and stores no row.
+configured Machine answers `executor_unavailable` and starts no git call. Every
+Machine, the host Machine included, runs its git on its daemon, so a result path
+outside that daemon's registered roots is its refusal: the route answers `403`
+`permission_denied` and stores no row.
 
-A Machine must run a daemon that answers the typed git methods; see
+Every Machine must run a daemon that answers the typed git methods, the host
+Machine's own included; see
 [remote Machines](machines.md#install-the-daemon). Registration on a Machine
 whose daemon predates them answers `503` `machine_update_required` and stores
-no row, while every other Machine operation keeps working.
+no row, while every other Machine operation keeps working. An unavailable host
+daemon answers `503` `machine_unavailable` and starts no git process in the API
+or the worker.
 
 ## The API
 
@@ -156,8 +159,8 @@ or `machine_update_required`.
 
 ### The typed git surface
 
-Every Machine daemon answers six typed methods, and no owner or model string ever
-becomes a command line:
+Every Machine daemon, the host Machine's included, answers six typed methods,
+and no owner or model string ever becomes a command line:
 
 | Method               | Inputs                                     | Answer                                                                        |
 | -------------------- | ------------------------------------------ | ----------------------------------------------------------------------------- |
@@ -174,10 +177,15 @@ has a timeout. A value that starts with `-` is refused as invalid input before
 git starts, and every path must be absolute. A failure is typed and carries the
 bounded, redacted standard error.
 
-On a Machine, every path in an answer is a locator, and each registered-root
-prefix in a failure's standard error is rewritten to the locator form, so a host
-path for a registered root never reaches the hub. The handshake lists the git
-methods a daemon answers.
+On every Machine, the host Machine included, each path in an answer is a
+locator, and each registered-root prefix in a failure's standard error is
+rewritten to the locator form, so a host path for a registered root never
+reaches the hub. The handshake lists the git methods a daemon answers. llame's
+own git calls run on a Machine's daemon, never in the API or a worker: host
+registration, git state, and worktree calls run on the host Machine's own
+daemon, under the same argv, environment, timeout, and root enforcement as a
+remote Machine. Model `bash` commands and background jobs still run git in the
+worker, on the host Machine's files.
 
 ### Hooks, monitors, and filter drivers
 
@@ -222,9 +230,9 @@ linked worktree of it: the source is the main tree git reports.
   canonical form, the main clone git reports, and the canonical worktree
   directory. The directory is resolved through its deepest existing ancestor, so
   a symlinked `.llame-worktrees` decides where it really lands, and a reject on
-  any of the four refuses the call before the write it guards. On a Machine the
-  daemon's registered roots bound the directory, and a path outside them fails
-  as `path_not_registered`.
+  any of the four refuses the call before the write it guards. On every
+  Machine, the host Machine included, the daemon's registered roots bound the
+  directory, and a path outside them fails as `path_not_registered`.
 - **Order.** The worker records a `native.attempt` with the `worktree` operation
   before `git worktree add`, and the checkout, the lease, the adopted rows, the
   attempt's result, and the bound root commit in one transaction. A failed

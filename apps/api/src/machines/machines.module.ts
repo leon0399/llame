@@ -15,11 +15,7 @@ import { Logger, Module } from '@nestjs/common';
 import { InstanceConfigService } from '../instance-config/instance-config.service';
 import { QueueModule } from '../queue/queue.module';
 
-import {
-  ExecutorGit,
-  LOCAL_GIT,
-  localGitSurface,
-} from './executor-git.service';
+import { ExecutorGit } from './executor-git.service';
 import { MachineBindingsRepository } from './machine-bindings.repository';
 import { MachineConnector } from './machine-connector.service';
 import { MachinesController } from './machines.controller';
@@ -58,11 +54,6 @@ import { MachinesStatusRepository } from './machines-status.repository';
           logger,
         });
       },
-    },
-    {
-      provide: LOCAL_GIT,
-      // The in-process git surface, substituted wholesale by a suite.
-      useValue: localGitSurface(),
     },
     ExecutorGit,
     MachineBindingsRepository,

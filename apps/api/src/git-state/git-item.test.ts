@@ -89,7 +89,7 @@ describe('gitToldState', () => {
   });
 
   it('is the text of the last git item', () => {
-    const first = git({ kind: 'not_a_repository' });
+    const first = git({ kind: 'unavailable', reason: 'no_repository_in_root' });
     const last = git(STATE);
 
     expect(told(first, { type: 'text', text: 'hi' }, last)).toBe(
@@ -191,7 +191,7 @@ describe('gitToldState', () => {
   });
 
   it('tells the new item after an entry that bound the root', () => {
-    const after = git({ kind: 'not_a_repository' });
+    const after = git({ kind: 'unavailable', reason: 'no_repository_in_root' });
 
     expect(told(git(STATE), entry('switched'), after)).toBe(after.data.text);
   });

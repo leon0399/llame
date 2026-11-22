@@ -2,11 +2,7 @@ import { type GitStateSuccess } from '@workspace/machine-protocol';
 
 import { normalizeGitState } from './git-state-normalize';
 import { quoteGitPath, renderGitObservation } from './git-state-render';
-import {
-  GIT_ABSENCE_LABELS,
-  type GitAbsenceReason,
-  type GitObservation,
-} from './git-state-view';
+import { GIT_ABSENCE_LABELS, type GitAbsenceReason } from './git-state-view';
 
 const BASE: GitStateSuccess = {
   status: 'ok',
@@ -245,12 +241,6 @@ describe('renderGitObservation', () => {
       );
     },
   );
-
-  it('renders the line of a plain folder', () => {
-    const none: GitObservation = { kind: 'not_a_repository' };
-
-    expect(renderGitObservation(none)).toBe('not a git repository');
-  });
 });
 
 describe('normalizeGitState', () => {

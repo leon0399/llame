@@ -40,7 +40,7 @@ import { createProtocolPeer } from '../testing/machine-protocol-peer';
 import { machineFilesTransportFactory } from '../testing/machine-files-peer';
 import { MachineConnector } from '../machines/machine-connector.service';
 import { parseMachineLocator } from '../machines/machine-locator';
-import { ExecutorGit, localGitSurface } from '../machines/executor-git.service';
+import { ExecutorGit } from '../machines/executor-git.service';
 import { createGitProducer } from '../git-state/git-context-producer';
 import { createGitItem } from '../git-state/git-item';
 import { type GitSnapshotService } from '../git-state/git-snapshot.service';
@@ -23037,12 +23037,12 @@ describe('RunExecutionService git state', () => {
   const itemOf = (observation: GitObservation) =>
     createGitItem({ runId, observation });
 
-  /** The real local executor surface, reached through its own Machine. */
+  /**
+   * An ExecutorGit for `locate` only: its Machine answers the handshake and
+   * nothing else, and every observation in this suite is a stub.
+   */
   function localExecutors(): ExecutorGit {
-    return new ExecutorGit(
-      localMachineConnector({ name: 'host-a' }),
-      localGitSurface(),
-    );
+    return new ExecutorGit(localMachineConnector({ name: 'host-a' }));
   }
 
   /** A git observation that answers each call in turn, then repeats the last. */

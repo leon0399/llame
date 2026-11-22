@@ -1,14 +1,4 @@
 import {
-  mkdirSync,
-  mkdtempSync,
-  rmSync,
-  symlinkSync,
-  writeFileSync,
-} from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-
-import {
   type GitInspectSuccess,
   type GitStateSuccess,
   type GitWorktreeListResult,
@@ -23,11 +13,7 @@ import { isRecord, isString } from '@workspace/runtime-safety';
 
 import { ExecutorGitError } from './executor-git-error';
 import { MACHINE_GIT_BUDGET_MS } from './executor-git-machine';
-import {
-  ExecutorGit,
-  localGitSurface,
-  type LocalGit,
-} from './executor-git.service';
+import { ExecutorGit } from './executor-git.service';
 import { MachineConnector } from './machine-connector.service';
 
 /**
@@ -55,19 +41,15 @@ const MACHINES = {
 const opened: Array<MachineConnector> = [];
 
 /**
- * One ExecutorGit over a connector whose remote peer answers `options` and
- * whose own Machine is answered by an in-process peer: the local Machine still
- * completes its handshake, and any other request reaching it fails the call
- * loudly instead of quietly working.
+ * One ExecutorGit over a connector whose peer answers `options`: one peer
+ * answers every session, the host Machine's own daemon included, so a host
+ * target and a remote target speak the same wire. Anything the suite did not
+ * script fails the call loudly instead of quietly succeeding.
  */
 function hub(
   options: ProtocolPeerOptions = {},
-  local: LocalGit = localGitSurface(),
   machines: LlameConfig['machines'] = MACHINES,
 ) {
-  // One peer answers every session: the host Machine's own daemon included.
-  // It refuses every request but the handshake, so a local target that spent a
-  // daemon call fails loudly instead of quietly succeeding.
   const peer = createProtocolPeer({
     roots: ['/srv'],
     ...options,
@@ -81,7 +63,7 @@ function hub(
       if (options.answers?.[call.method] !== undefined) return undefined;
 
       throw new Error(
-        `the peer received a ${call.method} request; only the handshake may reach the host Machine's daemon`,
+        `the peer received a ${call.method} request; the suite did not script it`,
       );
     },
   });
@@ -96,7 +78,7 @@ function hub(
 
   opened.push(connector);
 
-  return { executors: new ExecutorGit(connector, local), peer };
+  return { executors: new ExecutorGit(connector), peer };
 }
 
 /** An ExecutorGit whose connector has no configured Machine at all. */
@@ -111,7 +93,7 @@ function unconfiguredHub(): ExecutorGit {
 
   opened.push(connector);
 
-  return new ExecutorGit(connector, localGitSurface());
+  return new ExecutorGit(connector);
 }
 
 const IMPORTED: GitInspectSuccess = {
@@ -125,14 +107,8 @@ const IMPORTED: GitInspectSuccess = {
   head: 'a'.repeat(40),
 };
 
-const created: Array<string> = [];
-
 afterEach(() => {
   for (const connector of opened.splice(0)) connector.onModuleDestroy();
-
-  for (const directory of created.splice(0)) {
-    rmSync(directory, { recursive: true, force: true });
-  }
 
   vi.restoreAllMocks();
 });
@@ -149,13 +125,6 @@ async function rejectionOf(
   }
 
   throw new Error('The call resolved instead of failing.');
-}
-
-function tempDirectory(): string {
-  const directory = mkdtempSync(join(tmpdir(), 'executor-git-'));
-  created.push(directory);
-
-  return directory;
 }
 
 describe('ExecutorGit.locate', () => {
@@ -180,9 +149,12 @@ describe('ExecutorGit.locate', () => {
   });
 
   it('refuses a bare path with no machines.default', () => {
-    const { executors } = hub({}, localGitSurface(), {
-      hosts: { [NAS]: { destination: 'nas.example' } },
-    });
+    const { executors } = hub(
+      {},
+      {
+        hosts: { [NAS]: { destination: 'nas.example' } },
+      },
+    );
 
     expect(() => executors.locate('/srv/app')).toThrow(
       'No machines.default is configured, so a bare path names no Machine.',
@@ -237,33 +209,27 @@ describe('ExecutorGit.address', () => {
 });
 
 describe('ExecutorGit.canonical', () => {
-  it('resolves a local symbolic link and refuses a missing path', async () => {
-    const { executors, peer } = hub();
-    const directory = tempDirectory();
-    const real = join(directory, 'real');
-    mkdirSync(real);
-    symlinkSync(real, join(directory, 'link'));
+  it("sends the host Machine's path to its daemon and renders the locator", async () => {
+    const { executors, peer } = hub({
+      methods: ['git.inspect'],
+      answers: {
+        'fs.stat': {
+          value: { kind: 'directory', isLink: true, realPath: '/srv/real' },
+        },
+      },
+    });
+
     const target = executors.locate('/srv/app');
 
-    await expect(
-      executors.canonical(target, join(directory, 'link')),
-    ).resolves.toBe(`${LOCAL_MACHINE}${real}`);
-    await expect(
-      executors.canonical(target, join(directory, 'missing')),
-    ).rejects.toMatchObject({ code: 'invalid_path' });
-    // The host Machine's own daemon verified before the probe, and answered
-    // nothing else.
-    expect((await peer.session(0)).requests).toEqual([]);
-  });
-
-  it('refuses a local path that is not a directory', async () => {
-    const { executors } = hub();
-    const file = join(tempDirectory(), 'file.txt');
-    writeFileSync(file, 'x\n');
-
-    await expect(
-      executors.canonical(executors.locate('/srv/app'), file),
-    ).rejects.toMatchObject({ code: 'not_a_directory' });
+    await expect(executors.canonical(target, '/srv/link')).resolves.toBe(
+      `${LOCAL_MACHINE}/srv/real`,
+    );
+    // The host Machine is an ordinary Machine: its own daemon decides the real
+    // path, and this process never touches the filesystem.
+    const machine = await peer.session(0);
+    expect(
+      machine.calls.find((call) => call.method === 'fs.stat')?.params,
+    ).toMatchObject({ path: '/srv/link' });
   });
 
   it('asks the daemon for the real path and renders the canonical locator', async () => {
@@ -336,29 +302,35 @@ describe('ExecutorGit.canonical', () => {
 });
 
 describe('ExecutorGit.canonicalTarget', () => {
-  it('resolves the deepest existing ancestor of a future local directory', async () => {
-    const { executors } = hub();
-    const directory = tempDirectory();
-    const real = join(directory, 'real');
-    mkdirSync(real);
-    symlinkSync(real, join(directory, 'worktrees'));
-    const target = executors.locate('/srv/app');
+  it("resolves the host Machine's deepest existing ancestor through its daemon", async () => {
+    const { executors, peer } = hub({
+      methods: ['git.inspect'],
+      answer: (call) => {
+        if (call.method !== 'fs.stat') return undefined;
+        const path = isRecord(call.params) ? call.params['path'] : undefined;
+
+        return path === '/srv/trees'
+          ? {
+              value: { kind: 'directory', isLink: true, realPath: '/srv/real' },
+            }
+          : { value: { kind: 'missing', isLink: false } };
+      },
+    });
 
     await expect(
-      executors.canonicalTarget(target, join(directory, 'worktrees', 'a', 'b')),
-    ).resolves.toBe(`${LOCAL_MACHINE}${join(real, 'a', 'b')}`);
-  });
-
-  it('keeps a future local directory whose parent is missing', async () => {
-    const { executors } = hub();
-    const directory = tempDirectory();
-
-    await expect(
-      executors.canonicalTarget(
-        executors.locate('/srv/app'),
-        join(directory, 'missing', 'a'),
+      executors.canonicalTarget(executors.locate('/srv/app'), '/srv/trees/a/b'),
+    ).resolves.toBe(`${LOCAL_MACHINE}/srv/real/a/b`);
+    // The host Machine's daemon decided the symlinked ancestor, not this
+    // process.
+    const machine = await peer.session(0);
+    expect(
+      machine.calls.some(
+        (call) =>
+          call.method === 'fs.stat' &&
+          isRecord(call.params) &&
+          call.params['path'] === '/srv/trees',
       ),
-    ).resolves.toBe(`${LOCAL_MACHINE}${join(directory, 'missing', 'a')}`);
+    ).toBe(true);
   });
 
   it('refuses a relative, empty, or escaping path before touching the disk', async () => {
@@ -469,15 +441,24 @@ describe('ExecutorGit.canonicalTarget', () => {
 });
 
 describe('ExecutorGit.exists', () => {
-  it('answers a local path that exists and one that does not', async () => {
-    const { executors } = hub();
-    const directory = tempDirectory();
+  it("answers a host path from the host Machine's daemon", async () => {
+    const { executors } = hub({
+      methods: ['git.inspect'],
+      answer: (call) =>
+        call.method === 'fs.stat'
+          ? {
+              value:
+                call.params?.['path'] === '/srv/app'
+                  ? { kind: 'directory', isLink: false, realPath: '/srv/app' }
+                  : { kind: 'missing', isLink: false },
+            }
+          : undefined,
+    });
+
     const target = executors.locate('/srv/app');
 
-    await expect(executors.exists(target, directory)).resolves.toBe(true);
-    await expect(
-      executors.exists(target, join(directory, 'missing')),
-    ).resolves.toBe(false);
+    await expect(executors.exists(target, '/srv/app')).resolves.toBe(true);
+    await expect(executors.exists(target, '/srv/missing')).resolves.toBe(false);
   });
 
   it('answers a Machine path from the daemon', async () => {
@@ -504,9 +485,20 @@ describe('ExecutorGit.exists', () => {
 });
 
 describe('ExecutorGit.inspect', () => {
-  it('inspects a local path in process and reports canonical paths', async () => {
-    const inspect = vi.fn(() => Promise.resolve(IMPORTED));
-    const { executors, peer } = hub({}, { ...localGitSurface(), inspect });
+  it("inspects a host path through the host Machine's daemon", async () => {
+    const { executors, peer } = hub({
+      methods: ['git.inspect'],
+      answers: {
+        'git.inspect': {
+          value: {
+            ...IMPORTED,
+            toplevel: `${LOCAL_MACHINE}/srv/app`,
+            commonDir: `${LOCAL_MACHINE}/srv/app/.git`,
+          },
+        },
+      },
+    });
+
     const target = executors.locate('/srv/app');
 
     await expect(
@@ -516,9 +508,13 @@ describe('ExecutorGit.inspect', () => {
       toplevel: `${LOCAL_MACHINE}/srv/app`,
       commonDir: `${LOCAL_MACHINE}/srv/app/.git`,
     });
-    expect(inspect).toHaveBeenCalledWith({ path: '/srv/app' });
-    // Only the handshake reached the host Machine's daemon.
-    expect((await peer.session(0)).requests).toEqual([]);
+    const machine = await peer.session(0);
+    expect(
+      machine.calls.find((call) => call.method === 'git.inspect')?.params,
+    ).toMatchObject({
+      path: '/srv/app',
+      options: { displayPrefix: LOCAL_MACHINE },
+    });
   });
 
   it('answers the daemon locators for a Machine path', async () => {
@@ -596,7 +592,7 @@ describe('ExecutorGit.inspect', () => {
 
     opened.push(connector);
 
-    const executors = new ExecutorGit(connector, localGitSurface());
+    const executors = new ExecutorGit(connector);
 
     const error = await rejectionOf(
       executors.inspect(executors.locate(LOCATOR), LOCATOR),
@@ -737,15 +733,20 @@ const STATE_INPUT = {
 } as const;
 
 describe('ExecutorGit.locateEntry', () => {
-  it('locates a local path in process, with the signal', async () => {
-    const found = {
-      status: 'ok',
-      gitEntry: '/srv/app/.git',
-      kind: 'directory',
-    } as const;
+  it("locates a host path through the host Machine's daemon", async () => {
+    const { executors, peer } = hub({
+      methods: ['git.locate'],
+      answers: {
+        'git.locate': {
+          value: {
+            status: 'ok',
+            gitEntry: `${LOCAL_MACHINE}/srv/app/.git`,
+            kind: 'directory',
+          },
+        },
+      },
+    });
 
-    const locate = vi.fn(() => Promise.resolve(found));
-    const { executors } = hub({}, { ...localGitSurface(), locate });
     const signal = new AbortController().signal;
 
     await expect(
@@ -753,10 +754,17 @@ describe('ExecutorGit.locateEntry', () => {
         signal,
       }),
     ).resolves.toEqual({
-      ...found,
+      status: 'ok',
       gitEntry: `${LOCAL_MACHINE}/srv/app/.git`,
+      kind: 'directory',
     });
-    expect(locate).toHaveBeenCalledWith({ path: '/srv/app' }, { signal });
+    const machine = await peer.session(0);
+    expect(
+      machine.calls.find((call) => call.method === 'git.locate')?.params,
+    ).toMatchObject({
+      path: '/srv/app',
+      options: { displayPrefix: LOCAL_MACHINE },
+    });
   });
 
   it('sends the executor path and answers the entry as a locator', async () => {
@@ -791,9 +799,16 @@ describe('ExecutorGit.locateEntry', () => {
 });
 
 describe('ExecutorGit.state', () => {
-  it('reads a local state in process with the deadline and signal', async () => {
-    const state = vi.fn(() => Promise.resolve(OBSERVED));
-    const { executors } = hub({}, { ...localGitSurface(), state });
+  it("reads a host state through the host Machine's daemon", async () => {
+    const { executors, peer } = hub({
+      methods: ['git.state'],
+      answers: {
+        'git.state': {
+          value: { ...OBSERVED, toplevel: `${LOCAL_MACHINE}/srv/app` },
+        },
+      },
+    });
+
     const signal = new AbortController().signal;
 
     await expect(
@@ -807,15 +822,18 @@ describe('ExecutorGit.state', () => {
       ...OBSERVED,
       toplevel: `${LOCAL_MACHINE}/srv/app`,
     });
-    expect(state).toHaveBeenCalledWith(
-      {
-        path: '/srv/app',
-        gitEntry: '/srv/app/.git',
-        limit: 5,
-        submodules: 'check',
-      },
-      { signal, timeoutMs: 5000 },
-    );
+    const machine = await peer.session(0);
+    expect(
+      machine.calls.find((call) => call.method === 'git.state')?.params,
+    ).toMatchObject({
+      path: '/srv/app',
+      gitEntry: '/srv/app/.git',
+      limit: 5,
+      submodules: 'check',
+      timeoutMs: 5000,
+      envelope: { budgetMs: 20_000 },
+      options: { displayPrefix: LOCAL_MACHINE },
+    });
   });
 
   it('sends executor paths for the path and the entry, and a deadline-based budget', async () => {
@@ -966,9 +984,22 @@ describe('ExecutorGit.worktreeList', () => {
     ],
   };
 
-  it('lists a local repository in process', async () => {
-    const listWorktrees = vi.fn(() => Promise.resolve(LISTED));
-    const { executors } = hub({}, { ...localGitSurface(), listWorktrees });
+  it("lists a host repository through the host Machine's daemon", async () => {
+    const { executors, peer } = hub({
+      methods: ['git.worktreeList'],
+      answers: {
+        'git.worktreeList': {
+          value: {
+            ...LISTED,
+            worktrees: LISTED.worktrees.map((entry) => ({
+              ...entry,
+              path: `${LOCAL_MACHINE}${entry.path}`,
+            })),
+          },
+        },
+      },
+    });
+
     const target = executors.locate('/srv/app');
 
     await expect(executors.worktreeList(target, '/srv/app')).resolves.toEqual({
@@ -978,7 +1009,13 @@ describe('ExecutorGit.worktreeList', () => {
         path: `${LOCAL_MACHINE}/srv/app`,
       })),
     });
-    expect(listWorktrees).toHaveBeenCalledWith({ path: '/srv/app' });
+    const machine = await peer.session(0);
+    expect(
+      machine.calls.find((call) => call.method === 'git.worktreeList')?.params,
+    ).toMatchObject({
+      source: '/srv/app',
+      options: { displayPrefix: LOCAL_MACHINE },
+    });
   });
 
   it('answers the daemon worktrees as locators for a Machine path', async () => {
@@ -1099,30 +1136,18 @@ describe('ExecutorGit refusals', () => {
   });
 
   it('names the missing default and the unconfigured Machine', () => {
-    const unset = hub({}, localGitSurface(), {
-      hosts: { [NAS]: { destination: 'nas.example' } },
-    });
+    const unset = hub(
+      {},
+      {
+        hosts: { [NAS]: { destination: 'nas.example' } },
+      },
+    );
 
     expect(() => unset.executors.locate('/srv/app')).toThrow(
       'No machines.default is configured, so a bare path names no Machine.',
     );
     expect(() => unconfiguredHub().locate(LOCATOR)).toThrow(
       `No Machine named ${NAS} is configured, so its git surface cannot run.`,
-    );
-  });
-
-  it('states the local canonical refusal', async () => {
-    const { executors } = hub();
-    const target = executors.locate('/srv/app');
-    const directory = tempDirectory();
-    const file = join(directory, 'file.txt');
-    writeFileSync(file, 'x\n');
-
-    await expect(
-      executors.canonical(target, join(directory, 'missing')),
-    ).rejects.toThrow('The checkout path does not exist.');
-    await expect(executors.canonical(target, file)).rejects.toThrow(
-      'The checkout path is not a directory.',
     );
   });
 

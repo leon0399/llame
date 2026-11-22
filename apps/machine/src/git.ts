@@ -48,8 +48,8 @@ import {
  * cannot make the daemon probe an address no registered root bounds, and a
  * worktree directory that does not exist yet is decided through its nearest
  * existing ancestor. The operations themselves live in `@workspace/git-executor`,
- * shared with the hub's local executor, so both sides run one argv, one
- * environment, and one timeout.
+ * the one runner of git: the hub keeps the ref rules, the timeouts, and the
+ * result types, and runs no git process of its own.
  *
  * Every path a result carries leaves as a Machine locator, and each
  * registered-root prefix in a failure's standard error is rewritten to that

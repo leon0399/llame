@@ -21,10 +21,11 @@ import {
   BUILT_IN_DEFAULTS,
   type LlameConfig,
 } from '../instance-config/llame-config';
-import { ExecutorGit, localGitSurface } from '../machines/executor-git.service';
+import { ExecutorGit } from '../machines/executor-git.service';
 import { MachineConnector } from '../machines/machine-connector.service';
 import { RepositoriesRepository } from './repositories.repository';
 import { createProtocolPeer } from '../testing/machine-protocol-peer';
+import { machineFilesConnector } from '../testing/machine-files-peer';
 import { compileToolPermissionMap } from '../tools/permissions/compile-permissions';
 import { type PermissionGroup } from '../tools/permissions/types';
 import { WorkspaceEntryAdmission } from '../tools/permissions/workspace-entry-admission';
@@ -127,22 +128,11 @@ const MACHINE = 'worktree-host';
 /** The canonical locator of one host path on the removal Machine. */
 const at = (path: string): string => `machine://${MACHINE}${path}`;
 
-const DEFAULT_MACHINES: LlameConfig['machines'] = {
-  local: MACHINE,
-  default: MACHINE,
-  hosts: { [MACHINE]: {} },
-};
-
-/** One connector over these Machines, torn down after the test. */
-function connectorOf(
-  machines: LlameConfig['machines'] = DEFAULT_MACHINES,
-): MachineConnector {
-  const connector = new MachineConnector({
-    hubVersion: 'test-hub',
-    bindIdentity: () => Promise.resolve('match'),
-    machines,
-    transportFactory: createProtocolPeer().factory,
-    idleCloseMs: 1000,
+/** One connector over the host Machine, torn down after the test. */
+function connectorOf(): MachineConnector {
+  const connector = machineFilesConnector({
+    name: MACHINE,
+    roots: [tmpdir()],
   });
 
   connectors.push(connector);
@@ -150,10 +140,8 @@ function connectorOf(
   return connector;
 }
 
-function executors(
-  machines: LlameConfig['machines'] = DEFAULT_MACHINES,
-): ExecutorGit {
-  return new ExecutorGit(connectorOf(machines), localGitSurface());
+function executors(): ExecutorGit {
+  return new ExecutorGit(connectorOf());
 }
 
 function configWith(tools: Partial<LlameConfig['tools']> = {}): LlameConfig {
@@ -664,7 +652,7 @@ describe('WorktreeRemovalService', () => {
     });
 
     connectors.push(connector);
-    const executorsOf = new ExecutorGit(connector, localGitSurface());
+    const executorsOf = new ExecutorGit(connector);
     const locate = vi.spyOn(executorsOf, 'locateEntry');
 
     const { removal } = service({ executors: executorsOf });

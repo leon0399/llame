@@ -1,10 +1,11 @@
 import { HttpException } from '@nestjs/common';
 import { drizzle } from 'drizzle-orm/postgres-js';
-import type { Stats } from 'node:fs';
-import { realpath, stat } from 'node:fs/promises';
-import type * as NodeFsPromises from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import type { MockInstance } from 'vitest';
 import { z } from 'zod';
+
+import { isRecord, isString } from '@workspace/runtime-safety';
+import { GIT_METHODS } from '@workspace/machine-protocol';
 
 import {
   type Checkout,
@@ -23,13 +24,13 @@ import {
 import { compileToolPermissionMap } from '../tools/permissions/compile-permissions';
 import { WorkspaceEntryAdmission } from '../tools/permissions/workspace-entry-admission';
 import { type PermissionGroup } from '../tools/permissions/types';
-import {
-  ExecutorGit,
-  localGitSurface,
-  type LocalGit,
-} from '../machines/executor-git.service';
+import { ExecutorGit } from '../machines/executor-git.service';
 import { MachineConnector } from '../machines/machine-connector.service';
-import { createProtocolPeer } from '../testing/machine-protocol-peer';
+import {
+  createProtocolPeer,
+  type PeerCall,
+  wireJson,
+} from '../testing/machine-protocol-peer';
 import { CheckoutRegistrationService } from './checkout-registration.service';
 import { RepositoriesRepository } from './repositories.repository';
 
@@ -38,20 +39,11 @@ import { RepositoriesRepository } from './repositories.repository';
  * probes, and every data-layer branch. The stored rows, the owner isolation,
  * and the same-path conflict run against real Postgres in
  * `checkouts.integration.test.ts`, which the mutation runner excludes.
+ *
+ * The host Machine's daemon is a protocol peer that answers `fs.stat` and
+ * `git.inspect` from the case's own script, so a canonical-path branch gets an
+ * outcome a real directory cannot produce on demand, through the real wire.
  */
-
-// Both probes are module-level imports of the service, so the suite owns them:
-// a canonical-path branch needs a `realpath`/`stat` outcome a real directory
-// cannot produce on demand.
-vi.mock('node:fs/promises', async (importOriginal) => {
-  const actual = await importOriginal<typeof NodeFsPromises>();
-
-  return {
-    ...actual,
-    realpath: vi.fn(actual.realpath),
-    stat: vi.fn(actual.stat),
-  };
-});
 
 const OWNER = 'owner-a';
 const EXECUTOR = 'test-host';
@@ -72,6 +64,9 @@ const MACHINES = {
   default: EXECUTOR,
   hosts: { [EXECUTOR]: {} },
 } satisfies NonNullable<LlameConfig['machines']>;
+
+/** The canonical locator of one path on the test's host Machine. */
+const locator = (value: string): string => `machine://${EXECUTOR}${value}`;
 
 // A field clause, not `allow: true`: a whole-tool allow would keep admitting a
 // call whose `path` argument went missing.
@@ -118,18 +113,17 @@ function aliasRow(canonicalAlias: string): RepositoryAlias {
   };
 }
 
-/** A `stat` result whose only consulted member is `isDirectory`. */
-function statsOf(isDirectory: boolean): Stats {
-  // SAFETY: the canonical-directory probe asks `isDirectory()` and nothing
-  // else, so every other `Stats` member is unreachable from this code path.
-  // eslint-disable-next-line typescript/no-unsafe-type-assertion
-  return { isDirectory: () => isDirectory } as never;
-}
+/** What the scripted daemon answers `fs.stat` for one path. */
+type StatValue = {
+  readonly kind: 'missing' | 'file' | 'directory' | 'other';
+  readonly isLink: boolean;
+  readonly realPath?: string;
+};
 
 function inspected(
   overrides: Partial<GitInspectSuccess> = {},
 ): GitInspectSuccess {
-  const toplevel = overrides.toplevel ?? '/work/proj';
+  const toplevel = overrides.toplevel ?? locator('/work/proj');
 
   return {
     status: 'ok',
@@ -144,6 +138,15 @@ function inspected(
   };
 }
 
+/** The `path` of one request, as the daemon reads it. */
+function pathOf(call: PeerCall): string {
+  const params = isRecord(call.params) ? call.params['path'] : undefined;
+
+  if (!isString(params)) throw new Error(`${call.method} requires a path`);
+
+  return params;
+}
+
 /** The Machine connectors one case opened, closed with the case. */
 const opened: Array<MachineConnector> = [];
 
@@ -152,6 +155,7 @@ function makeService(options: {
   readonly group?: PermissionGroup;
   readonly inspection?: GitInspectResult;
   readonly machines?: LlameConfig['machines'];
+  readonly stat?: (path: string) => StatValue;
 }) {
   const db: Db = drizzle.mock();
 
@@ -164,27 +168,44 @@ function makeService(options: {
       callback(db),
   );
 
-  const inspect = vi
-    .fn<LocalGit['inspect']>()
-    .mockResolvedValue(options.inspection ?? inspected());
+  const inspect = vi.fn((_input: { readonly path: string }) =>
+    Promise.resolve(options.inspection ?? inspected()),
+  );
 
-  // The real dispatch runs, over a local surface whose one operation the case
-  // controls: the canonical probe is the shipped one.
-  const local: LocalGit = { ...localGitSurface(), inspect };
+  // The real dispatch runs over the real wire: the case scripts only what the
+  // daemon answers, so the gate order and the locator mapping stay production.
+  const peer = createProtocolPeer({
+    roots: [tmpdir()],
+    methods: GIT_METHODS,
+    answer: (call) => {
+      if (call.method === 'fs.stat') {
+        const path = pathOf(call);
+
+        const stat = options.stat?.(path) ?? {
+          kind: 'directory' as const,
+          isLink: false,
+          realPath: path,
+        };
+
+        return { value: wireJson(stat) };
+      }
+
+      if (call.method === 'git.inspect')
+        return inspect({ path: pathOf(call) }).then((value) => ({
+          value: wireJson(value),
+        }));
+
+      throw new Error(
+        `the peer received a ${call.method} request; the suite did not script it`,
+      );
+    },
+  });
 
   const connector = new MachineConnector({
     hubVersion: 'test-hub',
     bindIdentity: () => Promise.resolve('match'),
     machines: options.machines ?? MACHINES,
-    transportFactory: createProtocolPeer({
-      answer: (call) => {
-        if (call.method === 'hello') return undefined;
-
-        throw new Error(
-          `the peer received a ${call.method} request; only the handshake may reach the host Machine's daemon`,
-        );
-      },
-    }).factory,
+    transportFactory: peer.factory,
     idleCloseMs: 1000,
   });
 
@@ -201,7 +222,7 @@ function makeService(options: {
 
   const service = new CheckoutRegistrationService(
     tenantDb,
-    new ExecutorGit(connector, local),
+    new ExecutorGit(connector),
     new WorkspaceEntryAdmission(
       { config },
       connector,
@@ -212,7 +233,7 @@ function makeService(options: {
     ),
   );
 
-  return { service, inspect };
+  return { service, inspect, peer };
 }
 
 // The data layer is one seam: every query reads a stub, so each branch of the
@@ -275,11 +296,6 @@ let data: StubbedData;
 
 beforeEach(() => {
   vi.resetAllMocks();
-  // A path that exists and is a directory, unless a test says otherwise.
-  vi.mocked(realpath).mockImplementation((value) =>
-    Promise.resolve(String(value)),
-  );
-  vi.mocked(stat).mockResolvedValue(statsOf(true));
   data = stubbedData();
 });
 
@@ -327,7 +343,7 @@ describe('CheckoutRegistrationService gates', () => {
   });
 
   it('refuses a path carrying a NUL byte before any probe', async () => {
-    const { service, inspect } = makeService({});
+    const { service, inspect, peer } = makeService({});
 
     await expect(
       failureOf(service.register(OWNER, { path: '/work/proj\0' })),
@@ -337,7 +353,7 @@ describe('CheckoutRegistrationService gates', () => {
       message: 'A checkout path must not contain a NUL byte.',
       code: 'invalid_path',
     });
-    expect(realpath).not.toHaveBeenCalled();
+    expect(peer.sessions).toHaveLength(0);
     expect(inspect).not.toHaveBeenCalled();
   });
 
@@ -359,7 +375,7 @@ describe('CheckoutRegistrationService gates', () => {
   });
 
   it('refuses when tools.allowed omits the workspace group', async () => {
-    const { service, inspect } = makeService({
+    const { service, inspect, peer } = makeService({
       tools: { allowed: [] },
     });
 
@@ -372,7 +388,7 @@ describe('CheckoutRegistrationService gates', () => {
         'enter_workspace is not in tools.allowed, so this path may not be inspected.',
       code: 'tool_not_allowed',
     });
-    expect(realpath).not.toHaveBeenCalled();
+    expect(peer.sessions).toHaveLength(0);
     expect(inspect).not.toHaveBeenCalled();
   });
 
@@ -422,11 +438,15 @@ describe('CheckoutRegistrationService gates', () => {
           { field: 'path', literal: `machine://${EXECUTOR}/work/elsewhere` },
         ],
       },
+      stat: () => ({
+        kind: 'directory',
+        isLink: true,
+        realPath: '/work/elsewhere',
+      }),
     });
 
     // A symlink target outside the allow list is refused even though the
     // submitted path was admitted.
-    vi.mocked(realpath).mockResolvedValue('/work/elsewhere');
 
     await expect(
       failureOf(service.register(OWNER, { path: '/work/proj/sub' })),
@@ -446,9 +466,9 @@ describe('CheckoutRegistrationService gates', () => {
         reject: [{ field: 'path', literal: `machine://${EXECUTOR}/work/proj` }],
       },
       inspection: inspected({
-        toplevel: '/work/wt',
+        toplevel: locator('/work/wt'),
         linked: true,
-        mainWorktree: '/work/proj',
+        mainWorktree: locator('/work/proj'),
       }),
     });
 
@@ -473,13 +493,16 @@ describe('CheckoutRegistrationService gates', () => {
         reject: [{ field: 'path', regex: `^machine://${EXECUTOR}/work/wt$` }],
       },
       inspection: inspected({
-        toplevel: '/work/wt',
+        toplevel: locator('/work/wt'),
         linked: true,
-        mainWorktree: '/work/proj',
+        mainWorktree: locator('/work/proj'),
+      }),
+      stat: () => ({
+        kind: 'directory',
+        isLink: true,
+        realPath: '/work/wt/sub',
       }),
     });
-
-    vi.mocked(realpath).mockResolvedValue('/work/wt/sub');
 
     // The submitted and canonical paths are this worktree's subdirectory and
     // its main clone is another directory, so only the inspected toplevel is
@@ -499,8 +522,9 @@ describe('CheckoutRegistrationService gates', () => {
 
 describe('canonical directory probes', () => {
   it('answers 422 when the path does not exist', async () => {
-    const { service, inspect } = makeService({});
-    vi.mocked(realpath).mockRejectedValue(new Error('ENOENT'));
+    const { service, inspect } = makeService({
+      stat: () => ({ kind: 'missing', isLink: false }),
+    });
 
     await expect(
       failureOf(service.register(OWNER, { path: '/work/missing' })),
@@ -513,24 +537,14 @@ describe('canonical directory probes', () => {
     expect(inspect).not.toHaveBeenCalled();
   });
 
-  it('answers 422 when the canonical path cannot be read', async () => {
-    const { service, inspect } = makeService({});
-    vi.mocked(stat).mockRejectedValue(new Error('EACCES'));
-
-    await expect(
-      failureOf(service.register(OWNER, { path: '/work/proj' })),
-    ).resolves.toEqual({
-      statusCode: 422,
-      error: 'Unprocessable Entity',
-      message: 'The checkout path cannot be read.',
-      code: 'invalid_path',
-    });
-    expect(inspect).not.toHaveBeenCalled();
-  });
-
   it('answers 422 when the path is not a directory', async () => {
-    const { service, inspect } = makeService({});
-    vi.mocked(stat).mockResolvedValue(statsOf(false));
+    const { service, inspect } = makeService({
+      stat: () => ({
+        kind: 'file',
+        isLink: false,
+        realPath: '/work/proj/README.md',
+      }),
+    });
 
     await expect(
       failureOf(service.register(OWNER, { path: '/work/proj/README.md' })),
@@ -544,8 +558,13 @@ describe('canonical directory probes', () => {
   });
 
   it('inspects the canonical path, not the submitted one', async () => {
-    const { service, inspect } = makeService({});
-    vi.mocked(realpath).mockResolvedValue('/work/proj');
+    const { service, inspect } = makeService({
+      stat: () => ({
+        kind: 'directory',
+        isLink: true,
+        realPath: '/work/proj',
+      }),
+    });
 
     await service.register(OWNER, { path: '/work/proj/sub' });
 
@@ -681,14 +700,13 @@ describe('storing the checkout', () => {
   it('records a linked worktree under its recorded main clone', async () => {
     const { service } = makeService({
       inspection: inspected({
-        toplevel: '/work/wt',
+        toplevel: locator('/work/wt'),
         linked: true,
-        mainWorktree: '/work/proj',
+        mainWorktree: locator('/work/proj'),
         branch: 'feature',
       }),
     });
 
-    vi.mocked(realpath).mockResolvedValue('/work/wt');
     const parent = checkoutRow({ id: PARENT_ID, path: '/work/proj' });
     data.findCheckoutByPath.mockResolvedValue(parent);
     data.findRepository.mockResolvedValue(repository);
@@ -927,14 +945,13 @@ describe('origin agreement', () => {
   it('joins a recorded repository for a clone without an origin', async () => {
     const { service } = makeService({
       inspection: inspected({
-        toplevel: '/work/wt',
+        toplevel: locator('/work/wt'),
         linked: true,
-        mainWorktree: '/work/proj',
+        mainWorktree: locator('/work/proj'),
         remotes: [],
       }),
     });
 
-    vi.mocked(realpath).mockResolvedValue('/work/wt');
     data.findCheckoutByPath.mockResolvedValue(
       checkoutRow({ id: PARENT_ID, path: '/work/proj' }),
     );
@@ -1009,16 +1026,13 @@ describe('origin agreement', () => {
 describe('the main clone of a worktree', () => {
   function worktreeService(
     inspection: GitInspectSuccess = inspected({
-      toplevel: '/work/wt',
+      toplevel: locator('/work/wt'),
       linked: true,
-      mainWorktree: '/work/proj',
+      mainWorktree: locator('/work/proj'),
       branch: 'feature',
     }),
   ) {
-    const made = makeService({ inspection });
-    vi.mocked(realpath).mockResolvedValue('/work/wt');
-
-    return made;
+    return makeService({ inspection });
   }
 
   it('adopts an unrecorded main clone next to the worktree', async () => {

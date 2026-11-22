@@ -2,7 +2,7 @@
   "name": "@workspace/git-executor",
   "version": "0.0.1",
   "private": true,
-  "description": "Typed git operations shared by the hub's local executor and the Machine daemon.",
+  "description": "Typed git operations run by the Machine daemon; the hub keeps the ref rules, timeouts, and result types.",
   "dependencies": {
     "@workspace/machine-protocol": "workspace:*"
   },

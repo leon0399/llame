@@ -3,7 +3,12 @@ import { observeWorkspaceRoot } from './git-observe-root';
 import { type GitObservation } from './git-state-view';
 
 const TARGET = { executorId: 'host-a', machine: 'host-a', path: '/repo' };
-const OBSERVATION: GitObservation = { kind: 'not_a_repository' };
+
+const OBSERVATION: GitObservation = {
+  kind: 'unavailable',
+  reason: 'git_failed',
+};
+
 const admit = () => true;
 
 describe('observeWorkspaceRoot', () => {

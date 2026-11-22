@@ -39,7 +39,7 @@ import {
   localMachineConnector,
   type LocalMachineConnector,
 } from '../testing/local-machine';
-import { localGitSurface } from '../machines/executor-git.service';
+import { machineFilesConnector } from '../testing/machine-files-peer';
 import { machineIdentityMismatchResult } from './machine-call';
 import { compileToolPermissionMap } from './permissions/compile-permissions';
 import { type CompiledPolicy, type PermissionGroup } from './permissions/types';
@@ -155,17 +155,11 @@ function hostile(repository: string): string {
 }
 
 function executors(): ExecutorGit {
-  const connector = new MachineConnector({
-    hubVersion: 'test-hub',
-    bindIdentity: () => Promise.resolve('match'),
-    machines: { local: HOST, default: HOST, hosts: { [HOST]: {} } },
-    transportFactory: createProtocolPeer().factory,
-    idleCloseMs: 1000,
-  });
+  const connector = machineFilesConnector({ name: HOST, roots: [tmpdir()] });
 
   connectors.push(connector);
 
-  return new ExecutorGit(connector, localGitSurface());
+  return new ExecutorGit(connector);
 }
 
 const MACHINE = 'nas';
@@ -196,7 +190,7 @@ function machineFixture(options: ProtocolPeerOptions) {
 
   return {
     peer,
-    executors: new ExecutorGit(connector, localGitSurface()),
+    executors: new ExecutorGit(connector),
     connector,
   };
 }

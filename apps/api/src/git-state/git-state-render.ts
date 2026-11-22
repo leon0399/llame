@@ -161,8 +161,6 @@ function snapshotValues(view: GitStateView): SnapshotValues {
 /** The item body of one observation; the envelope belongs to the producer. */
 export function renderGitObservation(observation: GitObservation): string {
   switch (observation.kind) {
-    case 'not_a_repository':
-      return 'not a git repository';
     case 'unavailable':
       return `git state unavailable: ${GIT_ABSENCE_LABELS[observation.reason]}`;
     case 'state':

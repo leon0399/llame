@@ -79,7 +79,6 @@ When no state can be shown, the item holds one line instead:
 
 | Line                                                              | Cause                                                                       |
 | ----------------------------------------------------------------- | --------------------------------------------------------------------------- |
-| `not a git repository`                                            | no `.git` directory or file at or above the root                            |
 | `git state unavailable: not permitted`                            | `read` is not allowlisted, or the `read` group does not admit the git entry |
 | `git state unavailable: timeout`                                  | the read passed its deadline                                                |
 | `git state unavailable: Machine unavailable`                      | the Machine did not answer in this turn                                     |
@@ -87,7 +86,7 @@ When no state can be shown, the item holds one line instead:
 | `git state unavailable: executor unavailable`                     | this worker has no executor for the binding                                 |
 | `git state unavailable: Workspace root not found`                 | the root no longer exists                                                   |
 | `git state unavailable: too many changes`                         | the repository state exceeded the read bound                                |
-| `git state unavailable: no repository inside the registered root` | on a Machine, the only repository lies above the registered root            |
+| `git state unavailable: no repository inside the registered root` | the root holds no `.git` entry at or above it inside the registered root    |
 | `git state unavailable: repository outside the registered root`   | on a Machine, git data lies outside every registered root                   |
 | `git state unavailable: git failed`                               | any other failure; the item never carries git's error text                  |
 

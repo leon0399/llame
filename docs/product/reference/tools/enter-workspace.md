@@ -50,6 +50,11 @@ and the call runs one read-only inspection of it.
   the main clone git reports, then the canonical worktree directory — resolved
   through its deepest existing ancestor, so a symlinked parent decides where it
   lands. A refusal on any of the four creates nothing.
+- Every Machine, the host Machine included, runs the inspection and
+  `git worktree add` on its daemon, so that daemon's registered roots bound the
+  source and the directory; a path outside them fails as `path_not_registered`.
+  An unavailable host daemon fails the call as `machine_unavailable` and starts
+  no git process in the API or the worker.
 - The Worktree checkout, its lease, any adopted repository and main checkout, and
   the binding commit together. The result names the root, the branch, and the
   base commit.

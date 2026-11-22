@@ -80,5 +80,4 @@ export type GitStateView = {
 
 export type GitObservation =
   | { readonly kind: 'state'; readonly view: GitStateView }
-  | { readonly kind: 'not_a_repository' }
   | { readonly kind: 'unavailable'; readonly reason: GitAbsenceReason };

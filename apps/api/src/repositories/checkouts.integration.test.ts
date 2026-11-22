@@ -30,6 +30,7 @@ import { join } from 'node:path';
 import { type INestApplication } from '@nestjs/common';
 import { type GitInspectResult } from '@workspace/git-executor';
 import { Test } from '@nestjs/testing';
+import { GIT_METHODS } from '@workspace/machine-protocol';
 import postgres, { type Sql } from 'postgres';
 import request from 'supertest';
 import { z } from 'zod';
@@ -41,9 +42,14 @@ import {
   type LlameConfig,
 } from '../instance-config/llame-config';
 import { InstanceConfigService } from '../instance-config/instance-config.service';
-import { LOCAL_GIT, localGitSurface } from '../machines/executor-git.service';
 import { MachineConnector } from '../machines/machine-connector.service';
-import { createProtocolPeer } from '../testing/machine-protocol-peer';
+import {
+  createProtocolPeer,
+  type PeerCall,
+  wireJson,
+} from '../testing/machine-protocol-peer';
+import { startLocalDaemon, type LocalDaemon } from '../testing/local-daemon';
+import { DEFAULT_LOCAL_MACHINE_NAME } from '../testing/local-machine';
 import { CanonicalSearchCoverageService } from '../search/canonical-search-activation.service';
 import { cookieOf, expectRegisteredUserId } from '../testing/support';
 import { type PermissionGroup } from '../tools/permissions/types';
@@ -109,7 +115,7 @@ function tools(overrides: Partial<LlameConfig['tools']>): LlameConfig['tools'] {
 }
 
 /** The host Machine these fixtures configure: `machines.local` and default. */
-const HOST = 'test-host';
+const HOST = DEFAULT_LOCAL_MACHINE_NAME;
 
 const MACHINES: NonNullable<LlameConfig['machines']> = {
   local: HOST,
@@ -172,7 +178,12 @@ type Harness = {
 type BootOptions = {
   readonly tools: LlameConfig['tools'];
   readonly machines?: LlameConfig['machines'];
+  /** Replaces the real daemon with a scripted `git.inspect` answer. */
   readonly inspect?: (path: string) => Promise<GitInspectResult>;
+  /** The registered roots a real daemon serves; `tmpdir()` by default. */
+  readonly roots?: ReadonlyArray<string>;
+  /** The program the real daemon starts; a broken one is `machine_unavailable`. */
+  readonly command?: string;
 };
 
 type CheckoutBody = {
@@ -181,12 +192,65 @@ type CheckoutBody = {
   readonly remote?: string | null;
 };
 
+const pathParams = z.looseObject({ path: z.string() });
+
+/** The `path` of one `fs.stat` or `git.inspect` request. */
+function pathOf(call: PeerCall): string {
+  return pathParams.parse(call.params).path;
+}
+
+/**
+ * A connector whose daemon scripts only `git.inspect` (and answers every
+ * `fs.stat` as an existing directory), so a case can drive one inspection
+ * outcome through the real wire without a child.
+ */
+function scriptedConnector(
+  machines: NonNullable<LlameConfig['machines']>,
+  inspect: (path: string) => Promise<GitInspectResult>,
+): MachineConnector {
+  const peer = createProtocolPeer({
+    roots: [tmpdir()],
+    methods: GIT_METHODS,
+    answer: (call) => {
+      if (call.method === 'fs.stat') {
+        const path = pathOf(call);
+
+        return {
+          value: { kind: 'directory', isLink: false, realPath: path },
+        };
+      }
+
+      if (call.method === 'git.inspect')
+        return inspect(pathOf(call)).then((value) => ({
+          value: wireJson(value),
+        }));
+
+      throw new Error(`the peer received an unscripted ${call.method}`);
+    },
+  });
+
+  return new MachineConnector({
+    machines,
+    hubVersion: 'llame/test',
+    bindIdentity: () => Promise.resolve('match'),
+    transportFactory: peer.factory,
+    idleCloseMs: 1000,
+  });
+}
+
+/** The real daemon children these fixtures started, closed with the suite. */
+const daemons: Array<LocalDaemon> = [];
+
 async function boot(options: BootOptions): Promise<Harness> {
   const machines = options.machines ?? MACHINES;
-  // The host Machine's daemon is an in-process peer: the identity-checked
-  // handshake a local target needs answers without spawning a child, and any
-  // other request reaching it fails the call loudly.
-  const daemon = createProtocolPeer({ roots: ['/'] });
+
+  // The host Machine's daemon is the real bundle: registration's canonical
+  // probe and inspection run through the same child a running process spawns.
+  // A case that scripts one inspection swaps in a peer instead.
+  const connector =
+    options.inspect === undefined
+      ? startedConnector(options)
+      : scriptedConnector(machines, options.inspect);
 
   const builder = Test.createTestingModule({ imports: [AppModule] })
     .overrideProvider(CanonicalSearchCoverageService)
@@ -197,23 +261,7 @@ async function boot(options: BootOptions): Promise<Harness> {
       productUserAgent: 'llame/test',
     })
     .overrideProvider(MachineConnector)
-    .useValue(
-      new MachineConnector({
-        machines,
-        hubVersion: 'llame/test',
-        bindIdentity: () => Promise.resolve('match'),
-        transportFactory: daemon.factory,
-        idleCloseMs: 1000,
-      }),
-    );
-
-  if (options.inspect !== undefined) {
-    const { inspect } = options;
-    builder.overrideProvider(LOCAL_GIT).useValue({
-      ...localGitSurface(),
-      inspect: (input: { readonly path: string }) => inspect(input.path),
-    });
-  }
+    .useValue(connector);
 
   const moduleRef = await builder.compile();
   const app = moduleRef.createNestApplication();
@@ -241,11 +289,25 @@ async function boot(options: BootOptions): Promise<Harness> {
   return { app, http, cookie: cookieOf(registered), userId: body.user.id };
 }
 
+/** One real daemon child over these roots, remembered for the suite's cleanup. */
+function startedConnector(options: BootOptions): MachineConnector {
+  const daemon = startLocalDaemon({
+    roots: options.roots ?? [tmpdir()],
+    ...(options.command !== undefined && { command: options.command }),
+  });
+
+  daemons.push(daemon);
+
+  return daemon.connector;
+}
+
 function escapeRegex(value: string): string {
   return value.replaceAll(/[.*+?^${}()|[\]\\]/gu, String.raw`\$&`);
 }
 
 afterAll(() => {
+  for (const daemon of daemons.splice(0)) daemon.dispose();
+
   for (const directory of created) {
     rmSync(directory, { recursive: true, force: true });
   }
@@ -1057,6 +1119,73 @@ describe('checkout registration gates', () => {
     } finally {
       await timedOut.app.close();
       await failed.app.close();
+    }
+  });
+
+  // The host Machine's own daemon enforces its registered roots, so a path
+  // outside them is refused by the same `path_not_registered` answer a remote
+  // Machine gives, and the route maps it to 403 permission_denied.
+  it('refuses a host checkout outside the daemon roots', async () => {
+    const roots = tempDirectory('checkout-roots-');
+
+    const harness = await boot({
+      tools: tools({
+        allowed: ['enter_workspace'],
+        permissions: { enter_workspace: ALLOW_TMP },
+      }),
+      roots: [roots],
+    });
+
+    try {
+      const outside = repository();
+
+      const response = await request(harness.http)
+        .post('/api/v1/checkouts')
+        .set('Cookie', harness.cookie)
+        .send({ path: outside })
+        .expect(403);
+
+      expect(response.body).toMatchObject({ code: 'permission_denied' });
+
+      const list = await request(harness.http)
+        .get('/api/v1/checkouts')
+        .set('Cookie', harness.cookie)
+        .expect(200);
+
+      expect(list.body).toEqual([]);
+    } finally {
+      await harness.app.close();
+    }
+  });
+
+  // A host Machine is an ordinary Machine: its daemon must answer, and one
+  // that cannot start is `machine_unavailable` at this seam.
+  it('answers 503 when the host daemon cannot start', async () => {
+    const harness = await boot({
+      tools: tools({
+        allowed: ['enter_workspace'],
+        permissions: { enter_workspace: ALLOW_TMP },
+      }),
+      command: '/nonexistent/llame-machine',
+    });
+
+    try {
+      const response = await request(harness.http)
+        .post('/api/v1/checkouts')
+        .set('Cookie', harness.cookie)
+        .send({ path: repository() })
+        .expect(503);
+
+      expect(response.body).toMatchObject({ code: 'machine_unavailable' });
+
+      const list = await request(harness.http)
+        .get('/api/v1/checkouts')
+        .set('Cookie', harness.cookie)
+        .expect(200);
+
+      expect(list.body).toEqual([]);
+    } finally {
+      await harness.app.close();
     }
   });
 });

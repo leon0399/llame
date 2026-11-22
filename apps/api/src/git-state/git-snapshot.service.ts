@@ -6,7 +6,6 @@ import {
   ExecutorGit,
   type ExecutorTarget,
 } from '../machines/executor-git.service';
-import { MachineConnector } from '../machines/machine-connector.service';
 import { normalizeGitState } from './git-state-normalize';
 import { type GitAbsenceReason, type GitObservation } from './git-state-view';
 
@@ -77,8 +76,6 @@ export class GitSnapshotService {
   constructor(
     @Inject(ExecutorGit)
     private readonly executors: Pick<ExecutorGit, 'locateEntry' | 'state'>,
-    @Inject(MachineConnector)
-    private readonly connector: Pick<MachineConnector, 'localMachine'>,
   ) {}
 
   async observe(input: GitObserveInput): Promise<GitObservation> {
@@ -109,14 +106,9 @@ export class GitSnapshotService {
     signal: AbortSignal,
   ): Promise<GitObservation> {
     try {
-      // The host Machine runs in process: it has no link to probe, and its
-      // executor call verifies the local daemon itself. Every other Machine
-      // is asked first, so a known-offline one costs no request.
-      if (
-        input.target.machine !== this.connector.localMachine() &&
-        input.reachable !== undefined &&
-        !(await input.reachable())
-      )
+      // Every Machine is asked first, so a known-offline one — the host Machine
+      // included — costs no request.
+      if (input.reachable !== undefined && !(await input.reachable()))
         return unavailable('machine_unavailable');
 
       const located = await this.executors.locateEntry(
@@ -125,10 +117,7 @@ export class GitSnapshotService {
         { signal },
       );
 
-      if (located.status === 'error')
-        return located.type === 'not_a_repository'
-          ? { kind: 'not_a_repository' }
-          : failureObservation(located);
+      if (located.status === 'error') return failureObservation(located);
 
       if (!input.admit(located.gitEntry)) return unavailable('not_permitted');
 

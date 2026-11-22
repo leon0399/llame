@@ -527,8 +527,8 @@ async function commitWorktree(
     executorId: commit.worktree.authority.executorId,
     mainClone: commit.plan.mainClone,
     mainPath: commit.plan.mainPath,
-    // The inspector reports every path as its canonical locator, locally and
-    // through the daemon alike, so the rows record what it returned.
+    // The inspector reports every path as its canonical locator, so the rows
+    // record what it returned.
     inspection: commit.inspection,
   });
 

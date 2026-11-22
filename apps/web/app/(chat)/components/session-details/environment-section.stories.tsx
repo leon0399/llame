@@ -251,18 +251,26 @@ export const SessionDetailsShowsAnAbsenceLine: Story = {
 };
 
 /**
- * The folder is not a repository: the route's line stands where the branch
- * would be.
+ * The root holds no repository inside the registered root: the route's line
+ * stands where the branch would be.
  *
- * @summary Session details says the folder is not a git repository
+ * @summary Session details says the root holds no repository inside the registered root
  */
-export const NotAGitRepository: Story = {
+export const NoRepositoryInRoot: Story = {
   tags: ["ai-generated"],
   args: {
-    gitState: { status: "not_a_repository", line: "not a git repository" },
+    gitState: {
+      status: "unavailable",
+      reason: "no_repository_in_root",
+      line: "git state unavailable: no repository inside the registered root",
+    },
   },
   play: async ({ canvas }) => {
-    await expect(canvas.getByText("not a git repository")).toBeVisible();
+    await expect(
+      canvas.getByText(
+        "git state unavailable: no repository inside the registered root",
+      ),
+    ).toBeVisible();
   },
 };
 

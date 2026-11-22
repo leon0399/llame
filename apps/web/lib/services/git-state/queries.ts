@@ -4,7 +4,6 @@ import { getChatGitState } from "../../api/generated/chats/chats";
 import { createAuthenticatedBrowserFetch } from "../../api/fetch";
 
 export type {
-  GitStateNotARepositoryResponse,
   GitStateOkResponse,
   GitStateUnavailableResponse,
   GitStateUnboundResponse,

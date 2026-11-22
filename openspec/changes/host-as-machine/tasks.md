@@ -186,12 +186,23 @@ against its parent before publication.
 
 ## 5. git
 
-- [ ] 5.1 Delete the `ExecutorGit` local surface, route host git and worktrees through the daemon,
+- [x] 5.1 Delete the `ExecutorGit` local surface, route host git and worktrees through the daemon,
       and register host checkouts through it. Verify the `repositories` scenarios against a real
       daemon child.
-- [ ] 5.2 Docs: `repositories.md`, the Workspace entry reference, and a dated `CHANGELOG.md`
+  - Evidence: `ExecutorGit` has one `MachineConnector` dependency and no local branch; every git
+    method and both path probes are `MachineConnector.request` calls. `checkouts.integration`
+    registers, adopts, and lists through the real `llame-machine` child over `tmpdir` roots, and
+    adds `path_not_registered` (403 `permission_denied`) and `machine_unavailable` (503) at that
+    seam. `chat-git-state.integration` reads the branch, the credential-free remote, and the
+    throttle through the same child. `git-snapshot` probes reachability for the host Machine too.
+- [x] 5.2 Docs: `repositories.md`, the Workspace entry reference, and a dated `CHANGELOG.md`
       entry.
-- [ ] 5.3 Focused checks as in 3.14.
+  - Evidence: `repositories.md` and `enter-workspace.md` state that host git runs on the host
+    daemon under its registered roots, and the 2026-11-22 `CHANGELOG.md` entry names every host
+    call that now fails with `path_not_registered` and the `llame-machine roots add` restore. The
+    `workspace-git-state` delta moves the plain-folder answer to "no repository inside the
+    registered root" and drops the "not a git repository" line, and `git-state.md` matches it.
+- [x] 5.3 Focused checks as in 3.14.
 - [ ] 5.4 SR before ready; GR per [CONTRIBUTING.md](../../../CONTRIBUTING.md#ready-pr-monitoring).
 
 ## 6. workspace-context

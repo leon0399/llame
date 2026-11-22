@@ -75,21 +75,18 @@ function harness(
 ) {
   const calls: Calls = { locate: [], state: [] };
 
-  const service = new GitSnapshotService(
-    {
-      locateEntry: (_target, address, options) => {
-        calls.locate.push({ address, signal: options?.signal });
+  const service = new GitSnapshotService({
+    locateEntry: (_target, address, options) => {
+      calls.locate.push({ address, signal: options?.signal });
 
-        return locate();
-      },
-      state: (_target, address, input, options) => {
-        calls.state.push({ address, input, signal: options?.signal });
-
-        return state();
-      },
+      return locate();
     },
-    { localMachine: () => 'hub' },
-  );
+    state: (_target, address, input, options) => {
+      calls.state.push({ address, input, signal: options?.signal });
+
+      return state();
+    },
+  });
 
   return { service, calls };
 }
@@ -143,15 +140,6 @@ describe('GitSnapshotService.observe', () => {
     await service.observe({ target: LOCAL, root: ROOT, admit });
 
     expect(admit).toHaveBeenCalledExactlyOnceWith(ENTRY);
-  });
-
-  it('reports a plain folder as not a repository and starts no state call', async () => {
-    const { service, calls } = harness(() =>
-      Promise.resolve(failure('not_a_repository')),
-    );
-
-    expect(await line(service)).toBe('not a git repository');
-    expect(calls.state).toHaveLength(0);
   });
 
   it.each([
@@ -254,8 +242,8 @@ describe('GitSnapshotService.observe', () => {
     expect(calls.state).toHaveLength(0);
   });
 
-  it('proceeds when a Machine is reachable, and ignores reachability locally', async () => {
-    const reachable = vi.fn(() => Promise.resolve(false));
+  it('proceeds when a Machine is reachable, and probes the host Machine too', async () => {
+    const reachable = vi.fn(() => Promise.resolve(true));
     const machine = harness();
     const local = harness();
 
@@ -279,7 +267,19 @@ describe('GitSnapshotService.observe', () => {
         })
       ).kind,
     ).toBe('state');
-    expect(reachable).not.toHaveBeenCalled();
+    // The host Machine is an ordinary Machine now: the same verdict gates it
+    // before any request.
+    expect(reachable).toHaveBeenCalledOnce();
+  });
+
+  it('sends no request to the host Machine when it is known offline', async () => {
+    const { service, calls } = harness();
+
+    expect(
+      await line(service, { reachable: () => Promise.resolve(false) }),
+    ).toBe('git state unavailable: Machine unavailable');
+    expect(calls.locate).toHaveLength(0);
+    expect(calls.state).toHaveLength(0);
   });
 
   it('times out a slow session after 5 seconds and aborts the executor calls', async () => {

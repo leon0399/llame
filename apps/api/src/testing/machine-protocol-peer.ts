@@ -1,10 +1,9 @@
 /**
  * An in-process daemon side for hub tests: framing, stream multiplexing, the
- * hello handshake, heartbeats, and scriptable answers over real pipes. The
- * api test projects build nothing from `apps/machine`, so a hub test that
- * wanted the real daemon would need the bundle (absent in CI) or SSH (absent
- * everywhere) — this peer keeps the wire real while the Machine's own
- * behaviour stays the daemon suite's concern.
+ * hello handshake, heartbeats, and scriptable answers over real pipes. A case
+ * that needs the real daemon runs it in process (`machine-files-peer`); this
+ * peer scripts what a real Machine cannot produce on demand, such as a
+ * refusal or a lost link, and keeps the wire real in both cases.
  *
  * Deliberately under `src/testing/`: it is scaffolding, excluded from coverage
  * and from mutation (apps/api/stryker.config.json), and never imported by
@@ -12,6 +11,8 @@
  */
 
 import { PassThrough } from 'node:stream';
+
+import { z } from 'zod';
 
 import {
   createFrameMultiplexer,
@@ -155,6 +156,15 @@ export function defaultPeerFacts(roots: ReadonlyArray<string>): MachineFacts {
     totalMemoryBytes: 16 * 1024 ** 3,
     rootDisks: roots.map((root) => ({ root, totalBytes: 512 * 1024 ** 3 })),
   };
+}
+
+/**
+ * A typed result as wire JSON. The protocol's result shapes are plain data,
+ * and a peer's answer union is written against `JsonValue`; the JSON schema
+ * admits exactly such a value.
+ */
+export function wireJson<T>(value: T): JsonValue {
+  return z.json().parse(value);
 }
 
 /** One peer-side session: its own multiplexer, framer, and heartbeat. */
