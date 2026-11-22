@@ -42,6 +42,16 @@ import { type InRunAttempt } from './in-run-context-items';
 import { machineAttemptKey, machineEnvelope } from './machine-attempt';
 
 /**
+ * One root's Machine skill snapshot and the attempt that took it. A snapshot
+ * is per attempt, so another attempt's entry for the same root is never
+ * reused: an entry whose `attemptId` differs is a cache miss.
+ */
+export type AttemptSkillCatalog = {
+  readonly attemptId: string;
+  readonly catalog: SkillCatalogPort;
+};
+
+/**
  * Per-root skill-catalog snapshots kept for Machines, in insertion order. A
  * Machine snapshot is per attempt, and one attempt reads it many times, so a
  * handful of concurrently running Chats on Machines covers every attempt that
@@ -112,8 +122,10 @@ export type MachineWorkspaceRequest = {
   readonly toolAllowlist: ReadonlyArray<string>;
   readonly permissionPolicy: CompiledPolicy;
   readonly identity: MachineAttemptIdentity;
+  /** The attempt whose snapshot the catalog cache holds. */
+  readonly attemptId: string;
   /** The bounded per-root catalog cache a kept Workspace adds to. */
-  readonly skillCatalogs: Map<string, SkillCatalogPort>;
+  readonly skillCatalogs: Map<string, AttemptSkillCatalog>;
   readonly skillDirectories: ReadonlyArray<string>;
   /** Where a Machine's refusal of the root check is reported. */
   readonly warn: (message: string) => void;
@@ -172,6 +184,7 @@ export async function decideMachineWorkspace(
     connector,
     machineName,
     root: params.root,
+    attemptId: params.attemptId,
     signal: params.identity.signal,
     toolAllowlist: params.toolAllowlist,
     skillDirectories: params.skillDirectories,
@@ -426,11 +439,12 @@ async function probeMachineRoot(params: {
  * path: its sources are read through its own daemon.
  */
 export async function prepareMachineSkills(
-  catalogs: Map<string, SkillCatalogPort>,
+  catalogs: Map<string, AttemptSkillCatalog>,
   params: {
     readonly connector: MachinePreparationConnector;
     readonly machineName: string;
     readonly root: string;
+    readonly attemptId: string;
     readonly signal?: AbortSignal;
     readonly toolAllowlist: ReadonlyArray<string>;
     readonly skillDirectories: ReadonlyArray<string>;
@@ -456,10 +470,13 @@ export async function prepareMachineSkills(
   });
 
   if (sources === undefined) return;
-  catalogs.set(
-    params.root,
-    new SkillCatalog(params.skillDirectories, sources.fileSystem),
-  );
+  // A snapshot belongs to one attempt. Replacing the entry moves the root to
+  // the newest position, so a fresh snapshot is never the one pruned first.
+  catalogs.delete(params.root);
+  catalogs.set(params.root, {
+    attemptId: params.attemptId,
+    catalog: new SkillCatalog(params.skillDirectories, sources.fileSystem),
+  });
 
   while (catalogs.size > MACHINE_SKILL_CATALOG_LIMIT) {
     const oldest = catalogs.keys().next().value;

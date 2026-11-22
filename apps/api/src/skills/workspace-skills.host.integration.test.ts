@@ -14,7 +14,10 @@ import { dirname, join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 import { type SkillCatalogPort } from './skill-catalog';
-import { prepareMachineSkills } from '../runs/machine-workspace';
+import {
+  prepareMachineSkills,
+  type AttemptSkillCatalog,
+} from '../runs/machine-workspace';
 import { withLocalDaemon } from '../testing/local-daemon';
 import { workspaceSkillSources } from './workspace-skill-sources';
 
@@ -35,16 +38,16 @@ async function writeSkill(
 
 /** The catalog preparation installed for `root`, failing loudly when none did. */
 function installedCatalog(
-  catalogs: Map<string, SkillCatalogPort>,
+  catalogs: Map<string, AttemptSkillCatalog>,
   root: string,
 ): SkillCatalogPort {
-  const catalog = catalogs.get(root);
+  const entry = catalogs.get(root);
 
-  if (catalog === undefined) {
+  if (entry === undefined) {
     throw new Error('preparation installed no catalog for the root');
   }
 
-  return catalog;
+  return entry.catalog;
 }
 
 describe('host Workspace skills through the daemon', () => {
@@ -59,13 +62,14 @@ describe('host Workspace skills through the daemon', () => {
       await writeSkill(source, 'deploy', 'Deploy the app');
 
       await withLocalDaemon([root], async (daemon) => {
-        const catalogs = new Map<string, SkillCatalogPort>();
+        const catalogs = new Map<string, AttemptSkillCatalog>();
         const workspace = daemon.locator(root);
 
         await prepareMachineSkills(catalogs, {
           connector: daemon.connector,
           machineName: daemon.name,
           root: workspace,
+          attemptId: 'attempt-1',
           toolAllowlist: ['read'],
           skillDirectories: [],
         });
@@ -104,13 +108,14 @@ describe('host Workspace skills through the daemon', () => {
       await writeSkill(operator, 'review', 'Review a diff');
 
       await withLocalDaemon([root], async (daemon) => {
-        const catalogs = new Map<string, SkillCatalogPort>();
+        const catalogs = new Map<string, AttemptSkillCatalog>();
         const workspace = daemon.locator(root);
 
         await prepareMachineSkills(catalogs, {
           connector: daemon.connector,
           machineName: daemon.name,
           root: workspace,
+          attemptId: 'attempt-1',
           toolAllowlist: ['read'],
           skillDirectories: [operator],
         });

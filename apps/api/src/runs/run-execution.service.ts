@@ -41,6 +41,7 @@ import {
   machineInstructionAvailability,
   machineInstructionWorld,
   prepareMachineSkills,
+  type AttemptSkillCatalog,
   type MachineWorkspaceState,
 } from './machine-workspace';
 import { MachineConnector } from '../machines/machine-connector.service';
@@ -1414,7 +1415,10 @@ export class RunExecutionService {
    * preparation for the same root replaces it; the bound keeps one worker's
    * memory flat while several Chats run.
    */
-  private readonly machineSkillCatalogs = new Map<string, SkillCatalogPort>();
+  private readonly machineSkillCatalogs = new Map<
+    string,
+    AttemptSkillCatalog
+  >();
 
   /** Built on first use: every Run of this worker shares it. */
   private bashProcessLimiter: BashProcessLimiter | undefined;
@@ -2550,6 +2554,7 @@ export class RunExecutionService {
       workspacePreparation,
       workspaceRoot,
       effectivePermissionMode,
+      attemptId,
     );
 
     const workspaceMcpListing: WorkspaceMcpListingCell = {};
@@ -2570,6 +2575,7 @@ export class RunExecutionService {
       nativeDeliverySequence,
       workspaceRoot,
       effectivePermissionMode,
+      attemptId,
       continued !== undefined,
     );
 
@@ -3182,7 +3188,7 @@ export class RunExecutionService {
       tenantDb: this.tenantDb,
       abortSignal: input.abortSignal,
       knowledgeResolver: this.knowledgeResolver,
-      skillCatalog: this.skillCatalogFor(workspaceRoot.current()),
+      skillCatalog: this.skillCatalogFor(workspaceRoot.current(), attemptId),
       skillCatalogFor: (root) =>
         this.entrySkillCatalog(toolContext, root, input.abortSignal),
       // A manual-only skill the user named stays readable for this Run's tool
@@ -6642,6 +6648,7 @@ export class RunExecutionService {
       toolAllowlist: this.instanceConfig.config.tools.allowed,
       permissionPolicy: this.permissionPolicy,
       identity,
+      attemptId,
       skillCatalogs: this.machineSkillCatalogs,
       skillDirectories: this.instanceConfig.config.skills.directories,
       warn: (message) => this.logger.warn(message),
@@ -6743,6 +6750,7 @@ export class RunExecutionService {
     nativeDeliverySequence: number,
     workspaceRoot: WorkspaceRootCell,
     effectivePermissionMode: PermissionMode,
+    attemptId: string,
     followUp: boolean,
   ): Promise<ReadonlySet<string>> {
     const config = this.instanceConfig.config;
@@ -6767,6 +6775,7 @@ export class RunExecutionService {
       nativeDeliverySequence,
       workspaceRoot,
       effectivePermissionMode,
+      attemptId,
     );
 
     // What a prior attempt of this Run already resolved. Reading it first is
@@ -6926,6 +6935,7 @@ export class RunExecutionService {
         step.nativeDeliverySequence,
         step.workspaceRoot,
         step.effectivePermissionMode,
+        step.attemptId,
       ),
       skillSelection: step.skillSelection,
       abortSignal: signal,
@@ -7056,6 +7066,7 @@ export class RunExecutionService {
     nativeDeliverySequence: number,
     workspaceRoot: WorkspaceRootCell,
     effectivePermissionMode: PermissionMode,
+    attemptId: string,
   ): ToolContext {
     return {
       runId: input.runId,
@@ -7069,7 +7080,7 @@ export class RunExecutionService {
       tenantDb: this.tenantDb,
       abortSignal: input.abortSignal,
       knowledgeResolver: this.knowledgeResolver,
-      skillCatalog: this.skillCatalogFor(workspaceRoot.current()),
+      skillCatalog: this.skillCatalogFor(workspaceRoot.current(), attemptId),
       permissionPolicy: this.permissionPolicy,
       configuredCredentials: configuredCredentials(this.instanceConfig.config),
       webAdapters: this.instanceConfig.config.tools.webAdapters,
@@ -7152,6 +7163,7 @@ export class RunExecutionService {
             nativeDeliverySequence,
             workspaceRoot,
             effectivePermissionMode,
+            attemptId,
           )
         : undefined;
 
@@ -8408,6 +8420,7 @@ export class RunExecutionService {
     preparation: WorkspacePreparation,
     workspaceRoot: WorkspaceRootCell,
     effectivePermissionMode: PermissionMode,
+    attemptId: string,
   ): Promise<GitObservation> | undefined {
     const { root, machine } = preparation;
     const snapshots = this.gitSnapshots;
@@ -8421,6 +8434,7 @@ export class RunExecutionService {
       nativeDeliverySequence,
       workspaceRoot,
       effectivePermissionMode,
+      attemptId,
     );
 
     return this.observeGit(
@@ -8667,6 +8681,7 @@ export class RunExecutionService {
     const promptInputs = await this.resolveAttemptPrompt(
       tx,
       input,
+      attemptId,
       workspaceChat,
       workspaceRoot,
     );
@@ -10145,6 +10160,7 @@ export class RunExecutionService {
       chat,
       checkpointId: checkpoint.id,
       model: input.model,
+      attemptId: input.attemptId,
       workspaceRoot: input.workspaceRoot,
       shareRecentChats,
       digestCandidate: input.digestCandidate,
@@ -10160,6 +10176,7 @@ export class RunExecutionService {
     chat: Chat | undefined;
     checkpointId: string;
     model: SystemModelCatalogEntry;
+    attemptId: string;
     workspaceRoot: string | undefined;
     shareRecentChats: ResolvedMemorySettings;
     digestCandidate: RecencyDigestResolution | null;
@@ -10173,6 +10190,7 @@ export class RunExecutionService {
             run: input.run,
             chat: input.chat,
             model: input.model,
+            attemptId: input.attemptId,
             workspaceRoot: input.workspaceRoot,
             latestCheckpointId: input.checkpointId,
           });
@@ -10258,6 +10276,7 @@ export class RunExecutionService {
   private async resolveAttemptPrompt(
     tx: Db,
     input: ExecuteRunInput,
+    attemptId: string,
     workspaceChat: Chat | undefined,
     workspaceRoot: string | undefined,
   ): Promise<AttemptPromptInputs> {
@@ -10301,6 +10320,7 @@ export class RunExecutionService {
       run: input,
       chat,
       model,
+      attemptId,
       workspaceRoot,
       latestCheckpointId: checkpoint?.id ?? null,
     });
@@ -10319,36 +10339,48 @@ export class RunExecutionService {
 
   /**
    * The skill catalog one attempt reads through: the operator catalog when no
-   * Workspace is bound, and the Machine Workspace snapshot this attempt's
-   * preparation took for a bound root, so a Machine package is discovered and
-   * read on the Machine. A root this process never snapshotted (a code path
-   * that skipped preparation) falls back to the operator catalog, whose
-   * Machine extra sources are simply unreadable and contribute nothing — a
-   * Machine path is never read from the hub's own filesystem.
+   * Workspace is bound, and the Machine Workspace snapshot this attempt took
+   * for a bound root, so a Machine package is discovered and read on the
+   * Machine. A snapshot belongs to one attempt, so another attempt's entry for
+   * the root is a miss; a root this process never snapshotted (a code path that
+   * skipped preparation) falls back to the operator catalog, whose Machine
+   * extra sources are simply unreadable and contribute nothing — a Machine path
+   * is never read from the hub's own filesystem.
    */
-  private skillCatalogFor(root: string | undefined): SkillCatalogPort {
-    if (root === undefined) return this.skillCatalog;
+  private skillCatalogFor(
+    root: string | undefined,
+    attemptId: string | undefined,
+  ): SkillCatalogPort {
+    if (root === undefined || attemptId === undefined) return this.skillCatalog;
+    const entry = this.machineSkillCatalogs.get(root);
 
-    return this.machineSkillCatalogs.get(root) ?? this.skillCatalog;
+    return entry !== undefined && entry.attemptId === attemptId
+      ? entry.catalog
+      : this.skillCatalog;
   }
 
   /**
    * The catalog a mid-Run Workspace entry reports from: the same preparation a
    * bound attempt runs, so the root's sources are read on its Machine under the
-   * `read` gate and the per-root snapshot cache. The attempt's own cell takes
-   * the catalog preparation installs, so the `skill://` reads that follow the
-   * entry resolve the Workspace's packages. A root with no Machine path, or a
-   * Machine that cannot snapshot it, leaves the attempt's catalog as it is.
+   * `read` gate and the per-root snapshot cache. A snapshot belongs to one
+   * attempt, so the attempt refreshes a root another attempt snapshotted rather
+   * than reporting stale packages; a root it already snapshotted is reused. The
+   * attempt's own cell takes the catalog preparation installs, so the
+   * `skill://` reads that follow the entry resolve the Workspace's packages. A
+   * root with no Machine path, or a Machine that cannot snapshot it, leaves the
+   * attempt's catalog as it is.
    */
   private async entrySkillCatalog(
     context: ToolContext,
     root: string,
     signal: AbortSignal | undefined,
   ): Promise<SkillCatalogPort | undefined> {
+    const attemptId = context.attemptId;
     const parsed = machineWorkspaceRoot(root);
     const connector = this.machineConnector;
 
-    if (parsed === undefined) return context.skillCatalog;
+    if (parsed === undefined || attemptId === undefined)
+      return context.skillCatalog;
 
     // Activation is a `read`: a Run without it reads no Workspace source, even
     // when another attempt already snapshotted this root.
@@ -10357,10 +10389,10 @@ export class RunExecutionService {
 
     const cached = this.machineSkillCatalogs.get(root);
 
-    if (cached !== undefined) {
-      Object.assign(context, { skillCatalog: cached });
+    if (cached !== undefined && cached.attemptId === attemptId) {
+      Object.assign(context, { skillCatalog: cached.catalog });
 
-      return cached;
+      return cached.catalog;
     }
 
     if (connector === undefined) return context.skillCatalog;
@@ -10369,17 +10401,18 @@ export class RunExecutionService {
       connector,
       machineName: parsed.name,
       root,
+      attemptId,
       signal,
       toolAllowlist: this.instanceConfig.config.tools.allowed,
       skillDirectories: this.instanceConfig.config.skills.directories,
     });
 
-    const catalog = this.machineSkillCatalogs.get(root);
+    const entry = this.machineSkillCatalogs.get(root);
 
-    if (catalog === undefined) return undefined;
-    Object.assign(context, { skillCatalog: catalog });
+    if (entry === undefined || entry.attemptId !== attemptId) return undefined;
+    Object.assign(context, { skillCatalog: entry.catalog });
 
-    return catalog;
+    return entry.catalog;
   }
 
   /**
@@ -10392,12 +10425,16 @@ export class RunExecutionService {
     run: ExecuteRunInput;
     chat: Chat;
     model: SystemModelCatalogEntry;
+    attemptId: string;
     workspaceRoot: string | undefined;
     latestCheckpointId: string | null;
   }): SkillTurnState {
     return resolveTurnSkillState(
       {
-        skillCatalog: this.skillCatalogFor(input.workspaceRoot),
+        skillCatalog: this.skillCatalogFor(
+          input.workspaceRoot,
+          input.attemptId,
+        ),
         skillDirectories: this.instanceConfig.config.skills.directories,
         ...(input.workspaceRoot !== undefined && {
           extraSources: workspaceSkillSources(input.workspaceRoot),

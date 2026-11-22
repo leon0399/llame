@@ -8,7 +8,6 @@ import { MachineConnector } from '../machines/machine-connector.service';
 import { MachineUnavailableError } from '../machines/machine-session';
 import { type Chat } from '../db/schema';
 import { type ReadPage } from '../instructions/instruction-files';
-import { type SkillCatalogPort } from '../skills/skill-catalog';
 import {
   createProtocolPeer,
   type ProtocolPeer,
@@ -23,6 +22,7 @@ import {
   machineInstructionAvailability,
   machineInstructionWorld,
   prepareMachineSkills,
+  type AttemptSkillCatalog,
   type MachineAttemptIdentity,
   type MachinePreparationConnector,
   type MachineWorkspaceRequest,
@@ -141,7 +141,8 @@ function decisionInput(
     toolAllowlist: ['read', 'enter_workspace'],
     permissionPolicy: allowWorkspaceEntry,
     identity: { runId: 'run-1', deliverySequence: 4 },
-    skillCatalogs: new Map<string, SkillCatalogPort>(),
+    attemptId: 'attempt-1',
+    skillCatalogs: new Map<string, AttemptSkillCatalog>(),
     skillDirectories: [],
     warn: vi.fn(),
     ...overrides,
@@ -542,11 +543,12 @@ describe('decideUnboundMachine', () => {
 describe('prepareMachineSkills', () => {
   it('reads nothing without read on the allowlist', async () => {
     const machine = fakeConnector();
-    const catalogs = new Map<string, SkillCatalogPort>();
+    const catalogs = new Map<string, AttemptSkillCatalog>();
     await prepareMachineSkills(catalogs, {
       connector: machine.connector,
       machineName: 'devl',
       root: MACHINE_ROOT,
+      attemptId: 'attempt-1',
       toolAllowlist: ['enter_workspace'],
       skillDirectories: [],
     });
@@ -556,11 +558,12 @@ describe('prepareMachineSkills', () => {
 
   it('reads nothing when the root names another Machine', async () => {
     const machine = fakeConnector();
-    const catalogs = new Map<string, SkillCatalogPort>();
+    const catalogs = new Map<string, AttemptSkillCatalog>();
     await prepareMachineSkills(catalogs, {
       connector: machine.connector,
       machineName: 'gpu',
       root: MACHINE_ROOT,
+      attemptId: 'attempt-1',
       toolAllowlist: ['read'],
       skillDirectories: [],
     });
@@ -570,11 +573,12 @@ describe('prepareMachineSkills', () => {
 
   it('reads nothing when the root is not a Machine locator at all', async () => {
     const machine = fakeConnector();
-    const catalogs = new Map<string, SkillCatalogPort>();
+    const catalogs = new Map<string, AttemptSkillCatalog>();
     await prepareMachineSkills(catalogs, {
       connector: machine.connector,
       machineName: 'devl',
       root: '/srv/app',
+      attemptId: 'attempt-1',
       toolAllowlist: ['read'],
       skillDirectories: [],
     });
@@ -587,7 +591,7 @@ describe('prepareMachineSkills', () => {
       answer: () => Promise.reject(new Error('unreachable')),
     });
 
-    const catalogs = new Map<string, SkillCatalogPort>();
+    const catalogs = new Map<string, AttemptSkillCatalog>();
 
     const roots = Array.from(
       { length: 9 },
@@ -599,6 +603,7 @@ describe('prepareMachineSkills', () => {
         connector: machine.connector,
         machineName: 'devl',
         root,
+        attemptId: 'attempt-1',
         toolAllowlist: ['read'],
         skillDirectories: [],
       });
@@ -618,22 +623,23 @@ describe('prepareMachineSkills', () => {
       answer: () => Promise.reject(new Error('unreachable')),
     });
 
-    const catalogs = new Map<string, SkillCatalogPort>();
+    const catalogs = new Map<string, AttemptSkillCatalog>();
 
     const params = {
       connector: machine.connector,
       machineName: 'devl',
       root: MACHINE_ROOT,
+      attemptId: 'attempt-1',
       toolAllowlist: ['read'],
       skillDirectories: [],
     };
 
     await prepareMachineSkills(catalogs, params);
-    const first = catalogs.get(MACHINE_ROOT);
+    const first = catalogs.get(MACHINE_ROOT)?.catalog;
     const asked = machine.calls.length;
     await prepareMachineSkills(catalogs, params);
     expect(catalogs.size).toBe(1);
-    expect(catalogs.get(MACHINE_ROOT)).not.toBe(first);
+    expect(catalogs.get(MACHINE_ROOT)?.catalog).not.toBe(first);
     expect(machine.calls.length).toBeGreaterThan(asked);
   });
 });
