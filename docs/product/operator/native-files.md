@@ -208,10 +208,11 @@ A path walk follows these rules:
 - It MUST NOT enter a directory named `.git`.
 - It reads `.ignore` beside `.gitignore` in every directory of the walk, and
   `.ignore` outranks `.gitignore` in one directory.
-- Above the scope prefix it reads `.ignore` files up to `/`. It reads
-  `.gitignore` above the prefix only from the nearest repository directory
-  down, where the repository directory is the nearest directory at or above
-  the prefix that holds a `.git` entry or file.
+- Above the scope prefix it reads `.ignore` files up to the registered root
+  that holds the prefix, because a host scope runs on the same daemon walk as a
+  `machine://` scope. It reads `.gitignore` above the prefix only from the
+  nearest repository directory down, where the repository directory is the
+  nearest directory at or above the prefix that holds a `.git` entry or file.
 - A rule decides an entry only when its own pattern matches that entry's
   path. In one file the last matching rule decides, a negation included, and
   a deeper file outranks a shallower one. The walk never applies a rule to the

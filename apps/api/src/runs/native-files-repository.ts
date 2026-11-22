@@ -147,6 +147,25 @@ export class NativeFilesRepository {
   }
 
   /**
+   * Whether this delivery may still change the Chat's Workspace binding: the
+   * delivery is current and the Run has not finished. A cancellation request
+   * stays admitted, because a stopped Run still clears its binding while it
+   * settles and the Machine may be offline; a finished Run accepts no new
+   * transition, so a late exit cannot clear a later Run's binding.
+   */
+  async isCurrentUnfinishedDelivery(
+    input: DeliveryFenceInput,
+  ): Promise<boolean> {
+    if (input.deliverySequence === undefined) return false;
+    const locked = await this.lockRun(input.runId, input.userId);
+
+    if (locked === undefined || isTerminalRunStatus(locked.status))
+      return false;
+
+    return this.matchesDelivery(locked, input);
+  }
+
+  /**
    * Whether the Run may still admit an effect: its current delivery, and a Run
    * that is neither cancelled nor finished. A cancellation request is a
    * committed decision the worker settles later, so an effect admitted after it

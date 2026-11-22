@@ -155,10 +155,22 @@ function unsearchableSchemeResult(scheme: string): GrepToolError {
   }
 }
 
+/** One submitted scope and the call state its resolution may spend. */
+type ScopeRequest = {
+  readonly context: ToolContext;
+  readonly scope: string;
+  readonly index: number;
+  readonly admission: GrepReadAdmission;
+  /** The absolute instant the walk stops, shared with every probe. */
+  readonly deadlineAt: number;
+};
+
 export async function resolveScopes(
   context: ToolContext,
   submitted: ReadonlyArray<string>,
   admission: GrepReadAdmission,
+  // A caller without a walk clock probes under the operation's own bound.
+  deadlineAt: number = Number.POSITIVE_INFINITY,
 ): Promise<ResolvedScopes | { readonly result: GrepToolError }> {
   const scopes: Array<GrepScope> = [];
   // A bare `kb://` or `skill://` scope expands to one scope per Space or
@@ -168,7 +180,13 @@ export async function resolveScopes(
   const machines: Array<MachineGrepScope> = [];
 
   for (const [index, scope] of submitted.entries()) {
-    const outcome = await resolveScope(context, scope, index, admission);
+    const outcome = await resolveScope({
+      context,
+      scope,
+      index,
+      admission,
+      deadlineAt,
+    });
 
     if ('result' in outcome) return outcome;
 
@@ -187,18 +205,14 @@ export async function resolveScopes(
   return { scopes, machines };
 }
 
-async function resolveScope(
-  context: ToolContext,
-  scope: string,
-  index: number,
-  admission: GrepReadAdmission,
-): Promise<ScopeOutcome> {
+async function resolveScope(request: ScopeRequest): Promise<ScopeOutcome> {
+  const { context, scope, index, admission } = request;
   const scheme = parsePathScheme(scope);
 
   // A `file:` alias is a host path (design D6), placed by the locator rule
   // like a bare one; a scheme-less scope is a host path too.
   if (isFileAlias(scope) || scheme === undefined)
-    return resolveHostScope(context, scope, index, admission);
+    return resolveHostScope(request);
 
   switch (scheme.scheme) {
     case KNOWLEDGE_SCHEME:
@@ -206,7 +220,7 @@ async function resolveScope(
     case SKILL_SCHEME:
       return resolveSkillScope(context, scheme.rest, index, admission);
     case MACHINE_SCHEME:
-      return resolveMachineScope(context, scope, index, admission);
+      return resolveMachineScope(request);
     default:
       return { result: unsearchableSchemeResult(scheme.scheme) };
   }
@@ -234,12 +248,8 @@ function refuseUnsearchableSkillScope(rest: string): GrepToolError | undefined {
  * glob split sets where the walk starts. The placed Machine's daemon walks it,
  * whether that Machine is this process's own or another one (design D8).
  */
-async function resolveHostScope(
-  context: ToolContext,
-  scope: string,
-  index: number,
-  admission: GrepReadAdmission,
-): Promise<ScopeOutcome> {
+async function resolveHostScope(request: ScopeRequest): Promise<ScopeOutcome> {
+  const { context, scope } = request;
   const target = resolveMachinePath(scope, locatorContext(context));
 
   if (target.kind !== 'machine')
@@ -251,18 +261,16 @@ async function resolveHostScope(
       ),
     };
 
-  return resolvePlacedScope(context, { scope, target, index, admission });
+  return resolvePlacedScope({ ...request, target });
 }
 
 /**
  * One host scope after the locator rule placed it on its Machine: the text the
- * model wrote, the resolved target, and the call's own ordinal and admission.
+ * model wrote, the resolved target, and the call's own ordinal, admission, and
+ * walk clock.
  */
-type HostTarget = {
-  readonly scope: string;
+type HostTarget = ScopeRequest & {
   readonly target: MachineTarget;
-  readonly index: number;
-  readonly admission: GrepReadAdmission;
 };
 
 /**
@@ -271,11 +279,8 @@ type HostTarget = {
  * spelled locator text reaches that Machine's daemon, whether that Machine is
  * this process's own or another one (design D8).
  */
-async function resolvePlacedScope(
-  context: ToolContext,
-  host: HostTarget,
-): Promise<ScopeOutcome> {
-  const { target } = host;
+async function resolvePlacedScope(host: HostTarget): Promise<ScopeOutcome> {
+  const { context, target } = host;
   // The resolver splits a valid read selector off a bare path; grep parses no
   // selector, so the suffix stays the path text the model wrote.
   const normalized = normalizeHostScope(literalTargetPath(target));
@@ -296,12 +301,13 @@ async function resolvePlacedScope(
 
   const literal = formatMachineLocator(target.name, decoded) ?? split.prefix;
 
-  return resolveMachineScope(
+  return resolveMachineScope({
     context,
-    `${spellGrepMachineScopeLocator(literal)}${split.globSuffix ?? ''}`,
-    host.index,
-    host.admission,
-  );
+    scope: `${spellGrepMachineScopeLocator(literal)}${split.globSuffix ?? ''}`,
+    index: host.index,
+    admission: host.admission,
+    deadlineAt: host.deadlineAt,
+  });
 }
 
 /**

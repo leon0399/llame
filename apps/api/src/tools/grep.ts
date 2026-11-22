@@ -100,7 +100,12 @@ async function executeGrep(
   const admission = createGrepReadAdmission(context);
 
   try {
-    const resolved = await resolveScopes(context, submitted, admission);
+    const resolved = await resolveScopes(
+      context,
+      submitted,
+      admission,
+      deadlineAt,
+    );
 
     if ('result' in resolved) return resolved.result;
 

@@ -78,6 +78,8 @@ export type MachineGrepScope = {
   readonly path: string;
   /** The glob text from the first glob segment onward, as submitted. */
   readonly globSuffix: string | undefined;
+  /** The submitted text ended with a separator, so it names a directory. */
+  readonly endsWithSeparator: boolean;
   /**
    * The exact-path probe found one regular file, so the daemon walks it
    * without listing: no entry is counted, and the file bound trips first.
@@ -144,20 +146,28 @@ export type MachineScopeResolution =
   | { readonly machine: MachineGrepScope }
   | { readonly result: GrepToolError };
 
+/** One Machine scope's resolution: its text, ordinal, admission, and clock. */
+export type MachineScopeRequest = {
+  readonly context: ToolContext;
+  readonly scope: string;
+  readonly index: number;
+  readonly admission: GrepReadAdmission;
+  /** The absolute instant the walk stops, which bounds the probe. */
+  readonly deadlineAt: number;
+};
+
 /**
  * One `machine://` scope, or the result that ends the call. The path is split
  * at its first glob segment before any decoding — so `%2A` stays a literal
  * filename character — and normalized lexically, exactly as a host scope. A
- * glob-free scope is probed first: a regular file the `read` group refuses
- * answers the `not_found` a missing path gets, while a directory scope is
- * walked with a per-file check.
+ * glob-free scope is probed first: a regular file the `read` group refuses, or
+ * a directory spelling that names one, answers the `not_found` a missing path
+ * gets, while a directory scope is walked with a per-file check.
  */
 export async function resolveMachineScope(
-  context: ToolContext,
-  scope: string,
-  index: number,
-  admission: GrepReadAdmission,
+  request: MachineScopeRequest,
 ): Promise<MachineScopeResolution> {
+  const { context, scope, index, admission, deadlineAt } = request;
   const parsed = machineScopeOf(scope, index);
 
   if ('status' in parsed) return { result: parsed };
@@ -167,7 +177,14 @@ export async function resolveMachineScope(
 
   if (!connector.isConfigured(parsed.name))
     return { result: machineNotFoundResult(parsed.name) };
-  const verdict = await exactPathVerdict(context, connector, parsed, admission);
+
+  const verdict = await exactPathVerdict({
+    context,
+    connector,
+    scope: parsed,
+    admission,
+    deadlineAt,
+  });
 
   if ('result' in verdict) return { result: verdict.result };
 
@@ -190,48 +207,73 @@ function machinePathNotFoundResult(): GrepToolError {
   return { status: 'error', type: 'not_found', message: NOT_FOUND_MESSAGE };
 }
 
+/** One glob-free Machine scope's exact-path probe and its walk clock. */
+type ExactPathProbe = {
+  readonly context: ToolContext;
+  readonly connector: MachineConnector;
+  readonly scope: MachineGrepScope;
+  readonly admission: GrepReadAdmission;
+  readonly deadlineAt: number;
+};
+
 /**
  * The `read` verdict for a glob-free scope that names one regular file. The
  * daemon's own stat is the probe, so a directory scope keeps its per-file
- * checks and the directory itself never counts as a refused file. Anything
- * the probe cannot settle — a refusal, an unusable answer — is left to the
- * search, which reports the same failure with its own message.
+ * checks and the directory itself never counts as a refused file. A
+ * directory-only spelling that names a file is not a file scope. Anything the
+ * probe cannot settle — a refusal, an unusable answer — is left to the search,
+ * which reports the same failure with its own message.
  */
 async function exactPathVerdict(
-  context: ToolContext,
-  connector: MachineConnector,
-  scope: MachineGrepScope,
-  admission: GrepReadAdmission,
+  probe: ExactPathProbe,
 ): Promise<ExactPathVerdict> {
+  const { scope } = probe;
+
   if (scope.globSuffix !== undefined)
     return { kind: 'walk', singleFile: false };
   const locator = formatMachineLocator(scope.name, scope.path);
 
   if (locator === undefined) return { kind: 'walk', singleFile: false };
 
+  // The walk's deadline bounds the probe; an expired walk asks nothing and
+  // lets the segment loop report the incomplete result it already owes.
+  const budgetMs = Math.min(
+    probe.deadlineAt - Date.now(),
+    MACHINE_FILE_BUDGET_MS,
+  );
+
+  if (budgetMs <= 0) return { kind: 'walk', singleFile: false };
+
   try {
     const answer = readFsStatResult(
-      await connector.request(
+      await probe.connector.request(
         scope.name,
         FS_STAT_METHOD,
         {
-          envelope: machineCallEnvelope(
-            context,
-            machineBudgetMs(context, MACHINE_FILE_BUDGET_MS),
-          ),
+          envelope: machineCallEnvelope(probe.context, budgetMs),
           path: scope.path,
         },
-        { signal: context.abortSignal },
+        { signal: probe.context.abortSignal },
       ),
     );
 
     if (answer === undefined || answer.kind !== 'file' || answer.isLink)
       return { kind: 'walk', singleFile: false };
 
-    return admission.admit(locator)
+    if (scope.endsWithSeparator) return { kind: 'refused' };
+
+    return probe.admission.admit(locator)
       ? { kind: 'walk', singleFile: true }
       : { kind: 'refused' };
   } catch (error) {
+    // The daemon's own budget ends at the walk's deadline: the walk is over,
+    // not failed, so the segment loop reports it as incomplete.
+    if (
+      error instanceof MachineProtocolError &&
+      error.code === 'budget_exhausted'
+    )
+      return { kind: 'walk', singleFile: false };
+
     return { result: machineGrepFailure(scope.name, error) };
   }
 }
@@ -287,6 +329,7 @@ export function machineScopeOf(
     name,
     path: normalizeHostScope(path),
     globSuffix: split.globSuffix,
+    endsWithSeparator: split.endsWithSeparator,
   };
 }
 

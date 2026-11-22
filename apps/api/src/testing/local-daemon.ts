@@ -11,7 +11,7 @@
  */
 
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, realpathSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
@@ -26,6 +26,18 @@ export const MACHINE_BUNDLE = resolve(
   '../../..',
   'machine/dist/llame-machine.cjs',
 );
+
+/**
+ * The built daemon bundle, checked before a suite spawns it: a raw spawn error
+ * names neither the missing file nor the command that writes it.
+ */
+export function assertBuiltBundle(bundle: string): void {
+  if (existsSync(bundle)) return;
+
+  throw new Error(
+    `The Machine file and grep integration suites need the built daemon at ${bundle}: run \`pnpm --filter machine build\`.`,
+  );
+}
 
 export type LocalDaemonOptions = {
   /** The roots the daemon serves; each is registered before the first spawn. */
@@ -42,6 +54,7 @@ export type LocalDaemon = {
 };
 
 export function startLocalDaemon(options: LocalDaemonOptions): LocalDaemon {
+  assertBuiltBundle(MACHINE_BUNDLE);
   const name = DEFAULT_LOCAL_MACHINE_NAME;
   const configDir = mkdtempSync(join(tmpdir(), 'llame-machine-test-'));
 

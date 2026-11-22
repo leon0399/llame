@@ -626,6 +626,40 @@ describe('Machine scope addresses', () => {
     expect(session.calls.map((call) => call.method)).toEqual(['fs.stat']);
   });
 
+  it('answers not_found for a directory-only scope that names a regular file', async () => {
+    const { peer, connector } = fixture({
+      answers: { 'fs.stat': { value: { kind: 'file', isLink: false } } },
+    });
+
+    const result = await run(context(connector), {
+      patterns: ['needle'],
+      scopes: ['machine://devl/srv/app/a.go/'],
+    });
+
+    expect(result).toEqual({
+      status: 'error',
+      type: 'not_found',
+      message: 'The target does not exist.',
+    });
+    const session = await peer.session(0);
+    expect(session.calls.map((call) => call.method)).toEqual(['fs.stat']);
+  });
+
+  it('walks a directory scope written with a trailing separator', async () => {
+    const { peer, connector } = fixture({
+      answers: { 'fs.grep': { value: page([passage('a.go', 1, 1)]) } },
+    });
+
+    const result = await run(context(connector), {
+      patterns: ['needle'],
+      scopes: ['machine://devl/srv/app/'],
+    });
+
+    expect(locatorsOf(result)).toEqual(['machine://devl/srv/app/a.go:1-1']);
+    const session = await peer.session(0);
+    expect(session.calls[0]?.params).toMatchObject({ path: '/srv/app' });
+  });
+
   it('walks a glob-free directory the read group refuses as a path', async () => {
     const { connector } = fixture({
       answers: { 'fs.grep': { value: page([passage('a.go', 1, 1)]) } },
@@ -841,6 +875,7 @@ describe('Machine scope addresses', () => {
           name: 'nope',
           path: '/srv/app',
           globSuffix: undefined,
+          endsWithSeparator: false,
         },
         args: { patterns: ['needle'], literal: false, ignoreCase: false },
         budget: BUDGET,
@@ -868,6 +903,7 @@ describe('Machine scope addresses', () => {
         name: 'devl',
         path: '/srv/app',
         globSuffix: undefined,
+        endsWithSeparator: false,
       },
       args: { patterns: ['needle'], literal: false, ignoreCase: false },
       budget: BUDGET,
@@ -2128,6 +2164,46 @@ describe('grep deadline', () => {
         callTimeoutSeconds: 60,
       }),
     ).toEqual({ walkMs: 54_000, daemonMs: 48_600 });
+  });
+
+  it('bounds a scope probe by the walk deadline and skips it once spent', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+
+    try {
+      vi.setSystemTime(0);
+
+      const { peer, connector } = fixture({
+        answer: (call) => {
+          if (call.method !== 'fs.stat') return undefined;
+          // The first scope's probe spends the rest of the 3-second walk.
+          vi.setSystemTime(3000);
+
+          return DIRECTORY_STAT;
+        },
+      });
+
+      const result = await run(
+        context(connector, { timeoutMs: undefined, callTimeoutSeconds: 6 }),
+        {
+          patterns: ['needle'],
+          scopes: ['machine://devl/srv/a', 'machine://devl/srv/b'],
+        },
+      );
+
+      expect(success(result).complete).toBe(false);
+      expect(success(result).warnings).toEqual([
+        { kind: 'deadline', count: 1 },
+      ]);
+      const session = await peer.session(0);
+      // The probe carried the walk's remaining time, not the call's timeout,
+      // and the spent walk probes the second scope for nothing.
+      expect(session.calls).toHaveLength(1);
+      expect(session.calls[0]?.params).toMatchObject({
+        envelope: { budgetMs: 3000 },
+      });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

@@ -36,10 +36,11 @@ with
 `invalid_selector`, and on an absolute `path` or `file://` alias a trailing
 `:N-M` or
 `:raw` is part of the filename, so the edit targets a file whose name ends in
-that text. A `machine://` mutation takes no selector either and binds the Run to
-its Machine; the attempt is fenced and recorded with the locator, and an
-edit whose session is lost after dispatch settles as `outcome_unknown` rather
-than being retried; see [machine](../locators/machine.md#behavior).
+that text. A `machine://` mutation takes no selector either and records its
+attempt with the locator; it does not bind the Run to a worker, so a retry on
+another worker reaches the same Machine. An edit whose session is lost after
+dispatch settles as `outcome_unknown` rather than being retried; see
+[machine](../locators/machine.md#behavior).
 
 ## Result
 
@@ -111,8 +112,11 @@ A missing or ambiguous match fails without a change. `not_regular_file` reports
 a target that is not a regular file. `not_found` reports an absent path or a
 refused `kb://` symbolic-link component. A target outside the current Machine's
 registered roots fails with `path_not_registered`, and a daemon that cannot
-serve fails with `machine_unavailable`. The shared vocabulary is in
-[read](read.md#errors).
+serve before the request is sent fails with `machine_unavailable`. A connection
+lost after the request was sent settles as `outcome_unknown`: the edit may have
+committed, so read the file before authoring a new attempt (see
+[mutation recovery](../mutation-recovery.md#unknown-outcome)). The shared
+vocabulary is in [read](read.md#errors).
 
 ## Configured by
 

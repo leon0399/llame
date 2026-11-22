@@ -4,6 +4,7 @@ import {
   mkdir,
   readFile,
   rm,
+  symlink,
   truncate,
   writeFile,
 } from "node:fs/promises";
@@ -455,6 +456,28 @@ describe("fs.edit and fs.write", () => {
     expect(result).not.toHaveProperty("content");
     expect(result).not.toHaveProperty("diff");
     await expect(readFile(target, "utf8")).resolves.toBe("hello\n");
+  });
+
+  it("refuses a missing target whose `..` after a link names another directory", async () => {
+    const project = join(fixture.root, "project");
+    const nested = join(project, "nested");
+    const child = join(nested, "child");
+    await mkdir(child, { recursive: true });
+    await symlink(child, join(project, "link"));
+
+    // The kernel climbs from the link's target, so this names
+    // project/nested/new.txt; the lexical guard names project/new.txt. The
+    // daemon must not create either for a spelling it cannot honor.
+    await expect(
+      daemon.call("fs.write", {
+        envelope: envelope(),
+        path: `${project}/link/../new.txt`,
+        options: { displayPrefix: PREFIX },
+        content: "no\n",
+      }),
+    ).resolves.toMatchObject({ status: "error", type: "not_found" });
+    await expect(readFile(join(project, "new.txt"))).rejects.toThrow(/ENOENT/u);
+    await expect(readFile(join(nested, "new.txt"))).rejects.toThrow(/ENOENT/u);
   });
 
   it("creates two files under the same new directory chain at once", async () => {

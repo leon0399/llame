@@ -67,8 +67,9 @@ including a Machine `bash` command and a Workspace MCP server, can do so. The
 SSH destination, any jump host, and every identity are operator-only and never
 appear in a result, a listing, or a tool description.
 
-A Machine operation binds the Run to that Machine. A bare absolute path and a
-`file:` alias bind the same Machine, through its canonical locator.
+A Machine operation runs on that Machine and records its attempt against the
+Machine locator; it does not bind the Run to a worker. A bare absolute path and
+a `file:` alias address the same Machine, through its canonical locator.
 
 ## Behavior
 

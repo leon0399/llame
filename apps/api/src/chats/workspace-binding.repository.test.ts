@@ -271,6 +271,52 @@ describe('WorkspaceBindingRepository', () => {
     expect(calls.filter(({ method }) => method === 'set')).toHaveLength(0);
   });
 
+  it('refuses an exit from a finished Run before it clears the binding', async () => {
+    const { db, calls } = makeDb({
+      select: [
+        [{ id: 'run-1', status: 'completed', cancelRequestedAt: null }],
+        started,
+        [current],
+      ],
+      update: [[{ workspaceGeneration: 6 }]],
+    });
+
+    await expect(
+      new WorkspaceBindingRepository(db).exit({
+        chatId: 'chat-a',
+        ownerUserId: 'owner-a',
+        runId: 'run-1',
+        deliverySequence: 7,
+      }),
+    ).resolves.toEqual({ status: 'fence_lost' });
+    expect(calls.filter(({ method }) => method === 'set')).toHaveLength(0);
+  });
+
+  it('clears the binding on an exit while the Run is cancel-requested', async () => {
+    const { db, calls } = makeDb({
+      select: [
+        [{ id: 'run-1', status: 'running', cancelRequestedAt: new Date() }],
+        started,
+        [current],
+      ],
+      update: [[{ workspaceGeneration: 5 }]],
+    });
+
+    await expect(
+      new WorkspaceBindingRepository(db).exit({
+        chatId: 'chat-a',
+        ownerUserId: 'owner-a',
+        runId: 'run-1',
+        deliverySequence: 7,
+      }),
+    ).resolves.toEqual({
+      status: 'cleared',
+      previousRoot: current.workspaceRoot,
+      generation: 5,
+    });
+    expect(calls.filter(({ method }) => method === 'set')).toHaveLength(1);
+  });
+
   it('records Machine availability only for a narration that passes one', async () => {
     const { db, calls } = makeDb({ update: [[], [], []] });
     const repository = new WorkspaceBindingRepository(db);

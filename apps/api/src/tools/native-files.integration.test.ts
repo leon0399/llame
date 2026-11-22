@@ -870,6 +870,32 @@ describe('native file authority and durable effects', () => {
     ).toEqual(foreign);
     expect(await ownedObjects()).toHaveLength(1);
   });
+
+  it('reads a literal image whose filename ends in a selector', async () => {
+    const media = new MediaService(tenantDb);
+
+    const mediaContext: ToolContext = {
+      ...context,
+      media: createToolMediaStore(media, owner, new Map()),
+    };
+
+    const literal = `${path}:1`;
+
+    await writeFile(literal, await randomPng());
+
+    // The literal file wins over the selector split, and its bytes are the
+    // ones the media read hands over, not the selector-free path's.
+    await expect(
+      runTool(nativeReadTool, { path: literal }, mediaContext, 5),
+    ).resolves.toMatchObject({
+      status: 'success',
+      kind: 'image',
+      mediaType: 'image/png',
+      width: 8,
+      height: 8,
+      path: `${locatorOf(directory)}/notes%3A1`,
+    });
+  });
 });
 
 describe('kb:// mutations under real owner binding', () => {

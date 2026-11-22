@@ -352,4 +352,22 @@ describeIfDb('WorkspaceBindingRepository — PostgreSQL lifecycle', () => {
       workspaceGeneration: 2,
     });
   });
+
+  it('refuses an exit from a finished Run and keeps the binding', async () => {
+    const root = 'machine://executor-a/work/project-a';
+
+    await expect(enter(root)).resolves.toMatchObject({ status: 'bound' });
+    await tenantDb.runAs(owner, (tx) =>
+      tx.execute(
+        sqlStatement`update runs set status = 'completed', finished_at = now() where id = ${runId}`,
+      ),
+    );
+
+    // A late exit must not clear a binding a later Run could have established.
+    await expect(exit()).resolves.toEqual({ status: 'fence_lost' });
+    expect(await readWorkspace()).toMatchObject({
+      workspaceRoot: root,
+      workspaceGeneration: 1,
+    });
+  });
 });

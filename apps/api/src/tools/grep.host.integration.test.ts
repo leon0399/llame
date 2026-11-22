@@ -337,6 +337,43 @@ describe('host walk policy', () => {
     });
   });
 
+  it('refuses a directory-only host scope that names a regular file', async () => {
+    await withRoot(async (root) => {
+      await writeAt(root, 'src/app.js', 'needle\n');
+
+      await expect(
+        run(contextOf(), {
+          patterns: ['needle'],
+          scopes: [`${root}/src/app.js/`],
+        }),
+      ).resolves.toEqual({
+        status: 'error',
+        type: 'not_found',
+        message: 'The target does not exist.',
+      });
+
+      // The slashless form still names the file, and a directory keeps both
+      // spellings.
+      const file = await run(contextOf(), {
+        patterns: ['needle'],
+        scopes: [`${root}/src/app.js`],
+      });
+
+      expect(locatorsOf(file)).toEqual([
+        `machine://host-a${root}/src/app.js:1-1`,
+      ]);
+
+      const directory = await run(contextOf(), {
+        patterns: ['needle'],
+        scopes: [`${root}/src/`],
+      });
+
+      expect(locatorsOf(directory)).toEqual([
+        `machine://host-a${root}/src/app.js:1-1`,
+      ]);
+    });
+  });
+
   it('never enters the Git directory and still searches hidden files', async () => {
     await withRoot(async (root) => {
       await writeAt(root, '.git/config', 'needle\n');

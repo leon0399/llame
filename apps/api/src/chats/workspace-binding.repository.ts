@@ -84,7 +84,7 @@ export class WorkspaceBindingRepository {
     | { status: 'unbound' }
     | { status: 'fence_lost' }
   > {
-    if (!(await this.isCurrentDelivery(input))) return { status: 'fence_lost' };
+    if (!(await this.admitsExit(input))) return { status: 'fence_lost' };
 
     const current = await this.lockChat(input.chatId, input.ownerUserId);
 
@@ -392,6 +392,24 @@ export class WorkspaceBindingRepository {
     attemptId?: string;
   }): Promise<boolean> {
     return new NativeFilesRepository(this.db).admitsEffect({
+      runId: input.runId,
+      userId: input.ownerUserId,
+      deliverySequence: input.deliverySequence,
+      attemptId: input.attemptId,
+    });
+  }
+
+  /**
+   * Exiting changes the bound root too, so a finished Run accepts no exit. A
+   * cancel-requested Run still clears its binding while it settles.
+   */
+  private async admitsExit(input: {
+    runId: string;
+    ownerUserId: string;
+    deliverySequence: number;
+    attemptId?: string;
+  }): Promise<boolean> {
+    return new NativeFilesRepository(this.db).isCurrentUnfinishedDelivery({
       runId: input.runId,
       userId: input.ownerUserId,
       deliverySequence: input.deliverySequence,

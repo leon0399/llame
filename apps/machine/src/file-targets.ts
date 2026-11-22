@@ -8,7 +8,7 @@
 
 import { constants } from "node:fs";
 import { open, realpath, type FileHandle } from "node:fs/promises";
-import { dirname } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { type MediaReadHook } from "@workspace/native-file-tools";
 import type { NativeFailureResult } from "@workspace/machine-protocol";
 import { MachineRequestError } from "./errors";
@@ -174,6 +174,39 @@ async function kernelResolution(requested: string): Promise<KernelResolution> {
 }
 
 /**
+ * Where the kernel would create a request text whose tail does not exist: the
+ * deepest existing ancestor resolved as a whole, then the missing segments.
+ * Never lexical, because a `..` after a link climbs from the link's target;
+ * `undefined` when no ancestor resolves, so the request names no destination.
+ */
+async function kernelDestination(
+  requested: string,
+): Promise<string | undefined> {
+  const missing: Array<string> = [];
+  let current = requested;
+
+  for (;;) {
+    try {
+      const resolved = await realpath(current);
+
+      return missing.length === 0
+        ? resolved
+        : join(resolved, ...missing.reverse());
+    } catch (error) {
+      const code =
+        error instanceof Error && "code" in error ? error.code : undefined;
+
+      if (code !== "ENOENT") return undefined;
+      const parent = dirname(current);
+
+      if (parent === current) return undefined;
+      missing.push(basename(current));
+      current = parent;
+    }
+  }
+}
+
+/**
  * The refusal for a request text the kernel resolves to a different address
  * than the guard checked: a trailing separator or a final `.`/`..` on a
  * non-directory, a `..` after a non-directory, or a lexical `..` that follows
@@ -190,10 +223,18 @@ export async function spellingFailure(
   if (requested === guarded.path) return undefined;
   const resolved = await kernelResolution(requested);
 
-  if (resolved.kind === "absent")
-    return guarded.kind === "missing"
+  if (resolved.kind === "absent") {
+    if (guarded.kind !== "missing")
+      return failure("not_found", NOT_FOUND_MESSAGE);
+    // A missing tail still has a destination: the kernel would create the
+    // request's existing prefix and its missing segments, so a `..` after a
+    // link must not create the entry at the lexically normalized address.
+    const destination = await kernelDestination(requested);
+
+    return destination === guarded.canonical
       ? undefined
       : failure("not_found", NOT_FOUND_MESSAGE);
+  }
 
   if (resolved.kind === "denied" || resolved.path !== guarded.canonical)
     return failure("not_found", NOT_FOUND_MESSAGE);

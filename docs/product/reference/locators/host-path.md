@@ -43,11 +43,12 @@ argument of `enter_workspace`; `file://` does not, and `bash` uses its own
 ## Authority
 
 An absolute path or alias executes on the current Machine with that Machine's OS
-user authority and binds the Run to that Machine. The Machine's daemon serves
-it, so the path must lie inside that Machine's registered roots. A valid alias
-binds the Run exactly as an absolute path does; Workspace root does not affect
-them. Every result reports the canonical `machine://` locator of the decoded
-path, never the submitted spelling.
+user authority and records its attempt against the Machine locator; it does not
+bind the Run to a worker. The Machine's daemon serves it, so the path must lie
+inside that Machine's registered roots. A valid alias addresses the same Machine
+exactly as an absolute path does; Workspace root does not affect them. Every
+result reports the canonical `machine://` locator of the decoded path, never the
+submitted spelling.
 Permission matching strips a `read`'s selector and not an `edit`'s or `write`'s,
 whose suffix is part of the filename; see
 [tool-call permissions](../../operator/tool-call-permissions.md#matching).
