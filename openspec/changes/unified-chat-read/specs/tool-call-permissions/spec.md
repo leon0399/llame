@@ -2,7 +2,7 @@
 
 ### Requirement: Recommended portable policy with explicit replacement
 
-When `tools.permissions` is omitted, the system MUST create no permission groups, so every call is rejected. No built-in fallback policy exists. The shipped `llame.config.jsonc.example` MUST document exactly eight groups as the recommended portable map for operators to copy. The groups are `bash`, `read`, `edit`, `write`, `knowledge_search`, `search_conversations`, `enter_workspace`, and `exit_workspace`. It MUST also document the B1-B8, F1-F4, E1-E3, W1-W2, F5a-F5f, F6, and F7 rejects below. The groups `bash`, `read`, `edit`, `write`, `knowledge_search`, `search_conversations`, and `exit_workspace` MUST each have a whole-tool allow.
+When `tools.permissions` is absent, the system MUST create no groups and reject every call. No fallback policy exists. The example MUST document ten groups. They are `bash`, `read`, `edit`, `write`, `knowledge_search`, `search_conversations`, `wait`, `stop`, `enter_workspace`, and `exit_workspace`. Every group except `enter_workspace` MUST have a whole-tool allow. The example MUST retain the B1-B8, F1-F4, E1-E3, W1-W2, F5a-F5f, F6, and F7 rejects below.
 
 The `enter_workspace` group MUST instead use an operator-edited field allow on `path`, such as `{ "field": "path", "regex": "^machine://[^/]+/home/operator/projects/[^/]+/?$" }`. Its allow is not a whole-tool allow. It MUST contain the F1-F3 and E1-E3 path rejects against its `path` field and no other recommended rejects. Every directory that this field allow admits is trusted to run code and read secrets of its Machine through its Workspace MCP configuration.
 

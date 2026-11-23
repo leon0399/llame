@@ -31,10 +31,12 @@ None. `conversation-reads` keeps ownership of the Chat read contract and the sha
 - `tool-call-permissions`: canonical Chat identities and removal of the recommended `conversation_read` group.
 - `tool-calling`: retirement of the standalone reader and preservation of historical observations.
 - `tool-prompt-templates`: search guidance follows `read` membership.
+- `tool-result-rendering`: `M` index headers and continuations, ordered Chat attribution, and historical read-status annotations.
 - `model-system-prompts`: removal of `chats.*`, digest-free new receipts, and compaction without digest columns.
 - `context-injection`: rail-only digest residency and atomic post-checkpoint snapshot placement.
 - `chat-recency-digest`: shared rows, transcript-derived disclosure, baseline snapshots, Workspace notices, consent, inspection, and migration.
 - `owner-chat-forks`: digest state follows the copied effective prefix rather than the source Chat's current columns.
+- `turn-actions`: digest-only carrier rows do not replace the latest turn, and replaced replies stay unavailable through Chat reads.
 - `instance-config`: explicit rejection of the retired tool and prompt namespace.
 
 ## Acceptance
@@ -62,6 +64,7 @@ Settled addressing and lineage come from [Q7](https://github.com/leon0399/llame/
 
 Leo settled Q1 through Q8 and Q5a in the [first decision record](https://github.com/leon0399/llame/issues/703#issuecomment-7111170009). Q9 and the additional read-only status requirement are in the [second record](https://github.com/leon0399/llame/issues/703#issuecomment-7111204049).
 
+Leo clarified disabled carry and historical migration in [Q10 and Q11](https://github.com/leon0399/llame/issues/703#issuecomment-7112407333). Disabled compaction preserves only the frozen baseline. Migration omits only unprovable derived disclosure and privately reports affected Chats, without resetting messages or blocking every Chat.
 [Chat-to-Chat messaging](https://github.com/leon0399/llame/issues/1903) builds on these addresses but owns writes and write-started Run authority. [Map #1754](https://github.com/leon0399/llame/issues/1754) supplies that dependency context. [#972](https://github.com/leon0399/llame/issues/972) retains temporal-anchor and cache-breakpoint work. Removing the digest alone does not make complete system prompts identical across Chats.
 
 ## Assumptions and boundaries

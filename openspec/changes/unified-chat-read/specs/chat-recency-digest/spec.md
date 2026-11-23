@@ -24,7 +24,9 @@
 
 The producer MUST publish one baseline snapshot per enabled compaction epoch. Later requests MUST replay its stored text without re-resolution. Digest content MUST contribute no bytes to newly rendered system prompts or tool descriptions. Other prompt inputs MUST retain their own lifecycles.
 
-A model switch MUST NOT refresh the baseline. A published checkpoint MUST start a new epoch for the request it precedes. With sharing enabled, the producer MUST apply the current eligibility, caps, order, and disjointness rules. With sharing disabled, it MUST carry only prior disclosed state without source reads. A failure after publication MUST preserve the checkpoint and its companion snapshot. A retry MUST reuse both.
+A model switch MUST NOT refresh the baseline. A published checkpoint MUST start a new epoch for its next request. With sharing enabled, the producer MUST apply current selection rules.
+
+With sharing disabled, it MUST carry only the frozen baseline, without accumulated notices or source reads. Its new comparison state MUST describe that baseline alone. A later attempt failure MUST preserve the checkpoint and companion. Retry MUST reuse both.
 
 Earlier receipts and persisted items MUST remain unchanged. Owner forks MUST derive their baseline and disclosure from the copied effective prefix, not source state after the selected anchor.
 
@@ -166,9 +168,13 @@ Titles and excerpts MUST use the reserved-delimiter neutralization rules of inst
 
 The producer MUST read only the trusted owner's Chats under owner RLS and explicit owner predicates. Empty identity MUST fail closed. Public shares and shared forks MUST expose no digest or comparison state.
 
-`shareRecentChats` MUST remain opt-in and off by default. Disabled sharing MUST prevent fresh baseline resolution and new notices. Existing effective items MUST replay unchanged. Compaction while disabled MUST carry only already-disclosed digest state into a separate rail snapshot. It MUST NOT query source Chats or introduce fresh titles, excerpts, locators, or Workspace changes. No prior digest means no disabled snapshot.
+`shareRecentChats` MUST remain opt-in and off by default. Disabled sharing MUST prevent fresh baseline resolution and new notices. Existing effective items MUST replay unchanged.
 
-Re-enabling MUST resume comparison against effective disclosed state. If no effective baseline exists, the next dispatch with sharing enabled MUST establish one. A model request MUST NOT receive a delta before its baseline. The producer MUST recheck consent after candidate resolution and before its fenced publication. A withdrawal before that check MUST discard new candidates without failure. A setting change after publication MUST affect later production, not rewrite committed disclosure.
+Disabled compaction MUST carry only the frozen baseline into a separate snapshot. It MUST NOT query source Chats or introduce new titles, excerpts, locators, or Workspace changes. Prior notices MUST leave the effective epoch. Without a prior baseline, publish no disabled snapshot.
+
+Re-enabling MUST resume comparison against effective disclosed state. Without an effective baseline, the next enabled dispatch MUST establish one. No request can receive a delta before its baseline.
+
+The producer MUST recheck consent after resolution and before fenced publication. Withdrawal MUST discard fresh candidates without failure. During checkpoint publication, that race MUST select the disabled frozen-baseline carry instead. Later setting changes MUST NOT rewrite committed disclosure.
 
 Operator templates MUST NOT gate production or replay. New system prompts and tool descriptions MUST contain no digest content.
 
@@ -182,7 +188,7 @@ Operator templates MUST NOT gate production or replay. New system prompts and to
 
 - **WHEN** the owner disables sharing after a baseline snapshot exists
 - **THEN** existing digest items replay unchanged and new notices stop
-- **AND** compaction carries only prior disclosure without source reads
+- **AND** compaction carries only the frozen baseline, not its notices, without source reads
 
 #### Scenario: Public read of a shared chat
 
@@ -331,7 +337,9 @@ New digest text MUST be inspectable through the owner's persisted context items.
 
 ### Requirement: Digest columns retire without silent disclosure loss
 
-The cutover MUST convert safely accounted prior disclosure into persisted literal digest state before it deletes the three dedicated Chat columns. It MUST query no source Chat to enrich old rows. It MUST preserve historical parts and receipts. Unknown old affinity MUST NOT become `unbound`. If the converter cannot account for a baseline safely, it MUST abort before column deletion. Runtime MUST retain no old column reader.
+The cutover MUST convert provable baseline fields and known literal digest items before it deletes the three dedicated Chat columns. It MUST query no source Chat to enrich old rows. It MUST preserve messages, parts, and receipts.
+
+It MUST omit unprovable derived disclosure and privately report each affected Chat and field. Missing proof MUST NOT block other Chats. Unknown identity or affinity MUST NOT become a guess. Runtime MUST retain no old-column reader.
 
 #### Scenario: Disabled sharing survives conversion
 
@@ -339,8 +347,44 @@ The cutover MUST convert safely accounted prior disclosure into persisted litera
 - **THEN** conversion retains only accounted old text and comparison state
 - **AND** no new locator, excerpt, or Workspace root enters its carried text
 
-#### Scenario: Ambiguous old disclosure aborts deletion
+#### Scenario: Unprovable fields do not block the whole migration
 
-- **WHEN** a custom template or duplicate title prevents safe baseline accounting
-- **THEN** the migration fails before it deletes any digest column
-- **AND** the existing Chats and historical observations remain intact
+- **WHEN** a receipt is absent, a description was runtime-only, or a duplicate title prevents safe field attribution
+- **THEN** migration omits only the unprovable derived fields and privately reports the affected Chat
+- **AND** it preserves messages, parts, known literal items, and historical receipts
+
+### Requirement: Digest conversion uses only proved field emissions
+
+The reader layer MUST export field-level emissions while its old renderer exists. The converter MUST verify owner and destination Chat identity before import. A baseline or told-set MUST NOT prove every text field's disclosure. Conversion MUST add no Chat locator, latest excerpt, or Workspace root. It MUST infer no identity from duplicate titles. SQL column deletion MUST follow the separate converter, not invoke a renderer.
+
+#### Scenario: A title-only template proves no excerpt
+
+- **WHEN** the old template emits only a title and checks an excerpt as a condition
+- **THEN** export proves only the title field
+- **AND** migration does not emit the stored excerpt
+
+### Requirement: Imported digest baselines precede historical notices
+
+Conversion MUST append a host snapshot for proven baseline fields and associate it with the active checkpoint or Chat origin. Replay MUST place it at that epoch start before existing notices. Conversion can append a latest content-free host notice for trusted old comparison state. It MUST NOT supersede earlier literal notices. Old items without current-format state MUST remain replayable and inert for comparison.
+
+#### Scenario: An old pin correction remains the last word
+
+- **WHEN** the frozen baseline lists a Chat as recent and a later literal notice pins it
+- **THEN** the imported baseline replays before that pin notice
+- **AND** the latest imported comparison state retains the known pin state without re-emitting the list
+
+### Requirement: Disabled carry has one bounded canonical envelope
+
+Disabled compaction MUST preserve only the baseline body and its comparison state. It MUST remove only the validated code-owned outer envelope before it authors the companion envelope. It MUST preserve body bytes and change no source item. It MUST NOT nest old envelopes, carry accumulated notices, or grow wrapper text on repeated compaction. This author-time transform MUST NOT change ordinary replay.
+
+#### Scenario: Repeated disabled compaction remains bounded
+
+- **WHEN** a disabled Chat with one baseline and many notices crosses two checkpoints
+- **THEN** each companion carries only the same frozen baseline body under one envelope
+- **AND** the notices enter neither companion nor summary
+
+#### Scenario: Withdrawal during checkpoint preparation preserves the baseline
+
+- **WHEN** sharing becomes disabled after fresh candidate resolution but before checkpoint publication
+- **THEN** publication discards that candidate and carries the previous frozen baseline
+- **AND** it performs no source read for the carry

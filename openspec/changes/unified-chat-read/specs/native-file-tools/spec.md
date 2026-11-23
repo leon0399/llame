@@ -4,7 +4,7 @@
 
 The grammar MUST reserve `L` for lines, `P` for pages, and `M` for messages, in either case. Only a Chat message index accepts `M`, under conversation-reads. No source accepts `P`.
 
-Every other source MUST refuse `M` with `invalid_selector`. Every source MUST refuse `P` after any literal-path probe. Remote SSH and Machine reads MUST also refuse those reserved units. An unknown letter MUST stay outside the grammar.
+Every non-Chat source MUST refuse an `M` or `P` member with `invalid_selector` after any literal-path probe. Remote SSH and Machine reads MUST also refuse those reserved units. An unknown letter MUST stay outside the grammar.
 
 #### Scenario: A reserved unit fails on a text file
 

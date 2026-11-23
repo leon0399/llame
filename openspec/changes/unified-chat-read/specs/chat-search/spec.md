@@ -16,7 +16,9 @@ For incomplete coverage, the gate MUST enqueue a bounded stale-Chat batch throug
 
 Model lexical/trigram results MUST share the web candidate order before hydration. For each winner, the model path MUST reauthorize and hydrate its current document. It MUST recompute eligible visible-message text and use one deterministic canonical-line matcher. The matcher MUST normalize the query and each raw line exactly once through `normalizeForSearch`. That normalization MUST apply Unicode NFKC, whitespace collapse, and lowercase. Line-local FTS, trigram, or escaped-substring predicates MUST determine qualification.
 
-The first exact normalized occurrence MUST map back to its raw source span. A fuzzy or FTS match without that occurrence MUST crop from the qualifying line's first code point. Normalization MUST select text, not replace evidence bytes. Each qualifying line MUST form a window with at most one adjacent line per side. Touching windows MUST merge within one message. Partition intervals beyond 2,000 lines into deterministic adjacent passages, each with a qualifying line.
+The first exact normalized occurrence MUST map back to its raw source span. A fuzzy or FTS match without that occurrence MUST crop from the qualifying line's first code point. Normalization MUST select text, not replace evidence bytes. Each qualifying line MUST form a window with at most one adjacent line per side. Touching windows MUST merge within one message.
+
+Partition intervals beyond 2,000 lines into deterministic adjacent passages of at most 2,000 lines. Each passage MUST contain a qualifying line.
 
 The selector MUST return the earliest bounded passage by `(messageSeq, offset)`. That passage MUST NOT claim to explain the Chat rank. Return at most one passage per Chat.
 
@@ -40,7 +42,9 @@ Two bounds MUST satisfy `after < before`. A missing bound MUST impose no clause,
 
 A required range MUST qualify candidates by canonical eligible message timestamps before rank selection. Hydrated lexical passages MUST use only in-range messages. Omit a vector-only winner whose first-message anchor falls outside the range. A title-only result MUST have at least one in-range eligible message.
 
-A preferred range MUST neither admit nor exclude candidates. It MUST add one recorded rank-fusion contribution to overlapping documents. That contribution MUST remain below a first-place contribution from one leg. It can let nearby lower-ranked in-range documents overtake out-of-range documents. It MUST NOT let a distant weak match overtake a strong one. No range MUST preserve global relevance without recency decay.
+A preferred range MUST neither admit nor exclude candidates. It MUST add one recorded rank-fusion contribution to overlapping documents. That contribution MUST remain below a first-place contribution from one leg. It can let nearby lower-ranked in-range documents overtake out-of-range documents. It MUST NOT let a distant weak match overtake a strong one.
+
+Without a range, content mode MUST preserve global relevance without recency decay.
 
 A preferred range does not guarantee survival within `limit`. Enough nearby in-range documents can displace an out-of-range winner. The model can widen the limit or drop the range. Returned out-of-range messages MUST retain their actual timestamps.
 
@@ -133,13 +137,13 @@ Every success MUST echo exactly the supplied bounds and constraint in `appliedRa
 
 - **WHEN** a candidate matches only the Chat title
 - **THEN** the model result uses `kind: "metadata"` and identifies the Chat/title as metadata-only
-- **AND** it carries no arbitrary message excerpt or source coordinates
+- **AND** it carries its Chat locator without a message sequence, line window, or excerpt
 
 #### Scenario: Content and metadata results are structurally distinct
 
 - **WHEN** one model response contains content and title-only Chat matches
-- **THEN** content entries use `kind: "content"` with all required message/source/excerpt fields
-- **AND** metadata entries use `kind: "metadata"` and reject those content-only fields
+- **THEN** content entries use `kind: "content"`, a line-selected message locator, role, timestamp, and excerpt
+- **AND** metadata entries use `kind: "metadata"` and a Chat-root locator without message sequence, line window, or excerpt
 
 #### Scenario: Stale candidate never becomes model evidence
 

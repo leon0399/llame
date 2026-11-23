@@ -234,15 +234,15 @@ If the first source line cannot fit, return `representation_too_large`. An out-o
 
 #### Scenario: Explicit limit completes before message end
 
-- **WHEN** a caller requests a fitting finite `limit` while later message lines exist
-- **THEN** the result returns at most that many lines plus `nextOffset`
-- **AND** it omits `cutReason` because the caller's requested range completed normally
+- **WHEN** a finite line selector completes within the result bound while later message lines exist
+- **THEN** the result returns that exact window without a bound-cut notice
+- **AND** its source metadata can still identify the next eligible message or later source lines
 
 #### Scenario: Search passage expands through read
 
-- **WHEN** search supplies one passage's a canonical message locator with its `L` window
-- **THEN** `read` returns the complete current line window represented by those coordinates subject only to normal whole-line output continuation
-- **AND** the cropped search excerpt is not mistaken for the complete numbered source
+- **WHEN** search supplies a canonical message locator with its `L` window
+- **THEN** read returns that complete message-local window, subject only to whole-line result bounds
+- **AND** a cropped discovery excerpt does not imply complete source text
 
 #### Scenario: Persistable read keeps historical-data framing
 
@@ -384,12 +384,12 @@ Rows MUST use the first stored user message and the latest evidence-eligible mes
 
 ### Requirement: A Chat index uses immutable message sequence windows
 
-`read("chat://<id>")` MUST return the newest 50 eligible messages in ascending sequence order. Each row MUST carry sequence, role, timestamp, message locator, and a visible-text preview of at most 200 code points. The index MUST skip ineligible rows without renumbering. One `M` member MUST select actual committed sequence values. A finite range MUST NOT extend to replace skipped rows.
+`read("chat://<id>")` MUST select the newest 50 eligible messages and display its fitting newest rows in ascending sequence order. Each row MUST carry sequence, role, timestamp, message locator, and a visible-text preview of at most 200 code points. The index MUST skip ineligible rows without renumbering. One `M` member MUST select actual committed sequence values. A finite range MUST NOT extend to replace skipped rows.
 
 #### Scenario: Index defaults to recent messages
 
 - **WHEN** an owned Chat has more than 50 eligible messages
-- **THEN** the index shows the newest 50 in chronological order
+- **THEN** the index shows the newest 50 in chronological order when they fit the output bound
 
 #### Scenario: Sequence gaps stay gaps
 
@@ -413,7 +413,7 @@ Rows MUST use the first stored user message and the latest evidence-eligible mes
 
 ### Requirement: Chat index pages respect common output bounds
 
-A message-index page MUST contain at most 50 eligible rows and obey the common rendered-result bound. An explicit `M` range MUST start at its lowest selected sequence. A cut page MUST provide an `M` continuation for the first unserved sequence. Indexes MUST keep whole rows. An index whose first row cannot fit MUST fail `representation_too_large`, without a non-advancing continuation.
+A message-index page MUST contain at most 50 eligible rows within the common rendered bound. An explicit `M` range MUST fit rows from its lowest selected sequence. Its continuation MUST address the first unserved sequence through the requested end. A default page MUST instead keep its newest fitting rows and provide its earlier-history locator. Indexes MUST keep whole rows. If the required first row cannot fit, return `representation_too_large`.
 
 #### Scenario: An explicit index window continues
 
@@ -429,6 +429,21 @@ A message-index page MUST contain at most 50 eligible rows and obey the common r
 
 - **WHEN** the first requested row cannot fit the common bound
 - **THEN** the result is `representation_too_large` without clipped text or continuation
+
+### Requirement: Default Chat indexes page toward earlier history
+
+An unselected Chat index MUST keep the newest whole rows when its default page exceeds the output bound. If earlier eligible messages exist, it MUST provide `chat://<id>:M1-<oldest-shown-sequence-minus-one>`. This locator MUST select only earlier history. No earlier eligible message MUST mean no earlier-history locator. An explicit finite `M` page MUST retain its separate forward-continuation rule.
+
+#### Scenario: An oversized default page keeps the newest rows
+
+- **WHEN** the newest 50 rows exceed the rendered bound
+- **THEN** the default page drops its oldest rows and retains its newest whole rows
+- **AND** its earlier-history locator ends before its oldest shown sequence
+
+#### Scenario: An explicit range still moves forward
+
+- **WHEN** an explicit `M20-100` page ends before sequence 70
+- **THEN** its continuation selects `M70-100`, not earlier history
 
 ### Requirement: Chat reads report current durable Run status only on demand
 

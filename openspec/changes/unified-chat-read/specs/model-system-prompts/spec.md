@@ -333,7 +333,9 @@ Each model MUST use one complete effective system prompt. A model override MUST 
 
 ### Requirement: The current prompt projection remains explicit
 
-The projection MUST admit only `model.id`, optional `model.name`, the existing `user` personalization and identity paths, temporal-anchor scalars, skill-catalog fields, and conditional tool predicates. An absent model name MUST render empty. `context.systemTime` and `context.systemTimezone` MUST remain unconditional. A bare `context` gate MUST fail startup. Model paths MUST resolve at boot. Owner and Chat values MUST resolve per attempt.
+The projection MUST admit only `model.id`, optional `model.name`, declared owner paths, temporal scalars, skill fields, web-search fields, and conditional tool predicates. Preserve `webSearch` and `webSearch.engines` under tool-prompt-templates. An absent model name MUST render empty.
+
+Both temporal scalars MUST remain unconditional. A bare `context` gate MUST fail startup. Model paths MUST resolve at boot. Owner and Chat values MUST resolve per attempt.
 
 #### Scenario: Default prompt renders model id and name
 
@@ -434,7 +436,7 @@ Validation MUST admit literal content, allowed values, comments, and `if`, `unle
 
 Absent or whitespace-only owner fields MUST be absent from the projection. Empty personalization MUST remove that gate. No owner content MUST remove `user`. No proactively admitted skill entry MUST remove `skills`.
 
-Boot MUST probe independent absent/populated `user` and `skills` combinations with a representative anchor. It MUST reject every empty result. Tool predicates MUST follow tool-prompt-templates without an exhaustive membership probe.
+Boot MUST probe independent `user`, `skills`, and `webSearch` gate combinations with a representative anchor. It MUST reject every empty result. Tool predicates MUST follow tool-prompt-templates without an exhaustive membership probe.
 
 #### Scenario: An entire skills section is gated on an admitted entry
 
@@ -494,3 +496,12 @@ Model values, account identity, and grammar-constrained skill names MUST escape 
 
 - **WHEN** the digest has no eligible Chats
 - **THEN** the system prompt has no digest field or empty digest framing
+
+### Requirement: Owner prompt paths remain a closed projection
+
+The owner paths MUST remain exactly `user.personalization.preferredName`, `user.personalization.about`, `user.personalization.responsePreferences`, `user.name`, and `user.email`. The temporal scalars MUST remain exactly `context.systemTime` and `context.systemTimezone`. Skill fields MUST remain the declared `skills.entries` item fields and `skills.omitted`. No prefix-path wildcard can expose other configuration or owner data.
+
+#### Scenario: An undeclared owner field remains unavailable
+
+- **WHEN** a configured template references another owner field
+- **THEN** boot rejects the unknown path without an owner lookup

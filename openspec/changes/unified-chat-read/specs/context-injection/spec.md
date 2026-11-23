@@ -160,13 +160,15 @@ The Workspace and recency-digest producers MUST be rail-only. The digest MUST us
 
 A published checkpoint MUST be the rail re-baseline boundary. A delta producer MUST establish a new epoch instead of comparison across the boundary. Frozen prefix baselines MUST retain their owning lifecycle. Rail-only producers MUST re-establish state outside the summary for the request the checkpoint precedes.
 
-The checkpoint, its companion snapshot, and epoch state MUST commit before that request. A later attempt failure MUST NOT retract them. Retry MUST reuse them. Enabled digest compaction MUST refresh its selection. Disabled digest compaction MUST carry only prior disclosure without source reads.
+The checkpoint, its companion snapshot, and epoch state MUST commit before that request. A later attempt failure MUST NOT retract them. Retry MUST reuse them. Enabled digest compaction MUST refresh its selection. Disabled digest compaction MUST carry only the frozen baseline without source reads.
 
 The summary instruction MUST exclude standing context and every recency-digest item. This semantic exclusion MUST rely on model compliance, not a claim of structural erasure.
 
 Runtime tool catalogs, descriptions, and owner-variable resolution MUST retain their per-attempt lifecycle. A Run MUST count as dispatched when `turn_tool_availability` is non-null or its status is completed. An empty stored record MUST count. Availability comparison MUST use the most recent prior dispatched Run within the current epoch, regardless of outcome. A non-dispatched attempt MUST establish no baseline. The active checkpoint boundary MUST still determine that epoch.
 
 A new epoch MUST begin when the active absorbed boundary reaches the triggering user sequence of the last prior dispatched Run. The worker MUST NOT compare checkpoint UUID inequality as the epoch test. A baseline from an absorbed source Run MUST NOT survive merely because an unexecuted Run copied another checkpoint id.
+
+The epoch test MUST NOT use checkpoint creation time or the assistant reply sequence. An in-place retry can retain its reply below a newer checkpoint.
 
 #### Scenario: A delta producer crosses a compaction
 
@@ -185,3 +187,52 @@ A new epoch MUST begin when the active absorbed boundary reaches the triggering 
 - **WHEN** the most recent prior dispatched Run failed after dispatching, and the active checkpoint's absorbed-through sequence is at or above that Run's triggering user message
 - **THEN** the next accepted turn begins a new rail epoch
 - **AND** a Run accepted in between whose attempts dispatched no model request does not replace the failed Run as the most recent prior dispatched Run
+
+### Requirement: Packaged item templates render from producer-owned values only
+
+A packaged item template MUST receive only its producer payload and view values derived in that module. Those values can include closed-kind booleans, reason labels, and plural forms. Prefix projections MUST NOT enter that context. This includes owner, skill, and web-search projections. The digest producer MUST use only its own entries and comparison data.
+
+`model`, `context`, and `tools` MUST remain reserved producer-value names. The temporal item MUST use its stored instant and zone, not the prefix anchor. Packaged item templates MUST remain separate from replaceable templates. The retired `chats.*` namespace MUST NOT exist as a supplied prefix projection.
+
+#### Scenario: Owner personalization is not renderable in an item
+
+- **WHEN** a packaged item references a per-user profile or identity path absent from its own values
+- **THEN** that reference renders empty
+- **AND** no prefix profile or identity enters the item
+
+#### Scenario: The prefix digest projection is not renderable in an item
+
+- **WHEN** a packaged item references an absent `chats.*` value
+- **THEN** that reference renders empty without a prefix lookup
+- **AND** digest content reaches the rail only through its producer payload
+
+#### Scenario: A closed reason code renders its label
+
+- **WHEN** the producer derives a human label for its closed reason code
+- **THEN** the item renders that label
+- **AND** it does not emit the internal code
+
+### Requirement: Worker-attempt cutover preserves existing conversation state
+
+The coordinated cutover MUST preserve messages, literal reminders, checkpoints, epoch identity, and historical observations. It MUST add no retrospective replay filter or failed-attempt reconstruction. Post-cutover attempts MUST retain dispatched partial output and items under the ordinary lifecycle.
+
+The digest-column retirement MUST use the explicit chat-recency-digest conversion rules. That conversion can omit only unprovable derived fields under Q11. It MUST preserve source parts and receipts and report omissions privately. Removing columns MUST NOT authorize a Chat reset or lost message. Other receipt/catalog migrations MUST confer no permission to rewrite history.
+
+#### Scenario: An existing Chat crosses the worker-attempt cutover
+
+- **WHEN** a Chat has literal reminders, a checkpoint, and digest state
+- **THEN** cutover preserves its records and converts proven digest fields under the explicit migration rules
+- **AND** it privately reports only unprovable derived omissions
+- **AND** later compaction and updates follow the new rail lifecycle
+
+#### Scenario: A post-cutover attempt fails in an existing Chat
+
+- **WHEN** an attempt fails after dispatch under the new runtime
+- **THEN** its stored output, items, and committed disclosure remain part of history
+- **AND** the failure causes no retrospective reset of earlier state
+
+#### Scenario: A pre-cutover failed Run is not backfilled
+
+- **WHEN** an old failed Run never published its items
+- **THEN** cutover invents none of those items
+- **AND** later production uses stored effective history
