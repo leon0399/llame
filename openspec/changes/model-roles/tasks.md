@@ -39,12 +39,12 @@ master <- model-roles/proposal <- model-roles/catalog <- model-roles/selection
 
 ## 1. Proposal (`model-roles/proposal`)
 
-- [ ] 1.1 Commit the proposal, design, delta specs, tasks, and the ADRs; verify with
+- [x] 1.1 Commit the proposal, design, delta specs, tasks, and the ADRs; verify with
       `pnpm exec openspec validate model-roles --strict`, `pnpm lint:markdown`,
       `pnpm format:check`, and `git diff --check`.
-- [ ] 1.2 Run two review rounds with `$iterative-review-refinement`; record each round in design.md.
-- [ ] 1.3 SR: self-review the PR diff against REVIEW_GUIDE.md.
-- [ ] 1.4 GR: run the Ready-PR monitoring loop to a clean exit, and obtain Leo's approval of the
+- [x] 1.2 Run two review rounds with `$iterative-review-refinement`; record each round in design.md.
+- [x] 1.3 SR: self-review the PR diff against REVIEW_GUIDE.md.
+- [x] 1.4 GR: run the Ready-PR monitoring loop to a clean exit, and obtain Leo's approval of the
       published revision.
 
 ## 2. Catalog (`model-roles/catalog`)
