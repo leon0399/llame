@@ -966,7 +966,7 @@ describeIfDb('follow-up admission', () => {
       });
 
       await api.tenantDb.runAs(api.userId, (tx) =>
-        new ChatsRepository(tx).setModelSelection(fixture.chatId, {
+        new ChatsRepository(tx).setModelSelection(fixture.chatId, api.userId, {
           revision: 3,
           selector: MODEL_ID,
           effort: 'high',

@@ -523,5 +523,20 @@ d('a send with no selector and no default', () => {
 
     expect(res.status).toBe(503);
     expect(res.body).toMatchObject({ code: 'model_configuration_invalid' });
+
+    // The refusal rolls the admission transaction back: the first send's Chat
+    // row and its message are not stored, so both reads answer 404.
+
+    const chatRead = await request(http)
+      .get(`/api/v1/chats/${chatId}`)
+      .set('Cookie', cookieOf(registered));
+
+    expect(chatRead.status).toBe(404);
+
+    const messagesRead = await request(http)
+      .get(`/api/v1/chats/${chatId}/messages`)
+      .set('Cookie', cookieOf(registered));
+
+    expect(messagesRead.status).toBe(404);
   });
 });

@@ -71,10 +71,19 @@ export type SelectorChoice =
       readonly storedUsed: boolean;
     };
 
-function offer(
+/** A selector the catalog offers, with the model and role candidate it names. */
+export type OfferedSelector = Extract<SelectorChoice, { kind: 'selector' }>;
+
+/**
+ * The selector a catalog offers, or `undefined` when it does not. This is the
+ * one role→primary rule: a role resolves through its first configured
+ * candidate, and `ModelsService` resolves its default and title selectors
+ * through this same call, so no second "first candidate" rule can drift.
+ */
+export function offerSelector(
   catalog: SelectionCatalog,
   selector: string,
-): Extract<SelectorChoice, { kind: 'selector' }> | undefined {
+): OfferedSelector | undefined {
   const parsed = parseModelSelector(selector);
 
   if (parsed.kind === 'model') {
@@ -118,7 +127,7 @@ export function chooseSelector(
 ): SelectorChoice {
   if (request.selector !== undefined) {
     return (
-      offer(catalog, request.selector) ?? {
+      offerSelector(catalog, request.selector) ?? {
         kind: 'unknown',
         selector: request.selector,
       }
@@ -126,7 +135,7 @@ export function chooseSelector(
   }
 
   if (stored !== null) {
-    const offered = offer(catalog, stored.selector);
+    const offered = offerSelector(catalog, stored.selector);
 
     if (offered !== undefined) {
       return { ...offered, storedUsed: true };
@@ -139,7 +148,7 @@ export function chooseSelector(
 
   // Boot validates a set `defaults.selector`, so an unresolved one is a broken
   // configuration (503), never the request's 422.
-  return offer(catalog, fallback) ?? { kind: 'unresolved-default' };
+  return offerSelector(catalog, fallback) ?? { kind: 'unresolved-default' };
 }
 
 /** The effort a resolution settles on, before it becomes a Run's effort. */

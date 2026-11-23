@@ -459,11 +459,11 @@ export const runs = pgTable(
     // `model_id`, which execution cannot proceed without): a run that predates
     // the feature genuinely had no effort.
     effort: text('effort'),
-    // The effort the owner's selection stored at accept time, as opposed to
-    // `effort` above, which is what this Run actually SENT. They differ when
-    // the request named no effort and the stored one was not declared by the
-    // resolved model. Continue copies both. Nullable for the same reason as
-    // `effort`: a selection may store no effort at all.
+    // The effort admission resolved for this Run, as opposed to `effort`
+    // above, which is what the current segment actually SENT. It equals the
+    // first segment's effort; a later model switch changes `effort`, not
+    // `selectedEffort`. Nullable for the same reason as `effort`: a
+    // selection may resolve no effort at all.
     selectedEffort: text('selected_effort'),
     // The Chat selection revision this Run read (model-roles). NULL for a Run
     // admitted before the Chat stored a selection, and for a writer that reads

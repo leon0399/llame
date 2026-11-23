@@ -1263,7 +1263,7 @@ describe('ChatLoopService.createDeliveryMessage', () => {
       selector: '@fast',
     });
 
-    expect(setModelSelection).toHaveBeenCalledWith(chat.id, {
+    expect(setModelSelection).toHaveBeenCalledWith(chat.id, chat.ownerUserId, {
       revision: 1,
       selector: '@fast',
       effort: null,

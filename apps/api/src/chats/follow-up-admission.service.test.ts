@@ -21,6 +21,7 @@ import { type InstanceConfigReader } from '../instance-config/instance-config.se
 import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
 import type { SystemModelCatalogEntry } from '../models/model-catalog';
 import {
+  EffortNotAvailableError,
   ModelNotAvailableError,
   type ModelSelectionValidator,
 } from '../models/models.service';
@@ -574,7 +575,7 @@ describe('FollowUpAdmissionService', () => {
       { selector: model.id, effort: 'high' },
       'owner',
     );
-    expect(setModelSelection).toHaveBeenCalledWith(chat.id, {
+    expect(setModelSelection).toHaveBeenCalledWith(chat.id, chat.ownerUserId, {
       revision: 1,
       selector: model.id,
       effort: 'high',
@@ -614,6 +615,18 @@ describe('FollowUpAdmissionService', () => {
     await expect(
       admit(service, { action: 'continue', permissionMode: 'bypass' }),
     ).rejects.toThrow('bypass');
+  });
+
+  it('rejects a Regenerate mode the operator did not enable before any transaction', async () => {
+    const { service, runAs, touch } = makeService();
+
+    await expect(
+      admit(service, { action: 'regenerate', permissionMode: 'bypass' }),
+    ).rejects.toThrow('bypass');
+
+    // A refused mode costs no transaction, so the Chat's row is untouched.
+    expect(runAs).not.toHaveBeenCalled();
+    expect(touch).not.toHaveBeenCalled();
   });
 
   it('answers 404 for an unowned Chat before taking its row lock', async () => {
@@ -692,7 +705,7 @@ describe('FollowUpAdmissionService', () => {
         sourceRunId: sourceRun.id,
       }),
     );
-    expect(setModelSelection).toHaveBeenCalledWith(chat.id, {
+    expect(setModelSelection).toHaveBeenCalledWith(chat.id, chat.ownerUserId, {
       revision: 1,
       selector: model.id,
       effort: 'high',
@@ -1210,6 +1223,28 @@ describe('FollowUpAdmissionService', () => {
 
       expect(api.setModelSelection).not.toHaveBeenCalled();
       expect(api.createRun).not.toHaveBeenCalled();
+      // The Chat's recency stays untouched: the touch follows a successful
+      // selection, so the refusal writes nothing beside the expiry.
+      expect(api.touch).not.toHaveBeenCalled();
+      expect(api.transactions).toEqual([{ rejected: false }]);
+    });
+
+    it('keeps the expiry when the Regenerate effort refuses', async () => {
+      const api = stuckAdmission();
+      api.findReply.mockResolvedValue(
+        replyWith({ status: 'error', runId: expiredRun.id, modelId: model.id }),
+      );
+      api.resolveSelection.mockImplementation(() => {
+        throw new EffortNotAvailableError(model.id, 'ludicrous');
+      });
+
+      await expect(
+        admit(api.service, { action: 'regenerate', effort: 'ludicrous' }),
+      ).rejects.toBeInstanceOf(EffortNotAvailableError);
+
+      expect(api.setModelSelection).not.toHaveBeenCalled();
+      expect(api.createRun).not.toHaveBeenCalled();
+      expect(api.touch).not.toHaveBeenCalled();
       expect(api.transactions).toEqual([{ rejected: false }]);
     });
   });

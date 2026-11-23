@@ -18,10 +18,9 @@ import {
 } from '../instance-config/instance-config.service';
 import {
   ModelsService,
-  resolveSendSettings,
   type ModelSelectionValidator,
 } from '../models/models.service';
-import { startItemRun } from '../runs/queue-promotion';
+import { resolveItemRunSettings, startItemRun } from '../runs/queue-promotion';
 import {
   RunDispatchService,
   type RunDispatcher,
@@ -194,27 +193,14 @@ export class ChatDeliveriesService {
     chat: Chat,
     changed: ChatDeliveryView['item'],
   ) {
-    const resolved = resolveSendSettings(
-      this.models,
-      this.instanceConfig.config.tools.permissionModes,
-      {
-        stored: chat.modelSelection ?? null,
-        request: {
-          selector: changed.settings.selector,
-          effort: changed.settings.effort,
-        },
-        writer: 'derived',
-        permissionMode: changed.settings.permissionMode,
-      },
-    );
-
-    const started = await startItemRun(tx, changed, {
-      selector: resolved.selector,
-      modelId: resolved.modelId,
-      effort: resolved.effort,
-      permissionMode: resolved.permissionMode,
-      selectionRevision: chat.modelSelection?.revision ?? null,
+    const resolved = resolveItemRunSettings({
+      models: this.models,
+      enabledPermissionModes: this.instanceConfig.config.tools.permissionModes,
+      settings: changed.settings,
+      stored: chat.modelSelection ?? null,
     });
+
+    const started = await startItemRun(tx, changed, resolved);
 
     if (!started) throw new ConflictException('Message id already exists');
 

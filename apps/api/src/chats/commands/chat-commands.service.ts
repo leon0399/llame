@@ -24,7 +24,8 @@ import { RunDispatchService } from '../../runs/run-dispatch.service';
 import { notifyLiveRunSteering, claimActiveRunSlot } from '../chat-admission';
 import { RunWaitService } from '../../runs/run-wait.service';
 import { ChatsRepository, MessagesRepository } from '../chats-repository';
-import { createCompactionRun } from '../run-creation';
+import { createCompactionRun, runSelectionFields } from '../run-creation';
+import { storeOwnerSelection } from '../owner-selection';
 import { retryRunTransaction } from '../../runs/run-transaction';
 import { TitleService } from '../../titles/title.service';
 import type { PermissionMode } from '../../tools/permissions/permission-mode';
@@ -149,7 +150,6 @@ async function createIdleCompactRun(
   tx: Db,
   input: CompactCommandInput,
   resolved: ResolvedSendSettings,
-  selectionRevision: number | null,
   focus: string | null,
 ): Promise<Run> {
   const { plan } = await planOwnerCompaction(
@@ -164,12 +164,7 @@ async function createIdleCompactRun(
     id: randomUUID(),
     chatId: input.chatId,
     userId: input.userId,
-    modelId: resolved.modelId,
-    selector: resolved.selector,
-    effort: resolved.effort,
-    selectedEffort: resolved.effort,
-    selectionRevision,
-    permissionMode: resolved.permissionMode,
+    ...runSelectionFields(resolved),
     focus,
   });
 }
@@ -264,17 +259,13 @@ export class ChatCommandsService {
 
     if (retry) return retry;
 
-    const { resolved, selectionRevision } = await this.storeCompactSelection(
-      tx,
-      chat,
-      input,
-    );
+    const resolved = await this.storeCompactSelection(tx, chat, input);
 
     const blocked = await this.queueBlockedCompact(tx, input, resolved);
 
     if (blocked !== undefined) return blocked;
 
-    return createIdleCompactRun(tx, input, resolved, selectionRevision, focus);
+    return createIdleCompactRun(tx, input, resolved, focus);
   }
 
   /**
@@ -287,10 +278,7 @@ export class ChatCommandsService {
     tx: Db,
     chat: Chat,
     input: CompactCommandInput,
-  ): Promise<{
-    resolved: ResolvedSendSettings;
-    selectionRevision: number | null;
-  }> {
+  ): Promise<ResolvedSendSettings> {
     const resolved = resolveSendSettings(
       this.models,
       this.instanceConfig.config.tools.permissionModes,
@@ -302,17 +290,9 @@ export class ChatCommandsService {
       },
     );
 
-    const selectionRevision =
-      resolved.nextSelection?.revision ?? chat.modelSelection?.revision ?? null;
+    await storeOwnerSelection(new ChatsRepository(tx), chat, resolved);
 
-    if (resolved.nextSelection !== undefined) {
-      await new ChatsRepository(tx).setModelSelection(
-        input.chatId,
-        resolved.nextSelection,
-      );
-    }
-
-    return { resolved, selectionRevision };
+    return resolved;
   }
 
   /** A held slot queues the item instead; an idle one starts the Run. */

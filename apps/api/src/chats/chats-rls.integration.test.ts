@@ -590,6 +590,63 @@ describeIfDb('RLS integration — cross-tenant isolation under FORCE', () => {
     }
   });
 
+  /**
+   * model-roles: the Chat's stored selection lives on the chat row and inherits
+   * its tenant boundary. B must neither read the selection nor rewrite it by
+   * naming A's chat, and A's value must survive B's UPDATE attempt.
+   */
+  it('model selection cross-tenant: B can neither read nor write A chat selection', async () => {
+    const chatId = crypto.randomUUID();
+    const selection = { revision: 1, selector: '@coding', effort: 'high' };
+
+    await asUser(userAId, async (tx) => {
+      await tx`INSERT INTO chats (id, owner_user_id, title) VALUES (${chatId}, ${userAId}, 'Chat A')`;
+      await tx`
+        UPDATE chats
+        SET model_selection = ${tx.json(selection)}::jsonb
+        WHERE id = ${chatId}`;
+
+      const owned = await tx`
+        SELECT model_selection FROM chats WHERE id = ${chatId}`;
+
+      expect(owned[0]?.model_selection).toEqual(selection);
+    });
+
+    try {
+      // Read denial: the row itself is invisible, so its selection is too.
+      const rows = await asUser(
+        userBId,
+        (tx) => tx`SELECT id, model_selection FROM chats WHERE id = ${chatId}`,
+      );
+
+      expect(rows).toHaveLength(0);
+
+      // Write denial: RLS's USING clause filters the row away before WITH
+      // CHECK is reached, so B's UPDATE matches zero rows and reports no error.
+      const forged = { revision: 2, selector: '@fast', effort: null };
+
+      const updated = await asUser(
+        userBId,
+        async (tx) =>
+          (
+            await tx`UPDATE chats SET model_selection = ${tx.json(forged)}::jsonb WHERE id = ${chatId} RETURNING id`
+          ).length,
+      );
+
+      expect(updated).toBe(0);
+
+      // A's selection is byte-identical after B's attempt.
+      const after = await asUser(
+        userAId,
+        (tx) => tx`SELECT model_selection FROM chats WHERE id = ${chatId}`,
+      );
+
+      expect(after[0]?.model_selection).toEqual(selection);
+    } finally {
+      await asUser(userAId, (tx) => tx`DELETE FROM chats WHERE id = ${chatId}`);
+    }
+  });
+
   // The follow-up columns are a tenant boundary of their own: a Run must name
   // only its own owner's Run as its source, and only the declared actions.
   it('rejects a source Run of another owner and an unknown follow-up action', async () => {

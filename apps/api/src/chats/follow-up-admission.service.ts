@@ -56,9 +56,11 @@ import {
 import { type PermissionMode } from '../tools/permissions/permission-mode';
 import {
   createRunForMessage,
+  runSelectionFields,
   type CreateRunForMessageInput,
   type FollowUpRunInput,
 } from './run-creation';
+import { storeOwnerSelection } from './owner-selection';
 
 /**
  * A follow-up request as the caller sent it, before its checks. Continue takes
@@ -164,7 +166,6 @@ function continueRunFields(input: {
 function regenerateRunFields(input: {
   request: { chatId: string; userId: string };
   resolved: ResolvedSendSettings;
-  selectionRevision: number | null;
   decision: Extract<RegenerateDecision, { latestRun: Run }>;
 }): CreateRunForMessageInput {
   const { request, resolved, decision } = input;
@@ -172,12 +173,7 @@ function regenerateRunFields(input: {
   return {
     userId: request.userId,
     chatId: request.chatId,
-    modelId: resolved.modelId,
-    selector: resolved.selector,
-    effort: resolved.effort,
-    selectedEffort: resolved.effort,
-    selectionRevision: input.selectionRevision,
-    permissionMode: resolved.permissionMode,
+    ...runSelectionFields(resolved),
     targetRunId: randomUUID(),
     followUp: {
       action: 'regenerate',
@@ -444,14 +440,16 @@ export class FollowUpAdmissionService {
       return decision;
     }
 
-    // Accepted: the Chat is the turn's latest activity again.
-    await new ChatsRepository(tx).touch(input.chatId, input.userId);
-
     const selection = this.resolveRegenerateSelection(turn.chat, validated);
 
     if ('refusal' in selection) {
       return selection;
     }
+
+    // Accepted: the Chat is the turn's latest activity again. The write
+    // follows the selection check, so a refused Regenerate leaves the Chat
+    // untouched (only the stuck-Run expiry the decision made survives).
+    await new ChatsRepository(tx).touch(input.chatId, input.userId);
 
     return this.admitRegenerateRun(tx, {
       request: input,
@@ -504,16 +502,11 @@ export class FollowUpAdmissionService {
   ): Promise<AcceptedRun> {
     const { request, turn, decision, resolved } = input;
 
-    const selectionRevision = await this.storeRegenerateSelection(
-      tx,
-      request,
-      turn.chat,
-      resolved,
-    );
+    await storeOwnerSelection(new ChatsRepository(tx), turn.chat, resolved);
 
     const { run } = await createRunForMessage(
       tx,
-      regenerateRunFields({ request, resolved, selectionRevision, decision }),
+      regenerateRunFields({ request, resolved, decision }),
       turn.userMessage,
     );
 
@@ -523,24 +516,5 @@ export class FollowUpAdmissionService {
       run,
       modelId: resolved.modelId,
     });
-  }
-
-  /** Writes the selection an owner Regenerate resolved, returning its revision. */
-  private async storeRegenerateSelection(
-    tx: Db,
-    request: { chatId: string; userId: string },
-    chat: Chat,
-    resolved: ResolvedSendSettings,
-  ): Promise<number | null> {
-    if (resolved.nextSelection !== undefined) {
-      await new ChatsRepository(tx).setModelSelection(
-        request.chatId,
-        resolved.nextSelection,
-      );
-    }
-
-    return (
-      resolved.nextSelection?.revision ?? chat.modelSelection?.revision ?? null
-    );
   }
 }

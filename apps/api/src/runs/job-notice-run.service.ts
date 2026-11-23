@@ -5,14 +5,8 @@ import { randomUUID } from 'node:crypto';
 import { ChatDeliveriesRepository } from '../chats/chat-deliveries.repository';
 import { ChatsRepository, MessagesRepository } from '../chats/chats-repository';
 import { toRunUserMessage } from '../chats/chat-message-parts';
-import { createRunForMessage } from '../chats/run-creation';
-import {
-  type ChatDelivery,
-  type ChatDeliverySettings,
-  type ChatJob,
-  runs,
-  type Run,
-} from '../db/schema';
+import { createRunForMessage, runSelectionFields } from '../chats/run-creation';
+import { type ChatDelivery, type ChatJob, runs, type Run } from '../db/schema';
 import { type Db } from '../db/tenant-db.service';
 import {
   InstanceConfigService,
@@ -21,10 +15,12 @@ import {
 import { type ChatModelSelection } from '../models/model-selection';
 import {
   ModelsService,
-  resolveSendSettings,
   type ModelSelectionValidator,
 } from '../models/models.service';
-import { type ItemRunResolution } from './queue-promotion';
+import {
+  type ItemRunResolution,
+  tryResolveItemRunSettings,
+} from './queue-promotion';
 import { type RunJob } from './run-queues';
 import { RunDispatchService } from './run-dispatch.service';
 import { RunsRepository } from './runs-repository';
@@ -195,12 +191,12 @@ export class JobNoticeRunService {
   ): Promise<void> {
     const { owner, first, deliveries, stored } = context;
 
-    const resolved = resolveNoticeSettings(
-      this.models,
-      this.instanceConfig,
-      first.settings,
+    const resolved = tryResolveItemRunSettings({
+      models: this.models,
+      enabledPermissionModes: this.instanceConfig.config.tools.permissionModes,
+      settings: first.settings,
       stored,
-    );
+    });
 
     if (resolved === undefined) return;
 
@@ -232,12 +228,7 @@ export class JobNoticeRunService {
       {
         userId: owner.ownerUserId,
         chatId: owner.chatId,
-        modelId: resolved.modelId,
-        effort: resolved.effort,
-        permissionMode: resolved.permissionMode,
-        selector: resolved.selector,
-        selectedEffort: resolved.effort,
-        selectionRevision: resolved.selectionRevision,
+        ...runSelectionFields(resolved),
         targetRunId: randomUUID(),
       },
       message,
@@ -263,41 +254,6 @@ const RUN_STARTING_JOB_STATES: ReadonlyArray<ChatJob['state']> = [
 
 function startsNoticeRun(job: Pick<ChatJob, 'state'>): boolean {
   return RUN_STARTING_JOB_STATES.includes(job.state);
-}
-
-/**
- * Resolve a notice's settings against the Chat's stored selection (writer
- * `derived`): a job's own selector wins, else the stored one, else the
- * default. An invalid mode or selector starts nothing.
- */
-function resolveNoticeSettings(
-  models: ModelSelectionValidator,
-  instanceConfig: InstanceConfigReader,
-  settings: ChatDeliverySettings,
-  stored: ChatModelSelection | null,
-): ItemRunResolution | undefined {
-  try {
-    const resolved = resolveSendSettings(
-      models,
-      instanceConfig.config.tools.permissionModes,
-      {
-        stored,
-        request: { selector: settings.selector, effort: settings.effort },
-        writer: 'derived',
-        permissionMode: settings.permissionMode,
-      },
-    );
-
-    return {
-      selector: resolved.selector,
-      modelId: resolved.modelId,
-      effort: resolved.effort,
-      permissionMode: resolved.permissionMode,
-      selectionRevision: stored?.revision ?? null,
-    };
-  } catch {
-    return undefined;
-  }
 }
 
 async function lockQueuedHostRun(

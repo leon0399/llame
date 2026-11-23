@@ -1,5 +1,4 @@
 /* eslint-disable typescript/no-unsafe-assignment -- a spied repository's mock call tuple and an `expect.any` matcher are `any`; every read is asserted through the typed spy signature. */
-import { NotFoundException } from '@nestjs/common';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import type { MockInstance } from 'vitest';
 
@@ -20,6 +19,11 @@ import {
 import { type MachinesService } from '../machines/machines.service';
 import { MachineConnector } from '../machines/machine-connector.service';
 import { type MachineStatusView } from '../machines/machines-status';
+import {
+  ModelNotAvailableError,
+  type ModelSelectionValidator,
+  type ResolvedSelection,
+} from '../models/models.service';
 import { ProjectLinksRepository } from '../projects/project-links.repository';
 import { ProjectsRepository } from '../projects/projects-repository';
 import { ProjectsService } from '../projects/projects.service';
@@ -390,6 +394,14 @@ function makeService(options: {
     startFirstRun,
   } satisfies Pick<ChatLoopService, 'validateTurn' | 'startFirstRun'>;
 
+  // The selection pre-check resolves anything unless a test refuses it; the
+  // route discards this result, because admission resolves and writes again.
+  const resolveSelection = vi.fn<ModelSelectionValidator['resolveSelection']>(
+    () => asDouble<ResolvedSelection>({ selector: 'resolved' }),
+  );
+
+  const models = asDouble<ModelSelectionValidator>({ resolveSelection });
+
   const projects = new ProjectsService(tenantDb);
 
   const connector = new MachineConnector({
@@ -407,11 +419,13 @@ function makeService(options: {
       projects,
       locks,
       workspace,
+      models,
       chatLoop,
     ),
     runExclusively,
     enter,
     validateTurn,
+    resolveSelection,
     startFirstRun,
     recordProjectDefault,
     listMachines,
@@ -467,12 +481,13 @@ describe('ChatCreationService validation before any write', () => {
     expect(service.runExclusively).not.toHaveBeenCalled();
   });
 
-  it('answers a rejected turn exactly as the message route does', async () => {
+  it('answers a refused selection exactly as the message route does', async () => {
     const stubs = stubRepositories();
     const service = makeService({ stubs });
-    service.validateTurn.mockRejectedValue(
-      new NotFoundException('Model is not available'),
-    );
+    service.validateTurn.mockResolvedValue(turn());
+    service.resolveSelection.mockImplementation(() => {
+      throw new ModelNotAvailableError('@missing');
+    });
 
     await expect(
       service.service.create(
@@ -480,14 +495,58 @@ describe('ChatCreationService validation before any write', () => {
         request({
           message: {
             id: '65f0f6e8-d5ce-4791-a222-e7a0df638810',
-            selector: 'missing',
+            selector: '@missing',
             parts: [{ type: 'text', text: 'hi' }],
           },
         }),
       ),
-    ).rejects.toMatchObject({ status: 404 });
+    ).rejects.toBeInstanceOf(ModelNotAvailableError);
+
+    // A new Chat stores no selection, so the check resolves against `null`, and
+    // the refusal lands before the lock and before any row is written.
+    expect(service.resolveSelection).toHaveBeenCalledWith(
+      null,
+      { selector: '@missing', effort: undefined },
+      'owner',
+    );
     expect(service.runExclusively).not.toHaveBeenCalled();
     expect(stubs.createIfAbsent).not.toHaveBeenCalled();
+  });
+
+  it('resolves a resend against the selection the Chat stores', async () => {
+    const stubs = stubRepositories();
+
+    const stored = {
+      revision: 2,
+      selector: '@coding',
+      effort: 'high',
+    } satisfies Chat['modelSelection'];
+
+    stubs.findChatById.mockResolvedValue({
+      ...chat,
+      modelSelection: stored,
+      workspaceRoot: ROOT,
+      workspaceExecutorId: 'host-a',
+      workspaceGeneration: 1,
+    });
+    const service = makeService({ stubs });
+    service.validateTurn.mockResolvedValue(turn());
+
+    await service.service.create(
+      OWNER,
+      request({
+        message: {
+          id: 'cc5ce18b-2f3a-4f6b-8c95-f9c6240a8f02',
+          parts: [{ type: 'text', text: 'resume' }],
+        },
+      }),
+    );
+
+    expect(service.resolveSelection).toHaveBeenCalledWith(
+      stored,
+      { selector: undefined, effort: undefined },
+      'owner',
+    );
   });
 
   it('forwards an optional effort and permission mode and omits absent ones', async () => {

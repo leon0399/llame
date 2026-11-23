@@ -38,20 +38,47 @@ export type FollowUpRunInput =
     })
   | (FollowUpRunIdentity & { action: 'regenerate'; notice: boolean });
 
-export type CreateRunForMessageInput = {
-  userId: string;
-  chatId: string;
+/** The Run columns a resolved selection fills, for every Run creator. */
+export type RunSelection = {
   /** The model that serves the Run's first segment. */
   modelId: string;
   /** What the owner (or the derived creator) resolved; `@role` or an exact id. */
   selector: string;
   /** The effort the first segment sends; absent means "send none". */
   effort: string | undefined;
-  /** The effort admission resolved, kept apart from the segment's effort. */
-  selectedEffort: string | undefined;
   /** The Chat selection revision this Run read, or null when it had none. */
   selectionRevision: number | null;
   permissionMode: PermissionMode;
+};
+
+/** The Run columns one resolved selection fills, `selectedEffort` included. */
+export type RunSelectionFields = RunSelection & {
+  selectedEffort: string | undefined;
+};
+
+/**
+ * The selection columns of one Run. Every creator of this file and the
+ * admission paths around it spread this, so `selectedEffort` starts equal to
+ * the served effort and no creator can drop or reorder the columns.
+ */
+export function runSelectionFields(
+  selection: RunSelection,
+): RunSelectionFields {
+  return {
+    modelId: selection.modelId,
+    selector: selection.selector,
+    effort: selection.effort,
+    selectedEffort: selection.effort,
+    selectionRevision: selection.selectionRevision,
+    permissionMode: selection.permissionMode,
+  };
+}
+
+export type CreateRunForMessageInput = RunSelection & {
+  /** The selection's effort; defaults to the served effort when absent. */
+  selectedEffort?: string | undefined;
+  userId: string;
+  chatId: string;
   targetRunId: string;
   /**
    * Present when a follow-up request creates the Run: the action, the earlier
@@ -160,16 +187,11 @@ async function createCompactionRunRow(
         userId: input.userId,
         modelId: input.modelId,
         selector: input.selector,
-        kind: 'compaction',
         effort: input.effort,
-        ...(input.selectedEffort !== undefined && {
-          selectedEffort: input.selectedEffort,
-        }),
-        ...(input.selectionRevision !== undefined &&
-          input.selectionRevision !== null && {
-            selectionRevision: input.selectionRevision,
-          }),
+        selectedEffort: input.selectedEffort,
+        selectionRevision: input.selectionRevision ?? undefined,
         permissionMode: input.permissionMode,
+        kind: 'compaction',
       }),
     );
   } catch (error) {
@@ -203,12 +225,8 @@ async function createRunRow(
         modelId: input.modelId,
         selector: input.selector,
         effort: input.effort,
-        ...(input.selectedEffort !== undefined && {
-          selectedEffort: input.selectedEffort,
-        }),
-        ...(input.selectionRevision !== null && {
-          selectionRevision: input.selectionRevision,
-        }),
+        selectedEffort: input.selectedEffort,
+        selectionRevision: input.selectionRevision ?? undefined,
         permissionMode: input.permissionMode,
         followUpAction: input.followUp?.action,
         sourceRunId: input.followUp?.sourceRunId,

@@ -299,22 +299,22 @@ export class ChatsRepository {
   }
 
   /**
-   * Replace the Chat's stored model selection (model-roles). Called inside the
-   * admission transaction that already read or locked this Chat for the
-   * requesting owner, so the id alone scopes the write: RLS still enforces the
-   * owner, and the row is the one admission just admitted the turn to.
+   * Replace the Chat's stored model selection (model-roles), scoped to owner
+   * like every other write: a caller naming another owner's chat updates
+   * nothing rather than trusting that an earlier read proved ownership.
    *
    * Writes only this column — recency stays the caller's `touch`, so a send
    * that re-selects a model cannot reorder the chat list twice.
    */
   async setModelSelection(
     chatId: string,
+    ownerUserId: string,
     selection: ChatModelSelection,
   ): Promise<void> {
     await this.db
       .update(chats)
       .set({ modelSelection: selection })
-      .where(eq(chats.id, chatId));
+      .where(and(eq(chats.id, chatId), eq(chats.ownerUserId, ownerUserId)));
   }
 
   /** Pin membership for the accumulated told-set, never the capped rendering. */

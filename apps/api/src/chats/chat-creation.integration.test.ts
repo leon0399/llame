@@ -766,6 +766,45 @@ describe('chat creation over HTTP', () => {
       );
       await chatOf(chatId).expect(404);
     });
+
+    it('rejects an unknown selector before storing the Chat or message', async () => {
+      const chatId = newChatId();
+
+      const response = await create({
+        id: chatId,
+        message: {
+          id: crypto.randomUUID(),
+          selector: 'system:openai:missing',
+          parts: [{ type: 'text', text: 'unknown model' }],
+        },
+      }).expect(422);
+
+      expect(response.body).toMatchObject({ code: 'model_not_available' });
+      // The selection check runs before the first write: no Chat row, message,
+      // or Run survives the refusal.
+      expect(await chatRow(chatId)).toBeUndefined();
+      expect(await countRows('messages', { chatId })).toBe(0);
+      expect(await countRows('runs', { chatId })).toBe(0);
+    });
+
+    it('rejects an undeclared effort before storing the Chat or message', async () => {
+      const chatId = newChatId();
+
+      const response = await create({
+        id: chatId,
+        message: {
+          id: crypto.randomUUID(),
+          selector: MODEL_ID,
+          effort: 'high',
+          parts: [{ type: 'text', text: 'undeclared effort' }],
+        },
+      }).expect(422);
+
+      expect(response.body).toMatchObject({ code: 'effort_not_available' });
+      expect(await chatRow(chatId)).toBeUndefined();
+      expect(await countRows('messages', { chatId })).toBe(0);
+      expect(await countRows('runs', { chatId })).toBe(0);
+    });
   });
 
   describe('a create with a project and a location', () => {

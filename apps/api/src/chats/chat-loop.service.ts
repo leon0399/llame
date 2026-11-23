@@ -27,12 +27,10 @@ import { type ModelClient } from '../models/model-client';
 import {
   ModelsService,
   resolvePermissionMode,
+  resolveSendSettings,
   type ModelSelectionValidator,
+  type ResolvedSendSettings,
 } from '../models/models.service';
-import {
-  resolveOwnerSelection,
-  type ResolvedOwnerSelection,
-} from './admission-selection';
 import { type PermissionMode } from '../tools/permissions/permission-mode';
 import { ChatsRepository, MessagesRepository } from './chats-repository';
 import { resolveSendChat, takeCreationLock } from './chat-send-chat';
@@ -61,7 +59,8 @@ import { RunWaitService } from '../runs/run-wait.service';
 import { retryRunTransaction } from '../runs/run-transaction';
 import { type SendableDeliveryMode } from './dto/chat-deliveries.dto';
 import { ChatDeliveriesRepository } from './chat-deliveries.repository';
-import { createRunForMessage } from './run-creation';
+import { createRunForMessage, runSelectionFields } from './run-creation';
+import { storeOwnerSelection } from './owner-selection';
 
 /**
  * A Run that passed admission, and the identity its dispatch needs: what
@@ -446,16 +445,18 @@ export class ChatLoopService {
 
     const slot = await this.claimSlot(tx, input);
 
-    const selection = resolveOwnerSelection({
-      models: this.models,
-      instanceConfig: this.instanceConfig,
-      stored: turn.chat.modelSelection ?? null,
-      request: input,
-    });
+    const selection = resolveSendSettings(
+      this.models,
+      this.instanceConfig.config.tools.permissionModes,
+      {
+        stored: turn.chat.modelSelection ?? null,
+        request: { selector: input.selector, effort: input.effort },
+        writer: 'owner',
+        permissionMode: input.permissionMode,
+      },
+    );
 
-    if (selection.nextSelection !== undefined) {
-      await chatsRepo.setModelSelection(input.chatId, selection.nextSelection);
-    }
+    await storeOwnerSelection(chatsRepo, turn.chat, selection);
 
     return this.persistAcceptedMessageAndRun(
       tx,
@@ -477,7 +478,7 @@ export class ChatLoopService {
     input: PersistUserMessageAndRunInput,
     admittedMessage: Message | undefined,
     slot: SlotClaim,
-    selection: ResolvedOwnerSelection,
+    selection: ResolvedSendSettings,
   ): Promise<PersistUserMessageAndRunResult | PendingDeliveryAnswer> {
     const pending = await this.storeOrStart(tx, input, slot);
 
@@ -509,19 +510,14 @@ export class ChatLoopService {
     tx: Db,
     input: PersistUserMessageAndRunInput,
     userMessage: Message,
-    selection: ResolvedOwnerSelection,
+    selection: ResolvedSendSettings,
   ): Promise<PersistUserMessageAndRunResult> {
     const { run } = await createRunForMessage(
       tx,
       {
         userId: input.userId,
         chatId: input.chatId,
-        modelId: selection.modelId,
-        selector: selection.selector,
-        effort: selection.effort,
-        selectedEffort: selection.effort,
-        selectionRevision: selection.selectionRevision,
-        permissionMode: selection.permissionMode,
+        ...runSelectionFields(selection),
         targetRunId: input.targetRunId,
       },
       userMessage,

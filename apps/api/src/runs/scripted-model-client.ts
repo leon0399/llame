@@ -27,19 +27,14 @@ import {
 } from '../models/step-composer';
 import { applyRequestUsageCallback } from '../models/request-usage';
 import {
-  chooseEffort,
-  chooseSelector,
-  nextSelectionForWrite,
   type ChatModelSelection,
   type SelectionCatalog,
   type SelectionRequest,
   type SelectionWriter,
 } from '../models/model-selection';
 import {
-  EffortNotAvailableError,
-  ModelConfigurationError,
-  ModelNotAvailableError,
   resolveEffortSelection,
+  resolveSelectionFromCatalog,
   type ModelSelectionValidator,
 } from '../models/models.service';
 import {
@@ -352,6 +347,17 @@ export class ScriptedModelsService implements ModelSelectionValidator {
    */
   readonly declarations: Array<ToolDeclarationRecord> = [];
 
+  /**
+   * The catalogue the production resolver reads: the harness declares no
+   * roles and no default selector, so every id the scripted validator can
+   * synthesize is an exact selector.
+   */
+  private readonly selectionCatalog: SelectionCatalog = {
+    defaultSelector: undefined,
+    roleCandidates: () => undefined,
+    model: (modelId) => this.validateModelSelection(modelId),
+  };
+
   validateModelSelection(modelId: string) {
     const reasoning = this.reasoning.get(modelId);
 
@@ -388,7 +394,7 @@ export class ScriptedModelsService implements ModelSelectionValidator {
   }
 
   /**
-   * Delegates to the production helpers rather than restating their rules: a
+   * Delegates to the production resolver rather than restating its rules: a
    * change to selector or effort semantics cannot pass the integration tests
    * while the API behaves differently. The harness declares no roles and no
    * default selector, so every registered model id is an exact selector and an
@@ -399,54 +405,12 @@ export class ScriptedModelsService implements ModelSelectionValidator {
     request: SelectionRequest,
     writer: SelectionWriter,
   ) {
-    const catalog: SelectionCatalog = {
-      defaultSelector: undefined,
-      roleCandidates: () => undefined,
-      model: (modelId) => this.validateModelSelection(modelId),
-    };
-
-    const chosen = chooseSelector(catalog, stored, request);
-
-    if (chosen.kind === 'unknown') {
-      throw new ModelNotAvailableError(chosen.selector);
-    }
-
-    if (chosen.kind === 'no-default') {
-      throw new ModelConfigurationError('defaults.selector is required.');
-    }
-
-    if (chosen.kind === 'unresolved-default') {
-      throw new ModelConfigurationError(
-        'defaults.selector must reference a configured model or model role.',
-      );
-    }
-
-    const effort = chooseEffort({
-      model: chosen.model,
-      requested: request.effort,
-      storedEffort: chosen.storedUsed ? (stored?.effort ?? null) : null,
-      candidateEffort: chosen.candidate?.effort,
-    });
-
-    if (effort.kind === 'undeclared') {
-      throw new EffortNotAvailableError(chosen.model.id, effort.effort);
-    }
-
-    const resolvedEffort = effort.kind === 'effort' ? effort.effort : undefined;
-
-    return {
-      selector: chosen.selector,
-      model: chosen.model,
-      effort: resolvedEffort,
-      nextSelection: nextSelectionForWrite({
-        stored,
-        request,
-        writer,
-        selector: chosen.selector,
-        effort: resolvedEffort,
-        storedUsed: chosen.storedUsed,
-      }),
-    };
+    return resolveSelectionFromCatalog(
+      this.selectionCatalog,
+      stored,
+      request,
+      writer,
+    );
   }
 
   resolveTitleModelConfig() {

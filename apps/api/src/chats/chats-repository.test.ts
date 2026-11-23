@@ -574,6 +574,22 @@ describe('ChatsRepository — owner-scoped queries (defense-in-depth)', () => {
     expect(queryContains(queries, chatId)).toBe(true);
   });
 
+  it('setModelSelection writes only the selection for the owner chat', async () => {
+    // The same tenant guard as every other owner write: a caller naming another
+    // owner's chat updates nothing even after an earlier read.
+    const { db, queries } = makeMockDb();
+    await new ChatsRepository(db)
+      .setModelSelection(chatId, ownerUserId, {
+        revision: 1,
+        selector: '@coding',
+        effort: 'high',
+      })
+      .catch(() => null);
+    expect(updateSetSql(queries)).toContain('"model_selection"');
+    expect(queryContains(queries, ownerUserId)).toBe(true);
+    expect(queryContains(queries, chatId)).toBe(true);
+  });
+
   it('findPinnedChatIds returns an empty set without querying for an empty id list', async () => {
     const { db, queries } = makeMockDb();
     await expect(

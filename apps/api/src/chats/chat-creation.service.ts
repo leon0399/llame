@@ -13,6 +13,11 @@ import { TenantDbService, type Db } from '../db/tenant-db.service';
 import { InstanceConfigService } from '../instance-config/instance-config.service';
 import { MachineConnector } from '../machines/machine-connector.service';
 import { MachinesService } from '../machines/machines.service';
+import {
+  ModelsService,
+  type ModelSelectionValidator,
+} from '../models/models.service';
+import { type ChatModelSelection } from '../models/model-selection';
 import { ProjectsRepository } from '../projects/projects-repository';
 import { ProjectsService } from '../projects/projects.service';
 import {
@@ -71,6 +76,8 @@ export class ChatCreationService {
     private readonly projects: ProjectsService,
     private readonly locks: ChatCreationLock,
     private readonly workspace: ChatCreationWorkspace,
+    @Inject(ModelsService)
+    private readonly models: ModelSelectionValidator,
     @Inject(ChatLoopService)
     private readonly chatLoop: Pick<
       ChatLoopService,
@@ -97,12 +104,20 @@ export class ChatCreationService {
       this.assertExecutorConfigured(input.executorId);
     }
 
-    // Every check that needs no Chat state runs before the lock: a bad
-    // permission mode, part, or foreign media stores nothing. The selector and
-    // the effort resolve inside the admission transaction, against the
-    // selection the Chat row stores (design D3), so a refused one rolls that
-    // transaction back.
+    // Every check that can answer without the creation lock runs before it: a
+    // bad permission mode, part, or foreign media stores nothing, and the
+    // selector check reads the Chat's stored selection without holding the
+    // lock. The admission transaction then resolves the selection again,
+    // against the row it locks, and writes it (design D3), so a refused one
+    // rolls that transaction back.
     const turn = await this.validateTurnInput(userId, input);
+
+    // The same resolution as a check before the first write: an unknown
+    // selector or undeclared effort answers 422 here, and an unset default
+    // 503, so a refused create leaves no Chat row, root binding, worktree, or
+    // project default behind. The admission transaction still resolves and
+    // writes the selection against the row it locks.
+    await this.assertSelectionResolvable(userId, input);
 
     return this.locks.runExclusively(input.id, () =>
       this.createLocked(userId, input, worktree, turn),
@@ -141,6 +156,42 @@ export class ChatCreationService {
       }),
       message: { id: input.message.id, parts: input.message.parts },
     });
+  }
+
+  /**
+   * The first message's selection as a pre-write check (model-roles D3): the
+   * named selector, the Chat's stored one on a resend, or the configured
+   * default. An unknown selector or undeclared effort answers 422 here, and an
+   * unset default 503, so a refused create writes no Chat row, root binding,
+   * worktree, or project default. Only the admission transaction stores the
+   * selection it resolves against the row it locks.
+   */
+  private async assertSelectionResolvable(
+    userId: string,
+    input: CreateChatRequest,
+  ): Promise<void> {
+    if (input.message === undefined) return;
+
+    this.models.resolveSelection(
+      await this.storedSelection(userId, input.id),
+      {
+        selector: input.message.selector,
+        effort: input.message.effort,
+      },
+      'owner',
+    );
+  }
+
+  /** The selection the Chat stores today; a new Chat stores none. */
+  private async storedSelection(
+    userId: string,
+    chatId: string,
+  ): Promise<ChatModelSelection | null> {
+    const chat = await this.tenantDb.runAs(userId, (tx) =>
+      new ChatsRepository(tx).findById(chatId, userId),
+    );
+
+    return chat?.modelSelection ?? null;
   }
 
   /** The owner's creation record: one entry per attempt, newest last. */

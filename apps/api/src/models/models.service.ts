@@ -21,11 +21,12 @@ import {
   type ModelClient,
   type ModelCredentialResolver,
 } from './model-client';
-import { parseModelSelector, ROLE_SIGN } from './model-selector';
+import { ROLE_SIGN } from './model-selector';
 import {
   chooseEffort,
   chooseSelector,
   nextSelectionForWrite,
+  offerSelector,
   type ChatModelSelection,
   type SelectionCatalog,
   type SelectionRequest,
@@ -162,6 +163,11 @@ export type ResolvedSendSettings = {
   modelId: string;
   effort: string | undefined;
   permissionMode: PermissionMode;
+  /**
+   * The revision the Run records: the one this admission wrote, else the
+   * stored one, else null. One formula for every path, owner or derived.
+   */
+  selectionRevision: number | null;
   nextSelection: ChatModelSelection | undefined;
 };
 
@@ -198,6 +204,8 @@ export function resolveSendSettings(
     modelId: selection.model.id,
     effort: selection.effort,
     permissionMode: resolvePermissionMode(input.permissionMode, enabledModes),
+    selectionRevision:
+      selection.nextSelection?.revision ?? input.stored?.revision ?? null,
     nextSelection: selection.nextSelection,
   };
 }
@@ -292,6 +300,8 @@ export class ModelsService {
   private readonly modelsById: Map<string, SystemModelCatalogEntry>;
   private readonly providersById: Map<string, ProviderConfig>;
   private readonly rolesByName: Map<string, ModelRoleConfig>;
+  /** The boot maps and `defaults.selector`, as the selection resolver reads them. */
+  private readonly selectionCatalog: SelectionCatalog;
 
   constructor(
     @Inject(InstanceConfigService)
@@ -313,6 +323,12 @@ export class ModelsService {
     this.rolesByName = new Map(
       this.instanceConfig.config.modelRoles.map((role) => [role.name, role]),
     );
+    this.selectionCatalog = {
+      defaultSelector:
+        this.instanceConfig.config.defaults.selector ?? undefined,
+      roleCandidates: (roleName) => this.rolesByName.get(roleName)?.candidates,
+      model: (modelId) => this.modelsById.get(modelId),
+    };
   }
 
   getAvailableModels(): ModelsAvailability {
@@ -337,7 +353,10 @@ export class ModelsService {
     // InstanceConfigService already hands out a trimmed-or-null value, and
     // config-loader has already boot-validated that a SET selector references
     // a configured model or role — this only guards the unset case.
-    const model = this.primaryEntry(this.configuredDefaultSelector());
+    const model = offerSelector(
+      this.selectionCatalog,
+      this.configuredDefaultSelector(),
+    )?.model;
 
     if (!model) {
       throw new ModelConfigurationError(DEFAULT_SELECTOR_REFERENCE);
@@ -350,7 +369,9 @@ export class ModelsService {
     const selector =
       this.instanceConfig.config.defaults.titleGenerationSelector;
 
-    return selector === null ? undefined : this.primaryEntry(selector);
+    return selector === null
+      ? undefined
+      : offerSelector(this.selectionCatalog, selector)?.model;
   }
 
   requireAvailableModel(modelId: string): SystemModelCatalogEntry {
@@ -396,13 +417,7 @@ export class ModelsService {
     writer: SelectionWriter,
   ): ResolvedSelection {
     return resolveSelectionFromCatalog(
-      {
-        defaultSelector:
-          this.instanceConfig.config.defaults.selector ?? undefined,
-        roleCandidates: (roleName) =>
-          this.rolesByName.get(roleName)?.candidates,
-        model: (modelId) => this.modelsById.get(modelId),
-      },
+      this.selectionCatalog,
       stored,
       request,
       writer,
@@ -464,25 +479,6 @@ export class ModelsService {
     }
 
     return selector;
-  }
-
-  /**
-   * The one executable entry a selector names, or `undefined`. A role yields
-   * its primary (the first configured candidate): this layer sends an exact
-   * model id, so the rest of a role's chain is a later layer's walk.
-   */
-  private primaryEntry(selector: string): SystemModelCatalogEntry | undefined {
-    const parsed = parseModelSelector(selector);
-
-    if (parsed.kind === 'model') {
-      return this.modelsById.get(parsed.modelId);
-    }
-
-    const primary = this.rolesByName.get(parsed.roleName)?.candidates[0];
-
-    return primary === undefined
-      ? undefined
-      : this.modelsById.get(primary.modelId);
   }
 
   /**

@@ -148,6 +148,7 @@ test("validates nullable quota references without discarding their fields", asyn
     messageId: null,
     kind: "compaction",
     modelId: "configured-model",
+    selector: "configured-model",
     permissionMode: "default",
     status: "awaiting_quota",
     error: null,

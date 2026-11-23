@@ -41,7 +41,11 @@ function makeService() {
         callback(db),
     );
 
-  const chat = asDouble<Chat>({ id: 'chat-1', archivedAt: null });
+  const chat = asDouble<Chat>({
+    id: 'chat-1',
+    ownerUserId: 'user-1',
+    archivedAt: null,
+  });
 
   vi.spyOn(ChatDeliveriesRepository.prototype, 'findById').mockResolvedValue(
     undefined,
@@ -369,7 +373,7 @@ describe('ChatCommandsService', () => {
       { selector: 'model-1', effort: undefined },
       'owner',
     );
-    expect(setModelSelection).toHaveBeenCalledWith('chat-1', {
+    expect(setModelSelection).toHaveBeenCalledWith('chat-1', 'user-1', {
       revision: 1,
       selector: 'model-1',
       effort: null,

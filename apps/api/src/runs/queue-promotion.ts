@@ -18,6 +18,8 @@ import { ChatsRepository, MessagesRepository } from '../chats/chats-repository';
 import {
   createCompactionRun,
   createRunForMessage,
+  runSelectionFields,
+  type RunSelection,
 } from '../chats/run-creation';
 import { toRunUserMessage } from '../chats/chat-message-parts';
 import {
@@ -43,13 +45,7 @@ class ItemNoLongerPending extends Error {}
  * that owns the Chat row lock. `modelId` is the served model the Run and its
  * job record; `effort` is both the served effort and the selection's effort.
  */
-export type ItemRunResolution = {
-  selector: string;
-  modelId: string;
-  effort: string | undefined;
-  permissionMode: PermissionMode;
-  selectionRevision: number | null;
-};
+export type ItemRunResolution = RunSelection;
 
 /**
  * Start the Run of the first pending queue item of the completed Run's Chat.
@@ -88,11 +84,12 @@ export async function promoteNextQueueItem(
 
   if (!item) return undefined;
 
-  const resolved = resolveItemRunSettings(
-    item.settings,
-    chat.modelSelection,
-    input,
-  );
+  const resolved = tryResolveItemRunSettings({
+    models: input.models,
+    enabledPermissionModes: input.enabledPermissionModes,
+    settings: item.settings,
+    stored: chat.modelSelection,
+  });
 
   if (resolved === undefined) return undefined;
 
@@ -114,38 +111,40 @@ export async function promoteNextQueueItem(
 }
 
 /**
- * Media were resolved and owner-checked at admission, so only the settings a
- * send re-checks are validated again, by the resolver a send uses. The item
- * starts under the Chat's stored selection (writer `derived`): a named
- * selector wins, else the stored one, else the configured default.
+ * The settings a pending item's Run starts with, resolved by the resolver a
+ * send uses (writer `derived`): a named selector wins, else the Chat's stored
+ * one, else the configured default. Queue promotion, a job notice, and a
+ * delivery mode change share it, so an item starts only under settings a send
+ * would be accepted with now.
  */
-function resolveItemRunSettings(
-  settings: ChatDeliverySettings,
-  stored: ChatModelSelection | null,
-  input: {
-    models: ModelSelectionValidator;
-    enabledPermissionModes: ReadonlyArray<PermissionMode>;
-  },
+export function resolveItemRunSettings(input: {
+  models: ModelSelectionValidator;
+  enabledPermissionModes: ReadonlyArray<PermissionMode>;
+  settings: ChatDeliverySettings;
+  stored: ChatModelSelection | null;
+}): ItemRunResolution {
+  return resolveSendSettings(input.models, input.enabledPermissionModes, {
+    stored: input.stored,
+    request: {
+      selector: input.settings.selector,
+      effort: input.settings.effort,
+    },
+    writer: 'derived',
+    permissionMode: input.settings.permissionMode,
+  });
+}
+
+/**
+ * {@link resolveItemRunSettings} for a caller that starts nothing on a
+ * refusal: an item whose settings no longer validate leaves the queue paused
+ * and a notice unstarted, rather than failing the transaction that settled the
+ * Run which triggered them.
+ */
+export function tryResolveItemRunSettings(
+  input: Parameters<typeof resolveItemRunSettings>[0],
 ): ItemRunResolution | undefined {
   try {
-    const resolved = resolveSendSettings(
-      input.models,
-      input.enabledPermissionModes,
-      {
-        stored,
-        request: { selector: settings.selector, effort: settings.effort },
-        writer: 'derived',
-        permissionMode: settings.permissionMode,
-      },
-    );
-
-    return {
-      selector: resolved.selector,
-      modelId: resolved.modelId,
-      effort: resolved.effort,
-      permissionMode: resolved.permissionMode,
-      selectionRevision: stored?.revision ?? null,
-    };
+    return resolveItemRunSettings(input);
   } catch {
     return undefined;
   }
@@ -182,12 +181,7 @@ async function startCompactItemRun(
     id: randomUUID(),
     chatId: item.chatId,
     userId: item.ownerUserId,
-    modelId: resolved.modelId,
-    effort: resolved.effort,
-    permissionMode: resolved.permissionMode,
-    selector: resolved.selector,
-    selectedEffort: resolved.effort,
-    selectionRevision: resolved.selectionRevision,
+    ...runSelectionFields(resolved),
     focus,
   });
 
@@ -256,12 +250,7 @@ async function createItemRun(
     {
       userId: item.ownerUserId,
       chatId: item.chatId,
-      modelId: resolved.modelId,
-      effort: resolved.effort,
-      permissionMode: resolved.permissionMode,
-      selector: resolved.selector,
-      selectedEffort: resolved.effort,
-      selectionRevision: resolved.selectionRevision,
+      ...runSelectionFields(resolved),
       targetRunId: randomUUID(),
     },
     message,
