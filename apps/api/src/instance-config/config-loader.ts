@@ -3968,9 +3968,10 @@ function resolveRoleCandidate(
     }
   }
 
-  return candidate.effort === undefined
-    ? { modelId: candidate.model }
-    : { modelId: candidate.model, effort: candidate.effort };
+  return {
+    modelId: candidate.model,
+    ...(candidate.effort !== undefined && { effort: candidate.effort }),
+  };
 }
 
 /** Validate and normalize ONE `effortLevels[]` item — a bare string or a

@@ -3020,6 +3020,24 @@ describe('loadInstanceConfig — billing mode (run-usage-accounting M9)', () => 
     const config = loadInstanceConfig();
     expect(config.models[0]).toMatchObject({ billing: 'free' });
   });
+
+  it('boots a free model that declares pricing with billing still free', () => {
+    writeConfig(`{
+      ${SINGLE_PROVIDER_JSON},
+      "models": [{
+        "id": "m",
+        "provider": "p",
+        "providerModelId": "x",
+        "contextWindowTokens": 1000,
+        "billing": "free",
+        "pricingUsdPer1M": { "input": 1, "output": 2 }
+      }]
+    }`);
+
+    const model = loadInstanceConfig().models[0];
+    expect(model).toMatchObject({ billing: 'free' });
+    expect(model.pricingUsdPer1M).toEqual({ input: 1, output: 2 });
+  });
 });
 
 describe('loadInstanceConfig — modelRoles / defaults selectors (model-roles)', () => {

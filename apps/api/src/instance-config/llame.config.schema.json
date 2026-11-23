@@ -770,7 +770,7 @@
         },
         "billing": {
           "$ref": "#/$defs/billingMode",
-          "description": "Whether requests are billed per token or run under a flat subscription. Server-only; never returned by GET /api/v1/models."
+          "description": "Whether requests are billed per token (`usage`), run under a flat subscription (`subscription`), or are never billed (`free`). Server-only; never returned by GET /api/v1/models."
         },
         "providerModelId": {
           "type": "string",

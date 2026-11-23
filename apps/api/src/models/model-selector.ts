@@ -17,7 +17,3 @@ export function parseModelSelector(selector: string): ModelSelector {
     ? { kind: 'role', roleName: selector.slice(ROLE_SIGN.length) }
     : { kind: 'model', modelId: selector };
 }
-
-export function roleSelector(roleName: string): string {
-  return `${ROLE_SIGN}${roleName}`;
-}

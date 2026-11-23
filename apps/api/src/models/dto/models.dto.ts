@@ -6,7 +6,6 @@ import type {
   ModelSource,
   PublicModelCatalogEntry,
 } from '../model-catalog';
-import type { ModelRoleAvailability } from '../models.service';
 
 export class ModelPricingResponse {
   @ApiPropertyOptional()
@@ -202,26 +201,6 @@ export class ModelDomainErrorResponse {
 
   @ApiProperty()
   code!: string;
-}
-
-export function toModelRoleResponse(
-  role: ModelRoleAvailability,
-): ModelRoleResponse {
-  return {
-    selector: role.selector,
-    // Copied, like every catalog array: the resolved config is a
-    // process-lifetime singleton, so a response must not hand out its arrays.
-    candidates: role.candidates.map((candidate) => {
-      const response: ModelRoleCandidateResponse = {
-        modelId: candidate.modelId,
-        paid: candidate.paid,
-      };
-
-      if (candidate.effort !== undefined) response.effort = candidate.effort;
-
-      return response;
-    }),
-  };
 }
 
 export function toAvailableModelResponse(

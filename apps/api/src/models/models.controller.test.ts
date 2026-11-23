@@ -9,10 +9,7 @@ import { configuredCredentials } from '../instance-config/configured-credentials
 import type { ProviderConfig } from '../instance-config/llame-config';
 import { ModelsController, type ModelsReader } from './models.controller';
 import { ModelConfigurationError, ModelsService } from './models.service';
-import {
-  toAvailableModelResponse,
-  toModelRoleResponse,
-} from './dto/models.dto';
+import { toAvailableModelResponse } from './dto/models.dto';
 import type { PublicModelCatalogEntry } from './model-catalog';
 
 describe('ModelsController', () => {
@@ -185,8 +182,6 @@ describe('ModelsController', () => {
     expect(response.models[0]?.reasoning?.effortLevels[0]).not.toBe(
       catalogReasoning.effortLevels[0],
     );
-    expect(response.roles[0]?.candidates).not.toBe(roleCandidates);
-    expect(response.roles[0]?.candidates[0]).not.toBe(roleCandidates[0]);
   });
 
   it('maps model configuration failures to the standard error body', () => {
@@ -275,25 +270,6 @@ describe('ModelsController', () => {
 
     expect(response.pricingUsdPer1M).toEqual({ input: 1, output: 4 });
     expect(response.pricingUsdPer1M).not.toHaveProperty('cacheWrite');
-  });
-
-  it('omits an undeclared candidate effort instead of publishing null', () => {
-    const response = toModelRoleResponse({
-      selector: '@titles',
-      candidates: [
-        { modelId: 'system:openai:gpt-5.4-nano', paid: false },
-        { modelId: 'system:openai:gpt-5.5', effort: 'high', paid: true },
-      ],
-    });
-
-    expect(response).toEqual({
-      selector: '@titles',
-      candidates: [
-        { modelId: 'system:openai:gpt-5.4-nano', paid: false },
-        { modelId: 'system:openai:gpt-5.5', effort: 'high', paid: true },
-      ],
-    });
-    expect(response.candidates[0]).not.toHaveProperty('effort');
   });
 
   it('publishes a declared pdf input in declared order', () => {

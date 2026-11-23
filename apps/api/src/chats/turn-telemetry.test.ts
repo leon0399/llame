@@ -377,6 +377,32 @@ describe('TurnTelemetry', () => {
       expect(perRequest.costUsd).toBe(0.00012);
     });
 
+    it('stamps free billing while still computing the notional cost', () => {
+      const receipt = usageReceipt({ inputTokens: 100, outputTokens: 10 });
+
+      const telemetry = aggregateTurnTelemetry({
+        receipts: [receipt],
+        status: 'completed',
+        modelId: 'priced-model',
+        latencyMs: 1,
+        price,
+        billing: 'free',
+      });
+
+      const perRequest = buildTurnTelemetry({
+        usage: receipt,
+        status: 'completed',
+        modelId: 'priced-model',
+        latencyMs: 1,
+        price,
+        billing: 'free',
+      });
+
+      expect(telemetry).toMatchObject({ billing: 'free', costUsd: 0.00012 });
+      expect(perRequest.billing).toBe('free');
+      expect(perRequest.costUsd).toBe(0.00012);
+    });
+
     it('omits reasoning when any request does not report it', () => {
       const telemetry = aggregateTurnTelemetry({
         receipts: [

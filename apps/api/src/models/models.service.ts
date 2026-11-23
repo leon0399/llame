@@ -21,7 +21,7 @@ import {
   type ModelClient,
   type ModelCredentialResolver,
 } from './model-client';
-import { parseModelSelector, roleSelector } from './model-selector';
+import { parseModelSelector, ROLE_SIGN } from './model-selector';
 
 /** One candidate of a published role, as a client may present it. */
 export type ModelRoleCandidateAvailability = {
@@ -47,11 +47,6 @@ export type ModelsAvailability = {
   models: Array<PublicModelCatalogEntry>;
   roles: Array<ModelRoleAvailability>;
 };
-
-const DEFAULT_SELECTOR_REQUIRED = 'defaults.selector is required.';
-
-const DEFAULT_SELECTOR_REFERENCE =
-  'defaults.selector must reference a configured model or model role.';
 
 export class ModelConfigurationError extends Error {
   readonly code = 'model_configuration_invalid';
@@ -231,7 +226,7 @@ export class ModelsService {
 
     // A selector that resolves to nothing is a 503 for the whole endpoint: the
     // catalogue must never publish a default a client cannot turn into a send.
-    this.resolveSelectorEntry(defaultSelector, DEFAULT_SELECTOR_REFERENCE);
+    this.resolveDefaultModelConfig();
 
     if (this.modelsById.size === 0) {
       throw new ModelConfigurationError('No models are configured.');
@@ -248,33 +243,22 @@ export class ModelsService {
     // InstanceConfigService already hands out a trimmed-or-null value, and
     // config-loader has already boot-validated that a SET selector references
     // a configured model or role — this only guards the unset case.
-    return this.resolveSelectorEntry(
-      this.configuredDefaultSelector(),
-      DEFAULT_SELECTOR_REFERENCE,
-    );
+    const model = this.primaryEntry(this.configuredDefaultSelector());
+
+    if (!model) {
+      throw new ModelConfigurationError(
+        'defaults.selector must reference a configured model or model role.',
+      );
+    }
+
+    return model;
   }
 
   resolveTitleModelConfig(): SystemModelCatalogEntry | undefined {
     const selector =
       this.instanceConfig.config.defaults.titleGenerationSelector;
 
-    if (!selector) {
-      return undefined;
-    }
-
-    const parsed = parseModelSelector(selector);
-
-    if (parsed.kind === 'model') {
-      return this.modelsById.get(parsed.modelId);
-    }
-
-    // This layer stops at the primary candidate; walking the rest of the
-    // chain (a later layer) starts from here.
-    const primary = this.rolesByName.get(parsed.roleName)?.candidates[0];
-
-    return primary === undefined
-      ? undefined
-      : this.modelsById.get(primary.modelId);
+    return selector === null ? undefined : this.primaryEntry(selector);
   }
 
   requireAvailableModel(modelId: string): SystemModelCatalogEntry {
@@ -356,36 +340,29 @@ export class ModelsService {
     const selector = this.instanceConfig.config.defaults.selector;
 
     if (!selector) {
-      throw new ModelConfigurationError(DEFAULT_SELECTOR_REQUIRED);
+      throw new ModelConfigurationError('defaults.selector is required.');
     }
 
     return selector;
   }
 
   /**
-   * Resolve a selector to one executable entry. A role yields its primary (the
-   * first configured candidate): this layer sends an exact model id, so the
-   * rest of a role's chain is a later layer's walk.
+   * The one executable entry a selector names, or `undefined`. A role yields
+   * its primary (the first configured candidate): this layer sends an exact
+   * model id, so the rest of a role's chain is a later layer's walk.
    */
-  private resolveSelectorEntry(
-    selector: string,
-    message: string,
-  ): SystemModelCatalogEntry {
+  private primaryEntry(selector: string): SystemModelCatalogEntry | undefined {
     const parsed = parseModelSelector(selector);
 
-    const modelId =
-      parsed.kind === 'model'
-        ? parsed.modelId
-        : this.rolesByName.get(parsed.roleName)?.candidates[0]?.modelId;
-
-    const model =
-      modelId === undefined ? undefined : this.modelsById.get(modelId);
-
-    if (!model) {
-      throw new ModelConfigurationError(message);
+    if (parsed.kind === 'model') {
+      return this.modelsById.get(parsed.modelId);
     }
 
-    return model;
+    const primary = this.rolesByName.get(parsed.roleName)?.candidates[0];
+
+    return primary === undefined
+      ? undefined
+      : this.modelsById.get(primary.modelId);
   }
 
   /**
@@ -395,7 +372,7 @@ export class ModelsService {
    */
   private modelRoles(): Array<ModelRoleAvailability> {
     return this.instanceConfig.config.modelRoles.map((role) => ({
-      selector: roleSelector(role.name),
+      selector: `${ROLE_SIGN}${role.name}`,
       candidates: role.candidates.map((candidate) => {
         const availability: ModelRoleCandidateAvailability = {
           modelId: candidate.modelId,

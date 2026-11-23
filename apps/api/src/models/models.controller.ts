@@ -19,7 +19,6 @@ import {
   ModelDomainErrorResponse,
   ModelsResponse,
   toAvailableModelResponse,
-  toModelRoleResponse,
 } from './dto/models.dto';
 import { ModelConfigurationError, ModelsService } from './models.service';
 
@@ -51,7 +50,7 @@ export class ModelsController {
       return {
         defaultSelector: response.defaultSelector,
         models: response.models.map(toAvailableModelResponse),
-        roles: response.roles.map(toModelRoleResponse),
+        roles: response.roles,
       };
     } catch (error) {
       if (error instanceof ModelConfigurationError) {

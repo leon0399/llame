@@ -12,7 +12,6 @@ import { loadInstanceConfig } from '../../src/instance-config/config-loader';
 import type { LlameConfig } from '../../src/instance-config/llame-config';
 import { loadProductUserAgent } from '../../src/instance-config/product-identity';
 import { ModelsService } from '../../src/models/models.service';
-import { parseModelSelector } from '../../src/models/model-selector';
 import type {
   ModelClient,
   ModelStreamResult,
@@ -173,39 +172,6 @@ function loadFixtures(): Array<Fixture> {
   return fixtures;
 }
 
-/**
- * Resolve the eval config's `defaults.selector` to the one model the run uses.
- * A role resolves to its primary (first candidate): the eval runs one model per
- * fixture. Boot guarantees the role exists with at least one candidate.
- */
-function resolveEvalModelId(config: LlameConfig): string {
-  const selector = config.defaults.selector;
-
-  if (selector === null) {
-    throw new CompactionEvalSetupError(
-      'model',
-      'eval.config.json does not declare defaults.selector',
-    );
-  }
-
-  const parsedSelector = parseModelSelector(selector);
-
-  const modelId =
-    parsedSelector.kind === 'model'
-      ? parsedSelector.modelId
-      : config.modelRoles.find((role) => role.name === parsedSelector.roleName)
-          ?.candidates[0]?.modelId;
-
-  if (modelId === undefined) {
-    throw new CompactionEvalSetupError(
-      'model',
-      'eval.config.json defaults.selector names no candidate model',
-    );
-  }
-
-  return modelId;
-}
-
 function createEvalModelClient(): ModelClient {
   const configPath = path.resolve(__dirname, 'eval.config.json');
 
@@ -222,8 +188,6 @@ function createEvalModelClient(): ModelClient {
     throw new CompactionEvalSetupError('configuration', errorMessage(error));
   }
 
-  const modelId = resolveEvalModelId(config);
-
   let productUserAgent: string;
 
   try {
@@ -235,7 +199,9 @@ function createEvalModelClient(): ModelClient {
   const modelsService = new ModelsService({ config, productUserAgent });
 
   try {
-    return modelsService.createClient(modelId);
+    return modelsService.createClient(
+      modelsService.resolveDefaultModelConfig().id,
+    );
   } catch (error: unknown) {
     throw new CompactionEvalSetupError('model', errorMessage(error));
   }
