@@ -1,0 +1,70 @@
+## Delivery graph
+
+One change owns #703 and its cutover #1906. Before proposal approval, create no implementation branch. Use `$gh-stack` for every layer and `$openspec-apply-change` for implementation.
+
+| Layer    | Branch                       | Immediate parent             | Ownership                                                                           | Authored estimate                                                 | Issue closure       |
+| -------- | ---------------------------- | ---------------------------- | ----------------------------------------------------------------------------------- | ----------------------------------------------------------------- | ------------------- |
+| Proposal | `unified-chat-read/proposal` | `origin/master`              | Proposal, design, deltas, and task records                                          | 2,500-3,500 lines, including complete modified requirements       | Refs #703 and #1906 |
+| Reader   | `unified-chat-read/reader`   | `unified-chat-read/proposal` | Chat reads, shared rows, status, search addresses, and standalone-reader retirement | 1,800-2,600 lines                                                 | Closes #703         |
+| Digest   | `unified-chat-read/digest`   | `unified-chat-read/reader`   | Rail digest, migration, consent, compaction, and copied-prefix state                | 2,000-3,000 lines                                                 | Closes #1906        |
+| Finalize | `unified-chat-read/finalize` | `unified-chat-read/digest`   | Spec synchronization, checked records, and archive movement                         | 2,000-3,000 lines of canonical spec changes and artifact movement | Refs #703 and #1906 |
+
+Estimates count tests, documentation, and hand-authored migration work. Report generated Drizzle metadata separately. These are review estimates, not limits. Re-estimate against each immediate parent before publication. Keep behavior and its required safety checks together rather than split by file type.
+
+Every implementation layer is a safe merge boundary after its parent. The reader layer ships without the rail migration. The digest layer requires the shared row and locator behavior below it. These layers are not independent branches because they share that requirement and Run preparation. Finalize must remain after both. If review size requires a further coherent implementation split, revise this graph before that layer starts.
+
+No push or PR is authorized in this session. Local artifact completion does not approve implementation. The initial proposal and later review rounds use separate commits containing proposal-owned paths only. Existing staged files belong to Leo and must never enter those commits.
+
+## 1. Proposal layer
+
+- [ ] 1.1 Validate `unified-chat-read` strictly and check all MODIFIED scenario names against canonical specs. Verify every changed requirement against the recorded decisions.
+- [ ] 1.2 Prove the migration field-accounting and snapshot-placement design with bounded disposable probes. Do not proceed with an unverified preservation assumption.
+- [ ] 1.3 Commit the complete initial proposal without user-owned staged files. Run at least two independent adversarial reviewers per round. Verify findings and record each substantive revision in a separate commit.
+- [ ] 1.4 Run `pnpm format:check`, `pnpm lint:markdown`, focused strict OpenSpec validation, and `git diff --check`. Record any pre-existing working-tree failure separately.
+- [ ] 1.5 Obtain Leo's publication authorization before `$gh-stack` creates a draft PR. Self-review its actual parent-relative diff against `REVIEW_GUIDE.md` before ready.
+- [ ] 1.6 Complete the proposal GitHub review/CI and Ready-PR monitoring gates after authorized publication. Obtain approval of the actual revision before creating the reader layer.
+
+Proposal publication keeps Project status derived from the published PR. Do not advance it for local branches or reviews. Keep the spec pickup while waiting on questions. At an authorized spec-to-implementation transition, release the spec claim and post an implement pickup on the work unit before code changes. Each cutover receives its own implement pickup when that cutover starts. Never hold two workers on this dependency chain.
+
+## 2. Reader layer
+
+- [ ] 2.1 Enter `unified-chat-read/reader` from the approved proposal with `$gh-stack`, then run `$openspec-apply-change`. Recheck native blockers and the claim. Record implementation pickup for #703, with its shared change name and reachable session.
+- [ ] 2.2 Add the hub Chat locator parser and reader to existing dispatch. Cover malformed components, UUID/sequence normalization, collection addresses, exact message reads, and mutation refusals. Verify focused parser and reader tests, including no Machine contact.
+- [ ] 2.3 Activate `M` only for message indexes. Preserve existing `L` behavior on all other sources. Cover actual sequence gaps, finite count members, tails, open windows, empty windows, lowercase input, and refusal of mixed or unsupported forms.
+- [ ] 2.4 Build the shared Chat row and collection queries under trusted owner scope. Cover pin/activity order, untitled/current rows, archive discovery exclusion, direct archive reads, Unicode dual excerpts, same-source deduplication, and canonical Workspace affinity without probes.
+- [ ] 2.5 Add current Run-status annotations outside shared rows on collection, index, and message reads. Cover all four non-terminal states, idle after every terminal state, no foreign status leakage, and metadata included in result fitting.
+- [ ] 2.6 Preserve exact visible-message windows, logical-line rules, attachment placeholders, whole-line output bounds, plain-text rendering, and readable continuations. Verify search/read coordinate identity and a first-line or first-row oversized failure that cannot loop.
+- [ ] 2.7 Canonicalize Chat permission identities with the ordinary `read` group. Verify selectors and scheme case cannot evade rejects. Add owner/foreign/public/empty-identity negative datastore cases independently of permission mode.
+- [ ] 2.8 Emit content and timeline Chat locators from `search_conversations`. Preserve retrieval, ranking, canonical hydration, time constraints, and excerpt rules. Verify exact follow-up reads of lexical and vector-only passages and title-only non-evidence results.
+- [ ] 2.9 Delete the standalone `conversation_read` declaration, executor, prompt, new-call types, and example group. Reject retired allowlist/override keys. Preserve historical observations and their generic rendering/replay. Verify old stored results remain readable without an executor.
+- [ ] 2.10 Exclude Chat locators from implicit prompt imports and unsupported grep scopes. Gate search-to-read advice on `tools.read`; verify absent-reader guidance without changing safety framing.
+- [ ] 2.11 Update affected reference/operator docs, the tool inventory, a dated `CHANGELOG.md` entry, and completed `ROADMAP.md` items. Document eight example groups, domain-restricted opt-in, read statuses, privacy boundaries, bounds, and hard configuration cutover.
+- [ ] 2.12 Run focused reader/selector/permission/search/config tests, affected workspace lint/typecheck/build, and the common Markdown/format/whitespace checks. Exercise real `read` and search calls over two owned test Chats plus a second owner. Do not run aggregate local suites that CI owns.
+- [ ] 2.13 After publication authorization, publish as draft with `Closes #703` and `Refs #1906`. Self-review the actual immediate-parent diff, fix verified findings, and rerun affected checks before ready.
+- [ ] 2.14 Complete current-head CI, expected GitHub reviewer responses, feedback handling, and at least 15 uninterrupted minutes of Ready-PR monitoring. Read back Project updates. Release the #703 implementation stage only when its work is handed back.
+
+## 3. Digest layer
+
+- [ ] 3.1 Enter `unified-chat-read/digest` from the reader top with `$gh-stack`, then run `$openspec-apply-change`. Release any prior spec-stage claim before implementation. Post an implement pickup for #1906 and recheck the earlier cutover handoff.
+- [ ] 3.2 Implement one packaged baseline snapshot using the shared row without status. Retain caps, eligibility, disjointness, ratios, and compilation framing. Cover zero-source snapshots and deterministic 100-plus-100-code-point excerpts.
+- [ ] 3.3 Derive cumulative disclosure from effective nonempty digest items. Include stored accepted-turn items, in-Run items, retry/Continue/Regenerate resets, and fork-selected prefixes. Verify no column reads, no duplicate announcements, and safe failure on invalid known comparison payloads.
+- [ ] 3.4 Keep new-entry and pin-change candidate sets separate. Add at most 20 Workspace/pin corrections per preparation with deterministic deferral. Verify cap displacement does not invent unpins, unknown affinity differs from unbound, status changes emit nothing, and no Machine is probed.
+- [ ] 3.5 Persist ordinary snapshots/notices with fenced dispatch. Recheck consent before publication. Cover pre-dispatch rollback, post-dispatch failure, stale attempts, withdrawal races, and a retry that reuses literal bytes.
+- [ ] 3.6 Add the atomic checkpoint companion message and its explicit replay association. Cover pre-step checkpoint sequence inversion, idle compaction, mid-Run compaction, duplicate publication, failure after commit, and owner-fork remapping. Keep the checkpoint row summary-only and companion rows out of evidence, search, shares, and shared forks.
+- [ ] 3.7 Carry only already-disclosed digest state through disabled compaction, without source queries. Cover repeated disabled compaction, an empty prior epoch, re-enable with and without an effective baseline, source deletion, and no duplicate effective carry text.
+- [ ] 3.8 Remove `chats.*` from system/tool templates, projections, gates, emission accounting, and default prompts. Preserve independent owner/skills boot probes, strict template parsing, escaping, and temporal anchors. Verify actionable errors for retired paths and digest-free new system-only receipts.
+- [ ] 3.9 Generate the migration and its metadata. Before column deletion, convert accounted historical disclosure into final-text rail snapshots under owner scope. Use the proved emission trace/export seam, not title guesses or source rehydration. Cover title-only templates, duplicate titles, disabled sharing, legacy metadata-only parts, rollback, repeat execution, and safe abort on unaccountable rows.
+- [ ] 3.10 Delete the three digest columns and every orphaned staging, rebake, fork-copy, and model/template type. Keep no compatibility executor or old column reader. Verify fresh-schema migration and upgrade against a populated snapshot without resetting Chats.
+- [ ] 3.11 Update the operator migration/rollback runbook, context reference, consent/inspection documentation, affected architecture references, dated changelog, and completed roadmap items in this layer. Disclose Workspace-root and latest-assistant-text exposure. Do not claim whole-prompt identity or cache-hit gains.
+- [ ] 3.12 Run focused digest/compaction/fork/config/migration tests, negative owner/public-projection tests, affected workspace lint/typecheck/build, and common document checks. Exercise the enabled-baseline, Workspace-change, disabled-compaction, retry, and anchored-fork scenario against a database. Run the bounded live-model untrusted-content probe and distinguish its result from deterministic safety proof.
+- [ ] 3.13 After publication authorization, publish the digest layer as draft with `Closes #1906` and `Refs #703`. Self-review its actual immediate-parent diff and migration safety before ready.
+- [ ] 3.14 Complete current-head CI, expected GitHub reviewers, feedback handling, and Ready-PR monitoring. Read back Project updates and release the #1906 implementation claim when handed back.
+
+## 4. Finalize layer
+
+- [ ] 4.1 Confirm both implementation layers have their required verification and review records. Reconcile overlap with active `model-roles` requirements before canonical writes.
+- [ ] 4.2 Enter `unified-chat-read/finalize` with `$gh-stack` before `$openspec-sync-specs` writes any canonical file. Synchronize the reviewed deltas and preserve all required scenarios.
+- [ ] 4.3 Verify canonical cross-capability semantics, source links, and removed-name references. Run `pnpm exec openspec validate --specs --strict`, `pnpm exec openspec validate --all --strict`, Markdown/format checks, and `git diff --check`.
+- [ ] 4.4 Inspect `openspec status --change unified-chat-read --json` and this task list. Confirm every planning artifact and tracked readiness task is complete before archive movement.
+
+Archive execution follows readiness. Run `$openspec-archive-change` only after every tracked task is checked. After movement, authorized draft publication, self-review before ready, GitHub review/CI, Ready-PR monitoring, Project readback, and explicit merge permission remain mandatory post-archive gates. They are not unchecked prerequisites of archive execution.
