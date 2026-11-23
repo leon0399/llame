@@ -84,13 +84,18 @@ failure group is on. The switch MUST use the model switch of `model-roles`, with
 ### Requirement: A quota cell decides between a wait and a switch
 
 A `quota` cell `on` MUST switch at once and MUST NOT wait. A cell `off` MUST keep the quota wait of
-`quota-wait`. A cell with `switchAfterSeconds` MUST wait when the reset is at most that far away. It
-MUST switch when the reset is later, or when the failure has no reset time.
+`quota-wait`. A cell with `switchAfterSeconds` MUST wait when the reset is at most that far away and
+the quota wait can apply. In other cases it MUST switch.
 
 #### Scenario: A near reset waits
 
 - **WHEN** the cell is `{ switchAfterSeconds: 7200 }`, and a usage limit resets in one hour
 - **THEN** the Run enters `awaiting_quota`
+
+#### Scenario: A reset beyond the wait cap switches
+
+- **WHEN** the cell is `{ switchAfterSeconds: 864000 }`, and a reset in nine days is beyond `runs.quotaWaitMaxSeconds`
+- **THEN** the Run continues on the next candidate, and it does not fail
 
 #### Scenario: A far reset switches
 
@@ -149,8 +154,14 @@ the new model MUST be a new step, not the failed request again.
 
 ### Requirement: A compaction request follows the rules of its Run
 
-A compaction request on the model of the current segment MUST follow the policy of its Run. A
-compaction request on another model is a side call and MUST NOT switch.
+A compaction request of a turn Run, on the model of its current segment, MUST follow the policy of
+its Run. A compaction Run MUST NOT switch, as `model-roles` requires. A compaction request on another
+model is a side call and MUST NOT switch.
+
+#### Scenario: A compaction Run does not fail over
+
+- **WHEN** a `/compact` Run on `@coding` fails with `overloaded` after its last retry, and every cell is on
+- **THEN** the compaction Run fails with `error.code` `overloaded`
 
 #### Scenario: A step-boundary compaction fails over
 

@@ -172,3 +172,76 @@ set the composer selection. The submit action of the menu MUST send the composer
 - **WHEN** the owner opens the Regenerate menu, selects model `C`, and submits
 - **THEN** the request names `selector` `C`
 - **AND** the composer shows model `C` after the request
+
+### Requirement: Continue requests the next step of the same turn
+
+The first model request of a Continue Run MUST carry the history through the triggering user
+message, then the kept parts. It MUST build them through the projection of `turn-replay`. Each kept
+step MUST be one assistant message with its reasoning, its text, and its tool calls, then one
+message with their results. Kept results MUST be complete. The request MUST NOT add a user-role
+message, except a kept context item. The Run MUST NOT execute a kept call again. A Continue with
+`candidate: "next"` keeps no parts. Its request carries the failed reply as history, then the host
+message of `model-roles`.
+
+#### Scenario: Continue sends the kept steps with their reasoning
+
+- **WHEN** the owner continues a `failed` Run whose kept step holds a reasoning part with encrypted provider metadata and two parallel tool calls
+- **THEN** the first model request carries one assistant message with that reasoning part, its metadata, and both calls, then both results
+- **AND** the request has no user-role message after those results
+
+#### Scenario: Sequential steps stay separate
+
+- **WHEN** the kept parts hold call `t1` from one model response and call `t2` from the next response, with no text or reasoning between them
+- **THEN** the first model request carries `t1` and its result, then a second assistant message with `t2`, then its result
+
+#### Scenario: Continue sends long results in full
+
+- **WHEN** the kept parts hold tool results of more than 100,000 characters in total
+- **THEN** the first model request carries each kept result as the live loop sent it, with no omission marker
+
+#### Scenario: Continue does not repeat a settled call
+
+- **WHEN** the kept parts hold a settled `edit` call
+- **THEN** the Continue Run does not invoke `edit` for that call
+- **AND** the model receives the stored result of that call
+
+#### Scenario: Kept parts that do not fit fail the Run
+
+- **WHEN** the history through the triggering user message and the kept parts do not fit the model window, even after compaction of the history
+- **THEN** the Continue Run fails with the context-incompatible error
+- **AND** no compaction absorbs a kept part
+
+#### Scenario: Continue on the next candidate sends the failed reply as history
+
+- **WHEN** the owner continues a `failed` `@coding` Run on `codex` with `candidate: "next"`, and its reply holds a settled `edit` call and a reasoning part
+- **THEN** the first request to `sonnet` carries the `edit` call and its result, then the host message
+- **AND** it carries no reasoning part of `codex`, and `edit` does not run again
+
+### Requirement: The chat history read reports the latest Run
+
+`GET /api/v1/chats/:id/messages` MUST return `latestRun` from the same read as the messages. It is
+the newest Run of the Chat. It has its id, kind, message id, status, and follow-up action. It also has
+its model selector, model id, effort, accepted permission mode, and error. The kind MUST be `turn` or
+`compaction`. The error MUST be the terminal message that the stream of the Run sends, or `null`. It
+MUST be `null` for a Chat with no Run. It MUST follow the owner scope of the history read.
+
+#### Scenario: The latest Run of a failed turn is reported
+
+- **WHEN** the latest Run of a Chat failed before it dispatched, with model `A` and mode `bypass`
+- **THEN** the history read reports that Run with status `failed`, model `A`, and mode `bypass`
+- **AND** it reports the failure message of that Run as its error
+
+#### Scenario: Another owner's latest Run is not reported
+
+- **WHEN** user B reads the history of a Chat of user A
+- **THEN** the API returns the current not-found response and no `latestRun`
+
+#### Scenario: A compaction Run is the latest Run
+
+- **WHEN** the newest Run of a Chat is a completed compaction Run
+- **THEN** the history read reports that Run with kind `compaction` and message id `null`
+
+#### Scenario: The latest Run names its role
+
+- **WHEN** the latest Run of a Chat used `@coding` and failed on `codex`
+- **THEN** the history read reports selector `@coding` and model id `codex`

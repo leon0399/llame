@@ -1,7 +1,7 @@
 ## Purpose
 
-Operator-defined model roles let a send name an ordered list of models. The Chat stores its
-selection and holds a fallback until a revert time. The owner can move a failed Run, or a Run in a
+Operator-defined model roles let a send name an ordered list of models. The Chat stores its model
+selection and a fallback hold until a revert time. The owner can move a failed Run, or a Run in a
 quota wait, to the next candidate.
 
 ## ADDED Requirements
@@ -16,7 +16,7 @@ owns. A send names a role as `@` and the role name.
 #### Scenario: A role with two candidates boots
 
 - **WHEN** `modelRoles.coding.candidates` names `codex` with effort `high`, then `sonnet`
-- **THEN** startup succeeds, and `@coding` is a valid selector
+- **THEN** startup succeeds, and `@coding` is a valid model selector
 
 #### Scenario: A role name with an upper-case letter fails startup
 
@@ -48,7 +48,8 @@ MUST name the role and the field.
 ### Requirement: A model id does not start with the role sign
 
 A `models[].id` MUST NOT start with `@`. Startup MUST fail and name the model entry when one does.
-Thus a selector that starts with `@` always names a role.
+Thus a model selector that starts with `@` always names a role. Any other model selector is an exact
+selector.
 
 #### Scenario: A model id with the role sign
 
@@ -57,10 +58,10 @@ Thus a selector that starts with `@` always names a role.
 
 ### Requirement: A send names a selector or uses the stored selection
 
-A chat send MUST accept an optional top-level `selector`: `@` with a role name, or a model id. The
-API MUST validate it before it creates a message or a Run. A send without `selector` MUST use the
-Chat's stored selection. A Chat with no stored selection MUST use `defaults.selector`. A request
-with `modelId` MUST get 400.
+A chat send MUST accept an optional top-level `selector`, which is a model selector. The API MUST
+validate it before it creates a message or a Run. A send without `selector` MUST use the stored
+selection of the Chat, or `defaults.selector` when the Chat stores none. A request with `modelId` MUST
+get 400.
 
 #### Scenario: A send names a role
 
@@ -93,26 +94,43 @@ with `modelId` MUST get 400.
 - **WHEN** the first send of a new Chat names no `selector`, and `defaults.selector` is `@coding`
 - **THEN** the Run uses `@coding`, and the Chat stores `@coding`
 
+#### Scenario: No selector and no default
+
+- **WHEN** a send names no `selector`, the Chat stores no selection, and `defaults.selector` is unset
+- **THEN** the API answers 503 with `code = "model_configuration_invalid"`
+- **AND** it creates no message and no Run
+
 ### Requirement: A selector resolves to one model at admission
 
-A model-id selector MUST resolve to that model. A role selector MUST resolve to the held model when
-the Chat holds a fallback of that role. In other cases it MUST resolve to the first candidate. A hold whose model is no longer a
-candidate of the role MUST be cleared. The Run MUST record the selector and the resolved model.
+An exact selector MUST resolve to its model. A role selector MUST resolve to the held model when the
+Chat has a fallback hold for that role. In other cases it MUST resolve to the first candidate. The
+Run MUST record the model selector, the resolved model, and the effort that admission resolved.
 
 #### Scenario: A held Chat resolves to the held model
 
-- **WHEN** the Chat holds `sonnet` for `@coding` with a `revertAt` in the future, and the owner sends
-  with no `selector`
+- **WHEN** the Chat has a fallback hold on `sonnet` for `@coding` with a `revertAt` in the future, and the owner sends with no `selector`
 - **THEN** the Run records `selector` `@coding` and `modelId` `sonnet`
 
 #### Scenario: The held model left the role
 
-- **WHEN** the Chat holds `sonnet` for `@coding`, and the operator removed `sonnet` from `@coding`
+- **WHEN** the Chat has a fallback hold on `sonnet` for `@coding`, and the operator removed `sonnet` from `@coding`
 - **THEN** the next Run clears the hold and uses the first candidate
 
-### Requirement: An exact model selector never switches
+### Requirement: A stored selection that no longer resolves uses the default
 
-A Run whose selector is a model id MUST NOT change its model. It MUST NOT offer Continue on next
+A send without `selector` can find a stored model selector that the config no longer offers. The
+API MUST then use `defaults.selector` and MUST store it as the selection. The model-switch item of
+`model-system-prompts` then tells the model of the change. A request that names the missing selector
+MUST get 422.
+
+#### Scenario: A stored model left the catalog
+
+- **WHEN** the Chat stores the exact selector `gpt-4o`, the operator removed `gpt-4o`, and the owner sends with no `selector`
+- **THEN** the Run uses `defaults.selector`, and the Chat stores it
+
+### Requirement: An exact selector never switches
+
+A Run whose model selector is exact MUST NOT change its model. It MUST NOT offer Continue on next
 candidate. A failure of that model MUST fail the Run, or make it wait, as `provider-failures` and
 `quota-wait` define.
 
@@ -124,8 +142,8 @@ candidate. A failure of that model MUST fail the Run, or make it wait, as `provi
 ### Requirement: The Chat stores its selection
 
 The Chat MUST store one selection: `selector`, `effort`, and an optional fallback hold
-`{ modelId, effort, revertAt }`. Each accepted send, chat creation, or Regenerate MUST write it in
-the transaction that creates its Run. The Chat read MUST return it to the owner.
+`{ selector, modelId, effort, revertAt }`. The Chat read MUST return it to the owner. A refused
+request MUST NOT change it.
 
 #### Scenario: Another device shows the same selection
 
@@ -137,37 +155,49 @@ the transaction that creates its Run. The Chat read MUST return it to the owner.
 - **WHEN** a send that names `@coding` gets 422 for an undeclared effort
 - **THEN** the stored selection of the Chat does not change
 
-### Requirement: The selection of a Chat belongs to its owner
+### Requirement: Owner requests write the selection
 
-Only the owner of a Chat MUST read or change its selection. A request for the Chat of another
-owner MUST get 404 and MUST NOT reveal the selection.
+These requests MUST write the `selector` or the `effort` that they name: an accepted send in any
+delivery mode, a chat creation, a Regenerate, and a `/compact`. They write it in the transaction that accepts
+the request. Continue, queue promotion, and job-notice Runs MUST NOT write the selection.
 
-#### Scenario: Another owner reads a Chat
+#### Scenario: A pick sent as a steer
 
-- **WHEN** user B reads a Chat of user A
-- **THEN** the API answers 404, and the response holds no selection
+- **WHEN** a Run on `@coding` is live, and the owner sends a steer with `selector: "@fast"`
+- **THEN** the live Run keeps its model, and the Chat stores `@fast` for the next send
 
-### Requirement: A role send validates effort against the resolved model
+### Requirement: An omitted effort follows one order
 
-The `effort` of a send MUST be a declared level of the resolved model. That model is the held model
-when the Chat holds a fallback, and the first candidate in other cases. An omitted `effort` MUST resolve to the
-`effort` of that candidate. A candidate with no `effort` MUST use the model's `defaultEffort`.
+An omitted `effort` MUST resolve in this order. The effort of the fallback hold applies when the
+hold applies. Then the stored effort applies, when the request names no `selector`. Then the
+candidate `effort` of a role applies. Last, the `defaultEffort` of the model applies.
 
-#### Scenario: An omitted effort on a role send
+#### Scenario: An omitted effort after a role pick
 
-- **WHEN** the first candidate of `@coding` is `codex` with effort `high`, and a send omits `effort`
+- **WHEN** the first candidate of `@coding` is `codex` with effort `high`, and a send names `selector: "@coding"` and no `effort`
 - **THEN** the Run uses effort `high`
+
+#### Scenario: An omitted effort uses the stored effort
+
+- **WHEN** the Chat stores `@coding` at effort `low`, and a send names no `selector` and no `effort`
+- **THEN** the Run uses effort `low`
+
+### Requirement: A send effort is validated against the resolved model
+
+A named `effort` MUST be a declared level of the resolved model, which is the held model when the
+fallback hold applies. The API MUST store a named effort on the hold when the hold applies, and on
+the selection in other cases.
 
 #### Scenario: An effort that only the held model declares
 
-- **WHEN** the Chat holds `sonnet`, and a send names an effort that `sonnet` declares and `codex` does not
+- **WHEN** the Chat has a fallback hold on `sonnet`, and a send names an effort that `sonnet` declares and `codex` does not
 - **THEN** the API accepts the send, and the Run uses that effort on `sonnet`
 
 ### Requirement: The effort after a switch follows the selected effort
 
-After a switch, the new model MUST use the effort of the Run when the new model declares that level.
-In other cases it MUST use the `effort` of its candidate, then its own `defaultEffort`. A model with
-no `reasoning` MUST get no effort. The reply MUST record the effort that it used.
+The Run MUST keep its selected effort, which admission resolved, apart from the effort of the
+current segment. After a switch, the new model MUST use the selected effort when it declares that
+level. In other cases it MUST use its candidate `effort`, then its `defaultEffort`.
 
 #### Scenario: The new model declares the selected level
 
@@ -179,31 +209,46 @@ no `reasoning` MUST get no effort. The reply MUST record the effort that it used
 - **WHEN** a Run at effort `xhigh` switches to `deepseek`, whose candidate declares effort `medium`
 - **THEN** the requests to `deepseek` carry effort `medium`, and its reply records `medium`
 
+#### Scenario: A second switch compares with the selected effort
+
+- **WHEN** a Run at effort `xhigh` switches to `deepseek` at `medium`, then to `opus`, which declares `xhigh`
+- **THEN** the requests to `opus` carry effort `xhigh`
+
+#### Scenario: A model with no reasoning gets no effort
+
+- **WHEN** a Run at effort `high` switches to a model that declares no `reasoning`
+- **THEN** the requests to that model carry no effort
+
 ### Requirement: A switch holds the Chat on the new candidate
 
-A switch to a later candidate MUST store a fallback hold on the Chat in the transaction that opens
-the switch. The hold MUST name the new model, its effort, and `revertAt`. `revertAt` MUST be the
-failure's reset time, else its retry hint, else 5 minutes after the switch.
+A switch MUST store a fallback hold when the stored selector of the Chat equals the selector of the
+Run. The hold MUST name that selector, the new model, its effort, and `revertAt`. `revertAt` MUST be
+the reset time of the failure, else its retry hint, else 5 minutes after the switch.
 
 #### Scenario: A usage limit sets the hold to the reset
 
 - **WHEN** a `@coding` Run switches after a Codex usage limit that resets at 14:00
-- **THEN** the Chat holds the new candidate with `revertAt` 14:00
+- **THEN** the Chat has a fallback hold on the new candidate with `revertAt` 14:00
 
 #### Scenario: An auth failure sets a short hold
 
 - **WHEN** a `@coding` Run switches after an `auth` failure with no reset time and no hint
 - **THEN** `revertAt` is 5 minutes after the switch
 
+#### Scenario: The owner picked another selector
+
+- **WHEN** a `@coding` Run switches, and the owner stored `@fast` with a steer before the switch
+- **THEN** the Chat stores `@fast` with no fallback hold
+
 ### Requirement: The Chat returns to the primary after revertAt
 
-The first Run that starts after `revertAt` MUST clear the hold and resolve the role again. The
-switch back MUST use the model-switch item of `model-system-prompts`. A Run MUST NOT switch back to
-the primary before it ends.
+The first admission after `revertAt` that resolves the stored selection MUST clear the hold. The role
+then resolves to its first candidate. The model-switch item of `model-system-prompts` MUST announce
+the return. A Continue MUST NOT clear the hold. A Run MUST NOT switch back before it ends.
 
 #### Scenario: A send after the reset
 
-- **WHEN** the Chat holds `sonnet` for `@coding` until 14:00, and the owner sends at 14:05
+- **WHEN** the Chat has a fallback hold on `sonnet` for `@coding` until 14:00, and the owner sends at 14:05
 - **THEN** the Run uses the first candidate, the hold is cleared, and the request carries a model-switch item
 
 #### Scenario: A long Run passes revertAt
@@ -213,30 +258,34 @@ the primary before it ends.
 
 ### Requirement: An owner pick clears the hold
 
-A send, chat creation, or Regenerate that names `selector` MUST clear the hold. A role selector then
-resolves to the first candidate. A send that changes only `effort` MUST keep the hold and MUST store
-the new effort on the hold.
+A request that names `selector` MUST clear the hold. A role selector then resolves to the first
+candidate. A request that names only `effort` MUST keep the hold.
 
 #### Scenario: The owner picks the role again
 
-- **WHEN** the Chat holds `sonnet` for `@coding`, and the owner sends with `selector: "@coding"`
-- **THEN** the Run uses the first candidate, and the Chat holds no fallback
+- **WHEN** the Chat has a fallback hold on `sonnet` for `@coding`, and the owner sends with `selector: "@coding"`
+- **THEN** the Run uses the first candidate, and the Chat has no fallback hold
 
 #### Scenario: The owner changes only the effort
 
-- **WHEN** the Chat holds `sonnet` for `@coding`, and the owner sends with no `selector` and effort `low`
+- **WHEN** the Chat has a fallback hold on `sonnet` for `@coding`, and the owner sends with no `selector` and effort `low`
 - **THEN** the Run uses `sonnet` at effort `low`, and the hold stays with effort `low`
 
 ### Requirement: A pending item resolves its selector when its Run starts
 
-A queue item and a job notice MUST store a selector, not a resolved model. The Run that the item
-starts MUST resolve that selector against the hold of the Chat at that time. A job notice MUST use the
-selector of the Run that started its job.
+A pending item from the owner MUST store the `selector` and the `effort` that its send named, or none.
+A job notice MUST store the selector and the origin of the Run that started its job. The Run of an
+item MUST resolve its selector, or the stored selection when the item has none, when the Run starts.
 
 #### Scenario: A queue item after a switch
 
-- **WHEN** the owner queues an item for `@coding`, and the live Run then switches the Chat to `sonnet`
+- **WHEN** the owner queues an item with no `selector`, and the live `@coding` Run then switches the Chat to `sonnet`
 - **THEN** the Run of the queue item starts on `sonnet`
+
+#### Scenario: A queue item with its own selector
+
+- **WHEN** the owner queues an item with `selector: "@fast"`
+- **THEN** the Run of the item starts on the first candidate of `@fast`
 
 ### Requirement: An owner fork copies the selection and the hold
 
@@ -246,26 +295,26 @@ shared fork MUST NOT copy a selection or a hold. Its first send without `selecto
 
 #### Scenario: A fork of a held Chat
 
-- **WHEN** the owner forks a Chat that holds `sonnet` for `@coding` until 14:00
-- **THEN** the fork holds `sonnet` for `@coding` until 14:00
+- **WHEN** the owner forks a Chat that has a fallback hold on `sonnet` for `@coding` until 14:00
+- **THEN** the fork has a fallback hold on `sonnet` for `@coding` until 14:00
 
 #### Scenario: A shared fork gets no hold
 
-- **WHEN** user B forks a public share of a Chat that holds `sonnet`
+- **WHEN** user B forks a public share of a Chat with a fallback hold
 - **THEN** the fork of user B has no stored selection and no hold
 
-### Requirement: A model switch inside a Run opens a segment
+### Requirement: A model switch inside a turn Run opens a segment
 
-A model switch inside a Run MUST cut the failed send as `provider-failures` defines and close the
-reply. It MUST store a host message that carries the switch item and make it the message of the Run.
-It MUST start a new attempt on the new model, with no new claim. The Run MUST record the new model
-and effort.
+A switch MUST cut the failed send as `provider-failures` defines. It MUST close the reply with usage
+status `failed`. It MUST deliver a host message with the switch item, with delivery cause `failover`.
+The new segment MUST start a new attempt on the new model, with no carried request-retry count or
+wait count.
 
 #### Scenario: The transcript after a switch
 
 - **WHEN** a `@coding` Run fails on `codex` and switches to `sonnet`
 - **THEN** the Chat holds the reply of `codex`, a host message with the switch item, and a reply of `sonnet`
-- **AND** each reply records the model that served it
+- **AND** each reply records the model that served it, and the reply of `codex` records usage status `failed`
 
 #### Scenario: The failed send is not kept
 
@@ -277,6 +326,21 @@ and effort.
 - **WHEN** a send streams a `read` call that settles, then breaks, and the Run switches
 - **THEN** the closed reply holds the `read` part with its result
 - **AND** the first request on the new model carries the `read` call with its result
+
+#### Scenario: The new segment starts its own retry count
+
+- **WHEN** a Run switches after `overloaded` on its eleventh send, and the first send to the new model fails with `overloaded`
+- **THEN** that send gets a request retry with retry number 1
+
+### Requirement: A compaction Run does not switch
+
+A compaction Run MUST NOT switch its model. Continue on next candidate MUST NOT apply to it. A
+compaction Run on a role MUST use the model that its selector resolved at admission.
+
+#### Scenario: A compaction Run in a quota wait
+
+- **WHEN** a `/compact` Run on `@coding` waits in `awaiting_quota`
+- **THEN** the quota-wait box does not offer Continue on next candidate
 
 ### Requirement: The switch item names both models and the reason
 
@@ -293,49 +357,64 @@ repeats them.
 
 ### Requirement: A switch is a Run event
 
-A switch MUST append one `model.switched` event. The event MUST name the prior model, the new model,
-the failure class, and the host message. It MUST also name the cause: `owner` for an owner action,
-`policy` for an automatic switch. A reload MUST show the switch.
+A switch MUST append its `run.delivered` event and one `model.switched` event. `model.switched` MUST
+name the prior and the new model with their efforts, the failure class, and the host message. It MUST
+also name the cause: `owner` for an owner action, `policy` for an automatic switch.
 
 #### Scenario: A reload after a switch
 
 - **WHEN** the owner reloads a Chat after a switch from `codex` to `sonnet`
-- **THEN** the event stream replays the `model.switched` event, and the transcript shows the boundary
+- **THEN** the event stream replays the switch events, and the transcript shows the boundary
+
+### Requirement: The transcript shows a switch boundary
+
+The web MUST show a boundary at the host message of a switch. The boundary MUST name the prior model,
+the new model, and the failure label. The live view and a reload MUST show the same boundary.
+
+#### Scenario: The live view shows the switch
+
+- **WHEN** a Run switches from `codex` to `sonnet` while the owner watches
+- **THEN** the live view shows two replies with the boundary between them, before any reload
 
 ### Requirement: Each request normalizes tool-call ids
 
-Each model request MUST map each replayed tool-call id to an id that matches `^[a-zA-Z0-9_-]{1,64}$`.
-The map MUST be deterministic for one request and MUST make each id unique. The system MUST NOT change
-a stored id.
+A request MUST keep a tool-call id that the model of the request produced. It MUST map every other
+replayed id to an id that matches `^[a-zA-Z0-9_-]{1,40}$`. One map MUST cover every part of the
+request and make each id unique in it. The system MUST NOT change a stored id.
 
 #### Scenario: A foreign id reaches another wire
 
-- **WHEN** a reply on one wire stored a tool-call id with a `.` character, and a later request goes to another wire
+- **WHEN** a reply on one wire stored a tool-call id with a `.` character, and a later request goes to another model
 - **THEN** that request carries an id that matches the pattern for both the call and its result
 - **AND** the stored part keeps its original id
+
+#### Scenario: Two ids map to the same value
+
+- **WHEN** two stored ids of one request differ only in characters outside the pattern
+- **THEN** the request carries two different ids
 
 ### Requirement: The owner continues a failed reply on the next candidate
 
 A Continue request with `candidate: "next"` MUST start a Continue Run on the next candidate of the
-failed Run. Its first segment MUST be a model switch with cause `owner`. The Chat MUST hold the new
-candidate. The latest Run MUST be `failed`, and its selector MUST be a role.
+failed turn Run. The failed reply MUST keep its settled parts, its usage, and its model. The Continue
+Run MUST open with a host message with the switch item, with cause `owner`, and MUST write a new reply.
 
 #### Scenario: Continue on the next candidate
 
 - **WHEN** a `@coding` Run on `codex` failed after two settled tool calls, and the owner sends Continue with `candidate: "next"`
-- **THEN** a Continue Run starts on `sonnet` with the two settled calls kept
-- **AND** the Chat holds `sonnet`
+- **THEN** a Continue Run starts on `sonnet`, and its first request carries the two settled calls with their results
+- **AND** the Chat has a fallback hold on `sonnet`
 
 #### Scenario: A Run with an exact selector
 
 - **WHEN** the failed Run has the selector `codex`, and the owner sends Continue with `candidate: "next"`
-- **THEN** the API answers 409 and creates no Run
+- **THEN** the API answers 409 with `code = "next_candidate_unavailable"` and creates no Run
 
 ### Requirement: The owner moves a waiting Run to the next candidate
 
-`POST /api/v1/chats/:chatId/runs/:runId/next-candidate` MUST end the quota wait of a role Run in
-`awaiting_quota`. The same Run MUST continue in a model switch with cause `owner`. A Run in another
-state MUST get 409. A Run of another owner MUST get 404.
+`POST /api/v1/runs/:id/next-candidate` MUST end the quota wait of a turn Run in `awaiting_quota`
+whose selector is a role. The same Run MUST continue on the next candidate, through a model switch
+with cause `owner`. Another state or an exact selector MUST get 409. A Run of another owner MUST get 404.
 
 #### Scenario: A weekly limit ends early
 
@@ -347,22 +426,28 @@ state MUST get 409. A Run of another owner MUST get 404.
 - **WHEN** user B calls the action for a waiting Run of user A
 - **THEN** the API answers 404, and the Run stays in `awaiting_quota`
 
+#### Scenario: An exact selector in a quota wait
+
+- **WHEN** a Run with the selector `codex` waits, and the owner calls the action
+- **THEN** the API answers 409 with `code = "next_candidate_unavailable"`, and the Run keeps its wait
+
 ### Requirement: The next candidate follows the current model in the role
 
-The next candidate MUST be the candidate after the current model in the role's current config. The
-chain MUST NOT wrap to the first candidate. When the current model is the last candidate, or is not in
-the role, no next candidate exists, and the action MUST get 409.
+The next candidate MUST be the candidate after the current model in the current config of the role.
+The chain MUST NOT wrap to the first candidate. When the current model is the last candidate, or is
+not in the role, no next candidate exists. The action then MUST get 409 with `code =
+"next_candidate_unavailable"`.
 
 #### Scenario: The last candidate fails
 
 - **WHEN** a `@coding` Run on its last candidate fails, and the owner sends Continue with `candidate: "next"`
-- **THEN** the API answers 409 and creates no Run
+- **THEN** the API answers 409 with `code = "next_candidate_unavailable"` and creates no Run
 
 ### Requirement: The web offers the next candidate
 
-The latest turn MUST show "Continue on next candidate" when the next-candidate action applies. The
-quota-wait box MUST show the same action. The action MUST name the next model and MUST label it paid
-when its resolved billing is `usage`.
+The latest turn MUST show Continue on next candidate when the action applies. The quota-wait box
+MUST show the same action. The action MUST name the next model and MUST label it paid when its
+resolved billing is `usage`.
 
 #### Scenario: A paid next candidate
 
@@ -371,9 +456,10 @@ when its resolved billing is `usage`.
 
 ### Requirement: The models endpoint publishes the roles
 
-`GET /api/v1/models` MUST return `roles`. Each role has its selector and its candidates in order.
-Each candidate has its `modelId`, its declared `effort` when present, and `paid`. `paid` MUST be true
-when the resolved billing of the model is `usage`. The response MUST NOT return any other billing data.
+`GET /api/v1/models` MUST return `roles`. Each role has its model selector and its candidates in
+order. Each candidate has its `modelId`, its declared `effort` when present, and `paid`. `paid` MUST
+be true when the resolved billing of the model is `usage`. The response MUST NOT return other billing
+data.
 
 #### Scenario: The picker reads a role
 
@@ -382,23 +468,33 @@ when the resolved billing of the model is `usage`. The response MUST NOT return 
 
 ### Requirement: The web picker shows the stored selection
 
-The picker MUST offer each role and each model. It MUST show the stored selection of the Chat. When
-the Chat holds a fallback, the picker MUST show the role, the held model, and the local `revertAt`.
-A pick in the picker MUST make the next send name `selector`.
+The picker MUST offer each role and each model. It MUST show the stored selection of the Chat. With
+a fallback hold, the picker MUST show the role, the held model, and the local `revertAt`. A pick
+MUST make the next send name `selector`.
 
 #### Scenario: A held Chat in the picker
 
-- **WHEN** the Chat holds `sonnet` for `@coding` until 14:00
+- **WHEN** the Chat has a fallback hold on `sonnet` for `@coding` until 14:00
 - **THEN** the picker shows `@coding`, `sonnet`, and 14:00
 
 ### Requirement: Existing Chats and Runs get a selector
 
-For each Chat with a turn Run, the migration MUST store a selection with no hold. The selection
-holds the model id and the effort of the latest turn Run. It MUST set the `selector` of each Run to its `modelId`. It MUST
-change the model id of each pending item and job to a selector with the same value. It MUST NOT delete
-a Chat, a message, or a Run.
+For each Chat with a turn Run, the migration MUST store a selection with no hold. The selection holds
+the model id and the effort of the latest turn Run. The migration MUST copy the `modelId` of each Run
+to its `selector`, and its effort to its selected effort. It MUST NOT delete a Chat, a message, or a
+Run.
 
 #### Scenario: An old Chat keeps its model
 
 - **WHEN** the migration runs on a Chat whose latest turn Run used `codex` at effort `high`
 - **THEN** the Chat stores the selector `codex` with effort `high`, and its next send without `selector` uses `codex`
+
+### Requirement: The migration keeps pending items valid
+
+The migration MUST replace the `modelId` of each pending item and each job with a `selector` of the
+same value. A pending item MUST stay valid after the migration.
+
+#### Scenario: A queue item survives the migration
+
+- **WHEN** a queue item recorded `modelId` `codex` before the migration
+- **THEN** it records `selector` `codex` after it, and it starts its Run when the live Run completes

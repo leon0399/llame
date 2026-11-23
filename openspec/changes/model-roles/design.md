@@ -1,38 +1,53 @@
 ## Context
 
-See proposal.md for the motivation. Facts below were read at `214390e4e` (master after #1898).
+See proposal.md for the motivation. Facts below were read at `214390e4e` (master after #1898) and
+re-checked in review round 1.
 
 - A Run holds one model for its whole life: `runs.model_id` is `NOT NULL` and fixed at accept time
-  (`apps/api/src/db/schema/chats.ts:409`). The worker re-executes it verbatim.
+  (`apps/api/src/db/schema/chats.ts:409`). The worker builds one model client per job
+  (`runs/runs-worker.service.ts:485,541`) and carries it on `ExecuteRunInput.client`
+  (`runs/run-execution.service.ts:884`); a delivery (`startDelivered`, `:2502-2516`) keeps it.
 - No Chat column stores a selection. The web restores the picker from the last turn's usage
   (`apps/web/app/(chat)/components/use-chat-engine.ts:199-236`).
-- Admission resolves the model, then the effort, then the permission mode
-  (`apps/api/src/models/models.service.ts:91-114,148-166`); `run-creation.ts:62-108,160-189`
-  writes the Run. Continue takes `latestRun.modelId` and the stored effort
-  (`follow-up-admission.service.ts:326-374,566-577`); Regenerate must name `modelId` (`:381-423`).
+- Admission validates before any database work (`chats/chat-loop.service.ts:213-215,244-262`);
+  `models/models.service.ts:92-104,136-152` resolves the model, then the effort, then the mode.
+  Continue takes `latestRun.modelId` and the stored effort (`follow-up-admission.service.ts:326-374,
+  566-577`); Regenerate must name `modelId` (`:381-423`). A plain send serializes on the Chat `touch`
+  update; deliveries, follow-ups, `/compact`, and promotion call `lock()`.
 - Pending items carry `ChatDeliverySettings { modelId, effort?, permissionMode }`
-  (`apps/api/src/db/schema/chat-deliveries.ts:37-42`); jobs carry the settings of their Run
-  (`chat-jobs.ts:88-89`). Queue promotion and job-notice Runs reuse them
-  (`runs/queue-promotion.ts:115,171`, `runs/job-notice-run.service.ts:216-235`).
-- The failure seams: the closed class set (`models/provider-failure/provider-failure.ts:1-16`),
-  `retryable()` and `MAX_SENDS = 11` (`models/request-recovery.ts:24,66-83`), the quota-wait decision
-  (`runs/quota-wait.ts:16`, `runs/run-wait.service.ts:125`), the failed-send continuation
-  (`runs/run-execution.service.ts:1052-1058,5117-5183`), the cut (`:3779-3806`), and the two terminal
-  writes: a synchronous throw (`:6408-6440`) and `settleErrorOutcome` (`:3811-3881`).
-- A delivery opens a segment: `moveRunToDelivery` mints an `attemptId`, moves `runs.message_id`, and
-  appends `run.delivered` (`runs/segment-delivery.ts:84-123`); `segment-delivery-close.ts:293-336`
-  closes the reply. Receipts are unique per `(owner, run, attempt)`
-  (`db/schema/system-prompt-receipts.ts:44-50`).
-- The model-switch item is staged by the worker on the triggering user message
-  (`run-execution.service.ts:10790-10998`, `chats/context-item-producers.ts:258-340`), with the
-  template `chats/prompts/effective-context-change.md`.
-- Reasoning replays only when `usage.modelId` equals the request model
-  (`chats/context-builder.ts:640-660,728-748`). No code normalizes tool-call ids; ids are replayed
-  verbatim from `models/stream-parts.ts:91-109`.
+  (`db/schema/chat-deliveries.ts:41-45`). Jobs take their settings from the live client
+  (`run-execution.service.ts:3214-3218`). Queue promotion and job-notice Runs re-check settings and fail
+  closed (`runs/queue-promotion.ts:74,95-108`, `runs/job-notice-run.service.ts:183-193,253-263`).
+- Failure paths: the closed class set (`models/provider-failure/provider-failure.ts:1-16`),
+  `MAX_SENDS = 11` and `retryable()` (`models/request-recovery.ts:28,58-75`). Three provider-failure
+  paths exist in `run-execution.service.ts`: the synchronous throw (catch at `:6389-6436`, rethrows),
+  `onError` (quota decision `:5954-5966`, then `settleErrorOutcome` `:3811-3883`), and the failed send
+  after a started tool call (`decideFailedSend` `:5117-5188`). A fourth is the boundary-compaction
+  failure (`:9158-9250`).
+- A delivery opens a segment through `moveRunToDelivery` (`runs/segment-delivery.ts:84-123`), which
+  mints an attempt and appends `run.delivered`. `DeliveryCause` is closed:
+  `'steer' | 'interrupt' | 'notice' | 'compaction'` (`segment-delivery-close.ts:97`). Seven files read
+  the current segment through `run-segment-queries.ts` (resume cursor, usage completeness, the reply
+  finalizer, the model-change dedupe). `closeReply` writes `completed` or `cancelled` only
+  (`segment-delivery-close.ts:303`).
+- A step-boundary compaction already continues on a host message with cause `compaction`
+  (`segment-delivery.ts:473-480`); host messages are role `user` with no sender
+  (`segment-delivery-close.ts:191-204`).
+- Quota wakes: `RunWaitCause` is closed (`runs/run-wait.service.ts:30`), the queue wake payload is
+  `{ generation, jobId }`, and a stale deadline job is detected by a `currentJobId` mismatch
+  (`runs-worker.service.ts:203-215`).
+- The model-switch item is staged by the worker on the triggering message
+  (`run-execution.service.ts:10756-10998`); `ModelChangePayload.cause` is the literal `'model'`
+  (`chats/context-item-producers.ts:273-297`), and `isModelSwitchItem` matches only that
+  (`chats/accepted-turn-parts.repository.ts:79-86`).
+- Reasoning replays only when `usage.modelId` equals the request model and the reply is `completed`
+  (`chats/context-builder.ts:640-660`). Adapters pass tool-call ids through unchanged
+  (`@ai-sdk/anthropic@3.0.118`, `@ai-sdk/openai@3.0.97`, `@ai-sdk/openai-compatible@2.0.75`).
 - `billing` is `usage | subscription` in the schema (`llame.config.schema.json:367-371`), the type
   (`models/model-client.ts:34-35`), and the web parser (`message-usage.tsx:155-158`).
-- Config is validated by the published JSON Schema, then re-resolved in `config-loader.ts`
-  (`:157-185` defaults, `:3660-3891` models).
+- `chats`, `runs`, `chat_deliveries`, and `chat_jobs` force row-level security; data migrations use the
+  `NO FORCE … FORCE` window (`apps/api/src/db/AGENTS.md`, precedent
+  `migrations/20260709160717_open_chameleon/migration.sql:6-15`).
 - The only active change, `tool-search`, modifies `owner-chat-forks` "The fork's Chat row carries the
   source's frozen context" and adds two `instance-config` requirements. This change modifies neither.
 
@@ -52,8 +67,8 @@ OpenClaw's strict explicit pick, and it adds an opt-in matrix for the automatic 
 
 **Goals:**
 
-- One selector grammar from request to Run to Chat, with the served model recorded apart from it.
-- A model switch that reuses the segment machinery of in-Run steering, with no new Run state.
+- One model selector grammar from request to Run to Chat, with the served model recorded apart.
+- A model switch that reuses the delivery machinery, so every segment reader works unchanged.
 - Manual switching that works with every failover cell off.
 
 **Non-Goals:**
@@ -84,57 +99,79 @@ each model entry (grilling Q1 B), because the order would live in many places.
 ### D2: Requests carry `selector`; Runs and usage keep `modelId` for the served model
 
 The send, chat-creation, Regenerate, delivery, and `/compact` DTOs replace `modelId` with an optional
-`selector`. Admission resolves it in one function that returns `{ selector, modelId, effort }`. The
-Run gains `selector text NOT NULL`. `runs.model_id` keeps its meaning: the model of the current
-segment. Validation codes stay `model_not_available` and `effort_not_available`, so existing client
-error handling still applies. A request that still names `modelId` gets 400 from the closed DTO.
+`selector`. The Run gains `selector text NOT NULL` and `selected_effort text NULL` (the effort that
+admission resolved, grilling Q4); `runs.model_id` and `runs.effort` keep their meaning: the model and
+effort of the current segment. `latestRun`, `RunResponse`, and the delivery echo publish `selector`.
+Validation codes stay `model_not_available` and `effort_not_available`; next-candidate refusals add
+`next_candidate_unavailable`. A request that still names `modelId` gets 400 from the closed DTO.
 
-The same name moves into `defaults.selector` and `defaults.titleGenerationSelector`. The schema is
-closed, so the old keys fail as unknown keys with their path in the error. Rejected: keeping
-`modelId` for selectors (grilling Q3 A), because a request `modelId` and a usage `modelId` would mean
-different things.
+The glossary gains **Model selector**, apart from the `read` **Selector**. Rejected: keeping
+`modelId` for selectors (grilling Q3 A); see the ADR
+[Requests name a selector, and `modelId` names the model that served](../../../docs/adr/2026-11-23-requests-name-a-selector.md).
 
-### D3: The Chat stores a selection document
+### D3: The Chat stores a selection document, resolved inside the admission transaction
 
 `chats.model_selection jsonb NULL` holds
-`{ selector, effort, hold?: { modelId, effort, revertAt } }`. The admission transaction that creates
-a Run writes it under the Chat row lock that single-flight admission already takes, so two sends
-cannot interleave. RLS is the existing owner policy of `chats`; no new table is added. The Chat read
-DTO returns it. A send with `selector` clears `hold`; a send without `selector` and with `effort`
-updates `hold.effort` when a hold exists, or `effort` otherwise (grilling Q5 A).
+`{ selector, effort, hold?: { selector, modelId, effort, revertAt } }`, under the existing owner RLS
+of `chats`. Admission splits in two:
+
+1. before any write: DTO shape, blank checks, and permission mode, as today;
+2. inside the admission transaction, after the Chat row is touched or locked: resolve the selector
+   (named, stored, or `defaults.selector`), apply `revertAt`, resolve the effort by the order of
+   `model-roles`, validate both, and write the selection. A 422 rolls the transaction back.
+
+Error precedence stays 400, then 404, then 409 (single-flight), then 422. Only a request that names
+`selector` or `effort` writes the selection; Continue, promotion, and job notices only read it. A
+stored selector that the config no longer offers resolves to `defaults.selector`, which is stored.
 
 ### D4: Hold and return to the primary
 
-The transaction that opens a switch (D6) writes `hold`. `revertAt` is `failure.resetsAt`, else
-`now + failure.hintMs`, else `now + 5 min`. `auth` and `billing` carry no reset, so they get 5 minutes
-(#1762). Admission compares `revertAt` with the database clock. A Run past `revertAt` clears the hold
-and resolves the role again; the existing worker comparison against the previous reply then stages
-the cause-`model` switch item, so the owner and the model both see the return. A live Run never
-reads the hold again.
+The switch transaction (D6) writes `hold` only when `model_selection.selector` equals the Run's
+selector, so an owner pick made during the Run wins. `revertAt` is `failure.resetsAt`, else
+`now + failure.hintMs`, else `now + 5 min`; `runs.error` gains `hintMs` so the owner path (D7) has
+it. Admission compares `revertAt` with the database clock and clears an expired hold; the worker's
+model comparison then stages the cause-`model` item. Continue never clears a hold, and a live Run
+never reads it again.
 
 ### D5: Effort after a switch
 
-A pure function takes the Run effort, the new model's declared levels, and the candidate effort, and
-returns the first that applies: the Run effort if declared, the candidate effort, the model default,
-or none. The switch writes it to `runs.effort` and to the hold (grilling Q4).
+A pure function takes `runs.selected_effort`, the new model's declared levels, and the candidate
+effort, and returns the first that applies: the selected effort if declared, the candidate effort,
+the model default, or none. The switch writes the result to `runs.effort` and the hold.
 
-### D6: One switch primitive for owner and policy
+### D6: A switch is a delivery with cause `failover`, re-entered with a new client
 
-`switchRunModel(run, failure, cause)` runs in one fenced transaction:
+`DeliveryCause` gains `failover`. The switch runs in one fenced transaction, in Run-then-Chat lock
+order:
 
-1. apply the existing failed-send cut, so the reply keeps parts through the last settled tool part;
-2. close the reply (`closeReply`), with its usage on the old model;
-3. store a host message with one `effective-context-change` item, cause `failover`, from a new
+1. apply the failed-send cut (`applyFailedSendCut`), so the reply keeps parts through the last
+   settled tool part;
+2. close the reply with usage status `failed` and `complete: false` (`closeReply` gains that status);
+3. store the host message with one `effective-context-change` item, cause `failover`, from a new
    packaged template;
-4. set `runs.message_id`, `runs.model_id`, `runs.effort`, a new `activeAttemptId`;
-5. write the Chat hold;
-6. append `model.switched { fromModelId, toModelId, failureClass, messageId, cause }`.
+4. call `moveRunToDelivery` with cause `failover` and no items, which mints the attempt, moves
+   `runs.message_id`, and appends `run.delivered`;
+5. set `runs.model_id` and `runs.effort`, and write the hold (D4);
+6. append `model.switched { fromModelId, fromEffort, toModelId, toEffort, failureClass, messageId,
+   cause }`.
 
-The attempt then continues in the same worker without a new claim, as a delivery does. The request
-retry count and the wait count restart, as after a delivery (`provider-failures` "Some events end the
-counts of the next step"). The host message makes the existing per-reply rules (reasoning replay,
-usage, badge, receipts) work unchanged. Rejected: a model id on every part (ADR "A model switch
-within a Run opens a new segment").
+After the commit, the worker re-enters `executeAttempt` with a client from `createClient` (made a
+required executor dependency), so prompt, tools, window, pricing, and billing come from the new
+model and the retry and wait counts start at zero. Because the boundary is a `run.delivered`, the
+resume cursor, usage completeness, the reply finalizer, and the live view's `data-run-delivered`
+boundary work unchanged; the web reads the cause and the event to label the boundary. The
+model-change payload accepts cause `failover`, `isModelSwitchItem` matches it, and a `failover` item
+on the trigger suppresses the derived cause-`model` item. The effective-context inspector takes each
+attempt's model from its `model.requested` event, not from the Run.
+
+The decision points, before any terminal write:
+
+- `onError`, before `quotaWaitForFailure`;
+- `decideFailedSend`, before `failedSendQuotaWait` and at `!continuesFailedSend`;
+- the synchronous-throw catch, which returns an attempt result for a switch instead of rethrowing;
+- the boundary-compaction failure of a turn Run.
+
+Cutover 1 wires these points to the owner path only (D7); cutover 2 adds the policy (D11).
 
 The fixed text of the item:
 
@@ -145,37 +182,45 @@ Some tool calls before this point can have taken effect. Check their results bef
 Follow the current system instructions and continue the task.
 ```
 
-The model names render as in the cause-`model` item; the failure label is the plain-language label
-of the `provider-failure` notice.
+Rejected: a model id on every part (ADR
+[A model switch within a Run opens a new segment](../../../docs/adr/2026-11-20-a-model-switch-opens-a-segment.md));
+a separate `model.switched`-only boundary, which seven segment readers would have to learn.
 
 ### D7: Continue on next candidate
 
-- **Failed Run:** `POST /chats/:chatId/messages/:messageId/runs` with
+- **Failed Run:** `POST /api/v1/chats/:chatId/messages/:messageId/runs` with
   `{ action: "continue", candidate: "next" }`. Admission computes the next candidate from the role's
-  current config and the failed Run's `model_id`, then creates a Continue Run with the role selector
-  and the new model. Its dispatch applies the Continue cut to the failed reply and opens its first
-  segment through D6 with cause `owner`, so the failed reply keeps its own usage and a new reply
-  follows the host message.
-- **Waiting Run:** `POST /chats/:chatId/runs/:runId/next-candidate`. It is a waker of
-  `awaiting_quota`: it bumps `wakeGeneration` and enqueues the Run with a wake cause
-  `next_candidate`. The woken worker calls D6 in place of the re-send. The deadline job then finds a
-  stale generation and does nothing.
+  current config and the failed Run's `model_id`, and creates a Continue Run with the role selector,
+  the new model, and the D5 effort. Its first dispatch applies the Continue cut to the source reply
+  without finalizing it again, so the source keeps its usage, model, and Run. It stores the host
+  message, moves `message_id` to it, and dispatches with no kept parts: the settled steps reach the
+  model as history of the source reply. Private parts of the source replay by the model rule, so its
+  reasoning drops. The hold is written in the admission transaction.
+- **Waiting Run:** `POST /api/v1/runs/:id/next-candidate`. A parked Run has no worker, so the API
+  transaction does the switch: it locks the Run, checks `awaiting_quota`, the role selector, and the
+  next candidate, closes the parked reply, stores the host message, moves the Run to it with cause
+  `failover`, sets model, effort, and hold, clears `awaiting`, sets `currentJobId` to a new dispatch
+  job, and enqueues it. The old deadline job then finds a `currentJobId` mismatch and does nothing. No
+  new wake cause is needed.
 - **Paid label:** the web reads `paid` from the role catalog (D9). The owner path never skips
   (grilling Q6 B).
+- Compaction Runs are refused with `next_candidate_unavailable`.
 
-### D8: Pending items store selectors
+### D8: Pending items store what the owner named
 
-`ChatDeliverySettings` and the job settings replace `modelId` with `selector`. Queue promotion and
-job-notice Runs call the admission resolver at start, so a hold written by the live Run applies to
-the next item. A job records the origin of its Run (D10) for its notice Run.
+`ChatDeliverySettings` replaces `modelId` with `selector?` and keeps `effort?` and `permissionMode`.
+An owner item stores only what its send named. A job stores the Run's `selector`, `selected_effort`,
+mode, and origin, passed through `ExecuteRunInput` into `ToolContext.jobSettings` rather than from
+the live client. Queue promotion and job-notice Runs call the D3 resolver at start, so a hold written
+by the live Run applies to an item that named no selector.
 
 ### D9: Catalog and picker
 
 `GET /api/v1/models` adds `roles: [{ selector, candidates: [{ modelId, effort?, paid }] }]` and
 renames `defaultModelId` to `defaultSelector`. `paid` is `resolvedBilling === "usage"`; no other
 billing field is published. The picker lists roles, then models; a held Chat shows
-`@coding → sonnet until 14:00`. The effort picker offers the levels of the resolved model (primary
-or held). After a pick, the next send names `selector`; later sends omit it.
+`@coding → sonnet until 14:00`. The effort picker offers the levels of the resolved model. After a
+pick, the next send names `selector`; later sends omit it.
 
 ### D10: Run origin (cutover 2)
 
@@ -186,43 +231,50 @@ subagents ship; the failover tests insert an `agent` Run directly.
 ### D11: Failover policy (cutover 2)
 
 One pure function `policyCell(role, origin, failureClass)` merges the role matrix over the instance
-default cell by cell and maps the class to its group. The worker calls it at the two terminal seams
-(D-context), after `retryable()` says no and before the quota-wait decision:
+default cell by cell and maps the class to its group. At each D6 decision point, after `retryable()`
+says no:
 
-- `quota` cell `off`, or no next candidate: the existing quota wait or failure.
-- `on`, or `switchAfterSeconds` below the time to reset: D6 with cause `policy`.
-- the paid skip walks forward past `usage` candidates when leaving a `subscription` or `free`
-  model and the role lacks `allowPaidFallback`.
+- no role, no next candidate, a compaction Run, or cell `off`: the existing quota wait or failure;
+- `on`, or a `switchAfterSeconds` below the time to reset, or a reset beyond
+  `runs.quotaWaitMaxSeconds`: D6 with cause `policy`;
+- the paid skip walks past `usage` candidates when leaving a `subscription` or `free` model and the
+  role lacks `allowPaidFallback`.
 
-The worker reads the live config object, so a restart with a new policy applies to the next
-failure only (grilling Q7 A).
+The worker reads the live config object, so a restart applies only to the next failure (grilling Q7
+A).
 
 ### D12: Title generation through a role (cutover 2)
 
-The title service resolves the selector; for a role it loops over the candidates in order, skips
-gated paid ones, and stops at the first usable title. It writes no hold and never enters a quota
-wait. Cutover 1 resolves a title role to its primary only. The ADR
+`resolveTitleModelConfig` returns the ordered candidate list. The title service tries each in order,
+skips gated paid ones, and stops at the first usable title. It writes no hold and never enters a quota
+wait. Cutover 1 uses only the primary. The ADR
 [A title call walks its model role's chain](../../../docs/adr/2026-11-23-a-title-call-walks-its-role-chain.md)
 records the exception to the opt-in rule.
 
 ### D13: Tool-call id normalization
 
-The context builder maps each replayed tool-call id per request: keep an id that matches
-`^[a-zA-Z0-9_-]{1,64}$`; otherwise replace each other character with `_`, truncate to 55 characters,
-and add `_` plus a 8-character hash of the original. A collision within the request gets a numeric
-suffix in stored order. Stored parts, `tool_artifacts`, and `chat_jobs` keep the original id.
+One map per request covers every replayed part, history and kept parts alike. An id produced by the
+request's own model stays. Any other id that does not match `^[a-zA-Z0-9_-]{1,40}$` becomes its
+characters outside the class replaced by `_`, cut to 31 characters, plus `_` and an 8-character hash
+of the original. A collision gets a numeric suffix in stored order. 40 is the reported limit of
+OpenAI Chat Completions, below Anthropic's pattern and the 64 of OpenAI Responses. Stored parts,
+`tool_artifacts`, and `chat_jobs` keep the original id.
 
 ### D14: Migration
 
-One Drizzle migration with a hand-written data step:
+One Drizzle migration with hand-written data steps, each inside the documented `NO FORCE … FORCE`
+window with its ledger comment:
 
-1. add `chats.model_selection`, `runs.selector`, and (cutover 2) `runs.origin`;
-2. set `runs.selector = runs.model_id`, then `NOT NULL`;
+1. add `chats.model_selection`, `runs.selector`, and `runs.selected_effort`; `runs.error` is `jsonb`
+   and gains an optional `hintMs` key with no schema change;
+2. `UPDATE runs SET selector = model_id, selected_effort = effort`, then `SET NOT NULL` on `selector`;
 3. set each Chat's selection from its latest turn Run (`model_id`, `effort`), with no hold;
-4. rewrite `modelId` to `selector` in `chat_deliveries.settings` and `chat_jobs.settings`.
+4. `UPDATE … SET settings = (settings - 'modelId') || jsonb_build_object('selector', settings->'modelId')
+   WHERE settings ? 'modelId'` on `chat_deliveries` and `chat_jobs`.
 
-Nothing is deleted, so Leo's running instance keeps every Chat. Rollback is a forward migration that
-drops the columns; the data in them is derived.
+Cutover 2 adds `runs.origin` with default `owner` in its own migration. Nothing is deleted, so Leo's
+running instance keeps every Chat. Rollback is a forward migration that drops the columns; their data
+is derived.
 
 ## Risks / Trade-offs
 
@@ -235,10 +287,13 @@ drops the columns; the data in them is derived.
   promotion (C4) is out of scope.
 - [A tool call of the failed step can have taken effect] → only settled calls stay; the switch
   reminder tells the model to check results before it repeats them.
-- [An `agent` origin has no producer yet, so the matrix column is untested in production] → the
-  integration tests insert `agent` Runs directly; subagents (#765) add the producer.
+- [Mistral-family models through OpenRouter or Ollama are reported to need 9-character alphanumeric
+  ids (third-party report only)] → D13 does not cover it; a Run that hits it fails with
+  `invalid_request`, and a wire-specific rule can follow with evidence.
+- [An `agent` origin has no producer yet] → the integration tests insert `agent` Runs directly;
+  subagents (#765) add the producer.
 - [A hold copied into an owner fork can point at a model that a later config removed] → admission
-  validates the resolved model, and a removed model clears the hold and falls back to the primary.
+  clears a hold whose model left the role.
 
 ## Migration Plan
 
@@ -251,3 +306,18 @@ drops the columns; the data in them is derived.
 ## Open Questions
 
 None that change the specs or the task split.
+
+## Revision history
+
+- **r1 (2026-11-23):** two reviewers (spec consistency; feasibility against code). 2 P0, 23 P1, 24
+  P2. Fixed: one order for an omitted effort; `runs.selected_effort` for Q4; the switch is a delivery
+  with cause `failover` re-entered with a new client; closed reply `failed`; the four decision
+  points; the waiting-Run switch in the API transaction; the Continue-next opening; the hold carries
+  its selector and yields to an owner pick; selection writers listed; pending items and jobs store
+  selectors; `latestRun.selector`; compaction Runs never switch; the quota cell beyond the wait cap;
+  the `failover` dedupe; reasoning keyed on the reply; the 503 case; a stored selector that left the
+  config; tool-call ids at 40 characters with one map per request; the RLS window; the route under
+  `/api/v1/runs`; `next_candidate_unavailable`; MODIFIED `run-steering`, `background-jobs`, two more
+  `turn-actions` and one more `provider-failures` requirements; ADR wording; layers split. Rejected:
+  none. Kept as reading: the `available-models` opaque-id scenario.
+- **r0 (2026-11-23):** initial draft.

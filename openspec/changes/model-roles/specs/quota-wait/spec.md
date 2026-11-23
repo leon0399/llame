@@ -39,7 +39,7 @@ its request again.
 - **WHEN** the Run of a Chat waits for a reset in 2 days and 3 hours
 - **THEN** the box names the model, shows the local reset time, and counts down from about 2 days and 3 hours
 
-#### Scenario: A waiting role Run offers the next candidate
+#### Scenario: A role Run in a quota wait offers the next candidate
 
 - **WHEN** a `@coding` Run on `codex` waits for a reset, and `sonnet` is the next candidate
 - **THEN** the box shows "Continue on next candidate" with the name of `sonnet`

@@ -73,6 +73,12 @@ Assumptions that follow and were not asked separately:
 - Existing Chats get a stored selection from their latest turn Run's model and effort, as an exact
   selector. Existing Runs get `selector` equal to their `modelId`.
 - The chain never wraps to the primary.
+- A stored selector that the config no longer offers falls back to `defaults.selector`, which the
+  Chat then stores. Today the web picker makes the same fallback.
+- A steer, interrupt, or queue send that names `selector` changes the stored selection for later
+  sends; the live Run keeps its model.
+- A compaction Run never switches, and the next-candidate action does not apply to it.
+- The `read` Selector keeps its glossary meaning; this change adds the term "Model selector".
 - A compaction request on the Run's current model follows the Run's rules. A window compaction on
   the previous Run's model is a side call and never fails over.
 - The quota-cell duration is `switchAfterSeconds`, in the repository's existing seconds style,
@@ -100,25 +106,31 @@ Assumptions that follow and were not asked separately:
 - `available-models`: "Authenticated executable models endpoint" (`defaultSelector`, roles);
   "System model configuration is explicit" (`defaults.selector`); "Model use for compaction and title
   generation is explicit" (`defaults.titleGenerationSelector`); "Web sends only with valid selected
-  model" (the Chat's stored selection); "Chat sends accept an optional reasoning effort" (effort
-  against the resolved model). **Removed**: "Chat sends require explicit model id", replaced by
-  `model-roles` "A send names a selector or uses the stored selection".
-- `instance-config`: "Model catalog configuration" (the `@` prefix and the `defaults` names);
+  model" (the stored selection); "Chat sends accept an optional reasoning effort" (effort against the
+  resolved model). **Removed**: "Chat sends require explicit model id", replaced by `model-roles` "A
+  send names a selector or uses the stored selection".
+- `instance-config`: "Model catalog configuration" (the `@` rule and the `defaults` names);
   "First-slice setting surface" (the `defaults` names); "Providers and models may declare their
   billing mode" (`free`).
 - `run-usage-accounting`: "Usage records its billing mode" (`free`); "The owner's usage display
   marks subscription cost as notional" (free cost).
 - `turn-actions`: "A follow-up request is validated before any write" (`selector`, `candidate`);
   "Continue applies only to the reply of a failed, cancelled, or expired Run" (the next candidate);
-  "The follow-up Run's usage replaces the reply's usage" (a switch writes a new reply);
-  "The latest turn shows Continue and Regenerate actions" (the next-candidate action);
-  "Regenerate offers a repeat and a choice of settings" (selectors).
-- `quota-wait`: "Only the deadline job and a cancellation wake a quota wait" (the owner's
-  next-candidate action); "The web shows a quota wait above the composer" (the action).
-- `provider-failures`: "A longer stated wait parks the request or ends it" (a `quota` cell can switch).
+  "Continue requests the next step of the same turn" (no kept parts on the next candidate); "The
+  follow-up Run's usage replaces the reply's usage" (a switch writes a new reply); "The chat history
+  read reports the latest Run" (`selector`); "The latest turn shows Continue and Regenerate actions"
+  (the next-candidate action); "Regenerate offers a repeat and a choice of settings" (the stored
+  selection).
+- `quota-wait`: renames "Only the deadline job and a cancellation wake a quota wait" to "Only the
+  deadline job, a cancellation, and the next-candidate action wake a quota wait"; "The web shows a
+  quota wait above the composer" (the action).
+- `provider-failures`: "A longer stated wait parks the request or ends it" and "A caller sees a failure
+  only after the retries and the quota wait" (a `quota` cell can switch).
+- `run-steering`: "A pending item records a producer and a sender" (selectors, not models).
+- `background-jobs`: "A Run that the host starts uses the settings of its notice" (selector and origin).
 - `model-system-prompts`: "A model switch replaces the top-level prompt and preserves portable
   history" (a role can switch); "Model switches use canonical persisted context text and metadata"
-  (the `failover` cause on a host message).
+  (the `failover` cause on a host message, and its dedupe).
 - `reasoning-output`: "Earlier reasoning replays only for the model that produced it" (the model of
   the reply, not of the Run).
 - `tool-calling`: "A failed attempt stays in later context as the user saw it" (a switch cuts the
@@ -133,17 +145,23 @@ Deliberately unchanged, with the reading under which each holds:
 - `available-models` "Selected model id is persisted for execution": `runs.model_id` holds the
   model of the current segment. A switch records and announces the new id, so it is not "silently
   fall back to a different default".
+- `available-models` "Resolved reasoning effort is persisted and executed per run": the rule forbids
+  a new resolution "at pickup". A switch resolves the effort of its new segment and persists it before
+  that segment sends, as `model-roles` defines.
+- `available-models` "Available model entries use opaque ids and rich display metadata": "accepted as
+  chat `modelId`" reads as "accepted as an exact selector".
 - `durable-runs` "Run failures are classified — infra retries, model failure is terminal": a
   failure that a switch answers is not a run-level failure. A failure with no switch stays terminal.
-- `provider-failures` "A caller sees a failure only after the retries and the quota wait": automatic
-  failover is a caller rule, so it applies only after the retries end.
 - `quota-wait` "The quota wait covers every request of a Run to its model": "its model" is the model
   of the current segment.
-- `run-steering` "A delivered message starts a segment and an attempt" and "A steer or an interrupt
-  keeps the settings of the Run": a model switch is not a delivery; `model-roles` adds its own
-  segment rule.
+- `run-steering` "A delivered message starts a segment and an attempt": a switch delivers its host
+  message with cause `failover`, as a step-boundary compaction delivers its continue message.
+- `run-steering` "A steer or an interrupt keeps the settings of the Run": a steer that names
+  `selector` changes the stored selection of the Chat, not the live Run.
 - `run-steering` "Queue items start one Run each after a completed Run": "the settings of the item"
-  are its selector, effort, and permission mode; `model-roles` resolves the selector at the start.
+  are its selector, effort, and permission mode, resolved at the start by `model-roles`.
+- `provider-failures` "Some events end the counts of the next step": a switch is a delivery, so its
+  segment starts with no carried count.
 - `owner-chat-forks` "The fork's Chat row carries the source's frozen context": the list is of
   frozen prompt context; `model-roles` adds the selection copy as its own requirement. The active
   `tool-search` change also modifies that requirement, so this change does not.
@@ -167,7 +185,7 @@ Deliberately unchanged, with the reading under which each holds:
 - The assistant-visible catalog and the assistant's own choice of role (#765).
 - Owner overrides of roles or of the failover matrix.
 - Context promotion, quota-aware preflight, and decision-model routing (#1612 C4-C6).
-- A budget check for paid fallback (#1758) and a cost ledger (#170).
+- A budget check before a switch to a paid candidate (#1758), and a cost ledger (#170).
 - A destination or egress filter on candidates (#1762).
 - `schedule` and `event` Run origins, which come with automations.
 - A shared cache-routing key for owner forks (#1823).

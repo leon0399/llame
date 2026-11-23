@@ -16,7 +16,7 @@ MUST validate `cacheWrite` as it validates the other rates. A `models[].provider
 defined provider MUST fail startup. The error MUST name the model id and the dangling reference.
 
 The optional `reasoning` object declares that the model accepts a reasoning-effort parameter. It
-also declares the accepted values. Its presence is the declaration, and no separate flag MUST
+also declares the accepted values. Its presence is the declaration, and a separate flag MUST NOT
 exist. It MUST hold a non-empty `effortLevels` array and a `defaultEffort` string. It can hold
 `cacheInvalidatedByEffortChange`, a boolean with the default `false`.
 
@@ -272,7 +272,7 @@ The settings of a provider connection MUST be `providers[]` entries. The `OPENAI
 `OPENAI_API_KEY` variables stay valid as interpolation inputs, such as `{env:OPENAI_API_KEY:-}`. The
 system MUST NOT read them directly.
 
-No `compaction.*` setting and no context-window fallback setting MUST exist at the instance level.
+A `compaction.*` setting and a context-window fallback setting MUST NOT exist at the instance level.
 The model drives compaction. Each model declares its `contextWindowTokens`. Its trigger threshold
 resolves for each model from the optional `models[].compactionThresholdTokens`, never from an
 instance setting.

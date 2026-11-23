@@ -3,7 +3,7 @@
 ### Requirement: Earlier reasoning replays only for the model that produced it
 
 A reasoning part of an earlier turn MUST replay only when two conditions are
-true. Its reply came from a Run with the llame model id of the request. That reply
+true. Its reply records the llame model id of the request. That reply
 completed, or an owner interrupt closed it. Otherwise the system MUST omit the part and its provider metadata.
 Within one turn, and in the kept parts of a Continue Run, a reasoning part MUST
 replay only on the model that its reply records. The segments of one Run are one turn for this rule,

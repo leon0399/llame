@@ -173,7 +173,8 @@ records its model id in its usage. Thus each Run that dispatched a model request
 that can be this baseline. The worker MUST persist that exact text on the triggering user message,
 in the dispatch transaction of the first model request of the attempt. This applies whatever the
 outcome of the Run. A retry of the same Run MUST keep the stored item unchanged. It MUST NOT add a second
-switch item when one is already stored on the triggering user message. A Continue Run MUST follow
+switch item when one is already stored on the triggering user message. A stored `failover` item on
+the triggering message counts as that item. A Continue Run MUST follow
 the same rule as a retry. The first dispatch of a Regenerate Run MUST remove each model-switch item
 with cause `model` or `failover` from the triggering user message. It then stores the item that its own
 comparison yields, after the last stored context item. A retry of that Regenerate Run keeps the
@@ -332,3 +333,13 @@ change model replay.
 - **WHEN** a Run switches from `codex` to `sonnet` after a failure
 - **THEN** the host message of the switch carries one item with cause `failover`
 - **AND** its text follows `model-roles`, not the text of cause `model`
+
+#### Scenario: A failover item stops a second switch item
+
+- **WHEN** the host message of a switch from `codex` to `sonnet` carries a `failover` item, and the new attempt prepares its request
+- **THEN** the attempt stages no item with cause `model`
+
+#### Scenario: A Regenerate of a switch turn
+
+- **WHEN** the latest turn is the host message of a switch to `sonnet`, and the owner regenerates it with `opus`
+- **THEN** the dispatch removes the `failover` item and stores an item with cause `model` from `codex` to `opus`

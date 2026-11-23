@@ -39,11 +39,13 @@ an owner drives under the owner's control.
 ## Consequences
 
 - A model role without a failover policy fails or waits, and the owner
-  continues it. A fresh installation never switches models on its own.
+  continues it. A fresh installation never switches a Run's model on its own.
+  Title calls are not Runs and follow
+  [A title call walks its model role's chain](2026-11-23-a-title-call-walks-its-role-chain.md).
 - The example configuration enables the `availability` row for the `agent`
   column, so subagents survive provider outages once an operator copies it.
-- A `quota` cell takes `on`, `off`, or a `switchAfter` duration. A reset nearer
-  than the duration waits for the reset, and a later one switches at once.
+- A `quota` cell takes `on`, `off`, or a `switchAfterSeconds` duration. A reset
+  nearer than the duration waits for the reset, and a later one switches at once.
 - A job-notice Run takes the origin of the Run that started the job. A
   scheduled flow that an operator enabled does not stall when its background
   job wakes the Chat.
