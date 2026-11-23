@@ -827,6 +827,7 @@ function resolveCatalogAndRoles(
 
   const modelRoles = resolveModelRoles(
     raw,
+    env,
     new Map(models.map((model) => [model.id, model] as const)),
   );
 
@@ -3885,10 +3886,13 @@ function resolveModels(
  * role's shape (a closed object with at least one candidate and non-blank
  * strings), so this resolver owns the role-key grammar, the candidate
  * references, and each candidate's effort against the referenced model's
- * declared levels. A role's primary is its first candidate.
+ * declared levels. Candidate `model` and `effort` reach here still
+ * uninterpolated, so both resolve through the same token path as `models[].id`
+ * before any comparison. A role's primary is its first candidate.
  */
 function resolveModelRoles(
   raw: RawInstanceConfig | undefined,
+  env: NodeJS.ProcessEnv,
   modelsById: ReadonlyMap<string, SystemModelCatalogEntry>,
 ): Array<ModelRoleConfig> {
   const roles = raw?.modelRoles;
@@ -3906,6 +3910,7 @@ function resolveModelRoles(
 
     const scope: RoleCandidateScope = {
       name,
+      env,
       modelsById,
       seen: new Set<string>(),
     };
@@ -3920,23 +3925,46 @@ function resolveModelRoles(
 }
 
 /** One role's candidate resolution state: the role key its messages name, the
- *  catalogue its candidates reference, and the models already taken. */
+ *  environment its `{env:...}` tokens resolve against, the catalogue its
+ *  candidates reference, and the models already taken. */
 type RoleCandidateScope = {
   readonly name: string;
+  readonly env: NodeJS.ProcessEnv;
   readonly modelsById: ReadonlyMap<string, SystemModelCatalogEntry>;
   readonly seen: Set<string>;
 };
 
 /** Validate ONE `modelRoles.<name>.candidates[]` item against the resolved
  *  catalogue, recording it in `scope.seen`, and normalize it to a resolved
- *  candidate. Every message names the candidate's own path. */
+ *  candidate. Every message names the candidate's own path, or the catalogue
+ *  id it matched, never an unresolved or interpolated token value. */
 function resolveRoleCandidate(
   candidate: RawModelRoleCandidate,
   index: number,
   scope: RoleCandidateScope,
 ): ModelRoleCandidate {
   const candidatePath = `modelRoles.${scope.name}.candidates[${index}]`;
-  const model = scope.modelsById.get(candidate.model);
+
+  // The schema only validates the token TEXT, so `model` and `effort` still
+  // carry `{env:...}` tokens here: both interpolate exactly as `models[].id`
+  // does, and only then meet the resolved catalogue. Effort is compared
+  // byte-exact after resolution — provider-native tokens are never normalized.
+  const modelId = requireNonBlankString(
+    `${candidatePath}.model`,
+    candidate.model,
+    scope.env,
+  );
+
+  const effort =
+    candidate.effort === undefined
+      ? undefined
+      : requireNonBlankString(
+          `${candidatePath}.effort`,
+          candidate.effort,
+          scope.env,
+        );
+
+  const model = scope.modelsById.get(modelId);
 
   if (model === undefined) {
     throw new InstanceConfigError(
@@ -3944,34 +3972,42 @@ function resolveRoleCandidate(
     );
   }
 
-  if (scope.seen.has(candidate.model)) {
+  if (scope.seen.has(modelId)) {
     throw new InstanceConfigError(
-      `${candidatePath}.model: model "${candidate.model}" already occurs in @${scope.name}`,
+      `${candidatePath}.model: model "${model.id}" already occurs in @${scope.name}`,
     );
   }
 
-  scope.seen.add(candidate.model);
+  scope.seen.add(modelId);
 
-  if (candidate.effort !== undefined) {
-    // Effort values are PROVIDER-native tokens, never normalized
-    // (add-reasoning-effort), so this is a byte-exact membership test.
-    if (
-      !model.reasoning?.effortLevels.some(
-        (level) => level.value === candidate.effort,
-      )
-    ) {
-      throw new InstanceConfigError(
-        model.reasoning === undefined
-          ? `${candidatePath}.effort: model "${candidate.model}" declares no reasoning`
-          : `${candidatePath}.effort: not a declared effort level of model "${candidate.model}"`,
-      );
-    }
+  if (effort === undefined) {
+    return { modelId };
   }
 
   return {
-    modelId: candidate.model,
-    ...(candidate.effort !== undefined && { effort: candidate.effort }),
+    modelId,
+    effort: requireCandidateEffort(candidatePath, effort, model),
   };
+}
+
+/** Check ONE candidate's resolved effort against the referenced model's
+ *  declared levels: a byte-exact membership test, since effort values are
+ *  PROVIDER-native tokens (add-reasoning-effort). The message names the
+ *  candidate path and the catalogue id it matched, never the declared levels. */
+function requireCandidateEffort(
+  candidatePath: string,
+  effort: string,
+  model: SystemModelCatalogEntry,
+): string {
+  if (!model.reasoning?.effortLevels.some((level) => level.value === effort)) {
+    throw new InstanceConfigError(
+      model.reasoning === undefined
+        ? `${candidatePath}.effort: model "${model.id}" declares no reasoning`
+        : `${candidatePath}.effort: not a declared effort level of model "${model.id}"`,
+    );
+  }
+
+  return effort;
 }
 
 /** Validate and normalize ONE `effortLevels[]` item — a bare string or a

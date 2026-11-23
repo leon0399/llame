@@ -75,6 +75,9 @@ const ENV_KEYS = [
   'PROVIDER_OPTIONS_SECRET',
   'IC_MODEL_FIRST_TOKEN_TIMEOUT',
   'GITHUB_READ_TOKEN',
+  'ROLE_MODEL',
+  'ROLE_EFFORT',
+  'ROLE_UNKNOWN_MODEL',
 ] as const;
 
 let originalEnv: Record<string, string | undefined>;
@@ -3081,6 +3084,54 @@ describe('loadInstanceConfig — modelRoles / defaults selectors (model-roles)',
       { modelId: 'reasoning-model', effort: 'high' },
       { modelId: 'plain-model' },
     ]);
+  });
+
+  it('interpolates env tokens in a candidate model and effort before resolving them', () => {
+    writeConfig(`{
+      ${ROLE_MODELS_JSON},
+      "modelRoles": {
+        "coding": {
+          "candidates": [
+            { "model": "{env:ROLE_MODEL}", "effort": "{env:ROLE_EFFORT}" }
+          ]
+        }
+      }
+    }`);
+
+    const config = loadInstanceConfig({
+      ...process.env,
+      ROLE_MODEL: 'reasoning-model',
+      ROLE_EFFORT: 'high',
+    });
+
+    expect(config.modelRoles[0]?.candidates).toEqual([
+      { modelId: 'reasoning-model', effort: 'high' },
+    ]);
+  });
+
+  it('fails boot naming the candidate path, not the resolved value, when an interpolated model is unknown', () => {
+    writeConfig(`{
+      ${ROLE_MODELS_JSON},
+      "modelRoles": {
+        "coding": { "candidates": [{ "model": "{env:ROLE_UNKNOWN_MODEL}" }] }
+      }
+    }`);
+
+    let message: string | undefined;
+
+    try {
+      loadInstanceConfig({
+        ...process.env,
+        ROLE_UNKNOWN_MODEL: 'absent-model',
+      });
+    } catch (error) {
+      message = errorMessage(error);
+    }
+
+    expect(message).toBe(
+      'modelRoles.coding.candidates[0].model: does not reference any configured model',
+    );
+    expect(message).not.toContain('absent-model');
   });
 
   it('fails boot naming a role key that breaks the name grammar', () => {
