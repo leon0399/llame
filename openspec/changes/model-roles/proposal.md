@@ -122,11 +122,15 @@ Assumptions that follow and were not asked separately:
   (the next-candidate action); "Regenerate offers a repeat and a choice of settings" (the stored
   selection).
 - `quota-wait`: renames "Only the deadline job and a cancellation wake a quota wait" to "Only the
-  deadline job, a cancellation, and the next-candidate action wake a quota wait"; "The web shows a
+  deadline job, a cancellation, and Continue on next candidate wake a quota wait"; "The web shows a
   quota wait above the composer" (the action).
 - `provider-failures`: "A longer stated wait parks the request or ends it" and "A caller sees a failure
   only after the retries and the quota wait" (a `quota` cell can switch).
-- `run-steering`: "A pending item records a producer and a sender" (selectors, not models).
+- `run-steering`: "A pending item records a producer and a sender" (selectors, not models); "A
+  delivered message is a Run event" (cause `failover`); "A segment attempt prepares its own accepted
+  turn" (the compaction check at a switch segment).
+- `context-injection`: "Server-authored context is injected as discrete items on one rail" (a
+  Regenerate also removes a `failover` item).
 - `background-jobs`: "A Run that the host starts uses the settings of its notice" (selector and origin).
 - `model-system-prompts`: "A model switch replaces the top-level prompt and preserves portable
   history" (a role can switch); "Model switches use canonical persisted context text and metadata"
@@ -154,14 +158,20 @@ Deliberately unchanged, with the reading under which each holds:
   failure that a switch answers is not a run-level failure. A failure with no switch stays terminal.
 - `quota-wait` "The quota wait covers every request of a Run to its model": "its model" is the model
   of the current segment.
-- `run-steering` "A delivered message starts a segment and an attempt": a switch delivers its host
-  message with cause `failover`, as a step-boundary compaction delivers its continue message.
+- `run-steering` "A delivered message starts a segment and an attempt": a switch inside a live Run
+  delivers its host message with cause `failover` in the same worker. Continue on next candidate for
+  a Run in a quota wait delivers it from the API, and a worker claims the woken Run, as after any
+  quota wake.
 - `run-steering` "A steer or an interrupt keeps the settings of the Run": a steer that names
   `selector` changes the stored selection of the Chat, not the live Run.
 - `run-steering` "Queue items start one Run each after a completed Run": "the settings of the item"
   are its selector, effort, and permission mode, resolved at the start by `model-roles`.
 - `provider-failures` "Some events end the counts of the next step": a switch is a delivery, so its
   segment starts with no carried count.
+- `run-steering` "A segment keeps its retry scope and a compaction keeps the step budget": a switch
+  is a delivery with a cause other than `compaction`, so its segment gets a new step budget.
+- `model-system-prompts` "A failed step-boundary compaction continues the Run": a compaction request
+  never switches, as `model-failover` requires.
 - `owner-chat-forks` "The fork's Chat row carries the source's frozen context": the list is of
   frozen prompt context; `model-roles` adds the selection copy as its own requirement. The active
   `tool-search` change also modifies that requirement, so this change does not.

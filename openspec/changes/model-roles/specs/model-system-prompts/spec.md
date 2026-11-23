@@ -53,14 +53,14 @@ NOT make, change, or bind again the provider metadata of an origin model for a d
 - **THEN** the later model receives the visible answer text through the projection of `turn-replay`
 - **AND** it receives the earlier tool observations in the target provider's expected representation, each call accompanied by its result
 - **AND** the persisted reasoning parts that the model rule of `reasoning-output` keeps replay unchanged
-- **AND** a switch omits them, with no coercion or re-binding for the later model
+- **AND** a switch omits the reasoning parts of other models, with no coercion or re-binding for the later model
 
 #### Scenario: Target context window cannot fit portable history
 
 - **WHEN** a turn switches from model `A` to smaller-context model `B` and the
   complete request for `B` would exceed its configured context window or
   reserved output budget
-- **AND** model `A` plus its most recent system-prompt receipt remain executable
+- **AND** model `A` served the previous completed Run, and it and its system-prompt receipt remain executable
 - **THEN** the worker compacts with model `A` over history through the last
   assistant turn before invoking model `B`
 - **AND** the triggering user message remains outside the summarized prefix

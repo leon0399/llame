@@ -44,8 +44,8 @@ of a stuck Run that single-flight admission performs.
 
 Continue MUST start only when the latest Run of the message is `failed`, `cancelled`, or `expired`.
 The reply MUST exist, its usage MUST name that Run, and its usage status MUST NOT be `completed`.
-Any other state MUST get a 409 answer. A Continue Run MUST use the selector, the model, and the effort
-of that Run. With `candidate: "next"`, it MUST use the next candidate of `model-roles`, and the
+Any other state MUST get a 409 answer. A Continue Run MUST use the selector of that Run, the model and the
+effort of its last segment, and its selected effort. With `candidate: "next"`, it MUST use the next candidate of `model-roles`, and the
 latest Run MUST be `failed`. The chat-send checks MUST accept the model and the effort again.
 
 #### Scenario: A completed turn cannot be continued
@@ -73,6 +73,11 @@ latest Run MUST be `failed`. The chat-send checks MUST accept the model and the 
 - **WHEN** the operator removed the model of the failed Run from the catalog, and the owner sends a Continue request
 - **THEN** the API answers with the chat-send error for that model and creates no Run
 
+#### Scenario: Continue after a switch keeps the effort of the last segment
+
+- **WHEN** a `@coding` Run at effort `xhigh` switched to `deepseek` at `medium` and then failed, and the owner continues it
+- **THEN** the Continue Run uses `deepseek` at `medium`, and its selected effort is `xhigh`
+
 #### Scenario: Continue on the next candidate of a cancelled Run is refused
 
 - **WHEN** the latest Run of a `@coding` turn is `cancelled`, and the owner sends Continue with `candidate: "next"`
@@ -84,7 +89,7 @@ The usage of the follow-up Run MUST replace the usage of the reply and MUST name
 `runId`. The usage MUST NOT add the spend of an earlier Run. When the replaced reply recorded usage,
 the new usage MUST record `complete: false`. The effective-context action of the reply MUST show the
 receipts of the follow-up Run. A Continue on the next candidate MUST NOT replace the usage of the
-failed reply. Its model switch closes that reply, and the new reply records the usage of the new model.
+failed reply. It keeps that reply, and the new reply records the usage of the new model.
 
 #### Scenario: Continue usage counts only the new Run
 
@@ -108,8 +113,8 @@ failed reply. Its model switch closes that reply, and the new reply records the 
 For a terminal `latestRun` of a turn that no checkpoint absorbed, the web MUST show Regenerate on the
 latest turn. It MUST show Continue only when three conditions are true. `latestRun` produced the reply and is
 `failed`, `cancelled`, or `expired`. The reply is not `completed`. The reply holds a settled tool part. It
-MUST show "Continue on next candidate" when `model-roles` offers it. A latest turn with no visible
-reply MUST show a failed-turn row with the error of `latestRun` and Regenerate. Older turns MUST NOT
+MUST show "Continue on next candidate" when `model-roles` offers it. A latest turn with no visible reply MUST show a failed-turn row with the error of `latestRun` and
+Regenerate. The row MUST also show Continue on next candidate when it applies. Older turns MUST NOT
 show an action. Continue MUST send the permission mode of the composer.
 
 #### Scenario: A failed agentic turn shows both actions

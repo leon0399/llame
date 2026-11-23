@@ -1,13 +1,13 @@
 ## RENAMED Requirements
 
 - FROM: `### Requirement: Only the deadline job and a cancellation wake a quota wait`
-- TO: `### Requirement: Only the deadline job, a cancellation, and the next-candidate action wake a quota wait`
+- TO: `### Requirement: Only the deadline job, a cancellation, and Continue on next candidate wake a quota wait`
 
 ## MODIFIED Requirements
 
-### Requirement: Only the deadline job, a cancellation, and the next-candidate action wake a quota wait
+### Requirement: Only the deadline job, a cancellation, and Continue on next candidate wake a quota wait
 
-The deadline job, a cancellation, and the next-candidate action of `model-roles` MUST be the only
+The deadline job, a cancellation, and Continue on next candidate of `model-roles` MUST be the only
 wakers of a Run in `awaiting_quota`. A `steer`, an `interrupt`, a `queue` item, and a job notice MUST
 stay pending and MUST NOT wake it. A send without a delivery mode MUST get 409, as for any live Run.
 
@@ -21,9 +21,9 @@ stay pending and MUST NOT wake it. A send without a delivery mode MUST get 409, 
 - **WHEN** a background job of the Chat settles while its Run is in `awaiting_quota`
 - **THEN** the job notice is pending, and the Run stays in `awaiting_quota`
 
-#### Scenario: The next-candidate action wakes the Run
+#### Scenario: Continue on next candidate wakes the Run
 
-- **WHEN** a `@coding` Run is in `awaiting_quota`, and the owner calls the next-candidate action
+- **WHEN** a `@coding` Run is in `awaiting_quota`, and the owner calls Continue on next candidate
 - **THEN** the Run wakes and continues on the next candidate, and the deadline job does not wake it again
 
 ### Requirement: The web shows a quota wait above the composer

@@ -83,5 +83,5 @@ chat send does. The command result MUST name the new Run id.
 
 #### Scenario: A compact on a held Chat
 
-- **WHEN** the Chat holds `sonnet` for `@coding`, and the owner sends `/compact` with no `selector`
+- **WHEN** the Chat has a fallback hold on `sonnet` for `@coding`, and the owner sends `/compact` with no `selector`
 - **THEN** the compaction Run uses `sonnet`

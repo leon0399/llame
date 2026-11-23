@@ -116,8 +116,7 @@ policy of that time.
 ### Requirement: A paid candidate needs the operator's consent
 
 An automatic switch from a `subscription` or `free` model MUST skip each candidate whose resolved
-billing is `usage`. The role can set `allowPaidFallback: true` to stop this skip. The owner's
-next-candidate action MUST NOT skip a paid candidate.
+billing is `usage`. The role can set `allowPaidFallback: true` to stop this skip. Continue on next candidate MUST NOT skip a paid candidate.
 
 #### Scenario: A gated paid candidate is skipped
 
@@ -152,21 +151,22 @@ the new model MUST be a new step, not the failed request again.
 - **THEN** the closed reply holds the `bash` part with its result
 - **AND** the new model receives that result, and the command does not run again
 
-### Requirement: A compaction request follows the rules of its Run
+### Requirement: A compaction request never switches
 
-A compaction request of a turn Run, on the model of its current segment, MUST follow the policy of
-its Run. A compaction Run MUST NOT switch, as `model-roles` requires. A compaction request on another
-model is a side call and MUST NOT switch.
+A compaction request MUST NOT switch the Run. Its failure MUST follow `model-system-prompts` and
+`quota-wait`. When the Run then continues, the failure of its next step request follows this
+policy. A compaction Run MUST NOT switch, as `model-roles` requires.
 
 #### Scenario: A compaction Run does not fail over
 
 - **WHEN** a `/compact` Run on `@coding` fails with `overloaded` after its last retry, and every cell is on
 - **THEN** the compaction Run fails with `error.code` `overloaded`
 
-#### Scenario: A step-boundary compaction fails over
+#### Scenario: A failed step-boundary compaction does not switch
 
 - **WHEN** an `agent` Run compacts at a step boundary, and the summary request gets `overloaded` after its last retry, with the cell on
-- **THEN** the Run switches to the next candidate, and the compaction runs on it
+- **THEN** the Run continues on the same model with no checkpoint
+- **AND** when its next step request also fails with `overloaded` after its last retry, the Run switches
 
 ### Requirement: A title call walks the chain of its role
 

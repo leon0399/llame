@@ -30,18 +30,18 @@ change the random delay.
 
 #### Scenario: A quota cell switches in place of the wait
 
-- **WHEN** a role Run gets a usage limit with a reset in two days, and its `quota` cell is `on`
+- **WHEN** a role Run gets a usage limit with a reset in two days, its `quota` cell is `on`, and a next candidate exists
 - **THEN** the Run does not enter `awaiting_quota`, and it continues on the next candidate
 
 ### Requirement: A caller sees a failure only after the retries and the quota wait
 
 A caller failure rule MUST apply only when a request ends without success. That is when its request
 retries end, or its quota wait cannot apply or ends without success. A `quota` cell of
-`model-failover` is the one exception: it can switch the Run where the quota wait can apply. The
+`model-failover` is the one exception: it can switch the Run where the quota wait of a step request
+can apply. The
 quota wait of a request MUST NOT count as a failure of that request.
 
 #### Scenario: A step-boundary compaction hits a usage limit
 
 - **WHEN** the summary request of a step-boundary compaction fails with a Codex usage limit and a reset in one hour
-- **AND** no `quota` cell switches the Run
 - **THEN** the Run enters `awaiting_quota`, and no compaction failure is recorded

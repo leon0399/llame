@@ -25,4 +25,5 @@ models for titles.
 
 Decided in the spec grilling of
 [model roles with fallback chains](https://github.com/leon0399/llame/issues/1772#issuecomment-7101877446),
-for the OpenSpec change `model-roles`.
+for the OpenSpec change
+[model-roles](../../openspec/changes/model-roles/proposal.md).
