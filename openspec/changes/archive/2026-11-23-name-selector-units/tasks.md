@@ -1,7 +1,7 @@
 Track [#1833](https://github.com/leon0399/llame/issues/1833), its cutovers
 [#1834](https://github.com/leon0399/llame/issues/1834) and
 [#1835](https://github.com/leon0399/llame/issues/1835), and their PR layers through
-[Project tracking](../../../CONTRIBUTING.md#project-tracking). Carry forward the recorded proposal
+[Project tracking](../../../../CONTRIBUTING.md#project-tracking). Carry forward the recorded proposal
 approval and recheck native blockers before you start. Keep live status in the Project.
 
 ## Delivery stack
@@ -70,8 +70,10 @@ layer, but no more than one earlier layer may carry open review work.
 - [x] 1.7 Increment `PROTOCOL_VERSION` from 2 to 3 in `packages/machine-protocol` (design D7). Verify "A daemon without unit-letter selectors is not used" in `machine-session.test.ts`, and check `docs/product/operator/machines.md` for the version.
 - [x] 1.8 Update `docs/product/reference/selectors.md`, the locator reference pages, and `apps/api/src/prompts/tools/read.md` for the input forms and the line-and-column suffix, add the unit letter to `docs/product/glossary.md`, and add the dated `CHANGELOG.md` entry that tells operators to update every Machine daemon with this release. Verify `pnpm lint:markdown`.
 - [x] 1.9 Verify the layer: `pnpm --filter @workspace/native-file-tools test`, `pnpm --filter machine test`, focused `apps/api` locator, permission, Machine session, and web-read tests, affected `lint` and `typecheck`, `pnpm format:check`, `git diff --check`. The PR carries `Closes #1834`.
-- [ ] 1.10 Run the local multi-agent review of the parent-relative diff before the PR is marked ready. Fix accepted findings with new commits.
-- [ ] 1.11 Pass the GitHub review and CI gate under Ready-PR monitoring.
+- [x] 1.10 Run the local multi-agent review of the parent-relative diff before the PR is marked ready. Fix accepted findings with new commits.
+  - Evidence: Local review: correctness, security, spec/test, simplify (reuse, quality), ponytail; fixes applied in follow-up commits on #1886.
+- [x] 1.11 Pass the GitHub review and CI gate under Ready-PR monitoring.
+  - Evidence: #1886 CI green on c03336c2a; threads resolved; Indent quota-exhausted skip.
 
 ## 2. read-output
 
@@ -80,8 +82,10 @@ layer, but no more than one earlier layer may carry open review work.
 - [x] 2.3 Update the E2E read-header and continuation parsers in `e2e/support/model-server.ts` to accept both spellings, the read continuation assertions in `e2e/web/chat/knowledge-tool.spec.ts`, and `scripts/measure-tool-results.mjs` with its fixture. Verify the focused Knowledge E2E spec.
 - [x] 2.4 Update `apps/api/src/prompts/tools/read.md`, `bash.md`, and `web_search.md`, `docs/product/reference/tools/read.md`, `tools/model-output.md`, and the locator pages that show printed headers, and add the dated `CHANGELOG.md` entry. Verify `tool-descriptions.test.ts` and `pnpm lint:markdown`.
 - [x] 2.5 Verify the layer: `pnpm --filter @workspace/native-file-tools test`, `pnpm --filter @workspace/runtime-safety test`, focused `apps/api` model-text, bash-spill, artifact, Machine-result, and job tests, affected `lint` and `typecheck`, `pnpm format:check`, `git diff --check`.
-- [ ] 2.6 Run the local multi-agent review of the parent-relative diff before the PR is marked ready. Fix accepted findings with new commits.
-- [ ] 2.7 Pass the GitHub review and CI gate under Ready-PR monitoring.
+- [x] 2.6 Run the local multi-agent review of the parent-relative diff before the PR is marked ready. Fix accepted findings with new commits.
+  - Evidence: Local review: correctness, simplify, ponytail; fixes applied on #1887.
+- [x] 2.7 Pass the GitHub review and CI gate under Ready-PR monitoring.
+  - Evidence: #1887 CI green; threads resolved; pullfrog remainder finding answered (layer 3 owns it).
 
 ## 3. search-output
 
@@ -90,8 +94,10 @@ layer, but no more than one earlier layer may carry open review work.
 - [x] 3.3 Make `packages/ui` `grep.tsx` and `knowledge-search.tsx` parse both spellings, and update their stories. Verify Storybook story tests for both cards with a bare and an `L` locator.
 - [x] 3.4 Update `apps/api/src/prompts/tools/grep.md` and `knowledge_search.md`, `docs/product/reference/tools/grep.md`, and `locators/kb.md`, and add the dated `CHANGELOG.md` entry. Verify `tool-descriptions.test.ts` and `pnpm lint:markdown`.
 - [x] 3.5 Verify the layer: `pnpm --filter @workspace/native-file-tools test`, `pnpm --filter machine test`, focused `apps/api` grep and Knowledge tests, `pnpm --filter @workspace/ui test`, the Knowledge E2E spec, affected `lint` and `typecheck`, `pnpm format:check`, `git diff --check`.
-- [ ] 3.6 Run the local multi-agent review of the parent-relative diff before the PR is marked ready. Fix accepted findings with new commits.
-- [ ] 3.7 Pass the GitHub review and CI gate under Ready-PR monitoring.
+- [x] 3.6 Run the local multi-agent review of the parent-relative diff before the PR is marked ready. Fix accepted findings with new commits.
+  - Evidence: Local review: correctness, simplify, ponytail; fixes applied on #1889.
+- [x] 3.7 Pass the GitHub review and CI gate under Ready-PR monitoring.
+  - Evidence: #1889 CI green; Codex heading thread fixed and resolved.
 
 ## 4. authored-selectors
 
@@ -99,8 +105,10 @@ layer, but no more than one earlier layer may carry open review work.
 - [x] 4.2 Print prompt-import labels and not-imported lines with the canonical selector, split by the parser of each scheme, and keep a literal-probe target and a target with a refused selector as written, through a new unstored `literal` outcome field (design D5). Verify "Import labels print the canonical selector": "A bare range prints with its unit", "A target that is not imported prints with its unit", and "A literal file name prints as written" in `prompt-imports.test.ts` and `prompt-imports-item.test.ts`.
 - [x] 4.3 Update `apps/api/src/prompts/chat-default.md`, `docs/product/reference/prompt-imports.md`, `instruction-files.md`, and `context-documents.md`, and add the dated `CHANGELOG.md` entry. Verify `pnpm lint:markdown`.
 - [x] 4.4 Verify the layer: focused `apps/api` instruction, prompt-import, and Run execution tests, affected `lint` and `typecheck`, `pnpm format:check`, `git diff --check`. The PR carries `Closes #1833`.
-- [ ] 4.5 Run the local multi-agent review of the parent-relative diff before the PR is marked ready. Fix accepted findings with new commits.
-- [ ] 4.6 Pass the GitHub review and CI gate under Ready-PR monitoring.
+- [x] 4.5 Run the local multi-agent review of the parent-relative diff before the PR is marked ready. Fix accepted findings with new commits.
+  - Evidence: Local review: correctness, simplify, ponytail; fixes and mutants applied on #1890.
+- [x] 4.6 Pass the GitHub review and CI gate under Ready-PR monitoring.
+  - Evidence: #1890 CI green incl. mutation gate; three label threads fixed and resolved.
 
 ## 5. github-anchors
 
@@ -109,12 +117,17 @@ layer, but no more than one earlier layer may carry open review work.
 - [x] 5.3 Verify "A line anchor does not escape a web reject" in `tool-call-permissions` tests.
 - [x] 5.4 Update `docs/product/reference/locators/web.md`, `docs/product/operator/web-read.md`, the web adapters reference, and `apps/api/src/prompts/tools/read.md`, and add the dated `CHANGELOG.md` entry. Verify `pnpm lint:markdown`.
 - [x] 5.5 Verify the layer: focused `apps/api` web-read, GitHub adapter, and permission tests, affected `lint` and `typecheck`, `pnpm format:check`, `git diff --check`. The PR carries `Closes #1835`.
-- [ ] 5.6 Run the local multi-agent review of the parent-relative diff before the PR is marked ready. Fix accepted findings with new commits.
-- [ ] 5.7 Pass the GitHub review and CI gate under Ready-PR monitoring.
+- [x] 5.6 Run the local multi-agent review of the parent-relative diff before the PR is marked ready. Fix accepted findings with new commits.
+  - Evidence: Local review: correctness, security, simplify + ponytail; fixes and mutants applied on #1891.
+- [x] 5.7 Pass the GitHub review and CI gate under Ready-PR monitoring.
+  - Evidence: #1891 CI green; template thread fixed; CodeRabbit approved.
 
 ## 6. finalize
 
-- [ ] 6.1 Enter `name-selector-units/finalize` with `$gh-stack` from the `github-anchors` top before `$openspec-sync-specs` writes canonical specs.
-- [ ] 6.2 Run `$openspec-sync-specs`. Inspect `openspec status --change name-selector-units --json` and confirm every artifact is done and every earlier task is checked.
-- [ ] 6.3 Check MODIFIED requirements and cross-capability wording for semantic consistency, and confirm the active `tool-search` change still applies to `tool-call-permissions`. Verify `pnpm exec openspec validate --specs --strict` and `pnpm exec openspec validate --all --strict`.
-- [ ] 6.4 Confirm archive readiness, then run `$openspec-archive-change`. Self-review and the GitHub review gate follow archive movement as post-archive gates.
+- [x] 6.1 Enter `name-selector-units/finalize` with `$gh-stack` from the `github-anchors` top before `$openspec-sync-specs` writes canonical specs.
+  - Evidence: Entered with gh stack add from the github-anchors top.
+- [x] 6.2 Run `$openspec-sync-specs`. Inspect `openspec status --change name-selector-units --json` and confirm every artifact is done and every earlier task is checked.
+  - Evidence: openspec status shows every artifact done; every earlier task checked.
+- [x] 6.3 Check MODIFIED requirements and cross-capability wording for semantic consistency, and confirm the active `tool-search` change still applies to `tool-call-permissions`. Verify `pnpm exec openspec validate --specs --strict` and `pnpm exec openspec validate --all --strict`.
+  - Evidence: MODIFIED blocks keep every canonical scenario (script check); the bare ranges left in other canonical requirements are input forms or passage windows, which the proposal's Deliberately unchanged list covers (grep-tool `Matching is per logical line` among them); the active `tool-search` change touches only `Recommended portable policy with explicit replacement`, which this change does not modify; `openspec validate --all --strict` passes after archive.
+- [x] 6.4 Confirm archive readiness, then run `$openspec-archive-change`. Self-review and the GitHub review gate follow archive movement as post-archive gates.

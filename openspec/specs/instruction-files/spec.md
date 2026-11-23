@@ -38,32 +38,40 @@ For a directory `D`, the base candidate SHALL be the first existing regular file
 
 ### Requirement: A Knowledge locator loads the chain within its Space
 
-A `read`, `edit`, or `write` whose `path` is a `kb://<spaceId>/<relative path>` locator SHALL load the same candidate chains, with the same selection rules, from the root of that Space down to the touched directory inclusive, and SHALL NOT consider any directory above that Space root: not the operator's `knowledge.root` directory, which holds every owner's Spaces, not a host ancestor of it, and not another Space. The touched directory SHALL be the locator's own directory when it names an existing directory in that Space, and otherwise the parent directory of the locator's path within that Space. A candidate that the Knowledge resolver refuses as a symbolic link SHALL NOT be selected and its chain SHALL continue.
+A `read`, `edit`, or `write` whose `path` is a `kb://<spaceId>/<relative path>` locator MUST load the same candidate chains, with the same selection rules. The chains run from the root of that Space down to the touched directory, and include it. The load MUST NOT consider a directory above that Space root. It MUST NOT consider the `knowledge.root` directory of the operator, which holds the Spaces of every owner. It MUST NOT consider a host ancestor of that directory or another Space.
 
-Space resolution and every candidate probe SHALL run under the Run owner's identity through the owner-scoped Knowledge resolver. A locator naming another owner's Space, a Space that does not exist, and a Space that is unavailable SHALL each load nothing, probe nothing, and record no audit event.
+The touched directory MUST be the directory of the locator when the locator names an existing directory in that Space. Otherwise, it MUST be the parent directory of the locator path in that Space. When the Knowledge resolver refuses a candidate as a symbolic link, the load MUST NOT select it, and its chain MUST continue.
 
-Every selected candidate SHALL be labelled and keyed by its logical locator `kb://<spaceId>/<relative path>`, percent-encoded exactly as the Knowledge locator formatter produces it, and that logical locator SHALL be the item's `path` and its seen key; no host path SHALL appear in the item's text, payload, metadata, audit events, or owner chip. Each selected candidate SHALL be read through the native `read` tool with its `kb://` locator and bounded `:raw:<from>-<to>` pages, under system origin `instructions`, evaluated by the `read` permission group exactly as a host candidate is.
+Space resolution and every candidate probe MUST run under the identity of the Run owner, through the owner-scoped Knowledge resolver. A locator can name the Space of another owner, a Space that does not exist, or a Space that is unavailable. Each of these MUST load nothing, probe nothing, and record no audit event.
 
-Loading SHALL occur only for a locator whose Space identifier is already the canonical lower-case form the Knowledge locator formatter produces; a locator whose Space identifier contains an upper-case letter SHALL load nothing, probe nothing, and record no event, and the model's own read of that locator SHALL proceed normally under the spelling it wrote. Grouping, labels, seen keys, and every candidate page read SHALL use that one canonical spelling, so the `read` group evaluates the injection under exactly the locator the model's own read of that candidate uses.
+The load MUST label and key every selected candidate by its logical locator `kb://<spaceId>/<relative path>`. This locator MUST have the percent-encoding that the Knowledge locator formatter gives. It MUST be the `path` of the item and its seen key. A host path MUST NOT appear in the text, payload, metadata, audit events, or owner chip of the item.
 
-A bundle carrying at least one Knowledge candidate SHALL include the closed Knowledge untrusted-content notice `knowledge-tools` defines exactly once, and a bundle carrying only host-path candidates SHALL NOT include it.
+The load MUST read each selected candidate through the native `read` tool, with its `kb://` locator and bounded `:raw:L<from>-<to>` pages. These pages MUST use the canonical selector spelling. The reads MUST run under system origin `instructions`. The `read` permission group MUST evaluate them exactly as it evaluates a host candidate.
 
-A model `kb://` trigger SHALL NOT produce an accepted-turn load, and a Workspace entry SHALL NOT produce an accepted-turn load for a Space, because a Space has no Workspace binding; an admitted `kb://` prompt import SHALL load its Space chain on its accepted turn. A `kb://` import naming an entry the Knowledge resolver refuses as a symbolic link SHALL load nothing and its marker SHALL remain literal. Candidates loaded for one step from host-path triggers and from `kb://` triggers SHALL resolve into at most one item, with the host files first, then the Knowledge files, each group from its broadest directory and a base file before its local file.
+The load MUST occur only for a locator whose Space identifier already has the canonical lower-case form that the Knowledge locator formatter gives. A locator whose Space identifier contains an upper-case letter MUST load nothing, probe nothing, and record no event. The read that the model itself asked for MUST continue normally, under the spelling that the model wrote.
+
+Grouping, labels, seen keys, and every candidate page read MUST use that one lower-case Space identifier. Thus the `read` group evaluates the injection under the same locator as a read of that candidate by the model.
+
+A bundle with at least one Knowledge candidate MUST include the closed Knowledge untrusted-content notice of `knowledge-tools` exactly once. A bundle with only host-path candidates MUST NOT include it.
+
+A model `kb://` trigger MUST NOT cause an accepted-turn load. A Workspace entry MUST NOT cause an accepted-turn load for a Space, because a Space has no Workspace binding. An admitted `kb://` prompt import MUST load its Space chain on its accepted turn. A `kb://` import can name an entry that the Knowledge resolver refuses as a symbolic link. That import MUST load nothing, and its marker MUST stay literal.
+
+One step can load candidates from host-path triggers and from `kb://` triggers. These candidates MUST resolve into at most one item. The host files MUST come first and the Knowledge files second. Each group MUST start from its broadest directory, with a base file before its local file.
 
 #### Scenario: A read in a Space loads that Space's chain from its root
 
 - **WHEN** the model reads `kb://<space>/notes/lore/x.md` and `<space>/CLAUDE.md` and `<space>/notes/lore/AGENTS.md` exist
 - **THEN** one bundle carries `kb://<space>/CLAUDE.md` then `kb://<space>/notes/lore/AGENTS.md`
-- **AND** neither file is named by any host path
+- **AND** no host path names either file
 
 #### Scenario: A file above the Space root is never loaded
 
-- **WHEN** a Space is resolved under the operator's `knowledge.root` and a candidate chain name also exists above that Space's own root
+- **WHEN** the resolver finds a Space under the `knowledge.root` of the operator, and a candidate chain name also exists above the root of that Space
 - **THEN** the bundle carries no file from outside the Space root
 
 #### Scenario: Another owner's Space loads nothing
 
-- **WHEN** the model reads `kb://<other-owner-space>/notes/x.md` from a Run owned by a different owner
+- **WHEN** a Run of one owner reads `kb://<other-owner-space>/notes/x.md`, a Space of a different owner
 - **THEN** no instructions item is produced, no candidate in that Space is probed, and no event with origin `instructions` is recorded
 
 #### Scenario: A search hit does not trigger
@@ -79,9 +87,9 @@ A model `kb://` trigger SHALL NOT produce an accepted-turn load, and a Workspace
 
 #### Scenario: An upper-case Space identifier is not a trigger
 
-- **WHEN** the model calls `read("kb://<Space>/notes/x.md")`, where `<Space>` spells a Space's identifier with upper-case letters, and that Space holds `CLAUDE.md`
+- **WHEN** the model calls `read("kb://<Space>/notes/x.md")`, where `<Space>` spells the identifier of a Space with upper-case letters, and that Space holds `CLAUDE.md`
 - **THEN** no instructions item is produced, no candidate in that Space is probed, and no event with origin `instructions` is recorded
-- **AND** the model's own read of that locator still runs and returns the named file
+- **AND** the read that the model asked for still runs and returns the named file
 
 #### Scenario: A Space bundle carries the Knowledge notice once
 
@@ -94,6 +102,12 @@ A model `kb://` trigger SHALL NOT produce an accepted-turn load, and a Workspace
 - **WHEN** an unbound Chat admits a `kb://<space>/notes/lore/x.md` prompt import and `<space>/CLAUDE.md` and `<space>/notes/lore/AGENTS.md` exist
 - **THEN** the Space chain loads on that accepted turn
 - **AND** a model `kb://` trigger or a Workspace entry does not produce an accepted-turn load for that Space
+
+#### Scenario: A candidate page uses the canonical spelling
+
+- **WHEN** a step loads `kb://<space>/CLAUDE.md`
+- **THEN** its first page read is `kb://<space>/CLAUDE.md:raw:L1-2000`
+- **AND** the `read` group evaluates that exact text
 
 ### Requirement: Entry, native file tools, and accepted turns are the only triggers
 

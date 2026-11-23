@@ -53,89 +53,207 @@ At worker execution, the static tool executor SHALL receive the Knowledge filesy
 
 ### Requirement: Knowledge search scans one or all current spaces deterministically within global bounds
 
-`knowledge_search` SHALL accept a non-empty literal query of at most 200 Unicode code points, an integer result limit from 1 through 10 defaulting to 5, an optional `knowledgeSpaceId`, and an optional opaque continuation cursor. When the identifier is present, search SHALL target only that currently owner-accessible space. When absent, search SHALL iterate the owner's complete current inventory in `(createdAt, id)` keyset pages without materializing the uncapped inventory in memory. Inventory paging SHALL obey the same operation timeout and cancellation signal; it SHALL impose no separate total-space count cap. Before opening each targeted child, search SHALL recheck current access under the trusted Run owner. If a row from an unscoped inventory page is no longer accessible at that check, search SHALL omit it as no longer current without adding a warning or incrementing `warningCount`; if no currently accessible target remains, the call SHALL return `knowledge_space_not_configured`. Within a space, files SHALL be ordered by Knowledge-relative path.
+`knowledge_search` MUST accept these arguments:
 
-Search SHALL perform a case-insensitive literal scan over safe UTF-8 Markdown files as they are read from the live targeted spaces. A file whose Knowledge-relative path contains `:`, `?`, `#`, or `%` SHALL be searched like any other; its emitted locator SHALL percent-encode exactly those characters in the affected segments and leave every other character literal, so the locator is directly a valid `read` argument. LF SHALL terminate one logical line, CRLF SHALL be one line delimiter, a lone CR SHALL remain source text, and a terminal delimiter SHALL NOT create a phantom line. Every literal occurrence SHALL contribute a candidate passage consisting of its logical line plus at most one preceding and one following logical line. Occurrences on the same line SHALL share one candidate, and candidate passages within one file SHALL be sorted and transitively unioned when they overlap or touch before result limiting. A merged interval longer than 2,000 logical lines SHALL then be partitioned into adjacent deterministic passages of at most 2,000 lines; every emitted passage SHALL contain a literal match and the passages together SHALL cover the complete merged interval. Search SHALL return passages in deterministic space `(createdAt, id)`, relative-path, and passage start-line order. It SHALL use no grep subprocess, regular expression, Markdown parser, index, or PostgreSQL content projection.
+- a literal query that is not empty, with at most 200 Unicode code points,
+- an integer result limit from 1 through 10, with the default 5,
+- an optional `knowledgeSpaceId`,
+- an optional opaque continuation cursor.
 
-Every returned passage SHALL carry the response-time Knowledge Space identifier and display name, exact Knowledge-relative path, a `locator` of the form `kb://<space-id>/<path>:<start>-<end>` whose one-based inclusive line range is the complete emitted source-line window and which is directly a valid `read` argument, and an `excerpt` of at most 500 Unicode code points. A passage SHALL span at most 2,000 logical lines. Search SHALL NOT emit zero-based coordinates. If the window exceeds the excerpt cap, search SHALL crop visibly around a literal match without changing the locator's range. Search SHALL NOT duplicate a separate matching-line string, expose a match mode while only literal search exists, or expose a content hash or revision token.
+When the identifier is present, search MUST target only that space, which the owner can currently
+access. When the identifier is absent, search MUST iterate the complete current inventory of the
+owner in `(createdAt, id)` keyset pages. It MUST NOT hold the uncapped inventory in memory.
+Inventory pages MUST obey the same operation timeout and cancellation signal, and MUST have no
+separate cap on the total count of spaces.
 
-The optional cursor SHALL be canonical opaque Knowledge-local keyset state bound to the query, optional explicit selector, and last returned passage ordering tuple. A cursor used with different request bindings or malformed state SHALL fail closed as invalid input. An unchanged accessible corpus SHALL produce deterministic non-overlapping pages. The cursor SHALL NOT claim a filesystem snapshot: current access is resolved again on continuation; removed resources disappear, and concurrent file or inventory changes MAY cause newly ordered passages to appear or passages ordered before the cursor to be skipped. Search SHALL return `nextCursor` only when another passage currently exists after the last returned result, including from an incomplete successful page.
+Before search opens each targeted child, it MUST check current access again under the trusted Run
+owner. A row from an unscoped inventory page can lose access before that check. Search MUST then
+omit it as no longer current, and MUST NOT add a warning or increase `warningCount`. When no
+accessible target remains, the call MUST return `knowledge_space_not_configured`. Within a space,
+search MUST order files by Knowledge-relative path.
 
-For an unscoped continuation, completeness SHALL be evaluated for that invocation. Spaces ordered strictly before the cursor's space key SHALL NOT be reopened because they cannot contribute a later passage. The anchor space and every later space SHALL be reauthorized and inspected. A failed space before the last returned passage SHALL therefore not be retried by a continuation anchored after it. A failed space after the last returned passage SHALL be re-evaluated while it remains after the anchor. When that invocation also successfully inspects at least one eligible space, the failure SHALL produce another bounded warning and SHALL NOT suppress `nextCursor` when a later usable passage exists; an incomplete page with no later passage SHALL omit `nextCursor`. When every eligible anchor-or-later target fails, the all-failed top-level error SHALL take precedence and SHALL omit warnings and continuation state. Skipped pre-anchor spaces SHALL NOT count as targets for that decision.
+Search MUST do a case-insensitive literal scan of safe UTF-8 Markdown files, as it reads them from
+the live targeted spaces. A file whose Knowledge-relative path contains `:`, `?`, `#`, or `%` MUST
+be searched like any other file. Its emitted locator MUST percent-encode exactly those characters
+in the affected segments and keep every other character literal. Thus the locator is directly a
+valid `read` argument.
 
-One tool call SHALL share the existing global bounds across every target: at most 20,000 filesystem entries, 5,000 admitted Markdown files, 1 MiB per file, 32 MiB of aggregate Markdown content, paths of 1,024 UTF-8 bytes and 32 components, and a structured result of at most 15,000 JavaScript UTF-16 code units. It SHALL also obey the common tool timeout and abort signal. Space boundaries and cursor continuation SHALL NOT reset any bound within one invocation. The requested result limit is a successful response cap, not a safety-bound failure: search SHALL return the first passages after the optional cursor up to that limit and SHALL continue inventory traversal as needed to determine continuation and surface later space failures.
+LF MUST end one logical line, and CRLF MUST be one line delimiter. A lone CR MUST stay source text.
+A final delimiter MUST NOT create a phantom line. Each literal occurrence MUST add a candidate
+passage: its logical line, plus at most one logical line before it and one after it. Occurrences
+on the same line MUST share one candidate.
 
-When an unscoped search successfully inspects at least one space but another target has a space-scoped unavailable binding, unsafe path or symbolic-link condition, or invalid Markdown content, it SHALL continue with remaining spaces and return `status: "success"`, usable `results`, `complete: false`, a bounded top-level `warnings` array with at most one warning object per failed space, and `warningCount` for the total failed spaces. Each warning SHALL carry exactly one of `knowledge_space_unavailable`, `knowledge_path_invalid`, or `knowledge_content_invalid` as its type, plus the response-time space ID and name and a safe message; it SHALL NOT be attached to a valid result. `warningCount` MAY exceed `warnings.length` when the structured output budget requires omitting warning detail. A complete success SHALL return `complete: true`, `warnings: []`, and `warningCount: 0`.
+Within one file, search MUST sort the candidate passages. Before it applies the result limit, it
+MUST unite them transitively when they overlap or touch. Search MUST then divide a united interval
+longer than 2,000 logical lines into adjacent deterministic passages of at most 2,000 lines. Each
+emitted passage MUST contain a literal match, and together the passages MUST cover the complete
+united interval.
 
-If an explicit target fails, every target eligible for an unscoped invocation fails, the owner has no current spaces, the cursor is invalid, or a global entry, file-count, byte, path, timeout, cancellation, or output bound prevents completion, the tool SHALL return the applicable top-level closed error and SHALL NOT return partial passages as complete. Every current space is eligible on an initial unscoped call; only the anchor space and later spaces are eligible on an unscoped continuation. A currently owned target whose root or stable-ID child cannot be resolved safely SHALL return `knowledge_space_unavailable`; an absent, removed, or other-owner explicit target SHALL return `knowledge_space_not_found`. A global safety or output bound SHALL return `knowledge_limit_exceeded`; zero inventory for an unscoped search SHALL return `knowledge_space_not_configured`. If every non-revoked eligible target in an unscoped invocation fails with different space-scoped errors, the first failed eligible target in deterministic inventory order SHALL determine the top-level error type and safe message. This top-level error SHALL contain only the existing `status: "error"`, `type`, and safe `message` shape; it SHALL omit `results`, `complete`, `warnings`, `warningCount`, and `nextCursor`.
+Search MUST return passages in a deterministic order: space `(createdAt, id)`, then relative path,
+then the start line of the passage. It MUST use no grep subprocess, regular expression, Markdown
+parser, index, or PostgreSQL content projection.
 
-There is no operation-wide content revision or snapshot. A file changed after it was inspected does not rewrite the recorded result, while another file inspected later may reflect newer bytes.
+Each returned passage MUST carry these fields:
+
+- the response-time Knowledge Space identifier and display name,
+- the exact Knowledge-relative path,
+- a `locator` of the form `kb://<space-id>/<path>:L<start>-<end>`,
+- an `excerpt` of at most 500 Unicode code points.
+
+The `locator` range MUST be one-based and inclusive, in the canonical selector spelling. It MUST be
+the complete emitted window of source lines. The `locator` MUST be directly a valid `read`
+argument. A passage MUST span at most 2,000 logical lines. Search MUST NOT emit zero-based
+coordinates. When the window is longer than the excerpt cap, search MUST crop it visibly around a
+literal match. The crop MUST NOT change the range of the locator. Search MUST NOT duplicate a separate
+string of the match line. It MUST NOT expose a match mode while only literal search exists, and
+MUST NOT expose a content hash or revision token.
+
+The optional cursor MUST be canonical, opaque, Knowledge-local keyset state. It MUST bind the
+query, the optional explicit selector, and the ordering tuple of the last returned passage. A
+cursor with different request bindings or malformed state MUST fail closed as invalid input. An
+unchanged accessible corpus MUST give deterministic pages that do not overlap.
+
+The cursor MUST NOT claim a filesystem snapshot. Search resolves current access again on each
+continuation, and removed resources disappear. Concurrent changes to files or to the inventory can
+add newly ordered passages, or can skip passages ordered before the cursor. Search MUST return
+`nextCursor` only when another passage currently exists after the last returned result. This also
+applies to an incomplete successful page.
+
+For an unscoped continuation, search MUST evaluate completeness for that invocation. It MUST NOT
+open again a space ordered strictly before the space key of the cursor, because that space cannot
+add a later passage. It MUST authorize and inspect again the anchor space and every later space.
+Thus a continuation anchored after a failed space MUST NOT retry it. Search MUST evaluate again a
+failed space after the last returned passage while that space stays after the anchor.
+
+When that invocation also inspects at least one eligible space with success, the failure MUST add
+another bounded warning. It MUST NOT suppress `nextCursor` when a later usable passage exists. An
+incomplete page with no later passage MUST omit `nextCursor`. When every eligible target at or
+after the anchor fails, the top-level error for that case MUST take precedence. That error MUST
+omit warnings and continuation state. Spaces before the anchor that search skips MUST NOT count as
+targets for that decision.
+
+One tool call MUST share the existing global bounds across every target:
+
+- at most 20,000 filesystem entries and 5,000 admitted Markdown files,
+- at most 1 MiB for each file and 32 MiB of Markdown content in total,
+- paths of at most 1,024 UTF-8 bytes and 32 components,
+- a structured result of at most 15,000 JavaScript UTF-16 code units.
+
+The call MUST also obey the common tool timeout and abort signal. Space boundaries and cursor
+continuation MUST NOT reset a bound within one invocation. The requested result limit caps a
+successful response, and is not a safety-bound failure. Search MUST return the first passages
+after the optional cursor, up to that limit. It MUST continue the inventory traversal as necessary
+to decide continuation and to report later space failures.
+
+An unscoped search can inspect at least one space with success while another target fails. The
+failure can be an unavailable binding of that space, an unsafe path or symbolic-link condition, or
+invalid Markdown content. Search MUST then continue with the other spaces and return these
+fields:
+
+- `status: "success"` and the usable `results`,
+- `complete: false`,
+- a bounded top-level `warnings` array with at most one warning object for each failed space,
+- `warningCount`, the total count of failed spaces.
+
+Each warning MUST carry exactly one type: `knowledge_space_unavailable`, `knowledge_path_invalid`,
+or `knowledge_content_invalid`. It MUST also carry the response-time space ID and name and a safe
+message. A warning MUST NOT be attached to a valid result. `warningCount` can be more than
+`warnings.length` when the structured output budget omits warning detail. A complete success MUST
+return `complete: true`, `warnings: []`, and `warningCount: 0`.
+
+In these cases the tool MUST return the applicable top-level closed error:
+
+- an explicit target fails,
+- every eligible target of an unscoped invocation fails,
+- the owner has no current spaces,
+- the cursor is not valid,
+- a global entry, file-count, byte, path, timeout, cancellation, or output bound stops completion.
+
+It MUST NOT then return partial passages as complete. On an initial unscoped call, every current
+space is eligible. On an unscoped continuation, only the anchor space and later spaces are
+eligible.
+
+A target that the owner currently owns, but whose root or stable-ID child search cannot resolve
+safely, MUST return `knowledge_space_unavailable`. An absent, removed, or other-owner explicit
+target MUST return `knowledge_space_not_found`. A global safety or output bound MUST return
+`knowledge_limit_exceeded`. An unscoped search with no inventory MUST return
+`knowledge_space_not_configured`.
+
+Every eligible target of an unscoped invocation that is not revoked can fail with different
+space-scoped errors. The first failed eligible target in deterministic inventory order MUST then
+give the top-level error type and safe message. This error MUST contain only the existing
+`status: "error"`, `type`, and safe `message` shape. It MUST omit `results`, `complete`,
+`warnings`, `warningCount`, and `nextCursor`.
+
+There is no content revision or snapshot for the operation. A change to a file after search
+inspects it does not change the recorded result. Another file that search inspects later can show
+newer bytes.
 
 #### Scenario: A path with no locator is not searched
 
-- **WHEN** a Space contains an entry whose relative path fails path validation, such as a name containing a backslash or a control character
-- **THEN** no passage and no locator is emitted for it, because no `kb://` spelling of it is valid
-- **AND** the Space reports its existing `knowledge_path_invalid` condition rather than a locator `read` would refuse
+- **WHEN** a Space contains an entry whose relative path fails path validation, such as a name with a backslash or a control character
+- **THEN** search emits no passage and no locator for it, because no `kb://` spelling of it is valid
+- **AND** the Space reports its existing `knowledge_path_invalid` condition, not a locator that `read` refuses
 
 #### Scenario: A colon path is searched with an encoded locator
 
 - **WHEN** a Space contains a Markdown file whose relative path contains `:`, such as `notes/2026-09-08 14:30 standup.md`
-- **THEN** search returns its passages with the locator `kb://<id>/notes/2026-09-08 14%3A30 standup.md:<start>-<end>`
-- **AND** passing that locator unchanged to `read` opens the passage
+- **THEN** search returns its passages with the locator `kb://<id>/notes/2026-09-08 14%3A30 standup.md:L<start>-<end>`
+- **AND** a `read` of that locator, unchanged, opens the passage
 
 #### Scenario: Search finds a live note
 
-- **WHEN** one targeted Knowledge Space contains two non-overlapping literal matches in one bounded UTF-8 Markdown file
-- **THEN** search returns two passage candidates unless merging makes their context windows one passage
+- **WHEN** one targeted Knowledge Space contains two literal matches that do not overlap, in one bounded UTF-8 Markdown file
+- **THEN** search returns two candidate passages, unless a merge makes their context windows one passage
 - **AND** each result carries a reusable `kb://` locator and a bounded excerpt without a content hash
 
 #### Scenario: Overlapping match windows merge
 
-- **WHEN** multiple literal occurrences produce a chain of touching or overlapping context windows in one file
+- **WHEN** a set of literal occurrences gives a chain of context windows that touch or overlap in one file
 - **THEN** search returns one merged passage for that source range
-- **AND** merging is the transitive interval union rather than an order-dependent split
+- **AND** the merge is the transitive interval union, not a split that depends on order
 - **AND** the requested result limit counts the merged passage once
 
 #### Scenario: A transitive match chain remains readable
 
-- **WHEN** touching or overlapping match windows transitively union into more than 2,000 logical lines
-- **THEN** search partitions the complete merged interval into adjacent passages whose limits are each at most 2,000 and which each contain a literal match
-- **AND** every matching line remains covered in deterministic order by locators accepted by `read`
+- **WHEN** match windows that touch or overlap unite transitively into more than 2,000 logical lines
+- **THEN** search divides the complete merged interval into adjacent passages of at most 2,000 lines, each with a literal match
+- **AND** locators that `read` accepts cover every match line in deterministic order
 
 #### Scenario: Search passage expands through read
 
-- **WHEN** an assistant passes a search result's `locator` unchanged to `read`
-- **THEN** read addresses the complete current logical-line window the passage covered, plus native context lines
-- **AND** neither call requires a model-facing file hash or a second coordinate system
+- **WHEN** an assistant passes the `locator` of a search result unchanged to `read`
+- **THEN** read addresses the complete current window of logical lines that the passage covered, plus native context lines
+- **AND** neither call needs a file hash for the model or a second coordinate system
 
 #### Scenario: Cursor continues an unchanged corpus
 
-- **WHEN** deterministic search has more passages than the requested result limit and the caller continues with `nextCursor` using the same query and selector
-- **THEN** the next page begins after the last prior passage without duplicating it
-- **AND** pagination eventually makes every bounded passage reachable
+- **WHEN** deterministic search has more passages than the requested result limit, and the caller continues with `nextCursor` and the same query and selector
+- **THEN** the next page starts after the last prior passage and does not repeat it
+- **AND** pagination at last makes every bounded passage reachable
 
 #### Scenario: Cursor remains live across changes
 
 - **WHEN** current access or file content changes between search pages
-- **THEN** continuation reauthorizes current resources and searches current bytes after the stored ordering tuple
+- **THEN** continuation authorizes current resources again and searches current bytes after the stored ordering tuple
 - **AND** it does not claim snapshot completeness across calls
 
 #### Scenario: Newly changed file is immediately visible
 
-- **WHEN** a Markdown file is created or modified without a Git commit
-- **THEN** a later search observes its current bytes
-- **AND** no accepted revision or clean-worktree state is required
+- **WHEN** a Markdown file is created or changed without a Git commit
+- **THEN** a later search sees its current bytes
+- **AND** no accepted revision or clean worktree state is necessary
 
 #### Scenario: Corpus bound is exceeded
 
-- **WHEN** completing a search would exceed any global traversal, content, path, timeout, or output bound
+- **WHEN** a search can complete only past a global traversal, content, path, timeout, or output bound
 - **THEN** the tool returns the applicable closed limit or cancellation outcome
 - **AND** it returns no partial passages as complete
 
 #### Scenario: Omitted selector searches current inventory
 
-- **WHEN** an owner has two currently accessible spaces and search omits `knowledgeSpaceId`
-- **THEN** both are traversed in `(createdAt, id)` order under one shared operation budget
+- **WHEN** an owner has two spaces with current access and search omits `knowledgeSpaceId`
+- **THEN** search traverses both in `(createdAt, id)` order under one shared operation budget
 - **AND** each passage identifies its source space by stable ID and response-time name
 
 #### Scenario: Requested result limit caps a successful response
@@ -146,45 +264,46 @@ There is no operation-wide content revision or snapshot. A file changed after it
 
 #### Scenario: Explicit selector narrows and reauthorizes
 
-- **WHEN** search supplies one currently owner-accessible `knowledgeSpaceId`
-- **THEN** search rechecks that resource and traverses only its stable-ID child
-- **AND** no other space is inspected
+- **WHEN** search supplies one `knowledgeSpaceId` that the owner can currently access
+- **THEN** search checks that resource again and traverses only its stable-ID child
+- **AND** search inspects no other space
 
 #### Scenario: Revoked unscoped target is no longer current
 
-- **WHEN** an unscoped inventory page contains a space whose access is removed before its pre-open check
-- **THEN** search omits that target without adding a warning or incrementing `warningCount`
+- **WHEN** an unscoped inventory page contains a space whose access is removed before its check before open
+- **THEN** search omits that target, adds no warning, and does not increase `warningCount`
 - **AND** an explicit request for that same identifier still returns `knowledge_space_not_found`
 
 #### Scenario: One failed space produces incomplete success
 
-- **WHEN** an unscoped search successfully inspects one space and another has a space-scoped safe failure
+- **WHEN** an unscoped search inspects one space with success and another space has a safe space-scoped failure
 - **THEN** the tool returns the usable passages with `complete: false`
-- **AND** bounded call-level warnings identify the failed space without exposing host details
+- **AND** bounded call-level warnings identify the failed space and expose no host details
 
 #### Scenario: A failed space before the cursor anchor is not retried
 
-- **WHEN** an unscoped page warns for a failed space ordered before its last returned passage and exposes a cursor for a later passage
-- **THEN** continuation begins after that passage and does not reopen the earlier failed space
+- **WHEN** an unscoped page warns for a failed space ordered before its last returned passage, and gives a cursor for a later passage
+- **THEN** continuation starts after that passage and does not open the earlier failed space again
 - **AND** completeness and warnings describe only the continuation invocation
 
 #### Scenario: A failed space after the cursor anchor is re-evaluated
 
-- **WHEN** an unscoped continuation successfully inspects one eligible space and has a failed space ordered after its anchor
-- **THEN** continuation reauthorizes and retries that space while it remains after the anchor
-- **AND** the failure does not suppress a cursor for any later usable passage, while a final incomplete page with no later passage omits `nextCursor`
+- **WHEN** an unscoped continuation inspects one eligible space with success and has a failed space ordered after its anchor
+- **THEN** continuation authorizes and tries that space again while it stays after the anchor
+- **AND** the failure does not suppress a cursor for a later usable passage
+- **AND** a final incomplete page with no later passage omits `nextCursor`
 
 #### Scenario: Every eligible continuation target fails
 
-- **WHEN** every non-revoked anchor-or-later target in an unscoped continuation fails
-- **THEN** the first failed eligible target in deterministic order determines the top-level closed error
-- **AND** skipped pre-anchor spaces do not participate and the error omits results, warnings, and continuation state
+- **WHEN** every target that is not revoked, at or after the anchor of an unscoped continuation, fails
+- **THEN** the first failed eligible target in deterministic order gives the top-level closed error
+- **AND** skipped spaces before the anchor do not count, and the error omits results, warnings, and continuation state
 
 #### Scenario: All failed spaces produce a top-level error
 
-- **WHEN** every target in an unscoped search fails before producing a complete per-space search
-- **THEN** the first non-revoked target in deterministic inventory order determines the top-level closed error
-- **AND** the error omits results and continuation state and does not present accumulated passages as complete
+- **WHEN** every target of an unscoped search fails before it gives a complete search of its space
+- **THEN** the first target that is not revoked, in deterministic inventory order, gives the top-level closed error
+- **AND** the error omits results and continuation state, and does not show the collected passages as complete
 
 ### Requirement: Retrieval persists safe response-time attribution
 

@@ -91,9 +91,9 @@ object. Text the rendering builds from `display` values MUST count. The cap MUST
 
 ### Requirement: Results that carry content render as text
 
-The rendering function MUST render a `read`, `edit`, `write`, `grep`, `bash`,
+The function that renders results MUST render a `read`, `edit`, `write`, `grep`, `bash`,
 or `web_search` success as plain text. An image, PDF, or skill-catalog result
-MUST keep its JSON rendering. A file `read`, an `edit`, and a `write` MUST
+MUST keep its JSON form. A file `read`, an `edit`, and a `write` MUST
 begin with one header line. A `grep` text opens with its notice when it
 carries one, or with its first `## <locator>` line. A file read and an `edit`
 MUST render their `content` lines after the header and the attribution lines.
@@ -101,7 +101,7 @@ MUST render their `content` lines after the header and the attribution lines.
 #### Scenario: A file read renders as text
 
 - **WHEN** the model reads `src/app.ts:12-40` of a 216-line file
-- **THEN** the result starts with `src/app.ts:11-41 of 216 lines`
+- **THEN** the result starts with `src/app.ts:L11-41 of 216 lines`
 - **AND** the numbered lines follow with no JSON quotes
 
 #### Scenario: An image read keeps JSON
@@ -112,7 +112,7 @@ MUST render their `content` lines after the header and the attribution lines.
 #### Scenario: A Machine variant renders the same way
 
 - **WHEN** `read` runs on a Machine locator
-- **THEN** the rendering is the text shape with the Machine locator in the header
+- **THEN** the render is the text shape with the Machine locator in the header
 
 #### Scenario: A grep page opens with its notice
 
@@ -164,21 +164,25 @@ read MUST render its content without prefixes.
 
 ### Requirement: The read header names the source and the shown lines
 
-A `read` text MUST begin with one of these headers, with the shown range of the result, or with
-the bare-locator header its own requirement defines:
-`<locator>:<start>-<end>` for a single range, `<locator>:<a>-<b>,<c>-<d>` for a multi-range read,
-`<locator>:raw:<start>-<end>` for a raw read, `<locator>:outline:<start>-<end>` for an outline.
-A null shown range MUST render `<locator>: empty` when the result is not truncated.
+A `read` text MUST begin with one of these headers, with the shown range of the result. It can
+also begin with the bare-locator header that its own requirement defines. Each range MUST carry the unit letter
+`L` in the canonical spelling. The headers are these:
+
+- `<locator>:L<start>-<end>` for a single range,
+- `<locator>:L<a>-<b>,L<c>-<d>` for a multi-range read,
+- `<locator>:raw:L<start>-<end>` for a raw read,
+- `<locator>:outline:L<start>-<end>` for an outline.
+  A null shown range MUST render `<locator>: empty` when the result is not truncated.
 
 #### Scenario: A multi-range read lists its ranges
 
 - **WHEN** the model reads `src/app.ts:10-12,40-42` of a 216-line file
-- **THEN** the header is `src/app.ts:9-13,39-43 of 216 lines`
+- **THEN** the header is `src/app.ts:L9-13,L39-43 of 216 lines`
 
 #### Scenario: A raw read names its form
 
 - **WHEN** the model reads `notes.md:raw:3-4`
-- **THEN** the header is `notes.md:raw:3-4 of 40 lines`
+- **THEN** the header is `notes.md:raw:L3-4 of 40 lines`
 
 #### Scenario: An empty file has an empty header
 
@@ -209,17 +213,17 @@ and an `empty` header denies it. A result whose `shownRange` is explicitly null 
 
 When a `read` result carries `lineCount`, its header MUST end with `of <lineCount> lines` after
 one space. A header without `lineCount` MUST carry no suffix. A directory listing MUST NOT add a
-total to its content; its continuation line names the remaining entries.
+total to its content; its continuation line names the entries that remain.
 
 #### Scenario: A result without a line count omits the total
 
 - **WHEN** a read part stored without `lineCount` renders
-- **THEN** the header is `<locator>:<start>-<end>` with no `of … lines` suffix
+- **THEN** the header is `<locator>:L<start>-<end>` with no `of … lines` suffix
 
 #### Scenario: A ranged read reports the total
 
 - **WHEN** the model reads `src/app.ts:12-40` and the result carries `lineCount` 216
-- **THEN** the header is `src/app.ts:11-41 of 216 lines`
+- **THEN** the header is `src/app.ts:L11-41 of 216 lines`
 
 ### Requirement: Attribution fields render as lines after the header
 
@@ -300,9 +304,9 @@ The Knowledge `notice` of a `grep` result MUST NOT fold its line breaks.
 
 ### Requirement: A count of one takes the singular noun
 
-The `lines` and `entries` in every template of this capability are the plural form of a count,
-and this requirement governs their number: a count of one MUST take the singular, as in `1 line`,
-`1 line total`, `of 1 line`, `1 more line`, and `1 more entry`. In an `edit` header the noun MUST
+The `lines` and `entries` in every template of this capability are the plural form of a count.
+This requirement governs their number. A count of one MUST take the singular, as in `1 line`,
+`1 line total`, `of 1 line`, `1 more line`, and `1 more entry`. In an `edit` header, the noun MUST
 follow the replacement count, so `2 -> 1 line` and `1 -> 2 lines`.
 
 #### Scenario: One-line results use the singular
@@ -310,32 +314,33 @@ follow the replacement count, so `2 -> 1 line` and `1 -> 2 lines`.
 - **WHEN** the model writes a one-line file, then replaces its only line with one line
 - **THEN** the texts are `replaced <locator> (1 line)` and
   `edited <locator>: line 1, 1 -> 1 line (1 line total)`
-- **AND** a read of a two-line file cut after line 1 carries `[1 more line. Use <locator>:2- to continue]`
+- **AND** a read of a two-line file cut after line 1 carries `[1 more line. Use <locator>:L2- to continue]`
 
 ### Requirement: Continuation is one bracketed notice line
 
 When a `read` result carries `truncated: true` and a `nextOffset`, the text
-MUST carry one bracketed line that names the next read. The next read starts
-at line `nextOffset + 1`. It ends at the stored requested end while that end
-is not reached. It is open-ended `<n>-` in three cases: the requested end is
-reached, the line reaches the stored `lineCount`, or the result stores no
-line count. A directory listing stores no line count. A locator that takes no
-selector states the remainder alone.
+MUST carry one bracketed line that names the next read, in the canonical
+spelling. The next read starts at line `nextOffset + 1`. It ends at the stored
+requested end while that end is not reached. It is open `L<n>-` in three
+cases: the requested end is reached, the line reaches the stored `lineCount`,
+or the result stores no line count. A directory listing stores no line count,
+and its entries are lines. A locator that takes no selector states the
+remainder alone.
 
 #### Scenario: A truncated read tells how to continue
 
 - **WHEN** an unselected read of a 3,000-line file stops with `nextOffset` 2000 and `lineCount` 3000
-- **THEN** the text ends with `[1000 more lines. Use <locator>:2001- to continue]`
+- **THEN** the text ends with `[1000 more lines. Use <locator>:L2001- to continue]`
 
 #### Scenario: A cut inside the requested window resumes to the stored end
 
-- **WHEN** an explicit `:1-2000` read of a 3,000-line file is cut by the bound with `nextOffset` 1500
-- **THEN** the text ends with `[1500 more lines. Use <locator>:1501-2000 to continue]`
+- **WHEN** the bound cuts an explicit `:1-2000` read of a 3,000-line file with `nextOffset` 1500
+- **THEN** the text ends with `[1500 more lines. Use <locator>:L1501-2000 to continue]`
 
 #### Scenario: A cut unselected read resumes to the end of the file
 
-- **WHEN** an unselected read of a 3,000-line file is cut by the bound with `nextOffset` 1500
-- **THEN** the text ends with `[1500 more lines. Use <locator>:1501- to continue]`
+- **WHEN** the bound cuts an unselected read of a 3,000-line file with `nextOffset` 1500
+- **THEN** the text ends with `[1500 more lines. Use <locator>:L1501- to continue]`
 
 #### Scenario: A ranged read that is not truncated has no notice
 
@@ -345,30 +350,30 @@ selector states the remainder alone.
 #### Scenario: A result without a line count omits the count
 
 - **WHEN** a read part stored without `lineCount` is truncated with `nextOffset` 2000
-- **THEN** the text ends with `[Use <locator>:2001- to continue]`
+- **THEN** the text ends with `[Use <locator>:L2001- to continue]`
 
 #### Scenario: An outline resumes in its own form
 
 - **WHEN** a read of `README.md:outline:1-900` stops at source line 400
-- **THEN** the text ends with `[Use README.md:outline:401-900 to continue]`
+- **THEN** the text ends with `[Use README.md:outline:L401-900 to continue]`
 
 #### Scenario: A listing resumes at the next entry
 
 - **WHEN** a directory listing of 120 entries stops with `nextOffset` 50 and `entryCount` 120
-- **THEN** the text ends with `[70 more entries. Use <locator>:51- to continue]`
-- **AND** the next read is open-ended
+- **THEN** the text ends with `[70 more entries. Use <locator>:L51- to continue]`
+- **AND** the next read is open
 
 ### Requirement: The continuation count names the source lines after the cut
 
 When a truncated result carries a `lineCount`, its bracketed line MUST name the source lines after
 the cut, `lineCount - nextOffset`, before the read that continues it. The count MUST NOT claim to
-be the members the selector still requests: a multi-range read counts the gap it skips, and a read
-cut inside its window counts past the window end.
+be the members that the selector still requests. A multi-range read counts the gap that it skips.
+A read cut inside its window counts lines after the end of the window.
 
 #### Scenario: A multi-range read counts the source, not the remaining members
 
 - **WHEN** a read of `:1-2500,4000-4010` of a 5,000-line file stops with `nextOffset` 2000
-- **THEN** the text ends with `[3000 more lines. Use <locator>:2001-2500,4000-4010 to continue]`
+- **THEN** the text ends with `[3000 more lines. Use <locator>:L2001-2500,L4000-4010 to continue]`
 - **AND** the selector requests 511 lines while the count names the 3,000 source lines after the cut
 
 ### Requirement: A locator without selector room states the remainder alone
@@ -534,7 +539,8 @@ A `bash` success of a command that exited MUST begin with `exit <code>`. When th
 follow verbatim, and a non-empty stderr MUST follow under a `[stderr]` line.
 When both streams are empty, the text MUST be the header and `(no output)`.
 A stream that does not fit inline MUST render its head lines, one
-omitted-range line, and its tail lines. The function MUST cut a line longer than its share by
+omitted-range line, and its tail lines. The omitted-range line MUST name the read of the omitted
+lines in the canonical selector spelling. The function MUST cut a line longer than its share by
 code units. The artifact notice line, when present, MUST end the text. A
 `command_failed` or `timed_out` message MUST have the same shape.
 
@@ -584,7 +590,7 @@ A `backgrounded` result has no exit code and no streams. Its text MUST be the fi
 #### Scenario: A long log keeps its tail
 
 - **WHEN** stdout has 5,000 lines and does not fit inline
-- **THEN** the text shows its first 40 lines, `[lines 41-4880 omitted; read artifact://bash-<n>/stdout:41-4880]`, and its last 120 lines
+- **THEN** the text shows its first 40 lines, `[lines 41-4880 omitted; read artifact://bash-<n>/stdout:L41-4880]`, and its last 120 lines
 
 #### Scenario: A backgrounded result has no exit line
 
@@ -705,7 +711,7 @@ it with one space.
 The artifact notice MUST be one bracketed line that names each part as
 `<locator> (<lines> lines)`, with a comma between two parts. A count of one
 MUST read `1 line`. A `grep` or `web_search` notice MUST add
-`; continue with <locator>:<next>-`. `<next>` is the artifact line after the
+`; continue with <locator>:L<next>-`. `<next>` is the artifact line after the
 last inline passage or result. A notice for artifact files MUST add
 `; host files in <locator>`, where `<locator>` is the `machine://` locator of
 the directory, or `; host files only on Machine <name>`.
@@ -713,12 +719,12 @@ the directory, or `; host files only on Machine <name>`.
 #### Scenario: A notice without a host file
 
 - **WHEN** `artifact://grep-7` has 4,812 lines, the inline part ends at line 200, and no file exists
-- **THEN** the notice is `[full result: artifact://grep-7 (4812 lines); continue with artifact://grep-7:201-]`
+- **THEN** the notice is `[full result: artifact://grep-7 (4812 lines); continue with artifact://grep-7:L201-]`
 
 #### Scenario: A web notice continues after the inline results
 
 - **WHEN** `artifact://web_search-4` holds 20 results and one answer, and the inline text shows results 1 to 10, which end at artifact line 40
-- **THEN** the notice ends with `; continue with artifact://web_search-4:41-]`
+- **THEN** the notice ends with `; continue with artifact://web_search-4:L41-]`
 
 #### Scenario: A bash notice without a host file
 
@@ -753,14 +759,14 @@ NOT carry that notice.
 ### Requirement: The grep remainder line names the next files
 
 The remainder line MUST read `[more: <files> files, <passages> passages; next:
-<entries>]`. Each entry MUST be `<locator> (<locator of the artifact>:<a>-<b>)`,
+<entries>]`. Each entry MUST be `<locator> (<locator of the artifact>:L<a>-<b>)`,
 with a comma between two entries. The line MUST name at most ten files. It
-MUST fit in 2,000 code units; an entry that does not fit is left out.
+MUST fit in 2,000 code units. An entry that does not fit MUST be left out.
 
 #### Scenario: The remainder line names two files
 
 - **WHEN** two files with 12 passages follow the inline part in `artifact://grep-3`
-- **THEN** the line is `[more: 2 files, 12 passages; next: /r/a.ts (artifact://grep-3:201-240), /r/b.ts (artifact://grep-3:241-300)]`
+- **THEN** the line is `[more: 2 files, 12 passages; next: /r/a.ts (artifact://grep-3:L201-240), /r/b.ts (artifact://grep-3:L241-300)]`
 
 ### Requirement: Artifact framing values render on one line
 
@@ -986,7 +992,7 @@ begin with the line `job://` and then render one line for each job. An empty lis
 #### Scenario: A job output read has the read header
 
 - **WHEN** the model reads `job://bash-4/stdout:1-3` from an output with 40 lines
-- **THEN** the text begins with `job://bash-4/stdout:1-4 of 40 lines`, including one context line
+- **THEN** the text begins with `job://bash-4/stdout:L1-4 of 40 lines`, with one context line
 
 ### Requirement: Wait and stop results keep the JSON rendering
 
