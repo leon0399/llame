@@ -6,6 +6,8 @@ import { randomUUID } from 'node:crypto';
  * delivered message, and moves the Run onto it.
  */
 
+import { and, eq } from 'drizzle-orm';
+
 import { ChatsRepository, MessagesRepository } from '../chats/chats-repository';
 import { createCompactionContinueItem } from '../chats/compaction-continue-item';
 import { partsToText, type MessagePart } from '../chats/context-builder';
@@ -14,7 +16,7 @@ import type { StoppedCall } from '../chats/interrupted-notice';
 
 import { ChatDeliveriesRepository } from '../chats/chat-deliveries.repository';
 import { ChatJobsRepository } from '../jobs/chat-jobs.repository';
-import { type ChatDelivery, type Message, type Run } from '../db/schema';
+import { runs, type ChatDelivery, type Message, type Run } from '../db/schema';
 import { type Db } from '../db/tenant-db.service';
 import { RunEventsRepository, RunsRepository } from './runs-repository';
 import { RunRowFenceRepository } from './run-row-fence.repository';
@@ -120,6 +122,78 @@ export async function moveRunToDelivery(
   if (!moved) throw new Error(`Run ${runId} could not move to its delivery.`);
 
   await new RunEventsRepository(tx).append(runId, 'run.delivered', {
+    messageId: message.id,
+    ...deliveredEventPayload(attemptId, delivery),
+  });
+
+  return attemptId;
+}
+
+/** Move a parked Run off its quota wait, fenced by that wait's job id. */
+async function moveOutOfWait(
+  tx: Db,
+  run: Pick<Run, 'id' | 'userId'>,
+  next: { fromJobId: string } & Partial<typeof runs.$inferInsert>,
+): Promise<void> {
+  const { fromJobId, ...set } = next;
+
+  const [moved] = await tx
+    .update(runs)
+    .set({ ...set, status: 'queued' })
+    .where(
+      and(
+        eq(runs.id, run.id),
+        eq(runs.userId, run.userId),
+        eq(runs.status, 'awaiting_quota'),
+        eq(runs.currentJobId, fromJobId),
+      ),
+    )
+    .returning({ id: runs.id });
+
+  if (!moved) throw new Error(`Run ${run.id} could not leave its quota wait.`);
+}
+
+/**
+ * The move of a parked Run (model-roles D7): a Run in `awaiting_quota` has no
+ * active attempt, so the caller holds the Run locked in the wait subsystem's
+ * Chat-then-Run order and this fences on that wait's own state and job id
+ * instead. It marks the items delivered, mints the attempt that will claim the
+ * queued Run, moves the Run onto `message` under the switched model, and
+ * appends the delivery.
+ */
+export async function moveWaitingRunToDelivery(
+  tx: Db,
+  locked: Run,
+  delivery: {
+    items: ReadonlyArray<ChatDelivery>;
+    message: Message;
+    cause: DeliveryCause;
+    stoppedCalls: ReadonlyArray<StoppedCall>;
+    /** The deadline job the wait parked the Run under. */
+    fromJobId: string;
+    /** The queued job that will claim the moved Run. */
+    nextJobId: string;
+    modelId: string;
+    effort: string | null;
+  },
+): Promise<string> {
+  const { items, message } = delivery;
+
+  await markDeliveryItems(tx, { locked, items, commandItems: [], message });
+
+  const attemptId = randomUUID();
+
+  await moveOutOfWait(tx, locked, {
+    fromJobId: delivery.fromJobId,
+    messageId: message.id,
+    activeAttemptId: attemptId,
+    modelId: delivery.modelId,
+    effort: delivery.effort,
+    awaiting: null,
+    currentJobId: delivery.nextJobId,
+  });
+
+  await new RunEventsRepository(tx).append(locked.id, 'run.delivered', {
     messageId: message.id,
     ...deliveredEventPayload(attemptId, delivery),
   });

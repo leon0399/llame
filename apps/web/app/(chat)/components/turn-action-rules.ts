@@ -6,18 +6,29 @@
 
 import { getToolName, isToolUIPart, type ChatStatus, type UIMessage } from "ai";
 
-import type { ChatLatestRunResponse } from "@/lib/api/generated/models";
+import type {
+  ChatLatestRunResponse,
+  ModelRoleResponse,
+} from "@/lib/api/generated/models";
 import {
   messageSeqFromMetadata,
   runIdFromMessageMetadata,
 } from "@/lib/services/chat/history";
 import { isTerminalRunStatus } from "@/lib/services/chat/run-notifications";
+import {
+  nextCandidateOf,
+  type NextCandidate,
+} from "@/lib/services/models/next-candidate";
 
 import { hasVisibleContent } from "./message-visibility";
 import { parseTurnUsage } from "./message-usage";
 
 export type TurnActionVisibility = {
   continueTurn: boolean;
+  /** The candidate "Continue on next candidate" would start on; null when the
+   *  action does not apply (an exact selector, the last candidate, a Run that
+   *  did not fail, or no next candidate in the config). */
+  nextCandidate: NextCandidate | null;
 };
 
 /** The reply a turn's actions judge: its recorded usage and its stored parts.
@@ -94,13 +105,16 @@ function continuesTurn(
  * request is in flight, nothing while the latest Run still executes, and
  * nothing for a Chat with no Run. A terminal Run always offers Regenerate; a
  * turn that left no reply passes `reply: null` and gets Regenerate alone.
+ * Continue on next candidate joins them for a `failed` Run whose role has a
+ * candidate after the one it used.
  */
 export function turnActionVisibility(input: {
   latestRun: ChatLatestRunResponse | null;
   reply: TurnReply | null;
   status: ChatStatus;
+  roles: ReadonlyArray<ModelRoleResponse>;
 }): TurnActionVisibility | null {
-  const { latestRun, reply, status } = input;
+  const { latestRun, reply, status, roles } = input;
 
   if (!isActionableStatus(status)) return null;
 
@@ -110,6 +124,13 @@ export function turnActionVisibility(input: {
 
   return {
     continueTurn: reply !== null && continuesTurn(latestRun, reply),
+    // Only a `failed` Run can move on: the api refuses a next candidate for a
+    // cancelled or expired Run (turn-actions "Continue on the next candidate
+    // of a cancelled Run is refused").
+    nextCandidate:
+      latestRun.status === "failed"
+        ? (nextCandidateOf(latestRun, roles) ?? null)
+        : null,
   };
 }
 

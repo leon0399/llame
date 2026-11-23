@@ -85,6 +85,14 @@ export type CreateRunForMessageInput = RunSelection & {
    * Run it acts on, and the parts its event log starts with.
    */
   followUp?: FollowUpRunInput;
+  /**
+   * The follow-up identity of a Run whose reply it does NOT continue from the
+   * event log: Continue on next candidate starts an ordinary first segment on
+   * the switch's host message, so it records the action and its source Run
+   * without `run.continued` or `replacesUsage` (design D7).
+   */
+  followUpAction?: 'continue' | 'regenerate';
+  sourceRunId?: string;
 };
 
 /**
@@ -228,8 +236,8 @@ async function createRunRow(
         selectedEffort: input.selectedEffort,
         selectionRevision: input.selectionRevision ?? undefined,
         permissionMode: input.permissionMode,
-        followUpAction: input.followUp?.action,
-        sourceRunId: input.followUp?.sourceRunId,
+        followUpAction: input.followUpAction ?? input.followUp?.action,
+        sourceRunId: input.sourceRunId ?? input.followUp?.sourceRunId,
       }),
     );
   } catch (error) {

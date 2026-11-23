@@ -11,7 +11,13 @@ import { buildApiUrl } from "../../api/fetch";
  * neither.
  */
 export type FollowUpRunRequest =
-  | { action: "continue"; permissionMode?: PermissionModeResponseValue }
+  | {
+      action: "continue";
+      /** `next` moves the turn to the next candidate of the Run's role
+       *  (model-roles D7); omitted resumes the Run's own model and effort. */
+      candidate?: "next";
+      permissionMode?: PermissionModeResponseValue;
+    }
   | {
       action: "regenerate";
       /** A model role (`@name`) or one exact model id; omitted means the
@@ -90,8 +96,13 @@ export function followUpRunRequest(
     isPermissionMode(rawMode) && rawMode !== "default" ? rawMode : undefined;
 
   if ("action" in value && value.action === "continue") {
+    const candidate = "candidate" in value ? value.candidate : undefined;
+
     return {
       action: "continue",
+      // Only the one value this build sends reaches the wire: the api rejects
+      // every other candidate with a 400.
+      ...(candidate === "next" && { candidate }),
       ...(permissionMode !== undefined && { permissionMode }),
     };
   }

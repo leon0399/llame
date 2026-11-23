@@ -618,6 +618,30 @@ describe('FollowUpAdmissionService', () => {
     expect(runAs).not.toHaveBeenCalled();
   });
 
+  it('rejects a candidate value other than next on a Continue', async () => {
+    const { service, runAs } = makeService();
+
+    await expect(
+      admit(service, { action: 'continue', candidate: 'first' }),
+    ).rejects.toMatchObject({
+      constructor: BadRequestException,
+      message: 'candidate must be next',
+    });
+    expect(runAs).not.toHaveBeenCalled();
+  });
+
+  it('rejects a candidate named on a Regenerate', async () => {
+    const { service, runAs } = makeService();
+
+    await expect(
+      admit(service, { action: 'regenerate', candidate: 'next' }),
+    ).rejects.toMatchObject({
+      constructor: BadRequestException,
+      message: 'A regenerate request does not name a candidate',
+    });
+    expect(runAs).not.toHaveBeenCalled();
+  });
+
   it('rejects a permission mode the operator did not enable', async () => {
     const { service } = makeService();
 

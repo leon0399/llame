@@ -696,6 +696,7 @@ function classify(raw: string) {
     // the api's OpenAI-compatible client, whose {tools, messages} shape is
     // fixed by the AI SDK request format this mock exists to answer.
     const body = JSON.parse(raw) as {
+      model?: string;
       tools?: Array<JsonValue>;
       messages?: Array<ChatMessage>;
       stream?: boolean;
@@ -790,6 +791,9 @@ function classify(raw: string) {
           ? findStringProperty(knowledgeLocatorSearchResult.results, "locator")
           : undefined,
       hasKnowledgeLocatorReadResult: readTextLocator !== undefined,
+      // The provider model id the api routed this request to: the role
+      // failover fixture fails one model, not every request.
+      model: body.model,
       lastUserContent: content,
       lastUserImageCount: content.match(IMAGE_CONTENT_PART_RE)?.length ?? 0,
       lastUserPdfCount: content.match(PDF_CONTENT_PART_RE)?.length ?? 0,
@@ -831,6 +835,7 @@ function classify(raw: string) {
       knowledgeResultPath: undefined,
       knowledgeLocatorFromSearch: undefined,
       hasKnowledgeLocatorReadResult: false,
+      model: undefined,
       lastUserContent: "",
       lastUserImageCount: 0,
       lastUserPdfCount: 0,
@@ -1512,6 +1517,26 @@ function shouldFailAfterTool(classification: ReturnType<typeof classify>) {
   return true;
 }
 
+const NEXT_CANDIDATE_MARKER = "NEXT_CANDIDATE";
+
+/** The provider model of the e2e role's first candidate. */
+const NEXT_CANDIDATE_PRIMARY_MODEL = "gpt-5.4-mini";
+
+/**
+ * Whether this request fails the role's primary candidate: only a prompt that
+ * carries the marker, so no other suite can trip it. The failed turn's
+ * Continue on next candidate sends the switch host message as its last user
+ * turn, so the marker does not reappear and the second candidate answers.
+ */
+function shouldFailPrimaryCandidate(
+  classification: ReturnType<typeof classify>,
+) {
+  return (
+    classification.model === NEXT_CANDIDATE_PRIMARY_MODEL &&
+    classification.lastUserContent.includes(NEXT_CANDIDATE_MARKER)
+  );
+}
+
 /** The refusal the mock answers with when a turn is meant to fail. */
 function writeModelFailure(res: ServerResponse): void {
   res.writeHead(400, { "content-type": "application/json" });
@@ -1528,7 +1553,10 @@ async function respondToChatCompletion(
 ): Promise<void> {
   const classification = classify(raw);
 
-  if (shouldFailAfterTool(classification)) {
+  if (
+    shouldFailAfterTool(classification) ||
+    shouldFailPrimaryCandidate(classification)
+  ) {
     writeModelFailure(res);
 
     return;

@@ -40,3 +40,4 @@ export const runContextReceiptQueryOptions = fn().mockName(
 
 export const runIdToCancel = fn(() => null).mockName("runIdToCancel");
 export const cancelRun = fn().mockName("cancelRun");
+export const nextCandidateRun = fn().mockName("nextCandidateRun");

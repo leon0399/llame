@@ -153,3 +153,61 @@ test("regenerates a completed answer after confirming the calls it discards", as
       .filter({ hasText: /\bbash, /u }),
   ).toHaveCount(1, { timeout: 30_000 });
 });
+
+const NEXT_CANDIDATE_ROLE = "@chat";
+const NEXT_CANDIDATE_DEFAULT_MODEL = "system:openai:gpt-5.4-mini";
+const NEXT_CANDIDATE_PRIMARY = NEXT_CANDIDATE_DEFAULT_MODEL;
+const NEXT_CANDIDATE_SECOND = "system:openai:gpt-5.4-nano";
+
+test("continues a failed role turn on its next candidate", async ({ page }) => {
+  // The mock fails the marked prompt on the role's primary provider model
+  // only, so the owner can move the same turn onto the second candidate.
+  const prompt = `NEXT_CANDIDATE summarise the release notes ${randomUUID()}`;
+  await page.goto("/", { waitUntil: "domcontentloaded" });
+
+  // The client-fetched catalog is the hydration barrier; picking the role
+  // makes the send name `@chat` instead of the default model.
+  const picker = page.getByRole("combobox", { name: "Select model" });
+  await expect(picker).toContainText(NEXT_CANDIDATE_DEFAULT_MODEL);
+  await picker.click();
+  await page.getByRole("option", { name: NEXT_CANDIDATE_ROLE }).click();
+  await page.keyboard.press("Escape");
+  await expect(picker).toContainText(NEXT_CANDIDATE_ROLE);
+
+  const composer = await readyComposer(page);
+  await composer.fill(prompt);
+  await page.getByRole("button", { name: "Send message" }).click();
+
+  const log = page.getByRole("log");
+  // The primary fails before any step settles, so the minimal failed-turn row
+  // carries the action and names the model it moves to.
+
+  const continueNext = page.getByRole("button", {
+    name: `Continue on next candidate → ${NEXT_CANDIDATE_SECOND}`,
+  });
+
+  await expect(continueNext).toBeVisible({ timeout: 30_000 });
+
+  const followUp = page.waitForRequest((request) =>
+    FOLLOW_UP_ROUTE.test(new URL(request.url()).pathname),
+  );
+
+  await continueNext.click();
+
+  // Continue on the next candidate names only the action and the candidate.
+  expect((await followUp).postDataJSON()).toEqual({
+    action: "continue",
+    candidate: "next",
+  });
+
+  // The failed primary reply, the switch host message, and the second model's
+  // reply: the boundary names both models and the failure.
+  await expect(
+    log.getByRole("button", {
+      name: `Model changed from ${NEXT_CANDIDATE_PRIMARY} to ${NEXT_CANDIDATE_SECOND}: invalid request`,
+    }),
+  ).toBeVisible({ timeout: 30_000 });
+  await expect(
+    log.getByText("Mocked answer from the e2e model server."),
+  ).toBeVisible({ timeout: 30_000 });
+});

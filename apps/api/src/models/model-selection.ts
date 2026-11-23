@@ -6,7 +6,10 @@
  * pick clears the hold".
  */
 
-import type { ModelRoleCandidate } from '../instance-config/model-roles-config';
+import type {
+  ModelRoleCandidate,
+  ModelRoleConfig,
+} from '../instance-config/model-roles-config';
 import type { SystemModelCatalogEntry } from './model-catalog';
 import { parseModelSelector } from './model-selector';
 
@@ -124,6 +127,111 @@ export function offerSelector(
   return model === undefined
     ? undefined
     : { kind: 'selector', selector, model, candidate, storedUsed: false };
+}
+
+/** The candidate after a Run's model in its role, as the next-candidate action reads it. */
+export type NextCandidate = {
+  readonly modelId: string;
+  /** The candidate's config-declared effort, when it declares one. */
+  readonly candidateEffort?: string;
+  /** Per-token (`usage`) billing — false for `subscription` and `free`. */
+  readonly paid: boolean;
+};
+
+/**
+ * {@link nextCandidateInRole} over the boot config itself, for a caller that
+ * holds `InstanceConfigReader` and not `ModelsService` (follow-up admission).
+ * One rule, one implementation: the config is only read through the same
+ * catalog view every selector rule uses.
+ */
+export function nextCandidateInConfig(
+  config: {
+    readonly models: ReadonlyArray<SystemModelCatalogEntry>;
+    readonly modelRoles: ReadonlyArray<ModelRoleConfig>;
+  },
+  selector: string,
+  currentModelId: string,
+): NextCandidate | undefined {
+  return nextCandidateInRole(
+    {
+      roleCandidates: (roleName) =>
+        config.modelRoles.find((role) => role.name === roleName)?.candidates,
+      model: (modelId) => config.models.find((model) => model.id === modelId),
+    },
+    selector,
+    currentModelId,
+  );
+}
+
+/**
+ * The candidate after `currentModelId` in the current config of the role that
+ * `selector` names (`model-roles`: "The next candidate follows the current
+ * model in the role"). The chain never wraps: an exact selector, an unknown
+ * role, a model that is not a candidate, and the last candidate all answer
+ * `undefined`, which the action maps to 409 `next_candidate_unavailable`.
+ */
+export function nextCandidateInRole(
+  catalog: Pick<SelectionCatalog, 'roleCandidates' | 'model'>,
+  selector: string,
+  currentModelId: string,
+): NextCandidate | undefined {
+  const parsed = parseModelSelector(selector);
+
+  if (parsed.kind !== 'role') return undefined;
+
+  const candidates = catalog.roleCandidates(parsed.roleName);
+
+  const index =
+    candidates?.findIndex(
+      (candidate) => candidate.modelId === currentModelId,
+    ) ?? -1;
+
+  if (candidates === undefined || index === -1) return undefined;
+
+  const next = candidates[index + 1];
+  const model = next === undefined ? undefined : catalog.model(next.modelId);
+
+  // Boot validates every candidate against the catalog, so a missing model is
+  // a broken config rather than a switch this action can make.
+  if (next === undefined || model === undefined) return undefined;
+
+  return {
+    modelId: next.modelId,
+    ...(next.effort !== undefined && { candidateEffort: next.effort }),
+    paid: model.billing === 'usage',
+  };
+}
+
+/**
+ * The saved timing of a failure that a switch's hold reads. `runs.error` is a
+ * JSON value, so its owner parses it into this shape; `resetsAt` is the ISO
+ * instant the stored millisecond value names.
+ */
+export type FailureTiming = {
+  readonly resetsAt?: string | null;
+  readonly hintMs?: number | null;
+};
+
+/**
+ * When a switch's fallback hold ends: the reset time of the failure, else the
+ * failure's retry hint from now, else five minutes from now (design D4).
+ */
+export function revertAtFor(failure: FailureTiming, now: Date): Date {
+  const resetsAt = failure.resetsAt;
+
+  if (resetsAt !== undefined && resetsAt !== null) {
+    const resetAt = Date.parse(resetsAt);
+
+    if (Number.isFinite(resetAt)) return new Date(resetAt);
+  }
+
+  const hintMs = failure.hintMs;
+
+  if (hintMs !== undefined && hintMs !== null) {
+    return new Date(now.getTime() + hintMs);
+  }
+
+  return new Date(now.getTime() + 5 * 60_000);
 }
 
 /**

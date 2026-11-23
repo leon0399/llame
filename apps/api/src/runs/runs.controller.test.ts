@@ -1,4 +1,4 @@
-import { ConflictException, Logger } from '@nestjs/common';
+import { ConflictException, Logger, NotFoundException } from '@nestjs/common';
 import { drizzle } from 'drizzle-orm/postgres-js';
 
 import {
@@ -7,6 +7,8 @@ import {
   type SystemPromptReceipt,
 } from '../db/schema';
 import { type Db, type TenantRunner } from '../db/tenant-db.service';
+import { NextCandidateUnavailableError } from '../models/models.service';
+import { type NextCandidateService } from './next-candidate.service';
 import { RunEventsRepository, RunsRepository } from './runs-repository';
 import { RunsController } from './runs.controller';
 import { SystemPromptReceiptsRepository } from './system-prompt-receipts.repository';
@@ -15,7 +17,7 @@ type RunEventRequest = Parameters<RunsController['streamRunEvents']>[3];
 
 type RunEventResponse = Parameters<RunsController['streamRunEvents']>[4];
 
-describe('RunsController context receipt', () => {
+describe('RunsController', () => {
   const run: Run = {
     id: '11111111-1111-4111-8111-111111111111',
     kind: 'turn',
@@ -76,7 +78,12 @@ describe('RunsController context receipt', () => {
 
   afterEach(() => vi.restoreAllMocks());
 
-  function controller(wakeInTransaction = vi.fn().mockResolvedValue(false)) {
+  function controller(
+    wakeInTransaction = vi.fn().mockResolvedValue(false),
+    nextCandidates: Pick<NextCandidateService, 'moveWaitingRun'> = {
+      moveWaitingRun: vi.fn(),
+    },
+  ) {
     const tx: Db = drizzle.mock();
 
     const runAs: TenantRunner['runAs'] = async <T>(
@@ -87,7 +94,7 @@ describe('RunsController context receipt', () => {
     const tenantDb: TenantRunner = { runAs };
     vi.spyOn(tenantDb, 'runAs');
 
-    return new RunsController(tenantDb, { wakeInTransaction });
+    return new RunsController(tenantDb, { wakeInTransaction }, nextCandidates);
   }
 
   function request(
@@ -1075,5 +1082,51 @@ describe('RunsController context receipt', () => {
       'database unavailable',
     );
     expect(output.end).toHaveBeenCalledOnce();
+  });
+
+  it('moves a waiting run to its next candidate for the owner', async () => {
+    const moved: Run = { ...run, status: 'queued', selector: '@coding' };
+
+    const moveWaitingRun = vi.fn<NextCandidateService['moveWaitingRun']>(() =>
+      Promise.resolve({ kind: 'moved', run: moved }),
+    );
+
+    const response = await controller(undefined, {
+      moveWaitingRun,
+    }).nextCandidate('owner', run.id);
+
+    expect(moveWaitingRun).toHaveBeenCalledWith({
+      runId: run.id,
+      userId: 'owner',
+    });
+    expect(response).toMatchObject({ id: run.id, status: 'queued' });
+  });
+
+  it('answers not-found for another owner without moving the run', async () => {
+    const moveWaitingRun = vi.fn<NextCandidateService['moveWaitingRun']>(() =>
+      Promise.resolve({ kind: 'not-found' }),
+    );
+
+    await expect(
+      controller(undefined, { moveWaitingRun }).nextCandidate(
+        'stranger',
+        run.id,
+      ),
+    ).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it('answers next-candidate-unavailable with a conflict', async () => {
+    const moveWaitingRun = vi.fn<NextCandidateService['moveWaitingRun']>(() =>
+      Promise.resolve({ kind: 'unavailable' }),
+    );
+
+    const refused = controller(undefined, {
+      moveWaitingRun,
+    }).nextCandidate('owner', run.id);
+
+    await expect(refused).rejects.toBeInstanceOf(NextCandidateUnavailableError);
+    await expect(refused).rejects.toMatchObject({
+      code: 'next_candidate_unavailable',
+    });
   });
 });

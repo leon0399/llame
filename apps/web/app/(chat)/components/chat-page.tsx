@@ -322,6 +322,7 @@ function ChatSessionMain({
       isLoadingOlderMessages={isLoadingOlderMessages}
       onLoadOlderMessages={onLoadOlderMessages}
       availableModels={transcript.availableModels}
+      roles={transcript.roles}
       status={status}
       latestRun={transcript.latestRun}
       onFollowUp={transcript.onFollowUp}
@@ -396,6 +397,9 @@ function ComposerPending({
           modelName={composer.quotaModelName}
           onStop={composer.handleStop}
           pendingStop={composer.pendingStop}
+          nextCandidate={composer.quotaNextCandidate}
+          onNextCandidate={composer.onNextCandidate}
+          pendingNextCandidate={composer.pendingNextCandidate}
         />
       )}
       <PendingDeliveries {...pending} />

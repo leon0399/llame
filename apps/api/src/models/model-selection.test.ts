@@ -16,7 +16,12 @@ import type {
   SelectionRequest,
   SelectionWriter,
 } from './model-selection';
-import { effortAfterSwitch } from './model-selection';
+import {
+  effortAfterSwitch,
+  nextCandidateInConfig,
+  nextCandidateInRole,
+  revertAtFor,
+} from './model-selection';
 import {
   EffortNotAvailableError,
   resolveSelectionFromCatalog,
@@ -382,5 +387,86 @@ describe('the effort after a switch follows the selected effort', () => {
         candidateEffort: undefined,
       }),
     ).toEqual({ kind: 'effort', effort: 'medium' });
+  });
+});
+
+describe('the next candidate of a role', () => {
+  it('follows the current model in config order, with its effort', () => {
+    expect(nextCandidateInRole(CATALOG, '@coding', 'codex')).toEqual({
+      modelId: 'sonnet',
+      candidateEffort: 'xhigh',
+      paid: false,
+    });
+  });
+
+  it('answers no candidate for an exact selector, an unknown role, a model outside the role, and the last candidate', () => {
+    expect(nextCandidateInRole(CATALOG, 'codex', 'codex')).toBeUndefined();
+    expect(nextCandidateInRole(CATALOG, '@missing', 'codex')).toBeUndefined();
+    expect(nextCandidateInRole(CATALOG, '@coding', 'fast')).toBeUndefined();
+    expect(nextCandidateInRole(CATALOG, '@coding', 'sonnet')).toBeUndefined();
+  });
+
+  it('reads the same rule from the boot config, marking usage billing paid', () => {
+    const paid: SystemModelCatalogEntry = {
+      ...model('paid'),
+      billing: 'usage',
+    };
+
+    expect(
+      nextCandidateInConfig(
+        {
+          models: [CODEX, paid],
+          modelRoles: [
+            {
+              name: 'coding',
+              candidates: [{ modelId: 'codex' }, { modelId: 'paid' }],
+            },
+          ],
+        },
+        '@coding',
+        'codex',
+      ),
+    ).toEqual({ modelId: 'paid', paid: true });
+  });
+});
+
+describe('the hold of a switch ends at', () => {
+  const NOW = new Date('2026-11-23T13:00:00.000Z');
+
+  it('the reset of the failure, as an instant or an ISO string', () => {
+    expect(
+      revertAtFor(
+        { resetsAt: new Date(NOW.getTime() + 3_600_000).toISOString() },
+        NOW,
+      ),
+    ).toEqual(new Date('2026-11-23T14:00:00.000Z'));
+    expect(revertAtFor({ resetsAt: '2026-11-23T14:00:00.000Z' }, NOW)).toEqual(
+      new Date('2026-11-23T14:00:00.000Z'),
+    );
+  });
+
+  it('the retry hint when the failure named no reset', () => {
+    expect(revertAtFor({ resetsAt: null, hintMs: 30_000 }, NOW)).toEqual(
+      new Date('2026-11-23T13:00:30.000Z'),
+    );
+  });
+
+  it('five minutes when the failure named neither', () => {
+    expect(revertAtFor({}, NOW)).toEqual(new Date('2026-11-23T13:05:00.000Z'));
+    expect(revertAtFor({ resetsAt: null, hintMs: null }, NOW)).toEqual(
+      new Date('2026-11-23T13:05:00.000Z'),
+    );
+  });
+
+  it('the reset before the hint when both exist', () => {
+    expect(
+      revertAtFor(
+        {
+          resetsAt: new Date(NOW.getTime() + 60_000).toISOString(),
+          hintMs: 3_600_000,
+        },
+        NOW,
+      ),
+    ).toEqual(new Date('2026-11-23T13:01:00.000Z'));
   });
 });

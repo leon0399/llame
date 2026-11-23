@@ -1,4 +1,10 @@
-import { Inject, Injectable, Optional } from '@nestjs/common';
+import {
+  HttpException,
+  HttpStatus,
+  Inject,
+  Injectable,
+  Optional,
+} from '@nestjs/common';
 
 import { configuredCredentials } from '../instance-config/configured-credentials';
 import {
@@ -25,11 +31,13 @@ import { ROLE_SIGN } from './model-selector';
 import {
   chooseEffort,
   chooseSelector,
+  nextCandidateInRole,
   nextSelectionForWrite,
   offerSelector,
   resolveHold,
   type ChatModelSelection,
   type HoldResolution,
+  type NextCandidate,
   type OfferedSelector,
   type SelectionCatalog,
   type SelectionRequest,
@@ -102,6 +110,31 @@ export class PermissionModeNotAvailableError extends Error {
   constructor(readonly mode: string) {
     super(`Permission mode '${mode}' is not available.`);
     this.name = 'PermissionModeNotAvailableError';
+  }
+}
+
+/**
+ * The next-candidate action has nothing to move to (design D7): an exact
+ * selector, a compaction Run, a role without a following candidate, a model the
+ * role no longer lists, or a Run in the wrong state. An HTTP exception because
+ * every caller answers it directly — 409 with a stable `code`, like the 422
+ * model errors, and the follow-up admission's refusal check already treats an
+ * `HttpException` as a value it can answer after its transaction commits.
+ */
+export class NextCandidateUnavailableError extends HttpException {
+  readonly code = 'next_candidate_unavailable';
+
+  constructor(message = 'No next model candidate is available for this Run.') {
+    super(
+      {
+        statusCode: HttpStatus.CONFLICT,
+        error: 'Conflict',
+        message,
+        code: 'next_candidate_unavailable',
+      },
+      HttpStatus.CONFLICT,
+    );
+    this.name = 'NextCandidateUnavailableError';
   }
 }
 
@@ -498,6 +531,19 @@ export class ModelsService {
     requested: string | undefined,
   ): string | undefined {
     return resolveEffortSelection(model, requested);
+  }
+
+  /**
+   * The candidate after `currentModelId` in the role that `selector` names,
+   * read from the config this instance booted with (design D7). `undefined`
+   * for an exact selector, an unknown role, a model the role does not list,
+   * and the last candidate — the chain never wraps.
+   */
+  nextCandidate(
+    selector: string,
+    currentModelId: string,
+  ): NextCandidate | undefined {
+    return nextCandidateInRole(this.selectionCatalog, selector, currentModelId);
   }
 
   /**

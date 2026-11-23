@@ -32,6 +32,7 @@ import {
 const TOOL_COUNT = 87;
 const STREAM_TICKS = 50;
 const EMPTY_MODELS: ReadonlyArray<never> = [];
+const EMPTY_ROLES: ReadonlyArray<never> = [];
 const onForked = () => {};
 const onInspectContext = () => {};
 const onFollowUp = () => {};
@@ -135,6 +136,7 @@ describe("chat transcript stream-tick cost (perf)", () => {
           compaction={null}
           compactionIndex={0}
           availableModels={EMPTY_MODELS}
+          roles={EMPTY_ROLES}
           status="streaming"
           latestRun={null}
           onFollowUp={onFollowUp}
@@ -167,6 +169,7 @@ describe("chat transcript stream-tick cost (perf)", () => {
             compaction={null}
             compactionIndex={0}
             availableModels={EMPTY_MODELS}
+            roles={EMPTY_ROLES}
             status="streaming"
             latestRun={null}
             onFollowUp={onFollowUp}

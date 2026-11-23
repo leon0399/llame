@@ -1,14 +1,23 @@
 "use client";
 
 import { useState } from "react";
-import { PlayIcon, RefreshCwIcon } from "lucide-react";
+import { ArrowRightIcon, PlayIcon, RefreshCwIcon } from "lucide-react";
 
 import type { ChatStatus } from "ai";
 import { ButtonGroup } from "@workspace/ui/components/button-group";
 
 import { useChatContext } from "@/contexts/chat-context";
-import type { ChatLatestRunResponse } from "@/lib/api/generated/models";
+import type {
+  ChatLatestRunResponse,
+  ModelRoleResponse,
+} from "@/lib/api/generated/models";
 import type { FollowUpRunRequest } from "@/lib/services/chat/transport";
+import {
+  namedNextCandidate,
+  nextCandidateLabel,
+  type NextCandidate,
+} from "@/lib/services/models/next-candidate";
+import type { AvailableModel } from "@/lib/services/models/queries";
 
 import { MessageActionButton } from "./message-action-button";
 import { RegenerateConfirmDialog } from "./regenerate-confirm-dialog";
@@ -16,6 +25,7 @@ import { RegenerateMenu } from "./regenerate-menu";
 import {
   discardedCallNames,
   turnActionVisibility,
+  type TurnActionVisibility,
   type TurnReply,
 } from "./turn-action-rules";
 
@@ -26,6 +36,11 @@ type TurnActionsProps = {
   /** The reply these actions judge, or null for a turn that left none. */
   reply: TurnReply | null;
   status: ChatStatus;
+  /** The configured roles, which decide whether a failed role Run has a next
+   *  candidate. */
+  roles: ReadonlyArray<ModelRoleResponse>;
+  /** The catalog, for the next candidate's name. */
+  availableModels: ReadonlyArray<AvailableModel>;
   onFollowUp: (request: FollowUpRunRequest) => void;
 };
 
@@ -91,57 +106,152 @@ function ContinueButton({ chatId, onFollowUp }: ContinueButtonProps) {
   );
 }
 
-/**
- * The latest turn's turn-level actions (turn-actions D13). Continue appears
- * only on a reply its own terminal Run left unfinished with a settled tool
- * part to resume from; Regenerate appears whenever that Run is terminal — also
- * on a turn that left no reply at all. Neither appears while a request is in
- * flight. A Regenerate that would discard a call whose effects stay asks
- * first, naming those calls, and a cancel sends nothing.
- *
- * @summary Continue and the split Regenerate button for the latest turn
- */
-export function TurnActions({
+type NextCandidateButtonProps = {
+  chatId: string;
+  candidate: NextCandidate;
+  availableModels: ReadonlyArray<AvailableModel>;
+  onFollowUp: (request: FollowUpRunRequest) => void;
+};
+
+/** Continue on the next candidate of a role Run: the label names the model
+ *  the new segment starts on and marks a paid one. The permission mode is the
+ *  composer's, as for a plain Continue. */
+function NextCandidateButton({
+  chatId,
+  candidate,
+  availableModels,
+  onFollowUp,
+}: NextCandidateButtonProps) {
+  const { getPermissionMode } = useChatContext();
+  const named = namedNextCandidate(candidate, availableModels);
+
+  return (
+    <MessageActionButton
+      label={nextCandidateLabel(named)}
+      icon={ArrowRightIcon}
+      onClick={() =>
+        onFollowUp({
+          action: "continue",
+          candidate: "next",
+          permissionMode: getPermissionMode(chatId),
+        })
+      }
+    />
+  );
+}
+
+type TurnActionRowProps = {
+  chatId: string;
+  latestRun: ChatLatestRunResponse;
+  visibility: TurnActionVisibility;
+  availableModels: ReadonlyArray<AvailableModel>;
+  onFollowUp: (request: FollowUpRunRequest) => void;
+  requestFollowUp: (request: FollowUpRunRequest) => void;
+};
+
+/** The row's buttons: Continue when the reply has a step to resume, the next
+ *  candidate when a failed role Run has one, and Regenerate always. */
+function TurnActionRow({
   chatId,
   latestRun,
-  reply,
-  status,
+  visibility,
+  availableModels,
   onFollowUp,
-}: TurnActionsProps) {
-  const [pending, setPending] = useState<FollowUpRunRequest | null>(null);
-  const visibility = turnActionVisibility({ latestRun, reply, status });
-
-  if (visibility === null || latestRun === null) return null;
-  const discarded = reply === null ? [] : discardedCallNames(reply.parts);
-
-  const requestFollowUp = (request: FollowUpRunRequest) => {
-    if (discarded.length > 0) {
-      setPending(request);
-
-      return;
-    }
-
-    onFollowUp(request);
-  };
-
+  requestFollowUp,
+}: TurnActionRowProps) {
   return (
     <>
       {visibility.continueTurn && (
         <ContinueButton chatId={chatId} onFollowUp={onFollowUp} />
+      )}
+      {visibility.nextCandidate !== null && (
+        <NextCandidateButton
+          chatId={chatId}
+          candidate={visibility.nextCandidate}
+          availableModels={availableModels}
+          onFollowUp={onFollowUp}
+        />
       )}
       <RegenerateSplitButton
         chatId={chatId}
         latestRun={latestRun}
         requestFollowUp={requestFollowUp}
       />
+    </>
+  );
+}
+
+/** The follow-up a turn's row sends: at once, or after the owner confirms a
+ *  Regenerate that would discard calls whose effects stay. */
+function useTurnFollowUp(
+  reply: TurnReply | null,
+  onFollowUp: (request: FollowUpRunRequest) => void,
+) {
+  const [pending, setPending] = useState<FollowUpRunRequest | null>(null);
+  const discarded = reply === null ? [] : discardedCallNames(reply.parts);
+
+  return {
+    pending,
+    discarded,
+    request: (request: FollowUpRunRequest) => {
+      if (discarded.length === 0) {
+        onFollowUp(request);
+
+        return;
+      }
+
+      setPending(request);
+    },
+    confirm: () => {
+      if (pending !== null) onFollowUp(pending);
+      setPending(null);
+    },
+    cancel: () => setPending(null),
+  };
+}
+
+/**
+ * The latest turn's turn-level actions (turn-actions D13). Continue appears
+ * only on a reply its own terminal Run left unfinished with a settled tool
+ * part to resume from; Regenerate appears whenever that Run is terminal — also
+ * on a turn that left no reply at all. Continue on next candidate appears when
+ * a failed role Run has a candidate after the model it used (model-roles).
+ * None appears while a request is in flight. A Regenerate that would discard a
+ * call whose effects stay asks first, naming those calls, and a cancel sends
+ * nothing.
+ *
+ * @summary Continue, Continue on next candidate, and the split Regenerate
+ * button for the latest turn
+ */
+export function TurnActions({
+  chatId,
+  latestRun,
+  reply,
+  status,
+  roles,
+  availableModels,
+  onFollowUp,
+}: TurnActionsProps) {
+  const visibility = turnActionVisibility({ latestRun, reply, status, roles });
+  const followUp = useTurnFollowUp(reply, onFollowUp);
+
+  if (visibility === null || latestRun === null) return null;
+
+  return (
+    <>
+      <TurnActionRow
+        chatId={chatId}
+        latestRun={latestRun}
+        visibility={visibility}
+        availableModels={availableModels}
+        onFollowUp={onFollowUp}
+        requestFollowUp={followUp.request}
+      />
       <RegenerateConfirmDialog
-        discarded={discarded}
-        open={pending !== null}
-        onConfirm={() => {
-          if (pending !== null) onFollowUp(pending);
-          setPending(null);
-        }}
-        onCancel={() => setPending(null)}
+        discarded={followUp.discarded}
+        open={followUp.pending !== null}
+        onConfirm={followUp.confirm}
+        onCancel={followUp.cancel}
       />
     </>
   );

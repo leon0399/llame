@@ -83,6 +83,7 @@ const usePermissionModesQuery = mocked(
 
 const runIdToCancel = mocked(runs.runIdToCancel);
 const cancelRun = mocked(runs.cancelRun);
+const nextCandidateRun = mocked(runs.nextCandidateRun);
 
 const CHAT_ID = "a5dc235e-1de8-4aad-84d8-e0e247b6a135";
 const HISTORY_ROUTE = `GET /api/v1/chats/${CHAT_ID}/messages`;
@@ -2289,10 +2290,10 @@ const MODEL_FAILOVER = contextPart(
 );
 
 /**
- * A switch inside a Run renders the same boundary, naming the failure that
- * caused it. The history read carries the closed class, so a reload shows the
- * reason with no live connection: the codex reply, the switch host message,
- * and the sonnet reply around it.
+ * A reload after a switch: the history read carries the failover host message,
+ * so the transcript shows the closed reply, the boundary naming the failure,
+ * the host message, and the new model's reply — with no live connection
+ * (model-roles "A reload after a switch").
  *
  * @summary a stored failover boundary names its failure label
  */
@@ -4576,6 +4577,155 @@ export const NextSegmentAttachesAfterDelivery: Story = {
     await expect(
       sentRoutes().filter((route) => route === RESUME_ROUTE),
     ).toHaveLength(2);
+  },
+};
+
+const LIVE_FAILOVER = contextPart(
+  "effective-context-change",
+  {
+    cause: "failover",
+    fromModelId: CODEX.id,
+    toModelId: CLAUDE_SONNET.id,
+    failureClass: "overloaded",
+  },
+  "model failed over",
+);
+
+/** The history after a live switch: the closed codex reply, then the switch
+ *  host message the segment delivery named. */
+function historyAfterSwitch() {
+  return [
+    ...HISTORY,
+    rawChatMessage({
+      id: "a1",
+      chatId: CHAT_ID,
+      role: "assistant",
+      seq: 2,
+      inReplyTo: "m1",
+      parts: [{ type: "text", text: "first segment reply" }],
+      usage: { runId: LIVE_RUN_ID, modelId: CODEX.id, status: "error" },
+    }),
+    rawChatMessage({
+      id: "m2",
+      chatId: CHAT_ID,
+      role: "user",
+      seq: 3,
+      host: true,
+      parts: [LIVE_FAILOVER],
+    }),
+  ];
+}
+
+/**
+ * A switch inside a live Run shows the boundary before any reload: the stream
+ * ends at the switch host message, the page adopts history, and the next
+ * segment streams on the new model, leaving two replies with the boundary
+ * between them (model-roles "The live view shows the switch").
+ *
+ * @summary a live switch shows the boundary between two replies
+ */
+export const LiveViewShowsTheSwitch: Story = {
+  tags: ["ai-generated"],
+  parameters: {
+    latestRun: {
+      ...liveRun(),
+      selector: "@coding",
+      modelId: CODEX.id,
+    },
+  } satisfies ChatPageParameters,
+  beforeEach: () => {
+    let delivered = false;
+    let resumes = 0;
+    serveRoleCatalog();
+    routeAlso({
+      [RESUME_ROUTE]: () => {
+        resumes += 1;
+
+        return Promise.resolve(
+          resumes === 1
+            ? segmentStream("first segment reply", {
+                messageId: "m2",
+                before: () => {
+                  delivered = true;
+                },
+              })
+            : segmentStream("second segment reply"),
+        );
+      },
+      [HISTORY_ROUTE]: () =>
+        liveHistory(
+          delivered ? historyAfterSwitch() : HISTORY,
+          delivered ? "m2" : "m1",
+        ),
+    });
+  },
+  play: async ({ canvasElement }) => {
+    await readyComposer(canvasElement);
+    await transcriptShows(canvasElement, "second segment reply");
+    const first = transcriptText(canvasElement, "first segment reply");
+
+    const boundary = within(canvasElement).getByRole("button", {
+      name: `Model changed from ${CODEX.id} to ${CLAUDE_SONNET.id}: provider overload`,
+    });
+
+    const second = transcriptText(canvasElement, "second segment reply");
+    await expect(precedes(first, boundary)).toBe(true);
+    await expect(precedes(boundary, second)).toBe(true);
+  },
+};
+
+/**
+ * A role Run parked in a quota wait offers its next candidate in the box: the
+ * action names the model and marks it paid, moves the same Run server-side,
+ * and re-reads the Chat (model-roles "A role Run in a quota wait offers the
+ * next candidate").
+ *
+ * @summary the quota box offers the role's next candidate
+ */
+export const QuotaWaitOffersNextCandidate: Story = {
+  tags: ["ai-generated"],
+  parameters: {
+    latestRun: {
+      ...liveRun(),
+      status: "awaiting_quota",
+      selector: "@coding",
+      modelId: CODEX.id,
+      quotaWait: {
+        failureClass: "quota_exhausted",
+        resetsAt: new Date(QUOTA_STORY_NOW + 183_600_000).toISOString(),
+        wakeAt: new Date(QUOTA_STORY_NOW + 183_675_000).toISOString(),
+      },
+    },
+  } satisfies ChatPageParameters,
+  beforeEach: () => {
+    setChatMarkdownLoadForTests(() => Promise.resolve(RENDERERS));
+    serveRoleCatalog();
+    nextCandidateRun.mockClear();
+    nextCandidateRun.mockResolvedValue(undefined);
+    const original = Date.now;
+    Date.now = () => QUOTA_STORY_NOW;
+
+    return () => {
+      Date.now = original;
+    };
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await waitFor(() => expect(composer(canvasElement)).toBeEnabled());
+    await userEvent.click(
+      await canvas.findByRole("button", {
+        name: "Continue on next candidate → Claude Sonnet (paid)",
+      }),
+    );
+
+    await expect(nextCandidateRun).toHaveBeenCalledWith(LIVE_RUN_ID);
+    // The action re-reads the Chat, so the moved Run's segment replaces the
+    // box's state.
+    await waitFor(() =>
+      expect(
+        chatRoutes().filter((route) => route === HISTORY_ROUTE).length,
+      ).toBeGreaterThan(1),
+    );
   },
 };
 

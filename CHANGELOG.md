@@ -2,6 +2,14 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-11-23
 
+- Continue on next candidate moves a failed turn, or a Run in a quota wait, to
+  the next model of its model role. The failed reply keeps its output and
+  usage, and the next model answers after a boundary that names the failure.
+  The switch writes a fallback hold that ends at the failure's reset time, else
+  after its hint, else five minutes later. Each request normalizes replayed
+  tool-call ids to `^[a-zA-Z0-9_-]{1,40}$` without changing a stored id, and the
+  effective-context view names the model of each attempt. (#1839, #1772)
+
 - The model picker lists model roles as `@name` beside models and shows the
   Chat's stored selection on every device. A send names a model only after the
   owner picks one. Plain Regenerate repeats the stored selection, a Chat on a
@@ -19,7 +27,8 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 - Group model entries into ordered model roles in `modelRoles`, name a role with
   an `@` selector in `defaults.selector` and `defaults.titleGenerationSelector`,
   and read the role catalog from `GET /api/v1/models` as `roles` beside
-  `defaultSelector`. A role resolves to its first candidate in this release.
+  `defaultSelector`. A role resolves to its first candidate unless the Chat
+  holds a fallback hold on a later candidate.
   `billing` accepts `free` for a model that is never billed, and a declared
   price under `free` or `subscription` is a notional cost. **Breaking**:
   `defaults.modelId` becomes `defaults.selector`, and

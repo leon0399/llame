@@ -54,6 +54,33 @@ describe('FollowUpRunBodyPipe', () => {
     });
   });
 
+  it('accepts a continue body that asks for the next candidate', async () => {
+    const parsed = await transform({
+      action: 'continue',
+      candidate: 'next',
+      permissionMode: 'bypass',
+    });
+
+    expect(parsed).toBeInstanceOf(ContinueFollowUpRunDto);
+    expect(parsed).toEqual({
+      action: 'continue',
+      candidate: 'next',
+      permissionMode: 'bypass',
+    });
+  });
+
+  it('rejects a candidate value other than next', async () => {
+    await expect(
+      transform({ action: 'continue', candidate: 'first' }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('rejects a regenerate body that names a candidate', async () => {
+    await expect(
+      transform({ action: 'regenerate', candidate: 'next' }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
   it('rejects a continue body that names a selector or an effort', async () => {
     await expect(
       transform({ action: 'continue', selector: 'model-a' }),

@@ -12,7 +12,10 @@ import type { UIMessage } from "ai";
 import { useState, type ComponentProps } from "react";
 
 import { ChatProvider } from "@/contexts/chat-context";
-import type { ChatLatestRunResponse } from "@/lib/api/generated/models";
+import type {
+  ChatLatestRunResponse,
+  ModelRoleResponse,
+} from "@/lib/api/generated/models";
 import { toChatUiMessages } from "@/lib/services/chat/history";
 import { rawChatMessage } from "@/lib/services/chat/message-fixtures";
 import * as modelQueries from "@/lib/services/models/queries";
@@ -193,6 +196,7 @@ const meta = {
     chatId: "chat-1",
     status: "ready",
     availableModels: [],
+    roles: [],
     latestRun: null,
     onFollowUp: fn(),
     onForked: fn(),
@@ -1764,6 +1768,33 @@ function turnRun(
   };
 }
 
+const CODEX_MODEL: AvailableModel = {
+  id: "system:openai:codex",
+  source: "system",
+  name: "Codex",
+  contextWindowTokens: 400_000,
+  input: ["text"],
+};
+
+const SONNET_MODEL: AvailableModel = {
+  id: "system:anthropic:sonnet",
+  source: "system",
+  name: "Claude Sonnet",
+  contextWindowTokens: 400_000,
+  input: ["text"],
+};
+
+/** `@coding` chains Codex to the paid Sonnet. */
+const CODING_ROLE: ReadonlyArray<ModelRoleResponse> = [
+  {
+    selector: "@coding",
+    candidates: [
+      { modelId: CODEX_MODEL.id, paid: false },
+      { modelId: SONNET_MODEL.id, paid: true },
+    ],
+  },
+];
+
 /** A stored dynamic-tool part plus the classification the api records beside
  *  it; the AI SDK's part union does not declare that extra field. */
 type ClassifiedDynamicTool = Extract<
@@ -1914,10 +1945,11 @@ export const LatestTurnActionsHiddenWhileStreaming: Story = {
 };
 
 /**
- * A failed turn that settled no tool call has no step to resume from, so only
- * Regenerate is offered.
+ * A failed turn that settled no tool call has no step to resume from, and its
+ * Run used an exact selector, so only Regenerate is offered (turn-actions "A
+ * failed turn with no completed step shows only Regenerate").
  *
- * @summary Continue is hidden when no tool call settled
+ * @summary Continue and the next candidate are hidden without a step or a role
  */
 export const ContinueHiddenWithoutSettledTool: Story = {
   tags: ["ai-generated"],
@@ -1926,10 +1958,83 @@ export const ContinueHiddenWithoutSettledTool: Story = {
     isLast: true,
     message: failedReply([{ type: "text", text: "I could not start." }]),
     latestRun: turnRun(),
+    roles: CODING_ROLE,
+    availableModels: [CODEX_MODEL, SONNET_MODEL],
   },
   play: async ({ canvas }) => {
     await revealTurnActions(canvas);
     await expect(canvas.queryByRole("button", { name: "Continue" })).toBeNull();
+    await expect(
+      canvas.queryByRole("button", { name: /Continue on next candidate/ }),
+    ).toBeNull();
+  },
+};
+
+/**
+ * A failed role turn offers its next candidate even though no tool call
+ * settled: the api keeps the failed reply and starts a new segment on the next
+ * model (turn-actions "A failed role turn offers the next candidate").
+ *
+ * @summary a failed role turn shows the next candidate and Regenerate
+ */
+export const FailedRoleTurnOffersNextCandidate: Story = {
+  tags: ["ai-generated"],
+  args: {
+    renderKey: "assistant-turn",
+    isLast: true,
+    message: failedReply([{ type: "text", text: "The provider refused." }]),
+    latestRun: turnRun({
+      selector: "@coding",
+      modelId: CODEX_MODEL.id,
+    }),
+    roles: CODING_ROLE,
+    availableModels: [CODEX_MODEL, SONNET_MODEL],
+  },
+  play: async ({ canvas }) => {
+    await revealTurnActions(canvas);
+    await expect(canvas.queryByRole("button", { name: "Continue" })).toBeNull();
+    await expect(
+      canvas.getByRole("button", {
+        name: "Continue on next candidate → Claude Sonnet (paid)",
+      }),
+    ).toBeVisible();
+  },
+};
+
+/**
+ * The next candidate's action names the model and marks it paid when its
+ * billing is `usage`, and it sends the composer's permission mode with the
+ * candidate — never a selector the Run owns (model-roles "A paid next
+ * candidate").
+ *
+ * @summary a paid next candidate names the model and sends the next candidate
+ */
+export const PaidNextCandidate: Story = {
+  tags: ["ai-generated"],
+  args: {
+    renderKey: "assistant-turn",
+    isLast: true,
+    message: failedReply([{ type: "text", text: "The provider refused." }]),
+    latestRun: turnRun({
+      selector: "@coding",
+      modelId: CODEX_MODEL.id,
+    }),
+    roles: CODING_ROLE,
+    availableModels: [CODEX_MODEL, SONNET_MODEL],
+  },
+  play: async ({ canvas, args }) => {
+    await revealTurnActions(canvas);
+    await userEvent.click(
+      canvas.getByRole("button", {
+        name: "Continue on next candidate → Claude Sonnet (paid)",
+      }),
+    );
+
+    await expect(args.onFollowUp).toHaveBeenCalledWith({
+      action: "continue",
+      candidate: "next",
+      permissionMode: "default",
+    });
   },
 };
 

@@ -18,15 +18,25 @@ next one; the model receives every kept tool result again, and no kept call
 runs a second time. Regenerate discards the turn's answer and asks the model for
 a new one from the user message alone.
 
+Continue has a next-candidate variant. It asks the next model of the Chat's
+model role for the answer instead of the model that failed. [Model
+selection](model-selection.md#continue-on-next-candidate) owns when the action
+is offered, the hold that the switch writes, and how the turn reads.
+
 ## Waiting for a provider reset
 
 A Run waiting for its model's quota reset is still live. It resumes
-automatically; Continue and Regenerate apply only after it ends.
+automatically; ordinary Continue and Regenerate apply only after it ends.
 
 The box above the prompt composer names the model and shows the provider's
 reset time and the later send time, both in your browser's local time. A
 countdown tracks the send time; after it arrives, the box says `Sending
 again…` until the worker resumes the request.
+
+The box also offers Continue on next candidate when the waiting Run's role
+lists a candidate after its model. The action ends the wait and the same Run
+continues on that candidate, as [model
+selection](model-selection.md#continue-on-next-candidate) describes.
 
 Stop cancels the waiting Run. It preserves your draft and pending deliveries,
 including a pending steer. Pending deliveries remain held while the request
@@ -53,7 +63,8 @@ still expires a stuck Run of the Chat, exactly as a chat send does.
   changed.
 - A live Run in the Chat answers 409.
 - A malformed body answers 400. Continue refuses `selector` and `effort`,
-  because it takes both from the Run it continues. Regenerate accepts
+  because it takes both from the Run it continues. It accepts
+  `candidate: "next"` and no other candidate value. Regenerate accepts
   `selector` and `effort`, and a request that names no `selector` uses the
   stored selection of the Chat, as [model selection](model-selection.md)
   describes. A request that names `modelId` answers 400.
@@ -72,6 +83,12 @@ Chat-send checks again, so a model that the operator has since removed is
 reported before any write. A Continue writes nothing to the stored selection of
 the Chat and leaves a fallback hold in place, as [model
 selection](model-selection.md) describes.
+
+A Continue on the next candidate is a variant with its own rule. It applies
+only when the latest Run is `failed` and its model role lists a candidate after
+the model that served it. It starts a new Run on that candidate, and the failed
+reply stays. Any other selector or state answers 409 with
+`next_candidate_unavailable`.
 
 ## What is kept
 
@@ -199,11 +216,18 @@ Continue appears when all of these hold:
 Continue sends the composer's permission mode and nothing else: the Run keeps
 its own model and effort.
 
+Continue on next candidate appears on a failed reply and on the failed-turn row,
+when the latest Run is `failed` and its role lists a candidate after the model
+that served it. It needs no settled step. It sends
+`{"action": "continue", "candidate": "next"}` with the composer's permission
+mode and no selector or effort.
+
 Regenerate appears whenever the latest Run is terminal. A turn whose Run ended
 without leaving a reply gets a short failed-turn row of its own, since there is
-no answer row to carry the action. The same row serves a reply that paints
+no answer row to carry the actions. The same row serves a reply that paints
 nothing — the one a Run stores when its provider call fails — so such a turn
-still offers Regenerate. The row shows why the turn failed, with the error of
+still offers Regenerate, and Continue on next candidate when it applies. The
+row shows why the turn failed, with the error of
 the latest Run, and it stays visible without a hover. The empty reply row keeps
 its own footer, without a second Regenerate.
 
