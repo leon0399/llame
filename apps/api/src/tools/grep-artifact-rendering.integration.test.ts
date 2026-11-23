@@ -17,9 +17,11 @@ import path from 'node:path';
 
 import { drizzle } from 'drizzle-orm/postgres-js';
 import {
+  formatPassageLocator,
   GREP_RANKING_UNITS,
   grepLeftOutUnits,
   measureGrepRendering,
+  parsePassageLocator,
   type GrepPassage,
 } from '@workspace/native-file-tools';
 import { isNumber, isRecord, isString } from '@workspace/runtime-safety';
@@ -208,7 +210,7 @@ function leftOutOf(
 function endLineOf(result: ToolResult): number {
   const locator = resultsOf(result)[0]?.locator ?? '';
 
-  return Number(/:\d+-(\d+)$/u.exec(locator)?.[1]);
+  return parsePassageLocator(locator)?.endLine ?? Number.NaN;
 }
 
 /** The stored notice text of a result, without its brackets. */
@@ -443,9 +445,9 @@ describe('grep artifacts', () => {
     expect(text).toContain('[passage cut; the artifact holds the rest]');
     expect(text.length).toBeLessThanOrEqual(15_000);
     const cut = resultsOf(result)[0];
-    const range = /:(\d+)-(\d+)$/u.exec(cut?.locator ?? '');
-    expect(range).not.toBeNull();
-    const [start, end] = [Number(range?.[1]), Number(range?.[2])];
+    const range = parsePassageLocator(cut?.locator ?? '');
+    expect(range).toBeDefined();
+    const [start, end] = [range?.startLine ?? 0, range?.endLine ?? 0];
     // The inline passage is the artifact's first lines, and its marks follow
     // the lines it kept.
     const contentLines = (cut?.content ?? '').split('\n');
@@ -633,8 +635,8 @@ describe('grep inline boundaries', () => {
     // `## a.md` + `*1: ` + text, joined lines: 25 units of framing for two
     // files, so 7,487 and 7,488 units of text render exactly 15,000.
     const two = stateOf([
-      { locator: 'a.md:1-1', content: `1: ${'x'.repeat(7487)}`, matches: [1] },
-      { locator: 'b.md:1-1', content: `1: ${'x'.repeat(7488)}`, matches: [1] },
+      { locator: 'a.md:L1-1', content: `1: ${'x'.repeat(7487)}`, matches: [1] },
+      { locator: 'b.md:L1-1', content: `1: ${'x'.repeat(7488)}`, matches: [1] },
     ]);
 
     // The fixture renders the whole result in exactly the inline bound.
@@ -645,8 +647,8 @@ describe('grep inline boundaries', () => {
 
     // One unit less cannot fit both files, so the head keeps one file.
     const over = stateOf([
-      { locator: 'a.md:1-1', content: `1: ${'x'.repeat(7487)}`, matches: [1] },
-      { locator: 'b.md:1-1', content: `1: ${'x'.repeat(7489)}`, matches: [1] },
+      { locator: 'a.md:L1-1', content: `1: ${'x'.repeat(7487)}`, matches: [1] },
+      { locator: 'b.md:L1-1', content: `1: ${'x'.repeat(7489)}`, matches: [1] },
     ]);
 
     const capped = await finishGrepCall(over, unreadable(), 20, ASK);
@@ -662,11 +664,11 @@ describe('grep inline boundaries', () => {
     const result = await finishGrepCall(
       stateOf([
         {
-          locator: 'a.md:1-2',
+          locator: 'a.md:L1-2',
           content: `1: ${'x'.repeat(first)}\n2: ${'x'.repeat(10)}`,
           matches: [1],
         },
-        { locator: 'b.md:1-1', content: '1: y', matches: [1] },
+        { locator: 'b.md:L1-1', content: '1: y', matches: [1] },
       ]),
       unreadable(),
       1,
@@ -686,17 +688,36 @@ describe('grep inline boundaries', () => {
     ).join('\n');
 
     const result = await finishGrepCall(
-      stateOf([{ locator: 'a.md:1-40', content, matches: [1] }]),
+      stateOf([{ locator: 'a.md:L1-40', content, matches: [1] }]),
       unreadable(),
       20,
       ASK,
     );
 
-    const cut = resultsOf(result)[0];
-    const end = Number(/:\d+-(\d+)$/u.exec(cut?.locator ?? '')?.[1]);
+    const end = endLineOf(result);
     // The head holds the lines it can, not a degenerate one-line floor.
     expect(end).toBeGreaterThanOrEqual(30);
     expect(leftOutOf(result)).toMatchObject({ of: 'lines', count: 40 - end });
+  });
+
+  it('cuts a stored bare passage at its own line numbers', async () => {
+    const content = Array.from(
+      { length: 40 },
+      (_, index) => `${String(index + 1)}: ${'y'.repeat(400)}`,
+    ).join('\n');
+
+    const result = await finishGrepCall(
+      stateOf([{ locator: 'notes.md:1-40', content, matches: [1] }]),
+      unreadable(),
+      20,
+      ASK,
+    );
+
+    const range = parsePassageLocator(resultsOf(result)[0]?.locator ?? '');
+
+    expect(range?.file).toBe('notes.md');
+    expect(range?.startLine).toBe(1);
+    expect(range?.endLine).toBeGreaterThanOrEqual(30);
   });
 
   it('drops a dangling cut without losing its cap mark', async () => {
@@ -789,7 +810,7 @@ describe('grep rerank', () => {
   /** One long single-line passage, so three of them overfill the inline part. */
   function longPassage(file: string, line: number, units = 6000): GrepPassage {
     return {
-      locator: `${file}:${String(line)}-${String(line)}`,
+      locator: formatPassageLocator(file, line, line),
       content: `${String(line)}: ${'x'.repeat(units)}`,
       matches: [line],
     };
@@ -892,9 +913,9 @@ describe('grep rerank', () => {
 
     const small = await finishGrepCall(
       stateOf([
-        { locator: '/a.ts:1-1', content: '1: needle', matches: [1] },
-        { locator: '/b.ts:1-1', content: '1: needle', matches: [1] },
-        { locator: '/c.ts:1-1', content: '1: needle', matches: [1] },
+        { locator: '/a.ts:L1-1', content: '1: needle', matches: [1] },
+        { locator: '/b.ts:L1-1', content: '1: needle', matches: [1] },
+        { locator: '/c.ts:L1-1', content: '1: needle', matches: [1] },
       ]),
       rankedContext(answers.decisions),
       20,
@@ -1032,8 +1053,8 @@ describe('grep rerank', () => {
       runLengths: [1, 1, 1],
     });
     expect(resultsOf(result).map((entry) => entry.locator)).toEqual([
-      '/x.ts:10-10',
-      '/x.ts:20-20',
+      '/x.ts:L10-10',
+      '/x.ts:L20-20',
     ]);
     const live = renderToolResultText('grep', result);
     expect(headings(live)).toEqual(['## /x.ts', '## /x.ts']);
@@ -1699,7 +1720,7 @@ describe('grep rerank', () => {
     const answers = lane({ p0: 0.5, p1: 0.9 });
 
     const keyed: GrepPassage = {
-      locator: `/${KEY}/a.ts:3-3`,
+      locator: `/${KEY}/a.ts:L3-3`,
       content: `3: token ${KEY} ${'x'.repeat(6000)}`,
       matches: [3],
     };
@@ -1728,7 +1749,7 @@ describe('grep rerank', () => {
     );
 
     expect(first?.matches).toEqual([3]);
-    expect(first?.locator.endsWith(':3-3')).toBe(true);
+    expect(first?.locator.endsWith(':L3-3')).toBe(true);
   });
 
   it('replaces the decision key in the unfinished file and ignored directories', async () => {
@@ -1767,7 +1788,7 @@ describe('grep rerank', () => {
     const answers = lane({ p0: 0.9, p1: 0.5, p2: 0.1 });
 
     const resembling: GrepPassage = {
-      locator: '/a.ts:1-1',
+      locator: '/a.ts:L1-1',
       content: `1: jev-test rerank 0.9 runLengths ${'x'.repeat(6000)}`,
       matches: [1],
     };

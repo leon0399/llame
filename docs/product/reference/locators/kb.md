@@ -31,6 +31,17 @@ raw colon starts the selector; use `%3A` inside a filename. Existing literal
 percent names now require `%25`, including locators saved before this change.
 The Space identifier and selector are never decoded.
 
+### Passage locators
+
+`grep` and `knowledge_search` return a passage as a `kb://` locator with a
+line range in the canonical selector spelling,
+`kb://<knowledgeSpaceId>/<path>:L<start>-<end>`, and that locator is a ready
+`read` argument. A colon in the path stays escaped: the note
+`notes/2026-09-08 14:30 standup.md` returns as
+`kb://<id>/notes/2026-09-08 14%3A30 standup.md:L5-10`. A passage locator a
+stored result spells `kb://<knowledgeSpaceId>/<path>:5-10` names the same
+passage and stays valid input.
+
 ## Accepted by
 
 `read`, `edit`, and `write`, on every process that has a configured Knowledge

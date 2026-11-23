@@ -3,6 +3,7 @@
 import type { ReactElement } from "react";
 import { z } from "zod";
 
+import { PASSAGE_RANGE_SUFFIX } from "@workspace/ui/components/custom/passage-range";
 import {
   languageForPath,
   parseNumberedLines,
@@ -85,16 +86,15 @@ const warningLabels = new Map([
 
 type LocatorParts = { path: string; start: number };
 
-/** The `<path>` and start line of a `<path>:<start>-<end>` passage locator.
- *  The path may itself contain `:`, so only the last one separates the range. */
+/** The `<path>` and start line of a passage locator's trailing range. */
 function locatorParts(locator: string): LocatorParts {
-  const separator = locator.lastIndexOf(":");
+  const range = PASSAGE_RANGE_SUFFIX.exec(locator);
 
-  if (separator === -1) return { path: locator, start: 0 };
+  if (!range) return { path: locator, start: 0 };
 
   return {
-    path: locator.slice(0, separator),
-    start: Number.parseInt(locator.slice(separator + 1), 10) || 0,
+    path: locator.slice(0, range.index),
+    start: Number.parseInt(range[1], 10),
   };
 }
 

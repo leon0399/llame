@@ -20,6 +20,7 @@ import {
   compileGrepPatterns,
   decodeGrepCursor,
   encodeGrepCursor,
+  formatPassageLocator,
   grepContinuationUnits,
   measureGrepRendering,
   runGrepScan,
@@ -102,7 +103,11 @@ function pageRoom(rel: string, startLine: number, room: number): number {
 function unitsOf(passages: ReadonlyArray<FsGrepPassage>): number {
   return measureGrepRendering({
     results: passages.map((passage) => ({
-      locator: `${passage.path}:${String(passage.startLine)}-${String(passage.endLine)}`,
+      locator: formatPassageLocator(
+        passage.path,
+        passage.startLine,
+        passage.endLine,
+      ),
       content: passage.content,
       matches: passage.matches,
     })),
@@ -304,6 +309,22 @@ describe("fs.grep", () => {
     });
     // Nothing the daemon answers may name a host path.
     expect(JSON.stringify(answer)).not.toContain(fixture.root);
+  });
+
+  it("maps a lettered engine locator to the wire line numbers", async () => {
+    const lines = Array.from({ length: 20 }, (_, index) =>
+      index === 6 ? "needle" : `line ${String(index + 1)}`,
+    );
+
+    await writeAt("project/mid.md", `${lines.join("\n")}\n`);
+    const prefix = join(fixture.root, "project");
+
+    // The engine's locator is `mid.md:L6-8`; the wire carries its numbers.
+    const page = await grep(request(prefix));
+
+    expect(page.results).toMatchObject([
+      { path: "mid.md", startLine: 6, endLine: 8, matches: [7] },
+    ]);
   });
 
   it("applies the prefix's ignore rules", async () => {

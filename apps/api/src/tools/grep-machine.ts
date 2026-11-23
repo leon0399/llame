@@ -18,6 +18,7 @@ import {
   type FsGrepWarningKind,
 } from '@workspace/machine-protocol';
 import {
+  formatPassageLocator,
   normalizeHostScope,
   splitGrepScope,
   type GrepBudget,
@@ -715,7 +716,7 @@ function admitsFile(input: MachineFileAdmission): boolean {
 /** One kept passage, in the spelling the call's result carries. */
 function keptPassage(passage: FsGrepPassage, locator: string): GrepPassage {
   return {
-    locator: `${locator}:${String(passage.startLine)}-${String(passage.endLine)}`,
+    locator: formatPassageLocator(locator, passage.startLine, passage.endLine),
     content: passage.content,
     matches: [...passage.matches],
     ...(passage.cut === true && { cut: true as const }),

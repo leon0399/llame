@@ -323,8 +323,8 @@ describe("grep read-ahead", () => {
     port.release("a.ts");
     const result = await run;
     expect(result.results.map((passage) => passage.locator)).toEqual([
-      "/repo/a.ts:1-1",
-      "/repo/b.ts:1-1",
+      "/repo/a.ts:L1-1",
+      "/repo/b.ts:L1-1",
     ]);
   });
 
@@ -349,9 +349,9 @@ describe("grep read-ahead", () => {
 
     expect(first.complete).toBe(false);
     expect(first.results.map((passage) => passage.locator)).toEqual([
-      "/repo/a.ts:1-1",
-      "/repo/b.ts:1-1",
-      "/repo/c.ts:1-1",
+      "/repo/a.ts:L1-1",
+      "/repo/b.ts:L1-1",
+      "/repo/c.ts:L1-1",
     ]);
     expect(decode(first.cursor)).toMatchObject({
       kind: "passage",
@@ -374,8 +374,8 @@ describe("grep read-ahead", () => {
     // the files the stop discarded are opened again from their first line.
     expect(again.opened).toEqual(["c.ts", "d.ts", "e.ts"]);
     expect(second.results.map((passage) => passage.locator)).toEqual([
-      "/repo/d.ts:1-1",
-      "/repo/e.ts:1-1",
+      "/repo/d.ts:L1-1",
+      "/repo/e.ts:L1-1",
     ]);
   });
 
@@ -431,7 +431,7 @@ describe("grep read-ahead", () => {
 
     expect(again.opened).toEqual(["d.ts"]);
     expect(second.results.map((passage) => passage.locator)).toEqual([
-      "/repo/d.ts:1-1",
+      "/repo/d.ts:L1-1",
     ]);
   });
 
@@ -450,7 +450,7 @@ describe("grep read-ahead", () => {
     );
 
     expect(result.results.map((passage) => passage.locator)).toEqual([
-      "/repo/a.ts:1-1",
+      "/repo/a.ts:L1-1",
     ]);
     expect(result.complete).toBe(false);
   });
@@ -558,7 +558,7 @@ describe("grep read-ahead", () => {
     );
 
     expect(result.results.map((passage) => passage.locator)).toEqual([
-      "/repo/a.ts:1-1",
+      "/repo/a.ts:L1-1",
     ]);
     expect(result.complete).toBe(false);
     // The failing open ran ahead of the stop; its caught outcome is discarded.
@@ -702,7 +702,7 @@ describe("grep unfinished files", () => {
     });
 
     expect(second.results.map((passage) => passage.locator)).toEqual([
-      "/srv/app/a.ts:1-1",
+      "/srv/app/a.ts:L1-1",
     ]);
     expect(second.complete).toBe(true);
     // The skipped scope is never opened again.
@@ -886,7 +886,7 @@ describe("grep unfinished files", () => {
     port.release("b.log");
     const result = await run;
     expect(result.results.map((passage) => passage.locator)).toEqual([
-      "/repo/a.log:2-2",
+      "/repo/a.log:L2-2",
     ]);
     expect(result.unfinished).toBeUndefined();
     expect(result.progressed).toBe(true);

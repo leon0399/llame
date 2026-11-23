@@ -1,5 +1,6 @@
 import { renderSourceLine } from "../source-lines";
 import { GREP_LIMITS } from "./limits";
+import { formatPassageLocator } from "./locator";
 import type { CompiledGrepPatterns } from "./patterns";
 import type { GrepFileStopReason, GrepPassage, GrepReadRefusal } from "./types";
 
@@ -209,16 +210,6 @@ async function takeLines(
   }
 
   return undefined;
-}
-
-/** One-based start line of an emitted passage locator. */
-export function passageStartLine(locator: string): number {
-  return Number(locator.slice(locator.lastIndexOf(":") + 1).split("-")[0]);
-}
-
-/** One-based last line of an emitted passage locator. */
-export function passageEndLine(locator: string): number {
-  return Number(locator.slice(locator.lastIndexOf(":") + 1).split("-")[1]);
 }
 
 /** The decode and line-splitting state one stream carries between chunks. */
@@ -554,7 +545,7 @@ function renderPassage(
   return {
     last,
     passage: {
-      locator: `${state.input.fileLocator}:${from}-${last}`,
+      locator: formatPassageLocator(state.input.fileLocator, from, last),
       content: lines.join("\n"),
       matches: shown,
       ...(incomplete && { incomplete: true as const }),

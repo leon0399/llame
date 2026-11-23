@@ -276,8 +276,8 @@ describe('Machine grep', () => {
     });
 
     expect(locatorsOf(result)).toEqual([
-      'machine://devl/srv/app/a.go:1-2',
-      'machine://devl/srv/app/nested/c.go:1-1',
+      'machine://devl/srv/app/a.go:L1-2',
+      'machine://devl/srv/app/nested/c.go:L1-1',
     ]);
     const session = await peer.session(0);
     expect(session.calls).toHaveLength(1);
@@ -498,7 +498,7 @@ describe('Machine grep', () => {
       { patterns: ['needle'], scopes: ['machine://devl/srv/app/**'] },
     );
 
-    expect(locatorsOf(result)).toEqual(['machine://devl/srv/app/a.go:1-1']);
+    expect(locatorsOf(result)).toEqual(['machine://devl/srv/app/a.go:L1-1']);
     expect(result).not.toHaveProperty('cursor');
     expect(JSON.stringify(result)).not.toContain('b.go');
   });
@@ -516,7 +516,7 @@ describe('Machine grep', () => {
     );
 
     expect(locatorsOf(result)).toEqual([
-      'machine://devl/home/me/shop/src/a.ts:1-1',
+      'machine://devl/home/me/shop/src/a.ts:L1-1',
     ]);
     const session = await peer.session(0);
     expect(session.calls[0].params).toMatchObject({
@@ -565,7 +565,7 @@ describe('Machine grep', () => {
 
     // The Machine walks the package, and the result and the `read` group see
     // the skill locator, not the Machine path the catalog keeps.
-    expect(locatorsOf(result)).toEqual(['skill://pdf/SKILL.md:1-1']);
+    expect(locatorsOf(result)).toEqual(['skill://pdf/SKILL.md:L1-1']);
     expect(JSON.stringify(result)).not.toContain('a.md');
     const session = await peer.session(0);
     expect(session.calls).toHaveLength(1);
@@ -865,7 +865,7 @@ describe('Machine scope addresses', () => {
       scopes: ['machine://devl/srv/app/'],
     });
 
-    expect(locatorsOf(result)).toEqual(['machine://devl/srv/app/a.go:1-1']);
+    expect(locatorsOf(result)).toEqual(['machine://devl/srv/app/a.go:L1-1']);
     const session = await peer.session(0);
     expect(session.calls[0]?.params).toMatchObject({ path: '/srv/app' });
   });
@@ -899,7 +899,7 @@ describe('Machine scope addresses', () => {
 
     // Only the exact-path rule is a directory's business: its files are
     // judged one by one, so the directory itself is never a refused file.
-    expect(locatorsOf(result)).toEqual(['machine://devl/srv/app/a.go:1-1']);
+    expect(locatorsOf(result)).toEqual(['machine://devl/srv/app/a.go:L1-1']);
   });
 
   it('refuses a scope that names no path', async () => {
@@ -989,7 +989,7 @@ describe('Machine scope addresses', () => {
       scopes: ['machine://devl/srv/app:v1'],
     });
 
-    expect(locatorsOf(result)).toEqual(['machine://devl/srv/app:v1/a.go:1-1']);
+    expect(locatorsOf(result)).toEqual(['machine://devl/srv/app:v1/a.go:L1-1']);
   });
 
   it('searches the submitted path without adding a separator', async () => {
@@ -1002,7 +1002,7 @@ describe('Machine scope addresses', () => {
       scopes: ['machine://devl/srv/app'],
     });
 
-    expect(locatorsOf(result)).toEqual(['machine://devl/srv/app/a.go:1-1']);
+    expect(locatorsOf(result)).toEqual(['machine://devl/srv/app/a.go:L1-1']);
     const session = await peer.session(0);
     expect(session.calls[0].params).toMatchObject({ path: '/srv/app' });
   });
@@ -1017,7 +1017,7 @@ describe('Machine scope addresses', () => {
       scopes: ['machine://devl/'],
     });
 
-    expect(locatorsOf(result)).toEqual(['machine://devl/a.go:1-1']);
+    expect(locatorsOf(result)).toEqual(['machine://devl/a.go:L1-1']);
     const session = await peer.session(0);
     expect(session.calls[0].params).toMatchObject({ path: '/' });
   });
@@ -1032,7 +1032,7 @@ describe('Machine scope addresses', () => {
       scopes: ['machine://devl/srv/app'],
     });
 
-    expect(locatorsOf(result)).toEqual(['machine://devl/srv/app:1-1']);
+    expect(locatorsOf(result)).toEqual(['machine://devl/srv/app:L1-1']);
   });
 
   it('reports a mismatched Machine identity as its own result', async () => {
@@ -1174,7 +1174,7 @@ describe('Machine scope addresses', () => {
 
     // The daemon's budget ends where the walk's deadline does, so the probe
     // ended the walk rather than failing the scope.
-    expect(locatorsOf(result)).toEqual(['machine://devl/srv/app/a.go:1-1']);
+    expect(locatorsOf(result)).toEqual(['machine://devl/srv/app/a.go:L1-1']);
     const session = await peer.session(0);
     expect(session.calls.map((call) => call.method)).toEqual([
       'fs.stat',
@@ -1289,8 +1289,8 @@ describe('Machine request shape', () => {
     });
 
     expect(locatorsOf(result)).toEqual([
-      'machine://devl/srv/a/a.go:1-1',
-      'machine://devl/srv/b/b.go:1-1',
+      'machine://devl/srv/a/a.go:L1-1',
+      'machine://devl/srv/b/b.go:L1-1',
     ]);
 
     const asked = (await peer.session(0)).calls.filter(
@@ -1320,7 +1320,7 @@ describe('Machine request shape', () => {
       // The daemon that spends its whole budget still answers, so its page,
       // cursor, and unfinished file are never lost to the hub's abandon.
       expect(result).toMatchObject({ status: 'success', complete: true });
-      expect(locatorsOf(result)).toEqual(['machine://devl/srv/app/a.go:1-1']);
+      expect(locatorsOf(result)).toEqual(['machine://devl/srv/app/a.go:L1-1']);
       const session = await peer.session(0);
       const search = session.calls.find((call) => call.method === 'fs.grep');
       expect(search?.params).toMatchObject({
@@ -1372,7 +1372,7 @@ describe('Machine request shape', () => {
       { patterns: ['needle'], scopes: [scope] },
     );
 
-    expect(locatorsOf(result)).toEqual(['machine://devl/srv/app/a.go:1-1']);
+    expect(locatorsOf(result)).toEqual(['machine://devl/srv/app/a.go:L1-1']);
 
     const asked = (await peer.session(0)).calls.filter(
       (call) => call.method === 'fs.grep',
@@ -1610,7 +1610,7 @@ describe('Machine page bounds', () => {
     // The refused page never ends the walk: the call asks for the next daemon
     // page, under what the first one left.
     expect(result).toMatchObject({ status: 'success', complete: true });
-    expect(locatorsOf(result)).toEqual(['machine://devl/srv/app/a.go:1-1']);
+    expect(locatorsOf(result)).toEqual(['machine://devl/srv/app/a.go:L1-1']);
     const session = await peer.session(0);
     const asked = session.calls.filter((call) => call.method === 'fs.grep');
     expect(asked).toHaveLength(2);
@@ -1673,7 +1673,7 @@ describe('Machine page bounds', () => {
 
     expect(result).toMatchObject({ status: 'success', complete: false });
     expect(result).not.toHaveProperty('cursor');
-    expect(locatorsOf(result)).toEqual(['machine://devl/srv/a/a.go:1-1']);
+    expect(locatorsOf(result)).toEqual(['machine://devl/srv/a/a.go:L1-1']);
     const session = await peer.session(0);
     expect(session.calls).toHaveLength(1);
   });
@@ -1705,7 +1705,7 @@ describe('Machine page bounds', () => {
 
       expect(result).toMatchObject({ status: 'success', complete: false });
       expect(warningsOf(result)).toEqual([{ kind: 'deadline', count: 1 }]);
-      expect(locatorsOf(result)).toEqual(['machine://devl/srv/a/a.go:1-1']);
+      expect(locatorsOf(result)).toEqual(['machine://devl/srv/a/a.go:L1-1']);
       const session = await peer.session(0);
       expect(session.calls).toHaveLength(1);
     } finally {
@@ -1730,8 +1730,8 @@ describe('Machine page bounds', () => {
 
     expect(result).toMatchObject({ status: 'success', complete: true });
     expect(locatorsOf(result)).toEqual([
-      'machine://devl/srv/app/a.go:1-1',
-      'machine://devl/srv/app/a.go:3-3',
+      'machine://devl/srv/app/a.go:L1-1',
+      'machine://devl/srv/app/a.go:L3-3',
     ]);
   });
 
@@ -1793,8 +1793,8 @@ describe('Machine pages within one call', () => {
     // A page that kept a passage does not end the walk: the next daemon page
     // is asked inside the same call.
     expect(locatorsOf(result)).toEqual([
-      'machine://devl/srv/app/a.go:1-1',
-      'machine://devl/srv/app/b.go:1-1',
+      'machine://devl/srv/app/a.go:L1-1',
+      'machine://devl/srv/app/b.go:L1-1',
     ]);
     expect(success(result).complete).toBe(true);
 
@@ -1834,7 +1834,7 @@ describe('Machine pages within one call', () => {
 
     // Asking after a page that charged nothing and did not progress would
     // fetch the same page again.
-    expect(locatorsOf(result)).toEqual(['machine://devl/srv/app/a.go:1-1']);
+    expect(locatorsOf(result)).toEqual(['machine://devl/srv/app/a.go:L1-1']);
     expect(success(result).complete).toBe(false);
     expect(searches).toBe(1);
   });
@@ -1866,7 +1866,7 @@ describe('Machine pages within one call', () => {
     });
 
     // A directory and the file it listed are a charge even with no bytes.
-    expect(locatorsOf(result)).toEqual(['machine://devl/srv/app/b.go:1-1']);
+    expect(locatorsOf(result)).toEqual(['machine://devl/srv/app/b.go:L1-1']);
     expect(searches).toBe(2);
   });
 
@@ -1899,7 +1899,7 @@ describe('Machine pages within one call', () => {
 
     // A resumed page re-opens the file its cursor names without counting it,
     // so progress alone carries the walk to the next page.
-    expect(locatorsOf(result)).toEqual(['machine://devl/srv/app/b.go:1-1']);
+    expect(locatorsOf(result)).toEqual(['machine://devl/srv/app/b.go:L1-1']);
     expect(searches).toBe(2);
   });
 
@@ -1930,7 +1930,7 @@ describe('Machine pages within one call', () => {
     });
 
     // The page bound is internal, so the model reads one whole passage.
-    expect(locatorsOf(result)).toEqual(['machine://devl/srv/app/a.go:10-50']);
+    expect(locatorsOf(result)).toEqual(['machine://devl/srv/app/a.go:L10-50']);
     expect(passagesOf(result)[0]).not.toHaveProperty('cut');
     expect(success(result).complete).toBe(true);
   });
@@ -1974,7 +1974,7 @@ describe('Machine pages within one call', () => {
 
     // The walk continues past the file the daemon could not finish, and the
     // result still says that file was left behind.
-    expect(locatorsOf(result)).toEqual(['machine://devl/srv/app/b.go:1-1']);
+    expect(locatorsOf(result)).toEqual(['machine://devl/srv/app/b.go:L1-1']);
     expect(success(result)).toMatchObject({
       complete: false,
       unfinishedFile: 'machine://devl/srv/app/a.go',
@@ -2025,7 +2025,7 @@ describe('Machine pages within one call', () => {
 
     // The failed probe left the scope to the search, which lists entries as a
     // directory does: the file the page stopped inside is skipped, not ended.
-    expect(locatorsOf(result)).toEqual(['machine://devl/srv/app/b.go:1-1']);
+    expect(locatorsOf(result)).toEqual(['machine://devl/srv/app/b.go:L1-1']);
     expect(success(result)).toMatchObject({
       complete: false,
       unfinishedFile: 'machine://devl/srv/app/a.go',
@@ -2456,8 +2456,8 @@ describe('scope segments', () => {
       // The Space expansion holds ordinal 0 and the Machine scope ordinal 1,
       // so the Space's passage comes first.
       expect(locatorsOf(result)).toEqual([
-        `kb://${SPACE_ID}/a.md:1-1`,
-        'machine://devl/srv/app/a.go:1-1',
+        `kb://${SPACE_ID}/a.md:L1-1`,
+        'machine://devl/srv/app/a.go:L1-1',
       ]);
     });
   });
@@ -2477,8 +2477,8 @@ describe('scope segments', () => {
       );
 
       expect(locatorsOf(result)).toEqual([
-        `kb://${SPACE_ID}/a.md:1-1`,
-        'machine://devl/srv/app/a.go:1-1',
+        `kb://${SPACE_ID}/a.md:L1-1`,
+        'machine://devl/srv/app/a.go:L1-1',
       ]);
       const session = await peer.session(0);
       expect(session.calls).toHaveLength(1);
@@ -2500,8 +2500,8 @@ describe('scope segments', () => {
       );
 
       expect(locatorsOf(result)).toEqual([
-        'machine://devl/srv/app/a.go:1-1',
-        `kb://${SPACE_ID}/a.md:1-1`,
+        'machine://devl/srv/app/a.go:L1-1',
+        `kb://${SPACE_ID}/a.md:L1-1`,
       ]);
     });
   });
@@ -2578,7 +2578,7 @@ describe('grep deadline', () => {
         },
       );
 
-      expect(locatorsOf(result)).toEqual(['machine://devl/srv/a/a.go:1-1']);
+      expect(locatorsOf(result)).toEqual(['machine://devl/srv/a/a.go:L1-1']);
       expect(success(result).complete).toBe(false);
       expect(success(result).warnings).toEqual([
         { kind: 'deadline', count: 1 },
@@ -3132,7 +3132,7 @@ describe('daemon page stop conditions', () => {
 
     // The file counts no entry, so the spent entry bound must not drop it.
     expect(searches).toBe(2);
-    expect(locatorsOf(result)).toEqual(['machine://devl/srv/b/app.go:1-1']);
+    expect(locatorsOf(result)).toEqual(['machine://devl/srv/b/app.go:L1-1']);
     expect(success(result).complete).toBe(true);
     expect(success(result).warnings).toEqual([]);
     expect(fsGrepCalls(await peer.session(0))).toBe(2);

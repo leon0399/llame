@@ -20,14 +20,15 @@ const output = {
       knowledgeSpaceName: "Engineering",
       path: "runbooks/deploy.md",
       locator:
-        "kb://9a1b2c3d-4e5f-4a6b-8c7d-0e1f2a3b4c5d/runbooks/deploy.md:12-14",
+        "kb://9a1b2c3d-4e5f-4a6b-8c7d-0e1f2a3b4c5d/runbooks/deploy.md:L12-14",
       excerpt: "Stop the old workers before\nrunning the migration.",
     },
     {
       knowledgeSpaceId: "9a1b2c3d-4e5f-4a6b-8c7d-0e1f2a3b4c5d",
       knowledgeSpaceName: "Engineering",
       path: "notes/workers.md",
-      locator: "kb://9a1b2c3d-4e5f-4a6b-8c7d-0e1f2a3b4c5d/notes/workers.md:3-3",
+      locator:
+        "kb://9a1b2c3d-4e5f-4a6b-8c7d-0e1f2a3b4c5d/notes/workers.md:L3-3",
       excerpt: "Workers drain on SIGTERM.",
     },
   ],
@@ -81,12 +82,51 @@ export const Basic: Story = {
     // visible, so duplicate space names remain distinguishable.
     await expect(
       canvas.getByText(
-        "kb://9a1b2c3d-4e5f-4a6b-8c7d-0e1f2a3b4c5d/runbooks/deploy.md:12-14",
+        "kb://9a1b2c3d-4e5f-4a6b-8c7d-0e1f2a3b4c5d/runbooks/deploy.md:L12-14",
       ),
     ).toBeInTheDocument();
     await expect(
       canvas.getAllByText("9a1b2c3d-4e5f-4a6b-8c7d-0e1f2a3b4c5d"),
     ).toHaveLength(2);
+  },
+};
+
+/**
+ * A passage stored before the canonical spelling keeps its bare range: the
+ * card reads the same file and line label, so the replay matches a search
+ * run today.
+ *
+ * @summary for a replay of a stored bare Knowledge locator
+ */
+export const StoredBareLocator: Story = {
+  tags: ["ai-generated"],
+  args: {
+    output: {
+      ...output,
+      results: [
+        {
+          knowledgeSpaceId: "9a1b2c3d-4e5f-4a6b-8c7d-0e1f2a3b4c5d",
+          knowledgeSpaceName: "Engineering",
+          path: "runbooks/deploy.md",
+          locator:
+            "kb://9a1b2c3d-4e5f-4a6b-8c7d-0e1f2a3b4c5d/runbooks/deploy.md:12-14",
+          excerpt: "Stop the old workers before\nrunning the migration.",
+        },
+      ],
+    },
+  },
+  play: async ({ canvas, userEvent }) => {
+    await userEvent.click(
+      canvas.getByRole("button", { name: /knowledge_search/iu }),
+    );
+    await expect(canvas.getByText("1 passage")).toBeInTheDocument();
+    await expect(canvas.getByText("runbooks/deploy.md")).toBeInTheDocument();
+    await expect(canvas.getByText(/lines 12–14/u)).toBeInTheDocument();
+    await expect(
+      canvas.getByText(
+        "kb://9a1b2c3d-4e5f-4a6b-8c7d-0e1f2a3b4c5d/runbooks/deploy.md:12-14",
+      ),
+    ).toBeInTheDocument();
   },
 };
 

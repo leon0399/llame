@@ -32,6 +32,7 @@ import {
 } from '../skills/skill-catalog';
 import { isRecord, isString } from '@workspace/runtime-safety';
 import {
+  grepFileLocator,
   grepWarningsUnits,
   measureGrepRendering,
 } from '@workspace/native-file-tools';
@@ -383,8 +384,8 @@ describe('Knowledge scopes', () => {
 
       expect(result).toMatchObject({ status: 'success', complete: true });
       expect(locatorsOf(result)).toEqual([
-        `kb://${SPACE_A}/notes/a.md:1-1`,
-        `kb://${SPACE_B}/notes/b.md:1-1`,
+        `kb://${SPACE_A}/notes/a.md:L1-1`,
+        `kb://${SPACE_B}/notes/b.md:L1-1`,
       ]);
     });
   });
@@ -446,7 +447,7 @@ describe('Knowledge scopes', () => {
 
       expect(grep).toMatchObject({ status: 'success' });
       const passage = passageOf(grep, 0);
-      expect(passage.locator).toBe(`kb://${SPACE_A}/notes/a.md:3-5`);
+      expect(passage.locator).toBe(`kb://${SPACE_A}/notes/a.md:L3-5`);
       expect(passage.matches).toEqual([4]);
 
       const read = await nativeReadTool.execute(contextOf({ resolver }), {
@@ -478,14 +479,14 @@ describe('Knowledge scopes', () => {
 
       const hit = passageOf(first, 0).locator;
       // The scheme's formatter encodes no glob character: `*` stays as written.
-      expect(hit).toBe(`kb://${SPACE_A}/notes/a*.md:2-4`);
+      expect(hit).toBe(`kb://${SPACE_A}/notes/a*.md:L2-4`);
 
       const second = await run(contextOf({ resolver }), {
         patterns: ['needle'],
         scopes: [`kb://${SPACE_A}/notes/a%2A.md`],
       });
 
-      expect(locatorsOf(second)).toEqual([`kb://${SPACE_A}/notes/a*.md:2-4`]);
+      expect(locatorsOf(second)).toEqual([`kb://${SPACE_A}/notes/a*.md:L2-4`]);
     });
   });
 
@@ -526,7 +527,7 @@ describe('Knowledge scopes', () => {
       });
 
       expect(walk).toMatchObject({ status: 'success', complete: true });
-      expect(locatorsOf(walk)).toEqual([`kb://${SPACE_A}/notes/a.md:1-1`]);
+      expect(locatorsOf(walk)).toEqual([`kb://${SPACE_A}/notes/a.md:L1-1`]);
       expect(walk).not.toHaveProperty('readRefused');
     });
   });
@@ -655,9 +656,9 @@ describe('skill scopes', () => {
 
       expect(result).toMatchObject({ status: 'success', complete: true });
       expect(locatorsOf(result)).toEqual([
-        'skill://pdf/SKILL.md:1-1',
-        'skill://pdf/far-link/far.md:1-1',
-        'skill://pdf/zzz.md:1-1',
+        'skill://pdf/SKILL.md:L1-1',
+        'skill://pdf/far-link/far.md:L1-1',
+        'skill://pdf/zzz.md:L1-1',
       ]);
       expect(warningsOf(result)).toContainEqual({ kind: 'link', count: 1 });
     });
@@ -693,7 +694,7 @@ describe('skill scopes', () => {
         { patterns: ['needle'], scopes: ['skill://'] },
       );
 
-      expect(locatorsOf(selected)).toEqual(['skill://manual/SKILL.md:1-1']);
+      expect(locatorsOf(selected)).toEqual(['skill://manual/SKILL.md:L1-1']);
     });
   });
 });
@@ -755,9 +756,7 @@ describe('one walk per call', () => {
       expect(result).not.toHaveProperty('cursor');
 
       const files = new Set(
-        locatorsOf(result).map((locator) =>
-          locator.slice(0, locator.lastIndexOf(':')),
-        ),
+        locatorsOf(result).map((locator) => grepFileLocator(locator)),
       );
 
       expect(success(result).leftOut).toMatchObject({
@@ -823,9 +822,7 @@ describe('one walk per call', () => {
         // Six notes give the walk 120 passages; the head keeps what it can
         // and the left-out count names the files it did not hold.
         const files = new Set(
-          locatorsOf(result).map((locator) =>
-            locator.slice(0, locator.lastIndexOf(':')),
-          ),
+          locatorsOf(result).map((locator) => grepFileLocator(locator)),
         );
 
         expect(success(result).leftOut).toMatchObject({
@@ -904,8 +901,8 @@ describe('one walk per call', () => {
 
       // Each expanded Space is its own scope, and one call walks them all.
       expect(locatorsOf(result)).toEqual([
-        `kb://${SPACE_A}/note.md:1-1`,
-        `kb://${SPACE_B}/note.md:1-1`,
+        `kb://${SPACE_A}/note.md:L1-1`,
+        `kb://${SPACE_B}/note.md:L1-1`,
       ]);
       expect(success(result).complete).toBe(true);
     });
@@ -935,8 +932,8 @@ describe('one walk per call', () => {
       });
 
       expect(locatorsOf(result)).toEqual([
-        'skill://alpha/SKILL.md:1-1',
-        'skill://pdf/SKILL.md:1-1',
+        'skill://alpha/SKILL.md:L1-1',
+        'skill://pdf/SKILL.md:L1-1',
       ]);
       expect(success(result).complete).toBe(true);
     });
@@ -1054,7 +1051,7 @@ describe('pattern and scope ordering', () => {
         { patterns: ['x'.repeat(512)], scopes: ['skill://pdf'] },
       );
 
-      expect(locatorsOf(result)).toEqual(['skill://pdf/SKILL.md:1-1']);
+      expect(locatorsOf(result)).toEqual(['skill://pdf/SKILL.md:L1-1']);
     });
   });
 });
@@ -1087,7 +1084,7 @@ describe('matching modes', () => {
             scopes: ['skill://pdf'],
           }),
         ),
-      ).toEqual(['skill://pdf/SKILL.md:1-1']);
+      ).toEqual(['skill://pdf/SKILL.md:L1-1']);
     });
   });
 
@@ -1103,7 +1100,7 @@ describe('matching modes', () => {
         locatorsOf(
           await run(context, { patterns: ['a.b'], scopes: ['skill://pdf'] }),
         ),
-      ).toEqual(['skill://pdf/SKILL.md:1-1']);
+      ).toEqual(['skill://pdf/SKILL.md:L1-1']);
       expect(
         await run(context, {
           patterns: ['a.b'],

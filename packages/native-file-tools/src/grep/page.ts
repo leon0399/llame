@@ -1,6 +1,10 @@
 import { grepContinuationUnits } from "./cursor";
+import {
+  formatPassageLocator,
+  parsePassageLocator,
+  type ParsedPassageLocator,
+} from "./locator";
 import { grepPassageUnits } from "./model-text";
-import { passageEndLine, passageStartLine } from "./passages";
 import type { GrepPassage } from "./types";
 
 /** The passage a page ends at; the next call resumes after it. */
@@ -86,29 +90,25 @@ export function appendGrepFile(
 
   for (const passage of emission.passages) {
     const added = grepPassageUnits(page.results.at(-1), passage);
+    const key = pageKey(emission, passage);
 
     // A passage the scan only partly holds can never be emitted whole: a cut
     // inside its held lines is the only form the page may keep.
-    if (
-      passage.incomplete !== true &&
-      fits(page, limits, pageKey(emission, passage), added)
-    ) {
+    if (passage.incomplete !== true && fits(page, limits, key, added)) {
       page.results.push(passage);
       page.units += added;
       emitted += 1;
-      page.last = pageKey(emission, passage);
+      page.last = key;
       continue;
     }
 
     if (page.results.length === 0) {
       const cut = cutToFit(page, limits, emission, passage);
-      page.units += grepPassageUnits(page.results.at(-1), cut);
-      page.results.push(cut);
+
+      page.units += grepPassageUnits(page.results.at(-1), cut.passage);
+      page.results.push(cut.passage);
       emitted += 1;
-      page.last = {
-        ...pageKey(emission, cut),
-        endLine: passageEndLine(cut.locator),
-      };
+      page.last = cut.key;
     }
 
     page.full = true;
@@ -168,8 +168,13 @@ function pageKey(
   emission: GrepFileEmission,
   passage: GrepPassage,
 ): GrepPageKey {
-  const startLine = passageStartLine(passage.locator);
+  const { startLine } = passageRange(passage.locator);
 
+  return keyAt(emission, startLine);
+}
+
+/** The page key of an `emission` passage whose locator starts at `startLine`. */
+function keyAt(emission: GrepFileEmission, startLine: number): GrepPageKey {
   return {
     scopeIndex: emission.scopeIndex,
     rel: emission.rel,
@@ -178,22 +183,30 @@ function pageKey(
   };
 }
 
+/** The line range of a locator the engine formatted: it always carries one. */
+function passageRange(locator: string): ParsedPassageLocator {
+  const range = parsePassageLocator(locator);
+
+  if (range === undefined)
+    throw new Error("The grep engine returned a passage without a line range");
+
+  return range;
+}
+
 /** Keep leading lines until the passage, its cursor, and the page all fit. */
 function cutToFit(
   page: GrepPage,
   limits: GrepPageLimits,
   emission: GrepFileEmission,
   passage: GrepPassage,
-): GrepPassage {
-  const [start, rangeEnd] = passage.locator
-    .slice(passage.locator.lastIndexOf(":") + 1)
-    .split("-")
-    .map(Number);
+) {
+  const { startLine: start, endLine: rangeEnd } = passageRange(passage.locator);
+  const base = keyAt(emission, start);
 
   const lines = passage.content.split("\n");
 
   const cutAt = (end: number): GrepPassage => ({
-    locator: `${emission.fileLocator}:${start}-${end}`,
+    locator: formatPassageLocator(emission.fileLocator, start, end),
     content: lines.slice(0, end - start + 1).join("\n"),
     matches: passage.matches.filter((line) => line <= end),
     cut: true,
@@ -205,12 +218,12 @@ function cutToFit(
   // A cut passage ends the page, so its cursor names its last emitted line.
   for (let end = rangeEnd; end > start; end -= 1) {
     const cut = cutAt(end);
-    const key = { ...pageKey(emission, cut), endLine: end };
+    const key = { ...base, endLine: end };
 
     if (fits(page, limits, key, grepPassageUnits(page.results.at(-1), cut)))
-      return cut;
+      return { passage: cut, key };
   }
 
   // One line is the floor: a match never yields an empty page.
-  return cutAt(start);
+  return { passage: cutAt(start), key: { ...base, endLine: start } };
 }

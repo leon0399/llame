@@ -121,13 +121,13 @@ The artifact holds the notice line and every passage only: the headings and
 the `N: text` lines. The warning, excluded-directory, unfinished-file,
 remainder, and notice lines exist inline only. Because the inline part is a
 prefix of the artifact text, every inline line keeps its number in the
-artifact, and `read("artifact://grep-<n>:1-<k>")` returns the inline lines.
+artifact, and `read("artifact://grep-<n>:L1-<k>")` returns the inline lines.
 
 After the framing lines the remainder line names what the artifact holds after
 the inline part:
 
 ```text
-[more: 140 files, 610 passages; next: /r/a.ts (artifact://grep-3:201-240), …]
+[more: 140 files, 610 passages; next: /r/a.ts (artifact://grep-3:L201-240), …]
 ```
 
 It counts the files and passages after the inline part and names at most ten
@@ -247,11 +247,20 @@ that touch merge into one passage. `content` carries the ordinary one-based
 line is cut at 512 code units and ends with `…`. `matches` lists the matched
 line numbers in the window, and those lines print with the `*` prefix.
 
-A hit locator is `<file locator>:<start>-<end>`. It is directly a `read`
-argument. In a `kb://` or `skill://` locator, `grep` spells each segment the
-way that scheme's canonical formatter does. A `*` in a returned locator is
-part of the file name for `read`. In a `grep` scope it is a glob operator. To
-search that one file again, write the character as `%2A`.
+A hit locator is `<file locator>:L<start>-<end>`, with a one-based inclusive
+range:
+
+```text
+src/app.ts:L12-13
+```
+
+It is directly a `read` argument. A passage locator that a stored result
+spells `<file locator>:<start>-<end>` is the same passage and stays valid
+input; `grep` prints and stores only the `L` spelling. In a `kb://` or
+`skill://` locator, `grep` spells each segment the way that scheme's canonical
+formatter does. A `*` in a returned locator is part of the file name for
+`read`. In a `grep` scope it is a glob operator. To search that one file
+again, write the character as `%2A`.
 
 In a path scope, the seven literal spellings `%25`, `%2A`, `%3F`, `%5B`,
 `%5D`, `%7B`, and `%7D` decode once in the literal prefix, so a reported

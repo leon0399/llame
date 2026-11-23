@@ -316,7 +316,7 @@ describe('host walk policy', () => {
       });
 
       expect(locatorsOf(result)).toEqual([
-        `machine://host-a${root}/src/app.js:1-1`,
+        `machine://host-a${root}/src/app.js:L1-1`,
       ]);
     });
   });
@@ -332,7 +332,7 @@ describe('host walk policy', () => {
       });
 
       expect(locatorsOf(result)).toEqual([
-        `machine://host-a${root}/dist/app.js:1-1`,
+        `machine://host-a${root}/dist/app.js:L1-1`,
       ]);
     });
   });
@@ -360,7 +360,7 @@ describe('host walk policy', () => {
       });
 
       expect(locatorsOf(file)).toEqual([
-        `machine://host-a${root}/src/app.js:1-1`,
+        `machine://host-a${root}/src/app.js:L1-1`,
       ]);
 
       const directory = await run(contextOf(), {
@@ -369,7 +369,7 @@ describe('host walk policy', () => {
       });
 
       expect(locatorsOf(directory)).toEqual([
-        `machine://host-a${root}/src/app.js:1-1`,
+        `machine://host-a${root}/src/app.js:L1-1`,
       ]);
     });
   });
@@ -385,7 +385,7 @@ describe('host walk policy', () => {
       });
 
       expect(locatorsOf(result)).toEqual([
-        `machine://host-a${root}/.editorconfig:1-1`,
+        `machine://host-a${root}/.editorconfig:L1-1`,
       ]);
     });
   });
@@ -404,7 +404,7 @@ describe('host walk policy', () => {
       });
 
       expect(locatorsOf(result)).toEqual([
-        `machine://host-a${inside}/near.md:1-1`,
+        `machine://host-a${inside}/near.md:L1-1`,
       ]);
     });
   });
@@ -428,8 +428,8 @@ describe('host walk policy', () => {
       });
 
       expect(locatorsOf(result)).toEqual([
-        `machine://host-a${root}/large.txt:1-2`,
-        `machine://host-a${root}/plain.txt:1-1`,
+        `machine://host-a${root}/large.txt:L1-2`,
+        `machine://host-a${root}/plain.txt:L1-1`,
       ]);
       expect(warningsOf(result)).toEqual([{ kind: 'binary', count: 1 }]);
     });
@@ -445,7 +445,7 @@ describe('host walk policy', () => {
       });
 
       expect(locatorsOf(result)).toEqual([
-        `machine://host-a${root}/v:1/a.md:1-1`,
+        `machine://host-a${root}/v:1/a.md:L1-1`,
       ]);
     });
   });
@@ -463,7 +463,7 @@ describe('host walk policy', () => {
       });
 
       expect(locatorsOf(result)).toEqual([
-        `machine://host-a${elsewhere}/a.md:1-1`,
+        `machine://host-a${elsewhere}/a.md:L1-1`,
       ]);
     });
   });
@@ -535,7 +535,7 @@ describe('host walk policy', () => {
       });
 
       expect(locatorsOf(result)).toEqual([
-        `machine://host-a${root}/one.md:1-1`,
+        `machine://host-a${root}/one.md:L1-1`,
       ]);
     });
   });
@@ -554,7 +554,7 @@ describe('host ignore files above the scope', () => {
       });
 
       expect(locatorsOf(result)).toEqual([
-        `machine://host-a${root}/apps/web/keep.js:1-1`,
+        `machine://host-a${root}/apps/web/keep.js:L1-1`,
       ]);
     });
   });
@@ -575,7 +575,7 @@ describe('host ignore files above the scope', () => {
       });
 
       expect(locatorsOf(result)).toEqual([
-        `machine://host-a${root}/Projects/Arduino/libraries/keep.h:1-1`,
+        `machine://host-a${root}/Projects/Arduino/libraries/keep.h:L1-1`,
       ]);
     });
   });
@@ -591,7 +591,7 @@ describe('host ignore files above the scope', () => {
       });
 
       expect(locatorsOf(result)).toEqual([
-        `machine://host-a${root}/plain.md:1-1`,
+        `machine://host-a${root}/plain.md:L1-1`,
       ]);
     });
   });
@@ -608,7 +608,7 @@ describe('host ignore files above the scope', () => {
       });
 
       expect(locatorsOf(result)).toEqual([
-        `machine://host-a${root}/inner/README.md:1-1`,
+        `machine://host-a${root}/inner/README.md:L1-1`,
       ]);
     });
   });
@@ -626,7 +626,7 @@ describe('host ignore files above the scope', () => {
       });
 
       expect(locatorsOf(result)).toEqual([
-        `machine://host-a${root}/repo/apps/web/keep.js:1-1`,
+        `machine://host-a${root}/repo/apps/web/keep.js:L1-1`,
       ]);
     });
   });
@@ -643,7 +643,7 @@ describe('host ignore files above the scope', () => {
       });
 
       expect(locatorsOf(result)).toEqual([
-        `machine://host-a${root}/worktree/sub/README.md:1-1`,
+        `machine://host-a${root}/worktree/sub/README.md:L1-1`,
       ]);
     });
   });
@@ -660,7 +660,7 @@ describe('host ignore files above the scope', () => {
       });
 
       expect(locatorsOf(result)).toEqual([
-        `machine://host-a${root}/repo/README.md:1-1`,
+        `machine://host-a${root}/repo/README.md:L1-1`,
       ]);
     });
   });
@@ -694,7 +694,7 @@ describe('host ignore files above the scope', () => {
         );
 
         expect(locatorsOf(result)).toEqual([
-          `machine://host-a${scope}/README.md:1-1`,
+          `machine://host-a${scope}/README.md:L1-1`,
         ]);
       } finally {
         started.dispose();
@@ -728,7 +728,7 @@ describe('host excluded-directory report', () => {
       });
 
       expect(locatorsOf(second)).toEqual([
-        `machine://host-a${root}/node_modules/dep.js:1-1`,
+        `machine://host-a${root}/node_modules/dep.js:L1-1`,
       ]);
     });
   });
@@ -872,7 +872,7 @@ describe('host excluded-directory report', () => {
       });
 
       expect(locatorsOf(second)).toEqual([
-        `machine://host-a${root}/app/[id]/node_modules/dep.js:1-1`,
+        `machine://host-a${root}/app/[id]/node_modules/dep.js:L1-1`,
       ]);
     });
   });
@@ -897,7 +897,7 @@ describe('host excluded-directory report', () => {
       });
 
       expect(locatorsOf(second)).toEqual([
-        `machine://host-a${root}/100%2541/node_modules/dep.js:1-1`,
+        `machine://host-a${root}/100%2541/node_modules/dep.js:L1-1`,
       ]);
     });
   });
@@ -914,7 +914,7 @@ describe('host scope spellings', () => {
       });
 
       expect(locatorsOf(result)).toEqual([
-        `machine://host-a${root}/a*b/one.js:1-1`,
+        `machine://host-a${root}/a*b/one.js:L1-1`,
       ]);
     });
   });
@@ -929,7 +929,7 @@ describe('host scope spellings', () => {
       });
 
       expect(locatorsOf(result)).toEqual([
-        `machine://host-a${root}/100%2541/one.js:1-1`,
+        `machine://host-a${root}/100%2541/one.js:L1-1`,
       ]);
     });
   });
@@ -944,7 +944,7 @@ describe('host scope spellings', () => {
       });
 
       expect(locatorsOf(result)).toEqual([
-        `machine://host-a${root}/a%252A/one.js:1-1`,
+        `machine://host-a${root}/a%252A/one.js:L1-1`,
       ]);
     });
   });
@@ -959,7 +959,7 @@ describe('host scope spellings', () => {
       });
 
       expect(locatorsOf(result)).toEqual([
-        `machine://host-a${root}/a%252A/one.js:1-1`,
+        `machine://host-a${root}/a%252A/one.js:L1-1`,
       ]);
     });
   });
@@ -976,7 +976,7 @@ describe('host Workspace rule', () => {
       });
 
       expect(locatorsOf(absolute)).toEqual([
-        `machine://host-a${root}/100%252541/a.md:1-1`,
+        `machine://host-a${root}/100%252541/a.md:L1-1`,
       ]);
 
       const relative = await run(contextOf({ root: workspace }), {
@@ -985,7 +985,7 @@ describe('host Workspace rule', () => {
       });
 
       expect(locatorsOf(relative)).toEqual([
-        `machine://host-a${root}/100%252541/a.md:1-1`,
+        `machine://host-a${root}/100%252541/a.md:L1-1`,
       ]);
     });
   });
@@ -994,7 +994,7 @@ describe('host Workspace rule', () => {
     await withRoot(async (root) => {
       await writeAt(root, 'a.md', 'needle\n');
       const result = await run(contextOf({ root }), { patterns: ['needle'] });
-      expect(locatorsOf(result)).toEqual([`machine://host-a${root}/a.md:1-1`]);
+      expect(locatorsOf(result)).toEqual([`machine://host-a${root}/a.md:L1-1`]);
     });
   });
 
@@ -1022,7 +1022,7 @@ describe('host Workspace rule', () => {
       });
 
       expect(locatorsOf(result)).toEqual([
-        `machine://host-a${root}/src/a.ts:1-1`,
+        `machine://host-a${root}/src/a.ts:L1-1`,
       ]);
     });
   });
@@ -1205,7 +1205,7 @@ describe('operator bounds', () => {
       );
 
       expect(locatorsOf(result)).toEqual([
-        `machine://host-a${root}/small.md:1-1`,
+        `machine://host-a${root}/small.md:L1-1`,
       ]);
       expect(warningsOf(result)).toEqual([{ kind: 'oversized', count: 1 }]);
     });
@@ -1225,7 +1225,7 @@ describe('operator bounds', () => {
 
       // The third file is the one that matches, and the bound stops the walk
       // after it: its passage is in the result, not lost behind the stop.
-      expect(locatorsOf(result)).toEqual([`machine://host-a${root}/c.md:1-1`]);
+      expect(locatorsOf(result)).toEqual([`machine://host-a${root}/c.md:L1-1`]);
       expect(success(result).complete).toBe(false);
       expect(warningsOf(result)).toEqual([{ kind: 'file_bound', count: 1 }]);
     });
@@ -1355,8 +1355,8 @@ describe('host scope pages', () => {
 
       // One engine call per scope, appended in the submitted order.
       expect(locatorsOf(result)).toEqual([
-        `machine://host-a${root}/b/one.md:1-1`,
-        `machine://host-a${root}/a/two.md:1-1`,
+        `machine://host-a${root}/b/one.md:L1-1`,
+        `machine://host-a${root}/a/two.md:L1-1`,
       ]);
       expect(success(result).complete).toBe(true);
     });
@@ -1378,7 +1378,7 @@ describe('host scope pages', () => {
       // `limit` bounds the inline part alone: the walk still visits every
       // scope and the artifact holds all three files.
       expect(locatorsOf(result)).toEqual([
-        `machine://host-a${root}/a/one.md:1-1`,
+        `machine://host-a${root}/a/one.md:L1-1`,
       ]);
       expect(artifactHeadings()).toEqual([
         `## machine://host-a${root}/a/one.md`,
@@ -1401,7 +1401,7 @@ describe("this process's own Machine", () => {
         scopes: [`${root}/**`],
       });
 
-      expect(locatorsOf(result)).toEqual([`machine://host-a${root}/a.md:1-1`]);
+      expect(locatorsOf(result)).toEqual([`machine://host-a${root}/a.md:L1-1`]);
       expect(success(result).complete).toBe(true);
     });
   });
@@ -1415,7 +1415,7 @@ describe("this process's own Machine", () => {
         scopes: [`machine://host-a${root}/**`],
       });
 
-      expect(locatorsOf(result)).toEqual([`machine://host-a${root}/a.md:1-1`]);
+      expect(locatorsOf(result)).toEqual([`machine://host-a${root}/a.md:L1-1`]);
       expect(success(result).complete).toBe(true);
     });
   });

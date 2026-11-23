@@ -132,7 +132,7 @@ describe('createKnowledgeWalkPort', () => {
       });
 
       expect(scan.results.map((passage) => passage.locator)).toEqual([
-        `kb://${SPACE_ID}/a.md:1-1`,
+        `kb://${SPACE_ID}/a.md:L1-1`,
       ]);
       expect(scan.warnings).toEqual([]);
     });

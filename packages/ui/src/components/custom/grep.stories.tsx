@@ -8,19 +8,19 @@ const output = {
   status: "success" as const,
   results: [
     {
-      locator: "apps/api/src/tools/grep.ts:57-59",
+      locator: "apps/api/src/tools/grep.ts:L57-59",
       content:
         "57: \n58: export const grepInputSchema = z.strictObject({\n59:   patterns: z.array(z.string()),\n",
       matches: [58],
     },
     {
-      locator: "apps/api/src/tools/grep.ts:120-122",
+      locator: "apps/api/src/tools/grep.ts:L120-122",
       content:
         "120: }\n121: const parsed = grepInputSchema.parse(args);\n122: \n",
       matches: [121],
     },
     {
-      locator: "apps/api/src/tools/registry.ts:3-3",
+      locator: "apps/api/src/tools/registry.ts:L3-3",
       content: "3: import { grepInputSchema } from './grep';\n",
       matches: [3],
     },
@@ -77,6 +77,50 @@ export const Basic: Story = {
       "font-medium",
     );
     await expect(file.querySelector('[data-line="120"]')).not.toHaveClass(
+      "font-medium",
+    );
+  },
+};
+
+/**
+ * A result stored before the canonical spelling keeps its bare range: the
+ * card reads the file name and start lines the same way, so the passages
+ * group as one file and their matching lines stay emphasized.
+ *
+ * @summary for a replay of a stored bare passage locator
+ */
+export const StoredBareLocator: Story = {
+  tags: ["ai-generated"],
+  args: {
+    output: {
+      ...output,
+      results: [
+        {
+          locator: "notes.md:5-10",
+          content: "5: \n6: Stop the old workers\n7: before the migration.\n",
+          matches: [6],
+        },
+        {
+          locator: "notes.md:20-22",
+          content: "20: \n21: Workers drain on SIGTERM.\n",
+          matches: [21],
+        },
+      ],
+    },
+  },
+  play: async ({ canvas, userEvent }) => {
+    await userEvent.click(canvas.getByRole("button", { name: /grep/iu }));
+    await expect(canvas.getByText("2 in 1 file")).toBeInTheDocument();
+    await expect(canvas.getByText("notes.md")).toBeInTheDocument();
+
+    const file = canvas.getByRole("group", { name: "Matches in notes.md" });
+
+    await expect(file).toHaveTextContent("Stop the old workers");
+    await expect(within(file).getByText("⋯")).toBeInTheDocument();
+    await expect(file.querySelector('[data-line="6"]')).toHaveClass(
+      "font-medium",
+    );
+    await expect(file.querySelector('[data-line="21"]')).toHaveClass(
       "font-medium",
     );
   },
@@ -179,10 +223,10 @@ const rerank = {
 const rankedOutput = {
   ...output,
   results: [
-    pass("src/c.ts:5-5", 5, "needle c"),
-    pass("src/a.ts:10-10", 10, "needle a1"),
-    pass("src/a.ts:30-30", 30, "needle a2"),
-    pass("src/b.ts:2-2", 2, "needle b"),
+    pass("src/c.ts:L5-5", 5, "needle c"),
+    pass("src/a.ts:L10-10", 10, "needle a1"),
+    pass("src/a.ts:L30-30", 30, "needle a2"),
+    pass("src/b.ts:L2-2", 2, "needle b"),
   ],
   display: { rerank },
 };
@@ -294,8 +338,8 @@ export const SameFileRunsAfterReorder: Story = {
     output: {
       ...output,
       results: [
-        pass("src/a.ts:10-10", 10, "first run"),
-        pass("src/a.ts:30-30", 30, "second run"),
+        pass("src/a.ts:L10-10", 10, "first run"),
+        pass("src/a.ts:L30-30", 30, "second run"),
       ],
       display: {
         rerank: {
@@ -336,8 +380,8 @@ export const TruncatedFinalRun: Story = {
     output: {
       ...output,
       results: [
-        pass("src/a.ts:10-10", 10, "needle a1"),
-        pass("src/a.ts:30-30", 30, "needle a2"),
+        pass("src/a.ts:L10-10", 10, "needle a1"),
+        pass("src/a.ts:L30-30", 30, "needle a2"),
       ],
       display: { rerank: { ...rerank, runLengths: [1, 3] } },
     },

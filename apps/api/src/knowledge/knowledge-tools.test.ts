@@ -43,7 +43,7 @@ function fakeAdapter(
 
 /** A search passage's one-based locator: exactly what `read` accepts back. */
 function passage(spaceId: string, path: string, offset: number, limit = 1) {
-  return `kb://${spaceId}/${path}:${offset + 1}-${offset + limit}`;
+  return `kb://${spaceId}/${path}:L${offset + 1}-${offset + limit}`;
 }
 
 function attribution(spaceId: string, path: string, offset: number) {
@@ -658,6 +658,10 @@ describe('knowledge_search cursor continuation', () => {
 
   it.each([
     ['notes/Pet Projects.md', 'notes/Pet Projects.md'],
+    [
+      'notes/2026-09-08 14:30 standup.md',
+      'notes/2026-09-08 14%3A30 standup.md',
+    ],
     ['notes/14:30.md', 'notes/14%3A30.md'],
     ['notes/100%.md', 'notes/100%25.md'],
     ['notes/why?#.md', 'notes/why%3F%23.md'],
@@ -674,7 +678,7 @@ describe('knowledge_search cursor continuation', () => {
       }),
     ).resolves.toMatchObject({
       status: 'success',
-      results: [{ locator: `kb://${binding.id}/${encoded}:5-6` }],
+      results: [{ locator: `kb://${binding.id}/${encoded}:L5-6` }],
     });
   });
 

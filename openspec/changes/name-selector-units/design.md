@@ -126,7 +126,9 @@ Knowledge passages, instruction pages, and prompt-import labels call it.
 `grepFileLocator`, `passageStartLine`, `passageEndLine`, `cutToFit` (`grep/page.ts:188-191`), the
 daemon's `passageOf` (`apps/machine/src/grep.ts:147-155`, which turns engine locators into wire line
 numbers for every Machine grep), `grep.tsx`, `knowledge-search.tsx`, and the E2E parsers accept both `path:5-10` and `path:L5-10`, because stored passage locators keep their old
-spelling. The formatter lands in the input-grammar layer, because the web refusal for
+spelling. In the server, one `parsePassageLocator`/`formatPassageLocator` pair in the grep module
+replaces the `passageStartLine` and `passageEndLine` helpers. The formatter lands in the
+input-grammar layer, because the web refusal for
 `https://example.test:1-5` already names `https://example.test/:L1-5` there.
 
 Rejected: a backfill that rewrites stored `locator` strings. Both spellings stay valid input, so a

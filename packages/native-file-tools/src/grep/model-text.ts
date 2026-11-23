@@ -8,7 +8,7 @@ import {
 
 import { isNonEmptyString, oneLine } from "../model-text";
 import { GREP_LIMITS } from "./limits";
-import { passageStartLine } from "./passages";
+import { formatPassageLocator, parsePassageLocator } from "./locator";
 import type { GrepPassage } from "./types";
 
 /*
@@ -44,22 +44,14 @@ const CUT_PASSAGE_MARKER = "[passage cut; the artifact holds the rest]";
 /** `N: text` from the start of one stored content line. */
 const NUMBERED_LINE = /^(\d+): /u;
 
-/** The range a passage locator ends with, which the file locator drops. */
-const RANGE_SUFFIX = /^(\d+)-(\d+)$/u;
-
 /**
  * The file locator of a passage locator: the stored locator with its
- * `:<start>-<end>` suffix removed. Only the last colon may separate the range,
- * because a path can carry one.
+ * `:L<start>-<end>` suffix removed, in the canonical spelling, or its stored
+ * bare one. Only the last colon may separate the range, because a path can
+ * carry one.
  */
 export function grepFileLocator(locator: string): string {
-  const separator = locator.lastIndexOf(":");
-
-  if (separator === -1) return locator;
-
-  return RANGE_SUFFIX.test(locator.slice(separator + 1))
-    ? locator.slice(0, separator)
-    : locator;
+  return parsePassageLocator(locator)?.file ?? locator;
 }
 
 /** One stored passage, or none when the result entry is not a passage. */
@@ -68,13 +60,13 @@ function passageOf(value: unknown): PassageView | undefined {
   const { locator, content, matches, cut, truncated } = value;
 
   if (!isNonEmptyString(locator) || !isString(content)) return undefined;
-  const startLine = passageStartLine(locator);
+  const parsed = parsePassageLocator(locator);
 
   return {
-    file: grepFileLocator(locator),
+    file: parsed?.file ?? locator,
     // A locator with no readable start line opens its own run, as a malformed
     // entry should.
-    startLine: Number.isFinite(startLine) ? startLine : 0,
+    startLine: parsed?.startLine ?? 0,
     content,
     matches: Array.isArray(matches)
       ? matches.filter((line): line is number => isNumber(line))
@@ -469,7 +461,11 @@ function remainderEntry(
 
   if (artifact === undefined) return locator;
 
-  return `${locator} (${artifact}:${String(entry.start)}-${String(entry.end)})`;
+  return `${locator} (${formatPassageLocator(
+    artifact,
+    entry.start,
+    entry.end,
+  )})`;
 }
 
 /** One stored `leftOut` field: what no artifact holds. */

@@ -3,6 +3,7 @@ import {
   type GrepFileResume,
   type GrepFileScan,
 } from "./passages";
+import { parsePassageLocator } from "./locator";
 import { compileGrepPatterns } from "./patterns";
 import type { CompiledGrepPatterns } from "./patterns";
 import type { GrepPassage, GrepReadRefusal } from "./types";
@@ -80,7 +81,7 @@ describe("grep passage extraction", () => {
       kind: "passages",
       passages: [
         {
-          locator: "file.md:3-7",
+          locator: "file.md:L3-7",
           content: "3: c\n4: hit\n5: e\n6: hit\n7: g",
           matches: [4, 6],
         },
@@ -99,7 +100,7 @@ describe("grep passage extraction", () => {
 
     if (result.kind !== "passages") throw new Error("the file was refused");
     expect(result.passages[0]).toMatchObject({
-      locator: "file.md:1-2",
+      locator: "file.md:L1-2",
       matches: [1],
     });
   });
@@ -112,7 +113,7 @@ describe("grep passage extraction", () => {
 
     if (result.kind !== "passages") throw new Error("the file was refused");
     expect(result.passages[0]).toMatchObject({
-      locator: "file.md:9-10",
+      locator: "file.md:L9-10",
       matches: [10],
     });
   });
@@ -133,9 +134,9 @@ describe("grep passage extraction", () => {
     );
 
     expect(locatorsOf(result)).toEqual([
-      "file.md:1-2000",
-      "file.md:2001-4000",
-      "file.md:4001-4500",
+      "file.md:L1-2000",
+      "file.md:L2001-4000",
+      "file.md:L4001-4500",
     ]);
 
     if (result.kind !== "passages") throw new Error("the file was refused");
@@ -146,7 +147,7 @@ describe("grep passage extraction", () => {
 
   it("drops a trailing context-only remainder", async () => {
     const text = numbered(2001, (line) => (line === 2001 ? "context" : "h"));
-    expect(locatorsOf(await scan(text, ["^h$"]))).toEqual(["file.md:1-2000"]);
+    expect(locatorsOf(await scan(text, ["^h$"]))).toEqual(["file.md:L1-2000"]);
   });
 
   it("ignores case on request", async () => {
@@ -167,7 +168,7 @@ describe("grep passage extraction", () => {
 
     if (result.kind !== "passages") throw new Error("the file was refused");
     expect(result.passages[0]).toMatchObject({
-      locator: "file.md:1-3",
+      locator: "file.md:L1-3",
       matches: [2],
     });
   });
@@ -177,7 +178,7 @@ describe("grep passage extraction", () => {
 
     if (result.kind !== "passages") throw new Error("the file was refused");
     expect(result.passages[0]).toEqual({
-      locator: "file.md:1-3",
+      locator: "file.md:L1-3",
       content: "1: a\n2: hit\n3: b\rc",
       matches: [2],
     });
@@ -188,7 +189,7 @@ describe("grep passage extraction", () => {
 
     if (result.kind !== "passages") throw new Error("the file was refused");
     expect(result.passages[0]).toEqual({
-      locator: "file.md:1-3",
+      locator: "file.md:L1-3",
       content: "1: a\n2: hit\n3: b",
       matches: [2],
     });
@@ -196,7 +197,7 @@ describe("grep passage extraction", () => {
 
   it("makes no phantom line from a terminal delimiter", async () => {
     const result = await scan("hit\n", ["hit"], { chunkBytes: 2 });
-    expect(locatorsOf(result)).toEqual(["file.md:1-1"]);
+    expect(locatorsOf(result)).toEqual(["file.md:L1-1"]);
 
     if (result.kind !== "passages") throw new Error("the file was refused");
     expect(result.passages[0].content).toBe("1: hit");
@@ -211,7 +212,7 @@ describe("grep passage extraction", () => {
 
     if (result.kind !== "passages") throw new Error("the file was refused");
     expect(result.passages[0]).toMatchObject({
-      locator: "file.md:1-2",
+      locator: "file.md:L1-2",
       matches: [2],
     });
   });
@@ -242,7 +243,7 @@ describe("grep passage extraction", () => {
   it("searches a line exactly at the 4 MiB bound", async () => {
     const line = `${"x".repeat(4 * 1024 * 1024 - 3)}hit`;
     const result = await scan(`${line}\n`, ["hit"], { chunkBytes: 64 * 1024 });
-    expect(locatorsOf(result)).toEqual(["file.md:1-1"]);
+    expect(locatorsOf(result)).toEqual(["file.md:L1-1"]);
   });
 
   it("drops the file when a late byte is not valid UTF-8", async () => {
@@ -283,7 +284,7 @@ describe("grep passage extraction", () => {
 
     const content = `${Array.from({ length: 35 }, (_v, index) => line(index + 1)).join("\n")}\n`;
     const result = await scan(content, ["hit"]);
-    expect(locatorsOf(result)).toEqual(["file.md:1-29", "file.md:34-35"]);
+    expect(locatorsOf(result)).toEqual(["file.md:L1-29", "file.md:L34-35"]);
 
     if (result.kind !== "passages") throw new Error("the file was refused");
     expect(result.holdStopped).toBe(false);
@@ -298,10 +299,10 @@ describe("grep passage extraction", () => {
     const [passage] = result.passages;
     expect(passage.incomplete).toBe(true);
 
-    const [start, end] = passage.locator
-      .split(":")[1]
-      .split("-")
-      .map((value) => Number(value));
+    const parsed = parsePassageLocator(passage.locator);
+
+    if (parsed === undefined) throw new Error("the passage has no range");
+    const { startLine: start, endLine: end } = parsed;
 
     expect(start).toBe(1);
     expect(end).toBeLessThan(40);
@@ -313,12 +314,12 @@ describe("grep passage extraction", () => {
   it("keeps a later match after a gap no window can merge across", async () => {
     const filler = `${"x".repeat(1000)}\n`.repeat(400);
     const result = await scan(`needle one\n${filler}needle two\n`, ["needle"]);
-    expect(locatorsOf(result)).toEqual(["file.md:1-2", "file.md:401-402"]);
+    expect(locatorsOf(result)).toEqual(["file.md:L1-2", "file.md:L401-402"]);
   });
 
   it("merges a window whose gap is one line", async () => {
     const result = await scan("needle a\nl2\nl3\nneedle b\nl5\n", ["needle"]);
-    expect(locatorsOf(result)).toEqual(["file.md:1-5"]);
+    expect(locatorsOf(result)).toEqual(["file.md:L1-5"]);
 
     if (result.kind !== "passages") throw new Error("the file was refused");
     expect(result.passages[0].matches).toEqual([1, 4]);
@@ -328,7 +329,7 @@ describe("grep passage extraction", () => {
     const exact = "é".repeat(2 * 1024 * 1024);
     expect(
       locatorsOf(await scan(`${exact}\n`, ["é"], { chunkBytes: 64 * 1024 })),
-    ).toEqual(["file.md:1-1"]);
+    ).toEqual(["file.md:L1-1"]);
     const over = "é".repeat(2 * 1024 * 1024 + 1);
     expect(
       await scan(`${over}\n`, ["é"], { chunkBytes: 64 * 1024 }),
@@ -342,7 +343,7 @@ describe("grep passage extraction", () => {
       chunkBytes: 64 * 1024,
     });
 
-    expect(locatorsOf(result)).toEqual(["file.md:1-1"]);
+    expect(locatorsOf(result)).toEqual(["file.md:L1-1"]);
   });
 
   it("probes every chunk of the first 8 KiB for a NUL", async () => {
@@ -353,10 +354,10 @@ describe("grep passage extraction", () => {
 
   it("searches past a NUL after the first 8 KiB", async () => {
     const content = `${"hit\n"}${"x".repeat(9000)}\u0000\n`;
-    expect(locatorsOf(await scan(content, ["hit"]))).toEqual(["file.md:1-2"]);
+    expect(locatorsOf(await scan(content, ["hit"]))).toEqual(["file.md:L1-2"]);
     expect(
       locatorsOf(await scan(content, ["hit"], { chunkBytes: 1024 })),
-    ).toEqual(["file.md:1-2"]);
+    ).toEqual(["file.md:L1-2"]);
   });
 
   it("marks the twentieth passage and reports where it is", async () => {
@@ -392,7 +393,7 @@ describe("grep passage extraction of a resumed page", () => {
       resume: { startLine: 1, endLine: 3, truncated: false },
     });
 
-    expect(locatorsOf(result)).toEqual(["file.md:4-6", "file.md:19-22"]);
+    expect(locatorsOf(result)).toEqual(["file.md:L4-6", "file.md:L19-22"]);
   });
 
   it("starts at the passage after a cursor that was not cut", async () => {
@@ -404,7 +405,7 @@ describe("grep passage extraction of a resumed page", () => {
       resume: { startLine: 3, truncated: false },
     });
 
-    expect(locatorsOf(result)).toEqual(["file.md:19-22"]);
+    expect(locatorsOf(result)).toEqual(["file.md:L19-22"]);
   });
 
   it("gives the rest of the twentieth passage and nothing after it", async () => {
@@ -416,7 +417,7 @@ describe("grep passage extraction of a resumed page", () => {
 
     if (result.kind !== "passages") throw new Error("the file was refused");
     expect(result.passages.map((passage) => passage.locator)).toEqual([
-      "file.md:116-118",
+      "file.md:L116-118",
     ]);
     expect(result.passages[0].matches).toEqual([117]);
     expect(result.cappedAt).toBe(114);
@@ -445,6 +446,6 @@ describe("grep passage extraction of a resumed page", () => {
       resume: { startLine: 1, endLine: 5, truncated: false },
     });
 
-    expect(locatorsOf(result)).toEqual(["file.md:14-16"]);
+    expect(locatorsOf(result)).toEqual(["file.md:L14-16"]);
   });
 });

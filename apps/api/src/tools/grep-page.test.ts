@@ -111,11 +111,22 @@ describe('grep page assembly', () => {
       passage('a.md:6-7', '6: d\n7: e', [7]),
     ]);
     expect(state.artifact.results).toEqual([
-      passage('a.md:3-7', '3: a\n4: b\n5: c\n6: d\n7: e', [4, 7]),
+      passage('a.md:L3-7', '3: a\n4: b\n5: c\n6: d\n7: e', [4, 7]),
     ]);
     expect(grepArtifactText(state.artifact)).toBe(
       '## a.md\n3: a\n*4: b\n5: c\n6: d\n*7: e',
     );
+  });
+
+  it('joins a lettered cut passage and its continuation', () => {
+    const state = pageState();
+    addGrepPassages(state.artifact, [
+      passage('a.md:L3-5', '3: a\n4: b\n5: c', [4], { cut: true }),
+      passage('a.md:L6-7', '6: d\n7: e', [7]),
+    ]);
+    expect(state.artifact.results).toEqual([
+      passage('a.md:L3-7', '3: a\n4: b\n5: c\n6: d\n7: e', [4, 7]),
+    ]);
   });
 
   /** Keep one page of passages; the join rules live in the artifact text. */

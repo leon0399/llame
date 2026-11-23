@@ -11,8 +11,8 @@
  */
 
 import {
+  formatPassageLocator,
   GREP_LIMITS,
-  grepFileLocator,
   grepIgnoredUnits,
   grepLeftOutUnits,
   grepPassageBlockLines,
@@ -22,8 +22,7 @@ import {
   grepUnfinishedUnits,
   grepWarningsUnits,
   measureGrepRendering,
-  passageEndLine,
-  passageStartLine,
+  parsePassageLocator,
   type GrepPassage,
   type GrepRemainder,
 } from '@workspace/native-file-tools';
@@ -267,19 +266,19 @@ function inlineHead(
     }
 
     if (results.length === 0) {
-      const cut = cutToInline(passage, budget - used, markCut);
+      const { passage: cut, omitted } = cutToInline(
+        passage,
+        budget - used,
+        markCut,
+      );
+
       results.push(cut);
       artifactLines += blockPieces(cut);
       // A cut only ever happens as the first passage, which opens its file
       // run: the file is shown, so only its remaining lines are left out.
       files += 1;
 
-      return {
-        results,
-        artifactLines,
-        files,
-        cut: passageEndLine(passage.locator) - passageEndLine(cut.locator),
-      };
+      return { results, artifactLines, files, cut: omitted };
     }
 
     break;
@@ -297,26 +296,31 @@ function blockPieces(passage: GrepPassage): number {
 }
 
 /**
- * The first `available` code units of a passage, as whole lines. A rendered
- * content line is at most the engine's 512-unit line cut, and the inline
- * reserve leaves thousands of units, so one whole line always fits: the floor
- * is that line, never a partial one. `markCut` records that the artifact holds
- * the rest; without an artifact nothing is marked, because nothing holds it.
+ * The first `available` code units of a passage, as whole lines, with the
+ * count of its source lines the cut leaves out. A rendered content line is at
+ * most the engine's 512-unit line cut, and the inline reserve leaves thousands
+ * of units, so one whole line always fits: the floor is that line, never a
+ * partial one. `markCut` records that the artifact holds the rest; without an
+ * artifact nothing is marked, because nothing holds it.
  */
 function cutToInline(
   passage: GrepPassage,
   available: number,
   markCut: boolean,
-): GrepPassage {
-  const start = passageStartLine(passage.locator);
-  const end = passageEndLine(passage.locator);
+) {
+  const range = parsePassageLocator(passage.locator);
+
+  if (range === undefined)
+    throw new Error('The grep engine returned a passage without a line range');
+
+  const { file, startLine, endLine } = range;
   const lines = passage.content.split('\n');
 
   if (lines.at(-1) === '') lines.pop();
 
   const cutAt = (last: number): GrepPassage => ({
-    locator: `${fileOf(passage)}:${String(start)}-${String(last)}`,
-    content: lines.slice(0, last - start + 1).join('\n'),
+    locator: formatPassageLocator(file, startLine, last),
+    content: lines.slice(0, last - startLine + 1).join('\n'),
     matches: passage.matches.filter((match) => match <= last),
     // A cut is always the first passage, so it is never the file's twentieth:
     // only the cut mark can apply.
@@ -325,34 +329,28 @@ function cutToInline(
 
   // The width only grows with more lines, so the largest fitting end is a
   // binary search, not one full render per line.
-  let low = start;
-  let high = end;
-  let best: GrepPassage | undefined;
+  let low = startLine;
+  let high = endLine;
+  // One line is the floor: a match never yields an empty inline part.
+  let last = startLine;
 
   while (low <= high) {
     const middle = Math.floor((low + high) / 2);
-    const candidate = cutAt(middle);
 
-    if (grepPassageUnits(undefined, candidate) <= available) {
-      best = candidate;
+    if (grepPassageUnits(undefined, cutAt(middle)) <= available) {
+      last = middle;
       low = middle + 1;
     } else {
       high = middle - 1;
     }
   }
 
-  // One line is the floor: a match never yields an empty inline part.
-  return best ?? cutAt(start);
+  return { passage: cutAt(last), omitted: endLine - last };
 }
 
 /** The files the artifact lists, by run of consecutive passages. */
 function filesOf(artifact: GrepArtifact): number {
   return artifact.blocks.filter((block) => block.newRun).length;
-}
-
-/** The file locator of a passage, its range removed. */
-function fileOf(passage: GrepPassage): string {
-  return grepFileLocator(passage.locator);
 }
 
 /** The rendered width of the framing lines after the passages. */

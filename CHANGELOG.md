@@ -2,6 +2,20 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-11-22
 
+- Print the unit letter `L` in the passage locators that `grep` and
+  `knowledge_search` return, and in the `grep` remainder line. A hit locator
+  reads `src/app.ts:L12-13`, a Knowledge passage
+  `kb://<id>/notes/2026-09-08 14%3A30 standup.md:L5-10`, and the remainder line
+  names each next file as
+  `[more: 2 files, 12 passages; next: /r/a.ts (artifact://grep-3:L201-240)]`.
+  A passage locator a stored result wrote as `notes.md:5-10` keeps that
+  spelling and stays valid input: it reads lines 5 through 10, is not
+  rewritten, and its replay renders the file line `notes.md`. The owner UI
+  cards for `grep` and `knowledge_search` read both spellings. **Breaking**: a
+  client that parses the printed `<path>:<start>-<end>` passage form or the
+  printed remainder entry must accept the `L` spelling. The JSON fields, the
+  stored parts, and the input grammar are otherwise unchanged.
+
 - Print the unit letter `L` in the selectors that read results and spill
   notices show. A read header now reads `src/app.ts:L11-41 of 216 lines`, a
   multi-range header `src/app.ts:L9-13,L39-43`, a raw header

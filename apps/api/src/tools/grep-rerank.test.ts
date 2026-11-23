@@ -53,6 +53,21 @@ describe('grep file runs', () => {
     ]);
   });
 
+  it('reads a stored bare locator and a lettered one alike', () => {
+    const bare = artifactOf([
+      { locator: '/a.ts:1-2', content: '1: alpha\n2: one', matches: [2] },
+    ]);
+
+    const lettered = artifactOf([
+      { locator: '/a.ts:L1-2', content: '1: alpha\n2: one', matches: [2] },
+    ]);
+
+    expect(grepFileRuns(lettered)).toEqual(grepFileRuns(bare));
+    expect(grepRunCard(lettered, grepFileRuns(lettered)[0])).toBe(
+      grepRunCard(bare, grepFileRuns(bare)[0]),
+    );
+  });
+
   it('pads keys to the width of the last index', () => {
     const runs = grepFileRuns(artifactOf(files(11)));
 

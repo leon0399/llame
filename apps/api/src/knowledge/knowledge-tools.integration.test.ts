@@ -207,7 +207,7 @@ describe('Knowledge tools — real Postgres owner binding', () => {
 
       expect(result).toMatchObject({
         status: 'success',
-        results: [{ locator: locator(spaceAId, `notes/${encoded}:1-1`) }],
+        results: [{ locator: locator(spaceAId, `notes/${encoded}:L1-1`) }],
       });
 
       if (result.status !== 'success' || !Array.isArray(result.results)) {
@@ -362,7 +362,7 @@ describe('Knowledge tools — real Postgres owner binding', () => {
           knowledgeSpaceId: spaceAId,
           knowledgeSpaceName: 'Personal',
           path: 'notes/owner-a.md',
-          locator: `kb://${spaceAId}/notes/owner-a.md:1-1`,
+          locator: `kb://${spaceAId}/notes/owner-a.md:L1-1`,
           excerpt: ownerAContent,
         },
       ],
@@ -374,7 +374,7 @@ describe('Knowledge tools — real Postgres owner binding', () => {
           knowledgeSpaceId: spaceBId,
           knowledgeSpaceName: 'Personal',
           path: 'notes/owner-b.md',
-          locator: `kb://${spaceBId}/notes/owner-b.md:1-1`,
+          locator: `kb://${spaceBId}/notes/owner-b.md:L1-1`,
           excerpt: ownerBContent,
         },
       ],
@@ -555,6 +555,28 @@ describe('Knowledge tools — real Postgres owner binding', () => {
       content: `1: ${after}`,
     });
     expect(first).not.toEqual(second);
+  });
+
+  it('opens a stored bare passage locator and its lettered spelling alike', async () => {
+    const relativePath = 'notes/stored.md';
+    const content = `stored-bare-${crypto.randomUUID()}`;
+    writeNote(spaceAId, relativePath, content);
+
+    try {
+      const resource = locator(spaceAId, relativePath);
+      const bare = await runLocatorRead(ownerAId, `${resource}:1-1`);
+      const lettered = await runLocatorRead(ownerAId, `${resource}:L1-1`);
+
+      expect(bare).toMatchObject({
+        status: 'success',
+        kind: 'file',
+        path: resource,
+        content: `1: ${content}`,
+      });
+      expect(lettered).toEqual(bare);
+    } finally {
+      rmSync(notePath(spaceAId, relativePath));
+    }
   });
 
   it('accepts independently of the API mount and fails closed on a separately mounted worker', async () => {
