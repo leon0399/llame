@@ -354,7 +354,7 @@ describe('grep artifacts', () => {
     const next = remainder?.next[0]?.start;
     const lines = artifactText().split('\n').length;
     expect(body.truncationNotice).toBe(
-      `full result: artifact://grep-1 (${String(lines)} lines); continue with artifact://grep-1:${String(next)}-`,
+      `full result: artifact://grep-1 (${String(lines)} lines); continue with artifact://grep-1:L${String(next)}-`,
     );
   });
 
@@ -464,7 +464,7 @@ describe('grep artifacts', () => {
     expect(remainder).toMatchObject({ files: 1, passages: 1 });
     expect(remainder?.next[0]?.start).toBe(contentLines.length + 2);
     expect(bodyText(result)).toContain(
-      `; continue with artifact://grep-1:${String(remainder?.next[0]?.start)}-`,
+      `; continue with artifact://grep-1:L${String(remainder?.next[0]?.start)}-`,
     );
     const artifact = artifactText().split('\n');
     expect(artifact).toHaveLength(401);

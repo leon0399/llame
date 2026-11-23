@@ -389,8 +389,8 @@ describe('readFsReadResult', () => {
 
     if (result === undefined) throw new Error('Expected a Machine file read');
     expect(renderToolResultText('read', result)).toBe(
-      'machine://devl/a:11-41 of 216 lines\n12: a\n40: b\n41: c\n' +
-        '[175 more lines. Use machine://devl/a:42- to continue]',
+      'machine://devl/a:L11-41 of 216 lines\n12: a\n40: b\n41: c\n' +
+        '[175 more lines. Use machine://devl/a:L42- to continue]',
     );
   });
 

@@ -5,6 +5,7 @@ import {
   neutralizeReservedDelimiters,
   type UnknownRecord,
 } from "@workspace/runtime-safety";
+import { formatLineRange } from "./path";
 
 /*
  * The model-facing text of a `read`, `edit`, or `write` success
@@ -89,7 +90,7 @@ function asRanges(value: unknown): Array<LineRange> {
 }
 
 function formatRange(range: LineRange): string {
-  return `${range.startLine}-${range.endLine}`;
+  return formatLineRange(range.startLine, range.endLine);
 }
 
 function adapterLines(value: unknown): Array<string> {
@@ -195,8 +196,8 @@ function rangeSelector(
   const start = nextOffset + 1;
 
   return endLine === undefined || nextOffset >= endLine
-    ? `${start}-`
-    : `${start}-${endLine}`;
+    ? `L${start}-`
+    : formatLineRange(start, endLine);
 }
 
 /**
@@ -208,11 +209,9 @@ function rangeSelector(
 function multiSelector(ranges: Array<LineRange>, nextOffset: number): string {
   const line = nextOffset + 1;
   const at = ranges.findIndex((range) => line <= range.endLine);
-
-  if (at < 0) return `${line}-`;
   const member = ranges[at];
 
-  if (member === undefined) return `${line}-`;
+  if (member === undefined) return `L${line}-`;
 
   const head =
     line >= member.startLine
@@ -224,7 +223,7 @@ function multiSelector(ranges: Array<LineRange>, nextOffset: number): string {
 
 /** The read that resumes after this one, in the form the request used. */
 function resumeSelector(result: UnknownRecord, nextOffset: number): string {
-  if (result.kind === "directory") return `${nextOffset + 1}-`;
+  if (result.kind === "directory") return `L${nextOffset + 1}-`;
   const { lineCount } = result;
   const requested = asRange(result.requestedRange)?.endLine;
 

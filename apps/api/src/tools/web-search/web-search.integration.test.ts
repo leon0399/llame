@@ -1059,7 +1059,7 @@ describeIfDb('web search through the real tool loop', () => {
 
     expect(rendered.match(/^## \d+\./gmu)).toHaveLength(10);
     expect(rendered.split('\n').at(-1)).toMatch(
-      /^\[full result: artifact:\/\/web_search-1 \(\d+ lines\); continue with artifact:\/\/web_search-1:\d+-\]$/u,
+      /^\[full result: artifact:\/\/web_search-1 \(\d+ lines\); continue with artifact:\/\/web_search-1:L\d+-\]$/u,
     );
 
     // A read of the artifact serves the stored text alone; a new reject

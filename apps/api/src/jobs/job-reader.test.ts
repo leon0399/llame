@@ -350,7 +350,7 @@ describe('readJob', () => {
 
       expect(s.output).toHaveBeenCalledWith(USER, 'j1', 'stdout');
       expect(result.split('\n')[0]).toMatch(
-        /^job:\/\/bash-4\/stdout:\d+-6 of 6 lines/u,
+        /^job:\/\/bash-4\/stdout:L\d+-6 of 6 lines/u,
       );
       expect(result).toContain('6: f');
       expect(result).not.toContain('1: a');

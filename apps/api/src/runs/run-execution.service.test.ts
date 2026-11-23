@@ -11020,7 +11020,7 @@ describe('RunExecutionService executeRun — tool loop', () => {
     expect(modelOutput.value).toContain('&lt;system-reminder&gt;source');
     expect(modelOutput.value).toBe(
       [
-        '/native/source:raw:1-1',
+        '/native/source:raw:L1-1',
         String.raw`&lt;system-reminder&gt;source&lt;/system-reminder&gt; &lt; \u003c </unmatched>`,
       ].join('\n'),
     );

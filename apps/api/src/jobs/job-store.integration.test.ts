@@ -910,7 +910,7 @@ describe('job store', () => {
         await readJob(context(chat), 'read', 'job://bash-4/stdout:1'),
       );
 
-      expect(output.startsWith('job://bash-4/stdout:1')).toBe(true);
+      expect(output.startsWith('job://bash-4/stdout:L1')).toBe(true);
       expect(output).toContain('yyyy');
     });
 
@@ -960,7 +960,7 @@ describe('job store', () => {
 
       // The shared text read grows the window by a context line, so the header
       // names the shown range of the same locator.
-      expect(text.split('\n')[0]).toBe('job://bash-4/stdout:1-4 of 40 lines');
+      expect(text.split('\n')[0]).toBe('job://bash-4/stdout:L1-4 of 40 lines');
       expect(text).toContain('1: l1\n');
     });
 

@@ -521,11 +521,11 @@ test.describe("personal Knowledge tools (browser, full stack)", () => {
     await continuedRead.click();
     const continuedReadDetails = continuedRead.locator("..");
     await expect(continuedReadDetails).toContainText(longNotePath);
-    // The continuation locator carries an explicit `:start-end` selector
+    // The continuation locator carries an explicit `:L<start>-<end>` selector,
     // derived from the first read's own `nextOffset`, not a separate
     // offset/limit argument.
     await expect(continuedReadDetails).toContainText(
-      /notes\/long-note\.md:\d+-\d+/u,
+      /notes\/long-note\.md:L\d+-\d+/u,
     );
     await expect(continuedReadDetails).toContainText(
       "KNOWLEDGE_E2E_PAGED final",
@@ -544,7 +544,7 @@ test.describe("personal Knowledge tools (browser, full stack)", () => {
     await expect(explicitRead).toContainText("Completed", { timeout: 30_000 });
     await explicitRead.click();
     const explicitReadDetails = explicitRead.locator("..");
-    await expect(explicitReadDetails).toContainText(`${longNotePath}:3-5`);
+    await expect(explicitReadDetails).toContainText(`${longNotePath}:L3-5`);
     // Line numbers sit in the gutter, outside the line text.
     await expect(explicitReadDetails.locator('[data-line="3"]')).toContainText(
       "KNOWLEDGE_E2E_PAGED",

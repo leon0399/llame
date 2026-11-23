@@ -321,8 +321,9 @@ function previewText(
 
 /**
  * The line the preview's cut carries. With an artifact it names the part and
- * the artifact lines that hold the rest; without one it says the full result
- * is not stored.
+ * the artifact lines that hold the rest, as the canonical `L<first>-<last>`
+ * selector; without one it says the full result is not stored. The leading
+ * `lines <first>-<last>` text is a count, not a selector.
  */
 function omittedLine(
   range: { readonly first: number; readonly last: number },

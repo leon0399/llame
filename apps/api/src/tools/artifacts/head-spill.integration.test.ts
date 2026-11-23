@@ -81,7 +81,7 @@ d('head spill', () => {
     const text = renderToolResultText('read', read);
     expect(text).toContain('"text": "xxxxxxxx');
     expect(text).toMatch(
-      /Use artifact:\/\/mcp__docs__fetch-1:\d+- to continue\]/u,
+      /Use artifact:\/\/mcp__docs__fetch-1:L\d+- to continue\]/u,
     );
 
     // The raw part is the pretty-printed JSON: one member on each line, and

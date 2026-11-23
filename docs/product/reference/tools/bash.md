@@ -49,7 +49,7 @@ when it settles. Do not poll it.” The durable
 A stream that does not fit its inline share keeps its first lines, one
 `[lines <a>-<b> omitted; …]` line, and its last lines. When the Run can read
 artifacts, that line names the stored part
-(`read artifact://bash-<n>/stdout:<a>-<b>`) and the text ends with
+(`read artifact://bash-<n>/stdout:L<a>-<b>`) and the text ends with
 `[full result: artifact://bash-<n>/stdout (<lines> lines)]` (`1 line` for one);
 both streams that
 do not fit are named in one notice. A failed write, or a Run that cannot read

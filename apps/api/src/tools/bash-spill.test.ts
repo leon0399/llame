@@ -252,7 +252,7 @@ describe('the bash stream preview', () => {
       Array.from({ length: 40 }, (_, index) => logLine(index + 1)),
     );
     expect(lines[40]).toBe(
-      '[lines 41-4880 omitted; read artifact://bash-5/stdout:41-4880]',
+      '[lines 41-4880 omitted; read artifact://bash-5/stdout:L41-4880]',
     );
     expect(lines.slice(41)).toEqual(
       Array.from({ length: 120 }, (_, index) => logLine(4881 + index)),
@@ -269,7 +269,7 @@ describe('the bash stream preview', () => {
 
     expect(text).not.toContain('[output cut at the bound]');
     expect(text).toContain(
-      '[lines 1-2 omitted; read artifact://bash-5/stdout:1-2]',
+      '[lines 1-2 omitted; read artifact://bash-5/stdout:L1-2]',
     );
     expect(text.endsWith(']')).toBe(true);
   });
@@ -372,7 +372,7 @@ describe('the bash artifact parts', () => {
     expect(lines[0]).toBe('exit 1, 0.0 s');
     expect(lines).toContain('[stderr]');
     expect(lines).toContain(
-      '[lines 41-280 omitted; read artifact://bash-5/stderr:41-280]',
+      '[lines 41-280 omitted; read artifact://bash-5/stderr:L41-280]',
     );
     expect(lines.at(-1)).toBe(
       '[full result: artifact://bash-5/stderr (400 lines)]',
@@ -401,7 +401,7 @@ describe('the bash artifact parts', () => {
     expect(result.type).toBe('timed_out');
     expect(result.message.split('\n')[0]).toBe('timed out, 30.0 s');
     expect(result.message).toContain(
-      '[lines 41-4880 omitted; read artifact://bash-5/stdout:41-4880]',
+      '[lines 41-4880 omitted; read artifact://bash-5/stdout:L41-4880]',
     );
     expect(result.artifact).toBe('artifact://bash-5');
   });
@@ -838,7 +838,7 @@ describe('the bash tool spill on the host and over ssh', () => {
 
     if (result.status !== 'error') return;
     expect(result.message).toContain(
-      '[lines 1-2 omitted; read artifact://bash-5/stderr:1-2]',
+      '[lines 1-2 omitted; read artifact://bash-5/stderr:L1-2]',
     );
     expect(writtenParts()[0]).toMatchObject({
       name: 'stderr',
@@ -904,7 +904,7 @@ describe('the Machine bash spill', () => {
     const lines = result.message.split('\n');
     expect(lines[0]).toBe('exit 1, 0.0 s');
     expect(lines).toContain(
-      '[lines 1-3 omitted; read artifact://bash-5/stderr:1-3]',
+      '[lines 1-3 omitted; read artifact://bash-5/stderr:L1-3]',
     );
     expect(result.artifact).toBe('artifact://bash-5');
     expect(writtenParts()[0]).toMatchObject({

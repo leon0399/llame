@@ -203,7 +203,7 @@ describe('capHeadResult', () => {
     expect(text).toBe(JSON.stringify(hugeResult(), null, 2));
     expect(result).toMatchObject({ artifact: LOCATOR, truncated: true });
     expect(noticeOf(result)).toContain(
-      `[full result: ${LOCATOR} (${artifactLines(text)} lines); continue with ${LOCATOR}:1-]`,
+      `[full result: ${LOCATOR} (${artifactLines(text)} lines); continue with ${LOCATOR}:L1-]`,
     );
   });
 

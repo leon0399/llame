@@ -48,7 +48,7 @@ export type ArtifactNoticeOptions = {
 };
 
 /**
- * `[full result: <locator> (<lines> lines); continue with <locator>:<next>-]`.
+ * `[full result: <locator> (<lines> lines); continue with <locator>:L<next>-]`.
  * One part is `1 line`, two are joined with a comma. An empty part list is a
  * producer bug, so it still renders one bracketed line with no parts rather
  * than throwing inside a tool result.
@@ -67,7 +67,7 @@ export function artifactNotice(
   const continuation =
     options.continueWith === undefined
       ? ""
-      : `; continue with ${oneLine(options.continueWith.locator)}:${options.continueWith.next}-`;
+      : `; continue with ${oneLine(options.continueWith.locator)}:L${options.continueWith.next}-`;
 
   return `[full result: ${named}${continuation}${hostFilesPhrase(options.hostFiles)}]`;
 }

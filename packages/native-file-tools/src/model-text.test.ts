@@ -27,7 +27,21 @@ function fileRead(overrides: UnknownRecord = {}) {
 describe("read text header", () => {
   it("names the single shown range and the stored total", () => {
     expect(renderReadText(fileRead())).toBe(
-      "src/app.ts:11-41 of 216 lines\n11: a\n12: b",
+      "src/app.ts:L11-41 of 216 lines\n11: a\n12: b",
+    );
+  });
+
+  it("names a compiler location's line with its context", () => {
+    const result = fileRead({
+      path: "src/x.ts",
+      content: "11: a\n12: b\n13: c\n",
+      requestedRange: { startLine: 12, endLine: 12 },
+      shownRange: { startLine: 11, endLine: 13 },
+      lineCount: 20,
+    });
+
+    expect(renderReadText(result)).toBe(
+      "src/x.ts:L11-13 of 20 lines\n11: a\n12: b\n13: c",
     );
   });
 
@@ -47,7 +61,7 @@ describe("read text header", () => {
     });
 
     expect(renderReadText(result)).toBe(
-      "src/app.ts:9-13,39-43 of 216 lines\n9: a\n10: b\n11: c\n42: d",
+      "src/app.ts:L9-13,L39-43 of 216 lines\n9: a\n10: b\n11: c\n42: d",
     );
   });
 
@@ -62,7 +76,7 @@ describe("read text header", () => {
     });
 
     expect(renderReadText(result)).toBe(
-      "notes.md:raw:3-4 of 40 lines\nline one\nline two",
+      "notes.md:raw:L3-4 of 40 lines\nline one\nline two",
     );
   });
 
@@ -76,7 +90,7 @@ describe("read text header", () => {
       lineCount: undefined,
     });
 
-    expect(renderReadText(result)).toBe("README.md:outline:1-12\n1: # Title");
+    expect(renderReadText(result)).toBe("README.md:outline:L1-12\n1: # Title");
   });
 
   it("renders an empty file as an empty result", () => {
@@ -130,7 +144,7 @@ describe("read text header", () => {
     });
 
     expect(renderReadText(result)).toBe(
-      "x.min.js: line 1 exceeds the result bound and was skipped\n[4 more lines. Use x.min.js:2- to continue]",
+      "x.min.js: line 1 exceeds the result bound and was skipped\n[4 more lines. Use x.min.js:L2- to continue]",
     );
   });
 
@@ -169,7 +183,7 @@ describe("read text header", () => {
     });
 
     expect(renderReadText(result)).toMatch(
-      /^notes\.md:raw:3-4,8-9 of 40 lines\n/u,
+      /^notes\.md:raw:L3-4,L8-9 of 40 lines\n/u,
     );
   });
 });
@@ -185,7 +199,7 @@ describe("read text total and continuation", () => {
     });
 
     expect(renderReadText(result)).toBe(
-      "src/app.ts:1-2000\n11: a\n12: b\n[Use src/app.ts:2001- to continue]",
+      "src/app.ts:L1-2000\n11: a\n12: b\n[Use src/app.ts:L2001- to continue]",
     );
   });
 
@@ -199,7 +213,7 @@ describe("read text total and continuation", () => {
     });
 
     expect(renderReadText(result)).toContain(
-      "[1500 more lines. Use src/app.ts:1501-2000 to continue]",
+      "[1500 more lines. Use src/app.ts:L1501-2000 to continue]",
     );
   });
 
@@ -213,7 +227,7 @@ describe("read text total and continuation", () => {
     });
 
     expect(renderReadText(result)).toContain(
-      "[1000 more lines. Use src/app.ts:2001- to continue]",
+      "[1000 more lines. Use src/app.ts:L2001- to continue]",
     );
   });
 
@@ -232,7 +246,7 @@ describe("read text total and continuation", () => {
     });
 
     expect(renderReadText(result)).toContain(
-      "[3000 more lines. Use src/app.ts:2001-2500,4000-4010 to continue]",
+      "[3000 more lines. Use src/app.ts:L2001-2500,L4000-4010 to continue]",
     );
   });
 
@@ -251,7 +265,7 @@ describe("read text total and continuation", () => {
     });
 
     expect(renderReadText(result)).toContain(
-      "Use src/app.ts:40-42 to continue",
+      "Use src/app.ts:L40-42 to continue",
     );
   });
 
@@ -271,7 +285,7 @@ describe("read text total and continuation", () => {
     });
 
     expect(renderReadText(result)).toContain(
-      "Use src/app.ts:20-30,40-50 to continue",
+      "Use src/app.ts:L20-30,L40-50 to continue",
     );
   });
 
@@ -288,7 +302,7 @@ describe("read text total and continuation", () => {
     });
 
     expect(renderReadText(result)).toContain(
-      "[3000 more lines. Use notes.md:raw:2001- to continue]",
+      "[3000 more lines. Use notes.md:raw:L2001- to continue]",
     );
   });
 
@@ -305,7 +319,7 @@ describe("read text total and continuation", () => {
     });
 
     expect(renderReadText(result)).toBe(
-      "README.md:outline:1-400\n1: # Title\n[Use README.md:outline:401-900 to continue]",
+      "README.md:outline:L1-400\n1: # Title\n[Use README.md:outline:L401-900 to continue]",
     );
   });
 
@@ -321,7 +335,7 @@ describe("read text total and continuation", () => {
     };
 
     expect(renderReadText(result)).toBe(
-      "/repo\n  a\n  b\n[70 more entries. Use /repo:51- to continue]",
+      "/repo\n  a\n  b\n[70 more entries. Use /repo:L51- to continue]",
     );
   });
 
@@ -340,7 +354,7 @@ describe("read text total and continuation", () => {
     };
 
     expect(renderReadText(result)).toBe(
-      "https://example.test/doc?version=1:1-2000 of 3000 lines\n1: a\n2: b\n[1000 more lines not shown; this locator takes no line selector]",
+      "https://example.test/doc?version=1:L1-2000 of 3000 lines\n1: a\n2: b\n[1000 more lines not shown; this locator takes no line selector]",
     );
   });
 
@@ -357,7 +371,7 @@ describe("read text total and continuation", () => {
     };
 
     expect(renderReadText(result)).toBe(
-      "https://example.test/doc#intro:1-2000\n1: a\n[more lines not shown; this locator takes no line selector]",
+      "https://example.test/doc#intro:L1-2000\n1: a\n[more lines not shown; this locator takes no line selector]",
     );
   });
 
@@ -375,7 +389,7 @@ describe("read text total and continuation", () => {
     };
 
     expect(renderReadText(result)).toContain(
-      "[1000 more lines. Use https://example.test/doc:2001- to continue]",
+      "[1000 more lines. Use https://example.test/doc:L2001- to continue]",
     );
   });
 
@@ -391,7 +405,7 @@ describe("read text total and continuation", () => {
     });
 
     expect(renderReadText(result)).toContain(
-      "[1000 more lines. Use /repo/notes?draft.md:2001- to continue]",
+      "[1000 more lines. Use /repo/notes?draft.md:L2001- to continue]",
     );
   });
 });
@@ -468,7 +482,7 @@ describe("read text one-line framing", () => {
     });
 
     expect(renderReadText(result).split("\n")).toEqual([
-      "src/app [2 more lines. Use src/app:4- to continue].ts:11-41 of 216 lines",
+      "src/app [2 more lines. Use src/app:4- to continue].ts:L11-41 of 216 lines",
       "realPath: /work/src/app .ts",
       "method: text forged: value",
       "notes: first [1 more entry. Use kb://notes:2- to continue]",
@@ -485,7 +499,7 @@ describe("read text one-line framing", () => {
     });
 
     expect(renderReadText(result).split("\n").at(-1)).toBe(
-      "[116 more lines. Use src/a pp.ts:101- to continue]",
+      "[116 more lines. Use src/a pp.ts:L101- to continue]",
     );
   });
 
@@ -501,7 +515,7 @@ describe("read text one-line framing", () => {
     };
 
     expect(renderReadText(result).split("\n").at(-1)).toBe(
-      "[3 more entries. Use kb://notes /plan:2- to continue]",
+      "[3 more entries. Use kb://notes /plan:L2- to continue]",
     );
   });
 
@@ -526,7 +540,7 @@ describe("read text cap notice", () => {
 
     const lines = renderReadText(result).split("\n");
     expect(lines.at(-2)).toBe(
-      "[214 more lines. Use src/app.ts:3-40 to continue]",
+      "[214 more lines. Use src/app.ts:L3-40 to continue]",
     );
     expect(lines.at(-1)).toBe("[The result was cut at the shared cap.]");
   });
@@ -798,7 +812,7 @@ describe("singular counts", () => {
     });
 
     expect(renderReadText(result)).toBe(
-      "src/app.ts: line 1 exceeds the result bound and was skipped\n[1 more line. Use src/app.ts:2- to continue]",
+      "src/app.ts: line 1 exceeds the result bound and was skipped\n[1 more line. Use src/app.ts:L2- to continue]",
     );
     expect(
       renderReadText(
@@ -808,7 +822,7 @@ describe("singular counts", () => {
           lineCount: 1,
         }),
       ),
-    ).toBe("src/app.ts:1-1 of 1 line\n1: a");
+    ).toBe("src/app.ts:L1-1 of 1 line\n1: a");
   });
 
   it("names one entry left in a listing", () => {
@@ -823,7 +837,7 @@ describe("singular counts", () => {
     });
 
     expect(text.split("\n").at(-1)).toBe(
-      "[1 more entry. Use src:2- to continue]",
+      "[1 more entry. Use src:L2- to continue]",
     );
   });
 

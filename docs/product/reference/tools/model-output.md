@@ -45,7 +45,7 @@ exceed the cap can lose trailing fields.
 A tool declares how its result spills. `head` is the default: the system
 stores the whole rendering as an artifact, then keeps the head of the shape
 inline. The `artifact` field on the result is the locator, and the cap notice
-names it, its line count, and `artifact://<tool>-<n>:1-`. A JSON rendering is
+names it, its line count, and `artifact://<tool>-<n>:L1-`. A JSON rendering is
 stored pretty-printed, one member or item on each line, so a long text value
 stays readable by line. A rendering above the operator-configured artifact
 bound is not stored, because cutting JSON would make it invalid; the notice

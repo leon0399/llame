@@ -255,7 +255,7 @@ describe("native source reads", () => {
     const next = (result.nextOffset ?? 0) + 1;
     expect(renderReadText(result)).toMatch(
       new RegExp(
-        `\\[${3001 - next} more lines\\. Use \\S+:${next}- to continue\\]$`,
+        `\\[${3001 - next} more lines\\. Use \\S+:L${next}- to continue\\]$`,
         "u",
       ),
     );

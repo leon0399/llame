@@ -949,7 +949,7 @@ describe("truncateOversizedResult head spill", () => {
 
     expect(result).toMatchObject({ artifact: LOCATOR, truncated: true });
     expect(noticeOf(result)).toContain(
-      `[full result: ${LOCATOR} (900 lines); continue with ${LOCATOR}:1-]`,
+      `[full result: ${LOCATOR} (900 lines); continue with ${LOCATOR}:L1-]`,
     );
     expect(noticeOf(result)).toContain(
       "Re-run this tool with narrower arguments if you need the omitted content.",
@@ -985,7 +985,7 @@ describe("truncateOversizedResult head spill", () => {
     });
 
     expect(noticeOf(result)).toContain(
-      `[full result: ${LOCATOR} (900 lines); continue with ${LOCATOR}:1-; host files in machine://host-a/tmp/llame/chats/c/artifacts]`,
+      `[full result: ${LOCATOR} (900 lines); continue with ${LOCATOR}:L1-; host files in machine://host-a/tmp/llame/chats/c/artifacts]`,
     );
   });
 
@@ -997,7 +997,7 @@ describe("truncateOversizedResult head spill", () => {
     });
 
     expect(noticeOf(result)).toContain(
-      `[full result: ${LOCATOR} (900 lines); continue with ${LOCATOR}:1-]`,
+      `[full result: ${LOCATOR} (900 lines); continue with ${LOCATOR}:L1-]`,
     );
     expect(noticeOf(result)).not.toContain("host files");
   });

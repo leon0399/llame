@@ -29,7 +29,7 @@
  * Two differences from the proposal's table are expected and explained by later
  * decisions rather than by drift: the read header's ` of <total> lines` and the
  * continuation line's stored requested end were both chosen after that table
- * was measured, so the bound-limited row resumes to `:387-2000` instead of the
+ * was measured, so the bound-limited row resumes to `:L387-2000` instead of the
  * file's last line and costs one token more.
  *
  * Run: `pnpm --filter @workspace/native-file-tools build && pnpm --filter
