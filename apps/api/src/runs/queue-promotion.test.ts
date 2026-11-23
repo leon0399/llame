@@ -9,7 +9,10 @@ import {
 import { chatDeliveryRow } from '../testing/chat-delivery-rows';
 import { type PermissionMode } from '../tools/permissions/permission-mode';
 import { asDouble } from '../testing/support';
-import { promoteNextQueueItem } from './queue-promotion';
+import {
+  promoteNextQueueItem,
+  resolveItemRunSettings,
+} from './queue-promotion';
 import { RunEventsRepository, RunsRepository } from './runs-repository';
 
 const at = new Date('2026-11-08T00:00:00.000Z');
@@ -110,6 +113,7 @@ function makeSetup(
 
   return {
     promote,
+    models,
     resolveSelection,
     lock,
     firstPendingQueueItem,
@@ -353,6 +357,30 @@ describe('promoteNextQueueItem', () => {
 
     expect(createUserMessageIfAbsent).not.toHaveBeenCalled();
     expect(createRun).not.toHaveBeenCalled();
+  });
+
+  it('reads a notice effort as a preference', () => {
+    const { models, resolveSelection } = makeSetup();
+
+    resolveItemRunSettings({
+      models,
+      enabledPermissionModes: ['default', 'bypass'],
+      settings: item.settings,
+      stored: null,
+      effortPolicy: 'preferred',
+      now: at,
+    });
+
+    expect(resolveSelection).toHaveBeenCalledWith(
+      null,
+      {
+        selector: 'model-1',
+        effort: 'high',
+        effortPolicy: 'preferred',
+      },
+      'derived',
+      at,
+    );
   });
 
   it('leaves an item waiting when its id is already a message', async () => {

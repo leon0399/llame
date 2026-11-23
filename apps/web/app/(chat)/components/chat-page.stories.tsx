@@ -1050,13 +1050,16 @@ export const HeldChatInPicker: Story = {
     await userEvent.click(selector);
 
     const picker = await within(document.body).findByLabelText("Model picker");
-    await expect(within(picker).getByText("@coding")).toBeVisible();
-    await expect(
-      within(picker).getAllByText("Claude Sonnet").length,
-    ).toBeGreaterThan(0);
 
     // The preview card names the held model, not the role's primary.
-    await expect(document.body).toHaveTextContent("Claude Sonnet");
+    await waitFor(async () => {
+      await expect(
+        within(picker).getByRole("heading", { name: "Claude Sonnet" }),
+      ).toBeVisible();
+    });
+    await expect(
+      within(picker).queryByRole("heading", { name: "Codex" }),
+    ).toBeNull();
   },
 };
 
@@ -1779,6 +1782,76 @@ export const TargetSendFinishOpensLatest: Story = {
       LATEST_QUERY,
       LATEST_QUERY,
     ]);
+  },
+};
+
+// Released by the story once the remounted page shows the pre-send snapshot.
+let releaseLatestMode: () => void = () => {};
+
+/**
+ * #1084: after a target send finishes, the newest page can still be the
+ * pre-send snapshot, whose last reply ran in bypass. The composer keeps the
+ * permission mode the send used — the default here — over that snapshot and
+ * once the post-send page arrives, instead of restoring the last turn's.
+ *
+ * @summary a finished target send keeps its permission mode
+ */
+export const TargetSendKeepsPermissionMode: Story = {
+  tags: ["ai-generated"],
+  parameters: {
+    hash: TARGET_HASH,
+    history: historyWithUsage({
+      status: "completed",
+      modelId: GPT_5_4_MINI.id,
+      permissionMode: "bypass",
+    }),
+  } satisfies ChatPageParameters,
+  beforeEach: () => {
+    offerBothModes();
+
+    const latest = new Promise<void>((resolve) => {
+      releaseLatestMode = resolve;
+    });
+
+    routeHistory(historyPage(TARGET_WINDOW), () =>
+      latest.then(() =>
+        jsonResponse({
+          messages: [
+            ...replies(["target", 900, "target answer"]),
+            rawChatMessage({
+              id: "latest",
+              chatId: CHAT_ID,
+              role: "assistant",
+              seq: 1000,
+              parts: [{ type: "text", text: "latest durable answer" }],
+              usage: {
+                status: "completed",
+                modelId: GPT_5_4_MINI.id,
+                permissionMode: "bypass",
+              },
+            }),
+          ],
+        }),
+      ),
+    );
+    routeAlso({ [SEND_ROUTE]: () => Promise.resolve(streamedReply()) });
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await openedTarget(canvasElement);
+    await sendFollowUp(canvasElement);
+
+    await transcriptShows(canvasElement, "Reply from history");
+    await expect(
+      canvas.getByRole("button", { name: "Permission mode, Default" }),
+    ).toBeVisible();
+
+    releaseLatestMode();
+
+    await transcriptShows(canvasElement, "latest durable answer");
+    await expect(
+      canvas.getByRole("button", { name: "Permission mode, Default" }),
+    ).toBeVisible();
   },
 };
 

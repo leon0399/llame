@@ -54,22 +54,18 @@ type ComposerSelections = {
  *  id until a chat exists). */
 function useComposerSelections(composerChatId: string): ComposerSelections {
   const { getPermissionMode } = useChatContext();
-  const composer = useComposerSelection();
-
-  // A create is a new Chat's first send by definition, so it always names the
+  // A create is a new Chat's first send by definition, so it names the
   // selection the composer shows — even where the page has no draft Chat
   // registered to say so (a project page's composer).
-  const selector = composer.send.selector ?? composer.selection?.selector;
-  const effort = composer.send.effort ?? composer.effort;
+  const composer = useComposerSelection({ firstSend: true });
 
   return {
-    selector,
-    effort,
+    selector: composer.send.selector,
+    effort: composer.send.effort,
     permissionMode: getPermissionMode(composerChatId),
     modelReadyForSend: composer.modelReadyForSend,
     modelSendUnavailableReason: composer.modelSendUnavailableReason,
-    accepted:
-      selector === undefined ? null : { selector, effort: effort ?? null },
+    accepted: composer.accepted,
   };
 }
 

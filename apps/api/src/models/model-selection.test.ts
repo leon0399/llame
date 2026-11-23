@@ -110,6 +110,20 @@ function resolve(
   return resolveSelectionFromCatalog(CATALOG, { stored, request, writer, now });
 }
 
+/** A job notice's resolution: the recorded effort is a preference. */
+function resolveNotice(
+  stored: ChatModelSelection | null,
+  request: SelectionRequest,
+  now: Date,
+) {
+  return resolve(
+    stored,
+    { ...request, effortPolicy: 'preferred' },
+    'derived',
+    now,
+  );
+}
+
 describe('a fallback hold', () => {
   it('A held Chat resolves to the held model', () => {
     const resolved = resolve(STORED, {}, 'owner', BEFORE);
@@ -223,5 +237,84 @@ describe('a fallback hold', () => {
     expect(
       resolve(STORED, {}, 'derived', BEFORE).nextSelection,
     ).toBeUndefined();
+  });
+
+  it('A derived creator that drops an expired hold keeps the stored effort', () => {
+    const stored: ChatModelSelection = {
+      revision: 5,
+      selector: '@coding',
+      effort: null,
+      hold: HOLD,
+    };
+
+    const cleared = resolve(stored, {}, 'derived', AFTER);
+
+    // The served Run follows the candidate effort, but the write must keep the
+    // owner's stored effort exactly as it was.
+    expect(cleared.effort).toBe('high');
+    expect(cleared.nextSelection).toEqual({
+      revision: 5,
+      selector: '@coding',
+      effort: null,
+    });
+  });
+
+  it('A derived item with its own selector leaves a valid hold in place', () => {
+    const resolved = resolve(STORED, { selector: '@fast' }, 'derived', BEFORE);
+
+    expect(resolved.selector).toBe('@fast');
+    expect(resolved.model.id).toBe(FAST.id);
+    // The item starts on its own selector; the owner's selection and hold are
+    // neither used nor removed by a creator that may not write them.
+    expect(resolved.nextSelection).toBeUndefined();
+  });
+});
+
+describe('a notice effort', () => {
+  it('uses the hold effort under a held model', () => {
+    const resolved = resolveNotice(STORED, { effort: 'high' }, BEFORE);
+
+    expect(resolved.model.id).toBe(SONNET.id);
+    expect(resolved.effort).toBe('low');
+  });
+
+  it('uses the recorded effort when the resolved model declares it', () => {
+    const stored: ChatModelSelection = {
+      revision: 1,
+      selector: CODEX.id,
+      effort: null,
+    };
+
+    const resolved = resolveNotice(stored, { effort: 'high' }, BEFORE);
+
+    expect(resolved.model.id).toBe(CODEX.id);
+    expect(resolved.effort).toBe('high');
+  });
+
+  it('falls back to the candidate effort when the model does not declare it', () => {
+    const resolved = resolveNotice(
+      null,
+      { selector: '@coding', effort: 'medium' },
+      BEFORE,
+    );
+
+    expect(resolved.model.id).toBe(CODEX.id);
+    expect(resolved.effort).toBe('high');
+  });
+
+  it('falls back to the model default for an exact selector', () => {
+    const resolved = resolveNotice(
+      null,
+      { selector: CODEX.id, effort: 'xhigh' },
+      BEFORE,
+    );
+
+    expect(resolved.effort).toBe('low');
+  });
+
+  it('still refuses a named effort the model does not declare', () => {
+    expect(() =>
+      resolve(null, { selector: CODEX.id, effort: 'xhigh' }, 'owner', BEFORE),
+    ).toThrow(EffortNotAvailableError);
   });
 });

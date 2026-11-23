@@ -163,18 +163,22 @@ function requestOptions(
 }
 
 /**
- * The accepted-send callback: a follow-up (Continue, or Regenerate from its
- * menu) leaves the composer's picks in place — a plain Regenerate keeps showing
- * a pick the owner made (turn-actions "A plain click repeats the old
- * settings"), and a menu submit keeps the values it just sent — while every
- * other accepted send spends them.
+ * The accepted-send callback: an accepted send that named a selector or effort
+ * carried the owner's picks, and the api stored them, so they are spent. A
+ * plain Regenerate (and Continue) names neither — it repeats the Chat's stored
+ * selection and keeps a pick the owner made (turn-actions "A plain click
+ * repeats the old settings").
  */
 function acceptedSendCallback(
   accept: (selection: ComposerSelection | null) => void,
   acceptedRef: RefObject<ComposerSelection | null>,
 ) {
   return (request: ChatRequest) => {
-    if (request.trigger === "regenerate-message") return;
+    const namesSelection =
+      request.body !== undefined &&
+      ("selector" in request.body || "effort" in request.body);
+
+    if (request.trigger === "regenerate-message" && !namesSelection) return;
 
     accept(acceptedRef.current);
   };

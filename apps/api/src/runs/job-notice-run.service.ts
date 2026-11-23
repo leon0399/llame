@@ -197,6 +197,10 @@ export class JobNoticeRunService {
       enabledPermissionModes: this.instanceConfig.config.tools.permissionModes,
       settings: first.settings,
       stored,
+      // The item records the starting Run's selected effort, not an owner-named
+      // level: a held model serves the notice at the hold's effort, and an
+      // undeclared level falls through instead of keeping the notice pending.
+      effortPolicy: 'preferred',
       now,
     });
 

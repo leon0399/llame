@@ -196,18 +196,20 @@ function resolvedCandidate(
 }
 
 /**
- * The effort the composer shows and the next send would resolve for the
- * displayed model, in the api's order: the hold's effort while it applies,
- * then the stored effort, then the role candidate's effort, then the model's
- * `defaultEffort`. A level the model does not declare never applies — the api
- * would refuse it.
+ * The effort the composer shows and the next send would resolve for `model`,
+ * in the api's order: the owner's unsent pick, the hold's effort while it
+ * applies, else the stored effort, then the role candidate's effort, then the
+ * model's `defaultEffort`. A level the model does not declare never applies —
+ * the api would refuse it.
  */
-export function resolveDisplayedEffort(
-  selection: ComposerSelection | null | undefined,
-  data: ModelsResponse | undefined,
-  now: Date = new Date(),
-): string | undefined {
-  const model = resolveDisplayedModel(selection, data, now);
+export function resolveDisplayedEffort(input: {
+  selection: ComposerSelection | null | undefined;
+  model: AvailableModelResponse | undefined;
+  pickedEffort: string | undefined;
+  data: ModelsResponse | undefined;
+  now: Date;
+}): string | undefined {
+  const { selection, model, pickedEffort, data, now } = input;
 
   if (
     selection === null ||
@@ -226,49 +228,13 @@ export function resolveDisplayedEffort(
     levels.some((level) => level.value === effort);
 
   const hold = applicableHold(selection, data, now);
-
-  if (hold !== undefined) {
-    const candidate = resolvedCandidate(selection, data, hold.modelId);
-
-    if (declares(hold.effort)) return hold.effort ?? undefined;
-
-    if (declares(candidate?.effort)) return candidate?.effort;
-
-    return model.reasoning?.defaultEffort;
-  }
-
+  const own = hold !== undefined ? hold.effort : selection.effort;
   const candidate = resolvedCandidate(selection, data, model.id);
 
-  if (declares(selection.effort)) return selection.effort ?? undefined;
-
-  if (declares(candidate?.effort)) return candidate?.effort;
-
-  return model.reasoning?.defaultEffort;
-}
-
-/**
- * The effort the composer shows: the owner's unsent pick when the resolved
- * model declares it, else the effort the selection itself resolves to (the
- * hold's, the stored one, the candidate's, or the model default).
- */
-export function displayedEffort(input: {
-  selection: ComposerSelection | null | undefined;
-  model: AvailableModelResponse | undefined;
-  pickedEffort: string | undefined;
-  data: ModelsResponse | undefined;
-  now?: Date;
-}): string | undefined {
-  const { selection, model, pickedEffort, data, now } = input;
-  const levels = model?.reasoning?.effortLevels ?? [];
-
-  if (
-    pickedEffort !== undefined &&
-    levels.some((level) => level.value === pickedEffort)
-  ) {
-    return pickedEffort;
-  }
-
-  return resolveDisplayedEffort(selection, data, now);
+  return (
+    [pickedEffort, own, candidate?.effort].find(declares) ??
+    model.reasoning?.defaultEffort
+  );
 }
 
 /**
@@ -314,11 +280,15 @@ export function resolveSendSelection(input: {
  * Chat read catches up. `null` when the send named nothing, so the stored
  * selection still stands.
  */
-export function acceptedSelectionFor(
-  send: SendSelection,
-  selection: ComposerSelection | null,
-  shownEffort: string | undefined,
-): ChatModelSelectionResponse | null {
+export function acceptedSelectionFor(input: {
+  send: SendSelection;
+  selection: ComposerSelection | null;
+  shownEffort: string | undefined;
+  data: ModelsResponse | undefined;
+  now: Date;
+}): ChatModelSelectionResponse | null {
+  const { send, selection, shownEffort } = input;
+
   if (selection === null) return null;
 
   if (send.selector === undefined && send.effort === undefined) return null;
@@ -326,10 +296,13 @@ export function acceptedSelectionFor(
 
   if (send.selector === undefined) {
     // An effort-only request keeps the hold ("An owner pick clears the
-    // hold" covers selectors only).
-    return selection.hold === undefined
-      ? { selector: selection.selector, effort }
-      : { selector: selection.selector, effort, hold: selection.hold };
+    // hold" covers selectors only); under an applied hold, the api pins the
+    // effort on the hold and leaves the owner's effort alone.
+    const hold = applicableHold(selection, input.data, input.now);
+
+    return hold === undefined
+      ? { ...selection, effort }
+      : { ...selection, hold: { ...hold, effort: send.effort ?? null } };
   }
 
   return { selector: send.selector, effort };

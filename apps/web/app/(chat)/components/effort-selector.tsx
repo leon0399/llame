@@ -63,10 +63,7 @@ function useActiveEffortSelection(): EffortSelection | null {
 
   if (!reasoning || !levels || levels.length === 0) return null;
 
-  const activeLevel =
-    effort !== undefined && levels.some((level) => level.value === effort)
-      ? effort
-      : reasoning.defaultEffort;
+  const activeLevel = effort ?? reasoning.defaultEffort;
 
   const activeEntry = levels.find((level) => level.value === activeLevel);
 

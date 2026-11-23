@@ -29,10 +29,17 @@ export type ChatModelSelection = {
   readonly hold?: ChatFallbackHold;
 };
 
-/** What one request names. Both fields are optional. */
+/**
+ * What one request names. The named fields are optional.
+ *
+ * `effortPolicy` is admission metadata, not something the owner names: it says
+ * whether `effort` is a named level or only a preference recorded from another
+ * Run. It is omitted for every owner request.
+ */
 export type SelectionRequest = {
   readonly selector?: string | undefined;
   readonly effort?: string | undefined;
+  readonly effortPolicy?: EffortPolicy | undefined;
 };
 
 /**
@@ -41,6 +48,15 @@ export type SelectionRequest = {
  * job-notice Run; it never writes the owner's selector or effort.
  */
 export type SelectionWriter = 'owner' | 'derived';
+
+/**
+ * How admission reads a request's `effort`. `named`: the owner named it, so an
+ * undeclared level refuses the request. `preferred`: a job notice recorded the
+ * effort of the Run that started the job; admission uses it when the resolved
+ * model declares it and otherwise follows the candidate/default chain, so a
+ * preference never keeps a notice pending.
+ */
+export type EffortPolicy = 'named' | 'preferred';
 
 /**
  * The catalog facts a selection resolves against. `ModelsService` implements
@@ -173,20 +189,24 @@ export type HoldResolution =
       /** The held model's role candidate, whose effort may still apply. */
       readonly candidate: ModelRoleCandidate;
     }
-  | { readonly kind: 'dropped'; readonly hold: ChatFallbackHold };
+  | { readonly kind: 'dropped' };
 
 /**
  * The hold's outcome for one request, decided before the effort and the write:
  * a hold applies only when the request names no selector, the stored selection
  * is the one that resolves, the hold names that same selector, `revertAt` is
  * still ahead of the transaction's clock, and its model is still a candidate of
- * the role. Every other case drops it, because an admission is the one place a
- * stale hold can be removed.
+ * the role. An admission drops it only when `revertAt` passed or its model left
+ * the role, the two cases every creator must clear. An owner request that names
+ * a selector also drops it, because the pick replaced the selection the hold
+ * belonged to. A derived creator never writes the owner's choice: when its own
+ * selector means the hold does not serve this Run, the hold stays as stored.
  */
 export function resolveHold(input: {
   catalog: SelectionCatalog;
   stored: ChatModelSelection | null;
   request: SelectionRequest;
+  writer: SelectionWriter;
   /** Whether {@link chooseSelector} settled on the Chat's stored selector. */
   storedUsed: boolean;
   /** The admission transaction's `now()`. */
@@ -196,16 +216,9 @@ export function resolveHold(input: {
 
   if (hold === undefined) return { kind: 'none' };
 
-  const replaced =
-    input.request.selector !== undefined ||
-    !input.storedUsed ||
-    hold.selector !== input.stored?.selector;
-
   // `Date.parse` answers NaN for a malformed instant, and `NaN > now` is false,
   // so a hold that cannot be read behaves like one that passed.
   const expired = !(Date.parse(hold.revertAt) > input.now.getTime());
-
-  if (replaced || expired) return { kind: 'dropped', hold };
 
   const parsed = parseModelSelector(hold.selector);
 
@@ -218,8 +231,17 @@ export function resolveHold(input: {
 
   const model = candidate && input.catalog.model(hold.modelId);
 
-  if (candidate === undefined || model === undefined) {
-    return { kind: 'dropped', hold };
+  if (expired || candidate === undefined || model === undefined) {
+    return { kind: 'dropped' };
+  }
+
+  const applies =
+    input.request.selector === undefined &&
+    input.storedUsed &&
+    hold.selector === input.stored?.selector;
+
+  if (!applies) {
+    return input.writer === 'owner' ? { kind: 'dropped' } : { kind: 'none' };
   }
 
   return { kind: 'applied', hold, model, candidate };
@@ -250,11 +272,14 @@ function fallbackEffort(
  *
  * Matching is byte-exact: the levels are opaque provider tokens. A named level
  * on a model that declares none is `undeclared` (422), which is also why a
- * non-reasoning model ends at `none` when the request names no effort.
+ * non-reasoning model ends at `none` when the request names no effort. A level
+ * that is only a preference falls through to the later steps instead.
  */
 export function chooseEffort(input: {
   model: SystemModelCatalogEntry;
   requested: string | undefined;
+  /** Whether `requested` may be ignored when the model does not declare it. */
+  requestedIsPreference?: boolean;
   /** The stored effort, already narrowed to "applies to this request". */
   storedEffort: string | null;
   /** The resolved role candidate's effort, when it resolved through a role. */
@@ -268,9 +293,13 @@ export function chooseEffort(input: {
   const levels = input.model.reasoning?.effortLevels;
 
   if (input.requested !== undefined) {
-    return levels?.some((level) => level.value === input.requested) === true
-      ? { kind: 'effort', effort: input.requested }
-      : { kind: 'undeclared', effort: input.requested };
+    if (levels?.some((level) => level.value === input.requested) === true) {
+      return { kind: 'effort', effort: input.requested };
+    }
+
+    if (input.requestedIsPreference !== true) {
+      return { kind: 'undeclared', effort: input.requested };
+    }
   }
 
   if (input.holdEffort !== undefined) {
@@ -305,7 +334,9 @@ export function chooseEffort(input: {
  * owner's selector and effort alone.
  *
  * A derived creator writes one thing and one thing only: the removal of a hold
- * its admission dropped. Its selector, effort, and revision stay the owner's.
+ * its admission dropped. It writes the stored selector and stored effort, at
+ * the stored revision, without the hold; it never writes the selector or effort
+ * the item named.
  */
 export function nextSelectionForWrite(input: {
   stored: ChatModelSelection | null;
@@ -319,13 +350,13 @@ export function nextSelectionForWrite(input: {
   const dropped = input.hold.kind === 'dropped';
 
   if (input.writer !== 'owner') {
-    return dropped
-      ? {
-          revision: input.stored?.revision ?? 0,
-          selector: input.selector,
-          effort: input.effort ?? null,
-        }
-      : undefined;
+    if (!dropped || input.stored === null) return undefined;
+
+    return {
+      revision: input.stored.revision,
+      selector: input.stored.selector,
+      effort: input.stored.effort,
+    };
   }
 
   const namedSelector = input.request.selector !== undefined;
@@ -339,11 +370,11 @@ export function nextSelectionForWrite(input: {
 
   const applied = input.hold.kind === 'applied' ? input.hold.hold : undefined;
 
-  if (applied !== undefined && !namedSelector) {
+  if (applied !== undefined && !namedSelector && input.stored !== null) {
     return {
-      revision: (input.stored?.revision ?? 0) + 1,
-      selector: input.stored?.selector ?? input.selector,
-      effort: input.stored?.effort ?? null,
+      revision: input.stored.revision + 1,
+      selector: input.stored.selector,
+      effort: input.stored.effort,
       hold: { ...applied, effort: input.effort ?? null },
     };
   }

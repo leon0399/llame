@@ -19,8 +19,9 @@ import {
   TooltipTrigger,
 } from "@workspace/ui/components/tooltip";
 
-import { useChatContext, type ChatContextType } from "@/contexts/chat-context";
+import { useChatContext, type PermissionMode } from "@/contexts/chat-context";
 import type { FollowUpRunRequest } from "@/lib/services/chat/transport";
+import type { SendSelection } from "@/lib/services/models/selection";
 
 import { useComposerSelection } from "./use-composer-selection";
 import { EffortSelector } from "./effort-selector";
@@ -33,27 +34,23 @@ type RegenerateMenuProps = {
 };
 
 /**
- * The follow-up request the composer's own picks produce: only what the owner
- * picked since the last accepted send, so an untouched menu submits the Chat's
- * stored selection. Null until the catalog resolves a model to regenerate on.
+ * The follow-up request the composer's own send would name: the same filtered
+ * selector and effort every send derives, so a pick the resolved model does
+ * not declare is dropped here too. Null until a model resolves to regenerate
+ * on. An untouched menu names neither, so the Chat's stored selection applies.
  */
 function composerRegenerateRequest(
-  composer: Pick<
-    ChatContextType,
-    "pickedSelector" | "pickedEffort" | "getPermissionMode"
-  >,
-  ready: boolean,
-  chatId: string,
+  send: SendSelection,
+  modelReadyForSend: boolean,
+  permissionMode: PermissionMode,
 ): FollowUpRunRequest | null {
-  const { pickedSelector, pickedEffort, getPermissionMode } = composer;
-
-  if (!ready) return null;
+  if (!modelReadyForSend) return null;
 
   return {
     action: "regenerate",
-    ...(pickedSelector !== undefined && { selector: pickedSelector }),
-    ...(pickedEffort !== undefined && { effort: pickedEffort }),
-    permissionMode: getPermissionMode(chatId),
+    ...(send.selector !== undefined && { selector: send.selector }),
+    ...(send.effort !== undefined && { effort: send.effort }),
+    permissionMode,
   };
 }
 
@@ -71,13 +68,13 @@ export function RegenerateMenu({
   requestFollowUp,
 }: RegenerateMenuProps) {
   const [open, setOpen] = useState(false);
-  const composer = useChatContext();
-  const { modelReadyForSend } = useComposerSelection();
+  const { getPermissionMode } = useChatContext();
+  const { send, modelReadyForSend } = useComposerSelection();
 
   const request = composerRegenerateRequest(
-    composer,
+    send,
     modelReadyForSend,
-    chatId,
+    getPermissionMode(chatId),
   );
 
   return (

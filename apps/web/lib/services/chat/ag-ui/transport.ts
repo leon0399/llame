@@ -34,7 +34,7 @@ async function streamEvents(response: Response) {
  */
 export function createChatTransport(
   prepare: (request: ChatRequest) => PreparedChatRequest,
-  onAccepted: (request: ChatRequest) => void = () => {},
+  onAccepted: (request: ChatRequest) => void,
 ): ChatTransport {
   return {
     async sendMessages(request, signal) {

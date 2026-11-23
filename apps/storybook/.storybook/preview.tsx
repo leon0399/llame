@@ -26,8 +26,8 @@ sb.mock(import("../../web/lib/services/chat/runs.ts"));
 sb.mock(import("../../web/lib/services/chat/fork.ts"));
 
 // - models/queries: stubs only the catalog query hook (the real
-//   modelDisplayName/hasModelId helpers are re-exported) so model-picker
-//   stories can drive loading/loaded catalogs without a backend.
+//   modelDisplayName helper is re-exported) so model-picker stories can drive
+//   loading/loaded catalogs without a backend.
 sb.mock(import("../../web/lib/services/models/queries.ts"));
 
 // - permission-modes/queries: stubs the enabled-mode listing so selector

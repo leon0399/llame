@@ -5,6 +5,7 @@ import {
   nextSelectionForWrite,
   resolveHold,
   type ChatModelSelection,
+  type EffortPolicy,
   type SelectionCatalog,
   type SelectionRequest,
   type SelectionWriter,
@@ -91,11 +92,13 @@ function resolveFakeSelection(input: {
     catalog,
     stored,
     request,
+    writer,
     storedUsed: chosen.storedUsed,
     now: input.now,
   });
 
-  const effort = fakeEffort(chosen.model, chosen.storedUsed, input);
+  const policy = request.effortPolicy ?? 'named';
+  const effort = fakeEffort(chosen.model, chosen.storedUsed, input, policy);
 
   return {
     selector: chosen.selector,
@@ -114,9 +117,10 @@ function resolveFakeSelection(input: {
 }
 
 /**
- * The resolved effort: a named level goes through the injected resolver (the
- * doubles stay free to declare none), while the omitted order — the stored
- * effort, then the model's default — is the production `chooseEffort`.
+ * The resolved effort. A named level goes through the injected resolver (the
+ * doubles stay free to declare none); a preference follows the production
+ * `chooseEffort` order, which uses the recorded level when the model declares
+ * it and otherwise falls through to the model's default.
  */
 function fakeEffort(
   model: SystemModelCatalogEntry,
@@ -126,15 +130,20 @@ function fakeEffort(
     request: SelectionRequest;
     resolveEffortSelection: ModelSelectionValidator['resolveEffortSelection'];
   },
+  effortPolicy: EffortPolicy,
 ): string | undefined {
-  if (input.request.effort !== undefined) {
+  if (input.request.effort !== undefined && effortPolicy === 'named') {
     return input.resolveEffortSelection(model, input.request.effort);
   }
 
+  const preferred = effortPolicy === 'preferred';
+
   const choice = chooseEffort({
     model,
-    requested: undefined,
-    storedEffort: storedUsed ? (input.stored?.effort ?? null) : null,
+    requested: input.request.effort,
+    requestedIsPreference: preferred,
+    storedEffort:
+      preferred || !storedUsed ? null : (input.stored?.effort ?? null),
     candidateEffort: undefined,
   });
 

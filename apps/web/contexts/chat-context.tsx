@@ -1,6 +1,12 @@
 "use client";
 
-import { useState, useCallback, createContext, useContext } from "react";
+import {
+  useState,
+  useCallback,
+  useRef,
+  createContext,
+  useContext,
+} from "react";
 
 import type { ChatModelSelectionResponse } from "@/lib/api/generated/models";
 import type { PermissionMode } from "@/lib/services/permission-modes/mode";
@@ -52,9 +58,10 @@ export interface ChatContextType {
   pickEffort: (effort: string) => void;
   /**
    * A send carrying the picks was accepted: they are no longer picks, and the
-   * composer shows `selection` (the selection that send stored) when given.
+   * composer shows `selection` (the selection that send stored), or keeps the
+   * stored one when the send stored nothing (`null`).
    */
-  acceptSend: (selection?: ChatModelSelectionResponse | null) => void;
+  acceptSend: (selection: ChatModelSelectionResponse | null) => void;
   getPermissionMode: (chatId: string) => PermissionMode;
   setPermissionMode: (chatId: string, mode: PermissionMode) => void;
 }
@@ -129,25 +136,32 @@ function useChatRegistration(clearPicks: () => void) {
   const [registration, setRegistration] =
     useState<ChatRegistration>(NO_REGISTRATION);
 
+  // The Chat the picks belong to: a new Chat starts with none of them.
+  const registeredId = useRef(registration.chatId);
+
   const registerChatSelection = useCallback<
     ChatContextType["registerChatSelection"]
-  >((chatId, selection, exists) => {
-    setRegistration((current) =>
-      registerChat(current, chatId, selection, exists),
-    );
-  }, []);
+  >(
+    (chatId, selection, exists) => {
+      if (registeredId.current !== chatId) {
+        registeredId.current = chatId;
+        clearPicks();
+      }
+
+      setRegistration((current) =>
+        registerChat(current, chatId, selection, exists),
+      );
+    },
+    [clearPicks],
+  );
 
   const acceptSend = useCallback(
-    (selection?: ChatModelSelectionResponse | null) => {
+    (selection: ChatModelSelectionResponse | null) => {
       clearPicks();
       setRegistration((current) => ({
         ...current,
-        exists: true,
         acceptedSend: true,
-        selection:
-          selection === undefined || selection === null
-            ? current.selection
-            : selection,
+        selection: selection ?? current.selection,
       }));
     },
     [clearPicks],

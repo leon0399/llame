@@ -9,7 +9,6 @@ import {
   acceptedSelectionFor,
   applicableHold,
   composerSelection,
-  displayedEffort,
   localTimeOf,
   resolveDisplayedEffort,
   resolveDisplayedModel,
@@ -207,7 +206,15 @@ describe("resolveDisplayedEffort", () => {
       hold: hold({ revertAt: "2026-11-23T13:00:00.000Z" }),
     };
 
-    expect(resolveDisplayedEffort(held, CATALOG, NOW)).toBe("medium");
+    expect(
+      resolveDisplayedEffort({
+        selection: held,
+        model: SONNET,
+        pickedEffort: undefined,
+        data: CATALOG,
+        now: NOW,
+      }),
+    ).toBe("medium");
   });
 
   it("uses the effort the hold pins", () => {
@@ -217,58 +224,70 @@ describe("resolveDisplayedEffort", () => {
       hold: hold({ revertAt: "2026-11-23T13:00:00.000Z", effort: "low" }),
     };
 
-    expect(resolveDisplayedEffort(held, CATALOG, NOW)).toBe("low");
+    expect(
+      resolveDisplayedEffort({
+        selection: held,
+        model: SONNET,
+        pickedEffort: undefined,
+        data: CATALOG,
+        now: NOW,
+      }),
+    ).toBe("low");
   });
 
   it("uses the stored effort when it names no selector", () => {
     expect(
-      resolveDisplayedEffort(
-        { selector: "@coding", effort: "low" },
-        CATALOG,
-        NOW,
-      ),
+      resolveDisplayedEffort({
+        selection: { selector: "@coding", effort: "low" },
+        model: CODEX,
+        pickedEffort: undefined,
+        data: CATALOG,
+        now: NOW,
+      }),
     ).toBe("low");
   });
 
   it("ignores a stored level the model no longer declares", () => {
     expect(
-      resolveDisplayedEffort(
-        { selector: SONNET.id, effort: "xhigh" },
-        CATALOG,
-        NOW,
-      ),
+      resolveDisplayedEffort({
+        selection: { selector: SONNET.id, effort: "xhigh" },
+        model: SONNET,
+        pickedEffort: undefined,
+        data: CATALOG,
+        now: NOW,
+      }),
     ).toBe("medium");
   });
 
   it("falls through the candidate effort to the model default", () => {
     expect(
-      resolveDisplayedEffort(
-        { selector: "@coding", effort: null },
-        CATALOG,
-        NOW,
-      ),
+      resolveDisplayedEffort({
+        selection: { selector: "@coding", effort: null },
+        model: CODEX,
+        pickedEffort: undefined,
+        data: CATALOG,
+        now: NOW,
+      }),
     ).toBe("high");
     expect(
-      resolveDisplayedEffort(
-        { selector: "@plain", effort: null },
-        CATALOG,
-        NOW,
-      ),
+      resolveDisplayedEffort({
+        selection: { selector: "@plain", effort: null },
+        model: PLAIN,
+        pickedEffort: undefined,
+        data: CATALOG,
+        now: NOW,
+      }),
     ).toBeUndefined();
   });
-});
-
-describe("displayedEffort", () => {
-  const held = {
-    selector: "@coding",
-    effort: null,
-    hold: hold({ revertAt: "2026-11-23T13:00:00.000Z", effort: "low" }),
-  };
 
   it("shows the owner's unsent pick over the hold's effort", () => {
     expect(
-      displayedEffort({
-        selection: held,
+      resolveDisplayedEffort({
+        selection: {
+          selector: "@coding",
+          effort: null,
+          hold: hold({ revertAt: "2026-11-23T13:00:00.000Z", effort: "low" }),
+        },
         model: SONNET,
         pickedEffort: "high",
         data: CATALOG,
@@ -279,22 +298,14 @@ describe("displayedEffort", () => {
 
   it("ignores a pick the resolved model does not declare", () => {
     expect(
-      displayedEffort({
-        selection: held,
+      resolveDisplayedEffort({
+        selection: {
+          selector: "@coding",
+          effort: null,
+          hold: hold({ revertAt: "2026-11-23T13:00:00.000Z", effort: "low" }),
+        },
         model: SONNET,
         pickedEffort: "xhigh",
-        data: CATALOG,
-        now: NOW,
-      }),
-    ).toBe("low");
-  });
-
-  it("falls back to the selection's own effort without a pick", () => {
-    expect(
-      displayedEffort({
-        selection: held,
-        model: SONNET,
-        pickedEffort: undefined,
         data: CATALOG,
         now: NOW,
       }),
@@ -384,18 +395,42 @@ describe("acceptedSelectionFor", () => {
   };
 
   it("shows nothing new when the send named nothing", () => {
-    expect(acceptedSelectionFor({ ready: true }, stored, "low")).toBeNull();
+    expect(
+      acceptedSelectionFor({
+        send: { ready: true },
+        selection: stored,
+        shownEffort: "low",
+        data: CATALOG,
+        now: NOW,
+      }),
+    ).toBeNull();
   });
 
-  it("keeps the hold on an effort-only send", () => {
+  it("pins an effort-only send's effort on the hold", () => {
     expect(
-      acceptedSelectionFor({ effort: "high", ready: true }, stored, "high"),
-    ).toEqual({ selector: "@coding", effort: "high", hold: stored.hold });
+      acceptedSelectionFor({
+        send: { effort: "high", ready: true },
+        selection: stored,
+        shownEffort: "high",
+        data: CATALOG,
+        now: NOW,
+      }),
+    ).toEqual({
+      selector: "@coding",
+      effort: null,
+      hold: { ...stored.hold, effort: "high" },
+    });
   });
 
   it("drops the hold on a selector send", () => {
     expect(
-      acceptedSelectionFor({ selector: "@plain", ready: true }, stored, "high"),
+      acceptedSelectionFor({
+        send: { selector: "@plain", ready: true },
+        selection: stored,
+        shownEffort: "high",
+        data: CATALOG,
+        now: NOW,
+      }),
     ).toEqual({ selector: "@plain", effort: "high" });
   });
 });

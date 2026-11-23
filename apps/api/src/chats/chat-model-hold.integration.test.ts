@@ -618,8 +618,35 @@ d('a Chat with a fallback hold', () => {
       selector: '@fast',
       modelId: FAST.id,
     });
-    // The item's own selector replaced the selection, hold included.
+    // The owner send that queued it replaced the selection, hold included.
     expect((await getChat(chatId)).modelSelection).not.toHaveProperty('hold');
+  });
+
+  it('A promotion never rewrites a selection the owner stored after queueing', async () => {
+    const { chatId, runId } = await chatWithLiveRun();
+
+    expect((await queue(chatId, { selector: '@fast' })).status).toBe(202);
+
+    // The owner's selection changes while the item waits; the item still names
+    // `@fast`, so promotion serves it without touching what the Chat stores.
+    const held = heldFor(about(3_600_000));
+    await storeSelection(chatId, held);
+
+    await settle(runId, 'completed');
+    await until(
+      'the promoted Run',
+      async () => (await runsOf(chatId)).length >= 2,
+    );
+
+    expect(await latestRun(chatId)).toMatchObject({
+      selector: '@fast',
+      modelId: FAST.id,
+    });
+    expect((await getChat(chatId)).modelSelection).toEqual({
+      selector: held.selector,
+      effort: held.effort,
+      hold: held.hold,
+    });
   });
 
   /** A Chat whose latest Run completed, so a settlement starts its notice. */
@@ -651,7 +678,11 @@ d('a Chat with a fallback hold', () => {
     return chatId;
   }
 
-  async function settleJob(chatId: string, seq: number): Promise<void> {
+  async function settleJob(
+    chatId: string,
+    seq: number,
+    effort?: string,
+  ): Promise<void> {
     const job = await tenantDb.runAs(userAId, (tx) =>
       new ChatJobsRepository(tx).insert(
         newChatJob({
@@ -660,7 +691,11 @@ d('a Chat with a fallback hold', () => {
           seq,
           workerInstanceId: crypto.randomUUID(),
           artifactReadable: false,
-          settings: { selector: '@coding', permissionMode: 'default' },
+          settings: {
+            selector: '@coding',
+            ...(effort !== undefined && { effort }),
+            permissionMode: 'default',
+          },
         }),
       ),
     );
@@ -687,7 +722,9 @@ d('a Chat with a fallback hold', () => {
 
     await storeSelection(chatId, heldFor(about(3_600_000)));
 
-    await settleJob(chatId, 7);
+    // The job records the effort of the Run that started it; the hold's effort
+    // serves the notice instead.
+    await settleJob(chatId, 7, 'xhigh');
     await until(
       'the notice Run',
       async () => (await runsOf(chatId)).length >= 2,

@@ -13,7 +13,6 @@ import { renderHook, waitFor } from "@testing-library/react";
 
 import {
   fetchModels,
-  hasModelId,
   modelDisplayName,
   modelQueryKeys,
   useModelsQuery,
@@ -110,11 +109,5 @@ describe("model helpers", () => {
     expect(modelDisplayName("openrouter:openai:o3-pro", [])).toBe(
       "openrouter:openai:o3-pro",
     );
-  });
-
-  it("reports whether an opaque model id is in the loaded catalog", () => {
-    expect(hasModelId([model], model.id)).toBe(true);
-    expect(hasModelId([model], "system:openai:missing")).toBe(false);
-    expect(hasModelId([model], undefined)).toBe(false);
   });
 });

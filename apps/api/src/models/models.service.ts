@@ -29,6 +29,7 @@ import {
   offerSelector,
   resolveHold,
   type ChatModelSelection,
+  type HoldResolution,
   type OfferedSelector,
   type SelectionCatalog,
   type SelectionRequest,
@@ -286,6 +287,7 @@ export function resolveSelectionFromCatalog(
     catalog,
     stored,
     request,
+    writer,
     storedUsed: chosen.storedUsed,
     now,
   });
@@ -294,13 +296,7 @@ export function resolveSelectionFromCatalog(
 
   const model = applied?.model ?? chosen.model;
 
-  const effort = resolveEffortChoice({
-    model,
-    requested: request.effort,
-    holdEffort: applied?.hold.effort,
-    storedEffort: chosen.storedUsed ? (stored?.effort ?? null) : null,
-    candidateEffort: applied?.candidate.effort ?? chosen.candidate?.effort,
-  });
+  const effort = admittedEffort({ model, request, applied, chosen, stored });
 
   return {
     selector: chosen.selector,
@@ -318,6 +314,47 @@ export function resolveSelectionFromCatalog(
   };
 }
 
+/** An applied fallback hold: the held model serves this admission. */
+type AppliedHold = Extract<HoldResolution, { kind: 'applied' }>;
+
+/**
+ * The effort of one admission, after its selector and hold are known. A named
+ * level is refused when the resolved model does not declare it. A preference,
+ * recorded by a job notice, is used only when the model declares it: under an
+ * applied hold the hold's effort wins, and otherwise the candidate/default
+ * chain follows.
+ */
+function admittedEffort(input: {
+  model: SystemModelCatalogEntry;
+  request: SelectionRequest;
+  applied: AppliedHold | undefined;
+  chosen: OfferedSelector;
+  stored: ChatModelSelection | null;
+}): string | undefined {
+  const preferred = input.request.effortPolicy === 'preferred';
+
+  return resolveEffortChoice({
+    model: input.model,
+    // A held model serves the notice at the hold's effort: the recorded effort
+    // is a preference, not an owner pick, so it never overrides the hold.
+    requested:
+      preferred && input.applied !== undefined
+        ? undefined
+        : input.request.effort,
+    requestedIsPreference: preferred && input.applied === undefined,
+    holdEffort: input.applied?.hold.effort,
+    // A preference is tried once against the resolved model; the stored effort
+    // is not part of the candidate/default chain it falls back to.
+    storedEffort: preferred
+      ? null
+      : input.chosen.storedUsed
+        ? (input.stored?.effort ?? null)
+        : null,
+    candidateEffort:
+      input.applied?.candidate.effort ?? input.chosen.candidate?.effort,
+  });
+}
+
 /**
  * The effort a resolution settles on, or its refusal as a domain error: a
  * named level the resolved model does not declare is a 422.
@@ -325,6 +362,7 @@ export function resolveSelectionFromCatalog(
 function resolveEffortChoice(input: {
   model: SystemModelCatalogEntry;
   requested: string | undefined;
+  requestedIsPreference?: boolean;
   holdEffort: string | null | undefined;
   storedEffort: string | null;
   candidateEffort: string | undefined;
@@ -475,7 +513,9 @@ export class ModelsService {
    * picks the named, stored, or default selector, `resolveHold` decides whether
    * a fallback hold applies or is dropped (design D4), `chooseEffort` follows
    * the spec's order, and `nextSelectionForWrite` decides what the request
-   * stores.
+   * stores. `request.effortPolicy` says how a recorded effort is read: named
+   * by the owner (the default) or only a preference, as a job notice records
+   * it.
    */
   resolveSelection(
     stored: ChatModelSelection | null,

@@ -35,10 +35,3 @@ export function modelDisplayName(
 ): string {
   return models?.find((model) => model.id === modelId)?.name ?? modelId;
 }
-
-export function hasModelId(
-  models: ReadonlyArray<AvailableModel>,
-  modelId: string | undefined,
-): boolean {
-  return modelId !== undefined && models.some((model) => model.id === modelId);
-}

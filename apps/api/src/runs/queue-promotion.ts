@@ -30,7 +30,10 @@ import {
   type Run,
 } from '../db/schema';
 import { type Db } from '../db/tenant-db.service';
-import { type ChatModelSelection } from '../models/model-selection';
+import {
+  type ChatModelSelection,
+  type EffortPolicy,
+} from '../models/model-selection';
 import {
   resolveSendSettings,
   type ModelSelectionValidator,
@@ -126,13 +129,17 @@ export async function promoteNextQueueItem(
  * send uses (writer `derived`): a named selector wins, else the Chat's stored
  * one, else the configured default. Queue promotion, a job notice, and a
  * delivery mode change share it, so an item starts only under settings a send
- * would be accepted with now.
+ * would be accepted with now. An owner item's effort is `named`; a job notice
+ * records the starting Run's effort as a `preferred` level (see
+ * {@link EffortPolicy}).
  */
 export function resolveItemRunSettings(input: {
   models: ModelSelectionValidator;
   enabledPermissionModes: ReadonlyArray<PermissionMode>;
   settings: ChatDeliverySettings;
   stored: ChatModelSelection | null;
+  /** How the item's recorded effort is read; `named` when omitted. */
+  effortPolicy?: EffortPolicy;
   /** The starting transaction's `now()`, compared with a hold's `revertAt`. */
   now: Date;
 }): ResolvedSendSettings {
@@ -142,13 +149,16 @@ export function resolveItemRunSettings(input: {
       // An item that records the selector the Chat already stores is not a
       // pick: the owner's selection says the same role, so the item resolves
       // that selection and a fallback hold still applies (`background-jobs`:
-      // "A notice uses the hold of the Chat"). A different selector is the
-      // item's own and replaces it.
+      // "A notice uses the hold of the Chat"). A different selector serves the
+      // Run; a derived creator never writes it over the owner's selection.
       selector:
         input.settings.selector === input.stored?.selector
           ? undefined
           : input.settings.selector,
       effort: input.settings.effort,
+      ...(input.effortPolicy !== undefined && {
+        effortPolicy: input.effortPolicy,
+      }),
     },
     writer: 'derived',
     permissionMode: input.settings.permissionMode,

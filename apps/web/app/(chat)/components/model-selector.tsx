@@ -31,8 +31,6 @@ import {
   useModelsQuery,
 } from "@/lib/services/models/queries";
 import {
-  applicableHold,
-  composerSelection,
   localTimeOf,
   resolveDisplayedModel,
   type ComposerSelection,
@@ -40,8 +38,8 @@ import {
 import { useChatContext } from "@/contexts/chat-context";
 import { ModelPreviewCard } from "@/components/ai/model-preview-card";
 import { ComposerTooltip } from "./composer-tooltip";
+import { useComposerSelection } from "./use-composer-selection";
 
-const EMPTY_MODELS: Array<AvailableModel> = [];
 const EMPTY_ROLES: Array<ModelRoleResponse> = [];
 
 // Loading-placeholder rows: the title width cycles so the list doesn't read as
@@ -465,40 +463,6 @@ function ModelPickerPanel(props: ModelPickerSplitProps) {
   );
 }
 
-type PickerSelection = {
-  models: ReadonlyArray<AvailableModel>;
-  selection: ComposerSelection | null;
-  hold: ChatFallbackHoldResponse | undefined;
-  previewModel: AvailableModel | undefined;
-  setHoveredSelector: (selector: string) => void;
-};
-
-/** The shown selection, the hold that applies to it, and the preview. */
-function usePickerSelection(data: ModelsResponse | undefined): PickerSelection {
-  const { displayedSelection, pickedSelector } = useChatContext();
-
-  const selection = React.useMemo(
-    () =>
-      composerSelection(displayedSelection, data, { selector: pickedSelector }),
-    [data, displayedSelection, pickedSelector],
-  );
-
-  const hold = React.useMemo(
-    () => (selection === null ? undefined : applicableHold(selection, data)),
-    [data, selection],
-  );
-
-  const { previewModel, setHoveredSelector } = usePreviewModel(data, selection);
-
-  return {
-    models: data?.models ?? EMPTY_MODELS,
-    selection,
-    hold,
-    previewModel,
-    setHoveredSelector,
-  };
-}
-
 /**
  * Model picker in the row under the composer's input card, beside the effort
  * selector. It lists the configured roles, then the models, and shows the
@@ -510,16 +474,16 @@ export function ModelSelector({ className }: { className?: string }) {
   const [open, setOpen] = React.useState(false);
   const { pickSelector } = useChatContext();
 
-  const { data, isError, isPending } = useModelsQuery();
+  const { data, selection, hold, availableModels } = useComposerSelection();
+  const { isError, isPending } = useModelsQuery();
 
-  const { models, selection, hold, previewModel, setHoveredSelector } =
-    usePickerSelection(data);
+  const { previewModel, setHoveredSelector } = usePreviewModel(data, selection);
 
   const selectedLabel = resolveSelectedLabel({
     isError,
     selection,
     hold,
-    models,
+    models: availableModels,
   });
 
   return (
@@ -535,7 +499,7 @@ export function ModelSelector({ className }: { className?: string }) {
       <ModelPickerPanel
         isPending={isPending}
         isError={isError}
-        models={models}
+        models={availableModels}
         roles={data?.roles ?? EMPTY_ROLES}
         heading={
           data !== undefined && data.roles.length > 0 ? "Models" : undefined

@@ -21,3 +21,16 @@ export function useChatDisplayedSelection(chatId: string, exists: boolean) {
     registerChatSelection(chatId, selection, exists);
   }, [chatId, exists, registerChatSelection, selection]);
 }
+
+/**
+ * Registers a composer that always starts a new Chat — a project page's, which
+ * never opens an existing one. It stores no selection, so the composer shows
+ * the catalog default until the created Chat's first send stores one.
+ */
+export function useDraftChatSelection(chatId: string) {
+  const { registerChatSelection } = useChatContext();
+
+  useEffect(() => {
+    registerChatSelection(chatId, null, false);
+  }, [chatId, registerChatSelection]);
+}
