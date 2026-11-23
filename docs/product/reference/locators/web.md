@@ -2,6 +2,7 @@
 summary: "The http(s):// locator: form, adapter ladder and method values, bounds, and errors"
 read_when:
   - you are about to read an http:// or https:// locator and need its exact form or its bounds
+  - a pasted GitHub link carries a `#L10-L20` anchor and you need to know whether it selects lines
   - a web read returned a method, a note, or an error you need to interpret
 spec: native-file-tools
 configured_by:
@@ -93,7 +94,9 @@ A fragment is cut before anything else reads the locator, because the request
 drops it anyway: `https://example.test/guide#install` is fetched as
 `https://example.test/guide`, and a selector written after it goes with it, so
 `guide#install:L5-9` reads the whole page and `guide:L5-9#install` is the working
-spelling. Permission evaluation matches the fragment-free requested text and the
+spelling. A GitHub blob's line anchor is the one exception, and it becomes the
+selector of an adapter render ([GitHub line anchors](#github-line-anchors)).
+Permission evaluation matches the fragment-free requested text and the
 submitted text, which keeps its `#fragment`; see
 [tool-call permissions](../../operator/tool-call-permissions.md#matching). Free
 text inside a fragment therefore cannot satisfy a clause the requested URL does
@@ -101,6 +104,50 @@ not — an allow written for `/docs/` does not admit `https://evil.test/x#/docs/
 
 A trailing separator stays inside the URL: `https://example.test/guide/` is
 fetched as written and is never read as a directory request.
+
+### GitHub line anchors
+
+A GitHub blob link can carry the line anchor that GitHub's own page uses:
+`#L10`, `#L10-L20`, or a `C<c>` column after a line number, as in
+`#L10C5-L20C3`. When an enabled `github` adapter claims the locator as a blob,
+the anchor selects lines of the rendered blob with the context, metadata, and
+header of the same selector read:
+
+- `#L10` selects line 10, as `:L10` does.
+- `#L10-L20` selects lines 10 through 20, as `:L10-20` does.
+- `#L10C5-L20C3` selects the same lines. A column is ignored.
+
+The fragment is never sent to GitHub. The header names the shown lines and the
+source total, as in `https://github.com/o/r/blob/main/f.ts:L9-21`, and the
+continuation line resumes the read as any selector read does. A locator that
+also carries a query states the remainder alone in its continuation, because
+such a locator takes no line selector.
+
+The anchor is not a general web feature. It acts only when an enabled `github`
+adapter matches the locator as a blob, and only on that adapter's own render:
+
+- A fragment that is not a line anchor is dropped, as every web fragment is:
+  `.../blob/main/README.md#readme`, and `#l10` with a lower-case `l`, read the
+  whole file.
+- With no enabled `github` adapter, the anchor is dropped too: the whole page is
+  read, and `.../f.ts:5-9#L10-L20` applies `:5-9`.
+- When the adapter falls through and another method renders the read, the anchor
+  is dropped. The result is the generic render with no line selection, plus the
+  adapter's fall-through note.
+- An anchor that ends before its start, as in `#L20-L10`, or that names line 0,
+  as in `#L0`, fails with `invalid_selector` before any request. Without an
+  enabled `github` adapter, the same locator drops its fragment and reads the
+  whole page.
+
+An anchor and a selector together are refused before any request, `:raw`
+included. The fixed message is `This locator selects lines twice, with #L10-L20
+and with :5-9. Write one of them.`, naming the anchor and the selector as
+written. `:raw` alone keeps its behavior and bypasses every adapter.
+
+Permission evaluation is unchanged. The projected text drops the fragment, so a
+reject written for the blob URL refuses the anchored read. An anchor never
+addresses a resource that the fragment-free locator does not
+([tool-call permissions](../../operator/tool-call-permissions.md#matching)).
 
 ## Accepted by
 
@@ -283,7 +330,7 @@ refused ([selectors](../selectors.md#media-types-and-errors)).
 | Error type                 | Meaning                                                                                                                                                                                                                                               |
 | -------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `invalid_path`             | the locator is not an absolute web URL, has a port that is not a number, carries userinfo, or targets `edit` or `write`                                                                                                                               |
-| `invalid_selector`         | the split-off suffix is outside the shipped selector grammar, or any selector is applied to an image or PDF body                                                                                                                                      |
+| `invalid_selector`         | the split-off suffix is outside the shipped selector grammar, any selector is applied to an image or PDF body, or a GitHub blob line anchor is reversed, names line 0, or accompanies a selector                                                      |
 | `executor_unavailable`     | instance configuration resolved no boot-time version for `User-Agent: llame/<version>`                                                                                                                                                                |
 | `headers_timeout`          | no response headers arrived within 10 seconds                                                                                                                                                                                                         |
 | `call_timeout`             | the call passed 30 seconds across its requests                                                                                                                                                                                                        |

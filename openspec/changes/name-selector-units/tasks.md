@@ -104,11 +104,11 @@ layer, but no more than one earlier layer may carry open review work.
 
 ## 5. github-anchors
 
-- [ ] 5.1 Return a `lineAnchor` from `parseWebLocator` for an exact GitHub line-anchor fragment, and drop every other fragment as today (design D6). Verify `web-read/locator.test.ts` cases for `#L10`, `#L10-L20`, `#L10C5-L20C3`, `#L20-L10`, and `#readme`.
-- [ ] 5.2 Add the optional `lineAddressed` hook and the render flag to the adapter contract, implement the hook in the GitHub adapter, apply the anchor only to a flagged render, and refuse an anchor with a selector before any request (design D6). Verify every scenario of "GitHub blob line anchors select lines", "A line anchor outside its rule keeps the shipped fragment rule", and "A line anchor and a selector together are refused" with the adapter test fixtures, including that no request carries the fragment.
-- [ ] 5.3 Verify "A line anchor does not escape a web reject" in `tool-call-permissions` tests.
-- [ ] 5.4 Update `docs/product/reference/locators/web.md`, `docs/product/operator/web-read.md`, the web adapters reference, and `apps/api/src/prompts/tools/read.md`, and add the dated `CHANGELOG.md` entry. Verify `pnpm lint:markdown`.
-- [ ] 5.5 Verify the layer: focused `apps/api` web-read, GitHub adapter, and permission tests, affected `lint` and `typecheck`, `pnpm format:check`, `git diff --check`. The PR carries `Closes #1835`.
+- [x] 5.1 Return a `lineAnchor` from `parseWebLocator` for an exact GitHub line-anchor fragment, and drop every other fragment as today (design D6). Verify `web-read/locator.test.ts` cases for `#L10`, `#L10-L20`, `#L10C5-L20C3`, `#L20-L10`, and `#readme`.
+- [x] 5.2 Add the optional `lineAddressed` hook and the render flag to the adapter contract, implement the hook in the GitHub adapter, apply the anchor only to a flagged render, and refuse an anchor with a selector before any request (design D6). Verify every scenario of "GitHub blob line anchors select lines", "A line anchor outside its rule keeps the shipped fragment rule", and "A line anchor and a selector together are refused" with the adapter test fixtures, including that no request carries the fragment.
+- [x] 5.3 Verify "A line anchor does not escape a web reject" in `tool-call-permissions` tests.
+- [x] 5.4 Update `docs/product/reference/locators/web.md`, `docs/product/operator/web-read.md`, the web adapters reference, and `apps/api/src/prompts/tools/read.md`, and add the dated `CHANGELOG.md` entry. Verify `pnpm lint:markdown`.
+- [x] 5.5 Verify the layer: focused `apps/api` web-read, GitHub adapter, and permission tests, affected `lint` and `typecheck`, `pnpm format:check`, `git diff --check`. The PR carries `Closes #1835`.
 - [ ] 5.6 Run the local multi-agent review of the parent-relative diff before the PR is marked ready. Fix accepted findings with new commits.
 - [ ] 5.7 Pass the GitHub review and CI gate under Ready-PR monitoring.
 

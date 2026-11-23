@@ -91,6 +91,10 @@ import '../skills/skill-target';
 // Same proof for `tools/prompts/*.md`, via the search-result notice.
 import '../tools/search-conversations';
 
+// Same proof for `tools/web-read/prompts/*.md`: importing the executor loads
+// the web-read refusals at import.
+import '../tools/web-read/execute';
+
 // Same proof for `decisions/prompts/*.md`: `decisions/decisions.service` renders
 // the relevance criteria and untrusted-state instruction at import.
 import '../decisions/decisions.service';

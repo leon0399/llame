@@ -84,6 +84,10 @@ export interface WebAdapter {
   readonly route: WebAdapterRoute;
   /** Pure and synchronous: matching cannot perform network I/O. */
   match(source: URL): boolean;
+  /** Pure and synchronous: whether this source's lines are addressed by the
+   *  URL's own fragment, as a GitHub blob's are. Only an adapter that answers
+   *  true has a line anchor applied to its render. */
+  lineAddressed?(source: URL): boolean;
   read(source: URL, io: WebAdapterIo): Promise<WebAdapterOutcome>;
 }
 
@@ -320,6 +324,7 @@ function renderAdapter(
     ...(outcome.directory !== undefined && {
       directory: outcome.directory,
     }),
+    ...(adapter.lineAddressed?.(source) === true && { lineAddressed: true }),
   };
 }
 

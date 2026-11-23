@@ -10,6 +10,7 @@ import { fetch as undiciFetch } from 'undici';
 
 import { MEDIA_REFUSAL } from '../../media/media-ingest';
 import { isPdfSignature } from '../../media/pdf-preparation';
+import { loadPackagedTemplate } from '../../prompts/template-engine';
 import { type ToolContext, type ToolResult } from '../types';
 import {
   createAddressAdmission,
@@ -24,10 +25,11 @@ import {
   type WebResponse,
   createWebFetchSession,
 } from './http-client';
-import { parseWebLocator, type WebLocator } from './locator';
+import { anchorSelector, parseWebLocator, type WebLocator } from './locator';
 import {
   createWebAdapters,
   dispatchWebAdapters,
+  type WebAdapter,
   type WebAdapterDispatch,
   type WebAdapterIo,
 } from './adapters/contract';
@@ -47,6 +49,7 @@ type WebReadCall = {
 export type WebReadDeps = {
   readonly parseWebLocator: typeof parseWebLocator;
   readonly createWebFetchSession: typeof createWebFetchSession;
+  readonly createWebAdapters: typeof createWebAdapters;
   readonly renderWebContent: typeof renderWebContent;
   readonly buildWebReadResult: typeof buildWebReadResult;
   readonly fetch?: typeof undiciFetch;
@@ -79,11 +82,22 @@ const resolveHost: ResolveHost = async (hostname) => {
 export const realWebReadDeps: WebReadDeps = {
   parseWebLocator,
   createWebFetchSession,
+  createWebAdapters,
   renderWebContent,
   buildWebReadResult,
   fetch: undiciFetch,
   resolve: resolveHost,
 };
+
+/**
+ * The refusal of a locator that writes both a line anchor and a selector:
+ * packaged as `prompts/anchor-selector-conflict.md`, and each of the two
+ * selectors is quoted as the model wrote it.
+ */
+const renderAnchorSelectorConflict = loadPackagedTemplate<{
+  anchor: string;
+  selector: string;
+}>(__dirname, 'anchor-selector-conflict');
 
 /** The failure the client reports for a caller abort. */
 const ABORTED_FAILURE: WebFetchFailure = {
@@ -98,9 +112,12 @@ const ABORTED_FAILURE: WebFetchFailure = {
  * fetch. A selector whose refusal depends on the rendered count stays with
  * the renderer, which alone holds that count.
  */
-function refusedSelector(locator: WebLocator): ToolResult | undefined {
+function refusedSelector(
+  url: string,
+  selector: string | undefined,
+): ToolResult | undefined {
   try {
-    applySelectorSuffix(locator.url, locator.selector);
+    applySelectorSuffix(url, selector);
 
     return undefined;
   } catch (error) {
@@ -111,30 +128,107 @@ function refusedSelector(locator: WebLocator): ToolResult | undefined {
 }
 
 /**
+ * A GitHub line anchor is refused before any request when the read also
+ * writes a selector (including `:raw`, which would otherwise skip the adapter
+ * that claims the lines) or when the anchor names no selectable lines. The
+ * anchors' lines are applied later, to the adapter render alone, so a read
+ * that no enabled adapter claims keeps the shipped fragment rule: the anchor
+ * is dropped and the request never carries it.
+ */
+function lineAnchorRefusal(
+  locator: WebLocator,
+  adapters: ReadonlyArray<WebAdapter>,
+): ToolResult | undefined {
+  const { lineAnchor } = locator;
+
+  if (lineAnchor === undefined) return undefined;
+
+  const source = new URL(locator.url);
+
+  const claimed = adapters.some(
+    (adapter) => adapter.lineAddressed?.(source) === true,
+  );
+
+  if (!claimed) return undefined;
+
+  if (locator.selector !== undefined) {
+    return {
+      status: 'error',
+      type: 'invalid_selector',
+      message: renderAnchorSelectorConflict({
+        anchor: lineAnchor,
+        selector: locator.selector,
+      }),
+    };
+  }
+
+  return refusedSelector(locator.url, anchorSelector(lineAnchor));
+}
+
+/** The locator and adapters a read proceeds with, or the refusal that ends it. */
+type AdmittedRead =
+  | {
+      readonly locator: WebLocator;
+      readonly adapters: ReadonlyArray<WebAdapter>;
+    }
+  | { readonly refusal: ToolResult };
+
+/**
+ * Admits one submitted locator before any request: the operation, the locator
+ * grammar, the selector shape, and the adapter-claimed line anchor. The
+ * adapters are built here because the anchor decision needs their hooks.
+ */
+function admitRead(
+  context: ToolContext,
+  call: WebReadCall,
+  deps: WebReadDeps,
+): AdmittedRead {
+  if (call.operation !== 'read') {
+    return {
+      refusal: {
+        status: 'error',
+        type: 'invalid_path',
+        message: 'A web locator is read-only; edit and write cannot target it.',
+      },
+    };
+  }
+
+  const locator = deps.parseWebLocator(call.input.path);
+
+  if ('type' in locator) {
+    return {
+      refusal: {
+        status: 'error',
+        type: locator.type,
+        message: locator.message,
+      },
+    };
+  }
+
+  const refused = refusedSelector(locator.url, locator.selector);
+
+  if (refused !== undefined) return { refusal: refused };
+
+  const adapters = deps.createWebAdapters(context.webAdapters ?? []);
+  const anchorRefused = lineAnchorRefusal(locator, adapters);
+
+  if (anchorRefused !== undefined) return { refusal: anchorRefused };
+
+  return { locator, adapters };
+}
+
+/**
  * A web locator is read-only, needs no executor identity, and is fetched by
  * the API process's own outbound HTTP. `edit` and `write` fail before any
  * request, and the Run's cancellation and per-call deadline bound the fetch.
  */
 export function createWebReadExecutor(deps: WebReadDeps): WebReadExecutor {
   return async (context, call) => {
-    if (call.operation !== 'read') {
-      return {
-        status: 'error',
-        type: 'invalid_path',
-        message: 'A web locator is read-only; edit and write cannot target it.',
-      };
-    }
+    const admitted = admitRead(context, call, deps);
 
-    const locator = deps.parseWebLocator(call.input.path);
+    if ('refusal' in admitted) return admitted.refusal;
 
-    if ('type' in locator) {
-      return { status: 'error', type: locator.type, message: locator.message };
-    }
-
-    const refused = refusedSelector(locator);
-
-    if (refused !== undefined) return refused;
-
+    const { locator, adapters } = admitted;
     const userAgent = context.productUserAgent;
 
     if (userAgent === undefined) {
@@ -152,6 +246,7 @@ export function createWebReadExecutor(deps: WebReadDeps): WebReadExecutor {
     try {
       const pageRead = {
         locator,
+        adapters,
         media: context.media?.readMedia(call.input.path, context.toolCallId),
         session,
         admit,
@@ -170,6 +265,7 @@ export const executeWebRead: WebReadExecutor =
 /** One web read, with media preparation bound to its submitted locator and call id. */
 type WebPageRead = {
   readonly locator: WebLocator;
+  readonly adapters: ReadonlyArray<WebAdapter>;
   readonly session: WebFetchSession;
   readonly admit: AdmitDerivedLocator;
   readonly media: MediaReadHook | undefined;
@@ -185,18 +281,20 @@ async function fetchAndRender(
   let notes: ReadonlyArray<string> = [];
 
   if (!raw) {
-    const adapters = await dispatchFor(context, locator.url, session, admit);
+    const dispatched = await dispatchFor(context, pageRead);
 
-    if (adapters.kind === 'fatal')
-      return { status: 'error', ...adapters.failure };
+    if (dispatched.kind === 'fatal')
+      return { status: 'error', ...dispatched.failure };
 
-    if (adapters.kind === 'rendered')
+    if (dispatched.kind === 'rendered') {
       return await deps.buildWebReadResult(
         locator,
         locator.url,
-        adapters.render,
+        dispatched.render,
       );
-    notes = adapters.notes;
+    }
+
+    notes = dispatched.notes;
   }
 
   const response = await fetchPage(context, session, locator.url, media);
@@ -311,10 +409,10 @@ function createSession(
 
 async function dispatchFor(
   context: ToolContext,
-  sourceUrl: string,
-  session: WebFetchSession,
-  admit: AdmitDerivedLocator,
+  pageRead: WebPageRead,
 ): Promise<WebAdapterDispatch> {
+  const { locator, session, admit, adapters } = pageRead;
+
   const adapterIo: WebAdapterIo = {
     fetch: async (url, init) => {
       if (admit('adapter', url).decision === 'reject') {
@@ -332,11 +430,7 @@ async function dispatchFor(
     },
   };
 
-  return dispatchWebAdapters(
-    new URL(sourceUrl),
-    createWebAdapters(context.webAdapters ?? []),
-    adapterIo,
-  );
+  return dispatchWebAdapters(new URL(locator.url), adapters, adapterIo);
 }
 
 /** `:raw` skips every probe and conversion. The selector excludes its

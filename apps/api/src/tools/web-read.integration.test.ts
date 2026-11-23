@@ -19,6 +19,7 @@ import { type MediaService } from '../media/media.service';
 import { createToolMediaStore } from '../media/tool-media-store';
 import { PORTABLE_TOOL_PERMISSIONS } from '../testing/portable-tool-policy';
 import { nativeReadTool } from './native-files';
+import { type WebAdapter } from './web-read/adapters/contract';
 import { compileToolPermissionMap } from './permissions/compile-permissions';
 import { REJECTED_ADDRESS_MESSAGE } from './permissions/messages';
 import { type CompiledPolicy } from './permissions/types';
@@ -1463,6 +1464,71 @@ describe('web adapters', () => {
     expect(
       fixture.requests.map(({ address, path }) => ({ address, path })),
     ).toEqual([{ address: '127.0.0.2', path: expectedTargetPath }]);
+  });
+
+  it('applies an anchor to a claimed adapter render without sending the fragment', async () => {
+    const lines =
+      Array.from({ length: 30 }, (_, index) => `socket line ${index + 1}`).join(
+        '\n',
+      ) + '\n';
+
+    route = (address, request, response) => {
+      if (address === '127.0.0.1' && request.url === '/blob') {
+        send(response, 200, 'text/plain; charset=utf-8', lines);
+
+        return;
+      }
+
+      send(response, 404, 'text/plain; charset=utf-8', NOT_FOUND_BODY);
+    };
+
+    // A claimed adapter that addresses its source by line, as GitHub does for
+    // a blob: its own request is the one the test inspects.
+    const received: Array<string> = [];
+
+    const adapter: WebAdapter = {
+      id: 'gh',
+      route: 'native',
+      match: () => true,
+      lineAddressed: () => true,
+      read: async (source, io) => {
+        received.push(source.href);
+        const response = await io.fetch(source.href);
+
+        if ('type' in response) return { kind: 'failed', failure: 'transport' };
+
+        return {
+          kind: 'rendered',
+          content: response.body,
+          mediaType: response.contentType,
+          notes: [],
+        };
+      },
+    };
+
+    const executeAnchored = createWebReadExecutor({
+      ...realWebReadDeps,
+      resolve,
+      createWebAdapters: () => [adapter],
+    });
+
+    const locator = `${sourceUrl('/blob')}#L10-L20`;
+
+    const result = await executeAnchored(
+      webContext({ permissionPolicy: ADMIT_EVERY_LOCATOR }),
+      { operation: 'read', input: { path: locator } },
+    );
+
+    expect(result).toMatchObject({
+      status: 'success',
+      path: sourceUrl('/blob'),
+      requestedRange: { startLine: 10, endLine: 20 },
+      shownRange: { startLine: 9, endLine: 21 },
+    });
+    // The adapter receives the fragment-free locator, and the source request
+    // is that same text: the anchor stays out of both.
+    expect(received).toEqual([sourceUrl('/blob')]);
+    expect(fixture.requests.map(({ path }) => path)).toEqual(['/blob']);
   });
 });
 

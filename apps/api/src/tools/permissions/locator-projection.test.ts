@@ -909,6 +909,28 @@ describe('native file permission projection', () => {
     ).toMatchObject({ decision: 'allow' });
   });
 
+  it('does not let a line anchor escape a web reject', () => {
+    // The fragment is cut before matching, so a GitHub line anchor names the
+    // same resource the reject refuses; the read never leaves the process.
+    const map: ToolPermissionMap = {
+      read: {
+        allow: true,
+        reject: [
+          {
+            field: 'path',
+            regex: '^https://github\\.com/o/r/blob/main/secret\\.ts$',
+          },
+        ],
+      },
+    };
+
+    expect(
+      decideNative(map, 'read', {
+        path: 'https://github.com/o/r/blob/main/secret.ts#L10-L20',
+      }),
+    ).toMatchObject({ decision: 'reject', reason: 'explicit_reject' });
+  });
+
   it('rejects a pathless host against a clause written with its slash', () => {
     // `https://example.test:88` is requested as `https://example.test:88/`,
     // so that is the text a reject clause is matched against.

@@ -15,8 +15,9 @@ import {
 } from '@workspace/native-file-tools';
 import { type UnknownRecord } from '@workspace/runtime-safety';
 
+import { loadPackagedTemplate } from '../../prompts/template-engine';
 import { readAttributionReserve } from '../model-text';
-import { type WebLocator } from './locator';
+import { anchorSelector, type WebLocator } from './locator';
 import { type WebAdapterProvenance } from './adapters/contract';
 import {
   type WebDirectory,
@@ -79,10 +80,11 @@ export async function buildWebReadResult(
   render: WebRender,
 ): Promise<WebReadSuccess | WebReadFailure> {
   const envelope = webResultEnvelope(finalUrl, render);
+  const applied = appliedSelector(locator, render);
 
   try {
     const target: ReadTarget = {
-      ...applySelectorSuffix(locator.url, locator.selector),
+      ...applySelectorSuffix(locator.url, applied.selector),
       reserveCodeUnits: readAttributionReserve(envelope),
     };
 
@@ -104,10 +106,33 @@ export async function buildWebReadResult(
       // has no outline — is passed on unchanged.
       message:
         error.type === 'invalid_selector' && error.message === error.type
-          ? selectorFailureMessage(render.content, locator.selector)
+          ? selectorFailureMessage(render.content, applied)
           : error.message,
     };
   }
+}
+
+/**
+ * The selector a web read applies, and the locator's anchor when the render
+ * addressed lines and the anchor supplied that selector.
+ */
+type AppliedSelector = {
+  readonly selector: string | undefined;
+  readonly anchor: string | undefined;
+};
+
+function appliedSelector(
+  locator: WebLocator,
+  render: WebRender,
+): AppliedSelector {
+  if (render.lineAddressed === true && locator.lineAnchor !== undefined) {
+    return {
+      selector: anchorSelector(locator.lineAnchor),
+      anchor: locator.lineAnchor,
+    };
+  }
+
+  return { selector: locator.selector, anchor: undefined };
 }
 
 /** Unstored page media with its source attribution and no text/range fields. */
@@ -234,17 +259,46 @@ function buildDirectoryReadResult(
 }
 
 /**
+ * The refusal of an anchor that selected no line, packaged as
+ * `prompts/anchor-missed.md`: the count is a producer-derived phrase, and the
+ * range is omitted for a render with no lines rather than naming `L1-0`.
+ */
+const renderAnchorMissed = loadPackagedTemplate<{
+  anchor: string;
+  count: string;
+  range?: string;
+}>(__dirname, 'anchor-missed');
+
+/**
  * A selector the render could not serve carries no message of its own, and a
  * bare error type tells the model nothing it can act on: a page's length is
  * unknown until it is read, so the count it should have selected within is
- * the one fact worth reporting.
+ * the one fact worth reporting. The selector is quoted as the model wrote it,
+ * so an anchor keeps its `#`.
  */
 function selectorFailureMessage(
   content: string,
-  selector: string | undefined,
+  applied: AppliedSelector,
 ): string {
   const lines = splitSourceLines(content).length;
-  const written = selector === undefined ? '' : `:${selector} `;
+
+  const count =
+    lines === 0
+      ? 'rendered no text'
+      : `rendered ${lines} line${lines === 1 ? '' : 's'} numbered from 1`;
+
+  // An anchor is answered with anchors alone: a locator with a query takes no
+  // selector, and a locator that carries an anchor and a selector is refused.
+  // A render with no lines never names a range.
+  if (applied.anchor !== undefined) {
+    return renderAnchorMissed({
+      anchor: applied.anchor,
+      count,
+      range: lines === 0 ? undefined : formatLineRange(1, lines),
+    });
+  }
+
+  const written = applied.selector === undefined ? '' : `:${applied.selector} `;
 
   // A render with no lines has no range to point at, so the sentence that
   // would name one is left out rather than naming `1-0`.

@@ -3,6 +3,7 @@ import {
   measureReadRendering,
   OUTLINE_UNSUPPORTED_MESSAGE,
   renderCollectedDirectory,
+  renderReadText,
   type DirectoryListingEntry,
 } from '@workspace/native-file-tools';
 import { RESULT_TRUNCATE_CHARS } from '@workspace/runtime-safety';
@@ -125,6 +126,136 @@ describe('buildWebReadResult', () => {
       representation: 'outline',
     });
     expect(outline).not.toHaveProperty('lineCount');
+  });
+
+  it('applies a line anchor only to a render that addresses lines', async () => {
+    const content = `${renderedLines(30)}\n`;
+    const anchored = { url: GUIDE_URL, lineAnchor: 'L10-L20' } as const;
+
+    const selected = await buildWebReadResult(anchored, GUIDE_URL, {
+      method: 'adapter',
+      content,
+      lineAddressed: true,
+    });
+
+    expect(selected).toMatchObject({
+      status: 'success',
+      path: GUIDE_URL,
+      representation: 'text',
+      requestedRange: { startLine: 10, endLine: 20 },
+      shownRange: { startLine: 9, endLine: 21 },
+      lineCount: 30,
+    });
+
+    if (selected.status !== 'success') throw new Error('expected a read');
+
+    // The header names the shown range with the source total, exactly as the
+    // selector `:L10-20` does.
+    expect(renderReadText(selected)).toContain(
+      `${GUIDE_URL}:L9-21 of 30 lines`,
+    );
+
+    const dropped = await buildWebReadResult(anchored, GUIDE_URL, {
+      method: 'negotiated',
+      content,
+    });
+
+    expect(dropped).toMatchObject({
+      status: 'success',
+      path: GUIDE_URL,
+      requestedRange: { startLine: 1, endLine: 30 },
+      shownRange: { startLine: 1, endLine: 30 },
+    });
+  });
+
+  it('states a query locator’s remainder alone after an anchor', async () => {
+    const url = `${GUIDE_URL}?plain=1`;
+
+    const selected = await buildWebReadResult(
+      { url, lineAnchor: 'L10-L2500' },
+      url,
+      {
+        method: 'adapter',
+        content: `${renderedLines(3000)}\n`,
+        lineAddressed: true,
+      },
+    );
+
+    expect(selected).toMatchObject({
+      status: 'success',
+      path: url,
+      requestedRange: { startLine: 10, endLine: 2500 },
+      truncated: true,
+    });
+
+    if (selected.status !== 'success') throw new Error('expected a read');
+
+    const text = renderReadText(selected);
+
+    // The header names the range that fit. A locator with a query takes no
+    // selector, so the continuation names the remainder alone.
+    expect(text).toMatch(
+      /^https:\/\/example\.test\/guide\?plain=1:L9-\d+ of 3000 lines$/mu,
+    );
+    expect(text).toContain('not shown; this locator takes no line selector');
+  });
+
+  it('quotes a missed anchor as written and advises no selector', async () => {
+    const url = `${GUIDE_URL}?plain=1`;
+
+    const result = await buildWebReadResult({ url, lineAnchor: 'L50' }, url, {
+      method: 'adapter',
+      content: `${renderedLines(30)}\n`,
+      lineAddressed: true,
+    });
+
+    // The model wrote `#L50`, so the refusal answers with it, and a locator
+    // with a query takes no selector, so no `:` form is advised.
+    expect(result).toEqual({
+      status: 'error',
+      type: 'invalid_selector',
+      message:
+        'The anchor #L50 selected no line of this page, which rendered 30 lines numbered from 1. Write an anchor within L1-30. Omit the anchor to read from the start.',
+    });
+  });
+
+  it('counts a single rendered line in a missed anchor’s refusal', async () => {
+    const url = `${GUIDE_URL}?plain=1`;
+
+    const result = await buildWebReadResult({ url, lineAnchor: 'L5' }, url, {
+      method: 'adapter',
+      content: 'only one line\n',
+      lineAddressed: true,
+    });
+
+    // A page of one line is counted as one, so the anchor's advice names the
+    // range that page actually offers.
+    expect(result).toEqual({
+      status: 'error',
+      type: 'invalid_selector',
+      message:
+        'The anchor #L5 selected no line of this page, which rendered 1 line numbered from 1. Write an anchor within L1-1. Omit the anchor to read from the start.',
+    });
+  });
+
+  it('names no anchor range when the render has no lines', async () => {
+    const url = `${GUIDE_URL}?plain=1`;
+
+    const result = await buildWebReadResult({ url, lineAnchor: 'L5' }, url, {
+      method: 'adapter',
+      content: '',
+      lineAddressed: true,
+    });
+
+    // A render with no lines has no range to point at, so the anchor's own
+    // sentence keeps the count and leaves the range out rather than naming
+    // `L1-0`.
+    expect(result).toEqual({
+      status: 'error',
+      type: 'invalid_selector',
+      message:
+        'The anchor #L5 selected no line of this page, which rendered no text. Omit the anchor to read from the start.',
+    });
   });
 
   it('matches the native directory renderer, including a selector', async () => {

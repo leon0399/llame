@@ -1,5 +1,6 @@
 import {
   canonicalSelector,
+  formatLineRange,
   isSelectorSuffix,
   LINE_COLUMN_SUFFIX,
   OUTLINE_SUFFIX,
@@ -17,7 +18,19 @@ import {
  * trailing selector split off, so `url` is exactly what leaves the process
  * and exactly what policy matches.
  */
-export type WebLocator = { readonly url: string; readonly selector?: string };
+export type WebLocator = {
+  readonly url: string;
+  readonly selector?: string;
+  /** The fragment when it is exactly a GitHub line anchor, as written. The
+   *  read applies it only to a render whose adapter claims the source's
+   *  lines; every other render drops it, as the request drops a fragment, so
+   *  keeping it here changes no request and no permission text, which both
+   *  use `url`. */
+  readonly lineAnchor?: string;
+};
+
+/** `L10`, `L10-L20`, and either with a `C<c>` column after a line number. */
+const LINE_ANCHOR = /^L(\d+)(?:C\d+)?(?:-L(\d+)(?:C\d+)?)?$/u;
 
 const INVALID_URL_MESSAGE =
   'Write this locator as an absolute http:// or https:// URL.';
@@ -214,6 +227,22 @@ export function stripFragment(text: string): string {
 }
 
 /**
+ * The selector a GitHub line anchor names, with its columns dropped:
+ * `L10C5-L20C3` selects lines 10 through 20 like `L10-L20`, and `L10` keeps
+ * line 10. Only an anchor the parser admitted reaches here, so a text it
+ * does not match yields no selector rather than a second refusal.
+ */
+export function anchorSelector(anchor: string): string | undefined {
+  const match = LINE_ANCHOR.exec(anchor);
+
+  if (match === null) return undefined;
+
+  return match[2] === undefined
+    ? `L${match[1]}`
+    : formatLineRange(Number(match[1]), Number(match[2]));
+}
+
+/**
  * The spelling the model resubmits for a suffix that meant a literal colon.
  * Every colon of the last path segment is encoded, not only the one the split
  * took: a hint that leaves an earlier one behind splits again on the next
@@ -331,7 +360,12 @@ export function parseWebLocator(
     };
   }
 
-  return selector === undefined
-    ? { url: target.href }
-    : { url: target.href, selector };
+  const fragment = submitted.slice(text.length + 1);
+  const lineAnchor = LINE_ANCHOR.test(fragment) ? fragment : undefined;
+
+  return {
+    url: target.href,
+    ...(selector !== undefined && { selector }),
+    ...(lineAnchor !== undefined && { lineAnchor }),
+  };
 }

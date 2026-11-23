@@ -25,7 +25,8 @@ type, and a rewrite forwards the inner render's label; everything else is
 
 ## GitHub adapter
 
-- **Blob:** decoded UTF-8 source, no heading, so `:N-M` addresses source lines.
+- **Blob:** decoded UTF-8 source, no heading, so `:L<N>-<M>` addresses source
+  lines.
 - **Directory:** the requested level plus one child level, in the host listing
   shape; `- name@` is a symlink, `- name?` a submodule.
 - **Repository:** description, default branch, visibility, language, root
@@ -44,6 +45,13 @@ type, and a rewrite forwards the inner render's label; everything else is
   lines, timestamps and color codes removed.
 - **Discussion:** category, author, answer, and the first 100 comments with 20
   replies each.
+
+A blob locator may carry GitHub's own line anchor, `#L10` or `#L10-L20` with an
+optional `C<c>` column. With the adapter enabled, the anchor becomes the
+selector of the blob render, so the read is the same as `:L10` or `:L10-20`. The
+fragment is never sent to GitHub. An anchor on another GitHub kind, such as an
+issue, and every other fragment are dropped as any web fragment is. The rules
+and refusals are in [web locators](locators/web.md#github-line-anchors).
 
 ```text
 # Pull Request #12: Improve parser
