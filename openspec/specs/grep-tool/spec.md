@@ -276,8 +276,8 @@ An ignore file that the walker reads as walk policy is not a candidate. The
 walker MUST NOT emit its content and needs no `read` decision for it.
 
 Unless protected-key replacement changes it, every emitted `locator` MUST have the form
-`<canonical file locator>:<start>-<end>` with a one-based inclusive line range.
-That unprotected value MUST be a valid `read` argument.
+`<canonical file locator>:L<start>-<end>`, with a one-based inclusive line range in the canonical
+selector spelling. That unprotected value MUST be a valid `read` argument.
 Admission MUST still use the original canonical identity, before presentation replacement. In a `kb://` or
 `skill://` locator the tool MUST spell each segment as the canonical
 formatter of that scheme does. So a literal `*` stays `*` and a literal `?`
@@ -322,13 +322,13 @@ passage MUST NOT carry `notice`.
 #### Scenario: A hit is a valid read argument
 
 - **WHEN** line 12 of `kb://<id>/notes/a.md` matches
-- **THEN** the hit locator is `kb://<id>/notes/a.md:11-13`
+- **THEN** the hit locator is `kb://<id>/notes/a.md:L11-13`
 - **AND** a `read` of that locator shows lines 11 to 13 in its window
 
 #### Scenario: A Knowledge file named with an asterisk returns as a scope
 
 - **WHEN** line 3 of the Knowledge file `notes/a*.md` matches
-- **THEN** the hit locator is `kb://<id>/notes/a*.md:2-4`
+- **THEN** the hit locator is `kb://<id>/notes/a*.md:L2-4`
 - **AND** `kb://<id>/notes/a%2A.md` as a later scope searches that one file
 
 #### Scenario: Another owner's Space is not found
@@ -1091,7 +1091,7 @@ line range in the artifact.
 
 - **WHEN** the inline part holds 20 files and the artifact holds 140 more files with 610 passages
 - **THEN** the remainder line counts 140 files and 610 passages
-- **AND** it names the next ten files, each with its `artifact://grep-<n>:<a>-<b>` range
+- **AND** it names the next ten files, each with its `artifact://grep-<n>:L<a>-<b>` range
 
 ### Requirement: A stop inside a file before progress names that file
 
