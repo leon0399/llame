@@ -1,0 +1,90 @@
+# Tasks
+
+## Delivery graph
+
+Use `$gh-stack` for every layer and `$openspec-apply-change` for implementation.
+Create only the next authorized branch. Planning readiness is not approval.
+
+- `worktreeinclude/proposal`, parent `master`: owns proposal, delta specs,
+  design with the ADR draft, and tasks. Estimate 750 authored lines, no generated
+  churn. Exit evidence is strict validation, Markdown and formatting checks,
+  independent proposal review, SR, and published-head GR/CI. Use `Refs #1910`.
+- `worktreeinclude/copy`, parent `worktreeinclude/proposal`: owns the complete
+  protocol, daemon, both API callers, negative tests, shipped docs, and ADR.
+  Estimate 1,800 to 2,400 authored added-plus-deleted lines. Report generated
+  lockfile churn separately. Exit evidence is focused filesystem, protocol,
+  permission, and creation tests plus affected workspace lint/typecheck, SR, and
+  published-head GR/CI. This PR uses `Closes #1910`.
+- `worktreeinclude/finalize`, parent `worktreeinclude/copy`: owns canonical spec
+  synchronization, completed task records, and archive movement only. Estimate
+  450 to 750 authored changed lines, with rename detection for archive moves.
+  Exit evidence is strict canonical/change validation, Markdown/format checks,
+  and post-archive SR and GR/CI. Use `Refs #1910`, not issue closure.
+
+No cutover sub-issues or parallel branches are required. The implementation is
+one atomic contract across the hub and daemon. Protocol-only and caller-only
+changes are not separate shipping boundaries. The complete proposal and complete
+implementation are safe intermediate merge boundaries after their gates pass.
+Re-estimate each layer against its immediate parent before publication. Do not
+split required safety tests away from their behavior to meet the review target.
+
+## 1. Proposal layer: `worktreeinclude/proposal`
+
+- [ ] 1.1 Commit the initial planning draft and verify the parent-relative diff contains only this change's planning artifacts.
+- [ ] 1.2 Run at least two independent reviewers per round, verify findings against code or executable probes, and commit each revision separately until convergence.
+- [ ] 1.3 Prove the proposal with `pnpm exec openspec validate worktreeinclude --strict`, `pnpm lint:markdown`, `pnpm format:check`, and `git diff --check`.
+- [ ] 1.4 Obtain publication permission, publish the draft with `$gh-stack`, and complete SR of the actual parent-relative diff before ready.
+- [ ] 1.5 Complete GR and current-head CI with the CONTRIBUTING.md monitoring loop, verify Project state when access permits, and obtain Leo's approval of the published revision before implementation.
+
+## 2. Implementation layer: `worktreeinclude/copy`
+
+- [ ] 2.1 Recheck approved scope, native blockers, and #1876/#1877; create only this layer with `$gh-stack` and start `$openspec-apply-change`. Verify no conflicting live claim or incompatible pending contract.
+- [ ] 2.2 Carry the selected Checkout root as `copySource` through both planners, distinct from main Checkout and base-ref logic. Verify a linked-source fixture copies its own environment and a subdirectory fixture uses its admitted Checkout root.
+- [ ] 2.3 Extend the typed add request and failure projection, advance the Machine protocol revision, and update daemon handling. Verify incompatible versions fail before mutation and both host and remote fixtures use daemon-side copying.
+- [ ] 2.4 Implement Git ignored/untracked eligibility and manifest matching using `ignore` 7.0.12. Verify comments, escapes, root anchors, directory patterns, ordered negation, `**`, nested/global ignores, no manifest, empty manifest, and unmatched patterns with real-git fixtures.
+- [ ] 2.5 Implement regular-file copying with no-follow source and destination checks, safe file replacement, and ordinary mode preservation. Verify selected links, link parents, special files, Git metadata, path escapes, hard links, and file/directory conflicts cannot redirect reads or writes.
+- [ ] 2.6 Preserve the destination index while allowing tracked regular-file overwrites. Verify source bytes replace a differing tracked destination, Git reports the difference, identical files remain clean, and source files remain unchanged.
+- [ ] 2.7 Cover checkout, enumeration, and copy with one deadline and cancellation. Verify large explicit selections do not silently truncate, cancellation stops writers, and an injected later-file failure retains earlier copies and reports the leftover locator.
+- [ ] 2.8 Preserve known-failure and unknown-outcome mappings through `git.worktreeAdd`, tool entry, and Chat creation. Verify no binding/catalog/lease commit on copy failure, no first message or Run on failed Chat creation, and no repeated add/copy on recovery or same-id resend.
+- [ ] 2.9 Prove aggregate authorization and unchanged mode gates. Verify a source-read-rejected `.env` copies without file-tool admission, rejected entry performs no copy, model read-only creation fails, owner read-only creation succeeds, and later destination reads obey destination rules.
+- [ ] 2.10 Add owner-isolation and content-disclosure negatives. Verify a foreign Checkout id starts no manifest access, a synthetic secret never appears in protocol results/logs/events/errors, and raw manifest lines never become diagnostics.
+- [ ] 2.11 Verify lifecycle behavior with real git. Source edits do not propagate, an edited ignored copy does not add a removal guard, a tracked overwrite blocks removal as dirty, and plain Workspace entry does not process the manifest.
+- [ ] 2.12 Publish the ADR drafted in `design.md` under `docs/adr/` with its acceptance date and status. Link it from the shipped architecture and owning spec. Verify Markdown links and ADR prose rules.
+- [ ] 2.13 Update `docs/product/reference/tools/enter-workspace.md`, the existing repository and permission operator pages, tool-description behavior, and `SPEC.md`. Explain aggregate authority, tracked overwrites, leftovers, matching, and ignored-file removal. Add the dated `CHANGELOG.md` entry and remove completed roadmap text if present. Verify the exact existing page names before editing and run Markdown checks.
+- [ ] 2.14 Run the focused checks below, affected workspace lint/typecheck, formatting, Markdown checks, and `git diff --check`. Record exact commands and distinguish local evidence from full CI.
+- [ ] 2.15 Publish the authorized draft with `Closes #1910`, complete SR of the actual parent-relative diff before ready, and resolve verified findings with focused checks.
+- [ ] 2.16 Complete GR, current-head CI, and the required monitoring loop. Verify Project readback where authorized and obtain explicit merge permission.
+
+### Focused proof surfaces
+
+Use existing `packages/git-executor/src/worktrees.test.ts` plus a focused
+manifest/copy test file if needed. Use real temporary git fixtures for bytes,
+status, modes, links, failures, and removal. Pure matcher tests alone cannot
+prove filesystem or Git eligibility behavior.
+
+Use `packages/machine-protocol` git/framing tests and
+`apps/machine/src/git.test.ts` for the changed wire, root guards, typed failures,
+and absence of file bytes in protocol results. Keep the version update atomic.
+
+Use `apps/api/src/tools/workspace-worktree-entry.test.ts`,
+`workspace-worktree-creation.test.ts`, and the executor-git tests for source
+identity and failure projection. Use focused API integration files for durable
+attempts, previous binding/generation, same-id Chat resend, message admission,
+and owner isolation. Follow `docs/development/testing.md` for test placement.
+Build the Machine bundle sequentially when the integration fixture requires it.
+
+Run only the relevant test files locally, not the full unit/integration sweeps,
+product E2E, or mutation suites. CI owns those published-head checks. No model
+quality evaluation is required for this deterministic contract.
+
+## 3. Finalize layer: `worktreeinclude/finalize`
+
+- [ ] 3.1 Verify proposal and implementation gates, then enter this branch with `$gh-stack` before `$openspec-sync-specs` writes canonical specs. Confirm the branch parent and keep application changes out.
+- [ ] 3.2 Run `$openspec-sync-specs` and inspect all four affected capabilities. Verify the new capability purpose, aggregate authorization, source distinction, failure semantics, and unchanged existing scenarios.
+- [ ] 3.3 Prove archive readiness with `openspec status`, complete task records, strict spec/change validation, Markdown checks, formatting, and `git diff --check`. Stop if any tracked pre-archive task remains incomplete.
+
+After readiness, run `$openspec-archive-change`. Archive movement precedes draft
+publication. The finalize layer's SR and GR are post-archive gates, not unchecked
+prerequisites of archive. Review the actual parent-relative diff before ready,
+then complete current-head CI and the CONTRIBUTING.md monitoring loop. Update
+Project records where authorized and merge only with explicit permission.
