@@ -7879,6 +7879,12 @@ describe('RunExecutionService executeRun — queue promotion', () => {
       .spyOn(ChatsRepository.prototype, 'lock')
       .mockResolvedValue(chat);
 
+    // Promotion resolves the pending item against one transaction instant, so
+    // the model hold it carries and the Run it starts agree on "now".
+    vi.spyOn(ChatsRepository.prototype, 'transactionNow').mockResolvedValue(
+      now,
+    );
+
     const firstPendingQueueItem = vi
       .spyOn(ChatDeliveriesRepository.prototype, 'firstPendingQueueItem')
       .mockResolvedValue(options.pending ? queued : undefined);

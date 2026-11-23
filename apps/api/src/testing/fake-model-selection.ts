@@ -3,14 +3,14 @@ import {
   chooseEffort,
   chooseSelector,
   nextSelectionForWrite,
+  resolveHold,
   type ChatModelSelection,
   type SelectionCatalog,
   type SelectionRequest,
   type SelectionWriter,
 } from '../models/model-selection';
 import {
-  ModelConfigurationError,
-  ModelNotAvailableError,
+  requireOfferedSelector,
   type ModelSelectionValidator,
   type ResolvedSelection,
 } from '../models/models.service';
@@ -39,12 +39,13 @@ export function fakeResolveSelection(
 ): ModelSelectionValidator['resolveSelection'] {
   const catalog = fakeSelectionCatalog(input);
 
-  return (stored, request, writer) =>
+  return (stored, request, writer, now) =>
     resolveFakeSelection({
       catalog,
       stored,
       request,
       writer,
+      now,
       resolveEffortSelection: input.resolveEffortSelection,
     });
 }
@@ -74,24 +75,25 @@ function resolveFakeSelection(input: {
   stored: ChatModelSelection | null;
   request: SelectionRequest;
   writer: SelectionWriter;
+  now: Date;
   resolveEffortSelection: ModelSelectionValidator['resolveEffortSelection'];
 }): ResolvedSelection {
   const { catalog, stored, request, writer } = input;
-  const chosen = chooseSelector(catalog, stored, request);
 
-  if (chosen.kind === 'unknown') {
-    throw new ModelNotAvailableError(chosen.selector);
-  }
+  const chosen = requireOfferedSelector(
+    chooseSelector(catalog, stored, request),
+  );
 
-  if (chosen.kind === 'no-default') {
-    throw new ModelConfigurationError('defaults.selector is required.');
-  }
-
-  if (chosen.kind === 'unresolved-default') {
-    throw new ModelConfigurationError(
-      'defaults.selector must reference a configured model or model role.',
-    );
-  }
+  // The double publishes no roles, so a hold always names a model it cannot
+  // fall back from and is dropped; taking the decision from the production
+  // `resolveHold` keeps even that case in one place.
+  const hold = resolveHold({
+    catalog,
+    stored,
+    request,
+    storedUsed: chosen.storedUsed,
+    now: input.now,
+  });
 
   const effort = fakeEffort(chosen.model, chosen.storedUsed, input);
 
@@ -106,6 +108,7 @@ function resolveFakeSelection(input: {
       selector: chosen.selector,
       effort,
       storedUsed: chosen.storedUsed,
+      hold,
     }),
   };
 }

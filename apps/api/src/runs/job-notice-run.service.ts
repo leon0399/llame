@@ -6,6 +6,7 @@ import { ChatDeliveriesRepository } from '../chats/chat-deliveries.repository';
 import { ChatsRepository, MessagesRepository } from '../chats/chats-repository';
 import { toRunUserMessage } from '../chats/chat-message-parts';
 import { createRunForMessage, runSelectionFields } from '../chats/run-creation';
+import { storeSelectionUpdate } from '../chats/selection-update';
 import { type ChatDelivery, type ChatJob, runs, type Run } from '../db/schema';
 import { type Db } from '../db/tenant-db.service';
 import {
@@ -43,10 +44,8 @@ export class JobNoticeRunService {
   ) {}
 
   async startAfterRunCompletion(tx: Db, owner: ChatOwner): Promise<void> {
-    const chat = await new ChatsRepository(tx).lock(
-      owner.chatId,
-      owner.ownerUserId,
-    );
+    const chats = new ChatsRepository(tx);
+    const chat = await chats.lock(owner.chatId, owner.ownerUserId);
 
     if (chat === undefined || chat.archivedAt !== null) return;
 
@@ -68,6 +67,7 @@ export class JobNoticeRunService {
       deliveries,
       runs: new RunsRepository(tx),
       stored: chat.modelSelection,
+      now: await chats.transactionNow(),
     });
   }
 
@@ -81,10 +81,8 @@ export class JobNoticeRunService {
 
     if (waitingRunWoken || !startsNoticeRun(job)) return;
 
-    const chat = await new ChatsRepository(tx).lock(
-      job.chatId,
-      job.ownerUserId,
-    );
+    const chats = new ChatsRepository(tx);
+    const chat = await chats.lock(job.chatId, job.ownerUserId);
 
     if (chat === undefined || chat.archivedAt !== null) return;
 
@@ -108,6 +106,7 @@ export class JobNoticeRunService {
       deliveries,
       runs,
       stored: chat.modelSelection,
+      now: await chats.transactionNow(),
     });
   }
 
@@ -119,9 +118,10 @@ export class JobNoticeRunService {
       deliveries: ChatDeliveriesRepository;
       runs: RunsRepository;
       stored: ChatModelSelection | null;
+      now: Date;
     },
   ): Promise<void> {
-    const { owner, deliveries, runs, stored } = context;
+    const { owner, deliveries, runs, stored, now } = context;
 
     const latestRun = await runs.findLatestByChatId(
       owner.chatId,
@@ -137,7 +137,7 @@ export class JobNoticeRunService {
 
     if (first === undefined) return;
 
-    await this.startHostRun(tx, { owner, first, deliveries, stored });
+    await this.startHostRun(tx, { owner, first, deliveries, stored, now });
   }
 
   private async attachToQueuedHostRun(
@@ -187,18 +187,28 @@ export class JobNoticeRunService {
       first: ChatDelivery;
       deliveries: ChatDeliveriesRepository;
       stored: ChatModelSelection | null;
+      now: Date;
     },
   ): Promise<void> {
-    const { owner, first, deliveries, stored } = context;
+    const { owner, first, deliveries, stored, now } = context;
 
     const resolved = tryResolveItemRunSettings({
       models: this.models,
       enabledPermissionModes: this.instanceConfig.config.tools.permissionModes,
       settings: first.settings,
       stored,
+      now,
     });
 
     if (resolved === undefined) return;
+
+    // A notice keeps the owner's selector and effort; it clears a hold this
+    // admission dropped.
+    await storeSelectionUpdate(
+      new ChatsRepository(tx),
+      { id: owner.chatId, ownerUserId: owner.ownerUserId },
+      resolved,
+    );
 
     const runJob = await this.createHostRun(tx, owner, resolved);
 

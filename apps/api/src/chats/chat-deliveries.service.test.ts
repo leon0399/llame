@@ -25,6 +25,9 @@ const otherChatId = '9b2f1c3d-4e5f-4a6b-8c7d-0e1f2a3b4c5d';
 const userId = 'user-id';
 const item = chatDeliveryRow({ chatId, ownerUserId: userId });
 
+/** What the Chat row's `transactionNow` answers: no test stores a hold. */
+const admissionNow = new Date('2026-11-23T13:00:00.000Z');
+
 function makeService() {
   const dispatcher = asDouble<RunDispatcher>({
     dispatch: vi.fn().mockResolvedValue(undefined),
@@ -49,6 +52,10 @@ function makeService() {
 
   const execute = vi.fn(() => Promise.resolve([]));
   const tx = asDouble<Db>({ execute });
+
+  vi.spyOn(ChatsRepository.prototype, 'transactionNow').mockResolvedValue(
+    admissionNow,
+  );
 
   const tenantDb: TenantRunner = {
     runAs: <T>(_userId: string, callback: (scoped: Db) => Promise<T>) =>
@@ -459,6 +466,7 @@ describe('ChatDeliveriesService.changeMode', () => {
         effort: item.settings.effort,
       },
       'derived',
+      admissionNow,
     );
   });
 });

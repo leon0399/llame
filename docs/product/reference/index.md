@@ -26,6 +26,9 @@ read_when:
 - [Chat location](chat-location.md): how the composer sets a new Chat's Project
   and working directory, what each chip cell changes, and which entry points
   pre-fill them.
+- [Model selection](model-selection.md): what the picker offers, the selection a
+  Chat keeps across devices, when a fallback hold keeps a later candidate, and
+  what Regenerate and a fork inherit.
 - [Continue or regenerate a turn](continue-a-turn.md): when a failed turn can be
   resumed from its last completed step, when a turn is regenerated from its user
   message, what the new Run sends, what it keeps, and when it leaves a notice.

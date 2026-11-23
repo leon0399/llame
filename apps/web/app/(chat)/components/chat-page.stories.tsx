@@ -33,6 +33,7 @@ import type {
   ChatDeliveryResponse,
   ChatJobResponse,
   ChatListItemResponse,
+  ChatModelSelectionResponse,
   GitStateOkResponse,
 } from "@/lib/api/generated/models";
 import { listPermissionModes } from "@/lib/api/generated/permission-modes/permission-modes";
@@ -54,6 +55,7 @@ import * as uploads from "@/lib/services/media/uploads";
 import type { MediaDescriptor } from "@/lib/services/media/uploads";
 import * as modelQueries from "@/lib/services/models/queries";
 import type { AvailableModel } from "@/lib/services/models/queries";
+import { localTimeOf } from "@/lib/services/models/selection";
 import * as permissionModeQueries from "@/lib/services/permission-modes/queries";
 import type { PermissionModesResponse } from "@/lib/services/permission-modes/queries";
 import {
@@ -146,6 +148,8 @@ type ChatPageParameters = {
   latestRun?: ChatLatestRunResponse | null;
   /** The Chat's pending items, as `GET /deliveries` reports them. */
   pending?: Array<ChatDeliveryResponse>;
+  /** The model selection the Chat read reports; null when it stores none. */
+  modelSelection?: ChatModelSelectionResponse | null;
 };
 
 const RENDERERS: ChatMarkdownRenderers = { MessageResponse, ReasoningContent };
@@ -282,6 +286,19 @@ function sentRoutes() {
   );
 }
 
+/** The JSON bodies of every request sent to `route`, in order. */
+async function sentBodies(route: string) {
+  const calls = fetchMock.mock.calls.filter(
+    ([input]) => routeOf(input) === route,
+  );
+
+  return Promise.all(
+    calls.map(([input]) =>
+      input instanceof Request ? input.clone().json() : undefined,
+    ),
+  );
+}
+
 /** The JSON body of the first request sent to `route`. */
 async function sentBody(route: string) {
   const index = everyRoute().indexOf(route);
@@ -303,6 +320,7 @@ function seedHistory(
   chatExists: boolean,
   history: Array<ChatMessageResponse>,
   latestRun: ChatLatestRunResponse | null,
+  modelSelection: ChatModelSelectionResponse | null,
 ) {
   queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false, staleTime: 60 * 1000 } },
@@ -315,6 +333,11 @@ function seedHistory(
       messages: history,
       compaction: null,
       latestRun,
+    });
+    // The Chat read: the composer shows its stored selection from here.
+    queryClient.setQueryData(chatQueryKeys.detail(CHAT_ID), {
+      ...chatCard(LLAME_ROOT),
+      modelSelection,
     });
   }
 }
@@ -334,6 +357,7 @@ const meta = {
       hash = "",
       latestRun = null,
       pending = [],
+      modelSelection = null,
     }: ChatPageParameters = parameters;
 
     // The page reads and rewrites its URL (draft marker, #msg-N target), so
@@ -344,7 +368,7 @@ const meta = {
       "",
       `/chat/${CHAT_ID}${hash}`,
     );
-    seedHistory(args.initialChatExists, history, latestRun);
+    seedHistory(args.initialChatExists, history, latestRun, modelSelection);
     // isSuccess too: the page enables Send only on a successful catalog.
     useModelsQuery.mockReturnValue({
       data: {
@@ -566,6 +590,67 @@ export const SendsWithDefaultModel: Story = {
     await expect(await sentBody(SEND_ROUTE)).toMatchObject({
       selector: GPT_5_4_MINI.id,
       message: { parts: [{ type: "text", text: "Hello" }] },
+    });
+  },
+};
+
+/**
+ * An owner pick makes the next send name `selector`; once the api accepted it
+ * the pick is spent, so the following send names nothing and the Chat's stored
+ * selection applies (available-models "Web sends selected model id").
+ *
+ * @summary a pick names the selector once, then the stored selection applies
+ */
+export const SendsSelectedModelId: Story = {
+  tags: ["ai-generated"],
+  parameters: {
+    modelSelection: { selector: GPT_5_4_MINI.id, effort: null },
+    history: historyWithUsage({ status: "completed" }),
+  } satisfies ChatPageParameters,
+  beforeEach: () => {
+    serveRoleCatalog();
+    routeAlso({ [SEND_ROUTE]: () => Promise.resolve(streamedReply()) });
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await settledChat(canvasElement);
+
+    await userEvent.click(
+      canvas.getByRole("combobox", { name: /^Select model/ }),
+    );
+    // The picker is portalled, so query the document, not the canvas.
+    await userEvent.click(
+      await within(document.body).findByRole("option", { name: "@coding" }),
+    );
+    await expect(
+      canvas.getByRole("combobox", { name: "Select model, @coding" }),
+    ).toBeVisible();
+
+    await userEvent.type(composer(canvasElement), "first");
+    await userEvent.click(canvas.getByRole("button", { name: "Send message" }));
+
+    await waitFor(async () =>
+      expect(await sentBodies(SEND_ROUTE)).toHaveLength(1),
+    );
+    await expect((await sentBodies(SEND_ROUTE))[0]).toMatchObject({
+      selector: "@coding",
+      message: { parts: [{ type: "text", text: "first" }] },
+    });
+
+    await transcriptShows(canvasElement, "streamed reply");
+
+    await userEvent.type(composer(canvasElement), "second");
+    const send = canvas.getByRole("button", { name: "Send message" });
+    await waitFor(() => expect(send).toBeEnabled());
+    await userEvent.click(send);
+
+    await waitFor(async () =>
+      expect(await sentBodies(SEND_ROUTE)).toHaveLength(2),
+    );
+    const [, second] = await sentBodies(SEND_ROUTE);
+    await expect(second).not.toHaveProperty("selector");
+    await expect(second).toMatchObject({
+      message: { parts: [{ type: "text", text: "second" }] },
     });
   },
 };
@@ -793,18 +878,60 @@ async function settledModelSelector(canvasElement: HTMLElement) {
   });
 }
 
+/** The role catalog the selection stories serve: `@coding` chains Codex to
+ *  Claude Sonnet, and the default names it. */
+const CODEX: AvailableModel = {
+  id: "system:openai:codex",
+  source: "system",
+  name: "Codex",
+  contextWindowTokens: 400_000,
+  input: ["text"],
+};
+
+const CLAUDE_SONNET: AvailableModel = {
+  id: "system:anthropic:sonnet",
+  source: "system",
+  name: "Claude Sonnet",
+  contextWindowTokens: 400_000,
+  input: ["text"],
+};
+
+function serveRoleCatalog() {
+  useModelsQuery.mockReturnValue({
+    data: {
+      defaultSelector: "@coding",
+      models: [GPT_5_4_MINI, CODEX, CLAUDE_SONNET],
+      roles: [
+        {
+          selector: "@coding",
+          candidates: [
+            { modelId: CODEX.id, paid: false },
+            { modelId: CLAUDE_SONNET.id, paid: true },
+          ],
+        },
+        {
+          selector: "@fast",
+          candidates: [{ modelId: GPT_5_4_MINI.id, paid: false }],
+        },
+      ],
+    },
+    isError: false,
+    isPending: false,
+    isSuccess: true,
+  });
+}
+
 /**
- * Opening a chat selects the model its last reply used, not the default.
+ * Opening a chat shows the selection the Chat stores — not the model its last
+ * reply happened to use, and not the catalog default.
  *
- * @summary the last reply's model is selected
+ * @summary the Chat's stored selector is shown
  */
-export const RestoresLastModel: Story = {
+export const ShowsStoredSelection: Story = {
   tags: ["ai-generated"],
   parameters: {
-    history: historyWithUsage({
-      modelId: GPT_5_4.id,
-      status: "completed",
-    }),
+    modelSelection: { selector: GPT_5_4.id, effort: null },
+    history: historyWithUsage({ status: "completed" }),
   } satisfies ChatPageParameters,
   beforeEach: () => serveTwoModelCatalog(),
   play: async ({ canvasElement }) => {
@@ -814,38 +941,35 @@ export const RestoresLastModel: Story = {
 };
 
 /**
- * A chat whose last reply used a model no longer in the catalog opens on the
- * default model. The selection's catalog check would repair a retired id on
- * its own, so this documents the outcome; the last-turn fallback rule itself
- * is pinned by resolveLastTurnModelEffort's unit test.
+ * A Chat that stores only a role shows the role itself: the picker is where
+ * the owner sees `@coding`, while the model it resolves to is admission's
+ * business.
  *
- * @summary a chat whose last model was retired opens on the default
+ * @summary a stored role shows the role selector
  */
-export const RetiredModelFallsBack: Story = {
+export const ShowsStoredRole: Story = {
   tags: ["ai-generated"],
   parameters: {
-    history: historyWithUsage({
-      modelId: "system:openai:retired-model",
-      status: "completed",
-    }),
+    modelSelection: { selector: "@coding", effort: null },
+    history: historyWithUsage({ status: "completed" }),
   } satisfies ChatPageParameters,
-  beforeEach: () => serveTwoModelCatalog(),
+  beforeEach: serveRoleCatalog,
   play: async ({ canvasElement }) => {
     const selector = await settledModelSelector(canvasElement);
-    await expect(selector).toHaveAccessibleName("Select model, GPT-5.4 mini");
+    await expect(selector).toHaveAccessibleName("Select model, @coding");
   },
 };
 
 /**
- * A chat whose last reply recorded no model (a legacy turn) opens on the
- * default model, the same outcome as a chat with no reply; like the retired
- * case, this documents the outcome rather than the fallback rule.
+ * A stored selector the config no longer offers shows the catalog default —
+ * the same fallback admission takes for a send that names nothing.
  *
- * @summary a chat whose last reply recorded no model opens on the default
+ * @summary a retired stored selector shows the default
  */
-export const UnrecordedModelKeepsDefault: Story = {
+export const StoredSelectionLeftCatalogShowsDefault: Story = {
   tags: ["ai-generated"],
   parameters: {
+    modelSelection: { selector: "system:openai:retired-model", effort: null },
     history: historyWithUsage({ status: "completed" }),
   } satisfies ChatPageParameters,
   beforeEach: () => serveTwoModelCatalog(),
@@ -856,19 +980,16 @@ export const UnrecordedModelKeepsDefault: Story = {
 };
 
 /**
- * Opening a chat also restores the reasoning effort its last reply used,
- * rather than the model's default effort.
+ * Opening a chat shows the effort it stores rather than the model's default
+ * effort.
  *
- * @summary the last reply's reasoning effort is restored
+ * @summary the Chat's stored effort is shown
  */
-export const RestoresLastEffort: Story = {
+export const ShowsStoredEffort: Story = {
   tags: ["ai-generated"],
   parameters: {
-    history: historyWithUsage({
-      modelId: GPT_5_4.id,
-      status: "completed",
-      effort: "high",
-    }),
+    modelSelection: { selector: GPT_5_4.id, effort: "high" },
+    history: historyWithUsage({ status: "completed" }),
   } satisfies ChatPageParameters,
   beforeEach: () =>
     serveTwoModelCatalog({
@@ -889,6 +1010,53 @@ export const RestoresLastEffort: Story = {
     await expect(
       canvas.getByRole("button", { name: "Reasoning effort, High" }),
     ).toBeVisible();
+  },
+};
+
+/** A hold two hours out, so the story's `revertAt` is ahead of every run. */
+const HOLD_REVERT_AT = new Date(Date.now() + 2 * 60 * 60 * 1000);
+
+/**
+ * A Chat held on a fallback model shows the role, the held model, and the
+ * local time it returns to the role — the spec's "A held Chat in the
+ * picker". The picker's roles and models follow.
+ *
+ * @summary a held Chat shows its role, held model, and revert time
+ */
+export const HeldChatInPicker: Story = {
+  tags: ["ai-generated"],
+  parameters: {
+    modelSelection: {
+      selector: "@coding",
+      effort: null,
+      hold: {
+        selector: "@coding",
+        modelId: CLAUDE_SONNET.id,
+        effort: null,
+        revertAt: HOLD_REVERT_AT.toISOString(),
+      },
+    },
+    history: historyWithUsage({ status: "completed" }),
+  } satisfies ChatPageParameters,
+  beforeEach: serveRoleCatalog,
+  play: async ({ canvasElement }) => {
+    const until = localTimeOf(HOLD_REVERT_AT.toISOString());
+    const selector = await settledModelSelector(canvasElement);
+
+    await expect(selector).toHaveAccessibleName(
+      `Select model, @coding → Claude Sonnet until ${until}`,
+    );
+
+    await userEvent.click(selector);
+
+    const picker = await within(document.body).findByLabelText("Model picker");
+    await expect(within(picker).getByText("@coding")).toBeVisible();
+    await expect(
+      within(picker).getAllByText("Claude Sonnet").length,
+    ).toBeGreaterThan(0);
+
+    // The preview card names the held model, not the role's primary.
+    await expect(document.body).toHaveTextContent("Claude Sonnet");
   },
 };
 
@@ -1611,88 +1779,6 @@ export const TargetSendFinishOpensLatest: Story = {
       LATEST_QUERY,
       LATEST_QUERY,
     ]);
-  },
-};
-
-// Released by the story once the remounted page shows the pre-send snapshot.
-let releaseLatest: () => void = () => {};
-
-/**
- * #1084: after a target send finishes, the newest page can still be the
- * pre-send snapshot, whose last reply used another model and bypass. The
- * composer keeps the selections the send used — the defaults here — both
- * over that snapshot and once the post-send page arrives.
- *
- * @summary a finished target send keeps the selections it sent with
- */
-export const TargetSendKeepsSentSelections: Story = {
-  tags: ["ai-generated"],
-  parameters: {
-    hash: TARGET_HASH,
-    history: [
-      rawChatMessage({
-        id: "newest",
-        chatId: CHAT_ID,
-        role: "assistant",
-        seq: 990,
-        parts: [{ type: "text", text: "newest" }],
-        usage: {
-          status: "completed",
-          modelId: GPT_5_4.id,
-          permissionMode: "bypass",
-        },
-      }),
-    ],
-  } satisfies ChatPageParameters,
-  beforeEach: () => {
-    serveTwoModelCatalog();
-    offerBothModes();
-
-    const latest = new Promise<void>((resolve) => {
-      releaseLatest = resolve;
-    });
-
-    routeHistory(historyPage(TARGET_WINDOW), () =>
-      latest.then(() =>
-        jsonResponse({
-          messages: [
-            ...replies(["target", 900, "target answer"]),
-            rawChatMessage({
-              id: "latest",
-              chatId: CHAT_ID,
-              role: "assistant",
-              seq: 1000,
-              parts: [{ type: "text", text: "latest durable answer" }],
-              usage: { status: "completed", modelId: GPT_5_4_MINI.id },
-            }),
-          ],
-        }),
-      ),
-    );
-    routeAlso({ [SEND_ROUTE]: () => Promise.resolve(streamedReply()) });
-  },
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement);
-    await openedTarget(canvasElement);
-    await sendFollowUp(canvasElement);
-
-    await transcriptShows(canvasElement, "newest");
-    await expect(canvas.getByRole("combobox")).toHaveAccessibleName(
-      "Select model, GPT-5.4 mini",
-    );
-    await expect(
-      canvas.getByRole("button", { name: "Permission mode, Default" }),
-    ).toBeVisible();
-
-    releaseLatest();
-
-    await transcriptShows(canvasElement, "latest durable answer");
-    await expect(canvas.getByRole("combobox")).toHaveAccessibleName(
-      "Select model, GPT-5.4 mini",
-    );
-    await expect(
-      canvas.getByRole("button", { name: "Permission mode, Default" }),
-    ).toBeVisible();
   },
 };
 

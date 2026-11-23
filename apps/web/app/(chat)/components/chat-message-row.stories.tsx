@@ -1986,10 +1986,10 @@ export const RegenerateRepeatsLatestRun: Story = {
   play: async ({ canvas, args }) => {
     const regenerate = await revealTurnActions(canvas);
     await userEvent.click(regenerate);
+    // A plain click names no selector or effort: the Chat's stored selection
+    // applies, and only the accepted permission mode repeats.
     await expect(args.onFollowUp).toHaveBeenCalledWith({
       action: "regenerate",
-      selector: "system:openai:gpt-5.4-mini",
-      effort: "xhigh",
       permissionMode: "bypass",
     });
   },
@@ -2062,8 +2062,6 @@ export const RegenerateConfirmedSends: Story = {
     );
     await expect(args.onFollowUp).toHaveBeenCalledWith({
       action: "regenerate",
-      selector: "system:openai:gpt-5.4-mini",
-      effort: "low",
       permissionMode: "default",
     });
   },
@@ -2093,8 +2091,6 @@ export const RegenerateReadOnlySkipsDialog: Story = {
     await expect(screen.queryByRole("alertdialog")).toBeNull();
     await expect(args.onFollowUp).toHaveBeenCalledWith({
       action: "regenerate",
-      selector: "system:openai:gpt-5.4-mini",
-      effort: "low",
       permissionMode: "default",
     });
   },
@@ -2155,6 +2151,7 @@ export const RegenerateMenuSetsTheComposer: Story = {
       data: MENU_CATALOG,
       isError: false,
       isPending: false,
+      isSuccess: true,
     });
     usePermissionModesQueryMock.mockReturnValue({
       data: { modes: [{ value: "default" }, { value: "bypass" }] },

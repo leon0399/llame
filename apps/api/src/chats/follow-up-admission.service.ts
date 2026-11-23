@@ -60,7 +60,7 @@ import {
   type CreateRunForMessageInput,
   type FollowUpRunInput,
 } from './run-creation';
-import { storeOwnerSelection } from './owner-selection';
+import { storeSelectionUpdate } from './selection-update';
 
 /**
  * A follow-up request as the caller sent it, before its checks. Continue takes
@@ -440,7 +440,11 @@ export class FollowUpAdmissionService {
       return decision;
     }
 
-    const selection = this.resolveRegenerateSelection(turn.chat, validated);
+    const selection = this.resolveRegenerateSelection(
+      turn.chat,
+      validated,
+      await new ChatsRepository(tx).transactionNow(),
+    );
 
     if ('refusal' in selection) {
       return selection;
@@ -466,6 +470,7 @@ export class FollowUpAdmissionService {
   private resolveRegenerateSelection(
     chat: Chat,
     validated: Extract<ValidatedFollowUp, { action: 'regenerate' }>,
+    now: Date,
   ): { resolved: ResolvedSendSettings } | { refusal: Error } {
     try {
       return {
@@ -480,6 +485,7 @@ export class FollowUpAdmissionService {
             },
             writer: 'owner',
             permissionMode: validated.permissionMode,
+            now,
           },
         ),
       };
@@ -502,7 +508,7 @@ export class FollowUpAdmissionService {
   ): Promise<AcceptedRun> {
     const { request, turn, decision, resolved } = input;
 
-    await storeOwnerSelection(new ChatsRepository(tx), turn.chat, resolved);
+    await storeSelectionUpdate(new ChatsRepository(tx), turn.chat, resolved);
 
     const { run } = await createRunForMessage(
       tx,

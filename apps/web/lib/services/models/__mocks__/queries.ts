@@ -43,11 +43,3 @@ export function hasModelId(
 ): boolean {
   return modelId !== undefined && models.some((model) => model.id === modelId);
 }
-
-export function defaultModelIdOf(data: ModelsResponse): string | undefined {
-  if (!data.defaultSelector.startsWith("@")) return data.defaultSelector;
-
-  return data.roles
-    .find((role) => role.selector === data.defaultSelector)
-    ?.candidates.at(0)?.modelId;
-}

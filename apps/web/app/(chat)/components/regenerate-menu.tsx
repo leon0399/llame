@@ -22,6 +22,7 @@ import {
 import { useChatContext, type ChatContextType } from "@/contexts/chat-context";
 import type { FollowUpRunRequest } from "@/lib/services/chat/transport";
 
+import { useComposerSelection } from "./use-composer-selection";
 import { EffortSelector } from "./effort-selector";
 import { ModelSelector } from "./model-selector";
 import { PermissionModeSelector } from "./permission-mode-selector";
@@ -31,24 +32,27 @@ type RegenerateMenuProps = {
   requestFollowUp: (request: FollowUpRunRequest) => void;
 };
 
-/** The follow-up request the composer's own selections produce. */
+/**
+ * The follow-up request the composer's own picks produce: only what the owner
+ * picked since the last accepted send, so an untouched menu submits the Chat's
+ * stored selection. Null until the catalog resolves a model to regenerate on.
+ */
 function composerRegenerateRequest(
   composer: Pick<
     ChatContextType,
-    "selectedModel" | "selectedEffort" | "getPermissionMode"
+    "pickedSelector" | "pickedEffort" | "getPermissionMode"
   >,
+  ready: boolean,
   chatId: string,
 ): FollowUpRunRequest | null {
-  const { selectedModel, selectedEffort, getPermissionMode } = composer;
+  const { pickedSelector, pickedEffort, getPermissionMode } = composer;
 
-  // Regenerate always names a model; until the catalog resolved one there is
-  // nothing to submit.
-  if (selectedModel === undefined) return null;
+  if (!ready) return null;
 
   return {
     action: "regenerate",
-    selector: selectedModel,
-    effort: selectedEffort,
+    ...(pickedSelector !== undefined && { selector: pickedSelector }),
+    ...(pickedEffort !== undefined && { effort: pickedEffort }),
     permissionMode: getPermissionMode(chatId),
   };
 }
@@ -68,7 +72,13 @@ export function RegenerateMenu({
 }: RegenerateMenuProps) {
   const [open, setOpen] = useState(false);
   const composer = useChatContext();
-  const request = composerRegenerateRequest(composer, chatId);
+  const { modelReadyForSend } = useComposerSelection();
+
+  const request = composerRegenerateRequest(
+    composer,
+    modelReadyForSend,
+    chatId,
+  );
 
   return (
     <Popover open={open} onOpenChange={setOpen} modal={false}>

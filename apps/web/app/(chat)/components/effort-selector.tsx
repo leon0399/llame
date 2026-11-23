@@ -12,11 +12,8 @@ import { Slider } from "@workspace/ui/components/slider";
 import { cn } from "@workspace/ui/lib/utils";
 
 import { useChatContext } from "@/contexts/chat-context";
-import {
-  defaultModelIdOf,
-  useModelsQuery,
-} from "@/lib/services/models/queries";
 import type { EffortLevelResponse } from "@/lib/api/generated/models";
+import { useComposerSelection } from "./use-composer-selection";
 import { ComposerTooltip } from "./composer-tooltip";
 
 /**
@@ -44,62 +41,31 @@ type EffortSelection = {
   activeIndex: number;
   activeDisplay: string;
   activeHasLabel: boolean;
-  setSelectedEffort: (effort: string | undefined) => void;
+  pickEffort: (effort: string) => void;
 };
 
 /**
- * The active effort selection, reconciled against the current model's
- * vocabulary — null when the model declares none (renders nothing, per
+ * The active effort selection, reconciled against the displayed model's
+ * vocabulary — null when that model declares none (renders nothing, per
  * `EffortSelector`'s own doc). Split out so that component composes only
  * markup, not this derivation.
+ *
+ * The level shown is the selection's own — the applied hold's effort, the
+ * stored effort, or the model's default — and a slider move writes a pick, so
+ * only an owner pick ever reaches a send.
  */
 function useActiveEffortSelection(): EffortSelection | null {
-  const { selectedModel, selectedEffort, setSelectedEffort } = useChatContext();
-  const { data } = useModelsQuery();
+  const { pickEffort } = useChatContext();
+  const { model, effort } = useComposerSelection();
 
-  // Falls back to the catalog default, exactly as ModelSelector does for its
-  // own label. Without it this component is invisible until ModelSelector's
-  // seeding effect commits — a dependency on another component's side effect
-  // rather than on the data, which made it render nothing at all whenever it
-  // was mounted alone.
-  const reasoning = React.useMemo(() => {
-    const modelId = selectedModel ?? (data && defaultModelIdOf(data));
-
-    return data?.models.find((model) => model.id === modelId)?.reasoning;
-  }, [data, selectedModel]);
-
+  const reasoning = model?.reasoning;
   const levels = reasoning?.effortLevels;
-
-  // Keep the selection valid for the CURRENT model: vocabularies differ, so a
-  // level carried over from the previous model may not exist here. Falls back
-  // to this model's own default rather than the nearest position, because
-  // position carries no meaning across models.
-  React.useEffect(() => {
-    // Guard matches the render guard below EXACTLY. A model whose vocabulary
-    // is present but empty renders nothing, so seeding a default here would
-    // set — and send — a level the user can neither see nor change.
-    if (!reasoning || reasoning.effortLevels.length === 0) {
-      if (selectedEffort !== undefined) setSelectedEffort(undefined);
-
-      return;
-    }
-
-    if (
-      selectedEffort === undefined ||
-      !reasoning.effortLevels.some((level) => level.value === selectedEffort)
-    ) {
-      setSelectedEffort(reasoning.defaultEffort);
-    }
-  }, [reasoning, selectedEffort, setSelectedEffort]);
 
   if (!reasoning || !levels || levels.length === 0) return null;
 
-  // Render against the model's own default until the effect above commits, so
-  // the label never flashes an empty or foreign level for a frame.
   const activeLevel =
-    selectedEffort !== undefined &&
-    levels.some((level) => level.value === selectedEffort)
-      ? selectedEffort
+    effort !== undefined && levels.some((level) => level.value === effort)
+      ? effort
       : reasoning.defaultEffort;
 
   const activeEntry = levels.find((level) => level.value === activeLevel);
@@ -114,7 +80,7 @@ function useActiveEffortSelection(): EffortSelection | null {
     activeIndex,
     activeDisplay: activeEntry?.label ?? activeLevel,
     activeHasLabel: activeEntry?.label !== undefined,
-    setSelectedEffort,
+    pickEffort,
   };
 }
 
@@ -200,7 +166,7 @@ function EffortSelectorStops({
 type EffortSelectorSliderProps = {
   levels: Array<EffortLevelResponse>;
   activeIndex: number;
-  setSelectedEffort: (effort: string) => void;
+  pickEffort: (effort: string) => void;
 };
 
 /** The slider plus its decorative stop markers — split out from the popover
@@ -208,7 +174,7 @@ type EffortSelectorSliderProps = {
 function EffortSelectorSlider({
   levels,
   activeIndex,
-  setSelectedEffort,
+  pickEffort,
 }: EffortSelectorSliderProps) {
   return (
     <div className="relative">
@@ -223,7 +189,7 @@ function EffortSelectorSlider({
 
           // Live: the trigger label re-renders from context as the thumb
           // moves, so the choice is legible before the popup closes.
-          if (level !== undefined) setSelectedEffort(level.value);
+          if (level !== undefined) pickEffort(level.value);
         }}
         aria-label="Reasoning effort"
         className={BOLD_SLIDER_CLASS}
@@ -237,12 +203,12 @@ function EffortSelectorPopoverContent({
   levels,
   activeIndex,
   activeDisplay,
-  setSelectedEffort,
+  pickEffort,
 }: {
   levels: Array<EffortLevelResponse>;
   activeIndex: number;
   activeDisplay: string;
-  setSelectedEffort: (effort: string) => void;
+  pickEffort: (effort: string) => void;
 }) {
   return (
     // Anchored ABOVE the trigger so the level label stays visible while the
@@ -269,7 +235,7 @@ function EffortSelectorPopoverContent({
         <EffortSelectorSlider
           levels={levels}
           activeIndex={activeIndex}
-          setSelectedEffort={setSelectedEffort}
+          pickEffort={pickEffort}
         />
 
         {/* The slider's own value is an INDEX, which is meaningless read
@@ -302,13 +268,8 @@ export function EffortSelector({ className }: { className?: string }) {
 
   if (!selection) return null;
 
-  const {
-    levels,
-    activeIndex,
-    activeDisplay,
-    activeHasLabel,
-    setSelectedEffort,
-  } = selection;
+  const { levels, activeIndex, activeDisplay, activeHasLabel, pickEffort } =
+    selection;
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -322,7 +283,7 @@ export function EffortSelector({ className }: { className?: string }) {
         levels={levels}
         activeIndex={activeIndex}
         activeDisplay={activeDisplay}
-        setSelectedEffort={setSelectedEffort}
+        pickEffort={pickEffort}
       />
     </Popover>
   );

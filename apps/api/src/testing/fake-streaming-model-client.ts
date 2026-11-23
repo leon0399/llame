@@ -566,6 +566,7 @@ export class FakeModelsService implements ModelSelectionValidator {
     stored: ChatModelSelection | null,
     request: SelectionRequest,
     writer: SelectionWriter,
+    now: Date,
   ) {
     return resolveSelectionFromCatalog(
       {
@@ -576,9 +577,7 @@ export class FakeModelsService implements ModelSelectionValidator {
             ? this.validateModelSelection(modelId)
             : undefined,
       },
-      stored,
-      request,
-      writer,
+      { stored, request, writer, now },
     );
   }
 

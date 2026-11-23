@@ -31,9 +31,12 @@ Archived Chats cannot be renamed.
 ## `/compact <focus>`
 
 On an idle Chat, start a compaction Run that summarizes the conversation after
-the active checkpoint. The Run uses the selected model, effort, and permission
-mode. Its result is a checkpoint, not a user message. If there is no new
-conversation to absorb, the API returns `Nothing to compact.` and starts no Run.
+the active checkpoint. The Run uses the model selector, the effort, and the
+permission mode of the send. A send that names no model selector uses the
+stored selection of the Chat, as [model selection](model-selection.md)
+describes, and the command writes that selection. Its result is a checkpoint,
+not a user message. If there is no new conversation to absorb, the API returns
+`Nothing to compact.` and starts no Run.
 
 The optional focus is trimmed and limited to 1,000 characters. It guides the
 summary without changing its required sections or redaction rules. The focus is

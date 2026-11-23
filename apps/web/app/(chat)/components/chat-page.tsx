@@ -26,7 +26,8 @@ import { Spinner } from "@workspace/ui/components/spinner";
 
 import { useChatSessionState } from "./use-chat-session-state";
 import { useChatConversation } from "./use-chat-conversation";
-import { useChatLastTurnRestore } from "./use-chat-engine";
+import { useChatPermissionRestore } from "./use-chat-engine";
+import { useChatDisplayedSelection } from "./use-chat-displayed-selection";
 import {
   ChatMarkdownProvider,
   useChatMarkdownReady,
@@ -484,7 +485,15 @@ function ChatSessionBody({
 function ChatSessionContent(props: ChatSessionContentProps) {
   const conversation = useChatConversation(props);
   const markdown = useChatMarkdownReady();
-  useChatLastTurnRestore(props);
+  useChatPermissionRestore(props);
+  // The Chat read the composer shows its selection from: a stored Chat has
+  // both history and (after its first accepted send) messages, a draft has
+  // neither.
+  useChatDisplayedSelection(
+    props.chatId,
+    props.initialChatExists ||
+      conversation.transcript.displayMessages.length > 0,
+  );
 
   // Always wait for real Streamdown handles — never mount empty bubbles, and
   // never tear down a draft's first message behind a late spinner.

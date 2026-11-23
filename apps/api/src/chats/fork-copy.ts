@@ -120,6 +120,11 @@ export function inheritForkedChatState(
       // The fork copies the cited artifacts, so its counter continues where
       // the source's stopped.
       artifactSeq: source.artifactSeq,
+      // The owner's selection and any fallback hold travel unchanged, so a
+      // fork of a held Chat keeps serving its held model until the same
+      // `revertAt` (model-roles: "An owner fork copies the selection and the
+      // hold").
+      modelSelection: source.modelSelection,
     } satisfies ChatInheritedValues,
   };
 }

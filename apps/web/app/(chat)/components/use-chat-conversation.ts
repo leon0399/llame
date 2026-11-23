@@ -5,7 +5,6 @@ import type { ChatStatus, FileUIPart, UIMessage } from "ai";
 import type { AgUiChatState } from "@/lib/services/chat/ag-ui/use-ag-ui-chat";
 import { useQueryClient } from "@tanstack/react-query";
 
-import { useChatContext } from "@/contexts/chat-context";
 import { useActiveRuns } from "@/contexts/active-runs-context";
 import { compactionBoundaryIndex } from "@/lib/services/chat/compaction";
 import type { ChatLatestRunResponse } from "@/lib/api/generated/models";
@@ -21,11 +20,11 @@ import {
 } from "@/lib/services/chat/history";
 import {
   useChatEngine,
-  useChatModelSelection,
   useChatPresenceEffects,
   useChatRefresh,
   useChatSendTransport,
 } from "./use-chat-engine";
+import { useComposerSelection } from "./use-composer-selection";
 import { useChatHistorySync } from "./use-chat-history-sync";
 import { hiddenFollowUpReplyIndex } from "./turn-action-rules";
 import {
@@ -178,14 +177,13 @@ function useChatActions({
  *  callbacks. Composed here so `useChatConversation` stays a thin owner. */
 function useChatSetup(chatId: string) {
   const queryClient = useQueryClient();
-  const { selectedModel, setSelectedModel, selectedEffort } = useChatContext();
   const { trackRun, untrackChat, markChatSeen } = useActiveRuns();
-  const modelSelection = useChatModelSelection(selectedModel, setSelectedModel);
-  const transport = useChatSendTransport(chatId, selectedModel, selectedEffort);
+  const selection = useComposerSelection();
+  const transport = useChatSendTransport(chatId, selection);
   const refresh = useChatRefresh(chatId, queryClient);
 
   return {
-    ...modelSelection,
+    ...selection,
     transport,
     ...refresh,
     trackRun,

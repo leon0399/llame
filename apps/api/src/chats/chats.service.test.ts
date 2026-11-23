@@ -8,6 +8,7 @@ import { TenantDbService, type Db } from '../db/tenant-db.service';
 import { noopEmbedDispatch } from '../search/search-embed-dispatch.stub';
 import { noopQueryEmbedder } from '../search/chat-search-query-embedder.stub';
 import { noopReindexDispatch } from '../search/search-reindex-dispatch.stub';
+import type { ChatModelSelection } from '../models/model-selection';
 import { RunsRepository } from '../runs/runs-repository';
 import { ChatsRepository, MessagesRepository } from './chats-repository';
 import { ChatsService } from './chats.service';
@@ -538,11 +539,30 @@ describe('ChatsService message windows, updates and forks', () => {
   });
 
   describe('forkChat', () => {
+    // A held selection: model-roles says "An owner fork copies the selection
+    // and the hold", so the fork must keep serving the held model until the
+    // same `revertAt`.
+    const modelSelection: ChatModelSelection = {
+      revision: 3,
+      selector: '@primary',
+      effort: 'high',
+      hold: {
+        selector: '@primary',
+        modelId: 'fallback-model',
+        effort: 'high',
+        revertAt: '2026-08-28T00:10:00.000Z',
+      },
+    };
+
+    const heldChat: Chat = { ...chat, modelSelection };
+
     // The Chat-row values a fork copies off its source (complete-owner-forks
     // D3). This fixture carries no frozen baseline, so only the creation time
-    // travels and both markers stay null rather than naming a copied checkpoint.
+    // and the model selection travel and both markers stay null rather than
+    // naming a copied checkpoint.
     const inheritedChatValues = {
-      createdAt: chat.createdAt,
+      createdAt: heldChat.createdAt,
+      modelSelection,
       recencyDigestBaseline: null,
       recencyDigestTold: null,
       recencyDigestRebakedFrom: null,
@@ -566,7 +586,7 @@ describe('ChatsService message windows, updates and forks', () => {
       });
 
       const created: Chat = {
-        ...chat,
+        ...heldChat,
         id: 'chat-fork',
         title: 'Source (fork)',
       };
@@ -575,7 +595,9 @@ describe('ChatsService message windows, updates and forks', () => {
         .spyOn(ChatsRepository.prototype, 'create')
         .mockResolvedValue(created);
 
-      vi.spyOn(ChatsRepository.prototype, 'findById').mockResolvedValue(chat);
+      vi.spyOn(ChatsRepository.prototype, 'findById').mockResolvedValue(
+        heldChat,
+      );
 
       const findForkSource = vi
         .spyOn(MessagesRepository.prototype, 'findForkSource')
@@ -617,7 +639,7 @@ describe('ChatsService message windows, updates and forks', () => {
     });
 
     it('leaves an untitled source untitled instead of forking an empty title', async () => {
-      const untitled: Chat = { ...chat, title: null };
+      const untitled: Chat = { ...heldChat, title: null };
 
       const create = vi
         .spyOn(ChatsRepository.prototype, 'create')

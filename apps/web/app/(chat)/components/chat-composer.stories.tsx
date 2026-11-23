@@ -147,8 +147,8 @@ function dropFiles(target: Element, files: ReadonlyArray<File>): void {
   );
 }
 
-/** Selects `modelId` in the chat context, as the page's model
- *  reconciliation would. */
+/** Registers `modelId` as the open Chat's stored selection, as the page's
+ *  Chat read does. */
 function SelectedModel({
   modelId,
   children,
@@ -156,8 +156,16 @@ function SelectedModel({
   modelId: string;
   children: ReactNode;
 }) {
-  const { setSelectedModel } = useChatContext();
-  useEffect(() => setSelectedModel(modelId), [modelId, setSelectedModel]);
+  const { registerChatSelection } = useChatContext();
+  useEffect(
+    () =>
+      registerChatSelection(
+        "story-chat",
+        { selector: modelId, effort: null },
+        true,
+      ),
+    [modelId, registerChatSelection],
+  );
 
   return children;
 }

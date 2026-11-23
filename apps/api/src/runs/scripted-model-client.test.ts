@@ -517,15 +517,16 @@ describe('ScriptedModelsService observable contract', () => {
     });
 
     const stored = { revision: 2, selector: 'reasoner', effort: 'high' };
+    const now = new Date('2026-11-23T13:00:00.000Z');
 
-    expect(service.resolveSelection(stored, {}, 'derived')).toMatchObject({
+    expect(service.resolveSelection(stored, {}, 'derived', now)).toMatchObject({
       selector: 'reasoner',
       model: { id: 'reasoner' },
       effort: 'high',
       nextSelection: undefined,
     });
     expect(
-      service.resolveSelection(null, { selector: 'reasoner' }, 'owner'),
+      service.resolveSelection(null, { selector: 'reasoner' }, 'owner', now),
     ).toMatchObject({
       selector: 'reasoner',
       effort: 'low',
@@ -535,7 +536,7 @@ describe('ScriptedModelsService observable contract', () => {
         effort: 'low',
       },
     });
-    expect(() => service.resolveSelection(null, {}, 'derived')).toThrow(
+    expect(() => service.resolveSelection(null, {}, 'derived', now)).toThrow(
       'defaults.selector is required.',
     );
   });

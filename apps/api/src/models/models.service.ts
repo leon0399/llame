@@ -27,10 +27,13 @@ import {
   chooseSelector,
   nextSelectionForWrite,
   offerSelector,
+  resolveHold,
   type ChatModelSelection,
+  type OfferedSelector,
   type SelectionCatalog,
   type SelectionRequest,
   type SelectionWriter,
+  type SelectorChoice,
 } from './model-selection';
 
 /** One candidate of a published role, as a client may present it. */
@@ -174,10 +177,14 @@ export type ResolvedSendSettings = {
 /**
  * The model, effort, and permission mode of one admission, resolved together:
  * the selector is the named, stored, or default one; its model is in the
- * catalog; the effort follows "An omitted effort follows one order"; the mode
- * is enabled. Every admission path — a send, chat creation, Regenerate,
- * `/compact`, queue promotion, and a job notice — shares this one check, so a
- * pending item starts only under settings a send would be accepted with now.
+ * catalog (or the held one, while a fallback hold applies); the effort follows
+ * "An omitted effort follows one order"; the mode is enabled. Every admission
+ * path — a send, chat creation, Regenerate, `/compact`, a delivery start, queue
+ * promotion, and a job notice — shares this one check, so a pending item starts
+ * only under settings a send would be accepted with now.
+ *
+ * `now` is the transaction's clock: a fallback hold applies only while its
+ * `revertAt` is ahead of it, and any admission drops one that is not.
  *
  * The selector and the effort resolve first: the effort's legality is defined
  * by the resolved model, so an unavailable selector is reported without the
@@ -191,12 +198,15 @@ export function resolveSendSettings(
     request: SelectionRequest;
     writer: SelectionWriter;
     permissionMode?: PermissionMode | undefined;
+    /** The admission transaction's `now()`. */
+    now: Date;
   },
 ): ResolvedSendSettings {
   const selection = models.resolveSelection(
     input.stored,
     input.request,
     input.writer,
+    input.now,
   );
 
   return {
@@ -223,20 +233,19 @@ export type ResolvedSelection = {
   nextSelection: ChatModelSelection | undefined;
 };
 
-/**
- * Resolve one selection against a catalog, mapping each refusal to its domain
- * error (design D3). It lives beside the errors it raises, so the worker test
- * harnesses resolve a selector through the same rules the API does instead of
- * restating them.
- */
-export function resolveSelectionFromCatalog(
-  catalog: SelectionCatalog,
-  stored: ChatModelSelection | null,
-  request: SelectionRequest,
-  writer: SelectionWriter,
-): ResolvedSelection {
-  const chosen = chooseSelector(catalog, stored, request);
+/** One admission, as the shared resolver reads it. */
+export type SelectionAdmission = {
+  stored: ChatModelSelection | null;
+  request: SelectionRequest;
+  writer: SelectionWriter;
+  /** The admission transaction's `now()`. */
+  now: Date;
+};
 
+/** The selector a resolution settled on, or its refusal as a domain error. */
+export function requireOfferedSelector(
+  chosen: SelectorChoice,
+): OfferedSelector {
   if (chosen.kind === 'unknown') {
     throw new ModelNotAvailableError(chosen.selector);
   }
@@ -249,32 +258,84 @@ export function resolveSelectionFromCatalog(
     throw new ModelConfigurationError(DEFAULT_SELECTOR_REFERENCE);
   }
 
-  const effort = chooseEffort({
-    model: chosen.model,
-    requested: request.effort,
-    storedEffort: chosen.storedUsed ? (stored?.effort ?? null) : null,
-    candidateEffort: chosen.candidate?.effort,
+  return chosen;
+}
+
+/**
+ * Resolve one selection against a catalog, mapping each refusal to its domain
+ * error (design D3). It lives beside the errors it raises, so the worker test
+ * harnesses resolve a selector through the same rules the API does instead of
+ * restating them.
+ *
+ * The hold comes after the selector, because whether it applies depends on the
+ * stored selector being the one that resolved: an applied hold serves the Run
+ * on its model, with its effort (design D4), and a dropped one is cleared by
+ * the write this returns.
+ */
+export function resolveSelectionFromCatalog(
+  catalog: SelectionCatalog,
+  admission: SelectionAdmission,
+): ResolvedSelection {
+  const { stored, request, writer, now } = admission;
+
+  const chosen = requireOfferedSelector(
+    chooseSelector(catalog, stored, request),
+  );
+
+  const hold = resolveHold({
+    catalog,
+    stored,
+    request,
+    storedUsed: chosen.storedUsed,
+    now,
   });
 
-  if (effort.kind === 'undeclared') {
-    throw new EffortNotAvailableError(chosen.model.id, effort.effort);
-  }
+  const applied = hold.kind === 'applied' ? hold : undefined;
 
-  const resolvedEffort = effort.kind === 'effort' ? effort.effort : undefined;
+  const model = applied?.model ?? chosen.model;
+
+  const effort = resolveEffortChoice({
+    model,
+    requested: request.effort,
+    holdEffort: applied?.hold.effort,
+    storedEffort: chosen.storedUsed ? (stored?.effort ?? null) : null,
+    candidateEffort: applied?.candidate.effort ?? chosen.candidate?.effort,
+  });
 
   return {
     selector: chosen.selector,
-    model: chosen.model,
-    effort: resolvedEffort,
+    model,
+    effort,
     nextSelection: nextSelectionForWrite({
       stored,
       request,
       writer,
       selector: chosen.selector,
-      effort: resolvedEffort,
+      effort,
       storedUsed: chosen.storedUsed,
+      hold,
     }),
   };
+}
+
+/**
+ * The effort a resolution settles on, or its refusal as a domain error: a
+ * named level the resolved model does not declare is a 422.
+ */
+function resolveEffortChoice(input: {
+  model: SystemModelCatalogEntry;
+  requested: string | undefined;
+  holdEffort: string | null | undefined;
+  storedEffort: string | null;
+  candidateEffort: string | undefined;
+}): string | undefined {
+  const choice = chooseEffort(input);
+
+  if (choice.kind === 'undeclared') {
+    throw new EffortNotAvailableError(input.model.id, choice.effort);
+  }
+
+  return choice.kind === 'effort' ? choice.effort : undefined;
 }
 
 /** The only capability a run needs to obtain a client (#268). */
@@ -410,23 +471,24 @@ export class ModelsService {
   /**
    * Resolve one admission's selector, model, and effort (design D3). The
    * caller runs it inside the transaction that holds the Chat row, with the
-   * selection that row stores: `chooseSelector` picks the named, stored, or
-   * default selector, `chooseEffort` follows the spec's order, and
-   * `nextSelectionForWrite` decides whether an owner request stores the
-   * result. A held Chat resolves to its held model in the hold layer; this
-   * layer ignores `hold` entirely.
+   * selection that row stores and that transaction's `now()`: `chooseSelector`
+   * picks the named, stored, or default selector, `resolveHold` decides whether
+   * a fallback hold applies or is dropped (design D4), `chooseEffort` follows
+   * the spec's order, and `nextSelectionForWrite` decides what the request
+   * stores.
    */
   resolveSelection(
     stored: ChatModelSelection | null,
     request: SelectionRequest,
     writer: SelectionWriter,
+    now: Date,
   ): ResolvedSelection {
-    return resolveSelectionFromCatalog(
-      this.selectionCatalog,
+    return resolveSelectionFromCatalog(this.selectionCatalog, {
       stored,
       request,
       writer,
-    );
+      now,
+    });
   }
 
   /** Per-user BYOK seam (#37/v0.4) — preserved, unused today: no caller supplies `resolveCredential` yet. */

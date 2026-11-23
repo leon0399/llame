@@ -68,6 +68,8 @@ function makeSetup(
       asDouble<Chat>({ archivedAt: null, modelSelection: null }),
     );
 
+  vi.spyOn(ChatsRepository.prototype, 'transactionNow').mockResolvedValue(at);
+
   const firstPendingQueueItem = vi
     .spyOn(ChatDeliveriesRepository.prototype, 'firstPendingQueueItem')
     .mockResolvedValue(item);
@@ -205,6 +207,7 @@ describe('promoteNextQueueItem', () => {
       stored,
       { selector: 'model-1', effort: 'high' },
       'derived',
+      at,
     );
     expect(createUserMessageIfAbsent).toHaveBeenCalled();
     expect(createRun).toHaveBeenCalledWith(
@@ -335,6 +338,7 @@ describe('promoteNextQueueItem', () => {
       null,
       { selector: 'model-1', effort: 'high' },
       'derived',
+      at,
     );
     expect(createUserMessageIfAbsent).not.toHaveBeenCalled();
     expect(createRun).not.toHaveBeenCalled();

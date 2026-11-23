@@ -2,7 +2,8 @@
  * The model selection a Chat stores (`chats.model_selection`) and the shapes
  * admission resolves it into. See OpenSpec `model-roles`: "The Chat stores its
  * selection", "Owner requests write the selection", "An omitted effort follows
- * one order".
+ * one order", "The Chat returns to the primary after revertAt", and "An owner
+ * pick clears the hold".
  */
 
 import type { ModelRoleCandidate } from '../instance-config/model-roles-config';
@@ -158,9 +159,94 @@ export type EffortChoice =
   | { readonly kind: 'effort'; readonly effort: string };
 
 /**
+ * What the Chat's fallback hold does on one admission: it applies (the Chat
+ * stays on the held model), it is dropped (the request replaced it, or its
+ * `revertAt` passed, or its model left the role), or the Chat holds none.
+ */
+export type HoldResolution =
+  | { readonly kind: 'none' }
+  | {
+      readonly kind: 'applied';
+      readonly hold: ChatFallbackHold;
+      /** The held model, which serves the Run instead of the role's primary. */
+      readonly model: SystemModelCatalogEntry;
+      /** The held model's role candidate, whose effort may still apply. */
+      readonly candidate: ModelRoleCandidate;
+    }
+  | { readonly kind: 'dropped'; readonly hold: ChatFallbackHold };
+
+/**
+ * The hold's outcome for one request, decided before the effort and the write:
+ * a hold applies only when the request names no selector, the stored selection
+ * is the one that resolves, the hold names that same selector, `revertAt` is
+ * still ahead of the transaction's clock, and its model is still a candidate of
+ * the role. Every other case drops it, because an admission is the one place a
+ * stale hold can be removed.
+ */
+export function resolveHold(input: {
+  catalog: SelectionCatalog;
+  stored: ChatModelSelection | null;
+  request: SelectionRequest;
+  /** Whether {@link chooseSelector} settled on the Chat's stored selector. */
+  storedUsed: boolean;
+  /** The admission transaction's `now()`. */
+  now: Date;
+}): HoldResolution {
+  const hold = input.stored?.hold;
+
+  if (hold === undefined) return { kind: 'none' };
+
+  const replaced =
+    input.request.selector !== undefined ||
+    !input.storedUsed ||
+    hold.selector !== input.stored?.selector;
+
+  // `Date.parse` answers NaN for a malformed instant, and `NaN > now` is false,
+  // so a hold that cannot be read behaves like one that passed.
+  const expired = !(Date.parse(hold.revertAt) > input.now.getTime());
+
+  if (replaced || expired) return { kind: 'dropped', hold };
+
+  const parsed = parseModelSelector(hold.selector);
+
+  const candidate =
+    parsed.kind === 'role'
+      ? input.catalog
+          .roleCandidates(parsed.roleName)
+          ?.find((entry) => entry.modelId === hold.modelId)
+      : undefined;
+
+  const model = candidate && input.catalog.model(hold.modelId);
+
+  if (candidate === undefined || model === undefined) {
+    return { kind: 'dropped', hold };
+  }
+
+  return { kind: 'applied', hold, model, candidate };
+}
+
+/** The last two steps of the effort order: the candidate's, then the model's. */
+function fallbackEffort(
+  model: SystemModelCatalogEntry,
+  candidateEffort: string | undefined,
+): EffortChoice {
+  if (candidateEffort !== undefined) {
+    return { kind: 'effort', effort: candidateEffort };
+  }
+
+  const fallback = model.reasoning?.defaultEffort;
+
+  return fallback === undefined
+    ? { kind: 'none' }
+    : { kind: 'effort', effort: fallback };
+}
+
+/**
  * The effort one request resolves to, in the spec's order: the one it names,
- * the stored effort (only when the request named no selector and the stored
- * selector resolved), the role candidate's effort, the model's default.
+ * the effort of an applied fallback hold (which replaces the stored effort for
+ * this admission), the stored effort (only when the request named no selector
+ * and the stored selector resolved), the role candidate's effort, the model's
+ * default.
  *
  * Matching is byte-exact: the levels are opaque provider tokens. A named level
  * on a model that declares none is `undeclared` (422), which is also why a
@@ -173,6 +259,11 @@ export function chooseEffort(input: {
   storedEffort: string | null;
   /** The resolved role candidate's effort, when it resolved through a role. */
   candidateEffort: string | undefined;
+  /**
+   * The effort an applied hold pins, or `null` when it pins none. Undefined
+   * unless a hold applied; then the stored effort is not consulted at all.
+   */
+  holdEffort?: string | null;
 }): EffortChoice {
   const levels = input.model.reasoning?.effortLevels;
 
@@ -182,6 +273,17 @@ export function chooseEffort(input: {
       : { kind: 'undeclared', effort: input.requested };
   }
 
+  if (input.holdEffort !== undefined) {
+    if (
+      input.holdEffort !== null &&
+      levels?.some((level) => level.value === input.holdEffort) === true
+    ) {
+      return { kind: 'effort', effort: input.holdEffort };
+    }
+
+    return fallbackEffort(input.model, input.candidateEffort);
+  }
+
   if (
     input.storedEffort !== null &&
     levels?.some((level) => level.value === input.storedEffort) === true
@@ -189,25 +291,21 @@ export function chooseEffort(input: {
     return { kind: 'effort', effort: input.storedEffort };
   }
 
-  if (input.candidateEffort !== undefined) {
-    return { kind: 'effort', effort: input.candidateEffort };
-  }
-
-  const fallback = input.model.reasoning?.defaultEffort;
-
-  return fallback === undefined
-    ? { kind: 'none' }
-    : { kind: 'effort', effort: fallback };
+  return fallbackEffort(input.model, input.candidateEffort);
 }
 
 /**
- * The selection a request stores, or undefined when it writes none. Only an
- * owner request writes, and only when it changes something: it named a
- * selector or an effort, or it resolved without a usable stored selection.
+ * The selection a request stores, or undefined when it writes none.
  *
- * An effort-only request keeps the stored hold untouched (this layer never
- * applies a hold); any request that names a selector drops it, because a pick
- * replaces the selection the hold belonged to.
+ * An owner request writes when it changes something — it named a selector or
+ * an effort, it resolved without a usable stored selection, or its hold was
+ * dropped — and every such write bumps the revision. A named selector drops
+ * the hold (a pick replaces the selection the hold belonged to); an effort
+ * named under an applied hold pins that effort on the hold and leaves the
+ * owner's selector and effort alone.
+ *
+ * A derived creator writes one thing and one thing only: the removal of a hold
+ * its admission dropped. Its selector, effort, and revision stay the owner's.
  */
 export function nextSelectionForWrite(input: {
   stored: ChatModelSelection | null;
@@ -216,20 +314,43 @@ export function nextSelectionForWrite(input: {
   selector: string;
   effort: string | undefined;
   storedUsed: boolean;
+  hold: HoldResolution;
 }): ChatModelSelection | undefined {
-  if (input.writer !== 'owner') return undefined;
+  const dropped = input.hold.kind === 'dropped';
+
+  if (input.writer !== 'owner') {
+    return dropped
+      ? {
+          revision: input.stored?.revision ?? 0,
+          selector: input.selector,
+          effort: input.effort ?? null,
+        }
+      : undefined;
+  }
 
   const namedSelector = input.request.selector !== undefined;
   const namedEffort = input.request.effort !== undefined;
 
-  if (!namedSelector && !namedEffort && input.storedUsed) return undefined;
+  // Nothing named, the stored selection resolved, and its hold (if any) still
+  // applies: this request has nothing to store.
+  if (!namedSelector && !namedEffort && input.storedUsed && !dropped) {
+    return undefined;
+  }
 
-  const hold = namedEffort && !namedSelector ? input.stored?.hold : undefined;
+  const applied = input.hold.kind === 'applied' ? input.hold.hold : undefined;
+
+  if (applied !== undefined && !namedSelector) {
+    return {
+      revision: (input.stored?.revision ?? 0) + 1,
+      selector: input.stored?.selector ?? input.selector,
+      effort: input.stored?.effort ?? null,
+      hold: { ...applied, effort: input.effort ?? null },
+    };
+  }
 
   return {
     revision: (input.stored?.revision ?? 0) + 1,
     selector: input.selector,
     effort: input.effort ?? null,
-    ...(hold !== undefined && { hold }),
   };
 }

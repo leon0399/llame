@@ -11,7 +11,6 @@ import type { FileUIPart } from "ai";
 import type { MediaThumbnailStatus } from "@workspace/ui/components/custom/media-thumbnail";
 import { toast } from "@workspace/ui/components/sonner";
 
-import { useChatContext } from "@/contexts/chat-context";
 import {
   ATTACHABLE_IMAGE_TYPES,
   ATTACHABLE_PDF_TYPE,
@@ -21,11 +20,10 @@ import {
 } from "@/lib/services/media/uploads";
 import { storedImageSources } from "@/lib/services/media/urls";
 import { mediaQueryKeys } from "@/lib/services/media/queries";
-import {
-  modelDisplayName,
-  useModelsQuery,
-} from "@/lib/services/models/queries";
+import { modelDisplayName } from "@/lib/services/models/queries";
 import { safeRandomUUID } from "@/lib/uuid";
+
+import { useComposerSelection } from "./use-composer-selection";
 
 /** Attachments one message may carry; the API rejects more. */
 export const MAX_COMPOSER_ATTACHMENTS = 10;
@@ -117,12 +115,11 @@ export function attachmentFileParts(
   );
 }
 
-/** Which kinds the selected model declares, and its refusal-message label.
- *  Preserve pending-catalog image behavior; PDF input requires a declaration. */
+/** Which kinds the displayed model declares, and its refusal-message label.
+ *  The display resolves through the Chat's selection and any hold; preserve
+ *  pending-catalog image behavior; PDF input requires a declaration. */
 function useModelInputSupport(items: AttachmentList) {
-  const { selectedModel } = useChatContext();
-  const models = useModelsQuery().data?.models;
-  const model = models?.find((candidate) => candidate.id === selectedModel);
+  const { availableModels, model } = useComposerSelection();
   const declared = model?.input ?? [];
 
   const supported = {
@@ -130,7 +127,10 @@ function useModelInputSupport(items: AttachmentList) {
     pdf: declared.includes("pdf"),
   };
 
-  const label = model ? modelDisplayName(model.id, models) : "Selected model";
+  const label = model
+    ? modelDisplayName(model.id, availableModels)
+    : "Selected model";
+
   let blockReason: string | null = null;
 
   for (const { descriptor, file } of items) {
