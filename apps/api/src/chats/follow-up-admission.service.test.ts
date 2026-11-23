@@ -23,6 +23,7 @@ import type { SystemModelCatalogEntry } from '../models/model-catalog';
 import {
   EffortNotAvailableError,
   ModelNotAvailableError,
+  NextCandidateUnavailableError,
   type ModelSelectionValidator,
 } from '../models/models.service';
 import { type RunDispatcher } from '../runs/run-dispatch.service';
@@ -160,6 +161,14 @@ function replyWith(usage: ReplyUsage | null): Message {
   };
 }
 
+const hostMessage: Message = {
+  ...userMessage,
+  id: 'message-host',
+  seq: 3,
+  senderUserId: null,
+  parts: [],
+};
+
 function fakeTx(): Db {
   const select = () => ({
     from: () => ({
@@ -240,10 +249,15 @@ function makeService() {
     },
   );
 
+  const nextCandidate = vi.fn<
+    NonNullable<ModelSelectionValidator['nextCandidate']>
+  >(() => undefined);
+
   const models: ModelSelectionValidator = {
     validateModelSelection,
     resolveEffortSelection,
     resolveSelection,
+    nextCandidate,
   };
 
   const instanceConfig: InstanceConfigReader = { config: BUILT_IN_DEFAULTS };
@@ -295,6 +309,16 @@ function makeService() {
       replyWith({ status: 'error', runId: sourceRun.id, modelId: model.id }),
     );
 
+  const updateAssistantReply = vi
+    .spyOn(MessagesRepository.prototype, 'updateAssistantReply')
+    .mockResolvedValue(
+      replyWith({ status: 'error', runId: sourceRun.id, modelId: model.id }),
+    );
+
+  const createHostMessage = vi
+    .spyOn(MessagesRepository.prototype, 'create')
+    .mockResolvedValue(hostMessage);
+
   const findLatestByChatId = vi
     .spyOn(RunsRepository.prototype, 'findLatestByChatId')
     .mockResolvedValue(sourceRun);
@@ -325,6 +349,8 @@ function makeService() {
       Promise.resolve({
         ...sourceRun,
         id: runInput.id ?? 'run-created',
+        messageId: runInput.messageId,
+        modelId: runInput.modelId,
         status: 'queued',
         effort: runInput.effort ?? null,
         selector: runInput.selector ?? sourceRun.selector,
@@ -363,6 +389,8 @@ function makeService() {
     findTurnState,
     hasLaterUserMessage,
     findReply,
+    updateAssistantReply,
+    createHostMessage,
     findLatestByChatId,
     findActiveByChatId,
     markFinished,
@@ -375,6 +403,7 @@ function makeService() {
     validateModelSelection,
     resolveEffortSelection,
     resolveSelection,
+    nextCandidate,
     setModelSelection,
   };
 }
@@ -628,6 +657,163 @@ describe('FollowUpAdmissionService', () => {
       message: 'candidate must be next',
     });
     expect(runAs).not.toHaveBeenCalled();
+  });
+
+  it('opens the failed turn on its next candidate without continuing the reply', async () => {
+    const api = makeService();
+
+    const nextModel: SystemModelCatalogEntry = {
+      ...model,
+      id: 'next-model',
+      reasoning: {
+        effortLevels: [{ value: 'high' }],
+        defaultEffort: 'high',
+        cacheInvalidatedByEffortChange: false,
+      },
+    };
+
+    const failedRun = {
+      ...sourceRun,
+      id: '11111111-1111-4111-8111-111111111111',
+      selector: '@coding',
+      selectionRevision: 4,
+    };
+
+    api.findReply.mockResolvedValue({
+      ...replyWith(null),
+      usage: { status: 'error', runId: failedRun.id, modelId: model.id },
+    });
+
+    api.findLatestByChatId.mockResolvedValue(failedRun);
+    api.lock.mockResolvedValue({
+      ...chat,
+      modelSelection: { revision: 4, selector: '@coding', effort: 'high' },
+    });
+    api.nextCandidate.mockReturnValue({
+      modelId: nextModel.id,
+      model: nextModel,
+      candidateEffort: 'high',
+    });
+
+    const admitted = await admit(api.service, {
+      action: 'continue',
+      candidate: 'next',
+    });
+
+    expect(api.nextCandidate).toHaveBeenCalledWith('@coding', model.id);
+    expect(admitted).toMatchObject({
+      modelId: nextModel.id,
+      userMessage: { id: hostMessage.id, seq: hostMessage.seq },
+    });
+    expect(api.updateAssistantReply).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: 'reply-id',
+        parts: continueKeptParts(replyParts),
+      }),
+    );
+    expect(api.createRun).toHaveBeenCalledWith(
+      expect.objectContaining({
+        messageId: hostMessage.id,
+        modelId: nextModel.id,
+        effort: 'high',
+        followUpAction: 'continue',
+        sourceRunId: failedRun.id,
+      }),
+    );
+    expect(api.append).toHaveBeenCalledWith(
+      expect.any(String),
+      'model.switched',
+      expect.objectContaining({
+        toModelId: nextModel.id,
+        toEffort: 'high',
+        origin: 'owner',
+      }),
+    );
+    expect(api.append).not.toHaveBeenCalledWith(
+      expect.any(String),
+      'run.continued',
+      expect.anything(),
+    );
+    expect(api.setModelSelection).toHaveBeenCalledWith(
+      chat.id,
+      chat.ownerUserId,
+      {
+        revision: 4,
+        selector: '@coding',
+        effort: 'high',
+        hold: {
+          selector: '@coding',
+          modelId: nextModel.id,
+          effort: 'high',
+          revertAt: '2026-11-23T13:05:00.000Z',
+        },
+      },
+    );
+  });
+
+  it('opens a next candidate without a source reply when the failed Run left none', async () => {
+    const api = makeService();
+
+    api.findReply.mockResolvedValue(undefined);
+    api.findLatestByChatId.mockResolvedValue({
+      ...sourceRun,
+      id: '22222222-2222-4222-8222-222222222222',
+    });
+    api.nextCandidate.mockReturnValue({
+      modelId: 'next-model',
+      model: { ...model, id: 'next-model' },
+    });
+
+    await admit(api.service, { action: 'continue', candidate: 'next' });
+
+    expect(api.updateAssistantReply).not.toHaveBeenCalled();
+    expect(api.createRun).toHaveBeenCalledWith(
+      expect.objectContaining({
+        messageId: hostMessage.id,
+        modelId: 'next-model',
+      }),
+    );
+    expect(api.append).not.toHaveBeenCalledWith(
+      expect.any(String),
+      'run.continued',
+      expect.anything(),
+    );
+  });
+
+  it('refuses a non-failed Run before resolving its next candidate', async () => {
+    const api = makeService();
+
+    api.findLatestByChatId.mockResolvedValue({
+      ...sourceRun,
+      status: 'queued',
+    });
+
+    await expect(
+      admit(api.service, { action: 'continue', candidate: 'next' }),
+    ).rejects.toMatchObject({
+      constructor: NextCandidateUnavailableError,
+      message: 'A queued turn Run cannot move to its next candidate',
+    });
+    expect(api.nextCandidate).not.toHaveBeenCalled();
+    expect(api.touch).not.toHaveBeenCalled();
+  });
+
+  it('refuses a failed Run when its role has no following candidate', async () => {
+    const api = makeService();
+
+    api.findLatestByChatId.mockResolvedValue({
+      ...sourceRun,
+      selector: '@coding',
+    });
+
+    await expect(
+      admit(api.service, { action: 'continue', candidate: 'next' }),
+    ).rejects.toMatchObject({
+      constructor: NextCandidateUnavailableError,
+      message: `Selector '@coding' has no candidate after '${model.id}'`,
+    });
+    expect(api.nextCandidate).toHaveBeenCalledWith('@coding', model.id);
+    expect(api.touch).not.toHaveBeenCalled();
   });
 
   it('rejects a candidate named on a Regenerate', async () => {

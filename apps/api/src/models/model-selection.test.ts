@@ -404,6 +404,37 @@ describe('the next candidate of a role', () => {
     expect(nextCandidateInRole(CATALOG, '@coding', 'fast')).toBeUndefined();
     expect(nextCandidateInRole(CATALOG, '@coding', 'sonnet')).toBeUndefined();
   });
+  it('does not invent a candidate effort when the next role candidate omits it', () => {
+    const catalog: SelectionCatalog = {
+      ...CATALOG,
+      roleCandidates: () => [{ modelId: 'codex' }, { modelId: 'sonnet' }],
+    };
+
+    expect(nextCandidateInRole(catalog, '@coding', 'codex')).toEqual({
+      modelId: 'sonnet',
+      model: SONNET,
+    });
+  });
+
+  it('refuses a role candidate whose model is absent from the catalog', () => {
+    const catalog: SelectionCatalog = {
+      ...CATALOG,
+      roleCandidates: () => [
+        { modelId: 'codex' },
+        { modelId: 'not-in-catalog' },
+      ],
+    };
+
+    expect(nextCandidateInRole(catalog, '@coding', 'codex')).toBeUndefined();
+  });
+
+  it('falls back to five minutes when the retry hint cannot form a date', () => {
+    const now = new Date('2026-11-23T13:00:00.000Z');
+
+    expect(revertAtFor({ hintMs: Number.NaN }, now)).toEqual(
+      new Date('2026-11-23T13:05:00.000Z'),
+    );
+  });
 });
 
 describe('the hold of a switch ends at', () => {
