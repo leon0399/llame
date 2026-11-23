@@ -210,7 +210,11 @@ marker: `<!-- llame:release {"stage":"implement","outcome":"handed-back"} -->`.
 | any       | a reconciler or a person finds the claim stale                                                | `stale`       |
 
 Work that resumes after a release, such as fixing review feedback, posts a new
-pickup marker. A claim is stale when the session it names is gone, or when it
+pickup marker. Moving from one stage to the next, such as spec to implement in
+one session, is a release of the first stage with `handed-back` followed by a
+new pickup for the second. A label and marker name only the stage that is
+running. An implement pickup goes on each issue the run will close: every
+cutover it implements, or the feature when it has no cutovers. A claim is stale when the session it names is gone, or when it
 has no `needs:human` and no marker or PR activity for 24 hours. A reconciler,
 or a person, then removes its `working:*` label and posts the `stale` release.
 
