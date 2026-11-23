@@ -36,7 +36,10 @@ import * as schema from '../db/schema';
 import { type ModelToolDeclaration, type Run } from '../db/schema';
 import { TenantDbService, type Db } from '../db/tenant-db.service';
 import { MediaService } from '../media/media.service';
-import { type ModelSelectionValidator } from '../models/models.service';
+import {
+  type ModelClientFactory,
+  type ModelSelectionValidator,
+} from '../models/models.service';
 import {
   type ModelClient,
   type ModelStreamInput,
@@ -422,7 +425,7 @@ describeIfDb(
         // to "none".
         () => undefined;
 
-      const models: ModelSelectionValidator = {
+      const models: ModelSelectionValidator & ModelClientFactory = {
         validateModelSelection,
         resolveEffortSelection,
         resolveSelection: fakeResolveSelection({
@@ -430,6 +433,7 @@ describeIfDb(
           resolveEffortSelection,
           defaultSelector: 'system:openai:gpt-5.4-mini',
         }),
+        createClient: workerModelClient,
       };
 
       const bridge: RunStreamResponder = {
@@ -1275,7 +1279,7 @@ describeIfDb(
         // to "none".
         () => undefined;
 
-      const models: ModelSelectionValidator = {
+      const models: ModelSelectionValidator & ModelClientFactory = {
         validateModelSelection,
         resolveEffortSelection,
         resolveSelection: fakeResolveSelection({
@@ -1283,6 +1287,7 @@ describeIfDb(
           resolveEffortSelection,
           defaultSelector: 'system:openai:gpt-5.4-mini',
         }),
+        createClient: workerModelClient,
       };
 
       const dispatchRun = vi

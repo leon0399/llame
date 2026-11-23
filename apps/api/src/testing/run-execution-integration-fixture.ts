@@ -21,6 +21,7 @@ import { type ModelClient } from '../models/model-client';
 import { type SystemModelCatalogEntry } from '../models/model-catalog';
 import {
   resolveSelectionFromCatalog,
+  type ModelClientFactory,
   type ModelSelectionValidator,
 } from '../models/models.service';
 import { noopQueryEmbedder } from '../search/chat-search-query-embedder.stub';
@@ -52,7 +53,7 @@ export function catalogEntry(id: string): SystemModelCatalogEntry {
 /** A validator over the entries a suite declares, by id. */
 export function catalogValidator(
   entries: ReadonlyArray<SystemModelCatalogEntry>,
-): ModelSelectionValidator {
+): ModelSelectionValidator & ModelClientFactory {
   return {
     validateModelSelection: (modelId) => {
       const entry = entries.find(({ id }) => id === modelId);
@@ -71,6 +72,8 @@ export function catalogValidator(
         },
         { stored, request, writer, now },
       ),
+    createClient: (modelId) =>
+      scriptedClient(scriptedModel(answerChunks('')), modelId),
   };
 }
 
@@ -180,7 +183,7 @@ export function scriptedClient(
 export function makeRunExecutionService(input: {
   tenantDb: TenantDbService;
   instanceConfig: InstanceConfigReader;
-  models: ModelSelectionValidator;
+  models: ModelSelectionValidator & ModelClientFactory;
   compaction?: CompactionCapability;
 }): RunExecutionService {
   const noopCompaction: CompactionCapability = {

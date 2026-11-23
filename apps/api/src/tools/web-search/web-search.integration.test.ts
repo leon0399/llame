@@ -49,6 +49,7 @@ import type { ModelClient, ModelStreamInput } from '../../models/model-client';
 import { createModelClient } from '../../models/model-client-factory';
 import {
   ModelsService,
+  type ModelClientFactory,
   type ModelSelectionValidator,
 } from '../../models/models.service';
 import { fakeResolveSelection } from '../../testing/fake-model-selection';
@@ -724,7 +725,7 @@ function service(options: ServiceOptions): RunExecutionService {
 
   // The hosted scenario runs the real `ModelsService`, so the engine builds the
   // referenced model's client as a Run's worker would.
-  const fakeModels: ModelSelectionValidator = {
+  const fakeModels: ModelSelectionValidator & ModelClientFactory = {
     validateModelSelection: () => testModelEntry,
     resolveEffortSelection: () => undefined,
     resolveSelection: fakeResolveSelection({
@@ -732,9 +733,12 @@ function service(options: ServiceOptions): RunExecutionService {
       resolveEffortSelection: () => undefined,
       defaultSelector: testModelEntry.id,
     }),
+    createClient: () => {
+      throw new Error('Web search integration does not switch models');
+    },
   };
 
-  const models: ModelSelectionValidator =
+  const models: ModelSelectionValidator & ModelClientFactory =
     options.hosted === undefined
       ? fakeModels
       : new ModelsService(

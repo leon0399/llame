@@ -158,12 +158,12 @@ master <- model-roles/proposal <- model-roles/catalog <- model-roles/selection
 
 ## 7. In-Run switch (`model-roles/in-run-switch`)
 
-- [ ] 7.1 Make `createClient` required, give `startDelivered` a client, and add the switch of design
+- [x] 7.1 Make `createClient` required, give `startDelivered` a client, and add the switch of design
       D6 at its three decision points behind an injected decision function; verify "The transcript
       after a switch", "The failed send is not kept", "Settled tool calls stay", "A steer that waits
       at the switch", "The new segment starts its own retry count", "A switch after an overload", and
       `tool-calling` "A model switch removes the failed send", with a test decision that switches.
-- [ ] 7.2 The pre-step compaction check at a switch segment; verify `run-steering` "A switch to a
+- [x] 7.2 The pre-step compaction check at a switch segment; verify `run-steering` "A switch to a
       smaller window compacts first".
 - [ ] 7.3 SR, then GR with the Ready-PR monitoring loop.
 

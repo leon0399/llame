@@ -17,10 +17,17 @@ import {
   createModelChangeItem,
   type ModelChangeModel,
 } from '../chats/context-item-producers';
-import { type ChatDelivery, type Run } from '../db/schema';
+import {
+  type ChatDelivery,
+  type Chat,
+  type Message,
+  type Run,
+} from '../db/schema';
 import { type Db } from '../db/tenant-db.service';
 import { ChatJobsRepository } from '../jobs/chat-jobs.repository';
 import { type FailureClass } from '../models/provider-failure/provider-failure';
+import { writeSwitchHold } from '../chats/selection-update';
+import { revertAtFor } from '../models/model-selection';
 import { RunEventsRepository, RunsRepository } from './runs-repository';
 import { RunRowFenceRepository } from './run-row-fence.repository';
 import { moveRunToDelivery } from './segment-delivery';
@@ -58,6 +65,14 @@ export type ModelSwitchInput = {
   toEffort: string | null;
   failureClass: FailureClass;
   origin: ModelSwitchOrigin;
+  failureTiming?: { resetsAt?: Date; hintMs?: number };
+};
+
+export type ModelSwitchResult = {
+  attemptId: string;
+  message: Message;
+  messageId: string;
+  closedReply: Message;
 };
 
 /**
@@ -68,7 +83,7 @@ export type ModelSwitchInput = {
 async function lockForSwitch(
   tx: Db,
   delivery: DeliveryInput,
-): Promise<{ locked: Run; items: ReadonlyArray<ChatDelivery> }> {
+): Promise<{ locked: Run; chat: Chat; items: ReadonlyArray<ChatDelivery> }> {
   const { run, attemptId } = delivery;
 
   const locked = await new RunRowFenceRepository(tx).lockForDelivery(
@@ -91,6 +106,12 @@ async function lockForSwitch(
     throw new Error(`Run ${run.runId} could not lock its Chat to switch.`);
   }
 
+  const chat = await new ChatsRepository(tx).findById(chatId, userId);
+
+  if (chat === undefined) {
+    throw new Error(`Run ${run.runId} could not load its Chat to switch.`);
+  }
+
   await new ChatJobsRepository(tx).settleOnDeadWorkers(
     chatId,
     userId,
@@ -102,7 +123,39 @@ async function lockForSwitch(
     userId,
   );
 
-  return { locked, items: pending.filter((item) => !isCompactCommand(item)) };
+  return {
+    locked,
+    chat,
+    items: pending.filter((item) => !isCompactCommand(item)),
+  };
+}
+
+async function writeSwitchHoldForFailure(
+  tx: Db,
+  chat: Chat,
+  run: Run,
+  switching: ModelSwitchInput,
+): Promise<void> {
+  const failureTiming = switching.failureTiming;
+
+  if (failureTiming === undefined) return;
+
+  const chats = new ChatsRepository(tx);
+  const now = await chats.transactionNow();
+
+  await writeSwitchHold(chats, chat, {
+    runSelectionRevision: run.selectionRevision,
+    runSelector: run.selector,
+    modelId: switching.toModel.id,
+    effort: switching.toEffort,
+    revertAt: revertAtFor(
+      {
+        resetsAt: failureTiming.resetsAt?.toISOString() ?? null,
+        hintMs: failureTiming.hintMs ?? null,
+      },
+      now,
+    ),
+  });
 }
 
 /** Write the new model onto the Run and record the switch after its delivery. */
@@ -110,6 +163,7 @@ async function recordSwitch(
   tx: Db,
   input: {
     locked: Run;
+    chat: Chat;
     switching: ModelSwitchInput;
     attemptId: string;
     messageId: string;
@@ -129,6 +183,7 @@ async function recordSwitch(
     throw new Error(`Run ${locked.id} could not take its switched model.`);
   }
 
+  await writeSwitchHoldForFailure(tx, input.chat, locked, switching);
   await new RunEventsRepository(tx).append(locked.id, 'model.switched', {
     fromModelId: locked.modelId,
     fromEffort: locked.effort,
@@ -148,9 +203,9 @@ async function recordSwitch(
 export async function deliverModelSwitch(
   tx: Db,
   input: ModelSwitchInput,
-): Promise<{ attemptId: string; messageId: string }> {
+): Promise<ModelSwitchResult> {
   const fromAttemptId = input.delivery.attemptId;
-  const { locked, items } = await lockForSwitch(tx, input.delivery);
+  const { locked, chat, items } = await lockForSwitch(tx, input.delivery);
 
   const closedReply = await closeReply(tx, input.delivery, locked, 'failover');
 
@@ -178,10 +233,11 @@ export async function deliverModelSwitch(
 
   await recordSwitch(tx, {
     locked,
+    chat,
     switching: input,
     attemptId,
     messageId: message.id,
   });
 
-  return { attemptId, messageId: message.id };
+  return { attemptId, message, messageId: message.id, closedReply };
 }

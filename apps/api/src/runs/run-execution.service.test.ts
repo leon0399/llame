@@ -124,7 +124,10 @@ import type {
   PromptUserInput,
   SystemModelCatalogEntry,
 } from '../models/model-catalog';
-import type { ModelSelectionValidator } from '../models/models.service';
+import type {
+  ModelClientFactory,
+  ModelSelectionValidator,
+} from '../models/models.service';
 import { createFakeModelClient, ZERO_USAGE } from '../models/fake-model-client';
 import type { ModelClient } from '../models/model-client';
 import { ProviderFailure } from '../models/provider-failure/provider-failure';
@@ -268,6 +271,7 @@ import {
 import {
   NATIVE_MUTATION_ABORT_REASON,
   compactionSummaryPrefixFingerprint,
+  noModelSwitch,
   RunExecutionService,
   RunNotRunnableError,
   resolveEffectivePermissionMode,
@@ -737,7 +741,7 @@ function makeExecutionService(
 
   const resolveEffortSelection = vi.fn().mockReturnValue(undefined);
 
-  const models: ModelSelectionValidator = {
+  const models: ModelSelectionValidator & ModelClientFactory = {
     validateModelSelection,
     resolveEffortSelection,
     resolveSelection: fakeResolveSelection({
@@ -745,6 +749,14 @@ function makeExecutionService(
       resolveEffortSelection,
       defaultSelector: (options.model ?? testModelEntry).id,
     }),
+    createClient: (modelId) => {
+      const client = createFakeModelClient(
+        [''],
+        (options.model ?? testModelEntry).contextWindowTokens,
+      );
+
+      return { ...client, model: modelId };
+    },
   };
 
   const memory: MemorySettingsBindingResolver = options.memory ?? {
@@ -1251,6 +1263,25 @@ function serveCheckpointPublication(id = publishedCheckpointId) {
 
   return { findByBoundary, create, setTold };
 }
+
+describe('default in-run model switch decision', () => {
+  it('keeps production runs on the existing failure path', async () => {
+    await expect(
+      noModelSwitch({
+        run: {
+          id: 'run-1',
+          modelId: 'model-1',
+          selector: 'model-1',
+          selectedEffort: null,
+        },
+        failure: new ProviderFailure('provider failed', {
+          code: 'overloaded',
+        }),
+        attemptId: 'attempt-1',
+      }),
+    ).resolves.toBeUndefined();
+  });
+});
 
 describe('RunExecutionService executeRun', () => {
   const hostRoots: Array<string> = [];

@@ -148,7 +148,7 @@ const fixtureModelEntry = (modelId: string): SystemModelCatalogEntry => ({
   referencesSkills: false,
 });
 
-const executionModels: ModelSelectionValidator = {
+const executionModels: ModelSelectionValidator & ModelClientFactory = {
   validateModelSelection: fixtureModelEntry,
   resolveEffortSelection: () => undefined,
   resolveSelection: fakeResolveSelection({
@@ -156,6 +156,9 @@ const executionModels: ModelSelectionValidator = {
     resolveEffortSelection: () => undefined,
     defaultSelector: 'system:openai:gpt-5.4-mini',
   }),
+  createClient: () => {
+    throw new Error('Compaction context integration does not switch models');
+  },
 };
 
 const knowledgeCandidates: KnowledgeToolCandidateResolverPort = {
@@ -214,7 +217,7 @@ const epochModelEntry = (modelId: string): SystemModelCatalogEntry => ({
   referencesSkills: true,
 });
 
-const epochModels: ModelSelectionValidator = {
+const epochModels: ModelSelectionValidator & ModelClientFactory = {
   validateModelSelection: epochModelEntry,
   resolveEffortSelection: () => undefined,
   resolveSelection: fakeResolveSelection({
@@ -222,6 +225,9 @@ const epochModels: ModelSelectionValidator = {
     resolveEffortSelection: () => undefined,
     defaultSelector: 'system:openai:gpt-5.4-mini',
   }),
+  createClient: () => {
+    throw new Error('Compaction epoch integration does not switch models');
+  },
 };
 
 const EPOCH_EXECUTOR_ID = 'compaction-epoch-host';
@@ -843,7 +849,7 @@ describeIfDb('snapshot-bound compaction continuity', () => {
       skillCatalog?: SkillCatalogPort;
       machines?: MachinesConfig;
     };
-    models?: ModelSelectionValidator;
+    models?: ModelSelectionValidator & ModelClientFactory;
     recencyDigest?: RecencyDigestResolver;
     knowledgeCandidates?: KnowledgeToolCandidateResolverPort;
   };
@@ -1813,6 +1819,11 @@ describeIfDb('snapshot-bound compaction continuity', () => {
               resolveEffortSelection: () => undefined,
               defaultSelector: packagedEntry.id,
             }),
+            createClient: () => {
+              throw new Error(
+                'Compaction context integration does not switch models',
+              );
+            },
           },
         },
       ).executeRun(

@@ -64,10 +64,17 @@ export type ScriptedToolCall = {
 };
 
 /** A provider stream failure after everything the step delivered before it. */
-export type ScriptedStepFailure = {
-  type: 'error';
-  message: string;
-};
+export type ScriptedStepFailure =
+  | {
+      type: 'error';
+      message: string;
+      error?: never;
+    }
+  | {
+      type: 'error';
+      error: Error;
+      message?: never;
+    };
 
 /**
  * The stream stays open after the parts before it, and nothing follows: no
@@ -183,7 +190,10 @@ function appendBlock(
 
       return;
     case 'error':
-      parts.push({ type: 'error', error: new Error(part.message) });
+      parts.push({
+        type: 'error',
+        error: 'error' in part ? part.error : new Error(part.message),
+      });
 
       return;
     case 'hold':

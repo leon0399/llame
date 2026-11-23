@@ -49,6 +49,7 @@ import { type ModelClient } from '../models/model-client';
 import { type SystemModelCatalogEntry } from '../models/model-catalog';
 import {
   ModelsService,
+  type ModelClientFactory,
   type ModelSelectionValidator,
 } from '../models/models.service';
 import type { RunWaitService } from './run-wait.service';
@@ -346,7 +347,7 @@ describeIfDb(
       userId = crypto.randomUUID();
       await sql`INSERT INTO users (id, name, email) VALUES (${userId}, 'Reply finalization', ${`reply-finalization-${userId}@test.com`})`;
 
-      const models: ModelSelectionValidator = {
+      const models: ModelSelectionValidator & ModelClientFactory = {
         validateModelSelection: () => MODEL_ENTRY,
         resolveEffortSelection: () => undefined,
         resolveSelection: fakeResolveSelection({
@@ -354,6 +355,11 @@ describeIfDb(
           resolveEffortSelection: () => undefined,
           defaultSelector: MODEL_ENTRY.id,
         }),
+        createClient: () => {
+          throw new Error(
+            'Unexpected model client creation in finalization test',
+          );
+        },
       };
 
       const bridge: RunStreamResponder = {
