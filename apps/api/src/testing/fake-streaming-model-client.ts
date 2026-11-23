@@ -581,12 +581,18 @@ export class FakeModelsService implements ModelSelectionValidator {
     );
   }
 
-  resolveTitleModelConfig() {
+  resolveTitleModelCandidates() {
     return {
-      id: 'system:openai:gpt-5.4-nano',
-      source: 'system',
-      provider: 'openai',
-      providerModelId: 'gpt-5.4-nano',
+      models: [
+        {
+          id: 'system:openai:gpt-5.4-nano',
+          source: 'system',
+          provider: 'openai',
+          providerModelId: 'gpt-5.4-nano',
+          billing: 'subscription',
+        },
+      ],
+      allowPaidFallback: false,
     };
   }
 

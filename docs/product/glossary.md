@@ -137,8 +137,8 @@ The hard limit on how long one Run may execute, after which it expires.
 
 **Segment**:
 The part of a Run that produces one reply, served by one model. A segment
-starts when the Run starts or at a segment boundary: a steer, interrupt, or
-notice delivery or, once model failover ships, a model switch.
+starts when the Run starts or at a segment boundary: a steer, interrupt, notice
+delivery, or model switch.
 _Avoid_: step, turn
 
 **Attempt**:
@@ -620,7 +620,8 @@ _Avoid_: retry (when the model request is meant)
 **Model role**:
 An operator-named, ordered list of model entries that a send can name instead
 of one model, written `@name`. Each entry is a candidate, and the first is the
-primary.
+primary. The role can also set automatic failover cells and allow paid
+fallback candidates.
 _Avoid_: role (unqualified, where a membership role could be meant), alias,
 profile
 
@@ -632,14 +633,15 @@ model id (for a role)
 
 **Failover**:
 A model switch to the next candidate of a Run's model role after a model
-request fails. The owner starts it, or it happens automatically where the
-failover policy allows it.
+request fails. The owner can start it with Continue on next candidate, or the
+failover policy can start it automatically.
 _Avoid_: fallback (for the act), reroute
 
 **Failover policy**:
-The operator's matrix, per model role, of which failure groups fail over
-automatically for which Run origins. Its failure groups are `availability`,
-`access`, and `quota`. A cell is off unless the operator sets it.
+The instance matrix and per-role cell overrides that control automatic
+switches by Run origin (`owner` or `agent`) and failure group (`availability`,
+`access`, or `quota`). Cells default to off. A threshold quota cell can wait for
+nearby resets; a role can allow paid fallback candidates.
 
 **Fallback hold**:
 The record that keeps a Chat on the candidate it failed over to, until a set

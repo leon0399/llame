@@ -169,23 +169,23 @@ master <- model-roles/proposal <- model-roles/catalog <- model-roles/selection
 
 ## 8. Failover policy (`model-roles/failover-policy`)
 
-- [ ] 8.1 `runs.origin` and its writers, with jobs that carry it; verify "A send starts an owner Run"
+- [x] 8.1 `runs.origin` and its writers, with jobs that carry it; verify "A send starts an owner Run"
       and "A job notice inherits the origin".
-- [ ] 8.2 The `failover` config and its merge; verify "An unknown origin fails startup", "A
+- [x] 8.2 The `failover` config and its merge; verify "An unknown origin fails startup", "A
       non-positive threshold fails startup", and "A role adds one cell".
-- [ ] 8.3 The policy as the production decision; verify "A context overflow does not switch", "An
+- [x] 8.3 The policy as the production decision; verify "A context overflow does not switch", "An
       agent Run fails over", "An owner Run with the cell off fails", "The default policy never
       switches", and "A compaction Run does not fail over", with `agent` Runs inserted by the test.
-- [ ] 8.4 The `quota` cell; verify "A near reset waits", "A reset beyond the wait cap switches", "A
+- [x] 8.4 The `quota` cell; verify "A near reset waits", "A reset beyond the wait cap switches", "A
       far reset switches", `provider-failures` "A quota cell switches in place of the wait" and "A
       step-boundary compaction hits a usage limit", and "A restart enables quota failover".
-- [ ] 8.5 The paid gate and the chain end; verify "A gated paid candidate is skipped", "The owner
+- [x] 8.5 The paid gate and the chain end; verify "A gated paid candidate is skipped", "The owner
       reaches a paid candidate", and "Every candidate failed".
-- [ ] 8.6 Broken sends and compaction; verify "A broken stream after a tool call" and "A failed
+- [x] 8.6 Broken sends and compaction; verify "A broken stream after a tool call" and "A failed
       step-boundary compaction does not switch".
-- [ ] 8.7 Title roles; verify "A title during an outage", "Every title candidate fails", and
+- [x] 8.7 Title roles; verify "A title during an outage", "Every title candidate fails", and
       `provider-failures` "A title request hits a usage limit".
-- [ ] 8.8 Example config with `agent × availability` on, `docs/product/operator/providers/routing.md`
+- [x] 8.8 Example config with `agent × availability` on, `docs/product/operator/providers/routing.md`
       for the matrix, the glossary, and a CHANGELOG entry; the PR carries `Closes #1840` and
       `Closes #1772`. Verify `pnpm lint:markdown`.
 - [ ] 8.9 SR, then GR with the Ready-PR monitoring loop.

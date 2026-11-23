@@ -528,11 +528,23 @@ export const RUN_MODEL_SWITCH_DECISION = Symbol('RUN_MODEL_SWITCH_DECISION');
 export type ModelSwitchDecision = (input: {
   selector: string;
   modelId: string;
+  origin: Run['origin'];
+  kind: Run['kind'];
   failure: ProviderFailure;
 }) => Promise<{ toModelId: string; candidateEffort?: string } | undefined>;
 
-export const noModelSwitch: ModelSwitchDecision = () =>
-  Promise.resolve(undefined);
+function decideFailureTarget(input: {
+  decision: ModelSwitchDecision;
+  selector: string;
+  modelId: string;
+  origin: Run['origin'];
+  kind: Run['kind'];
+  failure: ProviderFailure;
+}) {
+  const { decision, ...failure } = input;
+
+  return decision(failure);
+}
 
 /**
  * The skill-catalog baseline a turn that starts an epoch freezes, with the told
@@ -902,6 +914,8 @@ export type RunClaimResult =
       selector: string;
       /** The Run's stable execution origin. */
       origin: Run['origin'];
+      /** The Run's kind, including compaction Runs. */
+      kind?: Run['kind'];
       /** The effort the selection named, frozen on the Run at admission. */
       selectedEffort?: string;
       effort?: string;
@@ -938,11 +952,12 @@ type ExecuteRunInput = {
 type ExecuteAttemptInput = {
   input: ExecuteRunInput;
   nativeAbort: AbortController | undefined;
-  /** The Run's selector, frozen at admission; a job inherits it. */
-  selector: string;
+  /** The Run's kind, including compaction Runs. */
+  kind: Run['kind'];
   /** The Run's stable execution origin, inherited by jobs it starts. */
   origin: Run['origin'];
-  /** The selection's effort, frozen at admission; a job inherits it. */
+  /** The Run's resolved selector, frozen at admission. */
+  selector: string;
   selectedEffort: string | undefined;
   effort: string | undefined;
   permissionMode: PermissionMode;
@@ -1573,7 +1588,8 @@ export class RunExecutionService {
       'startAfterRunCompletion'
     >,
     @Inject(RUN_MODEL_SWITCH_DECISION)
-    private readonly decideModelSwitch: ModelSwitchDecision = noModelSwitch,
+    private readonly decideModelSwitch: ModelSwitchDecision = () =>
+      Promise.resolve(undefined),
   ) {
     this.webSearch = webSearchEngineItems(this.instanceConfig.config.webSearch);
     this.toolPromptRenderer = createToolPromptRenderer({
@@ -2092,6 +2108,7 @@ export class RunExecutionService {
         return {
           selector: started.selector,
           origin: started.origin,
+          kind: started.kind,
           selectedEffort: started.selectedEffort ?? undefined,
           effort: started.effort ?? undefined,
           permissionMode: started.permissionMode,
@@ -2164,6 +2181,7 @@ export class RunExecutionService {
     const {
       selector,
       origin,
+      kind,
       selectedEffort,
       effort,
       permissionMode,
@@ -2182,8 +2200,9 @@ export class RunExecutionService {
         : await this.currentSegmentInput(input, claim.messageId),
       nativeAbort,
       selector,
-      selectedEffort,
       origin,
+      kind: kind ?? 'turn',
+      selectedEffort,
       effort,
       permissionMode,
       attemptId,
@@ -4836,14 +4855,16 @@ export class RunExecutionService {
     ): Promise<AttemptRun | undefined> => {
       const modelId = input.client.model;
 
-      const target = await this.decideModelSwitch({
+      const target = await decideFailureTarget({
+        decision: this.decideModelSwitch,
         selector: attempt.selector,
         modelId,
+        origin,
+        kind: attempt.kind,
         failure,
       });
 
       if (target === undefined) return undefined;
-
       const toModel = this.models.validateModelSelection(target.toModelId);
 
       const toEffort = effortFor(

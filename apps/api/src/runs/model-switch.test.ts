@@ -32,6 +32,7 @@ const run: Run = {
   kind: 'turn',
   chatId,
   messageId: userMessageId,
+  origin: 'owner',
   userId,
   modelId: 'old-model',
   selector: 'old-model',

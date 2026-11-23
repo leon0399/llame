@@ -248,9 +248,11 @@ describe('model failover policy', () => {
     const decide = createFailoverDecision(instanceConfig);
 
     const input = {
-      run: { selector: '@chat', modelId: 'primary', origin: 'agent' as const },
+      selector: '@chat',
+      modelId: 'primary',
+      origin: 'agent' as const,
+      kind: 'turn' as const,
       failure: failure('overloaded'),
-      attemptId: 'attempt',
     };
 
     await expect(decide(input)).resolves.toBeUndefined();

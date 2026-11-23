@@ -101,6 +101,7 @@ const parkedRun: Run = {
   id: runId,
   kind: 'turn',
   chatId,
+  origin: 'owner',
   messageId,
   userId,
   modelId: 'system:openai:gpt-5.4-mini',

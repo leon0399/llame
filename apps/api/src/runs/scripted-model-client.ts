@@ -430,6 +430,18 @@ export class ScriptedModelsService implements ModelSelectionValidator {
     };
   }
 
+  resolveTitleModelCandidates() {
+    return {
+      models: [
+        {
+          ...this.resolveTitleModelConfig(),
+          billing: 'subscription' as const,
+        },
+      ],
+      allowPaidFallback: false,
+    };
+  }
+
   createClient(modelId: string): ModelClient {
     this.createClientCalls.push({ modelId });
     const behavior = this.behaviors.get(modelId);

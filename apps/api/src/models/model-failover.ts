@@ -157,31 +157,21 @@ export function createFailoverDecision(instanceConfigService: {
   readonly config: LlameConfig;
 }) {
   return (input: {
-    run: {
-      selector: string;
-      modelId: string | null;
-      origin: Origin;
-      kind?: 'turn' | 'compaction';
-    };
+    selector: string;
+    modelId: string;
+    origin: Origin;
+    kind: 'turn' | 'compaction';
     failure: ProviderFailure;
-    attemptId: string;
-  }): Promise<{ toModelId: string; candidateEffort?: string } | undefined> => {
-    const { run, failure } = input;
-
-    if (run.modelId === null || run.kind === 'compaction') {
-      return Promise.resolve(undefined);
-    }
-
-    return Promise.resolve(
+  }): Promise<{ toModelId: string; candidateEffort?: string } | undefined> =>
+    Promise.resolve(
       failoverTarget({
         config: instanceConfigService.config,
-        selector: run.selector,
-        currentModelId: run.modelId,
-        origin: run.origin,
-        failure,
-        kind: run.kind,
+        selector: input.selector,
+        currentModelId: input.modelId,
+        origin: input.origin,
+        failure: input.failure,
+        kind: input.kind,
         now: Date.now(),
       }),
     );
-  };
 }

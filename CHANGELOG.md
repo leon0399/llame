@@ -2,6 +2,12 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-11-23
 
+- Automatic model failover can be enabled per Run origin (`owner` or `agent`)
+  and failure group, with per-role cell overrides, quota reset thresholds, and
+  an optional paid-fallback gate. `runs.origin` records the Run's origin. Title
+  roles walk their candidate chain. Policy is read at failure time; defaults
+  remain off. (#1840, #1772)
+
 - Continue on next candidate moves a failed turn, or a Run in a quota wait, to
   the next model of its model role. The failed reply keeps its output and
   usage, and the next model answers after a boundary that names the failure.
