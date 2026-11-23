@@ -74,7 +74,7 @@ describe('prompt imports item', () => {
         },
         { locator: '/private/notes.md', outcome: 'failed' },
       ],
-      omitted: ['@later.md'],
+      omitted: [{ target: '@later.md' }],
       retained: new Map(),
     });
 
@@ -420,7 +420,7 @@ describe('prompt imports labels', () => {
       retainedBefore: 0,
       runId: RUN_ID,
       outcomes: [],
-      omitted: ['notes.md:30-35'],
+      omitted: [{ target: 'notes.md:30-35' }],
       retained: new Map(),
     });
 
@@ -430,6 +430,24 @@ describe('prompt imports labels', () => {
     expect(item.data.payload).toEqual({
       imports: [],
       omitted: ['notes.md:30-35'],
+    });
+  });
+
+  it('prints an omitted literal file name as written', () => {
+    const item = createPromptImportsItem({
+      retainedBefore: 0,
+      runId: RUN_ID,
+      outcomes: [],
+      omitted: [{ target: 'README.md:30-35', literal: true }],
+      retained: new Map(),
+    });
+
+    expect(item.data.text).toContain(
+      'The following prompt targets were omitted: `README.md:30-35`.',
+    );
+    expect(item.data.payload).toEqual({
+      imports: [],
+      omitted: ['README.md:30-35'],
     });
   });
 
@@ -446,7 +464,10 @@ describe('prompt imports labels', () => {
     ],
     ['skill://pdf:5', 'skill://pdf:L5'],
     ['ssh://box/etc/hosts:5', 'ssh://box/etc/hosts:L5'],
-    ['file:///repo/a%3A30-35', 'file:///repo/a:L30-35'],
+    ['file:///tmp/a%23b.md:5', 'file:///tmp/a%23b.md:L5'],
+    ['file:///tmp/a%2523b.md:5', 'file:///tmp/a%2523b.md:L5'],
+    ['file:///repo/a:b.md:5', 'file:///repo/a:b.md:L5'],
+    ['file:///repo/a.md:5:6', 'file:///repo/a.md:L5'],
     ['https://x.test/a.md:5-10', 'https://x.test/a.md:L5-10'],
     [`media://${MEDIA_ID}:5`, `media://${MEDIA_ID}:L5`],
     ['notes.md:12:5', 'notes.md:L12'],
@@ -466,6 +487,7 @@ describe('prompt imports labels', () => {
     ['skill://pdf/a:b:5', 'the skill reader splits at its first colon'],
     ['ssh://box/a%2Fb:5', 'the ssh reader refuses the encoded slash'],
     ['ssh://box:2222', 'a destination with no path is refused'],
+    ['file:///repo/a%3A30-35', 'the selector boundary is not a literal colon'],
     ['http://x.test/a.md?time=10:30', 'a colon inside the query is URL text'],
     ['https://x.test/a.md?time=10:30', 'a colon inside the query is URL text'],
     ['notes.md:L-5', 'the grammar refuses the selector'],

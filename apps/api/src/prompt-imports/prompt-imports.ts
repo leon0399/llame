@@ -10,6 +10,7 @@ import { parsePathScheme } from '@workspace/native-file-tools';
 import {
   neutralizeImportBody,
   promptImportMedia,
+  type PromptImportOmission,
   type PromptImportOutcome,
 } from '../chats/prompt-imports-item';
 import { KnowledgeFilesystemError } from '../knowledge/knowledge-filesystem';
@@ -111,7 +112,7 @@ export type PromptImportRequest = {
 
 export type PromptImportResolution = {
   outcomes: Array<PromptImportOutcome>;
-  omitted: Array<string>;
+  omitted: Array<PromptImportOmission>;
 };
 
 type ImportPlan =
@@ -404,6 +405,14 @@ function outcomeBase(attempt: ReadAttempt) {
   return { locator: attempt.target, ...attempt.probe };
 }
 
+/** The omission of a target a bound cut off, with its probe's literal bit. */
+function omissionOf(attempt: ReadAttempt): PromptImportOmission {
+  return {
+    target: attempt.target,
+    ...(attempt.probe?.literal === true && { literal: true }),
+  };
+}
+
 /**
  * A read that did not succeed is denied when the read group refused it, omitted
  * when the Run or the budget cut it off rather than the target, else failed.
@@ -416,7 +425,7 @@ function recordUnsuccessfulRead(
   if (admission?.decision === 'reject') {
     run.outcomes.push({ ...outcomeBase(attempt), outcome: 'denied' });
   } else if (run.request.signal.aborted) {
-    run.omitted.push(attempt.target);
+    run.omitted.push(omissionOf(attempt));
   } else {
     run.outcomes.push({ ...outcomeBase(attempt), outcome: 'failed' });
   }
@@ -436,7 +445,7 @@ async function attemptRead(
     run.reads >= MAX_PROMPT_IMPORT_READS ||
     workExpired(run)
   ) {
-    run.omitted.push(attempt.target);
+    run.omitted.push(omissionOf(attempt));
 
     return;
   }
@@ -463,7 +472,7 @@ async function attemptRead(
 
   if (run.bytes + size > MAX_PROMPT_IMPORT_BYTES) {
     run.outputFull = true;
-    run.omitted.push(attempt.target);
+    run.omitted.push(omissionOf(attempt));
 
     return;
   }

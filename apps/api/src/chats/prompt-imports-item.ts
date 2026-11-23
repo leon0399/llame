@@ -93,6 +93,17 @@ export type PromptImportOutcome = {
   | { readonly outcome: 'denied' | 'failed' }
 );
 
+/**
+ * One target a bound cut off before its read. `target` is the target as
+ * written, which is also its stored payload entry; `literal` carries the probe
+ * that found a file whose whole name is the target, so the notice prints it as
+ * written. The bit stays in memory: the payload keeps only the target text.
+ */
+export type PromptImportOmission = {
+  readonly target: string;
+  readonly literal?: true;
+};
+
 export type PromptImportsPayloadEntry = z.infer<typeof payloadEntrySchema>;
 
 /** Private metadata retained for owner disclosure and accepted-turn triggers. */
@@ -484,8 +495,11 @@ function localSplit(locator: string): ImportLabelSplit | undefined {
 
 /**
  * A `file:` alias splits its decoded host path, as `resolveMachinePath` does,
- * so a percent-encoded colon stays path text. The label prints the decoded
- * form, because that is the file the read opens.
+ * so a percent-encoded colon stays path text. The label keeps the submitted
+ * path text as written, so its escapes stay re-readable, and canonicalizes
+ * only the selector. An alias whose selector boundary came from a decoded
+ * escape (`%3A`) prints as written, because no literal colon in the submitted
+ * text separates the path from its selector.
  */
 function fileAliasSplit(locator: string): ImportLabelSplit | undefined {
   const alias = decodeFileAlias(locator);
@@ -494,9 +508,36 @@ function fileAliasSplit(locator: string): ImportLabelSplit | undefined {
 
   const { path, selector } = splitSelectorSuffix(alias.hostPath);
 
-  return selector === undefined
-    ? undefined
-    : { path: `file://${path}`, selector };
+  if (selector === undefined) return undefined;
+
+  const written = writtenAliasPath(locator, path);
+
+  return written === undefined ? undefined : { path: written, selector };
+}
+
+/**
+ * The submitted text of `locator` before the literal colon that ends its
+ * decoded path, or undefined when the decoded path's boundary colon is not
+ * literal in the submitted text. The submitted text after the scheme is
+ * scanned because a selector may hold its own literal colon (`:5:6`), while a
+ * `%3A` boundary leaves no literal colon to split at.
+ */
+function writtenAliasPath(
+  locator: string,
+  decodedPath: string,
+): string | undefined {
+  for (
+    let colon = locator.indexOf(':', 5);
+    colon >= 0;
+    colon = locator.indexOf(':', colon + 1)
+  ) {
+    const written = locator.slice(0, colon);
+    const decoded = decodeFileAlias(written);
+
+    if (decoded.ok && decoded.hostPath === decodedPath) return written;
+  }
+
+  return undefined;
 }
 
 /**
@@ -523,7 +564,7 @@ function webSplit(locator: string): ImportLabelSplit | undefined {
 
 function renderPromptImports(
   outcomes: ReadonlyArray<PromptImportOutcome>,
-  omitted: ReadonlyArray<string>,
+  omitted: ReadonlyArray<PromptImportOmission>,
 ): string {
   const imports: Array<{ locator: string; body: string }> = [];
   const notImported: Array<{ locator: string }> = [];
@@ -545,7 +586,10 @@ function renderPromptImports(
     omitted.length === 0
       ? undefined
       : omitted
-          .map((locator) => `\`${sanitizeAuthoredText(importLabel(locator))}\``)
+          .map(
+            ({ target, literal }) =>
+              `\`${sanitizeAuthoredText(importLabel(target, literal === true))}\``,
+          )
           .join(', ');
 
   return renderPromptImportsTemplate({
@@ -565,7 +609,7 @@ function renderPromptImports(
 export function createPromptImportsItem(input: {
   readonly runId: string;
   readonly outcomes: ReadonlyArray<PromptImportOutcome>;
-  readonly omitted: ReadonlyArray<string>;
+  readonly omitted: ReadonlyArray<PromptImportOmission>;
   readonly retained: ReadonlyMap<string, RetainedMedia>;
   readonly retainedBefore: number;
 }): AuthoredContextItemPart {
@@ -580,7 +624,9 @@ export function createPromptImportsItem(input: {
 
   const payload: PromptImportsPayload = {
     imports,
-    ...(input.omitted.length > 0 && { omitted: [...input.omitted] }),
+    ...(input.omitted.length > 0 && {
+      omitted: input.omitted.map(({ target }) => target),
+    }),
   };
 
   if (!isPromptImportsPayload(payload)) {

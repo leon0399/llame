@@ -6900,8 +6900,8 @@ export class RunExecutionService {
 
     // An omitted target's read may have kept its bytes before the output bound
     // dropped it, and nothing in the item names them.
-    for (const locator of omitted) {
-      step.retainedMedia.delete(promptImportMediaKey(input.runId, locator));
+    for (const { target } of omitted) {
+      step.retainedMedia.delete(promptImportMediaKey(input.runId, target));
     }
 
     await this.tenantDb.runAs(input.userId, (tx) =>
