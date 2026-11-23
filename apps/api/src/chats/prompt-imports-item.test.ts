@@ -11,10 +11,12 @@ import {
   promptImportMedia,
   promptImportMediaKey,
   promptImportMediaParts,
+  type PromptImportOutcome,
 } from './prompt-imports-item';
 
 const RUN_ID = '11111111-2222-4333-8444-555555555555';
 const MEDIA_ID = '0190f5e2-7c1a-7b3e-9d4f-2a6b8c0d1e2f';
+const SPACE_ID = 'a6230f3c-4a5e-4c9b-8f0e-1d2c3b4a5e6f';
 const MEDIA = `media://${MEDIA_ID}`;
 const THUMBNAIL = 'data:image/webp;base64,UklGRg==';
 
@@ -72,7 +74,7 @@ describe('prompt imports item', () => {
         },
         { locator: '/private/notes.md', outcome: 'failed' },
       ],
-      omitted: ['@later.md'],
+      omitted: [{ target: '@later.md' }],
       retained: new Map(),
     });
 
@@ -336,6 +338,164 @@ describe('prompt imports item', () => {
   it('keys unstored entries by their Run and locator', () => {
     expect(promptImportMediaKey(RUN_ID, 'shot.png')).not.toBe(
       promptImportMediaKey('22222222-2222-4333-8444-555555555555', 'shot.png'),
+    );
+  });
+});
+
+describe('prompt imports labels', () => {
+  /** The item one accepted turn renders over these outcomes. */
+  function itemOf(outcomes: ReadonlyArray<PromptImportOutcome>) {
+    return createPromptImportsItem({
+      retainedBefore: 0,
+      runId: RUN_ID,
+      outcomes,
+      omitted: [],
+      retained: new Map(),
+    });
+  }
+
+  it('prints a bare range with its unit', () => {
+    const item = itemOf([
+      {
+        locator: 'README.md:30-35',
+        resolved: 'machine://host-a/repo/README.md',
+        outcome: 'imported',
+        body: 'the notes',
+      },
+    ]);
+
+    expect(item.data.text).toContain('<file path="README.md:L30-35">');
+    expect(item.data.payload).toEqual({
+      imports: [
+        {
+          locator: 'README.md:30-35',
+          resolved: 'machine://host-a/repo/README.md',
+          outcome: 'imported',
+        },
+      ],
+    });
+  });
+
+  it('names a target the read group rejected with its unit', () => {
+    const item = itemOf([
+      { locator: `kb://${SPACE_ID}/notes.md:raw:30-35`, outcome: 'denied' },
+    ]);
+
+    expect(item.data.text).toContain(
+      `The prompt target \`kb://${SPACE_ID}/notes.md:raw:L30-35\` was not imported.`,
+    );
+    expect(item.data.text).not.toContain('<file path=');
+    expect(item.data.payload).toEqual({
+      imports: [
+        { locator: `kb://${SPACE_ID}/notes.md:raw:30-35`, outcome: 'denied' },
+      ],
+    });
+  });
+
+  it('prints a literal file name as written and keeps it out of the payload', () => {
+    const item = itemOf([
+      {
+        locator: 'README.md:30-35',
+        resolved: 'machine://host-a/repo/README.md%3A30-35',
+        literal: true,
+        outcome: 'imported',
+        body: 'the literal file',
+      },
+    ]);
+
+    expect(item.data.text).toContain('<file path="README.md:30-35">');
+    expect(item.data.payload).toEqual({
+      imports: [
+        {
+          locator: 'README.md:30-35',
+          resolved: 'machine://host-a/repo/README.md%3A30-35',
+          outcome: 'imported',
+        },
+      ],
+    });
+  });
+
+  it('prints an omitted target with its unit and keeps it raw in the payload', () => {
+    const item = createPromptImportsItem({
+      retainedBefore: 0,
+      runId: RUN_ID,
+      outcomes: [],
+      omitted: [{ target: 'notes.md:30-35' }],
+      retained: new Map(),
+    });
+
+    expect(item.data.text).toContain(
+      'The following prompt targets were omitted: `notes.md:L30-35`.',
+    );
+    expect(item.data.payload).toEqual({
+      imports: [],
+      omitted: ['notes.md:30-35'],
+    });
+  });
+
+  it('prints an omitted literal file name as written', () => {
+    const item = createPromptImportsItem({
+      retainedBefore: 0,
+      runId: RUN_ID,
+      outcomes: [],
+      omitted: [{ target: 'README.md:30-35', literal: true }],
+      retained: new Map(),
+    });
+
+    expect(item.data.text).toContain(
+      'The following prompt targets were omitted: `README.md:30-35`.',
+    );
+    expect(item.data.payload).toEqual({
+      imports: [],
+      omitted: ['README.md:30-35'],
+    });
+  });
+
+  it.each([
+    ['/repo/notes.md:5', '/repo/notes.md:L5'],
+    ['machine://devl/a:30-35', 'machine://devl/a:L30-35'],
+    [
+      `kb://${SPACE_ID}/notes.md:raw:30-35`,
+      `kb://${SPACE_ID}/notes.md:raw:L30-35`,
+    ],
+    [
+      'skill://pdf/references/formats.md:5-10',
+      'skill://pdf/references/formats.md:L5-10',
+    ],
+    ['skill://pdf:5', 'skill://pdf:L5'],
+    ['ssh://box/etc/hosts:5', 'ssh://box/etc/hosts:L5'],
+    ['file:///tmp/a%23b.md:5', 'file:///tmp/a%23b.md:L5'],
+    ['file:///tmp/a%2523b.md:5', 'file:///tmp/a%2523b.md:L5'],
+    ['file:///repo/a:b.md:5', 'file:///repo/a:b.md:L5'],
+    ['file:///repo/a.md:5:6', 'file:///repo/a.md:L5'],
+    ['https://x.test/a.md:5-10', 'https://x.test/a.md:L5-10'],
+    [`media://${MEDIA_ID}:5`, `media://${MEDIA_ID}:L5`],
+    ['notes.md:12:5', 'notes.md:L12'],
+  ] as const)('splits %s as its own reader does', (locator, label) => {
+    const item = itemOf([{ locator, outcome: 'imported', body: 'the body' }]);
+
+    expect(item.data.text).toContain(`<file path="${label}">`);
+  });
+
+  it.each([
+    ['https://x.test:8080/a.md', 'a destination port is not a selector'],
+    ['notes:draft', 'a colon outside the selector grammar'],
+    [
+      `kb://${SPACE_ID}/a:b.md:5`,
+      'the Knowledge reader splits at its first colon',
+    ],
+    ['skill://pdf/a:b:5', 'the skill reader splits at its first colon'],
+    ['ssh://box/a%2Fb:5', 'the ssh reader refuses the encoded slash'],
+    ['ssh://box:2222', 'a destination with no path is refused'],
+    ['file:///repo/a%3A30-35', 'the selector boundary is not a literal colon'],
+    ['http://x.test/a.md?time=10:30', 'a colon inside the query is URL text'],
+    ['https://x.test/a.md?time=10:30', 'a colon inside the query is URL text'],
+    ['notes.md:L-5', 'the grammar refuses the selector'],
+  ] as const)('prints %s as written (%s)', (locator, _reason) => {
+    const item = itemOf([{ locator, outcome: 'failed' }]);
+
+    expect(item.data.text).toContain(
+      `The prompt target \`${locator}\` was not imported.`,
     );
   });
 });

@@ -6386,11 +6386,11 @@ describeIfDb('executeRun tool-loop persistence', () => {
         ]);
         expect(audited[0]?.payload).toMatchObject({
           toolName: 'read',
-          input: { path: `kb://${space.id}/CLAUDE.md:raw:1-2000` },
+          input: { path: `kb://${space.id}/CLAUDE.md:raw:L1-2000` },
           permission: { decision: 'allow' },
         });
         expect(audited[2]?.payload).toMatchObject({
-          input: { path: `kb://${space.id}/notes/lore/AGENTS.md:raw:1-2000` },
+          input: { path: `kb://${space.id}/notes/lore/AGENTS.md:raw:L1-2000` },
           permission: { decision: 'allow' },
         });
 
@@ -7420,7 +7420,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
         expect(audited[0]?.payload).toMatchObject({
           toolName: 'read',
           input: {
-            path: `${deniedLocator}:raw:1-2000`,
+            path: `${deniedLocator}:raw:L1-2000`,
           },
           permission: { decision: 'reject' },
         });
@@ -7739,7 +7739,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
             : '',
         );
 
-        expect(requestedPaths[0]).toBe(`${file}:raw:1-2000`);
+        expect(requestedPaths[0]).toBe(`${file}:raw:L1-2000`);
         expect(requestedPaths[1]?.startsWith(`${file}:raw:`)).toBe(true);
         expect(requestedPaths[1]).not.toBe(requestedPaths[0]);
 

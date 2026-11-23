@@ -179,8 +179,8 @@ describe('instruction imports on a Machine', () => {
       },
     ]);
     expect(reads).toEqual([
-      `${locator('/abs/dir/file.md')}:raw:1-2000`,
-      `${locator('/abs/dir/sub/rules.md')}:raw:1-2000`,
+      `${locator('/abs/dir/file.md')}:raw:L1-2000`,
+      `${locator('/abs/dir/sub/rules.md')}:raw:L1-2000`,
     ]);
   });
 
@@ -207,7 +207,7 @@ describe('instruction imports on a Machine', () => {
         knowledge: false,
       },
     ]);
-    expect(reads).toEqual([`${locator('/abs/dir/file.md')}:raw:1-2000`]);
+    expect(reads).toEqual([`${locator('/abs/dir/file.md')}:raw:L1-2000`]);
   });
 
   it('keeps an absolute marker in the Machine key space, normalized', async () => {
@@ -256,7 +256,7 @@ describe('instruction imports on a Machine', () => {
     expect(blocks(collector)).toEqual([
       { path: locator('/notes.md'), importedBy: undefined, knowledge: false },
     ]);
-    expect(reads).toEqual([`${locator('/notes.md')}:raw:1-2000`]);
+    expect(reads).toEqual([`${locator('/notes.md')}:raw:L1-2000`]);
   });
 
   it('walks the directory an imported file activates on its Machine', async () => {

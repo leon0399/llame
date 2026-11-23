@@ -19433,7 +19433,7 @@ describe('RunExecutionService instruction files', () => {
       ]);
       expect(reads[0]?.payload).toMatchObject({
         toolName: 'read',
-        input: { path: `${localAt(path.join(root, 'AGENTS.md'))}:raw:1-2000` },
+        input: { path: `${localAt(path.join(root, 'AGENTS.md'))}:raw:L1-2000` },
         permission: { decision: 'allow' },
       });
       expect(reads[1]?.payload).toMatchObject({
@@ -19721,11 +19721,11 @@ describe('RunExecutionService instruction files', () => {
         'tool.completed',
       ]);
       expect(reads[0]?.payload).toMatchObject({
-        input: { path: `${localAt(path.join(root, 'AGENTS.md'))}:raw:1-2000` },
+        input: { path: `${localAt(path.join(root, 'AGENTS.md'))}:raw:L1-2000` },
       });
       expect(reads[2]?.payload).toMatchObject({
         input: {
-          path: `${localAt(path.join(root, 'apps/api/AGENTS.md'))}:raw:1-2000`,
+          path: `${localAt(path.join(root, 'apps/api/AGENTS.md'))}:raw:L1-2000`,
         },
       });
       expect(callIdOf(reads[2]?.payload)).toBe(
@@ -19798,7 +19798,7 @@ describe('RunExecutionService instruction files', () => {
         (record) =>
           record.type === 'tool.requested' &&
           JSON.stringify(record.payload).includes(
-            `${localAt(imported)}:raw:1-2000`,
+            `${localAt(imported)}:raw:L1-2000`,
           ),
       );
 
@@ -20417,7 +20417,7 @@ describe('RunExecutionService instruction files', () => {
       expect(
         eventsWithOrigin(append, 'instructions')[0]?.payload,
       ).toMatchObject({
-        input: { path: `${localAt(path.join(root, 'AGENTS.md'))}:raw:1-2000` },
+        input: { path: `${localAt(path.join(root, 'AGENTS.md'))}:raw:L1-2000` },
       });
     } finally {
       rmSync(root, { recursive: true, force: true });
@@ -21429,7 +21429,7 @@ describe('RunExecutionService prompt imports', () => {
           },
         ],
       });
-      expect(item?.data.text).toContain('<file path="README.md:30-35">');
+      expect(item?.data.text).toContain('<file path="README.md:L30-35">');
 
       // The body is exactly what the model would receive for the read result
       // the completion audit recorded.

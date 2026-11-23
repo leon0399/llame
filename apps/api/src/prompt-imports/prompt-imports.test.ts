@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
+import { createPromptImportsItem } from '../chats/prompt-imports-item';
 import { KnowledgeFilesystemError } from '../knowledge/knowledge-filesystem';
 import { formatMachineLocator } from '../machines/machine-locator';
 import type { PermissionDecision } from '../tools/permissions/types';
@@ -170,9 +171,11 @@ describe('resolvePromptImports marker cap', () => {
 
     expect(calls.reads).toHaveLength(8);
     expect(result.omitted).toEqual(
-      Array.from({ length: 56 }, (_, index) => `https://x.test/${index + 8}`),
+      Array.from({ length: 56 }, (_, index) => ({
+        target: `https://x.test/${index + 8}`,
+      })),
     );
-    expect(result.omitted).not.toContain('https://x.test/64');
+    expect(result.omitted).not.toContainEqual({ target: 'https://x.test/64' });
   });
 
   it('lists nothing for nine prose tokens', async () => {
@@ -244,8 +247,35 @@ describe('resolvePromptImports resolution', () => {
     ]);
     expect(result.outcomes[0]).toMatchObject({
       resolved: 'machine://host-a/tmp/x.md%3A10-12',
+      literal: true,
       outcome: 'imported',
     });
+  });
+
+  it('marks no target literal when the literal probe finds nothing', async () => {
+    const { run } = createHarness({ existing: ['/tmp/a.md'] });
+
+    const result = await run('@/tmp/a.md:10-12');
+
+    expect(result.outcomes[0]).not.toHaveProperty('literal');
+    expect(result.outcomes[0]).toMatchObject({
+      resolved: 'machine://host-a/tmp/a.md',
+      outcome: 'imported',
+    });
+  });
+
+  it('keeps a selector the grammar refuses, for the label step to print as written', async () => {
+    const { calls, run } = createHarness({ existing: ['/repo/notes.md'] });
+
+    const result = await run('@notes.md:L-5');
+
+    expect(calls.hostProbes).toEqual(['/repo/notes.md:L-5', '/repo/notes.md']);
+    expect(result.outcomes[0]).toMatchObject({
+      locator: 'notes.md:L-5',
+      resolved: 'machine://host-a/repo/notes.md',
+      outcome: 'imported',
+    });
+    expect(result.outcomes[0]).not.toHaveProperty('literal');
   });
 
   it('probes a selector-free path once', async () => {
@@ -742,7 +772,7 @@ describe('resolvePromptImports admission', () => {
       'denied',
       ...Array.from({ length: 8 }, () => 'imported'),
     ]);
-    expect(result.omitted).toEqual(['ok.md']);
+    expect(result.omitted).toEqual([{ target: 'ok.md' }]);
     expect(calls.reads).toHaveLength(9);
   });
 
@@ -797,7 +827,42 @@ describe('resolvePromptImports bounds', () => {
 
     expect(calls.reads).toHaveLength(8);
     expect(result.outcomes).toHaveLength(8);
-    expect(result.omitted).toEqual(['https://x.test/4']);
+    expect(result.omitted).toEqual([{ target: 'https://x.test/4' }]);
+  });
+
+  it('carries a literal probe result onto an omitted target', async () => {
+    const { run } = createHarness({ existing: ['/repo/README.md:30-35'] });
+
+    const result = await run(
+      `${tokens(8, (index) => `https://x.test/${index}`)} @README.md:30-35`,
+    );
+
+    expect(result.omitted).toEqual([
+      { target: 'README.md:30-35', literal: true },
+    ]);
+  });
+
+  it('prints an omitted literal file name as written', async () => {
+    const { run } = createHarness({ existing: ['/repo/README.md:30-35'] });
+
+    const { outcomes, omitted } = await run(
+      `${tokens(8, (index) => `https://x.test/${index}`)} @README.md:30-35`,
+    );
+
+    const item = createPromptImportsItem({
+      retainedBefore: 0,
+      runId: '11111111-2222-4333-8444-555555555555',
+      outcomes,
+      omitted,
+      retained: new Map(),
+    });
+
+    expect(item.data.text).toContain(
+      'The following prompt targets were omitted: `README.md:30-35`.',
+    );
+    expect(item.data.payload).toMatchObject({
+      omitted: ['README.md:30-35'],
+    });
   });
 
   it('probes past the read bound so a prose token is never omitted', async () => {
@@ -810,7 +875,7 @@ describe('resolvePromptImports bounds', () => {
     );
 
     expect(calls.hostProbes).toEqual(['/repo/late.md', '/repo/prose']);
-    expect(result.omitted).toEqual(['late.md']);
+    expect(result.omitted).toEqual([{ target: 'late.md' }]);
   });
 
   it('omits a body that would exceed 128 KiB and stops reading', async () => {
@@ -827,7 +892,10 @@ describe('resolvePromptImports bounds', () => {
     expect(result.outcomes.map((outcome) => outcome.locator)).toEqual([
       'https://x.test/0',
     ]);
-    expect(result.omitted).toEqual(['https://x.test/1', 'https://x.test/2']);
+    expect(result.omitted).toEqual([
+      { target: 'https://x.test/1' },
+      { target: 'https://x.test/2' },
+    ]);
     expect(calls.reads).toHaveLength(2);
   });
 
@@ -839,7 +907,7 @@ describe('resolvePromptImports bounds', () => {
     const result = await run('@https://x.test/0');
 
     expect(result.outcomes).toEqual([]);
-    expect(result.omitted).toEqual(['https://x.test/0']);
+    expect(result.omitted).toEqual([{ target: 'https://x.test/0' }]);
   });
 
   it('accepts bodies that total exactly 128 KiB', async () => {
@@ -867,7 +935,10 @@ describe('resolvePromptImports bounds', () => {
     const result = await run('@https://x.test/0 @late.md @prose');
 
     expect(calls.hostProbes).toEqual(['/repo/late.md', '/repo/prose']);
-    expect(result.omitted).toEqual(['https://x.test/0', 'late.md']);
+    expect(result.omitted).toEqual([
+      { target: 'https://x.test/0' },
+      { target: 'late.md' },
+    ]);
     expect(calls.reads).toHaveLength(1);
   });
 
@@ -883,7 +954,7 @@ describe('resolvePromptImports bounds', () => {
     expect(result.outcomes.map((outcome) => outcome.locator)).toEqual([
       'https://x.test/first',
     ]);
-    expect(result.omitted).toEqual(['https://x.test/second']);
+    expect(result.omitted).toEqual([{ target: 'https://x.test/second' }]);
     expect(calls.hostProbes).toEqual([]);
     expect(calls.admits).toEqual([]);
     expect(calls.reads).toHaveLength(1);
@@ -901,7 +972,7 @@ describe('resolvePromptImports bounds', () => {
     expect(calls.reads).toEqual([]);
     expect(result).toEqual({
       outcomes: [],
-      omitted: ['a.md', 'https://x.test/0'],
+      omitted: [{ target: 'a.md' }, { target: 'https://x.test/0' }],
     });
   });
 
@@ -996,7 +1067,7 @@ describe('resolvePromptImports abort', () => {
     expect(calls.reads).toEqual([{ path: 'https://x.test/0', ordinal: 0 }]);
     expect(result).toEqual({
       outcomes: [],
-      omitted: ['https://x.test/0', 'https://x.test/1'],
+      omitted: [{ target: 'https://x.test/0' }, { target: 'https://x.test/1' }],
     });
   });
 
@@ -1012,7 +1083,10 @@ describe('resolvePromptImports abort', () => {
     expect(calls.reads).toEqual([]);
     expect(calls.hostProbes).toEqual([]);
     expect(calls.admits).toEqual([]);
-    expect(result).toEqual({ outcomes: [], omitted: ['https://x.test/0'] });
+    expect(result).toEqual({
+      outcomes: [],
+      omitted: [{ target: 'https://x.test/0' }],
+    });
   });
 
   it('omits a probe survivor when the abort lands during its probe', async () => {
@@ -1025,7 +1099,10 @@ describe('resolvePromptImports abort', () => {
 
     expect(calls.hostProbes).toEqual(['/repo/a.md']);
     expect(calls.reads).toEqual([]);
-    expect(result).toEqual({ outcomes: [], omitted: ['a.md'] });
+    expect(result).toEqual({
+      outcomes: [],
+      omitted: [{ target: 'a.md' }],
+    });
   });
 
   it('keeps a read that succeeded as the abort landed', async () => {
@@ -1039,7 +1116,7 @@ describe('resolvePromptImports abort', () => {
     expect(result.outcomes.map((outcome) => outcome.locator)).toEqual([
       'https://x.test/0',
     ]);
-    expect(result.omitted).toEqual(['https://x.test/1']);
+    expect(result.omitted).toEqual([{ target: 'https://x.test/1' }]);
   });
 
   it('cuts off the pass when a Knowledge probe is cancelled', async () => {
@@ -1056,7 +1133,7 @@ describe('resolvePromptImports abort', () => {
     expect(calls.reads).toEqual([]);
     expect(result).toEqual({
       outcomes: [],
-      omitted: ['https://x.test/after'],
+      omitted: [{ target: 'https://x.test/after' }],
     });
   });
 });
@@ -1167,7 +1244,7 @@ describe('resolvePromptImports image entries', () => {
       ...Array.from({ length: 7 }, (_, index) => `https://x.test/${index}`),
     ]);
     expect(result.outcomes[0]).toMatchObject({ attachment: UNSTORED });
-    expect(result.omitted).toEqual(['https://x.test/7']);
+    expect(result.omitted).toEqual([{ target: 'https://x.test/7' }]);
   });
 
   it('counts only the image envelope toward the output bound, never its thumbnail', async () => {
@@ -1347,7 +1424,7 @@ describe('resolvePromptImports PDF entries', () => {
     expect(imported.outcomes.map((entry) => entry.locator)).toEqual(
       targets.slice(0, 8),
     );
-    expect(imported.omitted).toEqual([targets[8]]);
+    expect(imported.omitted).toEqual([{ target: targets[8] }]);
     expect(calls.readLocators).toEqual(targets.slice(0, 8));
   });
 
@@ -1383,7 +1460,7 @@ describe('resolvePromptImports PDF entries', () => {
 
     expect(await run('@paper.pdf @https://x.test/readme')).toEqual({
       outcomes: [],
-      omitted: ['paper.pdf', 'https://x.test/readme'],
+      omitted: [{ target: 'paper.pdf' }, { target: 'https://x.test/readme' }],
     });
     expect(calls.readLocators).toEqual(['paper.pdf']);
   });

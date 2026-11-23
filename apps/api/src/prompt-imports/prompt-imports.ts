@@ -10,6 +10,7 @@ import { parsePathScheme } from '@workspace/native-file-tools';
 import {
   neutralizeImportBody,
   promptImportMedia,
+  type PromptImportOmission,
   type PromptImportOutcome,
 } from '../chats/prompt-imports-item';
 import { KnowledgeFilesystemError } from '../knowledge/knowledge-filesystem';
@@ -111,7 +112,7 @@ export type PromptImportRequest = {
 
 export type PromptImportResolution = {
   outcomes: Array<PromptImportOutcome>;
-  omitted: Array<string>;
+  omitted: Array<PromptImportOmission>;
 };
 
 type ImportPlan =
@@ -287,23 +288,32 @@ async function handleTarget(
     return;
   }
 
-  const resolved = await probePlan(run, plan);
+  const probe = await probePlan(run, plan);
 
-  if (resolved === PROMPT_IMPORT_KNOWLEDGE_CANCELLED) {
+  if (probe === PROMPT_IMPORT_KNOWLEDGE_CANCELLED) {
     run.knowledgeProbeCancelled = true;
 
     return;
   }
 
-  if (resolved === undefined) return;
+  if (probe === undefined) return;
 
   return attemptRead(run, {
     target,
     ordinal,
     readPath: plan.readPath,
-    resolved,
+    probe,
   });
 }
+
+/**
+ * What a probe found: the canonical locator of the file the read opens, and
+ * whether the literal path matched.
+ */
+type ProbeResolution = {
+  readonly resolved: string;
+  readonly literal?: true;
+};
 
 /**
  * A Machine target probes its literal path first, as `read` does, then the
@@ -315,7 +325,9 @@ async function handleTarget(
 async function probePlan(
   run: ImportRun,
   plan: Exclude<ImportPlan, { kind: 'direct' }>,
-): Promise<string | undefined | typeof PROMPT_IMPORT_KNOWLEDGE_CANCELLED> {
+): Promise<
+  ProbeResolution | undefined | typeof PROMPT_IMPORT_KNOWLEDGE_CANCELLED
+> {
   const { request } = run;
 
   if (plan.kind === 'machine') {
@@ -323,16 +335,22 @@ async function probePlan(
   }
 
   if (plan.kind === 'media') {
-    return request.probeMedia(
-      withoutSelector(plan.readPath, `${MEDIA_LOCATOR_SCHEME}://`),
+    return resolvedBy(
+      await request.probeMedia(
+        withoutSelector(plan.readPath, `${MEDIA_LOCATOR_SCHEME}://`),
+      ),
     );
   }
 
   if (plan.kind === 'knowledge') {
     try {
-      return await request.probeKnowledge(
+      const found = await request.probeKnowledge(
         withoutSelector(plan.readPath, KNOWLEDGE_PREFIX),
       );
+
+      return found === PROMPT_IMPORT_KNOWLEDGE_CANCELLED
+        ? found
+        : resolvedBy(found);
     } catch (error) {
       if (!isKnowledgeCancellation(error)) throw error;
 
@@ -341,6 +359,10 @@ async function probePlan(
   }
 
   return undefined;
+}
+
+function resolvedBy(resolved: string | undefined): ProbeResolution | undefined {
+  return resolved === undefined ? undefined : { resolved };
 }
 
 /**
@@ -352,17 +374,17 @@ async function probePlan(
 async function probeMachineTarget(
   request: PromptImportRequest,
   plan: Extract<ImportPlan, { kind: 'machine' }>,
-): Promise<string | undefined> {
+): Promise<ProbeResolution | undefined> {
   if (plan.selector !== undefined) {
     const literal = await request.probeMachine(
       plan.name,
       `${plan.machinePath}:${plan.selector}`,
     );
 
-    if (literal !== undefined) return literal;
+    if (literal !== undefined) return { resolved: literal, literal: true };
   }
 
-  return request.probeMachine(plan.name, plan.machinePath);
+  return resolvedBy(await request.probeMachine(plan.name, plan.machinePath));
 }
 
 /** `path` up to the first colon after its scheme's `prefix`. */
@@ -376,13 +398,18 @@ type ReadAttempt = {
   readonly target: string;
   readonly ordinal: number;
   readonly readPath: string;
-  readonly resolved?: string;
+  readonly probe?: ProbeResolution;
 };
 
 function outcomeBase(attempt: ReadAttempt) {
+  return { locator: attempt.target, ...attempt.probe };
+}
+
+/** The omission of a target a bound cut off, with its probe's literal bit. */
+function omissionOf(attempt: ReadAttempt): PromptImportOmission {
   return {
-    locator: attempt.target,
-    ...(attempt.resolved !== undefined && { resolved: attempt.resolved }),
+    target: attempt.target,
+    ...(attempt.probe?.literal === true && { literal: true }),
   };
 }
 
@@ -398,7 +425,7 @@ function recordUnsuccessfulRead(
   if (admission?.decision === 'reject') {
     run.outcomes.push({ ...outcomeBase(attempt), outcome: 'denied' });
   } else if (run.request.signal.aborted) {
-    run.omitted.push(attempt.target);
+    run.omitted.push(omissionOf(attempt));
   } else {
     run.outcomes.push({ ...outcomeBase(attempt), outcome: 'failed' });
   }
@@ -418,7 +445,7 @@ async function attemptRead(
     run.reads >= MAX_PROMPT_IMPORT_READS ||
     workExpired(run)
   ) {
-    run.omitted.push(attempt.target);
+    run.omitted.push(omissionOf(attempt));
 
     return;
   }
@@ -445,7 +472,7 @@ async function attemptRead(
 
   if (run.bytes + size > MAX_PROMPT_IMPORT_BYTES) {
     run.outputFull = true;
-    run.omitted.push(attempt.target);
+    run.omitted.push(omissionOf(attempt));
 
     return;
   }

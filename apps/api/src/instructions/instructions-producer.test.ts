@@ -335,7 +335,7 @@ function spaceOf(
     // prefix strips a Space id that identifies this Space here.
     const key = selectorPath
       .replace(/^kb:\/\/[^/]+\//iu, '')
-      .replace(/:raw:\d+-\d+$/u, '');
+      .replace(/:raw:L\d+-\d+$/u, '');
 
     const body = files[key];
 
@@ -390,8 +390,8 @@ describe('instructions producer Knowledge Space triggers', () => {
       `kb://${SPACE}/notes/AGENTS.md`,
     ]);
     expect(space.reads).toEqual([
-      `kb://${SPACE}/CLAUDE.md:raw:1-2000`,
-      `kb://${SPACE}/notes/AGENTS.md:raw:1-2000`,
+      `kb://${SPACE}/CLAUDE.md:raw:L1-2000`,
+      `kb://${SPACE}/notes/AGENTS.md:raw:L1-2000`,
     ]);
     // Nothing of the host Workspace leaks into a Space bundle.
     expect(withinRoot(blockPaths(lastStaged(staged)))).toEqual([]);
@@ -464,7 +464,7 @@ describe('instructions producer Knowledge Space triggers', () => {
     ]);
     // Every group, label, seen key, and read agrees on the canonical spelling,
     // which is also the only one the `read` rule is evaluated under.
-    expect(space.reads).toEqual([`kb://${SPACE}/notes/AGENTS.md:raw:1-2000`]);
+    expect(space.reads).toEqual([`kb://${SPACE}/notes/AGENTS.md:raw:L1-2000`]);
     expect(seenKeys(lastStaged(staged))).toEqual([
       `kb://${SPACE}/notes/AGENTS.md`,
     ]);
@@ -690,7 +690,7 @@ describe('instructions producer Knowledge Space triggers', () => {
     expect(blockPaths(lastStaged(staged))).toEqual([
       `kb://${SPACE}/notes/AGENTS.md`,
     ]);
-    expect(space.reads).toEqual([`kb://${SPACE}/notes/AGENTS.md:raw:1-2000`]);
+    expect(space.reads).toEqual([`kb://${SPACE}/notes/AGENTS.md:raw:L1-2000`]);
   });
 });
 
@@ -726,7 +726,7 @@ describe('instructions producer triggers', () => {
     await write(join(root, 'apps/api/AGENTS.md'), 'api rules\n');
     await write(join(root, 'apps/api/src/AGENTS.md'), 'src rules\n');
 
-    for (const suffix of [':40-80', ':outline', ':raw:1-2000']) {
+    for (const suffix of [':40-80', ':outline', ':raw:L1-2000']) {
       const { producer, staged, prepare } = attemptOf();
       producer.observeToolCall?.(
         readCall(`${join(root, 'apps/api/src/x.ts')}${suffix}`),
@@ -1410,8 +1410,8 @@ describe('instructions producer imports', () => {
     await prepare();
 
     expect(blockPaths(lastStaged(staged))).toEqual([rootFile]);
-    expect(reads).toEqual([`${rootFile}:raw:1-2000`]);
-    expect(admitted).toEqual([`${join(root, 'missing.md')}:raw:1-2000`]);
+    expect(reads).toEqual([`${rootFile}:raw:L1-2000`]);
+    expect(admitted).toEqual([`${join(root, 'missing.md')}:raw:L1-2000`]);
 
     for (const target of literalTargets) {
       expect(admitted).not.toContain(target);
@@ -1458,9 +1458,11 @@ describe('instructions producer imports', () => {
       `kb://${SPACE}/AGENTS.md`,
       `kb://${SPACE}/notes/doc.md`,
     ]);
-    expect(space.reads).not.toContain(`kb://${SPACE}/outside.md:raw:1-2000`);
-    expect(space.reads).not.toContain(`kb://${SPACE}/../outside.md:raw:1-2000`);
-    expect(space.reads).not.toContain(`kb://${SPACE}//x.md:raw:1-2000`);
+    expect(space.reads).not.toContain(`kb://${SPACE}/outside.md:raw:L1-2000`);
+    expect(space.reads).not.toContain(
+      `kb://${SPACE}/../outside.md:raw:L1-2000`,
+    );
+    expect(space.reads).not.toContain(`kb://${SPACE}//x.md:raw:L1-2000`);
   });
   it('treats a Knowledge root key as the Space directory', async () => {
     const space = spaceOf({
@@ -1489,7 +1491,7 @@ describe('instructions producer imports', () => {
 
     const { producer, staged, prepare } = attemptOf({
       space,
-      admitsRead: (path) => hostPath(path) !== `${target}:raw:1-2000`,
+      admitsRead: (path) => hostPath(path) !== `${target}:raw:L1-2000`,
     });
 
     producer.observeToolCall?.(spaceCall('entry.md'));
@@ -1497,8 +1499,8 @@ describe('instructions producer imports', () => {
 
     expect(blockPaths(lastStaged(staged))).toEqual([`kb://${SPACE}/AGENTS.md`]);
     expect(space.reads).toEqual([
-      `kb://${SPACE}/AGENTS.md:raw:1-2000`,
-      `${target}:raw:1-2000`,
+      `kb://${SPACE}/AGENTS.md:raw:L1-2000`,
+      `${target}:raw:L1-2000`,
     ]);
     expect(deniedPaths(lastStaged(staged))).toEqual([target]);
   });
@@ -1573,13 +1575,13 @@ describe('instructions producer imports', () => {
 
     const { producer, staged, prepare } = attemptOf({
       readPage,
-      admitsRead: (path) => hostPath(path) !== `${target}:raw:1-2000`,
+      admitsRead: (path) => hostPath(path) !== `${target}:raw:L1-2000`,
     });
 
     producer.observeToolCall?.(readCall(join(root, 'x.ts')));
     await prepare();
 
-    expect(reads).toEqual([`${rootFile}:raw:1-2000`, `${target}:raw:1-2000`]);
+    expect(reads).toEqual([`${rootFile}:raw:L1-2000`, `${target}:raw:L1-2000`]);
     expect(deniedPaths(lastStaged(staged))).toEqual([target]);
   });
 
@@ -1618,7 +1620,7 @@ describe('instructions producer imports', () => {
         admitsRead: (path) => {
           admitted.push(hostPath(path));
 
-          return hostPath(path) !== `${target}:raw:1-2000`;
+          return hostPath(path) !== `${target}:raw:L1-2000`;
         },
       });
 
@@ -1639,12 +1641,12 @@ describe('instructions producer imports', () => {
 
     expect(existing.part.data.payload).toEqual(missing.part.data.payload);
     expect(existing.reads).toEqual([
-      `${rootFile}:raw:1-2000`,
-      `${target}:raw:1-2000`,
+      `${rootFile}:raw:L1-2000`,
+      `${target}:raw:L1-2000`,
     ]);
     expect(missing.reads).toEqual(existing.reads);
-    expect(existing.admitted).toEqual([`${target}:raw:1-2000`]);
-    expect(missing.admitted).toEqual([`${target}:raw:1-2000`]);
+    expect(existing.admitted).toEqual([`${target}:raw:L1-2000`]);
+    expect(missing.admitted).toEqual([`${target}:raw:L1-2000`]);
   });
 
   it('evaluates a denied import again from a later trigger', async () => {
@@ -1678,7 +1680,7 @@ describe('instructions producer imports', () => {
 
     const attempt = attemptOf({
       readPage,
-      admitsRead: (path) => hostPath(path) !== `${target}:raw:1-2000`,
+      admitsRead: (path) => hostPath(path) !== `${target}:raw:L1-2000`,
     });
 
     attempt.producer.observeToolCall?.(readCall(join(root, 'x.ts')));
@@ -1767,7 +1769,7 @@ describe('instructions producer imports', () => {
 
     expect(blockPaths(lastStaged(staged))).toEqual([rootFile, first, second]);
     expect(reads.filter((path) => path.startsWith(`${denied}:raw:`))).toEqual([
-      `${denied}:raw:1-2000`,
+      `${denied}:raw:L1-2000`,
     ]);
     expect(deniedPaths(lastStaged(staged))).toEqual([denied]);
   });
@@ -1823,9 +1825,9 @@ describe('instructions producer imports', () => {
     expect(blockPaths(part)).toEqual([rootFile, chain]);
     expect(deniedPaths(part)).toEqual([linkFile]);
     expect(reads).toEqual([
-      [`${rootFile}:raw:1-2000`, undefined],
-      [`${linkFile}:raw:1-2000`, chain],
-      [`${chain}:raw:1-2000`, undefined],
+      [`${rootFile}:raw:L1-2000`, undefined],
+      [`${linkFile}:raw:L1-2000`, chain],
+      [`${chain}:raw:L1-2000`, undefined],
     ]);
   });
 
@@ -1908,8 +1910,8 @@ describe('instructions producer imports', () => {
     const part = lastStaged(staged);
     expect(blockPaths(part)).toEqual([rootFile]);
     expect(deniedPaths(part)).toEqual([target]);
-    expect(admitted).toEqual([`${target}:raw:1-2000`]);
-    expect(reads).toEqual([`${rootFile}:raw:1-2000`, `${target}:raw:1-2000`]);
+    expect(admitted).toEqual([`${target}:raw:L1-2000`]);
+    expect(reads).toEqual([`${rootFile}:raw:L1-2000`, `${target}:raw:L1-2000`]);
   });
 
   it('loads an allowed symlinked import with its resolved label and canonical payload', async () => {
@@ -1993,8 +1995,8 @@ describe('instructions producer imports', () => {
     expect(deniedPaths(part)).toEqual([link]);
     expect(seenKeys(part)).toEqual([rootFile]);
     expect(reads).toEqual([
-      [`${rootFile}:raw:1-2000`, undefined],
-      [`${link}:raw:1-2000`, target],
+      [`${rootFile}:raw:L1-2000`, undefined],
+      [`${link}:raw:L1-2000`, target],
     ]);
   });
   it('does not deny a symlink whose canonical target was already imported', async () => {

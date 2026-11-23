@@ -380,9 +380,37 @@ describe('readInstructionFile', () => {
       omittedBytes: 0,
     });
     expect(calls).toEqual([
-      ['/srv/link.md:raw:1-2000', '/srv/target.md'],
-      ['/srv/link.md:raw:2-2001', undefined],
+      ['/srv/link.md:raw:L1-2000', '/srv/target.md'],
+      ['/srv/link.md:raw:L2-2001', undefined],
     ]);
+  });
+
+  it('reads a Space candidate by its canonical first page', async () => {
+    const reads: Array<string> = [];
+
+    const readPage: ReadPage = (selectorPath) => {
+      reads.push(selectorPath);
+
+      return Promise.resolve({
+        status: 'success',
+        kind: 'file',
+        path: 'kb://space/CLAUDE.md',
+        content: 'space rules\n',
+        truncated: false,
+      });
+    };
+
+    const result = await readInstructionFile(
+      {
+        path: 'kb://space/CLAUDE.md',
+        canonicalPath: 'kb://space/CLAUDE.md',
+        size: 12,
+      },
+      readPage,
+    );
+
+    expect(reads).toEqual(['kb://space/CLAUDE.md:raw:L1-2000']);
+    expect(result).toMatchObject({ kind: 'loaded', content: 'space rules\n' });
   });
 
   it('pages a 20 KiB file and joins it into one body', async () => {

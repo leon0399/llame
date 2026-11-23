@@ -2343,7 +2343,7 @@ describe('system-origin tool activity', () => {
       event('tool.requested', {
         toolCallId: 'instructions-1',
         toolName: 'read',
-        input: { path: '/repo/AGENTS.md:raw:1-2000' },
+        input: { path: '/repo/AGENTS.md:raw:L1-2000' },
         origin: 'instructions',
       }),
       event('tool.completed', {

@@ -12,13 +12,21 @@
 import { sanitizeAuthoredText } from '../instance-config/authored-text';
 import { loadPackagedTemplate } from '../prompts/template-engine';
 import {
+  canonicalSelector,
+  parsePathScheme,
+  splitSelectorSuffix,
+} from '@workspace/native-file-tools';
+import {
   isRecord,
   isString,
   type UnknownRecord,
 } from '@workspace/runtime-safety';
 import { z } from 'zod';
 
-import { userImagePart, type MediaRef } from '../media/epoch-admission';
+import {
+  KNOWLEDGE_LOCATOR_SCHEME,
+  parseKnowledgeLocator,
+} from '../knowledge/knowledge-locator';
 import {
   boundRetained,
   retainedEntry,
@@ -26,11 +34,7 @@ import {
   type RetainedSettlement,
   type UnstoredMedia,
 } from '../media/attempt-media';
-import {
-  type RetainedMediaJson,
-  retainedImageRecordSchema,
-  retainedPdfRecordSchema,
-} from '../media/retained-media';
+import { userImagePart, type MediaRef } from '../media/epoch-admission';
 import {
   isThumbnailDataUrl,
   ORIGINAL_MEDIA_TYPES,
@@ -39,6 +43,18 @@ import {
   MEDIA_LOCATOR_PATTERN,
   parseMediaLocator,
 } from '../media/media-locator';
+import {
+  type RetainedMediaJson,
+  retainedImageRecordSchema,
+  retainedPdfRecordSchema,
+} from '../media/retained-media';
+import {
+  parseSkillLocator,
+  SKILL_LOCATOR_SCHEME,
+} from '../skills/skill-locator';
+import { parseSshLocator, SSH_SCHEME } from '../ssh/ssh-locator';
+import { decodeFileAlias, isFileAlias } from '../tools/permissions/file-alias';
+import { splitWebSelector, stripFragment } from '../tools/web-read/locator';
 
 import {
   escapeXmlAttribute,
@@ -61,6 +77,12 @@ export type PromptImportMedia = z.infer<typeof promptImportMediaSchema>;
 export type PromptImportOutcome = {
   readonly locator: string;
   readonly resolved?: string;
+  /**
+   * The probe found a file whose whole name is the target, so its selector is
+   * file-name text and the label prints the target as written. Unstored: it
+   * describes the probe, not the import, and never reaches the payload.
+   */
+  readonly literal?: true;
 } & (
   | {
       readonly outcome: 'imported';
@@ -70,6 +92,17 @@ export type PromptImportOutcome = {
     }
   | { readonly outcome: 'denied' | 'failed' }
 );
+
+/**
+ * One target a bound cut off before its read. `target` is the target as
+ * written, which is also its stored payload entry; `literal` carries the probe
+ * that found a file whose whole name is the target, so the notice prints it as
+ * written. The bit stays in memory: the payload keeps only the target text.
+ */
+export type PromptImportOmission = {
+  readonly target: string;
+  readonly literal?: true;
+};
 
 export type PromptImportsPayloadEntry = z.infer<typeof payloadEntrySchema>;
 
@@ -390,23 +423,162 @@ export function neutralizeImportBody(body: string): string {
   );
 }
 
+/** The path and selector as written that the `read` of one scheme splits. */
+type ImportLabelSplit = {
+  readonly path: string;
+  readonly selector: string;
+};
+
+/**
+ * The label of one target: its path plus the canonical spelling of its
+ * selector. The path and the split come from the locator parser of the
+ * target's own scheme, so the label names the resource that scheme's `read`
+ * opens. A target prints as written when a Machine probe resolved the whole
+ * name as one file, when it names no selector, or when the grammar refuses its
+ * selector, because no read of the canonical spelling would name it.
+ */
+function importLabel(locator: string, literal = false): string {
+  if (literal) return locator;
+
+  const split = splitImportTarget(locator);
+
+  if (split === undefined) return locator;
+  const canonical = canonicalSelector(split.selector);
+
+  return canonical === undefined ? locator : `${split.path}:${canonical}`;
+}
+
+/** Split one target the way its scheme's `read` locator does. */
+function splitImportTarget(locator: string): ImportLabelSplit | undefined {
+  if (isFileAlias(locator)) return fileAliasSplit(locator);
+
+  const scheme = parsePathScheme(locator);
+
+  if (scheme === undefined) return localSplit(locator);
+
+  const parse =
+    scheme.scheme === KNOWLEDGE_LOCATOR_SCHEME
+      ? parseKnowledgeLocator
+      : scheme.scheme === SKILL_LOCATOR_SCHEME
+        ? parseSkillLocator
+        : undefined;
+
+  if (parse !== undefined) {
+    const parsed = parse(scheme.rest);
+
+    return 'type' in parsed ? undefined : tailSplit(locator, parsed.selector);
+  }
+
+  switch (scheme.scheme) {
+    case SSH_SCHEME: {
+      const parsed = parseSshLocator(locator);
+
+      return parsed.kind === 'path'
+        ? tailSplit(locator, parsed.selector)
+        : undefined;
+    }
+
+    case 'http':
+    case 'https':
+      return webSplit(locator);
+    default:
+      return localSplit(locator);
+  }
+}
+
+/** A host, media, Project, or relative target's own split. */
+function localSplit(locator: string): ImportLabelSplit | undefined {
+  const { path, selector } = splitSelectorSuffix(locator);
+
+  return selector === undefined ? undefined : { path, selector };
+}
+
+/**
+ * A `file:` alias splits its decoded host path, as `resolveMachinePath` does,
+ * so a percent-encoded colon stays path text. The label keeps the submitted
+ * path text as written, so its escapes stay re-readable, and canonicalizes
+ * only the selector. An alias whose selector boundary came from a decoded
+ * escape (`%3A`) prints as written, because no literal colon in the submitted
+ * text separates the path from its selector.
+ */
+function fileAliasSplit(locator: string): ImportLabelSplit | undefined {
+  const alias = decodeFileAlias(locator);
+
+  if (!alias.ok) return undefined;
+
+  const { path, selector } = splitSelectorSuffix(alias.hostPath);
+
+  if (selector === undefined) return undefined;
+
+  const written = writtenAliasPath(locator, path);
+
+  return written === undefined ? undefined : { path: written, selector };
+}
+
+/**
+ * The submitted text of `locator` before the literal colon that ends its
+ * decoded path, or undefined when the decoded path's boundary colon is not
+ * literal in the submitted text. The submitted text after the scheme is
+ * scanned because a selector may hold its own literal colon (`:5:6`), while a
+ * `%3A` boundary leaves no literal colon to split at.
+ */
+function writtenAliasPath(
+  locator: string,
+  decodedPath: string,
+): string | undefined {
+  for (
+    let colon = locator.indexOf(':', 5);
+    colon >= 0;
+    colon = locator.indexOf(':', colon + 1)
+  ) {
+    const written = locator.slice(0, colon);
+    const decoded = decodeFileAlias(written);
+
+    if (decoded.ok && decoded.hostPath === decodedPath) return written;
+  }
+
+  return undefined;
+}
+
+/**
+ * The split the Knowledge, skill, and `ssh://` parsers report: each separates
+ * the selector at a colon, so the selector they return is a tail of the text
+ * and the path is what precedes its colon.
+ */
+function tailSplit(
+  locator: string,
+  selector: string | undefined,
+): ImportLabelSplit | undefined {
+  if (selector === undefined) return undefined;
+  const at = locator.length - selector.length - 1;
+
+  return { path: locator.slice(0, at), selector };
+}
+
+/** A web target splits after its fragment, which the request never sends. */
+function webSplit(locator: string): ImportLabelSplit | undefined {
+  const { url, selector } = splitWebSelector(stripFragment(locator));
+
+  return selector === undefined ? undefined : { path: url, selector };
+}
+
 function renderPromptImports(
   outcomes: ReadonlyArray<PromptImportOutcome>,
-  omitted: ReadonlyArray<string>,
+  omitted: ReadonlyArray<PromptImportOmission>,
 ): string {
   const imports: Array<{ locator: string; body: string }> = [];
   const notImported: Array<{ locator: string }> = [];
 
   for (const outcome of outcomes) {
-    const locator = sanitizeAuthoredText(outcome.locator);
+    const label = importLabel(outcome.locator, outcome.literal === true);
 
     if (outcome.outcome === 'imported') {
       imports.push({
-        locator: escapeXmlAttribute(outcome.locator),
+        locator: escapeXmlAttribute(label),
         body: neutralizeImportBody(outcome.body),
       });
     } else {
-      notImported.push({ locator });
+      notImported.push({ locator: sanitizeAuthoredText(label) });
     }
   }
 
@@ -414,7 +586,10 @@ function renderPromptImports(
     omitted.length === 0
       ? undefined
       : omitted
-          .map((locator) => `\`${sanitizeAuthoredText(locator)}\``)
+          .map(
+            ({ target, literal }) =>
+              `\`${sanitizeAuthoredText(importLabel(target, literal === true))}\``,
+          )
           .join(', ');
 
   return renderPromptImportsTemplate({
@@ -434,7 +609,7 @@ function renderPromptImports(
 export function createPromptImportsItem(input: {
   readonly runId: string;
   readonly outcomes: ReadonlyArray<PromptImportOutcome>;
-  readonly omitted: ReadonlyArray<string>;
+  readonly omitted: ReadonlyArray<PromptImportOmission>;
   readonly retained: ReadonlyMap<string, RetainedMedia>;
   readonly retainedBefore: number;
 }): AuthoredContextItemPart {
@@ -449,7 +624,9 @@ export function createPromptImportsItem(input: {
 
   const payload: PromptImportsPayload = {
     imports,
-    ...(input.omitted.length > 0 && { omitted: [...input.omitted] }),
+    ...(input.omitted.length > 0 && {
+      omitted: input.omitted.map(({ target }) => target),
+    }),
   };
 
   if (!isPromptImportsPayload(payload)) {
