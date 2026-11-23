@@ -981,6 +981,7 @@ describe('web locator dispatch', () => {
           match: () => true,
           read: () => Promise.resolve(renderedBlob),
         };
+
         const execute = webReadExecutor({
           createWebAdapters: () => [adapter],
         });
