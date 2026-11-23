@@ -146,7 +146,7 @@ function failureResult(verdict: SshReadVerdict): ToolResult {
   return sshUnavailableResult('session_lost');
 }
 
-/** The error result a rendering helper threw, when it is a native refusal. */
+/** The error result a read helper threw, when it is a native refusal. */
 function refusedRendering(error: unknown): ToolResult {
   return (
     nativeErrorResult(error) ?? {
@@ -191,19 +191,28 @@ function remoteText(
 }
 
 /**
+ * A read's locator text, the host path behind it, and the selector already
+ * applied to the locator. Applying it before the transfer is what refuses a
+ * shape the grammar admits but no reader serves without asking the host for a
+ * path that may not exist; the result names the locator, and the media type
+ * comes from the host path.
+ */
+type AppliedRead = {
+  readonly locator: string;
+  readonly path: string;
+  readonly read: ReadTarget;
+};
+
+/**
  * Render text a file read transferred as the local reader would: the same line
  * source, selector windows, markdown rendering, and result bound.
  */
 async function renderTextRead(
-  target: {
-    readonly locator: string;
-    readonly selector: string | undefined;
-    readonly path: string;
-  },
+  applied: AppliedRead,
   text: string,
 ): Promise<ToolResult> {
   try {
-    const read = applySelectorSuffix(target.locator, target.selector);
+    const { read } = applied;
 
     // The text is in hand, so its own line count is the count an `N-` or a
     // `-K` member resolves against, exactly as a file's own lines are.
@@ -211,7 +220,7 @@ async function renderTextRead(
       target: read,
       text,
       lineCount: read.pending === undefined ? 0 : splitSourceLines(text).length,
-      mediaType: fileMediaType(target.path),
+      mediaType: fileMediaType(applied.path),
     });
   } catch (error) {
     return refusedRendering(error);
@@ -220,32 +229,24 @@ async function renderTextRead(
 
 /** Render one transferred file, refusing what the local reader cannot show. */
 async function renderFileRead(
-  target: {
-    readonly locator: string;
-    readonly selector: string | undefined;
-    readonly path: string;
-  },
+  applied: AppliedRead,
   content: Buffer,
 ): Promise<ToolResult> {
   const decoded = remoteText(content);
 
   if ('result' in decoded) return decoded.result;
 
-  return renderTextRead(target, decoded.text);
+  return renderTextRead(applied, decoded.text);
 }
 
 /** The listing options one selector and transfer ask a remote listing for. */
-function listingOptions(
-  locator: string,
-  selector: string | undefined,
-  more: boolean,
-) {
-  const read = applySelectorSuffix(locator, selector);
+function listingOptions(applied: AppliedRead, more: boolean) {
+  const { read } = applied;
 
   return {
     read,
     options: {
-      displayPath: locator,
+      displayPath: applied.locator,
       // A link carries the local mark and never its target: the target is a
       // host path the model did not address.
       linkTargets: false,
@@ -261,17 +262,13 @@ function listingOptions(
 
 /** One level of a remote directory, in the local listing form. */
 function renderDirectoryRead(
-  target: { readonly locator: string; readonly selector: string | undefined },
+  applied: AppliedRead,
   content: Buffer,
 ): ToolResult {
   try {
     const { entries, more } = parseSshDirectoryEntries(content);
 
-    const { read, options } = listingOptions(
-      target.locator,
-      target.selector,
-      more,
-    );
+    const { read, options } = listingOptions(applied, more);
 
     // A selector the local directory reader refuses is refused first, exactly
     // as locally: it needs no page of the directory.
@@ -284,7 +281,7 @@ function renderDirectoryRead(
     // local renderer names the refusal, and the count it prints is the one the
     // transfer carried: a subset of a directory that size would misreport it.
     if (entries.length > DIRECTORY_TRAVERSAL_BUDGET)
-      return renderCollectedDirectory(target.locator, entries);
+      return renderCollectedDirectory(applied.locator, entries);
 
     // The host sends glob order; the hub keeps the local order, so the bound
     // selects the first entries a local listing shows rather than the first
@@ -293,7 +290,7 @@ function renderDirectoryRead(
       .sort(compareEntries)
       .slice(0, SSH_LIST_MAX_ENTRIES);
 
-    const result = renderCollectedDirectory(target.locator, shown, options);
+    const result = renderCollectedDirectory(applied.locator, shown, options);
 
     if (result.status === 'error')
       return {
@@ -377,8 +374,7 @@ async function runRemoteRead(request: RemoteReadRequest): Promise<RemoteRead> {
 
 /** The result a completed read's frames become, file or listing. */
 function frameResult(
-  parsed: SshPathLocator,
-  locator: string,
+  applied: AppliedRead,
   frames: SshReadFrames,
 ): Promise<ToolResult> | ToolResult {
   if (frames.status !== 0)
@@ -388,19 +384,36 @@ function frameResult(
       message: UNFINISHED_READ_MESSAGE,
     };
 
-  if (frames.kind === 'file')
-    return renderFileRead(
-      { locator, selector: parsed.selector, path: parsed.path },
-      frames.content,
-    );
+  if (frames.kind === 'file') return renderFileRead(applied, frames.content);
 
   if (frames.kind === 'dir')
-    return renderDirectoryRead(
-      { locator, selector: parsed.selector },
-      frames.content,
-    );
+    return renderDirectoryRead(applied, frames.content);
 
   return sshUnavailableResult('session_lost');
+}
+
+/**
+ * The locator with its selector applied, or the refusal the grammar makes of
+ * it. Applied before the transfer, so a shape the grammar admits for a source
+ * split but no reader serves is refused for every host: a path the host would
+ * answer `not_found` for changes nothing about the selector, and a refused
+ * shape never costs a remote command.
+ */
+function appliedRead(
+  locator: string,
+  parsed: SshPathLocator,
+): { readonly applied: AppliedRead } | { readonly result: ToolResult } {
+  try {
+    return {
+      applied: {
+        locator,
+        path: parsed.path,
+        read: applySelectorSuffix(locator, parsed.selector),
+      },
+    };
+  } catch (error) {
+    return { result: refusedRendering(error) };
+  }
 }
 
 /**
@@ -426,6 +439,13 @@ export async function executeSshRead(
       type: 'invalid_path',
       message: 'This path scheme is not available.',
     };
+
+  const target = appliedRead(
+    formatSshLocator(parsed.destination, parsed.path) ?? binding.locator,
+    parsed,
+  );
+
+  if ('result' in target) return target.result;
 
   const { frames, verdict, overflow } = await runRemoteRead({
     client,
@@ -455,11 +475,7 @@ export async function executeSshRead(
 
   if (verdict.kind !== 'complete') return failureResult(verdict);
 
-  return frameResult(
-    parsed,
-    formatSshLocator(parsed.destination, parsed.path) ?? binding.locator,
-    frames,
-  );
+  return frameResult(target.applied, frames);
 }
 
 /** The `read` and mutation dispatch for one admitted `ssh://` path. */

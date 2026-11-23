@@ -115,9 +115,17 @@ describe("native image reads", () => {
 
   it.each(
     [JPEG, Buffer.from("%PDF-1.7\n\xff binary PDF")].flatMap((bytes) =>
-      [":1-10", ":raw", ":outline", ":-20", ":2-", ":raw:1-2", ":1,3"].map(
-        (selector) => ({ bytes, selector }),
-      ),
+      [
+        ":1-10",
+        ":L1-10",
+        ":L1",
+        ":raw",
+        ":outline",
+        ":-20",
+        ":2-",
+        ":raw:1-2",
+        ":1,3",
+      ].map((selector) => ({ bytes, selector })),
     ),
   )(
     "refuses $selector on media before any count or decode",

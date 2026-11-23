@@ -12,8 +12,9 @@ configured_by: ../../operator/machines.md
 ## Form
 
 An absolute POSIX path is read, edited, or written as given; a `read` may carry
-a trailing `[:selector]` (see [selectors](../selectors.md)), which `edit` and
-`write` take as part of the filename. An absolute path addresses the current
+a trailing `[:selector]`, such as `:L10-20` or `:12:5` (see
+[selectors](../selectors.md)), which `edit` and `write` take as part of the
+filename. An absolute path addresses the current
 Machine: the Machine of an entered Workspace, or `machines.default` when none is
 entered. Relative paths are valid only while a
 Workspace is entered; see [enter_workspace](../tools/enter-workspace.md).
@@ -27,7 +28,7 @@ works.
 Percent escapes decode once to bytes and then strict UTF-8; `.` and `..` retain
 host-path semantics. `%3A` decodes to `:` and follows host selector rules after
 a literal-path probe first; there is no escaped literal-colon form. Selectors
-work the same way, so `file:///path:10-12` is equivalent to `/path:10-12`.
+work the same way, so `file:///path:L10-12` is equivalent to `/path:L10-12`.
 
 This is POSIX-only: `file:///C:/x` means `/C:/x`; drive handling is not
 supported, and `file://C:/x` is refused because a host other than `localhost`
@@ -75,7 +76,7 @@ render `(empty directory)`.
 
 A trailing separator is optional on a directory: `/dir/` and `/dir` both work.
 On a file it fails with `not_found`, and the file is not read. A line member
-selects a flat listing of root-level entries only (see
+selects a flat listing of root-level entries only, such as `:L1-5` (see
 [selectors](../selectors.md#line-selectors)); directories over 10,000 entries
 fail with `directory_too_large`.
 

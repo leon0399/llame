@@ -195,6 +195,74 @@ describe("fs.read", () => {
     ).resolves.toEqual(locatorize(local, PREFIX));
   });
 
+  it("reads the literal file a line-and-column suffix names", async () => {
+    const base = join(fixture.root, "x.ts");
+    await writeFile(base, "line\n".repeat(12));
+    const literal = `${base}:12:5`;
+    await writeFile(literal, "literal\n");
+    const local = await nativeReadFile({ path: literal });
+
+    if (!isLocalFileRead(local)) throw new Error("the local read failed");
+
+    const result = await daemon.call("fs.read", {
+      envelope: envelope(),
+      path: base,
+      options: { displayPrefix: PREFIX, selector: "12:5" },
+    });
+
+    expect(result).toEqual(locatorize(local, PREFIX));
+    expect(result).toMatchObject({
+      status: "success",
+      content: "1: literal\n",
+    });
+  });
+
+  it.each([
+    {
+      name: "x.ts",
+      selector: "12:5",
+      content: "11: line 11\n12: line 12\n",
+      range: { startLine: 12, endLine: 12 },
+    },
+    {
+      name: "notes",
+      selector: "L5-10",
+      content:
+        "4: line 4\n5: line 5\n6: line 6\n7: line 7\n" +
+        "8: line 8\n9: line 9\n10: line 10\n11: line 11\n",
+      range: { startLine: 5, endLine: 10 },
+    },
+  ])(
+    "reads the lines a $selector selector names in $name",
+    async ({ name, selector, content, range }) => {
+      const file = join(fixture.root, name);
+      const lines = Array.from({ length: 12 }, (_, n) => `line ${n + 1}`);
+      await writeFile(file, `${lines.join("\n")}\n`);
+      const local = await nativeReadFile({ path: `${file}:${selector}` });
+
+      if (!isLocalFileRead(local)) throw new Error("the local read failed");
+
+      const result = await daemon.call("fs.read", {
+        envelope: envelope(),
+        path: file,
+        options: { displayPrefix: PREFIX, selector },
+      });
+
+      expect(result).toEqual(locatorize(local, PREFIX));
+      expect(result).toMatchObject({ content, requestedRange: range });
+    },
+  );
+
+  it("refuses a reserved-unit selector that names no literal file", async () => {
+    await expect(
+      daemon.call("fs.read", {
+        envelope: envelope(),
+        path: fixture.notes,
+        options: { displayPrefix: PREFIX, selector: "P3" },
+      }),
+    ).resolves.toMatchObject({ status: "error", type: "invalid_selector" });
+  });
+
   it("reads a whole file exactly as a local read of it does", async () => {
     const local = await nativeReadFile({ path: fixture.notes });
 

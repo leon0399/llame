@@ -556,6 +556,29 @@ describe('MachineSession handshake', () => {
     });
   });
 
+  it('refuses a protocol version 2 daemon that has no unit-letter selectors', async () => {
+    const link = localLink();
+    const session = pipeSession(link);
+    const answer = session.ready();
+    const request = await awaitFrame(link, isRequest('hello'));
+    link.sendFrame({
+      s: CONTROL_STREAM_ID,
+      m: {
+        jsonrpc: '2.0',
+        id: request.m.id,
+        result: { ...HELLO, protocolVersion: 2 },
+      },
+    });
+    const error = refusal(await failedCall(answer));
+    expect(error.reason).toBe('incompatible_version');
+    expect(error.sent).toBe(false);
+    expect(session.hello).toBeUndefined();
+    await expect(session.ended).resolves.toEqual({
+      reason: 'incompatible_version',
+      established: false,
+    });
+  });
+
   it('refuses a version 1 handshake that carries no identity or facts', async () => {
     const link = localLink();
     const session = pipeSession(link);

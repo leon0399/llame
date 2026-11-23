@@ -2480,6 +2480,16 @@ describe('skill locator resolution', () => {
     });
   });
 
+  it('shows the misplaced-unit hint for a catalog selector', async () => {
+    await expect(
+      runTool(nativeReadTool, { path: 'skill://:L-5' }, skillContext(), 5),
+    ).resolves.toEqual({
+      status: 'error',
+      type: 'invalid_selector',
+      message: 'Write -L5 for the last 5 lines, or L1-5 for the first 5.',
+    });
+  });
+
   it('refuses catalog selectors the listing cannot express', async () => {
     await writePackage('research');
 
@@ -2525,13 +2535,12 @@ describe('skill locator resolution', () => {
       5,
     );
 
-    expect(raw).toMatchObject({
+    expect(raw).toEqual({
       status: 'error',
       type: 'invalid_selector',
+      message:
+        'The skill catalog accepts a single :L5-10, :L5+10, :L5-, or :-L5 range; comma ranges and :raw are not supported. A bare number also reads as a line.',
     });
-    expect(String(raw.message)).toContain(
-      'comma ranges and :raw are not supported',
-    );
   });
 
   it('reads the catalog’s tail and its last entries through the count', async () => {

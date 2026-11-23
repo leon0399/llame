@@ -47,18 +47,38 @@ describe('parseMachineLocator', () => {
       path: '/home/me/shop/README.md',
       selector: '1-5',
     });
-    // `:10-20:raw` is the shared grammar's canonical `raw:10-20` spelling.
+    // The split keeps the written raw order; `:10-20:raw` reads as `:raw:10-20`.
     expect(parseMachineLocator('machine://devl/home/me/a:10-20:raw')).toEqual({
       kind: 'path',
       name: 'devl',
       path: '/home/me/a',
-      selector: 'raw:10-20',
+      selector: '10-20:raw',
     });
     // A percent-encoded colon is part of the path, never a selector boundary.
     expect(parseMachineLocator('machine://devl/home/me/a%3A1-5')).toEqual({
       kind: 'path',
       name: 'devl',
       path: '/home/me/a:1-5',
+    });
+  });
+
+  it('splits every admitted member shape as a selector', () => {
+    for (const selector of ['M2', 'L-5', 'L5']) {
+      expect(
+        parseMachineLocator(`machine://devl/home/notes:${selector}`),
+      ).toEqual({
+        kind: 'path',
+        name: 'devl',
+        path: '/home/notes',
+        selector,
+      });
+    }
+
+    // A letter outside the reserved set leaves the suffix on the path.
+    expect(parseMachineLocator('machine://devl/home/notes:X5')).toEqual({
+      kind: 'path',
+      name: 'devl',
+      path: '/home/notes:X5',
     });
   });
 

@@ -59,7 +59,12 @@ import { JOB_SCHEME } from '../jobs/job-locator';
 import { readJob } from '../jobs/job-reader';
 import { PROJECT_SCHEME } from '../projects/project-locator';
 import { readProjectResource } from '../projects/project-reader';
-import { placeListingSelector } from './listing-window';
+import {
+  BARE_NUMBER_NOTE,
+  LISTING_RANGE_FORMS,
+  placeListingSelector,
+  type ListingRefusal,
+} from './listing-window';
 
 type NativeCall =
   | { operation: 'read'; input: { path: string } }
@@ -368,16 +373,20 @@ function catalogWindow(
   const placed = placeListingSelector(SKILL_CATALOG_LOCATOR, selector, count);
 
   if ('refusal' in placed) {
-    return invalidCatalogSelectorResult(
-      placed.refusal === 'invalid'
-        ? 'The skill catalog selector is invalid.'
-        : placed.refusal === 'outline'
-          ? 'The :outline member is not supported for the skill catalog.'
-          : 'The skill catalog accepts a single :N-M, :N+K, :N-, or :-K range; comma ranges and :raw are not supported.',
-    );
+    return invalidCatalogSelectorResult(catalogRefusal(placed.refusal));
   }
 
   return placed.window;
+}
+
+/** The catalog's wording of a refusal: the applier's own text when it judged
+ *  the selector, and the catalog's sentence for each shape it names. */
+function catalogRefusal(refusal: ListingRefusal): string {
+  if (refusal.kind === 'invalid') return refusal.message;
+
+  return refusal.kind === 'outline'
+    ? 'The :outline member is not supported for the skill catalog.'
+    : `The skill catalog accepts ${LISTING_RANGE_FORMS}; comma ranges and :raw are not supported. ${BARE_NUMBER_NOTE}`;
 }
 
 const SKILL_CATALOG_LOCATOR = 'skill://';

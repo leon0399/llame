@@ -72,7 +72,8 @@ migration.
 The member shape admits an optional `L` or `l` before the first number of a member, and before the
 second number of a range whose first number has it (`L5-L10`). That one member shape serves the
 gate, `MEMBER_LIST` in the host `rawSplit`, and the web `<list>:raw` claim, because the raw split runs
-before the gate: `notes.md:L4-5:raw` must split as `raw:L4-5`. Letters are removed only inside
+before the gate: `notes.md:L4-5:raw` must split as path `notes.md` with selector `L4-5:raw`, kept
+as written so the daemon's literal probe tests the model's text. Letters are removed only inside
 `applySelectorSuffix`, after the split. Thus `parseMember` and the pending resolution keep their
 digit-only logic. The splitters, the hub, and `parseMachinePath` pass the selector text as written,
 so the daemon probes the literal name that the model wrote (D3).

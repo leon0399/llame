@@ -143,7 +143,9 @@ export type NativePathProjection = {
  * matched as written.
  *
  * A mutation takes its path literally, so a suffix that looks like a selector
- * stays on both texts; the `read` projection removes it afterward.
+ * stays on both texts; the `read` projection removes it afterward. A web
+ * locator's read is matched as the exact URL the request uses, because its
+ * canonical form decodes escapes that a second split could read as a selector.
  */
 export function projectNativeFilePath(
   value: string,
@@ -180,14 +182,12 @@ function projectValue(
   }
 
   if (target.kind === 'scheme') {
-    const canonical = projectSchemeValue(value);
-
     // A `read` matches the resource without the selector that windowed the
     // call, exactly as it does for a Machine path.
     return {
       canonical: options.keepSelector
-        ? canonical
-        : withoutReadSelector(canonical),
+        ? projectSchemeValue(value)
+        : projectReadSchemeValue(value),
     };
   }
 
@@ -255,11 +255,36 @@ function projectSchemeValue(projected: string): string {
 }
 
 /**
- * A web locator's canonical text: the URL the read tool's own parser yields,
- * plus the selector exactly as it trails it in the submitted text, so a
- * fragment the request drops cannot smuggle clause-matching text past an
- * allow. A locator with no path keeps the slash its request carries, and a
- * malformed one is matched as the model wrote it.
+ * The canonical text of a scheme locator a `read` matches: the resource
+ * without the selector that windowed the call, as a Machine path does. A web
+ * locator is the one text whose canonical form does not survive a second
+ * split, because canonicalization decodes unreserved escapes: `%31` becomes
+ * `1`, so a colon the model encoded reads as a selector and the matched text
+ * stops naming the URL the request sends. The read tool's own parser yields
+ * that URL with the selector already removed, so a web read is matched on it.
+ * A locator the parser refuses keeps the submitted-text rule.
+ */
+function projectReadSchemeValue(value: string): string {
+  const scheme = parsePathScheme(value);
+
+  if (scheme !== undefined && scheme.scheme in WEB_LOCATOR_SCHEMES) {
+    const parsed = parseWebLocator(value);
+
+    if (!('type' in parsed)) return parsed.url;
+  }
+
+  return withoutReadSelector(projectSchemeValue(value));
+}
+
+/**
+ * A web locator's canonical text with its selector kept, which a mutation and
+ * a redirect hop match: the URL the read tool's own parser yields, plus the
+ * selector exactly as it trails it in the submitted text, so a fragment the
+ * request drops cannot smuggle clause-matching text past an allow. A locator
+ * with no path keeps the slash its request carries, and a malformed one is
+ * matched as the model wrote it. A `read` matches {@link projectReadSchemeValue}
+ * instead, because a second split of this text could read a decoded colon as a
+ * selector.
  */
 function projectWebLocator(projected: string): string {
   const parsed = parseWebLocator(projected);

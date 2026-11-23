@@ -982,6 +982,16 @@ describe('web read over a fixture server', () => {
     ]);
   });
 
+  it.each([':P3', ':M2', ':L-5', ':raw:12:5'])(
+    'refuses the selector %s before any request',
+    async (suffix) => {
+      const result = await read(`${urlOf('/article')}${suffix}`);
+
+      expect(errorOf(result).type).toBe('invalid_selector');
+      expect(fixture.requests).toHaveLength(0);
+    },
+  );
+
   it('returns the body untouched for :raw', async () => {
     const result = await read(`${urlOf('/article')}:raw`);
 

@@ -166,9 +166,21 @@ describe('readJob', () => {
       script().list.mockResolvedValue([job({ seq: 1 }), job({ seq: 2 })]);
 
       expect(text(await read('job://:2-2'))).toContain('job://bash-2');
-      await expect(read('job://:1,2')).resolves.toMatchObject({
+      await expect(read('job://:1,2')).resolves.toEqual({
         status: 'error',
         type: 'invalid_selector',
+        message:
+          'A job listing or record accepts a single :L5-10, :L5+10, :L5-, or :-L5 range; comma ranges, :raw, and :outline are not supported. A bare number also reads as a line.',
+      });
+    });
+
+    it('shows the misplaced-unit hint for a listing selector', async () => {
+      script().list.mockResolvedValue([job({ seq: 4 })]);
+
+      await expect(read('job://:L-20')).resolves.toEqual({
+        status: 'error',
+        type: 'invalid_selector',
+        message: 'Write -L20 for the last 20 lines, or L1-20 for the first 20.',
       });
     });
   });
@@ -301,6 +313,16 @@ describe('readJob', () => {
       await expect(read('job://bash-4:1,2')).resolves.toMatchObject({
         status: 'error',
         type: 'invalid_selector',
+      });
+    });
+
+    it('shows the misplaced-unit hint for a record selector', async () => {
+      script().find.mockResolvedValue(job());
+
+      await expect(read('job://bash-4:L-5')).resolves.toEqual({
+        status: 'error',
+        type: 'invalid_selector',
+        message: 'Write -L5 for the last 5 lines, or L1-5 for the first 5.',
       });
     });
   });

@@ -324,7 +324,7 @@ describe('buildWebReadResult', () => {
       status: 'error',
       type: 'invalid_selector',
       message:
-        'The selector :500- selected no line of this page, which rendered 100 lines numbered from 1. Write :N, :N-M, or :N+K within 1-100, or omit the selector to read from the start.',
+        'The selector :500- selected no line of this page, which rendered 100 lines numbered from 1. Write :L5, :L5-10, or :L5+10 within L1-100, or omit the selector to read from the start. A bare number also reads as a line.',
     });
   });
 
@@ -1002,7 +1002,25 @@ describe('buildWebReadResult', () => {
       status: 'error',
       type: 'invalid_selector',
       message:
-        'The selector :5000-5010 selected no line of this page, which rendered 1 line numbered from 1. Write :N, :N-M, or :N+K within 1-1, or omit the selector to read from the start.',
+        'The selector :5000-5010 selected no line of this page, which rendered 1 line numbered from 1. Write :L5, :L5-10, or :L5+10 within L1-1, or omit the selector to read from the start. A bare number also reads as a line.',
+    });
+  });
+
+  it('quotes a lettered selector as written and names the rendered range', async () => {
+    // The model's own spelling is what the message answers, and the range it
+    // could have selected within is the one fact the page supplies after the
+    // read. The forms are lettered so the hint teaches what the grammar reads.
+    const result = await buildWebReadResult(
+      { url: GUIDE_URL, selector: 'L100-200' },
+      GUIDE_URL,
+      { method: 'text', content: 'one\ntwo\nthree\n' },
+    );
+
+    expect(result).toEqual({
+      status: 'error',
+      type: 'invalid_selector',
+      message:
+        'The selector :L100-200 selected no line of this page, which rendered 3 lines numbered from 1. Write :L5, :L5-10, or :L5+10 within L1-3, or omit the selector to read from the start. A bare number also reads as a line.',
     });
   });
 
@@ -1022,18 +1040,20 @@ describe('buildWebReadResult', () => {
     ).rejects.toThrow('the render never produced text');
   });
 
-  it('names no range when the render has no lines', async () => {
+  it('names no source range when the render has no lines', async () => {
     const result = await buildWebReadResult(
       { url: GUIDE_URL, selector: '2-3' },
       GUIDE_URL,
       { method: 'text', content: '' },
     );
 
+    // The forms are still taught, but no `L1-0` range is invented for a render
+    // that has no lines: there is nothing to select within.
     expect(result).toEqual({
       status: 'error',
       type: 'invalid_selector',
       message:
-        'The selector :2-3 selected no line of this page, which rendered no text.',
+        'The selector :2-3 selected no line of this page, which rendered no text. Write :L5, :L5-10, or :L5+10, or omit the selector to read from the start. A bare number also reads as a line.',
     });
   });
 });

@@ -219,7 +219,22 @@ describe('resolveMachinePath', () => {
       selector: '5-6',
       locator: 'machine://devl/srv/app.ts:5-6',
     });
-    // A suffix the selector grammar refuses stays part of the file name.
+    // A refused member shape is still a selector the split hands the applier.
+    expect(
+      resolveMachinePath('/srv/notes:P3', { defaultMachine: 'devl' }),
+    ).toMatchObject({
+      path: '/srv/notes',
+      selector: 'P3',
+      locator: 'machine://devl/srv/notes:P3',
+    });
+    expect(
+      resolveMachinePath('/srv/notes:L-5', { defaultMachine: 'devl' }),
+    ).toMatchObject({
+      path: '/srv/notes',
+      selector: 'L-5',
+      locator: 'machine://devl/srv/notes:L-5',
+    });
+    // A suffix the grammar does not recognize stays part of the file name.
     expect(
       resolveMachinePath('/srv/notes:draft', { defaultMachine: 'devl' }),
     ).toMatchObject({

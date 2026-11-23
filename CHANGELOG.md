@@ -2,6 +2,30 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-11-22
 
+- Accept the unit letter `L` on every `read` line selector, reserve `P` and `M`,
+  fold a pasted `file:12:5` to line 12, and answer `L-5` with a fixed hint. A
+  line member now takes `L` before its first number, in either case, so `L5`,
+  `L5-10`, `L5+10`, `L5-`, `-L5`, `L5-L10`, and lists such as
+  `L5-16,L960-973` read the same lines as the bare forms. A bare number still
+  reads as a line. `P` (pages) and `M` (messages) are reserved: a `P3` or `-M2`
+  member fails with `invalid_selector` on every source. That includes `ssh://`
+  and Machine paths, where another unknown suffix stays on the path. `L-5`
+  fails with `Write -L5 for the last 5 lines, or L1-5 for the first 5.` A
+  raw range or outline scope takes the letter too, as in `:raw:L4-5` and
+  `:outline:L5-40`. A suffix of two bare numbers, `file:12:5`, now reads line 12
+  and ignores the column. A host or Machine literal file of that whole name
+  still wins, and `x.ts:12:5:raw` stays line 5 of `x.ts:12`, read raw. The
+  shared refusal message names the `L` forms and says that a bare number also
+  reads as a line, and the listing and web line-count refusals do the same.
+  **Breaking**: on every text source, `x:12:5` now reads line 12 of `x`,
+  while a file literally named `x:12` is reached at line 5 with `x:12:L5`.
+  On `ssh://` and Machine paths, a name that ends in `notes:L5`, `notes:P3`,
+  or `notes:L-5` now splits as a selector.
+  `ssh://` reaches the literal name through `%3A`, and a host or Machine literal
+  file of the whole name still wins the probe. The Machine protocol version is
+  now 3, so a daemon without this grammar is refused at the handshake. Update
+  every Machine daemon with this release, or its Machines stay unavailable.
+
 - Show the model its own tool intent `i` on every earlier call. A stored tool
   part now keeps `i` in its input, so later steps, later turns, and refused-call
   replay send each built-in call's arguments as the model wrote them. Before,

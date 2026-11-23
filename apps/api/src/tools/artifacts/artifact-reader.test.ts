@@ -186,20 +186,55 @@ describe('readArtifact', () => {
       'artifact://:1-2,-3',
     );
 
-    expect(result).toMatchObject({
+    expect(result).toEqual({
       status: 'error',
       type: 'invalid_selector',
+      message:
+        'An artifact listing accepts a single :L5-10, :L5+10, :L5-, or :-L5 range; comma ranges and :raw are not supported. A bare number also reads as a line.',
     });
   });
 
   it('refuses an outline, a raw form, and an invalid listing selector', async () => {
     scriptRepository().listChat.mockResolvedValue([]);
 
-    for (const selector of [':outline', ':raw', ':abc']) {
+    await expect(
+      readArtifact(contextOf(), 'read', 'artifact://:outline'),
+    ).resolves.toEqual({
+      status: 'error',
+      type: 'invalid_selector',
+      message: 'The :outline member is not supported for artifact listings.',
+    });
+
+    for (const selector of [':raw', ':abc']) {
       expect(
         await readArtifact(contextOf(), 'read', `artifact://${selector}`),
       ).toMatchObject({ status: 'error', type: 'invalid_selector' });
     }
+  });
+
+  it('shows the misplaced-unit hint for a listing selector', async () => {
+    scriptRepository().listChat.mockResolvedValue([]);
+
+    await expect(
+      readArtifact(contextOf(), 'read', 'artifact://:L-5'),
+    ).resolves.toEqual({
+      status: 'error',
+      type: 'invalid_selector',
+      message: 'Write -L5 for the last 5 lines, or L1-5 for the first 5.',
+    });
+  });
+
+  it('shows the shared refusal for a reserved-unit listing selector', async () => {
+    scriptRepository().listChat.mockResolvedValue([]);
+
+    await expect(
+      readArtifact(contextOf(), 'read', 'artifact://:P3'),
+    ).resolves.toEqual({
+      status: 'error',
+      type: 'invalid_selector',
+      message:
+        'A line selector is :L5, :L5-10, :L5+10, :L5-, or :-L5, or a comma-separated list of them. A bare number also reads as a line. :raw is the whole file, or :raw: followed by a list of them, and :outline takes one of them after the colon. A line number starts at 1.',
+    });
   });
 
   it('pages a listing that exceeds the read bound', async () => {

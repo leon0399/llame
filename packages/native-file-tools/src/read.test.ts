@@ -73,15 +73,17 @@ function assertMultiFileSuccess(
     throw new Error("Expected multi-range file success result");
 }
 
-/** The working forms, spelled as a model that has to write them again. */
+/** The working forms, spelled as a model that has to write them again, plus
+ *  the clause that keeps a bare member readable. */
 const WORKING_SELECTOR_FORMS = [
-  ":N",
-  ":N-M",
-  ":N+K",
-  ":N-",
-  ":-K",
+  ":L5",
+  ":L5-10",
+  ":L5+10",
+  ":L5-",
+  ":-L5",
   ":raw",
   ":outline",
+  "A bare number also reads as a line",
 ];
 
 /**

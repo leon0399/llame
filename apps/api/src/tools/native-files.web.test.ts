@@ -3,6 +3,7 @@ import { createServer, type Server, type ServerResponse } from 'node:http';
 import { join } from 'node:path';
 
 import { Response } from 'undici';
+import { invalidSelectorMessage } from '@workspace/native-file-tools';
 import { type Mock, vi } from 'vitest';
 
 import type { RetainedMedia } from '../media/attempt-media';
@@ -461,6 +462,37 @@ describe('web locator dispatch', () => {
       shownRange: { startLine: 4, endLine: 5 },
     });
     expect(fixture.requests).toEqual([{ method: 'GET', path: '/guide' }]);
+  });
+
+  it('takes a trailing :raw as the raw read it spells', async () => {
+    respondWith(PAGE_HTML, 'text/html; charset=utf-8');
+
+    const result = await nativeReadTool.execute(webContext(), {
+      path: fixtureUrl('/guide:4-5:raw'),
+    });
+
+    expect(result).toMatchObject({
+      status: 'success',
+      representation: 'raw',
+      method: 'raw',
+      content: `${PAGE_LINES[3]}\n${PAGE_LINES[4]}\n`,
+      requestedRange: { startLine: 4, endLine: 5 },
+      shownRange: { startLine: 4, endLine: 5 },
+    });
+    expect(fixture.requests).toEqual([{ method: 'GET', path: '/guide' }]);
+  });
+
+  it('refuses a reserved-unit selector before any request', async () => {
+    const result = await nativeReadTool.execute(webContext(), {
+      path: fixtureUrl('/guide:P3'),
+    });
+
+    expect(result).toEqual({
+      status: 'error',
+      type: 'invalid_selector',
+      message: invalidSelectorMessage(),
+    });
+    expect(fixture.requests).toEqual([]);
   });
 
   it('numbers the converted window for a selector that is not raw', async () => {

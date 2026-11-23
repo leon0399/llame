@@ -2,6 +2,8 @@ import { promises as dns } from 'node:dns';
 
 import {
   MEDIA_SELECTOR_MESSAGE,
+  NativeFileError,
+  applySelectorSuffix,
   type MediaReadHook,
 } from '@workspace/native-file-tools';
 import { fetch as undiciFetch } from 'undici';
@@ -90,6 +92,25 @@ const ABORTED_FAILURE: WebFetchFailure = {
 };
 
 /**
+ * A selector shape the shared grammar admits for a source split but no reader
+ * serves, refused before anything is requested: the page's own line count
+ * cannot make `:P3`, `:M2`, or `:L-5` readable, so a refused shape costs no
+ * fetch. A selector whose refusal depends on the rendered count stays with
+ * the renderer, which alone holds that count.
+ */
+function refusedSelector(locator: WebLocator): ToolResult | undefined {
+  try {
+    applySelectorSuffix(locator.url, locator.selector);
+
+    return undefined;
+  } catch (error) {
+    if (!(error instanceof NativeFileError)) throw error;
+
+    return { status: 'error', type: error.type, message: error.message };
+  }
+}
+
+/**
  * A web locator is read-only, needs no executor identity, and is fetched by
  * the API process's own outbound HTTP. `edit` and `write` fail before any
  * request, and the Run's cancellation and per-call deadline bound the fetch.
@@ -109,6 +130,10 @@ export function createWebReadExecutor(deps: WebReadDeps): WebReadExecutor {
     if ('type' in locator) {
       return { status: 'error', type: locator.type, message: locator.message };
     }
+
+    const refused = refusedSelector(locator);
+
+    if (refused !== undefined) return refused;
 
     const userAgent = context.productUserAgent;
 
@@ -319,5 +344,9 @@ async function dispatchFor(
 function isRawSelector(selector: string | undefined): boolean {
   if (selector === undefined) return false;
 
-  return selector === 'raw' || selector.startsWith('raw:');
+  return (
+    selector === 'raw' ||
+    selector.startsWith('raw:') ||
+    selector.endsWith(':raw')
+  );
 }

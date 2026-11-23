@@ -135,6 +135,13 @@ are worth knowing:
   `machine://devl/srv/app/config.json` and refuses `machine://devl/srv/app/config.json:1-5`, which names a
   different file.
 
+The shapes the selector grammar adds — a lettered member (`notes.md:L5`), a
+reserved `P` or `M` member (`secret:P3`, `-M2`), the misplaced `L-5`, and a
+pasted line-and-column (`report:12:5`) — are removed before matching like any
+other selector. A reject aimed at such a literal name must therefore end in
+`([/\\]|$|:)`, as the recommended rules do: `secret:P3$` sees only `secret`
+after removal and matches nothing.
+
 An allow is decided on the canonical locator, with its Machine name. A rule
 that names one Machine therefore does not admit the same path on another. A
 reject also sees the submitted text, the canonical locator, and the projected

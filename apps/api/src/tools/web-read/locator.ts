@@ -1,4 +1,10 @@
-import { isSelectorSuffix } from '@workspace/native-file-tools';
+import {
+  canonicalSelector,
+  isSelectorSuffix,
+  LINE_COLUMN_SUFFIX,
+  OUTLINE_SUFFIX,
+  RAW_SUFFIX,
+} from '@workspace/native-file-tools';
 
 import {
   encodeSelectorSuffix,
@@ -12,20 +18,6 @@ import {
  * and exactly what policy matches.
  */
 export type WebLocator = { readonly url: string; readonly selector?: string };
-
-/**
- * The shipped trailing-selector grammar, reused unchanged: the `:raw` forms
- * first, then the `:outline` forms, else the last colon after the last slash.
- * A URL's own scheme colon can never win, because it always precedes the
- * authority's slashes; whether a match may split at all is `opensSelector`'s
- * call. A trailing `:raw` claims the colon segment before it as the range list
- * when that segment has the member-list shape and emits the canonical
- * `raw:<list>` suffix, so `guide:60-64:raw` and `guide:raw:60-64` are one
- * selector downstream while `notes:draft:raw` stays the raw read of
- * `notes:draft`.
- */
-const RAW_SELECTOR = /:raw(?::([^:/]*))?$/u;
-const OUTLINE_SELECTOR = /:outline(?::([^:/]*))?$/u;
 
 const INVALID_URL_MESSAGE =
   'Write this locator as an absolute http:// or https:// URL.';
@@ -62,14 +54,31 @@ function opensSelector(text: string, index: number): boolean {
 /**
  * The split {@link parseWebLocator} makes, exposed so permission matching
  * strips exactly what the read tool splits off and nothing else.
+ *
+ * The shared patterns are tried in the splitter's own order: the `:raw` forms
+ * first, then the `:outline` forms, then the line-and-column form, else the
+ * last colon after the last slash. A URL's own scheme colon can never win,
+ * because it always precedes the authority's slashes; whether a match may
+ * split at all is `opensSelector`'s call. A trailing `:raw` claims the colon
+ * segment before it as the range list when that segment has the member-list
+ * shape and keeps the suffix as written, so `guide:60-64:raw` is `60-64:raw`
+ * downstream while `notes:draft:raw` stays the raw read of `notes:draft`.
+ *
+ * A `:N:M` tail is claimed whole by the representation patterns, so
+ * `x.ts:raw:12:5` is the refused shape `raw:12:5` rather than line 12 of
+ * `x.ts:raw`, and the standalone `N:M` form is claimed before the last-colon
+ * fallback, so `x.ts:12:5` is line 12 of `x.ts`.
  */
 export function splitWebSelector(text: string): SplitLocator {
-  const raw = RAW_SELECTOR.exec(text);
+  const raw = RAW_SUFFIX.exec(text);
 
   if (raw !== null && opensSelector(text, raw.index)) {
     const before = text.slice(0, raw.index);
 
     if (raw[1] !== undefined) {
+      // The group is the whole representation operand: a range list, or a
+      // `:N:M` tail the grammar refuses later, never a colon left behind for
+      // the fallback to read as the line.
       return { url: before, selector: `raw:${raw[1]}` };
     }
 
@@ -82,23 +91,35 @@ export function splitWebSelector(text: string): SplitLocator {
       // The claim is the grammar's own `<list>:raw` spelling, so the segment
       // behind a trailing `:raw` is the range list exactly when the shared
       // grammar admits that suffix. A segment that merely ends in digits keeps
-      // its colon and stays the raw read of that path.
+      // its colon and stays the raw read of that path. The suffix is the text
+      // the model wrote, so it names the same selector the path splitter does.
       const list = before.slice(colon + 1);
 
       if (isSelectorSuffix(`${list}:raw`)) {
-        return { url: before.slice(0, colon), selector: `raw:${list}` };
+        return { url: before.slice(0, colon), selector: `${list}:raw` };
       }
     }
 
     return { url: before, selector: 'raw' };
   }
 
-  const outline = OUTLINE_SELECTOR.exec(text);
+  const outline = OUTLINE_SUFFIX.exec(text);
 
   if (outline !== null && opensSelector(text, outline.index)) {
     return {
       url: text.slice(0, outline.index),
       selector: text.slice(outline.index + 1),
+    };
+  }
+
+  // A compiler-style `:N:M` names line `N`: the pair is one selector form, so
+  // it is claimed before the last-colon fallback would read only the column.
+  const lineColumn = LINE_COLUMN_SUFFIX.exec(text);
+
+  if (lineColumn !== null && opensSelector(text, lineColumn.index)) {
+    return {
+      url: text.slice(0, lineColumn.index),
+      selector: text.slice(lineColumn.index + 1),
     };
   }
 
@@ -215,7 +236,8 @@ function literalColonSpelling(href: string, selector: string): string {
  * written straight after the authority (`https://example.test:1-5`) sits
  * where the port belongs, and a port that is not a number
  * (`https://example.test:abc/`) is the only broken part of an otherwise
- * absolute URL.
+ * absolute URL. The first answer names the serialization with the selector in
+ * its canonical spelling (`https://example.test/:L1-5`).
  */
 function unparsableLocator(text: string): LocatorParseFailure {
   const generic: LocatorParseFailure = {
@@ -231,10 +253,15 @@ function unparsableLocator(text: string): LocatorParseFailure {
 
   if ('type' in target) return generic;
 
-  if (isSelectorSuffix(suffix)) {
+  // Only a selector the grammar reads is worth naming as the locator that
+  // works: the suffix sits where the port belongs, and a reserved or
+  // misplaced shape is refused downstream, so it gets the port answer.
+  const canonical = canonicalSelector(suffix);
+
+  if (canonical !== undefined) {
     return {
       type: 'invalid_path',
-      message: `Write this locator as ${target.href}:${suffix}`,
+      message: `Write this locator as ${target.href}:${canonical}`,
     };
   }
 

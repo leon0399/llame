@@ -556,6 +556,16 @@ describe('native file permission projection', () => {
     expect(decideNative(map, 'read', { path: '/tmp/file:1-2' })).toMatchObject({
       decision: 'allow',
     });
+    expect(decideNative(map, 'read', { path: '/tmp/file:L1-2' })).toMatchObject(
+      {
+        decision: 'allow',
+      },
+    );
+    expect(decideNative(map, 'read', { path: '/tmp/file:12:5' })).toMatchObject(
+      {
+        decision: 'allow',
+      },
+    );
     expect(decideNative(map, 'read', { path: '/tmp/file:raw' })).toMatchObject({
       decision: 'allow',
     });
@@ -578,6 +588,12 @@ describe('native file permission projection', () => {
 
     for (const path of [
       '/home/u/.ssh/id_rsa:1-5',
+      '/home/u/.ssh/id_rsa:L1-5',
+      '/home/u/.ssh/id_rsa:l1-L5',
+      '/home/u/.ssh/id_rsa:-L5',
+      '/home/u/.ssh/id_rsa:L-5',
+      '/home/u/.ssh/id_rsa:P3',
+      '/home/u/.ssh/id_rsa:1:1',
       '/home/u/.ssh/id_rsa:raw',
       '/home/u/.ssh/id_rsa:outline:3-9',
       '/home/u/.ssh/id_rsa:1-5:raw',
@@ -587,6 +603,25 @@ describe('native file permission projection', () => {
         reason: 'explicit_reject',
       });
     }
+  });
+
+  it('projects a literal reserved-unit name without its suffix', () => {
+    const context = { defaultMachine: 'devl', localMachine: 'devl' };
+    expect(nativeFileProjection('read', context)('/home/u/secret:P3')).toEqual({
+      canonical: 'machine://devl/home/u/secret',
+      projectedPath: '/home/u/secret',
+    });
+
+    const map: ToolPermissionMap = {
+      read: {
+        allow: true,
+        reject: [{ field: 'path', regex: '^/home/u/secret([/\\\\]|$|:)' }],
+      },
+    };
+
+    expect(
+      decideNative(map, 'read', { path: '/home/u/secret:P3' }),
+    ).toMatchObject({ decision: 'reject', reason: 'explicit_reject' });
   });
 
   it('keeps a literal colon outside the grammar in the matched text', () => {
@@ -623,6 +658,74 @@ describe('native file permission projection', () => {
     expect(
       decideNative(map, 'read', { path: 'https://EXAMPLE.test/guide:raw' }),
     ).toMatchObject({ decision: 'allow' });
+  });
+
+  it('matches a web read as exactly the URL its request uses', () => {
+    // Canonicalizing the URL decodes unreserved escapes, so splitting the
+    // canonical text again could read a colon the model never wrote as a
+    // selector. Each locator below is matched as the URL the read tool
+    // requests; a reject naming that URL refuses it, and an allow for the
+    // selector-free page does not admit a request for a different one.
+    const cases = [
+      {
+        path: 'https://example.test/a:%31%32:5',
+        requested: 'https://example.test/a:12',
+        reject: '^https://example\\.test/a:12$',
+      },
+      {
+        path: 'https://example.test/a:raw:%31:5',
+        requested: 'https://example.test/a:raw:1',
+        reject: '^https://example\\.test/a:raw:1$',
+      },
+      {
+        path: 'https://example.test/a:outline:%31:5',
+        requested: 'https://example.test/a:outline:1',
+        reject: '^https://example\\.test/a:outline:1$',
+      },
+      {
+        path: 'https://example.test/a:%4C5:raw',
+        requested: 'https://example.test/a:L5',
+        reject: '^https://example\\.test/a:L5$',
+      },
+      {
+        path: 'https://example.test/a:%503:raw',
+        requested: 'https://example.test/a:P3',
+        reject: '^https://example\\.test/a:P3$',
+      },
+      {
+        path: 'https://example.test/a:%72aw:5',
+        requested: 'https://example.test/a:raw',
+        reject: '^https://example\\.test/a:raw$',
+      },
+      {
+        path: 'https://example.test/a:%31:raw',
+        requested: 'https://example.test/a:1',
+        reject: '^https://example\\.test/a:1$',
+      },
+    ] as const;
+
+    const pageOnly: ToolPermissionMap = {
+      read: { allow: [{ field: 'path', regex: '^https://example\\.test/a$' }] },
+    };
+
+    for (const { path, requested, reject } of cases) {
+      expect(
+        nativeFileProjection('read', CONTEXT)('path', path).canonical,
+      ).toBe(requested);
+      expect(
+        decideNative(
+          {
+            read: { allow: true, reject: [{ field: 'path', regex: reject }] },
+          },
+          'read',
+          { path },
+        ),
+      ).toMatchObject({ decision: 'reject', reason: 'explicit_reject' });
+      expect(decideNative(pageOnly, 'read', { path })).toMatchObject({
+        decision: 'reject',
+        reason: 'no_allow',
+      });
+    }
   });
 
   it('refuses a clause written for a selector spelling on the submitted text', () => {
@@ -913,8 +1016,9 @@ describe('native file permission projection', () => {
 
   it('cuts the selector off a last segment that has a colon of its own', () => {
     // A wiki page name ends in a colon, and the read tool splits the selector
-    // off exactly that text, so an anchored clause still catches the page and
-    // `a:5` is the locator that requests `:6`.
+    // off exactly that text, so an anchored clause still catches the page. A
+    // trailing `:N:M` pair is one selector, so `a:5:6` requests the page `a`
+    // at line 5, column 6.
     for (const suffix of [':raw', ':5', ':outline']) {
       expect(
         withoutReadSelector(`https://en.wikipedia.org/wiki/Talk:Foo${suffix}`),
@@ -922,7 +1026,7 @@ describe('native file permission projection', () => {
     }
 
     expect(withoutReadSelector('https://example.test/a:5:6')).toBe(
-      'https://example.test/a:5',
+      'https://example.test/a',
     );
   });
 
@@ -1245,8 +1349,8 @@ describe('Project locator permission projection', () => {
       { submitted: 'outline', canonical: 'outline' },
       { submitted: 'outline:2-4', canonical: 'outline:2-4' },
       { submitted: '10-20,30-40', canonical: '10-20,30-40' },
-      // The native splitter canonicalizes the trailing-raw spelling.
-      { submitted: '1-5:raw', canonical: 'raw:1-5' },
+      // The native splitter keeps the trailing-raw spelling as written.
+      { submitted: '1-5:raw', canonical: '1-5:raw' },
     ];
 
     for (const { submitted, canonical: suffix } of selectors) {

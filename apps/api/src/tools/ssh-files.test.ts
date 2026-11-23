@@ -465,6 +465,37 @@ describe('ssh read refusals', () => {
     });
     expect(remoteClient.runs).toHaveLength(0);
   });
+
+  it.each([
+    'ssh://box/notes:M2',
+    'ssh://box/notes:P3',
+    'ssh://box/notes:raw:12:5',
+  ])('refuses the selector of %s before any remote read', async (locator) => {
+    // The host would answer not_found for `/notes`, so a selector refused
+    // only after the transfer would report the path instead of the shape.
+    const { result, runs } = await read(locator, (nonce) =>
+      ended('', `${nonce}:refuse:not_found\n${nonce}:end:0\n`),
+    );
+
+    expect(result).toMatchObject({
+      status: 'error',
+      type: 'invalid_selector',
+    });
+    expect(runs).toHaveLength(0);
+  });
+
+  it('names both readings of a misplaced L before any remote read', async () => {
+    const { result, runs } = await read('ssh://box/notes:L-5', (nonce) =>
+      ended('', `${nonce}:refuse:not_found\n${nonce}:end:0\n`),
+    );
+
+    expect(result).toEqual({
+      status: 'error',
+      type: 'invalid_selector',
+      message: 'Write -L5 for the last 5 lines, or L1-5 for the first 5.',
+    });
+    expect(runs).toHaveLength(0);
+  });
 });
 
 describe('ssh directory reads', () => {

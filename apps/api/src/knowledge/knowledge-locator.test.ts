@@ -12,6 +12,10 @@ import { type KnowledgeToolResolver, type ToolContext } from '../tools/types';
 
 const SPACE = '6f5d8a0f-7dd3-4f6b-b6ed-9e0f0b1c2d3e';
 
+/** The shared refusal, pinned once so a reverted form set fails this file. */
+const SHARED_REFUSAL =
+  'A line selector is :L5, :L5-10, :L5+10, :L5-, or :-L5, or a comma-separated list of them. A bare number also reads as a line. :raw is the whole file, or :raw: followed by a list of them, and :outline takes one of them after the colon. A line number starts at 1.';
+
 const INVALID_PATH = {
   type: 'invalid_path',
   message: 'The Knowledge locator is invalid.',
@@ -198,6 +202,15 @@ describe('knowledge locator parsing', () => {
     }
   });
 
+  it('answers a malformed selector with the shared forms and the spelling', () => {
+    // A letter that is not the unit is outside the grammar, so the suffix is
+    // refused: the forms come first, then the `%3A` spelling of the locator.
+    expect(parseKnowledgeLocator(`${SPACE}/notes.md:5-10x`)).toStrictEqual({
+      type: 'invalid_selector',
+      message: `${SHARED_REFUSAL} For a literal colon, write this locator as kb://${SPACE}/notes.md%3A5-10x`,
+    });
+  });
+
   it('encodes a percent in the suffix so the hint reads the same file', () => {
     // `discount:50%.md` splits at the colon, so the suffix carries a literal
     // `%`. The hint encodes it before the colon, or the locator it names
@@ -243,16 +256,27 @@ describe('knowledge locator parsing', () => {
   });
 
   it.each([
-    [`${SPACE}/notes.md:5-`, '5-'],
-    [`${SPACE}/notes.md:1-5:raw`, '1-5:raw'],
-    [`${SPACE}/notes.md:raw:1-5`, 'raw:1-5'],
-  ])('accepts the members and both raw spellings in %s', (rest, selector) => {
-    expect(parseKnowledgeLocator(rest)).toStrictEqual({
-      knowledgeSpaceId: SPACE,
-      relativePath: 'notes.md',
-      selector,
-    });
-  });
+    [`${SPACE}/notes.md:5-`, 'notes.md', '5-'],
+    [`${SPACE}/notes.md:1-5:raw`, 'notes.md', '1-5:raw'],
+    [`${SPACE}/notes.md:raw:1-5`, 'notes.md', 'raw:1-5'],
+    // The unit letter, the refused shapes, and the line-and-column form all
+    // reach this layer as written: the split hands the selector on and the
+    // applier is what drops the letter or refuses the shape.
+    [`${SPACE}/a.md:L5-10`, 'a.md', 'L5-10'],
+    [`${SPACE}/notes.md:L-5`, 'notes.md', 'L-5'],
+    [`${SPACE}/notes.md:P3`, 'notes.md', 'P3'],
+    [`${SPACE}/notes.md:outline:12:5`, 'notes.md', 'outline:12:5'],
+    [`${SPACE}/a.md:12:5`, 'a.md', '12:5'],
+  ])(
+    'accepts the members, the raw forms, and the line-and-column form in %s',
+    (rest, relativePath, selector) => {
+      expect(parseKnowledgeLocator(rest)).toStrictEqual({
+        knowledgeSpaceId: SPACE,
+        relativePath,
+        selector,
+      });
+    },
+  );
 });
 
 describe('knowledge locator resolution', () => {

@@ -6,7 +6,12 @@ import {
 } from '@workspace/native-file-tools';
 
 import { type Db } from '../../db/tenant-db.service';
-import { renderListing, type ListingRefusal } from '../listing-window';
+import {
+  BARE_NUMBER_NOTE,
+  LISTING_RANGE_FORMS,
+  renderListing,
+  type ListingRefusal,
+} from '../listing-window';
 import { nativeErrorResult, selectInMemoryText } from '../text-selection';
 import { type ToolContext, type ToolResult } from '../types';
 import {
@@ -200,11 +205,11 @@ async function readStoredPart(
 /** A listing takes no second interval, no raw form, and no outline. */
 function listingRefusal(refusal: ListingRefusal): ToolResult {
   const message =
-    refusal === 'invalid'
-      ? 'The artifact listing selector is invalid.'
-      : refusal === 'outline'
+    refusal.kind === 'invalid'
+      ? refusal.message
+      : refusal.kind === 'outline'
         ? 'The :outline member is not supported for artifact listings.'
-        : 'An artifact listing accepts a single :N-M, :N+K, :N-, or :-K range; comma ranges and :raw are not supported.';
+        : `An artifact listing accepts ${LISTING_RANGE_FORMS}; comma ranges and :raw are not supported. ${BARE_NUMBER_NOTE}`;
 
   return { status: 'error', type: 'invalid_selector', message };
 }

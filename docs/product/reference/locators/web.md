@@ -22,12 +22,14 @@ the same result bound, and the same `read` permission group as a file read.
 `read({ path: "https://example.test/guide" })`. A trailing selector uses the
 shared grammar once the web path, query, fragment, and port rules have placed
 it, and it addresses the returned text, never the URL:
-`https://example.test/guide:10-20` fetches the page and returns
-lines 10 through 20 of the rendered text. Only a locator with a path carries
-one, and a locator carrying a query is never split: every colon the query opened
-is URL text, so `https://example.test/search?at=2026:10` is fetched as written.
-The grammar, the context lines, the range rules, and the truncation rules are
-the shared ones ([selectors](../selectors.md)).
+`https://example.test/guide:L10-20` fetches the page and returns
+lines 10 through 20 of the rendered text. A trailing line and column, as in
+`https://example.test/src/x.ts:12:5`, reads line 12 and ignores the column. Only
+a locator with a path carries a selector, and a locator carrying a query is
+never split: every colon the query opened is URL text, so
+`https://example.test/search?at=2026:10` is fetched as written. The grammar, the
+context lines, the range rules, and the truncation rules are the shared ones
+([selectors](../selectors.md)).
 
 Only `http://` and `https://` are admitted. An unimplemented scheme, a
 non-web URL, and userinfo all fail with `invalid_path` before any request, and
@@ -71,25 +73,26 @@ two readings of `:N`:
 - `https://example.test/:88` is line 88 of the site root, and
   `https://example.test:88/:88` is line 88 served from port 88.
 - `https://example.test:1-5` is not a URL at all: `1-5` sits where the port
-  belongs. The refusal names `https://example.test/:1-5`, the same selector on
+  belongs. The refusal names `https://example.test/:L1-5`, the same selector on
   the serialized authority, and `https://example.test:abc/` is answered with
   "a port must be a number" rather than the generic message.
 - A literal colon in the last path segment is written `%3A`:
   `https://w.example/wiki/Special%3ASearch`, because
   `https://w.example/wiki/Special:Search` splits at the colon and `Search` is
   outside the grammar — the refusal names the forms and then that encoded
-  spelling. `https://w.example/docs/2024:10` selects line 10 and `:10-20` lines
+  spelling. `https://w.example/docs/2024:L10` selects line 10 and `:L10-20` lines
   10 through 20 of `https://w.example/docs/2024`, and
-  `https://w.example/wiki/Special:-5` is the last five rendered lines of
+  `https://w.example/wiki/Special:-L5` is the last five rendered lines of
   `https://w.example/wiki/Special`.
 - A selector the render cannot serve — past the end, or empty — fails as
   `invalid_selector` reporting how many lines the page rendered, which is the
-  one fact the model could not know before reading it.
+  one fact the model could not know before reading it. The message names the `L`
+  forms and the rendered range `L1-<n>`.
 
 A fragment is cut before anything else reads the locator, because the request
 drops it anyway: `https://example.test/guide#install` is fetched as
 `https://example.test/guide`, and a selector written after it goes with it, so
-`guide#install:5-9` reads the whole page and `guide:5-9#install` is the working
+`guide#install:L5-9` reads the whole page and `guide:L5-9#install` is the working
 spelling. Permission evaluation matches the fragment-free requested text and the
 submitted text, which keeps its `#fragment`; see
 [tool-call permissions](../../operator/tool-call-permissions.md#matching). Free

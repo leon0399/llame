@@ -1,5 +1,9 @@
 import { formatSkillLocator, parseSkillLocator } from './skill-locator';
 
+/** The shared refusal, pinned once so a reverted form set fails this file. */
+const SHARED_REFUSAL =
+  'A line selector is :L5, :L5-10, :L5+10, :L5-, or :-L5, or a comma-separated list of them. A bare number also reads as a line. :raw is the whole file, or :raw: followed by a list of them, and :outline takes one of them after the colon. A line number starts at 1.';
+
 describe('parseSkillLocator', () => {
   it('addresses the catalog for the bare and selector-only forms', () => {
     expect(parseSkillLocator('')).toEqual({ catalog: true });
@@ -125,6 +129,15 @@ describe('parseSkillLocator', () => {
     }
   });
 
+  it('answers a malformed selector with the shared forms and the spelling', () => {
+    // A letter that is not the unit is outside the grammar, so the suffix is
+    // refused: the forms come first, then the `%3A` spelling of the locator.
+    expect(parseSkillLocator('pdf/ref.md:5-10x')).toStrictEqual({
+      type: 'invalid_selector',
+      message: `${SHARED_REFUSAL} For a literal colon, write this locator as skill://pdf/ref.md%3A5-10x`,
+    });
+  });
+
   it('encodes a percent in the suffix so the hint reads the same file', () => {
     // `a:100%.md` splits at the colon, so the suffix carries a literal `%`.
     // The hint must encode it before the colon, or the locator it names decodes
@@ -184,9 +197,32 @@ describe('parseSkillLocator', () => {
       'pdf/ref.md:1-5:raw',
       { name: 'pdf', relativePath: 'ref.md', selector: '1-5:raw' },
     ],
-  ])('accepts the new members and both raw spellings in %s', (rest, parsed) => {
-    expect(parseSkillLocator(rest)).toStrictEqual(parsed);
-  });
+    // The unit letter, the refused shapes, and the line-and-column form all
+    // reach this layer as written: the split hands the selector on and the
+    // applier is what drops the letter or refuses the shape.
+    [
+      'pdf/ref.md:L5-10',
+      { name: 'pdf', relativePath: 'ref.md', selector: 'L5-10' },
+    ],
+    [
+      'pdf/ref.md:L-5',
+      { name: 'pdf', relativePath: 'ref.md', selector: 'L-5' },
+    ],
+    ['pdf/ref.md:P3', { name: 'pdf', relativePath: 'ref.md', selector: 'P3' }],
+    [
+      'pdf/ref.md:outline:12:5',
+      { name: 'pdf', relativePath: 'ref.md', selector: 'outline:12:5' },
+    ],
+    [
+      'pdf/ref.md:12:5',
+      { name: 'pdf', relativePath: 'ref.md', selector: '12:5' },
+    ],
+  ])(
+    'accepts the members, the raw forms, and the line-and-column form in %s',
+    (rest, parsed) => {
+      expect(parseSkillLocator(rest)).toStrictEqual(parsed);
+    },
+  );
 });
 
 describe('formatSkillLocator', () => {
