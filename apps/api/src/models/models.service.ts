@@ -384,9 +384,14 @@ export class ModelsService {
     return model;
   }
 
+  /**
+   * The availability half of a selection, and nothing else: admission has
+   * already resolved the selector (and with it any default rule) before a Run
+   * exists, so the worker, Continue, and promotion only re-check that the
+   * selected id is still in the catalog. A missing default must not fail a Run
+   * that named an exact model or reused a stored selection.
+   */
   validateModelSelection(modelId: string): SystemModelCatalogEntry {
-    this.resolveDefaultModelConfig();
-
     return this.requireAvailableModel(modelId);
   }
 

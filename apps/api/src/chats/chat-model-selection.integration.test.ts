@@ -37,6 +37,7 @@ import {
   FakeStreamingModelClient,
   cookieOf,
   expectRegisteredUserId,
+  waitFor,
 } from '../testing/support';
 import type { CreateMessageDto } from './dto/chats.dto';
 
@@ -188,6 +189,7 @@ const latestRunSchema = z
   .object({
     selector: z.string(),
     modelId: z.string(),
+    status: z.string(),
   })
   .passthrough();
 
@@ -485,11 +487,13 @@ d('a Chat stores its model selection', () => {
 d('a send with no selector and no default', () => {
   let app: INestApplication;
   let http: Server;
+  let client: FakeStreamingModelClient;
 
   beforeAll(async () => {
     const booted = await boot(configFor(null));
     app = booted.app;
     http = booted.http;
+    client = booted.client;
   });
 
   afterAll(async () => {
@@ -538,5 +542,60 @@ d('a send with no selector and no default', () => {
       .set('Cookie', cookieOf(registered));
 
     expect(messagesRead.status).toBe(404);
+  });
+
+  it('An exact selector runs with no default', async () => {
+    const registered = await request(http)
+      .post('/auth/v1/register')
+      .send({
+        email: `model-selection-exact-${crypto.randomUUID()}@test.com`,
+        password: 'password123',
+        name: 'Exact selector',
+      });
+
+    expect(registered.status).toBe(201);
+    const body: unknown = registered.body;
+    expectRegisteredUserId(body);
+    const cookie = cookieOf(registered);
+
+    const chatId = crypto.randomUUID();
+
+    const sent = await request(http)
+      .post(`/api/v1/chats/${chatId}/messages`)
+      .set('Cookie', cookie)
+      .send({
+        selector: FAST.id,
+        message: {
+          id: crypto.randomUUID(),
+          parts: [{ type: 'text', text: 'exact model, no default' }],
+        },
+      });
+
+    // Admission resolves the exact selector without consulting a default, and
+    // the worker's availability re-check must accept the same id.
+    expect(sent.status).toBe(200);
+
+    const completed = await waitFor(
+      async () => {
+        const read = await request(http)
+          .get(`/api/v1/chats/${chatId}/messages?limit=100`)
+          .set('Cookie', cookie);
+
+        if (read.status !== 200) return undefined;
+
+        const latestRun = messagesResponseSchema.parse(read.body).latestRun;
+
+        return latestRun?.status === 'completed' ? latestRun : undefined;
+      },
+      30_000,
+      'the exact-selector Run to complete',
+    );
+
+    expect(completed).toMatchObject({
+      selector: FAST.id,
+      modelId: FAST.id,
+      status: 'completed',
+    });
+    expect(client.turns).toHaveLength(1);
   });
 });

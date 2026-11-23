@@ -567,14 +567,19 @@ describe('ModelsService', () => {
       ).toThrow(ModelNotAvailableError);
     });
 
-    it('checks default configuration before the requested id: a broken default yields 503 even for an unavailable id', () => {
+    it('checks only the requested id: a missing default cannot mask an unavailable model', () => {
       const service = createService({ defaultSelector: null });
 
-      // Ordering matters: config invalidity (503) must win over an unavailable
-      // selection (422); the caller can't select against a broken catalog.
+      // Availability is all this method owns. The default rule belongs to
+      // selection resolution, which admission runs before a Run exists; a
+      // worker re-check must not turn a valid exact selection into a 503 just
+      // because the instance has no default.
+      expect(service.validateModelSelection('system:openai:gpt-4o').id).toBe(
+        'system:openai:gpt-4o',
+      );
       expect(() =>
         service.validateModelSelection('system:openai:ghost'),
-      ).toThrow(ModelConfigurationError);
+      ).toThrow(ModelNotAvailableError);
     });
   });
 
