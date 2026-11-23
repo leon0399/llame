@@ -176,7 +176,7 @@ export async function moveWaitingRunToDelivery(
     modelId: string;
     effort: string | null;
   },
-): Promise<string> {
+): Promise<void> {
   const { items, message } = delivery;
 
   await markDeliveryItems(tx, { locked, items, commandItems: [], message });
@@ -193,12 +193,16 @@ export async function moveWaitingRunToDelivery(
     currentJobId: delivery.nextJobId,
   });
 
+  await new RunEventsRepository(tx).append(locked.id, 'run.resumed', {
+    kind: 'quota',
+    generation: locked.wakeGeneration,
+    attemptId,
+  });
+
   await new RunEventsRepository(tx).append(locked.id, 'run.delivered', {
     messageId: message.id,
     ...deliveredEventPayload(attemptId, delivery),
   });
-
-  return attemptId;
 }
 
 /** Lock Run then chat, settle dead jobs, and apply the pending boundary set.

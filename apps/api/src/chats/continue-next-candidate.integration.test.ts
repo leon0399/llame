@@ -230,7 +230,7 @@ describeIfDb('Continue on the next candidate', () => {
     }
   });
 
-  /** One failed turn: Chat, selection, user message, Run, and its reply. */
+  /** One failed turn: Chat, selection, user message, Run, and optional reply. */
   async function seedFailedTurn(
     options: {
       selector?: string;
@@ -240,6 +240,7 @@ describeIfDb('Continue on the next candidate', () => {
       status?: 'failed' | 'cancelled' | 'expired';
       error?: { code: FailureClass; resetsAt?: number; hintMs?: number } | null;
       replyParts?: Array<unknown>;
+      noReply?: boolean;
       selection?: ChatModelSelection | null;
       selectionRevision?: number | null;
     } = {},
@@ -300,25 +301,29 @@ describeIfDb('Continue on the next candidate', () => {
         ...(error !== null && { error }),
       });
 
-      const reply = await messages.createAssistantReplyIfAbsent({
-        chatId: chat.id,
-        inReplyTo: userMessage.id,
-        parts: options.replyParts ?? FAILED_REPLY_PARTS,
-        usage: {
-          status: 'error',
-          complete: false,
-          runId: created.id,
-          modelId,
-          attemptId: crypto.randomUUID(),
-        },
-      });
+      const reply = options.noReply
+        ? undefined
+        : await messages.createAssistantReplyIfAbsent({
+            chatId: chat.id,
+            inReplyTo: userMessage.id,
+            parts: options.replyParts ?? FAILED_REPLY_PARTS,
+            usage: {
+              status: 'error',
+              complete: false,
+              runId: created.id,
+              modelId,
+              attemptId: crypto.randomUUID(),
+            },
+          });
 
-      if (!reply) throw new Error('The failed reply was not stored.');
+      if (!options.noReply && !reply) {
+        throw new Error('The failed reply was not stored.');
+      }
 
       return {
         chatId: chat.id,
         messageId: userMessage.id,
-        replyId: reply.id,
+        replyId: reply?.id ?? '',
         runId: created.id,
       };
     });
@@ -499,6 +504,7 @@ describeIfDb('Continue on the next candidate', () => {
     // their results, then the host message. No reasoning of the old model.
     const requests: Array<Parameters<ModelClient['streamText']>[0]> = [];
     await execute(admitted, requests);
+    expect(requests[0]?.effort).toBe('low');
 
     const sent = requests[0]?.messages ?? [];
     expect(toolCalls(sent).map((call) => call.toolCallId)).toEqual([
@@ -532,12 +538,37 @@ describeIfDb('Continue on the next candidate', () => {
     expect(sourceAfter?.usage).toEqual(source?.usage);
   });
 
+  it('continues a failed role Run that stored no reply', async () => {
+    const turn = await seedFailedTurn({ noReply: true });
+    const admitted = await admit(turn, nextCandidateRequest);
+
+    const run = (await runsOf(turn.chatId)).find(
+      (candidate) => candidate.id === admitted.runId,
+    );
+
+    expect(run).toMatchObject({ modelId: SONNET_ID, status: 'queued' });
+
+    const host = await messageOf(turn.chatId, admitted.userMessage.id);
+    expect(host).toBeDefined();
+    expect(switchItemOf(host!)?.data.payload).toMatchObject({
+      cause: 'failover',
+      toModelId: SONNET_ID,
+    });
+    expect(
+      (await eventsOf(admitted.runId)).map((event) => event.eventType),
+    ).toEqual(['run.created', 'model.switched']);
+
+    const requests: Array<Parameters<ModelClient['streamText']>[0]> = [];
+    await execute(admitted, requests);
+    expect(requests[0]?.system).toContain(`Prompt for ${SONNET_ID}`);
+  });
   it('A role moves to its next candidate', async () => {
-    const turn = await seedFailedTurn();
+    const turn = await seedFailedTurn({ selectedEffort: 'medium' });
     const admitted = await admit(turn, nextCandidateRequest);
     const requests: Array<Parameters<ModelClient['streamText']>[0]> = [];
 
     await execute(admitted, requests);
+    expect(requests[0]?.effort).toBe('medium');
 
     // The new model receives its own system prompt and tool declarations, and
     // the switch item comes directly before its first request's host message.
@@ -615,34 +646,54 @@ describeIfDb('Continue on the next candidate', () => {
   });
 
   it('Continue after a switch keeps the effort of the last segment', async () => {
-    const turn = await seedFailedTurn({
-      modelId: SONNET_ID,
-      effort: 'medium',
-      selectedEffort: 'xhigh',
-      replyParts: [READ_CALL],
+    const turn = await seedFailedTurn();
+    const switched = await admit(turn, nextCandidateRequest);
+
+    await tenantDb.runAs(userId, async (tx) => {
+      await new RunsRepository(tx).markFinished(
+        switched.runId,
+        userId,
+        'failed',
+        {
+          error: { message: 'the fallback failed', code: 'overloaded' },
+        },
+      );
+      await new MessagesRepository(tx).createAssistantReplyIfAbsent({
+        chatId: turn.chatId,
+        inReplyTo: switched.userMessage.id,
+        parts: [READ_CALL],
+        usage: {
+          status: 'error',
+          complete: false,
+          runId: switched.runId,
+          modelId: SONNET_ID,
+          attemptId: crypto.randomUUID(),
+        },
+      });
     });
 
-    const admitted = await admit(turn, { action: 'continue' });
+    const continued = await admission.admitFollowUpRun({
+      chatId: turn.chatId,
+      userId,
+      userMessageId: switched.userMessage.id,
+      request: { action: 'continue' },
+    });
 
     const run = (await runsOf(turn.chatId)).find(
-      (candidate) => candidate.id === admitted.runId,
+      (candidate) => candidate.id === continued.runId,
     );
 
-    // The plain Continue takes the last segment's model and effort, and keeps
-    // the selected effort admission resolved.
     expect(run).toMatchObject({
-      messageId: turn.messageId,
+      messageId: switched.userMessage.id,
       modelId: SONNET_ID,
-      effort: 'medium',
+      effort: 'low',
       selectedEffort: 'xhigh',
       followUpAction: 'continue',
     });
 
     const requests: Array<Parameters<ModelClient['streamText']>[0]> = [];
-
-    await execute(admitted, requests);
-
-    expect(requests[0]?.effort).toBe('medium');
+    await execute(continued, requests);
+    expect(requests[0]?.effort).toBe('low');
   });
 
   it('A Run with an exact selector', async () => {

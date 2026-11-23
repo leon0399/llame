@@ -15,6 +15,7 @@
 
 import { randomUUID } from 'node:crypto';
 import { NotFoundException } from '@nestjs/common';
+import { isRecord, isString } from '@workspace/runtime-safety';
 
 import { ChatsRepository, MessagesRepository } from '../chats/chats-repository';
 import { isContextItemPart, type ContextItemPart } from '../chats/context-item';
@@ -25,6 +26,7 @@ import {
   BUILT_IN_DEFAULTS,
   type LlameConfig,
 } from '../instance-config/llame-config';
+import { InstanceConfigService } from '../instance-config/instance-config.service';
 import type { SystemModelCatalogEntry } from '../models/model-catalog';
 import {
   ModelsService,
@@ -36,8 +38,13 @@ import {
   useSegmentsFixture,
   type SeededRun,
 } from '../testing/run-segments.test-fixture';
+import {
+  quotaRequestFromEvents,
+  quotaResumeAttemptId,
+} from './quota-wake-projection';
 import { NextCandidateService } from './next-candidate.service';
 import { RUNS_QUEUE } from './run-queues';
+import { RunsWorkerService } from './runs-worker.service';
 import { runningReplyUsage } from './run-reply-finalizer';
 import { RunWaitService } from './run-wait.service';
 import { RunsController } from './runs.controller';
@@ -111,7 +118,7 @@ const CONFIG: LlameConfig = {
   ],
 };
 
-type ParkedRun = SeededRun & { attemptId: string };
+type ParkedRun = SeededRun & { attemptId: string; resetsAt: string };
 
 describe('Continue on next candidate from a quota wait', () => {
   const fx = useSegmentsFixture('next-candidate-quota', {
@@ -155,6 +162,12 @@ describe('Continue on next candidate from a quota wait', () => {
     const seeded = await fx.seed('park this turn');
 
     const attemptId = await fx.db(async (tx) => {
+      await new ChatsRepository(tx).setModelSelection(
+        seeded.chatId,
+        fx.userId,
+        { revision: 1, selector, effort: 'high' },
+      );
+
       const started = await new RunsRepository(tx).markStarted(
         seeded.runId,
         fx.userId,
@@ -173,6 +186,7 @@ describe('Continue on next candidate from a quota wait', () => {
           selector,
           effort: 'high',
           selectedEffort: 'high',
+          selectionRevision: 1,
         },
       );
 
@@ -195,18 +209,23 @@ describe('Continue on next candidate from a quota wait', () => {
     });
 
     await fx.storeItems(seeded.chatId, ['steer while parked']);
+    const waiting = awaited();
 
     await fx.harness.moduleRef.get(RunWaitService).suspendForQuota({
       runId: seeded.runId,
       chatId: seeded.chatId,
       userId: fx.userId,
       attemptId,
-      awaiting: awaited(),
+      awaiting: waiting,
       parts: [{ type: 'text', text: 'checkpoint before the wait' }],
       steps: {},
     });
 
-    return { ...seeded, attemptId };
+    return {
+      ...seeded,
+      attemptId,
+      resetsAt: waiting.resetsAt,
+    };
   }
 
   /** A `/compact` Run on the role, parked in the same quota wait. */
@@ -435,39 +454,95 @@ describe('Continue on next candidate from a quota wait', () => {
     });
   });
 
-  it('Continue on next candidate wakes the Run', async () => {
-    const parked = await parkedRun();
+  it('Continue on next candidate wakes the Run and fences its old deadline job', async () => {
+    const instanceConfig = fx.harness.moduleRef.get(InstanceConfigService);
+    const previousTimeout = instanceConfig.config.runs.timeoutSeconds;
+    instanceConfig.config.runs.timeoutSeconds = 1;
 
-    fx.harness.models.register(SONNET.id, {
-      kind: 'step-script',
-      steps: [answer('woken on sonnet')],
-    });
+    try {
+      const parked = await parkedRun();
+      fx.harness.models.register(SONNET.id, {
+        kind: 'step-script',
+        steps: [answer('woken on sonnet')],
+      });
+      const waiting = await fx.run(parked.runId);
+      const deadlineJobId = waiting?.currentJobId;
 
-    const waiting = await fx.run(parked.runId);
-    const deadlineJobId = waiting?.currentJobId;
+      if (!deadlineJobId) throw new Error('The quota wait parked no job.');
 
-    if (!deadlineJobId) throw new Error('The quota wait parked no job.');
+      // This integration case measures the real parked interval against the Run budget.
+      const { promise, resolve } = Promise.withResolvers<void>();
+      setTimeout(resolve, 1200);
+      await promise;
+      await endpoint().nextCandidate(fx.userId, parked.runId);
 
-    await endpoint().nextCandidate(fx.userId, parked.runId);
+      const staleWorker = fx.harness.moduleRef.get(RunsWorkerService, {
+        strict: false,
+      });
 
-    const wake = await fx.db((tx) =>
-      fx.harness.moduleRef.get(RunWaitService).wakeInTransaction(tx, {
-        runId: parked.runId,
-        userId: fx.userId,
-        generation: waiting?.wakeGeneration ?? 0,
-        cause: 'timeout',
-        deadlineJobId,
-      }),
-    );
+      const stalePickup = await staleWorker['pickupJob'](
+        {
+          runId: parked.runId,
+          chatId: parked.chatId,
+          userId: fx.userId,
+          modelId: CODEX.id,
+          wake: {
+            generation: waiting?.wakeGeneration ?? 0,
+            jobId: deadlineJobId,
+          },
+        },
+        1,
+      );
 
-    expect(wake).toBe(false);
-    expect(await fx.harness.queue.jobState(RUNS_QUEUE, deadlineJobId)).toBe(
-      'queued',
-    );
+      expect(stalePickup.skip).toBe(true);
+      expect(await fx.harness.queue.jobState(RUNS_QUEUE, deadlineJobId)).toBe(
+        'queued',
+      );
 
-    const finished = await fx.terminal(parked.runId);
+      const chat = await fx.db((tx) =>
+        new ChatsRepository(tx).findById(parked.chatId, fx.userId),
+      );
 
-    expect(finished?.status).toBe('completed');
-    expect(await fx.types(parked.runId)).not.toContain('run.resumed');
+      expect(chat?.modelSelection?.hold).toMatchObject({
+        selector: '@coding',
+        modelId: SONNET.id,
+        effort: 'low',
+        revertAt: parked.resetsAt,
+      });
+
+      const events = await fx.events(parked.runId);
+
+      const resumedIndex = events.findIndex(
+        (event) => event.eventType === 'run.resumed',
+      );
+
+      const deliveredIndex = events.findIndex(
+        (event) => event.eventType === 'run.delivered',
+      );
+
+      const delivered = events[deliveredIndex]?.payload;
+
+      const deliveredAttempt = isRecord(delivered)
+        ? delivered['attemptId']
+        : undefined;
+
+      expect(isString(deliveredAttempt)).toBe(true);
+      expect(events[resumedIndex]?.payload).toMatchObject({
+        kind: 'quota',
+        generation: waiting?.wakeGeneration,
+        attemptId: deliveredAttempt,
+      });
+      expect(resumedIndex).toBeLessThan(deliveredIndex);
+      expect(quotaRequestFromEvents(events)).toBeUndefined();
+      expect(
+        quotaResumeAttemptId(events, waiting?.wakeGeneration ?? 0),
+      ).toBeUndefined();
+
+      const finished = await fx.terminal(parked.runId);
+      expect(finished?.status).toBe('completed');
+      expect(finished?.modelId).toBe(SONNET.id);
+    } finally {
+      instanceConfig.config.runs.timeoutSeconds = previousTimeout;
+    }
   });
 });

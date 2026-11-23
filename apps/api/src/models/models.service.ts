@@ -410,7 +410,8 @@ export type ModelClientFactory = Pick<ModelsService, 'createClient'>;
 export type ModelSelectionValidator = Pick<
   ModelsService,
   'validateModelSelection' | 'resolveEffortSelection' | 'resolveSelection'
->;
+> &
+  Partial<Pick<ModelsService, 'nextCandidate'>>;
 
 /**
  * Test seam (anti-slop/no-module-mocking): no provider is registered for

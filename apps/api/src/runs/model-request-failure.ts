@@ -14,8 +14,8 @@ export function modelRequestFailure(error: unknown): ModelRequestFailure {
     return {
       code: error.code,
       ...(error.resetsAt !== undefined && { resetsAt: error.resetsAt }),
-      // The owner's next-candidate switch reads this from `runs.error` to end
-      // its hold (design D4); it never reaches the public DTO.
+      // The owner reads this number from `runs.error` for the next-candidate
+      // switch hold (design D4); it is owner-visible in the Run DTO.
       ...(error.hintMs !== undefined && { hintMs: error.hintMs }),
     };
   }

@@ -12,6 +12,7 @@ import type {
 import type { AvailableModel } from "./queries";
 
 import {
+  isWaitingTurnRun,
   namedNextCandidate,
   nextCandidateLabel,
   nextCandidateOf,
@@ -106,9 +107,18 @@ describe("nextCandidateOf", () => {
       nextCandidateOf(run({ selector: "@fast", modelId: SONNET }), ROLES),
     ).toBeUndefined();
   });
+});
 
-  it("refuses a missing Run", () => {
-    expect(nextCandidateOf(null, ROLES)).toBeUndefined();
+describe("isWaitingTurnRun", () => {
+  it("identifies only turn Runs awaiting quota", () => {
+    expect(isWaitingTurnRun(run({ status: "awaiting_quota" }))).toBe(true);
+    expect(isWaitingTurnRun(run())).toBe(false);
+    expect(
+      isWaitingTurnRun(
+        run({ kind: "compaction", messageId: null, status: "awaiting_quota" }),
+      ),
+    ).toBe(false);
+    expect(isWaitingTurnRun(null)).toBe(false);
   });
 });
 

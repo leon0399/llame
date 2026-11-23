@@ -567,19 +567,19 @@ describe('ModelsService', () => {
       ],
     });
 
-    it('answers the candidate after the current model, with its effort and paid flag', () => {
-      expect(service.nextCandidate('@coding', 'system:openai:primary')).toEqual(
-        {
-          modelId: 'system:openai:secondary',
-          paid: true,
-        },
-      );
+    it('answers the next configured model and candidate effort', () => {
+      expect(
+        service.nextCandidate('@coding', 'system:openai:primary'),
+      ).toMatchObject({
+        modelId: 'system:openai:secondary',
+        model: { id: 'system:openai:secondary', billing: 'usage' },
+      });
 
       expect(
         service.nextCandidate('@coding', 'system:openai:secondary'),
-      ).toEqual({
+      ).toMatchObject({
         modelId: 'system:openai:third',
-        paid: false,
+        model: { id: 'system:openai:third', billing: 'free' },
       });
     });
 

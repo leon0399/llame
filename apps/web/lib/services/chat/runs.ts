@@ -76,6 +76,16 @@ export function runIdToCancel(
   return last?.role === "assistant" ? last.id : null;
 }
 
+async function ignoringMootRefusal<T>(call: () => Promise<T>): Promise<void> {
+  try {
+    await call();
+  } catch (error) {
+    const status = getApiErrorStatus(error);
+
+    if (status !== 404 && status !== 409) throw error;
+  }
+}
+
 /**
  * Cancel a durable run (#48). `PATCH /api/v1/runs/:id { status: 'cancelled' }`
  * is the only client-writable transition — it stamps the cross-process cancel
@@ -87,23 +97,15 @@ export function runIdToCancel(
  * (409) makes the stop moot, so those are swallowed; any other error
  * propagates. Idempotent server-side (re-cancel → 200).
  */
-export async function cancelRun(runId: string): Promise<void> {
-  try {
-    await updateRun(
+export function cancelRun(runId: string): Promise<void> {
+  return ignoringMootRefusal(() =>
+    updateRun(
       runId,
       { status: "cancelled" },
       undefined,
       createAuthenticatedBrowserFetch(globalThis.fetch),
-    );
-  } catch (error) {
-    const status = getApiErrorStatus(error);
-
-    if (status === 404 || status === 409) {
-      return;
-    }
-
-    throw error;
-  }
+    ),
+  );
 }
 
 /**
@@ -113,20 +115,12 @@ export async function cancelRun(runId: string): Promise<void> {
  * already moved or can no longer switch, so the box is stale — swallowed like
  * a moot cancel; any other failure propagates.
  */
-export async function nextCandidateRun(runId: string): Promise<void> {
-  try {
-    await nextRunCandidate(
+export function nextCandidateRun(runId: string): Promise<void> {
+  return ignoringMootRefusal(() =>
+    nextRunCandidate(
       runId,
       undefined,
       createAuthenticatedBrowserFetch(globalThis.fetch),
-    );
-  } catch (error) {
-    const status = getApiErrorStatus(error);
-
-    if (status === 404 || status === 409) {
-      return;
-    }
-
-    throw error;
-  }
+    ),
+  );
 }

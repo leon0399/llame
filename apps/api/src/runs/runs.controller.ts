@@ -1,5 +1,6 @@
 import {
   Body,
+  HttpCode,
   ConflictException,
   Controller,
   Get,
@@ -35,10 +36,8 @@ import { type Run, type RunEvent } from '../db/schema';
 import { isRecord } from '@workspace/runtime-safety';
 import { RunWaitService } from './run-wait.service';
 import { retryRunTransaction } from './run-transaction';
-import {
-  NextCandidateService,
-  nextCandidateUnavailable,
-} from './next-candidate.service';
+import { NextCandidateService } from './next-candidate.service';
+import { NextCandidateUnavailableError } from '../models/models.service';
 import { RunEventsRepository, RunsRepository } from './runs-repository';
 import { SystemPromptReceiptsRepository } from './system-prompt-receipts.repository';
 import { isTerminalRunStatus, isWaitingRunStatus } from './run-status';
@@ -221,6 +220,7 @@ export class RunsController {
    * candidate — answers 409 `next_candidate_unavailable`; another owner's Run
    * answers 404 without reading its state.
    */
+  @HttpCode(200)
   @Post(':id/next-candidate')
   @ApiOperation({ operationId: 'nextRunCandidate' })
   @ApiParam({ name: 'id', format: 'uuid' })
@@ -243,7 +243,9 @@ export class RunsController {
       throw new NotFoundException(`Run ${id} not found`);
     }
 
-    if (outcome.kind === 'unavailable') throw nextCandidateUnavailable();
+    if (outcome.kind === 'unavailable') {
+      throw new NextCandidateUnavailableError();
+    }
 
     return toRunResponse(outcome.run);
   }

@@ -6,10 +6,7 @@
  * pick clears the hold".
  */
 
-import type {
-  ModelRoleCandidate,
-  ModelRoleConfig,
-} from '../instance-config/model-roles-config';
+import type { ModelRoleCandidate } from '../instance-config/model-roles-config';
 import type { SystemModelCatalogEntry } from './model-catalog';
 import { parseModelSelector } from './model-selector';
 
@@ -132,36 +129,10 @@ export function offerSelector(
 /** The candidate after a Run's model in its role, as the next-candidate action reads it. */
 export type NextCandidate = {
   readonly modelId: string;
+  readonly model: SystemModelCatalogEntry;
   /** The candidate's config-declared effort, when it declares one. */
   readonly candidateEffort?: string;
-  /** Per-token (`usage`) billing — false for `subscription` and `free`. */
-  readonly paid: boolean;
 };
-
-/**
- * {@link nextCandidateInRole} over the boot config itself, for a caller that
- * holds `InstanceConfigReader` and not `ModelsService` (follow-up admission).
- * One rule, one implementation: the config is only read through the same
- * catalog view every selector rule uses.
- */
-export function nextCandidateInConfig(
-  config: {
-    readonly models: ReadonlyArray<SystemModelCatalogEntry>;
-    readonly modelRoles: ReadonlyArray<ModelRoleConfig>;
-  },
-  selector: string,
-  currentModelId: string,
-): NextCandidate | undefined {
-  return nextCandidateInRole(
-    {
-      roleCandidates: (roleName) =>
-        config.modelRoles.find((role) => role.name === roleName)?.candidates,
-      model: (modelId) => config.models.find((model) => model.id === modelId),
-    },
-    selector,
-    currentModelId,
-  );
-}
 
 /**
  * The candidate after `currentModelId` in the current config of the role that
@@ -197,8 +168,8 @@ export function nextCandidateInRole(
 
   return {
     modelId: next.modelId,
+    model,
     ...(next.effort !== undefined && { candidateEffort: next.effort }),
-    paid: model.billing === 'usage',
   };
 }
 
@@ -225,13 +196,28 @@ export function revertAtFor(failure: FailureTiming, now: Date): Date {
     if (Number.isFinite(resetAt)) return new Date(resetAt);
   }
 
+  const nowMs = now.getTime();
+  const base = Number.isFinite(nowMs) ? nowMs : Date.now();
   const hintMs = failure.hintMs;
 
-  if (hintMs !== undefined && hintMs !== null) {
-    return new Date(now.getTime() + hintMs);
+  const cappedHint =
+    hintMs === undefined || hintMs === null
+      ? null
+      : Math.min(hintMs, 60 * 60_000);
+
+  const hintAt = cappedHint === null ? Number.NaN : base + cappedHint;
+
+  if (cappedHint !== null) {
+    const hintedDate = new Date(hintAt);
+
+    if (Number.isFinite(hintedDate.getTime())) return hintedDate;
   }
 
-  return new Date(now.getTime() + 5 * 60_000);
+  const fallbackDate = new Date(base + 5 * 60_000);
+
+  return Number.isFinite(fallbackDate.getTime())
+    ? fallbackDate
+    : new Date(Date.now() + 5 * 60_000);
 }
 
 /**

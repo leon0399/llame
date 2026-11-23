@@ -13,12 +13,7 @@ import { isRecord } from '@workspace/runtime-safety';
 
 import { type Message, type Run, type RunStatus } from '../db/schema';
 import { type Db } from '../db/tenant-db.service';
-import { type ModelRoleConfig } from '../instance-config/model-roles-config';
-import { type SystemModelCatalogEntry } from '../models/model-catalog';
-import {
-  nextCandidateInConfig,
-  type NextCandidate,
-} from '../models/model-selection';
+import { type NextCandidate } from '../models/model-selection';
 import {
   EffortNotAvailableError,
   ModelNotAvailableError,
@@ -144,67 +139,82 @@ export async function regenerateDecision(
   }
 }
 
-/** What the Continue-on-next-candidate check settles before the Run row exists. */
+/** What Continue-on-next-candidate settles before the Run row exists. */
 export type ContinueNextDecision =
   | {
       latestRun: Run;
-      /** The failed reply whose settled parts the host Run resumes from. */
-      source: Message;
-      /** The candidate after the failed Run's model in its role. */
+      /** A stored reply exists only when the failed Run produced one. */
+      source?: Message;
       next: NextCandidate;
-      /** The reply's parts through its last settled tool part. */
       keptParts: Array<unknown>;
     }
   | { refusal: Error };
 
+function nextCandidateForFailedRun(
+  latestRun: Run,
+  nextCandidate: (
+    selector: string,
+    currentModelId: string,
+  ) => NextCandidate | undefined,
+): NextCandidate {
+  if (latestRun.status !== 'failed' || latestRun.kind !== 'turn') {
+    throw new NextCandidateUnavailableError(
+      `A ${latestRun.status} ${latestRun.kind} Run cannot move to its next candidate`,
+    );
+  }
+
+  const next = nextCandidate(latestRun.selector, latestRun.modelId);
+
+  if (next === undefined) {
+    throw new NextCandidateUnavailableError(
+      `Selector '${latestRun.selector}' has no candidate after '${latestRun.modelId}'`,
+    );
+  }
+
+  return next;
+}
 /**
- * The next-candidate form of Continue (design D7): only a `failed` turn Run
- * whose selector is a role and whose model still has a following candidate
- * qualifies. Every other state answers `next_candidate_unavailable`, including
- * a compaction Run, a cancelled or expired Run, and an exact selector. The
- * reply must be continuable exactly as a plain Continue requires, because it is
- * the reply the new model receives as history.
+ * Only a failed role Run with a following candidate qualifies. A failed Run
+ * without its own reply starts the new turn from the host message alone.
  */
+
 export async function continueNextDecision(
   tx: Db,
   input: { chatId: string; userId: string },
   userMessage: Message,
-  config: {
-    readonly models: ReadonlyArray<SystemModelCatalogEntry>;
-    readonly modelRoles: ReadonlyArray<ModelRoleConfig>;
-  },
+  nextCandidate: (
+    selector: string,
+    currentModelId: string,
+  ) => NextCandidate | undefined,
 ): Promise<ContinueNextDecision> {
   try {
-    const { latestRun, source } = await continueSource(tx, input, userMessage);
+    const latestRun = await latestTurnRun(tx, input, userMessage);
 
-    if (latestRun.status !== 'failed' || latestRun.kind !== 'turn') {
-      throw new NextCandidateUnavailableError(
-        `A ${latestRun.status} ${latestRun.kind} Run cannot move to its next candidate`,
-      );
-    }
+    const next = nextCandidateForFailedRun(latestRun, nextCandidate);
 
-    const next = nextCandidateInConfig(
-      config,
-      latestRun.selector,
-      latestRun.modelId,
+    const source = await new MessagesRepository(tx).findReply(
+      input.chatId,
+      input.userId,
+      userMessage.id,
     );
 
-    if (next === undefined) {
-      throw new NextCandidateUnavailableError(
-        `Selector '${latestRun.selector}' has no candidate after '${latestRun.modelId}'`,
-      );
-    }
+    if (source !== undefined) continuableReply(latestRun, source);
 
     return {
       latestRun,
-      source,
+      ...(source !== undefined && { source }),
       next,
-      keptParts: continueKeptParts(source.parts),
+      keptParts: source === undefined ? [] : continueKeptParts(source.parts),
     };
   } catch (error) {
     if (!isFollowUpRefusal(error)) throw error;
 
-    return { refusal: error };
+    return {
+      refusal:
+        error instanceof HttpException && error.getStatus() === 409
+          ? new NextCandidateUnavailableError(error.message)
+          : error,
+    };
   }
 }
 

@@ -6,6 +6,7 @@ import { toast } from "@workspace/ui/components/sonner";
 
 import type { ChatLatestRunResponse } from "@/lib/api/generated/models";
 import { nextCandidateRun } from "@/lib/services/chat/runs";
+import { isWaitingTurnRun } from "@/lib/services/models/next-candidate";
 
 export type RunNextCandidateSwitch = {
   /** True while the action is in flight. */
@@ -13,17 +14,6 @@ export type RunNextCandidateSwitch = {
   /** Moves a waiting Run onto its next candidate, then re-reads history. */
   request: () => void;
 };
-
-/** The Run whose quota wait offers Continue on next candidate, or null for
- *  any other state — a compaction Run never switches (model-roles "A
- *  compaction Run does not switch"). */
-function waitingTurnRunId(
-  latestRun: ChatLatestRunResponse | null,
-): string | null {
-  return latestRun?.kind === "turn" && latestRun.status === "awaiting_quota"
-    ? latestRun.id
-    : null;
-}
 
 /**
  * The quota-wait box's Continue on next candidate (model-roles "The web
@@ -35,7 +25,7 @@ export function useNextCandidateSwitch(
   latestRun: ChatLatestRunResponse | null,
   refreshChatMessages: () => void,
 ): RunNextCandidateSwitch {
-  const runId = waitingTurnRunId(latestRun);
+  const runId = isWaitingTurnRun(latestRun) ? latestRun.id : null;
   const [pending, setPending] = useState(false);
 
   const request = useCallback(() => {

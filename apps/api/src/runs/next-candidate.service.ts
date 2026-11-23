@@ -19,11 +19,8 @@ import { isNumber, isRecord } from '@workspace/runtime-safety';
 import { ChatDeliveriesRepository } from '../chats/chat-deliveries.repository';
 import { isCompactCommand } from '../chats/commands/parse-chat-command';
 import { ChatsRepository } from '../chats/chats-repository';
-import {
-  createModelChangeItem,
-  type ModelChangeModel,
-} from '../chats/context-item-producers';
-import { writeSwitchHold } from '../chats/selection-update';
+import { createModelChangeItem } from '../chats/context-item-producers';
+import { recordOwnerSwitch } from '../chats/selection-update';
 import { runs, type AwaitingQuota, type Chat, type Run } from '../db/schema';
 import {
   TenantDbService,
@@ -40,13 +37,10 @@ import {
   revertAtFor,
   type NextCandidate,
 } from '../models/model-selection';
-import {
-  ModelsService,
-  NextCandidateUnavailableError,
-} from '../models/models.service';
+import { ModelsService } from '../models/models.service';
 import { RunDispatchService } from './run-dispatch.service';
 import { retryRunTransaction } from './run-transaction';
-import { RunEventsRepository, RunsRepository } from './runs-repository';
+import { RunsRepository } from './runs-repository';
 import { enqueueSuspendedRun } from './run-suspension';
 import { moveWaitingRunToDelivery } from './segment-delivery';
 import { storeDeliveredMessage } from './segment-delivery-close';
@@ -58,56 +52,14 @@ export type NextCandidateOutcome =
   | { readonly kind: 'not-found' }
   | { readonly kind: 'unavailable' };
 
-/** The 409 a Run that cannot continue on a next candidate answers. */
-export function nextCandidateUnavailable(): NextCandidateUnavailableError {
-  return new NextCandidateUnavailableError();
-}
-
-/**
- * The candidate a quota-waiting Run moves to, or undefined when it has none.
- * A compaction Run keeps the model its selector resolved at admission, and only
- * a Run in the wait can be moved from the outside; an exact selector answers
- * `undefined` from `nextCandidate` itself.
- */
-export function switchTargetFor(
-  run: Pick<Run, 'kind' | 'status' | 'selector' | 'modelId'>,
-  nextCandidate: (
-    selector: string,
-    currentModelId: string,
-  ) => NextCandidate | undefined,
-): NextCandidate | undefined {
-  if (run.kind === 'compaction' || run.status !== 'awaiting_quota') {
-    return undefined;
-  }
-
-  return nextCandidate(run.selector, run.modelId);
-}
-
-/** The catalog as the switch's item names a model, degrading to its id. */
-function modelView(
-  models: ReadonlyArray<SystemModelCatalogEntry>,
-  modelId: string,
-): ModelChangeModel {
-  const model = models.find((entry) => entry.id === modelId);
-
-  if (model === undefined) return { id: modelId };
-
-  return {
-    id: model.id,
-    ...(model.name !== undefined && { name: model.name }),
-    providerModelId: model.providerModelId,
-  };
-}
-
 /** `runs.effort` after the switch, as design D5 orders it. */
 function effortFor(
-  models: Pick<ModelsService, 'validateModelSelection'>,
   run: Pick<Run, 'selectedEffort'>,
   target: NextCandidate,
 ): string | null {
   const choice = effortAfterSwitch({
     selectedEffort: run.selectedEffort,
-    model: models.validateModelSelection(target.modelId),
+    model: target.model,
     candidateEffort: target.candidateEffort,
   });
 
@@ -137,49 +89,38 @@ type SwitchInput = {
   readonly fromJobId: string;
 };
 
-/** The error-record half of D4 and the events of the switch. */
+/** Record the quota-wait switch hold and event. */
 async function appendSwitch(
   tx: Db,
-  input: {
-    readonly chat: Chat;
-    readonly run: Run;
-    readonly target: NextCandidate;
-    readonly awaiting: AwaitingQuota;
+  input: SwitchInput & {
     readonly effort: string | null;
     readonly messageId: string;
   },
 ): Promise<void> {
   const { chat, run, target, awaiting, effort, messageId } = input;
-  const chats = new ChatsRepository(tx);
 
   const hintMs =
     isRecord(run.error) && isNumber(run.error['hintMs'])
       ? run.error['hintMs']
       : null;
 
-  await writeSwitchHold(chats, chat, {
-    runSelectionRevision: run.selectionRevision,
-    runSelector: run.selector,
-    modelId: target.modelId,
-    effort,
+  const chats = new ChatsRepository(tx);
+
+  await recordOwnerSwitch(tx, {
+    chat,
+    run,
+    eventRunId: run.id,
+    toModelId: target.modelId,
+    toEffort: effort,
+    failureClass: awaiting.failureClass,
+    messageId,
     revertAt: revertAtFor(
       { resetsAt: awaiting.resetsAt, hintMs },
       await chats.transactionNow(),
     ),
   });
-
-  await new RunEventsRepository(tx).append(run.id, 'model.switched', {
-    fromModelId: run.modelId,
-    fromEffort: run.effort,
-    toModelId: target.modelId,
-    toEffort: effort,
-    failureClass: awaiting.failureClass,
-    messageId,
-    origin: 'owner',
-  });
 }
 
-/** The quota-wait identity the action fences on, or undefined in any other state. */
 function quotaFence(
   run: Run,
 ): { awaiting: AwaitingQuota; fromJobId: string } | undefined {
@@ -212,7 +153,6 @@ async function deliverSwitch(
   tx: Db,
   input: SwitchInput & {
     readonly catalog: ReadonlyArray<SystemModelCatalogEntry>;
-    readonly models: Pick<ModelsService, 'validateModelSelection'>;
   },
 ): Promise<DeliveredSwitch> {
   const { chat, run, target, awaiting, fromJobId, catalog } = input;
@@ -220,8 +160,10 @@ async function deliverSwitch(
   await finalizeRunReply(tx, { run, status: 'failed', models: catalog });
 
   const switchItem = createModelChangeItem({
-    oldModel: modelView(catalog, run.modelId),
-    newModel: modelView(catalog, target.modelId),
+    oldModel: catalog.find((model) => model.id === run.modelId) ?? {
+      id: run.modelId,
+    },
+    newModel: target.model,
     runId: run.id,
     failureClass: awaiting.failureClass,
   });
@@ -237,7 +179,7 @@ async function deliverSwitch(
     leading: [switchItem],
   });
 
-  const effort = effortFor(input.models, run, target);
+  const effort = effortFor(run, target);
   const nextJobId = randomUUID();
 
   await moveWaitingRunToDelivery(tx, run, {
@@ -260,10 +202,7 @@ export class NextCandidateService {
     @Inject(TenantDbService)
     private readonly tenantDb: TenantRunner,
     @Inject(ModelsService)
-    private readonly models: Pick<
-      ModelsService,
-      'nextCandidate' | 'validateModelSelection'
-    >,
+    private readonly models: Pick<ModelsService, 'nextCandidate'>,
     @Inject(InstanceConfigService)
     private readonly instanceConfig: InstanceConfigReader,
     @Inject(RunDispatchService)
@@ -313,11 +252,14 @@ export class NextCandidateService {
   ): Promise<NextCandidateOutcome> {
     const fence = quotaFence(input.run);
 
-    const target = switchTargetFor(input.run, (selector, currentModelId) =>
-      this.models.nextCandidate(selector, currentModelId),
+    if (fence === undefined) return { kind: 'unavailable' };
+
+    const target = this.models.nextCandidate(
+      input.run.selector,
+      input.run.modelId,
     );
 
-    if (fence === undefined || target === undefined) {
+    if (target === undefined || input.run.kind === 'compaction') {
       return { kind: 'unavailable' };
     }
 
@@ -333,14 +275,10 @@ export class NextCandidateService {
     const delivered = await deliverSwitch(tx, {
       ...input,
       catalog: this.instanceConfig.config.models,
-      models: this.models,
     });
 
     await appendSwitch(tx, {
-      run,
-      target,
-      awaiting: input.awaiting,
-      chat: input.chat,
+      ...input,
       effort: delivered.effort,
       messageId: delivered.messageId,
     });

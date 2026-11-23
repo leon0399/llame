@@ -123,32 +123,11 @@ type QuotaWaitNoticeProps = {
   pendingNextCandidate: boolean;
 };
 
-/** The wait's own way out: move the Run onto the next candidate of its role
- *  instead of waiting for the reset (model-roles "The web offers the next
- *  candidate"). */
-function NextCandidateAction({
-  candidate,
-  onClick,
-  pending,
-}: {
-  candidate: NamedNextCandidate;
-  onClick: () => void;
-  pending: boolean;
-}) {
-  return (
-    <Button variant="ghost" size="sm" disabled={pending} onClick={onClick}>
-      <ArrowRightIcon aria-hidden="true" />
-      {nextCandidateLabel(candidate)}
-    </Button>
-  );
-}
-
 type QuotaWaitActionsProps = Pick<
   QuotaWaitNoticeProps,
   "onStop" | "pendingStop" | "onNextCandidate" | "pendingNextCandidate"
 > & { nextCandidate: NamedNextCandidate | null };
 
-/** The box's actions: the next candidate when the role has one, then Stop. */
 function QuotaWaitActions({
   nextCandidate,
   onNextCandidate,
@@ -159,11 +138,15 @@ function QuotaWaitActions({
   return (
     <CardAction>
       {nextCandidate !== null && (
-        <NextCandidateAction
-          candidate={nextCandidate}
+        <Button
+          variant="ghost"
+          size="sm"
+          disabled={pendingNextCandidate}
           onClick={onNextCandidate}
-          pending={pendingNextCandidate}
-        />
+        >
+          <ArrowRightIcon aria-hidden="true" />
+          {nextCandidateLabel(nextCandidate)}
+        </Button>
       )}
       {pendingStop ? (
         <output>Stopping…</output>

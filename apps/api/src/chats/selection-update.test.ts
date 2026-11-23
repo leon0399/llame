@@ -35,13 +35,12 @@ describe('writeSwitchHold', () => {
   it('writes the hold at the same revision when the selector still matches', async () => {
     const chats = fakeChats();
 
-    const wrote = await writeSwitchHold(
+    await writeSwitchHold(
       chats,
       { id: 'chat-1', ownerUserId: 'owner-1', modelSelection: SELECTION },
       INPUT,
     );
 
-    expect(wrote).toBe(true);
     expect(chats.setModelSelection).toHaveBeenCalledWith('chat-1', 'owner-1', {
       revision: 3,
       selector: '@coding',
@@ -58,7 +57,7 @@ describe('writeSwitchHold', () => {
   it('keeps the owner pick when the revision moved', async () => {
     const chats = fakeChats();
 
-    const wrote = await writeSwitchHold(
+    await writeSwitchHold(
       chats,
       {
         id: 'chat-1',
@@ -67,15 +66,13 @@ describe('writeSwitchHold', () => {
       },
       INPUT,
     );
-
-    expect(wrote).toBe(false);
     expect(chats.setModelSelection).not.toHaveBeenCalled();
   });
 
   it('keeps the selection when the revision is the same but the selector differs', async () => {
     const chats = fakeChats();
 
-    const wrote = await writeSwitchHold(
+    await writeSwitchHold(
       chats,
       {
         id: 'chat-1',
@@ -84,21 +81,17 @@ describe('writeSwitchHold', () => {
       },
       INPUT,
     );
-
-    expect(wrote).toBe(false);
     expect(chats.setModelSelection).not.toHaveBeenCalled();
   });
 
   it('writes no hold when the Chat stores no selection', async () => {
     const chats = fakeChats();
 
-    const wrote = await writeSwitchHold(
+    await writeSwitchHold(
       chats,
       { id: 'chat-1', ownerUserId: 'owner-1', modelSelection: null },
       INPUT,
     );
-
-    expect(wrote).toBe(false);
     expect(chats.setModelSelection).not.toHaveBeenCalled();
   });
 });

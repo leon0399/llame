@@ -391,8 +391,6 @@ function quotaNextCandidate(
   setup: ReturnType<typeof useChatSetup>,
   latestRun: ChatLatestRunResponse | null,
 ): NamedNextCandidate | null {
-  if (latestRun === null) return null;
-
   const candidate = waitingNextCandidate(latestRun, setup.roles);
 
   return candidate === undefined

@@ -53,7 +53,6 @@ import {
   isFollowUpRefusal,
   regenerateDecision,
   type ContinueDecision,
-  type ContinueNextDecision,
   type RegenerateDecision,
 } from './follow-up-decisions';
 import { type PermissionMode } from '../tools/permissions/permission-mode';
@@ -477,46 +476,24 @@ export class FollowUpAdmissionService {
       tx,
       input,
       turn.userMessage,
-      this.instanceConfig.config,
+      (selector, currentModelId) =>
+        this.models.nextCandidate?.(selector, currentModelId),
     );
 
-    if ('refusal' in decision) {
-      return decision;
-    }
+    if ('refusal' in decision) return decision;
 
-    // Accepted: the Chat is the turn's latest activity again.
     await new ChatsRepository(tx).touch(input.chatId, input.userId);
 
-    return this.admitContinueNextRun(tx, {
+    const opened = await openContinueNextCandidate(tx, {
       request: input,
       turn,
       decision,
       permissionMode,
-    });
-  }
-
-  /** Open the host message, Run, hold, and switch event of the new candidate. */
-  private async admitContinueNextRun(
-    tx: Db,
-    input: {
-      request: { chatId: string; userId: string };
-      turn: { chat: Chat; userMessage: Message };
-      decision: Extract<ContinueNextDecision, { latestRun: Run }>;
-      permissionMode: PermissionMode;
-    },
-  ): Promise<AdmissionOutcome> {
-    const opened = await openContinueNextCandidate(tx, {
-      request: input.request,
-      turn: input.turn,
-      decision: input.decision,
-      permissionMode: input.permissionMode,
       config: this.instanceConfig.config,
     });
 
-    if ('refusal' in opened) return opened;
-
     return admittedOutcome({
-      request: input.request,
+      request: input,
       userMessage: opened.message,
       run: opened.run,
       modelId: opened.modelId,

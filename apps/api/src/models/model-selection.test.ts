@@ -18,7 +18,6 @@ import type {
 } from './model-selection';
 import {
   effortAfterSwitch,
-  nextCandidateInConfig,
   nextCandidateInRole,
   revertAtFor,
 } from './model-selection';
@@ -391,42 +390,19 @@ describe('the effort after a switch follows the selected effort', () => {
 });
 
 describe('the next candidate of a role', () => {
-  it('follows the current model in config order, with its effort', () => {
+  it('returns the next model in config order with its effort', () => {
     expect(nextCandidateInRole(CATALOG, '@coding', 'codex')).toEqual({
       modelId: 'sonnet',
+      model: SONNET,
       candidateEffort: 'xhigh',
-      paid: false,
     });
   });
 
-  it('answers no candidate for an exact selector, an unknown role, a model outside the role, and the last candidate', () => {
+  it('answers no candidate for selectors and models outside the role', () => {
     expect(nextCandidateInRole(CATALOG, 'codex', 'codex')).toBeUndefined();
     expect(nextCandidateInRole(CATALOG, '@missing', 'codex')).toBeUndefined();
     expect(nextCandidateInRole(CATALOG, '@coding', 'fast')).toBeUndefined();
     expect(nextCandidateInRole(CATALOG, '@coding', 'sonnet')).toBeUndefined();
-  });
-
-  it('reads the same rule from the boot config, marking usage billing paid', () => {
-    const paid: SystemModelCatalogEntry = {
-      ...model('paid'),
-      billing: 'usage',
-    };
-
-    expect(
-      nextCandidateInConfig(
-        {
-          models: [CODEX, paid],
-          modelRoles: [
-            {
-              name: 'coding',
-              candidates: [{ modelId: 'codex' }, { modelId: 'paid' }],
-            },
-          ],
-        },
-        '@coding',
-        'codex',
-      ),
-    ).toEqual({ modelId: 'paid', paid: true });
   });
 });
 
@@ -445,10 +421,19 @@ describe('the hold of a switch ends at', () => {
     );
   });
 
-  it('the retry hint when the failure named no reset', () => {
-    expect(revertAtFor({ resetsAt: null, hintMs: 30_000 }, NOW)).toEqual(
-      new Date('2026-11-23T13:00:30.000Z'),
+  it('caps retry hints at one hour', () => {
+    const oneHour = new Date(NOW.getTime() + 3_600_000);
+    expect(revertAtFor({ hintMs: 1e20 }, NOW)).toEqual(oneHour);
+    expect(revertAtFor({ hintMs: 10 * 365 * 86_400_000 }, NOW)).toEqual(
+      oneHour,
     );
+  });
+  it('falls back when the clock is invalid', () => {
+    expect(
+      Number.isFinite(
+        revertAtFor({ hintMs: 60_000 }, new Date(Number.NaN)).getTime(),
+      ),
+    ).toBe(true);
   });
 
   it('five minutes when the failure named neither', () => {

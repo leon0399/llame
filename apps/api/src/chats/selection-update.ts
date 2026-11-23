@@ -11,9 +11,14 @@
  * (`model-roles`: "Other Run creators do not write the owner's choice").
  */
 
+import type { Chat, Run } from '../db/schema';
+import type { Db } from '../db/tenant-db.service';
+import type { FailureClass } from '../models/provider-failure/provider-failure';
+import type { ModelSwitchedPayload } from '../runs/model-switch';
+import { RunEventsRepository } from '../runs/runs-repository';
+import { ChatsRepository } from './chats-repository';
 import type { ChatModelSelection } from '../models/model-selection';
 import type { ResolvedSendSettings } from '../models/models.service';
-import type { ChatsRepository } from './chats-repository';
 
 /** Store the selection an admission resolved, when it resolved a write. */
 export async function storeSelectionUpdate(
@@ -41,17 +46,7 @@ export type SwitchHoldInput = {
   readonly revertAt: Date;
 };
 
-/**
- * Store the fallback hold of a model switch (design D4), and only when the
- * owner has not chosen since admission: the selection must still carry the
- * revision the Run read AND the selector the Run resolved, so a steer that
- * re-picked another selector or the same role wins and keeps no hold. The
- * revision does not move — a hold is the Run's record, not an owner write —
- * and `revertAt` is stored as the ISO instant admission later compares.
- *
- * Answers whether it wrote, so the caller can assert the gate instead of
- * re-reading the Chat.
- */
+/** Store the fallback hold only while the owner's selection is unchanged. */
 export async function writeSwitchHold(
   chats: Pick<ChatsRepository, 'setModelSelection'>,
   chat: {
@@ -60,7 +55,7 @@ export async function writeSwitchHold(
     readonly modelSelection: ChatModelSelection | null;
   },
   input: SwitchHoldInput,
-): Promise<boolean> {
+): Promise<void> {
   const selection = chat.modelSelection;
 
   if (
@@ -68,7 +63,7 @@ export async function writeSwitchHold(
     selection.revision !== input.runSelectionRevision ||
     selection.selector !== input.runSelector
   ) {
-    return false;
+    return;
   }
 
   await chats.setModelSelection(chat.id, chat.ownerUserId, {
@@ -80,6 +75,37 @@ export async function writeSwitchHold(
       revertAt: input.revertAt.toISOString(),
     },
   });
+}
 
-  return true;
+/** Write the owner switch hold and its typed event together. */
+export async function recordOwnerSwitch(
+  tx: Db,
+  input: {
+    readonly chat: Chat;
+    readonly run: Run;
+    readonly eventRunId: string;
+    readonly toModelId: string;
+    readonly toEffort: string | null;
+    readonly failureClass: FailureClass;
+    readonly messageId: string;
+    readonly revertAt: Date;
+  },
+): Promise<void> {
+  await writeSwitchHold(new ChatsRepository(tx), input.chat, {
+    runSelectionRevision: input.run.selectionRevision,
+    runSelector: input.run.selector,
+    modelId: input.toModelId,
+    effort: input.toEffort,
+    revertAt: input.revertAt,
+  });
+
+  await new RunEventsRepository(tx).append(input.eventRunId, 'model.switched', {
+    fromModelId: input.run.modelId,
+    fromEffort: input.run.effort,
+    toModelId: input.toModelId,
+    toEffort: input.toEffort,
+    failureClass: input.failureClass,
+    messageId: input.messageId,
+    origin: 'owner',
+  } satisfies ModelSwitchedPayload);
 }

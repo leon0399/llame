@@ -32,11 +32,9 @@ export const NO_ROLES: ReadonlyArray<ModelRoleResponse> = [];
  * never wraps.
  */
 export function nextCandidateOf(
-  run: Pick<ChatLatestRunResponse, "selector" | "modelId"> | null,
+  run: Pick<ChatLatestRunResponse, "selector" | "modelId">,
   roles: ReadonlyArray<ModelRoleResponse>,
 ): NextCandidate | undefined {
-  if (run === null) return undefined;
-
   const role = roles.find((entry) => entry.selector === run.selector);
 
   if (role === undefined) return undefined;
@@ -51,7 +49,14 @@ export function nextCandidateOf(
 
   if (next === undefined) return undefined;
 
-  return { modelId: next.modelId, paid: next.paid };
+  return next;
+}
+
+/** Whether a latest Run is a turn parked in a quota wait. */
+export function isWaitingTurnRun(
+  run: ChatLatestRunResponse | null,
+): run is ChatLatestRunResponse {
+  return run?.kind === "turn" && run.status === "awaiting_quota";
 }
 
 /**
@@ -63,7 +68,7 @@ export function waitingNextCandidate(
   latestRun: ChatLatestRunResponse | null,
   roles: ReadonlyArray<ModelRoleResponse>,
 ): NextCandidate | undefined {
-  if (latestRun?.kind !== "turn" || latestRun.status !== "awaiting_quota") {
+  if (!isWaitingTurnRun(latestRun)) {
     return undefined;
   }
 
