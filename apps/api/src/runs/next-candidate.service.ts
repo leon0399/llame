@@ -21,7 +21,14 @@ import { isCompactCommand } from '../chats/commands/parse-chat-command';
 import { ChatsRepository } from '../chats/chats-repository';
 import { createModelChangeItem } from '../chats/context-item-producers';
 import { recordOwnerSwitch } from '../chats/selection-update';
-import { runs, type AwaitingQuota, type Chat, type Run } from '../db/schema';
+import {
+  runs,
+  type AwaitingQuota,
+  type Chat,
+  type ChatDelivery,
+  type Message,
+  type Run,
+} from '../db/schema';
 import {
   TenantDbService,
   type Db,
@@ -33,7 +40,7 @@ import {
 } from '../instance-config/instance-config.service';
 import type { SystemModelCatalogEntry } from '../models/model-catalog';
 import {
-  effortAfterSwitch,
+  effortFor,
   revertAtFor,
   type NextCandidate,
 } from '../models/model-selection';
@@ -51,20 +58,6 @@ export type NextCandidateOutcome =
   | { readonly kind: 'moved'; readonly run: Run }
   | { readonly kind: 'not-found' }
   | { readonly kind: 'unavailable' };
-
-/** `runs.effort` after the switch, as design D5 orders it. */
-function effortFor(
-  run: Pick<Run, 'selectedEffort'>,
-  target: NextCandidate,
-): string | null {
-  const choice = effortAfterSwitch({
-    selectedEffort: run.selectedEffort,
-    model: target.model,
-    candidateEffort: target.candidateEffort,
-  });
-
-  return choice.kind === 'effort' ? choice.effort : null;
-}
 
 /** The Run row locked SECOND, after the Chat (the wait subsystem's order). */
 async function lockOwnedRun(
@@ -118,6 +111,7 @@ async function appendSwitch(
       { resetsAt: awaiting.resetsAt, hintMs },
       await chats.transactionNow(),
     ),
+    origin: 'owner',
   });
 }
 
@@ -149,15 +143,13 @@ type DeliveredSwitch = {
  * delivery. The Run's own state write lives in the move, so it happens exactly
  * once, under the wait's fence.
  */
-async function deliverSwitch(
+async function storeSwitchMessage(
   tx: Db,
-  input: SwitchInput & {
+  input: Pick<SwitchInput, 'chat' | 'run' | 'target' | 'awaiting'> & {
     readonly catalog: ReadonlyArray<SystemModelCatalogEntry>;
   },
-): Promise<DeliveredSwitch> {
-  const { chat, run, target, awaiting, fromJobId, catalog } = input;
-
-  await finalizeRunReply(tx, { run, status: 'failed', models: catalog });
+): Promise<{ items: ReadonlyArray<ChatDelivery>; message: Message }> {
+  const { chat, run, target, awaiting, catalog } = input;
 
   const switchItem = createModelChangeItem({
     oldModel: catalog.find((model) => model.id === run.modelId) ?? {
@@ -179,7 +171,27 @@ async function deliverSwitch(
     leading: [switchItem],
   });
 
-  const effort = effortFor(run, target);
+  return { items, message };
+}
+
+async function deliverSwitch(
+  tx: Db,
+  input: SwitchInput & {
+    readonly catalog: ReadonlyArray<SystemModelCatalogEntry>;
+  },
+): Promise<DeliveredSwitch> {
+  const { run, target, fromJobId, catalog } = input;
+
+  await finalizeRunReply(tx, { run, status: 'failed', models: catalog });
+
+  const { items, message } = await storeSwitchMessage(tx, input);
+
+  const effort = effortFor(
+    run.selectedEffort,
+    target.model,
+    target.candidateEffort,
+  );
+
   const nextJobId = randomUUID();
 
   await moveWaitingRunToDelivery(tx, run, {

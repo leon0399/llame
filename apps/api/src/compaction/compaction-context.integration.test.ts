@@ -36,11 +36,12 @@ import {
   type ModelClient,
   type ModelStreamInput,
 } from '../models/model-client';
+import type { ModelClientFactory } from '../models/models.service';
+import type { RunModelCapability } from '../runs/run-execution.service';
 import {
-  type ModelClientFactory,
-  type ModelSelectionValidator,
-} from '../models/models.service';
-import { fakeResolveSelection } from '../testing/fake-model-selection';
+  fakeResolveSelection,
+  unexpectedCreateClient,
+} from '../testing/fake-model-selection';
 import type { SystemModelCatalogEntry } from '../models/model-catalog';
 import { MemoryService } from '../memory/memory.service';
 import { SearchIndexService } from '../search/search-index.service';
@@ -148,7 +149,7 @@ const fixtureModelEntry = (modelId: string): SystemModelCatalogEntry => ({
   referencesSkills: false,
 });
 
-const executionModels: ModelSelectionValidator & ModelClientFactory = {
+const executionModels: RunModelCapability = {
   validateModelSelection: fixtureModelEntry,
   resolveEffortSelection: () => undefined,
   resolveSelection: fakeResolveSelection({
@@ -156,9 +157,7 @@ const executionModels: ModelSelectionValidator & ModelClientFactory = {
     resolveEffortSelection: () => undefined,
     defaultSelector: 'system:openai:gpt-5.4-mini',
   }),
-  createClient: () => {
-    throw new Error('Compaction context integration does not switch models');
-  },
+  createClient: unexpectedCreateClient('Compaction context integration'),
 };
 
 const knowledgeCandidates: KnowledgeToolCandidateResolverPort = {
@@ -217,7 +216,7 @@ const epochModelEntry = (modelId: string): SystemModelCatalogEntry => ({
   referencesSkills: true,
 });
 
-const epochModels: ModelSelectionValidator & ModelClientFactory = {
+const epochModels: RunModelCapability = {
   validateModelSelection: epochModelEntry,
   resolveEffortSelection: () => undefined,
   resolveSelection: fakeResolveSelection({
@@ -225,9 +224,7 @@ const epochModels: ModelSelectionValidator & ModelClientFactory = {
     resolveEffortSelection: () => undefined,
     defaultSelector: 'system:openai:gpt-5.4-mini',
   }),
-  createClient: () => {
-    throw new Error('Compaction epoch integration does not switch models');
-  },
+  createClient: unexpectedCreateClient('Compaction epoch integration'),
 };
 
 const EPOCH_EXECUTOR_ID = 'compaction-epoch-host';
@@ -849,7 +846,7 @@ describeIfDb('snapshot-bound compaction continuity', () => {
       skillCatalog?: SkillCatalogPort;
       machines?: MachinesConfig;
     };
-    models?: ModelSelectionValidator & ModelClientFactory;
+    models?: RunModelCapability;
     recencyDigest?: RecencyDigestResolver;
     knowledgeCandidates?: KnowledgeToolCandidateResolverPort;
   };
@@ -1819,11 +1816,9 @@ describeIfDb('snapshot-bound compaction continuity', () => {
               resolveEffortSelection: () => undefined,
               defaultSelector: packagedEntry.id,
             }),
-            createClient: () => {
-              throw new Error(
-                'Compaction context integration does not switch models',
-              );
-            },
+            createClient: unexpectedCreateClient(
+              'Compaction context integration',
+            ),
           },
         },
       ).executeRun(

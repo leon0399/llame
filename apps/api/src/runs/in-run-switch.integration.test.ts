@@ -8,7 +8,7 @@ import {
   call,
   useSegmentsFixture,
 } from '../testing/run-segments.test-fixture';
-import { RunEventsRepository } from './runs-repository';
+import { RunEventsRepository, RunsRepository } from './runs-repository';
 import { dispatchRun } from './worker-harness';
 
 if (!process.env['TEST_DATABASE_URL']) {
@@ -49,8 +49,8 @@ describe('in-run model switches', () => {
 
   const fx = useSegmentsFixture('in-run-switch', {
     allowedTools: ['bash', 'read'],
-    modelSwitchDecision: ({ attemptId, failure }) => {
-      const key = `${attemptId}:${failure.code}`;
+    modelSwitchDecision: ({ failure }) => {
+      const key = failure.code;
       const calls = switchDecisionCalls.get(key) ?? 0;
       switchDecisionCalls.set(key, calls + 1);
 
@@ -117,9 +117,40 @@ describe('in-run model switches', () => {
         hasTextPart(message.parts, 'answer from target'),
       ),
     ).toBe(true);
-    expect(
-      (await events(launched.runId)).map((event) => event.eventType),
-    ).toContain('model.switched');
+    const runEvents = await events(launched.runId);
+
+    const delivered = runEvents.find(
+      (event) =>
+        event.eventType === 'run.delivered' &&
+        isRecord(event.payload) &&
+        event.payload['cause'] === 'failover',
+    );
+
+    const switched = runEvents.find(
+      (event) => event.eventType === 'model.switched',
+    );
+
+    const supersededIndex = runEvents.findIndex(
+      (event) => event.eventType === 'model.superseded',
+    );
+
+    const completedIndex = runEvents.findIndex(
+      (event) => event.eventType === 'model.completed',
+    );
+
+    const run = await db((tx) =>
+      new RunsRepository(tx).findById(launched.runId, fx.userId),
+    );
+
+    expect(delivered?.payload).toMatchObject({ messageId: host?.id });
+    expect(switched?.payload).toMatchObject({ origin: 'policy' });
+    expect(supersededIndex).toBeGreaterThanOrEqual(0);
+    expect(supersededIndex).toBeLessThan(completedIndex);
+    expect(JSON.stringify(host?.parts)).not.toContain('scripted overloaded');
+    expect(JSON.stringify(run?.error)).not.toContain('scripted overloaded');
+    expect(launched.prompts().flat().join('\n')).not.toContain(
+      'scripted overloaded',
+    );
   });
 
   it('A steer that waits at the switch reaches the new segment first', async () => {
@@ -209,6 +240,7 @@ describe('in-run model switches', () => {
       hasTextPart(failedReply?.parts ?? [], 'discarded tool send text'),
     ).toBe(false);
     expect(partTypes(failedReply?.parts ?? [])).toContain('tool-bash');
+    expect(launched.prompts().at(-1)?.join('\n')).toContain('tool:tool-result');
     expect(
       (await events(launched.runId)).some(
         (event) => event.eventType === 'model.switched',
@@ -217,7 +249,21 @@ describe('in-run model switches', () => {
   });
 
   it('A switch after an overload starts the new segment with fresh counts', async () => {
-    registerTarget('fresh target segment');
+    fx.harness.models.register(TARGET, {
+      kind: 'step-script',
+      steps: [
+        [
+          {
+            type: 'error',
+            error: new ProviderFailure('scripted target retry', {
+              code: 'overloaded',
+              superseded: { retry: 1, delayMs: 0 },
+            }),
+          },
+        ],
+        answer('fresh target segment'),
+      ],
+    });
 
     const streamCallsBefore = fx.harness.models.streamCalls.filter(
       (call) => call.modelId === TARGET,
@@ -242,10 +288,18 @@ describe('in-run model switches', () => {
 
     await terminal(launched.runId);
 
+    const retryEvents = (await events(launched.runId)).filter(
+      (event) => event.eventType === 'model.retrying',
+    );
+
+    expect(retryEvents.map((event) => event.payload)).toContainEqual(
+      expect.objectContaining({ retry: 1 }),
+    );
+
     expect(
       fx.harness.models.streamCalls.filter((call) => call.modelId === TARGET)
         .length - streamCallsBefore,
-    ).toBe(1);
+    ).toBe(2);
     expect(
       fx.harness.models.createClientCalls.filter(
         (call) => call.modelId === TARGET,

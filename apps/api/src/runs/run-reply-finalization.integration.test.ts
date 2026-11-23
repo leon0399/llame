@@ -28,7 +28,10 @@ import { type Message } from '../db/schema';
 import { ChatJobsRepository } from '../jobs/chat-jobs.repository';
 import { workerDeadAfterSeconds } from '../jobs/worker-liveness';
 import { newChatJob } from '../testing/chat-job-rows';
-import { fakeResolveSelection } from '../testing/fake-model-selection';
+import {
+  fakeResolveSelection,
+  unexpectedCreateClient,
+} from '../testing/fake-model-selection';
 import { TenantDbService } from '../db/tenant-db.service';
 import { ChatLoopService } from '../chats/chat-loop.service';
 import { ChatsRepository, MessagesRepository } from '../chats/chats-repository';
@@ -47,12 +50,9 @@ import { MediaService } from '../media/media.service';
 import { MemoryService } from '../memory/memory.service';
 import { type ModelClient } from '../models/model-client';
 import { type SystemModelCatalogEntry } from '../models/model-catalog';
-import {
-  ModelsService,
-  type ModelClientFactory,
-  type ModelSelectionValidator,
-} from '../models/models.service';
+import { ModelsService } from '../models/models.service';
 import type { RunWaitService } from './run-wait.service';
+import type { RunModelCapability } from './run-execution.service';
 import { noopQueryEmbedder } from '../search/chat-search-query-embedder.stub';
 import { noopEmbedDispatch } from '../search/search-embed-dispatch.stub';
 import { noopReindexDispatch } from '../search/search-reindex-dispatch.stub';
@@ -347,7 +347,7 @@ describeIfDb(
       userId = crypto.randomUUID();
       await sql`INSERT INTO users (id, name, email) VALUES (${userId}, 'Reply finalization', ${`reply-finalization-${userId}@test.com`})`;
 
-      const models: ModelSelectionValidator & ModelClientFactory = {
+      const models: RunModelCapability = {
         validateModelSelection: () => MODEL_ENTRY,
         resolveEffortSelection: () => undefined,
         resolveSelection: fakeResolveSelection({
@@ -355,11 +355,7 @@ describeIfDb(
           resolveEffortSelection: () => undefined,
           defaultSelector: MODEL_ENTRY.id,
         }),
-        createClient: () => {
-          throw new Error(
-            'Unexpected model client creation in finalization test',
-          );
-        },
+        createClient: unexpectedCreateClient('Finalization integration'),
       };
 
       const bridge: RunStreamResponder = {

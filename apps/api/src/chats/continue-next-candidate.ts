@@ -201,6 +201,7 @@ async function recordSwitch(
       failureTiming(latestRun),
       await new ChatsRepository(tx).transactionNow(),
     ),
+    origin: 'owner',
   });
 }
 

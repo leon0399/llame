@@ -31,11 +31,11 @@ import {
   type ModelStreamInput,
 } from '../models/model-client';
 import type { SystemModelCatalogEntry } from '../models/model-catalog';
-import type {
-  ModelClientFactory,
-  ModelSelectionValidator,
-} from '../models/models.service';
-import { fakeResolveSelection } from '../testing/fake-model-selection';
+import type { RunModelCapability } from '../runs/run-execution.service';
+import {
+  fakeResolveSelection,
+  unexpectedCreateClient,
+} from '../testing/fake-model-selection';
 import { SystemPromptsService } from '../system-prompts/system-prompts.service';
 import type { KnowledgeToolCandidateResolverPort } from '../knowledge/knowledge-tool-candidate-resolver';
 import { TOOL_REGISTRY } from '../tools/registry';
@@ -117,7 +117,7 @@ const testModelEntry: SystemModelCatalogEntry = {
   referencesSkills: false,
 };
 
-const models: ModelSelectionValidator & ModelClientFactory = {
+const models: RunModelCapability = {
   validateModelSelection: () => testModelEntry,
   resolveEffortSelection: () => undefined,
   resolveSelection: fakeResolveSelection({
@@ -125,9 +125,7 @@ const models: ModelSelectionValidator & ModelClientFactory = {
     resolveEffortSelection: () => undefined,
     defaultSelector: testModelEntry.id,
   }),
-  createClient: () => {
-    throw new Error('Unexpected model client creation in metadata-replay test');
-  },
+  createClient: unexpectedCreateClient('Metadata replay integration'),
 };
 
 const knowledgeCandidates: KnowledgeToolCandidateResolverPort = {

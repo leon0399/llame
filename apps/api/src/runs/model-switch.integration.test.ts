@@ -11,12 +11,12 @@
 import { ChatDeliveriesRepository } from '../chats/chat-deliveries.repository';
 import { isContextItemPart, type ContextItemPart } from '../chats/context-item';
 import { isModelChangePayload } from '../chats/context-item-producers';
-import { MessagesRepository } from '../chats/chats-repository';
+import { ChatsRepository, MessagesRepository } from '../chats/chats-repository';
 import { RunningReplyRepository } from '../chats/running-reply-repository';
 import { type Message } from '../db/schema';
 import { useSegmentsFixture } from '../testing/run-segments.test-fixture';
 import { type Db } from '../db/tenant-db.service';
-import { deliverModelSwitch } from './model-switch';
+import { deliverModelSwitch, type ModelSwitchResult } from './model-switch';
 import { runningReplyUsage } from './run-reply-finalizer';
 import { RunEventsRepository, RunsRepository } from './runs-repository';
 
@@ -66,11 +66,21 @@ describe('the model switch inside a live Run', () => {
 
       if (!claimed) throw new Error('The switch fixture claimed no attempt.');
 
+      await new ChatsRepository(tx).setModelSelection(
+        seeded.chatId,
+        fx.userId,
+        { revision: 1, selector: seeded.modelId, effort: 'high' },
+      );
       await new RunsRepository(tx).updateForAttempt(
         seeded.runId,
         fx.userId,
         claimed,
-        { effort: 'high' },
+        {
+          effort: 'high',
+          selectedEffort: 'high',
+          selector: seeded.modelId,
+          selectionRevision: 1,
+        },
       );
 
       await new RunningReplyRepository(tx).upsertRunningReply({
@@ -103,15 +113,41 @@ describe('the model switch inside a live Run', () => {
     };
   }
 
+  type SwitchExtras = {
+    failureClass?: 'overloaded' | 'auth';
+    toEffort?: string | null;
+    beforeSwitch?: 'cancel' | 'fence';
+  };
+
   function switchFrom(
     tx: Db,
     live: LiveSwitch,
-    extras: {
-      failureClass?: 'overloaded' | 'auth';
-      toEffort?: string | null;
-    } = {},
-  ) {
-    return deliverModelSwitch(tx, {
+    extras: SwitchExtras & { beforeSwitch: 'cancel' | 'fence' },
+  ): Promise<ModelSwitchResult | undefined>;
+  function switchFrom(
+    tx: Db,
+    live: LiveSwitch,
+    extras?: SwitchExtras,
+  ): Promise<ModelSwitchResult>;
+  async function switchFrom(
+    tx: Db,
+    live: LiveSwitch,
+    extras: SwitchExtras = {},
+  ): Promise<ModelSwitchResult | undefined> {
+    if (extras.beforeSwitch === 'cancel') {
+      await new RunsRepository(tx).requestCancel(live.runId, fx.userId);
+    } else if (extras.beforeSwitch === 'fence') {
+      await new RunsRepository(tx).markFinished(
+        live.runId,
+        fx.userId,
+        'failed',
+        {
+          attemptId: live.attemptId,
+        },
+      );
+    }
+
+    const switched = await deliverModelSwitch(tx, {
       delivery: {
         run: { runId: live.runId, userId: fx.userId },
         attemptId: live.attemptId,
@@ -148,7 +184,14 @@ describe('the model switch inside a live Run', () => {
       toEffort: extras.toEffort ?? 'low',
       failureClass: extras.failureClass ?? 'overloaded',
       origin: 'owner',
+      failureTiming: {},
     });
+
+    if (switched === undefined && extras.beforeSwitch === undefined) {
+      throw new Error('Expected the live Run switch to retain its fence.');
+    }
+
+    return switched;
   }
 
   const messages = (chatId: string) =>
@@ -183,14 +226,14 @@ describe('the model switch inside a live Run', () => {
     );
 
     expect(delivered?.payload).toMatchObject({
-      messageId: switched.messageId,
+      messageId: switched.message.id,
       cause: 'failover',
       deliveryIds: [live.steerId],
       attemptId: switched.attemptId,
     });
 
     const host = (await messages(live.chatId)).find(
-      (message) => message.id === switched.messageId,
+      (message) => message.id === switched.message.id,
     );
 
     // The switch item leads; the steer that waited at the boundary follows it.
@@ -218,7 +261,7 @@ describe('the model switch inside a live Run', () => {
 
     const chat = await messages(live.chatId);
     const closed = replyOf(chat, live.userMessageId);
-    const host = chat.find((message) => message.id === switched.messageId);
+    const host = chat.find((message) => message.id === switched.message.id);
 
     expect(closed?.parts).toEqual([{ type: 'text', text: 'partial answer' }]);
     expect(closed?.usage).toMatchObject({
@@ -235,7 +278,7 @@ describe('the model switch inside a live Run', () => {
     expect(moved).toMatchObject({
       modelId: SONNET,
       effort: 'low',
-      messageId: switched.messageId,
+      messageId: switched.message.id,
       activeAttemptId: switched.attemptId,
       status: 'running_model',
     });
@@ -251,7 +294,7 @@ describe('the model switch inside a live Run', () => {
       toModelId: SONNET,
       toEffort: 'low',
       failureClass: 'overloaded',
-      messageId: switched.messageId,
+      messageId: switched.message.id,
       origin: 'owner',
     });
 
@@ -260,7 +303,47 @@ describe('the model switch inside a live Run', () => {
       new ChatDeliveriesRepository(tx).findById(live.steerId, fx.userId),
     );
 
-    expect(steer?.deliveredMessageId).toBe(switched.messageId);
+    expect(steer?.deliveredMessageId).toBe(switched.message.id);
+
+    const updatedChat = await fx.db((tx) =>
+      new ChatsRepository(tx).findById(live.chatId, fx.userId),
+    );
+
+    const hold = updatedChat?.modelSelection?.hold;
+
+    expect(updatedChat?.modelSelection).toMatchObject({
+      revision: 1,
+      selector: live.modelId,
+      effort: 'high',
+    });
+    expect(hold?.selector).toBe(live.modelId);
+    expect(hold?.modelId).toBe(SONNET);
+    expect(hold?.effort).toBe('low');
+    expect(hold?.revertAt).toBeDefined();
+  });
+
+  it('does not overwrite a newer owner selection with a switch hold', async () => {
+    const live = await seedLiveSwitch();
+
+    await fx.db((tx) =>
+      new ChatsRepository(tx).setModelSelection(live.chatId, fx.userId, {
+        revision: 2,
+        selector: '@another-role',
+        effort: null,
+      }),
+    );
+
+    await fx.db((tx) => switchFrom(tx, live));
+
+    const updatedChat = await fx.db((tx) =>
+      new ChatsRepository(tx).findById(live.chatId, fx.userId),
+    );
+
+    expect(updatedChat?.modelSelection).toEqual({
+      revision: 2,
+      selector: '@another-role',
+      effort: null,
+    });
   });
 
   it('A switch after an overload', async () => {
@@ -271,7 +354,7 @@ describe('the model switch inside a live Run', () => {
     );
 
     const host = (await messages(live.chatId)).find(
-      (message) => message.id === switched.messageId,
+      (message) => message.id === switched.message.id,
     );
 
     const [item] = switchParts(host?.parts ?? []);
@@ -292,7 +375,7 @@ describe('the model switch inside a live Run', () => {
     const chat = await messages(live.chatId);
 
     const hostIndex = chat.findIndex(
-      (message) => message.id === switched.messageId,
+      (message) => message.id === switched.message.id,
     );
 
     expect(chat[hostIndex - 1]?.id).toBe(replyOf(chat, live.userMessageId)?.id);
@@ -319,7 +402,7 @@ describe('the model switch inside a live Run', () => {
 
     expect(current).toMatchObject({
       modelId: SONNET,
-      messageId: switched.messageId,
+      messageId: switched.message.id,
       activeAttemptId: switched.attemptId,
       status: 'running_model',
     });
@@ -336,8 +419,20 @@ describe('the model switch inside a live Run', () => {
       complete: false,
       modelId: live.modelId,
     });
-    expect(after?.id).not.toBe(switched.messageId);
+    expect(after?.id).not.toBe(switched.message.id);
     // The stale attempt wrote no reply under the host message either.
-    expect(replyOf(chat, switched.messageId)).toBeUndefined();
+    expect(replyOf(chat, switched.message.id)).toBeUndefined();
   });
+  it.each(['cancel', 'fence'] as const)(
+    'does not switch when the Run %s wins the fence',
+    async (beforeSwitch) => {
+      const live = await seedLiveSwitch();
+
+      const switched = await fx.db((tx) =>
+        switchFrom(tx, live, { beforeSwitch }),
+      );
+
+      expect(switched).toBeUndefined();
+    },
+  );
 });
