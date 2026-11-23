@@ -391,7 +391,15 @@ describe('the effort after a switch follows the selected effort', () => {
 
 describe('the next candidate of a role', () => {
   it('returns the next model in config order with its effort', () => {
-    expect(nextCandidateInRole(CATALOG, '@coding', 'codex')).toEqual({
+    const catalog: SelectionCatalog = {
+      ...CATALOG,
+      roleCandidates: () => [
+        { modelId: 'codex', effort: 'high' },
+        { modelId: 'sonnet', effort: 'xhigh' },
+      ],
+    };
+
+    expect(nextCandidateInRole(catalog, '@coding', 'codex')).toEqual({
       modelId: 'sonnet',
       model: SONNET,
       candidateEffort: 'xhigh',
