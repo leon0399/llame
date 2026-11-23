@@ -3,7 +3,11 @@ import * as React from "react";
 import type { FileUIPart } from "ai";
 import { useRouter } from "next/navigation";
 
-import { useChatContext, type PermissionMode } from "@/contexts/chat-context";
+import {
+  useChatContext,
+  type ComposerPicks,
+  type PermissionMode,
+} from "@/contexts/chat-context";
 import type {
   ChatModelSelectionResponse,
   CreateChatMessageDto,
@@ -46,14 +50,15 @@ type ComposerSelections = {
   permissionMode: PermissionMode;
   modelReadyForSend: boolean;
   modelSendUnavailableReason: string | null;
-  /** The selection an accepted create stores, for the composer to show. */
+  /** The selection and picks this create request will carry. */
   accepted: ChatModelSelectionResponse | null;
+  picks: ComposerPicks;
 };
 
 /** The composer's model, effort, and permission mode (keyed by its settings
  *  id until a chat exists). */
 function useComposerSelections(composerChatId: string): ComposerSelections {
-  const { getPermissionMode } = useChatContext();
+  const { getPermissionMode, picks } = useChatContext();
   // A create is a new Chat's first send by definition, so it names the
   // selection the composer shows — even where the page has no draft Chat
   // registered to say so (a project page's composer).
@@ -66,6 +71,7 @@ function useComposerSelections(composerChatId: string): ComposerSelections {
     modelReadyForSend: composer.modelReadyForSend,
     modelSendUnavailableReason: composer.modelSendUnavailableReason,
     accepted: composer.accepted,
+    picks,
   };
 }
 
@@ -128,7 +134,11 @@ type SubmitArgs = {
   onRetain: (chatId: string) => void;
   onFailure: (message: string | null) => void;
   onWorkspaceFailure: (workspace: WorkspaceFailure, chatId: string) => void;
-  onSent: (chatId: string, accepted: ChatModelSelectionResponse | null) => void;
+  onSent: (
+    chatId: string,
+    accepted: ChatModelSelectionResponse | null,
+    picks: ComposerSelections["picks"],
+  ) => void;
 };
 
 async function sendCreate(
@@ -141,7 +151,11 @@ async function sendCreate(
     const workspace = workspaceFailure(response.workspace);
 
     if (workspace === null) {
-      args.onSent(response.chat.id, args.selections.accepted);
+      args.onSent(
+        response.chat.id,
+        args.selections.accepted,
+        args.selections.picks,
+      );
 
       return;
     }
@@ -161,7 +175,7 @@ async function sendCreate(
     // request did reach the server: the draft is filed, and a second send would
     // duplicate it.
     if (chatAlreadyHoldsMessage(error)) {
-      args.onSent(chatId, args.selections.accepted);
+      args.onSent(chatId, args.selections.accepted, args.selections.picks);
 
       return;
     }
@@ -277,9 +291,13 @@ function useOpenCreatedChat(args: ChatCreationArgs, forget: () => void) {
   const router = useRouter();
   const { acceptSend } = useChatContext();
 
-  return (chatId: string, accepted: ChatModelSelectionResponse | null) => {
+  return (
+    chatId: string,
+    accepted: ChatModelSelectionResponse | null,
+    picks: ComposerSelections["picks"],
+  ) => {
     const sent = args.attachments.items;
-    acceptSend(accepted);
+    acceptSend(accepted, picks);
     forget();
     args.setInput("");
     args.attachments.clear();

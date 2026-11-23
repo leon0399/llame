@@ -32,9 +32,9 @@ export type ChatModelSelection = {
 /**
  * What one request names. The named fields are optional.
  *
- * `effortPolicy` is admission metadata, not something the owner names: it says
- * whether `effort` is a named level or only a preference recorded from another
- * Run. It is omitted for every owner request.
+ * `effortPolicy` is admission metadata for a job notice: under a hold, the
+ * hold's effort supersedes its recorded effort. Otherwise the recorded effort
+ * remains named and must be declared by the resolved model.
  */
 export type SelectionRequest = {
   readonly selector?: string | undefined;
@@ -50,11 +50,8 @@ export type SelectionRequest = {
 export type SelectionWriter = 'owner' | 'derived';
 
 /**
- * How admission reads a request's `effort`. `named`: the owner named it, so an
- * undeclared level refuses the request. `preferred`: a job notice recorded the
- * effort of the Run that started the job; admission uses it when the resolved
- * model declares it and otherwise follows the candidate/default chain, so a
- * preference never keeps a notice pending.
+ * `named`: a named effort must be declared by the resolved model.
+ * `preferred`: a job notice's effort is ignored only when a hold applies.
  */
 export type EffortPolicy = 'named' | 'preferred';
 
@@ -310,7 +307,7 @@ export function chooseEffort(input: {
       return { kind: 'effort', effort: input.holdEffort };
     }
 
-    return fallbackEffort(input.model, input.candidateEffort);
+    return fallbackEffort(input.model, undefined);
   }
 
   if (

@@ -359,7 +359,63 @@ describe('promoteNextQueueItem', () => {
     expect(createRun).not.toHaveBeenCalled();
   });
 
-  it('reads a notice effort as a preference', () => {
+  it('keeps the hold when a promotion is skipped before its item starts', async () => {
+    const { promote, resolveSelection, lock, firstPendingQueueItem } =
+      makeSetup();
+
+    const stored = {
+      revision: 1,
+      selector: '@coding',
+      effort: 'high',
+      hold: {
+        selector: '@coding',
+        modelId: 'model-1',
+        effort: null,
+        revertAt: '2026-11-09T00:00:00.000Z',
+      },
+    };
+
+    lock.mockResolvedValue(
+      asDouble<Chat>({ archivedAt: null, modelSelection: stored }),
+    );
+
+    firstPendingQueueItem.mockResolvedValue({
+      ...item,
+      settings: { ...item.settings, selector: '@coding' },
+    });
+    resolveSelection.mockReturnValue({
+      selector: '@coding',
+      model: asDouble({ id: 'model-1' }),
+      effort: 'low',
+      nextSelection: {
+        revision: 2,
+        selector: '@coding',
+        effort: null,
+      },
+    });
+
+    vi.spyOn(
+      MessagesRepository.prototype,
+      'createUserMessageIfAbsent',
+    ).mockResolvedValue(undefined);
+
+    const storeSelection = vi.spyOn(
+      ChatsRepository.prototype,
+      'setModelSelection',
+    );
+
+    await expect(promote()).resolves.toBeUndefined();
+
+    expect(resolveSelection).toHaveBeenCalledWith(
+      stored,
+      { effort: 'high' },
+      'derived',
+      at,
+    );
+    expect(storeSelection).not.toHaveBeenCalled();
+  });
+
+  it('passes a notice effort policy for hold precedence', () => {
     const { models, resolveSelection } = makeSetup();
 
     resolveItemRunSettings({

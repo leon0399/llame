@@ -5,6 +5,7 @@ import {
   nextSelectionForWrite,
   resolveHold,
   type ChatModelSelection,
+  type HoldResolution,
   type EffortPolicy,
   type SelectionCatalog,
   type SelectionRequest,
@@ -71,34 +72,33 @@ function offeredModel(
   }
 }
 
-function resolveFakeSelection(input: {
+type ResolveFakeSelectionInput = {
   catalog: SelectionCatalog;
   stored: ChatModelSelection | null;
   request: SelectionRequest;
   writer: SelectionWriter;
   now: Date;
   resolveEffortSelection: ModelSelectionValidator['resolveEffortSelection'];
-}): ResolvedSelection {
+};
+
+function resolveFakeSelection(
+  input: ResolveFakeSelectionInput,
+): ResolvedSelection {
   const { catalog, stored, request, writer } = input;
 
   const chosen = requireOfferedSelector(
     chooseSelector(catalog, stored, request),
   );
 
-  // The double publishes no roles, so a hold always names a model it cannot
-  // fall back from and is dropped; taking the decision from the production
-  // `resolveHold` keeps even that case in one place.
-  const hold = resolveHold({
-    catalog,
-    stored,
-    request,
-    writer,
-    storedUsed: chosen.storedUsed,
-    now: input.now,
-  });
+  const hold = fakeHold(input, chosen.storedUsed);
 
-  const policy = request.effortPolicy ?? 'named';
-  const effort = fakeEffort(chosen.model, chosen.storedUsed, input, policy);
+  const effort = fakeEffort({
+    model: chosen.model,
+    storedUsed: chosen.storedUsed,
+    input,
+    effortPolicy: request.effortPolicy ?? 'named',
+    hold,
+  });
 
   return {
     selector: chosen.selector,
@@ -116,35 +116,56 @@ function resolveFakeSelection(input: {
   };
 }
 
-/**
- * The resolved effort. A named level goes through the injected resolver (the
- * doubles stay free to declare none); a preference follows the production
- * `chooseEffort` order, which uses the recorded level when the model declares
- * it and otherwise falls through to the model's default.
- */
-function fakeEffort(
-  model: SystemModelCatalogEntry,
+function fakeHold(
+  input: ResolveFakeSelectionInput,
   storedUsed: boolean,
+): HoldResolution {
+  return resolveHold({
+    catalog: input.catalog,
+    stored: input.stored,
+    request: input.request,
+    writer: input.writer,
+    storedUsed,
+    now: input.now,
+  });
+}
+
+/**
+ * A recorded notice effort is named unless an applied hold supersedes it.
+ * Named choices use the injected resolver so test doubles can declare none.
+ */
+function fakeEffort(args: {
+  model: SystemModelCatalogEntry;
+  storedUsed: boolean;
   input: {
     stored: ChatModelSelection | null;
     request: SelectionRequest;
     resolveEffortSelection: ModelSelectionValidator['resolveEffortSelection'];
-  },
-  effortPolicy: EffortPolicy,
-): string | undefined {
-  if (input.request.effort !== undefined && effortPolicy === 'named') {
-    return input.resolveEffortSelection(model, input.request.effort);
+  };
+  effortPolicy: EffortPolicy;
+  hold: HoldResolution;
+}): string | undefined {
+  const held =
+    args.effortPolicy === 'preferred' && args.hold.kind === 'applied';
+
+  if (args.input.request.effort !== undefined && !held) {
+    return args.input.resolveEffortSelection(
+      args.model,
+      args.input.request.effort,
+    );
   }
 
-  const preferred = effortPolicy === 'preferred';
-
   const choice = chooseEffort({
-    model,
-    requested: input.request.effort,
-    requestedIsPreference: preferred,
+    model: args.model,
+    requested: held ? undefined : args.input.request.effort,
+    requestedIsPreference: false,
     storedEffort:
-      preferred || !storedUsed ? null : (input.stored?.effort ?? null),
+      args.effortPolicy === 'preferred' || !args.storedUsed
+        ? null
+        : (args.input.stored?.effort ?? null),
     candidateEffort: undefined,
+    holdEffort:
+      args.hold.kind === 'applied' ? args.hold.hold.effort : undefined,
   });
 
   return choice.kind === 'effort' ? choice.effort : undefined;

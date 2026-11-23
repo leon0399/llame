@@ -55,7 +55,10 @@ describe("ChatProvider acceptSend", () => {
     act(() => result.current.pickSelector("@plain"));
 
     act(() =>
-      result.current.acceptSend({ selector: "@plain", effort: "high" }),
+      result.current.acceptSend(
+        { selector: "@plain", effort: "high" },
+        result.current.picks,
+      ),
     );
 
     expect(result.current.displayedSelection).toEqual({
@@ -73,9 +76,44 @@ describe("ChatProvider acceptSend", () => {
     act(() => result.current.registerChatSelection("chat-a", stored, true));
     act(() => result.current.pickEffort("low"));
 
-    act(() => result.current.acceptSend(null));
+    act(() => result.current.acceptSend(null, result.current.picks));
 
     expect(result.current.displayedSelection).toEqual(stored);
     expect(result.current.pickedEffort).toBeUndefined();
+  });
+
+  it("keeps picks made after a request prepared while accepting the old picks", () => {
+    const { result } = renderComposer();
+
+    act(() => result.current.pickSelector("@first"));
+
+    const requestPicks = result.current.picks;
+
+    act(() => result.current.pickSelector("@later"));
+    act(() =>
+      result.current.acceptSend(
+        { selector: "@first", effort: null },
+        requestPicks,
+      ),
+    );
+
+    expect(result.current.pickedSelector).toBe("@later");
+  });
+
+  it("keeps a same-value pick made after preparation", () => {
+    const { result } = renderComposer();
+
+    act(() => result.current.pickSelector("@same"));
+    const requestPicks = result.current.picks;
+
+    act(() => result.current.pickSelector("@same"));
+    act(() =>
+      result.current.acceptSend(
+        { selector: "@same", effort: null },
+        requestPicks,
+      ),
+    );
+
+    expect(result.current.pickedSelector).toBe("@same");
   });
 });

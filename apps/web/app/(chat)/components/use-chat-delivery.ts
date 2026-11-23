@@ -11,7 +11,7 @@ import type { ChatStatus, UIMessage } from "ai";
 
 import { toast } from "@workspace/ui/components/sonner";
 
-import { useChatContext } from "@/contexts/chat-context";
+import { useChatContext, type ComposerPicks } from "@/contexts/chat-context";
 import { getApiErrorStatus } from "@/lib/api/errors";
 import type {
   ChatDeliveryResponse,
@@ -451,8 +451,12 @@ type DeliveryComposer = {
   draft: DraftState;
   selections: Selections;
   accepted: ChatModelSelectionResponse | null;
+  picks: ComposerPicks;
   canSend: boolean;
-  accept: (selection: ChatModelSelectionResponse | null) => void;
+  accept: (
+    selection: ChatModelSelectionResponse | null,
+    picks: ComposerPicks,
+  ) => void;
   setNotice: (notice: DeliveryNotice | null) => void;
 };
 
@@ -465,7 +469,7 @@ function deliveryAction(args: DeliveryComposer) {
       ctx: args.ctx,
       draft: args.draft,
       selections: args.selections,
-      onAccepted: () => args.accept(args.accepted),
+      onAccepted: () => args.accept(args.accepted, args.picks),
       mode,
       setNotice: args.setNotice,
     });
@@ -523,7 +527,7 @@ function useDeliveryStop(
 
 /** What this Chat's next delivery names, and what an accepted one stores. */
 function useDeliverySelections(chatId: string) {
-  const { getPermissionMode } = useChatContext();
+  const { getPermissionMode, picks } = useChatContext();
   const composer = useComposerSelection();
 
   return {
@@ -533,6 +537,7 @@ function useDeliverySelections(chatId: string) {
       permissionMode: getPermissionMode(chatId),
     },
     accepted: composer.accepted,
+    picks,
   };
 }
 
@@ -545,7 +550,7 @@ function useDeliverySend(args: UseChatDeliveryArgs) {
   const [notice, setNotice] = useState<DeliveryNotice | null>(null);
   const ctx = { queryClient: useQueryClient(), chatId, ...args.handoff };
   const { acceptSend } = useChatContext();
-  const { selections, accepted } = useDeliverySelections(chatId);
+  const { selections, accepted, picks } = useDeliverySelections(chatId);
   const canSend = exists && args.modelReadyForSend && !attachments.sendBlocked;
 
   return {
@@ -556,6 +561,7 @@ function useDeliverySend(args: UseChatDeliveryArgs) {
       draft: args,
       selections,
       accepted,
+      picks,
       canSend,
       accept: acceptSend,
       setNotice,

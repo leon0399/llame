@@ -318,11 +318,9 @@ export function resolveSelectionFromCatalog(
 type AppliedHold = Extract<HoldResolution, { kind: 'applied' }>;
 
 /**
- * The effort of one admission, after its selector and hold are known. A named
- * level is refused when the resolved model does not declare it. A preference,
- * recorded by a job notice, is used only when the model declares it: under an
- * applied hold the hold's effort wins, and otherwise the candidate/default
- * chain follows.
+ * level is refused when the resolved model does not declare it. A job notice
+ * under an applied hold uses the hold's effort instead of its recorded effort.
+ * Otherwise it follows the same named-effort and candidate/default chain.
  */
 function admittedEffort(input: {
   model: SystemModelCatalogEntry;
@@ -335,16 +333,14 @@ function admittedEffort(input: {
 
   return resolveEffortChoice({
     model: input.model,
-    // A held model serves the notice at the hold's effort: the recorded effort
-    // is a preference, not an owner pick, so it never overrides the hold.
+    // A recorded notice effort is omitted only when a hold applies.
     requested:
       preferred && input.applied !== undefined
         ? undefined
         : input.request.effort,
-    requestedIsPreference: preferred && input.applied === undefined,
+    requestedIsPreference: false,
     holdEffort: input.applied?.hold.effort,
-    // A preference is tried once against the resolved model; the stored effort
-    // is not part of the candidate/default chain it falls back to.
+    // Otherwise it is validated like an owner-named level.
     storedEffort: preferred
       ? null
       : input.chosen.storedUsed
@@ -511,11 +507,9 @@ export class ModelsService {
    * caller runs it inside the transaction that holds the Chat row, with the
    * selection that row stores and that transaction's `now()`: `chooseSelector`
    * picks the named, stored, or default selector, `resolveHold` decides whether
-   * a fallback hold applies or is dropped (design D4), `chooseEffort` follows
-   * the spec's order, and `nextSelectionForWrite` decides what the request
-   * stores. `request.effortPolicy` says how a recorded effort is read: named
-   * by the owner (the default) or only a preference, as a job notice records
-   * it.
+   * a fallback hold applies or is dropped (design D4), and `chooseEffort`
+   * resolves effort. A notice's hold supersedes its recorded effort; otherwise
+   * that effort is validated like an owner-named level.
    */
   resolveSelection(
     stored: ChatModelSelection | null,

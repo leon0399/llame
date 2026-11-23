@@ -31,6 +31,13 @@ const NO_REGISTRATION: ChatRegistration = {
   acceptedSend: false,
 };
 
+export type ComposerPicks = {
+  selector: string | undefined;
+  effort: string | undefined;
+  selectorRevision: number;
+  effortRevision: number;
+};
+
 export interface ChatContextType {
   /**
    * The selection the picker shows: the open Chat's stored selection, or the
@@ -56,12 +63,16 @@ export interface ChatContextType {
   /** The effort the owner picked since the last accepted send, if any. */
   pickedEffort: string | undefined;
   pickEffort: (effort: string) => void;
+  picks: ComposerPicks;
   /**
    * A send carrying the picks was accepted: they are no longer picks, and the
    * composer shows `selection` (the selection that send stored), or keeps the
    * stored one when the send stored nothing (`null`).
    */
-  acceptSend: (selection: ChatModelSelectionResponse | null) => void;
+  acceptSend: (
+    selection: ChatModelSelectionResponse | null,
+    picks: ComposerPicks,
+  ) => void;
   getPermissionMode: (chatId: string) => PermissionMode;
   setPermissionMode: (chatId: string, mode: PermissionMode) => void;
 }
@@ -77,6 +88,12 @@ const ChatContext = createContext<ChatContextType>({
     throw new Error("pickSelector is not implemented");
   },
   pickedEffort: undefined,
+  picks: {
+    selector: undefined,
+    effort: undefined,
+    selectorRevision: 0,
+    effortRevision: 0,
+  },
   pickEffort: () => {
     throw new Error("pickEffort is not implemented");
   },
@@ -89,32 +106,72 @@ const ChatContext = createContext<ChatContextType>({
   },
 });
 
+/** Remove only picks whose generation still matches the prepared request. */
+function retireSelectionPicks(
+  current: ComposerPicks,
+  carried: ComposerPicks,
+): ComposerPicks {
+  const retireSelector = current.selectorRevision === carried.selectorRevision;
+  const retireEffort = current.effortRevision === carried.effortRevision;
+
+  return {
+    selector: retireSelector ? undefined : current.selector,
+    effort: retireEffort ? undefined : current.effort,
+    selectorRevision: current.selectorRevision + Number(retireSelector),
+    effortRevision: current.effortRevision + Number(retireEffort),
+  };
+}
+
+const EMPTY_COMPOSER_PICKS: ComposerPicks = {
+  selector: undefined,
+  effort: undefined,
+  selectorRevision: 0,
+  effortRevision: 0,
+};
+
 /** The owner's unsent picks and the actions that set and spend them. */
 function useComposerPicks() {
-  const [pickedSelector, setPickedSelector] = useState<string | undefined>(
-    undefined,
-  );
-
-  const [pickedEffort, setPickedEffort] = useState<string | undefined>(
-    undefined,
-  );
+  const [picks, setPicks] = useState<ComposerPicks>(EMPTY_COMPOSER_PICKS);
 
   const pickSelector = useCallback((selector: string) => {
-    setPickedSelector(selector);
-    setPickedEffort(undefined);
+    setPicks((current) => ({
+      selector,
+      effort: undefined,
+      selectorRevision: current.selectorRevision + 1,
+      effortRevision: current.effortRevision + 1,
+    }));
   }, []);
 
   const pickEffort = useCallback((effort: string) => {
-    setPickedEffort(effort);
+    setPicks((current) => ({
+      ...current,
+      effort,
+      effortRevision: current.effortRevision + 1,
+    }));
   }, []);
 
-  /** Forgets both picks: the send that carried them was accepted. */
   const clearPicks = useCallback(() => {
-    setPickedSelector(undefined);
-    setPickedEffort(undefined);
+    setPicks((current) => ({
+      selector: undefined,
+      effort: undefined,
+      selectorRevision: current.selectorRevision + 1,
+      effortRevision: current.effortRevision + 1,
+    }));
   }, []);
 
-  return { pickedSelector, pickedEffort, pickSelector, pickEffort, clearPicks };
+  const retirePicks = useCallback((carried: ComposerPicks) => {
+    setPicks((current) => retireSelectionPicks(current, carried));
+  }, []);
+
+  return {
+    pickedSelector: picks.selector,
+    pickedEffort: picks.effort,
+    picks,
+    pickSelector,
+    pickEffort,
+    clearPicks,
+    retirePicks,
+  };
 }
 
 /** Registers a Chat read on the state: a different Chat starts a new page. */
@@ -132,7 +189,10 @@ function registerChat(
 }
 
 /** The open Chat's registration, and the accepted send that spends a draft. */
-function useChatRegistration(clearPicks: () => void) {
+function useChatRegistration(
+  clearPicks: () => void,
+  retirePicks: (picks: ComposerPicks) => void,
+) {
   const [registration, setRegistration] =
     useState<ChatRegistration>(NO_REGISTRATION);
 
@@ -156,15 +216,15 @@ function useChatRegistration(clearPicks: () => void) {
   );
 
   const acceptSend = useCallback(
-    (selection: ChatModelSelectionResponse | null) => {
-      clearPicks();
+    (selection: ChatModelSelectionResponse | null, picks: ComposerPicks) => {
+      retirePicks(picks);
       setRegistration((current) => ({
         ...current,
         acceptedSend: true,
         selection: selection ?? current.selection,
       }));
     },
-    [clearPicks],
+    [retirePicks],
   );
 
   return { registration, registerChatSelection, acceptSend };
@@ -190,7 +250,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
   const picks = useComposerPicks();
 
   const { registration, registerChatSelection, acceptSend } =
-    useChatRegistration(picks.clearPicks);
+    useChatRegistration(picks.clearPicks, picks.retirePicks);
 
   const { getPermissionMode, setPermissionMode } = usePermissionModes();
 
@@ -201,6 +261,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
     pickedSelector: picks.pickedSelector,
     pickSelector: picks.pickSelector,
     pickedEffort: picks.pickedEffort,
+    picks: picks.picks,
     pickEffort: picks.pickEffort,
     acceptSend,
     getPermissionMode,

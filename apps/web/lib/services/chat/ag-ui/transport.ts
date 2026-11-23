@@ -32,13 +32,16 @@ async function streamEvents(response: Response) {
  * `onAccepted` runs once the api accepted a request (before its events are
  * read), so the caller can retire the state that request carried.
  */
-export function createChatTransport(
-  prepare: (request: ChatRequest) => PreparedChatRequest,
-  onAccepted: (request: ChatRequest) => void,
+export function createChatTransport<TAccepted>(
+  prepare: (
+    request: ChatRequest,
+  ) => PreparedChatRequest & { accepted: TAccepted },
+  onAccepted: (request: ChatRequest, accepted: TAccepted) => void,
 ): ChatTransport {
   return {
     async sendMessages(request, signal) {
-      const { api, body } = prepare(request);
+      const prepared = prepare(request);
+      const { api, body } = prepared;
 
       const response = await authAwareFetch(api, {
         method: "POST",
@@ -51,7 +54,7 @@ export function createChatTransport(
         signal,
       });
 
-      if (response.ok) onAccepted(request);
+      if (response.ok) onAccepted(request, prepared.accepted);
 
       return streamEvents(response);
     },

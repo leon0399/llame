@@ -103,18 +103,9 @@ export async function promoteNextQueueItem(
 
   if (resolved === undefined) return undefined;
 
-  // A promoted item keeps the owner's selector and effort; the one thing it
-  // may store is the removal of a hold this admission dropped.
-  await storeSelectionUpdate(chats, chat, resolved);
-
-  // A savepoint, so an item that stopped being pending leaves no message and
-  // no Run behind while the completed Run's own settlement commits.
+  // A savepoint keeps the item and its derived selection update atomic.
   try {
-    const started = await tx.transaction((inner) =>
-      startItemRun(inner, item, resolved),
-    );
-
-    return started?.job;
+    return (await startPromotedItem(tx, chat, item, resolved))?.job;
   } catch (error) {
     if (error instanceof ItemNoLongerPending) return undefined;
 
@@ -124,14 +115,26 @@ export async function promoteNextQueueItem(
   }
 }
 
+async function startPromotedItem(
+  tx: Db,
+  chat: { readonly id: string; readonly ownerUserId: string },
+  item: ChatDelivery,
+  resolved: ResolvedSendSettings,
+): Promise<{ job: RunJob; delivered: ChatDelivery } | undefined> {
+  return tx.transaction(async (inner) => {
+    const started = await startItemRun(inner, item, resolved);
+
+    if (started) {
+      await storeSelectionUpdate(new ChatsRepository(inner), chat, resolved);
+    }
+
+    return started;
+  });
+}
+
 /**
- * The settings a pending item's Run starts with, resolved by the resolver a
- * send uses (writer `derived`): a named selector wins, else the Chat's stored
- * one, else the configured default. Queue promotion, a job notice, and a
- * delivery mode change share it, so an item starts only under settings a send
- * would be accepted with now. An owner item's effort is `named`; a job notice
- * records the starting Run's effort as a `preferred` level (see
- * {@link EffortPolicy}).
+ * would be accepted with now. Each item's recorded effort is named; a job
+ * notice's hold can supersede its effort when a fallback hold applies.
  */
 export function resolveItemRunSettings(input: {
   models: ModelSelectionValidator;

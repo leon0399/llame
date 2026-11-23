@@ -11,16 +11,21 @@ import { useCallback, useEffect, useMemo, useRef, type RefObject } from "react";
 import { getToolName, isToolUIPart, type ChatStatus, type UIMessage } from "ai";
 import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 
-import { useChatContext, type PermissionMode } from "@/contexts/chat-context";
+import {
+  useChatContext,
+  type ComposerPicks,
+  type PermissionMode,
+} from "@/contexts/chat-context";
 import { useLatestRef } from "@/lib/hooks/use-latest-ref";
 import type {
   ChatRequest,
   ChatTransport,
 } from "@/lib/services/chat/ag-ui/chat";
-import { useAgUiChat } from "@/lib/services/chat/ag-ui/use-ag-ui-chat";
 import { createChatTransport } from "@/lib/services/chat/ag-ui/transport";
+import { useAgUiChat } from "@/lib/services/chat/ag-ui/use-ag-ui-chat";
 import {
   type ChatTransportRequestOptions,
+  type PreparedChatRequest,
   prepareSendMessagesRequest,
 } from "@/lib/services/chat/transport";
 import { chatQueryKeys } from "@/lib/services/chat/queries";
@@ -135,52 +140,60 @@ export function useChatPermissionRestore({
   ]);
 }
 
-/** What the id-stable transport reads at request time: the fields this send
- *  names, and the selection an accepted send stores. */
+/** What one request carries into the accepted-send callback. */
+type AcceptedSendSnapshot = {
+  selection: ComposerSelection | null;
+  picks: ComposerPicks;
+};
+
+/** What the id-stable transport reads at request time. */
 export type ChatSendSelection = {
   send: SendSelection;
   accepted: ComposerSelection | null;
 };
 
-/** The composer's latest selections, read at request time (never during
- *  render) so an id-stable transport always sends what is selected now. */
-function requestOptions(
+/** Prepare request fields and the matching selection snapshot atomically. */
+export function prepareChatRequest(
   options: ChatRequest,
   selections: {
     send: RefObject<SendSelection>;
+    accepted: RefObject<ComposerSelection | null>;
+    picks: RefObject<ComposerPicks>;
     permissionMode: RefObject<PermissionMode>;
   },
-): ChatTransportRequestOptions {
+): PreparedChatRequest & { accepted: AcceptedSendSnapshot } {
+  const send = selections.send.current;
+  const picks = selections.picks.current;
+
   return {
-    chatId: options.chatId,
-    messages: options.messages,
-    trigger: options.trigger,
-    followUp: options.body,
-    selector: selections.send.current.selector,
-    effort: selections.send.current.effort,
-    permissionMode: selections.permissionMode.current,
+    ...prepareSendMessagesRequest({
+      chatId: options.chatId,
+      messages: options.messages,
+      trigger: options.trigger,
+      followUp: options.body,
+      selector: send.selector,
+      effort: send.effort,
+      permissionMode: selections.permissionMode.current,
+    } satisfies ChatTransportRequestOptions),
+    accepted: { selection: selections.accepted.current, picks },
   };
 }
 
 /**
- * The accepted-send callback: an accepted send that named a selector or effort
- * carried the owner's picks, and the api stored them, so they are spent. A
- * plain Regenerate (and Continue) names neither — it repeats the Chat's stored
- * selection and keeps a pick the owner made (turn-actions "A plain click
- * repeats the old settings").
+ * A plain Regenerate (and Continue) names neither selector nor effort, so it
+ * must not retire a pick the owner made for a later send.
  */
 function acceptedSendCallback(
-  accept: (selection: ComposerSelection | null) => void,
-  acceptedRef: RefObject<ComposerSelection | null>,
+  accept: (selection: ComposerSelection | null, picks: ComposerPicks) => void,
 ) {
-  return (request: ChatRequest) => {
+  return (request: ChatRequest, snapshot: AcceptedSendSnapshot) => {
     const namesSelection =
       request.body !== undefined &&
       ("selector" in request.body || "effort" in request.body);
 
     if (request.trigger === "regenerate-message" && !namesSelection) return;
 
-    accept(acceptedRef.current);
+    accept(snapshot.selection, snapshot.picks);
   };
 }
 
@@ -189,44 +202,32 @@ export function useChatSendTransport(
   chatId: string,
   composer: ChatSendSelection,
 ) {
-  const { getPermissionMode, acceptSend } = useChatContext();
-  // The engine creates its chat once per chatId and NEVER adopts a new
-  // `transport` instance afterwards (it only recreates on an id change).
-  // Closing the transport over the composer's selections therefore froze it at
-  // the first-render values (undefined, before models load), so a pick made
-  // after load never reached the request. Read them from refs instead, so the
-  // id-stable transport always sends the CURRENT selection. Assigned during
-  // render (not via an effect) — a plain latest-value mirror, only read later
-  // inside prepareSendMessagesRequest.
+  const { getPermissionMode, acceptSend, picks } = useChatContext();
+
+  // The id-stable transport reads all request-time values from latest refs.
   const sendRef = useLatestRef(composer.send);
-  // The accepted send's selection is what the composer shows until the Chat
-  // read catches up; read at accept time for the same reason as above.
   const acceptedRef = useLatestRef(composer.accepted);
-  // Permission mode is keyed by this chat id; mirror its latest selection so
-  // the id-stable transport reads the mode chosen immediately before sending.
+  const picksRef = useLatestRef(picks);
   const selectedPermissionModeRef = useLatestRef(getPermissionMode(chatId));
 
   const onAccepted = useMemo(
-    () => acceptedSendCallback(acceptSend, acceptedRef),
-    [acceptSend, acceptedRef],
+    () => acceptedSendCallback(acceptSend),
+    [acceptSend],
   );
 
   return useMemo(
     () =>
       createChatTransport(
         (request) =>
-          prepareSendMessagesRequest(
-            requestOptions(request, {
-              send: sendRef,
-              permissionMode: selectedPermissionModeRef,
-            }),
-          ),
+          prepareChatRequest(request, {
+            send: sendRef,
+            accepted: acceptedRef,
+            picks: picksRef,
+            permissionMode: selectedPermissionModeRef,
+          }),
         onAccepted,
       ),
-    // The refs are listed for the exhaustive-deps rule's benefit only: a ref
-    // object is stable for the component's life, so including them cannot
-    // rebuild the transport.
-    [onAccepted, selectedPermissionModeRef, sendRef],
+    [onAccepted, acceptedRef, picksRef, selectedPermissionModeRef, sendRef],
   );
 }
 

@@ -24,6 +24,8 @@ import {
  *  and defeat memoized transcript rows while models are still loading. */
 const EMPTY_MODELS: ReadonlyArray<AvailableModel> = [];
 
+const MAX_TIMEOUT_DELAY = 2_147_483_647;
+
 export type ComposerSelectionState = {
   data: ModelsResponse | undefined;
   /** The selection the picker shows (stored selection plus unsent picks). */
@@ -65,6 +67,27 @@ function sendUnavailableReason(
   return null;
 }
 
+function composerReadiness(
+  query: { isPending: boolean; isError: boolean; isSuccess: boolean },
+  data: ModelsResponse | undefined,
+  sendReady: boolean,
+): Pick<
+  ComposerSelectionState,
+  "availableModels" | "modelReadyForSend" | "modelSendUnavailableReason"
+> {
+  const availableModels = data?.models ?? EMPTY_MODELS;
+
+  return {
+    availableModels,
+    modelReadyForSend: query.isSuccess && sendReady,
+    modelSendUnavailableReason: sendUnavailableReason(
+      query,
+      availableModels,
+      sendReady,
+    ),
+  };
+}
+
 type DerivedSelection = {
   selection: ComposerSelection | null;
   hold: ChatFallbackHoldResponse | undefined;
@@ -80,58 +103,82 @@ type DeriveArgs = {
   pickedSelector: string | undefined;
   pickedEffort: string | undefined;
   firstSend: boolean;
+  now: Date;
 };
 
-/** One derivation of the shown selection, its hold, its model, its effort, and
- *  the fields the next send names — shared by every composer surface. */
-function deriveSelection(args: DeriveArgs): DerivedSelection {
-  const { data, displayedSelection, pickedSelector, pickedEffort, firstSend } =
-    args;
+type DisplaySelection = Pick<
+  DerivedSelection,
+  "selection" | "hold" | "model" | "effort"
+>;
 
-  // One instant for the hold's expiry, the model, and the effort: at
-  // `revertAt`, two reads could otherwise disagree about which model applies.
-  const now = new Date();
-
-  const selection = composerSelection(displayedSelection, data, {
-    selector: pickedSelector,
-    effort: pickedEffort,
+/** Resolve the shown selector, model, and effort from one shared clock. */
+function displaySelection(args: DeriveArgs): DisplaySelection {
+  const selection = composerSelection(args.displayedSelection, args.data, {
+    selector: args.pickedSelector,
+    effort: args.pickedEffort,
   });
 
   const hold =
-    selection === null ? undefined : applicableHold(selection, data, now);
+    selection === null
+      ? undefined
+      : applicableHold(selection, args.data, args.now);
 
-  const model = resolveDisplayedModel(selection, data, now);
+  const model = resolveDisplayedModel(selection, args.data, args.now);
 
   const effort = resolveDisplayedEffort({
     selection,
     model,
-    pickedEffort,
-    data,
-    now,
+    pickedEffort: args.pickedEffort,
+    data: args.data,
+    now: args.now,
   });
 
+  return { selection, hold, model, effort };
+}
+
+/** Derive the composer selection and what its next request names. */
+function deriveSelection(args: DeriveArgs): DerivedSelection {
+  const displayed = displaySelection(args);
+
   const send = resolveSendSelection({
-    selection,
-    model,
-    firstSend,
-    picks: { selector: pickedSelector, effort: pickedEffort },
-    shownEffort: effort,
+    selection: displayed.selection,
+    model: displayed.model,
+    firstSend: args.firstSend,
+    picks: { selector: args.pickedSelector, effort: args.pickedEffort },
+    shownEffort: displayed.effort,
   });
 
   return {
-    selection,
-    hold,
-    model,
-    effort,
+    ...displayed,
     send,
     accepted: acceptedSelectionFor({
       send,
-      selection,
-      shownEffort: effort,
-      data,
-      now,
+      selection: displayed.selection,
+      shownEffort: displayed.effort,
+      data: args.data,
+      now: args.now,
     }),
   };
+}
+
+/** Clock that re-derives selection when a stored hold reaches its expiry. */
+export function useHoldExpiryClock(revertAt: string | undefined): number {
+  const [clock, setClock] = React.useState(() => Date.now());
+
+  React.useEffect(() => {
+    if (revertAt === undefined) return;
+
+    const remaining = Date.parse(revertAt) - clock;
+
+    if (remaining <= 0) return;
+
+    const delay = Math.min(remaining, MAX_TIMEOUT_DELAY);
+    const timer = window.setTimeout(() => setClock(Date.now()), delay);
+
+    return () => window.clearTimeout(timer);
+  }, [clock, revertAt]);
+
+  return clock;
 }
 
 export type ComposerSelectionOptions = {
@@ -156,6 +203,8 @@ export function useComposerSelection(
   const data = modelsQuery.data;
   const firstSend = options.firstSend ?? !chatExists;
 
+  const selectionClock = useHoldExpiryClock(displayedSelection?.hold?.revertAt);
+
   const derived = React.useMemo(
     () =>
       deriveSelection({
@@ -164,21 +213,21 @@ export function useComposerSelection(
         pickedSelector,
         pickedEffort,
         firstSend,
+        now: new Date(selectionClock),
       }),
-    [data, displayedSelection, firstSend, pickedEffort, pickedSelector],
+    [
+      data,
+      displayedSelection,
+      firstSend,
+      pickedEffort,
+      pickedSelector,
+      selectionClock,
+    ],
   );
-
-  const availableModels = data?.models ?? EMPTY_MODELS;
 
   return {
     data,
     ...derived,
-    availableModels,
-    modelReadyForSend: modelsQuery.isSuccess && derived.send.ready,
-    modelSendUnavailableReason: sendUnavailableReason(
-      modelsQuery,
-      availableModels,
-      derived.send.ready,
-    ),
+    ...composerReadiness(modelsQuery, data, derived.send.ready),
   };
 }

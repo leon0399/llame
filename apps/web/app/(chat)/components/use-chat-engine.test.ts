@@ -5,7 +5,10 @@ import { renderHook, waitFor } from "@testing-library/react";
 
 import type { PermissionModesResponse } from "@/lib/services/permission-modes/queries";
 
-import { resolveRestoredPermissionMode } from "./use-chat-engine";
+import {
+  prepareChatRequest,
+  resolveRestoredPermissionMode,
+} from "./use-chat-engine";
 import { useChatHistorySync } from "./use-chat-history-sync";
 
 describe("resolveRestoredPermissionMode", () => {
@@ -34,6 +37,50 @@ describe("resolveRestoredPermissionMode", () => {
     ];
 
     expect(resolveRestoredPermissionMode(modes, undefined)).toBe("default");
+  });
+});
+
+describe("prepareChatRequest", () => {
+  it("captures the accepted selection and picks alongside the request body", () => {
+    const prepared = prepareChatRequest(
+      {
+        chatId: "chat-1",
+        messages: [{ id: "message-1", role: "user", parts: [] }],
+        trigger: "submit-message",
+        body: undefined,
+      },
+      {
+        send: {
+          current: { selector: "model-before", effort: "low", ready: true },
+        },
+        accepted: {
+          current: { selector: "model-before", effort: "low" },
+        },
+        picks: {
+          current: {
+            selector: "model-before",
+            effort: undefined,
+            selectorRevision: 3,
+            effortRevision: 0,
+          },
+        },
+        permissionMode: { current: "default" },
+      },
+    );
+
+    expect(prepared.body).toMatchObject({
+      selector: "model-before",
+      effort: "low",
+    });
+    expect(prepared.accepted).toEqual({
+      selection: { selector: "model-before", effort: "low" },
+      picks: {
+        selector: "model-before",
+        effort: undefined,
+        selectorRevision: 3,
+        effortRevision: 0,
+      },
+    });
   });
 });
 

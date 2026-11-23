@@ -59,10 +59,7 @@ const FAST = model('fast');
 const ROLES: ReadonlyArray<ModelRoleConfig> = [
   {
     name: 'coding',
-    candidates: [
-      { modelId: 'codex', effort: 'high' },
-      { modelId: 'sonnet', effort: 'xhigh' },
-    ],
+    candidates: [{ modelId: 'codex', effort: 'high' }, { modelId: 'sonnet' }],
   },
   { name: 'fast', candidates: [{ modelId: 'fast' }] },
 ];
@@ -110,7 +107,7 @@ function resolve(
   return resolveSelectionFromCatalog(CATALOG, { stored, request, writer, now });
 }
 
-/** A job notice's resolution: the recorded effort is a preference. */
+/** A job notice's recorded effort is named except when a hold applies. */
 function resolveNotice(
   stored: ChatModelSelection | null,
   request: SelectionRequest,
@@ -184,8 +181,8 @@ describe('a fallback hold', () => {
     // The hold's effort wins over the stored one.
     expect(resolve(STORED, {}, 'owner', BEFORE).effort).toBe('low');
 
-    // Without a hold effort, the held model's candidate effort applies — the
-    // stored effort is not consulted at all while a hold applies.
+    // The held candidate omits effort, so the primary's `high` does not leak
+    // into the held model; the held model's default applies instead.
     const noHoldEffort: ChatModelSelection = {
       ...STORED,
       hold: { ...HOLD, effort: null },
@@ -194,7 +191,7 @@ describe('a fallback hold', () => {
     const resolved = resolve(noHoldEffort, {}, 'owner', BEFORE);
 
     expect(resolved.model.id).toBe(SONNET.id);
-    expect(resolved.effort).toBe('xhigh');
+    expect(resolved.effort).toBe('low');
   });
 
   it('An owner pick clears the hold', () => {
@@ -291,25 +288,16 @@ describe('a notice effort', () => {
     expect(resolved.effort).toBe('high');
   });
 
-  it('falls back to the candidate effort when the model does not declare it', () => {
-    const resolved = resolveNotice(
-      null,
-      { selector: '@coding', effort: 'medium' },
-      BEFORE,
-    );
-
-    expect(resolved.model.id).toBe(CODEX.id);
-    expect(resolved.effort).toBe('high');
+  it('refuses an undeclared recorded effort without a hold', () => {
+    expect(() =>
+      resolveNotice(null, { selector: '@coding', effort: 'medium' }, BEFORE),
+    ).toThrow(EffortNotAvailableError);
   });
 
-  it('falls back to the model default for an exact selector', () => {
-    const resolved = resolveNotice(
-      null,
-      { selector: CODEX.id, effort: 'xhigh' },
-      BEFORE,
-    );
-
-    expect(resolved.effort).toBe('low');
+  it('refuses an undeclared recorded effort for an exact selector', () => {
+    expect(() =>
+      resolveNotice(null, { selector: CODEX.id, effort: 'xhigh' }, BEFORE),
+    ).toThrow(EffortNotAvailableError);
   });
 
   it('still refuses a named effort the model does not declare', () => {
