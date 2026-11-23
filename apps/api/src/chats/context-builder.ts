@@ -47,6 +47,7 @@ import {
   projectStoredToolPart,
   type StoredToolObservation,
 } from './tool-observation-part';
+import { createToolCallIdMap, type ToolCallIdMap } from './tool-call-ids';
 
 /**
  * `ModelMessage` is now the SDK's own type, re-exported above. Content can
@@ -198,6 +199,13 @@ export interface BuildContextOptions {
   modelId: string;
   /** The active checkpoint for this request, if any. */
   checkpoint?: ContextCheckpoint;
+  /**
+   * The request's tool-call id map (D13). A caller that assembles more of one
+   * request than its history — a Continue Run's kept parts, a live step —
+   * passes one map so every part of it shares the same ids. Without one, the
+   * build creates the map the history alone uses.
+   */
+  toolCallIds?: ToolCallIdMap;
 }
 
 /**
@@ -408,17 +416,32 @@ function startsNewStep(
  * says an interrupt closed the reply — each one with no later kept part, which
  * covers a completed reasoning item with nothing after it (D8).
  * `mediaKey` names the retained bytes behind each part's media marker, so the
- * caller owns the row identity the marker is scoped to.
+ * caller owns the row identity the marker is scoped to. `toolCallIds` is the
+ * request's id map (D13) and `ownModel` says this reply's stored
+ * `usage.modelId` is the request's model; when the map is absent the stored
+ * ids pass through unchanged.
  */
 class StoredReplyProjection {
   private readonly messages: Array<ModelMessage> = [];
   private open: OpenStep | null = null;
+  private readonly privateParts: boolean;
+  private readonly interruptedReply: boolean;
+  private readonly retainedMedia: Map<string, RetainedMedia>;
+  private readonly mediaKey: (partIndex: number) => string;
+  private readonly toolCallIds: ToolCallIdMap | undefined;
+  private readonly ownModel: boolean;
   constructor(
-    private readonly privateParts: boolean,
-    private readonly interruptedReply: boolean,
-    private readonly retainedMedia: Map<string, RetainedMedia>,
-    private readonly mediaKey: (partIndex: number) => string,
-  ) {}
+    options: StoredReplyProjectionOptions,
+    interruptedReply: boolean,
+    retainedMedia: Map<string, RetainedMedia>,
+  ) {
+    this.privateParts = options.privateParts;
+    this.interruptedReply = interruptedReply;
+    this.retainedMedia = retainedMedia;
+    this.mediaKey = options.mediaKey;
+    this.toolCallIds = options.toolCallIds;
+    this.ownModel = options.ownModel ?? options.privateParts;
+  }
 
   /** The reply's messages, writing the retained entries its markers name. */
   project(parts: ReadonlyArray<MessagePart>): Array<ModelMessage> {
@@ -523,13 +546,26 @@ class StoredReplyProjection {
     observation: StoredToolObservation,
   ): void {
     const step = this.openStep(stepNumber, true);
-    step.content.push(this.callPart(observation));
-    step.results.push(this.resultPart(observation));
+    const toolCallId = this.wireToolCallId(observation);
+
+    step.content.push(this.callPart(observation, toolCallId));
+    step.results.push(this.resultPart(observation, toolCallId));
     const { retained } = observation;
 
     if (retained !== undefined) {
       this.retainedMedia.set(retained.key, retained.entry);
     }
+  }
+
+  /**
+   * The id this request sends for one call and its result (D13). The stored
+   * id is the map's input and never changes; without a map it is also the
+   * output.
+   */
+  private wireToolCallId(observation: StoredToolObservation): string {
+    const storedId = observation.pair.toolCallPart.toolCallId;
+
+    return this.toolCallIds?.resolve(storedId, this.ownModel) ?? storedId;
   }
 
   private appendContextItem(text: string | undefined): void {
@@ -574,13 +610,19 @@ class StoredReplyProjection {
     }
   }
 
-  private callPart(observation: StoredToolObservation): ToolCallPart {
+  private callPart(
+    observation: StoredToolObservation,
+    toolCallId: string,
+  ): ToolCallPart {
     const { pair } = observation;
 
-    const part =
+    const base =
       pair.refused && !this.privateParts && !isRecord(pair.toolCallPart.input)
         ? { ...pair.toolCallPart, input: {} }
         : pair.toolCallPart;
+
+    const part =
+      base.toolCallId === toolCallId ? base : { ...base, toolCallId };
 
     return this.privateParts && pair.providerMetadata !== undefined
       ? { ...part, providerOptions: pair.providerMetadata }
@@ -591,14 +633,22 @@ class StoredReplyProjection {
    * The SDK copies the live call's provider metadata onto the result of a call
    * that ran; its own synthesized result for a refused call carried none.
    */
-  private resultPart(observation: StoredToolObservation): ToolResultPart {
+  private resultPart(
+    observation: StoredToolObservation,
+    toolCallId: string,
+  ): ToolResultPart {
     const { pair } = observation;
+
+    const result =
+      pair.toolResultPart.toolCallId === toolCallId
+        ? pair.toolResultPart
+        : { ...pair.toolResultPart, toolCallId };
 
     return this.privateParts &&
       !pair.refused &&
       pair.providerMetadata !== undefined
-      ? { ...pair.toolResultPart, providerOptions: pair.providerMetadata }
-      : pair.toolResultPart;
+      ? { ...result, providerOptions: pair.providerMetadata }
+      : result;
   }
 }
 
@@ -606,6 +656,17 @@ class StoredReplyProjection {
 export type StoredReplyProjectionOptions = {
   /** Whether reasoning and provider metadata replay (the model rule). */
   privateParts: boolean;
+  /**
+   * Whether the reply's stored `usage.modelId` is the request's model (D13),
+   * so the id map keeps the ids it produced. Defaults to `privateParts`, which
+   * is what the Continue projection states: it runs on the source Run's model.
+   */
+  ownModel?: boolean;
+  /**
+   * The request's tool-call id map (D13). When absent, the stored ids pass
+   * through unchanged.
+   */
+  toolCallIds?: ToolCallIdMap;
   /** The retained-media marker key of the part at this index. */
   mediaKey: (partIndex: number) => string;
 };
@@ -614,8 +675,8 @@ export type StoredReplyProjectionOptions = {
  * One stored reply, or the kept parts of a Continue Run, as the model messages
  * the live loop sent (D5, D11, D14). Every request that replays stored parts
  * calls this: a later turn, a compaction request, and a Continue Run, so the
- * three cannot drift. The caller states the model rule and the retained-media
- * scope; nothing here decides either.
+ * three cannot drift. The caller states the model rule, the tool-call id map,
+ * and the retained-media scope; nothing here decides either.
  */
 export function projectStoredReplyParts(
   parts: ReadonlyArray<MessagePart>,
@@ -624,13 +685,23 @@ export function projectStoredReplyParts(
   const retainedMedia = new Map<string, RetainedMedia>();
 
   const messages = new StoredReplyProjection(
-    options.privateParts,
+    options,
     false,
     retainedMedia,
-    options.mediaKey,
   ).project(parts);
 
   return { messages, retainedMedia };
+}
+
+/**
+ * Whether the stored usage of a reply records this request's model: the input
+ * the tool-call id map reads as "the request's own model" (D13).
+ */
+function producedByModel(
+  usage: unknown,
+  modelId: string,
+): usage is UnknownRecord {
+  return isRecord(usage) && usage['modelId'] === modelId;
 }
 
 /**
@@ -643,8 +714,7 @@ export function projectStoredReplyParts(
 // eslint-disable-next-line anti-slop/no-unknown-parameters -- the reply's stored `usage` is untyped jsonb; the `isRecord` guard below is its parse.
 function replaysPrivateParts(usage: unknown, modelId: string): boolean {
   return (
-    isRecord(usage) &&
-    usage['modelId'] === modelId &&
+    producedByModel(usage, modelId) &&
     (usage['status'] === 'completed' || isInterruptedReply(usage))
   );
 }
@@ -658,6 +728,14 @@ function isInterruptedReply(usage: unknown): boolean {
     usage['interrupted'] === true
   );
 }
+
+/** What one request adds to every reply it replays. */
+type RequestProjection = {
+  /** The retained entries the replayed parts write, keyed by marker. */
+  readonly retained: Map<string, RetainedMedia>;
+  /** The request's tool-call id map (D13). */
+  readonly toolCallIds: ToolCallIdMap;
+};
 
 /**
  * Build the model input from a chat's stored messages.
@@ -690,7 +768,15 @@ export function buildContext(
   const ordered = [...history].sort((a, b) => a.seq - b.seq);
 
   const result: Array<ModelMessage> = [];
-  const retained = new Map<string, RetainedMedia>();
+
+  // One retained-media scope and one tool-call id map per request (D13): a
+  // call and its result share the map's answer, and two occurrences of one
+  // stored id get different wire ids. A caller that assembles the rest of the
+  // request states the map; the history then shares it.
+  const projection: RequestProjection = {
+    retained: new Map<string, RetainedMedia>(),
+    toolCallIds: options.toolCallIds ?? createToolCallIdMap(),
+  };
 
   if (checkpoint !== undefined) {
     result.push({
@@ -701,13 +787,17 @@ export function buildContext(
 
   for (const m of ordered) {
     if (m.role === 'user') {
-      appendUserMessage(result, m, retained);
+      appendUserMessage(result, m, projection.retained);
     } else {
-      appendAssistantMessage(result, m, options.modelId, retained);
+      appendAssistantMessage(result, m, options.modelId, projection);
     }
   }
 
-  return { system: systemPrompt, messages: result, retainedMedia: retained };
+  return {
+    system: systemPrompt,
+    messages: result,
+    retainedMedia: projection.retained,
+  };
 }
 
 function appendUserMessage(
@@ -732,16 +822,21 @@ function appendAssistantMessage(
   result: Array<ModelMessage>,
   m: StoredMessage,
   modelId: string,
-  retained: Map<string, RetainedMedia>,
+  projection: RequestProjection,
 ): void {
   // Model rule of `reasoning-output` (D7): same model, completed reply — or a
   // reply an interrupt closed, whose reasoning follows the interrupted rule.
+  // The same `usage.modelId` decides the reply's tool-call ids (D13).
   result.push(
     ...new StoredReplyProjection(
-      replaysPrivateParts(m.usage, modelId),
+      {
+        privateParts: replaysPrivateParts(m.usage, modelId),
+        ownModel: producedByModel(m.usage, modelId),
+        toolCallIds: projection.toolCallIds,
+        mediaKey: (partIndex) => storedToolPartMediaKey(m.id, partIndex),
+      },
       isInterruptedReply(m.usage),
-      retained,
-      (partIndex) => storedToolPartMediaKey(m.id, partIndex),
+      projection.retained,
     ).project(m.parts),
   );
 }

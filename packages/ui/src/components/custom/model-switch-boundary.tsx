@@ -135,15 +135,6 @@ function ModelIdLabel({
   );
 }
 
-/** The failure label a failover boundary carries, phrased by the caller. */
-function SwitchReasonLabel({ reason }: { reason: string }) {
-  return (
-    <span className="min-w-0 truncate text-xs text-muted-foreground">
-      — {reason}
-    </span>
-  );
-}
-
 /**
  * The Marker's tooltip trigger: a button summarizing the model change, whose
  * click also drives the sibling Collapsible open (see the boundary's own
@@ -158,7 +149,7 @@ function ModelSwitchTrigger({
   open,
   onToggle,
 }: ModelSwitchTriggerProps) {
-  const accessibleLabel = switchLabel(fromModelId, toModelId, reason);
+  const Chevron = open ? ChevronDownIcon : ChevronRightIcon;
 
   return (
     <TooltipTrigger
@@ -167,7 +158,7 @@ function ModelSwitchTrigger({
           type="button"
           variant="ghost"
           size="sm"
-          aria-label={accessibleLabel}
+          aria-label={switchLabel(fromModelId, toModelId, reason)}
           aria-expanded={open}
           onClick={onToggle}
           className="h-auto max-w-full min-w-0 py-1.5"
@@ -181,12 +172,12 @@ function ModelSwitchTrigger({
       <ModelIdLabel modelId={fromModelId} labelRef={fromModelRef} />
       <ArrowRightIcon data-icon="inline" aria-hidden="true" />
       <ModelIdLabel modelId={toModelId} labelRef={toModelRef} />
-      {reason ? <SwitchReasonLabel reason={reason} /> : null}
-      {open ? (
-        <ChevronDownIcon data-icon="inline-end" aria-hidden="true" />
-      ) : (
-        <ChevronRightIcon data-icon="inline-end" aria-hidden="true" />
-      )}
+      {reason ? (
+        <span className="min-w-0 truncate text-xs text-muted-foreground">
+          — {reason}
+        </span>
+      ) : null}
+      <Chevron data-icon="inline-end" aria-hidden="true" />
     </TooltipTrigger>
   );
 }

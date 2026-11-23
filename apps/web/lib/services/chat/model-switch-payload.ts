@@ -8,30 +8,29 @@
 import { isNonNullObject, isString, keysMatch } from "./context-item-envelope";
 
 /**
- * The closed provider-failure vocabulary a `failover` switch records. Mirrors
- * the api's `FAILURE_CLASSES`; a class this build does not know keeps the item
+ * The closed provider-failure vocabulary a `failover` switch records, with the
+ * short owner-facing label the transcript boundary shows. Its keys mirror the
+ * api's `FAILURE_CLASSES`; a class this build does not know keeps the item
  * untrusted instead of rendering an unlabelled boundary.
  */
-export const FAILURE_CLASSES = [
-  "quota_exhausted",
-  "billing",
-  "rate_limited",
-  "overloaded",
-  "server_error",
-  "unreachable",
-  "first_token_timeout",
-  "stream_broken",
-  "model_not_found",
-  "auth",
-  "context_overflow",
-  "invalid_request",
-  "content_policy",
-  "unknown",
-] as const;
+export const FAILURE_LABELS = {
+  quota_exhausted: "usage limit",
+  billing: "billing limit",
+  rate_limited: "rate limit",
+  overloaded: "provider overload",
+  server_error: "provider error",
+  unreachable: "connection failure",
+  first_token_timeout: "first-token timeout",
+  stream_broken: "broken stream",
+  model_not_found: "missing model",
+  auth: "authentication failure",
+  context_overflow: "context overflow",
+  invalid_request: "invalid request",
+  content_policy: "content policy refusal",
+  unknown: "unknown failure",
+} as const;
 
-export type FailureClass = (typeof FAILURE_CLASSES)[number];
-
-const FAILURE_CLASS_SET: ReadonlySet<string> = new Set(FAILURE_CLASSES);
+export type FailureClass = keyof typeof FAILURE_LABELS;
 
 /** The `data.payload` shape of a model-switch context item. */
 export type ModelSwitchPayload =
@@ -85,7 +84,7 @@ export function isModelSwitchPayload(
       ]) &&
       holdsModelSwitchIds(candidate) &&
       isString(candidate.failureClass) &&
-      FAILURE_CLASS_SET.has(candidate.failureClass)
+      Object.hasOwn(FAILURE_LABELS, candidate.failureClass)
     );
   }
 

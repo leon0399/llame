@@ -93,6 +93,11 @@ import {
   type MessagePart,
 } from '../chats/context-builder';
 import {
+  createToolCallIdMap,
+  normalizeStepToolCallIds,
+  type ToolCallIdMap,
+} from '../chats/tool-call-ids';
+import {
   type PromptUserInput,
   type SystemModelCatalogEntry,
   type TokenPrice,
@@ -218,7 +223,10 @@ import {
   stoppedCallsOf,
   type StoppedCall,
 } from '../chats/interrupted-notice';
-import { isModelSwitchItem } from '../chats/accepted-turn-parts.repository';
+import {
+  isModelFailoverItem,
+  isModelSwitchItem,
+} from '../chats/accepted-turn-parts.repository';
 import {
   continueStateFromEvents,
   continueStepOffset,
@@ -614,8 +622,14 @@ type PreparedAttemptContext = ModelRequestContext & {
    * its own to carry the items.
    */
   triggerParts: ReadonlyArray<unknown> | undefined;
-  /** The stored rows this request was built from; the trigger plans on them. */
+  /** Stored rows this request was built from; the trigger plans on them. */
   historyRows: Array<Message>;
+  /**
+   * The one tool-call id map this request uses (D13): its history was built
+   * with it, and every part the caller appends — a Continue's kept steps, a
+   * live step — resolves through it, so one request never sends an id twice.
+   */
+  toolCallIds: ToolCallIdMap;
   /**
    * The active checkpoint for this attempt — always the latest one whose
    * absorbed-through sequence is below the triggering user message's, so the
@@ -4913,6 +4927,7 @@ export class RunExecutionService {
           assistantPartCollector.parts().slice(partsBefore),
           {
             privateParts: true,
+            toolCallIds: attemptContext.toolCallIds,
             mediaKey: (index) => continuedMediaKey(partsBefore + index),
           },
         );
@@ -5112,6 +5127,7 @@ export class RunExecutionService {
           assistantPartCollector.parts().slice(partsBefore),
           {
             privateParts: true,
+            toolCallIds: attemptContext.toolCallIds,
             mediaKey: (index) => continuedMediaKey(partsBefore + index),
           },
         );
@@ -5248,6 +5264,7 @@ export class RunExecutionService {
               assistantPartCollector.parts().slice(partsBefore),
               {
                 privateParts: true,
+                toolCallIds: attemptContext.toolCallIds,
                 mediaKey: (partIndex) =>
                   continuedMediaKey(partsBefore + partIndex),
               },
@@ -5442,6 +5459,7 @@ export class RunExecutionService {
               assistantPartCollector.parts().slice(partsBefore),
               {
                 privateParts: true,
+                toolCallIds: attemptContext.toolCallIds,
                 mediaKey: (index) => continuedMediaKey(partsBefore + index),
               },
             );
@@ -6384,7 +6402,13 @@ export class RunExecutionService {
               // Another call over the same reply: the request carries what the
               // segment produced so far, and the step count restarts at zero.
               nextCall = async () => {
-                const produced = (await result.response).messages;
+                // The step's own ids stay unless an earlier part of this
+                // request already used them (D13).
+                const produced = normalizeStepToolCallIds(
+                  (await result.response).messages,
+                  attemptContext.toolCallIds,
+                );
+
                 const carried = [...callMessages, ...produced];
                 // The staged in-Run items are part of the carried request now;
                 // the next call stages its own against the new Run boundary.
@@ -6470,6 +6494,8 @@ export class RunExecutionService {
     continued: ContinueState | undefined,
   ): Promise<{
     readonly context: ModelRequestContext;
+    /** The request's one tool-call id map (D13), the history included. */
+    readonly toolCallIds: ToolCallIdMap;
     readonly historyRows: Array<Message>;
     readonly seenInstructionPaths: ReadonlySet<string>;
     readonly toldGit: GitToldState;
@@ -6493,6 +6519,11 @@ export class RunExecutionService {
       },
     );
 
+    // One tool-call id map for the whole request (D13): the history below is
+    // built with it, and every part the caller appends after that resolves
+    // through the same map.
+    const toolCallIds = createToolCallIdMap();
+
     // The active epoch, in order, with the kept parts of a Continue after it.
     // Both told states read this one projection: the history as rebuilt, which
     // excludes reply parts the dispatch resets.
@@ -6507,10 +6538,12 @@ export class RunExecutionService {
         // The model this Run executes on decides which earlier reasoning and
         // provider metadata replay (D7).
         modelId: input.client.model,
+        toolCallIds,
         ...(checkpoint !== undefined && {
           checkpoint: toContextCheckpoint(checkpoint),
         }),
       }),
+      toolCallIds,
       historyRows: history,
       // The kept parts sit above the trigger in the reply, which this read
       // never returns, so their instruction bundles would look unseen and the
@@ -8816,6 +8849,7 @@ export class RunExecutionService {
       seenInstructionPaths: built.seenInstructionPaths,
       toldGit: built.toldGit,
       historyRows: built.historyRows,
+      toolCallIds: built.toolCallIds,
       triggerParts: built.historyRows.find(
         (row) => row.id === input.userMessage.id,
       )?.parts,
@@ -9207,6 +9241,7 @@ export class RunExecutionService {
 
     const kept = projectStoredReplyParts(parts, {
       privateParts: true,
+      toolCallIds: input.context.toolCallIds,
       mediaKey: continuedMediaKey,
     });
     // This summary wake has not dispatched the items it just staged.
@@ -9818,18 +9853,6 @@ export class RunExecutionService {
      */
     projectSelection: ProjectBoundPayload;
   }): Promise<PreparedFirstStep> {
-    // One projection for the whole attempt: both passes and the compaction
-    // trigger measure and send the same kept messages. The kept parts are the
-    // same Turn, so only the model check of `reasoning-output` applies (D7) —
-    // admission runs the Continue Run on the source Run's model.
-    const kept =
-      input.continued === undefined
-        ? { messages: [], retainedMedia: new Map<string, RetainedMedia>() }
-        : projectStoredReplyParts(input.continued.parts, {
-            privateParts: true,
-            mediaKey: continuedMediaKey,
-          });
-
     const estimatePass = await this.prepareAttemptContext(
       input.run,
       input.attemptId,
@@ -9840,6 +9863,13 @@ export class RunExecutionService {
       input.workspacePreparation.machine,
       input.continued,
       input.projectSelection,
+    );
+
+    // The kept steps resolve through the same map as the history they follow
+    // (D13), so one request never sends an id twice.
+    let kept = projectKeptReplyParts(
+      input.continued?.parts,
+      estimatePass.toolCallIds,
     );
 
     const turnInstructions = await this.loadTurnInstructions(
@@ -10010,6 +10040,9 @@ export class RunExecutionService {
       // The re-baked epoch begins at the checkpoint, so its rows carry their
       // own entries; the ones the absorbed rows named are unreferenced now.
       mergeRetainedMedia(input.media.retainedMedia, context.retainedMedia);
+      // The rebaked pass is a new request with its own map, so its kept steps
+      // resolve through it rather than the estimate's.
+      kept = projectKeptReplyParts(input.continued?.parts, context.toolCallIds);
       mergeRetainedMedia(input.media.retainedMedia, kept.retainedMedia);
       request = await this.assembleAttemptRequest(
         context,
@@ -10806,11 +10839,10 @@ export class RunExecutionService {
     // turn took: a switch segment carries its own `failover` item, and a retry
     // or Continue keeps the item its earlier dispatch stored. Only a
     // Regenerate's first dispatch replaces it with its own comparison.
-    const storedSwitch = input.input.userMessage.parts.some(isModelSwitchItem);
-
     if (
-      (regenerateFirstDispatch || !priorDispatch) &&
-      (regenerateFirstDispatch || !storedSwitch)
+      regenerateFirstDispatch ||
+      (!priorDispatch &&
+        !input.input.userMessage.parts.some(isModelFailoverItem))
     ) {
       const modelChange = this.deriveModelChangeItem(
         baseline,
@@ -11460,6 +11492,26 @@ function retainedReadRef(
   return retainedMedia.has(toolCallId)
     ? { ...ref, key: toolCallId }
     : undefined;
+}
+
+/**
+ * The kept steps of a Continue Run as request messages (turn-actions D5): the
+ * same Turn as the source Run, so only the model rule of `reasoning-output`
+ * applies (D7), and their ids resolve through the request's own map (D13).
+ */
+function projectKeptReplyParts(
+  parts: ReadonlyArray<MessagePart> | undefined,
+  toolCallIds: ToolCallIdMap,
+): Pick<ModelRequestContext, 'messages' | 'retainedMedia'> {
+  if (parts === undefined) {
+    return { messages: [], retainedMedia: new Map<string, RetainedMedia>() };
+  }
+
+  return projectStoredReplyParts(parts, {
+    privateParts: true,
+    toolCallIds,
+    mediaKey: continuedMediaKey,
+  });
 }
 
 /**

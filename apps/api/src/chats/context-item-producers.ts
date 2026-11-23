@@ -45,7 +45,7 @@ import {
   FAILURE_CLASSES,
   type FailureClass,
 } from '../models/provider-failure/provider-failure';
-import { failureClassLabel } from './provider-failure-notice';
+import { FAILURE_CLASS_LABELS } from './provider-failure-notice';
 import {
   createToolAvailabilityItem,
   deriveToolAvailabilityPayload,
@@ -276,7 +276,7 @@ export {
  * temporal-anchor refresh, so only the binder knows why it minted a new
  * snapshot.
  */
-export interface ModelChangePayloadBase extends UnknownRecord {
+interface ModelChangePayloadBase extends UnknownRecord {
   readonly fromModelId: string;
   readonly toModelId: string;
 }
@@ -363,21 +363,29 @@ export function createModelChangeItem(input: {
   readonly runId: string;
   readonly failureClass?: FailureClass;
 }): AuthoredContextItemPart {
-  const payload: ModelChangePayload | ModelFailoverPayload =
+  const fromModelId = input.oldModel.id;
+  const toModelId = input.newModel.id;
+
+  const { payload, body } =
     input.failureClass === undefined
       ? {
-          cause: 'model',
-          fromModelId: input.oldModel.id,
-          toModelId: input.newModel.id,
+          payload: { cause: 'model' as const, fromModelId, toModelId },
+          body: renderModelChange(input.oldModel, input.newModel),
         }
       : {
-          cause: 'failover',
-          fromModelId: input.oldModel.id,
-          toModelId: input.newModel.id,
-          failureClass: input.failureClass,
+          payload: {
+            cause: 'failover' as const,
+            fromModelId,
+            toModelId,
+            failureClass: input.failureClass,
+          },
+          body: renderModelFailover(
+            input.oldModel,
+            input.newModel,
+            input.failureClass,
+          ),
         };
 
-  // oxlint-disable-next-line anti-slop/no-known-value-widening -- the declared type cannot express the non-empty and distinct-id invariants this guard enforces, so it is an assertion about the value, not a redundant re-parse of a type we already trust.
   if (!isModelChangePayload(payload)) {
     throw new TypeError('Invalid server-authored model change metadata');
   }
@@ -387,14 +395,7 @@ export function createModelChangeItem(input: {
     form: 'notice',
     runId: input.runId,
     payload,
-    body:
-      input.failureClass === undefined
-        ? renderModelChange(input.oldModel, input.newModel)
-        : renderModelFailover(
-            input.oldModel,
-            input.newModel,
-            input.failureClass,
-          ),
+    body,
   });
 }
 
@@ -472,7 +473,7 @@ function renderModelFailover(
   return renderModelFailoverTemplate({
     oldModel: toModelChangeModelView(oldModel),
     newModel: toModelChangeModelView(newModel),
-    label: failureClassLabel(failureClass),
+    label: FAILURE_CLASS_LABELS[failureClass],
   });
 }
 

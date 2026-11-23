@@ -10,6 +10,7 @@ import {
   type RunEvent,
   type RunKind,
   type RunStatus,
+  type SystemPromptReceipt,
 } from '../../db/schema';
 import { eventPayloadString } from '../run-event-payload';
 import {
@@ -110,14 +111,16 @@ export class AttemptReceiptResponse {
     description:
       'Public llame model id this attempt requested, read from its ' +
       '`model.requested` event. A switch between attempts shows here even ' +
-      "though the Run row only names its current segment's model.",
+      "though the Run row only names its current segment's model. An attempt " +
+      "without that event falls back to the Run's current model.",
   })
   modelId!: string;
 
   @ApiPropertyOptional({
     description:
       'Reasoning effort this attempt requested. Absent when the attempt ' +
-      'carried none.',
+      'carried none; an attempt without a `model.requested` event falls back ' +
+      "to the Run's current effort with its model.",
   })
   effort?: string;
 
@@ -223,7 +226,8 @@ export type AttemptModelSelection = {
 
 /** Reads the model each attempt requested from its `model.requested` event
  *  (`{ modelId, effort?, attemptId }`). A malformed or legacy payload
- *  contributes nothing; the receipt then falls back to the Run's model. */
+ *  contributes nothing; the receipt then falls back to the Run's model and
+ *  effort. */
 export function attemptModelSelections(
   events: ReadonlyArray<Pick<RunEvent, 'payload'>>,
 ): Array<AttemptModelSelection> {
@@ -238,42 +242,18 @@ export function attemptModelSelections(
   });
 }
 
-function toAttemptReceiptResponse(
-  run: Run,
-  receipt: {
-    attemptId: string;
-    source: (typeof modelContextPromptSource.enumValues)[number];
-    systemPrompt: string;
-    promptHash: string;
-    createdAt: Date;
-  },
-  requested: AttemptModelSelection | undefined,
-): AttemptReceiptResponse {
-  return {
-    attemptId: receipt.attemptId,
-    // A receipt published before its attempt's dispatch event has no
-    // `model.requested` row yet; the Run's model is the attempt's model then.
-    modelId: requested?.modelId ?? run.modelId,
-    ...(requested?.effort !== undefined && { effort: requested.effort }),
-    promptSource: receipt.source,
-    systemPrompt: receipt.systemPrompt,
-    promptHash: receipt.promptHash,
-    createdAt: receipt.createdAt,
-  };
-}
+/** One stored system-prompt receipt as the receipt response reads it. */
+type ReceiptRow = Pick<
+  SystemPromptReceipt,
+  'attemptId' | 'source' | 'systemPrompt' | 'promptHash' | 'createdAt'
+>;
 
 /** Maps a run, its attempt receipts, and each attempt's requested model to
  *  the owner-receipt egress shape. */
 export function toContextReceiptResponse(
   run: Run,
-  receipts: Array<{
-    attemptId: string;
-    source: (typeof modelContextPromptSource.enumValues)[number];
-    systemPrompt: string;
-    promptHash: string;
-    createdAt: Date;
-  }>,
-  attemptSelections: ReadonlyArray<AttemptModelSelection> = [],
+  receipts: ReadonlyArray<ReceiptRow>,
+  attemptSelections: ReadonlyArray<AttemptModelSelection>,
 ): ContextReceiptResponse {
   const isTerminal = isTerminalRunStatus(run.status);
 
@@ -295,13 +275,27 @@ export function toContextReceiptResponse(
       completedAttemptId: run.completedAttemptId,
     }),
     state,
-    receipts: receipts.map((receipt) =>
-      toAttemptReceiptResponse(
-        run,
-        receipt,
-        requestedByAttempt.get(receipt.attemptId),
-      ),
-    ),
+    receipts: receipts.map((receipt) => {
+      const requested = requestedByAttempt.get(receipt.attemptId);
+
+      // A receipt published before its attempt's dispatch event has no
+      // `model.requested` row yet: the Run's own pair is then the attempt's,
+      // so a card never names one model with another attempt's effort.
+      const modelId = requested?.modelId ?? run.modelId;
+
+      const effort =
+        requested === undefined ? (run.effort ?? undefined) : requested.effort;
+
+      return {
+        attemptId: receipt.attemptId,
+        modelId,
+        ...(effort !== undefined && { effort }),
+        promptSource: receipt.source,
+        systemPrompt: receipt.systemPrompt,
+        promptHash: receipt.promptHash,
+        createdAt: receipt.createdAt,
+      };
+    }),
     createdAt: run.createdAt,
   };
 }

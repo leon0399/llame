@@ -90,6 +90,21 @@ export function isModelSwitchItem(part: unknown): boolean {
 }
 
 /**
+ * Whether a stored part is the `failover` item a switch segment authored at
+ * its host message: it already names the transition that turn took. A stored
+ * cause-`model` item names a change between turns, so it never replaces the
+ * comparison a Run derives for its own dispatch.
+ */
+export function isModelFailoverItem(part: unknown): boolean {
+  if (!isContextItemPart(part)) return false;
+
+  return (
+    part.data.producer === 'effective-context-change' &&
+    part.data.payload['cause'] === 'failover'
+  );
+}
+
+/**
  * `parts` with `items` placed. `rank` inserts each item in turn at its producer
  * position, so same-rank items keep their emission order; `append` inserts all
  * of them, in order, directly after the last context item and before the

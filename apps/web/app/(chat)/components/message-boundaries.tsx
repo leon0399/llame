@@ -6,32 +6,10 @@ import { CompactionBoundary } from "./compaction-boundary";
 
 import type { AvailableModel } from "@/lib/services/models/queries";
 import { modelSwitchPart, type Compaction } from "@/lib/services/chat/history";
-import type {
-  FailureClass,
-  ModelSwitchPayload,
+import {
+  FAILURE_LABELS,
+  type ModelSwitchPayload,
 } from "@/lib/services/chat/model-switch-payload";
-
-/**
- * Short owner-facing labels for the closed failure classes a failover
- * boundary can name. Kept local to the web: the boundary component receives
- * only the label string, and the api's prompt prose keeps its own wording.
- */
-const FAILURE_LABELS: Record<FailureClass, string> = {
-  quota_exhausted: "usage limit",
-  billing: "billing limit",
-  rate_limited: "rate limit",
-  overloaded: "provider overload",
-  server_error: "provider error",
-  unreachable: "connection failure",
-  first_token_timeout: "first-token timeout",
-  stream_broken: "broken stream",
-  model_not_found: "missing model",
-  auth: "authentication failure",
-  context_overflow: "context overflow",
-  invalid_request: "invalid request",
-  content_policy: "content policy refusal",
-  unknown: "unknown failure",
-};
 
 /** Why a switch happened, when the item names a failover reason. */
 function switchReason(payload: ModelSwitchPayload): string | undefined {

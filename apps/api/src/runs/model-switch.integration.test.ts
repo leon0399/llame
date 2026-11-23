@@ -17,7 +17,7 @@ import { type Message } from '../db/schema';
 import { useSegmentsFixture } from '../testing/run-segments.test-fixture';
 import { type Db } from '../db/tenant-db.service';
 import { deliverModelSwitch } from './model-switch';
-import { finalizeRunReply, runningReplyUsage } from './run-reply-finalizer';
+import { runningReplyUsage } from './run-reply-finalizer';
 import { RunEventsRepository, RunsRepository } from './runs-repository';
 
 const describeIfDb =
@@ -307,24 +307,31 @@ describeIfDb('the model switch inside a live Run', () => {
     const switched = await fx.db((tx) => switchFrom(tx, live));
     const before = replyOf(await messages(live.chatId), live.userMessageId);
 
-    const current = await run(live.runId);
-
-    if (current === undefined) throw new Error('The Run vanished.');
-
-    // A settle of the Run after the switch, naming the failed attempt: the
-    // reply it produced was already finalized and belongs to the closed
-    // segment, so the fence must leave it byte for byte.
-    await fx.db((tx) =>
-      finalizeRunReply(tx, {
-        run: current,
-        status: 'failed',
+    // A dead worker still holding the pre-switch attempt comes back to settle
+    // the Run it thinks it owns. The Run row already names the segment the
+    // switch moved onto, so the attempt fence refuses the write.
+    const refused = await fx.db((tx) =>
+      new RunsRepository(tx).markFinished(live.runId, fx.userId, 'failed', {
         attemptId: live.attemptId,
-        models: [],
       }),
     );
 
-    const after = replyOf(await messages(live.chatId), live.userMessageId);
+    expect(refused).toBeUndefined();
 
+    const current = await run(live.runId);
+
+    expect(current).toMatchObject({
+      modelId: SONNET,
+      messageId: switched.messageId,
+      activeAttemptId: switched.attemptId,
+      status: 'running_model',
+    });
+
+    const chat = await messages(live.chatId);
+    const after = replyOf(chat, live.userMessageId);
+
+    // The closed reply keeps its own usage and parts: a failover close is
+    // `error` and never complete, and the refused settle changed nothing.
     expect(after?.usage).toEqual(before?.usage);
     expect(after?.parts).toEqual(before?.parts);
     expect(after?.usage).toMatchObject({
@@ -333,5 +340,7 @@ describeIfDb('the model switch inside a live Run', () => {
       modelId: live.modelId,
     });
     expect(after?.id).not.toBe(switched.messageId);
+    // The stale attempt wrote no reply under the host message either.
+    expect(replyOf(chat, switched.messageId)).toBeUndefined();
   });
 });

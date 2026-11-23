@@ -161,6 +161,7 @@ import {
   type MessagePart,
   type StoredMessage,
 } from '../chats/context-builder';
+import { createToolCallIdMap } from '../chats/tool-call-ids';
 import { projectStoredToolPart } from '../chats/tool-observation-part';
 import { WorkspaceBindingRepository } from '../chats/workspace-binding.repository';
 import { PromptImportPartsRepository } from '../chats/prompt-import-parts.repository';
@@ -18260,11 +18261,13 @@ describe('RunExecutionService runtime-context lifecycle', () => {
       client?: ModelClient;
       /** The `run.created` payload admission recorded. */
       created?: { chatId: string; messageId: string; notice?: true };
+      /** The model the turn's latest reply records, as the switch left it. */
+      replyModelId?: string;
     } = {},
   ) {
     const repositories = mockNormalExecutionRepositories();
     repositories.findLatestReplyModelId.mockImplementation(
-      replyModelBefore(1, 'other-model'),
+      replyModelBefore(1, options.replyModelId ?? 'other-model'),
     );
     repositories.findById.mockResolvedValue({
       ...run,
@@ -18362,19 +18365,24 @@ describe('RunExecutionService runtime-context lifecycle', () => {
   });
 
   it('A Regenerate of a switch turn', async () => {
-    // The latest turn is the host message of a switch from `older-model` to
-    // `other-model`; the closed reply records `other-model`. This Regenerate
-    // removes the stored `failover` item and stores the transition from the
-    // reply's model to its own.
+    // The latest turn is the host message of a switch from `codex` to
+    // `other-model`; the reply the switch closed records `codex`, the model
+    // that ran before the switch. This Regenerate removes the stored
+    // `failover` item and stores the transition from that prior model to its
+    // own.
     const storedFailover = createModelChangeItem({
-      oldModel: { id: 'older-model' },
+      oldModel: { id: 'codex' },
       newModel: { id: 'other-model' },
       runId,
       failureClass: 'overloaded',
     });
 
+    const capturing = makeCapturingClient();
+
     const repositories = await executeRegenerate(null, {
+      client: capturing.client,
       triggerParts: [storedFailover, { type: 'text', text: 'hello' }],
+      replyModelId: 'codex',
     });
 
     const [modelChange] = stagedItemsOf(
@@ -18384,13 +18392,19 @@ describe('RunExecutionService runtime-context lifecycle', () => {
 
     expect(modelChange?.data.payload).toEqual({
       cause: 'model',
-      fromModelId: 'other-model',
+      fromModelId: 'codex',
       toModelId: 'fake-model',
     });
     expect(repositories.storeAtDispatch.mock.calls.at(-1)?.[0]).toMatchObject({
       placement: 'append',
       removeModelSwitch: true,
     });
+
+    // The request carries the replacement, not the stored failover item.
+    const sent = JSON.stringify(capturing.streamOptions().messages);
+    expect(sent).toContain('hello');
+    expect(sent).toContain('codex');
+    expect(sent).not.toContain('overloaded');
   });
 
   it("keeps a retry's stored switch item and notice on a Regenerate", async () => {
@@ -23046,6 +23060,31 @@ describe('RunExecutionService retained read media', () => {
     return found;
   }
 
+  /** Every tool-call id the request's assistant parts name, in request order. */
+  function promptToolCallIds(prompt: RequestPrompt | undefined): Array<string> {
+    const found: Array<string> = [];
+
+    const visit = (value: unknown): void => {
+      if (Array.isArray(value)) {
+        value.forEach(visit);
+
+        return;
+      }
+
+      if (!isRecord(value)) return;
+
+      if (value['type'] === 'tool-call' && isString(value['toolCallId'])) {
+        found.push(value['toolCallId']);
+      }
+
+      for (const nested of Object.values(value)) visit(nested);
+    };
+
+    visit(prompt);
+
+    return found;
+  }
+
   /**
    * A valid one-page PDF whose single content stream is `streamBytes` bytes of
    * a PDF comment: the page count parses, and the file is large enough for a
@@ -23324,6 +23363,101 @@ describe('RunExecutionService retained read media', () => {
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
+  });
+
+  it("gives a Continue Run's repeated tool-call id its own wire id", async () => {
+    // Both halves of one request carry `call_0`: the settled call in the
+    // history, and the kept step of this Continue Run — two providers that
+    // number ids per response. One request must not name an id twice (D13).
+    const priorCall = {
+      type: 'tool-search_conversations',
+      toolCallId: 'call_0',
+      state: 'output-available',
+      input: { query: 'prior' },
+      output: { status: 'success', value: 'PRIOR_RESULT' },
+      outcome: 'success',
+    };
+
+    const keptCall = {
+      ...priorCall,
+      input: { query: 'kept' },
+      output: { status: 'success', value: 'KEPT_RESULT' },
+    };
+
+    serveRepositories();
+    bindChat(repoRoot());
+    vi.spyOn(
+      RunEventsRepository.prototype,
+      'findFirstByType',
+    ).mockImplementation((_runId, _userId, eventType) =>
+      Promise.resolve(
+        eventType === 'run.created'
+          ? {
+              sequence: 1,
+              runId,
+              eventType,
+              payload: { chatId, messageId, replacesUsage: true },
+              createdAt: now,
+            }
+          : eventType === 'run.continued'
+            ? {
+                sequence: 2,
+                runId,
+                eventType,
+                payload: {
+                  sourceRunId: runId,
+                  parts: [keptCall],
+                  steps: { call_0: 0 },
+                  results: {},
+                },
+                createdAt: now,
+              }
+            : undefined,
+      ),
+    );
+    vi.spyOn(MessagesRepository.prototype, 'findByChatId').mockResolvedValue([
+      {
+        ...assistantMessage,
+        seq: 1,
+        parts: [priorCall],
+        usage: { status: 'completed', modelId: 'fake-model' },
+      },
+      { ...userMessage, seq: 2, parts: [{ type: 'text', text: 'again' }] },
+    ]);
+    vi.spyOn(
+      RunsRepository.prototype,
+      'findDispatchedBaselineForTurn',
+    ).mockResolvedValue(undefined);
+    vi.spyOn(
+      MessagesRepository.prototype,
+      'updateAssistantReply',
+    ).mockResolvedValue(undefined);
+
+    const { client, model } = readThenAnswerModel([], ['text']);
+
+    const execution = makeExecutionService(client, undefined, 'host-a', {
+      allowed: ['enter_workspace', 'read'],
+    });
+
+    const result = await execution.service.executeRun({
+      ...executionInput(client),
+      userMessage: {
+        id: messageId,
+        seq: 2,
+        parts: [{ type: 'text' as const, text: 'again' }],
+      },
+      followUpAction: 'continue',
+    });
+
+    await expect(result.text).resolves.toBe('answer');
+
+    const ids = promptToolCallIds(model.doStreamCalls[0]?.prompt);
+
+    // The history keeps its id; the kept call moves to a pattern-shaped id
+    // that cannot collide with it.
+    expect(ids).toHaveLength(2);
+    expect(ids[0]).toBe('call_0');
+    expect(ids[1]).toMatch(/^call_0_[0-9a-f]{8}$/);
   });
 
   it('replays each read of a changed file with its own bytes in a later request', async () => {
@@ -30586,6 +30720,7 @@ describe('RunExecutionService quota resume boundaries', () => {
     removesModelSwitch: false,
     triggerParts: undefined,
     historyRows: committedTurn(),
+    toolCallIds: createToolCallIdMap(),
     latestCheckpoint: undefined,
     seenInstructionPaths: new Set<string>(),
     toldGit: { text: undefined, root: undefined },
@@ -31556,6 +31691,7 @@ describe('RunExecutionService wake boundary preparation', () => {
       removesModelSwitch: false,
       triggerParts: undefined,
       historyRows,
+      toolCallIds: createToolCallIdMap(),
       latestCheckpoint: undefined,
       seenInstructionPaths: new Set<string>(),
       toldGit: { text: undefined, root: undefined },

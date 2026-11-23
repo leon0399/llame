@@ -27,7 +27,6 @@ import {
   storeDeliveredMessage,
   closeReply,
   closeSegmentAndStore,
-  closingAs,
   type BoundaryDelivery,
   type DeliveryCause,
   type DeliveryInput,
@@ -270,11 +269,9 @@ async function closeAndPublishBoundaryCheckpoint(input: {
   compaction: NonNullable<DeliveryInput['boundaryCompaction']>;
   cause: DeliveryCause;
 }): Promise<{ closedReply: Message; checkpointId: string }> {
-  const closing = closingAs(input.delivery, input.cause);
-
   const closedReply = await findClosedReply({
     tx: input.tx,
-    closing,
+    closing: input.delivery,
     locked: input.locked,
     cause: input.cause,
   });
@@ -500,11 +497,11 @@ async function finishOrdinaryDelivery(input: {
 
   const cause = deliveryCause(delivery, deliverableItems);
 
-  const { closedReply, message } = await closeSegmentAndStore(
-    tx,
-    closingAs(delivery, cause),
-    { locked, cause, items: deliverableItems },
-  );
+  const { closedReply, message } = await closeSegmentAndStore(tx, delivery, {
+    locked,
+    cause,
+    items: deliverableItems,
+  });
 
   if (
     cause === 'steer' &&

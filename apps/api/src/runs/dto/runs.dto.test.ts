@@ -40,7 +40,9 @@ describe('toContextReceiptResponse', () => {
   it.each(['completed', 'failed', 'cancelled', 'expired'] as const)(
     'reports a terminal %s run with no receipt as not produced',
     (status) => {
-      expect(toContextReceiptResponse({ ...run, status }, [])).toMatchObject({
+      expect(
+        toContextReceiptResponse({ ...run, status }, [], []),
+      ).toMatchObject({
         state: 'not_produced',
         receipts: [],
       });
@@ -57,7 +59,11 @@ describe('toContextReceiptResponse', () => {
   });
 
   it('carries the effort the run resolved at accept time', () => {
-    const response = toContextReceiptResponse({ ...run, effort: 'high' }, []);
+    const response = toContextReceiptResponse(
+      { ...run, effort: 'high' },
+      [],
+      [],
+    );
 
     expect(response.effort).toBe('high');
   });
@@ -116,7 +122,7 @@ describe('toContextReceiptResponse', () => {
     const bypassRun = { ...run, permissionMode: 'bypass' as const };
 
     expect(toRunResponse(bypassRun).permissionMode).toBe('bypass');
-    expect(toContextReceiptResponse(bypassRun, []).permissionMode).toBe(
+    expect(toContextReceiptResponse(bypassRun, [], []).permissionMode).toBe(
       'bypass',
     );
   });

@@ -276,10 +276,12 @@ export function closedTelemetry(
     : telemetry;
 }
 
-export function closingAs(
-  input: DeliveryInput,
-  cause: DeliveryCause,
-): DeliveryInput {
+/**
+ * The same delivery with the terminal cause's close applied to the telemetry
+ * it carries. Only `closeReply` calls it: the cause decides what the reply's
+ * usage says, whoever prepared the delivery.
+ */
+function closingAs(input: DeliveryInput, cause: DeliveryCause): DeliveryInput {
   if (cause !== 'interrupt' && cause !== 'failover') return input;
 
   const close = cause === 'interrupt' ? abortedByInterrupt : failedByFailover;
