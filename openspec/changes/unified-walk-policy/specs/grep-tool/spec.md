@@ -32,6 +32,26 @@ canonical order.
 - **THEN** `ignored` neither counts nor names `/home/u/repo/node_modules`
 - **AND** the walk examines no file below `/home/u/repo/node_modules`
 
+### Requirement: A reported directory locator is a valid scope
+
+Each locator in `ignored.locators` MUST be a grep scope that names that one
+directory. The tool MUST spell a literal `%`, `*`, `?`, `[`, `]`, `{`, or `}`
+in it as `%25`, `%2A`, `%3F`, `%5B`, `%5D`, `%7B`, or `%7D`. These seven
+spellings MUST name the literal character in the path part of every scope. The
+tool MUST NOT refuse `%5B`, `%5D`, `%7B`, or `%7D` as glob operators.
+
+#### Scenario: A reported directory with brackets can be scoped
+
+- **WHEN** `vendor/` excluded `/home/u/repo/app/[id]/vendor`
+- **THEN** `ignored.locators` holds `/home/u/repo/app/%5Bid%5D/vendor`
+- **AND** a later scope of that locator searches that directory
+
+#### Scenario: A reported directory with a percent sign can be scoped
+
+- **WHEN** `vendor/` excluded `/home/u/repo/100%41/vendor`
+- **THEN** `ignored.locators` holds `/home/u/repo/100%2541/vendor`
+- **AND** a later scope of that locator searches `/home/u/repo/100%41/vendor`
+
 ### Requirement: Walk order and links are defined per scheme
 
 The walk MUST visit each directory depth-first. In one directory, the walk

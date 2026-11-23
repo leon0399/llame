@@ -94,8 +94,9 @@ Assumptions that follow but were not asked:
 `name-selector-units` is active and modifies the same `knowledge-tools`
 requirement this change modifies, for selector spelling. Whichever change
 archives second rewrites the merged requirement text; this change's finalize
-layer reconciles the corpus paragraph with the shipped spelling. The two
-changes touch disjoint requirements in `grep-tool` and `native-file-tools`.
+layer reconciles the corpus paragraph with the shipped spelling. In
+`grep-tool`, `native-file-tools`, and `tool-call-permissions`, the two changes
+touch disjoint requirements.
 
 ## Capabilities
 
@@ -122,6 +123,9 @@ changes touch disjoint requirements in `grep-tool` and `native-file-tools`.
   bounded listing`. Listings apply the walk policy by entry class, keep
   fixed-set entries visible without children, and never filter the requested
   directory.
+- `tool-call-permissions`: MODIFIED `Grep evaluates excluded directories
+  against the read group`. The bypass exception covers only ignore-ruled
+  directories; a fixed-set directory is evaluated nowhere and named nowhere.
 
 ## Impact
 
