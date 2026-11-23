@@ -1034,6 +1034,34 @@ class CancellationRecordedError extends Error {
 
 function noop(): void {}
 
+/** The index just past a reply's last tool part, or 0 when it has none. */
+function afterLastToolPart(parts: ReadonlyArray<unknown>): number {
+  return (
+    parts.findLastIndex(
+      (part) => isRecord(part) && isString(part['toolCallId']),
+    ) + 1
+  );
+}
+
+/**
+ * The parts a switch keeps from a failed send: everything before the step's
+ * model output, and the step's settled tool parts.
+ */
+function partsKeptBySwitch<T>(parts: ReadonlyArray<T>, outputStart: number) {
+  return parts.slice(0, Math.max(outputStart, afterLastToolPart(parts)));
+}
+
+/** The reset and retry hint of a failure, in the form a fallback hold reads. */
+function failureTimingOf(failure: ProviderFailure): FailureTiming {
+  return {
+    resetsAt:
+      failure.resetsAt === undefined
+        ? null
+        : new Date(failure.resetsAt).toISOString(),
+    hintMs: failure.hintMs ?? null,
+  };
+}
+
 /** What a step end finds, or nothing: the Run's own record decides (D3). */
 type StepEndSignal = 'cancel' | 'delivery' | 'suspend' | undefined;
 
@@ -3833,15 +3861,13 @@ export class RunExecutionService {
         failureClass: failure.code,
       });
 
-      const lastToolPart = kept.findLastIndex(
-        (part) => isRecord(part) && isString(part['toolCallId']),
-      );
+      const toolEnd = afterLastToolPart(kept);
 
       assistantPartCollector = createAssistantPartCollector();
       assistantPartCollector.seed([
-        ...kept.slice(0, lastToolPart + 1),
+        ...kept.slice(0, toolEnd),
         notice,
-        ...kept.slice(lastToolPart + 1),
+        ...kept.slice(toolEnd),
       ]);
       // The failed send reported no usage, so the reply is not complete.
       discardedSend = true;
@@ -4761,13 +4787,7 @@ export class RunExecutionService {
             toEffort: switching.toEffort,
             failureClass: switching.failure.code,
             origin: 'policy',
-            failureTiming: {
-              resetsAt:
-                switching.failure.resetsAt === undefined
-                  ? null
-                  : new Date(switching.failure.resetsAt).toISOString(),
-              hintMs: switching.failure.hintMs ?? null,
-            } satisfies FailureTiming,
+            failureTiming: failureTimingOf(switching.failure),
           }),
         ),
       );
@@ -4859,15 +4879,9 @@ export class RunExecutionService {
 
       if (progressWriteFailed) return undefined;
 
-      const parts = assistantPartCollector.parts();
-
-      const lastToolPart = parts.findLastIndex(
-        (part) => isRecord(part) && isString(part['toolCallId']),
-      );
-
-      const retained = parts.slice(
-        0,
-        Math.max(stepModelOutputStart, lastToolPart + 1),
+      const retained = partsKeptBySwitch(
+        assistantPartCollector.parts(),
+        stepModelOutputStart,
       );
 
       discardedSend = true;
