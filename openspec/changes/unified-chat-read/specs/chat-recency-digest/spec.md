@@ -405,7 +405,7 @@ Disabled compaction MUST preserve only the baseline body and its comparison stat
 
 ### Requirement: Column deletion requires transactional conversion evidence
 
-The TypeScript converter and SQL column deletion MUST use one advisory-locked database transaction. Before SQL migration, conversion MUST account for every old Chat, including total omissions, and verify export identity and old-column fingerprints. It MUST set a transaction-local completion witness only after accounting completes. SQL MUST verify that witness before dropping populated old columns. No persistent producer table is permitted.
+The converter and SQL deletion MUST use one advisory-locked transaction. Conversion MUST account for every legacy Chat, including omissions, and verify export identity and old-column fingerprints. It MUST set a transaction-local witness only after complete accounting. SQL MUST require that witness unconditionally before column deletion. A fresh schema MUST also establish it from catalog-proved absence of the legacy table, not an RLS-filtered empty scan. No persistent producer table is permitted.
 
 #### Scenario: All fields are unprovable
 
@@ -415,7 +415,7 @@ The TypeScript converter and SQL column deletion MUST use one advisory-locked da
 
 #### Scenario: The converter is skipped
 
-- **WHEN** SQL reaches populated old digest columns without the transaction-local completion witness
+- **WHEN** SQL reaches digest column deletion without the transaction-local completion witness, regardless of visible row count
 - **THEN** the migration rolls back without dropping columns
 
 #### Scenario: An export is stale or misbound
@@ -429,3 +429,25 @@ The TypeScript converter and SQL column deletion MUST use one advisory-locked da
 - **WHEN** a migrated announced Chat has unknown historical affinity and is currently bound
 - **THEN** no Workspace correction is emitted before an enabled checkpoint refresh establishes a known binding
 - **AND** unknown does not become a claimed historical `unbound` value
+
+### Requirement: Conversion inventory and tenant scope remain complete
+
+Conversion MUST discover legacy Chat ids and owners through the repository's transaction-bounded `NO FORCE` migration pattern under an exclusive table lock. It MUST restore `FORCE` before owner-scoped content access. Each import MUST use its trusted owner identity. Before pending SQL migrations, conversion MUST reset that identity to empty and verify the reset. It MUST NOT grant a bypass role or leave weaker RLS after commit.
+
+#### Scenario: Private rows cannot hide a skipped converter
+
+- **WHEN** a legacy private Chat exists and a tenant-free SQL scan sees no rows
+- **THEN** absent conversion evidence still blocks column deletion
+- **AND** an RLS-filtered count cannot establish a fresh database
+
+#### Scenario: SQL runs without the last imported owner
+
+- **WHEN** conversion finishes imports for several owners and invokes pending SQL migrations
+- **THEN** the SQL runner observes empty tenant identity, not the last imported owner
+- **AND** a negative backfill check proves no owner scope leaked into migration execution
+
+#### Scenario: Inventory restores forced isolation
+
+- **WHEN** conversion enumerates legacy destination ids and owners
+- **THEN** the exclusive-lock inventory window restores forced RLS before content access and commit
+- **AND** a failure rolls back the window and every import
