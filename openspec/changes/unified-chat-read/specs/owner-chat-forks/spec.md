@@ -6,6 +6,8 @@ The fork MUST copy source `createdAt` and the Chat-row skill baseline, told name
 
 Digest state MUST derive only from copied effective items. Source items after the anchor MUST NOT suppress disclosure in the fork. Copy a checkpoint companion whenever its selected checkpoint qualifies for the copied prefix. Remap the companion association to that copied checkpoint. The companion's higher storage sequence MUST NOT exclude it from its selected checkpoint pair.
 
+A copied prefix MUST include its origin-associated imported baseline, even when that carrier has a higher storage sequence. Remap the origin association to the fork. An imported comparison notice MUST retain its original logical cutoff. Copy that notice only when the selected anchor includes that cutoff.
+
 The fork MUST copy the source's current canonical Workspace root, executor identity, and generation, even at an earlier message anchor. It MUST NOT infer an older binding from history. It MUST NOT copy `workspace_told`, `workspace_told_from`, or the persisted detach reason. Its first accepted turn MUST narrate its current Workspace. Its first Run MUST recheck the copied binding before use.
 
 Fork creation MUST NOT resolve new baselines, refresh the anchor, or emit a fork notice. Under identical continuation conditions, the inherited prefix MUST equal the source at the copied boundary. The first valid bound Run MUST start independent Workspace MCP clients without a source-client copy. The first turn MUST begin ordinary tool-availability and model-selection disclosure epochs.
@@ -57,3 +59,9 @@ An owner fork MUST copy digest item text literally with its selected prefix. It 
 - **WHEN** a fork selects a checkpoint with a higher-sequence digest companion
 - **THEN** the fork copies both and remaps their association
 - **AND** replay places the unchanged companion text immediately after that checkpoint
+
+#### Scenario: An origin baseline survives an anchored fork
+
+- **WHEN** a Chat has no checkpoint and its imported baseline was appended after the selected message anchor
+- **THEN** the fork copies that origin-associated baseline and remaps the association
+- **AND** it excludes an imported comparison notice whose logical cutoff follows its anchor

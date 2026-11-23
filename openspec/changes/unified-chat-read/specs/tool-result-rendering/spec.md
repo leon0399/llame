@@ -59,6 +59,14 @@ Use an open `L<n>-` continuation after the requested end, at the stored line cou
 
 A Chat index with unserved selected sequences MUST supply a canonical continuation locator. The renderer MUST use its sequence and `M` unit without line-number conversion. It MUST retain a finite requested end. A complete selected window MUST NOT invent another continuation. Chat collections MUST retain line-index continuations. Message text MUST retain line continuations.
 
+A default Chat index with earlier eligible messages MUST end with one bracketed earlier-history notice naming its supplied canonical finite `M` locator. This notice MUST render even when the newest selected window fits completely. The renderer MUST distinguish it from an explicit range's forward continuation.
+
+#### Scenario: A complete recent page exposes earlier history
+
+- **WHEN** a default index shows sequences 951-1000 and supplies `chat://<id>:M901-950`
+- **THEN** the rendered result ends with `[Earlier history. Use chat://<id>:M901-950 to read]`
+- **AND** completeness of the recent window does not suppress that notice
+
 #### Scenario: A truncated read tells how to continue
 
 - **WHEN** an unselected read of a 3,000-line file stops with `nextOffset` 2000 and `lineCount` 3000

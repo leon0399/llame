@@ -38,6 +38,9 @@ None. `conversation-reads` keeps ownership of the Chat read contract and the sha
 - `owner-chat-forks`: digest state follows the copied effective prefix rather than the source Chat's current columns.
 - `turn-actions`: digest-only carrier rows do not replace the latest turn, and replaced replies stay unavailable through Chat reads.
 - `instance-config`: explicit rejection of the retired tool and prompt namespace.
+- `prompt-imports`: explicit `chat://` exclusion from prompt markers.
+- `memory`: complete consent wording for expanded rail disclosure.
+- `media-attachments`: opening-only omission for image-first Chats without suppressing later visible text.
 
 ## Acceptance
 

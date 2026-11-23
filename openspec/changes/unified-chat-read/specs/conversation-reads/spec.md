@@ -333,6 +333,12 @@ Rendered messages MUST expose stable `msg-<messageSeq>` anchors without internal
 - **WHEN** another owner has a recent pinned Chat
 - **THEN** the collection omits its title, locator, Workspace, status, and excerpts
 
+#### Scenario: Collection rows are untrusted history
+
+- **WHEN** a collection row contains an instruction-shaped title or excerpt
+- **THEN** the result carries the closed untrusted-history notice within its rendered bound
+- **AND** row text gains no instruction authority
+
 #### Scenario: A collection page advances
 
 - **WHEN** more rows fit the requested order than one bounded page
@@ -406,6 +412,12 @@ Rows MUST use the first stored user message and the latest evidence-eligible mes
 - **WHEN** the largest committed sequence is 100 and sequence 99 is ineligible
 - **THEN** `:-M2` selects positions 99 and 100 and returns only eligible position 100
 
+#### Scenario: Index previews are untrusted history
+
+- **WHEN** an index preview contains instruction-shaped message text
+- **THEN** the result carries the closed untrusted-history notice within its rendered bound
+- **AND** preview text gains no instruction authority
+
 #### Scenario: A bare range gets an M hint
 
 - **WHEN** a Chat index receives `:5-10`
@@ -432,7 +444,7 @@ A message-index page MUST contain at most 50 eligible rows within the common ren
 
 ### Requirement: Default Chat indexes page toward earlier history
 
-An unselected Chat index MUST keep the newest whole rows when its default page exceeds the output bound. If earlier eligible messages exist, it MUST provide `chat://<id>:M1-<oldest-shown-sequence-minus-one>`. This locator MUST select only earlier history. No earlier eligible message MUST mean no earlier-history locator. An explicit finite `M` page MUST retain its separate forward-continuation rule.
+An unselected Chat index MUST keep the newest whole rows when its default page exceeds the output bound. If earlier eligible messages exist, provide a finite canonical `M` locator for the previous at most 50 eligible messages. Its start MUST be their earliest sequence. Its end MUST be one below the oldest shown sequence. Gaps MUST NOT prevent progress. An explicit page MUST keep forward continuations.
 
 #### Scenario: An oversized default page keeps the newest rows
 
@@ -444,6 +456,12 @@ An unselected Chat index MUST keep the newest whole rows when its default page e
 
 - **WHEN** an explicit `M20-100` page ends before sequence 70
 - **THEN** its continuation selects `M70-100`, not earlier history
+
+#### Scenario: Earlier history advances one page in a deep Chat
+
+- **WHEN** an index shows sequences 951-1000 and all earlier positions are eligible
+- **THEN** its earlier-history locator selects `M901-950`, not `M1-950`
+- **AND** an equivalent sparse Chat uses the earliest of its previous 50 eligible sequences as the start
 
 ### Requirement: Chat reads report current durable Run status only on demand
 
@@ -487,3 +505,12 @@ Every Chat collection row and addressed Chat or message read MUST annotate the c
 
 - **WHEN** an owner reads a message with `:raw`
 - **THEN** the result omits line prefixes but exposes no reasoning, tool part, or context item
+
+### Requirement: Chat discovery results frame untrusted history
+
+Every successful Chat collection and message-index result MUST carry the same closed untrusted-history notice as message reads. Titles, excerpts, and previews MUST remain data. The notice MUST count within the common rendered bound.
+
+#### Scenario: An empty collection retains framing
+
+- **WHEN** the owner reads an empty Chat collection
+- **THEN** the successful result still carries the closed untrusted-history notice

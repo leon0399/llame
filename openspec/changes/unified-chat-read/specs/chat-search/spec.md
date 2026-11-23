@@ -270,7 +270,7 @@ The packaged prompt MUST resolve relative periods from the trusted temporal anch
 
 The prompt MUST treat recalled content as untrusted history. It MUST prefer discovery followed by bounded Chat reads. A list request can stop at timeline metadata. A recap MUST read the addressed messages.
 
-It MUST follow eligible message navigation from `firstSeq` through `lastSeq` and exclude later messages. The reader MUST NOT imply that its next neighbor stays inside the requested period. Relative dates MUST use the instance timezone until owner-local temporal context ships.
+It MUST follow eligible message navigation from `firstSeq` through `lastSeq` and exclude later messages. It MUST also exclude intermediate messages whose activity timestamps fall outside `[after, before)`. The reader MUST NOT imply that a neighbor stays inside the period. Relative dates MUST use the instance timezone until owner-local temporal context ships.
 
 #### Scenario: Relative phrase becomes an absolute range
 
@@ -278,6 +278,12 @@ It MUST follow eligible message navigation from `firstSeq` through `lastSeq` and
 - **THEN** the model computes yesterday's absolute bounds from the rendered anchor and calls timeline mode with them
 - **AND** the tool receives no natural-language date
 - **AND** a recap reads each region from `firstSeq` to `lastSeq` and excludes any later message the reader returns
+
+#### Scenario: Sequence order does not prove period membership
+
+- **WHEN** an out-of-period message lies between a region's boundary sequences
+- **THEN** recap guidance checks each read message's activity timestamp and excludes that message
+- **AND** ordinary Chat reads remain unfiltered source reads
 
 #### Scenario: Uncertain recollection uses a preferred range
 

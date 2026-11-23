@@ -26,7 +26,15 @@ Follow-up Runs MUST follow the same keep-and-append rule. They MUST reuse accept
 
 Retry preparation MUST read ordinary history only through its triggering user message. It MUST also load the effective checkpoint and its associated companion. Its own reply MUST NOT enter that request. Only its dispatch can create or reset the reply to `running`. That reset MUST remove the dead attempt's output and in-Run items. Pre-dispatch failure MUST leave those records unchanged.
 
+Preparation MUST also load an imported digest baseline associated with the effective epoch start, irrespective of its storage sequence. For the latest pre-conversion turn, retry and follow-up preparation MUST load its imported comparison notice. This notice MUST retain its distinct logical boundary. It MUST NOT enter an earlier fork through the baseline association.
+
 Failed, cancelled, expired, or superseded output and items MUST remain historical records until an authorized follow-up resets the reply. Later turns MUST replay them like other committed history. Acceptance of an owner message MUST NOT publish a failed attempt's uncommitted context. Checkpoints, their companions, and epoch state MUST publish before the next model step, outside ordinary dispatch. A later attempt failure MUST NOT retract them.
+
+#### Scenario: Regenerate retains imported epoch context
+
+- **WHEN** an owner regenerates the latest unabsorbed turn after digest conversion
+- **THEN** its request retains the imported epoch baseline and comparison notice despite their higher storage sequences
+- **AND** disabled sharing neither loses the baseline nor resolves a fresh one
 
 #### Scenario: Two items are injected on one turn
 

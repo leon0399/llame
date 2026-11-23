@@ -74,11 +74,13 @@ New entries MUST come only from the current top-10 pinned and top-10 recent view
 
 Workspace corrections MUST compare stored canonical bindings of already-announced, still-owned, non-archived Chats. No source Machine probe is permitted. Unknown historical affinity MUST differ from known `unbound`. A title, excerpt, activity, or Run-status change alone MUST produce no notice.
 
+Unknown imported affinity MUST produce no correction until an enabled checkpoint refresh records a current binding. It MUST NOT trigger a first disclosure of historical Workspace roots.
+
 Departures through displacement, archival, or deletion MUST produce no notice. Notices MUST use shared Chat rows for additions. Corrections MUST identify their source Chat and changed field without a full-list refresh.
 
 One preparation MUST batch at most 20 corrections in Chat-id order. Advance comparison state only for included corrections. Deferred corrections MUST remain detectable next preparation. New entries retain their existing 20-row bound.
 
-Co-occurring model changes and digest notices MUST remain separate items under the rail order. At a checkpoint, a new snapshot MUST supersede prior digest items and state that fact. Its full baseline is a checkpoint exception, not a notice. Persisted items MUST remain immutable. The epoch MUST have no accumulated notice-count cap.
+Co-occurring model changes and digest notices MUST remain separate items under the rail order. At an enabled checkpoint, a fresh snapshot MUST supersede prior digest items and state that fact. Disabled carry MUST retain only the frozen baseline without new supersession body text. Persisted items MUST remain immutable. The epoch MUST have no accumulated notice-count cap.
 
 #### Scenario: A new chat becomes eligible mid-conversation
 
@@ -136,13 +138,15 @@ Co-occurring model changes and digest notices MUST remain separate items under t
 
 #### Scenario: Compaction emits a supersession marker
 
-- **WHEN** a checkpoint starts a new digest epoch
+- **WHEN** an enabled checkpoint starts a new digest epoch with a freshly resolved baseline
 - **THEN** its companion snapshot states that earlier digest updates are superseded
 - **AND** the full baseline appears on the rail, not in the system prompt
 
 ### Requirement: Digest content is framed as data and cannot forge its own structure
 
 Each digest snapshot and notice MUST use the packaged producer template, canonical rail envelope, provenance statement, and untrusted-content notice. The item MUST state that it describes the owner's other Chats as point-in-time data. It MUST rank below system instructions and owner requests. It MUST grant no tools, permissions, or higher authority. The item MUST restate ordinary instruction precedence after its data.
+
+Persisted digest text MUST name no retrieval tool. Its locators MUST remain inert data and grant no permission or promise of tool availability.
 
 Titles and excerpts MUST use the reserved-delimiter neutralization rules of instance-config. A value MUST NOT close a tag outside that value or forge a reserved delimiter. Rendered text MUST NOT undergo another template evaluation. Model compliance enforces semantic precedence. Delimiter integrity remains structural. Operator system-template overrides MUST NOT remove this packaged framing.
 
@@ -363,9 +367,19 @@ The reader layer MUST export field-level emissions while its old renderer exists
 - **THEN** export proves only the title field
 - **AND** migration does not emit the stored excerpt
 
+### Requirement: Imported comparison state requires emission proof
+
+Each imported comparison id and pin state MUST have destination-bound proof of actual emission. A stored told-set alone MUST prove neither. Without that proof, omit and privately report the entry.
+
+#### Scenario: An unproved told id remains eligible
+
+- **WHEN** an old told-set contains an id without proved emission to the destination Chat
+- **THEN** conversion omits that comparison entry and privately reports it
+- **AND** the id remains eligible for an ordinary addition when sharing is enabled
+
 ### Requirement: Imported digest baselines precede historical notices
 
-Conversion MUST append a host snapshot for proven baseline fields and associate it with the active checkpoint or Chat origin. Replay MUST place it at that epoch start before existing notices. Conversion can append a latest content-free host notice for trusted old comparison state. It MUST NOT supersede earlier literal notices. Old items without current-format state MUST remain replayable and inert for comparison.
+Conversion MUST append a host snapshot for proven baseline fields, associated with the active checkpoint or Chat origin. Replay MUST place it at epoch start before notices. A latest content-free notice can preserve trusted comparison state. It MUST record the latest pre-conversion turn and logical cutoff for retry and fork selection. It MUST NOT supersede old literal notices. Old items without current-format state MUST remain replayable and inert for comparison.
 
 #### Scenario: An old pin correction remains the last word
 
@@ -375,16 +389,43 @@ Conversion MUST append a host snapshot for proven baseline fields and associate 
 
 ### Requirement: Disabled carry has one bounded canonical envelope
 
-Disabled compaction MUST preserve only the baseline body and its comparison state. It MUST remove only the validated code-owned outer envelope before it authors the companion envelope. It MUST preserve body bytes and change no source item. It MUST NOT nest old envelopes, carry accumulated notices, or grow wrapper text on repeated compaction. This author-time transform MUST NOT change ordinary replay.
+Disabled compaction MUST preserve only the baseline body and its comparison state. It MUST remove the validated code-owned outer envelope and provenance line before it authors one fresh envelope and provenance line. It MUST preserve body bytes and change no source item. It MUST NOT nest envelopes, carry accumulated notices, or grow wrapper text on repeated compaction. This author-time transform MUST NOT change ordinary replay.
 
 #### Scenario: Repeated disabled compaction remains bounded
 
 - **WHEN** a disabled Chat with one baseline and many notices crosses two checkpoints
 - **THEN** each companion carries only the same frozen baseline body under one envelope
-- **AND** the notices enter neither companion nor summary
+- **AND** the companion excludes notices while the summary instruction requests their exclusion without a structural guarantee
 
 #### Scenario: Withdrawal during checkpoint preparation preserves the baseline
 
 - **WHEN** sharing becomes disabled after fresh candidate resolution but before checkpoint publication
 - **THEN** publication discards that candidate and carries the previous frozen baseline
 - **AND** it performs no source read for the carry
+
+### Requirement: Column deletion requires transactional conversion evidence
+
+The TypeScript converter and SQL column deletion MUST use one advisory-locked database transaction. Before SQL migration, conversion MUST account for every old Chat, including total omissions, and verify export identity and old-column fingerprints. It MUST set a transaction-local completion witness only after accounting completes. SQL MUST verify that witness before dropping populated old columns. No persistent producer table is permitted.
+
+#### Scenario: All fields are unprovable
+
+- **WHEN** conversion omits every derived field for one Chat
+- **THEN** its omission is privately reported and included in transaction-local completion accounting
+- **AND** other Chats convert and SQL can safely complete without a fabricated Run or context item
+
+#### Scenario: The converter is skipped
+
+- **WHEN** SQL reaches populated old digest columns without the transaction-local completion witness
+- **THEN** the migration rolls back without dropping columns
+
+#### Scenario: An export is stale or misbound
+
+- **WHEN** an export's owner, destination, or old-column fingerprint does not match
+- **THEN** the converter omits and privately reports that Chat's unprovable derived fields
+- **AND** it imports no misbound text and continues accounting for other Chats
+
+#### Scenario: Imported affinity is unknown
+
+- **WHEN** a migrated announced Chat has unknown historical affinity and is currently bound
+- **THEN** no Workspace correction is emitted before an enabled checkpoint refresh establishes a known binding
+- **AND** unknown does not become a claimed historical `unbound` value

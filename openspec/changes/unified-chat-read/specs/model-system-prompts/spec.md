@@ -44,6 +44,8 @@ The summary MUST use the conversation language. It MUST retain code, paths, iden
 
 The instruction MUST exclude personalization and every recency-digest snapshot, notice, and carry text. It MUST name the personalization delimiter and the shared envelope with producer `recency-digest`. Historical prompt digest blocks MUST retain their delimiter exclusion. The model, not a structural redactor, enforces semantic exclusion. No digest source text can become authoritative checkpoint state.
 
+Digest exclusion from summary prose MUST remain instruction-enforced, not a structural guarantee. Publication MUST NOT claim to detect every paraphrase or reject nonempty output solely on that promise. Comparison state MUST derive from persisted digest items, never summary prose.
+
 The summarization request MUST retain the bound prompt and prefix unchanged. Only its trailing instruction MUST carry exclusions. Title generation MUST retain its dedicated task prompt, not the Chat system prompt.
 
 Publication MUST atomically store a nonempty raw summary and exactly one checkpoint message. That message MUST carry its final literal envelope, raw summary, usage, and absorbed-through sequence. It MUST contain no tool record, retained tail, or forward pointer. No replacement-history store can exist. The raw summary MUST remain separate from its envelope text.
