@@ -30,7 +30,11 @@ import { ProjectsService } from '../projects/projects.service';
 import { RepositoriesRepository } from '../repositories/repositories.repository';
 import { asDouble } from '../testing/support';
 import { ChatsRepository, MessagesRepository } from './chats-repository';
-import { ChatCreationLock } from './chat-creation-lock';
+import {
+  CREATION_IN_PROGRESS,
+  ChatCreationLock,
+  creationInProgress,
+} from './chat-creation-lock';
 import { ChatCreationRecordRepository } from './chat-creation-record.repository';
 import { ChatCreationService } from './chat-creation.service';
 import { ChatCreationWorkspace } from './chat-creation-workspace';
@@ -503,13 +507,53 @@ describe('ChatCreationService validation before any write', () => {
     ).rejects.toBeInstanceOf(ModelNotAvailableError);
 
     // A new Chat stores no selection, so the check resolves against `null`, and
-    // the refusal lands before the lock and before any row is written.
+    // the refusal lands as the first step inside the lock, before any row is
+    // written.
+    expect(service.runExclusively).toHaveBeenCalledWith(
+      CHAT_ID,
+      expect.any(Function),
+    );
     expect(service.resolveSelection).toHaveBeenCalledWith(
       null,
       { selector: '@missing', effort: undefined },
       'owner',
     );
-    expect(service.runExclusively).not.toHaveBeenCalled();
+    expect(stubs.createIfAbsent).not.toHaveBeenCalled();
+  });
+
+  it('answers the creation-in-progress 409 before an invalid selector', async () => {
+    const stubs = stubRepositories();
+    const service = makeService({ stubs });
+    service.validateTurn.mockResolvedValue(turn());
+    // A create holds the chat id's lock: the lock refuses and the callback
+    // never runs.
+    service.runExclusively.mockImplementation(() =>
+      Promise.reject(creationInProgress()),
+    );
+    service.resolveSelection.mockImplementation(() => {
+      throw new ModelNotAvailableError('@missing');
+    });
+
+    await expect(
+      service.service.create(
+        OWNER,
+        request({
+          message: {
+            id: '65f0f6e8-d5ce-4791-a222-e7a0df638810',
+            selector: '@missing',
+            parts: [{ type: 'text', text: 'hi' }],
+          },
+        }),
+      ),
+    ).rejects.toMatchObject({
+      status: 409,
+      response: { code: CREATION_IN_PROGRESS },
+    });
+
+    // The selector never reaches the model catalog, and nothing is read or
+    // written for the Chat: the refusal is the lock's, not the selection's.
+    expect(service.resolveSelection).not.toHaveBeenCalled();
+    expect(stubs.findChatById).not.toHaveBeenCalled();
     expect(stubs.createIfAbsent).not.toHaveBeenCalled();
   });
 

@@ -397,9 +397,9 @@ export class ChatsController {
   })
   @ApiBadRequestResponse({
     description:
-      'Malformed chat or message id, a missing body or action, an unknown ' +
-      'action, a selector, an effort, or a mode on a continue request, or a ' +
-      'blank selector on a regenerate request',
+      'Malformed chat or message id, a missing body or action, a malformed ' +
+      'or unknown action, a selector or an effort on a continue request, or ' +
+      'a blank selector on a regenerate request',
   })
   @ApiUnauthorizedResponse()
   @ApiNotFoundResponse({

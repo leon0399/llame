@@ -105,19 +105,13 @@ export class ChatCreationService {
     }
 
     // Every check that can answer without the creation lock runs before it: a
-    // bad permission mode, part, or foreign media stores nothing, and the
-    // selector check reads the Chat's stored selection without holding the
-    // lock. The admission transaction then resolves the selection again,
-    // against the row it locks, and writes it (design D3), so a refused one
-    // rolls that transaction back.
+    // bad permission mode, part, or foreign media stores nothing. The selector
+    // check runs FIRST inside the lock instead, so a create that overlaps
+    // another for the same id answers the 409 and not a selector status. The
+    // admission transaction then resolves the selection again, against the row
+    // it locks, and writes it (design D3), so a refused one rolls that
+    // transaction back.
     const turn = await this.validateTurnInput(userId, input);
-
-    // The same resolution as a check before the first write: an unknown
-    // selector or undeclared effort answers 422 here, and an unset default
-    // 503, so a refused create leaves no Chat row, root binding, worktree, or
-    // project default behind. The admission transaction still resolves and
-    // writes the selection against the row it locks.
-    await this.assertSelectionResolvable(userId, input);
 
     return this.locks.runExclusively(input.id, () =>
       this.createLocked(userId, input, worktree, turn),
@@ -159,12 +153,12 @@ export class ChatCreationService {
   }
 
   /**
-   * The first message's selection as a pre-write check (model-roles D3): the
-   * named selector, the Chat's stored one on a resend, or the configured
-   * default. An unknown selector or undeclared effort answers 422 here, and an
-   * unset default 503, so a refused create writes no Chat row, root binding,
-   * worktree, or project default. Only the admission transaction stores the
-   * selection it resolves against the row it locks.
+   * The first message's selection, as the first check under the creation lock
+   * (model-roles D3): the named selector, the Chat's stored one on a resend, or
+   * the configured default. An unknown selector or undeclared effort answers
+   * 422 here, and an unset default 503, so a refused create writes no Chat row,
+   * root binding, worktree, or project default. Only the admission transaction
+   * stores the selection it resolves against the row it locks.
    */
   private async assertSelectionResolvable(
     userId: string,
@@ -228,9 +222,10 @@ export class ChatCreationService {
   }
 
   /**
-   * The whole request under the Chat's creation lock: admit the Chat and its
-   * location, run the Workspace step, store the message, and record the
-   * default. A failure answers the status it caused and stores no message.
+   * The whole request under the Chat's creation lock: check the selection,
+   * admit the Chat and its location, run the Workspace step, store the
+   * message, and record the default. A failure answers the status it caused
+   * and stores no message.
    */
   private async createLocked(
     userId: string,
@@ -238,6 +233,12 @@ export class ChatCreationService {
     worktree: WorktreeRequest | undefined,
     turn: ValidatedChatTurn | undefined,
   ): Promise<CreateChatResponse> {
+    // The selection check is the FIRST step under the lock, before the Chat
+    // insert and every write: a create that overlaps another for the same id
+    // never reaches it, because the lock answers the 409 first (openspec
+    // `chat-creation` "Creation serializes requests for one chat id").
+    await this.assertSelectionResolvable(userId, input);
+
     const admitted = await this.admitChat(userId, input);
 
     const workspace = await enterCreatedWorkspace(
