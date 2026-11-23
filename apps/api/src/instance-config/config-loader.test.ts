@@ -3134,6 +3134,37 @@ describe('loadInstanceConfig — modelRoles / defaults selectors (model-roles)',
     expect(message).not.toContain('absent-model');
   });
 
+  it('does not trim a candidate model reference to match a catalogue id', () => {
+    writeConfig(`{
+      ${SINGLE_PROVIDER_JSON},
+      "models": [
+        { "id": "edge", "provider": "p", "providerModelId": "x", "contextWindowTokens": 1000 }
+      ],
+      "modelRoles": {
+        "coding": { "candidates": [{ "model": " edge " }] }
+      }
+    }`);
+
+    expect(() => loadInstanceConfig()).toThrow(
+      'modelRoles.coding.candidates[0].model: does not reference any configured model',
+    );
+  });
+
+  it('does not trim a candidate effort to match a declared level', () => {
+    writeConfig(`{
+      ${ROLE_MODELS_JSON},
+      "modelRoles": {
+        "coding": {
+          "candidates": [{ "model": "reasoning-model", "effort": " high " }]
+        }
+      }
+    }`);
+
+    expect(() => loadInstanceConfig()).toThrow(
+      'modelRoles.coding.candidates[0].effort: not a declared effort level of model "reasoning-model"',
+    );
+  });
+
   it('fails boot naming a role key that breaks the name grammar', () => {
     writeConfig(`{
       ${ROLE_MODELS_JSON},

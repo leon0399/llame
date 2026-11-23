@@ -3546,6 +3546,31 @@ function requireNonBlankString(
 }
 
 /**
+ * Resolve a reference that is compared byte-for-byte against another resolved
+ * setting: `{env:...}`/`{path:...}` tokens interpolate exactly as they do
+ * everywhere else, but the resolved value is never trimmed. `models[].id` and
+ * a model's `reasoning.effortLevels[].value` are stored exactly as written, so
+ * a reference of `" edge "` must not name `edge`. Only the blank check looks
+ * past surrounding whitespace, because an empty reference is still a config
+ * error. The error names the config path, never the resolved value.
+ */
+function requireByteExactString(
+  configPath: string,
+  raw: string,
+  env: NodeJS.ProcessEnv,
+): string {
+  const value = resolveInterpolatedString(raw, configPath, env);
+
+  if (value.trim() === '') {
+    throw new InstanceConfigError(
+      `${configPath}: must resolve to a nonblank string`,
+    );
+  }
+
+  return value;
+}
+
+/**
  * Resolve an optional setting whose absence and explicit `null` both mean
  * "unset" (the client's own default) while a present value must survive
  * interpolation nonblank. Deliberately NOT `resolveNullableString`: collapsing
@@ -3888,7 +3913,9 @@ function resolveModels(
  * references, and each candidate's effort against the referenced model's
  * declared levels. Candidate `model` and `effort` reach here still
  * uninterpolated, so both resolve through the same token path as `models[].id`
- * before any comparison. A role's primary is its first candidate.
+ * before any comparison, and the resolved strings are compared byte-for-byte
+ * (never trimmed) against the catalogue id and declared effort levels. A
+ * role's primary is its first candidate.
  */
 function resolveModelRoles(
   raw: RawInstanceConfig | undefined,
@@ -3947,9 +3974,10 @@ function resolveRoleCandidate(
 
   // The schema only validates the token TEXT, so `model` and `effort` still
   // carry `{env:...}` tokens here: both interpolate exactly as `models[].id`
-  // does, and only then meet the resolved catalogue. Effort is compared
-  // byte-exact after resolution — provider-native tokens are never normalized.
-  const modelId = requireNonBlankString(
+  // does, and only then meet the resolved catalogue. Neither is trimmed after
+  // resolution — catalogue ids and provider-native effort tokens are compared
+  // byte-exact, so `" edge "` must not name `edge`.
+  const modelId = requireByteExactString(
     `${candidatePath}.model`,
     candidate.model,
     scope.env,
@@ -3958,7 +3986,7 @@ function resolveRoleCandidate(
   const effort =
     candidate.effort === undefined
       ? undefined
-      : requireNonBlankString(
+      : requireByteExactString(
           `${candidatePath}.effort`,
           candidate.effort,
           scope.env,
