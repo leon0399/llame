@@ -34,7 +34,7 @@ const run: Run = {
   modelId: 'old-model',
   selector: 'old-model',
   selectedEffort: null,
-  selectionRevision: null,
+  selectionRevision: 7,
   activeAttemptId: attemptId,
   completedAttemptId: null,
   turnToolAvailability: null,
@@ -62,7 +62,11 @@ const chat: Chat = {
   createdAt: now,
   updatedAt: now,
   archivedAt: null,
-  modelSelection: null,
+  modelSelection: {
+    revision: 7,
+    selector: 'old-model',
+    effort: 'high',
+  },
   projectId: null,
   recencyDigestBaseline: null,
   recencyDigestTold: null,
@@ -166,6 +170,7 @@ describe('deliverModelSwitch', () => {
       withoutReply?: boolean;
       unlockedChat?: boolean;
       failModelUpdate?: boolean;
+      modelSelection?: Chat['modelSelection'];
     } = {},
   ) {
     const lockOrder: Array<string> = [];
@@ -196,8 +201,23 @@ describe('deliverModelSwitch', () => {
       .mockImplementation(() => {
         lockOrder.push('chat');
 
-        return Promise.resolve(options.unlockedChat ? undefined : chat);
+        return Promise.resolve(
+          options.unlockedChat
+            ? undefined
+            : {
+                ...chat,
+                modelSelection: options.modelSelection ?? chat.modelSelection,
+              },
+        );
       });
+
+    const setModelSelection = vi
+      .spyOn(ChatsRepository.prototype, 'setModelSelection')
+      .mockResolvedValue(undefined);
+
+    vi.spyOn(ChatsRepository.prototype, 'transactionNow').mockResolvedValue(
+      now,
+    );
 
     const lockPending = vi
       .spyOn(ChatDeliveriesRepository.prototype, 'lockPendingBoundary')
@@ -277,12 +297,15 @@ describe('deliverModelSwitch', () => {
       createUser,
       updateForAttempt,
       append,
+      setModelSelection,
       storedParts,
       closedUsage: () => closedUsage,
     };
   }
 
-  function input() {
+  function input(
+    failureTiming: { resetsAt?: string | null; hintMs?: number | null } = {},
+  ) {
     return {
       delivery: {
         run: { runId, userId },
@@ -314,27 +337,34 @@ describe('deliverModelSwitch', () => {
       toEffort: 'low',
       failureClass: 'overloaded' as const,
       origin: 'policy' as const,
+      failureTiming,
     };
   }
 
-  it('locks Run before Chat and refuses a fenced or cancelled Run before writing', async () => {
+  it('locks Run before Chat and returns undefined for a fenced or cancelled Run without writes', async () => {
     const fenced = serve({ locked: undefined });
 
-    await expect(deliverModelSwitch(tx, input())).rejects.toThrow(
-      'no longer owns its attempt',
-    );
+    await expect(deliverModelSwitch(tx, input())).resolves.toBeUndefined();
     expect(fenced.lockOrder).toEqual(['run']);
+    expect(fenced.lockChat).not.toHaveBeenCalled();
+    expect(fenced.lockPending).not.toHaveBeenCalled();
+    expect(fenced.updateReply).not.toHaveBeenCalled();
     expect(fenced.createUser).not.toHaveBeenCalled();
+    expect(fenced.updateForAttempt).not.toHaveBeenCalled();
+    expect(fenced.append).not.toHaveBeenCalled();
 
     vi.restoreAllMocks();
 
     const cancelled = serve({ locked: { ...run, cancelRequestedAt: now } });
 
-    await expect(deliverModelSwitch(tx, input())).rejects.toThrow(
-      'was cancelled',
-    );
+    await expect(deliverModelSwitch(tx, input())).resolves.toBeUndefined();
     expect(cancelled.lockOrder).toEqual(['run']);
     expect(cancelled.lockChat).not.toHaveBeenCalled();
+    expect(cancelled.lockPending).not.toHaveBeenCalled();
+    expect(cancelled.updateReply).not.toHaveBeenCalled();
+    expect(cancelled.createUser).not.toHaveBeenCalled();
+    expect(cancelled.updateForAttempt).not.toHaveBeenCalled();
+    expect(cancelled.append).not.toHaveBeenCalled();
   });
 
   it('rejects an unlocked Chat and a missing reply before storing a switch', async () => {
@@ -354,6 +384,7 @@ describe('deliverModelSwitch', () => {
       'no reply to close',
     );
     expect(missingReply.createUser).not.toHaveBeenCalled();
+    expect(missingReply.updateForAttempt).not.toHaveBeenCalled();
   });
 
   it('rejects when the new model cannot be recorded on the moved attempt', async () => {
@@ -380,6 +411,9 @@ describe('deliverModelSwitch', () => {
   it('closes the reply as failed and delivers the switch before steers, leaving compact pending', async () => {
     const spies = serve();
     const result = await deliverModelSwitch(tx, input());
+
+    if (result === undefined)
+      throw new Error('Expected a delivered model switch.');
 
     expect(spies.lockOrder).toEqual(['run', 'chat']);
     expect(spies.updateReply).toHaveBeenCalledWith(
@@ -430,6 +464,22 @@ describe('deliverModelSwitch', () => {
         effort: 'low',
       },
     );
+    expect(spies.append).toHaveBeenCalledWith(
+      runId,
+      'run.delivered',
+      expect.objectContaining({ cause: 'failover' }),
+    );
+    expect(spies.setModelSelection).toHaveBeenCalledWith(chatId, userId, {
+      revision: 7,
+      selector: 'old-model',
+      effort: 'high',
+      hold: {
+        selector: 'old-model',
+        modelId: 'new-model',
+        effort: 'low',
+        revertAt: '2026-11-08T00:05:00.000Z',
+      },
+    });
     expect(spies.append).toHaveBeenCalledWith(runId, 'model.switched', {
       fromModelId: 'old-model',
       fromEffort: 'high',
@@ -440,4 +490,41 @@ describe('deliverModelSwitch', () => {
       origin: 'policy',
     });
   });
+  it.each([
+    [
+      'reset time',
+      { resetsAt: '2026-11-08T00:15:00.000Z' },
+      '2026-11-08T00:15:00.000Z',
+    ],
+    ['retry hint', { hintMs: 30_000 }, '2026-11-08T00:00:30.000Z'],
+    ['five-minute default', {}, '2026-11-08T00:05:00.000Z'],
+  ])(
+    'sets hold revertAt from the %s only when selection revision matches',
+    async (_label, failureTiming, revertAt) => {
+      const matching = serve();
+      await deliverModelSwitch(tx, input(failureTiming));
+
+      expect(matching.setModelSelection).toHaveBeenCalledWith(chatId, userId, {
+        revision: 7,
+        selector: 'old-model',
+        effort: 'high',
+        hold: {
+          selector: 'old-model',
+          modelId: 'new-model',
+          effort: 'low',
+          revertAt,
+        },
+      });
+
+      vi.restoreAllMocks();
+
+      const mismatched = serve({
+        modelSelection: { revision: 8, selector: 'old-model', effort: 'high' },
+      });
+
+      await deliverModelSwitch(tx, input(failureTiming));
+
+      expect(mismatched.setModelSelection).not.toHaveBeenCalled();
+    },
+  );
 });
