@@ -15,6 +15,7 @@ import {
 } from '@workspace/native-file-tools';
 import { type UnknownRecord } from '@workspace/runtime-safety';
 
+import { loadPackagedTemplate } from '../../prompts/template-engine';
 import { readAttributionReserve } from '../model-text';
 import { anchorSelector, type WebLocator } from './locator';
 import { type WebAdapterProvenance } from './adapters/contract';
@@ -258,6 +259,17 @@ function buildDirectoryReadResult(
 }
 
 /**
+ * The refusal of an anchor that selected no line, packaged as
+ * `prompts/anchor-missed.md`: the count is a producer-derived phrase, and the
+ * range is omitted for a render with no lines rather than naming `L1-0`.
+ */
+const renderAnchorMissed = loadPackagedTemplate<{
+  anchor: string;
+  count: string;
+  range?: string;
+}>(__dirname, 'anchor-missed');
+
+/**
  * A selector the render could not serve carries no message of its own, and a
  * bare error type tells the model nothing it can act on: a page's length is
  * unknown until it is read, so the count it should have selected within is
@@ -279,12 +291,11 @@ function selectorFailureMessage(
   // selector, and a locator that carries an anchor and a selector is refused.
   // A render with no lines never names a range.
   if (applied.anchor !== undefined) {
-    const range =
-      lines === 0
-        ? ''
-        : ` Write an anchor within ${formatLineRange(1, lines)}.`;
-
-    return `The anchor #${applied.anchor} selected no line of this page, which ${count}.${range} Omit the anchor to read from the start.`;
+    return renderAnchorMissed({
+      anchor: applied.anchor,
+      count,
+      range: lines === 0 ? undefined : formatLineRange(1, lines),
+    });
   }
 
   const written = applied.selector === undefined ? '' : `:${applied.selector} `;

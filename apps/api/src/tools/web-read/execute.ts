@@ -10,6 +10,7 @@ import { fetch as undiciFetch } from 'undici';
 
 import { MEDIA_REFUSAL } from '../../media/media-ingest';
 import { isPdfSignature } from '../../media/pdf-preparation';
+import { loadPackagedTemplate } from '../../prompts/template-engine';
 import { type ToolContext, type ToolResult } from '../types';
 import {
   createAddressAdmission,
@@ -88,6 +89,16 @@ export const realWebReadDeps: WebReadDeps = {
   resolve: resolveHost,
 };
 
+/**
+ * The refusal of a locator that writes both a line anchor and a selector:
+ * packaged as `prompts/anchor-selector-conflict.md`, and each of the two
+ * selectors is quoted as the model wrote it.
+ */
+const renderAnchorSelectorConflict = loadPackagedTemplate<{
+  anchor: string;
+  selector: string;
+}>(__dirname, 'anchor-selector-conflict');
+
 /** The failure the client reports for a caller abort. */
 const ABORTED_FAILURE: WebFetchFailure = {
   type: 'aborted',
@@ -144,7 +155,10 @@ function lineAnchorRefusal(
     return {
       status: 'error',
       type: 'invalid_selector',
-      message: `This locator selects lines twice, with #${lineAnchor} and with :${locator.selector}. Write one of them.`,
+      message: renderAnchorSelectorConflict({
+        anchor: lineAnchor,
+        selector: locator.selector,
+      }),
     };
   }
 

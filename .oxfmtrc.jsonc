@@ -60,6 +60,7 @@
     "apps/api/src/knowledge/prompts/",
     "apps/api/src/skills/prompts/",
     "apps/api/src/tools/prompts/",
+    "apps/api/src/tools/web-read/prompts/",
     "apps/api/src/decisions/prompts/",
     "apps/api/src/ranking/prompts/",
     "apps/api/src/git-state/prompts/",
