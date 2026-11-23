@@ -23,9 +23,9 @@ does not queue the title change.
 With no title, ask the configured title-generation model to name the Chat from
 its recent owner and assistant turns. The request uses the dedicated title
 model, not the Chat's selected model. If the Chat has no eligible conversation
-rows, the API returns `Nothing to name.` If `defaults.titleGenerationSelector`
-is unset, the API reports that configuration error. A model failure or an
-unusable title returns an error without changing the title.
+rows, the API returns `Nothing to name.` If title generation is not configured,
+the API reports that configuration error; a model failure or unusable title
+returns an error without changing the title.
 Archived Chats cannot be renamed.
 
 ## `/compact <focus>`
