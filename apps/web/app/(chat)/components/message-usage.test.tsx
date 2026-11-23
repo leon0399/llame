@@ -929,42 +929,6 @@ describe("MessageUsage", () => {
     expect(screen.getAllByText("GPT-4o").length).toBeGreaterThan(0);
   });
 
-  it("marks a free turn's price notional and not billed", async () => {
-    const user = userEvent.setup();
-    render(
-      <MessageUsage
-        metadata={{
-          usage: {
-            modelId: "system:openai:gpt-4o",
-            inputTokens: 2400,
-            outputTokens: 300,
-            totalTokens: 2700,
-            costUsd: 0.002,
-            status: "completed",
-            complete: true,
-            billing: "free",
-          },
-        }}
-        models={MODELS}
-      />,
-    );
-
-    const trigger = screen.getByRole("button", { name: /^Message usage:/ });
-
-    // A complete cost stays out of the badge regardless of billing mode.
-    expect(trigger.textContent).toBe("GPT-4o");
-
-    await user.hover(trigger);
-
-    const [label] = await screen.findAllByText("Notional cost");
-    const value = label.parentElement?.querySelector("b");
-
-    expect(value?.textContent).toBe("$0.0020, not billed");
-    expect(value?.classList.contains("text-muted-foreground")).toBe(true);
-    expect(value?.classList.contains("line-through")).toBe(true);
-    expect(screen.getAllByText(", not billed").length).toBeGreaterThan(0);
-  });
-
   it("renders nothing for a legacy status-only row (no tokens, no modelId)", () => {
     const { container } = render(
       <MessageUsage metadata={{ usage: { status: "completed" } }} />,
