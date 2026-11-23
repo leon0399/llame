@@ -165,17 +165,17 @@ Python package `openai-agents` (`openai/openai-agents-python`).
 
 ### Quick comparison
 
-| Framework / mechanism | Counts | Default | On limit |
-|---|---|---|---|
-| new AutoGen `MaxMessageTermination` | chat messages (delta) | none (required arg) | `StopMessage` / `stop_reason`, no raise |
-| new AutoGen team `max_turns` | agent turns | `None` (no limit) | `StopMessage` "Maximum number of turns N reached.", no raise |
-| new AutoGen `max_tool_iterations` | tool-call iterations per agent run | 1 | summary/reflect step, no raise |
-| AG2/old `max_consecutive_auto_reply` | consecutive auto replies per sender | 100 | stop; `"exit"`; AG2 `TerminationEvent` |
-| AG2/old `GroupChat.max_round` | rounds | 10 | break; AG2 "Maximum rounds (N) reached" |
-| AG2/old `initiate_chat(max_turns)` | round trips | `None` | AG2 `TerminationEvent` "Maximum turns (N) reached" |
-| CrewAI `max_iter` | agent iterations | 25 in code (docs say 20) | forced final answer, no raise |
-| CrewAI `max_rpm` | model req/min | `None` | sleep 60 s |
-| CrewAI `max_execution_time` | seconds | `None` | `TimeoutError` |
-| CrewAI `allow_delegation` | delegation tool calls | `False`; no depth cap | bounded by `max_iter` [INFERENCE] |
-| LangGraph `recursion_limit` | super-steps | 10,007 (>=1.1.4; 10,000 for 1.0.6-1.1.3; docs elsewhere still say 25) | `GraphRecursionError` |
-| OpenAI `max_turns` | AI invocations/turns (incl. handoffs) | 10 | `MaxTurnsExceeded` |
+| Framework / mechanism                | Counts                                | Default                                                               | On limit                                                     |
+| ------------------------------------ | ------------------------------------- | --------------------------------------------------------------------- | ------------------------------------------------------------ |
+| new AutoGen `MaxMessageTermination`  | chat messages (delta)                 | none (required arg)                                                   | `StopMessage` / `stop_reason`, no raise                      |
+| new AutoGen team `max_turns`         | agent turns                           | `None` (no limit)                                                     | `StopMessage` "Maximum number of turns N reached.", no raise |
+| new AutoGen `max_tool_iterations`    | tool-call iterations per agent run    | 1                                                                     | summary/reflect step, no raise                               |
+| AG2/old `max_consecutive_auto_reply` | consecutive auto replies per sender   | 100                                                                   | stop; `"exit"`; AG2 `TerminationEvent`                       |
+| AG2/old `GroupChat.max_round`        | rounds                                | 10                                                                    | break; AG2 "Maximum rounds (N) reached"                      |
+| AG2/old `initiate_chat(max_turns)`   | round trips                           | `None`                                                                | AG2 `TerminationEvent` "Maximum turns (N) reached"           |
+| CrewAI `max_iter`                    | agent iterations                      | 25 in code (docs say 20)                                              | forced final answer, no raise                                |
+| CrewAI `max_rpm`                     | model req/min                         | `None`                                                                | sleep 60 s                                                   |
+| CrewAI `max_execution_time`          | seconds                               | `None`                                                                | `TimeoutError`                                               |
+| CrewAI `allow_delegation`            | delegation tool calls                 | `False`; no depth cap                                                 | bounded by `max_iter` [INFERENCE]                            |
+| LangGraph `recursion_limit`          | super-steps                           | 10,007 (>=1.1.4; 10,000 for 1.0.6-1.1.3; docs elsewhere still say 25) | `GraphRecursionError`                                        |
+| OpenAI `max_turns`                   | AI invocations/turns (incl. handoffs) | 10                                                                    | `MaxTurnsExceeded`                                           |
