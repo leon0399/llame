@@ -23,6 +23,7 @@ const now = new Date('2026-10-27T00:00:00.000Z');
 const blockingRun: Run = {
   id: 'run-blocking',
   kind: 'turn',
+  origin: 'owner',
   chatId: 'chat-id',
   messageId: 'message-id',
   userId: 'user-id',

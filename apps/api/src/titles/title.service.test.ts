@@ -11,6 +11,7 @@ import {
 import { ModelsService } from '../models/models.service';
 import { createFakeModelClient } from '../models/fake-model-client';
 import type { ModelClient } from '../models/model-client';
+import { ProviderFailure } from '../models/provider-failure/provider-failure';
 import { createModelClient } from '../models/model-client-factory';
 import { createOpenAIModelClient } from '../models/openai-model-client';
 import { createOpenAICompletionsModelClient } from '../models/openai-completions-model-client';
@@ -69,8 +70,8 @@ function makeService(client?: ModelClient) {
   });
 
   const resolveTitleModelConfig = vi
-    .spyOn(models, 'resolveTitleModelConfig')
-    .mockReturnValue(titleModel);
+    .spyOn(models, 'resolveTitleModelCandidates')
+    .mockReturnValue({ models: [titleModel], allowPaidFallback: false });
 
   const createClient = vi.spyOn(models, 'createClient');
 
@@ -214,6 +215,120 @@ describe('TitleService', () => {
       'user-1',
       'Fallback title',
     );
+  });
+
+  it('tries the next title role candidate after a quota failure', async () => {
+    const first = createFakeModelClient(['unused']);
+    vi.spyOn(first, 'streamText').mockImplementation(() => {
+      throw new ProviderFailure('usage limit', { code: 'quota_exhausted' });
+    });
+    const second = createFakeModelClient(['unused']);
+    Object.assign(second, {
+      generateObject: vi
+        .fn<NonNullable<ModelClient['generateObject']>>()
+        .mockResolvedValue({ title: 'Recovered title' }),
+    });
+
+    const {
+      service,
+      createClient,
+      resolveTitleModelConfig,
+      setGeneratedTitle,
+    } = makeService();
+
+    resolveTitleModelConfig.mockReturnValue({
+      models: [titleModel, { ...titleModel, id: 'second-title-model' }],
+      allowPaidFallback: false,
+    });
+
+    createClient.mockReturnValueOnce(first).mockReturnValueOnce(second);
+
+    await service.maybeGenerateTitle({
+      chatId: 'chat-1',
+      userId: 'user-1',
+      userText: 'A user request',
+    });
+
+    expect(createClient).toHaveBeenNthCalledWith(2, 'second-title-model');
+    expect(setGeneratedTitle).toHaveBeenCalledWith(
+      'chat-1',
+      'user-1',
+      'Recovered title',
+    );
+  });
+
+  it('skips paid title candidates when the role gate is off', async () => {
+    const first = createFakeModelClient(['unused']);
+    vi.spyOn(first, 'streamText').mockImplementation(() => {
+      throw new Error('provider unavailable');
+    });
+
+    const fallback = createFakeModelClient(['unused']);
+    Object.assign(fallback, {
+      generateObject: vi
+        .fn<NonNullable<ModelClient['generateObject']>>()
+        .mockResolvedValue({ title: 'Free fallback title' }),
+    });
+
+    const {
+      service,
+      createClient,
+      resolveTitleModelConfig,
+      setGeneratedTitle,
+    } = makeService();
+
+    resolveTitleModelConfig.mockReturnValue({
+      models: [
+        { ...titleModel, billing: 'subscription' },
+        { ...titleModel, id: 'paid-title-model', billing: 'usage' },
+        { ...titleModel, id: 'free-title-model', billing: 'free' },
+      ],
+      allowPaidFallback: false,
+    });
+
+    createClient.mockReturnValueOnce(first).mockReturnValueOnce(fallback);
+
+    await service.maybeGenerateTitle({
+      chatId: 'chat-1',
+      userId: 'user-1',
+      userText: 'A user request',
+    });
+
+    expect(createClient).toHaveBeenCalledTimes(2);
+    expect(createClient).toHaveBeenNthCalledWith(2, 'free-title-model');
+    expect(setGeneratedTitle).toHaveBeenCalledWith(
+      'chat-1',
+      'user-1',
+      'Free fallback title',
+    );
+  });
+
+  it('keeps the title unchanged when every title role candidate fails', async () => {
+    const client = createFakeModelClient(['unused']);
+    vi.spyOn(client, 'streamText').mockImplementation(() => {
+      throw new Error('provider unavailable');
+    });
+
+    const {
+      service,
+      createClient,
+      resolveTitleModelConfig,
+      setGeneratedTitle,
+    } = makeService(client);
+
+    resolveTitleModelConfig.mockReturnValue({
+      models: [titleModel, { ...titleModel, id: 'second-title-model' }],
+      allowPaidFallback: false,
+    });
+
+    await service.maybeGenerateTitle({
+      chatId: 'chat-1',
+      userId: 'user-1',
+      userText: 'A user request',
+    });
+
+    expect(createClient).toHaveBeenCalledTimes(2);
+    expect(setGeneratedTitle).not.toHaveBeenCalled();
   });
 
   it('does not write an unusable title and swallows model failures', async () => {

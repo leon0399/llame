@@ -304,6 +304,7 @@ describe('BashJobRegistry', () => {
     ).mockResolvedValue({
       id: 'run-1',
       kind: 'turn',
+      origin: 'owner',
       chatId: CHAT,
       messageId: 'message-1',
       userId: OWNER,

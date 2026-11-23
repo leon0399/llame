@@ -433,6 +433,7 @@ const userMessage: Message = {
 const run: Run = {
   id: runId,
   kind: 'turn',
+  origin: 'owner',
   chatId,
   messageId,
   userId,
@@ -3841,6 +3842,7 @@ describe('RunExecutionService executeRun', () => {
         });
 
         vi.spyOn(execution.service, 'claimRun').mockResolvedValue({
+          origin: 'owner',
           selector: 'fake-model',
           effort: undefined,
           permissionMode: 'default',
@@ -3961,6 +3963,7 @@ describe('RunExecutionService executeRun', () => {
       );
 
       vi.spyOn(execution.service, 'claimRun').mockResolvedValue({
+        origin: 'owner',
         attemptId: testAttemptId,
         selector: 'fake-model',
         effort: undefined,
@@ -4126,6 +4129,7 @@ describe('RunExecutionService executeRun', () => {
       );
 
       vi.spyOn(execution.service, 'claimRun').mockResolvedValue({
+        origin: 'owner',
         selector: 'fake-model',
         effort: undefined,
         permissionMode: 'default',
@@ -4159,6 +4163,7 @@ describe('RunExecutionService executeRun', () => {
       const execution = makeExecutionService(client);
 
       vi.spyOn(execution.service, 'claimRun').mockResolvedValue({
+        origin: 'owner',
         selector: 'fake-model',
         effort: undefined,
         permissionMode: 'default',
@@ -15414,6 +15419,7 @@ describe('RunExecutionService executeRun — pre-step compaction trigger', () =>
           activeAttemptId: testAttemptId,
         });
         vi.spyOn(execution.service, 'claimRun').mockResolvedValue({
+          origin: 'owner',
           selector: 'fake-model',
           effort: undefined,
           permissionMode: 'default',
@@ -15548,6 +15554,7 @@ describe('RunExecutionService executeRun — pre-step compaction trigger', () =>
     });
 
     vi.spyOn(execution.service, 'claimRun').mockResolvedValue({
+      origin: 'owner',
       attemptId: testAttemptId,
       selector: 'fake-model',
       effort: undefined,
@@ -15733,6 +15740,7 @@ describe('RunExecutionService executeRun — pre-step compaction trigger', () =>
     );
 
     vi.spyOn(execution.service, 'claimRun').mockResolvedValue({
+      origin: 'owner',
       attemptId: testAttemptId,
       selector: 'fake-model',
       effort: undefined,
@@ -15838,6 +15846,7 @@ describe('RunExecutionService executeRun — pre-step compaction trigger', () =>
     serveSummaryReceipt(() => preparedSystem);
 
     vi.spyOn(execution.service, 'claimRun').mockResolvedValue({
+      origin: 'owner',
       attemptId: testAttemptId,
       selector: 'fake-model',
       effort: undefined,
@@ -25535,6 +25544,7 @@ describe('RunExecutionService executeRun — run segments', () => {
       );
 
     vi.spyOn(execution.service, 'claimRun').mockResolvedValue({
+      origin: 'owner',
       attemptId: wakeAttemptId,
       selector: 'fake-model',
       effort: undefined,
@@ -25735,6 +25745,7 @@ describe('RunExecutionService executeRun — run segments', () => {
       activeAttemptId: 'summary-wake-attempt',
     });
     vi.spyOn(execution.service, 'claimRun').mockResolvedValue({
+      origin: 'owner',
       attemptId: 'summary-wake-attempt',
       selector: 'fake-model',
       effort: undefined,
@@ -25877,6 +25888,7 @@ describe('RunExecutionService executeRun — run segments', () => {
       replayAppendedEvents(appended);
 
       vi.spyOn(execution.service, 'claimRun').mockResolvedValue({
+        origin: 'owner',
         attemptId: testAttemptId,
         selector: 'fake-model',
         effort: undefined,
@@ -26034,6 +26046,7 @@ describe('RunExecutionService executeRun — run segments', () => {
     replayAppendedEvents(appended);
 
     vi.spyOn(execution.service, 'claimRun').mockResolvedValue({
+      origin: 'owner',
       attemptId: testAttemptId,
       selector: 'fake-model',
       effort: undefined,
@@ -26118,6 +26131,7 @@ describe('RunExecutionService executeRun — run segments', () => {
     ]);
 
     vi.spyOn(execution.service, 'claimRun').mockResolvedValue({
+      origin: 'owner',
       attemptId: testAttemptId,
       selector: 'fake-model',
       effort: undefined,
@@ -26222,6 +26236,7 @@ describe('RunExecutionService executeRun — run segments', () => {
     );
 
     vi.spyOn(execution.service, 'claimRun').mockResolvedValue({
+      origin: 'owner',
       attemptId: testAttemptId,
       selector: 'fake-model',
       effort: undefined,
@@ -26402,6 +26417,7 @@ describe('RunExecutionService executeRun — run segments', () => {
     replayAppendedEvents(appended);
 
     vi.spyOn(execution.service, 'claimRun').mockResolvedValue({
+      origin: 'owner',
       attemptId: testAttemptId,
       selector: 'fake-model',
       effort: undefined,
@@ -26673,6 +26689,7 @@ describe('RunExecutionService executeRun — run segments', () => {
           activeAttemptId: testAttemptId,
         });
         vi.spyOn(execution.service, 'claimRun').mockResolvedValue({
+          origin: 'owner',
           selector: 'fake-model',
           effort: undefined,
           permissionMode: 'default',
@@ -30317,6 +30334,7 @@ describe('RunExecutionService executeRun — owner interrupt settlement', () => 
     );
 
     vi.spyOn(rig.execution.service, 'claimRun').mockResolvedValue({
+      origin: 'owner',
       attemptId: testAttemptId,
       selector: 'fake-model',
       effort: undefined,
@@ -32706,6 +32724,7 @@ describe('RunExecutionService wake-compaction fallback context fit', () => {
     const spies = mockNormalExecutionRepositories();
 
     vi.spyOn(execution.service, 'claimRun').mockResolvedValue({
+      origin: 'owner',
       attemptId: testAttemptId,
       selector: 'fake-model',
       effort: undefined,
@@ -33141,6 +33160,7 @@ describe('RunExecutionService disabled automatic compaction state', () => {
       'prepareWakeAttempt',
     ).mockResolvedValue(undefined);
     vi.spyOn(execution.service, 'claimRun').mockResolvedValue({
+      origin: 'owner',
       attemptId: testAttemptId,
       selector: 'fake-model',
       effort: undefined,

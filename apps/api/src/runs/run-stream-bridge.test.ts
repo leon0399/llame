@@ -1507,6 +1507,7 @@ describe('RunStreamBridgeService', () => {
       .mockResolvedValue({
         id: RUN_ID,
         kind: 'turn',
+        origin: 'owner',
         chatId: '00000000-0000-4000-8000-000000000002',
         messageId: null,
         userId: 'user-1',
@@ -1552,6 +1553,7 @@ describe('RunStreamBridgeService', () => {
     vi.spyOn(RunsRepository.prototype, 'findById').mockResolvedValue({
       id: RUN_ID,
       kind: 'turn',
+      origin: 'owner',
       chatId: '00000000-0000-4000-8000-000000000002',
       messageId: null,
       userId: 'user-1',
@@ -1612,6 +1614,7 @@ describe('RunStreamBridgeService', () => {
     vi.spyOn(RunsRepository.prototype, 'findById').mockResolvedValue({
       id: RUN_ID,
       kind: 'turn',
+      origin: 'owner',
       chatId: '00000000-0000-4000-8000-000000000002',
       messageId: null,
       userId: 'user-1',
@@ -1661,6 +1664,7 @@ describe('RunStreamBridgeService', () => {
       return Promise.resolve({
         id: RUN_ID,
         kind: 'turn',
+        origin: 'owner',
         chatId: '00000000-0000-4000-8000-000000000002',
         messageId: null,
         userId: 'user-1',
@@ -2111,6 +2115,7 @@ describe('RunStreamBridgeService terminal-status fallbacks', () => {
   const terminalRun = (status: Run['status']): Run => ({
     id: RUN_ID,
     kind: 'turn',
+    origin: 'owner',
     chatId: '00000000-0000-4000-8000-000000000002',
     messageId: null,
     userId: 'user-1',

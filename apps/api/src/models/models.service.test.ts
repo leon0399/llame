@@ -536,6 +536,34 @@ describe('ModelsService', () => {
       });
     });
 
+    it('resolves all title role candidates in order with the paid fallback gate', () => {
+      const service = createService({
+        defaultSelector: '@coding',
+        titleGenerationSelector: '@titles',
+        models: [
+          withBilling('system:openai:secondary', 'subscription'),
+          withBilling('system:openai:primary', 'usage'),
+        ],
+        modelRoles: [
+          {
+            name: 'titles',
+            candidates: [
+              { modelId: 'system:openai:secondary' },
+              { modelId: 'system:openai:primary' },
+            ],
+            allowPaidFallback: false,
+          },
+        ],
+      });
+
+      expect(service.resolveTitleModelCandidates()).toMatchObject({
+        models: [
+          { id: 'system:openai:secondary' },
+          { id: 'system:openai:primary' },
+        ],
+        allowPaidFallback: false,
+      });
+    });
     it('treats a title-generation role that is not configured as unset', () => {
       const service = createService({
         defaultSelector: 'system:openai:gpt-5.4-mini',

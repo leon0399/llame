@@ -39,15 +39,17 @@ export type ChatDeliveryState = (typeof chatDeliveryStates)[number];
 
 /**
  * The send settings an item keeps until it becomes a Run (accept-time values).
- * An owner item stores only what the send named: `selector` is absent when the
- * request named none, so promotion re-resolves the Chat's stored selection.
- * A job item always names the selector and effort of the Run that started it.
+ * An owner item stores only what the send named; promotion defaults its origin
+ * to `owner`. A job item stores the selector, effort, permission mode, and
+ * origin of the Run that started it.
  */
 export type ChatDeliverySettings = {
   /** A role (`@fast`) or an exact model id. */
   selector?: string;
   effort?: string;
   permissionMode: PermissionMode;
+  /** Origin of the Run whose job/notice this item represents. */
+  origin?: 'owner' | 'agent';
 };
 
 /**

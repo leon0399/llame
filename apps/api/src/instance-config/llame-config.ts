@@ -18,6 +18,7 @@ import { type ToolPermissionMap } from '../tools/permissions/types';
 import type { PermissionMode } from '../tools/permissions/permission-mode';
 import type { MachinesConfig, RawMachinesConfig } from './machines-config';
 import type { RawModelRole, ModelRoleConfig } from './model-roles-config';
+import type * as Failover from './model-roles-config';
 import type * as Rerank from './rerank-config';
 import type { RawSshConfig, SshConfig } from './ssh-settings';
 import type { ToolRerankConfig } from './tool-rerank-config';
@@ -554,8 +555,9 @@ export interface RawInstanceConfig extends Record<string, unknown> {
   workers?: Record<string, WorkerProfile>;
   providers?: Array<RawProviderEntry>;
   models?: Array<RawModelEntry>;
-  modelRoles?: Record<string, RawModelRole>;
   embeddingModels?: Array<RawEmbeddingModelEntry>;
+  modelRoles?: Record<string, RawModelRole>;
+  failover?: Failover.RawFailoverMatrix;
   decisionModels?: Array<RawDecisionModelEntry>;
   rerankModels?: Array<Rerank.RerankModelConfig>;
   search?: RawSearchConfig;
@@ -809,6 +811,8 @@ export type LlameConfig = {
    * instance declaring no roles is unchanged.
    */
   modelRoles: ReadonlyArray<ModelRoleConfig>;
+  /** Default automatic failover cells; absent cells are implicitly off. */
+  failover: Failover.FailoverMatrix;
   /**
    * The declared embedding-model catalog (chat-search-embeddings, design
    * D1). Default: empty — an instance declaring none is unchanged from
@@ -844,6 +848,7 @@ export const BUILT_IN_DEFAULTS: LlameConfig = {
     selector: null,
     titleGenerationSelector: null,
   },
+  failover: {},
   runs: {
     maxOutputTokens: null,
     quotaWaitMaxSeconds: 691_200,

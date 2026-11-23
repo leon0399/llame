@@ -1,0 +1,57 @@
+{
+  "type": "diff",
+  "version": "9",
+  "dialect": "postgres",
+  "id": "391a0108-8bd7-4a00-891a-dddfea20bdec",
+  "prevIds": ["794e07e6-fac4-4ccd-9781-02a8b8f5b351"],
+  "footprints": [
+    {
+      "statementType": "create_enum",
+      "statementTarget": ["enum", "public", "run_origin"],
+      "writes": [
+        "s|enum|public.run_origin",
+        "n|enum|public.run_origin",
+        "e|enum|public.run_origin",
+        "n|type|public.run_origin"
+      ],
+      "reads": ["n|sch|public"]
+    },
+    {
+      "statementType": "add_column",
+      "statementTarget": ["column", "public", "runs", "origin"],
+      "writes": [
+        "s|col|public.runs.origin",
+        "n|col|public.runs.origin",
+        "e|col|public.runs.origin"
+      ],
+      "reads": ["n|tbl|public.runs", "n|sch|public", "n|enum|public.run_origin"]
+    }
+  ],
+  "deltas": [
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "name": "run_origin",
+        "values": ["owner", "agent"],
+        "entityType": "enums"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "runs",
+        "name": "origin",
+        "type": "run_origin",
+        "typeSchema": "public",
+        "notNull": true,
+        "dimensions": 0,
+        "default": "'owner'",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    }
+  ]
+}

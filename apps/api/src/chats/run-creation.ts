@@ -92,6 +92,7 @@ export type CreateRunForMessageInput = RunSelection & {
    * without `run.continued` or `replacesUsage` (design D7).
    */
   followUpAction?: 'continue' | 'regenerate';
+  origin?: Run['origin'];
   sourceRunId?: string;
 };
 
@@ -163,6 +164,7 @@ export type CompactionRunInput = {
   selectedEffort?: string;
   selectionRevision?: number | null;
   permissionMode?: PermissionMode;
+  origin?: Run['origin'];
   focus: string | null;
 };
 
@@ -199,6 +201,7 @@ async function createCompactionRunRow(
         selectedEffort: input.selectedEffort,
         selectionRevision: input.selectionRevision ?? undefined,
         permissionMode: input.permissionMode,
+        origin: input.origin ?? 'owner',
         kind: 'compaction',
       }),
     );
@@ -236,6 +239,7 @@ async function createRunRow(
         selectedEffort: input.selectedEffort,
         selectionRevision: input.selectionRevision ?? undefined,
         permissionMode: input.permissionMode,
+        origin: input.origin ?? 'owner',
         followUpAction: input.followUpAction ?? input.followUp?.action,
         sourceRunId: input.sourceRunId ?? input.followUp?.sourceRunId,
       }),

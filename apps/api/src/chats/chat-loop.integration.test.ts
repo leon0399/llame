@@ -535,6 +535,14 @@ describeIfDb(
         message: { id: messageId, parts: [{ type: 'text', text }] },
       });
 
+    it('A send starts an owner Run', async () => {
+      const chatId = crypto.randomUUID();
+
+      await send(chatId, crypto.randomUUID(), 'owner message');
+
+      expect(await activeRun(chatId)).toMatchObject({ origin: 'owner' });
+    });
+
     const SECOND_MS = 1000;
 
     const activeRun = (chatId: string) =>

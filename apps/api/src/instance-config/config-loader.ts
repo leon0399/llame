@@ -41,6 +41,10 @@ import type {
   ModelRoleCandidate,
   ModelRoleConfig,
   RawModelRoleCandidate,
+  RawFailoverMatrix,
+  RawFailoverCell,
+  FailoverMatrix,
+  FailoverCell,
 } from './model-roles-config';
 import { resolveModelWire } from './provider-routing';
 import type { VendorProviderConfig } from './provider-routing';
@@ -800,6 +804,7 @@ function buildInstanceConfig(
     providers,
     models,
     modelRoles,
+    failover: resolveFailoverMatrix(raw?.failover, 'failover', env),
     embeddingModels,
     ...(decisionModels !== undefined && { decisionModels }),
     ...(rerankModels !== undefined && { rerankModels }),
@@ -3917,6 +3922,72 @@ function resolveModels(
  * (never trimmed) against the catalogue id and declared effort levels. A
  * role's primary is its first candidate.
  */
+function resolveFailoverCell(
+  cell: RawFailoverCell,
+  configPath: string,
+  env: NodeJS.ProcessEnv,
+): FailoverCell {
+  if (cell === 'on' || cell === 'off') return cell;
+
+  const threshold = requireResolvedNumber(
+    resolveNumeric({
+      configPath,
+      present: true,
+      raw: cell.switchAfterSeconds,
+      builtInDefault: null,
+      nullable: false,
+      min: 1,
+      env,
+    }),
+    configPath,
+  );
+
+  return { switchAfterSeconds: threshold };
+}
+
+function resolveFailoverMatrix(
+  raw: RawFailoverMatrix | undefined,
+  path: string,
+  env: NodeJS.ProcessEnv,
+): FailoverMatrix {
+  const matrix: Partial<
+    Record<
+      'owner' | 'agent',
+      Partial<Record<'availability' | 'access' | 'quota', FailoverCell>>
+    >
+  > = {};
+
+  for (const [origin, groups] of Object.entries(raw ?? {})) {
+    if (origin !== 'owner' && origin !== 'agent') {
+      throw new InstanceConfigError(
+        `${path}.${origin}: unknown failover origin`,
+      );
+    }
+
+    const resolvedGroups: Partial<
+      Record<'availability' | 'access' | 'quota', FailoverCell>
+    > = {};
+
+    for (const [group, cell] of Object.entries(groups ?? {})) {
+      if (group !== 'availability' && group !== 'access' && group !== 'quota') {
+        throw new InstanceConfigError(
+          `${path}.${origin}.${group}: unknown failure group`,
+        );
+      }
+
+      resolvedGroups[group] = resolveFailoverCell(
+        cell,
+        `${path}.${origin}.${group}.switchAfterSeconds`,
+        env,
+      );
+    }
+
+    matrix[origin] = resolvedGroups;
+  }
+
+  return matrix;
+}
+
 function resolveModelRoles(
   raw: RawInstanceConfig | undefined,
   env: NodeJS.ProcessEnv,
@@ -3947,6 +4018,16 @@ function resolveModelRoles(
       candidates: role.candidates.map((candidate, index) =>
         resolveRoleCandidate(candidate, index, scope),
       ),
+      ...(role.allowPaidFallback !== undefined && {
+        allowPaidFallback: role.allowPaidFallback,
+      }),
+      ...(role.failover !== undefined && {
+        failover: resolveFailoverMatrix(
+          role.failover,
+          `modelRoles.${name}.failover`,
+          env,
+        ),
+      }),
     };
   });
 }

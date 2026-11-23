@@ -218,6 +218,7 @@ async function startCompactItemRun(
     userId: item.ownerUserId,
     ...runSelectionFields(resolved),
     focus,
+    origin: item.settings.origin ?? 'owner',
   });
 
   const delivered = await deliverPromotedItem(tx, item, { runId: run.id });
@@ -286,6 +287,7 @@ async function createItemRun(
       userId: item.ownerUserId,
       chatId: item.chatId,
       ...runSelectionFields(resolved),
+      origin: item.settings.origin ?? 'owner',
       targetRunId: randomUUID(),
     },
     message,

@@ -900,6 +900,8 @@ export type RunClaimResult =
   | {
       /** The selector the Run was admitted under (`runs.selector`). */
       selector: string;
+      /** The Run's stable execution origin. */
+      origin: Run['origin'];
       /** The effort the selection named, frozen on the Run at admission. */
       selectedEffort?: string;
       effort?: string;
@@ -938,6 +940,8 @@ type ExecuteAttemptInput = {
   nativeAbort: AbortController | undefined;
   /** The Run's selector, frozen at admission; a job inherits it. */
   selector: string;
+  /** The Run's stable execution origin, inherited by jobs it starts. */
+  origin: Run['origin'];
   /** The selection's effort, frozen at admission; a job inherits it. */
   selectedEffort: string | undefined;
   effort: string | undefined;
@@ -2087,6 +2091,7 @@ export class RunExecutionService {
         // configuration on a retry.
         return {
           selector: started.selector,
+          origin: started.origin,
           selectedEffort: started.selectedEffort ?? undefined,
           effort: started.effort ?? undefined,
           permissionMode: started.permissionMode,
@@ -2156,8 +2161,14 @@ export class RunExecutionService {
       throw new RunNotRunnableError(input.runId);
     }
 
-    const { selector, selectedEffort, effort, permissionMode, attemptId } =
-      claim;
+    const {
+      selector,
+      origin,
+      selectedEffort,
+      effort,
+      permissionMode,
+      attemptId,
+    } = claim;
     // Every attempt, a crash retry included, reads the Run's current message
     // from the Run row, not from the job: a delivery moved it (run-steering D3).
 
@@ -2172,6 +2183,7 @@ export class RunExecutionService {
       nativeAbort,
       selector,
       selectedEffort,
+      origin,
       effort,
       permissionMode,
       attemptId,
@@ -2752,6 +2764,7 @@ export class RunExecutionService {
       input,
       nativeAbort,
       selector,
+      origin,
       selectedEffort,
       effort,
       attemptId,
@@ -3282,6 +3295,7 @@ export class RunExecutionService {
         selector,
         effort: selectedEffort,
         permissionMode: effectivePermissionMode,
+        origin,
       },
       allowUnlimitedJobs: this.instanceConfig.config.tools.jobs.allowUnlimited,
       bashBackgroundAfterSeconds:

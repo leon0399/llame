@@ -54,6 +54,7 @@ function run(overrides: Partial<Run> = {}): Run {
   return {
     id: 'run-id',
     kind: 'turn',
+    origin: 'owner',
     chatId: 'chat-id',
     messageId: null,
     userId: 'owner-id',

@@ -133,6 +133,7 @@ function previousRun(overrides: Partial<Run> = {}): Run {
   return {
     id: '22222222-2222-4222-8222-222222222222',
     kind: 'turn',
+    origin: 'owner',
     chatId: 'chat-id',
     messageId: '33333333-3333-4333-8333-333333333333',
     userId: 'user-id',
@@ -493,6 +494,7 @@ describe('ChatLoopService accept/worker context binding', () => {
       .mockResolvedValue({
         id: 'run-id',
         kind: 'turn',
+        origin: 'owner',
         chatId: 'chat-id',
         messageId: MESSAGE_ID,
         userId: 'user-id',
@@ -601,6 +603,7 @@ describe('ChatLoopService accept/worker context binding', () => {
         Promise.resolve({
           id: runInput.id ?? 'run-id',
           kind: runInput.kind ?? 'turn',
+          origin: runInput.origin ?? 'owner',
           chatId: runInput.chatId,
           messageId: runInput.messageId,
           userId: runInput.userId,

@@ -3294,6 +3294,46 @@ describe('loadInstanceConfig — modelRoles / defaults selectors (model-roles)',
       );
     },
   );
+  it('rejects an unknown failover origin with its config path', () => {
+    writeConfig('{ "failover": { "schedule": { "availability": "on" } } }');
+    expect(() => loadInstanceConfig()).toThrow(/failover.*schedule/u);
+  });
+
+  it('rejects a non-positive quota threshold naming its cell', () => {
+    writeConfig(
+      '{ "failover": { "agent": { "quota": { "switchAfterSeconds": 0 } } } }',
+    );
+    expect(() => loadInstanceConfig()).toThrow(
+      /failover.*agent.*quota.*switchAfterSeconds/u,
+    );
+  });
+
+  it('allows switchAfterSeconds only on quota cells', () => {
+    writeConfig(
+      '{ "failover": { "agent": { "availability": { "switchAfterSeconds": 30 } } } }',
+    );
+    expect(() => loadInstanceConfig()).toThrow(/failover.*availability/u);
+  });
+
+  it('resolves a role failover cell and keeps the override partial', () => {
+    writeConfig(`{
+      ${ROLE_MODELS_JSON},
+      "failover": { "agent": { "availability": "on", "quota": "off" } },
+      "modelRoles": {
+        "coding": {
+          "candidates": [{ "model": "plain-model" }],
+          "allowPaidFallback": true,
+          "failover": { "agent": { "quota": { "switchAfterSeconds": "{env:FAILOVER_WAIT}" } } }
+        }
+      }
+    }`);
+    const config = loadInstanceConfig({ ...process.env, FAILOVER_WAIT: '42' });
+    expect(config.failover.agent?.availability).toBe('on');
+    expect(config.modelRoles[0]).toMatchObject({
+      allowPaidFallback: true,
+      failover: { agent: { quota: { switchAfterSeconds: 42 } } },
+    });
+  });
 });
 
 describe('loadInstanceConfig — embeddingModels[] / search.* (chat-search-embeddings, task 5.1)', () => {

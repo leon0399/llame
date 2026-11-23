@@ -49,6 +49,7 @@ const message: Message = {
 const run: Run = {
   id: 'run-1',
   kind: 'turn',
+  origin: 'owner',
   chatId: 'chat-1',
   messageId: message.id,
   userId: 'user-1',

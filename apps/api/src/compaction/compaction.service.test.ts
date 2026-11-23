@@ -84,6 +84,7 @@ const sourceAttemptId = '22222222-2222-4222-8222-222222222222';
 const sourceRun: Run = {
   id: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',
   kind: 'turn',
+  origin: 'owner',
   chatId,
   messageId: 'ffffffff-ffff-4fff-8fff-ffffffffffff',
   userId: ownerId,
