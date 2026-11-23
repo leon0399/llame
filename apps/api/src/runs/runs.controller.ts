@@ -26,6 +26,7 @@ import {
 import type { Request } from 'express';
 
 import { CurrentUser } from '../auth/auth-context';
+import { sseEventSchema } from '../chats/create-chat-message.api-docs';
 import { withoutRetainedMediaPayload } from '../chats/retained-media-egress';
 import { withoutProviderMetadataPayload } from '../chats/provider-metadata-egress';
 import { TenantDbService, type TenantRunner } from '../db/tenant-db.service';
@@ -205,7 +206,7 @@ export class RunsController {
   @ApiOkResponse({
     description:
       'Server-sent events; each frame: id = event sequence, data = {sequence, eventType, payload, createdAt}',
-    content: { 'text/event-stream': { schema: { type: 'string' } } },
+    content: { 'text/event-stream': { schema: sseEventSchema } },
   })
   @ApiUnauthorizedResponse()
   @ApiNotFoundResponse({ description: 'Run not found or not owned' })

@@ -342,7 +342,23 @@
             "content": {
               "text/event-stream": {
                 "schema": {
-                  "type": "string"
+                  "type": "object",
+                  "required": ["data"],
+                  "properties": {
+                    "event": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "type": "string",
+                      "description": "One AG-UI event as JSON"
+                    },
+                    "id": {
+                      "type": "string"
+                    },
+                    "retry": {
+                      "type": "integer"
+                    }
+                  }
                 }
               }
             }
@@ -821,7 +837,23 @@
             "content": {
               "text/event-stream": {
                 "schema": {
-                  "type": "string"
+                  "type": "object",
+                  "required": ["data"],
+                  "properties": {
+                    "event": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "type": "string",
+                      "description": "One AG-UI event as JSON"
+                    },
+                    "id": {
+                      "type": "string"
+                    },
+                    "retry": {
+                      "type": "integer"
+                    }
+                  }
                 }
               },
               "application/json": {
@@ -966,7 +998,23 @@
             "content": {
               "text/event-stream": {
                 "schema": {
-                  "type": "string"
+                  "type": "object",
+                  "required": ["data"],
+                  "properties": {
+                    "event": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "type": "string",
+                      "description": "One AG-UI event as JSON"
+                    },
+                    "id": {
+                      "type": "string"
+                    },
+                    "retry": {
+                      "type": "integer"
+                    }
+                  }
                 }
               }
             }
@@ -2793,7 +2841,23 @@
             "content": {
               "text/event-stream": {
                 "schema": {
-                  "type": "string"
+                  "type": "object",
+                  "required": ["data"],
+                  "properties": {
+                    "event": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "type": "string",
+                      "description": "One AG-UI event as JSON"
+                    },
+                    "id": {
+                      "type": "string"
+                    },
+                    "retry": {
+                      "type": "integer"
+                    }
+                  }
                 }
               }
             }

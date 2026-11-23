@@ -300,6 +300,13 @@ describe('ChatLoopService accept/worker context binding', () => {
     vi.spyOn(ChatsRepository.prototype, 'findById').mockResolvedValue(chat);
     vi.spyOn(ChatsRepository.prototype, 'lock').mockResolvedValue(chat);
     vi.spyOn(ChatsRepository.prototype, 'touch').mockResolvedValue(undefined);
+    // Admission stores the owner's selection on the Chat before the Run; the
+    // fixture's Chat row is in memory and its ids are not UUIDs, so the write
+    // is stubbed with the other Chat-row writes here rather than reaching the
+    // database.
+    vi.spyOn(ChatsRepository.prototype, 'setModelSelection').mockResolvedValue(
+      undefined,
+    );
     vi.spyOn(ChatsRepository.prototype, 'findPinnedChatIds').mockResolvedValue(
       new Set(),
     );

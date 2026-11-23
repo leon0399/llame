@@ -32,7 +32,10 @@ import {
   ApiUnauthorizedResponse,
   ApiUnprocessableEntityResponse,
 } from '@nestjs/swagger';
-import { ApiCreateChatMessageDocs } from './create-chat-message.api-docs';
+import {
+  ApiCreateChatMessageDocs,
+  sseEventSchema,
+} from './create-chat-message.api-docs';
 import { ChatCommandsService } from './commands/chat-commands.service';
 import { respondToChatCommand } from './commands/respond-to-chat-command';
 import { CurrentUser } from '../auth/auth-context';
@@ -147,7 +150,7 @@ export class ChatsController {
   @ApiParam({ name: 'id', format: 'uuid' })
   @ApiOkResponse({
     description: 'AG-UI event stream (SSE) replaying the active run',
-    content: { 'text/event-stream': { schema: { type: 'string' } } },
+    content: { 'text/event-stream': { schema: sseEventSchema } },
   })
   @ApiResponse({ status: 204, description: 'No active run to resume' })
   @ApiBadRequestResponse({ description: 'Malformed chat id (not a UUID)' })
@@ -388,7 +391,7 @@ export class ChatsController {
     description: 'AG-UI event stream (SSE)',
     content: {
       'text/event-stream': {
-        schema: { type: 'string' },
+        schema: sseEventSchema,
       },
     },
   })

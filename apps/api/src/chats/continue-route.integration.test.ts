@@ -286,10 +286,14 @@ d('the follow-up route', () => {
 
     expect(named.status).toBe(400);
 
-    // The regenerate variant requires its model, so a body without one is not
-    // that variant either.
-    const modelless = await followUp(turn, { action: 'regenerate' });
-    expect(modelless.status).toBe(400);
+    // The regenerate variant declares a selector, not a modelId, so a body
+    // naming one is not that variant either.
+    const unknownModelField = await followUp(turn, {
+      action: 'regenerate',
+      modelId: MODEL_ID,
+    });
+
+    expect(unknownModelField.status).toBe(400);
 
     // A field neither variant declares is an unknown property.
     const unknown = await followUp(turn, {
