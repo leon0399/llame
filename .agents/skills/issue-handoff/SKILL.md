@@ -34,10 +34,10 @@ Done when the issue has an assignee or a trigger, and its readiness check passed
 3. Resolve the work unit: a cutover belongs to its feature's OpenSpec change; work with no spec is its own unit.
 4. Check the **claim**: a `working:*` label with a live `llame:pickup` marker on the same unit belongs to someone else, so stop. Branches and PRs a released worker left behind are yours to build on.
 5. For `agent:implement` on a cutover, every earlier cutover in the change's graph is done or handed off; otherwise stop.
-6. **Mark the pickup**: add the `working:*` label for your stage, assign the issue, and post the `llame:pickup` marker comment that CONTRIBUTING.md shows.
+6. **Mark the pickup** for the stage you are starting: add its `working:*` label, assign, and post the `llame:pickup` marker that CONTRIBUTING.md shows. For implement, mark every cutover the run will close, or the feature when it has no cutovers.
 7. For `agent:spec`, grill on the open questions in your own session, write each settled decision onto the issue (body or one decision comment), then follow CONTRIBUTING.md "Proposal layer". With no session a person can reach, grill in issue comments and set the marker's `session` to `issue`. **While you wait for an answer**, add `needs:human` and keep your `working:*` label; remove `needs:human` when you resume.
 8. For `agent:implement`, follow CONTRIBUTING.md "Implementation layers".
-9. **Release** when the item waits only on a person (the release table in CONTRIBUTING.md): remove the `working:*` label and post the `llame:release` marker with outcome `handed-back` or `done`. Resuming later, for example on review feedback, starts again at step 6.
+9. **Release** when the item waits only on a person (the release table in CONTRIBUTING.md): remove the `working:*` label and post the `llame:release` marker with outcome `handed-back` or `done`. **Changing stage is a release and a new pickup**: release the current stage with `handed-back`, then repeat step 6 for the next stage. Resuming later, for example on review feedback, also starts again at step 6.
 
 Done when the release marker is posted and the Project item matches the PRs.
 
