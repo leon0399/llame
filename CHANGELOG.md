@@ -2,6 +2,14 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-11-23
 
+- Each Chat now stores its model selection: the selector and effort the owner
+  last named, returned on the Chat as `modelSelection`. A send, chat creation,
+  Regenerate, delivery, or `/compact` can omit the model to use it, and a Run
+  records the `selector` it was started with beside the `modelId` that served
+  it. Existing Chats keep the model and effort of their latest turn.
+  **Breaking**: requests name `selector` (a model id or `@role`) instead of
+  `modelId`, and a request that still names `modelId` gets 400. (#1772)
+
 - Group model entries into ordered model roles in `modelRoles`, name a role with
   an `@` selector in `defaults.selector` and `defaults.titleGenerationSelector`,
   and read the role catalog from `GET /api/v1/models` as `roles` beside
