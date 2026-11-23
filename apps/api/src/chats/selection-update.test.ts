@@ -69,6 +69,21 @@ describe('writeSwitchHold', () => {
     expect(chats.setModelSelection).not.toHaveBeenCalled();
   });
 
+  it('keeps the owner pick when the revision moved but the selector still matches', async () => {
+    const chats = fakeChats();
+
+    await writeSwitchHold(
+      chats,
+      {
+        id: 'chat-1',
+        ownerUserId: 'owner-1',
+        modelSelection: { ...SELECTION, revision: 4 },
+      },
+      INPUT,
+    );
+    expect(chats.setModelSelection).not.toHaveBeenCalled();
+  });
+
   it('keeps the selection when the revision is the same but the selector differs', async () => {
     const chats = fakeChats();
 

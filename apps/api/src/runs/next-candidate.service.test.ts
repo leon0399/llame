@@ -1,5 +1,5 @@
 import { isString } from '@workspace/runtime-safety';
-import type { Chat, Message, Run } from '../db/schema';
+import type { Chat, ChatDelivery, Message, Run } from '../db/schema';
 import type { Db } from '../db/tenant-db.service';
 
 import { TenantDbService } from '../db/tenant-db.service';
@@ -30,6 +30,13 @@ const SONNET: NextCandidate['model'] = {
     defaultEffort: 'low',
     cacheInvalidatedByEffortChange: false,
   },
+};
+
+const OPENAI: NextCandidate['model'] = {
+  ...SONNET,
+  id: 'system:openai:gpt-5.4-mini',
+  provider: 'openai',
+  providerModelId: 'openai-catalog-provider-id',
 };
 
 const now = new Date('2026-11-23T13:00:00.000Z');
@@ -135,9 +142,35 @@ const movedRun: Run = {
   currentJobId: 'next-job',
 };
 
-function makeService(input: { moved?: Run } = {}) {
+function pendingDelivery(id: string, text: string): ChatDelivery {
+  return {
+    id,
+    chatId,
+    ownerUserId: userId,
+    producer: 'owner',
+    senderRef: null,
+    mode: 'steer',
+    parts: [{ type: 'text', text }],
+    settings: { selector: '@coding', permissionMode: 'default' },
+    state: 'pending',
+    position: 1,
+    deliveredMessageId: null,
+    runId: null,
+    createdAt: now,
+    updatedAt: now,
+  };
+}
+
+function makeService(
+  input: {
+    moved?: Run;
+    parked?: Run;
+    pending?: Array<ChatDelivery>;
+  } = {},
+) {
+  const parked = input.parked ?? parkedRun;
   const moved = Object.hasOwn(input, 'moved') ? input.moved : movedRun;
-  const lockResult = Promise.resolve([parkedRun]);
+  const lockResult = Promise.resolve([parked]);
 
   const lockQuery = {
     from: vi.fn(),
@@ -151,7 +184,7 @@ function makeService(input: { moved?: Run } = {}) {
   const updateQuery = {
     set: vi.fn(),
     where: vi.fn(),
-    returning: vi.fn().mockResolvedValue([{ id: parkedRun.id }]),
+    returning: vi.fn().mockResolvedValue([{ id: parked.id }]),
   };
 
   updateQuery.set.mockReturnValue(updateQuery);
@@ -170,7 +203,7 @@ function makeService(input: { moved?: Run } = {}) {
     async <T>(_id: string, callback: (inner: Db) => Promise<T>) => callback(tx),
   );
   vi.spyOn(RunsRepository.prototype, 'findById')
-    .mockResolvedValueOnce(parkedRun)
+    .mockResolvedValueOnce(parked)
     .mockResolvedValue(moved);
   vi.spyOn(ChatsRepository.prototype, 'lock').mockResolvedValue(chat);
   vi.spyOn(ChatsRepository.prototype, 'transactionNow').mockResolvedValue(now);
@@ -183,16 +216,29 @@ function makeService(input: { moved?: Run } = {}) {
     userMessage,
     assistantMessage: undefined,
   });
-  vi.spyOn(MessagesRepository.prototype, 'create').mockResolvedValue(
-    deliveredMessage,
-  );
+
+  const createMessage = vi
+    .spyOn(MessagesRepository.prototype, 'create')
+    .mockResolvedValue(deliveredMessage);
+
+  const createUserMessage = vi
+    .spyOn(MessagesRepository.prototype, 'createUserMessageIfAbsent')
+    .mockResolvedValue(deliveredMessage);
+
   vi.spyOn(MessagesRepository.prototype, 'findById').mockResolvedValue(
     userMessage,
   );
+
+  const markDelivered = vi
+    .spyOn(ChatDeliveriesRepository.prototype, 'markDelivered')
+    .mockImplementation((id) =>
+      Promise.resolve(input.pending?.find((item) => item.id === id)),
+    );
+
   vi.spyOn(
     ChatDeliveriesRepository.prototype,
     'lockPendingBoundary',
-  ).mockResolvedValue([]);
+  ).mockResolvedValue(input.pending ?? []);
   vi.spyOn(RunEventsRepository.prototype, 'listByRunId').mockResolvedValue([]);
   vi.spyOn(RunEventsRepository.prototype, 'append').mockImplementation(
     (eventRunId, eventType, payload) =>
@@ -218,11 +264,21 @@ function makeService(input: { moved?: Run } = {}) {
         candidateEffort: 'medium',
       }),
     },
-    asDouble<InstanceConfigReader>({ config: { models: [SONNET] } }),
+    asDouble<InstanceConfigReader>({
+      config: { models: [SONNET, OPENAI] },
+    }),
     { enqueueInTransaction },
   );
 
-  return { service, setModelSelection, updateQuery, enqueueInTransaction };
+  return {
+    service,
+    setModelSelection,
+    updateQuery,
+    enqueueInTransaction,
+    createMessage,
+    createUserMessage,
+    markDelivered,
+  };
 }
 
 afterEach(() => {
@@ -270,6 +326,78 @@ describe('moving a quota-waiting Run to its next candidate', () => {
     expect(isString(api.enqueueInTransaction.mock.calls[0]?.[2]?.id)).toBe(
       true,
     );
+    expect(JSON.stringify(api.createMessage.mock.calls[0]?.[0])).toContain(
+      'openai-catalog-provider-id',
+    );
+  });
+
+  it('leaves a quota-waiting compact command pending instead of delivering it', async () => {
+    const ordinary = pendingDelivery(
+      'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      'continue with the requested change',
+    );
+
+    const compact = pendingDelivery(
+      'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+      '/compact keep the plan',
+    );
+
+    const api = makeService({ pending: [ordinary, compact] });
+
+    await api.service.moveWaitingRun({ runId, userId });
+
+    const deliveredParts = api.createUserMessage.mock.calls[0]?.[0].parts;
+
+    expect(deliveredParts?.[0]).toMatchObject({
+      data: { payload: { cause: 'failover' } },
+    });
+    expect(deliveredParts).toContainEqual({
+      type: 'text',
+      text: 'continue with the requested change',
+    });
+    expect(deliveredParts).not.toContainEqual({
+      type: 'text',
+      text: '/compact keep the plan',
+    });
+    expect(api.markDelivered).toHaveBeenCalledTimes(1);
+    expect(api.markDelivered).toHaveBeenCalledWith(
+      ordinary.id,
+      userId,
+      expect.anything(),
+    );
+    expect(api.markDelivered).not.toHaveBeenCalledWith(
+      compact.id,
+      userId,
+      expect.anything(),
+    );
+  });
+
+  it('refuses a Run that is no longer waiting for quota', async () => {
+    const api = makeService({
+      parked: { ...parkedRun, status: 'queued' },
+    });
+
+    await expect(
+      api.service.moveWaitingRun({ runId, userId }),
+    ).resolves.toEqual({
+      kind: 'unavailable',
+    });
+    expect(api.setModelSelection).not.toHaveBeenCalled();
+    expect(api.enqueueInTransaction).not.toHaveBeenCalled();
+  });
+
+  it('refuses a quota-waiting compaction Run', async () => {
+    const api = makeService({
+      parked: { ...parkedRun, kind: 'compaction' },
+    });
+
+    await expect(
+      api.service.moveWaitingRun({ runId, userId }),
+    ).resolves.toEqual({
+      kind: 'unavailable',
+    });
+    expect(api.setModelSelection).not.toHaveBeenCalled();
+    expect(api.enqueueInTransaction).not.toHaveBeenCalled();
   });
 
   it('reports a run that disappears after the fenced move', async () => {
