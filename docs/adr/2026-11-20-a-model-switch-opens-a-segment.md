@@ -13,7 +13,8 @@ cost, and the usage badge keep reading the model from the reply. A segment is
 already its own attempt, so the new model gets its own prompt receipt.
 
 The cost is visible. One Run can show two replies with no owner message
-between them. The second reply carries a marker that names the previous model.
+between them. A host message between the two replies carries a marker that
+names the previous model.
 
 ## Considered options
 
