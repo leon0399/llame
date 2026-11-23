@@ -13,16 +13,18 @@ Estimates count tests, documentation, and hand-authored migration work. Report g
 
 Every implementation layer is a safe merge boundary after its parent. The reader layer ships without the rail migration. The digest layer requires the shared row and locator behavior below it. These layers are not independent branches because they share that requirement and Run preparation. Finalize must remain after both. If review size requires a further coherent implementation split, revise this graph before that layer starts.
 
-No push or PR is authorized in this session. Local artifact completion does not approve implementation. The initial proposal and later review rounds use separate commits containing proposal-owned paths only. Existing staged files belong to Leo and must never enter those commits.
+Leo authorized publication after the first review iteration, followed by one further local review combined with GitHub feedback. Implementation remains unapproved. The initial proposal and later review rounds use separate commits containing proposal-owned paths only. Existing staged files belong to Leo and must never enter those commits.
 
 ## 1. Proposal layer
 
-- [ ] 1.1 Validate `unified-chat-read` strictly and check all MODIFIED scenario names against canonical specs. Verify every changed requirement against the recorded decisions.
-- [ ] 1.2 Prove the migration field-accounting and snapshot-placement design with bounded disposable probes. Do not proceed with an unverified preservation assumption.
-- [ ] 1.3 Commit the complete initial proposal without user-owned staged files. Run at least two independent adversarial reviewers per round. Verify findings and record each substantive revision in a separate commit.
-- [ ] 1.4 Run `pnpm format:check`, `pnpm lint:markdown`, focused strict OpenSpec validation, and `git diff --check`. Record any pre-existing working-tree failure separately.
-- [ ] 1.5 Obtain Leo's publication authorization before `$gh-stack` creates a draft PR. Self-review its actual parent-relative diff against `REVIEW_GUIDE.md` before ready.
+- [x] 1.1 Validate `unified-chat-read` strictly and check all MODIFIED scenario names against canonical specs. Verify every changed requirement against the recorded decisions.
+- [x] 1.2 Prove the migration field-accounting and snapshot-placement design with bounded disposable probes. Do not proceed with an unverified preservation assumption.
+- [x] 1.3 Commit the complete initial proposal without user-owned staged files. Complete the first iteration with two independent reviewers and commit verified corrections separately. Combine one further local review with GitHub feedback after publication, as Leo directed.
+- [x] 1.4 Run `pnpm format:check`, `pnpm lint:markdown`, focused strict OpenSpec validation, and `git diff --check`. Record any pre-existing working-tree failure separately.
+- [x] 1.5 Obtain Leo's publication authorization before `$gh-stack` creates a draft PR. Self-review its actual parent-relative diff against `REVIEW_GUIDE.md` before ready.
 - [ ] 1.6 Complete the proposal GitHub review/CI and Ready-PR monitoring gates after authorized publication. Obtain approval of the actual revision before creating the reader layer.
+
+Proposal proof: strict validation, Markdown lint, scoped Oxfmt, and whitespace checks pass. All 217 original MODIFIED scenarios remain. Disposable renderer and sequence probes support the design. Global formatting is blocked by Leo's restored, unrelated parse error in `apps/api/src/search/search-embed.worker.test.ts:167`; that file is outside this proposal.
 
 Proposal publication keeps Project status derived from the published PR. Do not advance it for local branches or reviews. Keep the spec pickup while waiting on questions. At an authorized spec-to-implementation transition, release the spec claim and post an implement pickup on the work unit before code changes. Each cutover receives its own implement pickup when that cutover starts. Never hold two workers on this dependency chain.
 
