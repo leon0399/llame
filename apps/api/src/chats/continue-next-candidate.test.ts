@@ -90,6 +90,7 @@ const reply: Message = {
 const failedRun: Run = {
   id: '55555555-5555-4555-8555-555555555555',
   kind: 'turn',
+  origin: 'owner',
   chatId: chat.id,
   messageId: userMessage.id,
   userId: chat.ownerUserId,
