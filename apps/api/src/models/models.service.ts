@@ -7,6 +7,7 @@ import {
 } from '../instance-config/instance-config.service';
 import type { ProductIdentityReader } from '../instance-config/product-identity';
 import type { ProviderConfig } from '../instance-config/llame-config';
+import type { ModelRoleConfig } from '../instance-config/model-roles-config';
 import { type PermissionMode } from '../tools/permissions/permission-mode';
 import {
   toPublicModel,
@@ -20,11 +21,37 @@ import {
   type ModelClient,
   type ModelCredentialResolver,
 } from './model-client';
+import { parseModelSelector, roleSelector } from './model-selector';
+
+/** One candidate of a published role, as a client may present it. */
+export type ModelRoleCandidateAvailability = {
+  modelId: string;
+  /** Config-declared effort; absent when the candidate declares none. */
+  effort?: string;
+  /** Per-token (`usage`) billing — false for `subscription` and `free`. */
+  paid: boolean;
+};
+
+/** One published model role, resolvable through its `@name` selector. */
+export type ModelRoleAvailability = {
+  selector: string;
+  candidates: Array<ModelRoleCandidateAvailability>;
+};
 
 export type ModelsAvailability = {
-  defaultModelId: string;
+  /**
+   * The configured default selector itself: `@role` or a model id. A role is
+   * resolved to one sendable model through `roles`.
+   */
+  defaultSelector: string;
   models: Array<PublicModelCatalogEntry>;
+  roles: Array<ModelRoleAvailability>;
 };
+
+const DEFAULT_SELECTOR_REQUIRED = 'defaults.selector is required.';
+
+const DEFAULT_SELECTOR_REFERENCE =
+  'defaults.selector must reference a configured model or model role.';
 
 export class ModelConfigurationError extends Error {
   readonly code = 'model_configuration_invalid';
@@ -175,6 +202,7 @@ export const CREATE_MODEL_CLIENT = Symbol('CREATE_MODEL_CLIENT');
 export class ModelsService {
   private readonly modelsById: Map<string, SystemModelCatalogEntry>;
   private readonly providersById: Map<string, ProviderConfig>;
+  private readonly rolesByName: Map<string, ModelRoleConfig>;
 
   constructor(
     @Inject(InstanceConfigService)
@@ -193,45 +221,60 @@ export class ModelsService {
         provider,
       ]),
     );
+    this.rolesByName = new Map(
+      this.instanceConfig.config.modelRoles.map((role) => [role.name, role]),
+    );
   }
 
   getAvailableModels(): ModelsAvailability {
-    const defaultModel = this.resolveDefaultModelConfig();
+    const defaultSelector = this.configuredDefaultSelector();
+
+    // A selector that resolves to nothing is a 503 for the whole endpoint: the
+    // catalogue must never publish a default a client cannot turn into a send.
+    this.resolveSelectorEntry(defaultSelector, DEFAULT_SELECTOR_REFERENCE);
 
     if (this.modelsById.size === 0) {
       throw new ModelConfigurationError('No models are configured.');
     }
 
     return {
-      defaultModelId: defaultModel.id,
+      defaultSelector,
       models: Array.from(this.modelsById.values(), toPublicModel),
+      roles: this.modelRoles(),
     };
   }
 
   resolveDefaultModelConfig(): SystemModelCatalogEntry {
     // InstanceConfigService already hands out a trimmed-or-null value, and
-    // config-loader has already boot-validated that a SET modelId references
-    // a configured model — this only guards the unset case.
-    const modelId = this.instanceConfig.config.defaults.modelId;
-
-    if (!modelId) {
-      throw new ModelConfigurationError('defaults.modelId is required.');
-    }
-
-    return this.resolveConfiguredModel(
-      modelId,
-      'defaults.modelId must reference a configured model.',
+    // config-loader has already boot-validated that a SET selector references
+    // a configured model or role — this only guards the unset case.
+    return this.resolveSelectorEntry(
+      this.configuredDefaultSelector(),
+      DEFAULT_SELECTOR_REFERENCE,
     );
   }
 
   resolveTitleModelConfig(): SystemModelCatalogEntry | undefined {
-    const modelId = this.instanceConfig.config.defaults.titleGenerationModelId;
+    const selector =
+      this.instanceConfig.config.defaults.titleGenerationSelector;
 
-    if (!modelId) {
+    if (!selector) {
       return undefined;
     }
 
-    return this.modelsById.get(modelId);
+    const parsed = parseModelSelector(selector);
+
+    if (parsed.kind === 'model') {
+      return this.modelsById.get(parsed.modelId);
+    }
+
+    // This layer stops at the primary candidate; walking the rest of the
+    // chain (a later layer) starts from here.
+    const primary = this.rolesByName.get(parsed.roleName)?.candidates[0];
+
+    return primary === undefined
+      ? undefined
+      : this.modelsById.get(primary.modelId);
   }
 
   requireAvailableModel(modelId: string): SystemModelCatalogEntry {
@@ -309,16 +352,62 @@ export class ModelsService {
     });
   }
 
-  private resolveConfiguredModel(
-    modelId: string,
+  private configuredDefaultSelector(): string {
+    const selector = this.instanceConfig.config.defaults.selector;
+
+    if (!selector) {
+      throw new ModelConfigurationError(DEFAULT_SELECTOR_REQUIRED);
+    }
+
+    return selector;
+  }
+
+  /**
+   * Resolve a selector to one executable entry. A role yields its primary (the
+   * first configured candidate): this layer sends an exact model id, so the
+   * rest of a role's chain is a later layer's walk.
+   */
+  private resolveSelectorEntry(
+    selector: string,
     message: string,
   ): SystemModelCatalogEntry {
-    const model = this.modelsById.get(modelId);
+    const parsed = parseModelSelector(selector);
+
+    const modelId =
+      parsed.kind === 'model'
+        ? parsed.modelId
+        : this.rolesByName.get(parsed.roleName)?.candidates[0]?.modelId;
+
+    const model =
+      modelId === undefined ? undefined : this.modelsById.get(modelId);
 
     if (!model) {
       throw new ModelConfigurationError(message);
     }
 
     return model;
+  }
+
+  /**
+   * The published role table. `paid` comes from the internal catalog entry
+   * because `toPublicModel` strips `billing`; only per-token (`usage`) billing
+   * is paid, so a `subscription` or `free` candidate is not.
+   */
+  private modelRoles(): Array<ModelRoleAvailability> {
+    return this.instanceConfig.config.modelRoles.map((role) => ({
+      selector: roleSelector(role.name),
+      candidates: role.candidates.map((candidate) => {
+        const availability: ModelRoleCandidateAvailability = {
+          modelId: candidate.modelId,
+          paid: this.modelsById.get(candidate.modelId)?.billing === 'usage',
+        };
+
+        if (candidate.effort !== undefined) {
+          availability.effort = candidate.effort;
+        }
+
+        return availability;
+      }),
+    }));
   }
 }

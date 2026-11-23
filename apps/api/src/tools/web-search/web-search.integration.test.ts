@@ -624,7 +624,7 @@ const HOSTED_MODEL: SystemModelCatalogEntry = {
 /** Two models on two providers: the Run's, and the one hosting the search. */
 const HOSTED_INSTANCE: Pick<LlameConfig, 'defaults' | 'providers' | 'models'> =
   {
-    defaults: { modelId: testModelEntry.id, titleGenerationModelId: null },
+    defaults: { selector: testModelEntry.id, titleGenerationSelector: null },
     providers: [
       {
         id: testModelEntry.provider,

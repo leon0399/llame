@@ -37,6 +37,11 @@ import {
   type RawWebAdapterEntry,
   type WebAdapterConfig,
 } from './llame-config';
+import type {
+  ModelRoleCandidate,
+  ModelRoleConfig,
+  RawModelRoleCandidate,
+} from './model-roles-config';
 import { resolveModelWire } from './provider-routing';
 import type { VendorProviderConfig } from './provider-routing';
 import {
@@ -104,6 +109,11 @@ import {
   type SystemModelCatalogEntry,
 } from '../models/model-catalog';
 import {
+  ROLE_NAME_PATTERN,
+  ROLE_SIGN,
+  parseModelSelector,
+} from '../models/model-selector';
+import {
   type ProviderOptionRecord,
   isProviderOptionRecord,
 } from '../models/provider-options';
@@ -154,34 +164,40 @@ export function resolveConfigPath(
   return found[0] ?? path.resolve(baseDir, DEFAULT_CONFIG_FILENAME);
 }
 
-/** `defaults.modelId`/`defaults.titleGenerationModelId`, cross-checked
- *  against the already-resolved model catalog. */
+/** `defaults.selector`/`defaults.titleGenerationSelector`, cross-checked
+ *  against the already-resolved model catalog and model roles. */
 function resolveDefaults(
   raw: RawInstanceConfig | undefined,
   env: NodeJS.ProcessEnv,
   modelIds: ReadonlySet<string>,
+  roleNames: ReadonlySet<string>,
 ): LlameConfig['defaults'] {
-  const modelId = resolveNullableString({
-    configPath: 'defaults.modelId',
-    ...readLeaf(raw, 'defaults', 'modelId'),
+  const selector = resolveNullableString({
+    configPath: 'defaults.selector',
+    ...readLeaf(raw, 'defaults', 'selector'),
     env,
   });
 
-  const titleGenerationModelId = resolveNullableString({
-    configPath: 'defaults.titleGenerationModelId',
-    ...readLeaf(raw, 'defaults', 'titleGenerationModelId'),
+  const titleGenerationSelector = resolveNullableString({
+    configPath: 'defaults.titleGenerationSelector',
+    ...readLeaf(raw, 'defaults', 'titleGenerationSelector'),
     env,
   });
 
-  assertReferencesCatalog('defaults.modelId', modelId, modelIds, 'models[].id');
-  assertReferencesCatalog(
-    'defaults.titleGenerationModelId',
-    titleGenerationModelId,
+  assertSelectorReferencesCatalog(
+    'defaults.selector',
+    selector,
     modelIds,
-    'models[].id',
+    roleNames,
+  );
+  assertSelectorReferencesCatalog(
+    'defaults.titleGenerationSelector',
+    titleGenerationSelector,
+    modelIds,
+    roleNames,
   );
 
-  return { modelId, titleGenerationModelId };
+  return { selector, titleGenerationSelector };
 }
 
 function resolveRunsConfig(
@@ -734,11 +750,28 @@ export function loadInstanceConfig(
 
   const credentials = new ConfiguredCredentialCollector(env);
 
-  const { providers, providersById, models } = resolveProviderCatalog(
-    raw,
-    { env, credentials },
-    configPath,
-  );
+  const config = buildInstanceConfig(raw, env, configPath, credentials);
+
+  assertMachineConfiguration(config);
+
+  recordConfiguredCredentials(config, credentials.snapshot());
+
+  return config;
+}
+
+/**
+ * Build the one `LlameConfig` boot publishes from the validated document.
+ * Construction has no side effect: `loadInstanceConfig` applies the boot-time
+ * machine assertion and credential bookkeeping after it returns.
+ */
+function buildInstanceConfig(
+  raw: RawInstanceConfig | undefined,
+  env: NodeJS.ProcessEnv,
+  configPath: string,
+  credentials: ConfiguredCredentialCollector,
+): LlameConfig {
+  const { providers, providersById, models, modelRoles } =
+    resolveCatalogAndRoles(raw, env, configPath, credentials);
 
   const mcpServers = resolveMcpServers(raw, { env, credentials });
   // The catalogue resolves first: `tools.grep.rerank` and `webSearch.rerank`
@@ -754,25 +787,50 @@ export function loadInstanceConfig(
       decisionModels,
     );
 
-  const config: LlameConfig = {
-    defaults: resolveDefaults(raw, env, new Set(models.map((m) => m.id))),
+  return {
+    defaults: resolveDefaults(
+      raw,
+      env,
+      new Set(models.map((m) => m.id)),
+      new Set(modelRoles.map((role) => role.name)),
+    ),
     ...resolveOperationalSections(raw, env, configPath),
     tools,
     mcpServers,
     providers,
     models,
+    modelRoles,
     embeddingModels,
     ...(decisionModels !== undefined && { decisionModels }),
     ...(rerankModels !== undefined && { rerankModels }),
     search,
     ...(webSearch !== undefined && { webSearch }),
   };
+}
 
-  assertMachineConfiguration(config);
+/**
+ * Resolve the provider catalogue and then the `modelRoles` that reference it:
+ * a role names a `models[].id`, so roles resolve after the catalog and are
+ * checked against the resolved entries (effort against declared levels).
+ */
+function resolveCatalogAndRoles(
+  raw: RawInstanceConfig | undefined,
+  env: NodeJS.ProcessEnv,
+  configPath: string,
+  credentials: ConfiguredCredentialCollector,
+) {
+  const { providers, providersById, models } = resolveProviderCatalog(
+    raw,
+    { env, credentials },
+    configPath,
+  );
 
-  recordConfiguredCredentials(config, credentials.snapshot());
+  const modelRoles = resolveModelRoles(
+    raw,
+    new Map(models.map((model) => [model.id, model] as const)),
+  );
 
-  return config;
+  return { providers, providersById, models, modelRoles };
 }
 
 /**
@@ -3640,6 +3698,15 @@ function assertValidModelEntry(
 ): ProviderConfig {
   const { providersById, seenIds } = context;
 
+  // A leading sign names a model role, never a model, so an id carrying it
+  // could shadow a role selector. The schema cannot say this in a message
+  // that names the entry.
+  if (entry.id.startsWith(ROLE_SIGN)) {
+    throw new InstanceConfigError(
+      `models[${entry.id}].id: must not start with "@" (that sign names a model role)`,
+    );
+  }
+
   if (seenIds.has(entry.id)) {
     throw new InstanceConfigError(`models: duplicate model id "${entry.id}"`);
   }
@@ -3813,6 +3880,99 @@ function resolveModels(
   return entries.map((entry) => resolveModelEntry(entry, context));
 }
 
+/**
+ * Resolve `modelRoles`, preserving file key order. The schema guarantees each
+ * role's shape (a closed object with at least one candidate and non-blank
+ * strings), so this resolver owns the role-key grammar, the candidate
+ * references, and each candidate's effort against the referenced model's
+ * declared levels. A role's primary is its first candidate.
+ */
+function resolveModelRoles(
+  raw: RawInstanceConfig | undefined,
+  modelsById: ReadonlyMap<string, SystemModelCatalogEntry>,
+): Array<ModelRoleConfig> {
+  const roles = raw?.modelRoles;
+
+  if (roles === undefined) return [];
+
+  return Object.entries(roles).map(([name, role]) => {
+    // The schema deliberately carries no `propertyNames` here: only the
+    // loader can name the offending key, which is the whole fix.
+    if (!ROLE_NAME_PATTERN.test(name)) {
+      throw new InstanceConfigError(
+        `modelRoles.${name}: role name must match ${ROLE_NAME_PATTERN.source}`,
+      );
+    }
+
+    const scope: RoleCandidateScope = {
+      name,
+      modelsById,
+      seen: new Set<string>(),
+    };
+
+    return {
+      name,
+      candidates: role.candidates.map((candidate, index) =>
+        resolveRoleCandidate(candidate, index, scope),
+      ),
+    };
+  });
+}
+
+/** One role's candidate resolution state: the role key its messages name, the
+ *  catalogue its candidates reference, and the models already taken. */
+type RoleCandidateScope = {
+  readonly name: string;
+  readonly modelsById: ReadonlyMap<string, SystemModelCatalogEntry>;
+  readonly seen: Set<string>;
+};
+
+/** Validate ONE `modelRoles.<name>.candidates[]` item against the resolved
+ *  catalogue, recording it in `scope.seen`, and normalize it to a resolved
+ *  candidate. Every message names the candidate's own path. */
+function resolveRoleCandidate(
+  candidate: RawModelRoleCandidate,
+  index: number,
+  scope: RoleCandidateScope,
+): ModelRoleCandidate {
+  const candidatePath = `modelRoles.${scope.name}.candidates[${index}]`;
+  const model = scope.modelsById.get(candidate.model);
+
+  if (model === undefined) {
+    throw new InstanceConfigError(
+      `${candidatePath}.model: does not reference any configured model`,
+    );
+  }
+
+  if (scope.seen.has(candidate.model)) {
+    throw new InstanceConfigError(
+      `${candidatePath}.model: model "${candidate.model}" already occurs in @${scope.name}`,
+    );
+  }
+
+  scope.seen.add(candidate.model);
+
+  if (candidate.effort !== undefined) {
+    // Effort values are PROVIDER-native tokens, never normalized
+    // (add-reasoning-effort), so this is a byte-exact membership test.
+    if (
+      !model.reasoning?.effortLevels.some(
+        (level) => level.value === candidate.effort,
+      )
+    ) {
+      throw new InstanceConfigError(
+        model.reasoning === undefined
+          ? `${candidatePath}.effort: model "${candidate.model}" declares no reasoning`
+          : `${candidatePath}.effort: not a declared effort level of model "${candidate.model}"`,
+      );
+    }
+  }
+
+  return candidate.effort === undefined
+    ? { modelId: candidate.model }
+    : { modelId: candidate.model, effort: candidate.effort };
+}
+
 /** Validate and normalize ONE `effortLevels[]` item — a bare string or a
  *  `{ value, label }` object — mutating `seen` in place to detect a
  *  duplicate `value` across the whole list. Values are passed through
@@ -3973,11 +4133,9 @@ function resolveSearchConfig(
 
 /**
  * Boot-time reference integrity for a nullable pointer setting that must name
- * an entry in some other resolved catalog (`defaults.modelId` /
- * `defaults.titleGenerationModelId` against `models[].id` — D6; `search.
- * chats.embeddingModelId` against `embeddingModels[].id`), or startup fails
- * naming the dangling reference. `null` (unset) is always valid — these
- * pointers are optional.
+ * an entry in some other resolved catalog (`search.chats.embeddingModelId`
+ * against `embeddingModels[].id`), or startup fails naming the dangling
+ * reference. `null` (unset) is always valid — these pointers are optional.
  */
 function assertReferencesCatalog(
   configPath: string,
@@ -3992,6 +4150,36 @@ function assertReferencesCatalog(
   if (id !== null && !ids.has(id)) {
     throw new InstanceConfigError(
       `${configPath}: does not reference any configured ${catalogLabel}`,
+    );
+  }
+}
+
+/**
+ * Boot-time reference integrity for a nullable model selector
+ * (`defaults.selector` / `defaults.titleGenerationSelector`): a set selector
+ * names either one `models[].id` or `@` plus a configured model role, or
+ * startup fails. `null` (unset) is always valid.
+ */
+function assertSelectorReferencesCatalog(
+  configPath: string,
+  selector: string | null,
+  modelIds: ReadonlySet<string>,
+  roleNames: ReadonlySet<string>,
+): void {
+  if (selector === null) return;
+
+  const parsed = parseModelSelector(selector);
+
+  const found =
+    parsed.kind === 'role'
+      ? roleNames.has(parsed.roleName)
+      : modelIds.has(parsed.modelId);
+
+  // Same discipline as assertReferencesCatalog: a selector supports
+  // {env:}/{path:} interpolation, so name the path, never the value.
+  if (!found) {
+    throw new InstanceConfigError(
+      `${configPath}: does not reference any configured model or model role`,
     );
   }
 }

@@ -176,6 +176,52 @@ account headers also reach embeddings and ranking requests. Headers containing
 `{session:id}` are omitted for those calls because they have no Chat identity;
 Chat, title generation, and compaction retain their existing identity rules.
 
+## Model roles and default selectors
+
+`modelRoles` groups model entries into named, ordered lists that a default can
+name instead of one model.
+
+```jsonc
+{
+  "modelRoles": {
+    "coding": {
+      "candidates": [
+        { "model": "codex", "effort": "high" },
+        { "model": "sonnet" },
+      ],
+    },
+  },
+}
+```
+
+A role name matches `^[a-z][a-z0-9_-]{0,31}$`. The selector `@` followed by
+the role name, such as `@coding`, names the role. A model selector that starts
+with `@` always names a role, so a `models[].id` may not start with `@`.
+
+Each candidate names one `models[].id`. Startup fails when the following
+happens:
+
+- A candidate names no configured model.
+- One role lists the same model twice.
+- A candidate sets an `effort` that its model does not declare under
+  `reasoning`.
+- A candidate of a model with no `reasoning` block sets `effort`.
+- A role has no candidates.
+
+Each error names the role and the field.
+
+`defaults.selector` is the default model selector.
+`defaults.titleGenerationSelector` is the selector for title generation. Each
+holds one model id or one role selector, and startup checks that it resolves. A
+role currently resolves to its first candidate.
+
+`providers[]` and `models[]` entries accept an optional `billing` value. It is
+`"usage"`, `"subscription"`, or `"free"`. `usage` bills a price for each
+token. `subscription` covers usage with a flat plan. `free` is never billed.
+For `subscription` and `free`, a declared price shows as a notional cost, and
+billing never changes the cost calculation. Startup resolves the value from the
+model entry first, then the provider entry, then the provider-type default.
+
 ## Diagnosing failed model requests
 
 A failed Run records the model request's failure class in `error.code` and its

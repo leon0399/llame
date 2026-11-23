@@ -14,7 +14,7 @@ import { useChatHistorySync } from "./use-chat-history-sync";
 
 describe("resolveLastTurnModelEffort", () => {
   const data: ModelsResponse = {
-    defaultModelId: "model:default",
+    defaultSelector: "model:default",
     models: [
       {
         id: "model:default",
@@ -31,6 +31,7 @@ describe("resolveLastTurnModelEffort", () => {
         input: ["text"],
       },
     ],
+    roles: [],
   };
 
   it("restores the recorded model when it is still in the catalog", () => {

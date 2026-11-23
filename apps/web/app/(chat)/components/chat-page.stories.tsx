@@ -347,7 +347,11 @@ const meta = {
     seedHistory(args.initialChatExists, history, latestRun);
     // isSuccess too: the page enables Send only on a successful catalog.
     useModelsQuery.mockReturnValue({
-      data: { defaultModelId: GPT_5_4_MINI.id, models: [GPT_5_4_MINI] },
+      data: {
+        defaultSelector: GPT_5_4_MINI.id,
+        models: [GPT_5_4_MINI],
+        roles: [],
+      },
       isError: false,
       isPending: false,
       isSuccess: true,
@@ -602,7 +606,11 @@ export const SendsImageOnlyMessage: Story = {
   tags: ["ai-generated"],
   beforeEach: () => {
     useModelsQuery.mockReturnValue({
-      data: { defaultModelId: VISION.id, models: [VISION] },
+      data: {
+        defaultSelector: VISION.id,
+        models: [VISION],
+        roles: [],
+      },
       isError: false,
       isPending: false,
       isSuccess: true,
@@ -684,7 +692,11 @@ export const RefusedSendRestoresTextAndImage: Story = {
   parameters: contrastKnownIssue232,
   beforeEach: () => {
     useModelsQuery.mockReturnValue({
-      data: { defaultModelId: VISION.id, models: [VISION] },
+      data: {
+        defaultSelector: VISION.id,
+        models: [VISION],
+        roles: [],
+      },
       isError: false,
       isPending: false,
       isSuccess: true,
@@ -746,7 +758,11 @@ export const RefusedSendRestoresTextAndImage: Story = {
 /** Serves a two-model catalog whose default is GPT-5.4 mini. */
 function serveTwoModelCatalog(gpt54: AvailableModel = GPT_5_4) {
   useModelsQuery.mockReturnValue({
-    data: { defaultModelId: GPT_5_4_MINI.id, models: [GPT_5_4_MINI, gpt54] },
+    data: {
+      defaultSelector: GPT_5_4_MINI.id,
+      models: [GPT_5_4_MINI, gpt54],
+      roles: [],
+    },
     isError: false,
     isPending: false,
     isSuccess: true,

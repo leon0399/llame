@@ -60,7 +60,7 @@ function makeService(client?: ModelClient) {
       ...BUILT_IN_DEFAULTS,
       defaults: {
         ...BUILT_IN_DEFAULTS.defaults,
-        titleGenerationModelId: titleModel.id,
+        titleGenerationSelector: titleModel.id,
       },
       providers: [provider],
       models: [titleModel],

@@ -8,8 +8,10 @@ import {
   BUILT_IN_DEFAULTS,
   type ProviderConfig,
 } from '../instance-config/llame-config';
+import type { ModelRoleConfig } from '../instance-config/model-roles-config';
 import type { RerankModelConfig } from '../instance-config/rerank-config';
 import type { SystemModelCatalogEntry } from './model-catalog';
+import type { BillingMode } from './model-client';
 import { createModelClient } from './model-client-factory';
 import type { createOpenAICompletionsModelClient } from './openai-completions-model-client';
 import type { createOpenAIModelClient } from './openai-model-client';
@@ -151,11 +153,31 @@ const CATALOG: Array<SystemModelCatalogEntry> = [
   },
 ];
 
+/** A one-model catalog entry carrying an explicit resolved billing mode. */
+function withBilling(
+  id: string,
+  billing: BillingMode,
+): SystemModelCatalogEntry {
+  return {
+    id,
+    source: 'system',
+    provider: 'openai',
+    providerModelId: id,
+    contextWindowTokens: 128_000,
+    input: ['text'],
+    systemPromptTemplate: `Internal prompt for ${id}`,
+    systemPromptSource: 'project_default',
+    referencesSkills: false,
+    billing,
+  };
+}
+
 function createService(overrides: {
-  defaultModelId?: string | null;
-  titleGenerationModelId?: string | null;
+  defaultSelector?: string | null;
+  titleGenerationSelector?: string | null;
   models?: Array<SystemModelCatalogEntry>;
   providers?: Array<ProviderConfig>;
+  modelRoles?: ReadonlyArray<ModelRoleConfig>;
   decisionModels?: Array<DecisionModelConfig>;
   rerankModels?: Array<RerankModelConfig>;
 }): ModelsService {
@@ -164,11 +186,14 @@ function createService(overrides: {
     config: {
       ...BUILT_IN_DEFAULTS,
       defaults: {
-        modelId: overrides.defaultModelId ?? null,
-        titleGenerationModelId: overrides.titleGenerationModelId ?? null,
+        selector: overrides.defaultSelector ?? null,
+        titleGenerationSelector: overrides.titleGenerationSelector ?? null,
       },
       providers: overrides.providers ?? [DEFAULT_PROVIDER],
       models: overrides.models ?? CATALOG,
+      ...(overrides.modelRoles !== undefined && {
+        modelRoles: overrides.modelRoles,
+      }),
       ...(overrides.decisionModels !== undefined && {
         decisionModels: overrides.decisionModels,
       }),
@@ -196,12 +221,13 @@ describe('ModelsService', () => {
 
   it('returns the configured default and all configured models in catalog order', () => {
     const service = createService({
-      defaultModelId: 'system:openai:gpt-5.4-mini',
+      defaultSelector: 'system:openai:gpt-5.4-mini',
     });
 
     const response = service.getAvailableModels();
 
-    expect(response.defaultModelId).toBe('system:openai:gpt-5.4-mini');
+    expect(response.defaultSelector).toBe('system:openai:gpt-5.4-mini');
+    expect(response.roles).toEqual([]);
     expect(response.models.map((model) => model.id)).toEqual(
       CATALOG.map((model) => model.id),
     );
@@ -222,7 +248,7 @@ describe('ModelsService', () => {
     const [chatModel] = CATALOG;
 
     const service = createService({
-      defaultModelId: chatModel.id,
+      defaultSelector: chatModel.id,
       providers: [
         DEFAULT_PROVIDER,
         {
@@ -272,7 +298,7 @@ describe('ModelsService', () => {
     const [chatModel] = CATALOG;
 
     const service = createService({
-      defaultModelId: chatModel.id,
+      defaultSelector: chatModel.id,
       providers: [
         DEFAULT_PROVIDER,
         {
@@ -308,7 +334,7 @@ describe('ModelsService', () => {
 
   it('publishes a manually declared Codex model without provider credentials or invented pricing', () => {
     const service = createService({
-      defaultModelId: 'system:codex:gpt-test',
+      defaultSelector: 'system:codex:gpt-test',
       providers: [
         {
           id: 'personal-codex',
@@ -347,9 +373,9 @@ describe('ModelsService', () => {
     expect(JSON.stringify(model)).not.toContain('account-id');
   });
 
-  it('rejects a missing, blank, or unknown default model id as typed server configuration failure', () => {
-    for (const defaultModelId of [undefined, null, 'not-configured']) {
-      const service = createService({ defaultModelId });
+  it('rejects a missing, blank, or unknown default selector as typed server configuration failure', () => {
+    for (const defaultSelector of [undefined, null, 'not-configured']) {
+      const service = createService({ defaultSelector });
 
       expect(() => service.getAvailableModels()).toThrow(
         ModelConfigurationError,
@@ -371,20 +397,26 @@ describe('ModelsService', () => {
     }
   });
 
-  it('requires the default id to be a member of the configured catalog', () => {
+  it('requires the default selector to reference a configured model or model role', () => {
     const service = createService({
-      defaultModelId: 'system:openai:gpt-4.1',
+      defaultSelector: 'system:openai:gpt-4.1',
     });
 
     expect(() => service.getAvailableModels()).toThrow(
-      /defaults\.modelId must reference a configured model/,
+      /defaults\.selector must reference a configured model or model role/,
+    );
+
+    const missingRole = createService({ defaultSelector: '@missing' });
+
+    expect(() => missingRole.getAvailableModels()).toThrow(
+      /defaults\.selector must reference a configured model or model role/,
     );
   });
 
   it('resolves title generation only when it points to a configured model', () => {
     expect(
       createService({
-        titleGenerationModelId: 'system:openai:gpt-5.4-nano',
+        titleGenerationSelector: 'system:openai:gpt-5.4-nano',
       }).resolveTitleModelConfig(),
     ).toMatchObject({
       id: 'system:openai:gpt-5.4-nano',
@@ -393,20 +425,131 @@ describe('ModelsService', () => {
 
     expect(
       createService({
-        titleGenerationModelId: undefined,
+        titleGenerationSelector: undefined,
       }).resolveTitleModelConfig()?.id,
     ).toBeUndefined();
     expect(
       createService({
-        titleGenerationModelId: 'unknown',
+        titleGenerationSelector: 'unknown',
       }).resolveTitleModelConfig()?.id,
     ).toBeUndefined();
+  });
+
+  describe('model roles', () => {
+    it('publishes roles in config order, marking only usage billing as paid', () => {
+      const service = createService({
+        defaultSelector: '@coding',
+        models: [
+          withBilling('system:openai:per-token', 'usage'),
+          withBilling('system:openai:plan', 'subscription'),
+          withBilling('system:openai:free', 'free'),
+        ],
+        modelRoles: [
+          {
+            name: 'coding',
+            candidates: [
+              { modelId: 'system:openai:per-token', effort: 'high' },
+              { modelId: 'system:openai:plan' },
+            ],
+          },
+          {
+            name: 'titles',
+            candidates: [{ modelId: 'system:openai:free' }],
+          },
+        ],
+      });
+
+      const response = service.getAvailableModels();
+
+      expect(response.roles).toEqual([
+        {
+          selector: '@coding',
+          candidates: [
+            {
+              modelId: 'system:openai:per-token',
+              effort: 'high',
+              paid: true,
+            },
+            { modelId: 'system:openai:plan', paid: false },
+          ],
+        },
+        {
+          selector: '@titles',
+          candidates: [{ modelId: 'system:openai:free', paid: false }],
+        },
+      ]);
+      // An undeclared effort is absent, never `null` and never `undefined`.
+      expect(response.roles[0]?.candidates[1]).not.toHaveProperty('effort');
+      // `paid` is the only billing datum published.
+      expect(JSON.stringify(response.roles)).not.toContain('billing');
+    });
+
+    it('publishes a role selector as the default and resolves it to the primary candidate', () => {
+      const service = createService({
+        defaultSelector: '@coding',
+        models: [
+          withBilling('system:openai:primary', 'subscription'),
+          withBilling('system:openai:secondary', 'usage'),
+        ],
+        modelRoles: [
+          {
+            name: 'coding',
+            candidates: [
+              { modelId: 'system:openai:primary' },
+              { modelId: 'system:openai:secondary' },
+            ],
+          },
+        ],
+      });
+
+      expect(service.getAvailableModels().defaultSelector).toBe('@coding');
+      expect(service.resolveDefaultModelConfig().id).toBe(
+        'system:openai:primary',
+      );
+    });
+
+    it('resolves a title-generation role to its primary candidate', () => {
+      const service = createService({
+        defaultSelector: '@coding',
+        titleGenerationSelector: '@titles',
+        models: [
+          withBilling('system:openai:primary', 'usage'),
+          withBilling('system:openai:secondary', 'usage'),
+        ],
+        modelRoles: [
+          {
+            name: 'coding',
+            candidates: [{ modelId: 'system:openai:primary' }],
+          },
+          {
+            name: 'titles',
+            candidates: [
+              { modelId: 'system:openai:secondary', effort: 'low' },
+              { modelId: 'system:openai:primary' },
+            ],
+          },
+        ],
+      });
+
+      expect(service.resolveTitleModelConfig()).toMatchObject({
+        id: 'system:openai:secondary',
+      });
+    });
+
+    it('treats a title-generation role that is not configured as unset', () => {
+      const service = createService({
+        defaultSelector: 'system:openai:gpt-5.4-mini',
+        titleGenerationSelector: '@missing',
+      });
+
+      expect(service.resolveTitleModelConfig()).toBeUndefined();
+    });
   });
 
   describe('validateModelSelection', () => {
     it('accepts an available model id when the default is configured', () => {
       const service = createService({
-        defaultModelId: 'system:openai:gpt-5.4-mini',
+        defaultSelector: 'system:openai:gpt-5.4-mini',
       });
 
       expect(service.validateModelSelection('system:openai:gpt-4o').id).toBe(
@@ -416,7 +559,7 @@ describe('ModelsService', () => {
 
     it('rejects an unavailable model id with a 422 domain error when the default is valid', () => {
       const service = createService({
-        defaultModelId: 'system:openai:gpt-5.4-mini',
+        defaultSelector: 'system:openai:gpt-5.4-mini',
       });
 
       expect(() =>
@@ -425,7 +568,7 @@ describe('ModelsService', () => {
     });
 
     it('checks default configuration before the requested id: a broken default yields 503 even for an unavailable id', () => {
-      const service = createService({ defaultModelId: null });
+      const service = createService({ defaultSelector: null });
 
       // Ordering matters: config invalidity (503) must win over an unavailable
       // selection (422); the caller can't select against a broken catalog.
@@ -468,7 +611,7 @@ describe('ModelsService', () => {
 
     const service = () =>
       createService({
-        defaultModelId: 'system:openai:reasoner',
+        defaultSelector: 'system:openai:reasoner',
         models: [reasoningModel, plainModel],
       });
 

@@ -624,6 +624,12 @@ primary.
 _Avoid_: role (unqualified, where a membership role could be meant), alias,
 profile
 
+**Model selector**:
+What a send or a default names to pick a model: `@` and a model role name, or
+one model id.
+_Avoid_: selector (unqualified, where the `read` Selector could be meant),
+model id (for a role)
+
 **Failover**:
 A model switch to the next candidate of a Run's model role after a model
 request fails. The owner starts it, or it happens automatically where the
@@ -657,8 +663,8 @@ The provider-reported tokens of one reply and the cost computed from the
 configured pricing, with its billing mode and whether it is complete.
 
 **Billing mode**:
-Whether a model's usage is billed per token or covered by a subscription. Once
-model roles ship, a model can also be free: never billed.
+Whether a model's usage is billed per token (`usage`), covered by a
+subscription (`subscription`), or never billed (`free`).
 
 **Side call**:
 A model request made for housekeeping or a tool, such as a title or a ranking,

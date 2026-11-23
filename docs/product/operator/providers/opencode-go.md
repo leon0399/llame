@@ -213,12 +213,13 @@ for the cap you are planning against rather than any published table.
 completed Runs record provider-reported usage and latency with `costUsd: null`.
 When declared, llame calculates cost from provider-reported usage at those
 rates. Each usage record stamps its resolved `billing` value at write time; a
-record stamped `billing: "subscription"` marks the calculated cost as notional,
-not billed per token. Billing mode never changes the calculation.
+record stamped `billing: "subscription"` or `billing: "free"` marks the
+calculated cost as notional, not billed per token. Billing mode never changes
+the calculation.
 
 `opencode-go` defaults to `billing: "subscription"`. `billing` accepts
-`"usage"` or `"subscription"` on the provider or model, resolved model first,
-then provider, then provider-type default.
+`"usage"`, `"subscription"`, or `"free"` on the provider or model, resolved
+model first, then provider, then provider-type default.
 
 ## Upstream overage
 

@@ -49,22 +49,22 @@ master <- model-roles/proposal <- model-roles/catalog <- model-roles/selection
 
 ## 2. Catalog (`model-roles/catalog`)
 
-- [ ] 2.1 Add `modelRoles` to `llame.config.schema.json`, `llame-config.ts`, and `config-loader.ts`
+- [x] 2.1 Add `modelRoles` to `llame.config.schema.json`, `llame-config.ts`, and `config-loader.ts`
       with the candidate checks; verify the scenarios of `model-roles` "The operator declares model
       roles" and "Role candidates are validated at startup" in config-loader tests.
-- [ ] 2.2 Refuse a `models[].id` that starts with `@`; verify "A model id with the role sign".
-- [ ] 2.3 Rename `defaults.modelId` and `defaults.titleGenerationModelId` to `defaults.selector` and
+- [x] 2.2 Refuse a `models[].id` that starts with `@`; verify "A model id with the role sign".
+- [x] 2.3 Rename `defaults.modelId` and `defaults.titleGenerationModelId` to `defaults.selector` and
       `defaults.titleGenerationSelector`; verify the `instance-config` scenarios "Default model must
       reference the catalog" and "The old default keys fail startup", and the `available-models`
       scenarios "Title generation uses separate configured model" and "Title model configuration
       failure does not break chat". A title role resolves to its primary in this layer.
-- [ ] 2.4 Add `free` to the billing mode in the schema, the type, usage telemetry, and the web
+- [x] 2.4 Add `free` to the billing mode in the schema, the type, usage telemetry, and the web
       parser; verify "A free model boots", "A free model records free", and "A free model shows
       notional cost" (unit test plus the `message-usage` story).
-- [ ] 2.5 Publish `roles` and `defaultSelector` in `GET /api/v1/models`, regenerate `openapi.json`
+- [x] 2.5 Publish `roles` and `defaultSelector` in `GET /api/v1/models`, regenerate `openapi.json`
       and the web client, and move the web readers of `defaultModelId`; verify "The picker reads a
       role" and the modified "Authenticated executable models endpoint" scenarios.
-- [ ] 2.6 Update the example config, `docs/product/operator/providers/routing.md` (roles and
+- [x] 2.6 Update the example config, `docs/product/operator/providers/routing.md` (roles and
       `free`), README, the glossary (`free` billing, Model selector), and a dated **Breaking**
       CHANGELOG entry for the key renames; verify `pnpm lint:markdown`.
 - [ ] 2.7 SR, then GR with the Ready-PR monitoring loop.

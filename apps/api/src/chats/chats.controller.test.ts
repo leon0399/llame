@@ -655,7 +655,7 @@ describe('ChatsController', () => {
   it('maps model configuration errors to the standard 503 body', async () => {
     const { controller, chatLoopService } = makeController();
     chatLoopService.createMessageStream.mockRejectedValue(
-      new ModelConfigurationError('DEFAULT_MODEL_ID is required.'),
+      new ModelConfigurationError('defaults.selector is required.'),
     );
 
     await expect(
@@ -676,7 +676,7 @@ describe('ChatsController', () => {
       response: {
         statusCode: 503,
         error: 'Service Unavailable',
-        message: 'DEFAULT_MODEL_ID is required.',
+        message: 'defaults.selector is required.',
         code: 'model_configuration_invalid',
       },
     });

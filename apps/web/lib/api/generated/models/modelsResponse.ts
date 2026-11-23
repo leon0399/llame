@@ -6,8 +6,12 @@
  * OpenAPI spec version: 0.1
  */
 import type { AvailableModelResponse } from "./availableModelResponse";
+import type { ModelRoleResponse } from "./modelRoleResponse";
 
 export interface ModelsResponse {
-  defaultModelId: string;
+  /** The configured default model selector: `@role` or a model id. A role resolves through `roles`; the first step of its chain is the model a client presents. */
+  defaultSelector: string;
   models: AvailableModelResponse[];
+  /** Configured model roles, in config order. */
+  roles: ModelRoleResponse[];
 }

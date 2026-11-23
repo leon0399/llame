@@ -102,7 +102,10 @@ with a fixed gateway destination and required subscription key.
 See [provider routing](docs/product/operator/providers/routing.md) for defaults,
 overrides, and a shared-account example, and
 [OpenCode Go](docs/product/operator/providers/opencode-go.md) for its transport
-constraints.
+constraints. Operators can group models into ordered model roles and point
+`defaults.selector` at `@role`. See
+[model roles](docs/product/operator/providers/routing.md#model-roles-and-default-selectors)
+for the role checks and the billing modes.
 
 Every provider entry may also set `headers` to a map of header names to
 strings or `null`. `{env:...}` and `{path:...}` resolve once at startup;

@@ -16,7 +16,10 @@ import type { ChatLatestRunResponse } from "@/lib/api/generated/models";
 import { toChatUiMessages } from "@/lib/services/chat/history";
 import { rawChatMessage } from "@/lib/services/chat/message-fixtures";
 import * as modelQueries from "@/lib/services/models/queries";
-import type { AvailableModel } from "@/lib/services/models/queries";
+import type {
+  AvailableModel,
+  ModelsResponse,
+} from "@/lib/services/models/queries";
 import * as permissionModeQueries from "@/lib/services/permission-modes/queries";
 
 import { ChatMessageRow } from "./chat-message-row";
@@ -1495,6 +1498,60 @@ export const SubscriptionCost: Story = {
   },
 };
 
+const FREE_USAGE_MESSAGE: UIMessage = {
+  id: "assistant-free-usage",
+  role: "assistant",
+  metadata: {
+    usage: {
+      inputTokens: 2400,
+      cachedInputTokens: 1000,
+      outputTokens: 300,
+      reasoningTokens: 210,
+      totalTokens: 2700,
+      costUsd: 0.002,
+      complete: true,
+      billing: "free",
+      modelId: GPT_4O_MODEL.id,
+      latencyMs: 900,
+      status: "completed",
+    },
+  },
+  parts: [{ type: "text", text: "A free-tier answer." }],
+};
+
+/**
+ * A free model's declared price is just as notional as a subscription's: the
+ * turn was never billed for it.
+ *
+ * @summary free usage marks cost as not billed
+ */
+export const FreeCost: Story = {
+  tags: ["ai-generated"],
+  args: {
+    message: FREE_USAGE_MESSAGE,
+    availableModels: [GPT_4O_MODEL],
+  },
+  play: async ({ canvas }) => {
+    const trigger = await waitFor(
+      () => canvas.getByRole("button", { name: /^Message usage:/ }),
+      { timeout: 15_000 },
+    );
+
+    await expect(trigger).toHaveTextContent("GPT-4o · 900ms");
+
+    await userEvent.hover(trigger);
+
+    const costValue = (await revealedUsageRow("Notional cost")).querySelector(
+      "b",
+    );
+
+    await expect(costValue).toHaveTextContent("$0.0020, not billed");
+    expect(costValue).toHaveClass("text-muted-foreground");
+    expect(costValue).toHaveClass("line-through");
+    await expect(screen.getByText(", not billed")).toBeVisible();
+  },
+};
+
 const MODEL_ONLY_USAGE_MESSAGE: UIMessage = {
   id: "assistant-model-only-usage",
   role: "assistant",
@@ -2055,8 +2112,8 @@ const regenerateMenuFocusGuardKnownIssue = {
   },
 };
 
-const MENU_CATALOG = {
-  defaultModelId: "system:openai:model-one",
+const MENU_CATALOG: ModelsResponse = {
+  defaultSelector: "system:openai:model-one",
   models: [
     {
       id: "system:openai:model-one",
@@ -2073,7 +2130,8 @@ const MENU_CATALOG = {
       input: ["text"],
     },
   ],
-} satisfies { defaultModelId: string; models: Array<AvailableModel> };
+  roles: [],
+};
 
 /**
  * The Regenerate menu offers the composer's own selectors, so a pick sets the

@@ -31,8 +31,8 @@ export type ModelFailure = Parameters<StreamTextOnErrorCallback>[0]['error'];
 /** Sanitizes an SDK failure without narrowing its event-owned representation. */
 export type ModelFailureSanitizer = (failure: ModelFailure) => ModelFailure;
 
-/** Whether reported model usage is metered or covered by a subscription. */
-export type BillingMode = 'usage' | 'subscription';
+/** Whether reported model usage is metered, covered by a subscription, or free. */
+export type BillingMode = 'usage' | 'subscription' | 'free';
 
 /**
  * What the AI SDK itself put in the live step for a tool call it refused

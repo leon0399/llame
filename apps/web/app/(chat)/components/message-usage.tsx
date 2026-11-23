@@ -74,8 +74,13 @@ export type TurnUsage = {
   costUsd?: number | null;
   status?: string;
   complete?: boolean;
-  billing?: "usage" | "subscription";
+  billing?: "usage" | "subscription" | "free";
 };
+
+/** Billing modes whose reported cost is a price, not an amount invoiced. */
+function isNotionalBilling(billing: TurnUsage["billing"]): boolean {
+  return billing === "subscription" || billing === "free";
+}
 
 function isFiniteNumber(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value);
@@ -153,7 +158,9 @@ export function parseTurnUsage(metadata: unknown): TurnUsage | null {
     status: isString(u.status) ? u.status : undefined,
     complete: isBoolean(u.complete) ? u.complete : undefined,
     billing:
-      u.billing === "usage" || u.billing === "subscription"
+      u.billing === "usage" ||
+      u.billing === "subscription" ||
+      u.billing === "free"
         ? u.billing
         : undefined,
   };
@@ -333,7 +340,7 @@ function buildBadgeText(
       : formatDisplayCost(usage.costUsd, ctx.lowerBoundPrefix);
 
   const badgeCostText =
-    ctx.lowerBoundPrefix !== "" && usage.billing !== "subscription"
+    ctx.lowerBoundPrefix !== "" && !isNotionalBilling(usage.billing)
       ? costText
       : null;
 
@@ -516,7 +523,7 @@ function buildCostSection(
   // "$0.00".
   if (usage.costUsd !== undefined && usage.costUsd !== null) {
     rows.push({
-      label: usage.billing === "subscription" ? "Notional cost" : "Est. cost",
+      label: isNotionalBilling(usage.billing) ? "Notional cost" : "Est. cost",
       value: formatDisplayCost(usage.costUsd, ctx.lowerBoundPrefix),
     });
   }

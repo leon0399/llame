@@ -26,6 +26,7 @@ import {
 import { chatQueryKeys } from "@/lib/services/chat/queries";
 import { pinQueryKeys } from "@/lib/services/pins/queries";
 import {
+  defaultModelIdOf,
   hasModelId,
   type AvailableModel,
   type ModelsResponse,
@@ -66,7 +67,9 @@ export function useChatModelSelection(
     if (!modelsQuery.data || modelsQuery.data.models.length === 0) return;
 
     if (!hasModelId(modelsQuery.data.models, selectedModel)) {
-      setSelectedModel(modelsQuery.data.defaultModelId);
+      const fallbackModelId = defaultModelIdOf(modelsQuery.data);
+
+      if (fallbackModelId !== undefined) setSelectedModel(fallbackModelId);
     }
   }, [modelsQuery.data, selectedModel, setSelectedModel]);
 
@@ -124,7 +127,8 @@ function lastTurnSelections(
 
 /** The model and effort a chat's last turn's composer should restore to. */
 type RestoredTargets = {
-  modelId: string;
+  /** Absent only when the catalog's default selector names no catalog entry. */
+  modelId: string | undefined;
   effort: string | undefined;
 };
 
@@ -139,7 +143,7 @@ export function resolveLastTurnModelEffort(
   const modelId =
     turn !== null && hasModelId(data.models, turn.modelId)
       ? turn.modelId
-      : data.defaultModelId;
+      : defaultModelIdOf(data);
 
   const effortLevels =
     data.models.find((model) => model.id === modelId)?.reasoning
@@ -224,7 +228,7 @@ function useChatModelEffortRestore({
       lastTurnSelections(chatMessages),
     );
 
-    setSelectedModel(target.modelId);
+    if (target.modelId !== undefined) setSelectedModel(target.modelId);
     setSelectedEffort(target.effort);
   }, [
     skipMount,

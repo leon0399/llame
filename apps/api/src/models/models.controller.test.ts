@@ -9,7 +9,10 @@ import { configuredCredentials } from '../instance-config/configured-credentials
 import type { ProviderConfig } from '../instance-config/llame-config';
 import { ModelsController, type ModelsReader } from './models.controller';
 import { ModelConfigurationError, ModelsService } from './models.service';
-import { toAvailableModelResponse } from './dto/models.dto';
+import {
+  toAvailableModelResponse,
+  toModelRoleResponse,
+} from './dto/models.dto';
 import type { PublicModelCatalogEntry } from './model-catalog';
 
 describe('ModelsController', () => {
@@ -24,10 +27,17 @@ describe('ModelsController', () => {
     cacheInvalidatedByEffortChange: false,
   };
 
+  const roleCandidates = [
+    { modelId: 'system:openai:gpt-5.4-mini', effort: 'low', paid: true },
+    { modelId: 'system:openai:gpt-5.5', paid: false },
+  ];
+
+  const roles = [{ selector: '@coding', candidates: roleCandidates }];
+
   function makeController(service?: Partial<ModelsReader>) {
     const modelsService = {
       getAvailableModels: vi.fn().mockReturnValue({
-        defaultModelId: 'system:openai:gpt-5.4-mini',
+        defaultSelector: 'system:openai:gpt-5.4-mini',
         models: [
           {
             id: 'system:openai:gpt-5.5',
@@ -45,6 +55,7 @@ describe('ModelsController', () => {
             input: ['text'],
           },
         ],
+        roles,
       }),
       ...service,
     } satisfies ModelsReader;
@@ -61,7 +72,7 @@ describe('ModelsController', () => {
     const response = controller.listModels();
 
     expect(response).toEqual({
-      defaultModelId: 'system:openai:gpt-5.4-mini',
+      defaultSelector: 'system:openai:gpt-5.4-mini',
       models: [
         {
           id: 'system:openai:gpt-5.5',
@@ -81,6 +92,19 @@ describe('ModelsController', () => {
           source: 'system',
           name: 'GPT-5.4 Mini',
           input: ['text'],
+        },
+      ],
+      roles: [
+        {
+          selector: '@coding',
+          candidates: [
+            {
+              modelId: 'system:openai:gpt-5.4-mini',
+              effort: 'low',
+              paid: true,
+            },
+            { modelId: 'system:openai:gpt-5.5', paid: false },
+          ],
         },
       ],
     });
@@ -115,15 +139,16 @@ describe('ModelsController', () => {
 
     const { controller } = makeController({
       getAvailableModels: vi.fn().mockReturnValue({
-        defaultModelId: internalModel.id,
+        defaultSelector: internalModel.id,
         models: [internalModel],
+        roles: [],
       }),
     });
 
     const response = controller.listModels();
 
     expect(response).toEqual({
-      defaultModelId: internalModel.id,
+      defaultSelector: internalModel.id,
       models: [
         {
           id: internalModel.id,
@@ -132,6 +157,7 @@ describe('ModelsController', () => {
           input: ['text'],
         },
       ],
+      roles: [],
     });
     expect(JSON.stringify(response)).not.toContain(headerName);
     expect(JSON.stringify(response)).not.toContain(headerValue);
@@ -159,12 +185,14 @@ describe('ModelsController', () => {
     expect(response.models[0]?.reasoning?.effortLevels[0]).not.toBe(
       catalogReasoning.effortLevels[0],
     );
+    expect(response.roles[0]?.candidates).not.toBe(roleCandidates);
+    expect(response.roles[0]?.candidates[0]).not.toBe(roleCandidates[0]);
   });
 
   it('maps model configuration failures to the standard error body', () => {
     const { controller } = makeController({
       getAvailableModels: vi.fn(() => {
-        throw new ModelConfigurationError('DEFAULT_MODEL_ID is required.');
+        throw new ModelConfigurationError('defaults.selector is required.');
       }),
     });
 
@@ -182,7 +210,7 @@ describe('ModelsController', () => {
       expect(error.getResponse()).toEqual({
         statusCode: 503,
         error: 'Service Unavailable',
-        message: 'DEFAULT_MODEL_ID is required.',
+        message: 'defaults.selector is required.',
         code: 'model_configuration_invalid',
       });
     }
@@ -249,6 +277,25 @@ describe('ModelsController', () => {
     expect(response.pricingUsdPer1M).not.toHaveProperty('cacheWrite');
   });
 
+  it('omits an undeclared candidate effort instead of publishing null', () => {
+    const response = toModelRoleResponse({
+      selector: '@titles',
+      candidates: [
+        { modelId: 'system:openai:gpt-5.4-nano', paid: false },
+        { modelId: 'system:openai:gpt-5.5', effort: 'high', paid: true },
+      ],
+    });
+
+    expect(response).toEqual({
+      selector: '@titles',
+      candidates: [
+        { modelId: 'system:openai:gpt-5.4-nano', paid: false },
+        { modelId: 'system:openai:gpt-5.5', effort: 'high', paid: true },
+      ],
+    });
+    expect(response.candidates[0]).not.toHaveProperty('effort');
+  });
+
   it('publishes a declared pdf input in declared order', () => {
     const response = toAvailableModelResponse({
       id: 'system:openai:pdf-reader',
@@ -292,7 +339,7 @@ describe('GET /api/v1/models with a configured credential set', () => {
             contextWindowTokens: 1000,
           },
         ],
-        defaults: { modelId: 'system:p:model' },
+        defaults: { selector: 'system:p:model' },
       }),
     );
 
