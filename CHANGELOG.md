@@ -143,6 +143,12 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   item and the git-state route. **Breaking**: register host roots before the
   upgrade, and deploy the API and every daemon together. References
   [#1831](https://github.com/leon0399/llame/issues/1831).
+- Record a floor and a ceiling for context narration to the model. The floor is
+  a review test. A change the model would misread its own history without gets a
+  notice, and silence must justify itself wherever another harness narrates. The
+  ceiling is token cost. The Context rail narrates events and one named
+  exception for model-authored state a tool stores, and it never re-states the
+  standing context the frozen baseline already owns.
 
 # 2026-11-21
 

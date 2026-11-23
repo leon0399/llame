@@ -96,6 +96,16 @@ explicitly framed data — never applied silently. An assistant reasoning from
 stale beliefs about its own capabilities is a correctness failure, not a cosmetic
 one, and a mutation the assistant cannot perceive is one it cannot report.
 
+Narration is bounded at both ends. The floor is a review test. A change the
+model would misread its own history without gets a notice, and silence
+justifies itself wherever another harness narrates. The ceiling is token cost.
+The Context rail narrates events and one named exception for model-authored
+state, and it never re-states the standing context the frozen baseline already
+owns.
+[Context narration has a floor and a
+ceiling](docs/adr/2026-11-22-context-narration-has-a-floor-and-a-ceiling.md)
+records the decision.
+
 The same changes are visible to the owner. Every Run binds an immutable receipt of
 the context it executed against, so "what did the assistant see on that turn" has a
 durable answer long afterwards. That receipt is **not yet complete**: it carries
