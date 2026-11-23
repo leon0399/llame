@@ -43,6 +43,15 @@ const FAILURE_CLASS_LABELS: Record<FailureClass, string> = {
   unknown: 'an unknown failure',
 };
 
+/**
+ * The model-facing label of one failure class. Exported so a sibling producer
+ * that also names a failure (the model switch) reads the same fixed prose
+ * instead of copying the table.
+ */
+export function failureClassLabel(failureClass: FailureClass): string {
+  return FAILURE_CLASS_LABELS[failureClass];
+}
+
 const renderProviderFailureNotice = loadPackagedTemplate<{
   readonly label: string;
 }>(__dirname, 'provider-failure-notice');
@@ -61,7 +70,7 @@ export function createProviderFailureItem(input: {
     runId: input.runId,
     payload,
     body: renderProviderFailureNotice({
-      label: FAILURE_CLASS_LABELS[input.failureClass],
+      label: failureClassLabel(input.failureClass),
     }),
   });
 }

@@ -18214,6 +18214,38 @@ describe('RunExecutionService runtime-context lifecycle', () => {
     ).toEqual([]);
   });
 
+  it('A failover item stops a second switch item', async () => {
+    // The triggering message is the host message of a switch from
+    // `older-model` to `other-model`; this segment runs on `fake-model`, and
+    // the stored `failover` item already names the turn's transition.
+    const storedFailover = createModelChangeItem({
+      oldModel: { id: 'older-model' },
+      newModel: { id: 'other-model' },
+      runId,
+      failureClass: 'overloaded',
+    });
+
+    const repositories = mockNormalExecutionRepositories();
+    repositories.findLatestReplyModelId.mockImplementation(
+      replyModelBefore(1, 'other-model'),
+    );
+
+    const execution = makeExecutionService(createFakeModelClient(['answer']));
+
+    await execution.service.executeRun({
+      ...executionInput(execution.client),
+      userMessage: {
+        id: messageId,
+        seq: 1,
+        parts: [storedFailover, { type: 'text', text: 'hello' }],
+      },
+    });
+
+    expect(
+      stagedItemsOf(repositories.storeAtDispatch, 'effective-context-change'),
+    ).toEqual([]);
+  });
+
   /**
    * A Regenerate attempt over a turn whose earlier Run dispatched and stored a
    * model switch and a notice: `turnToolAvailability` is `null` for this Run's
@@ -18322,6 +18354,38 @@ describe('RunExecutionService runtime-context lifecycle', () => {
     expect(notices[0]?.data).toMatchObject({
       form: 'notice',
       payload: { reason: 'non_read_only_calls' },
+    });
+    expect(repositories.storeAtDispatch.mock.calls.at(-1)?.[0]).toMatchObject({
+      placement: 'append',
+      removeModelSwitch: true,
+    });
+  });
+
+  it('A Regenerate of a switch turn', async () => {
+    // The latest turn is the host message of a switch from `older-model` to
+    // `other-model`; the closed reply records `other-model`. This Regenerate
+    // removes the stored `failover` item and stores the transition from the
+    // reply's model to its own.
+    const storedFailover = createModelChangeItem({
+      oldModel: { id: 'older-model' },
+      newModel: { id: 'other-model' },
+      runId,
+      failureClass: 'overloaded',
+    });
+
+    const repositories = await executeRegenerate(null, {
+      triggerParts: [storedFailover, { type: 'text', text: 'hello' }],
+    });
+
+    const [modelChange] = stagedItemsOf(
+      repositories.storeAtDispatch,
+      'effective-context-change',
+    );
+
+    expect(modelChange?.data.payload).toEqual({
+      cause: 'model',
+      fromModelId: 'other-model',
+      toModelId: 'fake-model',
     });
     expect(repositories.storeAtDispatch.mock.calls.at(-1)?.[0]).toMatchObject({
       placement: 'append',

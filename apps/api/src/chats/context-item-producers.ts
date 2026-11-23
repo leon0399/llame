@@ -42,6 +42,11 @@ import {
 import { isMachineName } from './machine-context-item-producers';
 import { isRecencyDigestDeltaPayload } from './recency-digest-item';
 import {
+  FAILURE_CLASSES,
+  type FailureClass,
+} from '../models/provider-failure/provider-failure';
+import { failureClassLabel } from './provider-failure-notice';
+import {
   createToolAvailabilityItem,
   deriveToolAvailabilityPayload,
   deriveToolAvailabilityPayloadFromStates,
@@ -256,8 +261,9 @@ export {
  * ------------------------------------------------------------------ */
 
 /**
- * A model change, the one cause of an effective-context change with a shipped
- * detector.
+ * A model change, the one reason of an effective-context change with a
+ * shipped detector. It has two causes: `model` for a change between turns,
+ * and `failover` for a switch inside a Run.
  *
  * The cause set is closed and carries **one cause per item**: when several
  * occur on the same turn each becomes its own item, because a notice that
@@ -270,28 +276,60 @@ export {
  * temporal-anchor refresh, so only the binder knows why it minted a new
  * snapshot.
  */
-export interface ModelChangePayload extends UnknownRecord {
-  readonly cause: 'model';
+export interface ModelChangePayloadBase extends UnknownRecord {
   readonly fromModelId: string;
   readonly toModelId: string;
 }
 
+/** A model change between turns: disclosed before the user message runs. */
+export interface ModelChangePayload extends ModelChangePayloadBase {
+  readonly cause: 'model';
+}
+
+/**
+ * A model switch inside a Run: disclosed at the host message the switch
+ * delivers, so the new model knows what failed and that earlier calls may have
+ * taken effect.
+ */
+export interface ModelFailoverPayload extends ModelChangePayloadBase {
+  readonly cause: 'failover';
+  readonly failureClass: FailureClass;
+}
+
+function isFailureClass(value: unknown): value is FailureClass {
+  return isString(value) && FAILURE_CLASSES.some((known) => known === value);
+}
+
 export function isModelChangePayload(
   value: unknown,
-): value is ModelChangePayload {
-  if (!isExactRecord(value, ['cause', 'fromModelId', 'toModelId'])) {
-    return false;
-  }
+): value is ModelChangePayload | ModelFailoverPayload {
+  if (!isRecord(value)) return false;
 
   const { cause, fromModelId, toModelId } = value;
 
+  if (
+    !isString(fromModelId) ||
+    fromModelId.trim().length === 0 ||
+    !isString(toModelId) ||
+    toModelId.trim().length === 0 ||
+    fromModelId === toModelId
+  ) {
+    return false;
+  }
+
+  if (cause === 'model') {
+    return isExactRecord(value, ['cause', 'fromModelId', 'toModelId']);
+  }
+
   return (
-    cause === 'model' &&
-    isString(fromModelId) &&
-    fromModelId.trim().length > 0 &&
-    isString(toModelId) &&
-    toModelId.trim().length > 0 &&
-    fromModelId !== toModelId
+    cause === 'failover' &&
+    isExactRecord(value, [
+      'cause',
+      'fromModelId',
+      'toModelId',
+      'failureClass',
+    ]) &&
+    isFailureClass(value['failureClass'])
   );
 }
 
@@ -314,16 +352,30 @@ export type ModelChangeModel = {
   readonly providerModelId?: string;
 };
 
+/**
+ * One model-switch notice. `failureClass` selects the `failover` cause and its
+ * own body; without it the item announces a change between turns (cause
+ * `model`), exactly as it always has.
+ */
 export function createModelChangeItem(input: {
   readonly oldModel: ModelChangeModel;
   readonly newModel: ModelChangeModel;
   readonly runId: string;
+  readonly failureClass?: FailureClass;
 }): AuthoredContextItemPart {
-  const payload: ModelChangePayload = {
-    cause: 'model',
-    fromModelId: input.oldModel.id,
-    toModelId: input.newModel.id,
-  };
+  const payload: ModelChangePayload | ModelFailoverPayload =
+    input.failureClass === undefined
+      ? {
+          cause: 'model',
+          fromModelId: input.oldModel.id,
+          toModelId: input.newModel.id,
+        }
+      : {
+          cause: 'failover',
+          fromModelId: input.oldModel.id,
+          toModelId: input.newModel.id,
+          failureClass: input.failureClass,
+        };
 
   // oxlint-disable-next-line anti-slop/no-known-value-widening -- the declared type cannot express the non-empty and distinct-id invariants this guard enforces, so it is an assertion about the value, not a redundant re-parse of a type we already trust.
   if (!isModelChangePayload(payload)) {
@@ -335,7 +387,14 @@ export function createModelChangeItem(input: {
     form: 'notice',
     runId: input.runId,
     payload,
-    body: renderModelChange(input.oldModel, input.newModel),
+    body:
+      input.failureClass === undefined
+        ? renderModelChange(input.oldModel, input.newModel)
+        : renderModelFailover(
+            input.oldModel,
+            input.newModel,
+            input.failureClass,
+          ),
   });
 }
 
@@ -350,6 +409,12 @@ const renderModelChangeTemplate = loadPackagedTemplate<{
   readonly oldModel: ModelChangeModelView;
   readonly newModel: ModelChangeModelView;
 }>(__dirname, 'effective-context-change');
+
+const renderModelFailoverTemplate = loadPackagedTemplate<{
+  readonly oldModel: ModelChangeModelView;
+  readonly newModel: ModelChangeModelView;
+  readonly label: string;
+}>(__dirname, 'model-failover');
 
 /**
  * A model name and a provider model id are operator-authored catalog text, so
@@ -390,6 +455,24 @@ function renderModelChange(
   return renderModelChangeTemplate({
     oldModel: toModelChangeModelView(oldModel),
     newModel: toModelChangeModelView(newModel),
+  });
+}
+
+/**
+ * The failover body names the failure label the provider-failure producer uses
+ * and the reminder that earlier calls may have taken effect. The label is
+ * authored prose: a later edit of the table does not rewrite what a stored
+ * item already told the model.
+ */
+function renderModelFailover(
+  oldModel: ModelChangeModel,
+  newModel: ModelChangeModel,
+  failureClass: FailureClass,
+): string {
+  return renderModelFailoverTemplate({
+    oldModel: toModelChangeModelView(oldModel),
+    newModel: toModelChangeModelView(newModel),
+    label: failureClassLabel(failureClass),
   });
 }
 

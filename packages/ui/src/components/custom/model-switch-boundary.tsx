@@ -34,6 +34,9 @@ export interface ModelSwitchBoundaryProps {
   fromModelId: string;
   /** Public model id selected for the user turn immediately after the boundary. */
   toModelId: string;
+  /** Why the switch happened, phrased by the caller — a failover names the
+   *  failure label, a planned change leaves it absent. */
+  reason?: string;
   /** Opens the owner-only receipt for the target run's effective prompt and tools. */
   onInspectContext: () => void;
 }
@@ -93,14 +96,25 @@ function useTruncatedModelIds(fromModelId: string, toModelId: string) {
   };
 }
 
+/** The trigger's accessible name, naming the reason when the switch has one. */
+function switchLabel(
+  fromModelId: string,
+  toModelId: string,
+  reason: string | undefined,
+): string {
+  const change = `Model changed from ${fromModelId} to ${toModelId}`;
+
+  return reason ? `${change}: ${reason}` : change;
+}
+
 type ModelSwitchTriggerProps = {
   fromModelId: string;
   toModelId: string;
+  reason?: string;
   fromModelRef: React.RefObject<HTMLSpanElement | null>;
   toModelRef: React.RefObject<HTMLSpanElement | null>;
   open: boolean;
   onToggle: () => void;
-  accessibleLabel: string;
 };
 
 /** One truncatable model id span, measured via `labelRef` for the tooltip. */
@@ -121,6 +135,15 @@ function ModelIdLabel({
   );
 }
 
+/** The failure label a failover boundary carries, phrased by the caller. */
+function SwitchReasonLabel({ reason }: { reason: string }) {
+  return (
+    <span className="min-w-0 truncate text-xs text-muted-foreground">
+      — {reason}
+    </span>
+  );
+}
+
 /**
  * The Marker's tooltip trigger: a button summarizing the model change, whose
  * click also drives the sibling Collapsible open (see the boundary's own
@@ -129,12 +152,14 @@ function ModelIdLabel({
 function ModelSwitchTrigger({
   fromModelId,
   toModelId,
+  reason,
   fromModelRef,
   toModelRef,
   open,
   onToggle,
-  accessibleLabel,
 }: ModelSwitchTriggerProps) {
+  const accessibleLabel = switchLabel(fromModelId, toModelId, reason);
+
   return (
     <TooltipTrigger
       render={
@@ -156,6 +181,7 @@ function ModelSwitchTrigger({
       <ModelIdLabel modelId={fromModelId} labelRef={fromModelRef} />
       <ArrowRightIcon data-icon="inline" aria-hidden="true" />
       <ModelIdLabel modelId={toModelId} labelRef={toModelRef} />
+      {reason ? <SwitchReasonLabel reason={reason} /> : null}
       {open ? (
         <ChevronDownIcon data-icon="inline-end" aria-hidden="true" />
       ) : (
@@ -239,14 +265,13 @@ function EffectiveContextCard({
 export function ModelSwitchBoundary({
   fromModelId,
   toModelId,
+  reason,
   onInspectContext,
 }: ModelSwitchBoundaryProps) {
   const [open, setOpen] = React.useState(false);
 
   const { fromModelRef, toModelRef, truncatedModelIds, hasTruncatedModelId } =
     useTruncatedModelIds(fromModelId, toModelId);
-
-  const accessibleLabel = `Model changed from ${fromModelId} to ${toModelId}`;
 
   return (
     <Collapsible open={open} onOpenChange={setOpen} className="w-full">
@@ -258,11 +283,11 @@ export function ModelSwitchBoundary({
               <ModelSwitchTrigger
                 fromModelId={fromModelId}
                 toModelId={toModelId}
+                reason={reason}
                 fromModelRef={fromModelRef}
                 toModelRef={toModelRef}
                 open={open}
                 onToggle={() => setOpen((prev) => !prev)}
-                accessibleLabel={accessibleLabel}
               />
               {hasTruncatedModelId && (
                 <TruncatedModelIdsTooltipContent

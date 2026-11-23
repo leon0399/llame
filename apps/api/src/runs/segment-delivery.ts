@@ -37,6 +37,7 @@ import {
 export {
   abortedByInterrupt,
   closedTelemetry,
+  failedByFailover,
   persistFirstEpochBaselines,
 } from './segment-delivery-close';
 
@@ -81,8 +82,10 @@ async function markDeliveryItems(
 /**
  * Mark items delivered as `message`, move the Run onto it, and append the event.
  * The pointer moves after message creation because it has an immediate FK.
+ * Exported for the model switch, which supplies a cause the pending items
+ * cannot derive.
  */
-async function moveRunToDelivery(
+export async function moveRunToDelivery(
   tx: Db,
   locked: Run,
   fromAttemptId: string,
@@ -330,11 +333,14 @@ async function finishBoundaryCompaction(input: {
     { ...input, cause },
   );
 
+  const continuation =
+    input.compaction.finalAnswer === true ? [] : [createContinueItem(input)];
+
   const message = await storeDeliveredMessage(
     input.tx,
     input.locked,
     input.messageItems,
-    input.compaction.finalAnswer === true ? [] : [createContinueItem(input)],
+    { trailing: continuation },
   );
 
   const attemptId = await moveRunToDelivery(

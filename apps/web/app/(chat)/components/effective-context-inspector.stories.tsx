@@ -22,6 +22,7 @@ const RECEIPT = {
   receipts: [
     {
       attemptId: "a1b2c3d4-0000-0000-0000-000000000001",
+      modelId: "custom:openai:gpt-5.4",
       promptSource: "model_override" as const,
       systemPrompt: "You are the complete model-specific prompt.",
       promptHash: "7f07b813",
@@ -70,6 +71,7 @@ export const Receipt: Story = {
     );
 
     await expect(dialog.getByText(RECEIPT.modelId)).toBeVisible();
+    await expect(dialog.getByText(RECEIPT.receipts[0].modelId)).toBeVisible();
     await expect(dialog.getByText("Model-specific override")).toBeVisible();
     await expect(
       dialog.getByText("You are the complete model-specific prompt."),
@@ -130,6 +132,56 @@ export const Effort: Story = {
     );
 
     await expect(dialog.getByText("Effort")).toBeVisible();
+    await expect(dialog.getByText("high")).toBeVisible();
+  },
+};
+
+/** The second attempt of a switched Run: a different model, its own effort. */
+const SWITCHED_ATTEMPT = {
+  attemptId: "a1b2c3d4-0000-0000-0000-000000000002",
+  modelId: "custom:anthropic:claude-sonnet-4-5",
+  effort: "high",
+  promptSource: "model_override" as const,
+  systemPrompt: "You are the new model's complete prompt.",
+  promptHash: "9c9c9c9c",
+  createdAt: "2026-07-18T12:35:56.000Z",
+};
+
+/**
+ * A run that switched models mid-turn: every attempt card names the model that
+ * attempt requested, so the owner sees both sides of the switch while the
+ * top-level Model row names only the current segment.
+ *
+ * @summary each attempt names its own model after a switch
+ */
+export const SwitchedAttempts: Story = {
+  tags: ["ai-generated"],
+  beforeEach: () => {
+    useRunContextReceipt.mockReturnValue({
+      isPending: false,
+      isError: false,
+      data: {
+        ...RECEIPT,
+        activeAttemptId: SWITCHED_ATTEMPT.attemptId,
+        completedAttemptId: SWITCHED_ATTEMPT.attemptId,
+        receipts: [RECEIPT.receipts[0], SWITCHED_ATTEMPT],
+      },
+    });
+  },
+  play: async () => {
+    const dialog = within(
+      await within(document.body).findByRole("dialog", {
+        name: "System prompt receipt",
+      }),
+    );
+
+    await expect(dialog.getByText("System prompt receipts (2)")).toBeVisible();
+    await expect(dialog.getByText("custom:openai:gpt-5.4")).toBeVisible();
+    await expect(
+      dialog.getByText("custom:anthropic:claude-sonnet-4-5"),
+    ).toBeVisible();
+    // Only the second attempt carried an explicit effort, so exactly one
+    // attempt card grows the row.
     await expect(dialog.getByText("high")).toBeVisible();
   },
 };

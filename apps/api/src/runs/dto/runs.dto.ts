@@ -7,9 +7,11 @@ import {
   runKinds,
   runStatus,
   type Run,
+  type RunEvent,
   type RunKind,
   type RunStatus,
 } from '../../db/schema';
+import { eventPayloadString } from '../run-event-payload';
 import {
   PERMISSION_MODES,
   type PermissionMode,
@@ -104,6 +106,21 @@ export class AttemptReceiptResponse {
   @ApiProperty({ description: 'Attempt identity.' })
   attemptId!: string;
 
+  @ApiProperty({
+    description:
+      'Public llame model id this attempt requested, read from its ' +
+      '`model.requested` event. A switch between attempts shows here even ' +
+      "though the Run row only names its current segment's model.",
+  })
+  modelId!: string;
+
+  @ApiPropertyOptional({
+    description:
+      'Reasoning effort this attempt requested. Absent when the attempt ' +
+      'carried none.',
+  })
+  effort?: string;
+
   @ApiProperty({ enum: modelContextPromptSource.enumValues })
   promptSource!: (typeof modelContextPromptSource.enumValues)[number];
 
@@ -126,7 +143,9 @@ export class AttemptReceiptResponse {
  */
 export class ContextReceiptResponse {
   @ApiProperty({
-    description: 'Public llame model id selected for this run.',
+    description:
+      "Public llame model id of the Run's current segment. Each attempt " +
+      'receipt names the model that attempt requested.',
   })
   modelId!: string;
 
@@ -195,7 +214,56 @@ export function toRunResponse(run: Run): RunResponse {
   };
 }
 
-/** Maps a run and its attempt receipts to the owner-receipt egress shape. */
+/** One attempt's requested model, read from its `model.requested` event. */
+export type AttemptModelSelection = {
+  attemptId: string;
+  modelId: string;
+  effort?: string;
+};
+
+/** Reads the model each attempt requested from its `model.requested` event
+ *  (`{ modelId, effort?, attemptId }`). A malformed or legacy payload
+ *  contributes nothing; the receipt then falls back to the Run's model. */
+export function attemptModelSelections(
+  events: ReadonlyArray<Pick<RunEvent, 'payload'>>,
+): Array<AttemptModelSelection> {
+  return events.flatMap((event) => {
+    const attemptId = eventPayloadString(event.payload, 'attemptId');
+    const modelId = eventPayloadString(event.payload, 'modelId');
+    const effort = eventPayloadString(event.payload, 'effort');
+
+    if (attemptId === undefined || modelId === undefined) return [];
+
+    return [{ attemptId, modelId, ...(effort !== undefined && { effort }) }];
+  });
+}
+
+function toAttemptReceiptResponse(
+  run: Run,
+  receipt: {
+    attemptId: string;
+    source: (typeof modelContextPromptSource.enumValues)[number];
+    systemPrompt: string;
+    promptHash: string;
+    createdAt: Date;
+  },
+  requested: AttemptModelSelection | undefined,
+): AttemptReceiptResponse {
+  return {
+    attemptId: receipt.attemptId,
+    // A receipt published before its attempt's dispatch event has no
+    // `model.requested` row yet; the Run's model is the attempt's model then.
+    modelId: requested?.modelId ?? run.modelId,
+    ...(requested?.effort !== undefined && { effort: requested.effort }),
+    promptSource: receipt.source,
+    systemPrompt: receipt.systemPrompt,
+    promptHash: receipt.promptHash,
+    createdAt: receipt.createdAt,
+  };
+}
+
+/** Maps a run, its attempt receipts, and each attempt's requested model to
+ *  the owner-receipt egress shape. */
 export function toContextReceiptResponse(
   run: Run,
   receipts: Array<{
@@ -205,11 +273,16 @@ export function toContextReceiptResponse(
     promptHash: string;
     createdAt: Date;
   }>,
+  attemptSelections: ReadonlyArray<AttemptModelSelection> = [],
 ): ContextReceiptResponse {
   const isTerminal = isTerminalRunStatus(run.status);
 
   const state =
     receipts.length > 0 ? 'prepared' : isTerminal ? 'not_produced' : 'pending';
+
+  const requestedByAttempt = new Map(
+    attemptSelections.map((selection) => [selection.attemptId, selection]),
+  );
 
   return {
     modelId: run.modelId,
@@ -222,13 +295,13 @@ export function toContextReceiptResponse(
       completedAttemptId: run.completedAttemptId,
     }),
     state,
-    receipts: receipts.map((r) => ({
-      attemptId: r.attemptId,
-      promptSource: r.source,
-      systemPrompt: r.systemPrompt,
-      promptHash: r.promptHash,
-      createdAt: r.createdAt,
-    })),
+    receipts: receipts.map((receipt) =>
+      toAttemptReceiptResponse(
+        run,
+        receipt,
+        requestedByAttempt.get(receipt.attemptId),
+      ),
+    ),
     createdAt: run.createdAt,
   };
 }

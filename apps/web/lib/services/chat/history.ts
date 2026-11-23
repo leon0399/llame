@@ -23,6 +23,10 @@ import {
   isCompactionContinuePart,
   type CompactionContinuePart,
 } from "./compaction-continue";
+import {
+  isModelSwitchPayload,
+  type ModelSwitchPayload,
+} from "./model-switch-payload";
 
 export type ChatMessageResponse = {
   id: string;
@@ -117,6 +121,10 @@ export type ChatHistory = {
  * `producer` tells them apart. This app renders only the model-change
  * boundary, so it narrows to that one producer and treats every other item as
  * something it does not display.
+ *
+ * Cause `model` marks a change before a user message; cause `failover` marks a
+ * switch inside a Run after the prior model failed, and carries the closed
+ * failure class the boundary labels.
  */
 export type ModelSwitchPart = {
   type: "data-context";
@@ -125,11 +133,7 @@ export type ModelSwitchPart = {
     producer: "effective-context-change";
     form: "notice";
     runId: string;
-    payload: {
-      cause: "model";
-      fromModelId: string;
-      toModelId: string;
-    };
+    payload: ModelSwitchPayload;
     text?: string;
   };
 };
@@ -234,36 +238,6 @@ export type InterruptedNoticePart = {
     text?: string;
   };
 };
-
-/** The `data.payload` shape of a model-switch context item, validated on its
- *  own — a real sub-boundary of `isModelSwitchPart`, not an arbitrary split. */
-function isModelSwitchPayload(
-  value: unknown,
-): value is ModelSwitchPart["data"]["payload"] {
-  if (
-    !isNonNullObject(value) ||
-    !keysMatch(Object.keys(value), ["cause", "fromModelId", "toModelId"])
-  ) {
-    return false;
-  }
-
-  // SAFETY: `keysMatch` above confirmed `value` has exactly these three
-  // keys; each field is validated individually below.
-  const { cause, fromModelId, toModelId } = value as {
-    cause: unknown;
-    fromModelId: unknown;
-    toModelId: unknown;
-  };
-
-  return (
-    cause === "model" &&
-    isString(fromModelId) &&
-    fromModelId.trim().length > 0 &&
-    isString(toModelId) &&
-    toModelId.trim().length > 0 &&
-    fromModelId !== toModelId
-  );
-}
 
 export function isModelSwitchPart(value: unknown): value is ModelSwitchPart {
   return isModelSwitchPayload(

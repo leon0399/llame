@@ -72,16 +72,20 @@ export class AcceptedTurnPartsRepository {
 }
 
 /**
- * Whether a stored part is the model-switch item: an `effective-context-change`
- * item whose only cause is `model`. A Regenerate's first dispatch replaces it
- * with the item its own comparison yields (turn-actions D8).
+ * Whether a stored part is a model-switch item: an `effective-context-change`
+ * item with either cause of the closed vocabulary — `model` between turns,
+ * `failover` inside a Run. A Regenerate's first dispatch replaces it with the
+ * item its own comparison yields (turn-actions D8), and a request drops it
+ * when it replaces the stored switch.
  */
-// eslint-disable-next-line anti-slop/no-unknown-parameters -- the argument is one stored jsonb part; `isContextItemPart` parses it before anything inside it is read.
 export function isModelSwitchItem(part: unknown): boolean {
+  if (!isContextItemPart(part)) return false;
+
+  const cause = part.data.payload['cause'];
+
   return (
-    isContextItemPart(part) &&
     part.data.producer === 'effective-context-change' &&
-    part.data.payload['cause'] === 'model'
+    (cause === 'model' || cause === 'failover')
   );
 }
 

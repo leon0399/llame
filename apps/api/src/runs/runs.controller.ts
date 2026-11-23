@@ -41,6 +41,7 @@ import {
   ContextReceiptResponse,
   ListRunEventsQuery,
   RunResponse,
+  attemptModelSelections,
   toContextReceiptResponse,
   toRunResponse,
   UpdateRunDto,
@@ -115,7 +116,17 @@ export class RunsController {
         tx,
       ).findByOwnedRun(id, userId);
 
-      return toContextReceiptResponse(run, receipts);
+      const requested = await new RunEventsRepository(tx).listByRunId(
+        id,
+        userId,
+        { eventTypes: ['model.requested'] },
+      );
+
+      return toContextReceiptResponse(
+        run,
+        receipts,
+        attemptModelSelections(requested),
+      );
     });
 
     if (!result) {

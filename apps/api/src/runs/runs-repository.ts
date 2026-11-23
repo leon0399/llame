@@ -589,7 +589,11 @@ export type RunEventType =
   | 'run.resumed'
   // A delivery moved the Run to a new user message and attempt (run-steering
   // D4): appended in the delivery transaction, after the closed reply's usage.
-  | 'run.delivered';
+  | 'run.delivered'
+  // A model switch inside a Run (model-roles D6): names the prior and the new
+  // model with their efforts, the closed failure class, the host message, and
+  // the switch's origin (`owner` or `policy`). Appended after the delivery.
+  | 'model.switched';
 
 export class RunEventsRepository {
   constructor(private readonly db: Db) {}

@@ -116,18 +116,18 @@ master <- model-roles/proposal <- model-roles/catalog <- model-roles/selection
 
 ## 5. Switch records (`model-roles/switch-records`)
 
-- [ ] 5.1 The `failover` cause in the model-change payload, `createModelChangeItem`, both payload
+- [x] 5.1 The `failover` cause in the model-change payload, `createModelChangeItem`, both payload
       guards, and the packaged template; verify `model-system-prompts` "A switch inside a Run has its
       own cause", "A failover item stops a second switch item", "A Regenerate of a switch turn", and
       `context-injection` "A Regenerate removes a failover item".
-- [ ] 5.2 `DeliveryCause` `failover`, the `error` close with `complete: false`, and
+- [x] 5.2 `DeliveryCause` `failover`, the `error` close with `complete: false`, and
       `model.switched` in `RunEventType`; verify `run-steering` "A model switch names its cause" and a
       test that a later settle of the Run leaves the closed reply unchanged.
-- [ ] 5.3 Reasoning replay by the model of the reply; verify `reasoning-output` "A segment after a
+- [x] 5.3 Reasoning replay by the model of the reply; verify `reasoning-output` "A segment after a
       switch omits the reasoning of the earlier model" and the other scenarios of that requirement.
-- [ ] 5.4 Tool-call id normalization at both assembly points; verify "A foreign id reaches another
+- [x] 5.4 Tool-call id normalization at both assembly points; verify "A foreign id reaches another
       wire" and "Two ids map to the same value" in context-builder and compaction tests.
-- [ ] 5.5 The effective-context inspector names each attempt's model, and the web boundary renders the
+- [x] 5.5 The effective-context inspector names each attempt's model, and the web boundary renders the
       `failover` item; verify with stories.
 - [ ] 5.6 SR, then GR with the Ready-PR monitoring loop.
 

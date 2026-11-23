@@ -10,7 +10,7 @@ import type { ContextReceiptResponsePermissionMode } from "./contextReceiptRespo
 import type { ContextReceiptResponseState } from "./contextReceiptResponseState";
 
 export interface ContextReceiptResponse {
-  /** Public llame model id selected for this run. */
+  /** Public llame model id of the Run's current segment. Each attempt receipt names the model that attempt requested. */
   modelId: string;
   /** Reasoning effort this run executed at, resolved when the run was accepted. Absent when the run carried none. */
   effort?: string;

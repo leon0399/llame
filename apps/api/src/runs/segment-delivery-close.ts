@@ -93,8 +93,17 @@ export type DeliveredBoundary = Extract<
   { kind: 'delivered' }
 >;
 
-/** What caused a delivery: an interrupt, owner steer, or job notice. */
-export type DeliveryCause = 'steer' | 'interrupt' | 'notice' | 'compaction';
+/**
+ * What caused a delivery: an interrupt, owner steer, job notice, compaction,
+ * or a model switch inside the Run. A switch supplies its cause explicitly;
+ * the item-driven derivation never yields it.
+ */
+export type DeliveryCause =
+  | 'steer'
+  | 'interrupt'
+  | 'notice'
+  | 'compaction'
+  | 'failover';
 
 export type DeliveredEventPayload = {
   deliveryIds: Array<string>;
@@ -179,13 +188,26 @@ export type DeliveryInput = {
   };
 };
 
+/**
+ * Store ONE user message of the delivered items' parts. `leading` parts
+ * precede every item (a model switch puts its notice first, the pending steer
+ * after it); `trailing` parts follow them (a compaction's continuation item).
+ */
 export async function storeDeliveredMessage(
   tx: Db,
   locked: Run,
   items: ReadonlyArray<ChatDelivery>,
-  extraParts: ReadonlyArray<MessagePart> = [],
+  parts?: {
+    readonly leading?: ReadonlyArray<MessagePart>;
+    readonly trailing?: ReadonlyArray<MessagePart>;
+  },
 ): Promise<Message> {
-  const parts = [...items.flatMap((item) => item.parts), ...extraParts];
+  const stored = [
+    ...(parts?.leading ?? []),
+    ...items.flatMap((item) => item.parts),
+    ...(parts?.trailing ?? []),
+  ];
+
   const ownerAuthored = items.some((item) => item.producer === 'owner');
 
   const message = ownerAuthored
@@ -193,14 +215,14 @@ export async function storeDeliveredMessage(
         id: randomUUID(),
         chatId: locked.chatId,
         senderUserId: locked.userId,
-        parts,
+        parts: stored,
       })
     : await new MessagesRepository(tx).create({
         id: randomUUID(),
         chatId: locked.chatId,
         role: 'user',
         senderUserId: null,
-        parts,
+        parts: stored,
         attachments: [],
       });
 
@@ -227,13 +249,30 @@ export function abortedByInterrupt(
   };
 }
 
-/** The telemetry a delivery stored for the reply it closed: the segment's own, or the interrupt's. */
+/**
+ * The usage a failover delivery records for the reply it closes: `error`,
+ * never `complete`, and not `interrupted` — the provider failed, the owner did
+ * not stop it.
+ */
+export function failedByFailover(
+  telemetry: AssistantTurnTelemetry,
+): AssistantTurnTelemetry {
+  return {
+    ...telemetry,
+    status: 'error',
+    complete: false,
+  };
+}
+
+/** The telemetry a delivery stored for the reply it closed: the segment's own, or the terminal cause's. */
 export function closedTelemetry(
   delivery: DeliveredBoundary,
   telemetry: AssistantTurnTelemetry,
 ): AssistantTurnTelemetry {
-  return delivery.cause === 'interrupt'
-    ? abortedByInterrupt(telemetry)
+  if (delivery.cause === 'interrupt') return abortedByInterrupt(telemetry);
+
+  return delivery.cause === 'failover'
+    ? failedByFailover(telemetry)
     : telemetry;
 }
 
@@ -241,34 +280,40 @@ export function closingAs(
   input: DeliveryInput,
   cause: DeliveryCause,
 ): DeliveryInput {
-  if (cause !== 'interrupt') return input;
+  if (cause !== 'interrupt' && cause !== 'failover') return input;
+
+  const close = cause === 'interrupt' ? abortedByInterrupt : failedByFailover;
+
   const { live, modelCompleted, telemetry } = input;
 
   return {
     ...input,
     ...(live !== undefined && {
-      live: { ...live, telemetry: abortedByInterrupt(live.telemetry) },
+      live: { ...live, telemetry: close(live.telemetry) },
     }),
     ...(modelCompleted?.telemetry !== undefined && {
       modelCompleted: {
         ...modelCompleted,
-        telemetry: abortedByInterrupt(modelCompleted.telemetry),
+        telemetry: close(modelCompleted.telemetry),
       },
     }),
     ...(telemetry !== undefined && {
-      telemetry: abortedByInterrupt(telemetry),
+      telemetry: close(telemetry),
     }),
   };
 }
 
 /**
  * A delivery closes the reply while the Run is live, so the Run's status does
- * not decide the completeness of its usage (run-usage-accounting).
+ * not decide the completeness of its usage (run-usage-accounting). A failover
+ * is the exception: the reply it closes failed, so its usage stays incomplete
+ * even though the Run itself keeps living.
  */
 async function finalizeSegmentUsage(
   tx: Db,
   locked: Run,
   closing: DeliveryInput,
+  cause: DeliveryCause,
 ): Promise<void> {
   const telemetry = closing.modelCompleted?.telemetry;
 
@@ -281,26 +326,35 @@ async function finalizeSegmentUsage(
     chatId: locked.chatId,
     inReplyTo: closing.live?.inReplyTo ?? locked.messageId,
     telemetry,
-    closedBySteer: true,
+    closedBySteer: cause !== 'failover',
   });
 }
 
 /**
  * Close the segment's reply and publish its usage, then store ONE user message
  * holding every item's parts in order. A steer closes it `completed`, an
- * interrupt `aborted`.
+ * interrupt `aborted`, a model switch `failed`.
  */
 export async function closeReply(
   tx: Db,
-  closing: DeliveryInput,
+  closingInput: DeliveryInput,
   locked: Run,
   cause: DeliveryCause,
 ): Promise<Message | undefined> {
-  await finalizeSegmentUsage(tx, locked, closing);
+  // The terminal cause decides what the reply's usage says, whoever prepared
+  // the delivery (a switch closes a reply it did not steer).
+  const closing = closingAs(closingInput, cause);
+
+  await finalizeSegmentUsage(tx, locked, closing, cause);
 
   const closedReply = await finalizeRunReply(tx, {
     run: locked,
-    status: cause === 'interrupt' ? 'cancelled' : 'completed',
+    status:
+      cause === 'interrupt'
+        ? 'cancelled'
+        : cause === 'failover'
+          ? 'failed'
+          : 'completed',
     attemptId: closing.attemptId,
     live: closing.live,
     telemetry: closing.telemetry,
@@ -345,7 +399,10 @@ export async function closeSegmentAndStore(
 ): Promise<{ closedReply: Message | undefined; message: Message }> {
   const { locked, cause, items } = delivery;
   const closedReply = await closeReply(tx, closing, locked, cause);
-  const message = await storeDeliveredMessage(tx, locked, items, extraParts);
+
+  const message = await storeDeliveredMessage(tx, locked, items, {
+    trailing: extraParts,
+  });
 
   return { closedReply, message };
 }

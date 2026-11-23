@@ -316,6 +316,31 @@ export function chooseEffort(input: {
 }
 
 /**
+ * The effort one segment runs on after a model switch: the Run's selected
+ * effort when the new model declares it, otherwise the candidate's effort, the
+ * model's default, or none. The selected effort is admission's, never the
+ * previous segment's, so a second switch compares with the same value.
+ */
+export function effortAfterSwitch(input: {
+  /** The effort admission resolved for the Run, or `null` for none. */
+  selectedEffort: string | null;
+  model: SystemModelCatalogEntry;
+  /** The new model's role candidate `effort`, when it resolved through a role. */
+  candidateEffort: string | undefined;
+}): EffortChoice {
+  const levels = input.model.reasoning?.effortLevels;
+
+  if (
+    input.selectedEffort !== null &&
+    levels?.some((level) => level.value === input.selectedEffort) === true
+  ) {
+    return { kind: 'effort', effort: input.selectedEffort };
+  }
+
+  return fallbackEffort(input.model, input.candidateEffort);
+}
+
+/**
  * The selection a request stores, or undefined when it writes none.
  *
  * An owner request writes when it changes something — it named a selector or

@@ -1,7 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
 import { type Run } from '../../db/schema';
-import { toContextReceiptResponse, toRunResponse } from './runs.dto';
+import {
+  attemptModelSelections,
+  toContextReceiptResponse,
+  toRunResponse,
+} from './runs.dto';
 
 const run: Run = {
   id: '11111111-1111-4111-8111-111111111111',
@@ -56,6 +60,56 @@ describe('toContextReceiptResponse', () => {
     const response = toContextReceiptResponse({ ...run, effort: 'high' }, []);
 
     expect(response.effort).toBe('high');
+  });
+
+  const receipt = {
+    attemptId: '66666666-6666-4666-8666-666666666666',
+    source: 'model_override' as const,
+    systemPrompt: 'Complete effective prompt',
+    promptHash: 'prompt-hash',
+    createdAt: new Date('2026-07-18T09:59:59.000Z'),
+  };
+
+  it("reads each attempt's requested model from its model.requested event", () => {
+    expect(
+      attemptModelSelections([
+        { payload: { modelId: 'model-a', attemptId: 'a1', effort: 'high' } },
+        { payload: { modelId: 'model-b', attemptId: 'b2' } },
+        // A payload without both identities contributes nothing.
+        { payload: { modelId: 'model-c' } },
+        { payload: null },
+      ]),
+    ).toEqual([
+      { attemptId: 'a1', modelId: 'model-a', effort: 'high' },
+      { attemptId: 'b2', modelId: 'model-b' },
+    ]);
+  });
+
+  it('labels each attempt receipt with the model that attempt requested', () => {
+    const response = toContextReceiptResponse(
+      { ...run, activeAttemptId: receipt.attemptId },
+      [receipt],
+      [
+        {
+          attemptId: receipt.attemptId,
+          modelId: 'custom:anthropic:sonnet',
+          effort: 'high',
+        },
+      ],
+    );
+
+    expect(response.modelId).toBe(run.modelId);
+    expect(response.receipts[0]).toMatchObject({
+      modelId: 'custom:anthropic:sonnet',
+      effort: 'high',
+    });
+  });
+
+  it("falls back to the Run's model when an attempt recorded no request", () => {
+    const response = toContextReceiptResponse(run, [receipt], []);
+
+    expect(response.receipts[0]?.modelId).toBe(run.modelId);
+    expect(response.receipts[0]).not.toHaveProperty('effort');
   });
 
   it('includes the accepted bypass mode on both response shapes', () => {

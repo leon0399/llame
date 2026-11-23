@@ -10802,7 +10802,16 @@ export class RunExecutionService {
       );
     }
 
-    if (!priorDispatch || regenerateFirstDispatch) {
+    // A stored switch item on the trigger already names the transition this
+    // turn took: a switch segment carries its own `failover` item, and a retry
+    // or Continue keeps the item its earlier dispatch stored. Only a
+    // Regenerate's first dispatch replaces it with its own comparison.
+    const storedSwitch = input.input.userMessage.parts.some(isModelSwitchItem);
+
+    if (
+      (regenerateFirstDispatch || !priorDispatch) &&
+      (regenerateFirstDispatch || !storedSwitch)
+    ) {
       const modelChange = this.deriveModelChangeItem(
         baseline,
         input.input,

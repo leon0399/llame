@@ -16,6 +16,7 @@ import type {
   SelectionRequest,
   SelectionWriter,
 } from './model-selection';
+import { effortAfterSwitch } from './model-selection';
 import {
   EffortNotAvailableError,
   resolveSelectionFromCatalog,
@@ -315,5 +316,71 @@ describe('a notice effort', () => {
     expect(() =>
       resolve(null, { selector: CODEX.id, effort: 'xhigh' }, 'owner', BEFORE),
     ).toThrow(EffortNotAvailableError);
+  });
+});
+
+describe('the effort after a switch follows the selected effort', () => {
+  const DEEPSEEK = model('deepseek', {
+    effortLevels: [{ value: 'medium' }, { value: 'high' }],
+    defaultEffort: 'medium',
+    cacheInvalidatedByEffortChange: false,
+  });
+
+  const OPUS = model('opus', {
+    effortLevels: [{ value: 'low' }, { value: 'xhigh' }],
+    defaultEffort: 'low',
+    cacheInvalidatedByEffortChange: false,
+  });
+
+  it('The new model declares the selected level', () => {
+    expect(
+      effortAfterSwitch({
+        selectedEffort: 'high',
+        model: CODEX,
+        candidateEffort: 'low',
+      }),
+    ).toEqual({ kind: 'effort', effort: 'high' });
+  });
+
+  it('The new model does not declare the selected level', () => {
+    expect(
+      effortAfterSwitch({
+        selectedEffort: 'xhigh',
+        model: DEEPSEEK,
+        candidateEffort: 'medium',
+      }),
+    ).toEqual({ kind: 'effort', effort: 'medium' });
+  });
+
+  it('A second switch compares with the selected effort', () => {
+    // The first switch settled at `medium`; the selected `xhigh` still wins on
+    // a model that declares it.
+    expect(
+      effortAfterSwitch({
+        selectedEffort: 'xhigh',
+        model: OPUS,
+        candidateEffort: 'high',
+      }),
+    ).toEqual({ kind: 'effort', effort: 'xhigh' });
+  });
+
+  it('A model with no reasoning gets no effort', () => {
+    expect(
+      effortAfterSwitch({
+        selectedEffort: 'high',
+        model: FAST,
+        candidateEffort: undefined,
+      }),
+    ).toEqual({ kind: 'none' });
+  });
+
+  it('falls back to the model default when the candidate names no effort', () => {
+    expect(
+      effortAfterSwitch({
+        selectedEffort: 'xhigh',
+        model: DEEPSEEK,
+        candidateEffort: undefined,
+      }),
+    ).toEqual({ kind: 'effort', effort: 'medium' });
   });
 });

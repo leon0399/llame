@@ -10,6 +10,10 @@ import type { AttemptReceiptResponsePromptSource } from "./attemptReceiptRespons
 export interface AttemptReceiptResponse {
   /** Attempt identity. */
   attemptId: string;
+  /** Public llame model id this attempt requested, read from its `model.requested` event. A switch between attempts shows here even though the Run row only names its current segment's model. */
+  modelId: string;
+  /** Reasoning effort this attempt requested. Absent when the attempt carried none. */
+  effort?: string;
   promptSource: AttemptReceiptResponsePromptSource;
   /** Complete effective system prompt rendered for this attempt. */
   systemPrompt: string;
