@@ -5,7 +5,8 @@
 A tree enumeration MUST NOT enter a directory named `.git`, `.jj`, `.hg`,
 `.svn`, or `node_modules`. The rule applies by leaf name, at any depth, to a
 directory or a file. The enumeration MUST NOT open an entry that this rule
-skips. Each surface keeps its own rendering of a skipped entry.
+skips. An ignore rule MUST NOT decide an entry that the fixed set names. Each
+surface keeps its own rendering of a skipped entry.
 
 #### Scenario: A jj repository is not entered
 
@@ -71,6 +72,11 @@ file outranks a shallower one. In one directory, `.ignore` outranks
   `/mnt/d/Projects/Arduino`
 - **THEN** the walk examines no file below
   `/mnt/d/Projects/Arduino/libraries/.build-cache`
+
+#### Scenario: An in-scope gitignore applies without a repository
+
+- **WHEN** a walked tree holds no `.git` entry and its root `.gitignore` names `drafts/`
+- **THEN** the enumeration examines no entry below `drafts`
 
 #### Scenario: An ignore file is not searched
 

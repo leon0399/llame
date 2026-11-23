@@ -31,9 +31,11 @@ directory, as file reads resolve today.
 The listing MUST apply the walk policy to every entry it reaches by traversal.
 The requested directory itself MUST NOT be filtered, whatever the policy names.
 A fixed infrastructure entry MUST render as an entry, with no entries below
-it. An entry that an ignore rule excludes MUST NOT render. Such an entry MUST
-NOT count in the requested level's entry count. The listing MUST apply the
-ignore files of the walked tree, as the walk policy defines them. A `kb://`
+it. This holds when an ignore rule also names that entry, because the fixed
+set decides first, as the walk policy states. An entry that an ignore rule
+excludes, and that the fixed set does not name, MUST NOT render. Such an entry
+MUST NOT count in the requested level's entry count. The listing MUST apply
+the ignore files of the walked tree, as the walk policy defines them. A `kb://`
 listing applies the ignore files of its Space the same way.
 
 The listing MUST count entries below the second level, and it MUST NOT render
@@ -64,6 +66,11 @@ directory kind. Listing lines MUST carry no generated line-number prefixes.
 - **WHEN** the model reads a repository root whose `.gitignore` names `dist/`
 - **THEN** the listing holds no `dist` entry
 - **AND** a read of `dist/` itself still lists that directory
+
+#### Scenario: A gitignored fixed entry still renders without children
+
+- **WHEN** the model reads a repository root whose `.gitignore` names `node_modules/`
+- **THEN** the listing renders `- node_modules/` with no entries below it
 
 #### Scenario: The requested directory is never filtered
 

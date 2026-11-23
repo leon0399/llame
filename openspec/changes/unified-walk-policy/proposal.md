@@ -65,8 +65,10 @@ From the grilling rounds of 2026-11-22, recorded on
 - The fixed set is the issue's five names. No `.bzr`, `_darcs`, or other
   speculative names.
 - Ignore semantics are the grep engine's, replicated verbatim. Repository
-  detection stays keyed on `.git`. A pure-jj Space without `.git` gets
-  `.ignore` only.
+  detection stays keyed on `.git` and governs only a `.gitignore` above the
+  requested root; a `.gitignore` inside the walked tree always applies. A
+  pure-jj Space applies its own root `.gitignore`. An ancestor `.gitignore`
+  applies only inside a detected repository.
 - The skip is silent. Grep's `ignored` report stays reserved for ignore-rule
   exclusions; the fixed set reports nothing, as `.git` does today.
 - Listings render fixed-set entries without children; ignore-ruled entries

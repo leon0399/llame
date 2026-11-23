@@ -8,7 +8,7 @@ engine (`packages/native-file-tools/src/grep/walk.ts:194`) prunes exactly
 (`src/grep/ignore-files.ts`, consumed through optional `GrepWalkPort` methods)
 runs today only on the host and Machine legs: the Machine daemon wires it in
 `apps/machine/src/grep-port.ts:83-91`, while the Knowledge leg
-(`apps/api/src/tools/grep-ports.ts:259`) supplies no ignore reader. The
+(`apps/api/src/tools/grep-ports.ts:42`) supplies no ignore reader. The
 Knowledge search walk (`apps/api/src/knowledge/knowledge-filesystem.ts:319`)
 prunes nothing and throws on the first symbolic link. The shared directory
 listing (`packages/native-file-tools/src/directory-listing.ts`) filters
@@ -52,11 +52,15 @@ infrastructure where no ignore file exists). Both were rejected in grilling.
 ### D3. Ignore semantics move verbatim
 
 The three `grep-tool` ignore requirements move to `walk-policy` with their
-scenarios. Repository detection stays keyed on `.git`. `.ignore` applies
-everywhere. Files cap at 256 KiB. A symlink, FIFO, or oversized file is never a
-policy source. A deeper layer outranks a shallower one. Nothing changes in
-behavior; only the home moves. A pure-jj tree without `.git` gets `.ignore`
-only; extending detection is a follow-up if such a Space appears.
+scenarios. Repository detection stays keyed on `.git`, and it governs only a
+`.gitignore` above the requested root, as the engine implements it: both ignore
+filenames are read inside the walked tree unconditionally, on every port. A
+`.gitignore` inside the walked tree therefore applies with no repository at
+all, so a pure-jj Space applies its own root `.gitignore`. Files cap at
+256 KiB. A symlink, FIFO, or oversized file is never a policy source. A deeper
+layer outranks a shallower one. Nothing changes in behavior; only the home
+moves. Extending repository detection to `.jj` is a follow-up if a Space with
+an ancestor `.gitignore` above it appears.
 
 ### D4. The Knowledge legs read ignore files through the Knowledge port
 
@@ -67,11 +71,14 @@ ignore file is a listed entry and counts against the entry bound. Its read
 consumes no Markdown file or byte bound, mirroring the grep engine, whose
 ignore reads never touch content budgets.
 
-### D5. Listings render by entry class
+### D5. Listings render by entry class, and the fixed set decides first
 
 Fixed-set entries render with no children: they stay addressable, so
 `read repo/.git/` stays discoverable. Ignore-ruled entries do not render and
-do not count, matching git expectations. The requested directory is never
+do not count, matching git expectations. The fixed set is evaluated before
+ignore rules, matching the engine's code order, so an entry both fixed and
+ignore-ruled — `node_modules` under most `.gitignore` files — renders as a
+fixed entry and is never reported as ignored. The requested directory is never
 filtered, matching the engine's rule that no layer decides the scope directory.
 The child-directory read is skipped for a fixed-set child, which also removes
 its per-child metadata cost.

@@ -29,11 +29,13 @@ master
 | `unified-walk-policy/finalize`  | `listing`   | Spec sync, task records, and archive movement only.                                                                      | ~300              | none         |
 
 Every layer is a safe merge point. No layers must merge together. After the
-proposal merges, the listing layer MAY start from `master` as a parallel
-branch in its own `$gh-stack` stack: its files
+engine layer merges into `master`, the listing layer MAY start from `master`
+as a parallel branch in its own `$gh-stack` stack: its files
 (`packages/native-file-tools/src/directory-listing.ts` and its tests) and its
-spec requirement (`native-file-tools`) are disjoint from the knowledge layer's.
-Before the proposal merges, the stack stays linear as drawn.
+spec requirement (`native-file-tools`) are disjoint from the knowledge layer's,
+and task 3.1 needs only the merged engine module. Before that merge, the stack
+stays linear as drawn, because the listing layer depends on the engine module
+that only the engine layer puts on `master`.
 
 The knowledge layer closes both issues because its merge satisfies each
 acceptance: the search walk of #1655 no longer reads infrastructure trees,
@@ -42,9 +44,12 @@ cutovers without their own acceptance in those issues.
 
 ## 0. proposal
 
-- [ ] 0.1 Run adversarial review with two independent reviewers per round: spec consistency against `openspec/specs/{knowledge-tools,grep-tool,native-file-tools}/spec.md`, and feasibility against `packages/native-file-tools/src/grep/walk.ts`, `src/grep/ignore-files.ts`, `src/directory-listing.ts`, `apps/api/src/tools/grep-ports.ts`, and `apps/api/src/knowledge/knowledge-filesystem.ts`. Verify each finding against code or specs. Commit each round separately.
+- [x] 0.1 Run adversarial review with two independent reviewers per round: spec consistency against `openspec/specs/{knowledge-tools,grep-tool,native-file-tools}/spec.md`, and feasibility against `packages/native-file-tools/src/grep/walk.ts`, `src/grep/ignore-files.ts`, `src/directory-listing.ts`, `apps/api/src/tools/grep-ports.ts`, and `apps/api/src/knowledge/knowledge-filesystem.ts`. Verify each finding against code or specs. Commit each round separately.
+  - Evidence: round 1 on head `9da00473`, reviewers `chatgpt-codex-connector` and `pullfrog` (Indent skipped, quota-exhausted; CodeRabbit rate-limited, nonblocking). All six findings verified against code and accepted; fixed in the round-1 commit.
 - [ ] 0.2 Prove the final revision: `pnpm exec openspec validate unified-walk-policy --strict`, `pnpm lint:markdown`, `pnpm format:check`, and `git diff --check`. Record Leo's approval of that revision.
-- [ ] 0.3 Self-review the proposal diff before the PR is marked ready. Record the review rounds in the PR body.
+  - Evidence: all four rows pass on the round-1 revision. Leo's approval of the revised scope is pending.
+- [x] 0.3 Self-review the proposal diff before the PR is marked ready. Record the review rounds in the PR body.
+  - Evidence: each round-1 finding was independently verified against the code, the canonical specs, and the archive convention before the fix; dispositions recorded in the PR body.
 - [ ] 0.4 Pass the GitHub review and CI gate under Ready-PR monitoring.
 
 ## 1. engine

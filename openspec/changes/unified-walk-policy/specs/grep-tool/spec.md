@@ -1,5 +1,37 @@
 ## MODIFIED Requirements
 
+### Requirement: Excluded directories are reported
+
+The walk MUST record each directory that an ignore rule excludes. It MUST NOT
+record a directory that the fixed set names, because the fixed set decides
+first and stays silent. It MUST NOT record a directory below an excluded
+directory, or an excluded file. When the `read` group admits at least one
+recorded locator, the result MUST carry `ignored`. `ignored.count` MUST count
+the admitted locators. `ignored.locators` MUST hold the first five of them in
+canonical order.
+
+#### Scenario: The model learns which directory to scope
+
+- **WHEN** a search over `/home/u/repo` finds no match and `vendor/` excluded `/home/u/repo/vendor`
+- **THEN** `ignored.locators` holds `/home/u/repo/vendor`
+- **AND** a later scope of `/home/u/repo/vendor` searches it
+
+#### Scenario: Nested excluded directories are not repeated
+
+- **WHEN** `vendor/` excluded `/home/u/repo/vendor`, and that directory holds another `vendor`
+- **THEN** `ignored.count` counts one directory
+
+#### Scenario: A resumed page does not repeat earlier exclusions
+
+- **WHEN** a Machine scope answers in two `fs.grep` responses, and the first response excluded `/srv/app/vendor`
+- **THEN** the result counts `/srv/app/vendor` once
+
+#### Scenario: A fixed-set directory is never reported
+
+- **WHEN** `/home/u/repo/.gitignore` names `node_modules/` and a scope is `/home/u/repo/**`
+- **THEN** `ignored` neither counts nor names `/home/u/repo/node_modules`
+- **AND** the walk examines no file below `/home/u/repo/node_modules`
+
 ### Requirement: Walk order and links are defined per scheme
 
 The walk MUST visit each directory depth-first. In one directory, the walk
@@ -73,14 +105,26 @@ the walk policy states.
 
 ### Requirement: Ignore files from the scope and above it apply
 
-Moved to `walk-policy` as "Ignore files from the requested root and above it
-apply".
+**Reason**: The requirement is written in grep's scope vocabulary, but every
+enumeration surface applies the same rule, so one capability owns it.
+
+**Migration**: The requirement continues in `walk-policy`, renamed "Ignore
+files from the requested root and above it apply", with the same scenarios and
+semantics. `grep-tool` binds to it through the MODIFIED walk requirement.
 
 ### Requirement: A gitignore above the scope applies only in its repository
 
-Moved to `walk-policy` as "A gitignore above the requested root applies only
-in its repository".
+**Reason**: The repository limit governs every enumeration surface, not only a
+grep scope, so one capability owns it.
+
+**Migration**: The requirement continues in `walk-policy`, renamed "A gitignore
+above the requested root applies only in its repository", with the same
+scenarios and semantics.
 
 ### Requirement: An ignore rule decides an entry by its own path
 
-Moved to `walk-policy` under the same name.
+**Reason**: The decision rule governs every enumeration surface, not only a
+grep scope, so one capability owns it.
+
+**Migration**: The requirement continues in `walk-policy` under the same name,
+with the same scenarios and semantics, restated for the requested root.
