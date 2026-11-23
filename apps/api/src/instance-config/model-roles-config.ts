@@ -17,12 +17,15 @@ export type RawFailoverCell =
   | 'off'
   | { switchAfterSeconds: number | string };
 
-export type RawFailoverMatrix = Partial<
-  Record<
-    'owner' | 'agent',
-    Partial<Record<'availability' | 'access' | 'quota', RawFailoverCell>>
-  >
+export type FailoverOrigin = 'owner' | 'agent';
+
+export type FailureGroup = 'availability' | 'access' | 'quota';
+
+type Matrix<Cell> = Partial<
+  Record<FailoverOrigin, Partial<Record<FailureGroup, Cell>>>
 >;
+
+export type RawFailoverMatrix = Matrix<RawFailoverCell>;
 
 export type FailoverCell =
   | 'on'
@@ -32,10 +35,8 @@ export type FailoverCell =
 export type FailoverMatrix = Readonly<
   Partial<
     Record<
-      'owner' | 'agent',
-      Readonly<
-        Partial<Record<'availability' | 'access' | 'quota', FailoverCell>>
-      >
+      FailoverOrigin,
+      Readonly<Partial<Record<FailureGroup, FailoverCell>>>
     >
   >
 >;

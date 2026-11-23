@@ -68,18 +68,21 @@ function config(
 function failure(
   code: ConstructorParameters<typeof ProviderFailure>[1]['code'],
   resetsAt?: number,
+  toolCallStarted?: boolean,
 ) {
   return new ProviderFailure('provider failed', {
     code,
     ...(resetsAt !== undefined && { resetsAt }),
+    ...(toolCallStarted && { toolCallStarted: true }),
   });
 }
 
-const at = 1_000_000;
+const at = Date.now();
 
 const switched = (
   overrides: Parameters<typeof config>[0] = {},
   error = failure('overloaded'),
+  quotaRequest?: { resumeAt: 'request'; waitCount: number; generation: number },
 ) =>
   failoverTarget({
     config: config(overrides),
@@ -87,6 +90,7 @@ const switched = (
     currentModelId: 'primary',
     origin: 'agent',
     failure: error,
+    quotaRequest,
     now: at,
   });
 
@@ -117,9 +121,9 @@ describe('model failover policy', () => {
     ).toBeUndefined();
   });
 
-  it('switches when a quota reset is beyond the wait cap', () => {
+  it('switches when the quota wait cap is exceeded', () => {
     const policy = {
-      agent: { quota: { switchAfterSeconds: 7200 } },
+      agent: { quota: { switchAfterSeconds: 864_000 } },
     } satisfies FailoverMatrix;
 
     expect(
@@ -127,9 +131,21 @@ describe('model failover policy', () => {
         { failover: policy },
         failure('quota_exhausted', at + 9 * 86_400_000),
       ),
-    ).toEqual({
-      toModelId: 'fallback',
-    });
+    ).toEqual({ toModelId: 'fallback' });
+  });
+
+  it('switches when the quota wait count is exhausted', () => {
+    const policy = {
+      agent: { quota: { switchAfterSeconds: 7200 } },
+    } satisfies FailoverMatrix;
+
+    expect(
+      switched(
+        { failover: policy },
+        failure('quota_exhausted', at + 3_600_000),
+        { resumeAt: 'request', waitCount: 4, generation: 4 },
+      ),
+    ).toEqual({ toModelId: 'fallback' });
   });
 
   it('switches for a far quota reset', () => {
@@ -154,20 +170,6 @@ describe('model failover policy', () => {
         failure('quota_exhausted', at + 5 * 86_400_000),
       ),
     ).toEqual({ toModelId: 'fallback' });
-  });
-
-  it('does not switch a compaction Run', () => {
-    expect(
-      failoverTarget({
-        config: config({ failover: { agent: { availability: 'on' } } }),
-        selector: '@chat',
-        currentModelId: 'primary',
-        origin: 'agent',
-        failure: failure('overloaded'),
-        now: at,
-        kind: 'compaction',
-      }),
-    ).toBeUndefined();
   });
 
   it('fails over an agent Run when its cell is on', () => {
@@ -199,12 +201,6 @@ describe('model failover policy', () => {
     });
   });
 
-  it('skips a gated paid candidate', () => {
-    expect(switched({ failover: { agent: { availability: 'on' } } })).toEqual({
-      toModelId: 'fallback',
-    });
-  });
-
   it('returns none when every candidate failed', () => {
     expect(
       failoverTarget({
@@ -218,10 +214,13 @@ describe('model failover policy', () => {
     ).toBeUndefined();
   });
 
-  it('does not switch an owner Run when its cell is off', () => {
+  it('does not switch an owner Run when its role cell is off', () => {
     expect(
       failoverTarget({
-        config: config({ failover: { owner: { availability: 'off' } } }),
+        config: config({
+          failover: { owner: { availability: 'on' } },
+          roleFailover: { owner: { availability: 'off' } },
+        }),
         selector: '@chat',
         currentModelId: 'primary',
         origin: 'owner',
@@ -239,8 +238,14 @@ describe('model failover policy', () => {
     const role = { agent: { availability: 'off' } } satisfies FailoverMatrix;
     const settings = config({ failover: defaults, roleFailover: role });
 
-    expect(policyCell(settings, 'chat', 'agent', 'availability')).toBe('off');
-    expect(policyCell(settings, 'chat', 'agent', 'access')).toBe('on');
+    const roleConfig = settings.modelRoles[0];
+
+    if (roleConfig === undefined) throw new Error('Expected chat role config');
+
+    expect(policyCell(settings, roleConfig, 'agent', 'availability')).toBe(
+      'off',
+    );
+    expect(policyCell(settings, roleConfig, 'agent', 'access')).toBe('on');
   });
 
   it('reads the current config when each failure decision runs', async () => {
@@ -251,7 +256,6 @@ describe('model failover policy', () => {
       selector: '@chat',
       modelId: 'primary',
       origin: 'agent' as const,
-      kind: 'turn' as const,
       failure: failure('overloaded'),
     };
 

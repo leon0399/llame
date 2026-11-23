@@ -46,7 +46,12 @@ import { type PermissionGroup } from '../tools/permissions/types';
 import { type PermissionMode } from '../tools/permissions/permission-mode';
 import { type EnqueueOptions, QUEUE, type Queue } from '../queue/queue';
 import { ChatJobsRepository } from '../jobs/chat-jobs.repository';
-import { workerInstances, type ChatJob } from '../db/schema';
+import {
+  workerInstances,
+  type ChatJob,
+  type RunKind,
+  type RunOrigin,
+} from '../db/schema';
 import { CanonicalSearchCoverageService } from '../search/canonical-search-activation.service';
 import { ChatsRepository, MessagesRepository } from '../chats/chats-repository';
 import { type TextPart } from '../chats/context-builder';
@@ -361,9 +366,9 @@ export async function seedRun(input: {
   /** Optional role selector stored directly on the Run. */
   selector?: string;
   /** D10 test support for agent Runs inserted without an agent producer. */
-  origin?: 'owner' | 'agent';
+  origin?: RunOrigin;
   /** Insert a compaction Run directly for D11 coverage. */
-  kind?: 'turn' | 'compaction';
+  kind?: RunKind;
   /** Persisted on the run exactly as the accepting API would have stored it. */
   effort?: string;
   /** Persisted on the run exactly as the accepting API would have stored it. */

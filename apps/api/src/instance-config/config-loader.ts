@@ -45,6 +45,8 @@ import type {
   RawFailoverCell,
   FailoverMatrix,
   FailoverCell,
+  FailoverOrigin,
+  FailureGroup,
 } from './model-roles-config';
 import { resolveModelWire } from './provider-routing';
 import type { VendorProviderConfig } from './provider-routing';
@@ -3911,17 +3913,6 @@ function resolveModels(
   return entries.map((entry) => resolveModelEntry(entry, context));
 }
 
-/**
- * Resolve `modelRoles`, preserving file key order. The schema guarantees each
- * role's shape (a closed object with at least one candidate and non-blank
- * strings), so this resolver owns the role-key grammar, the candidate
- * references, and each candidate's effort against the referenced model's
- * declared levels. Candidate `model` and `effort` reach here still
- * uninterpolated, so both resolve through the same token path as `models[].id`
- * before any comparison, and the resolved strings are compared byte-for-byte
- * (never trimmed) against the catalogue id and declared effort levels. A
- * role's primary is its first candidate.
- */
 function resolveFailoverCell(
   cell: RawFailoverCell,
   configPath: string,
@@ -3951,30 +3942,19 @@ function resolveFailoverMatrix(
   env: NodeJS.ProcessEnv,
 ): FailoverMatrix {
   const matrix: Partial<
-    Record<
-      'owner' | 'agent',
-      Partial<Record<'availability' | 'access' | 'quota', FailoverCell>>
-    >
+    Record<FailoverOrigin, Partial<Record<FailureGroup, FailoverCell>>>
   > = {};
 
-  for (const [origin, groups] of Object.entries(raw ?? {})) {
-    if (origin !== 'owner' && origin !== 'agent') {
-      throw new InstanceConfigError(
-        `${path}.${origin}: unknown failover origin`,
-      );
-    }
+  for (const origin of ['owner', 'agent'] as const) {
+    const groups = raw?.[origin];
 
-    const resolvedGroups: Partial<
-      Record<'availability' | 'access' | 'quota', FailoverCell>
-    > = {};
+    if (groups === undefined) continue;
+    const resolvedGroups: Partial<Record<FailureGroup, FailoverCell>> = {};
 
-    for (const [group, cell] of Object.entries(groups ?? {})) {
-      if (group !== 'availability' && group !== 'access' && group !== 'quota') {
-        throw new InstanceConfigError(
-          `${path}.${origin}.${group}: unknown failure group`,
-        );
-      }
+    for (const group of ['availability', 'access', 'quota'] as const) {
+      const cell = groups[group];
 
+      if (cell === undefined) continue;
       resolvedGroups[group] = resolveFailoverCell(
         cell,
         `${path}.${origin}.${group}.switchAfterSeconds`,
@@ -3987,6 +3967,18 @@ function resolveFailoverMatrix(
 
   return matrix;
 }
+
+/**
+ * Resolve `modelRoles`, preserving file key order. The schema guarantees each
+ * role's shape (a closed object with at least one candidate and non-blank
+ * strings), so this resolver owns the role-key grammar, the candidate
+ * references, and each candidate's effort against the referenced model's
+ * declared levels. Candidate `model` and `effort` reach here still
+ * uninterpolated, so both resolve through the same token path as `models[].id`
+ * before any comparison, and the resolved strings are compared byte-for-byte
+ * (never trimmed) against the catalogue id and declared effort levels. A
+ * role's primary is its first candidate.
+ */
 
 function resolveModelRoles(
   raw: RawInstanceConfig | undefined,

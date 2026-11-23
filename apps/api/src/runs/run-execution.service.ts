@@ -89,6 +89,7 @@ import {
   type QuotaResumeAt,
   type SkillCatalogBaseline,
   type TurnToolAvailabilityEntry,
+  type RunOrigin,
 } from '../db/schema';
 import {
   buildContext,
@@ -528,23 +529,11 @@ export const RUN_MODEL_SWITCH_DECISION = Symbol('RUN_MODEL_SWITCH_DECISION');
 export type ModelSwitchDecision = (input: {
   selector: string;
   modelId: string;
-  origin: Run['origin'];
-  kind: Run['kind'];
+  origin: RunOrigin;
   failure: ProviderFailure;
+  quotaRequest?: QuotaRequestState;
+  afterCut?: boolean;
 }) => Promise<{ toModelId: string; candidateEffort?: string } | undefined>;
-
-function decideFailureTarget(input: {
-  decision: ModelSwitchDecision;
-  selector: string;
-  modelId: string;
-  origin: Run['origin'];
-  kind: Run['kind'];
-  failure: ProviderFailure;
-}) {
-  const { decision, ...failure } = input;
-
-  return decision(failure);
-}
 
 /**
  * The skill-catalog baseline a turn that starts an epoch freezes, with the told
@@ -913,9 +902,7 @@ export type RunClaimResult =
       /** The selector the Run was admitted under (`runs.selector`). */
       selector: string;
       /** The Run's stable execution origin. */
-      origin: Run['origin'];
-      /** The Run's kind, including compaction Runs. */
-      kind?: Run['kind'];
+      origin: RunOrigin;
       /** The effort the selection named, frozen on the Run at admission. */
       selectedEffort?: string;
       effort?: string;
@@ -952,10 +939,8 @@ type ExecuteRunInput = {
 type ExecuteAttemptInput = {
   input: ExecuteRunInput;
   nativeAbort: AbortController | undefined;
-  /** The Run's kind, including compaction Runs. */
-  kind: Run['kind'];
   /** The Run's stable execution origin, inherited by jobs it starts. */
-  origin: Run['origin'];
+  origin: RunOrigin;
   /** The Run's resolved selector, frozen at admission. */
   selector: string;
   selectedEffort: string | undefined;
@@ -2108,7 +2093,6 @@ export class RunExecutionService {
         return {
           selector: started.selector,
           origin: started.origin,
-          kind: started.kind,
           selectedEffort: started.selectedEffort ?? undefined,
           effort: started.effort ?? undefined,
           permissionMode: started.permissionMode,
@@ -2181,7 +2165,6 @@ export class RunExecutionService {
     const {
       selector,
       origin,
-      kind,
       selectedEffort,
       effort,
       permissionMode,
@@ -2201,7 +2184,6 @@ export class RunExecutionService {
       nativeAbort,
       selector,
       origin,
-      kind: kind ?? 'turn',
       selectedEffort,
       effort,
       permissionMode,
@@ -4852,16 +4834,17 @@ export class RunExecutionService {
       failure: ProviderFailure,
       parts: Array<MessagePart>,
       superseded?: SupersededModelOutput,
+      afterCut = false,
     ): Promise<AttemptRun | undefined> => {
       const modelId = input.client.model;
 
-      const target = await decideFailureTarget({
-        decision: this.decideModelSwitch,
+      const target = await this.decideModelSwitch({
         selector: attempt.selector,
         modelId,
         origin,
-        kind: attempt.kind,
         failure,
+        quotaRequest,
+        afterCut,
       });
 
       if (target === undefined) return undefined;
@@ -4937,6 +4920,7 @@ export class RunExecutionService {
           failure,
           parts,
           superseded,
+          true,
         );
 
         if (switched === undefined) return false;

@@ -724,7 +724,7 @@
     "failoverToggle": { "enum": ["on", "off"] },
     "failoverCell": {
       "oneOf": [
-        { "enum": ["on", "off"] },
+        { "$ref": "#/$defs/failoverToggle" },
         {
           "type": "object",
           "additionalProperties": false,

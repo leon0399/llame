@@ -421,7 +421,9 @@ export const runs = pgTable(
     // system default later must not silently alter an already queued run.
     modelId: text('model_id').notNull(),
     // The selector records the role (`@fast`) or exact model id resolved at
-    // admission. It remains stable if the role changes later.
+    // admission. It remains stable if the role changes later. No database
+    // default: only admission can supply one, and every writer does. The
+    // migration backfills existing rows from `model_id`.
     selector: text('selector').notNull(),
     status: runStatus('status').notNull().default('queued'),
     // The current queue delivery that may claim or wake this Run.
@@ -461,8 +463,8 @@ export const runs = pgTable(
     // The effort admission resolved for this Run, as opposed to `effort`
     // above, which is what the current segment actually SENT. It equals the
     // first segment's effort; a later model switch changes `effort`, not
-    // `selectedEffort`. Nullable for the same reason as `effort`: a
-    // selection may resolve no effort at all.
+    // `selectedEffort`. A job inherits it. Nullable for the same reason as
+    // `effort`: a selection may resolve no effort at all.
     selectedEffort: text('selected_effort'),
     // The Chat selection revision this Run read (model-roles). NULL for a Run
     // admitted before the Chat stored a selection, and for a writer that reads

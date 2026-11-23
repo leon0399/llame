@@ -8,8 +8,8 @@ import {
   type TitleModelCandidates,
 } from '../models/models.service';
 import { ChatsRepository } from '../chats/chats-repository';
-import { queryLatestTitleMessages } from '../chats/title-message-query';
 import { buildTitleExcerpt } from './title-excerpt';
+import { queryLatestTitleMessages } from '../chats/title-message-query';
 import {
   sanitizeTitle,
   titlePromptInput,
@@ -20,6 +20,8 @@ import {
   TITLE_SCHEMA_NAME,
   TITLE_SYSTEM_PROMPT,
 } from './title';
+import { failureGroup, skipsPaidCandidate } from '../models/model-failover';
+import { ProviderFailure } from '../models/provider-failure/provider-failure';
 
 /**
  * TitleService (#78) — names a chat from the user's message after a completed
@@ -132,10 +134,6 @@ export class TitleService {
 
     if (title === undefined) return;
 
-    if (title.length === 0) {
-      return;
-    }
-
     await this.tenantDb.runAs(input.userId, (tx) =>
       new ChatsRepository(tx).setGeneratedTitle(
         input.chatId,
@@ -150,17 +148,20 @@ export class TitleService {
     chatId: string,
     renderedInput: string,
   ): Promise<string | undefined> {
-    const firstModel = config.models[0];
-
-    if (firstModel === undefined) return undefined;
-
-    const paidGate =
-      (firstModel.billing === 'subscription' ||
-        firstModel.billing === 'free') &&
-      !config.allowPaidFallback;
+    let previousModel: (typeof config.models)[number] | undefined;
 
     for (const model of config.models) {
-      if (paidGate && model.billing === 'usage') continue;
+      if (
+        skipsPaidCandidate(
+          previousModel,
+          model.billing,
+          config.allowPaidFallback,
+        )
+      ) {
+        continue;
+      }
+
+      previousModel = model;
 
       try {
         const title = sanitizeTitle(
@@ -176,6 +177,13 @@ export class TitleService {
         this.logger.warn(
           `Title generation failed: ${error instanceof Error ? error.name : 'unknown error'}`,
         );
+
+        if (
+          !(error instanceof ProviderFailure) ||
+          failureGroup(error) === undefined
+        ) {
+          return undefined;
+        }
       }
     }
 

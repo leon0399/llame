@@ -260,7 +260,7 @@ describe('TitleService', () => {
   it('skips paid title candidates when the role gate is off', async () => {
     const first = createFakeModelClient(['unused']);
     vi.spyOn(first, 'streamText').mockImplementation(() => {
-      throw new Error('provider unavailable');
+      throw new ProviderFailure('provider unavailable', { code: 'overloaded' });
     });
 
     const fallback = createFakeModelClient(['unused']);
@@ -302,11 +302,67 @@ describe('TitleService', () => {
       'Free fallback title',
     );
   });
+  it('gates each title candidate on the model it is leaving', async () => {
+    const first = createFakeModelClient(['unused']);
+    vi.spyOn(first, 'streamText').mockImplementation(() => {
+      throw new ProviderFailure('account denied', { code: 'auth' });
+    });
+    const second = createFakeModelClient(['unused']);
+    vi.spyOn(second, 'streamText').mockImplementation(() => {
+      throw new ProviderFailure('provider unavailable', { code: 'overloaded' });
+    });
+    const { service, createClient, resolveTitleModelConfig } = makeService();
+
+    resolveTitleModelConfig.mockReturnValue({
+      models: [
+        { ...titleModel, billing: 'usage' },
+        { ...titleModel, id: 'subscription', billing: 'subscription' },
+        { ...titleModel, id: 'usage-fallback', billing: 'usage' },
+      ],
+      allowPaidFallback: false,
+    });
+    createClient.mockReturnValueOnce(first).mockReturnValueOnce(second);
+
+    await service.maybeGenerateTitle({
+      chatId: 'chat-1',
+      userId: 'user-1',
+      userText: 'A user request',
+    });
+
+    expect(createClient).toHaveBeenCalledTimes(2);
+    expect(createClient).toHaveBeenNthCalledWith(2, 'subscription');
+    expect(createClient).not.toHaveBeenCalledWith('usage-fallback');
+  });
+  it('does not advance the title walk for an ungrouped provider failure', async () => {
+    const client = createFakeModelClient(['unused']);
+    vi.spyOn(client, 'streamText').mockImplementation(() => {
+      throw new ProviderFailure('content policy', { code: 'content_policy' });
+    });
+
+    const { service, createClient, resolveTitleModelConfig } =
+      makeService(client);
+
+    resolveTitleModelConfig.mockReturnValue({
+      models: [
+        titleModel,
+        { ...titleModel, id: 'second-title-model', billing: 'usage' },
+      ],
+      allowPaidFallback: true,
+    });
+
+    await service.maybeGenerateTitle({
+      chatId: 'chat-1',
+      userId: 'user-1',
+      userText: 'A user request',
+    });
+
+    expect(createClient).toHaveBeenCalledTimes(1);
+  });
 
   it('keeps the title unchanged when every title role candidate fails', async () => {
     const client = createFakeModelClient(['unused']);
     vi.spyOn(client, 'streamText').mockImplementation(() => {
-      throw new Error('provider unavailable');
+      throw new ProviderFailure('provider unavailable', { code: 'overloaded' });
     });
 
     const {

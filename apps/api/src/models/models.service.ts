@@ -27,8 +27,7 @@ import {
   type ModelClient,
   type ModelCredentialResolver,
 } from './model-client';
-import { ROLE_SIGN } from './model-selector';
-import { parseModelSelector } from './model-selector';
+import { ROLE_SIGN, parseModelSelector } from './model-selector';
 import {
   chooseEffort,
   chooseSelector,
@@ -496,15 +495,6 @@ export class ModelsService {
     }
 
     return model;
-  }
-
-  resolveTitleModelConfig(): SystemModelCatalogEntry | undefined {
-    const selector =
-      this.instanceConfig.config.defaults.titleGenerationSelector;
-
-    return selector === null
-      ? undefined
-      : offerSelector(this.selectionCatalog, selector)?.model;
   }
 
   resolveTitleModelCandidates(): TitleModelCandidates | undefined {

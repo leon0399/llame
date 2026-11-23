@@ -421,20 +421,14 @@ export class ScriptedModelsService implements ModelSelectionValidator {
     });
   }
 
-  resolveTitleModelConfig() {
-    return {
-      id: 'system:openai:gpt-5.4-nano',
-      source: 'system' as const,
-      provider: 'openai',
-      providerModelId: 'gpt-5.4-nano',
-    };
-  }
-
   resolveTitleModelCandidates() {
     return {
       models: [
         {
-          ...this.resolveTitleModelConfig(),
+          id: 'system:openai:gpt-5.4-nano',
+          source: 'system' as const,
+          provider: 'openai',
+          providerModelId: 'gpt-5.4-nano',
           billing: 'subscription' as const,
         },
       ],

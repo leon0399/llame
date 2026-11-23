@@ -413,25 +413,24 @@ describe('ModelsService', () => {
     );
   });
 
-  it('resolves title generation only when it points to a configured model', () => {
+  it('resolves title-generation candidates only when configured', () => {
     expect(
       createService({
         titleGenerationSelector: 'system:openai:gpt-5.4-nano',
-      }).resolveTitleModelConfig(),
+      }).resolveTitleModelCandidates(),
     ).toMatchObject({
-      id: 'system:openai:gpt-5.4-nano',
-      providerModelId: 'gpt-5.4-nano',
+      models: [{ id: 'system:openai:gpt-5.4-nano' }],
     });
 
     expect(
       createService({
         titleGenerationSelector: undefined,
-      }).resolveTitleModelConfig()?.id,
+      }).resolveTitleModelCandidates(),
     ).toBeUndefined();
     expect(
       createService({
         titleGenerationSelector: 'unknown',
-      }).resolveTitleModelConfig()?.id,
+      }).resolveTitleModelCandidates(),
     ).toBeUndefined();
   });
 
@@ -508,7 +507,7 @@ describe('ModelsService', () => {
       );
     });
 
-    it('resolves a title-generation role to its primary candidate', () => {
+    it('resolves every title-generation role candidate in order', () => {
       const service = createService({
         defaultSelector: '@coding',
         titleGenerationSelector: '@titles',
@@ -531,8 +530,11 @@ describe('ModelsService', () => {
         ],
       });
 
-      expect(service.resolveTitleModelConfig()).toMatchObject({
-        id: 'system:openai:secondary',
+      expect(service.resolveTitleModelCandidates()).toMatchObject({
+        models: [
+          { id: 'system:openai:secondary' },
+          { id: 'system:openai:primary' },
+        ],
       });
     });
 
@@ -570,7 +572,7 @@ describe('ModelsService', () => {
         titleGenerationSelector: '@missing',
       });
 
-      expect(service.resolveTitleModelConfig()).toBeUndefined();
+      expect(service.resolveTitleModelCandidates()).toBeUndefined();
     });
   });
 

@@ -1,15 +1,19 @@
 import type { LlameConfig } from '../instance-config/llame-config';
 
-import type { FailoverCell } from '../instance-config/model-roles-config';
+import type {
+  FailoverCell,
+  FailureGroup,
+  ModelRoleConfig,
+} from '../instance-config/model-roles-config';
+import type { RunOrigin } from '../db/schema';
+import { quotaWaitForFailure } from '../runs/quota-wait';
+import type { QuotaRequestState } from '../runs/quota-wake-projection';
+import { nextCandidateInRole } from './model-selection';
 import type {
   ProviderFailure,
   FailureClass,
 } from './provider-failure/provider-failure';
 import { parseModelSelector } from './model-selector';
-
-type Origin = 'owner' | 'agent';
-
-type FailureGroup = 'availability' | 'access' | 'quota';
 
 const FAILURE_GROUPS: Partial<Record<FailureClass, FailureGroup>> = {
   overloaded: 'availability',
@@ -35,15 +39,10 @@ export function failureGroup(
 
 export function policyCell(
   config: LlameConfig,
-  roleName: string | undefined,
-  origin: Origin,
+  role: ModelRoleConfig | undefined,
+  origin: RunOrigin,
   group: FailureGroup,
-): FailoverCell | undefined {
-  const role =
-    roleName === undefined
-      ? undefined
-      : config.modelRoles.find((item) => item.name === roleName);
-
+): FailoverCell {
   return (
     role?.failover?.[origin]?.[group] ??
     config.failover[origin]?.[group] ??
@@ -51,79 +50,128 @@ export function policyCell(
   );
 }
 
-function shouldWaitForQuota(
-  cell: FailoverCell,
-  failure: ProviderFailure,
-  config: LlameConfig,
-  now: number,
-): boolean {
+function shouldWaitForQuota(input: {
+  cell: FailoverCell;
+  failure: ProviderFailure;
+  config: LlameConfig;
+  quotaRequest: QuotaRequestState | undefined;
+  afterCut: boolean;
+  now: number;
+}): boolean {
+  const { cell, failure, config, quotaRequest, afterCut, now } = input;
+
   if (cell === 'on' || cell === 'off' || failure.resetsAt === undefined) {
     return false;
   }
 
-  const remaining = (failure.resetsAt - now) / 1000;
-
   return (
-    remaining > 60 &&
-    remaining <= cell.switchAfterSeconds &&
-    remaining <= config.runs.quotaWaitMaxSeconds
+    (failure.resetsAt - now) / 1000 <= cell.switchAfterSeconds &&
+    quotaWaitForFailure(
+      failure,
+      config.runs.quotaWaitMaxSeconds,
+      quotaRequest,
+      { afterCut },
+    ) !== undefined
   );
 }
 
 function nextAllowedCandidate(
   config: LlameConfig,
-  role: NonNullable<LlameConfig['modelRoles'][number]>,
+  role: ModelRoleConfig,
+  selector: string,
   currentModelId: string,
 ): { toModelId: string; candidateEffort?: string } | undefined {
-  const currentIndex = role.candidates.findIndex(
-    (candidate) => candidate.modelId === currentModelId,
-  );
-
-  if (currentIndex < 0) return undefined;
-
   const current = config.models.find((model) => model.id === currentModelId);
 
-  const paidGate =
-    (current?.billing === 'subscription' || current?.billing === 'free') &&
-    role.allowPaidFallback !== true;
+  const catalog = {
+    roleCandidates: () => role.candidates,
+    model: (id: string) => config.models.find((model) => model.id === id),
+  };
 
-  for (
-    let index = currentIndex + 1;
-    index < role.candidates.length;
-    index += 1
+  let next = nextCandidateInRole(catalog, selector, currentModelId);
+
+  while (
+    next !== undefined &&
+    skipsPaidCandidate(current, next.model.billing, role.allowPaidFallback)
   ) {
-    const candidate = role.candidates[index];
-
-    if (candidate === undefined) return undefined;
-
-    const model = config.models.find((item) => item.id === candidate.modelId);
-
-    if (model === undefined) return undefined;
-
-    if (paidGate && model.billing === 'usage') continue;
-
-    return {
-      toModelId: candidate.modelId,
-      ...(candidate.effort !== undefined && {
-        candidateEffort: candidate.effort,
-      }),
-    };
+    next = nextCandidateInRole(catalog, selector, next.modelId);
   }
 
-  return undefined;
+  return next === undefined
+    ? undefined
+    : {
+        toModelId: next.modelId,
+        ...(next.candidateEffort !== undefined && {
+          candidateEffort: next.candidateEffort,
+        }),
+      };
+}
+
+export function skipsPaidCandidate(
+  from: { billing?: 'subscription' | 'usage' | 'free' } | undefined,
+  candidateBilling: 'subscription' | 'usage' | 'free' | undefined,
+  allowPaidFallback: boolean | undefined,
+): boolean {
+  return (
+    candidateBilling === 'usage' &&
+    (from?.billing === 'subscription' || from?.billing === 'free') &&
+    allowPaidFallback !== true
+  );
+}
+
+function roleFailoverTarget(
+  input: {
+    config: LlameConfig;
+    selector: string;
+    currentModelId: string;
+    origin: RunOrigin;
+    failure: ProviderFailure;
+    quotaRequest?: QuotaRequestState;
+    afterCut?: boolean;
+    now: number;
+  },
+  role: ModelRoleConfig,
+): { toModelId: string; candidateEffort?: string } | undefined {
+  const group = failureGroup(input.failure);
+
+  if (group === undefined) return undefined;
+
+  const cell = policyCell(input.config, role, input.origin, group);
+
+  if (cell === 'off') return undefined;
+
+  if (
+    group === 'quota' &&
+    shouldWaitForQuota({
+      cell,
+      failure: input.failure,
+      config: input.config,
+      quotaRequest: input.quotaRequest,
+      afterCut: input.afterCut === true,
+      now: input.now,
+    })
+  ) {
+    return undefined;
+  }
+
+  return nextAllowedCandidate(
+    input.config,
+    role,
+    input.selector,
+    input.currentModelId,
+  );
 }
 
 export function failoverTarget(input: {
   config: LlameConfig;
   selector: string;
   currentModelId: string;
-  origin: Origin;
+  origin: RunOrigin;
   failure: ProviderFailure;
+  quotaRequest?: QuotaRequestState;
+  afterCut?: boolean;
   now: number;
-  kind?: 'turn' | 'compaction';
 }): { toModelId: string; candidateEffort?: string } | undefined {
-  if (input.kind === 'compaction') return undefined;
-
   const parsed = parseModelSelector(input.selector);
 
   if (parsed.kind !== 'role') return undefined;
@@ -132,24 +180,7 @@ export function failoverTarget(input: {
     (item) => item.name === parsed.roleName,
   );
 
-  if (role === undefined) return undefined;
-
-  const group = failureGroup(input.failure);
-
-  if (group === undefined) return undefined;
-
-  const cell = policyCell(input.config, role.name, input.origin, group);
-
-  if (cell === undefined || cell === 'off') return undefined;
-
-  if (
-    group === 'quota' &&
-    shouldWaitForQuota(cell, input.failure, input.config, input.now)
-  ) {
-    return undefined;
-  }
-
-  return nextAllowedCandidate(input.config, role, input.currentModelId);
+  return role === undefined ? undefined : roleFailoverTarget(input, role);
 }
 
 /** Reads config inside each call so policy changes are observed at failure time. */
@@ -159,18 +190,16 @@ export function createFailoverDecision(instanceConfigService: {
   return (input: {
     selector: string;
     modelId: string;
-    origin: Origin;
-    kind: 'turn' | 'compaction';
+    origin: RunOrigin;
     failure: ProviderFailure;
+    quotaRequest?: QuotaRequestState;
+    afterCut?: boolean;
   }): Promise<{ toModelId: string; candidateEffort?: string } | undefined> =>
     Promise.resolve(
       failoverTarget({
+        ...input,
         config: instanceConfigService.config,
-        selector: input.selector,
         currentModelId: input.modelId,
-        origin: input.origin,
-        failure: input.failure,
-        kind: input.kind,
         now: Date.now(),
       }),
     );

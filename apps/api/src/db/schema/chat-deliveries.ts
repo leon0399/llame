@@ -14,7 +14,7 @@ import {
 
 import { timestamptz } from '../columns';
 import { type PermissionMode } from '../../tools/permissions/permission-mode';
-import { chats } from './chats';
+import { type RunOrigin, chats } from './chats';
 
 /** Who produced a pending item. */
 export type ChatDeliveryProducer = 'owner' | 'job';
@@ -49,7 +49,7 @@ export type ChatDeliverySettings = {
   effort?: string;
   permissionMode: PermissionMode;
   /** Origin of the Run whose job/notice this item represents. */
-  origin?: 'owner' | 'agent';
+  origin?: RunOrigin;
 };
 
 /**
