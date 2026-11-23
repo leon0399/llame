@@ -29,6 +29,7 @@ function latestRun(
     messageId: "user-1",
     status: "failed",
     followUpAction: null,
+    selector: "system:openai:gpt-5.4-mini",
     modelId: "system:openai:gpt-5.4-mini",
     effort: "low",
     permissionMode: "default",

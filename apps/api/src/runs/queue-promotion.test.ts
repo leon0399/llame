@@ -15,7 +15,7 @@ import { RunEventsRepository, RunsRepository } from './runs-repository';
 const at = new Date('2026-11-08T00:00:00.000Z');
 
 const item = chatDeliveryRow({
-  settings: { modelId: 'model-1', effort: 'high', permissionMode: 'bypass' },
+  settings: { selector: 'model-1', effort: 'high', permissionMode: 'bypass' },
 });
 
 const completed = asDouble<Run>({
@@ -41,20 +41,32 @@ function makeSetup(
     transaction: <T>(callback: (inner: Db) => Promise<T>) => callback(tx),
   });
 
-  const validateModelSelection = vi.fn(() => {
-    throw new Error('replaced by the test');
-  });
+  const resolveSelection = vi.fn<ModelSelectionValidator['resolveSelection']>(
+    () => {
+      throw new Error('replaced by the test');
+    },
+  );
 
   const models: ModelSelectionValidator = {
-    validateModelSelection,
+    validateModelSelection: () => {
+      throw new Error('unused by the resolver');
+    },
     resolveEffortSelection: (_model, requested) => requested,
+    resolveSelection,
   };
 
-  validateModelSelection.mockReturnValue(asDouble({ id: 'model-1' }));
+  resolveSelection.mockReturnValue({
+    selector: 'model-1',
+    model: asDouble({ id: 'model-1' }),
+    effort: 'high',
+    nextSelection: undefined,
+  });
 
   const lock = vi
     .spyOn(ChatsRepository.prototype, 'lock')
-    .mockResolvedValue(asDouble<Chat>({ archivedAt: null }));
+    .mockResolvedValue(
+      asDouble<Chat>({ archivedAt: null, modelSelection: null }),
+    );
 
   const firstPendingQueueItem = vi
     .spyOn(ChatDeliveriesRepository.prototype, 'firstPendingQueueItem')
@@ -96,7 +108,7 @@ function makeSetup(
 
   return {
     promote,
-    validateModelSelection,
+    resolveSelection,
     lock,
     firstPendingQueueItem,
     markDelivered,
@@ -136,7 +148,9 @@ describe('promoteNextQueueItem', () => {
         messageId: item.id,
         userId: item.ownerUserId,
         modelId: 'model-1',
+        selector: 'model-1',
         effort: 'high',
+        selectedEffort: 'high',
         permissionMode: 'bypass',
       }),
     );
@@ -160,11 +174,55 @@ describe('promoteNextQueueItem', () => {
     expect(job?.userMessage).toMatchObject({ id: item.id, seq: 4 });
   });
 
+  it('starts the item under the stored selection and records its revision', async () => {
+    const {
+      promote,
+      resolveSelection,
+      lock,
+      createRun,
+      createUserMessageIfAbsent,
+    } = makeSetup();
+
+    const stored = {
+      revision: 4,
+      selector: 'model-stored',
+      effort: 'low',
+    };
+
+    lock.mockResolvedValue(
+      asDouble<Chat>({ archivedAt: null, modelSelection: stored }),
+    );
+    resolveSelection.mockReturnValue({
+      selector: 'model-stored',
+      model: asDouble({ id: 'model-stored' }),
+      effort: 'high',
+      nextSelection: undefined,
+    });
+
+    await promote();
+
+    expect(resolveSelection).toHaveBeenCalledWith(
+      stored,
+      { selector: 'model-1', effort: 'high' },
+      'derived',
+    );
+    expect(createUserMessageIfAbsent).toHaveBeenCalled();
+    expect(createRun).toHaveBeenCalledWith(
+      expect.objectContaining({
+        modelId: 'model-stored',
+        selector: 'model-stored',
+        effort: 'high',
+        selectedEffort: 'high',
+        selectionRevision: 4,
+      }),
+    );
+  });
+
   it('starts a queued compact as a message-less compaction Run', async () => {
     const commandItem = chatDeliveryRow({
       parts: [{ type: 'text', text: '/compact keep the plan' }],
       settings: {
-        modelId: 'model-1',
+        selector: 'model-1',
         effort: 'high',
         permissionMode: 'bypass',
       },
@@ -194,7 +252,9 @@ describe('promoteNextQueueItem', () => {
         messageId: null,
         kind: 'compaction',
         modelId: 'model-1',
+        selector: 'model-1',
         effort: 'high',
+        selectedEffort: 'high',
         permissionMode: 'bypass',
       }),
     );
@@ -262,20 +322,20 @@ describe('promoteNextQueueItem', () => {
   });
 
   it('leaves an item pending, and starts nothing, when its model is no longer available', async () => {
-    const {
-      promote,
-      validateModelSelection,
-      createUserMessageIfAbsent,
-      createRun,
-    } = makeSetup();
+    const { promote, resolveSelection, createUserMessageIfAbsent, createRun } =
+      makeSetup();
 
-    validateModelSelection.mockImplementation(() => {
+    resolveSelection.mockImplementation(() => {
       throw new ModelNotAvailableError('model-1');
     });
 
     await expect(promote()).resolves.toBeUndefined();
 
-    expect(validateModelSelection).toHaveBeenCalledWith('model-1');
+    expect(resolveSelection).toHaveBeenCalledWith(
+      null,
+      { selector: 'model-1', effort: 'high' },
+      'derived',
+    );
     expect(createUserMessageIfAbsent).not.toHaveBeenCalled();
     expect(createRun).not.toHaveBeenCalled();
   });

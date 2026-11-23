@@ -24,6 +24,7 @@ import {
 } from '../models/model-client';
 import { type SystemModelCatalogEntry } from '../models/model-catalog';
 import type { ModelSelectionValidator } from '../models/models.service';
+import { fakeResolveSelection } from '../testing/fake-model-selection';
 import { SystemPromptsService } from '../system-prompts/system-prompts.service';
 import { noopEmbedDispatch } from '../search/search-embed-dispatch.stub';
 import { noopQueryEmbedder } from '../search/chat-search-query-embedder.stub';
@@ -83,19 +84,26 @@ const knowledgeResolver: KnowledgeToolResolver = {
   }),
 };
 
+const fixtureModelEntry = (modelId: string): SystemModelCatalogEntry => ({
+  id: modelId,
+  source: 'system',
+  contextWindowTokens: 100_000,
+  input: ['text'],
+  provider: 'fixture',
+  providerModelId: modelId,
+  systemPromptTemplate: 'Use the configured fixture search tool.',
+  systemPromptSource: 'project_default',
+  referencesSkills: false,
+});
+
 const executionModels: ModelSelectionValidator = {
-  validateModelSelection: (modelId: string): SystemModelCatalogEntry => ({
-    id: modelId,
-    source: 'system',
-    contextWindowTokens: 100_000,
-    input: ['text'],
-    provider: 'fixture',
-    providerModelId: modelId,
-    systemPromptTemplate: 'Use the configured fixture search tool.',
-    systemPromptSource: 'project_default',
-    referencesSkills: false,
-  }),
+  validateModelSelection: fixtureModelEntry,
   resolveEffortSelection: () => undefined,
+  resolveSelection: fakeResolveSelection({
+    validateModelSelection: fixtureModelEntry,
+    resolveEffortSelection: () => undefined,
+    defaultSelector: 'system:openai:gpt-5.4-mini',
+  }),
 };
 
 const knowledgeCandidates: KnowledgeToolCandidateResolverPort = {

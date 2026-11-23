@@ -47,7 +47,7 @@ function composerRegenerateRequest(
 
   return {
     action: "regenerate",
-    modelId: selectedModel,
+    selector: selectedModel,
     effort: selectedEffort,
     permissionMode: getPermissionMode(chatId),
   };

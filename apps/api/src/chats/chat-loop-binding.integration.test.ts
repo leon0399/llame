@@ -13,6 +13,7 @@ import postgres, { type Sql } from 'postgres';
 import { type Message } from '../db/schema';
 
 import { compileTestPermissionPolicy } from '../testing/tool-permission-policy';
+import { fakeResolveSelection } from '../testing/fake-model-selection';
 import { noopEmbedDispatch } from '../search/search-embed-dispatch.stub';
 import { noopQueryEmbedder } from '../search/chat-search-query-embedder.stub';
 import { noopReindexDispatch } from '../search/search-reindex-dispatch.stub';
@@ -134,7 +135,10 @@ function previousRun(overrides: Partial<Run> = {}): Run {
     chatId: 'chat-id',
     messageId: '33333333-3333-4333-8333-333333333333',
     userId: 'user-id',
+    selector: 'system:openai:previous-model',
     modelId: 'system:openai:previous-model',
+    selectedEffort: null,
+    selectionRevision: null,
     effort: null,
     permissionMode: 'default' as const,
     status: 'failed',
@@ -290,6 +294,7 @@ describe('ChatLoopService accept/worker context binding', () => {
       workspaceToldFrom: null,
       workspaceToldAvailable: null,
       workspaceDetachReason: null,
+      modelSelection: null,
     };
 
     vi.spyOn(ChatsRepository.prototype, 'findById').mockResolvedValue(chat);
@@ -440,6 +445,7 @@ describe('ChatLoopService accept/worker context binding', () => {
           messageId: MESSAGE_ID,
           userId: 'user-id',
           modelId: model.id,
+          selector: model.id,
           status: 'running_model',
           activeAttemptId: 'attempt-id',
           error: null,
@@ -482,7 +488,10 @@ describe('ChatLoopService accept/worker context binding', () => {
         chatId: 'chat-id',
         messageId: MESSAGE_ID,
         userId: 'user-id',
+        selector: model.id,
         modelId: model.id,
+        selectedEffort: null,
+        selectionRevision: null,
         effort: null,
         permissionMode: 'default' as const,
         status: 'running_model',
@@ -524,6 +533,7 @@ describe('ChatLoopService accept/worker context binding', () => {
             messageId: MESSAGE_ID,
             userId: 'user-id',
             modelId: model.id,
+            selector: model.id,
             status: 'running_model',
             activeAttemptId: 'attempt-id',
             error: null,
@@ -541,6 +551,7 @@ describe('ChatLoopService accept/worker context binding', () => {
             messageId: MESSAGE_ID,
             userId: 'user-id',
             modelId: model.id,
+            selector: model.id,
             status,
             activeAttemptId: 'attempt-id',
             error: null,
@@ -586,7 +597,10 @@ describe('ChatLoopService accept/worker context binding', () => {
           messageId: runInput.messageId,
           userId: runInput.userId,
           modelId: runInput.modelId,
+          selector: runInput.selector ?? runInput.modelId,
           effort: runInput.effort ?? null,
+          selectedEffort: runInput.selectedEffort ?? null,
+          selectionRevision: runInput.selectionRevision ?? null,
           permissionMode: runInput.permissionMode ?? 'default',
           status: 'queued' as const,
           workerId: null,
@@ -606,10 +620,23 @@ describe('ChatLoopService accept/worker context binding', () => {
         }),
       );
 
+    const validateModelSelection = vi.fn(() => model);
+
+    const resolveSelectionEffort = (
+      selected: Parameters<
+        ModelSelectionValidator['resolveEffortSelection']
+      >[0],
+      requested: string | undefined,
+    ) => resolveEffortSelection(selected, requested);
+
     const modelsService: ModelSelectionValidator = {
-      validateModelSelection: vi.fn(() => model),
-      resolveEffortSelection: (selected, requested) =>
-        resolveEffortSelection(selected, requested),
+      validateModelSelection,
+      resolveEffortSelection: resolveSelectionEffort,
+      resolveSelection: fakeResolveSelection({
+        validateModelSelection,
+        resolveEffortSelection: resolveSelectionEffort,
+        defaultSelector: model.id,
+      }),
     };
 
     const instanceConfig = fakeInstanceConfig(toolsAllowed);
@@ -774,7 +801,7 @@ describe('ChatLoopService accept/worker context binding', () => {
   const input = {
     chatId: 'chat-id',
     userId: 'user-id',
-    modelId: model.id,
+    selector: model.id,
     message: {
       id: MESSAGE_ID,
       parts: [{ type: 'text' as const, text: 'hello' }],
@@ -1325,6 +1352,7 @@ describe('ChatLoopService accept/worker context binding', () => {
       const { service, executeAttempt, persistedMessage } = setup({
         previousRun: previousRun({
           modelId: model.id,
+          selector: model.id,
           status,
           completedAttemptId,
           turnToolAvailability: [
@@ -1367,6 +1395,7 @@ describe('ChatLoopService accept/worker context binding', () => {
     const { service, executeAttempt, persistedMessage } = setup({
       previousRun: previousRun({
         modelId: model.id,
+        selector: model.id,
         status: 'failed',
         turnToolAvailability: null,
       }),
@@ -1393,6 +1422,7 @@ describe('ChatLoopService accept/worker context binding', () => {
     const { service, executeAttempt, persistedMessage } = setup({
       previousRun: previousRun({
         modelId: model.id,
+        selector: model.id,
         status: 'completed',
         completedAttemptId: 'attempt-id',
         turnToolAvailability: [{ id, state: 'available' }],
@@ -1441,7 +1471,11 @@ describe('ChatLoopService accept/worker context binding', () => {
   });
 
   it('stages one digest supersession marker in the worker after an enabled re-bake', async () => {
-    const previous = previousRun({ modelId: model.id });
+    const previous = previousRun({
+      modelId: model.id,
+      selector: model.id,
+    });
+
     const digestBaseline = baseline();
 
     const { service, executeAttempt, persistedMessage } = setup({
@@ -1479,7 +1513,7 @@ describe('ChatLoopService accept/worker context binding', () => {
     const digestBaseline = baseline();
 
     const { service, executeAttempt, persistedMessage } = setup({
-      previousRun: previousRun({ modelId: model.id }),
+      previousRun: previousRun({ modelId: model.id, selector: model.id }),
       activeCheckpoint: activeCheckpoint(),
       baseline: digestBaseline,
       told: [],
@@ -1504,7 +1538,7 @@ describe('ChatLoopService accept/worker context binding', () => {
 
   it('does not stage a digest supersession marker after sharing is disabled during checkpointing', async () => {
     const { service, executeAttempt, persistedMessage } = setup({
-      previousRun: previousRun({ modelId: model.id }),
+      previousRun: previousRun({ modelId: model.id, selector: model.id }),
       activeCheckpoint: activeCheckpoint(),
       baseline: baseline(),
       told: [],
@@ -1528,7 +1562,10 @@ describe('ChatLoopService accept/worker context binding', () => {
 
   it('keeps a model-switch notice but no digest supersession marker when the prior attempt used another model', async () => {
     const { service, executeAttempt, persistedMessage } = setup({
-      previousRun: previousRun({ modelId: 'previous-model' }),
+      previousRun: previousRun({
+        modelId: 'previous-model',
+        selector: 'previous-model',
+      }),
       activeCheckpoint: activeCheckpoint(),
       baseline: baseline(),
       told: [],

@@ -1,32 +1,21 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { Transform, Type } from 'class-transformer';
+import { Type } from 'class-transformer';
 import {
   IsBoolean,
   IsDefined,
   IsIn,
-  IsInt,
   IsOptional,
   IsString,
   IsUUID,
   Matches,
-  Max,
   MaxLength,
-  Min,
   MinLength,
-  Validate,
   ValidateIf,
   ValidateNested,
-  ValidatorConstraint,
-  type ValidationArguments,
-  type ValidatorConstraintInterface,
 } from 'class-validator';
 import { type Chat, type Message, type MessageRole } from '../../db/schema';
-import {
-  isNumber,
-  isRecord,
-  isString,
-  type UnknownRecord,
-} from '@workspace/runtime-safety';
+import { type ChatModelSelection } from '../../models/model-selection';
+import { isRecord, type UnknownRecord } from '@workspace/runtime-safety';
 import { checkpointPayload } from '../context-item-producers';
 import {
   CheckpointStatsResponse,
@@ -45,51 +34,6 @@ import {
 } from './chat-deliveries.dto';
 import { withoutRetainedMedia } from '../retained-media-egress';
 import { withoutProviderMetadata } from '../provider-metadata-egress';
-
-export const CHAT_MESSAGES_DEFAULT_LIMIT = 100;
-export const CHAT_MESSAGES_MAX_LIMIT = 200;
-export const CHAT_MESSAGES_MAX_SAFE_SEQ = Number.MAX_SAFE_INTEGER;
-
-const SAFE_INTEGER_QUERY_PATTERN = /^(0|[1-9]\d*)$/;
-
-// eslint-disable-next-line anti-slop/no-unknown-parameters -- parses a raw HTTP query-string value (string | undefined at the framework boundary, `unknown` because query values are untyped) into a safe integer or a `NaN` sentinel; the whole function body IS the validation, branching sequentially through undefined/null, a numeric type-guard, then a string-pattern regex -- no single first-use check to point at.
-function parseSafeIntegerQueryValue(value: unknown): number | null | undefined {
-  if (value === undefined || value === null) {
-    return value;
-  }
-
-  if (isNumber(value)) {
-    return Number.isSafeInteger(value) ? value : Number.NaN;
-  }
-
-  if (!isString(value) || !SAFE_INTEGER_QUERY_PATTERN.test(value)) {
-    return Number.NaN;
-  }
-
-  const parsed = Number(value);
-
-  return Number.isSafeInteger(parsed) ? parsed : Number.NaN;
-}
-
-type HistoryCursorValue = number | null | undefined;
-
-@ValidatorConstraint({ name: 'historyCursorsExclusive', async: false })
-class HistoryCursorsExclusiveConstraint implements ValidatorConstraintInterface {
-  validate(_value: HistoryCursorValue, args: ValidationArguments): boolean {
-    const query = args.object;
-
-    return (
-      !('beforeSeq' in query) ||
-      !('targetSeq' in query) ||
-      query.beforeSeq === undefined ||
-      query.targetSeq === undefined
-    );
-  }
-
-  defaultMessage(): string {
-    return 'beforeSeq and targetSeq cannot be used together';
-  }
-}
 
 // PATCH /api/v1/chats/:id — partial update. Every field optional; only provided fields
 // are applied.
@@ -169,13 +113,17 @@ export class ForkChatDto {
 }
 
 export class CreateMessageDto {
-  @ApiProperty({
-    description: 'Opaque llame model id selected for this turn.',
+  // Optional: an omitted selector resolves through the Chat's stored selection,
+  // then the configured default. `@role` or one exact model id.
+  @ApiPropertyOptional({
+    description:
+      "`@role` or a model id; omit to use the Chat's stored selection",
     pattern: '\\S',
   })
+  @ValidateIf((o: CreateMessageDto) => o.selector !== undefined)
   @IsString()
-  @Matches(/\S/, { message: 'modelId must not be blank' })
-  modelId!: string;
+  @Matches(/\S/, { message: 'selector must not be blank' })
+  selector?: string;
 
   // ValidateIf (not IsOptional): IsOptional also waves an explicit `null`
   // through unvalidated, and `null` is not "omitted" — only absence means "use
@@ -186,9 +134,9 @@ export class CreateMessageDto {
   @ApiPropertyOptional({
     pattern: '\\S',
     description:
-      "Reasoning effort for this turn. Must be one of the selected model's " +
-      '`reasoning.effortLevels[].value`; omit to use its `defaultEffort`. Matched ' +
-      'byte-exactly — not case-folded.',
+      "Reasoning effort for this turn. Must be one of the resolved model's " +
+      '`reasoning.effortLevels[].value`; omit to use the stored effort or the ' +
+      "model's `defaultEffort`. Matched byte-exactly — not case-folded.",
   })
   @ValidateIf((o: CreateMessageDto) => o.effort !== undefined)
   @IsString()
@@ -225,6 +173,52 @@ export class CreateMessageDto {
   @ValidateNested()
   @Type(() => CreateMessageBodyDto)
   message!: CreateMessageBodyDto;
+}
+
+/**
+ * The fallback hold a stored selection may carry: the Chat stays on `modelId`
+ * for `selector` until `revertAt`. Absent when the Chat holds no fallback.
+ */
+export class ChatFallbackHoldResponse {
+  @ApiProperty({
+    description: 'The `@role` or model id the hold falls back from.',
+  })
+  selector!: string;
+
+  @ApiProperty({ description: 'The exact model the hold stays on.' })
+  modelId!: string;
+
+  @ApiProperty({
+    type: String,
+    nullable: true,
+    description: 'The effort the hold pins; null when it pins none.',
+  })
+  effort!: string | null;
+
+  @ApiProperty({
+    format: 'date-time',
+    description: 'When the Chat returns to `selector`.',
+  })
+  revertAt!: string;
+}
+
+/** The selection the Chat stores for its next send; null when it has none. */
+export class ChatModelSelectionResponse {
+  @ApiProperty({ description: '`@role` or model id the owner selected.' })
+  selector!: string;
+
+  @ApiProperty({
+    type: String,
+    nullable: true,
+    description: 'The effort the owner selected; null when none.',
+  })
+  effort!: string | null;
+
+  @ApiPropertyOptional({
+    type: () => ChatFallbackHoldResponse,
+    description: 'The active fallback hold; absent when none.',
+  })
+  hold?: ChatFallbackHoldResponse;
 }
 
 export class ChatResponse {
@@ -267,6 +261,34 @@ export class ChatResponse {
       'Canonical absolute root of the current Workspace binding. Owner-only; null when this Chat has no binding.',
   })
   workspaceRoot!: string | null;
+
+  // The Chat's stored model selection (openspec `model-roles`): what a send
+  // that names no selector continues with. Null when the Chat never stored
+  // one; the server never exposes the internal revision.
+  @ApiProperty({
+    type: () => ChatModelSelectionResponse,
+    nullable: true,
+    description:
+      'The model selection the Chat stores for its next send; null when none.',
+  })
+  modelSelection!: ChatModelSelectionResponse | null;
+}
+
+function toChatModelSelectionResponse(
+  selection: ChatModelSelection,
+): ChatModelSelectionResponse {
+  return {
+    selector: selection.selector,
+    effort: selection.effort,
+    ...(selection.hold !== undefined && {
+      hold: {
+        selector: selection.hold.selector,
+        modelId: selection.hold.modelId,
+        effort: selection.hold.effort,
+        revertAt: selection.hold.revertAt,
+      },
+    }),
+  };
 }
 
 export function toChatResponse(chat: Chat): ChatResponse {
@@ -280,6 +302,10 @@ export function toChatResponse(chat: Chat): ChatResponse {
     archivedAt: chat.archivedAt,
     projectId: chat.projectId,
     workspaceRoot: chat.workspaceRoot,
+    modelSelection:
+      chat.modelSelection === null
+        ? null
+        : toChatModelSelectionResponse(chat.modelSelection),
   };
 }
 
@@ -328,134 +354,6 @@ export function toChatListItemResponse(
     lastMessage: lastMessage ? partsToExcerpt(lastMessage.parts) : null,
     runningJobs,
   });
-}
-
-// GET /api/v1/chats — optional collection filters. `projectId` narrows the
-// list to chats filed into that project (server-side WHERE, not a client
-// filter over the full list); RLS still scopes everything to the owner.
-export class ListChatsQueryDto {
-  @ApiPropertyOptional({ format: 'uuid' })
-  @IsOptional()
-  @IsUUID()
-  projectId?: string;
-
-  // Archive filter. Absent ⇒ exclude archived (the overview default). `only` ⇒
-  // archived only. `with` ⇒ both archived and non-archived.
-  @ApiPropertyOptional({ enum: ['only', 'with'] })
-  @IsOptional()
-  @IsIn(['only', 'with'])
-  archived?: 'only' | 'with';
-
-  // Pin filter. Absent ⇒ `with` (both pinned and non-pinned). `only` ⇒ pinned
-  // only. `exclude` ⇒ non-pinned only. Enforced via an EXISTS/NOT EXISTS check
-  // on the caller's pins (chat-project-archive).
-  @ApiPropertyOptional({ enum: ['only', 'with', 'exclude'] })
-  @IsOptional()
-  @IsIn(['only', 'with', 'exclude'])
-  pinned?: 'only' | 'with' | 'exclude';
-}
-
-export class ChatSearchQueryDto {
-  @ApiProperty({
-    minLength: 1,
-    maxLength: 200,
-    description: 'Keyword to match against chat titles and message content.',
-  })
-  @IsString()
-  @MinLength(1)
-  @MaxLength(200)
-  q!: string;
-
-  @ApiPropertyOptional({
-    type: 'integer',
-    minimum: 1,
-    maximum: 50,
-    default: 20,
-    description: 'Maximum number of matching chats to return.',
-  })
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  @Min(1)
-  @Max(50)
-  limit: number = 20;
-}
-
-export class ChatSearchResultResponse {
-  @ApiProperty({ format: 'uuid' })
-  id!: string;
-
-  // NULL = untitled (#78): content-only matches can surface a still-untitled
-  // chat. Clients render their own localized placeholder for NULL.
-  @ApiProperty({ type: String, nullable: true })
-  title!: string | null;
-
-  @ApiProperty({
-    type: String,
-    nullable: true,
-    description:
-      'Excerpt from the first matching user/assistant message; null for a ' +
-      'title-only match.',
-  })
-  snippet!: string | null;
-
-  @ApiProperty({ format: 'date-time' })
-  updatedAt!: Date;
-}
-
-export class ChatSearchResponse {
-  @ApiProperty({ type: () => [ChatSearchResultResponse] })
-  results!: Array<ChatSearchResultResponse>;
-}
-
-export class ChatMessagesQueryDto {
-  @ApiPropertyOptional({
-    type: 'integer',
-    format: 'int32',
-    minimum: 1,
-    maximum: CHAT_MESSAGES_MAX_LIMIT,
-    default: CHAT_MESSAGES_DEFAULT_LIMIT,
-    description: 'Maximum number of latest messages to return.',
-  })
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  @Min(1)
-  @Max(CHAT_MESSAGES_MAX_LIMIT)
-  limit: number = CHAT_MESSAGES_DEFAULT_LIMIT;
-
-  @ApiPropertyOptional({
-    type: 'integer',
-    minimum: 1,
-    maximum: CHAT_MESSAGES_MAX_SAFE_SEQ,
-    format: 'int64',
-    description: 'Return messages strictly before this sequence number.',
-  })
-  @ValidateIf((o: ChatMessagesQueryDto) => o.beforeSeq !== undefined)
-  @Transform(({ value }) => parseSafeIntegerQueryValue(value))
-  @IsInt()
-  @Min(1)
-  @Max(CHAT_MESSAGES_MAX_SAFE_SEQ)
-  beforeSeq?: number;
-}
-
-export class OwnerChatMessagesQueryDto extends ChatMessagesQueryDto {
-  @ApiPropertyOptional({
-    type: 'integer',
-    minimum: 1,
-    maximum: CHAT_MESSAGES_MAX_SAFE_SEQ,
-    format: 'int64',
-    description:
-      'Return a fixed-size history window ending at this sequence number; ' +
-      'mutually exclusive with beforeSeq.',
-  })
-  @ValidateIf((o: OwnerChatMessagesQueryDto) => o.targetSeq !== undefined)
-  @Validate(HistoryCursorsExclusiveConstraint)
-  @Transform(({ value }) => parseSafeIntegerQueryValue(value))
-  @IsInt()
-  @Min(1)
-  @Max(CHAT_MESSAGES_MAX_SAFE_SEQ)
-  targetSeq?: number;
 }
 
 /** An owner-history row; checkpoint rows carry their API-computed absorbed count. */

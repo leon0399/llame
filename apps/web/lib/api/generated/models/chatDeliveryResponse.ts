@@ -29,7 +29,8 @@ export interface ChatDeliveryResponse {
    */
   command: ChatDeliveryResponseCommand;
   parts: ChatDeliveryResponsePartsItem[];
-  modelId: string;
+  /** `@role` or a model id the item named; absent when it named none and the Chat's stored selection applies */
+  selector?: string;
   effort?: string;
   permissionMode: ChatDeliveryResponsePermissionMode;
   createdAt: string;

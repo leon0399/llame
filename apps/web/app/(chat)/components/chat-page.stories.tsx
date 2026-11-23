@@ -564,7 +564,7 @@ export const SendsWithDefaultModel: Story = {
 
     await waitFor(() => expect(sentRoutes()).toEqual([SEND_ROUTE]));
     await expect(await sentBody(SEND_ROUTE)).toMatchObject({
-      modelId: GPT_5_4_MINI.id,
+      selector: GPT_5_4_MINI.id,
       message: { parts: [{ type: "text", text: "Hello" }] },
     });
   },
@@ -659,7 +659,7 @@ export const SendsImageOnlyMessage: Story = {
     await waitFor(() => expect(sentRoutes()).toEqual([SEND_ROUTE]));
     const body = await sentBody(SEND_ROUTE);
     await expect(body).toMatchObject({
-      modelId: VISION.id,
+      selector: VISION.id,
       message: {
         parts: [
           {
@@ -2245,6 +2245,7 @@ function chatCard(workspaceRoot: string): ChatListItemResponse {
     archivedAt: null,
     projectId: null,
     workspaceRoot,
+    modelSelection: null,
     lastMessage: null,
     runningJobs: 0,
   };
@@ -2623,6 +2624,7 @@ function latestTurnRun(
     messageId: "user-turn",
     status: "failed",
     followUpAction: null,
+    selector: GPT_5_4_MINI.id,
     modelId: GPT_5_4_MINI.id,
     effort: null,
     permissionMode: "default",
@@ -3016,7 +3018,7 @@ function pendingItem(
     command: null,
     state: "pending",
     parts: [{ type: "text", text }],
-    modelId: GPT_5_4_MINI.id,
+    selector: GPT_5_4_MINI.id,
     permissionMode: "default",
     createdAt: "2026-01-01T00:00:00.000Z",
   };

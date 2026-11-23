@@ -93,7 +93,7 @@ function jobRow(seq: number): ChatJob {
     outputs: ['stdout', 'stderr'],
     artifactId: null,
     artifactReadable: false,
-    settings: { modelId: 'm', permissionMode: 'default' },
+    settings: { selector: 'm', permissionMode: 'default' },
   };
 }
 
@@ -192,7 +192,7 @@ describe('foreground host bash move', () => {
       nativeDeliverySequence: 1,
       bashProcessLimiter: new BashProcessLimiter(4),
       bashJobs: registry,
-      jobSettings: { modelId: 'm', permissionMode: 'default' },
+      jobSettings: { selector: 'm', permissionMode: 'default' },
       moveSignal: moved.signal,
       permissionPolicy: compileTestPermissionPolicy(),
       tenantDb: {

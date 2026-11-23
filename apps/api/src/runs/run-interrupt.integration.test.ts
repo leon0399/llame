@@ -1043,7 +1043,7 @@ describe('an interrupt across processes', () => {
         ownerUserId: userId,
         mode: 'interrupt',
         parts: [{ type: 'text', text: 'from the API process' }],
-        settings: { modelId: 'ignored', permissionMode: 'default' },
+        settings: { selector: 'ignored', permissionMode: 'default' },
       });
       await notifyRunControl(tx, { runId: seeded.runId, kind: 'interrupt' });
     });
@@ -1111,7 +1111,7 @@ describe('an interrupt across processes', () => {
         ownerUserId: other,
         mode: 'interrupt',
         parts: [{ type: 'text', text: 'not yours' }],
-        settings: { modelId: 'ignored', permissionMode: 'default' },
+        settings: { selector: 'ignored', permissionMode: 'default' },
       }),
     );
 
@@ -1148,7 +1148,7 @@ describe('an interrupt across processes', () => {
         ownerUserId: userId,
         mode: 'interrupt',
         parts: [{ type: 'text', text: 'mine' }],
-        settings: { modelId: 'ignored', permissionMode: 'default' },
+        settings: { selector: 'ignored', permissionMode: 'default' },
       });
       await notifyRunControl(tx, { runId: seeded.runId, kind: 'interrupt' });
     });

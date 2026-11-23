@@ -111,6 +111,7 @@ function makeService(
 
   const claimRun = vi.fn<RunExecutionService['claimRun']>().mockResolvedValue({
     attemptId: options.attemptId ?? 'attempt-1',
+    selector: 'model-1',
     messageId: null,
     permissionMode: 'default',
     nativeDeliverySequence: 0,
@@ -230,6 +231,7 @@ describe('CompactionRunService.execute', () => {
 
     made.claimRun.mockResolvedValue({
       attemptId: 'attempt-1',
+      selector: 'model-1',
       messageId: null,
       permissionMode: 'default',
       nativeDeliverySequence: 0,

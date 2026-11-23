@@ -32,6 +32,7 @@ function chat(id: string, title = id): Chat {
     createdAt: new Date('2026-08-01T00:00:00.000Z'),
     updatedAt: new Date('2026-08-12T12:00:00.000Z'),
     archivedAt: null,
+    modelSelection: null,
     projectId: null,
     recencyDigestBaseline: null,
     recencyDigestTold: null,

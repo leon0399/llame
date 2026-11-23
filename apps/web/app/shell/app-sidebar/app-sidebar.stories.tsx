@@ -38,6 +38,7 @@ const PINNED_CHATS: Array<ChatListItemResponse> = PINS.map((pin, index) => ({
   archivedAt: null,
   projectId: null,
   workspaceRoot: null,
+  modelSelection: null,
   lastMessage: null,
   runningJobs: 0,
 }));

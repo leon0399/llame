@@ -170,6 +170,7 @@ const baseChat: ChatResponse = {
   visibility: "private",
   projectId: null,
   workspaceRoot: null,
+  modelSelection: null,
   createdAt: "2026-07-20T10:00:00.000Z",
   updatedAt: "2026-07-20T10:00:00.000Z",
   archivedAt: null,

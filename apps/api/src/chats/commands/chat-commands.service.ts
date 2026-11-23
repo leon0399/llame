@@ -11,11 +11,12 @@ import {
 
 import { assertNotArchived } from '../../db/assert-not-archived';
 import { TenantDbService, type Db } from '../../db/tenant-db.service';
-import { type Run } from '../../db/schema';
+import { type Chat, type Run } from '../../db/schema';
 import { InstanceConfigService } from '../../instance-config/instance-config.service';
 import {
   ModelsService,
   resolveSendSettings,
+  type ResolvedSendSettings,
 } from '../../models/models.service';
 import { type SendableDeliveryMode } from '../dto/chat-deliveries.dto';
 import { planOwnerCompaction } from '../../compaction/owner-compaction-plan';
@@ -41,8 +42,6 @@ import {
 
 type QueuedCompactResult = { type: 'delivery'; delivery: ChatDeliveryView };
 
-type CompactSendSettings = ReturnType<typeof resolveSendSettings>;
-
 export type ChatCommandExecutionResult =
   | ChatCommandResultResponse
   | QueuedCompactResult;
@@ -55,10 +54,15 @@ type CompactCommandInput = {
   messageId: string;
   rawText: string;
   delivery?: SendableDeliveryMode;
-  modelId: string;
+  /** The selector the request named; absent uses the Chat's stored selection. */
+  selector?: string;
+  /** The effort the request named; absent follows the spec's effort order. */
   effort?: string;
   permissionMode?: PermissionMode;
 };
+
+/** What a queued `/compact` item must still store resolved: the accepted mode. */
+type QueuedCompactSettings = { permissionMode: PermissionMode };
 
 async function pendingCompactRetry(
   items: ChatDeliveriesRepository,
@@ -83,7 +87,7 @@ async function pendingCompactRetry(
 async function queueCompactItem(
   items: ChatDeliveriesRepository,
   input: CompactCommandInput,
-  settings: CompactSendSettings,
+  settings: QueuedCompactSettings,
   mode: 'queue' | 'steer' | 'interrupt',
 ): Promise<QueuedCompactResult> {
   // A send never reuses the id of a stored message, as the plain send path
@@ -98,9 +102,11 @@ async function queueCompactItem(
     ownerUserId: input.userId,
     mode,
     parts: [{ type: 'text', text: input.rawText }],
+    // An owner item stores only what its request named; its Run resolves the
+    // selector and the effort against the Chat's selection when it starts.
     settings: {
-      modelId: input.modelId,
-      ...(settings.effort !== undefined && { effort: settings.effort }),
+      ...(input.selector !== undefined && { selector: input.selector }),
+      ...(input.effort !== undefined && { effort: input.effort }),
       permissionMode: settings.permissionMode,
     },
   });
@@ -114,7 +120,7 @@ async function queueBlockedCompactItem(input: {
   tx: Db;
   items: ChatDeliveriesRepository;
   command: CompactCommandInput;
-  settings: CompactSendSettings;
+  settings: QueuedCompactSettings;
   kind: 'turn' | 'compaction';
   runWait: Pick<RunWaitService, 'wakeForChatInTransaction'>;
 }): Promise<QueuedCompactResult> {
@@ -142,7 +148,8 @@ async function queueBlockedCompactItem(input: {
 async function createIdleCompactRun(
   tx: Db,
   input: CompactCommandInput,
-  settings: CompactSendSettings,
+  resolved: ResolvedSendSettings,
+  selectionRevision: number | null,
   focus: string | null,
 ): Promise<Run> {
   const { plan } = await planOwnerCompaction(
@@ -157,9 +164,12 @@ async function createIdleCompactRun(
     id: randomUUID(),
     chatId: input.chatId,
     userId: input.userId,
-    modelId: input.modelId,
-    effort: settings.effort,
-    permissionMode: settings.permissionMode,
+    modelId: resolved.modelId,
+    selector: resolved.selector,
+    effort: resolved.effort,
+    selectedEffort: resolved.effort,
+    selectionRevision,
+    permissionMode: resolved.permissionMode,
     focus,
   });
 }
@@ -192,7 +202,7 @@ export class ChatCommandsService {
     messageId: string;
     rawText: string;
     delivery?: SendableDeliveryMode;
-    modelId: string;
+    selector?: string;
     effort?: string;
     permissionMode?: PermissionMode;
   }): Promise<ChatCommandExecutionResult | undefined> {
@@ -254,12 +264,63 @@ export class ChatCommandsService {
 
     if (retry) return retry;
 
-    const settings = resolveSendSettings(
-      this.models,
-      this.instanceConfig.config.tools.permissionModes,
+    const { resolved, selectionRevision } = await this.storeCompactSelection(
+      tx,
+      chat,
       input,
     );
 
+    const blocked = await this.queueBlockedCompact(tx, input, resolved);
+
+    if (blocked !== undefined) return blocked;
+
+    return createIdleCompactRun(tx, input, resolved, selectionRevision, focus);
+  }
+
+  /**
+   * Design D3's `/compact` order: the Chat row is locked (caller), the
+   * selector and the effort answer 422 next, and the single-flight slot
+   * answers 409 last. A 422 rolls back this transaction, so a refused
+   * `/compact` stores no selection and no item.
+   */
+  private async storeCompactSelection(
+    tx: Db,
+    chat: Chat,
+    input: CompactCommandInput,
+  ): Promise<{
+    resolved: ResolvedSendSettings;
+    selectionRevision: number | null;
+  }> {
+    const resolved = resolveSendSettings(
+      this.models,
+      this.instanceConfig.config.tools.permissionModes,
+      {
+        stored: chat.modelSelection ?? null,
+        request: { selector: input.selector, effort: input.effort },
+        writer: 'owner',
+        permissionMode: input.permissionMode,
+      },
+    );
+
+    const selectionRevision =
+      resolved.nextSelection?.revision ?? chat.modelSelection?.revision ?? null;
+
+    if (resolved.nextSelection !== undefined) {
+      await new ChatsRepository(tx).setModelSelection(
+        input.chatId,
+        resolved.nextSelection,
+      );
+    }
+
+    return { resolved, selectionRevision };
+  }
+
+  /** A held slot queues the item instead; an idle one starts the Run. */
+  private async queueBlockedCompact(
+    tx: Db,
+    input: CompactCommandInput,
+    resolved: ResolvedSendSettings,
+  ): Promise<QueuedCompactResult | undefined> {
     const slot = await claimActiveRunSlot({
       tx,
       chatId: input.chatId,
@@ -268,18 +329,16 @@ export class ChatCommandsService {
       instanceConfig: this.instanceConfig,
     });
 
-    if (slot.state === 'blocked') {
-      return queueBlockedCompactItem({
-        tx,
-        items,
-        command: input,
-        settings,
-        kind: slot.kind,
-        runWait: this.runWait,
-      });
-    }
+    if (slot.state !== 'blocked') return undefined;
 
-    return createIdleCompactRun(tx, input, settings, focus);
+    return queueBlockedCompactItem({
+      tx,
+      items: new ChatDeliveriesRepository(tx),
+      command: input,
+      settings: { permissionMode: resolved.permissionMode },
+      kind: slot.kind,
+      runWait: this.runWait,
+    });
   }
 
   private async findChat(chatId: string, userId: string): Promise<boolean> {

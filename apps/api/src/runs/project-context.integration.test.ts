@@ -438,7 +438,10 @@ describe('project context binds at execution preparation', () => {
           userId: fx.userId,
           chatId: source.chatId,
           modelId: source.modelId,
+          selector: source.modelId,
           effort: undefined,
+          selectedEffort: undefined,
+          selectionRevision: null,
           permissionMode: 'default',
           targetRunId: randomUUID(),
           followUp: {

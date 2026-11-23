@@ -193,7 +193,8 @@ async function editItem(
 }
 
 type Selections = {
-  modelId: string | undefined;
+  /** The composer's model id or role, as it reaches the request's `selector`. */
+  selector: string | undefined;
   effort: string | undefined;
   permissionMode: PermissionModeResponseValue;
 };
@@ -473,7 +474,7 @@ export function useChatDelivery(args: UseChatDeliveryArgs) {
   useEscapeToStop(runActive, handleStop);
 
   const selections = {
-    modelId: selectedModel,
+    selector: selectedModel,
     effort: selectedEffort,
     permissionMode: getPermissionMode(chatId),
   };

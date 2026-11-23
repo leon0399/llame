@@ -294,7 +294,7 @@ d('the follow-up route', () => {
     // A field neither variant declares is an unknown property.
     const unknown = await followUp(turn, {
       action: 'regenerate',
-      modelId: MODEL_ID,
+      selector: MODEL_ID,
       unknownField: true,
     });
 
@@ -339,7 +339,7 @@ d('the follow-up route', () => {
 
     const stream = await followUp(turn, {
       action: 'regenerate',
-      modelId: MODEL_ID,
+      selector: MODEL_ID,
     });
 
     expect(stream.status).toBe(200);

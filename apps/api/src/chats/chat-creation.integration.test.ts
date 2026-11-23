@@ -151,7 +151,7 @@ type CreateBody = {
   worktree?: { name?: string; baseRef?: string };
   message?: {
     id?: string;
-    modelId?: string;
+    selector?: string;
     effort?: string;
     permissionMode?: string;
     parts?: Array<{ type: string; text?: string }>;
@@ -676,7 +676,7 @@ describe('chat creation over HTTP', () => {
         id: chatId,
         message: {
           id: messageId,
-          modelId: MODEL_ID,
+          selector: MODEL_ID,
           parts: [{ type: 'text', text: 'Start nowhere in particular.' }],
         },
       }).expect(201);
@@ -737,7 +737,7 @@ describe('chat creation over HTTP', () => {
             id: chatId,
             message: {
               id: crypto.randomUUID(),
-              modelId: MODEL_ID,
+              selector: MODEL_ID,
               permissionMode: 'read-only',
               parts: [
                 { type: 'text', text: 'This process refuses read-only.' },
@@ -827,7 +827,7 @@ describe('chat creation over HTTP', () => {
         checkoutId: mainCheckoutId,
         message: {
           id: crypto.randomUUID(),
-          modelId: MODEL_ID,
+          selector: MODEL_ID,
           permissionMode: 'read-only',
           parts: [{ type: 'text', text: 'Start bound, read-only.' }],
         },
@@ -898,7 +898,7 @@ describe('chat creation over HTTP', () => {
         repositoryId,
         message: {
           id: messageId,
-          modelId: MODEL_ID,
+          selector: MODEL_ID,
           parts: [{ type: 'text', text: 'Where does this start?' }],
         },
       }).expect(201);
@@ -925,7 +925,7 @@ describe('chat creation over HTTP', () => {
         projectId,
         message: {
           id: crypto.randomUUID(),
-          modelId: MODEL_ID,
+          selector: MODEL_ID,
           parts: [{ type: 'text', text: 'Hold the turn.' }],
         },
       }).expect(201);
@@ -961,7 +961,7 @@ describe('chat creation over HTTP', () => {
         worktree: { name: 'creation-one' },
         message: {
           id: messageId,
-          modelId: MODEL_ID,
+          selector: MODEL_ID,
           parts: [{ type: 'text', text: 'Start in a worktree.' }],
         },
       }).expect(201);
@@ -1042,7 +1042,7 @@ describe('chat creation over HTTP', () => {
         worktree: { name: 'creation-read-only' },
         message: {
           id: crypto.randomUUID(),
-          modelId: MODEL_ID,
+          selector: MODEL_ID,
           permissionMode: 'read-only',
           parts: [{ type: 'text', text: 'Start read-only in a worktree.' }],
         },
@@ -1087,7 +1087,7 @@ describe('chat creation over HTTP', () => {
         worktree: { name: 'creation-two' },
         message: {
           id: crypto.randomUUID(),
-          modelId: MODEL_ID,
+          selector: MODEL_ID,
           parts: [{ type: 'text', text: 'Now send it.' }],
         },
       }).expect(201);
@@ -1119,7 +1119,7 @@ describe('chat creation over HTTP', () => {
         projectId,
         message: {
           id: crypto.randomUUID(),
-          modelId: MODEL_ID,
+          selector: MODEL_ID,
           parts: [{ type: 'text', text: 'Sent once.' }],
         },
       }).expect(201);
@@ -1129,7 +1129,7 @@ describe('chat creation over HTTP', () => {
         projectId,
         message: {
           id: crypto.randomUUID(),
-          modelId: MODEL_ID,
+          selector: MODEL_ID,
           parts: [{ type: 'text', text: 'Sent twice.' }],
         },
       }).expect(409);
@@ -1148,7 +1148,7 @@ describe('chat creation over HTTP', () => {
         checkoutId: deniedCheckoutId,
         message: {
           id: crypto.randomUUID(),
-          modelId: MODEL_ID,
+          selector: MODEL_ID,
           parts: [{ type: 'text', text: 'This path is refused.' }],
         },
       }).expect(201);
@@ -1193,7 +1193,7 @@ describe('chat creation over HTTP', () => {
         checkoutId: deniedCheckoutId,
         message: {
           id: crypto.randomUUID(),
-          modelId: MODEL_ID,
+          selector: MODEL_ID,
           permissionMode: 'bypass',
           parts: [{ type: 'text', text: 'Bypass this path.' }],
         },
@@ -1241,7 +1241,7 @@ describe('chat creation over HTTP', () => {
         worktree: { name: 'creation-taken' },
         message: {
           id: crypto.randomUUID(),
-          modelId: MODEL_ID,
+          selector: MODEL_ID,
           parts: [{ type: 'text', text: 'This worktree is taken.' }],
         },
       }).expect(201);
@@ -1271,7 +1271,7 @@ describe('chat creation over HTTP', () => {
         checkoutId: machineCheckoutId,
         message: {
           id: crypto.randomUUID(),
-          modelId: MODEL_ID,
+          selector: MODEL_ID,
           parts: [{ type: 'text', text: 'That Machine is offline.' }],
         },
       }).expect(201);
@@ -1306,7 +1306,7 @@ describe('chat creation over HTTP', () => {
         checkoutId: mainCheckoutId,
         message: {
           id: crypto.randomUUID(),
-          modelId: MODEL_ID,
+          selector: MODEL_ID,
           parts: [{ type: 'text', text: 'The corrected location.' }],
         },
       }).expect(201);
@@ -1485,7 +1485,7 @@ describe('chat creation over HTTP', () => {
           .post(`/api/v1/chats/${chatId}/messages`)
           .set('Cookie', owner.cookie)
           .send({
-            modelId: MODEL_ID,
+            selector: MODEL_ID,
             message: {
               id: crypto.randomUUID(),
               parts: [{ type: 'text', text: 'Interleaved send.' }],

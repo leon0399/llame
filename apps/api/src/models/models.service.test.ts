@@ -10,7 +10,7 @@ import {
 } from '../instance-config/llame-config';
 import type { ModelRoleConfig } from '../instance-config/model-roles-config';
 import type { RerankModelConfig } from '../instance-config/rerank-config';
-import type { SystemModelCatalogEntry } from './model-catalog';
+import type { ModelReasoning, SystemModelCatalogEntry } from './model-catalog';
 import type { BillingMode } from './model-client';
 import { createModelClient } from './model-client-factory';
 import type { createOpenAICompletionsModelClient } from './openai-completions-model-client';
@@ -673,6 +673,256 @@ describe('ModelsService', () => {
       expect(() =>
         service().resolveEffortSelection(plainModel, 'high'),
       ).toThrow(EffortNotAvailableError);
+    });
+  });
+
+  describe('resolveSelection', () => {
+    const EFFORTS = {
+      effortLevels: [{ value: 'low' }, { value: 'high', label: 'High' }],
+      defaultEffort: 'low',
+      cacheInvalidatedByEffortChange: true,
+    } as const;
+
+    const selectionModel = (
+      id: string,
+      reasoning?: ModelReasoning,
+    ): SystemModelCatalogEntry => ({
+      id,
+      source: 'system',
+      provider: 'openai',
+      providerModelId: id,
+      contextWindowTokens: 128_000,
+      input: ['text'],
+      systemPromptTemplate: `Internal prompt for ${id}`,
+      systemPromptSource: 'project_default',
+      referencesSkills: false,
+      ...(reasoning !== undefined && { reasoning }),
+    });
+
+    const codex = selectionModel('codex', EFFORTS);
+
+    const sonnet = selectionModel('sonnet', {
+      ...EFFORTS,
+      defaultEffort: 'high',
+    });
+
+    // No reasoning vocabulary: any named effort is undeclared, and an omitted
+    // one resolves to no effort at all.
+    const fast = selectionModel('fast');
+
+    const roles: ReadonlyArray<ModelRoleConfig> = [
+      {
+        name: 'coding',
+        candidates: [
+          { modelId: 'codex', effort: 'high' },
+          { modelId: 'sonnet' },
+        ],
+      },
+      { name: 'fast', candidates: [{ modelId: 'fast' }] },
+    ];
+
+    function service(defaultSelector: string | null = 'codex') {
+      return createService({
+        defaultSelector,
+        models: [codex, sonnet, fast],
+        modelRoles: roles,
+      });
+    }
+
+    it('resolves a named role to its first candidate and that candidate’s effort', () => {
+      expect(
+        service().resolveSelection(null, { selector: '@coding' }, 'owner'),
+      ).toMatchObject({
+        selector: '@coding',
+        model: { id: 'codex' },
+        effort: 'high',
+        nextSelection: { revision: 1, selector: '@coding', effort: 'high' },
+      });
+    });
+
+    it('resolves a named exact model and its own default effort', () => {
+      expect(
+        service().resolveSelection(null, { selector: 'sonnet' }, 'owner'),
+      ).toMatchObject({
+        selector: 'sonnet',
+        model: { id: 'sonnet' },
+        effort: 'high',
+      });
+    });
+
+    it('uses the stored selector and its effort when the request names neither, writing nothing', () => {
+      const resolved = service().resolveSelection(
+        { revision: 4, selector: '@coding', effort: 'low' },
+        {},
+        'owner',
+      );
+
+      expect(resolved).toMatchObject({
+        selector: '@coding',
+        model: { id: 'codex' },
+        effort: 'low',
+      });
+      expect(resolved.nextSelection).toBeUndefined();
+    });
+
+    it('falls through when the stored effort is not declared by the resolved model', () => {
+      // The role candidate declares `high`, so an undeclared stored level
+      // cannot silently reach the wire.
+      expect(
+        service().resolveSelection(
+          { revision: 1, selector: '@coding', effort: 'xhigh' },
+          {},
+          'owner',
+        ).effort,
+      ).toBe('high');
+
+      // An exact selector has no candidate effort: the model default applies.
+      expect(
+        service().resolveSelection(
+          { revision: 2, selector: 'sonnet', effort: 'xhigh' },
+          {},
+          'owner',
+        ).effort,
+      ).toBe('high');
+    });
+
+    it('uses defaults.selector when the stored selector left the config, and stores it', () => {
+      expect(
+        service('@coding').resolveSelection(
+          { revision: 7, selector: 'system:openai:gpt-4o', effort: 'low' },
+          {},
+          'owner',
+        ),
+      ).toMatchObject({
+        selector: '@coding',
+        model: { id: 'codex' },
+        effort: 'high',
+        nextSelection: {
+          revision: 8,
+          selector: '@coding',
+          effort: 'high',
+        },
+      });
+    });
+
+    it('rejects a named selector the catalog does not offer', () => {
+      expect(() =>
+        service().resolveSelection(null, { selector: '@missing' }, 'owner'),
+      ).toThrow(ModelNotAvailableError);
+      expect(() =>
+        service().resolveSelection(null, { selector: 'ghost' }, 'owner'),
+      ).toThrow(ModelNotAvailableError);
+    });
+
+    it('rejects an unset defaults.selector when neither a request nor a stored selection resolves', () => {
+      expect(() => service(null).resolveSelection(null, {}, 'owner')).toThrow(
+        ModelConfigurationError,
+      );
+      expect(() => service(null).resolveSelection(null, {}, 'owner')).toThrow(
+        'defaults.selector is required.',
+      );
+    });
+
+    it('rejects any effort on a model that declares no vocabulary', () => {
+      expect(() =>
+        service().resolveSelection(
+          null,
+          { selector: '@fast', effort: 'high' },
+          'owner',
+        ),
+      ).toThrow(EffortNotAvailableError);
+    });
+
+    it('increments the stored revision on every owner write', () => {
+      expect(
+        service().resolveSelection(
+          { revision: 2, selector: 'codex', effort: 'low' },
+          { selector: '@coding' },
+          'owner',
+        ).nextSelection,
+      ).toEqual({ revision: 3, selector: '@coding', effort: 'high' });
+    });
+
+    it('keeps the selector and the hold when the request names only an effort', () => {
+      const hold = {
+        selector: '@coding',
+        modelId: 'sonnet',
+        effort: 'high',
+        revertAt: '2026-11-23T14:00:00.000Z',
+      };
+
+      const resolved = service().resolveSelection(
+        { revision: 5, selector: '@coding', effort: 'low', hold },
+        { effort: 'high' },
+        'owner',
+      );
+
+      expect(resolved.selector).toBe('@coding');
+      expect(resolved.effort).toBe('high');
+      expect(resolved.nextSelection).toEqual({
+        revision: 6,
+        selector: '@coding',
+        effort: 'high',
+        hold,
+      });
+    });
+
+    it('never writes the selection for a derived creator', () => {
+      expect(
+        service().resolveSelection(null, { selector: '@coding' }, 'derived')
+          .nextSelection,
+      ).toBeUndefined();
+      expect(
+        service().resolveSelection(
+          { revision: 3, selector: 'codex', effort: 'low' },
+          { effort: 'high' },
+          'derived',
+        ).nextSelection,
+      ).toBeUndefined();
+    });
+
+    it('resets the stored effort when a pick resolves to a model with no vocabulary', () => {
+      const pick = service().resolveSelection(
+        { revision: 1, selector: 'codex', effort: 'low' },
+        { selector: '@fast' },
+        'owner',
+      );
+
+      expect(pick).toMatchObject({ selector: '@fast', model: { id: 'fast' } });
+      expect(pick.effort).toBeUndefined();
+      expect(pick.nextSelection).toEqual({
+        revision: 2,
+        selector: '@fast',
+        effort: null,
+      });
+
+      // A later send with no selector and no effort is accepted on that pick.
+      const later = service().resolveSelection(
+        pick.nextSelection ?? null,
+        {},
+        'owner',
+      );
+
+      expect(later.selector).toBe('@fast');
+      expect(later.effort).toBeUndefined();
+      expect(later.nextSelection).toBeUndefined();
+    });
+
+    it('drops the hold when the request names a selector', () => {
+      const hold = {
+        selector: '@coding',
+        modelId: 'sonnet',
+        effort: 'high',
+        revertAt: '2026-11-23T14:00:00.000Z',
+      };
+
+      expect(
+        service().resolveSelection(
+          { revision: 1, selector: '@coding', effort: 'low', hold },
+          { selector: '@coding' },
+          'owner',
+        ).nextSelection,
+      ).not.toHaveProperty('hold');
     });
   });
 });

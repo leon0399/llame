@@ -85,7 +85,7 @@ export const chatJobs = pgTable(
       onDelete: 'set null',
     }),
     artifactReadable: boolean('artifact_readable').notNull().default(false),
-    /** Model, effort, and permission mode of the Run that started the job. */
+    /** Selector, effort, and permission mode of the Run that started the job. */
     settings: jsonb('settings').$type<ChatDeliverySettings>().notNull(),
   },
   (t) => [

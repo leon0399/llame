@@ -209,7 +209,7 @@ d('an accepted Run no worker consumes', () => {
       path: `/api/v1/chats/${chatId}/messages`,
       cookie: cookieA,
       body: {
-        modelId: MODEL_ID,
+        selector: MODEL_ID,
         message: {
           id: crypto.randomUUID(),
           parts: [{ type: 'text', text }],

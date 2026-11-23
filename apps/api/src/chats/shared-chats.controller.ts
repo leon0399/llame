@@ -25,12 +25,12 @@ import { CurrentUser } from '../auth/auth-context';
 import { Public } from '../auth/public.decorator';
 import { ChatsService } from './chats.service';
 import {
-  ChatMessagesQueryDto,
   ChatResponse,
   SharedChatResponse,
   toChatResponse,
   toSharedChatResponse,
 } from './dto/chats.dto';
+import { ChatMessagesQueryDto } from './dto/chats-query.dto';
 
 /**
  * Public read-only chat sharing. `@Public` (no session) — a shared link opens

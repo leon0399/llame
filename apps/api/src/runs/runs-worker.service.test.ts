@@ -460,6 +460,9 @@ describe('RunsWorkerService — pickup cancellation and post-drain liveness', ()
     chatId: job.chatId,
     userId: job.userId,
     modelId: job.modelId,
+    selector: job.modelId,
+    selectedEffort: null,
+    selectionRevision: null,
     activeAttemptId: null,
     completedAttemptId: null,
     turnToolAvailability: null,
@@ -1682,6 +1685,9 @@ describe('RunsWorkerService — the per-attempt execution limit (opt-in-run-limi
     chatId: job.chatId,
     userId: job.userId,
     modelId: job.modelId,
+    selector: job.modelId,
+    selectedEffort: null,
+    selectionRevision: null,
     activeAttemptId: null,
     completedAttemptId: null,
     turnToolAvailability: null,
@@ -1800,6 +1806,9 @@ describe('RunsWorkerService — durable run-level failures', () => {
       wakeGeneration: 0,
       currentJobId: null,
       awaiting: null,
+      selector: job.modelId,
+      selectedEffort: null,
+      selectionRevision: null,
     } as const;
 
     vi.spyOn(RunsRepository.prototype, 'findById')
@@ -1864,6 +1873,9 @@ describe('RunsWorkerService — durable run-level failures', () => {
       currentJobId: null,
       awaiting: null,
       sourceRunId: null,
+      selector: job.modelId,
+      selectedEffort: null,
+      selectionRevision: null,
     };
 
     vi.spyOn(RunsRepository.prototype, 'findById').mockResolvedValue(run);

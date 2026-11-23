@@ -41,8 +41,16 @@ export type FollowUpRunInput =
 export type CreateRunForMessageInput = {
   userId: string;
   chatId: string;
+  /** The model that serves the Run's first segment. */
   modelId: string;
+  /** What the owner (or the derived creator) resolved; `@role` or an exact id. */
+  selector: string;
+  /** The effort the first segment sends; absent means "send none". */
   effort: string | undefined;
+  /** The effort admission resolved, kept apart from the segment's effort. */
+  selectedEffort: string | undefined;
+  /** The Chat selection revision this Run read, or null when it had none. */
+  selectionRevision: number | null;
   permissionMode: PermissionMode;
   targetRunId: string;
   /**
@@ -109,39 +117,61 @@ export async function createRunForMessage(
   return { run };
 }
 
+/** What a `/compact` Run records; every field the selection resolved. */
+export type CompactionRunInput = {
+  id: string;
+  chatId: string;
+  userId: string;
+  modelId: string;
+  selector: string;
+  effort?: string;
+  selectedEffort?: string;
+  selectionRevision?: number | null;
+  permissionMode?: PermissionMode;
+  focus: string | null;
+};
+
 export async function createCompactionRun(
   tx: Db,
-  input: {
-    id: string;
-    chatId: string;
-    userId: string;
-    modelId: string;
-    effort?: string;
-    permissionMode?: PermissionMode;
-    focus: string | null;
-  },
+  input: CompactionRunInput,
+): Promise<Run> {
+  const run = await createCompactionRunRow(tx, input);
+
+  await new RunEventsRepository(tx).append(run.id, 'run.created', {
+    chatId: input.chatId,
+    messageId: null,
+    compaction: { focus: input.focus },
+  });
+
+  return run;
+}
+
+/** The compaction Run's row in its own savepoint, mapped to the 409 it causes. */
+async function createCompactionRunRow(
+  tx: Db,
+  input: CompactionRunInput,
 ): Promise<Run> {
   try {
-    const run = await tx.transaction((inner) =>
+    return await tx.transaction((inner) =>
       new RunsRepository(inner).create({
         id: input.id,
         chatId: input.chatId,
         messageId: null,
         userId: input.userId,
         modelId: input.modelId,
+        selector: input.selector,
         kind: 'compaction',
         effort: input.effort,
+        ...(input.selectedEffort !== undefined && {
+          selectedEffort: input.selectedEffort,
+        }),
+        ...(input.selectionRevision !== undefined &&
+          input.selectionRevision !== null && {
+            selectionRevision: input.selectionRevision,
+          }),
         permissionMode: input.permissionMode,
       }),
     );
-
-    await new RunEventsRepository(tx).append(run.id, 'run.created', {
-      chatId: input.chatId,
-      messageId: null,
-      compaction: { focus: input.focus },
-    });
-
-    return run;
   } catch (error) {
     if (isInflightUniqueViolation(error)) {
       throw new ConflictException(
@@ -171,7 +201,14 @@ async function createRunRow(
         messageId: userMessage.id,
         userId: input.userId,
         modelId: input.modelId,
+        selector: input.selector,
         effort: input.effort,
+        ...(input.selectedEffort !== undefined && {
+          selectedEffort: input.selectedEffort,
+        }),
+        ...(input.selectionRevision !== null && {
+          selectionRevision: input.selectionRevision,
+        }),
         permissionMode: input.permissionMode,
         followUpAction: input.followUp?.action,
         sourceRunId: input.followUp?.sourceRunId,

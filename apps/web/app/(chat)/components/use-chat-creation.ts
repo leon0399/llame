@@ -39,7 +39,8 @@ import {
  */
 
 type ComposerSelections = {
-  modelId: string | undefined;
+  /** The composer's model id or role, as it reaches the request's `selector`. */
+  selector: string | undefined;
   effort: string | undefined;
   permissionMode: PermissionMode;
   modelReadyForSend: boolean;
@@ -56,7 +57,7 @@ function useComposerSelections(composerChatId: string): ComposerSelections {
     useChatModelSelection(selectedModel, setSelectedModel);
 
   return {
-    modelId: selectedModel,
+    selector: selectedModel,
     effort: selectedEffort,
     permissionMode: getPermissionMode(composerChatId),
     modelReadyForSend,
@@ -78,10 +79,10 @@ type CreateRequestInput = {
  *  location is opt-in: the request names the working directory the row shows,
  *  or none, so the server never binds a default the reader did not see. */
 function createRequest(input: CreateRequestInput): CreateChatRequest | null {
-  const { modelId, modelReadyForSend, effort, permissionMode } =
+  const { selector, modelReadyForSend, effort, permissionMode } =
     input.selections;
 
-  if (!modelReadyForSend || modelId === undefined) return null;
+  if (!modelReadyForSend || selector === undefined) return null;
 
   if (input.text.length === 0 && input.files.length === 0) return null;
 
@@ -107,7 +108,7 @@ function createRequest(input: CreateRequestInput): CreateChatRequest | null {
             checkoutId: checkout.id,
           },
     isolation: checkout === null ? "reuse" : input.location.isolation,
-    message: { parts, modelId, effort, permissionMode },
+    message: { parts, selector, effort, permissionMode },
   });
 }
 

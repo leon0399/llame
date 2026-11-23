@@ -126,7 +126,7 @@ describe('real host async jobs', () => {
       bashProcessLimiter: new BashProcessLimiter(2),
       bashJobs: registry,
       jobSettings: {
-        modelId: 'test-model',
+        selector: 'test-model',
         effort: 'high',
         permissionMode: 'default',
       },

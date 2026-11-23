@@ -35,7 +35,7 @@ import { ChatsRepository } from './chats-repository';
 import { type ChangeableDeliveryMode } from './dto/chat-deliveries.dto';
 import { RunWaitService } from '../runs/run-wait.service';
 import { retryRunTransaction } from '../runs/run-transaction';
-import type { Run } from '../db/schema';
+import type { Chat, Run } from '../db/schema';
 
 function assertModeChangeAllowed(slot: {
   state: 'free' | 'blocked';
@@ -151,7 +151,8 @@ export class ChatDeliveriesService {
         if (!changed)
           throw await this.missOf(items, chatId, deliveryId, userId);
 
-        if (slot.state !== 'blocked') return this.startChangedItem(tx, changed);
+        if (slot.state !== 'blocked')
+          return this.startChangedItem(tx, chat, changed);
 
         await notifyLiveRunSteering(tx, { chatId, userId }, mode, this.runWait);
 
@@ -181,14 +182,39 @@ export class ChatDeliveriesService {
     return existing;
   }
 
-  /** Validate owner-supplied settings before starting a changed pending item. */
-  private async startChangedItem(tx: Db, changed: ChatDeliveryView['item']) {
-    resolveSendSettings(
+  /**
+   * Validate the item's settings against the selection the Chat stores, then
+   * start its Run. Settings a send cannot use now leave the item pending, as a
+   * send of them would fail: the resolver answers the 422 that admission would
+   * have answered. The item starts as a derived creator, so it never writes
+   * the owner's selector or effort.
+   */
+  private async startChangedItem(
+    tx: Db,
+    chat: Chat,
+    changed: ChatDeliveryView['item'],
+  ) {
+    const resolved = resolveSendSettings(
       this.models,
       this.instanceConfig.config.tools.permissionModes,
-      changed.settings,
+      {
+        stored: chat.modelSelection ?? null,
+        request: {
+          selector: changed.settings.selector,
+          effort: changed.settings.effort,
+        },
+        writer: 'derived',
+        permissionMode: changed.settings.permissionMode,
+      },
     );
-    const started = await startItemRun(tx, changed);
+
+    const started = await startItemRun(tx, changed, {
+      selector: resolved.selector,
+      modelId: resolved.modelId,
+      effort: resolved.effort,
+      permissionMode: resolved.permissionMode,
+      selectionRevision: chat.modelSelection?.revision ?? null,
+    });
 
     if (!started) throw new ConflictException('Message id already exists');
 

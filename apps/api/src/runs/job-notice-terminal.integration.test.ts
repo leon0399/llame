@@ -41,7 +41,7 @@ describe('terminal job notice recovery', () => {
         workerInstanceId: randomUUID(),
         outputs: [],
         artifactReadable: false,
-        settings: { modelId: seeded.modelId, permissionMode: 'default' },
+        settings: { selector: seeded.modelId, permissionMode: 'default' },
       });
 
       const settled = await jobs.settle(seeded.chatId, fx.userId, job.id, {

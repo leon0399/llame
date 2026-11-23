@@ -22,6 +22,15 @@ import {
   type ModelCredentialResolver,
 } from './model-client';
 import { parseModelSelector, ROLE_SIGN } from './model-selector';
+import {
+  chooseEffort,
+  chooseSelector,
+  nextSelectionForWrite,
+  type ChatModelSelection,
+  type SelectionCatalog,
+  type SelectionRequest,
+  type SelectionWriter,
+} from './model-selection';
 
 /** One candidate of a published role, as a client may present it. */
 export type ModelRoleCandidateAvailability = {
@@ -147,41 +156,126 @@ export function resolvePermissionMode(
   return mode;
 }
 
+/** What one admission resolved: the values its Run records, and its selection write. */
+export type ResolvedSendSettings = {
+  selector: string;
+  modelId: string;
+  effort: string | undefined;
+  permissionMode: PermissionMode;
+  nextSelection: ChatModelSelection | undefined;
+};
+
 /**
- * The model, effort, and permission mode of one send, resolved together: the
- * model is in the catalog, the effort is one of its levels, and the mode is
- * enabled. A chat send and the promotion of a pending item share this one
- * check, so an item is promoted only under settings a send would be accepted
- * with now. The effort is resolved from the already-validated model, so an
- * unavailable model is reported without the effort ever being considered.
+ * The model, effort, and permission mode of one admission, resolved together:
+ * the selector is the named, stored, or default one; its model is in the
+ * catalog; the effort follows "An omitted effort follows one order"; the mode
+ * is enabled. Every admission path — a send, chat creation, Regenerate,
+ * `/compact`, queue promotion, and a job notice — shares this one check, so a
+ * pending item starts only under settings a send would be accepted with now.
+ *
+ * The selector and the effort resolve first: the effort's legality is defined
+ * by the resolved model, so an unavailable selector is reported without the
+ * effort ever being considered, exactly as before.
  */
 export function resolveSendSettings(
   models: ModelSelectionValidator,
   enabledModes: ReadonlyArray<PermissionMode>,
-  requested: {
-    modelId: string;
-    effort?: string | undefined;
+  input: {
+    stored: ChatModelSelection | null;
+    request: SelectionRequest;
+    writer: SelectionWriter;
     permissionMode?: PermissionMode | undefined;
   },
-) {
-  const model = models.validateModelSelection(requested.modelId);
+): ResolvedSendSettings {
+  const selection = models.resolveSelection(
+    input.stored,
+    input.request,
+    input.writer,
+  );
 
   return {
-    effort: models.resolveEffortSelection(model, requested.effort),
-    permissionMode: resolvePermissionMode(
-      requested.permissionMode,
-      enabledModes,
-    ),
+    selector: selection.selector,
+    modelId: selection.model.id,
+    effort: selection.effort,
+    permissionMode: resolvePermissionMode(input.permissionMode, enabledModes),
+    nextSelection: selection.nextSelection,
+  };
+}
+
+const DEFAULT_SELECTOR_REQUIRED = 'defaults.selector is required.';
+
+const DEFAULT_SELECTOR_REFERENCE =
+  'defaults.selector must reference a configured model or model role.';
+
+/** What one selection resolves to, before its caller decides whether to store it. */
+export type ResolvedSelection = {
+  selector: string;
+  model: SystemModelCatalogEntry;
+  effort: string | undefined;
+  nextSelection: ChatModelSelection | undefined;
+};
+
+/**
+ * Resolve one selection against a catalog, mapping each refusal to its domain
+ * error (design D3). It lives beside the errors it raises, so the worker test
+ * harnesses resolve a selector through the same rules the API does instead of
+ * restating them.
+ */
+export function resolveSelectionFromCatalog(
+  catalog: SelectionCatalog,
+  stored: ChatModelSelection | null,
+  request: SelectionRequest,
+  writer: SelectionWriter,
+): ResolvedSelection {
+  const chosen = chooseSelector(catalog, stored, request);
+
+  if (chosen.kind === 'unknown') {
+    throw new ModelNotAvailableError(chosen.selector);
+  }
+
+  if (chosen.kind === 'no-default') {
+    throw new ModelConfigurationError(DEFAULT_SELECTOR_REQUIRED);
+  }
+
+  if (chosen.kind === 'unresolved-default') {
+    throw new ModelConfigurationError(DEFAULT_SELECTOR_REFERENCE);
+  }
+
+  const effort = chooseEffort({
+    model: chosen.model,
+    requested: request.effort,
+    storedEffort: chosen.storedUsed ? (stored?.effort ?? null) : null,
+    candidateEffort: chosen.candidate?.effort,
+  });
+
+  if (effort.kind === 'undeclared') {
+    throw new EffortNotAvailableError(chosen.model.id, effort.effort);
+  }
+
+  const resolvedEffort = effort.kind === 'effort' ? effort.effort : undefined;
+
+  return {
+    selector: chosen.selector,
+    model: chosen.model,
+    effort: resolvedEffort,
+    nextSelection: nextSelectionForWrite({
+      stored,
+      request,
+      writer,
+      selector: chosen.selector,
+      effort: resolvedEffort,
+      storedUsed: chosen.storedUsed,
+    }),
   };
 }
 
 /** The only capability a run needs to obtain a client (#268). */
 export type ModelClientFactory = Pick<ModelsService, 'createClient'>;
 
-/** The only capability the chat send path needs to validate a selection (#268). */
+/** The only capability the admission paths need to resolve a selection (#268). */
 export type ModelSelectionValidator = Pick<
   ModelsService,
-  'validateModelSelection' | 'resolveEffortSelection'
+  'validateModelSelection' | 'resolveEffortSelection' | 'resolveSelection'
 >;
 
 /**
@@ -246,9 +340,7 @@ export class ModelsService {
     const model = this.primaryEntry(this.configuredDefaultSelector());
 
     if (!model) {
-      throw new ModelConfigurationError(
-        'defaults.selector must reference a configured model or model role.',
-      );
+      throw new ModelConfigurationError(DEFAULT_SELECTOR_REFERENCE);
     }
 
     return model;
@@ -287,6 +379,34 @@ export class ModelsService {
     requested: string | undefined,
   ): string | undefined {
     return resolveEffortSelection(model, requested);
+  }
+
+  /**
+   * Resolve one admission's selector, model, and effort (design D3). The
+   * caller runs it inside the transaction that holds the Chat row, with the
+   * selection that row stores: `chooseSelector` picks the named, stored, or
+   * default selector, `chooseEffort` follows the spec's order, and
+   * `nextSelectionForWrite` decides whether an owner request stores the
+   * result. A held Chat resolves to its held model in the hold layer; this
+   * layer ignores `hold` entirely.
+   */
+  resolveSelection(
+    stored: ChatModelSelection | null,
+    request: SelectionRequest,
+    writer: SelectionWriter,
+  ): ResolvedSelection {
+    return resolveSelectionFromCatalog(
+      {
+        defaultSelector:
+          this.instanceConfig.config.defaults.selector ?? undefined,
+        roleCandidates: (roleName) =>
+          this.rolesByName.get(roleName)?.candidates,
+        model: (modelId) => this.modelsById.get(modelId),
+      },
+      stored,
+      request,
+      writer,
+    );
   }
 
   /** Per-user BYOK seam (#37/v0.4) — preserved, unused today: no caller supplies `resolveCredential` yet. */
@@ -340,7 +460,7 @@ export class ModelsService {
     const selector = this.instanceConfig.config.defaults.selector;
 
     if (!selector) {
-      throw new ModelConfigurationError('defaults.selector is required.');
+      throw new ModelConfigurationError(DEFAULT_SELECTOR_REQUIRED);
     }
 
     return selector;

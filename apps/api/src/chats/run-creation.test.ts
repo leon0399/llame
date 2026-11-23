@@ -28,6 +28,7 @@ describe('createCompactionRun', () => {
         chatId: 'chat-1',
         userId: 'owner-1',
         modelId: 'model-1',
+        selector: 'model-1',
         focus: null,
       }),
     ).rejects.toThrow(
@@ -76,7 +77,10 @@ describe('createRunForMessage', () => {
           userId: 'owner-1',
           chatId: 'chat-1',
           modelId: 'model-1',
+          selector: 'model-1',
           effort: undefined,
+          selectedEffort: undefined,
+          selectionRevision: null,
           permissionMode: 'default',
           targetRunId: 'run-1',
         },

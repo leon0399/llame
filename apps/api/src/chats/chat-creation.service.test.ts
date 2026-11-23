@@ -106,6 +106,7 @@ const chat: Chat = {
   workspaceToldFrom: null,
   workspaceToldAvailable: null,
   workspaceDetachReason: null,
+  modelSelection: null,
 };
 
 function projectRow(overrides: Partial<Project> = {}): Project {
@@ -197,7 +198,7 @@ function defaultRow(): ProjectRepositoryDefault {
 
 function turn(mode: ValidatedChatTurn['permissionMode'] = 'default') {
   return {
-    modelId: 'system:openai:gpt-5.4',
+    selector: 'system:openai:gpt-5.4',
     effort: undefined,
     permissionMode: mode,
     message: {
@@ -479,7 +480,7 @@ describe('ChatCreationService validation before any write', () => {
         request({
           message: {
             id: '65f0f6e8-d5ce-4791-a222-e7a0df638810',
-            modelId: 'missing',
+            selector: 'missing',
             parts: [{ type: 'text', text: 'hi' }],
           },
         }),
@@ -500,7 +501,7 @@ describe('ChatCreationService validation before any write', () => {
       request({
         message: {
           id: '65f0f6e8-d5ce-4791-a222-e7a0df638810',
-          modelId: 'system:openai:gpt-5.4',
+          selector: 'system:openai:gpt-5.4',
           parts: [{ type: 'text', text: 'hi' }],
         },
       }),
@@ -510,7 +511,7 @@ describe('ChatCreationService validation before any write', () => {
       request({
         message: {
           id: 'cc5ce18b-2f3a-4f6b-8c95-f9c6240a8f02',
-          modelId: 'system:openai:gpt-5.4',
+          selector: 'system:openai:gpt-5.4',
           effort: 'high',
           permissionMode: 'bypass',
           parts: [{ type: 'text', text: 'hi' }],
@@ -522,7 +523,7 @@ describe('ChatCreationService validation before any write', () => {
     // `undefined` keys the chat loop would have to interpret.
     expect(service.validateTurn.mock.calls[0]?.[0]).toStrictEqual({
       userId: OWNER,
-      modelId: 'system:openai:gpt-5.4',
+      selector: 'system:openai:gpt-5.4',
       message: {
         id: '65f0f6e8-d5ce-4791-a222-e7a0df638810',
         parts: [{ type: 'text', text: 'hi' }],
@@ -554,7 +555,7 @@ describe('ChatCreationService Workspace outcomes', () => {
         repositoryId: REPOSITORY_ID,
         message: {
           id: '65f0f6e8-d5ce-4791-a222-e7a0df638810',
-          modelId: 'system:openai:gpt-5.4',
+          selector: 'system:openai:gpt-5.4',
           permissionMode: 'default',
           parts: [{ type: 'text', text: 'hi' }],
         },
@@ -615,7 +616,7 @@ describe('ChatCreationService Workspace outcomes', () => {
         repositoryId: REPOSITORY_ID,
         message: {
           id: '65f0f6e8-d5ce-4791-a222-e7a0df638810',
-          modelId: 'system:openai:gpt-5.4',
+          selector: 'system:openai:gpt-5.4',
           parts: [{ type: 'text', text: 'hi' }],
         },
       }),
@@ -683,7 +684,7 @@ describe('ChatCreationService Workspace outcomes', () => {
         projectId: PROJECT_ID,
         message: {
           id: '65f0f6e8-d5ce-4791-a222-e7a0df638810',
-          modelId: 'system:openai:gpt-5.4',
+          selector: 'system:openai:gpt-5.4',
           parts: [{ type: 'text', text: 'hi' }],
         },
       }),
@@ -716,7 +717,7 @@ describe('ChatCreationService Workspace outcomes', () => {
       request({
         message: {
           id: '65f0f6e8-d5ce-4791-a222-e7a0df638810',
-          modelId: 'system:openai:gpt-5.4',
+          selector: 'system:openai:gpt-5.4',
           parts: [{ type: 'text', text: 'hi' }],
         },
       }),
@@ -747,7 +748,7 @@ describe('ChatCreationService Workspace outcomes', () => {
         repositoryId: REPOSITORY_ID,
         message: {
           id: '65f0f6e8-d5ce-4791-a222-e7a0df638810',
-          modelId: 'system:openai:gpt-5.4',
+          selector: 'system:openai:gpt-5.4',
           parts: [{ type: 'text', text: 'hi' }],
         },
       }),
@@ -777,7 +778,7 @@ describe('ChatCreationService Workspace outcomes', () => {
           repositoryId: REPOSITORY_ID,
           message: {
             id: '65f0f6e8-d5ce-4791-a222-e7a0df638810',
-            modelId: 'system:openai:gpt-5.4',
+            selector: 'system:openai:gpt-5.4',
             parts: [{ type: 'text', text: 'hi' }],
           },
         }),
@@ -811,7 +812,7 @@ describe('ChatCreationService Workspace outcomes', () => {
           repositoryId: REPOSITORY_ID,
           message: {
             id: '65f0f6e8-d5ce-4791-a222-e7a0df638810',
-            modelId: 'system:openai:gpt-5.4',
+            selector: 'system:openai:gpt-5.4',
             parts: [{ type: 'text', text: 'hi' }],
           },
         }),
@@ -939,7 +940,7 @@ describe('ChatCreationService resend rules', () => {
       request({
         message: {
           id: '65f0f6e8-d5ce-4791-a222-e7a0df638810',
-          modelId: 'system:openai:gpt-5.4',
+          selector: 'system:openai:gpt-5.4',
           parts: [{ type: 'text', text: 'hi' }],
         },
       }),
@@ -977,7 +978,7 @@ describe('ChatCreationService resend rules', () => {
         worktree: {},
         message: {
           id: '65f0f6e8-d5ce-4791-a222-e7a0df638810',
-          modelId: 'system:openai:gpt-5.4',
+          selector: 'system:openai:gpt-5.4',
           parts: [{ type: 'text', text: 'hi' }],
         },
       }),

@@ -500,11 +500,11 @@ describe("AgUiChat", () => {
       [USER, old],
     );
 
-    await chat.regenerate({ body: { action: "regenerate", modelId: "m" } });
+    await chat.regenerate({ body: { action: "regenerate", selector: "m" } });
 
     expect(requests[0]).toMatchObject({
       trigger: "regenerate-message",
-      body: { action: "regenerate", modelId: "m" },
+      body: { action: "regenerate", selector: "m" },
       messages: [USER],
     });
     expect(chat.getSnapshot().messages.map((message) => message.id)).toEqual([

@@ -97,7 +97,7 @@ describe('Regenerate restores consumed job notices', () => {
             workerInstanceId: randomUUID(),
             outputs: [],
             artifactReadable: false,
-            settings: { modelId: seeded.modelId, permissionMode: 'default' },
+            settings: { selector: seeded.modelId, permissionMode: 'default' },
           });
 
           const settled = await jobs.settle(seeded.chatId, fx.userId, job.id, {
@@ -131,7 +131,7 @@ describe('Regenerate restores consumed job notices', () => {
             workerInstanceId: randomUUID(),
             outputs: [],
             artifactReadable: false,
-            settings: { modelId: seeded.modelId, permissionMode: 'default' },
+            settings: { selector: seeded.modelId, permissionMode: 'default' },
           });
 
           const settled = await jobs.settle(seeded.chatId, fx.userId, job.id, {
@@ -196,7 +196,10 @@ describe('Regenerate restores consumed job notices', () => {
           userId: fx.userId,
           chatId: source.chatId,
           modelId: source.modelId,
+          selector: source.modelId,
           effort: undefined,
+          selectedEffort: undefined,
+          selectionRevision: null,
           permissionMode: 'default',
           targetRunId: randomUUID(),
           followUp: {
@@ -247,7 +250,10 @@ describe('Regenerate restores consumed job notices', () => {
           userId: fx.userId,
           chatId: source.chatId,
           modelId: source.modelId,
+          selector: source.modelId,
           effort: undefined,
+          selectedEffort: undefined,
+          selectionRevision: null,
           permissionMode: 'default',
           targetRunId: randomUUID(),
           followUp: {
@@ -319,7 +325,7 @@ describe('Regenerate restores consumed job notices', () => {
         workerInstanceId: randomUUID(),
         outputs: [],
         artifactReadable: false,
-        settings: { modelId: source.modelId, permissionMode: 'default' },
+        settings: { selector: source.modelId, permissionMode: 'default' },
       });
 
       const settled = await jobs.settle(source.chatId, fx.userId, job.id, {
@@ -358,7 +364,10 @@ describe('Regenerate restores consumed job notices', () => {
           userId: fx.userId,
           chatId: source.chatId,
           modelId: source.modelId,
+          selector: source.modelId,
           effort: undefined,
+          selectedEffort: undefined,
+          selectionRevision: null,
           permissionMode: 'default',
           targetRunId: randomUUID(),
           followUp: {
@@ -425,7 +434,10 @@ describe('Regenerate restores consumed job notices', () => {
             userId: fx.userId,
             chatId: source.chatId,
             modelId: source.modelId,
+            selector: source.modelId,
             effort: undefined,
+            selectedEffort: undefined,
+            selectionRevision: null,
             permissionMode: 'default',
             targetRunId: randomUUID(),
             followUp: {

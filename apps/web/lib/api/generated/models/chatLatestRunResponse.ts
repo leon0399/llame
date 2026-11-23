@@ -25,6 +25,8 @@ export interface ChatLatestRunResponse {
    * @nullable
    */
   followUpAction: ChatLatestRunResponseFollowUpAction;
+  /** The `@role` or model id the Run recorded when it was admitted. */
+  selector: string;
   modelId: string;
   /**
    * The effort the Run executes with; null sends no effort.

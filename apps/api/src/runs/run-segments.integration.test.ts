@@ -106,7 +106,7 @@ describe('run steering segments', () => {
         outputs: options.outputs?.map(({ name }) => name) ?? [],
         artifactReadable: false,
         settings: {
-          modelId: options.modelId ?? seeded.modelId,
+          selector: options.modelId ?? seeded.modelId,
           permissionMode: 'default',
         },
       });
@@ -250,7 +250,7 @@ describe('run steering segments', () => {
                 outputs: [],
                 artifactReadable: false,
                 settings: {
-                  modelId: seeded.modelId,
+                  selector: seeded.modelId,
                   permissionMode: 'default',
                 },
               }),
@@ -319,7 +319,7 @@ describe('run steering segments', () => {
                 outputs: [],
                 artifactReadable: false,
                 settings: {
-                  modelId: seeded.modelId,
+                  selector: seeded.modelId,
                   permissionMode: 'default',
                 },
               }),
@@ -529,7 +529,7 @@ describe('run steering segments', () => {
               workerInstanceId: randomUUID(),
               outputs: [],
               artifactReadable: false,
-              settings: { modelId: seeded.modelId, permissionMode: 'default' },
+              settings: { selector: seeded.modelId, permissionMode: 'default' },
             });
 
             const settled = await jobs.settle(

@@ -93,38 +93,54 @@ export class ChatCreationService {
       throw new UnprocessableEntityException(worktree.message);
     }
 
-    if (
-      input.executorId !== undefined &&
-      !this.connector.isConfigured(input.executorId)
-    ) {
-      throw new UnprocessableEntityException({
-        statusCode: 422,
-        error: 'Unprocessable Entity',
-        message: `Executor ${input.executorId} is not configured.`,
-        code: 'executor_unknown',
-      });
+    if (input.executorId !== undefined) {
+      this.assertExecutorConfigured(input.executorId);
     }
 
-    // Every message check runs before any write, and before the lock: a bad
-    // model, effort, mode, part, or foreign media stores nothing.
-    const turn =
-      input.message === undefined
-        ? undefined
-        : await this.chatLoop.validateTurn({
-            userId,
-            modelId: input.message.modelId,
-            ...(input.message.effort !== undefined && {
-              effort: input.message.effort,
-            }),
-            ...(input.message.permissionMode !== undefined && {
-              permissionMode: input.message.permissionMode,
-            }),
-            message: { id: input.message.id, parts: input.message.parts },
-          });
+    // Every check that needs no Chat state runs before the lock: a bad
+    // permission mode, part, or foreign media stores nothing. The selector and
+    // the effort resolve inside the admission transaction, against the
+    // selection the Chat row stores (design D3), so a refused one rolls that
+    // transaction back.
+    const turn = await this.validateTurnInput(userId, input);
 
     return this.locks.runExclusively(input.id, () =>
       this.createLocked(userId, input, worktree, turn),
     );
+  }
+
+  /** A request naming an executor this instance does not know stores nothing. */
+  private assertExecutorConfigured(executorId: string): void {
+    if (this.connector.isConfigured(executorId)) return;
+
+    throw new UnprocessableEntityException({
+      statusCode: 422,
+      error: 'Unprocessable Entity',
+      message: `Executor ${executorId} is not configured.`,
+      code: 'executor_unknown',
+    });
+  }
+
+  /** The first message's turn, validated before the lock takes the Chat. */
+  private async validateTurnInput(
+    userId: string,
+    input: CreateChatRequest,
+  ): Promise<ValidatedChatTurn | undefined> {
+    if (input.message === undefined) return undefined;
+
+    return this.chatLoop.validateTurn({
+      userId,
+      ...(input.message.selector !== undefined && {
+        selector: input.message.selector,
+      }),
+      ...(input.message.effort !== undefined && {
+        effort: input.message.effort,
+      }),
+      ...(input.message.permissionMode !== undefined && {
+        permissionMode: input.message.permissionMode,
+      }),
+      message: { id: input.message.id, parts: input.message.parts },
+    });
   }
 
   /** The owner's creation record: one entry per attempt, newest last. */

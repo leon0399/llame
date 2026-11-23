@@ -34,7 +34,7 @@ function job(overrides: Partial<ChatJob>): ChatJob {
     outputs: [],
     artifactId: null,
     artifactReadable: true,
-    settings: { modelId: 'm', permissionMode: 'default' },
+    settings: { selector: 'm', permissionMode: 'default' },
     ...overrides,
   };
 }
@@ -47,6 +47,7 @@ const OWNED_CHAT: Chat = {
   createdAt: new Date('2026-06-29T00:00:00.000Z'),
   updatedAt: new Date('2026-06-29T00:00:00.000Z'),
   archivedAt: null,
+  modelSelection: null,
   projectId: null,
   recencyDigestBaseline: null,
   recencyDigestTold: null,

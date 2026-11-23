@@ -175,6 +175,7 @@ components:
               archivedAt: null
               projectId: null
               workspaceRoot: null
+              modelSelection: null
               lastMessage: How does postgres.js re-LISTEN after a dropped connection?
               runningJobs: 0
     chatDeleted:
@@ -309,7 +310,7 @@ components:
                 parts:
                   - type: text
                     text: And then summarize it for the release notes.
-                modelId: gpt-5.5
+                selector: gpt-5.5
                 permissionMode: default
                 createdAt: '2026-10-16T09:12:30.004Z'
         - name: jobNotice
@@ -327,7 +328,7 @@ components:
                 job: job://bash-7
                 jobState: failed
                 parts: []
-                modelId: gpt-5.5
+                selector: gpt-5.5
                 permissionMode: default
                 createdAt: '2026-11-12T09:12:30.004Z'
     runUpdated:
@@ -345,6 +346,7 @@ components:
               kind: turn
               chatId: 0b7e6c1a-3f52-4d8e-9a41-6c2d5e8f1b37
               messageId: 3e8b1f6c-9a24-4d7e-b05a-7c2f9d1e4b83
+              selector: gpt-5.5
               modelId: gpt-5.5
               permissionMode: default
               status: running_model
@@ -363,6 +365,7 @@ components:
               kind: turn
               chatId: 0b7e6c1a-3f52-4d8e-9a41-6c2d5e8f1b37
               messageId: 3e8b1f6c-9a24-4d7e-b05a-7c2f9d1e4b83
+              selector: gpt-5.5
               modelId: gpt-5.5
               permissionMode: default
               status: awaiting_quota

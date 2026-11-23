@@ -282,7 +282,10 @@ describeIfDb('a Regenerate Run', () => {
           userId,
           chatId,
           modelId: options?.modelId ?? MODEL_C,
+          selector: options?.modelId ?? MODEL_C,
           effort: undefined,
+          selectedEffort: undefined,
+          selectionRevision: null,
           permissionMode: 'default',
           targetRunId: crypto.randomUUID(),
           followUp: {

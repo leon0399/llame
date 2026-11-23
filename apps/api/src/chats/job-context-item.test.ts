@@ -27,7 +27,7 @@ function job(overrides: Partial<ChatJob> = {}): ChatJob {
     outputs: ['stdout', 'stderr'],
     artifactId: null,
     artifactReadable: true,
-    settings: { modelId: 'gpt-5.5', permissionMode: 'default' },
+    settings: { selector: 'gpt-5.5', permissionMode: 'default' },
     ...overrides,
   };
 }

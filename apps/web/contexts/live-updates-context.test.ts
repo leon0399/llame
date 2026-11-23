@@ -31,6 +31,7 @@ const updated = (
     chatId,
     messageId: null,
     kind: "turn",
+    selector: "m",
     modelId: "m",
     permissionMode: "default",
     status,

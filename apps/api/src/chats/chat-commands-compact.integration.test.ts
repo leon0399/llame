@@ -110,7 +110,7 @@ d('POST /api/v1/chats/:id/messages — idle compaction admission', () => {
     chatId: string,
     options: {
       cookie?: string;
-      modelId?: string;
+      selector?: string;
       delivery?: 'queue' | 'steer' | 'interrupt';
       messageId?: string;
       text?: string;
@@ -122,7 +122,7 @@ d('POST /api/v1/chats/:id/messages — idle compaction admission', () => {
       .post(`/api/v1/chats/${chatId}/messages`)
       .set('Cookie', cookie)
       .send({
-        modelId: options.modelId ?? MODEL_ID,
+        selector: options.selector ?? MODEL_ID,
         ...(options.delivery !== undefined && { delivery: options.delivery }),
         message: {
           id: options.messageId ?? crypto.randomUUID(),
@@ -292,7 +292,9 @@ d('POST /api/v1/chats/:id/messages — idle compaction admission', () => {
     const chatId = await createChat(userAId, 'Unknown compaction model');
     await seedOneTurn(chatId, userAId);
 
-    const response = await sendCompact(chatId, { modelId: 'not-a-chat-model' });
+    const response = await sendCompact(chatId, {
+      selector: 'not-a-chat-model',
+    });
 
     const run = await tenantDb.runAs(userAId, (tx) =>
       new RunsRepository(tx).findLatestByChatId(chatId, userAId),
@@ -397,7 +399,7 @@ d('POST /api/v1/chats/:id/messages — idle compaction admission', () => {
       .post(`/api/v1/chats/${chatId}/messages`)
       .set('Cookie', cookieA)
       .send({
-        modelId: MODEL_ID,
+        selector: MODEL_ID,
         message: {
           id: crypto.randomUUID(),
           parts: [{ type: 'text', text: 'Hold this turn.' }],
@@ -464,7 +466,7 @@ d('POST /api/v1/chats/:id/messages — idle compaction admission', () => {
           ownerUserId: userAId,
           mode: 'queue',
           parts: [{ type: 'text', text: `queued ${id}` }],
-          settings: { modelId: MODEL_ID, permissionMode: 'default' },
+          settings: { selector: MODEL_ID, permissionMode: 'default' },
         });
       }
     });

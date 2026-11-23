@@ -36,6 +36,7 @@ import {
 } from '../db/schema';
 
 import { type Db } from '../db/tenant-db.service';
+import { type ChatModelSelection } from '../models/model-selection';
 
 export { type Db } from '../db/tenant-db.service';
 
@@ -43,47 +44,18 @@ import { isCompletedAssistantTurn } from './assistant-completion';
 
 export { isCompletedAssistantTurn };
 
-import {
-  buildHybridSearchQuery,
-  normalizeForSearch,
-  RRF_DEFAULT_K,
-  type HybridSearchResult,
-} from '../search/core';
-import { EMBED_INPUT_VERSION } from '../search/embed-input-version';
-import { resolveSearchScopes } from './chats-search-scope';
+import { normalizeForSearch, type HybridSearchResult } from '../search/core';
 import type { SearchByOwnerOptions } from './chats-search-scope';
+import {
+  buildChatSearchQuery,
+  toHybridSearchResult,
+} from './chats-search-query';
 
 export { MessagesRepository } from './messages-repository';
 
 export { type ConversationMessageLookup } from './conversation-message-lookup';
 
 const DEFAULT_CHAT_VISIBILITY = 'private';
-
-const CHAT_DOCUMENT_COLUMNS = {
-  table: 'search_chat_documents',
-  groupId: 'chat_id',
-  id: 'id',
-  fts: 'fts',
-  normalized: 'normalized_content',
-  content: 'content',
-} as const;
-
-const CHAT_PARENT_COLUMNS = {
-  table: 'chats',
-  id: 'id',
-  title: 'title',
-  recency: 'updated_at',
-} as const;
-
-const CHAT_VECTOR_COLUMNS = {
-  embedding: 'embedding',
-  embeddingModelKey: 'embedding_model_key',
-  embeddedContentHash: 'embedded_content_hash',
-  embedInputVersion: 'embed_input_version',
-  contentHash: 'content_hash',
-} as const;
-
-const SNIPPET_MAX = 160;
 
 /**
  * Chat-row values a fork copies from its source (complete-owner-forks D3): the
@@ -129,15 +101,6 @@ type ChatOwnerFilter = {
   excludeId?: string;
   titledOnly?: boolean;
 };
-
-/** Collapse whitespace and clip a matching message to a short search snippet. */
-function truncateSnippet(text: string): string {
-  const clean = text.replaceAll(/\s+/g, ' ').trim();
-
-  return clean.length > SNIPPET_MAX
-    ? `${clean.slice(0, SNIPPET_MAX).trimEnd()}…`
-    : clean;
-}
 
 export class ChatsRepository {
   constructor(private readonly db: Db) {}
@@ -335,6 +298,25 @@ export class ChatsRepository {
       .where(and(eq(chats.id, chatId), eq(chats.ownerUserId, ownerUserId)));
   }
 
+  /**
+   * Replace the Chat's stored model selection (model-roles). Called inside the
+   * admission transaction that already read or locked this Chat for the
+   * requesting owner, so the id alone scopes the write: RLS still enforces the
+   * owner, and the row is the one admission just admitted the turn to.
+   *
+   * Writes only this column — recency stays the caller's `touch`, so a send
+   * that re-selects a model cannot reorder the chat list twice.
+   */
+  async setModelSelection(
+    chatId: string,
+    selection: ChatModelSelection,
+  ): Promise<void> {
+    await this.db
+      .update(chats)
+      .set({ modelSelection: selection })
+      .where(eq(chats.id, chatId));
+  }
+
   /** Pin membership for the accumulated told-set, never the capped rendering. */
   async findPinnedChatIds(
     ownerUserId: string,
@@ -414,57 +396,6 @@ export class ChatsRepository {
       .where(and(eq(chats.id, chatId), eq(chats.ownerUserId, ownerUserId)));
   }
 
-  /** Hybrid lexical+vector search query over the projection, scoped to an owner. */
-  private buildChatSearchQuery(
-    ownerUserId: string,
-    normalizedQuery: string,
-    likePattern: string,
-    options: SearchByOwnerOptions,
-  ) {
-    const { scope, rangePreference } = resolveSearchScopes(
-      ownerUserId,
-      options.timeRange,
-    );
-
-    return buildHybridSearchQuery({
-      query: normalizedQuery,
-      likePattern,
-      document: CHAT_DOCUMENT_COLUMNS,
-      parent: CHAT_PARENT_COLUMNS,
-      scope,
-      vector: options.vector
-        ? {
-            queryVector: options.vector.queryVector,
-            activeModelKey: options.vector.modelKey,
-            currentInputVersion: EMBED_INPUT_VERSION,
-            columns: CHAT_VECTOR_COLUMNS,
-            weight: 1,
-            limit: 100,
-          }
-        : undefined,
-      rangePreference,
-      weights: { fts: 1, trgm: 0.35, title: 1 },
-      limits: { fts: 100, trgm: 40, title: 50 },
-      rrfK: RRF_DEFAULT_K,
-      groupTopNWeights: [1, 0.25, 0.1],
-      limit: options.limit,
-    });
-  }
-
-  private toHybridSearchResult(row: HybridSearchResult): HybridSearchResult {
-    return {
-      id: row.id,
-      title: row.title,
-      snippet:
-        row.snippet === null || row.snippet === undefined
-          ? null
-          : truncateSnippet(row.snippet),
-      // `execute` returns timestamps as Postgres text despite the row type.
-      updatedAt: new Date(row.updatedAt),
-      bestDocumentId: row.bestDocumentId,
-    };
-  }
-
   /**
    * User-facing chat search: the owner's chats matching by TITLE or by message
    * CONTENT (text parts of USER/ASSISTANT turns only — never system prompts or
@@ -507,7 +438,7 @@ export class ChatsRepository {
     const normalizedQuery = normalizeForSearch(trimmed);
     const likePattern = `%${normalizedQuery.replaceAll(/[\\%_]/g, String.raw`\$&`)}%`;
 
-    const search = this.buildChatSearchQuery(
+    const search = buildChatSearchQuery(
       ownerUserId,
       normalizedQuery,
       likePattern,
@@ -516,7 +447,7 @@ export class ChatsRepository {
 
     const rows = await this.db.execute<HybridSearchResult>(search);
 
-    return [...rows].map((r) => this.toHybridSearchResult(r));
+    return [...rows].map((r) => toHybridSearchResult(r));
   }
 
   /**

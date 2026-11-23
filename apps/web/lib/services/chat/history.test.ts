@@ -1697,6 +1697,7 @@ describe("replacementContext", () => {
       messageId: "user-1",
       status: "queued",
       followUpAction: "regenerate",
+      selector: "system:openai:gpt-5.4-mini",
       modelId: "system:openai:gpt-5.4-mini",
       effort: null,
       permissionMode: "default",

@@ -15,6 +15,8 @@ import { TenantDbService } from '../db/tenant-db.service';
 import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
 import { MediaService } from '../media/media.service';
 import { type ModelSelectionValidator } from '../models/models.service';
+import type { SystemModelCatalogEntry } from '../models/model-catalog';
+import { fakeResolveSelection } from '../testing/fake-model-selection';
 import { ChatLoopService } from '../chats/chat-loop.service';
 import { MessagesRepository } from '../chats/chats-repository';
 import { isTextPart } from '../chats/context-builder';
@@ -111,7 +113,7 @@ describeIfDb('personalization binds per run', () => {
     chatLoop.createMessageStream({
       chatId,
       userId,
-      modelId: 'system:openai:gpt-5.4-mini',
+      selector: 'system:openai:gpt-5.4-mini',
       message: { id: messageId, parts: [{ type: 'text', text: 'hello' }] },
     });
 
@@ -151,21 +153,30 @@ describeIfDb('personalization binds per run', () => {
     await sql`INSERT INTO users (id, name, email) VALUES (${userAId}, 'Bind A', ${`bind-a-${userAId}@test.com`})`;
     await sql`INSERT INTO users (id, name, email) VALUES (${userBId}, 'Bind B', ${`bind-b-${userBId}@test.com`})`;
 
+    const validateModelSelection = (
+      modelId: string,
+    ): SystemModelCatalogEntry => ({
+      id: modelId,
+      source: 'system' as const,
+      contextWindowTokens: 128_000,
+      input: ['text'],
+      provider: 'openai',
+      providerModelId: modelId,
+      systemPromptTemplate: SYSTEM_PROMPT_TEMPLATE,
+      systemPromptSource: 'project_default' as const,
+      referencesSkills: false,
+    });
+
     const models: ModelSelectionValidator = {
-      validateModelSelection: (modelId: string) => ({
-        id: modelId,
-        source: 'system' as const,
-        contextWindowTokens: 128_000,
-        input: ['text'],
-        provider: 'openai',
-        providerModelId: modelId,
-        systemPromptTemplate: SYSTEM_PROMPT_TEMPLATE,
-        systemPromptSource: 'project_default' as const,
-        referencesSkills: false,
-      }),
+      validateModelSelection,
       // No reasoning vocabulary on this double: effort always resolves to
       // "none".
       resolveEffortSelection: () => undefined,
+      resolveSelection: fakeResolveSelection({
+        validateModelSelection,
+        resolveEffortSelection: () => undefined,
+        defaultSelector: 'system:openai:gpt-5.4-mini',
+      }),
     };
 
     chatLoop = new ChatLoopService(

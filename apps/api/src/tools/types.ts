@@ -227,6 +227,11 @@ export interface ToolContext {
    */
   readonly bashProcessLimiter?: BashProcessLimiter;
   readonly bashJobs?: BashJobRegistry;
+  /**
+   * The settings a job this Run starts inherits: the Run's selector and
+   * selection effort, frozen on the claim (design D8), never the served
+   * model's live configuration.
+   */
   readonly jobSettings?: ChatDeliverySettings;
   readonly allowUnlimitedJobs?: boolean;
   /**

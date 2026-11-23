@@ -129,7 +129,7 @@ export function useSegmentsFixture(
           ownerUserId: state().userId,
           mode,
           parts: [{ type: 'text', text }],
-          settings: { modelId: 'ignored-by-steer', permissionMode: 'default' },
+          settings: { selector: 'ignored-by-steer', permissionMode: 'default' },
         });
 
         if (notifyRunId !== undefined && mode !== 'queue') {

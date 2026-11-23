@@ -133,6 +133,7 @@ function createdChat(
       archivedAt: null,
       projectId: "p1",
       workspaceRoot: null,
+      modelSelection: null,
     },
     workspace,
   };
@@ -923,7 +924,7 @@ export const SendCreatesFiledChat: Story = {
     await expect(body).toMatchObject({
       projectId: "p1",
       message: {
-        modelId: MODEL_ID,
+        selector: MODEL_ID,
         parts: [{ type: "text", text: "Start here" }],
       },
     });

@@ -92,6 +92,7 @@ import { toChatMessageResponse } from './dto/chats.dto';
 import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
 import type { SystemModelCatalogEntry } from '../models/model-catalog';
 import type { ModelSelectionValidator } from '../models/models.service';
+import { fakeResolveSelection } from '../testing/fake-model-selection';
 import type { InstanceConfigReader } from '../instance-config/instance-config.service';
 import { SystemPromptsService } from '../system-prompts/system-prompts.service';
 import type { TitleCapability } from '../titles/title.service';
@@ -730,12 +731,21 @@ describeIfDb('executeRun tool-loop persistence', () => {
       },
     };
 
+    const validateModelSelection = vi.fn().mockReturnValue({
+      ...testModelEntry,
+      referencesSkills: resolved.modelReferencesSkills ?? false,
+    });
+
+    const resolveEffortSelection = vi.fn().mockReturnValue(undefined);
+
     const models: ModelSelectionValidator = {
-      validateModelSelection: vi.fn().mockReturnValue({
-        ...testModelEntry,
-        referencesSkills: resolved.modelReferencesSkills ?? false,
+      validateModelSelection,
+      resolveEffortSelection,
+      resolveSelection: fakeResolveSelection({
+        validateModelSelection,
+        resolveEffortSelection,
+        defaultSelector: testModelEntry.id,
       }),
-      resolveEffortSelection: vi.fn().mockReturnValue(undefined),
     };
 
     return {

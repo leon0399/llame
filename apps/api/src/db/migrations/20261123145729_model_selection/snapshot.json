@@ -1,0 +1,115 @@
+{
+  "type": "diff",
+  "version": "9",
+  "dialect": "postgres",
+  "id": "794e07e6-fac4-4ccd-9781-02a8b8f5b351",
+  "prevIds": ["5cdc238c-b0e9-4ef0-ae35-64727021677d"],
+  "footprints": [
+    {
+      "statementType": "add_column",
+      "statementTarget": ["column", "public", "chats", "model_selection"],
+      "writes": [
+        "s|col|public.chats.model_selection",
+        "n|col|public.chats.model_selection",
+        "e|col|public.chats.model_selection"
+      ],
+      "reads": ["n|tbl|public.chats", "n|sch|public"]
+    },
+    {
+      "statementType": "add_column",
+      "statementTarget": ["column", "public", "runs", "selector"],
+      "writes": [
+        "s|col|public.runs.selector",
+        "n|col|public.runs.selector",
+        "e|col|public.runs.selector"
+      ],
+      "reads": ["n|tbl|public.runs", "n|sch|public"]
+    },
+    {
+      "statementType": "add_column",
+      "statementTarget": ["column", "public", "runs", "selected_effort"],
+      "writes": [
+        "s|col|public.runs.selected_effort",
+        "n|col|public.runs.selected_effort",
+        "e|col|public.runs.selected_effort"
+      ],
+      "reads": ["n|tbl|public.runs", "n|sch|public"]
+    },
+    {
+      "statementType": "add_column",
+      "statementTarget": ["column", "public", "runs", "selection_revision"],
+      "writes": [
+        "s|col|public.runs.selection_revision",
+        "n|col|public.runs.selection_revision",
+        "e|col|public.runs.selection_revision"
+      ],
+      "reads": ["n|tbl|public.runs", "n|sch|public"]
+    }
+  ],
+  "deltas": [
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "chats",
+        "name": "model_selection",
+        "type": "jsonb",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "runs",
+        "name": "selector",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "runs",
+        "name": "selected_effort",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "runs",
+        "name": "selection_revision",
+        "type": "integer",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    }
+  ]
+}

@@ -35,6 +35,7 @@ import { bashTool } from '../tools/bash';
 import { BashJobRegistry } from '../jobs/bash-job-registry';
 import { BASH_SETTLEMENT_GRACE_MS } from '../tools/bash-limits';
 import { webSearchTool } from '../tools/web-search/tool';
+import { fakeResolveSelection } from '../testing/fake-model-selection';
 import { compileTestPermissionPolicy } from '../testing/tool-permission-policy';
 import { createProtocolPeer } from '../testing/machine-protocol-peer';
 import {
@@ -386,6 +387,7 @@ const chat: Chat = {
   createdAt: now,
   updatedAt: now,
   archivedAt: null,
+  modelSelection: null,
   projectId: null,
   recencyDigestBaseline: null,
   recencyDigestTold: null,
@@ -425,6 +427,9 @@ const run: Run = {
   messageId,
   userId,
   modelId: 'fake-model',
+  selector: 'fake-model',
+  selectedEffort: null,
+  selectionRevision: null,
   activeAttemptId: null,
   completedAttemptId: null,
   turnToolAvailability: null,
@@ -594,6 +599,50 @@ type ExecutionServiceOptions = {
   jobNoticeRuns?: Pick<JobNoticeRunService, 'startAfterRunCompletion'>;
 };
 
+function executionToolsConfig(
+  options: ExecutionServiceOptions,
+): InstanceConfigReader['config']['tools'] {
+  return {
+    ...BUILT_IN_DEFAULTS.tools,
+    allowed: options.allowed ?? [],
+    maxStepsPerRun:
+      options.maxStepsPerRun ?? BUILT_IN_DEFAULTS.tools.maxStepsPerRun,
+    promptFiles: options.toolPromptFiles ?? BUILT_IN_DEFAULTS.tools.promptFiles,
+    permissionModes:
+      options.permissionModes ?? BUILT_IN_DEFAULTS.tools.permissionModes,
+    grep: options.grepBounds ?? BUILT_IN_DEFAULTS.tools.grep,
+    artifacts: options.artifacts ?? BUILT_IN_DEFAULTS.tools.artifacts,
+    callTimeoutSeconds:
+      options.callTimeoutSeconds ?? BUILT_IN_DEFAULTS.tools.callTimeoutSeconds,
+  };
+}
+
+function executionInstanceConfig(
+  options: ExecutionServiceOptions,
+  machines: MachinesConfig | undefined,
+): InstanceConfigReader {
+  return {
+    configPath: options.configPath,
+    config: {
+      ...BUILT_IN_DEFAULTS,
+      ...(machines !== undefined && { machines }),
+      tools: executionToolsConfig(options),
+      skills: {
+        ...BUILT_IN_DEFAULTS.skills,
+        directories: options.skillDirectories ?? [],
+      },
+      knowledge:
+        options.knowledgeRoot === undefined
+          ? BUILT_IN_DEFAULTS.knowledge
+          : { root: options.knowledgeRoot },
+      ...(options.ssh !== undefined && { ssh: options.ssh }),
+      ...(options.webSearch !== undefined && {
+        webSearch: options.webSearch,
+      }),
+    },
+  };
+}
+
 function makeExecutionService(
   client: ModelClient = createFakeModelClient(['answer']),
   dynamicToolResolver?: DynamicToolExecutorResolver,
@@ -648,40 +697,7 @@ function makeExecutionService(
           hosts: { [localMachine]: {} },
         });
 
-  const instanceConfig: InstanceConfigReader = {
-    configPath: options.configPath,
-    config: {
-      ...BUILT_IN_DEFAULTS,
-      ...(machines !== undefined && { machines }),
-      tools: {
-        ...BUILT_IN_DEFAULTS.tools,
-        allowed: options.allowed ?? [],
-        maxStepsPerRun:
-          options.maxStepsPerRun ?? BUILT_IN_DEFAULTS.tools.maxStepsPerRun,
-        promptFiles:
-          options.toolPromptFiles ?? BUILT_IN_DEFAULTS.tools.promptFiles,
-        permissionModes:
-          options.permissionModes ?? BUILT_IN_DEFAULTS.tools.permissionModes,
-        grep: options.grepBounds ?? BUILT_IN_DEFAULTS.tools.grep,
-        artifacts: options.artifacts ?? BUILT_IN_DEFAULTS.tools.artifacts,
-        callTimeoutSeconds:
-          options.callTimeoutSeconds ??
-          BUILT_IN_DEFAULTS.tools.callTimeoutSeconds,
-      },
-      skills: {
-        ...BUILT_IN_DEFAULTS.skills,
-        directories: options.skillDirectories ?? [],
-      },
-      knowledge:
-        options.knowledgeRoot === undefined
-          ? BUILT_IN_DEFAULTS.knowledge
-          : { root: options.knowledgeRoot },
-      ...(options.ssh !== undefined && { ssh: options.ssh }),
-      ...(options.webSearch !== undefined && {
-        webSearch: options.webSearch,
-      }),
-    },
-  };
+  const instanceConfig = executionInstanceConfig(options, machines);
 
   // Held separately so tests can rescript it with its inferred Mock type
   // instead of asserting the capability interface back down to a mock.
@@ -714,11 +730,20 @@ function makeExecutionService(
     enqueueChatEmbed: vi.fn(() => Promise.resolve()),
   };
 
+  const validateModelSelection = vi
+    .fn()
+    .mockReturnValue(options.model ?? testModelEntry);
+
+  const resolveEffortSelection = vi.fn().mockReturnValue(undefined);
+
   const models: ModelSelectionValidator = {
-    validateModelSelection: vi
-      .fn()
-      .mockReturnValue(options.model ?? testModelEntry),
-    resolveEffortSelection: vi.fn().mockReturnValue(undefined),
+    validateModelSelection,
+    resolveEffortSelection,
+    resolveSelection: fakeResolveSelection({
+      validateModelSelection,
+      resolveEffortSelection,
+      defaultSelector: (options.model ?? testModelEntry).id,
+    }),
   };
 
   const memory: MemorySettingsBindingResolver = options.memory ?? {
@@ -3795,6 +3820,7 @@ describe('RunExecutionService executeRun', () => {
         });
 
         vi.spyOn(execution.service, 'claimRun').mockResolvedValue({
+          selector: 'fake-model',
           effort: undefined,
           permissionMode: 'default',
           attemptId: testAttemptId,
@@ -3915,6 +3941,7 @@ describe('RunExecutionService executeRun', () => {
 
       vi.spyOn(execution.service, 'claimRun').mockResolvedValue({
         attemptId: testAttemptId,
+        selector: 'fake-model',
         effort: undefined,
         messageId,
         nativeDeliverySequence: 1,
@@ -4078,6 +4105,7 @@ describe('RunExecutionService executeRun', () => {
       );
 
       vi.spyOn(execution.service, 'claimRun').mockResolvedValue({
+        selector: 'fake-model',
         effort: undefined,
         permissionMode: 'default',
         attemptId: testAttemptId,
@@ -4110,6 +4138,7 @@ describe('RunExecutionService executeRun', () => {
       const execution = makeExecutionService(client);
 
       vi.spyOn(execution.service, 'claimRun').mockResolvedValue({
+        selector: 'fake-model',
         effort: undefined,
         permissionMode: 'default',
         attemptId: testAttemptId,
@@ -7818,7 +7847,7 @@ describe('RunExecutionService executeRun — queue promotion', () => {
   const queued = chatDeliveryRow({
     chatId,
     ownerUserId: userId,
-    settings: { modelId: 'fake-model', permissionMode: 'default' },
+    settings: { selector: 'fake-model', permissionMode: 'default' },
   });
 
   afterEach(() => {
@@ -9286,7 +9315,7 @@ function settledBashJob(seq: number): ChatJob {
     outputs: ['stdout'],
     artifactId: null,
     artifactReadable: false,
-    settings: { modelId: 'fake-model', permissionMode: 'default' },
+    settings: { selector: 'fake-model', permissionMode: 'default' },
   };
 }
 
@@ -14757,6 +14786,7 @@ describe('RunExecutionService executeRun — pre-step compaction trigger', () =>
           activeAttemptId: testAttemptId,
         });
         vi.spyOn(execution.service, 'claimRun').mockResolvedValue({
+          selector: 'fake-model',
           effort: undefined,
           permissionMode: 'default',
           attemptId: testAttemptId,
@@ -14891,6 +14921,7 @@ describe('RunExecutionService executeRun — pre-step compaction trigger', () =>
 
     vi.spyOn(execution.service, 'claimRun').mockResolvedValue({
       attemptId: testAttemptId,
+      selector: 'fake-model',
       effort: undefined,
       messageId,
       nativeDeliverySequence: 1,
@@ -14963,7 +14994,7 @@ describe('RunExecutionService executeRun — pre-step compaction trigger', () =>
       senderRef: null,
       mode: 'steer',
       parts: steeredMessage.parts,
-      settings: { modelId: 'fake-model', permissionMode: 'default' },
+      settings: { selector: 'fake-model', permissionMode: 'default' },
       state: 'pending',
       position: 1,
       deliveredMessageId: null,
@@ -15070,6 +15101,7 @@ describe('RunExecutionService executeRun — pre-step compaction trigger', () =>
 
     vi.spyOn(execution.service, 'claimRun').mockResolvedValue({
       attemptId: testAttemptId,
+      selector: 'fake-model',
       effort: undefined,
       messageId,
       nativeDeliverySequence: 1,
@@ -15121,7 +15153,7 @@ describe('RunExecutionService executeRun — pre-step compaction trigger', () =>
       senderRef: null,
       mode: 'steer',
       parts: [{ type: 'text', text: '/compact keep the requested details' }],
-      settings: { modelId: 'fake-model', permissionMode: 'default' },
+      settings: { selector: 'fake-model', permissionMode: 'default' },
       state: 'pending',
       position: 1,
       deliveredMessageId: null,
@@ -15171,6 +15203,7 @@ describe('RunExecutionService executeRun — pre-step compaction trigger', () =>
 
     vi.spyOn(execution.service, 'claimRun').mockResolvedValue({
       attemptId: testAttemptId,
+      selector: 'fake-model',
       effort: undefined,
       messageId,
       nativeDeliverySequence: 1,
@@ -17413,7 +17446,7 @@ describe('RunExecutionService runtime-context lifecycle', () => {
       outputs: ['stdout'],
       artifactId: null,
       artifactReadable: false,
-      settings: { modelId: 'fake-model', permissionMode: 'default' },
+      settings: { selector: 'fake-model', permissionMode: 'default' },
     };
 
     vi.spyOn(
@@ -17790,7 +17823,7 @@ describe('RunExecutionService runtime-context lifecycle', () => {
         outputs: ['stdout'],
         artifactId: null,
         artifactReadable: false,
-        settings: { modelId: 'fake-model', permissionMode: 'default' },
+        settings: { selector: 'fake-model', permissionMode: 'default' },
       };
 
       const storedJobItem = createJobNoticeItem({
@@ -24247,7 +24280,7 @@ describe('RunExecutionService executeRun — run segments', () => {
     senderRef: null,
     mode: 'steer',
     parts: [{ type: 'text', text: 'steer now' }],
-    settings: { modelId: 'fake-model', permissionMode: 'default' },
+    settings: { selector: 'fake-model', permissionMode: 'default' },
     state: 'pending',
     position: 1,
     deliveredMessageId: null,
@@ -24670,6 +24703,7 @@ describe('RunExecutionService executeRun — run segments', () => {
 
     vi.spyOn(execution.service, 'claimRun').mockResolvedValue({
       attemptId: wakeAttemptId,
+      selector: 'fake-model',
       effort: undefined,
       messageId,
       nativeDeliverySequence: 1,
@@ -24869,6 +24903,7 @@ describe('RunExecutionService executeRun — run segments', () => {
     });
     vi.spyOn(execution.service, 'claimRun').mockResolvedValue({
       attemptId: 'summary-wake-attempt',
+      selector: 'fake-model',
       effort: undefined,
       messageId,
       nativeDeliverySequence: 1,
@@ -25010,6 +25045,7 @@ describe('RunExecutionService executeRun — run segments', () => {
 
       vi.spyOn(execution.service, 'claimRun').mockResolvedValue({
         attemptId: testAttemptId,
+        selector: 'fake-model',
         effort: undefined,
         messageId,
         nativeDeliverySequence: 1,
@@ -25166,6 +25202,7 @@ describe('RunExecutionService executeRun — run segments', () => {
 
     vi.spyOn(execution.service, 'claimRun').mockResolvedValue({
       attemptId: testAttemptId,
+      selector: 'fake-model',
       effort: undefined,
       messageId,
       nativeDeliverySequence: 1,
@@ -25249,6 +25286,7 @@ describe('RunExecutionService executeRun — run segments', () => {
 
     vi.spyOn(execution.service, 'claimRun').mockResolvedValue({
       attemptId: testAttemptId,
+      selector: 'fake-model',
       effort: undefined,
       messageId,
       nativeDeliverySequence: 1,
@@ -25352,6 +25390,7 @@ describe('RunExecutionService executeRun — run segments', () => {
 
     vi.spyOn(execution.service, 'claimRun').mockResolvedValue({
       attemptId: testAttemptId,
+      selector: 'fake-model',
       effort: undefined,
       messageId,
       nativeDeliverySequence: 1,
@@ -25531,6 +25570,7 @@ describe('RunExecutionService executeRun — run segments', () => {
 
     vi.spyOn(execution.service, 'claimRun').mockResolvedValue({
       attemptId: testAttemptId,
+      selector: 'fake-model',
       effort: undefined,
       messageId,
       nativeDeliverySequence: 1,
@@ -25800,6 +25840,7 @@ describe('RunExecutionService executeRun — run segments', () => {
           activeAttemptId: testAttemptId,
         });
         vi.spyOn(execution.service, 'claimRun').mockResolvedValue({
+          selector: 'fake-model',
           effort: undefined,
           permissionMode: 'default',
           attemptId: testAttemptId,
@@ -28680,7 +28721,7 @@ describe('RunExecutionService executeRun — owner interrupt settlement', () => 
     senderRef: null,
     mode: 'interrupt',
     parts: [{ type: 'text', text: 'change course' }],
-    settings: { modelId: 'fake-model', permissionMode: 'default' },
+    settings: { selector: 'fake-model', permissionMode: 'default' },
     state: 'pending',
     position: 1,
     deliveredMessageId: null,
@@ -29444,6 +29485,7 @@ describe('RunExecutionService executeRun — owner interrupt settlement', () => 
 
     vi.spyOn(rig.execution.service, 'claimRun').mockResolvedValue({
       attemptId: testAttemptId,
+      selector: 'fake-model',
       effort: undefined,
       messageId,
       nativeDeliverySequence: 1,
@@ -31748,6 +31790,7 @@ describe('RunExecutionService wake-compaction fallback context fit', () => {
 
     vi.spyOn(execution.service, 'claimRun').mockResolvedValue({
       attemptId: testAttemptId,
+      selector: 'fake-model',
       effort: undefined,
       messageId,
       nativeDeliverySequence: 1,
@@ -32182,6 +32225,7 @@ describe('RunExecutionService disabled automatic compaction state', () => {
     ).mockResolvedValue(undefined);
     vi.spyOn(execution.service, 'claimRun').mockResolvedValue({
       attemptId: testAttemptId,
+      selector: 'fake-model',
       effort: undefined,
       messageId,
       nativeDeliverySequence: 1,
@@ -32808,7 +32852,7 @@ describe('a send that breaks after a started tool call', () => {
       senderRef: null,
       mode,
       parts: [{ type: 'text', text }],
-      settings: { modelId: 'fake-model', permissionMode: 'default' },
+      settings: { selector: 'fake-model', permissionMode: 'default' },
       state: 'pending',
       position: 1,
       deliveredMessageId: null,

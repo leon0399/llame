@@ -38,7 +38,7 @@ function job(seq: number, state: ChatJob['state'] = 'running'): ChatJob {
     outputs: ['stdout', 'stderr'],
     artifactId: null,
     artifactReadable: false,
-    settings: { modelId: 'm', permissionMode: 'default' },
+    settings: { selector: 'm', permissionMode: 'default' },
   };
 }
 
@@ -342,7 +342,7 @@ describe('stop lifecycle', () => {
         runId: 'run',
         toolCallId: 'call',
         startedAt: new Date(),
-        settings: { modelId: 'm', permissionMode: 'default' },
+        settings: { selector: 'm', permissionMode: 'default' },
         maxBytes: 1_000_000,
         configuredCredentials: [],
         artifactReadable: false,

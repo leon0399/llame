@@ -23,7 +23,7 @@ function job(overrides: Partial<ChatJob> = {}): ChatJob {
     outputs: ['stdout', 'stderr'],
     artifactId: null,
     artifactReadable: true,
-    settings: { modelId: 'm', permissionMode: 'default' },
+    settings: { selector: 'm', permissionMode: 'default' },
     ...overrides,
   };
 }

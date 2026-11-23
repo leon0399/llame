@@ -58,19 +58,21 @@ import { ModelDomainErrorResponse } from '../models/dto/models.dto';
 import { throwModelDomainError } from './model-domain-error';
 import {
   ChatListItemResponse,
-  OwnerChatMessagesQueryDto,
   ChatMessagesResponse,
   ChatResponse,
-  ChatSearchQueryDto,
-  ChatSearchResponse,
   CreateMessageDto,
   ForkChatDto,
-  ListChatsQueryDto,
   toChatListItemResponse,
   toChatMessageResponse,
   toChatResponse,
   UpdateChatDto,
 } from './dto/chats.dto';
+import {
+  ChatSearchQueryDto,
+  ChatSearchResponse,
+  ListChatsQueryDto,
+  OwnerChatMessagesQueryDto,
+} from './dto/chats-query.dto';
 import { toChatDeliveryResponse } from './dto/chat-deliveries.dto';
 import { toChatLatestRunResponse } from './dto/latest-run.dto';
 import {
@@ -336,7 +338,7 @@ export class ChatsController {
       const send = {
         chatId,
         userId,
-        modelId: input.modelId,
+        ...(input.selector !== undefined && { selector: input.selector }),
         ...(input.effort !== undefined && { effort: input.effort }),
         ...(input.permissionMode !== undefined && {
           permissionMode: input.permissionMode,
@@ -393,8 +395,8 @@ export class ChatsController {
   @ApiBadRequestResponse({
     description:
       'Malformed chat or message id, a missing body or action, an unknown ' +
-      'action, a model or an effort on a continue request, or a regenerate ' +
-      'request without a model',
+      'action, a selector, an effort, or a mode on a continue request, or a ' +
+      'blank selector on a regenerate request',
   })
   @ApiUnauthorizedResponse()
   @ApiNotFoundResponse({

@@ -62,6 +62,7 @@ function chat(
     visibility: "private",
     projectId,
     workspaceRoot: null,
+    modelSelection: null,
     createdAt: now,
     updatedAt: now,
     archivedAt: null,

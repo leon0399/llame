@@ -734,7 +734,10 @@ describeIfDb('turn replay prefix equality', () => {
           userId,
           chatId: seeded.chatId,
           modelId,
+          selector: modelId,
           effort: undefined,
+          selectedEffort: undefined,
+          selectionRevision: null,
           permissionMode: 'default',
           targetRunId: randomUUID(),
           followUp: {

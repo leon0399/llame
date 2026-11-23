@@ -600,7 +600,7 @@ describeIfDb('RLS integration — cross-tenant isolation under FORCE', () => {
       assertRowId(chat);
 
       const [run] =
-        await tx`INSERT INTO runs (chat_id, user_id, model_id) VALUES (${chat.id}, ${userBId}, 'system:test') RETURNING id`;
+        await tx`INSERT INTO runs (chat_id, user_id, model_id, selector) VALUES (${chat.id}, ${userBId}, 'system:test', 'system:test') RETURNING id`;
 
       assertRowId(run);
 
@@ -622,7 +622,7 @@ describeIfDb('RLS integration — cross-tenant isolation under FORCE', () => {
         asUser(
           userAId,
           (tx) =>
-            tx`INSERT INTO runs (chat_id, user_id, model_id, source_run_id) VALUES (${ownChatId}, ${userAId}, 'system:test', ${foreignRunId})`,
+            tx`INSERT INTO runs (chat_id, user_id, model_id, selector, source_run_id) VALUES (${ownChatId}, ${userAId}, 'system:test', 'system:test', ${foreignRunId})`,
         ),
       ).rejects.toMatchObject({ code: '23503' });
 
@@ -631,7 +631,7 @@ describeIfDb('RLS integration — cross-tenant isolation under FORCE', () => {
         asUser(
           userAId,
           (tx) =>
-            tx`INSERT INTO runs (chat_id, user_id, model_id, follow_up_action) VALUES (${ownChatId}, ${userAId}, 'system:test', 'retry')`,
+            tx`INSERT INTO runs (chat_id, user_id, model_id, selector, follow_up_action) VALUES (${ownChatId}, ${userAId}, 'system:test', 'system:test', 'retry')`,
         ),
       ).rejects.toMatchObject({ code: '23514' });
 
@@ -809,7 +809,7 @@ describeIfDb('RLS integration — cross-tenant isolation under FORCE', () => {
 
     await asUser(userAId, async (tx) => {
       await tx`INSERT INTO chats (id, owner_user_id, title) VALUES (${chatId}, ${userAId}, 'Run Chat')`;
-      await tx`INSERT INTO runs (id, chat_id, user_id, model_id) VALUES (${runId}, ${chatId}, ${userAId}, 'system:openai:gpt-5.4-mini')`;
+      await tx`INSERT INTO runs (id, chat_id, user_id, model_id, selector) VALUES (${runId}, ${chatId}, ${userAId}, 'system:openai:gpt-5.4-mini', 'system:openai:gpt-5.4-mini')`;
       await tx`INSERT INTO run_events (run_id, event_type, payload) VALUES (${runId}, 'run.created', '{"private": true}')`;
     });
 
@@ -908,7 +908,7 @@ describeIfDb('RLS integration — cross-tenant isolation under FORCE', () => {
       await asUser(userAId, async (tx) => {
         await tx`INSERT INTO chats (id, owner_user_id, title) VALUES (${chatId}, ${userAId}, 'Import Chat')`;
         await tx`INSERT INTO messages (id, chat_id, seq, role, sender_user_id, parts) VALUES (${messageId}, ${chatId}, 1, 'user', ${userAId}, ${tx.json(promptImportParts)})`;
-        await tx`INSERT INTO runs (id, chat_id, user_id, model_id) VALUES (${runId}, ${chatId}, ${userAId}, 'system:openai:gpt-5.4-mini')`;
+        await tx`INSERT INTO runs (id, chat_id, user_id, model_id, selector) VALUES (${runId}, ${chatId}, ${userAId}, 'system:openai:gpt-5.4-mini', 'system:openai:gpt-5.4-mini')`;
         await tx`INSERT INTO run_events (run_id, event_type, payload) VALUES (${runId}, 'tool.requested', ${tx.json(importEventPayload)})`;
         await tx`INSERT INTO run_events (run_id, event_type, payload) VALUES (${runId}, 'tool.completed', ${tx.json({ ...importEventPayload, status: 'success', output: { content: 'PRIVATE_IMPORT_BODY' } })})`;
       });

@@ -385,7 +385,7 @@ describe('Compaction Run execution', () => {
         ownerUserId: userId,
         mode: 'queue',
         parts: [{ type: 'text', text: 'queued after compaction' }],
-        settings: { modelId: model, permissionMode: 'default' },
+        settings: { selector: model, permissionMode: 'default' },
       }),
     );
 
@@ -832,7 +832,10 @@ describe('Compaction Run execution', () => {
             ownerUserId: userId,
             mode: 'queue',
             parts: [{ type: 'text', text: `/compact queued ${index}` }],
-            settings: { modelId: compactionModel, permissionMode: 'default' },
+            settings: {
+              selector: compactionModel,
+              permissionMode: 'default',
+            },
           }),
         ),
       );
@@ -843,7 +846,13 @@ describe('Compaction Run execution', () => {
     if (!firstItem || !secondItem) throw new Error('Expected queued compacts.');
 
     const first = await harness.tenantDb.runAs(userId, (tx) =>
-      startItemRun(tx, firstItem),
+      startItemRun(tx, firstItem, {
+        selector: compactionModel,
+        modelId: compactionModel,
+        effort: undefined,
+        permissionMode: 'default',
+        selectionRevision: null,
+      }),
     );
 
     if (!first) throw new Error('The first queued compact did not start.');
@@ -928,7 +937,7 @@ async function createRunningJob(input: {
       workerInstanceId,
       outputs: ['stdout', 'stderr'],
       artifactReadable: false,
-      settings: { modelId, permissionMode: 'default' },
+      settings: { selector: modelId, permissionMode: 'default' },
     });
   });
 }

@@ -25,6 +25,6 @@ export function hostBashJobs(
       { config: BUILT_IN_DEFAULTS },
       noticeRuns,
     ),
-    jobSettings: { modelId: 'test-model', permissionMode: 'default' },
+    jobSettings: { selector: 'test-model', permissionMode: 'default' },
   };
 }

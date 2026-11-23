@@ -159,12 +159,12 @@ describe('owner image attachments (HTTP)', () => {
     cookie: string,
     chatId: string,
     parts: ReadonlyArray<unknown>,
-    modelId = VISION,
+    selector = VISION,
   ) {
     return request(http)
       .post(`/api/v1/chats/${chatId}/messages`)
       .set('Cookie', cookie)
-      .send({ modelId, message: { id: randomUUID(), parts } });
+      .send({ selector, message: { id: randomUUID(), parts } });
   }
 
   const file = (

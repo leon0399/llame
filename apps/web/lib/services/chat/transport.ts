@@ -14,7 +14,8 @@ export type FollowUpRunRequest =
   | { action: "continue"; permissionMode?: PermissionModeResponseValue }
   | {
       action: "regenerate";
-      modelId: string;
+      /** A model role (`@name`) or one exact model id. */
+      selector: string;
       effort?: string;
       permissionMode?: PermissionModeResponseValue;
     };
@@ -32,7 +33,8 @@ export type ChatTransportRequestOptions = {
    * action here; a chat send carries none.
    */
   followUp?: ChatRequestOptions["body"];
-  modelId: string | undefined;
+  /** The composer's model id or role, sent as this turn's `selector`. */
+  selector: string | undefined;
   /**
    * Reasoning effort for this turn. Absent means "use the model's own
    * default" — the api resolves it, so the client never has to guess a level
@@ -71,8 +73,8 @@ function isNonBlankString(value: unknown): value is string {
 /**
  * The follow-up request a `regenerate()` body names, or null when the body is
  * not one this build sends. `continue` carries only a permission mode;
- * `regenerate` always names a model, because the Run it replaces may have used
- * another.
+ * `regenerate` always names a selector, because the Run it replaces may have
+ * used another.
  */
 export function followUpRunRequest(
   value: ChatRequestOptions["body"],
@@ -92,12 +94,12 @@ export function followUpRunRequest(
 
   if (!("action" in value) || value.action !== "regenerate") return null;
 
-  if (!("modelId" in value) || !isNonBlankString(value.modelId)) return null;
+  if (!("selector" in value) || !isNonBlankString(value.selector)) return null;
   const effort = "effort" in value ? value.effort : undefined;
 
   return {
     action: "regenerate",
-    modelId: value.modelId,
+    selector: value.selector,
     // Omitted, never sent as null or "": the api rejects a blank effort.
     ...(isNonBlankString(effort) && { effort }),
     ...(permissionMode !== undefined && { permissionMode }),
@@ -106,7 +108,7 @@ export function followUpRunRequest(
 
 /** The chat-send body: the last message plus the composer's selections. */
 export type ChatSendBody = {
-  modelId: string;
+  selector: string;
   effort?: string;
   permissionMode?: PermissionModeResponseValue;
   message: { id: string; parts: UIMessage["parts"] };
@@ -140,20 +142,20 @@ function prepareFollowUpRun(
 function prepareChatSend(
   options: Pick<
     ChatTransportRequestOptions,
-    "chatId" | "modelId" | "effort" | "permissionMode"
+    "chatId" | "selector" | "effort" | "permissionMode"
   >,
   message: Pick<UIMessage, "id" | "parts">,
 ): PreparedChatRequest {
-  const { modelId, effort, permissionMode } = options;
+  const { selector, effort, permissionMode } = options;
 
-  if (modelId === undefined || modelId.trim().length === 0) {
+  if (selector === undefined || selector.trim().length === 0) {
     throw new Error(NO_MODEL_SELECTED_ERROR);
   }
 
   return {
     api: buildChatMessagesUrl(options.chatId),
     body: {
-      modelId,
+      selector,
       // Omitted, never sent as null or "": the api rejects a blank effort with
       // 400 and treats absence as "resolve this model's defaultEffort".
       ...(effort !== undefined && effort.length > 0 && { effort }),

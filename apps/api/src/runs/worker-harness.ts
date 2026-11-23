@@ -412,7 +412,7 @@ export async function seedLiveChatJob(input: {
     workerInstanceId,
     outputs: ['stdout', 'stderr'],
     artifactReadable: false,
-    settings: { modelId: input.modelId, permissionMode: 'default' },
+    settings: { selector: input.modelId, permissionMode: 'default' },
   });
 }
 

@@ -298,7 +298,7 @@ function requestOptions(
     messages: options.messages,
     trigger: options.trigger,
     followUp: options.body,
-    modelId: selections.model.current,
+    selector: selections.model.current,
     effort: selections.effort.current,
     permissionMode: selections.permissionMode.current,
   };

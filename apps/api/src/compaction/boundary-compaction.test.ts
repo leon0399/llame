@@ -23,7 +23,7 @@ function delivery(input: {
     senderRef: null,
     mode: input.mode,
     parts: [{ type: 'text', text: input.text }],
-    settings: { modelId: 'model', permissionMode: 'default' },
+    settings: { selector: 'model', permissionMode: 'default' },
     state: 'pending',
     position: 1,
     deliveredMessageId: null,

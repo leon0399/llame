@@ -165,7 +165,7 @@ describe('step-boundary compaction', () => {
             startedAt: new Date(),
             outputs: [],
             artifactReadable: false,
-            settings: { modelId: seeded.modelId, permissionMode: 'default' },
+            settings: { selector: seeded.modelId, permissionMode: 'default' },
           }),
         );
 
@@ -941,7 +941,7 @@ describe('step-boundary compaction', () => {
               startedAt: new Date(),
               outputs: [],
               artifactReadable: false,
-              settings: { modelId: seeded.modelId, permissionMode: 'default' },
+              settings: { selector: seeded.modelId, permissionMode: 'default' },
             }),
           );
 

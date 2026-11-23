@@ -86,6 +86,7 @@ describe('ChatsService.getChatMessages targetSeq', () => {
     workspaceToldFrom: null,
     workspaceToldAvailable: null,
     workspaceDetachReason: null,
+    modelSelection: null,
   };
 
   function message(seq: number, overrides: Partial<Message> = {}): Message {
@@ -257,6 +258,7 @@ describe('ChatsService message windows, updates and forks', () => {
     workspaceToldFrom: null,
     workspaceToldAvailable: null,
     workspaceDetachReason: null,
+    modelSelection: null,
   };
 
   function message(seq: number, overrides: Partial<Message> = {}): Message {
@@ -886,7 +888,10 @@ describe('ChatsService message windows, updates and forks', () => {
       chatId: chat.id,
       messageId: null,
       userId: ownerUserId,
+      selector: 'system:openai:public-model',
       modelId: 'system:openai:public-model',
+      selectedEffort: null,
+      selectionRevision: null,
       effort: null,
       permissionMode: 'default' as const,
       status: 'awaiting_jobs',

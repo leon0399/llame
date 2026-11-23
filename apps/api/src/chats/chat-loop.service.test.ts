@@ -15,7 +15,10 @@ import {
 } from '../db/tenant-db.service';
 import { type InstanceConfigReader } from '../instance-config/instance-config.service';
 import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
-import { type ModelSelectionValidator } from '../models/models.service';
+import {
+  EffortNotAvailableError,
+  type ModelSelectionValidator,
+} from '../models/models.service';
 import type { PermissionMode } from '../tools/permissions/permission-mode';
 import { type RunDispatcher } from '../runs/run-dispatch.service';
 import type { RunWaitService } from '../runs/run-wait.service';
@@ -73,6 +76,7 @@ const chat: Chat = {
   workspaceToldFrom: null,
   workspaceToldAvailable: null,
   workspaceDetachReason: null,
+  modelSelection: null,
 };
 
 const userMessage: Message = {
@@ -96,6 +100,9 @@ const run: Run = {
   messageId: userMessage.id,
   userId: chat.ownerUserId,
   modelId: model.id,
+  selector: model.id,
+  selectedEffort: null,
+  selectionRevision: null,
   status: 'queued',
   kind: 'turn',
   workerId: null,
@@ -119,7 +126,7 @@ const run: Run = {
 const input = {
   chatId: chat.id,
   userId: chat.ownerUserId,
-  modelId: model.id,
+  selector: model.id,
   message: {
     id: userMessage.id,
     parts: [{ type: 'text' as const, text: 'hello' }],
@@ -191,9 +198,38 @@ function makeService(options?: {
   const validateModelSelection = vi.fn(() => model);
   const resolveEffortSelection = vi.fn((): string | undefined => undefined);
 
+  // The resolver admission calls inside its transaction: it echoes the
+  // request against the Chat's stored selection, as the real resolver does.
+  const resolveSelection = vi.fn<ModelSelectionValidator['resolveSelection']>(
+    (stored, request) => {
+      const selector = request.selector ?? stored?.selector ?? model.id;
+      const effort = request.effort ?? stored?.effort ?? undefined;
+      const namedSelector = request.selector !== undefined;
+      const namedEffort = request.effort !== undefined;
+
+      const storedUsed =
+        !namedSelector && stored !== null && stored.selector === selector;
+
+      return {
+        selector,
+        model,
+        effort,
+        nextSelection:
+          !namedSelector && !namedEffort && storedUsed
+            ? undefined
+            : {
+                revision: (stored?.revision ?? 0) + 1,
+                selector,
+                effort: effort ?? null,
+              },
+      };
+    },
+  );
+
   const modelsService: ModelSelectionValidator = {
     validateModelSelection,
     resolveEffortSelection,
+    resolveSelection,
   };
 
   const permissionModes =
@@ -232,6 +268,10 @@ function makeService(options?: {
   const lock = vi
     .spyOn(ChatsRepository.prototype, 'lock')
     .mockResolvedValue(chat);
+
+  const setModelSelection = vi
+    .spyOn(ChatsRepository.prototype, 'setModelSelection')
+    .mockResolvedValue(undefined);
 
   // Every send looks for a stored pending item of its message id first.
   const findStoredItem = vi
@@ -300,6 +340,9 @@ function makeService(options?: {
         messageId: runInput.messageId,
         userId: runInput.userId,
         modelId: runInput.modelId,
+        selector: runInput.selector ?? run.selector,
+        selectedEffort: runInput.selectedEffort ?? null,
+        selectionRevision: runInput.selectionRevision ?? null,
         effort: runInput.effort ?? null,
         permissionMode: runInput.permissionMode ?? 'default',
       }),
@@ -340,7 +383,9 @@ function makeService(options?: {
     listByRunId,
     describeOwned,
     resolveEffortSelection,
+    resolveSelection,
     lock,
+    setModelSelection,
     findStoredItem,
     messageIdTaken,
     insertPending,
@@ -1142,7 +1187,7 @@ describe('ChatLoopService.createDeliveryMessage', () => {
       ownerUserId: chat.ownerUserId,
       mode: 'queue',
       parts: ids.parts,
-      settings: { modelId: model.id, permissionMode: 'default' },
+      settings: { selector: model.id, permissionMode: 'default' },
     });
     // No effort was sent: the settings carry no `effort` key at all.
     expect(Object.keys(stored?.settings ?? {})).not.toContain('effort');
@@ -1192,10 +1237,7 @@ describe('ChatLoopService.createDeliveryMessage', () => {
   });
 
   it('keeps the effort the send named in the stored settings', async () => {
-    const { service, insertPending, resolveEffortSelection } =
-      makeBlockedService();
-
-    resolveEffortSelection.mockReturnValue('high');
+    const { service, insertPending } = makeBlockedService();
 
     await service.createDeliveryMessage({
       ...input,
@@ -1205,10 +1247,74 @@ describe('ChatLoopService.createDeliveryMessage', () => {
     });
 
     expect(insertPending.mock.calls[0]?.[0].settings).toEqual({
-      modelId: model.id,
+      selector: model.id,
       effort: 'high',
       permissionMode: 'default',
     });
+  });
+
+  it('writes the selection a steer resolves, beside the item that carries only what it named', async () => {
+    const { service, insertPending, setModelSelection } = makeBlockedService();
+
+    await service.createDeliveryMessage({
+      ...input,
+      message: ids,
+      delivery: 'steer',
+      selector: '@fast',
+    });
+
+    expect(setModelSelection).toHaveBeenCalledWith(chat.id, {
+      revision: 1,
+      selector: '@fast',
+      effort: null,
+    });
+    // The live Run keeps its own model; the item names only the new selector.
+    expect(insertPending.mock.calls[0]?.[0].settings).toEqual({
+      selector: '@fast',
+      permissionMode: 'default',
+    });
+  });
+
+  it('stores no selection when the resolver refuses the request', async () => {
+    const { service, resolveSelection, setModelSelection, createRun } =
+      makeService();
+
+    resolveSelection.mockImplementation(() => {
+      throw new EffortNotAvailableError(model.id, 'ludicrous');
+    });
+
+    await expect(
+      service.createMessageStream({ ...input, effort: 'ludicrous' }),
+    ).rejects.toBeInstanceOf(EffortNotAvailableError);
+    expect(setModelSelection).not.toHaveBeenCalled();
+    expect(createRun).not.toHaveBeenCalled();
+  });
+
+  it('writes no selection when the stored selection already applies', async () => {
+    const made = makeService();
+
+    const stored: Chat = {
+      ...chat,
+      modelSelection: { revision: 3, selector: model.id, effort: null },
+    };
+
+    made.findById.mockResolvedValue(stored);
+    made.touch.mockResolvedValue(stored);
+
+    await made.service.createMessageStream({
+      chatId: chat.id,
+      userId: chat.ownerUserId,
+      message: input.message,
+    });
+
+    expect(made.setModelSelection).not.toHaveBeenCalled();
+    expect(made.createRun).toHaveBeenCalledWith(
+      expect.objectContaining({
+        selector: model.id,
+        modelId: model.id,
+        selectionRevision: 3,
+      }),
+    );
   });
 
   it('starts the Run as a plain send when no live Run holds the Chat', async () => {
@@ -1368,7 +1474,7 @@ describe('ChatLoopService.validateTurn', () => {
 
     const turn = await service.validateTurn({
       userId: chat.ownerUserId,
-      modelId: model.id,
+      selector: model.id,
       message: {
         id: userMessage.id,
         parts: [sentFile, { type: 'text', text: 'compare' }],
@@ -1387,6 +1493,7 @@ describe('ChatLoopService.validateTurn', () => {
       { type: 'text', text: 'compare' },
     ]);
     expect(turn.permissionMode).toBe('default');
+    expect(turn.selector).toBe(model.id);
     expect(turn.effort).toBeUndefined();
   });
 
@@ -1396,7 +1503,7 @@ describe('ChatLoopService.validateTurn', () => {
     await expect(
       service.validateTurn({
         userId: chat.ownerUserId,
-        modelId: model.id,
+        selector: model.id,
         message: { id: userMessage.id, parts: [sentFile] },
       }),
     ).rejects.toMatchObject({
@@ -1412,7 +1519,7 @@ describe('ChatLoopService.validateTurn', () => {
     await expect(
       service.validateTurn({
         userId: chat.ownerUserId,
-        modelId: model.id,
+        selector: model.id,
         permissionMode: 'bypass',
         message: {
           id: userMessage.id,
@@ -1425,7 +1532,7 @@ describe('ChatLoopService.validateTurn', () => {
 
 describe('ChatLoopService.startFirstRun', () => {
   const validated = {
-    modelId: model.id,
+    selector: undefined,
     effort: undefined,
     permissionMode: 'default' as const,
     message: {

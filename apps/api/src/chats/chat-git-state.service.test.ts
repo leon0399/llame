@@ -78,6 +78,7 @@ function chatAt(
     createdAt: new Date(0),
     updatedAt: new Date(0),
     archivedAt: null,
+    modelSelection: null,
     projectId: null,
     recencyDigestBaseline: null,
     recencyDigestTold: null,

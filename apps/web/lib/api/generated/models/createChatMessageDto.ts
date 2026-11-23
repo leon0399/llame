@@ -18,12 +18,12 @@ export interface CreateChatMessageDto {
   parts: (CreateTextMessagePartDto | CreateFileMessagePartDto)[];
   id: string;
   /**
-   * Opaque llame model id selected for this turn.
+   * `@role` or a model id; omit to use the Chat's stored selection
    * @pattern \S
    */
-  modelId: string;
+  selector?: string;
   /**
-   * Reasoning effort for this turn. Must be one of the selected model's `reasoning.effortLevels[].value`; omit to use its `defaultEffort`.
+   * Reasoning effort for this turn. Must be one of the resolved model's `reasoning.effortLevels[].value`; omit to use the stored effort or the model's `defaultEffort`.
    * @pattern \S
    */
   effort?: string;

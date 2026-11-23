@@ -36,7 +36,8 @@ export type CreateChatDraft = {
   isolation: StartLocationIsolation;
   message: {
     parts: CreateChatMessageDto["parts"];
-    modelId: string;
+    /** The composer's model id or role, sent as the Chat's first selector. */
+    selector: string;
     effort?: string;
     permissionMode?: CreateChatMessageDto["permissionMode"];
   };
@@ -69,7 +70,7 @@ export function buildCreateChatRequest(
     message: {
       id: draft.messageId,
       parts: draft.message.parts,
-      modelId: draft.message.modelId,
+      selector: draft.message.selector,
       ...(effort !== undefined && effort.length > 0 && { effort }),
       ...(permissionMode !== undefined &&
         permissionMode !== "default" && { permissionMode }),

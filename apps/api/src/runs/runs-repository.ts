@@ -37,6 +37,10 @@ import { ChatDeliveriesRepository } from '../chats/chat-deliveries.repository';
 import { type Db } from '../db/tenant-db.service';
 import { notifyRunControl } from './run-control';
 import {
+  findLatestReplyRunIdBefore,
+  findTriggerSeq,
+} from './run-reply-lookups';
+import {
   claimableRunPredicate,
   markFinishedPredicate,
   markFinishedUpdate,
@@ -58,55 +62,85 @@ export function dispatchedRunPredicate(): SQL {
   return sql`(${isNotNull(runs.turnToolAvailability)} or ${eq(runs.status, 'completed')})`;
 }
 
+/** What one Run row records; an absent optional field lets the column default apply. */
+export type RunCreateInput = {
+  id?: string;
+  chatId: string;
+  messageId: string | null;
+  userId: string;
+  modelId: string;
+  /** Defaults to `modelId`: the selector that resolved to this model. */
+  selector?: string | undefined;
+  kind?: RunKind | undefined;
+  /** Resolved at accept time. Absent stores NULL: the run sends no effort. */
+  effort?: string | undefined;
+  /** Defaults to `effort`. */
+  selectedEffort?: string | undefined;
+  /** The Chat selection revision admission read; absent stores NULL. */
+  selectionRevision?: number | undefined;
+  /** Accepted at message time; absent lets the database default to `default`. */
+  permissionMode?: PermissionMode | undefined;
+  /** The follow-up action that started this Run; absent for a chat send. */
+  followUpAction?: FollowUpAction | undefined;
+  /** The earlier Run this follow-up Run acts on; absent for a chat send. */
+  sourceRunId?: string | undefined;
+};
+
+/** The insert values of one queued turn or compaction Run. */
+function runInsertValues(input: RunCreateInput): typeof runs.$inferInsert {
+  const selectedEffort = input.selectedEffort ?? input.effort;
+
+  const values: typeof runs.$inferInsert = {
+    chatId: input.chatId,
+    messageId: input.messageId,
+    userId: input.userId,
+    modelId: input.modelId,
+    selector: input.selector ?? input.modelId,
+  };
+
+  if (input.kind !== undefined) values.kind = input.kind;
+
+  if (input.effort !== undefined) values.effort = input.effort;
+
+  if (selectedEffort !== undefined) values.selectedEffort = selectedEffort;
+
+  if (input.selectionRevision !== undefined) {
+    values.selectionRevision = input.selectionRevision;
+  }
+
+  if (input.permissionMode !== undefined) {
+    values.permissionMode = input.permissionMode;
+  }
+
+  if (input.followUpAction !== undefined) {
+    values.followUpAction = input.followUpAction;
+  }
+
+  if (input.sourceRunId !== undefined) values.sourceRunId = input.sourceRunId;
+
+  if (input.id !== undefined) values.id = input.id;
+
+  return values;
+}
+
 export class RunsRepository {
   constructor(private readonly db: Db) {}
 
   /**
    * Create a queued turn or compaction Run. The worker resolves
    * prompt/catalog context at execution time, so no snapshot is required.
+   *
+   * `modelId` is the model this Run will call. `selector` records what the
+   * request named (`@role` or an exact model id) and `selectedEffort` the
+   * effort the Chat's selection stored; both default to the served values so a
+   * caller that has only one of them (every test fixture, and any caller
+   * outside the admission paths) stays correct without repeating itself.
    */
-  async create(input: {
-    id?: string;
-    chatId: string;
-    messageId: string | null;
-    userId: string;
-    modelId: string;
-    kind?: RunKind | undefined;
-    /** Resolved at accept time. Absent stores NULL: the run sends no effort. */
-    effort?: string | undefined;
-    /** Accepted at message time; absent lets the database default to `default`. */
-    permissionMode?: PermissionMode | undefined;
-    /** The follow-up action that started this Run; absent for a chat send. */
-    followUpAction?: FollowUpAction | undefined;
-    /** The earlier Run this follow-up Run acts on; absent for a chat send. */
-    sourceRunId?: string | undefined;
-  }): Promise<Run> {
-    const values: typeof runs.$inferInsert = {
-      chatId: input.chatId,
-      messageId: input.messageId,
-      userId: input.userId,
-      modelId: input.modelId,
-    };
-
-    if (input.kind !== undefined) values.kind = input.kind;
-
-    if (input.effort !== undefined) values.effort = input.effort;
-
-    if (input.permissionMode !== undefined) {
-      values.permissionMode = input.permissionMode;
-    }
-
-    if (input.followUpAction !== undefined) {
-      values.followUpAction = input.followUpAction;
-    }
-
-    if (input.sourceRunId !== undefined) {
-      values.sourceRunId = input.sourceRunId;
-    }
-
-    if (input.id !== undefined) values.id = input.id;
-
-    const [created] = await this.db.insert(runs).values(values).returning();
+  async create(input: RunCreateInput): Promise<Run> {
+    const [created] = await this.db
+      .insert(runs)
+      .values(runInsertValues(input))
+      .returning();
 
     return created;
   }
@@ -184,7 +218,8 @@ export class RunsRepository {
     userId: string,
     options: { beforeSeq: number },
   ): Promise<CompletedRunWithTrigger | undefined> {
-    const namedRunId = await this.findLatestReplyRunIdBefore(
+    const namedRunId = await findLatestReplyRunIdBefore(
+      this.db,
       chatId,
       userId,
       options.beforeSeq,
@@ -197,7 +232,7 @@ export class RunsRepository {
       // attempt that produced its answer, and only that Run's receipt describes
       // the context the model read.
       if (named?.status === 'completed' && named.completedAttemptId !== null) {
-        const trigger = await this.findTriggerSeq(chatId, named.messageId);
+        const trigger = await findTriggerSeq(this.db, chatId, named.messageId);
 
         if (trigger !== undefined) {
           return { run: named, triggeringUserSeq: trigger };
@@ -210,55 +245,6 @@ export class RunsRepository {
       userId,
       options,
     );
-  }
-
-  /** The Run named by the newest reply's usage before `beforeSeq`. */
-  private async findLatestReplyRunIdBefore(
-    chatId: string,
-    userId: string,
-    beforeSeq: number,
-  ): Promise<string | undefined> {
-    const runId = sql<string>`(${messages.usage} ->> 'runId')`;
-
-    const [row] = await this.db
-      .select({ runId })
-      .from(messages)
-      .innerJoin(chats, eq(messages.chatId, chats.id))
-      .where(
-        and(
-          eq(messages.chatId, chatId),
-          eq(chats.ownerUserId, userId),
-          eq(messages.role, 'assistant'),
-          lt(messages.seq, beforeSeq),
-          isNotNull(runId),
-        ),
-      )
-      .orderBy(desc(messages.seq))
-      .limit(1);
-
-    return row?.runId;
-  }
-
-  /** The sequence of the triggering user message a reply answers. */
-  private async findTriggerSeq(
-    chatId: string,
-    messageId: string | null,
-  ): Promise<number | undefined> {
-    if (messageId === null) return undefined;
-
-    const [row] = await this.db
-      .select({ seq: messages.seq })
-      .from(messages)
-      .where(
-        and(
-          eq(messages.id, messageId),
-          eq(messages.chatId, chatId),
-          eq(messages.role, 'user'),
-        ),
-      )
-      .limit(1);
-
-    return row?.seq;
   }
 
   /**

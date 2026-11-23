@@ -45,7 +45,7 @@ const routeMetadata: ArgumentMetadata = {
 /** One valid create message; a test removes or replaces the field it probes. */
 type MessageBody = {
   id: string;
-  modelId: string;
+  selector?: string;
   parts: Array<{ type: string; text: string }>;
   effort?: string;
   permissionMode?: string;
@@ -54,7 +54,7 @@ type MessageBody = {
 function message(overrides: Partial<MessageBody> = {}): MessageBody {
   return {
     id: MESSAGE_ID,
-    modelId: 'system:openai:gpt-5.4',
+    selector: 'system:openai:gpt-5.4',
     parts: [{ type: 'text', text: 'Where does this start?' }],
     ...overrides,
   };
@@ -121,18 +121,32 @@ describe('CreateChatRequest', () => {
     ).rejects.toMatchObject({ status: 400 });
   });
 
-  it('rejects a message without a model', async () => {
-    const { modelId: _modelId, ...withoutModel } = message();
+  it('accepts a message without a selector — the stored selection supplies it', async () => {
+    const { selector: _selector, ...withoutSelector } = message();
 
     await expect(
-      pipe.transform({ id: CHAT_ID, message: withoutModel }, createMetadata),
+      pipe.transform({ id: CHAT_ID, message: withoutSelector }, createMetadata),
+    ).resolves.toMatchObject({
+      message: { id: MESSAGE_ID, parts: message().parts },
+    });
+  });
+
+  it('rejects a message that still names the removed modelId field', async () => {
+    await expect(
+      pipe.transform(
+        {
+          id: CHAT_ID,
+          message: { ...message(), modelId: 'system:openai:gpt-5.4' },
+        },
+        createMetadata,
+      ),
     ).rejects.toMatchObject({ status: 400 });
   });
 
-  it('rejects a blank model or effort', async () => {
+  it('rejects a blank selector or effort', async () => {
     await expect(
       pipe.transform(
-        { id: CHAT_ID, message: message({ modelId: ' ' }) },
+        { id: CHAT_ID, message: message({ selector: ' ' }) },
         createMetadata,
       ),
     ).rejects.toMatchObject({ status: 400 });
@@ -228,11 +242,12 @@ describe('the create message schema is its own', () => {
     expect(new CreateMessageBodyDto()).not.toBeInstanceOf(CreateChatMessageDto);
   });
 
-  it('rejects the message route schema inside a create request', async () => {
-    const { modelId: _modelId, ...bodyOnly } = message();
-
+  it('rejects a message-route field the create message schema does not declare', async () => {
     await expect(
-      pipe.transform({ id: CHAT_ID, message: bodyOnly }, createMetadata),
+      pipe.transform(
+        { id: CHAT_ID, message: { ...message(), delivery: 'queue' } },
+        createMetadata,
+      ),
     ).rejects.toMatchObject({ status: 400 });
   });
 

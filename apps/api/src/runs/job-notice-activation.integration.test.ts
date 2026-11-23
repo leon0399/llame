@@ -50,7 +50,7 @@ describe('job notice producer-to-live-Run activation', () => {
         workerInstanceId: input.workerInstanceId ?? randomUUID(),
         outputs: ['stdout', 'stderr'],
         artifactReadable: false,
-        settings: { modelId: input.modelId, permissionMode: 'default' },
+        settings: { selector: input.modelId, permissionMode: 'default' },
       }),
     );
   }
@@ -107,7 +107,7 @@ describe('job notice producer-to-live-Run activation', () => {
       modelId: first.modelId,
     });
 
-    expect(job.settings).toMatchObject({ modelId: first.modelId });
+    expect(job.settings).toMatchObject({ selector: first.modelId });
 
     await settle(job);
     const pending = await notices(followUp.chatId);

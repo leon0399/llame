@@ -152,7 +152,7 @@ describe('ChatDeliveriesRepository PostgreSQL query', () => {
         senderRef: jobId,
         mode: 'queue',
         parts: [{ type: 'text', text: 'A' }],
-        settings: { modelId: 'gpt-5.5', permissionMode: 'default' },
+        settings: { selector: 'gpt-5.5', permissionMode: 'default' },
       });
     });
     await tenantDb.runAs(ownerB, async (tx) => {
@@ -173,7 +173,7 @@ describe('ChatDeliveriesRepository PostgreSQL query', () => {
         senderRef: foreignJobId,
         mode: 'queue',
         parts: [{ type: 'text', text: 'B' }],
-        settings: { modelId: 'gpt-5.5', permissionMode: 'default' },
+        settings: { selector: 'gpt-5.5', permissionMode: 'default' },
       });
     });
 

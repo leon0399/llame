@@ -14,7 +14,7 @@ export function chatDeliveryRow(
     senderRef: null,
     mode: 'queue',
     parts: [{ type: 'text', text: 'then summarize it' }],
-    settings: { modelId: 'gpt-5.5', permissionMode: 'default' },
+    settings: { selector: 'gpt-5.5', permissionMode: 'default' },
     state: 'pending',
     position: 1,
     deliveredMessageId: null,

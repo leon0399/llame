@@ -78,7 +78,7 @@ function testContext(
       { config: BUILT_IN_DEFAULTS },
       { startOnSettlement: vi.fn() },
     ),
-    jobSettings: { modelId: 'test-model', permissionMode: 'default' },
+    jobSettings: { selector: 'test-model', permissionMode: 'default' },
     permissionPolicy: compileTestPermissionPolicy(),
     tenantDb,
     ...(onNativeMutationUnknown && { onNativeMutationUnknown }),
@@ -127,7 +127,7 @@ describe('async bash cancelled during the durable begin', () => {
       {
         ...testContext(),
         abortSignal: controller.signal,
-        jobSettings: { modelId: 'm', permissionMode: 'default' },
+        jobSettings: { selector: 'm', permissionMode: 'default' },
         bashJobs: jobs,
       },
       { command: 'printf never', async: true },
