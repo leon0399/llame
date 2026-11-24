@@ -107,7 +107,7 @@ Validation codes stay `model_not_available` and `effort_not_available`; next-can
 
 The glossary gains **Model selector**, apart from the `read` **Selector**. Rejected: keeping
 `modelId` for selectors (grilling Q3 A); see the ADR
-[Requests name a selector, and `modelId` names the model that served](../../../docs/adr/2026-11-23-requests-name-a-selector.md).
+[Requests name a selector, and `modelId` names the model that served](../../../../docs/adr/2026-11-23-requests-name-a-selector.md).
 
 ### D3: The Chat stores a revisioned selection, resolved inside the admission transaction
 
@@ -211,7 +211,7 @@ Follow the current system instructions and continue the task.
 ```
 
 Rejected: a model id on every part (ADR
-[A model switch within a Run opens a new segment](../../../docs/adr/2026-11-20-a-model-switch-opens-a-segment.md));
+[A model switch within a Run opens a new segment](../../../../docs/adr/2026-11-20-a-model-switch-opens-a-segment.md));
 a `model.switched`-only boundary, which seven segment readers would have to learn.
 
 ### D7: Continue on next candidate
@@ -282,7 +282,7 @@ A).
 `resolveTitleModelConfig` returns the ordered candidate list. The title service tries each in order,
 skips gated paid ones, and stops at the first usable title. It writes no hold and never enters a quota
 wait. Cutover 1 uses only the primary. The ADR
-[A title call walks its model role's chain](../../../docs/adr/2026-11-23-a-title-call-walks-its-role-chain.md)
+[A title call walks its model role's chain](../../../../docs/adr/2026-11-23-a-title-call-walks-its-role-chain.md)
 records the exception to the opt-in rule.
 
 ### D13: Tool-call id normalization

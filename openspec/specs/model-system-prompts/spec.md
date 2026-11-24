@@ -335,7 +335,8 @@ that reply, and whether a checkpoint absorbed it, do not change this rule. The r
 complete effective prompt of the target run as the only top-level system prompt. It MUST keep the
 portable prior user and assistant history, and it MUST omit the prior top-level system prompts. It
 MUST put a trusted model-switch reminder directly before the triggering user text. It MUST use the
-runtime tool declarations of the target attempt.
+runtime tool declarations of the target attempt. For a model switch inside a Run, the reference
+reply is the reply that the switch closed. The host message of the switch is the triggering message.
 
 Portable history MUST use the projection of `turn-replay`. That projection holds visible user and
 assistant text, owner `file` parts, and typed server-generated conversation checkpoints. It also
@@ -352,8 +353,8 @@ a later vision model as an image part when the epoch image window of that reques
 The system MUST NOT make, change, or bind again the provider-native thinking, signature, or cache
 metadata of an origin model for the target model. Reasoning parts and their provider metadata
 replay under the `reasoning-output` capability. After a model switch, it omits the reasoning parts of
-the replies of other models. It gives back unchanged each part that its model rule keeps. An unavailable target model MUST fail visibly, and the system MUST NOT run
-a different model as fallback.
+the replies of other models. It gives back unchanged each part that its model rule keeps. An unavailable target model MUST fail visibly. The system MUST NOT run
+a different model, except through the model switch of `model-roles`.
 
 Tool observations are not display-only. The system replays them in the conventional tool-call and
 tool-result form, in the form that the target provider expects after a model or provider switch.
@@ -378,14 +379,14 @@ NOT make, change, or bind again the provider metadata of an origin model for a d
 - **THEN** the later model receives the visible answer text through the projection of `turn-replay`
 - **AND** it receives the earlier tool observations in the target provider's expected representation, each call accompanied by its result
 - **AND** the persisted reasoning parts that the model rule of `reasoning-output` keeps replay unchanged
-- **AND** a switch omits them, with no coercion or re-binding for the later model
+- **AND** a switch omits the reasoning parts of other models, with no coercion or re-binding for the later model
 
 #### Scenario: Target context window cannot fit portable history
 
 - **WHEN** a turn switches from model `A` to smaller-context model `B` and the
   complete request for `B` would exceed its configured context window or
   reserved output budget
-- **AND** model `A` plus its most recent system-prompt receipt remain executable
+- **AND** model `A` served the previous completed Run, and it and its system-prompt receipt remain executable
 - **THEN** the worker compacts with model `A` over history through the last
   assistant turn before invoking model `B`
 - **AND** the triggering user message remains outside the summarized prefix
@@ -413,7 +414,7 @@ NOT make, change, or bind again the provider metadata of an origin model for a d
 
 #### Scenario: Target model is unavailable
 
-- **WHEN** a model-switch turn selects a model that cannot execute
+- **WHEN** a model-switch turn selects an exact model that cannot execute
 - **THEN** the run fails with the selected model's error
 - **AND** no fallback model is invoked
 
@@ -479,6 +480,12 @@ again, or persist a historical tool catalog.
   owner's attachments
 - **AND** no media object owned by the source owner is resolved during preparation
 
+#### Scenario: A role moves to its next candidate
+
+- **WHEN** a `@coding` Run fails on `codex`, and the owner continues it on the next candidate `sonnet`
+- **THEN** `sonnet` receives its own system prompt and tool declarations, and the portable history
+- **AND** the switch item of `model-roles` comes directly before the request of `sonnet`
+
 ### Requirement: Model switches use canonical persisted context text and metadata
 
 The worker MUST prepare a server-authored context part when the selected model differs from the
@@ -492,14 +499,16 @@ records its model id in its usage. Thus each Run that dispatched a model request
 that can be this baseline. The worker MUST persist that exact text on the triggering user message,
 in the dispatch transaction of the first model request of the attempt. This applies whatever the
 outcome of the Run. A retry of the same Run MUST keep the stored item unchanged. It MUST NOT add a second
-switch item when one is already stored on the triggering user message. A Continue Run MUST follow
+switch item when one is already stored on the triggering user message. A stored `failover` item on
+the triggering message counts as that item. A Continue Run MUST follow
 the same rule as a retry. The first dispatch of a Regenerate Run MUST remove each model-switch item
-with cause `model` from the triggering user message. It then stores the item that its own
+with cause `model` or `failover` from the triggering user message. It then stores the item that its own
 comparison yields, after the last stored context item. A retry of that Regenerate Run keeps the
 item that its first dispatch stored. The producer MUST be
 `effective-context-change`, the form MUST be `notice`, and `data.v` MUST stay `1`.
 
-The producer MUST carry a closed cause vocabulary, in which `model` covers a model change. A cause
+The producer MUST carry a closed cause vocabulary. In it, `model` covers a model change between
+turns, and `failover` covers a model switch inside a Run, as `model-roles` defines. A cause
 MUST be one value for each item. Causes at the same time that different producers own MUST stay
 separate items. The item MUST keep the cause, the prior public model id, the target public model
 id, and the target Run id as non-rendering metadata. The owner-facing boundary and provenance use
@@ -508,7 +517,7 @@ It MUST NOT repeat dimensions that another producer owns, such as tool availabil
 persist the complete canonical model-facing reminder in `data.text`. The system MUST reject or
 discard context parts that a client supplies.
 
-The persisted text MUST state that the active model changed before this user message. It MUST name
+For cause `model`, the persisted text MUST state that the active model changed before this user message. It MUST name
 the prior model and the current model. Each name is the display name, then the public llame model
 id, then the provider model id when the system knows it. The text MUST tell the assistant to follow
 the current system instructions and to continue the current conversation. It MUST tell the
@@ -644,6 +653,22 @@ change model replay.
 
 - **WHEN** a Regenerate replaced the `completed` reply of Run `R1`, the Regenerate Run then failed, and the owner sends a new message
 - **THEN** compaction for the new turn does not use `R1` as the previous completed Run
+
+#### Scenario: A switch inside a Run has its own cause
+
+- **WHEN** a Run switches from `codex` to `sonnet` after a failure
+- **THEN** the host message of the switch carries one item with cause `failover`
+- **AND** its text follows `model-roles`, not the text of cause `model`
+
+#### Scenario: A failover item stops a second switch item
+
+- **WHEN** the host message of a switch from `codex` to `sonnet` carries a `failover` item, and the new attempt prepares its request
+- **THEN** the attempt stages no item with cause `model`
+
+#### Scenario: A Regenerate of a switch turn
+
+- **WHEN** the latest turn is the host message of a switch to `sonnet`, and the owner regenerates it with `opus`
+- **THEN** the dispatch removes the `failover` item and stores an item with cause `model` from `codex` to `opus`
 
 ### Requirement: Compaction publishes a summary-only checkpoint before the Run's first model step
 

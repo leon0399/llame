@@ -86,42 +86,60 @@ When the executing model declares `pricingUsdPer1M`, an assistant message's `cos
 
 ### Requirement: Usage records its billing mode
 
-Every newly persisted assistant message usage other than the `running` usage a dispatch transaction writes on a Run's reply, and every newly published compaction usage, SHALL carry `billing`, with the value `usage` when the executing model is billed per token and `subscription` when it runs under a flat plan. The value SHALL be resolved when the record is written, in this order: the model entry's `billing` when declared, otherwise the provider entry's `billing` when declared, otherwise `subscription` for `openai-codex` and `opencode-go` providers and `usage` for every other provider type. A persisted `billing` value SHALL NOT be recomputed when configuration later changes. Billing mode SHALL NOT change how tokens or `costUsd` are computed. The `running` usage SHALL carry no `billing`; this rule SHALL apply to the terminal usage that replaces it, which resolves `billing` when it is written, including a terminal usage that records no token counts.
+Each new assistant message usage MUST carry `billing`, except the `running` usage that a dispatch
+transaction writes on the reply of a Run. Each new compaction usage MUST also carry it. The value is
+`usage` for a price for each token and `subscription` for a flat plan. It is `free` for a model that
+is never billed.
+
+The system MUST resolve the value when it writes the record, in this order. First comes the `billing`
+of the model entry, when declared. Then comes the `billing` of the provider entry, when declared.
+Last comes the type default: `subscription` for `openai-codex` and `opencode-go`, and `usage` for each
+other provider type.
+
+The system MUST NOT compute a persisted `billing` again when the config changes. The billing mode
+MUST NOT change how the system computes tokens or `costUsd`. The `running` usage MUST carry no
+`billing`. The terminal usage that replaces it MUST resolve `billing` when the system writes it. This
+applies also to a terminal usage with no token counts.
 
 #### Scenario: A subscription provider defaults to subscription
 
-- **WHEN** a Run completes on an `openai-codex` or `opencode-go` model that declares no `billing` and whose provider declares none
+- **WHEN** a Run completes on an `openai-codex` or `opencode-go` model, and neither the model nor its provider declares `billing`
 - **THEN** the assistant message usage records `billing: "subscription"`
 
 #### Scenario: A metered provider defaults to usage
 
-- **WHEN** a Run completes on an `openai-responses`, `openai-completions`, or `anthropic-messages` model with no `billing` declared on the model or its provider
+- **WHEN** a Run completes on an `openai-responses`, `openai-completions`, or `anthropic-messages` model with no `billing` on the model or its provider
 - **THEN** the assistant message usage records `billing: "usage"`
 
 #### Scenario: The provider declaration overrides the type default
 
-- **WHEN** an `openai-completions` provider serving a subscription gateway declares `billing: "subscription"` and its model declares none
+- **WHEN** an `openai-completions` provider of a subscription gateway declares `billing: "subscription"`, and its model declares none
 - **THEN** the assistant message usage records `billing: "subscription"`
 
 #### Scenario: The model declaration overrides the provider
 
-- **WHEN** a model declares `billing: "usage"` under a provider that declares or defaults to `subscription`
+- **WHEN** a model declares `billing: "usage"` under a provider that declares `subscription` or has it as its default
 - **THEN** the assistant message usage records `billing: "usage"`
 
 #### Scenario: A priced subscription model still records its cost
 
-- **WHEN** a subscription model declares `pricingUsdPer1M` and a Run completes on it
-- **THEN** the assistant message usage records `billing: "subscription"` and the same `costUsd` a metered model at those rates would record
+- **WHEN** a subscription model declares `pricingUsdPer1M`, and a Run completes on it
+- **THEN** the assistant message usage records `billing: "subscription"` and the `costUsd` that a metered model at those rates records
 
 #### Scenario: A configuration change does not relabel history
 
-- **WHEN** an operator changes a provider's `billing` after Runs completed on it
-- **THEN** those Runs' persisted usage keeps the `billing` value recorded when it was written
+- **WHEN** an operator changes the `billing` of a provider after Runs completed on it
+- **THEN** the persisted usage of those Runs keeps the `billing` value of its write
 
 #### Scenario: A compaction records the billing mode of its model
 
-- **WHEN** a compaction publishes using a model whose resolved billing mode is `subscription`
-- **THEN** the compaction's usage records `billing: "subscription"`
+- **WHEN** a compaction publishes with a model whose resolved billing mode is `subscription`
+- **THEN** the usage of the compaction records `billing: "subscription"`
+
+#### Scenario: A free model records free
+
+- **WHEN** a Run completes on a model that declares `billing: "free"` and `pricingUsdPer1M`
+- **THEN** the assistant message usage records `billing: "free"` and the computed `costUsd`
 
 ### Requirement: Usage records whether it is complete
 
@@ -464,23 +482,32 @@ The owner-facing usage display SHALL mark token totals and cost of incomplete us
 
 ### Requirement: The owner's usage display marks subscription cost as notional
 
-When usage records `billing: "subscription"` and a cost, the owner-facing usage display SHALL present that cost muted and struck through, labeled as a notional cost, and SHALL expose to assistive technology that the cost was not billed. Usage that records `billing: "usage"` or no `billing` SHALL present its cost as before. A lower-bound marker for incomplete usage SHALL apply to a notional cost as it does to a billed one.
+When usage records `billing: "subscription"` or `billing: "free"` and a cost, the owner usage display
+MUST show the cost muted and struck through. It MUST label it as a notional cost, and it MUST tell
+assistive technology that nobody paid it. Usage with `billing: "usage"` or no `billing` MUST show its
+cost as an ordinary estimated cost. The lower-bound marker of incomplete usage MUST apply to a
+notional cost as it applies to a billed cost.
 
 #### Scenario: Subscription cost is shown as notional
 
 - **WHEN** an owner views usage that records `billing: "subscription"` and `costUsd` 0.0063
-- **THEN** the cost is shown muted and struck through with a notional-cost label
-- **AND** its accessible name states that it was not billed
+- **THEN** the display shows the cost muted and struck through, with a notional-cost label
+- **AND** its accessible name states that nobody paid it
 
 #### Scenario: Metered and historical cost are unchanged
 
 - **WHEN** an owner views usage that records `billing: "usage"`, or usage with no `billing`
-- **THEN** the cost is shown as an ordinary estimated cost
+- **THEN** the display shows the cost as an ordinary estimated cost
 
 #### Scenario: An unpriced subscription model shows no cost
 
 - **WHEN** an owner views usage that records `billing: "subscription"` and `costUsd: null`
-- **THEN** no cost figure is shown, as for any unpriced model
+- **THEN** the display shows no cost figure, as for any unpriced model
+
+#### Scenario: A free model shows notional cost
+
+- **WHEN** an owner views usage that records `billing: "free"` and `costUsd` 0.002
+- **THEN** the display shows the cost muted and struck through, with a notional-cost label
 
 ### Requirement: Compaction and title spend stay separate categories
 

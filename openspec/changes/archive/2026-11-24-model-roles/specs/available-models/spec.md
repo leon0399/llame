@@ -232,6 +232,20 @@ message and no Run.
 - **THEN** the API returns 400 for the selector
 - **AND** it does not evaluate the effort
 
+### Requirement: Available models are flat and API ordered
+
+The available models response SHALL return a flat `models` array. The API SHALL own the returned order, and clients SHALL preserve that order unless applying user-driven filtering/search.
+
+#### Scenario: Flat model list
+
+- **WHEN** models from one or more sources are available
+- **THEN** they are returned in one flat `models` array with source/provenance fields, not grouped by source or provider
+
+#### Scenario: Default is identified by field
+
+- **WHEN** a client needs the default model
+- **THEN** it uses `defaultSelector`, not array position
+
 ## REMOVED Requirements
 
 ### Requirement: Chat sends require explicit model id
