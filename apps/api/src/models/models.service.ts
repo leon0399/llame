@@ -338,7 +338,6 @@ function admittedEffort(input: {
       preferred && input.applied !== undefined
         ? undefined
         : input.request.effort,
-    requestedIsPreference: false,
     holdEffort: input.applied?.hold.effort,
     // Otherwise it is validated like an owner-named level.
     storedEffort: preferred
@@ -358,7 +357,6 @@ function admittedEffort(input: {
 function resolveEffortChoice(input: {
   model: SystemModelCatalogEntry;
   requested: string | undefined;
-  requestedIsPreference?: boolean;
   holdEffort: string | null | undefined;
   storedEffort: string | null;
   candidateEffort: string | undefined;

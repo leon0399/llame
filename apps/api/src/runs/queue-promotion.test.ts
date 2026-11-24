@@ -225,6 +225,45 @@ describe('promoteNextQueueItem', () => {
     );
   });
 
+  it('stores a resolved hold clear only after the promoted Run starts', async () => {
+    const { promote, resolveSelection, lock } = makeSetup();
+
+    const nextSelection = {
+      revision: 5,
+      selector: 'model-1',
+      effort: null,
+    };
+
+    lock.mockResolvedValue(
+      asDouble<Chat>({
+        id: item.chatId,
+        ownerUserId: item.ownerUserId,
+        archivedAt: null,
+        modelSelection: null,
+      }),
+    );
+
+    resolveSelection.mockReturnValue({
+      selector: 'model-1',
+      model: asDouble({ id: 'model-1' }),
+      effort: 'high',
+      nextSelection,
+    });
+
+    const storeSelection = vi
+      .spyOn(ChatsRepository.prototype, 'setModelSelection')
+      .mockResolvedValue(undefined);
+
+    const promoted = await promote();
+
+    expect(promoted?.runId).toBeDefined();
+    expect(storeSelection).toHaveBeenCalledWith(
+      item.chatId,
+      item.ownerUserId,
+      nextSelection,
+    );
+  });
+
   it('starts a queued compact as a message-less compaction Run', async () => {
     const commandItem = chatDeliveryRow({
       parts: [{ type: 'text', text: '/compact keep the plan' }],

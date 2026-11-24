@@ -158,7 +158,6 @@ function fakeEffort(args: {
   const choice = chooseEffort({
     model: args.model,
     requested: held ? undefined : args.input.request.effort,
-    requestedIsPreference: false,
     storedEffort:
       args.effortPolicy === 'preferred' || !args.storedUsed
         ? null

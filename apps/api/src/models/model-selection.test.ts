@@ -145,6 +145,17 @@ describe('a fallback hold', () => {
     });
   });
 
+  it('expires a hold at its exact revertAt instant', () => {
+    const resolved = resolve(STORED, {}, 'owner', new Date(HOLD.revertAt));
+
+    expect(resolved.model.id).toBe(CODEX.id);
+    expect(resolved.nextSelection).toEqual({
+      revision: 3,
+      selector: '@coding',
+      effort: 'high',
+    });
+  });
+
   it('The held model left the role', () => {
     const orphaned: ChatModelSelection = {
       ...STORED,

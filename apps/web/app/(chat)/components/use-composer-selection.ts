@@ -161,18 +161,22 @@ function deriveSelection(args: DeriveArgs): DerivedSelection {
   };
 }
 
-/** Clock that re-derives selection when a stored hold reaches its expiry. */
+/**
+ * Clock that re-derives selection when a stored hold reaches its expiry. A
+ * hold that is already past when it arrives (a stale refresh, a throttled tab)
+ * advances the clock on the next tick, so it is never applied for longer.
+ */
 export function useHoldExpiryClock(revertAt: string | undefined): number {
   const [clock, setClock] = React.useState(() => Date.now());
 
   React.useEffect(() => {
     if (revertAt === undefined) return;
 
-    const remaining = Date.parse(revertAt) - clock;
+    const expiry = Date.parse(revertAt);
 
-    if (remaining <= 0) return;
+    if (clock >= expiry) return;
 
-    const delay = Math.min(remaining, MAX_TIMEOUT_DELAY);
+    const delay = Math.min(Math.max(expiry - Date.now(), 0), MAX_TIMEOUT_DELAY);
     const timer = window.setTimeout(() => setClock(Date.now()), delay);
 
     return () => window.clearTimeout(timer);

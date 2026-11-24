@@ -61,6 +61,8 @@ const selection = {
   },
 };
 
+type HoldProps = { hold: typeof selection.hold | undefined };
+
 afterEach(() => vi.useRealTimers());
 
 describe("useHoldExpiryClock", () => {
@@ -96,5 +98,41 @@ describe("useHoldExpiryClock", () => {
     expect(result.current.model?.name).toBe("Primary");
     expect(result.current.effort).toBe("high");
     expect(result.current.model?.input).toEqual(["text"]);
+  });
+
+  it("does not apply a hold that arrives after it has expired", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-11-23T12:00:00.000Z"));
+
+    const initialProps: HoldProps = { hold: undefined };
+
+    const { result, rerender } = renderHook(
+      ({ hold }: HoldProps) => {
+        const displayed = {
+          selector: selection.selector,
+          effort: selection.effort,
+          ...(hold !== undefined && { hold }),
+        };
+
+        const now = new Date(useHoldExpiryClock(hold?.revertAt));
+        const model = resolveDisplayedModel(displayed, data, now);
+
+        return {
+          hold: applicableHold(displayed, data, now),
+          model,
+        };
+      },
+      { initialProps },
+    );
+
+    expect(result.current.model?.name).toBe("Primary");
+
+    act(() => vi.advanceTimersByTime(2000));
+    rerender({ hold: selection.hold });
+    // The clock catches up on the next tick, before any later interaction.
+    act(() => vi.advanceTimersByTime(0));
+
+    expect(result.current.hold).toBeUndefined();
+    expect(result.current.model?.name).toBe("Primary");
   });
 });

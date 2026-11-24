@@ -269,14 +269,11 @@ function fallbackEffort(
  *
  * Matching is byte-exact: the levels are opaque provider tokens. A named level
  * on a model that declares none is `undeclared` (422), which is also why a
- * non-reasoning model ends at `none` when the request names no effort. A level
- * that is only a preference falls through to the later steps instead.
+ * non-reasoning model ends at `none` when the request names no effort.
  */
 export function chooseEffort(input: {
   model: SystemModelCatalogEntry;
   requested: string | undefined;
-  /** Whether `requested` may be ignored when the model does not declare it. */
-  requestedIsPreference?: boolean;
   /** The stored effort, already narrowed to "applies to this request". */
   storedEffort: string | null;
   /** The resolved role candidate's effort, when it resolved through a role. */
@@ -294,9 +291,7 @@ export function chooseEffort(input: {
       return { kind: 'effort', effort: input.requested };
     }
 
-    if (input.requestedIsPreference !== true) {
-      return { kind: 'undeclared', effort: input.requested };
-    }
+    return { kind: 'undeclared', effort: input.requested };
   }
 
   if (input.holdEffort !== undefined) {
