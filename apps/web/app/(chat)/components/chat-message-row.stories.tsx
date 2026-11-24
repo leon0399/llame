@@ -869,10 +869,11 @@ export const ImageOnlyMessage: Story = {
 
 /**
  * The reply's action row keeps its layout space but stays transparent until
- * the message is hovered or holds focus. Actions that have not shipped are
- * disabled and out of the tab order, like the sidebar's placeholders, and
- * say they are coming soon on hover; the turn-level actions are absent here
- * because this reply is not the latest turn's.
+ * the message is hovered or holds focus. On devices that cannot hover, it
+ * stays visible. Actions that have not shipped are disabled and out of the
+ * tab order, like the sidebar's placeholders, and say they are coming soon on
+ * hover; the turn-level actions are absent here because this reply is not the
+ * latest turn's.
  *
  * @summary the action row reveals on focus; unshipped actions say coming soon
  */
@@ -895,7 +896,15 @@ export const ActionRowReveal: Story = {
     const row = fork.parentElement;
 
     if (!row) throw new Error("fork has no action row");
-    await waitFor(() => expect(getComputedStyle(row).opacity).toBe("0"));
+
+    const remainsVisibleWithoutHover =
+      window.matchMedia("(hover: none)").matches;
+
+    await waitFor(() =>
+      expect(getComputedStyle(row).opacity).toBe(
+        remainsVisibleWithoutHover ? "1" : "0",
+      ),
+    );
     await expect(row.getBoundingClientRect().height).toBeGreaterThan(0);
 
     // Synthetic pointer events never set CSS :hover, so the reveal is driven
