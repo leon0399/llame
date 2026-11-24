@@ -124,5 +124,11 @@ jobs:
       - run: cargo fmt --all --check
       - run: cargo clippy --locked --workspace --all-targets
       - run: cargo test --locked --workspace
+      - name: Install the cross C compiler for ring
+        run: sudo apt-get update && sudo apt-get install --yes --no-install-recommends gcc-aarch64-linux-gnu
+
       - name: Static binaries build
+        env:
+          CC_x86_64_unknown_linux_musl: cc
+          CC_aarch64_unknown_linux_musl: aarch64-linux-gnu-gcc
         run: cargo build --locked --release -p llame-machine --target x86_64-unknown-linux-musl --target aarch64-unknown-linux-musl
