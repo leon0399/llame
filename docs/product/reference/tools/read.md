@@ -3,7 +3,9 @@ summary: "The native read tool: one path argument whose scheme selects the autho
 read_when:
   - you need to know what a read returns or how a selector changes the result
   - you need to know which scheme a path addresses or why a read failed
-spec: native-file-tools
+spec:
+  - native-file-tools
+  - conversation-reads
 configured_by:
   - ../../operator/native-files.md
   - ../../operator/web-read.md
@@ -11,6 +13,7 @@ configured_by:
   - ../../operator/knowledge.md
   - ../../operator/skills.md
   - ../../operator/media.md
+  - ../../operator/conversation-recall.md
 ---
 
 # read
@@ -35,19 +38,20 @@ argument: the selector in `path` carries all of that. See
 
 ## Locators
 
-| Scheme                                     | Machine | Mutable | Authority and listing                                    |
-| ------------------------------------------ | ------- | ------- | -------------------------------------------------------- |
-| [absolute path](../locators/host-path.md)  | current | yes     | the current Machine's filesystem; depth-2 listing        |
-| [`file://`](../locators/host-path.md#form) | current | yes     | the same path on the current Machine, decoded once       |
-| [`machine://`](../locators/machine.md)     | named   | yes     | a configured Machine, through its daemon                 |
-| [`ssh://`](../locators/ssh.md)             | no      | no      | an external host, over SSH                               |
-| [`kb://`](../locators/kb.md)               | no      | yes     | the owner's Knowledge Space tree                         |
-| [`skill://`](../locators/skill.md)         | no      | no      | an installed skill package, read-only                    |
-| [`http(s)://`](../locators/web.md)         | no      | no      | the public web, through the API process                  |
-| [`media://`](../locators/media.md)         | no      | no      | the owner's stored media, read-only                      |
-| [`artifact://`](../locators/artifact.md)   | no      | no      | this Chat's stored tool results                          |
-| [`job://`](../locators/job.md)             | no      | no      | this Chat's background jobs, read-only                   |
-| [`projects://`](../locators/projects.md)   | no      | no      | the owner's Projects and registered checkouts, read-only |
+| Scheme                                     | Machine | Mutable | Authority and listing                                          |
+| ------------------------------------------ | ------- | ------- | -------------------------------------------------------------- |
+| [absolute path](../locators/host-path.md)  | current | yes     | the current Machine's filesystem; depth-2 listing              |
+| [`file://`](../locators/host-path.md#form) | current | yes     | the same path on the current Machine, decoded once             |
+| [`machine://`](../locators/machine.md)     | named   | yes     | a configured Machine, through its daemon                       |
+| [`ssh://`](../locators/ssh.md)             | no      | no      | an external host, over SSH                                     |
+| [`kb://`](../locators/kb.md)               | no      | yes     | the owner's Knowledge Space tree                               |
+| [`skill://`](../locators/skill.md)         | no      | no      | an installed skill package, read-only                          |
+| [`http(s)://`](../locators/web.md)         | no      | no      | the public web, through the API process                        |
+| [`media://`](../locators/media.md)         | no      | no      | the owner's stored media, read-only                            |
+| [`artifact://`](../locators/artifact.md)   | no      | no      | this Chat's stored tool results                                |
+| [`job://`](../locators/job.md)             | no      | no      | this Chat's background jobs, read-only                         |
+| [`projects://`](../locators/projects.md)   | no      | no      | the owner's Projects and registered checkouts, read-only       |
+| [`chat://`](../locators/chat.md)           | no      | no      | the owner's Chats through collection, index, and message reads |
 
 ### Artifact locators
 
@@ -86,6 +90,28 @@ location it prints. It needs no Machine, and a missing or foreign UUID is
 The two listings and a detail are Markdown text sources, so the read selectors
 and result bounds apply to their rendered lines. See
 [projects](../locators/projects.md).
+
+### Chat locators
+
+`chat://` lists the owner's eligible Chats. `chat://<chat-id>` reads an
+eligible message index, and `chat://<chat-id>/<message-seq>` reads one
+eligible message. Collection, index, and message paging use native selectors.
+See [Chat locators](../locators/chat.md) for defaults, continuation, and
+eligibility.
+
+Chat collection rows share the Chat-row format used by other readers. Each row
+shows its canonical locator, title, activity time, message count, Workspace
+root or unbound state, and optional opening and latest excerpts. Each excerpt
+is at most 100 code points after whitespace collapse; duplicate excerpts from
+the same message are omitted. A separate status field reports the current
+durable Run status. It is status only, not a shared message row or digest
+content.
+
+Chat message-index rows identify sequence, role, timestamp, message locator,
+and a preview of at most 200 code points. Message results use native numbered
+text windows and include the Chat attribution and neighboring eligible
+message locators. They replay the stored observation without contacting the
+old executor.
 
 ## Result
 

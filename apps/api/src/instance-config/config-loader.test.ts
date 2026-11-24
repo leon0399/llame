@@ -450,8 +450,35 @@ timeoutSeconds = 120
     expect(config.runs.timeoutSeconds).toBe(120);
   });
 
+  it('does not emit source-bearing YAML warnings for literal credentials', () => {
+    const credential = 'SYNTHETIC_EXPORT_SECRET_MARKER';
+
+    const warning = vi
+      .spyOn(process, 'emitWarning')
+      .mockImplementation(() => {});
+
+    try {
+      const file = writeConfig(
+        YAML.replace(
+          '    id: p\n',
+          `    id: p\n    key: !unrecognized ${credential}\n`,
+        ),
+        'tagged.yaml',
+      );
+
+      process.env.LLAME_CONFIG_PATH = file;
+      const config = loadInstanceConfig();
+
+      expect(config.providers[0]?.key).toBe(credential);
+      expect(warning).not.toHaveBeenCalled();
+    } finally {
+      warning.mockRestore();
+    }
+  });
+
   it('fails loudly, naming the file, on malformed YAML', () => {
-    const file = writeConfig('defaults: [unclosed', 'bad.yaml');
+    const credential = 'SYNTHETIC_EXPORT_SECRET_MARKER';
+    const file = writeConfig(`providers: [${credential}`, 'bad.yaml');
     process.env.LLAME_CONFIG_PATH = file;
 
     expect(() => loadInstanceConfig()).toThrow(InstanceConfigError);
@@ -462,6 +489,7 @@ timeoutSeconds = 120
     } catch (error) {
       expect(errorMessage(error)).toContain(file);
       expect(errorMessage(error)).toContain('Malformed YAML');
+      expect(errorMessage(error)).not.toContain(credential);
     }
   });
 
@@ -903,9 +931,21 @@ describe('loadInstanceConfig — tools.* (openspec/changes/tool-calling-loop)', 
     expect(() => loadInstanceConfig()).toThrow(/conversation_\*/);
   });
 
-  it('accepts the exact conversation_read code-owned id', () => {
+  it('rejects the retired conversation_read allowlist with a read/chat migration diagnostic', () => {
     writeConfig('{ "tools": { "allowed": ["conversation_read"] } }');
-    expect(loadInstanceConfig().tools.allowed).toEqual(['conversation_read']);
+    expect(() => loadInstanceConfig()).toThrow(InstanceConfigError);
+    expect(() => loadInstanceConfig()).toThrow(
+      /conversation_read.*was retired/,
+    );
+    expect(() => loadInstanceConfig()).toThrow(/"read".*chat:\/\//);
+  });
+  it('keeps a stale conversation_read permission group inert without restoring its allowlist id', () => {
+    writeConfig(
+      '{ "tools": { "allowed": ["search_conversations"], "permissions": { "conversation_read": { "allow": true } } } }',
+    );
+    const config = loadInstanceConfig();
+    expect(config.tools.allowed).toEqual(['search_conversations']);
+    expect(config.tools.permissions).toHaveProperty('conversation_read');
   });
 
   it('resolves maxStepsPerRun / callTimeoutSeconds overrides from the file', () => {

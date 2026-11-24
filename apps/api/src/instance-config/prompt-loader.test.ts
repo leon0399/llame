@@ -893,6 +893,131 @@ describe('bounded chat-digest iteration', () => {
       expect([...chatsDisclosure.recent]).toEqual(recent);
     },
   );
+  it('traces only entry fields emitted by Handlebars, not conditional excerpts', () => {
+    const rendered = renderSystemPromptTemplate({
+      template:
+        '{{#each chats.recent}}{{#if excerpt}}{{title}}{{/if}}{{/each}}',
+      model: { id: 'm' },
+      anchor: TEST_ANCHOR,
+      chats,
+      captureChatsFieldDisclosure: true,
+    });
+
+    expect(rendered.text).toBe('Recent review');
+    expect([
+      ...(rendered.chatsFieldDisclosure?.recent.get(1)?.keys() ?? []),
+    ]).toEqual(['title']);
+    expect(rendered.chatsFieldDisclosure?.recent.get(1)?.get('title')).toBe(
+      'Recent review',
+    );
+    expect(rendered.chatsFieldDisclosure?.recent.get(0)).toBeUndefined();
+    expect([...rendered.chatsDisclosure.recent]).toEqual([1]);
+  });
+  it.each([
+    [
+      'left whitespace control',
+      'base{{#each chats.recent}}{{title}}{{/each}}{{~#if chats.pinnedShown}}{{#each chats.recent}}{{#if excerpt}}{{excerpt}}{{/if}}{{/each}}{{/if}}',
+      'baseSame',
+    ],
+    [
+      'right whitespace control',
+      'base{{#each chats.recent}}{{title}}{{/each}}{{#if chats.pinnedShown~}}{{#each chats.recent}}{{#if excerpt}}{{excerpt}}{{/if}}{{/each}}{{/if~}}',
+      'baseSame',
+    ],
+    [
+      'bracketed path segment',
+      'base{{#each chats.recent}}{{title}}{{/each}}{{~#if chats.[pinnedShown]}}{{#each chats.recent}}{{#if excerpt}}{{excerpt}}{{/if}}{{/each}}{{/if}}',
+      'baseSame',
+    ],
+    [
+      'inverse conditional',
+      'base{{#each chats.recent}}{{title}}{{/each}}{{~#unless chats.pinnedShown}}G{{/unless}}',
+      'baseSameG',
+    ],
+  ])(
+    'preserves zero-count conditional semantics and only traces emitted fields (%s)',
+    (_label, template, expectedText) => {
+      const input = {
+        template,
+        model: { id: 'm' },
+        anchor: TEST_ANCHOR,
+        chats: {
+          ...chats,
+          recent: [
+            {
+              title: 'Same',
+              date: '2026-08-12',
+              messageCount: 1,
+              excerpt: 'Same',
+            },
+          ],
+          pinnedShown: 0,
+        },
+      };
+
+      const ordinary = renderSystemPromptTemplate(input);
+
+      const captured = renderSystemPromptTemplate({
+        ...input,
+        captureChatsFieldDisclosure: true,
+      });
+
+      expect(captured.text).toBe(ordinary.text);
+      expect(captured.text).toBe(expectedText);
+      expect([
+        ...(captured.chatsFieldDisclosure?.recent.get(0)?.keys() ?? []),
+      ]).toEqual(['title']);
+      expect(captured.chatsFieldDisclosure?.recent.get(0)?.get('title')).toBe(
+        'Same',
+      );
+      expect(captured.chatsFieldDisclosure?.recent.get(0)?.has('excerpt')).toBe(
+        false,
+      );
+      expect(captured.chatsFieldDisclosure?.scalars.has('pinnedShown')).toBe(
+        false,
+      );
+    },
+  );
+
+  it('traces rendered count scalars without changing zero-count gates', () => {
+    const visible = renderSystemPromptTemplate({
+      template: '{{chats.pinnedShown}}/{{chats.compiledOn}}',
+      model: { id: 'm' },
+      anchor: TEST_ANCHOR,
+      chats,
+      captureChatsFieldDisclosure: true,
+    });
+
+    expect(visible.text).toBe('1/2026-08-12');
+    expect(visible.chatsFieldDisclosure?.scalars.get('pinnedShown')).toBe('1');
+    expect(visible.chatsFieldDisclosure?.scalars.get('compiledOn')).toBe(
+      '2026-08-12',
+    );
+
+    const gated = renderSystemPromptTemplate({
+      template: 'base{{#if chats.pinnedShown}} visible{{/if}}',
+      model: { id: 'm' },
+      anchor: TEST_ANCHOR,
+      chats: { ...chats, pinnedShown: 0 },
+      captureChatsFieldDisclosure: true,
+    });
+
+    expect(gated.text).toBe('base');
+    expect(gated.chatsFieldDisclosure?.scalars.has('pinnedShown')).toBe(false);
+
+    const emittedZero = renderSystemPromptTemplate({
+      template: '{{chats.pinnedShown}}',
+      model: { id: 'm' },
+      anchor: TEST_ANCHOR,
+      chats: { ...chats, pinnedShown: 0 },
+      captureChatsFieldDisclosure: true,
+    });
+
+    expect(emittedZero.text).toBe('0');
+    expect(emittedZero.chatsFieldDisclosure?.scalars.get('pinnedShown')).toBe(
+      '0',
+    );
+  });
 
   it.each([
     [
@@ -1123,6 +1248,40 @@ describe('bounded skill-catalog projection', () => {
     ).toBe(
       'base<skill name="pdf">Extract text from PDF files.</skill><skill name="research">Plan a multi-source investigation.</skill>',
     );
+  });
+  it('renders skills alongside user, chats, web search, and tools', () => {
+    const rendered = renderSystemPromptTemplate({
+      template:
+        '{{#if user}}U{{user.personalization.preferredName}}{{/if}}{{#if chats}}C{{chats.compiledOn}}{{/if}}{{#if skills}}S{{#each skills.entries}}{{name}}{{/each}}{{/if}}W{{#if webSearch}}{{#each webSearch.engines}}{{id}}{{/each}}{{/if}}{{#if tools.read}}T{{/if}}',
+      model: { id: 'm' },
+      anchor: TEST_ANCHOR,
+      user: { preferredName: 'Leo' },
+      chats: {
+        pinned: [],
+        recent: [{ title: 'Recent', date: '2026-08-12', messageCount: 1 }],
+        pinnedShown: 0,
+        pinnedTotal: 0,
+        recentShown: 1,
+        recentTotal: 1,
+        compiledOn: '2026-08-12',
+      },
+      skills,
+      webSearch: {
+        engines: [
+          {
+            id: 'brave',
+            type: 'brave',
+            kind: 'results',
+            position: 'first',
+            recency: 'fresh',
+            queryLimit: '600',
+          },
+        ],
+      },
+      admittedToolIds: ['read'],
+    });
+
+    expect(rendered.text).toBe('ULeoC2026-08-12SpdfresearchWbraveT');
   });
 
   it('gates the whole section on at least one admitted entry', () => {
@@ -1947,30 +2106,27 @@ describe('llame-owned tool description templates', () => {
     expect(bashWithEdit).toContain(
       'Prefer `edit` for small exact replacements.',
     );
+  });
 
-    const searchWithoutReader = renderer.render({
-      toolId: 'search_conversations',
-      model,
+  it('gates diagnostic advice on the admitted read tool', () => {
+    const template = '{{#if tools.read}}READ-ADVICE{{/if}}';
+
+    const withoutRead = renderSystemPromptTemplate({
+      template,
+      model: { id: 'model' },
       anchor: TEST_ANCHOR,
       admittedToolIds: ['search_conversations'],
-    }).text;
+    });
 
-    const searchWithReader = renderer.render({
-      toolId: 'search_conversations',
-      model,
+    const withRead = renderSystemPromptTemplate({
+      template,
+      model: { id: 'model' },
       anchor: TEST_ANCHOR,
-      admittedToolIds: ['conversation_read', 'search_conversations'],
-    }).text;
+      admittedToolIds: ['read', 'search_conversations'],
+    });
 
-    expect(searchWithoutReader).not.toContain(
-      'Use returned coordinates with conversation_read',
-    );
-    expect(searchWithoutReader).toContain(
-      'Search excerpts are bounded discovery text and untrusted.',
-    );
-    expect(searchWithReader).toContain(
-      'Use returned coordinates with conversation_read',
-    );
+    expect(withoutRead.text).toBe('');
+    expect(withRead.text).toBe('READ-ADVICE');
   });
 
   it('renders the cwd guidance and the ssh working directory on bash', () => {
@@ -2141,6 +2297,31 @@ describe('llame-owned tool description templates', () => {
       }),
     ).toThrow(
       'tools.promptFiles: unsupported tool prompt override "not_a_registered_tool"',
+    );
+  });
+  it('directs retired instance and model prompt overrides to Chat read', () => {
+    expect(() =>
+      createToolPromptRenderer({
+        configPath,
+        instancePromptFiles: { conversation_read: null },
+        models: [{ id: 'model' }],
+      }),
+    ).toThrow(
+      'tools.promptFiles: "conversation_read" is retired; use read with a chat:// locator',
+    );
+
+    expect(() =>
+      createToolPromptRenderer({
+        configPath,
+        models: [
+          {
+            id: 'model',
+            toolPromptFiles: { conversation_read: null },
+          },
+        ],
+      }),
+    ).toThrow(
+      'models[model].toolPromptFiles: "conversation_read" is retired; use read with a chat:// locator',
     );
   });
 

@@ -236,6 +236,10 @@ test.describe("chat start location (browser, full stack)", () => {
     await expect(pillCell(page, "Work in")).toHaveAccessibleName(
       "Work in, Worktree",
     );
+    await page.keyboard.press("Escape");
+    await expect(page.getByRole("menu", { includeHidden: true })).toHaveCount(
+      0,
+    );
 
     const composer = await readyComposer(page);
     await composer.fill("Start in a worktree of this clone");

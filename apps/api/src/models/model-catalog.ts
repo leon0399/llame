@@ -134,11 +134,36 @@ export type PromptChatsInput = {
 };
 
 /**
- * Positions of the `chats` entries whose values one render actually emitted.
- *
- * Private render metadata for the told-set: never a template variable, a
- * receipt field, or stored tool-description metadata.
+ * Export-only provenance from one actual escaped prompt render. Entry fields
+ * are recorded only when Handlebars emits them, not when a template tests
+ * their presence or list truthiness.
  */
+export type PromptChatDigestField =
+  | 'title'
+  | 'date'
+  | 'messageCount'
+  | 'excerpt';
+
+export type PromptChatsScalarDisclosure =
+  | 'compiledOn'
+  | 'pinnedShown'
+  | 'pinnedTotal'
+  | 'recentShown'
+  | 'recentTotal';
+
+export type PromptChatsFieldDisclosure = {
+  readonly pinned: ReadonlyMap<
+    number,
+    ReadonlyMap<PromptChatDigestField, string>
+  >;
+  readonly recent: ReadonlyMap<
+    number,
+    ReadonlyMap<PromptChatDigestField, string>
+  >;
+  readonly scalars: ReadonlyMap<PromptChatsScalarDisclosure, string>;
+};
+
+/** Positions of digest entries actually emitted by a single render. */
 export type PromptChatsDisclosure = {
   readonly pinned: ReadonlySet<number>;
   readonly recent: ReadonlySet<number>;

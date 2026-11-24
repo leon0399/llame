@@ -7,7 +7,7 @@ export const CANONICAL_SEARCH_MAX_EXCERPT_CODE_POINTS = 500;
 /**
  * Render the complete selected line window and crop only its discovery
  * presentation. The matcher coordinates remain untouched so the same
- * message-local range can be handed to `conversation_read`.
+ * message-local range can become a `chat://` locator for native `read`.
  */
 export function buildCanonicalSearchExcerpt(
   passage: CanonicalSearchPreviewPassage,

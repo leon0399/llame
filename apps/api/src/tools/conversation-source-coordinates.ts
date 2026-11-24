@@ -28,9 +28,8 @@ export const conversationSourceLimitSchema = z
   });
 
 /**
- * Internal line-read coordinates shared by conversation search and the
- * conversation_read tool. This is deliberately not a tool declaration: the
- * reader owns that public input surface and composes this exact contract.
+ * Internal message-local windows used to construct canonical search locators.
+ * The native `read` tool accepts the resulting `chat://` locator.
  */
 export const conversationSourceCoordinatesSchema = z.strictObject({
   chatId: conversationSourceChatIdSchema,
@@ -42,9 +41,3 @@ export const conversationSourceCoordinatesSchema = z.strictObject({
 export type ConversationSourceCoordinates = z.infer<
   typeof conversationSourceCoordinatesSchema
 >;
-
-export function parseConversationSourceCoordinates(
-  value: unknown,
-): ConversationSourceCoordinates {
-  return conversationSourceCoordinatesSchema.parse(value);
-}

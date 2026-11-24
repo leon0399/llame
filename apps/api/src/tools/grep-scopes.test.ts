@@ -696,6 +696,11 @@ describe('refuseUnsearchableGrepScopes', () => {
       type: 'invalid_path',
       message: 'This path scheme cannot be searched.',
     });
+    expect(refused(['chat://0190f5e2-7c1a-7b3e-9d4f-2a6b8c0d1e2f'])).toEqual({
+      status: 'error',
+      type: 'invalid_path',
+      message: 'This path scheme cannot be searched.',
+    });
   });
 
   it('refuses a bare Machine scope and a remote file: alias', () => {

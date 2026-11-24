@@ -399,14 +399,14 @@ does not recognize.
 
 ### Text-only views
 
-`conversation_read` follows a message's text with one line per attachment,
-`[image media://<id> <name>]` for an image and `[pdf media://<id> <name>]`
-for a PDF, and title generation receives the same lines after the turn's
-text. Both read the stored filename and media type from the message alone,
-without a media lookup. Search indexes no image or PDF data. Public shares
-and shared forks carry only text parts: a shared fork drops a message whose
-only content was attachments, and its new owner gains no access to the source
-owner's media.
+Native `read` on a `chat://` message follows its text with one line per
+attachment: `[image media://<id> <name>]` for an image and
+`[pdf media://<id> <name>]` for a PDF. Title generation receives the same
+lines after the turn's text. Both read the stored filename and media type from
+the message alone, without a media lookup. Search indexes no image or PDF data.
+Public shares and shared forks carry only text parts: a shared fork drops a
+message whose only content was attachments, and its new owner gains no access
+to the source owner's media.
 
 ## `sharp` native dependency
 

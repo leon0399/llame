@@ -1,3 +1,4 @@
+import { formatChatLocator } from '../../chats/chat-locator';
 import { describe, expect, it } from 'vitest';
 
 import { type UnknownRecord } from '@workspace/runtime-safety';
@@ -1068,6 +1069,35 @@ describe('native file permission projection', () => {
     expect(withoutReadSelector('https://EXAMPLE.test/G%20uide:raw')).toBe(
       'https://EXAMPLE.test/G%20uide',
     );
+  });
+});
+
+describe('Chat locator permission projection', () => {
+  const CHAT_ID = '0190f5e2-7c1a-7b3e-9d4f-2a6b8c0d1e2f';
+  const CHAT = formatChatLocator(CHAT_ID);
+
+  it('matches Chat reads by lowercase UUID without the selector', () => {
+    const message = formatChatLocator(CHAT_ID, 7);
+    const selected = `${CHAT.toUpperCase()}:1-4`;
+    expect(nativeFileProjection('read')('path', selected)).toEqual({
+      canonical: CHAT,
+    });
+    expect(canonical(selected)).toBe(CHAT);
+    expect(nativeFileProjection('read')('path', `${message}:1-2`)).toEqual({
+      canonical: message,
+    });
+    expect(withoutReadSelector(`${message}:1-2`)).toBe(message);
+    expect(withoutReadSelector(message)).toBe(message);
+  });
+
+  it('does not let a scheme or UUID case evade a read reject', () => {
+    const map: ToolPermissionMap = {
+      read: { allow: true, reject: [{ field: 'path', regex: '^chat://' }] },
+    };
+
+    expect(
+      decideNative(map, 'read', { path: `${CHAT.toUpperCase()}:1-2` }),
+    ).toMatchObject({ decision: 'reject', reason: 'explicit_reject' });
   });
 });
 

@@ -19,9 +19,9 @@ aiming to dispatch peer coding agents over protocols such as ACP and A2A
   through one account. Codex and OpenCode Go retain fixed subscription
   destinations.
 - Owner-only Projects for organizing Chats, with pinning and reversible archive.
-- Bounded tool loop: `search_conversations`, optional line-ranged
-  `conversation_read`, and operator-configured MCP tools authorized by the
-  instance permission policy.
+- Bounded tool loop: `search_conversations` discovers owned Chats, and native
+  `read` opens their `chat://` collection, message indexes, and eligible
+  messages. Operator-configured MCP tools use the instance permission policy.
 - Owners select a per-Run `default`, `read-only`, or `bypass` permission mode
   from a control beside the prompt input when the operator exposes more than one
   through ordered `tools.permissionModes` (default `["default"]`); the choice

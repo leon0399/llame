@@ -10,7 +10,6 @@ import { nativeGrepTool } from './grep';
 import { stopTool } from './stop';
 import { waitTool } from './wait';
 import { searchConversationsTool } from './search-conversations';
-import { conversationReadTool } from './conversation-read';
 import { webSearchTool } from './web-search/tool';
 import {
   isToolId,
@@ -38,7 +37,6 @@ export const TOOLS: ReadonlyArray<Tool> = [
   enterWorkspaceTool,
   exitWorkspaceTool,
   searchConversationsTool,
-  conversationReadTool,
   knowledgeSearchTool,
   webSearchTool,
 ];

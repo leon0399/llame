@@ -102,7 +102,14 @@ in many places contributes many ranges and is never collapsed to the whole
 file, because that would measure lines the pull request never wrote. Two edits
 that only an inserted blank line joins stay separate ranges, so a mutant node
 spanning both, such as a multi-line object literal, is not measured.
-`coverageAnalysis: perTest` then runs only the tests covering each mutant.
+`coverageAnalysis: perTest` selects covered tests for runtime mutants. The API
+keeps [`ignoreStatic: false`](https://stryker-mutator.io/docs/stryker-js/configuration/#ignorestatic):
+module-initialized schemas must be mutated before import and checked against
+all related tests. A first dynamic importer does not identify every schema
+consumer. This costs more time for static mutants; the changed-line scope and
+80% gate stay unchanged.
+Do not narrow static-mutant runs with `--testFiles`; restrict mutation ranges
+instead, so module-load activation still runs before related test imports.
 
 The gate is a level over the changed lines: the score across them must reach
 80%. A changed line that carries no mutant at all — a declaration, a type-only

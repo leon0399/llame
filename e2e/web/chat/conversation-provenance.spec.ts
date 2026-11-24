@@ -3,10 +3,9 @@
  *
  * The source Chat is intentionally created through the browser, while its
  * stable sequence is obtained through the owner API. The model fixture's
- * unique prompt then performs search_conversations → conversation_read using
- * the returned coordinates. A giant multi-part source belongs in the queued
- * Postgres acceptance suite; this browser test stays focused on the user
- * surface, generic tool chips, replay, and pasted owner links.
+ * unique prompt then performs search_conversations → read using the returned
+ * coordinates. A bounded multi-line source forces the native continuation
+ * path while this browser test covers tool chips, replay, and owner links.
  */
 
 import { readyComposer } from "../../support/composer";
@@ -29,12 +28,13 @@ const sourceMarker = "E2E_EPISODIC_SOURCE_MARKER";
 const recallPrompt =
   "Please recall my episodic provenance e2e source and read it exactly.";
 
-const sourceLines = [
+const sourceLineMarkers = [
+  "E2E_EPISODIC_FIRST_LINE",
   `Owner evidence ${sourceMarker}: the deployment decision is preserved.`,
-  "The first bounded read includes this adjacent line.",
-  "The continuation begins on this third line.",
-  "The continuation preserves this terminal line.",
+  "E2E_EPISODIC_CONTINUATION_LINE_3",
 ] as const;
+
+const sourceLines = sourceLineMarkers.map((marker) => marker.padEnd(6000, "x"));
 
 const sourceText = sourceLines.join("\n");
 const answer = "I read the canonical episodic source exactly.";
@@ -154,9 +154,11 @@ test.describe("conversation provenance (browser, full stack)", () => {
       .getByRole("button")
       .filter({ hasText: "search_conversations" });
 
-    const readTools = log
-      .getByRole("button")
-      .filter({ hasText: "conversation_read" });
+    const readToolFilter = /\bread, /u;
+
+    const readTools = log.getByRole("button").filter({
+      hasText: readToolFilter,
+    });
 
     await expect(searchTool).toHaveCount(1);
     await expect(readTools).toHaveCount(2);
@@ -191,32 +193,39 @@ test.describe("conversation provenance (browser, full stack)", () => {
     expect(destinationPrompt.seq).toBe(1);
 
     await readTools.nth(0).click();
-    await expect(readTools.nth(0).locator("..")).toContainText(sourceLines[0]);
+    await expect(readTools.nth(0).locator("..")).toContainText(
+      `chat://${sourceChatId}/1:L1-3`,
+    );
+    await expect(readTools.nth(0).locator("..")).toContainText(
+      sourceLineMarkers[0],
+    );
+    await expect(readTools.nth(0).locator("..")).not.toContainText(
+      sourceLineMarkers[2],
+    );
     await readTools.nth(1).click();
-    await expect(readTools.nth(1).locator("..")).toContainText(sourceLines[2]);
+    await expect(readTools.nth(1).locator("..")).toContainText(
+      sourceLineMarkers[2],
+    );
 
     // Full reload reconstructs both persisted call/result pairs through the
     // ordinary tool parts. No source rehydration is allowed on this path.
     await page.reload({ waitUntil: "domcontentloaded" });
     await expect(
-      log.getByRole("button").filter({ hasText: "search_conversations" }),
-    ).toHaveCount(1);
-    await expect(
-      log.getByRole("button").filter({ hasText: "conversation_read" }),
+      log.getByRole("button").filter({ hasText: readToolFilter }),
     ).toHaveCount(2);
     await expect(log.getByText(answer)).toBeVisible({ timeout: 15_000 });
 
     const reloadedReadTools = log
       .getByRole("button")
-      .filter({ hasText: "conversation_read" });
+      .filter({ hasText: readToolFilter });
 
     await reloadedReadTools.nth(0).click();
     await expect(reloadedReadTools.nth(0).locator("..")).toContainText(
-      sourceLines[0],
+      sourceLineMarkers[0],
     );
     await reloadedReadTools.nth(1).click();
     await expect(reloadedReadTools.nth(1).locator("..")).toContainText(
-      sourceLines[2],
+      sourceLineMarkers[2],
     );
 
     const forkResponse = await request.post(

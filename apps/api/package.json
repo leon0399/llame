@@ -24,6 +24,7 @@
     "machines:forget": "npx tsx src/machines/operations/cli.ts forget",
     "ranking:eval": "npx tsx evals/ranking/eval.ts",
     "ranking:record": "npx tsx evals/ranking/record.ts",
+    "recency-digest:export": "npx tsx src/chats/recency-digest-export.cli.ts",
     "search:backfill": "npx tsx src/search/operations/cli.ts backfill",
     "search:coverage": "npx tsx src/search/operations/cli.ts coverage",
     "search:projection-coverage": "npx tsx src/search/operations/cli.ts projection-coverage",

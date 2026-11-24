@@ -12,6 +12,7 @@ behavior:
   - ../reference/locators/web.md
   - ../reference/locators/projects.md
   - ../reference/context-documents.md
+  - ../reference/locators/chat.md
 ---
 
 # Tool-call permissions
@@ -107,6 +108,12 @@ resolved lexically against the Workspace root on its Machine first. No
 filesystem or backing path is resolved during permission evaluation, and
 arbitrary MCP values receive no native normalization.
 
+For `chat://`, matching uses the canonical selector-free resource. The
+collection and Chat index keep their canonical forms. A message read keeps its
+message sequence in the resource identity while dropping its `L` line selector.
+An exact allow for the collection address does not inherit to Chat indexes or
+messages. A prefix regex such as `^chat://` matches every canonical Chat resource.
+
 A `read` is matched **without its read selector**, on every source: the direct
 path, a `file:` alias, a `machine://` locator, a `kb://` or `skill://` locator, a
 `projects://` locator, a web locator, and the Workspace-relative path after
@@ -187,18 +194,17 @@ jobs.
 ## Recommended portable policy and replacement
 
 There is no built-in policy: omitting `tools.permissions` rejects every call.
-`apps/api/llame.config.jsonc.example` ships this recommended portable map — a
-whole-tool allow for the ten code-owned tools that need no field allow
-(`bash`, `stop`, `read`, `edit`, `write`, `knowledge_search`,
-`search_conversations`, `conversation_read`, `wait`, `exit_workspace`), an operator-edited `enter_workspace.path`
-field allow naming trusted roots, and these rejects. The `B` rows recognize
-common destructive host operations, the
-`F` rows standard credential-locator locations and the web addresses to
-refuse, the `W` rows Workspace control files, and the `E` rows roots the
-Workspace group should not admit. They are textual, not a sandbox, and quoted
-mentions match. See [web reads](web-read.md#enabling) for when to copy
-F5a-F5f and F7, and [native files](native-files.md#workspace-entry) for what
-an admitted Workspace root is trusted with.
+The example has ten code-owned permission groups. Nine allow a whole tool:
+`bash`, `stop`, `read`, `edit`, `write`, `knowledge_search`,
+`search_conversations`, `wait`, and `exit_workspace`. The
+`enter_workspace.path` group allows trusted roots. The map has reject clauses.
+The `B` rows recognize common destructive host operations. The `F` rows cover
+credential locations and web addresses. The `W` rows cover Workspace control
+files. The `E` rows name roots the Workspace group should not admit. The rules
+are textual, not a sandbox, and quoted mentions match. See [web
+reads](web-read.md#enabling) for when to copy F5a-F5f and F7, and [native
+files](native-files.md#workspace-entry) for the trust granted by an admitted
+Workspace root.
 
 | ID  | Tool/field                                                     | Matcher | Value                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
 | --- | -------------------------------------------------------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
@@ -265,6 +271,7 @@ coexist:
           { "field": "path", "regex": "^media://" },
           { "field": "path", "regex": "^artifact://" },
           { "field": "path", "regex": "^projects://" },
+          { "field": "path", "regex": "^chat://" },
           { "field": "path", "regex": "^https://docs\\.example\\.com/" },
         ],
       },
@@ -286,6 +293,12 @@ The `^projects://` clause admits Project listings and detail reads. Without it
 every Project read is rejected as `no_allow` before any datastore read. The
 clause covers the Project resource only, not the checkout locators a detail
 returns. See [Project reads](#project-reads).
+The `^chat://` clause admits Chat collection, index, and message reads when
+their canonical resource locator matches it. Without such a clause, every Chat
+read is rejected as `no_allow` before any Chat lookup. A regex anchored to one
+canonical Chat UUID and followed by `(?:/|$)` admits that index and its
+messages. Chat reads remain owner-scoped even when a permission clause admits
+them.
 The domain allowlist must also name each rewrite origin: allowing the source
 host does not admit the operator-declared target origin, because the target is
 a separate derived locator.

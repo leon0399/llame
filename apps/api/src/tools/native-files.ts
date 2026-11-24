@@ -1,3 +1,5 @@
+import { CHAT_SCHEME } from '../chats/chat-locator';
+import { readChatResource } from './chat-read';
 import { z } from 'zod';
 import { loadPackagedToolDescription } from '../prompts/tool-descriptions';
 import {
@@ -165,6 +167,8 @@ const LOCATOR_READERS: ReadonlyMap<string, LocatorReader> = new Map(
       readArtifact(context, call.operation, call.input.path),
     [JOB_SCHEME]: (context, call) =>
       readJob(context, call.operation, call.input.path),
+    [CHAT_SCHEME]: (context, call) =>
+      readChatResource(context, call.operation, call.input.path),
     // The reader re-parses the submitted locator, which policy admitted in its
     // canonical form; it needs the whole text, selector included.
     [PROJECT_SCHEME]: (context, call) =>

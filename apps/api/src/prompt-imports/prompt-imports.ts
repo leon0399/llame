@@ -15,6 +15,7 @@ import {
 } from '../chats/prompt-imports-item';
 import { KnowledgeFilesystemError } from '../knowledge/knowledge-filesystem';
 import { importTargets } from '../import-markers/import-markers';
+import { CHAT_SCHEME } from '../chats/chat-locator';
 import { KNOWLEDGE_LOCATOR_SCHEME } from '../knowledge/knowledge-locator';
 import { JOB_SCHEME } from '../jobs/job-locator';
 import { MACHINE_SCHEME } from '../machines/machine-locator';
@@ -249,6 +250,10 @@ function planScheme(
       ? { kind: 'direct', readPath: target }
       : undefined;
   }
+
+  // Chat locators address owner-scoped conversation data, never implicit
+  // prompt imports; their markers remain prose without admission or reads.
+  if (scheme === CHAT_SCHEME) return undefined;
 
   // An artifact belongs to the current Chat, not to the prompt's author, so an
   // `@artifact://` marker stays prose (tool-result-artifacts D12).

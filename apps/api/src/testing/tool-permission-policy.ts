@@ -12,7 +12,6 @@ const PERMISSIVE_TOOL_IDS = [
   'write',
   'knowledge_search',
   'search_conversations',
-  'conversation_read',
   'web_search',
   'enter_workspace',
   'exit_workspace',

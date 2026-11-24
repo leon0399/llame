@@ -43,9 +43,9 @@ const unitTest = {
   include: ['src/**/*.test.ts'],
   exclude: [
     'src/**/*.integration.test.ts',
-    // Each starts its own PostgreSQL Testcontainer; only the mutation
-    // Vitest config includes these, not the ordinary unit project.
+    // Self-provisioned PostgreSQL query fixtures run outside ordinary units.
     'src/chats/chat-deliveries.query.unit.test.ts',
+    'src/chats/chat-read.query.unit.test.ts',
     // Runs its own migrated PostgreSQL Testcontainer; only Stryker's mutation
     // Vitest config includes it, not the ordinary unit project.
     'src/runs/native-receipts-repository.test.ts',
@@ -151,6 +151,7 @@ export default defineConfig({
               include: [
                 'src/**/*.integration.test.ts',
                 'src/db/*.query.unit.test.ts',
+                'src/chats/chat-read.query.unit.test.ts',
                 'evals/**/*.test.ts',
               ],
               exclude: ['evals/mcp-web-search-eval.test.ts'],
