@@ -11,7 +11,7 @@
     "lint": "oxlint --deny-warnings --report-unused-disable-directives",
     "lint:fix": "oxlint --deny-warnings --fix",
     "test": "vitest run",
-    "test:coverage": "vitest run --coverage --reporter=default --reporter=junit --outputFile.junit=coverage/junit.xml && crap-typescript --threshold 42 --format none src",
+    "test:coverage": "vitest run --coverage --reporter=default --reporter=junit --outputFile.junit=coverage/junit.xml && crap-typescript --threshold 42 --format none --exclude 'src/generated/**' src",
     "typecheck": "tsc --noEmit",
     "proto:generate": "buf generate",
     "proto:fingerprint": "node scripts/protocol-fingerprint.mjs --write",
@@ -28,11 +28,10 @@
     "oxlint": "catalog:",
     "oxlint-tsgolint": "catalog:",
     "typescript": "catalog:",
-    "vitest": "catalog:"
+    "vitest": "catalog:",
+    "zod": "catalog:"
   },
   "dependencies": {
-    "@bufbuild/protobuf": "2.17.0",
-    "@connectrpc/connect": "2.3.0",
-    "@connectrpc/connect-node": "2.3.0"
+    "@bufbuild/protobuf": "2.17.0"
   }
 }

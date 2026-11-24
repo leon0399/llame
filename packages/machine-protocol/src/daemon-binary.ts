@@ -1,3 +1,4 @@
+import { LLAME_MACHINE_BIN_DIR } from "./env";
 import { arch } from "node:os";
 import { join, resolve } from "node:path";
 
@@ -13,8 +14,7 @@ export function hostTarget(): string {
  */
 export function daemonBinary(target: string = hostTarget()): string {
   const dir =
-    process.env["LLAME_MACHINE_BIN_DIR"] ??
-    resolve(__dirname, "../../../apps/machine/dist");
+    LLAME_MACHINE_BIN_DIR ?? resolve(__dirname, "../../../apps/machine/dist");
 
   return join(dir, target, "llame-machine");
 }

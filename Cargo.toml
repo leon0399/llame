@@ -40,7 +40,10 @@ tonic-prost-build = "0.14"
 protox = "0.10"
 tower = "0.5"
 hyper-util = { version = "0.1", features = ["tokio"] }
-reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "stream"] }
+reqwest = { version = "0.12", default-features = false, features = [
+  "rustls-tls",
+  "stream",
+] }
 rustix = { version = "1", features = ["process", "fs", "fs", "system"] }
 libc = "0.2"
 sha2 = "0.10"

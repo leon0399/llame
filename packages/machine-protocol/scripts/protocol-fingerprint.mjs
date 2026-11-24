@@ -4,39 +4,67 @@
 // image without source info, so comments and formatting do not count.
 // `--write` records the current fingerprint; CI runs `--check`, and with
 // `--base <ref>` also refuses a schema change that kept the version.
+/**
+ * @typedef {{ fingerprint: string, version: number }} ProtocolRecord
+ */
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { readFileSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { z } from "zod";
 
-const pkg = join(dirname(fileURLToPath(import.meta.url)), "..");
+const pkg = fileURLToPath(new URL("../", import.meta.url));
 const recordFile = join(pkg, "proto", "protocol.json");
+
+const protocolRecord = z.object({
+  fingerprint: z.string(),
+  version: z.number(),
+});
 
 function fingerprint() {
   const image = execFileSync(
     "pnpm",
-    ["exec", "buf", "build", "--path", "proto/stead/machine/v1", "--exclude-source-info", "-o", "-#format=binpb"],
+    [
+      "exec",
+      "buf",
+      "build",
+      "--path",
+      "proto/stead/machine/v1",
+      "--exclude-source-info",
+      "-o",
+      "-#format=binpb",
+    ],
     { cwd: pkg },
   );
 
   return createHash("sha256").update(image).digest("hex");
 }
 
-function baseRecord(ref) {
-  const text = execFileSync("git", ["show", `${ref}:packages/machine-protocol/proto/protocol.json`], {
-    cwd: pkg,
-    encoding: "utf8",
-  });
-
-  return JSON.parse(text);
+/** @param {string} text @returns {ProtocolRecord} */
+function parseRecord(text) {
+  return protocolRecord.parse(JSON.parse(text));
 }
 
-const record = JSON.parse(readFileSync(recordFile, "utf8"));
+/** @param {string} ref */
+function baseRecord(ref) {
+  const text = execFileSync(
+    "git",
+    ["show", `${ref}:packages/machine-protocol/proto/protocol.json`],
+    { cwd: pkg, encoding: "utf8" },
+  );
+
+  return parseRecord(text);
+}
+
+const record = parseRecord(readFileSync(recordFile, "utf8"));
 const current = fingerprint();
 
 if (process.argv.includes("--write")) {
-  writeFileSync(recordFile, `${JSON.stringify({ ...record, fingerprint: current }, null, 2)}\n`);
+  writeFileSync(
+    recordFile,
+    `${JSON.stringify({ ...record, fingerprint: current }, null, 2)}\n`,
+  );
   process.exit(0);
 }
 
@@ -50,16 +78,27 @@ if (record.fingerprint !== current) {
 const baseIndex = process.argv.indexOf("--base");
 
 if (baseIndex !== -1) {
+  const baseRef = process.argv[baseIndex + 1];
+  /** @type {ProtocolRecord | undefined} */
   let base;
 
+  if (baseRef === undefined) {
+    throw new Error("Pass a Git ref after --base.");
+  }
+
   try {
-    base = baseRecord(process.argv[baseIndex + 1]);
+    base = baseRecord(baseRef);
   } catch {
     process.exit(0); // The base predates the record.
   }
 
-  if (base.fingerprint !== record.fingerprint && base.version >= record.version) {
-    console.error("The schema changed but the protocol version did not increase.");
+  if (
+    base.fingerprint !== record.fingerprint &&
+    base.version >= record.version
+  ) {
+    console.error(
+      "The schema changed but the protocol version did not increase.",
+    );
     process.exit(1);
   }
 }

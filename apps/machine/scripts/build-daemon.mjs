@@ -34,7 +34,15 @@ function requireRustup() {
 function build(target) {
   execFileSync(
     "cargo",
-    ["build", "--release", "--locked", "-p", "llame-machine", "--target", target],
+    [
+      "build",
+      "--release",
+      "--locked",
+      "-p",
+      "llame-machine",
+      "--target",
+      target,
+    ],
     { cwd: repo, stdio: "inherit" },
   );
   const built = join(repo, "target", target, "release", "llame-machine");
