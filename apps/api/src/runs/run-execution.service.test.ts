@@ -8973,11 +8973,14 @@ describe('RunExecutionService executeRun — stream failure', () => {
     await execution.service.executeRun(executionInput(capturing.client));
     await capturing.streamOptions().onError?.({ error: failure });
 
-    expect(decideModelSwitch).toHaveBeenCalledWith({
-      selector: 'fake-model',
-      modelId: 'fake-model',
-      failure,
-    });
+    expect(decideModelSwitch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        selector: 'fake-model',
+        modelId: 'fake-model',
+        origin: 'owner',
+        failure,
+      }),
+    );
     expect(spies.markFinished).toHaveBeenCalledWith(
       runId,
       userId,
@@ -9146,11 +9149,14 @@ describe('RunExecutionService executeRun — stream failure', () => {
     await expect(
       execution.service.executeRun(executionInput(client)),
     ).rejects.toBe(failure);
-    expect(decideModelSwitch).toHaveBeenCalledWith({
-      selector: 'fake-model',
-      modelId: 'fake-model',
-      failure,
-    });
+    expect(decideModelSwitch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        selector: 'fake-model',
+        modelId: 'fake-model',
+        origin: 'owner',
+        failure,
+      }),
+    );
     expect(spies.markFinished).toHaveBeenCalledWith(
       runId,
       userId,
