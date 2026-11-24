@@ -51,6 +51,7 @@
           "apps/api/src/core-infra.module.ts",
           "apps/api/src/db/db.ts",
           "apps/api/src/db/migrate.ts",
+          "apps/api/src/db/recency-digest-upgrade.cli.ts",
           "apps/api/src/decisions/decision-logger.ts",
           "apps/api/src/generate-openapi.ts",
           "apps/api/src/instance-config/config-loader.ts",
@@ -304,7 +305,7 @@
       // These API entrypoints compile as CommonJS. Remove this if API moves
       // to ESM.
       "files": [
-        "**/chats/recency-digest-export.cli.ts",
+        "**/db/recency-digest-upgrade.cli.ts",
         "**/db/migrate.ts",
         "**/generate-openapi.ts",
         "**/media/pdf-parse-entry.ts",

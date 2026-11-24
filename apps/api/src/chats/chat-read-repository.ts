@@ -1,9 +1,9 @@
 import { sql, type SQL } from 'drizzle-orm';
 import {
-  formatMachineLocator,
-  parseMachineLocator,
-} from '../machines/machine-locator';
-import { type ChatRow, formatChatExcerpt } from './chat-row';
+  canonicalWorkspaceLocator,
+  type ChatRow,
+  formatChatExcerpt,
+} from './chat-row';
 import { type Db } from '../db/tenant-db.service';
 import { findConversationMessage } from './conversation-message-lookup';
 import { eligibleMessagePredicate } from './message-eligibility';
@@ -12,6 +12,7 @@ export type ChatReadMessage = {
   chatId: string;
   seq: number;
   role: 'user' | 'assistant';
+  senderUserId: string | null;
   parts: Array<unknown>;
   usage: unknown;
   createdAt: Date;
@@ -236,7 +237,10 @@ function mapChatRows(rows: ReadonlyArray<ChatReadQueryRow>) {
           ? row.activityAt.toISOString()
           : new Date(row.activityAt).toISOString(),
       messageCount: Number(row.messageCount),
-      workspace: workspaceLocator(row.workspaceRoot, row.workspaceExecutorId),
+      workspace: canonicalWorkspaceLocator(
+        row.workspaceRoot,
+        row.workspaceExecutorId,
+      ),
       openingExcerpt: formatChatExcerpt(row.openingText, 100),
       latestExcerpt: formatChatExcerpt(row.latestText, 100),
       runStatus: normalizeStatus(row.runStatus),
@@ -244,22 +248,6 @@ function mapChatRows(rows: ReadonlyArray<ChatReadQueryRow>) {
   }
 
   return { rows: mapped, total: Number(rows[0]?.total ?? 0) };
-}
-
-function workspaceLocator(
-  root: string | null,
-  executorId: string | null,
-): string {
-  if (root === null) return 'unbound';
-  const parsed = parseMachineLocator(root);
-
-  if (parsed.kind === 'path' && parsed.selector === undefined)
-    return formatMachineLocator(parsed.name, parsed.path) ?? 'unbound';
-
-  if (root.startsWith('/') && !root.startsWith('//') && executorId !== null)
-    return formatMachineLocator(executorId, root) ?? 'unbound';
-
-  return 'unbound';
 }
 
 function normalizeStatus(value: string | null | undefined): string {

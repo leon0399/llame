@@ -83,6 +83,7 @@ function mockMessage(parts: Array<unknown>) {
     chatId: CHAT_ID,
     seq: 1,
     role: 'user',
+    senderUserId: 'user-1',
     parts,
     usage: null,
     createdAt: new Date('2026-01-01T00:00:00.000Z'),

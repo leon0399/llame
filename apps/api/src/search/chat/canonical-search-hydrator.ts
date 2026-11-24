@@ -26,6 +26,7 @@ export type CanonicalHydrationRow = {
   message_chat_id: string;
   message_seq: string;
   message_role: string;
+  message_sender_user_id: string | null;
   message_parts: unknown;
   message_usage: unknown;
   message_revised_at: unknown;
@@ -131,6 +132,17 @@ function decodeCanonicalMessage(
   boundary: DocumentBoundary,
   range: MessageSeqRange,
 ): DecodedCanonicalMessage | null {
+  const messageSeq = canonicalMessageSequence(row, candidate, boundary, range);
+
+  return messageSeq === null ? null : decodeMessageContent(row, messageSeq);
+}
+
+function canonicalMessageSequence(
+  row: CanonicalHydrationRow,
+  candidate: CanonicalSearchCandidate,
+  boundary: DocumentBoundary,
+  range: MessageSeqRange,
+): number | null {
   if (
     row.message_chat_id !== candidate.chatId ||
     !sameDocumentBoundary(row, boundary)
@@ -139,39 +151,58 @@ function decodeCanonicalMessage(
   }
 
   const messageSeq = parseSafePositiveInteger(row.message_seq);
-  const { firstSeq, lastSeq } = range;
 
-  if (messageSeq === null || messageSeq < firstSeq || messageSeq > lastSeq) {
-    return null;
-  }
+  return messageSeq !== null &&
+    messageSeq >= range.firstSeq &&
+    messageSeq <= range.lastSeq
+    ? messageSeq
+    : null;
+}
+
+function decodeMessageContent(
+  row: CanonicalHydrationRow,
+  messageSeq: number,
+): DecodedCanonicalMessage {
+  const { message_role: role } = row;
 
   // A checkpoint carries model-facing presentation text, never canonical
   // source evidence. It stays in the walk, but is never a boundary.
-  const { message_role: role } = row;
-
   if (role === 'checkpoint' || role === 'system' || role === 'tool') {
     return nonSourceMessage(messageSeq, 'presentation');
   }
 
-  if (
-    (role !== 'user' && role !== 'assistant') ||
-    !isImmutableEvidenceMessage({
-      role,
-      usage: row.message_usage,
-      revisedAt: row.message_revised_at,
-    }) ||
-    !Array.isArray(row.message_parts)
-  ) {
+  if (!isCanonicalSourceMessage(row, role)) {
     return nonSourceMessage(messageSeq, 'invalid');
   }
+
+  const parts = row.message_parts;
+
+  if (!Array.isArray(parts)) return nonSourceMessage(messageSeq, 'invalid');
 
   return {
     messageSeq,
     kind: 'source',
     role,
     timestamp: parseTimestamp(row.message_created_at),
-    visibleText: visibleMessageText(row.message_parts),
+    visibleText: visibleMessageText(parts),
   };
+}
+
+function isCanonicalSourceMessage(
+  row: CanonicalHydrationRow,
+  role: string,
+): role is 'user' | 'assistant' {
+  return (
+    (role === 'user' || role === 'assistant') &&
+    isImmutableEvidenceMessage({
+      role,
+      senderUserId: row.message_sender_user_id,
+      parts: Array.isArray(row.message_parts) ? row.message_parts : undefined,
+      usage: row.message_usage,
+      revisedAt: row.message_revised_at,
+    }) &&
+    Array.isArray(row.message_parts)
+  );
 }
 
 type RowPosition = { isFirst: boolean; isLast: boolean };
@@ -414,6 +445,7 @@ function messagesInBoundarySelect(ownerUserId: string, chatId: string) {
       message.chat_id AS message_chat_id,
       message.seq::text AS message_seq,
       message.role AS message_role,
+      message.sender_user_id AS message_sender_user_id,
       message.parts AS message_parts,
       message.usage AS message_usage,
       message.revised_at AS message_revised_at,

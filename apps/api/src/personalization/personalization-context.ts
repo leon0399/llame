@@ -1,5 +1,5 @@
 import { type Personalization } from '../db/schema';
-import { type PromptUserInput } from '../instance-config/prompt-loader';
+import { type PromptUserInput } from '../models/model-catalog';
 import { type AccountIdentity } from './personalization-repository';
 
 /**

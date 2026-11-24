@@ -1,5 +1,6 @@
 import { loadPackagedTemplate } from '../prompts/template-engine';
 import { isCompletedAssistantTurn } from './assistant-completion';
+import { isDigestOnlyHostMessage } from './message-eligibility';
 import { isTextPart } from './context-builder';
 
 /**
@@ -33,13 +34,16 @@ export function visibleMessageText(parts: ReadonlyArray<unknown>): string {
  * the existing completion classifier defines that compatibility behavior. A
  * row a Regenerate revised is never evidence again, whatever its usage says.
  */
+
 export function isImmutableEvidenceMessage(message: {
   role: string;
   usage?: unknown;
+  senderUserId?: string | null;
+  parts?: ReadonlyArray<unknown>;
   /** `messages.revised_at`, read raw: any recorded value marks a revised row. */
   revisedAt?: unknown;
 }): boolean {
-  if (message.role === 'user') return true;
+  if (message.role === 'user') return !isDigestOnlyHostMessage(message);
 
   return (
     message.role === 'assistant' &&

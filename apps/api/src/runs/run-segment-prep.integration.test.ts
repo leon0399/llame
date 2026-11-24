@@ -902,7 +902,7 @@ describe('run steering segment preparation', () => {
       });
     });
 
-    it('A steer delivery writes the first-epoch baselines of the first Run', async () => {
+    it('A steer delivery writes the first-epoch skill baseline before the next segment', async () => {
       const seen: Array<boolean> = [];
 
       const started = await steeredRun({
@@ -914,7 +914,6 @@ describe('run steering segment preparation', () => {
             new ChatsRepository(tx).findById(chatId, userId),
           );
 
-          // The baseline is on the Chat before the second segment's request.
           seen[index] = chat?.skillCatalogBaseline !== null;
         },
       });
@@ -924,7 +923,7 @@ describe('run steering segment preparation', () => {
       expect(seen[1]).toBe(true);
     });
 
-    it('An interrupt delivery writes no first-epoch baselines', async () => {
+    it('an interrupt leaves skill state untouched until the next steer delivery', async () => {
       const seeded = await seedRun({
         tenantDb: harness.tenantDb,
         userId,
@@ -935,82 +934,7 @@ describe('run steering segment preparation', () => {
         new RunsRepository(tx).markStarted(seeded.runId, userId),
       );
 
-      const baselines = {
-        recencyDigestInitialization: {
-          baseline: {
-            pinned: [],
-            recent: [],
-            pinnedShown: 0,
-            pinnedTotal: 0,
-            recentShown: 0,
-            recentTotal: 0,
-            compiledOn: '2026-11-08',
-          },
-          told: [],
-        },
-        skillCatalogFreeze: {
-          baseline: { entries: [], omitted: 0 },
-          rebakedFrom: null,
-          told: [],
-        },
-      };
-
-      const deliver = (attemptId: string | null | undefined) =>
-        db((tx) =>
-          deliverPendingSteering(tx, {
-            run: { runId: seeded.runId, userId },
-            attemptId: attemptId ?? '',
-            deadWorkerAfterSeconds: 1_000_000,
-            models: [],
-            baselines,
-          }),
-        );
-
-      const chat = () =>
-        db((tx) => new ChatsRepository(tx).findById(seeded.chatId, userId));
-
-      await storeSteer(seeded.chatId, 'stop that', undefined, 'interrupt');
-      const interrupted = await deliver(started?.activeAttemptId);
-      expect(interrupted.kind).toBe('delivered');
-      expect((await chat())?.skillCatalogBaseline).toBeNull();
-      expect((await chat())?.recencyDigestBaseline).toBeNull();
-
-      // A steer delivery of the same Run establishes them.
-      await storeSteer(seeded.chatId, 'carry on');
-
-      const steered = await deliver(
-        interrupted.kind === 'delivered' ? interrupted.attemptId : undefined,
-      );
-
-      expect(steered.kind).toBe('delivered');
-      expect((await chat())?.skillCatalogBaseline).not.toBeNull();
-      expect((await chat())?.recencyDigestBaseline).not.toBeNull();
-    });
-
-    it('interrupt closes segment 1, steer closes segment 2: baselines written at the second close', async () => {
-      const seeded = await seedRun({
-        tenantDb: harness.tenantDb,
-        userId,
-        modelId: 'unused',
-      });
-
-      const started = await db((tx) =>
-        new RunsRepository(tx).markStarted(seeded.runId, userId),
-      );
-
-      const baselines = (compiledOn: string) => ({
-        recencyDigestInitialization: {
-          baseline: {
-            pinned: [],
-            recent: [],
-            pinnedShown: 0,
-            pinnedTotal: 0,
-            recentShown: 0,
-            recentTotal: 0,
-            compiledOn,
-          },
-          told: [],
-        },
+      const baselines = () => ({
         skillCatalogFreeze: {
           baseline: { entries: [], omitted: 0 },
           rebakedFrom: null,
@@ -1018,14 +942,14 @@ describe('run steering segment preparation', () => {
         },
       });
 
-      const deliver = (attemptId: string, compiledOn: string) =>
+      const deliver = (attemptId: string) =>
         db((tx) =>
           deliverPendingSteering(tx, {
             run: { runId: seeded.runId, userId },
             attemptId,
             deadWorkerAfterSeconds: 1_000_000,
             models: [],
-            baselines: baselines(compiledOn),
+            baselines: baselines(),
           }),
         );
 
@@ -1034,28 +958,24 @@ describe('run steering segment preparation', () => {
 
       // Segment 1 closes on an interrupt: nothing is written.
       await storeSteer(seeded.chatId, 'stop that', undefined, 'interrupt');
-      const first = await deliver(started?.activeAttemptId ?? '', '2026-11-01');
+      const first = await deliver(started?.activeAttemptId ?? '');
 
       if (first.kind !== 'delivered') throw new Error('no delivery');
-      expect((await chat())?.recencyDigestBaseline).toBeNull();
 
       // Segment 2 closes on a steer: the baselines are written now.
       await storeSteer(seeded.chatId, 'carry on');
-      const second = await deliver(first.attemptId, '2026-11-02');
+      const second = await deliver(first.attemptId);
 
       if (second.kind !== 'delivered') throw new Error('no delivery');
       const written = await chat();
       expect(written?.skillCatalogBaseline).not.toBeNull();
-      expect(written?.recencyDigestBaseline).toMatchObject({
-        compiledOn: '2026-11-02',
+      expect(written?.skillCatalogBaseline).toMatchObject({
+        baseline: { entries: [], omitted: 0 },
       });
 
       // A later steer close leaves the established baselines alone.
       await storeSteer(seeded.chatId, 'and again');
-      await deliver(second.attemptId, '2026-11-03');
-      expect((await chat())?.recencyDigestBaseline).toMatchObject({
-        compiledOn: '2026-11-02',
-      });
+      await deliver(second.attemptId);
     });
 
     it('A steer in the first Run', async () => {

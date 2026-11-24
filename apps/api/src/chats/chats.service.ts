@@ -580,7 +580,7 @@ export class ChatsService {
       maxSeq,
     );
 
-    const toCopy = selectForkMessages(sourceMessages, maxSeq);
+    const toCopy = selectForkMessages(sourceMessages, maxSeq, chatId);
 
     const { messageIds, inherited } = inheritForkedChatState(source, toCopy);
 

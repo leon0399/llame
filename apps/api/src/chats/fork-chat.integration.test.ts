@@ -76,31 +76,6 @@ const LATEST_CHECKPOINT_CREATED_AT = new Date('2026-08-20T13:30:00.000Z');
 
 // Frozen prompt state, deliberately non-trivial: every inheritance assertion
 // compares real entries and told names rather than two NULLs.
-const DIGEST_BASELINE: NonNullable<Chat['recencyDigestBaseline']> = {
-  pinned: [],
-  recent: [
-    {
-      title: 'Digest source',
-      date: '2026-07-30',
-      messageCount: 4,
-      excerpt: 'digest opening',
-    },
-  ],
-  pinnedShown: 0,
-  pinnedTotal: 0,
-  recentShown: 1,
-  recentTotal: 1,
-  compiledOn: '2026-07-31',
-};
-
-const DIGEST_TOLD: NonNullable<Chat['recencyDigestTold']> = [
-  {
-    chatId: '11111111-1111-4111-8111-111111111111',
-    pinned: false,
-    title: 'Digest source',
-  },
-];
-
 const SKILL_BASELINE: NonNullable<Chat['skillCatalogBaseline']> = {
   entries: [{ name: 'research', description: 'Plan research' }],
   omitted: 0,
@@ -243,8 +218,6 @@ describeIfDb('forkChat — copy correctness + RLS', () => {
         title: 'Compacted source',
         visibility: options.visibility ?? 'private',
         createdAt: SOURCE_CREATED_AT,
-        recencyDigestBaseline: DIGEST_BASELINE,
-        recencyDigestTold: DIGEST_TOLD,
         skillCatalogBaseline: SKILL_BASELINE,
         skillCatalogTold: ['research'],
       });
@@ -403,8 +376,7 @@ describeIfDb('forkChat — copy correctness + RLS', () => {
       if (bindMarkers) {
         await tx.execute(dsql`
           UPDATE chats
-          SET recency_digest_rebaked_from = ${latest.id},
-              skill_catalog_rebaked_from = ${latest.id}
+          SET skill_catalog_rebaked_from = ${latest.id}
           WHERE id = ${chat.id} AND owner_user_id = ${a}
         `);
       }
@@ -458,7 +430,6 @@ describeIfDb('forkChat — copy correctness + RLS', () => {
         checkpoint?.createdAt ?? chat.createdAt,
         'UTC',
       ),
-      chats: chat.recencyDigestBaseline ?? undefined,
       ...(chat.skillCatalogBaseline !== null && {
         skills: chat.skillCatalogBaseline,
       }),
@@ -889,25 +860,19 @@ describeIfDb('forkChat — copy correctness + RLS', () => {
     // began where its source's did — and every frozen prompt column...
     expect(forked.createdAt).toEqual(source.chat.createdAt);
     expect({
-      recencyDigestBaseline: forked.recencyDigestBaseline,
-      recencyDigestTold: forked.recencyDigestTold,
       skillCatalogBaseline: forked.skillCatalogBaseline,
       skillCatalogTold: forked.skillCatalogTold,
     }).toEqual({
-      recencyDigestBaseline: source.chat.recencyDigestBaseline,
-      recencyDigestTold: source.chat.recencyDigestTold,
       skillCatalogBaseline: source.chat.skillCatalogBaseline,
       skillCatalogTold: source.chat.skillCatalogTold,
     });
-    // ...with the two markers naming the COPIED checkpoint message. The skill
-    // marker is what `baselineMatchesEpoch` compares against the chat's active
+    // The skill marker names the COPIED checkpoint. It is what
+    // `baselineMatchesEpoch` compares against the Chat's active
     // checkpoint, so a source id (or a null beside a copied baseline) would
     // re-resolve the live catalog on the fork's first turn.
     expect(source.chat.skillCatalogRebakedFrom).toBe(source.checkpoints[1].id);
-    expect(forked.recencyDigestRebakedFrom).toBe(copiedLatest.id);
     expect(forked.skillCatalogRebakedFrom).toBe(copiedLatest.id);
     // Non-vacuous: the inherited context is the seeded content, not two NULLs.
-    expect(forked.recencyDigestBaseline).toEqual(DIGEST_BASELINE);
     expect(forked.skillCatalogBaseline).toEqual(SKILL_BASELINE);
 
     // The checkpoint UI's absorbed counts are API-computed from the boundaries:
@@ -999,12 +964,10 @@ describeIfDb('forkChat — copy correctness + RLS', () => {
       },
     );
 
-    // Guard against a vacuous comparison: the source's own prompt really does
-    // carry the inherited digest and catalog.
-    expect(sourceContext.system).toContain('Digest source');
+    // The copied catalog remains in the system prompt; the digest does not.
+    expect(sourceContext.system).not.toContain('Digest source');
     expect(sourceContext.system).toContain('Plan research');
-    // Equal system prompt: the same temporal anchor (the copied checkpoint's
-    // creation time, not the fork's own), the same digest, the same catalog.
+    // The copied checkpoint preserves the temporal anchor and skill catalog.
     expect(forkContext.system).toBe(sourceContext.system);
     // Equal inherited history: the stored checkpoint text leads, the retained
     // tail follows (checkpoint rows are never replayed as ordinary rows), then
@@ -1060,7 +1023,6 @@ describeIfDb('forkChat — copy correctness + RLS', () => {
     const { checkpoint: active } = await replayWindow(forked.id);
     expect(active?.id).toBe(copiedEarlier.id);
     // ...and both markers name it rather than the source's uncopied C2.
-    expect(forked.recencyDigestRebakedFrom).toBe(copiedEarlier.id);
     expect(forked.skillCatalogRebakedFrom).toBe(copiedEarlier.id);
 
     // The consequence through the real turn resolver: the fork's first turn
@@ -1089,7 +1051,6 @@ describeIfDb('forkChat — copy correctness + RLS', () => {
     // reusing that baseline. The fork inherits the DECISION: a marker pointed
     // at the copied checkpoint would freeze a baseline its source no longer
     // stands behind, and change the fork's prompt.
-    expect(forked.recencyDigestRebakedFrom).toBeNull();
     expect(forked.skillCatalogRebakedFrom).toBeNull();
 
     const forkState = skillStateFor(forked, active.id);
@@ -1195,9 +1156,6 @@ describeIfDb('forkChat — copy correctness + RLS', () => {
       transcript.map(() => null),
     );
     expect({
-      recencyDigestBaseline: forked.recencyDigestBaseline,
-      recencyDigestTold: forked.recencyDigestTold,
-      recencyDigestRebakedFrom: forked.recencyDigestRebakedFrom,
       skillCatalogBaseline: forked.skillCatalogBaseline,
       skillCatalogTold: forked.skillCatalogTold,
       skillCatalogRebakedFrom: forked.skillCatalogRebakedFrom,
@@ -1208,9 +1166,6 @@ describeIfDb('forkChat — copy correctness + RLS', () => {
       workspaceToldFrom: forked.workspaceToldFrom,
       workspaceDetachReason: forked.workspaceDetachReason,
     }).toEqual({
-      recencyDigestBaseline: null,
-      recencyDigestTold: null,
-      recencyDigestRebakedFrom: null,
       skillCatalogBaseline: null,
       skillCatalogTold: null,
       skillCatalogRebakedFrom: null,

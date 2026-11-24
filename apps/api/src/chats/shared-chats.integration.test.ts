@@ -13,11 +13,14 @@
 import { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import request from 'supertest';
+import { eq } from 'drizzle-orm';
 import { AppModule } from '../app.module';
 import { CanonicalSearchCoverageService } from '../search/canonical-search-activation.service';
 import { configureApp } from '../app.setup';
 import { TenantDbService } from '../db/tenant-db.service';
-import { ChatsRepository } from '../chats/chats-repository';
+import { ChatsRepository, MessagesRepository } from '../chats/chats-repository';
+import { messages } from '../db/schema';
+import { createRecencyDigestItem } from './recency-digest-item';
 import { isRecord } from '@workspace/runtime-safety';
 import { cookieOf, expectRegisteredUserId } from '../testing/support';
 
@@ -89,27 +92,23 @@ d('GET /api/v1/shared/chats/:id — public sharing over HTTP', () => {
 
     chatId = chat.id;
     await tenantDb.runAs(userId, (tx) =>
-      new ChatsRepository(tx).setRecencyDigestIfAbsent(
+      new MessagesRepository(tx).create({
         chatId,
-        userId,
-        {
-          pinned: [
-            {
-              title: 'PRIVATE DIGEST TITLE',
-              date: '2026-08-12',
-              messageCount: 1,
-              excerpt: 'PRIVATE DIGEST EXCERPT',
+        role: 'user',
+        senderUserId: null,
+        parts: [
+          createRecencyDigestItem({
+            runId: crypto.randomUUID(),
+            payload: {
+              version: 1,
+              kind: 'baseline',
+              announced: [],
+              association: { kind: 'origin', chatId },
             },
-          ],
-          recent: [],
-          pinnedShown: 1,
-          pinnedTotal: 1,
-          recentShown: 0,
-          recentTotal: 1,
-          compiledOn: '2026-08-12',
-        },
-        [{ chatId: crypto.randomUUID(), pinned: true }],
-      ),
+            body: 'PRIVATE DIGEST TITLE with PRIVATE DIGEST EXCERPT',
+          }),
+        ],
+      }),
     );
   });
 
@@ -214,6 +213,7 @@ d(
     let ownerCookie = '';
     let ownerId = '';
     let visitorCookie = '';
+    let visitorId = '';
     let publicChatId = '';
     let privateChatId = '';
 
@@ -255,6 +255,9 @@ d(
 
       expect(visitorRes.status).toBe(201);
       visitorCookie = cookieOf(visitorRes);
+      const visitorBody: unknown = visitorRes.body;
+      expectRegisteredUserId(visitorBody);
+      visitorId = visitorBody.user.id;
 
       const publicChat = await tenantDb.runAs(ownerId, (tx) =>
         new ChatsRepository(tx).create({
@@ -266,6 +269,32 @@ d(
       );
 
       publicChatId = publicChat.id;
+      await tenantDb.runAs(ownerId, async (tx) => {
+        const repository = new MessagesRepository(tx);
+        await repository.create({
+          chatId: publicChatId,
+          role: 'user',
+          senderUserId: ownerId,
+          parts: [{ type: 'text', text: 'Public owner message' }],
+        });
+        await repository.create({
+          chatId: publicChatId,
+          role: 'user',
+          senderUserId: null,
+          parts: [
+            createRecencyDigestItem({
+              runId: crypto.randomUUID(),
+              payload: {
+                version: 1,
+                kind: 'baseline',
+                announced: [],
+                association: { kind: 'origin', chatId: publicChatId },
+              },
+              body: 'PRIVATE FORK DIGEST',
+            }),
+          ],
+        });
+      });
 
       const privateChat = await tenantDb.runAs(ownerId, (tx) =>
         new ChatsRepository(tx).create({
@@ -326,6 +355,15 @@ d(
       }
 
       expect(visitorBody.workspaceRoot).toBeNull();
+
+      const copiedRows = await tenantDb.runAs(visitorId, (tx) =>
+        tx.select().from(messages).where(eq(messages.chatId, forkedId)),
+      );
+
+      expect(copiedRows.map(({ parts }) => parts)).toEqual([
+        [{ type: 'text', text: 'Public owner message' }],
+      ]);
+      expect(JSON.stringify(copiedRows)).not.toContain('PRIVATE FORK DIGEST');
 
       // ...but the ORIGINAL owner cannot see the fork via their own chat list.
       const asOwner = await request(http)

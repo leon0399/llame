@@ -16,7 +16,6 @@ import {
   parsePromptTemplate,
   promptSafeString,
   promptValue,
-  promptValueObserved,
   readPromptSource,
   type PromptFileAccess,
   type PromptSafeValue,
@@ -24,26 +23,12 @@ import {
 import { parseMcpToolId } from '@workspace/mcp-workspace';
 import { isToolId } from '../tools/tool-id';
 import type {
-  PromptChatDigestEntry,
-  PromptChatDigestField,
-  PromptChatsDisclosure,
-  PromptChatsFieldDisclosure,
-  PromptChatsInput,
-  PromptChatsScalarDisclosure,
   PromptSkillsInput,
   PromptUserInput,
   SystemPromptSource,
 } from '../models/model-catalog';
 import type { TemporalAnchor } from '../prompts/temporal-anchor';
 import type { WebSearchEngineConfig } from './web-search-config';
-
-export type {
-  PromptChatsDisclosure,
-  PromptChatsFieldDisclosure,
-  PromptChatsInput,
-  PromptSkillsInput,
-  PromptUserInput,
-} from '../models/model-catalog';
 
 export type { TemporalAnchor } from '../prompts/temporal-anchor';
 
@@ -91,21 +76,11 @@ export const PROMPT_CONTEXT_PATHS: ReadonlyArray<string> = [
   'user.personalization.responsePreferences',
   'user.name',
   'user.email',
-  // Digest metadata is server-computed scalar content. Collections stay out
-  // of this value allowlist so they cannot stringify into a prompt.
-  'chats.pinnedShown',
-  'chats.pinnedTotal',
-  'chats.recentShown',
-  'chats.recentTotal',
-  'chats.compiledOn',
   // Temporal anchor — unconditional, server-computed. The first namespace that
   // is always present; `context` stays out of PROMPT_GATE_KEYS deliberately.
   'context.systemTime',
   'context.systemTimezone',
-  // The skill catalog's omission count, separate from `skills.entries` and not
-  // iterable (system-provided-skills D4). Projected as a RAW integer, for the
-  // same reason as `chats.pinnedShown`: a wrapped string is an object and so
-  // truthy, which would render an overflow line around a zero count.
+  // The skill catalog's omission count is a raw integer (system-provided-skills D4).
   'skills.omitted',
 ];
 
@@ -120,21 +95,7 @@ const PROMPT_CONTEXT_KEYS: ReadonlySet<string> = new Set(
 );
 
 /**
- * One vocabulary shared by both digest collections: they differ in which chats
- * they list, not in what an entry carries. Declared once so the two cannot
- * silently drift apart.
- */
-const CHAT_DIGEST_ITEM_FIELDS: ReadonlySet<string> = new Set([
-  'title',
-  'date',
-  'messageCount',
-  'excerpt',
-]);
-
-/**
- * The skill catalog entry vocabulary (system-provided-skills D4). Declared
- * separately from the digest's because a skill entry shares no field names with
- * a chat digest entry, and a shared set would silently admit one for the other.
+ * The skill catalog entry vocabulary (system-provided-skills D4).
  */
 const SKILL_CATALOG_ITEM_FIELDS: ReadonlySet<string> = new Set([
   'name',
@@ -189,33 +150,13 @@ const PROMPT_COLLECTION_ITEM_FIELDS: ReadonlyMap<
   string,
   ReadonlySet<string>
 > = new Map([
-  [toContextKey('chats.pinned'), CHAT_DIGEST_ITEM_FIELDS],
-  [toContextKey('chats.recent'), CHAT_DIGEST_ITEM_FIELDS],
-  // `name` is grammar-constrained by the catalog and escaped; `description` is
-  // operator-authored and takes the tag sanitizer, exactly as a digest item
-  // field does.
   [toContextKey('skills.entries'), SKILL_CATALOG_ITEM_FIELDS],
-  // The web-search engine list (extend-web-search D5). Every value is
-  // operator- or configuration-derived, so each one arrives neutralized and
-  // the projection wraps it verbatim.
   [toContextKey('webSearch.engines'), WEB_SEARCH_ENGINE_ITEM_FIELDS],
 ]);
 
-/**
- * Paths valid ONLY as a conditional's subject — `{{#if user}}` or
- * `{{#if chats.recent}}` — and never as output. They name projection objects,
- * which exist so an operator can gate a whole section (framing prose included)
- * without emitting a stringified object.
- *
- * Kept out of `PROMPT_CONTEXT_PATHS` deliberately: emitting one would render a
- * stringified object, which is never what an author meant. Splitting by
- * POSITION rather than adding them to the value allowlist means `{{user}}`
- * still fails boot with the same message as any other unsupported construct.
- */
+/** Paths valid only as a conditional's subject, never as output. */
 const PROMPT_GATE_KEYS: ReadonlySet<string> = new Set([
-  ...['user', 'user.personalization', 'chats', 'skills', 'webSearch'].map(
-    toContextKey,
-  ),
+  ...['user', 'user.personalization', 'skills', 'webSearch'].map(toContextKey),
   ...PROMPT_COLLECTION_ITEM_FIELDS.keys(),
 ]);
 
@@ -261,14 +202,9 @@ export type RenderSystemPromptInput = {
   model: Pick<PromptModel, 'id' | 'name'>;
   anchor: TemporalAnchor;
   user?: PromptUserInput;
-  chats?: PromptChatsInput;
-  /** The frozen skill-catalog baseline; absent renders no catalog section. */
   skills?: PromptSkillsInput;
-  /** The resolved engine list; absent renders no engine list. */
   webSearch?: PromptWebSearchInput;
   admittedToolIds?: ReadonlyArray<string>;
-  /** Private exporter-only trace; normal model renders leave this disabled. */
-  captureChatsFieldDisclosure?: boolean;
 };
 
 /**
@@ -284,29 +220,16 @@ export type ToolPromptRenderInput = Omit<
   toolId: ToolPromptId;
 };
 
-/**
- * One render's text and which digest entries it actually emitted. The
- * disclosure stays with the worker that accounts the told-set; it never reaches
- * the model, a receipt, or owner output.
- */
-export type RenderedPrompt = {
-  readonly text: string;
-  readonly chatsDisclosure: PromptChatsDisclosure;
-  readonly chatsFieldDisclosure?: PromptChatsFieldDisclosure;
-};
-
+/** The renderer's complete, typed input/output contract. */
 export type ToolPromptRenderer = {
   render(input: ToolPromptRenderInput): RenderedPrompt;
 };
 
-/**
- * Renders one model's complete system prompt.
- *
- * Lives here rather than in the service that exposes it because the render
- * context must be built with `promptSafeString` from the shared engine: a
- * plain string would be escaped by the engine on top of the neutralization
- * already applied. `SystemPromptsService` is the injectable wrapper over this.
- */
+export type RenderedPrompt = {
+  readonly text: string;
+};
+
+/** Renders a complete prompt from the explicit renderable projection. */
 export function renderSystemPromptTemplate(
   input: RenderSystemPromptInput,
 ): RenderedPrompt {
@@ -339,66 +262,6 @@ export type ModelPromptLoader = {
   validateProjectDefault(): void;
 };
 
-// Boot-time probe fixtures for the "did the config author's gates leave the
-// template empty for someone" check that both `resolve()` and the tool
-// description loader run — not the real render: per-user and per-chat values
-// resolve per run, so all combinations of their independent gates must be
-// exercised. The cross product is not belt-and-braces.
-//
-// It is tempting to argue that one probe suffices because per-user context
-// "only ever adds content" — but `unless` is an allowed helper and
-// `user`/`chats` are legal gate subjects, so `unless` INVERTS them. A template
-// nested under `{{#if user}}{{#unless chats}}` renders non-empty with neither
-// gate and with both gates, yet empty for owners who have a digest but no
-// personalization. Varying the gates in lockstep would pass it at boot and
-// fail for exactly that population in production.
-//
-// So a template empty for any gate combination fails startup rather than
-// shipping a prompt that disappears for one owner population. Module-level
-// (not rebuilt per `resolve()` call): none of these fixtures depend on the
-// model being resolved.
-const PROBE_USER: PromptUserInput = { preferredName: 'probe' };
-
-// The probe only needs both collections non-empty; entry CONTENT is
-// irrelevant to whether a template renders empty, so one entry serves both
-// lists.
-const PROBE_CHAT_DIGEST_ENTRY: PromptChatDigestEntry = {
-  title: 'probe',
-  date: '2000-01-01',
-  messageCount: 1,
-  excerpt: 'probe',
-};
-
-const PROBE_CHATS: PromptChatsInput = {
-  pinned: [PROBE_CHAT_DIGEST_ENTRY],
-  recent: [PROBE_CHAT_DIGEST_ENTRY],
-  pinnedShown: 1,
-  pinnedTotal: 1,
-  recentShown: 1,
-  recentTotal: 1,
-  compiledOn: '2000-01-01',
-};
-
-// The two collections gate independently of each other, not just of `user`:
-// an owner with only pinned chats and an owner with only recent ones are both
-// ordinary production inputs, and each omits one collection from the context
-// entirely. A template gated
-// `{{#if chats.pinned}}{{#if chats.recent}}…{{/if}}{{/if}}` renders for the
-// both-populated probe and empty for either one-sided owner, so probing only
-// the both-populated shape passes at boot and fails in production for
-// exactly those people.
-const PROBE_CHATS_PINNED_ONLY: PromptChatsInput = {
-  ...PROBE_CHATS,
-  recent: [],
-  recentShown: 0,
-};
-
-const PROBE_CHATS_RECENT_ONLY: PromptChatsInput = {
-  ...PROBE_CHATS,
-  pinned: [],
-  pinnedShown: 0,
-};
-
 // Representative anchor for boot probes — every combination supplies it, and
 // no probe exercises its absence, because no run can produce it.
 const PROBE_ANCHOR: TemporalAnchor = {
@@ -406,9 +269,10 @@ const PROBE_ANCHOR: TemporalAnchor = {
   systemTimezone: 'UTC',
 };
 
-// The skill catalog gates independently of `user` and `chats`, so it joins the
-// cross product for the same reason: a template whose only content sits behind
-// `{{#if skills}}` renders empty for every chat whose catalog admits nothing.
+const PROBE_USER: PromptUserInput = { preferredName: 'probe' };
+
+// The skill catalog gates independently of `user`, so it joins the cross
+// product for the same reason: its section can be the only template content.
 const PROBE_SKILLS: PromptSkillsInput = {
   entries: [{ name: 'probe', description: 'probe' }],
   omitted: 0,
@@ -430,41 +294,23 @@ const PROBE_WEB_SEARCH: PromptWebSearchInput = {
   ],
 };
 
-/** The independent gate subjects a boot probe must vary. */
+/** Independent combinations of optional render context for boot probes. */
 type PromptProbeGates = {
   readonly user?: PromptUserInput;
-  readonly chats?: PromptChatsInput;
   readonly skills?: PromptSkillsInput;
   readonly webSearch?: PromptWebSearchInput;
 };
 
-/**
- * Every combination of the four independent gates. `user` and `chats` each
- * contribute several shapes because their sub-gates are independent too; a
- * template empty for ANY combination fails startup rather than shipping a
- * prompt that disappears for one owner population.
- */
-const SYSTEM_PROMPT_EMPTY_RENDER_PROBES: ReadonlyArray<PromptProbeGates> = (
-  [
-    [undefined, undefined],
-    [PROBE_USER, undefined],
-    [undefined, PROBE_CHATS],
-    [PROBE_USER, PROBE_CHATS],
-    [undefined, PROBE_CHATS_PINNED_ONLY],
-    [PROBE_USER, PROBE_CHATS_PINNED_ONLY],
-    [undefined, PROBE_CHATS_RECENT_ONLY],
-    [PROBE_USER, PROBE_CHATS_RECENT_ONLY],
-  ] satisfies ReadonlyArray<
-    readonly [PromptUserInput | undefined, PromptChatsInput | undefined]
-  >
-)
-  .flatMap(([user, chats]) => [
-    { user, chats },
-    { user, chats, skills: PROBE_SKILLS },
-  ])
-  // The engine list joins the cross product for the same reason: presence and
-  // absence are both ordinary deployments, and `unless` can invert the gate.
-  .flatMap((gates) => [gates, { ...gates, webSearch: PROBE_WEB_SEARCH }]);
+const SYSTEM_PROMPT_EMPTY_RENDER_PROBES: ReadonlyArray<PromptProbeGates> = [
+  {},
+  { user: PROBE_USER },
+  { skills: PROBE_SKILLS },
+  { webSearch: PROBE_WEB_SEARCH },
+  { user: PROBE_USER, skills: PROBE_SKILLS },
+  { user: PROBE_USER, webSearch: PROBE_WEB_SEARCH },
+  { skills: PROBE_SKILLS, webSearch: PROBE_WEB_SEARCH },
+  { user: PROBE_USER, skills: PROBE_SKILLS, webSearch: PROBE_WEB_SEARCH },
+];
 
 /**
  * Whether some gate state renders the template as whitespace alone under BOTH
@@ -482,24 +328,20 @@ function rendersEmptyForSomeGateState(
   const toolProbeMemberships: ReadonlyArray<ReadonlyArray<string>> =
     toolPredicateIds.length === 0 ? [[]] : [[], toolPredicateIds];
 
-  // For a tool-aware template, none/all membership probes are diagnostics
-  // only. Rejecting is safe only when both memberships leave an independent
-  // user/chat/skills probe empty, so an absent tool cannot be the reason.
-  return SYSTEM_PROMPT_EMPTY_RENDER_PROBES.some(
-    ({ user, chats, skills, webSearch }) =>
-      toolProbeMemberships.every(
-        (probeToolIds) =>
-          renderSystemPromptTemplate({
-            template,
-            model,
-            anchor: PROBE_ANCHOR,
-            user,
-            chats,
-            skills,
-            webSearch,
-            admittedToolIds: probeToolIds,
-          }).text.trim().length === 0,
-      ),
+  // user/skills probe empty, so an absent tool cannot be the reason.
+  return SYSTEM_PROMPT_EMPTY_RENDER_PROBES.some(({ user, skills, webSearch }) =>
+    toolProbeMemberships.every(
+      (probeToolIds) =>
+        renderSystemPromptTemplate({
+          template,
+          model,
+          anchor: PROBE_ANCHOR,
+          user,
+          skills,
+          webSearch,
+          admittedToolIds: probeToolIds,
+        }).text.trim().length === 0,
+    ),
   );
 }
 
@@ -878,7 +720,6 @@ export function createToolPromptRenderer(
         model: input.model,
         anchor: input.anchor,
         user: input.user,
-        chats: input.chats,
         webSearch: options.webSearch,
         admittedToolIds: input.admittedToolIds,
       });
@@ -956,6 +797,13 @@ function assertPath(
   }
 
   const expression = node;
+
+  if (expression.parts[0] === 'chats') {
+    throw new InstanceConfigError(
+      `${field}: retired chats namespace; remove these references because the digest uses context items`,
+    );
+  }
+
   const key = expression.parts.join('\0');
 
   const toolPredicateId =
@@ -996,6 +844,12 @@ function assertCollectionPath(
   }
 
   const expression = node;
+
+  if (expression.parts[0] === 'chats') {
+    throw new InstanceConfigError(
+      `${field}: retired chats namespace; remove these references because the digest uses context items`,
+    );
+  }
 
   const itemFields = PROMPT_COLLECTION_ITEM_FIELDS.get(
     expression.parts.join('\0'),
@@ -1292,189 +1146,18 @@ function userContext(user: PromptUserInput | undefined) {
   return Object.keys(context).length === 0 ? undefined : context;
 }
 
-type PromptChatsScalar = PromptChatsScalarDisclosure;
-
-type PromptChatEntryDisclosure = Map<
-  number,
-  Map<PromptChatDigestField, string>
->;
-
-type PromptChatsTrace = {
-  pinned: PromptChatEntryDisclosure;
-  recent: PromptChatEntryDisclosure;
-  scalars: Map<PromptChatsScalar, string>;
-  conditionalScalars: ReadonlySet<PromptChatsScalar>;
-};
-
-function conditionallyReferencedChatScalars(
-  source: string,
-): ReadonlySet<PromptChatsScalar> {
-  const referenced = new Set<PromptChatsScalar>();
-  const ast = parsePromptTemplate(source);
-
-  const visit = (body: ReadonlyArray<hbs.AST.Statement>) => {
-    for (const node of body) {
-      if (!isBlockStatement(node)) continue;
-
-      const helper = node.path.original;
-      const subject = node.params[0];
-
-      if (
-        (helper === 'if' || helper === 'unless') &&
-        subject !== undefined &&
-        isPathExpression(subject) &&
-        subject.depth === 0 &&
-        !subject.data &&
-        subject.parts.length === 2 &&
-        subject.parts[0] === 'chats' &&
-        (subject.parts[1] === 'pinnedShown' ||
-          subject.parts[1] === 'pinnedTotal' ||
-          subject.parts[1] === 'recentShown' ||
-          subject.parts[1] === 'recentTotal')
-      ) {
-        referenced.add(subject.parts[1]);
-      }
-
-      visit(node.program?.body ?? []);
-      visit(node.inverse?.body ?? []);
-    }
-  };
-
-  visit(ast.body);
-
-  return referenced;
-}
-
-/** The runtime index and export-only field trace share the actual emit seam. */
-function chatEntryContext(
-  entry: PromptChatDigestEntry,
-  field: (
-    field: 'title' | 'date' | 'messageCount' | 'excerpt',
-    emitted: string,
-  ) => void,
-) {
-  return {
-    title: promptValueObserved(
-      promptValue(entry.title, sanitizeAuthoredText),
-      (value) => field('title', value),
-    ),
-    date: promptValueObserved(
-      promptValue(entry.date, sanitizeAuthoredText),
-      (value) => field('date', value),
-    ),
-    messageCount: promptValueObserved(
-      promptValue(String(entry.messageCount), sanitizeAuthoredText),
-      (value) => field('messageCount', value),
-    ),
-    excerpt: promptValueObserved(
-      promptValue(entry.excerpt ?? undefined, sanitizeAuthoredText),
-      (value) => field('excerpt', value),
-    ),
-  };
-}
-
-function chatListContext(
-  entries: ReadonlyArray<PromptChatDigestEntry> | undefined,
-  emitted: Set<number>,
-  fieldEmitted?: Map<
-    number,
-    Map<'title' | 'date' | 'messageCount' | 'excerpt', string>
-  >,
-) {
-  return entries === undefined || entries.length === 0
-    ? undefined
-    : entries.map((entry, index) =>
-        chatEntryContext(entry, (field, value) => {
-          emitted.add(index);
-
-          if (fieldEmitted === undefined) return;
-          let fields = fieldEmitted.get(index);
-
-          if (fields === undefined) {
-            fields = new Map();
-            fieldEmitted.set(index, fields);
-          }
-
-          fields.set(field, value);
-        }),
-      );
-}
-
-function chatsScalarContext(chats: PromptChatsInput, trace?: PromptChatsTrace) {
-  const observeCount = (
-    field: Exclude<PromptChatsScalar, 'compiledOn'>,
-    value: number,
-  ): number | PromptSafeValue => {
-    if (trace === undefined || trace.conditionalScalars.has(field))
-      return value;
-
-    // Keep raw numbers for branch tests: a SafeString around zero is truthy.
-    return (
-      promptValueObserved(promptSafeString(String(value)), (emitted) =>
-        trace.scalars.set(field, emitted),
-      ) ?? value
-    );
-  };
-
-  const compiledOn =
-    trace === undefined
-      ? promptValue(chats.compiledOn)
-      : promptValueObserved(promptValue(chats.compiledOn), (emitted) =>
-          trace.scalars.set('compiledOn', emitted),
-        );
-
-  return {
-    pinnedShown: observeCount('pinnedShown', chats.pinnedShown),
-    pinnedTotal: observeCount('pinnedTotal', chats.pinnedTotal),
-    recentShown: observeCount('recentShown', chats.recentShown),
-    recentTotal: observeCount('recentTotal', chats.recentTotal),
-    compiledOn,
-  };
-}
-
 /**
- * Projects chat-digest values independently of `user`. Coupling the namespaces
- * would make `{{#if user}}` true for digest-only owners and render an
- * operator's personalization framing around no personalization content.
- */
-function chatsContext(
-  chats: PromptChatsInput | undefined,
-  emitted: { pinned: Set<number>; recent: Set<number> },
-  trace?: PromptChatsTrace,
-) {
-  if (chats === undefined) return undefined;
-
-  const pinned = chatListContext(chats.pinned, emitted.pinned, trace?.pinned);
-  const recent = chatListContext(chats.recent, emitted.recent, trace?.recent);
-
-  if (pinned === undefined && recent === undefined) return undefined;
-
-  return {
-    ...chatsScalarContext(chats, trace),
-    ...(pinned !== undefined && { pinned }),
-    ...(recent !== undefined && { recent }),
-  };
-}
-
-/**
- * Projects the frozen skill-catalog baseline independently of the other
- * namespaces. Like `chats`, an absent or empty admission yields NO `skills`,
- * so `{{#if skills}}` gates the whole section including its framing prose.
+ * Projects the frozen skill-catalog baseline independently of other namespaces.
+ * An absent or empty admission yields no `skills` object.
  */
 function skillsContext(skills: PromptSkillsInput | undefined) {
-  if (skills === undefined || skills.entries.length === 0) {
-    return undefined;
-  }
+  if (skills === undefined || skills.entries.length === 0) return undefined;
 
   return {
     entries: skills.entries.map((entry) => ({
       name: promptValue(entry.name),
-      // Operator-authored, exactly like a digest item field: the tag
-      // sanitizer is what keeps a description from closing an element it did
-      // not open.
       description: promptValue(entry.description, sanitizeAuthoredText),
     })),
-    // A raw integer, not a `promptValue` wrapper — see `chats.pinnedShown`.
     omitted: skills.omitted,
   };
 }
@@ -1534,7 +1217,6 @@ type RenderPromptContext = {
     systemTimezone: PromptSafeValue;
   };
   user?: ReturnType<typeof userContext>;
-  chats?: ReturnType<typeof chatsContext>;
   skills?: ReturnType<typeof skillsContext>;
   webSearch?: ReturnType<typeof webSearchContext>;
   tools: Readonly<Record<string, boolean>>;
@@ -1547,16 +1229,10 @@ type RenderPromptContext = {
  */
 function promptContext(
   fields: Omit<RenderSystemPromptInput, 'template'>,
-  emitted: { pinned: Set<number>; recent: Set<number> },
-  trace?: PromptChatsTrace,
 ): RenderPromptContext {
-  const { model, anchor, user, chats, skills, webSearch, admittedToolIds } =
-    fields;
+  const { model, anchor, user, skills, webSearch, admittedToolIds } = fields;
 
   const projectedUser = userContext(user);
-
-  const projectedChats = chatsContext(chats, emitted, trace);
-
   const projectedSkills = skillsContext(skills);
   const projectedWebSearch = webSearchContext(webSearch);
 
@@ -1565,8 +1241,6 @@ function promptContext(
       id: promptValue(model.id),
       name: promptValue(model.name),
     },
-    // Unconditional — the first namespace that always is. Bypasses the
-    // omission rule: these are always computable and never absent.
     context: {
       systemTime: promptSafeString(escapeForPrompt(anchor.systemTime)),
       systemTimezone: promptSafeString(escapeForPrompt(anchor.systemTimezone)),
@@ -1574,76 +1248,22 @@ function promptContext(
     tools: projectToolPredicates(admittedToolIds),
   };
 
-  return appendPromptNamespaces(renderContext, {
-    projectedUser,
-    projectedChats,
-    projectedSkills,
-    projectedWebSearch,
-  });
-}
+  if (projectedUser !== undefined) renderContext.user = projectedUser;
 
-function appendPromptNamespaces(
-  renderContext: RenderPromptContext,
-  projected: {
-    projectedUser: RenderPromptContext['user'];
-    projectedChats: RenderPromptContext['chats'];
-    projectedSkills: RenderPromptContext['skills'];
-    projectedWebSearch: RenderPromptContext['webSearch'];
-  },
-): RenderPromptContext {
-  if (projected.projectedUser !== undefined)
-    renderContext.user = projected.projectedUser;
+  if (projectedSkills !== undefined) renderContext.skills = projectedSkills;
 
-  if (projected.projectedChats !== undefined)
-    renderContext.chats = projected.projectedChats;
-
-  if (projected.projectedSkills !== undefined)
-    renderContext.skills = projected.projectedSkills;
-
-  if (projected.projectedWebSearch !== undefined)
-    renderContext.webSearch = projected.projectedWebSearch;
+  if (projectedWebSearch !== undefined)
+    renderContext.webSearch = projectedWebSearch;
 
   return renderContext;
-}
-
-function createPromptChatsTrace(
-  source: string,
-  enabled: boolean,
-): PromptChatsTrace | undefined {
-  if (!enabled) return undefined;
-
-  return {
-    pinned: new Map(),
-    recent: new Map(),
-    scalars: new Map(),
-    conditionalScalars: conditionallyReferencedChatScalars(source),
-  };
 }
 
 function renderPrompt(
   source: string,
   fields: Omit<RenderSystemPromptInput, 'template'>,
 ): RenderedPrompt {
-  const emitted = { pinned: new Set<number>(), recent: new Set<number>() };
-
-  const trace = createPromptChatsTrace(
-    source,
-    fields.captureChatsFieldDisclosure === true,
-  );
-
-  const renderContext = promptContext(fields, emitted, trace);
-  const text = compilePromptTemplate(source)(renderContext);
-
   return {
-    text,
-    chatsDisclosure: emitted,
-    ...(trace !== undefined && {
-      chatsFieldDisclosure: {
-        pinned: trace.pinned,
-        recent: trace.recent,
-        scalars: trace.scalars,
-      },
-    }),
+    text: compilePromptTemplate(source)(promptContext(fields)),
   };
 }
 

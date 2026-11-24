@@ -4,6 +4,18 @@ import {
   visibleMessageText,
 } from './conversation-evidence';
 
+const digestPart = {
+  type: 'data-context',
+  data: {
+    v: 1,
+    producer: 'recency-digest',
+    form: 'snapshot',
+    runId: '123e4567-e89b-12d3-a456-426614174000',
+    payload: {},
+    text: 'stored digest',
+  },
+};
+
 describe('conversation evidence', () => {
   it('pins the closed historical-conversation notice byte-for-byte', () => {
     // Authored from the notice text itself, not compared to its own import:
@@ -50,6 +62,36 @@ describe('conversation evidence', () => {
   describe('isImmutableEvidenceMessage', () => {
     it('allows user messages', () => {
       expect(isImmutableEvidenceMessage({ role: 'user' })).toBe(true);
+    });
+    it('excludes only a sole digest part on a null-sender user row', () => {
+      expect(
+        isImmutableEvidenceMessage({
+          role: 'user',
+          senderUserId: null,
+          parts: [digestPart],
+        }),
+      ).toBe(false);
+      expect(
+        isImmutableEvidenceMessage({
+          role: 'user',
+          senderUserId: undefined,
+          parts: [digestPart],
+        }),
+      ).toBe(true);
+      expect(
+        isImmutableEvidenceMessage({
+          role: 'user',
+          senderUserId: null,
+          parts: [digestPart, { type: 'text', text: 'owner content' }],
+        }),
+      ).toBe(true);
+      expect(
+        isImmutableEvidenceMessage({
+          role: 'user',
+          senderUserId: 'owner-id',
+          parts: [digestPart],
+        }),
+      ).toBe(true);
     });
 
     it('allows completed and legacy assistant messages', () => {

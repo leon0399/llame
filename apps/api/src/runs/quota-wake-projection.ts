@@ -359,34 +359,7 @@ function parseQuotaRequest(
   };
 }
 
-const digestEntrySchema = z.object({
-  title: z.string(),
-  date: z.string(),
-  messageCount: z.number(),
-  excerpt: z.string().optional(),
-});
-
 const firstEpochBaselinesSchema = z.object({
-  recencyDigestInitialization: z
-    .object({
-      baseline: z.object({
-        pinned: z.array(digestEntrySchema),
-        recent: z.array(digestEntrySchema),
-        pinnedShown: z.number(),
-        pinnedTotal: z.number(),
-        recentShown: z.number(),
-        recentTotal: z.number(),
-        compiledOn: z.string(),
-      }),
-      told: z.array(
-        z.object({
-          chatId: z.string(),
-          pinned: z.boolean(),
-          title: z.string().optional(),
-        }),
-      ),
-    })
-    .optional(),
   skillCatalogFreeze: z
     .object({
       baseline: z.object({
@@ -441,11 +414,7 @@ const quotaPayloadSchema = z.object({
     .or(omittedCheckpointField)
     .optional(),
   baselines: firstEpochBaselinesSchema
-    .refine(
-      (value) =>
-        value.recencyDigestInitialization !== undefined ||
-        value.skillCatalogFreeze !== undefined,
-    )
+    .refine((value) => value.skillCatalogFreeze !== undefined)
     .or(omittedCheckpointField)
     .optional(),
 });

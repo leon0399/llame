@@ -11,10 +11,15 @@ import {
   selectForkMessages,
   type CopyableMessage,
 } from './fork-copy';
+import { isContextItemPart } from './context-item';
+import {
+  createRecencyDigestItem,
+  readDigestPayload,
+} from './recency-digest-item';
 
 const NOW = new Date('2026-09-14T00:00:00.000Z');
-const CHAT_ID = 'chat-id';
-const FORK_CHAT_ID = 'fork-chat-id';
+const CHAT_ID = 'ca7e63ce-66a2-41aa-8a03-4fd8f76d76ab';
+const FORK_CHAT_ID = 'a444443f-56d9-4c4c-ae15-47f5a7214c29';
 const USER_ID = 'user-id';
 
 const chat = (overrides: Partial<Chat> = {}): Chat => ({
@@ -27,9 +32,6 @@ const chat = (overrides: Partial<Chat> = {}): Chat => ({
   archivedAt: null,
   modelSelection: null,
   projectId: null,
-  recencyDigestBaseline: null,
-  recencyDigestTold: null,
-  recencyDigestRebakedFrom: null,
   skillCatalogBaseline: null,
   skillCatalogRebakedFrom: null,
   skillCatalogTold: null,
@@ -96,6 +98,81 @@ describe('selectForkMessages', () => {
 
     expect(selectForkMessages(rows, undefined)).toEqual(rows);
   });
+
+  it('selects associated baselines above an anchor and gates imported cutoff notices', () => {
+    const checkpointId = 'c941f34a-815d-4c0c-9ad8-6483cd50c29a';
+    const checkpointRow = checkpoint(checkpointId, 4, 2);
+
+    const companion = row('checkpoint-companion', 12, {
+      senderUserId: null,
+      parts: [
+        createRecencyDigestItem({
+          runId: '123e4567-e89b-12d3-a456-426614174000',
+          payload: {
+            version: 1,
+            kind: 'baseline',
+            announced: [],
+            association: { kind: 'checkpoint', checkpointId },
+          },
+          body: 'checkpoint baseline',
+        }),
+      ],
+    });
+
+    const originBaseline = row('origin-baseline', 13, {
+      senderUserId: null,
+      parts: [
+        createRecencyDigestItem({
+          runId: '123e4567-e89b-12d3-a456-426614174000',
+          payload: {
+            version: 1,
+            kind: 'baseline',
+            announced: [],
+            association: { kind: 'origin', chatId: CHAT_ID },
+          },
+          body: 'origin baseline',
+        }),
+      ],
+    });
+
+    const comparison = row('comparison', 14, {
+      senderUserId: null,
+      parts: [
+        createRecencyDigestItem({
+          runId: '123e4567-e89b-12d3-a456-426614174000',
+          payload: {
+            version: 1,
+            kind: 'notice',
+            announced: [],
+            importedCutoff: { latestTurnSeq: 5, lastOriginalSeq: 6 },
+          },
+          body: 'conversion notice',
+        }),
+      ],
+    });
+
+    const rows = [
+      row('first', 1),
+      row('through-cutoff', 2),
+      row('anchor', 3),
+      checkpointRow,
+      companion,
+      originBaseline,
+      comparison,
+    ];
+
+    expect(selectForkMessages(rows, 3, CHAT_ID).map(({ id }) => id)).toEqual([
+      'first',
+      'through-cutoff',
+      'anchor',
+      checkpointId,
+      'checkpoint-companion',
+      'origin-baseline',
+    ]);
+    expect(selectForkMessages(rows, 6, CHAT_ID).map(({ id }) => id)).toContain(
+      'comparison',
+    );
+  });
 });
 
 describe('inheritForkedChatState', () => {
@@ -103,64 +180,40 @@ describe('inheritForkedChatState', () => {
   const latest = checkpoint('checkpoint-2', 6, 5);
   const prefix = [first, latest];
 
-  it('remaps markers naming copied checkpoints to their copied message ids', () => {
-    const source = chat({
-      recencyDigestRebakedFrom: first.id,
-      skillCatalogRebakedFrom: latest.id,
-    });
-
+  it('remaps the skill marker to the copied checkpoint id', () => {
+    const source = chat({ skillCatalogRebakedFrom: latest.id });
     const { messageIds, inherited } = inheritForkedChatState(source, prefix);
 
-    expect(inherited.recencyDigestRebakedFrom).toBe(messageIds.get(first.id));
     expect(inherited.skillCatalogRebakedFrom).toBe(messageIds.get(latest.id));
-    expect(inherited.recencyDigestRebakedFrom).not.toBe(first.id);
     expect(inherited.skillCatalogRebakedFrom).not.toBe(latest.id);
   });
 
   it('maps an uncopied marker to the copied active checkpoint or null', () => {
     const source = chat({
-      recencyDigestRebakedFrom: latest.id,
       skillCatalogRebakedFrom: latest.id,
     });
 
     const onlyFirst = inheritForkedChatState(source, [first]);
     const firstCopyId = onlyFirst.messageIds.get(first.id);
 
-    expect(onlyFirst.inherited.recencyDigestRebakedFrom).toBe(firstCopyId);
     expect(onlyFirst.inherited.skillCatalogRebakedFrom).toBe(firstCopyId);
 
     const noCheckpoints = inheritForkedChatState(source, []);
-    expect(noCheckpoints.inherited.recencyDigestRebakedFrom).toBeNull();
     expect(noCheckpoints.inherited.skillCatalogRebakedFrom).toBeNull();
   });
 
   it('falls back to the newest copied checkpoint when several are copied', () => {
     const source = chat({
-      recencyDigestRebakedFrom: 'checkpoint-outside-prefix',
       skillCatalogRebakedFrom: 'checkpoint-outside-prefix',
     });
 
     const { messageIds, inherited } = inheritForkedChatState(source, prefix);
 
-    expect(inherited.recencyDigestRebakedFrom).toBe(messageIds.get(latest.id));
     expect(inherited.skillCatalogRebakedFrom).toBe(messageIds.get(latest.id));
-    expect(inherited.recencyDigestRebakedFrom).not.toBe(
-      messageIds.get(first.id),
-    );
   });
 
   it('keeps null markers null and carries frozen state and the active binding', () => {
     const source = chat({
-      recencyDigestBaseline: {
-        pinned: [],
-        recent: [],
-        pinnedShown: 0,
-        pinnedTotal: 0,
-        recentShown: 0,
-        recentTotal: 0,
-        compiledOn: '2026-09-14',
-      },
-      recencyDigestTold: [{ chatId: 'other', pinned: false, title: 'Old' }],
       skillCatalogBaseline: {
         entries: [{ name: 'alpha', description: 'A' }],
         omitted: 0,
@@ -176,15 +229,12 @@ describe('inheritForkedChatState', () => {
 
     expect(inherited).toMatchObject({
       createdAt: source.createdAt,
-      recencyDigestBaseline: source.recencyDigestBaseline,
-      recencyDigestTold: source.recencyDigestTold,
       skillCatalogBaseline: source.skillCatalogBaseline,
       skillCatalogTold: source.skillCatalogTold,
       workspaceRoot: '/work/project',
       workspaceExecutorId: 'worker-a',
       workspaceGeneration: 7,
       artifactSeq: 5,
-      recencyDigestRebakedFrom: null,
       skillCatalogRebakedFrom: null,
     });
     expect(inherited).not.toHaveProperty('workspaceTold');
@@ -223,6 +273,109 @@ describe('copiedMessageRows', () => {
     expect(copied[1].inReplyTo).toBe(copied[0].id);
     expect(copied[2].absorbedThroughSeq).toBe(2);
     expect(copied[2].parts).toEqual(checkpointRow.parts);
+  });
+
+  it.each(['baseline', 'notice'] as const)(
+    'remaps a %s epoch association in its stored carrier without rewriting text',
+    (kind) => {
+      const checkpointId = 'c941f34a-815d-4c0c-9ad8-6483cd50c29a';
+      const checkpointRow = checkpoint(checkpointId, 2, 1);
+
+      const companion = row('companion', 8, {
+        senderUserId: kind === 'baseline' ? null : 'owner',
+        parts: [
+          ...(kind === 'notice' ? [{ type: 'text', text: 'Owner turn' }] : []),
+          createRecencyDigestItem({
+            runId: '123e4567-e89b-12d3-a456-426614174000',
+            payload: {
+              version: 1,
+              kind,
+              announced: [],
+              association: { kind: 'checkpoint', checkpointId },
+            },
+            body: 'unchanged snapshot text',
+          }),
+        ],
+      });
+
+      const rows = [row('turn', 1), checkpointRow, companion];
+
+      const ids = new Map([
+        [checkpointId, 'b1d0994d-3be8-49f3-b6b0-751a9bc01eb0'],
+        ['turn', 'c77f65f4-d2e5-475d-8429-29f708ff5d2c'],
+        ['companion', 'd31f3fa1-b0f0-4871-98b8-bb6553bb7948'],
+      ]);
+
+      const copied = copiedMessageRows(rows, FORK_CHAT_ID, ids);
+      const partIndex = kind === 'baseline' ? 0 : 1;
+      const copiedPart = copied[2]?.parts[partIndex];
+      const sourcePart = companion.parts[partIndex];
+
+      if (!isContextItemPart(copiedPart) || !isContextItemPart(sourcePart)) {
+        throw new Error('Digest companion part is invalid');
+      }
+
+      expect(readDigestPayload(copiedPart)?.association).toEqual({
+        kind: 'checkpoint',
+        checkpointId: ids.get(checkpointId),
+      });
+      expect(copiedPart.data.text).toBe(sourcePart.data.text);
+    },
+  );
+
+  it('remaps imported checkpoint association and comparison cutoffs together', () => {
+    const checkpointId = 'c941f34a-815d-4c0c-9ad8-6483cd50c29a';
+    const checkpointRow = checkpoint(checkpointId, 5, 4);
+
+    const notice = row('comparison', 30, {
+      senderUserId: null,
+      parts: [
+        createRecencyDigestItem({
+          runId: '123e4567-e89b-12d3-a456-426614174000',
+          payload: {
+            version: 1,
+            kind: 'notice',
+            announced: [],
+            association: { kind: 'checkpoint', checkpointId },
+            importedCutoff: { latestTurnSeq: 10, lastOriginalSeq: 25 },
+          },
+          body: 'unchanged comparison text',
+        }),
+      ],
+    });
+
+    const rows = [
+      row('absorbed-user', 4),
+      checkpointRow,
+      row('latest-user', 10),
+      row('latest-assistant', 20, { role: 'assistant', senderUserId: null }),
+      notice,
+    ];
+
+    const ids = new Map([
+      ['absorbed-user', 'f75996d1-7603-4b21-86b6-96917fe20ea8'],
+      [checkpointId, 'b1d0994d-3be8-49f3-b6b0-751a9bc01eb0'],
+      ['latest-user', 'c77f65f4-d2e5-475d-8429-29f708ff5d2c'],
+      ['latest-assistant', 'd31f3fa1-b0f0-4871-98b8-bb6553bb7948'],
+      ['comparison', 'b4d9d1c8-85de-41ec-a76e-50f54ff934a2'],
+    ]);
+
+    const copied = copiedMessageRows(rows, FORK_CHAT_ID, ids);
+    const copiedPart = copied[4]?.parts[0];
+    const sourcePart = notice.parts[0];
+
+    if (!isContextItemPart(copiedPart) || !isContextItemPart(sourcePart)) {
+      throw new Error('Imported comparison part is invalid');
+    }
+
+    expect(readDigestPayload(copiedPart)).toMatchObject({
+      association: {
+        kind: 'checkpoint',
+        checkpointId: ids.get(checkpointId),
+      },
+      importedCutoff: { latestTurnSeq: 3, lastOriginalSeq: 4 },
+    });
+    expect(copiedPart.data.text).toBe(sourcePart.data.text);
   });
 
   it('copies owner content, createdAt, usage, and attachments verbatim', () => {

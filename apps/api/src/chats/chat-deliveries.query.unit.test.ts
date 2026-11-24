@@ -6,7 +6,7 @@ import {
   type StartedPostgreSqlContainer,
 } from '@testcontainers/postgresql';
 import { drizzle } from 'drizzle-orm/postgres-js';
-import { migrate } from 'drizzle-orm/postgres-js/migrator';
+import { migrateDatabase } from '../db/migrate';
 import postgres, { type Sql } from 'postgres';
 
 import * as schema from '../db/schema';
@@ -72,9 +72,10 @@ describe('ChatDeliveriesRepository PostgreSQL query', () => {
     const migrator = postgres(appUrl.href, { max: 1 });
 
     try {
-      await migrate(drizzle({ client: migrator }), {
-        migrationsFolder: path.resolve(process.cwd(), 'src/db/migrations'),
-      });
+      await migrateDatabase(
+        migrator,
+        path.resolve(process.cwd(), 'src/db/migrations'),
+      );
     } finally {
       await migrator.end();
     }

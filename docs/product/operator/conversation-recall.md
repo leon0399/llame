@@ -1,11 +1,12 @@
 ---
-summary: "Enabling Chat discovery and native chat:// reads, and the search projection coverage gate"
+summary: "Enabling Chat discovery, digest consent and upgrades, and the search projection coverage gate"
 read_when:
   - you are allowlisting Chat discovery and reads on an API or worker host
-  - you are diagnosing the search projection coverage gate or preparing the reader exporter
+  - you are diagnosing search coverage, preparing the reader exporter, or upgrading to the rail-only digest release
 behavior:
   - ../reference/tools/search-conversations.md
   - ../reference/locators/chat.md
+  - ../reference/context-documents.md
 ---
 
 # Conversation recall
@@ -53,67 +54,108 @@ Metadata or title matches use `chat://<id>`. Timeline results use
 [search_conversations](../reference/tools/search-conversations.md) and
 [Chat locators](../reference/locators/chat.md) for behavior and paging.
 
-## Reader exporter before the digest upgrade
+## Digest consent and inspection
+
+The owner setting `shareRecentChats` defaults off. Enabling it includes
+existing eligible Chats immediately. It shares each selected row's title,
+`chat://` locator, activity date, message count, canonical Workspace root or
+`unbound`, and bounded opening and latest visible-text excerpts. The latest
+excerpt can include assistant text. In a multi-user installation, the
+configured model provider may be a third party.
+
+Disabling stops new baselines, refreshes, and notices. Existing baseline items
+continue to replay, including across disabled compaction. Deleting a source
+Chat does not erase disclosure already stored in another Chat's context items
+or historical receipts. The owner can inspect the exact persisted digest text
+in their Chat. The system-only prompt receipt does not include digest items.
+See [context documents](../reference/context-documents.md#recency-digest) for
+the storage and compaction behavior.
+
+## Upgrade from the reader release
 
 The reader release keeps the old digest renderer, columns, and `chats.*`
-templates. Before upgrading to the later digest release, take a recoverable
-database backup, stop new acceptance, and drain the reader release's workers.
-Then run the exporter with the reader-layer binary:
+template values. Before deploying the rail-only digest release, take a
+recoverable database backup, stop new acceptance, and drain the reader
+release's workers.
+
+Run the exporter with the reader-layer binary:
 
 ```bash
-pnpm --filter api recency-digest:export --out <path>
+pnpm --filter api recency-digest:export --out <private-export.json>
 ```
 
-Choose a path in private storage. Keep the exported file private and ensure its
-mode is `0600`. The exporter writes one version 1 JSON object identified as
-`recency-digest-export/1`. Its records bind each destination Chat and owner to
-the old-column fingerprint, proved emitted fields, comparison state,
-provenance, and omissions. It contains no full prompt, template, or transcript.
+Store the output in private storage with mode `0600`. It is a version 1
+`recency-digest-export/1` JSON object. It binds each destination Chat and owner
+to the old-column fingerprint, proved fields, comparison state, provenance,
+and omissions. It does not contain a full prompt, template, or transcript.
 
-The exporter includes a baseline field only when its emission is proved against
-the applicable stored system receipt and the owner and destination binding. The
-proof compares the reconstructed system text with that exact receipt. A missing
-receipt, a receipt mismatch, or any other missing proof means the exporter
-omits that derived field and privately reports the affected Chat and field. It
-continues with other records. It does not claim unproved content reached the
-model.
+The exporter includes each baseline field only when its emission is proved
+against the applicable system-only receipt and the owner and destination
+binding. A missing receipt or proof means it omits and privately reports that
+derived field, then continues with other records. A receipt match does not prove
+complete prompt identity or historical tool-description text. Rebaked
+baselines require an owned checkpoint and a later dispatch by the exact receipt
+attempt. Before the first rebake, a recorded quota initializer tied to that
+attempt can supply the input witness. Without either witness, the exporter can
+omit all derived fields for a first-epoch Chat as `baseline_input_unproved`.
+Titles that collide after prompt sanitization cannot prove comparison identity.
 
-An identical receipt alone does not bind the historical digest inputs. A
-rebaked baseline needs an owned checkpoint and a later dispatch by the exact
-receipt attempt. Before the first rebake, the exporter also requires the
-immutable version 1 quota initializer recorded for that attempt. A mutable
-told-set cannot replace this initializer. Without either input proof, even an
-ordinary first-epoch Chat can have all derived digest fields omitted with
-`baseline_input_unproved`. The exporter leaves stored messages and receipts
-unchanged.
+The first-epoch input witness must be the immutable version 1 quota initializer
+recorded for the exact receipt attempt. A mutable told-set cannot replace it.
+Pin state comes from proved baseline membership and the last proved pin
+correction in the destination's effective stored notices. A notice without
+model-visible text or an uncertain correction order cannot prove a pin. The
+exporter omits that comparison field as `pin_unproved`, rather than suppress a
+future announcement.
 
 The packaged `project_default` template proves membership only for rows it
 actually emitted. A custom template that emits titles proves only those exact
 emitted title values; it does not prove list membership or other fields.
-Titles that collide after prompt sanitization cannot prove a comparison
-identity. The exporter does not infer an identity from a title.
 
-The mutable told-set is only an inventory of candidate comparison entries. It
-does not prove that a Chat was disclosed. Import a told id or pin state only
-when a destination-bound emission and its matching dispatched receipt prove
-the identity and pin value. If correction order or identity is ambiguous, omit
-the entry, report it privately, and leave it eligible for a future
-announcement. Pin state comes from proved baseline membership and the last
-proved pin correction in effective stored notices, never from the told-set's
-pin flag. A notice without model-visible text or an uncertain correction
-order cannot prove a pin.
+Before starting the new API or workers, remove all `chats.*` references from
+system-prompt and tool-description overrides. The new release rejects that
+retired namespace during configuration validation. Run the standalone
+converter on the new release before starting a process that validates those
+templates:
 
-The exporter privately reports omitted fields and comparison entries,
-including Chats for which every derived field is omitted. Keep those reports
-and the export private. Neither contains a whole prompt or transcript. The
-exporter leaves stored messages and receipts unchanged.
-Preserve the export with the database backup. The later digest upgrade's
-converter consumes this file before removing legacy columns. That converter
-has not shipped with the reader layer.
+The mutable told-set is only an inventory of candidate comparison entries.
+It does not prove that a Chat was disclosed. Import a told id only when a
+destination-bound emission and its matching dispatched receipt prove the
+identity. Ambiguous entries are omitted and privately reported, remaining
+eligible for a future announcement. Stored messages and receipts are unchanged.
 
-Run the exporter with the reader-layer binary before deploying the digest
-upgrade. Do not run it against the pre-reader binary or after the digest
-upgrade.
+Set `POSTGRES_URL` to the target database in the command environment. Do not
+print or log its credentials.
+
+```bash
+pnpm --filter api db:upgrade-recency-digest --export <private-export.json> --report <private-report.json>
+```
+
+The converter takes the existing migration advisory lock and uses one
+connection and transaction for conversion, the completion witness, and pending
+SQL migrations.
+It accounts for every legacy destination, including Chats with total omission.
+Under Q11, it omits only unprovable derived fields and continues with other
+Chats. It exclusively creates and syncs the private report with mode `0600`
+inside the locked transaction before committing. The report contains inventory
+and import counts plus omission details, not content text. On failure, the
+command removes its report and prints only a generic error.
+Keep both files private and review the report before proceeding. The conversion preserves original messages, context
+parts, and receipts. It does not reconstruct unproved disclosure, enrich old
+rows from source Chats, or create a Run when provenance is missing.
+
+The pending migration `20261124014016_retire_recency_digest_columns` requires
+the converter's `v1` witness before it drops the legacy columns. A fresh
+database can establish that witness through ordinary migration only when the
+catalog has no `chats` table in the migration schema. A preexisting legacy table
+requires the standalone converter even when the table is empty.
+
+After the command succeeds, start the API and workers on the matching new
+release. Keep the database backup, private export, and private report until the
+upgrade is verified. Delete both private files only under the backup retention
+procedure. Rollback requires restoring the matching database snapshot and old
+binary; do not roll back by deploying the old binary against the upgraded
+database.
 
 ## Deferred work
 

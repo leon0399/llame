@@ -329,9 +329,7 @@ export function renderContextItem(input: {
  * Order items by the fixed producer precedence, preserving emission order
  * within one producer.
  *
- * Intra-producer order is load-bearing, not incidental: the recency digest
- * can emit a supersession and a later delta on the same turn, and a delta
- * rendered before the supersession that precedes it reads as already
- * superseded. `Array.prototype.sort` is specified as stable, so emission
- * order survives the sort without a secondary key.
+ * Equal-priority context items retain producer emission order: a notice may
+ * depend on an earlier snapshot. `Array.prototype.sort` is stable, so the
+ * original order survives without a secondary key.
  */

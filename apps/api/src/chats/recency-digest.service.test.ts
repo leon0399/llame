@@ -1,678 +1,383 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { drizzle } from 'drizzle-orm/postgres-js';
 
 import { type Chat } from '../db/schema';
 import { type Db, type TenantRunner } from '../db/tenant-db.service';
-import { SystemPromptsService } from '../system-prompts/system-prompts.service';
-import { type TemporalAnchor } from '../instance-config/prompt-loader';
-import { resolveAdvertisedTools } from '../tools/registry';
-
-const TEST_ANCHOR: TemporalAnchor = {
-  systemTime: '2000-01-01 00:00+00:00',
-  systemTimezone: 'UTC',
-};
-
-import { ChatsRepository, MessagesRepository } from './chats-repository';
+import { ChatsRepository } from './chats-repository';
+import * as digestMessageProjections from './recency-digest-message-projections';
 import {
-  buildRecencyDigestBaseline,
-  toDigestEntry,
-  deriveRecencyDigestDelta,
-  disclosedRecencyDigestEntries,
-  RECENCY_DIGEST_LIST_LIMIT,
   RecencyDigestService,
-  truncateRecencyDigestExcerpt,
+  RECENCY_DIGEST_LIST_LIMIT,
 } from './recency-digest.service';
 
-function chat(id: string, title = id): Chat {
+const ids = Array.from(
+  { length: 30 },
+  (_, index) =>
+    `00000000-0000-4000-8000-${String(index + 1).padStart(12, '0')}`,
+);
+
+function chat(id: string, fields: Partial<Chat> = {}): Chat {
   return {
     id,
     ownerUserId: 'owner',
-    title,
+    title: id,
     visibility: 'private',
     createdAt: new Date('2026-08-01T00:00:00.000Z'),
     updatedAt: new Date('2026-08-12T12:00:00.000Z'),
     archivedAt: null,
     modelSelection: null,
     projectId: null,
-    recencyDigestBaseline: null,
-    recencyDigestTold: null,
-    recencyDigestRebakedFrom: null,
-    skillCatalogBaseline: null,
-    skillCatalogRebakedFrom: null,
-    skillCatalogTold: null,
     workspaceRoot: null,
     workspaceExecutorId: null,
     workspaceGeneration: 0,
-    artifactSeq: 0,
+    skillCatalogBaseline: null,
+    skillCatalogRebakedFrom: null,
+    skillCatalogTold: null,
     workspaceTold: null,
-    workspaceToldFrom: null,
     workspaceToldAvailable: null,
+    workspaceToldFrom: null,
+    artifactSeq: 0,
     workspaceDetachReason: null,
+    ...fields,
   };
 }
 
-describe('recency digest baseline', () => {
-  afterEach(() => vi.restoreAllMocks());
+function serviceDb() {
+  const tx: Db = drizzle.mock();
+  const tenantDb: TenantRunner = { runAs: (_owner, fn) => fn(tx) };
 
-  it('pins the digest list limit', () => {
-    expect(RECENCY_DIGEST_LIST_LIMIT).toBe(10);
-  });
+  return { service: new RecencyDigestService(tenantDb), tx };
+}
 
-  it('truncates at a Unicode code-point boundary', () => {
-    const emoji = truncateRecencyDigestExcerpt('😀'.repeat(200) + 'x');
-    expect(emoji).toBe('😀'.repeat(200));
-    expect(emoji).toHaveLength(400);
-    expect(Array.from(emoji)).toHaveLength(200);
+describe('recency digest candidate resolution', () => {
+  it('uses disjoint pinned and recent ten-row views and carries absolute totals', async () => {
+    const pinned = ids.slice(0, 10).map((id) => chat(id));
+    const recent = ids.slice(10, 20).map((id) => chat(id));
 
-    expect(truncateRecencyDigestExcerpt('Привет'.repeat(40))).toBe(
-      'Привет'.repeat(33) + 'Пр',
-    );
-  });
-
-  it('freezes four renderable fields and never an identifier', () => {
-    const baseline = buildRecencyDigestBaseline({
-      pinned: [
-        {
-          id: 'must-not-render',
-          title: 'Pinned',
-          updatedAt: new Date('2026-08-12T12:00:00.000Z'),
-          firstUserMessage: { parts: [{ type: 'text', text: 'hello' }] },
-          messageCount: 1,
-        },
-      ].map(toDigestEntry),
-      recent: [],
-      pinnedTotal: 1,
-      recentTotal: 0,
-      compiledOn: new Date('2026-08-12T00:00:00.000Z'),
-    });
-
-    expect(baseline).toEqual({
-      pinned: [
-        {
-          title: 'Pinned',
-          date: '2026-08-12',
-          messageCount: 1,
-          excerpt: 'hello',
-        },
-      ],
-      recent: [],
-      pinnedShown: 1,
-      pinnedTotal: 1,
-      recentShown: 0,
-      recentTotal: 0,
-      compiledOn: '2026-08-12',
-    });
-    expect(JSON.stringify(baseline)).not.toContain('must-not-render');
-  });
-
-  // WHICH message becomes the excerpt source is decided by the query
-  // (`findEarliestUserMessagePerChat`), not here — so this covers what the
-  // builder still owns: only text parts of the message it was handed survive,
-  // and a message carrying no text yields an entry with no excerpt rather than
-  // dropping the chat. The role/order selection is proved against a real
-  // database in `chat-loop.integration.test.ts`
-  // ("excerpts the earliest USER message, never an assistant or later turn").
-  it('keeps only text parts of the supplied first user message, and entries with none', () => {
-    const baseline = buildRecencyDigestBaseline({
-      pinned: [],
-      recent: [
-        {
-          id: 'chat-a',
-          title: 'Mixed parts',
-          updatedAt: new Date('2026-08-12T12:00:00.000Z'),
-          firstUserMessage: {
-            parts: [
-              { type: 'text', text: 'opening' },
-              { type: 'reasoning', text: 'private reasoning' },
-              { type: 'text', text: 'line two' },
-            ],
-          },
-          messageCount: 3,
-        },
-        {
-          id: 'chat-b',
-          title: 'No text',
-          updatedAt: new Date('2026-08-11T12:00:00.000Z'),
-          firstUserMessage: {
-            parts: [
-              {
-                type: 'file',
-                mediaType: 'image/png',
-                url: 'media://0192f3a4-5b6c-7d8e-9f01-00000000000a',
-                filename: 'quarterly.png',
-              },
-            ],
-          },
-          messageCount: 1,
-        },
-        {
-          id: 'chat-c',
-          title: 'No user message at all',
-          updatedAt: new Date('2026-08-10T12:00:00.000Z'),
-          firstUserMessage: undefined,
-          messageCount: 2,
-        },
-      ].map(toDigestEntry),
-      pinnedTotal: 0,
-      recentTotal: 3,
-      compiledOn: new Date('2026-08-12T00:00:00.000Z'),
-    });
-
-    expect(baseline.recent).toEqual([
-      {
-        title: 'Mixed parts',
-        date: '2026-08-12',
-        messageCount: 3,
-        excerpt: 'opening\nline two',
-      },
-      { title: 'No text', date: '2026-08-11', messageCount: 1 },
-      { title: 'No user message at all', date: '2026-08-10', messageCount: 2 },
-    ]);
-    expect(JSON.stringify(baseline)).not.toContain('private reasoning');
-    // An image-only first message gets no excerpt: neither its file name nor
-    // its locator stands in for text.
-    expect(JSON.stringify(baseline)).not.toContain('quarterly');
-    expect(JSON.stringify(baseline)).not.toContain('media://');
-  });
-
-  it('requests disjoint capped views, exact totals, and owner-scoped eligibility', async () => {
-    const pinned = Array.from({ length: 10 }, (_, index) =>
-      chat(`pinned-${index}`),
-    );
-
-    // The repository returns pinned chats in owner-rank order. Make the second
-    // chat more active so this test proves the digest preserves rank instead
-    // of silently re-sorting pinned entries by updatedAt.
-    pinned[0].updatedAt = new Date('2026-08-01T00:00:00.000Z');
-    pinned[1].updatedAt = new Date('2026-08-26T00:00:00.000Z');
-
-    const recent = Array.from({ length: 10 }, (_, index) =>
-      chat(`recent-${index}`),
-    );
-
-    const findByOwner = vi
+    const find = vi
       .spyOn(ChatsRepository.prototype, 'findByOwner')
       .mockImplementation((_owner, filter) =>
         Promise.resolve(filter?.pinned === 'only' ? pinned : recent),
       );
 
-    const countByOwner = vi
+    const count = vi
       .spyOn(ChatsRepository.prototype, 'countByOwner')
       .mockImplementation((_owner, filter) =>
-        Promise.resolve(filter.pinned === 'only' ? 30 : 247),
+        Promise.resolve(filter.pinned === 'only' ? 27 : 61),
       );
 
-    const findEarliest = vi
-      .spyOn(MessagesRepository.prototype, 'findEarliestUserMessagePerChat')
-      .mockImplementation((chatIds) =>
-        Promise.resolve(
-          chatIds.map((chatId) => ({
-            id: `message-${chatId}`,
-            chatId,
-            seq: 1,
-            role: 'user' as const,
-            senderUserId: 'owner',
-            parts: [{ type: 'text', text: 'opening' }],
-            attachments: [],
-            absorbedThroughSeq: null,
-            usage: null,
-            inReplyTo: null,
-            createdAt: new Date(),
-            revisedAt: null,
-          })),
-        ),
-      );
+    vi.spyOn(
+      digestMessageProjections,
+      'findEarliestUserMessagePerChat',
+    ).mockResolvedValue([]);
+    vi.spyOn(
+      digestMessageProjections,
+      'findLatestAssistantPerOwnedChat',
+    ).mockResolvedValue([]);
+    vi.spyOn(
+      digestMessageProjections,
+      'countEligiblePerOwnedChat',
+    ).mockResolvedValue(new Map());
+    const { service } = serviceDb();
 
-    const countPerChat = vi
-      .spyOn(MessagesRepository.prototype, 'countPerChat')
-      .mockImplementation((chatIds) =>
-        Promise.resolve(new Map(chatIds.map((chatId) => [chatId, 1]))),
-      );
+    const result = await service.resolveCandidate('owner', ids[29]);
 
-    const tx: Db = drizzle.mock();
-
-    const tenantDb: TenantRunner = {
-      runAs: (_owner, fn) => fn(tx),
-    };
-
-    const result = await new RecencyDigestService(tenantDb).resolveCandidate(
-      'owner',
-      'current-chat',
-    );
-
-    expect(findByOwner).toHaveBeenNthCalledWith(1, 'owner', {
+    expect(RECENCY_DIGEST_LIST_LIMIT).toBe(10);
+    expect(find).toHaveBeenNthCalledWith(1, 'owner', {
       pinned: 'only',
       limit: 10,
-      excludeId: 'current-chat',
-      titledOnly: true,
+      excludeId: ids[29],
     });
-    expect(findByOwner).toHaveBeenNthCalledWith(2, 'owner', {
+    expect(find).toHaveBeenNthCalledWith(2, 'owner', {
       pinned: 'exclude',
       limit: 10,
-      excludeId: 'current-chat',
-      titledOnly: true,
+      excludeId: ids[29],
     });
-    expect(countByOwner).toHaveBeenNthCalledWith(1, 'owner', {
+    expect(count).toHaveBeenNthCalledWith(1, 'owner', {
       pinned: 'only',
-      excludeId: 'current-chat',
-      titledOnly: true,
+      excludeId: ids[29],
     });
-    // The recent denominator counts the population the recent list is drawn
-    // from — eligible and NOT pinned — not every eligible chat.
-    expect(countByOwner).toHaveBeenNthCalledWith(2, 'owner', {
+    expect(count).toHaveBeenNthCalledWith(2, 'owner', {
       pinned: 'exclude',
-      excludeId: 'current-chat',
-      titledOnly: true,
+      excludeId: ids[29],
     });
-    // One query per concern for the whole candidate set, not one pair per
-    // chat. `deltas` re-resolves these same views on every send, so an N+1
-    // here would become a per-send cost there.
-    const candidateIds = [...pinned, ...recent].map(({ id }) => id);
-    expect(findEarliest).toHaveBeenCalledOnce();
-    expect(findEarliest).toHaveBeenCalledWith(candidateIds, 'owner');
-    expect(countPerChat).toHaveBeenCalledOnce();
-    expect(countPerChat).toHaveBeenCalledWith(candidateIds, 'owner');
-
-    expect(result.baseline).toMatchObject({
-      pinnedShown: 10,
-      pinnedTotal: 30,
-      recentShown: 10,
-      recentTotal: 247,
-    });
-    expect(result.baseline.pinned.map(({ title }) => title)).toEqual(
-      pinned.map(({ title }) => title),
-    );
-    expect(result.baseline.pinned[0]?.title).toBe('pinned-0');
-    expect(result.baseline.pinned[1]?.title).toBe('pinned-1');
     expect(
-      result.candidates.map(({ chatId, pinned, entry }) => ({
+      result.announced.map(({ chatId, pinned: isPinned }) => [
         chatId,
-        pinned,
-        title: entry.title,
-      })),
+        isPinned,
+      ]),
     ).toEqual([
-      ...pinned.map(({ id, title }) => ({ chatId: id, pinned: true, title })),
-      ...recent.map(({ id, title }) => ({ chatId: id, pinned: false, title })),
+      ...pinned.map(({ id }) => [id, true]),
+      ...recent.map(({ id }) => [id, false]),
     ]);
-    expect(new Set(result.candidates.map(({ chatId }) => chatId)).size).toBe(
-      20,
-    );
+    expect(new Set(result.announced.map(({ chatId }) => chatId)).size).toBe(20);
+    expect(result).toMatchObject({
+      pinnedShown: 10,
+      pinnedTotal: 27,
+      recentShown: 10,
+      recentTotal: 61,
+    });
+    const rendered = service.renderBaseline(result);
+    expect(rendered).toContain('Pinned Chats (10 of 27 eligible)');
+    expect(rendered).toContain('Recent Chats (10 of 61 eligible)');
   });
 
-  it('renders one stored baseline byte-identically and exposes no told-set id', () => {
-    const service = new SystemPromptsService();
+  it('represents an empty eligible corpus as an empty snapshot', async () => {
+    vi.spyOn(ChatsRepository.prototype, 'findByOwner').mockResolvedValue([]);
+    vi.spyOn(ChatsRepository.prototype, 'countByOwner').mockResolvedValue(0);
+    vi.spyOn(
+      digestMessageProjections,
+      'findEarliestUserMessagePerChat',
+    ).mockResolvedValue([]);
+    vi.spyOn(
+      digestMessageProjections,
+      'findLatestAssistantPerOwnedChat',
+    ).mockResolvedValue([]);
+    vi.spyOn(
+      digestMessageProjections,
+      'countEligiblePerOwnedChat',
+    ).mockResolvedValue(new Map());
+    const { service } = serviceDb();
 
-    const model = {
-      id: 'model',
-      systemPromptTemplate:
-        '{{#each chats.pinned}}{{title}}|{{date}}|{{messageCount}}|{{excerpt}}\n{{/each}}' +
-        '{{#each chats.recent}}{{title}}|{{date}}|{{messageCount}}|{{excerpt}}\n{{/each}}',
+    const result = await service.resolveCandidate('owner', ids[0]);
+
+    expect(result.announced).toEqual([]);
+    expect(result.rows).toEqual([]);
+    expect(result).toMatchObject({
+      pinnedShown: 0,
+      pinnedTotal: 0,
+      recentShown: 0,
+      recentTotal: 0,
+    });
+    expect(service.renderBaseline(result)).toBeTruthy();
+  });
+
+  it('renders latest and opening visible excerpts as bounded Unicode code points without status', async () => {
+    const source = chat(ids[0], {
+      title: 'Shared',
+      workspaceRoot: '/workspace',
+      workspaceExecutorId: null,
+    });
+
+    vi.spyOn(ChatsRepository.prototype, 'findByOwner').mockResolvedValue([
+      source,
+    ]);
+    vi.spyOn(ChatsRepository.prototype, 'countByOwner').mockResolvedValue(1);
+    vi.spyOn(
+      digestMessageProjections,
+      'findEarliestUserMessagePerChat',
+    ).mockResolvedValue([
+      {
+        id: ids[1],
+        chatId: ids[0],
+        seq: 1,
+        role: 'user',
+        senderUserId: 'owner',
+        parts: [{ type: 'text', text: '😀'.repeat(120) }],
+        attachments: [],
+        absorbedThroughSeq: null,
+        usage: null,
+        inReplyTo: null,
+        createdAt: new Date(),
+        revisedAt: null,
+      },
+    ]);
+    vi.spyOn(
+      digestMessageProjections,
+      'findLatestAssistantPerOwnedChat',
+    ).mockResolvedValue([
+      {
+        id: ids[2],
+        chatId: ids[0],
+        seq: 2,
+        role: 'assistant',
+        senderUserId: null,
+        parts: [{ type: 'text', text: 'latest visible text' }],
+        attachments: [],
+        absorbedThroughSeq: null,
+        usage: null,
+        inReplyTo: null,
+        createdAt: new Date(),
+        revisedAt: null,
+      },
+    ]);
+    vi.spyOn(
+      digestMessageProjections,
+      'countEligiblePerOwnedChat',
+    ).mockResolvedValue(new Map([[ids[0], 2]]));
+    const { service } = serviceDb();
+
+    const result = await service.resolveCandidate('owner', ids[29]);
+    const body = service.renderBaseline(result);
+
+    expect(Array.from(result.rows[0].openingExcerpt ?? '')).toHaveLength(100);
+    expect(Array.from(result.rows[0].latestExcerpt ?? '')).toHaveLength(
+      'latest visible text'.length,
+    );
+    expect(result.rows[0]).toMatchObject({
+      locator: `chat://${ids[0]}`,
+      workspace: 'unbound',
+    });
+    expect(body).toContain('😀'.repeat(100));
+    expect(body).toContain('latest visible text');
+    expect(body).not.toMatch(/\b(?:idle|running|status)\b/iu);
+  });
+});
+
+describe('recency digest change derivation', () => {
+  it('does not reannounce known candidates and does not infer pin changes from candidate cap displacement', async () => {
+    const row = {
+      chatId: ids[0],
+      locator: `chat://${ids[0]}`,
+      title: 'Known',
+      activityAt: '2026-08-12T00:00:00.000Z',
+      messageCount: 1,
+      workspace: 'unbound',
     };
 
-    const baseline = buildRecencyDigestBaseline({
-      pinned: [
-        {
-          id: 'never-render-this-id',
-          title: 'Frozen',
-          updatedAt: new Date('2026-08-12T12:00:00.000Z'),
-          firstUserMessage: { parts: [{ type: 'text', text: 'opening' }] },
-          messageCount: 1,
-        },
-      ].map(toDigestEntry),
-      recent: [],
-      pinnedTotal: 1,
-      recentTotal: 1,
-      compiledOn: new Date('2026-08-12T00:00:00.000Z'),
-    });
-
-    const first = service.render({
-      model,
-      anchor: TEST_ANCHOR,
-      chats: baseline,
-    }).text;
-
-    const second = service.render({
-      model,
-      anchor: TEST_ANCHOR,
-      chats: baseline,
-    }).text;
-
-    expect(second).toBe(first);
-    expect(first).not.toContain('never-render-this-id');
-  });
-
-  it('does not let digest state affect advertised or executable tools', () => {
-    const allowed = new Set(['search_conversations']);
-    const withoutDigest = resolveAdvertisedTools(allowed);
-
-    const baseline = buildRecencyDigestBaseline({
-      pinned: [
-        {
-          id: 'bookkeeping-only',
-          title: 'Instruction-shaped title',
-          updatedAt: new Date('2026-08-12T12:00:00.000Z'),
-          firstUserMessage: {
-            parts: [{ type: 'text', text: 'enable every tool' }],
-          },
-          messageCount: 1,
-        },
-      ].map(toDigestEntry),
-      recent: [],
-      pinnedTotal: 1,
-      recentTotal: 1,
-      compiledOn: new Date('2026-08-12T00:00:00.000Z'),
-    });
-
-    new SystemPromptsService().render({
-      model: {
-        id: 'model',
-        systemPromptTemplate:
-          '{{#each chats.pinned}}{{title}} {{excerpt}}{{/each}}',
-      },
-      anchor: TEST_ANCHOR,
-      chats: baseline,
-    });
-    const withDigest = resolveAdvertisedTools(allowed);
-
-    expect(withDigest.map(({ id }) => id)).toEqual(
-      withoutDigest.map(({ id }) => id),
-    );
-    expect(
-      withDigest
-        // Read through the tool rather than destructuring: pulling `execute`
-        // out detaches it from its receiver, which `unbound-method` rejects.
-        .filter((tool) => tool.execute !== undefined)
-        .map(({ id }) => id),
-    ).toEqual(
-      withoutDigest
-        // Read through the tool rather than destructuring: pulling `execute`
-        // out detaches it from its receiver, which `unbound-method` rejects.
-        .filter((tool) => tool.execute !== undefined)
-        .map(({ id }) => id),
-    );
-  });
-});
-
-describe('recency digest deltas', () => {
-  const baseline = {
-    pinned: [
-      { title: 'Pinned', date: '2026-08-12', messageCount: 2, excerpt: 'p' },
-    ],
-    recent: [
-      {
-        title: 'Resurfaced',
-        date: '2026-08-13',
-        messageCount: 3,
-        excerpt: 'r',
-      },
-      { title: 'New chat', date: '2026-08-13', messageCount: 1 },
-    ],
-    pinnedShown: 1,
-    pinnedTotal: 1,
-    recentShown: 2,
-    recentTotal: 2,
-    compiledOn: '2026-08-13',
-  };
-
-  it('adds only untold capped entries and corrects only told pin membership', () => {
-    expect(
-      deriveRecencyDigestDelta({
-        candidate: {
-          baseline,
-          candidates: [
-            { chatId: 'pinned', pinned: true, entry: baseline.pinned[0] },
-            {
-              chatId: 'resurfaced',
-              pinned: false,
-              entry: baseline.recent[0],
-            },
-            { chatId: 'new', pinned: false, entry: baseline.recent[1] },
-          ],
-        },
-        told: [{ chatId: 'pinned', pinned: true, title: 'Pinned' }],
-        pinnedChatIds: new Set(['pinned']),
-      }),
-    ).toEqual({
-      entries: [
-        { ...baseline.recent[0], pinned: false },
-        { ...baseline.recent[1], pinned: false },
-      ],
-      pinChanges: [],
-      told: [
-        { chatId: 'pinned', pinned: true, title: 'Pinned' },
-        { chatId: 'resurfaced', pinned: false, title: 'Resurfaced' },
-        { chatId: 'new', pinned: false, title: 'New chat' },
-      ],
-    });
-  });
-
-  it('pairs an untold candidate with its own entry rather than a parallel-array position', () => {
-    expect(
-      deriveRecencyDigestDelta({
-        candidate: {
-          baseline,
-          candidates: [
-            {
-              chatId: 'resurfaced',
-              pinned: false,
-              entry: baseline.recent[0],
-            },
-            { chatId: 'pinned', pinned: true, entry: baseline.pinned[0] },
-          ],
-        },
-        told: [{ chatId: 'pinned', pinned: true, title: 'Pinned' }],
-        pinnedChatIds: new Set(['pinned']),
-      }),
-    ).toMatchObject({
-      entries: [{ ...baseline.recent[0], pinned: false }],
-    });
-  });
-
-  it('does not repeat told chats or invent an unpin for a cap displacement', () => {
-    expect(
-      deriveRecencyDigestDelta({
-        candidate: {
-          baseline,
-          candidates: [],
-        },
-        told: [
-          { chatId: 'pinned', pinned: true },
-          { chatId: 'resurfaced', pinned: false },
-        ],
-        pinnedChatIds: new Set(['pinned']),
-      }),
-    ).toBeNull();
-  });
-
-  it('emits nothing for capped-view departures, archival, or deletion alone', () => {
-    expect(
-      deriveRecencyDigestDelta({
-        candidate: { baseline, candidates: [] },
-        told: [{ chatId: 'still-pinned-but-gone', pinned: true }],
-        pinnedChatIds: new Set(['still-pinned-but-gone']),
-      }),
-    ).toBeNull();
-  });
-
-  it('does not announce an untold chat merely because it was unpinned', () => {
-    expect(
-      deriveRecencyDigestDelta({
-        candidate: { baseline, candidates: [] },
-        told: [],
-        pinnedChatIds: new Set(),
-      }),
-    ).toBeNull();
-  });
-
-  it('batches pin corrections for told chats outside the capped views', () => {
-    expect(
-      deriveRecencyDigestDelta({
-        candidate: { baseline, candidates: [] },
-        told: [
-          {
-            chatId: 'formerly-pinned',
-            pinned: true,
-            title: 'Formerly pinned',
-          },
-        ],
-        pinnedChatIds: new Set(),
-      }),
-    ).toEqual({
-      entries: [],
-      pinChanges: [{ title: 'Formerly pinned', pinned: false }],
-      told: [
-        {
-          chatId: 'formerly-pinned',
-          pinned: false,
-          title: 'Formerly pinned',
-        },
-      ],
-    });
-  });
-
-  it('silently drops a pin correction from a legacy told entry without its announced title', () => {
-    expect(
-      deriveRecencyDigestDelta({
-        candidate: { baseline, candidates: [] },
-        told: [{ chatId: 'legacy-entry', pinned: true }],
-        pinnedChatIds: new Set(),
-      }),
-    ).toBeNull();
-  });
-});
-
-describe('recency digest disclosure accounting', () => {
-  const pinned = {
-    title: 'Pinned',
-    date: '2026-08-12',
-    messageCount: 2,
-    excerpt: 'p',
-  };
-
-  const recent = { title: 'Recent', date: '2026-08-13', messageCount: 3 };
-
-  const baseline = {
-    pinned: [pinned],
-    recent: [recent],
-    pinnedShown: 1,
-    pinnedTotal: 1,
-    recentShown: 1,
-    recentTotal: 1,
-    compiledOn: '2026-08-13',
-  };
-
-  const disclosed = (
-    pinnedIndexes: Array<number>,
-    recentIndexes: Array<number>,
-  ) => ({
-    pinned: new Set(pinnedIndexes),
-    recent: new Set(recentIndexes),
-  });
-
-  it('tells nothing that no render emitted', () => {
-    expect(
-      disclosedRecencyDigestEntries({
-        baseline,
-        disclosures: [disclosed([], []), disclosed([], [])],
-        candidates: [
-          { chatId: 'p', pinned: true, entry: pinned },
-          { chatId: 'r', pinned: false, entry: recent },
-        ],
-      }),
-    ).toEqual([]);
-  });
-
-  it('unions both surfaces and records the list each entry was rendered in', () => {
-    expect(
-      disclosedRecencyDigestEntries({
-        baseline,
-        disclosures: [disclosed([], [0]), disclosed([0], [])],
-        candidates: [
-          { chatId: 'r', pinned: false, entry: recent },
-          // Unpinned since the baseline was compiled: the model was still
-          // told it was pinned, so a later correction can say otherwise.
-          { chatId: 'p', pinned: false, entry: pinned },
-        ],
-      }),
-    ).toEqual([
-      { chatId: 'p', pinned: true, title: 'Pinned' },
-      { chatId: 'r', pinned: false, title: 'Recent' },
+    const { service, tx } = serviceDb();
+    vi.spyOn(ChatsRepository.prototype, 'findByOwner').mockResolvedValue([
+      chat(ids[0]),
     ]);
-  });
+    vi.spyOn(ChatsRepository.prototype, 'findPinnedChatIds').mockResolvedValue(
+      new Set([ids[0]]),
+    );
 
-  it('keys a stored entry to its chat across activity, and leaves an unmatched one untold', () => {
-    expect(
-      disclosedRecencyDigestEntries({
-        // A stored baseline: equal values, never the candidates' own objects.
-        baseline: structuredClone(baseline),
-        disclosures: [disclosed([0], [0])],
-        candidates: [
-          // New messages moved its activity snapshot, not its identity.
+    const result = await service.deriveChanges({
+      tx,
+      ownerUserId: 'owner',
+      currentChatId: ids[29],
+      candidate: {
+        rows: [row],
+        announced: [
           {
-            chatId: 'p',
+            chatId: ids[0],
             pinned: true,
-            entry: { ...pinned, date: '2026-09-01', messageCount: 9 },
-          },
-          // Renamed since the baseline: not provably the chat it showed.
-          {
-            chatId: 'r',
-            pinned: false,
-            entry: { ...recent, title: 'Renamed' },
+            title: 'Known',
+            workspace: 'unbound',
           },
         ],
-      }),
-    ).toEqual([{ chatId: 'p', pinned: true, title: 'Pinned' }]);
+        pinnedShown: 0,
+        pinnedTotal: 0,
+        recentShown: 1,
+        recentTotal: 1,
+        compiledOn: '2026-08-12',
+      },
+      announced: [
+        { chatId: ids[0], pinned: true, title: 'Known', workspace: 'unbound' },
+      ],
+    });
+
+    expect(result.additions).toEqual([]);
+    expect(result.corrections).toEqual([]);
   });
 
-  it.each([
-    ['last activity', { date: '2026-08-01' }],
-    ['message count', { messageCount: 1 }],
-  ])(
-    'pairs an identical entry before a look-alike differing in %s can take its candidate',
-    (_field, difference) => {
-      const twin = { ...recent, ...difference };
-      expect(
-        disclosedRecencyDigestEntries({
-          baseline: { ...baseline, pinned: [], recent: [twin, recent] },
-          disclosures: [disclosed([], [0, 1])],
-          candidates: [
-            { chatId: 'current', pinned: false, entry: recent },
-            { chatId: 'twin', pinned: false, entry: twin },
-          ],
-        }),
-      ).toEqual([
-        { chatId: 'twin', pinned: false, title: 'Recent' },
-        { chatId: 'current', pinned: false, title: 'Recent' },
-      ]);
-    },
-  );
+  it('emits corrections deterministically with a 20-field budget and advances only included fields', async () => {
+    const known = ids.slice(0, 20).map((chatId, index) => ({
+      chatId,
+      pinned: true,
+      title: `Chat ${index}`,
+      workspace: index === 19 ? 'machine://old/repo' : 'unbound',
+    }));
 
-  it('pairs an exact entry within the list it was rendered in', () => {
+    const sources = known.map((entry, index) =>
+      chat(
+        entry.chatId,
+        index === 19
+          ? { workspaceRoot: '/repo', workspaceExecutorId: 'build' }
+          : {},
+      ),
+    );
+
+    const { service, tx } = serviceDb();
+    vi.spyOn(ChatsRepository.prototype, 'findByOwner').mockResolvedValue(
+      sources,
+    );
+    vi.spyOn(ChatsRepository.prototype, 'findPinnedChatIds').mockResolvedValue(
+      new Set(),
+    );
+
+    const candidate = {
+      rows: [],
+      announced: [],
+      pinnedShown: 0,
+      pinnedTotal: 0,
+      recentShown: 0,
+      recentTotal: 0,
+      compiledOn: '2026-08-12',
+    };
+
+    const first = await service.deriveChanges({
+      tx,
+      ownerUserId: 'owner',
+      currentChatId: ids[29],
+      candidate,
+      announced: known,
+    });
+
+    expect(first.corrections).toHaveLength(20);
+    expect(first.corrections.slice(0, 19).map(({ chatId }) => chatId)).toEqual(
+      ids.slice(0, 19),
+    );
+    expect(first.corrections[19]).toMatchObject({
+      chatId: ids[19],
+      field: 'pinned',
+      value: 'not pinned',
+    });
     expect(
-      disclosedRecencyDigestEntries({
-        baseline: { ...baseline, pinned: [recent], recent: [recent] },
-        disclosures: [disclosed([0], [])],
-        candidates: [
-          { chatId: 'recent-look-alike', pinned: false, entry: recent },
-          { chatId: 'pinned', pinned: true, entry: recent },
-        ],
-      }),
-    ).toEqual([{ chatId: 'pinned', pinned: true, title: 'Recent' }]);
+      first.announced.find(({ chatId }) => chatId === ids[19]),
+    ).toMatchObject({
+      pinned: false,
+      workspace: 'machine://old/repo',
+    });
+
+    const next = await service.deriveChanges({
+      tx,
+      ownerUserId: 'owner',
+      currentChatId: ids[29],
+      candidate,
+      announced: first.announced,
+    });
+
+    expect(next.corrections).toContainEqual({
+      chatId: ids[19],
+      title: 'Chat 19',
+      field: 'workspace',
+      value: 'machine://old/repo -> machine://build/repo',
+    });
   });
 
-  it('does not key an entry to a chat with the same title but another opening', () => {
-    expect(
-      disclosedRecencyDigestEntries({
-        baseline,
-        disclosures: [disclosed([0], [])],
-        candidates: [
-          {
-            chatId: 'other',
-            pinned: true,
-            entry: { ...pinned, excerpt: 'another opening' },
-          },
-        ],
-      }),
-    ).toEqual([]);
+  it('does not infer unbound affinity from a pin correction for an imported unknown binding', async () => {
+    const chatId = ids[0];
+    const { service, tx } = serviceDb();
+    vi.spyOn(ChatsRepository.prototype, 'findByOwner').mockResolvedValue([
+      chat(chatId),
+    ]);
+    vi.spyOn(ChatsRepository.prototype, 'findPinnedChatIds').mockResolvedValue(
+      new Set(),
+    );
+
+    const result = await service.deriveChanges({
+      tx,
+      ownerUserId: 'owner',
+      currentChatId: ids[29],
+      candidate: {
+        rows: [],
+        announced: [],
+        pinnedShown: 0,
+        pinnedTotal: 0,
+        recentShown: 0,
+        recentTotal: 0,
+        compiledOn: '2026-08-12',
+      },
+      announced: [{ chatId, pinned: true, title: 'Imported' }],
+    });
+
+    expect(result.corrections).toEqual([
+      { chatId, title: 'Imported', field: 'pinned', value: 'not pinned' },
+    ]);
+    expect(result.announced).toEqual([
+      { chatId, pinned: false, title: 'Imported' },
+    ]);
   });
 });

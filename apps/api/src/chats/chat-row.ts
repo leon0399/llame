@@ -1,3 +1,7 @@
+import {
+  formatMachineLocator,
+  parseMachineLocator,
+} from '../machines/machine-locator';
 import { sanitizeAuthoredText } from '../instance-config/authored-text';
 import { loadPackagedTemplate } from '../prompts/template-engine';
 
@@ -36,6 +40,22 @@ export function renderChatRow(row: ChatRow): string {
             row.latestExcerpt.replaceAll(SINGLE_LINE_BREAKERS, ' '),
           ),
   });
+}
+
+export function canonicalWorkspaceLocator(
+  root: string | null,
+  executorId: string | null,
+): string {
+  if (root === null) return 'unbound';
+  const parsed = parseMachineLocator(root);
+
+  if (parsed.kind === 'path' && parsed.selector === undefined)
+    return formatMachineLocator(parsed.name, parsed.path) ?? 'unbound';
+
+  if (root.startsWith('/') && !root.startsWith('//') && executorId !== null)
+    return formatMachineLocator(executorId, root) ?? 'unbound';
+
+  return 'unbound';
 }
 
 export function formatChatExcerpt(

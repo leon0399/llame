@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { compileTestPermissionPolicy } from '../testing/tool-permission-policy';
 import { scriptedToolInput } from '../testing/run-execution-integration-fixture';
+import { isRecord } from '@workspace/runtime-safety';
 
 import type { LanguageModelV3StreamPart } from '@ai-sdk/provider';
 import { streamText } from 'ai';
@@ -16,7 +17,6 @@ import { type Sql } from 'postgres';
 import type {
   Chat,
   Message,
-  RecencyDigestBaseline,
   Run,
   SkillCatalogBaseline,
   SystemPromptReceipt,
@@ -44,6 +44,7 @@ import {
 } from '../testing/fake-model-selection';
 import type { SystemModelCatalogEntry } from '../models/model-catalog';
 import { MemoryService } from '../memory/memory.service';
+import { createRecencyDigestItem } from '../chats/recency-digest-item';
 import { SearchIndexService } from '../search/search-index.service';
 import { noopEmbedDispatch } from '../search/search-embed-dispatch.stub';
 import { noopQueryEmbedder } from '../search/chat-search-query-embedder.stub';
@@ -197,12 +198,12 @@ const DEGRADED_KNOWLEDGE = {
 };
 
 /**
- * A template that renders every epoch input a checkpoint re-bakes into the
- * system prompt: the temporal anchor (derived from the active checkpoint's
- * timestamp), the digest baseline's titles and the skill catalog's names.
+ * The epoch system prompt uses only chat-epoch inputs that remain in the
+ * system template. Digest snapshots are persisted and replayed as message
+ * context items, not rendered from Chat columns.
  */
 const EPOCH_TEMPLATE =
-  'Epoch prompt at {{context.systemTime}}.{{#if chats}} Chats:{{#each chats.recent}} [{{title}}]{{/each}}{{/if}}{{#if skills}} Skills:{{#each skills.entries}} [{{name}}]{{/each}}{{/if}}';
+  'Epoch prompt at {{context.systemTime}}.{{#if skills}} Skills:{{#each skills.entries}} [{{name}}]{{/each}}{{/if}}';
 
 const epochModelEntry = (modelId: string): SystemModelCatalogEntry => ({
   id: modelId,
@@ -232,31 +233,9 @@ const EPOCH_EXECUTOR_ID = 'compaction-epoch-host';
 /** The chat's creation time, far from "now" so the anchors it and a checkpoint derive can never coincide. */
 const CHAT_CREATED_AT = new Date('2026-01-15T10:30:00.000Z');
 
-const STALE_DIGEST: RecencyDigestBaseline = {
-  pinned: [],
-  recent: [
-    {
-      title: 'Stale source',
-      date: '2026-08-01',
-      messageCount: 1,
-      excerpt: 'old opening',
-    },
-  ],
-  pinnedShown: 0,
-  pinnedTotal: 0,
-  recentShown: 1,
-  recentTotal: 1,
-  compiledOn: '2026-08-01',
-};
-
-/**
- * The told-set names a chat by id, and the digest's pin correction queries
- * those ids: a placeholder that is not a UUID would fail that read rather
- * than exercising it, so this names a chat the owner has since deleted.
- */
 const STALE_SOURCE_CHAT_ID = '00000000-0000-4000-8000-0000000000a1';
 
-const STALE_DIGEST_TOLD = [
+const STALE_DIGEST_ANNOUNCED = [
   {
     chatId: STALE_SOURCE_CHAT_ID,
     pinned: false,
@@ -296,13 +275,11 @@ const LIVE_CATALOG: SkillCatalogPort = {
 /** The epoch prompt exactly as the Run renders it for the given epoch inputs. */
 function renderEpochPrompt(input: {
   instant: Date;
-  chats: RecencyDigestBaseline | null;
   skills: SkillCatalogBaseline;
 }): string {
   return new SystemPromptsService().render({
     model: epochModels.validateModelSelection(TARGET_MODEL),
     anchor: formatTemporalAnchor(input.instant, resolveInstanceTimezone()),
-    chats: input.chats ?? undefined,
     skills: input.skills,
     admittedToolIds: [],
   }).text;
@@ -803,12 +780,23 @@ describeIfDb('snapshot-bound compaction continuity', () => {
 
     const freshSource = await tenantDb.runAs(userId, async (tx) => {
       const chats = new ChatsRepository(tx);
-      await chats.setRecencyDigestIfAbsent(
-        seeded.chat.id,
-        userId,
-        STALE_DIGEST,
-        STALE_DIGEST_TOLD,
-      );
+      await new MessagesRepository(tx).create({
+        chatId: seeded.chat.id,
+        role: 'user',
+        senderUserId: null,
+        parts: [
+          createRecencyDigestItem({
+            runId: seeded.targetRun.id,
+            payload: {
+              version: 1,
+              kind: 'baseline',
+              announced: STALE_DIGEST_ANNOUNCED,
+              association: { kind: 'origin', chatId: seeded.chat.id },
+            },
+            body: 'Stale source: old opening',
+          }),
+        ],
+      });
       await chats.setSkillCatalogBaseline({
         chatId: seeded.chat.id,
         ownerUserId: userId,
@@ -1078,11 +1066,10 @@ describeIfDb('snapshot-bound compaction continuity', () => {
 
       const staleSystem = renderEpochPrompt({
         instant: CHAT_CREATED_AT,
-        chats: STALE_DIGEST,
         skills: STALE_SKILLS,
       });
 
-      expect(staleSystem).toContain('[Stale source]');
+      expect(staleSystem).not.toContain('[Stale source]');
       expect(staleSystem).toContain('[stale-skill]');
       expect(summaryRequest.system).toBe(staleSystem);
       expect(summaryRequest.toolChoice).toBe('none');
@@ -1123,23 +1110,29 @@ describeIfDb('snapshot-bound compaction continuity', () => {
 
       const freshSystem = renderEpochPrompt({
         instant: checkpoint.createdAt,
-        chats: state.chat?.recencyDigestBaseline ?? null,
         skills: LIVE_SKILLS,
       });
 
-      expect(freshSystem).toContain('[Fresh source]');
+      expect(freshSystem).not.toContain('[Fresh source]');
       expect(freshSystem).toContain('[live-skill]');
       expect(freshSystem).not.toContain('[Stale source]');
       expect(freshSystem).not.toContain('[stale-skill]');
       expect(targetRequest.system).toBe(freshSystem);
       expect(targetRequest.effort).toBe('low');
-      expect(state.chat?.recencyDigestBaseline?.recent).toEqual(
-        expect.arrayContaining([
-          expect.objectContaining({
-            title: 'Fresh source',
-            excerpt: 'fresh opening',
+      expect(state.contextParts).toContainEqual(
+        expect.objectContaining({
+          producer: 'recency-digest',
+          payload: expect.objectContaining({
+            kind: 'baseline',
+            announced: expect.arrayContaining([
+              expect.objectContaining({ title: 'Fresh source' }),
+            ]),
+            association: expect.objectContaining({
+              kind: 'checkpoint',
+              checkpointId: checkpoint.id,
+            }),
           }),
-        ]),
+        }),
       );
 
       // Exactly one receipt, bound to the prompt that was actually sent.
@@ -1148,15 +1141,22 @@ describeIfDb('snapshot-bound compaction continuity', () => {
         state.receipts.map((receipt) => receipt.systemPrompt),
       ).not.toContain(staleSystem);
 
-      // The Workspace snapshot and the digest supersession ride the same
-      // request: the checkpoint reset what the chat had been told.
-      const railText = contentText(
-        targetRequest.messages.at(-1)?.content ?? '',
+      expect(reminderCount(targetRequest, 'recency-digest')).toBe(1);
+
+      // The companion sits immediately after the summary boundary on the
+      // replay rail, before the retained triggering turn.
+      const checkpointIndex = targetRequest.messages.findIndex((message) =>
+        contentText(message.content).includes(SUMMARY),
       );
 
-      expect(railText).toContain(`\`${seeded.workspaceRoot}\``);
-      expect(railText).toContain('The chat list was refreshed.');
-      expect(railText).toContain('CURRENT TRIGGER');
+      const digestIndex = targetRequest.messages.findIndex((message) =>
+        contentText(message.content).includes('Fresh source'),
+      );
+
+      expect(digestIndex).toBe(checkpointIndex + 1);
+      expect(
+        contentText(targetRequest.messages.at(-1)?.content ?? ''),
+      ).toContain('CURRENT TRIGGER');
       expect(state.run?.status).toBe('completed');
       expect(state.contextParts).toEqual(
         expect.arrayContaining([
@@ -1176,7 +1176,6 @@ describeIfDb('snapshot-bound compaction continuity', () => {
         expect.objectContaining({ producer: 'skill-catalog' }),
       );
       expect(state.chat).toMatchObject({
-        recencyDigestRebakedFrom: checkpoint.id,
         skillCatalogRebakedFrom: checkpoint.id,
         workspaceToldFrom: checkpoint.id,
         workspaceTold: formatWorkspaceTold(
@@ -1353,10 +1352,6 @@ describeIfDb('snapshot-bound compaction continuity', () => {
         absorbedThroughSeq: seeded.targetUser.seq - 1,
       });
       expect(published.chat).toMatchObject({
-        recencyDigestRebakedFrom: checkpoint.id,
-        // The refresh pre-marks nothing, and the dispatched request rendered
-        // its one entry without an append, so it advanced no told state.
-        recencyDigestTold: [],
         skillCatalogRebakedFrom: checkpoint.id,
         skillCatalogBaseline: LIVE_SKILLS,
         workspaceToldFrom: checkpoint.id,
@@ -1367,11 +1362,6 @@ describeIfDb('snapshot-bound compaction continuity', () => {
           seeded.workspaceRoot,
         ),
       });
-      expect(published.chat?.recencyDigestBaseline?.recent).toEqual(
-        expect.arrayContaining([
-          expect.objectContaining({ title: 'Fresh source' }),
-        ]),
-      );
 
       const firstRequest = sole(
         firstCalls.filter((call) => !isSummaryRequest(call)),
@@ -1379,19 +1369,27 @@ describeIfDb('snapshot-bound compaction continuity', () => {
 
       expect(sole(published.receipts).systemPrompt).toBe(firstRequest.system);
 
-      // The dispatched request's accepted-turn items are already on the user
-      // message, whatever the attempt's outcome.
+      // Both the historical origin baseline and the new checkpoint companion
+      // remain stored. Only the companion belongs to this replay epoch.
+      expect(
+        published.contextParts.filter(
+          (item) =>
+            item.producer === 'recency-digest' &&
+            item.payload.kind === 'baseline' &&
+            isRecord(item.payload.association) &&
+            item.payload.association.kind === 'checkpoint' &&
+            item.payload.association.checkpointId === checkpoint.id,
+        ),
+      ).toHaveLength(1);
+
       for (const producer of DISPATCHED_EPOCH_PRODUCERS) {
-        expect(
-          published.contextParts.filter((item) => item.producer === producer),
-        ).toHaveLength(1);
         expect(reminderCount(firstRequest, producer)).toBe(1);
       }
 
-      // The retry: nothing lies between the boundary and the trigger, so it
-      // pays no second summary and re-resolves nothing. Its request carries
-      // the stored items once, and it authors no second temporal anchor,
-      // Workspace snapshot, or digest supersession marker.
+      expect(reminderCount(firstRequest, 'recency-digest')).toBe(1);
+
+      // The retry reuses the checkpoint companion once without a second
+      // summary or another epoch resolution.
       const secondCalls: Array<ModelStreamInput> = [];
 
       const retried = await service.executeRun(
@@ -1419,15 +1417,13 @@ describeIfDb('snapshot-bound compaction continuity', () => {
         expect(reminderCount(secondRequest, producer)).toBe(1);
       }
 
+      expect(reminderCount(secondRequest, 'recency-digest')).toBe(1);
+
       const after = await readTurnState(turn);
       expect(after.contextParts).toEqual(published.contextParts);
       expect(after.run?.status).toBe('completed');
       expect(sole(after.checkpoints).id).toBe(checkpoint.id);
-      expect(after.chat?.recencyDigestBaseline).toEqual(
-        published.chat?.recencyDigestBaseline,
-      );
       expect(after.chat).toMatchObject({
-        recencyDigestRebakedFrom: checkpoint.id,
         skillCatalogRebakedFrom: checkpoint.id,
         workspaceToldFrom: checkpoint.id,
         workspaceTold: formatWorkspaceTold(
@@ -1446,13 +1442,13 @@ describeIfDb('snapshot-bound compaction continuity', () => {
       ]);
     });
 
-    it('stages the supersession marker on a retry whose own checkpoint re-baked the digest after an earlier dispatch', async () => {
+    it('associates a retry-published baseline with its checkpoint after an earlier dispatch', async () => {
       const seeded = await seedEpoch();
       const turn = turnOf(seeded);
       const service = epochService(createCompactionService(unexercisedModels));
 
-      // The first attempt's summary comes back empty, so it dispatches without
-      // a checkpoint, then its model never answers.
+      // The first attempt has no checkpoint, but the origin baseline remains
+      // part of stored history and must not be mistaken for retry publication.
       await service.executeRun(
         requestFor(
           turn,
@@ -1467,15 +1463,25 @@ describeIfDb('snapshot-bound compaction continuity', () => {
       const dispatched = await readTurnState(turn);
       expect(dispatched.checkpoints).toHaveLength(0);
       expect(dispatched.run?.turnToolAvailability).not.toBeNull();
-      expect(dispatched.contextParts).not.toContainEqual(
+      expect(dispatched.contextParts).toContainEqual(
         expect.objectContaining({
           producer: 'recency-digest',
           form: 'snapshot',
+          payload: expect.objectContaining({
+            association: expect.objectContaining({ kind: 'origin' }),
+          }),
+        }),
+      );
+      expect(dispatched.contextParts).not.toContainEqual(
+        expect.objectContaining({
+          producer: 'recency-digest',
+          payload: expect.objectContaining({
+            association: expect.objectContaining({ kind: 'checkpoint' }),
+          }),
         }),
       );
 
-      // The retry's summary succeeds: its publication re-bakes the digest
-      // after the Run already dispatched, so no stored marker reports it.
+      // The retry publishes a checkpoint and its separately stored companion.
       const retryCalls: Array<ModelStreamInput> = [];
 
       const retried = await service.executeRun(
@@ -1494,11 +1500,14 @@ describeIfDb('snapshot-bound compaction continuity', () => {
       const after = await readTurnState(turn);
       const checkpoint = sole(after.checkpoints);
       expect(after.run?.status).toBe('completed');
-      expect(after.chat?.recencyDigestRebakedFrom).toBe(checkpoint.id);
       expect(
         after.contextParts.filter(
           (item) =>
-            item.producer === 'recency-digest' && item.form === 'snapshot',
+            item.producer === 'recency-digest' &&
+            item.form === 'snapshot' &&
+            isRecord(item.payload.association) &&
+            item.payload.association.kind === 'checkpoint' &&
+            item.payload.association.checkpointId === checkpoint.id,
         ),
       ).toHaveLength(1);
 
@@ -1506,11 +1515,16 @@ describeIfDb('snapshot-bound compaction continuity', () => {
         retryCalls.filter((call) => !isSummaryRequest(call)),
       );
 
-      expect(
-        contentText(retryRequest.messages.at(-1)?.content ?? '').split(
-          'The chat list was refreshed.',
-        ),
-      ).toHaveLength(2);
+      const checkpointIndex = retryRequest.messages.findIndex((message) =>
+        contentText(message.content).includes(SUMMARY),
+      );
+
+      const digestIndex = retryRequest.messages.findIndex((message) =>
+        contentText(message.content).includes('Fresh source'),
+      );
+
+      expect(digestIndex).toBe(checkpointIndex + 1);
+      expect(reminderCount(retryRequest, 'recency-digest')).toBe(1);
     });
 
     it('does not start a second epoch for the Run after the one that published', async () => {
@@ -1557,9 +1571,9 @@ describeIfDb('snapshot-bound compaction continuity', () => {
       expect(settled.run?.status).toBe('completed');
       expect(nextCalls.filter(isSummaryRequest)).toHaveLength(0);
       expect(settled.checkpoints).toHaveLength(1);
-      // Neither the Workspace snapshot nor the digest supersession re-announce
-      // themselves: the checkpoint's boundary sits below the publishing turn,
-      // so each appears once in history, on the publishing turn's own items.
+      // The checkpoint companion belongs to the publishing epoch and is
+      // replayed once after its checkpoint; the earlier origin baseline stays
+      // stored but is not part of that effective history.
       expect(settled.contextParts).toContainEqual(
         expect.objectContaining({ producer: 'temporal' }),
       );
@@ -1573,9 +1587,25 @@ describeIfDb('snapshot-bound compaction continuity', () => {
         expect(
           settled.contextParts.filter((item) => item.producer === producer),
         ).toEqual([]);
-        expect(
-          published.contextParts.filter((item) => item.producer === producer),
-        ).toHaveLength(1);
+
+        if (producer === 'recency-digest') {
+          expect(published.contextParts).toContainEqual(
+            expect.objectContaining({
+              producer,
+              payload: expect.objectContaining({
+                association: expect.objectContaining({
+                  kind: 'checkpoint',
+                  checkpointId: sole(published.checkpoints).id,
+                }),
+              }),
+            }),
+          );
+        } else {
+          expect(
+            published.contextParts.filter((item) => item.producer === producer),
+          ).toHaveLength(1);
+        }
+
         expect(
           nextRequestText.split(`<system-reminder producer="${producer}"`),
         ).toHaveLength(2);
@@ -1592,7 +1622,7 @@ describeIfDb('snapshot-bound compaction continuity', () => {
       );
     });
 
-    it('does not repeat the supersession marker or the Unavailable list a failed Run dispatched', async () => {
+    it('retains the checkpoint companion and unavailable list dispatched by a failed Run', async () => {
       const seeded = await seedEpoch();
       const failing = turnOf(seeded);
 
@@ -1656,19 +1686,36 @@ describeIfDb('snapshot-bound compaction continuity', () => {
       expect(settled.run?.status).toBe('completed');
       expect(nextCalls.filter(isSummaryRequest)).toHaveLength(0);
       expect(settled.checkpoints).toHaveLength(1);
-      // The failed Run dispatched both items, so it is the next turn's
-      // baseline: each rides the next request once, from the failed turn.
-      const nextRequest = sole(nextCalls);
+      // The failed Run preserved the checkpoint companion and its dispatched
+      // tool-availability item; both are replayed from the failed turn once.
+      expect(failed.contextParts).toContainEqual(
+        expect.objectContaining({
+          producer: 'recency-digest',
+          payload: expect.objectContaining({
+            association: expect.objectContaining({
+              kind: 'checkpoint',
+              checkpointId: sole(failed.checkpoints).id,
+            }),
+          }),
+        }),
+      );
+      expect(
+        failed.contextParts.filter(
+          (item) => item.producer === 'tool-availability',
+        ),
+      ).toHaveLength(1);
+      expect(
+        settled.contextParts.filter(
+          (item) => item.producer === 'tool-availability',
+        ),
+      ).toEqual([]);
 
-      for (const producer of ['recency-digest', 'tool-availability']) {
-        expect(
-          failed.contextParts.filter((item) => item.producer === producer),
-        ).toHaveLength(1);
-        expect(
-          settled.contextParts.filter((item) => item.producer === producer),
-        ).toEqual([]);
-        expect(reminderCount(nextRequest, producer)).toBe(1);
-      }
+      const nextRequest = sole(
+        nextCalls.filter((call) => !isSummaryRequest(call)),
+      );
+
+      expect(reminderCount(nextRequest, 'recency-digest')).toBe(1);
+      expect(reminderCount(nextRequest, 'tool-availability')).toBe(1);
     });
 
     it("places a never-dispatched Run's items by producer rank around its stored prompt-imports item", async () => {
@@ -1736,47 +1783,40 @@ describeIfDb('snapshot-bound compaction continuity', () => {
       expect([...positions].sort((a, b) => a - b)).toEqual(positions);
     });
 
-    // The exclusion rides the trailing instruction, so the digest block is
-    // replayed verbatim in the system prompt; the instruction and the packaged
-    // template are authored in different files, and nothing else asserts the
-    // delimiter one names is the delimiter the other emits. If they drift,
-    // another owner's chat titles and opening excerpts get summarized into a
-    // checkpoint that is replayed as history indefinitely — which neither
-    // deleting that chat nor disabling the setting can reach.
-    it('keeps the packaged prompt digest out of the persisted checkpoint', async () => {
+    // The digest is a persisted message-rail item, not a system-prompt block.
+    // Summary input excludes it before model I/O.
+    it('keeps the digest off the system prompt and out of summary history', async () => {
       const seeded = await seedSwitch({ switchMarker: false });
 
-      const digest: RecencyDigestBaseline = {
-        pinned: [
-          {
-            title: 'Quarterly planning',
-            date: '2026-08-10',
-            messageCount: 8,
-            excerpt: 'SECRET-PINNED-OPENING',
-          },
-        ],
-        recent: [
-          {
-            title: 'Debugging the worker',
-            date: '2026-08-09',
-            messageCount: 3,
-            excerpt: 'SECRET-RECENT-OPENING',
-          },
-        ],
-        pinnedShown: 1,
-        pinnedTotal: 1,
-        recentShown: 1,
-        recentTotal: 4,
-        compiledOn: '2026-08-10',
-      };
-
       await tenantDb.runAs(userId, (tx) =>
-        new ChatsRepository(tx).setRecencyDigestIfAbsent(
-          seeded.chat.id,
-          userId,
-          digest,
-          [],
-        ),
+        new MessagesRepository(tx).create({
+          chatId: seeded.chat.id,
+          role: 'user',
+          senderUserId: null,
+          parts: [
+            createRecencyDigestItem({
+              runId: seeded.targetRun.id,
+              payload: {
+                version: 1,
+                kind: 'baseline',
+                announced: [
+                  {
+                    chatId: '00000000-0000-4000-8000-0000000000a2',
+                    pinned: true,
+                    title: 'Quarterly planning',
+                  },
+                  {
+                    chatId: '00000000-0000-4000-8000-0000000000a3',
+                    pinned: false,
+                    title: 'Debugging the worker',
+                  },
+                ],
+                association: { kind: 'origin', chatId: seeded.chat.id },
+              },
+              body: 'SECRET-PINNED-OPENING\nSECRET-RECENT-OPENING',
+            }),
+          ],
+        }),
       );
 
       const packagedTemplate = createModelPromptLoader({
@@ -1795,14 +1835,11 @@ describeIfDb('snapshot-bound compaction continuity', () => {
           seeded.chat.createdAt,
           resolveInstanceTimezone(),
         ),
-        chats: digest,
         admittedToolIds: [],
       }).text;
 
-      // Guard the guard: if the block stopped rendering, every assertion below
-      // would pass vacuously.
-      expect(packagedPrompt).toContain('<user_chat_history>');
-      expect(packagedPrompt).toContain('SECRET-PINNED-OPENING');
+      expect(packagedPrompt).not.toContain('SECRET-PINNED-OPENING');
+      expect(packagedPrompt).not.toContain('SECRET-RECENT-OPENING');
       const calls: Array<ModelStreamInput> = [];
 
       const result = await runService(
@@ -1831,39 +1868,23 @@ describeIfDb('snapshot-bound compaction continuity', () => {
       await result.consumeStream?.();
 
       const summaryRequest = sole(calls.filter(isSummaryRequest));
-      // Replayed verbatim — the exclusion rides the trailing instruction rather
-      // than editing the bound prompt, which would cold-start the prefix cache
-      // for the whole absorbed conversation.
       expect(summaryRequest.system).toBe(packagedPrompt);
-
-      // The load-bearing assertion: the fence the TEMPLATE emits is character-
-      // for-character the one the INSTRUCTION names. The tag name is extracted
-      // from the rendered prompt with a generic pattern (not hardcoded as
-      // `user_chat_history`) so a rename on the template side is actually
-      // detected here rather than silently matched against itself; `user` is
-      // undefined above, so `<user_personalization>` cannot also match and mask
-      // a mismatch.
-      const fence = /<([a-z][a-z0-9_]*)>/u.exec(packagedPrompt)?.[1];
-      expect(fence).toBeDefined();
-      expect(COMPACTION_INSTRUCTION).toContain(`<${fence!}>`);
       expect(summaryRequest.messages.at(-1)?.content).toBe(
         COMPACTION_INSTRUCTION,
       );
 
-      // Nothing digest-shaped reaches the compactable history either: the
-      // digest lives in the system prompt, so a message carrying it would mean
-      // it had leaked onto the rail where the summarizer reads uninstructed.
-      expect(summaryRequest.messages.slice(0, -1)).not.toContainEqual(
-        expect.objectContaining({
-          content: expect.stringContaining('SECRET-PINNED-OPENING'),
-        }),
-      );
+      const summaryHistoryText = summaryRequest.messages
+        .slice(0, -1)
+        .map(({ content }) => contentText(content))
+        .join('\n\n');
+
+      expect(summaryHistoryText).not.toContain('SECRET-PINNED-OPENING');
+      expect(summaryHistoryText).not.toContain('SECRET-RECENT-OPENING');
       // Deliberately NOT asserted: that the persisted summary omits the
       // excerpts. The fake client returns a canned summary, so such an
       // assertion would pass no matter what the instruction said. Whether a
       // real model honours the exclusion is compliance, which the capability
-      // spec already states is advisory rather than structurally enforced —
-      // only the delimiter's integrity is guaranteed, and that is checked above.
+      // spec states is advisory rather than structurally enforced.
     });
 
     it('sends no effort on the summary request when the Run carried none', async () => {
@@ -1955,28 +1976,37 @@ describeIfDb('snapshot-bound compaction continuity', () => {
         recencyDigest: {
           resolveCandidate: () =>
             Promise.reject(new Error('candidate unavailable')),
+          deriveChanges: () =>
+            Promise.resolve({
+              additions: [],
+              corrections: [],
+              announced: [],
+            }),
+          renderBaseline: () => '',
         },
       },
     ])(
       'publishes the checkpoint but keeps the bound digest when $name',
       async ({ sharing, recencyDigest }) => {
         const seeded = await seedSwitch({ switchMarker: false });
-
-        const told = [
-          {
-            chatId: '00000000-0000-4000-8000-0000000000a2',
-            pinned: false,
-            title: 'Previously shared source',
-          },
-        ];
-
         await tenantDb.runAs(userId, (tx) =>
-          new ChatsRepository(tx).setRecencyDigestIfAbsent(
-            seeded.chat.id,
-            userId,
-            STALE_DIGEST,
-            told,
-          ),
+          new MessagesRepository(tx).create({
+            chatId: seeded.chat.id,
+            role: 'user',
+            senderUserId: null,
+            parts: [
+              createRecencyDigestItem({
+                runId: seeded.targetRun.id,
+                payload: {
+                  version: 1,
+                  kind: 'baseline',
+                  announced: STALE_DIGEST_ANNOUNCED,
+                  association: { kind: 'origin', chatId: seeded.chat.id },
+                },
+                body: 'Previously shared source',
+              }),
+            ],
+          }),
         );
         await new MemoryService(tenantDb).updateForOwner(userId, {
           shareRecentChats: sharing,
@@ -1998,9 +2028,23 @@ describeIfDb('snapshot-bound compaction continuity', () => {
 
         const state = await readTurnState(turnOf(seeded));
         expect(state.checkpoints).toHaveLength(1);
-        expect(state.chat?.recencyDigestBaseline).toEqual(STALE_DIGEST);
-        expect(state.chat?.recencyDigestTold).toEqual(told);
-        expect(state.chat?.recencyDigestRebakedFrom).toBeNull();
+
+        const digestBaselines = state.contextParts.filter(
+          (item) =>
+            item.producer === 'recency-digest' && item.form === 'snapshot',
+        );
+
+        expect(digestBaselines).toHaveLength(2);
+        expect(digestBaselines).toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({
+              payload: expect.objectContaining({
+                kind: 'baseline',
+                announced: STALE_DIGEST_ANNOUNCED,
+              }),
+            }),
+          ]),
+        );
       },
     );
   });

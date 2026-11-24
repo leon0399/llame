@@ -514,8 +514,8 @@ A change of the serving model, between turns or within a Run, after which
 reasoning from the previous model is not replayed.
 
 **Recency digest**:
-The bounded list of an owner's other Chats' titles and opening excerpts,
-frozen into a Chat's system prompt when the owner opts in.
+The owner's bounded, point-in-time Chat rows and later notices, stored as
+owner-only context items on the reminder rail.
 
 **Personalization**:
 The profile the owner writes for the assistant: name, about text, and response

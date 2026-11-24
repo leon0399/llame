@@ -216,11 +216,17 @@ import {
   deriveToolAvailabilityPayloadFromStates,
   createCompactionCheckpointPart,
   toContextCheckpoint,
+  isRecencyDigestItem,
 } from '../chats/context-item-producers';
 import {
-  createRecencyDigestDeltaItem,
-  createRecencyDigestSupersessionItem,
+  createRecencyDigestItem,
+  deriveRecencyDigestState,
+  readDigestPayload,
+  recencyDigestBaselineBody,
+  renderRecencyDigestNotice,
+  type DigestState,
 } from '../chats/recency-digest-item';
+import { projectDigestEpochParts } from '../chats/recency-digest-replay';
 import {
   isContextItemPart,
   type AuthoredContextItemPart,
@@ -277,7 +283,6 @@ import { configuredCredentials } from '../instance-config/configured-credentials
 import { resolveConfigPath } from '../instance-config/config-loader';
 import {
   createToolPromptRenderer,
-  type PromptChatsDisclosure,
   type PromptWebSearchInput,
   type RenderedPrompt,
   type ToolPromptRenderer,
@@ -429,10 +434,7 @@ import {
   type AttemptToolCatalog,
   type SystemPromptReceiptInput,
 } from './effective-context-resolver';
-import {
-  SystemPromptsService,
-  type SystemPromptRenderInput,
-} from '../system-prompts/system-prompts.service';
+import { SystemPromptsService } from '../system-prompts/system-prompts.service';
 import {
   PersonalizationService,
   type PromptUserResolver,
@@ -464,9 +466,6 @@ import {
 } from '../memory/memory.service';
 import {
   RecencyDigestService,
-  deriveRecencyDigestDelta,
-  disclosedRecencyDigestEntries,
-  type RecencyDigestDelta,
   type RecencyDigestResolution,
   type RecencyDigestResolver,
 } from '../chats/recency-digest.service';
@@ -661,10 +660,6 @@ type PreparedAttemptContext = ModelRequestContext & {
   seenInstructionPaths: ReadonlySet<string>;
   /** What the effective history told about git, and the root it leaves bound. */
   toldGit: GitToldState;
-  /** First digest baseline; written only by the attempt that completes. */
-  recencyDigestInitialization?: RecencyDigestInitialization;
-  /** Written by the dispatch transaction, with the items it stores. */
-  recencyDigestTold?: NonNullable<Chat['recencyDigestTold']>;
   /** First-epoch catalog baseline; written only by the attempt that completes. */
   skillCatalogFreeze?: SkillCatalogFreeze;
   /** Written by the dispatch transaction that stores the catalog notice. */
@@ -719,41 +714,25 @@ type PreparedFirstStep = {
   readonly preStepCompactionStarted: boolean;
 };
 
-type AttemptDigestInputs = {
+type AttemptPromptInputs = {
   shareRecentChats: ResolvedMemorySettings;
-  promptDigestBaseline: Chat['recencyDigestBaseline'];
-  /** Present only under consent and an unchanged digest epoch. */
-  digestCandidate: RecencyDigestResolution | undefined;
-};
-
-/** Digest state derived from what this attempt's renders actually emitted. */
-type AttemptDigestDisclosure = {
-  recencyDigestInitialization?: RecencyDigestInitialization;
-  digestDelta: RecencyDigestDelta | null;
-};
-
-type AttemptPromptInputs = AttemptDigestInputs & {
   chat: Chat;
   model: SystemModelCatalogEntry;
   user: PromptUserInput | undefined;
   checkpoint: CheckpointMessage | undefined;
   instanceTimezone: string;
   anchor: TemporalAnchor;
-  /** This turn's skill-catalog decision: the rendered baseline and the notice. */
   skillState: SkillTurnState;
 };
 
-type AttemptPromptContext = AttemptPromptInputs &
-  AttemptDigestDisclosure & {
-    systemPrompt: string;
-  };
+type AttemptPromptContext = AttemptPromptInputs & { systemPrompt: string };
 
 type AttemptStagedContext = {
   stagedParts: Array<MessagePart>;
   placement: AcceptedTurnPlacement;
   /** Whether the dispatch drops the stored model-switch items before storing. */
   removesModelSwitch: boolean;
-  recencyDigestTold?: NonNullable<Chat['recencyDigestTold']>;
+
   skillCatalogNoticeTold?: NonNullable<Chat['skillCatalogTold']>;
   workspaceWrites?: WorkspaceWrites;
 };
@@ -803,7 +782,6 @@ type FinishRunInput = {
   error?: unknown;
   assistantTurn?: AssistantTurnWrite;
   synthesizedTurnTelemetry?: AssistantTurnTelemetry;
-  recencyDigestInitialization?: RecencyDigestInitialization;
   skillCatalogFreeze?: SkillCatalogFreeze;
   boundaryCompaction?: NonNullable<DeliveryInput['boundaryCompaction']>;
   quotaRequest?: QuotaRequestState;
@@ -1043,6 +1021,13 @@ class CancellationRecordedError extends Error {
   }
 }
 
+class DigestConsentWithdrawnError extends Error {
+  constructor() {
+    super('Recency digest consent changed before dispatch.');
+    this.name = 'DigestConsentWithdrawnError';
+  }
+}
+
 function noop(): void {}
 
 /** What a step end finds, or nothing: the Run's own record decides (D3). */
@@ -1262,11 +1247,6 @@ export type RunUserMessage = {
   id: string;
   seq: number;
   parts: Array<MessagePart>;
-};
-
-export type RecencyDigestInitialization = {
-  baseline: NonNullable<Chat['recencyDigestBaseline']>;
-  told: NonNullable<Chat['recencyDigestTold']>;
 };
 
 function toTurnToolAvailability(
@@ -1691,7 +1671,7 @@ export class RunExecutionService {
   async completeCompactionRun(
     input: CompactionCompletionInput,
   ): Promise<FinishRunResult> {
-    const digest = await this.resolveCompactionDigest(input);
+    const digestCandidate = await this.resolveCompactionDigest(input);
 
     if (input.abortSignal.aborted) {
       return this.settleCompactionAbort(input);
@@ -1730,12 +1710,13 @@ export class RunExecutionService {
           await this.publishCompactionCheckpoint(
             tx,
             {
+              runId: input.runId,
               chatId: input.chatId,
               userId: input.userId,
               summary: input.summary,
               focus: input.focus,
             },
-            digest,
+            digestCandidate,
           );
         }
 
@@ -1797,38 +1778,35 @@ export class RunExecutionService {
   private async resolveCompactionDigest(input: {
     userId: string;
     chatId: string;
-  }): Promise<{ candidate: RecencyDigestResolution | null }> {
-    const shareRecentChats = await this.tenantDb.runAs(input.userId, (tx) =>
+  }): Promise<RecencyDigestResolution | null> {
+    const enabled = await this.tenantDb.runAs(input.userId, (tx) =>
       this.memory.getForOwnerForBinding(tx, input.userId),
     );
 
-    let candidate: RecencyDigestResolution | null = null;
+    if (!enabled.shareRecentChats) return null;
 
-    if (shareRecentChats.shareRecentChats) {
-      try {
-        candidate = await this.recencyDigest.resolveCandidate(
-          input.userId,
-          input.chatId,
-        );
-      } catch {
-        this.logger.error('recency_digest_resolution_failed');
-      }
+    try {
+      return await this.recencyDigest.resolveCandidate(
+        input.userId,
+        input.chatId,
+      );
+    } catch {
+      this.logger.error('recency_digest_resolution_failed');
+
+      return null;
     }
-
-    return { candidate };
   }
 
   private async publishCompactionCheckpoint(
     tx: Db,
     input: {
+      runId: string;
       chatId: string;
       userId: string;
       summary: CompactionSummary;
       focus: string | null;
     },
-    digest: {
-      candidate: RecencyDigestResolution | null;
-    },
+    digestCandidate: RecencyDigestResolution | null,
   ): Promise<void> {
     const summary = input.summary;
     const messages = new MessagesRepository(tx);
@@ -1844,12 +1822,8 @@ export class RunExecutionService {
       return;
     }
 
-    const chat = await chats.touch(input.chatId, input.userId);
-
-    const shareRecentChats = await this.memory.getForOwnerForBinding(
-      tx,
-      input.userId,
-    );
+    await chats.touch(input.chatId, input.userId);
+    const sharing = await this.memory.getForOwnerForBinding(tx, input.userId);
 
     const checkpoint = await messages.createCheckpoint({
       chatId: input.chatId,
@@ -1858,14 +1832,14 @@ export class RunExecutionService {
       usage: summary.usage,
     });
 
-    await this.rebakeCheckpointDigest({
-      tx,
+    await this.publishCheckpointDigestCompanion(tx, {
+      runId: input.runId,
       chatId: input.chatId,
       userId: input.userId,
-      chat,
       checkpointId: checkpoint.id,
-      shareRecentChats,
-      candidate: digest.candidate,
+      throughSeq: summary.uptoSeq,
+      enabled: sharing.shareRecentChats,
+      candidate: digestCandidate,
     });
 
     await this.resetWorkspaceCheckpointEpoch({
@@ -1873,6 +1847,94 @@ export class RunExecutionService {
       chatId: input.chatId,
       userId: input.userId,
       checkpointId: checkpoint.id,
+    });
+  }
+
+  private async publishCheckpointDigestCompanion(
+    tx: Db,
+    input: {
+      runId: string;
+      chatId: string;
+      userId: string;
+      checkpointId: string;
+      throughSeq: number;
+      enabled: boolean;
+      candidate: RecencyDigestResolution | null;
+    },
+  ): Promise<void> {
+    const messages = new MessagesRepository(tx);
+
+    const previousCheckpoint = await messages.findActiveCheckpoint(
+      input.chatId,
+      input.userId,
+      { beforeSeq: input.throughSeq },
+    );
+
+    const effective = await messages.findEffectiveContextMessages(
+      input.chatId,
+      input.userId,
+      {
+        throughSeq: input.throughSeq,
+        ...(previousCheckpoint !== undefined && {
+          checkpointId: previousCheckpoint.id,
+        }),
+      },
+    );
+
+    const state = deriveRecencyDigestState(
+      projectDigestEpochParts(
+        effective.flatMap(({ parts }) => parts),
+        previousCheckpoint
+          ? { kind: 'checkpoint', checkpointId: previousCheckpoint.id }
+          : { kind: 'origin', chatId: input.chatId },
+      ),
+    );
+
+    const oldBaseline = state.baseline;
+
+    const oldPayload =
+      oldBaseline === undefined ? undefined : readDigestPayload(oldBaseline);
+
+    const carried =
+      oldPayload?.kind === 'baseline' && oldBaseline !== undefined
+        ? {
+            announced: oldPayload.announced,
+            body: recencyDigestBaselineBody(oldBaseline),
+          }
+        : undefined;
+
+    const fresh =
+      input.enabled && input.candidate !== null
+        ? {
+            announced: input.candidate.announced,
+            body: this.recencyDigest.renderBaseline(input.candidate),
+          }
+        : undefined;
+
+    const snapshot = fresh ?? carried;
+
+    if (snapshot === undefined) return;
+
+    await messages.create({
+      chatId: input.chatId,
+      role: 'user',
+      senderUserId: null,
+      parts: [
+        createRecencyDigestItem({
+          runId: input.runId,
+          payload: {
+            version: 1,
+            kind: 'baseline',
+            announced: snapshot.announced,
+            association: {
+              kind: 'checkpoint',
+              checkpointId: input.checkpointId,
+            },
+          },
+          body: snapshot.body,
+        }),
+      ],
+      attachments: [],
     });
   }
 
@@ -2485,6 +2547,11 @@ export class RunExecutionService {
 
       return undefined;
     } catch (error) {
+      if (error instanceof DigestConsentWithdrawnError) {
+        // Rollback left the prepared request carrying the withdrawn disclosure.
+        return this.executeAttempt(input.attempt);
+      }
+
       if (error instanceof CancellationRecordedError) {
         const message = this.abortedRunMessage('cancelled', undefined);
         await this.settleTerminalRun({
@@ -2737,6 +2804,13 @@ export class RunExecutionService {
 
     if (outcome.kind === 'delivered') return outcome.attempt;
 
+    return this.executePreparedAttempt(attempt, outcome.execution);
+  }
+
+  private async executePreparedAttempt(
+    attempt: ExecuteAttemptInput,
+    execution: PreparedAttemptExecution,
+  ): Promise<AttemptRun> {
     const {
       startDelivered,
       quotaRequest: preparedQuotaRequest,
@@ -2757,7 +2831,7 @@ export class RunExecutionService {
       compactionThreshold,
       turnInstructions,
       turnGit,
-    } = outcome.execution;
+    } = execution;
 
     let quotaRequest = preparedQuotaRequest;
 
@@ -2857,7 +2931,7 @@ export class RunExecutionService {
 
     const wakeBoundary = await this.deliverWakeBoundary({
       attempt,
-      execution: outcome.execution,
+      execution,
       replyParts: () => assistantPartCollector.parts(),
     });
 
@@ -5426,7 +5500,7 @@ export class RunExecutionService {
           await this.suspendCutForQuota({
             attempt,
             request: quotaRequest,
-            execution: outcome.execution,
+            execution,
             awaiting,
             ...(automaticCompactionAtBoundary && {
               owedCompaction: OWED_AUTOMATIC_COMPACTION,
@@ -6559,16 +6633,10 @@ export class RunExecutionService {
                   runPayload: { status: settling, ...recorded },
                   error: recorded,
                 }),
-                ...(settling === 'completed' && {
-                  ...(attemptContext.recencyDigestInitialization !==
-                    undefined && {
-                    recencyDigestInitialization:
-                      attemptContext.recencyDigestInitialization,
-                  }),
-                  ...(attemptContext.skillCatalogFreeze !== undefined && {
+                ...(settling === 'completed' &&
+                  attemptContext.skillCatalogFreeze !== undefined && {
                     skillCatalogFreeze: attemptContext.skillCatalogFreeze,
                   }),
-                }),
               });
 
               await this.afterAssistantTurn(
@@ -6760,6 +6828,7 @@ export class RunExecutionService {
     readonly toldGit: GitToldState;
     /** The latest own text-bearing Project item in the same epoch. */
     readonly toldProject: string | undefined;
+    readonly toldDigest: DigestState;
   }> {
     const messagesRepo = new MessagesRepository(tx);
 
@@ -6769,12 +6838,12 @@ export class RunExecutionService {
       { beforeSeq: input.userMessage.seq },
     );
 
-    const history = await messagesRepo.findByChatId(
+    const history = await messagesRepo.findEffectiveContextMessages(
       input.chatId,
       input.userId,
       {
-        maxSeq: input.userMessage.seq,
-        sinceSeq: checkpoint?.absorbedThroughSeq,
+        throughSeq: input.userMessage.seq,
+        ...(checkpoint !== undefined && { checkpointId: checkpoint.id }),
       },
     );
 
@@ -6782,6 +6851,23 @@ export class RunExecutionService {
     // built with it, and every part the caller appends after that resolves
     // through the same map.
     const toolCallIds = createToolCallIdMap();
+    const trigger = await messagesRepo.findById(
+      input.chatId,
+      input.userId,
+      input.userMessage.id,
+    );
+
+    if (trigger !== undefined) history.push(trigger);
+
+    const epoch = checkpoint
+      ? { kind: 'checkpoint' as const, checkpointId: checkpoint.id }
+      : { kind: 'origin' as const, chatId: input.chatId };
+
+    history.forEach((row, index) => {
+      const parts = projectDigestEpochParts(row.parts, epoch);
+
+      if (parts !== row.parts) history[index] = { ...row, parts };
+    });
 
     // The active epoch, in order, with the kept parts of a Continue after it.
     // Both told states read this one projection: the history as rebuilt, which
@@ -6811,6 +6897,7 @@ export class RunExecutionService {
       // The same epoch, in order, with the kept parts of a Continue after it.
       toldGit: gitToldState(epochParts),
       toldProject: projectSnapshotText(epochParts),
+      toldDigest: deriveRecencyDigestState(epochParts),
     };
   }
 
@@ -8988,7 +9075,7 @@ export class RunExecutionService {
     continued: ContinueState | undefined,
     projectSelection: ProjectBoundPayload,
   ): Promise<PreparedAttemptContext> {
-    // Resolve owner/model/digest inputs before admission so descriptions and
+    // Resolve owner/model inputs before admission so descriptions and
     // the system prompt share one attempt context. Admission still completes
     // before either surface is rendered.
     const promptInputs = await this.resolveAttemptPrompt(
@@ -8999,7 +9086,6 @@ export class RunExecutionService {
       workspaceRoot,
     );
 
-    const disclosures: Array<PromptChatsDisclosure> = [];
     let catalog: AttemptToolCatalog;
 
     try {
@@ -9008,7 +9094,6 @@ export class RunExecutionService {
         input,
         promptInputs,
         workspaceMcpKey,
-        disclosures,
       );
     } catch (error) {
       if (error instanceof ToolDescriptionRenderError) {
@@ -9024,21 +9109,12 @@ export class RunExecutionService {
       model: promptInputs.model,
       anchor: promptInputs.anchor,
       user: promptInputs.user,
-      chats: promptInputs.promptDigestBaseline,
       skills: promptInputs.skillState.baseline,
       admittedToolIds: catalog.admittedIds,
     });
 
-    disclosures.push(system.chatsDisclosure);
-
     const prompt: AttemptPromptContext = {
       ...promptInputs,
-      ...(await this.accountAttemptDigestDisclosure({
-        tx,
-        input,
-        prompt: promptInputs,
-        disclosures,
-      })),
       systemPrompt: system.text,
     };
 
@@ -9056,25 +9132,26 @@ export class RunExecutionService {
       );
     }
 
-    const staged = await this.deriveAttemptStagedContext({
-      tx,
-      input,
-      prompt,
-      effectiveContext: catalog,
-      afterPublication,
-      machine,
-      // Every follow-up Run — Continue and Regenerate alike — follows the
-      // retry rule and compares against the earlier Run of its own turn
-      // (turn-actions D8).
-      followUp: input.followUpAction != null,
-    });
-
     const built = await this.rebuildContextForChat(
       tx,
       input,
       prompt.systemPrompt,
       continued,
     );
+
+    const staged = await this.deriveAttemptStagedContext({
+      tx,
+      input,
+      prompt,
+      effectiveContext: catalog,
+      afterPublication,
+      digestState: built.toldDigest,
+      machine,
+      // Every follow-up Run — Continue and Regenerate alike — follows the
+      // retry rule and compares against the earlier Run of its own turn
+      // (turn-actions D8).
+      followUp: input.followUpAction != null,
+    });
 
     // Project told state is reconstructed, never stored: the active epoch's
     // effective history plus the kept parts this request sends after the
@@ -9122,8 +9199,7 @@ export class RunExecutionService {
       stagedParts: staged.stagedParts,
       placement: staged.placement,
       removesModelSwitch: staged.removesModelSwitch,
-      recencyDigestInitialization: prompt.recencyDigestInitialization,
-      recencyDigestTold: staged.recencyDigestTold,
+
       // A started epoch always carries the told state its baseline sets.
       ...(freeze !== undefined &&
         told !== undefined && {
@@ -9265,7 +9341,7 @@ export class RunExecutionService {
       }
     }
 
-    const { candidate: digestCandidate } = await this.resolveCompactionDigest({
+    const digestCandidate = await this.resolveCompactionDigest({
       userId: input.run.userId,
       chatId: input.run.chatId,
     });
@@ -9327,8 +9403,6 @@ export class RunExecutionService {
         input.request?.resumeAt === input.resumeAt
           ? input.request.baselines
           : (input.baselines ?? {
-              recencyDigestInitialization:
-                input.context.recencyDigestInitialization,
               skillCatalogFreeze: input.context.skillCatalogFreeze,
             }),
     };
@@ -9567,9 +9641,7 @@ export class RunExecutionService {
     boundaryCompaction: DeliveryInput['boundaryCompaction'],
     parts: Array<MessagePart>,
   ): Promise<BoundaryDelivery | 'stopped'> {
-    // The terminal write freezes the baselines the answering target rendered.
-    const { recencyDigestInitialization, skillCatalogFreeze } =
-      input.quotaRequest?.baselines ?? {};
+    const { skillCatalogFreeze } = input.quotaRequest?.baselines ?? {};
 
     const finish = await this.finishRun({
       userId: input.run.userId,
@@ -9586,9 +9658,7 @@ export class RunExecutionService {
         parts,
         telemetry: input.telemetry,
       },
-      ...(recencyDigestInitialization !== undefined && {
-        recencyDigestInitialization,
-      }),
+
       ...(skillCatalogFreeze !== undefined && { skillCatalogFreeze }),
     });
 
@@ -10273,10 +10343,8 @@ export class RunExecutionService {
         quotaRequest: input.quotaRequest,
       });
 
-      // Re-read rather than reuse the Workspace-prepared row: the publication
-      // just moved the digest baseline, the skill baseline and the workspace
-      // told-set, and this pass must render and disclose the epoch they now
-      // name instead of the one it estimated with (design D5).
+      // The publication resets the skill and Workspace epochs. Re-read their
+      // Chat state rather than render the values used for the estimate.
       const rebakedChat = await this.tenantDb.runAs(input.run.userId, (tx) =>
         new ChatsRepository(tx).findById(input.run.chatId, input.run.userId),
       );
@@ -10408,7 +10476,7 @@ export class RunExecutionService {
     workspaceRoot: string | undefined;
     quotaRequest?: QuotaRequestState;
   }): Promise<void> {
-    const { candidate: digestCandidate } = await this.resolveCompactionDigest({
+    const digestCandidate = await this.resolveCompactionDigest({
       userId: input.run.userId,
       chatId: input.run.chatId,
     });
@@ -10482,6 +10550,7 @@ export class RunExecutionService {
       run: input.run,
       chat,
       checkpointId: checkpoint.id,
+      throughSeq: input.summary.uptoSeq,
       model: input.model,
       attemptId: input.attemptId,
       workspaceRoot: input.workspaceRoot,
@@ -10492,12 +10561,13 @@ export class RunExecutionService {
     return checkpoint.id;
   }
 
-  /** Re-bake digest, skill, and workspace epoch state for a new checkpoint. */
+  /** Re-bake skill, Workspace, and rail snapshot state for a new checkpoint. */
   private async rebakeCheckpointEpoch(input: {
     tx: Db;
     run: ExecuteRunInput;
     chat: Chat | undefined;
     checkpointId: string;
+    throughSeq: number;
     model: SystemModelCatalogEntry;
     attemptId: string;
     workspaceRoot: string | undefined;
@@ -10518,13 +10588,13 @@ export class RunExecutionService {
             latestCheckpointId: input.checkpointId,
           });
 
-    await this.rebakeCheckpointDigest({
-      tx: input.tx,
+    await this.publishCheckpointDigestCompanion(input.tx, {
+      runId: input.run.runId,
       chatId: input.run.chatId,
       userId: input.run.userId,
-      chat: input.chat,
       checkpointId: input.checkpointId,
-      shareRecentChats: input.shareRecentChats,
+      throughSeq: input.throughSeq,
+      enabled: input.shareRecentChats.shareRecentChats,
       candidate: input.digestCandidate,
     });
 
@@ -10555,32 +10625,6 @@ export class RunExecutionService {
     }
   }
 
-  private async rebakeCheckpointDigest(input: {
-    tx: Db;
-    chatId: string;
-    userId: string;
-    chat: Chat | undefined;
-    checkpointId: string;
-    shareRecentChats: ResolvedMemorySettings;
-    candidate: RecencyDigestResolution | null;
-  }): Promise<void> {
-    if (
-      input.chat?.recencyDigestBaseline == null ||
-      input.candidate === null ||
-      !input.shareRecentChats.shareRecentChats
-    ) {
-      return;
-    }
-
-    await new ChatsRepository(input.tx).setRecencyDigest({
-      chatId: input.chatId,
-      ownerUserId: input.userId,
-      baseline: input.candidate.baseline,
-      told: [],
-      rebakedFrom: input.checkpointId,
-    });
-  }
-
   private async resetWorkspaceCheckpointEpoch(input: {
     tx: Db;
     chatId: string;
@@ -10603,7 +10647,6 @@ export class RunExecutionService {
     workspaceChat: Chat | undefined,
     workspaceRoot: string | undefined,
   ): Promise<AttemptPromptInputs> {
-    const chatsRepo = new ChatsRepository(tx);
     const chat = workspaceChat;
 
     if (!chat) {
@@ -10625,12 +10668,10 @@ export class RunExecutionService {
       { beforeSeq: input.userMessage.seq },
     );
 
-    const digest = await this.resolveAttemptDigest({
+    const shareRecentChats = await this.memory.getForOwnerForBinding(
       tx,
-      input,
-      chatsRepo,
-      chat,
-    });
+      input.userId,
+    );
 
     const instanceTimezone = resolveInstanceTimezone(this.logger);
 
@@ -10649,7 +10690,7 @@ export class RunExecutionService {
     });
 
     return {
-      ...digest,
+      shareRecentChats,
       chat,
       model,
       user,
@@ -10779,165 +10820,118 @@ export class RunExecutionService {
     );
   }
 
-  private async resolveAttemptDigest(input: {
+  private async resolveAttemptDigestParts(input: {
     tx: Db;
     input: ExecuteRunInput;
-    chatsRepo: ChatsRepository;
-    chat: Chat;
-  }): Promise<AttemptDigestInputs> {
-    let shareRecentChats = await this.memory.getForOwnerForBinding(
-      input.tx,
-      input.input.userId,
-    );
+    prompt: AttemptPromptContext;
+    state: DigestState;
+  }): Promise<Array<MessagePart>> {
+    if (!input.prompt.shareRecentChats.shareRecentChats) return [];
 
-    let digestCandidate: RecencyDigestResolution | undefined;
+    const { state } = input;
 
-    if (shareRecentChats.shareRecentChats) {
-      try {
-        digestCandidate = await this.recencyDigest.resolveCandidate(
-          input.input.userId,
-          input.input.chatId,
-        );
-      } catch {
-        // Candidate titles and excerpts are owner content; do not attach the
-        // caught error to a log entry or execution error.
-        this.logger.error('recency_digest_resolution_failed');
-      }
+    let candidate: RecencyDigestResolution;
 
-      // Consent and the chat's digest epoch are both rechecked after candidate
-      // resolution and before the prompt, receipt, and staged context are
-      // prepared. Resolution reads the owner's other chats, so a compaction
-      // checkpoint can publish a refreshed baseline in the meantime; a
-      // candidate built from the superseded baseline must not reach the target
-      // model. Compare by value: a jsonb column round-trips as a fresh object,
-      // so identity would report a change on every turn.
-      shareRecentChats = await this.memory.getForOwnerForBinding(
-        input.tx,
+    try {
+      candidate = await this.recencyDigest.resolveCandidate(
         input.input.userId,
-      );
-
-      const recheckedChat = await input.chatsRepo.findById(
         input.input.chatId,
-        input.input.userId,
       );
+    } catch {
+      this.logger.error('recency_digest_resolution_failed');
 
-      const epochAdvanced =
-        recheckedChat === undefined ||
-        recheckedChat.recencyDigestRebakedFrom !==
-          input.chat.recencyDigestRebakedFrom ||
-        canonicalJson(recheckedChat.recencyDigestBaseline ?? null) !==
-          canonicalJson(input.chat.recencyDigestBaseline ?? null);
+      return [];
+    }
 
-      if (!shareRecentChats.shareRecentChats || epochAdvanced) {
-        digestCandidate = undefined;
+    if (
+      !(await this.memory.getForOwnerForBinding(input.tx, input.input.userId))
+        .shareRecentChats
+    ) {
+      return [];
+    }
+
+    if (state.baseline === undefined) {
+      try {
+        return [
+          createRecencyDigestItem({
+            runId: input.input.runId,
+            payload: {
+              version: 1,
+              kind: 'baseline',
+              announced: candidate.announced,
+              association: input.prompt.checkpoint
+                ? {
+                    kind: 'checkpoint',
+                    checkpointId: input.prompt.checkpoint.id,
+                  }
+                : { kind: 'origin', chatId: input.input.chatId },
+            },
+            body: this.recencyDigest.renderBaseline(candidate),
+          }),
+        ];
+      } catch {
+        this.logger.error('recency_digest_resolution_failed');
+
+        return [];
       }
     }
 
-    return {
-      shareRecentChats,
-      // An initializing attempt renders its own candidate; every later one
-      // renders the stored baseline.
-      promptDigestBaseline:
-        input.chat.recencyDigestBaseline ?? digestCandidate?.baseline ?? null,
-      digestCandidate,
-    };
-  }
-
-  /**
-   * The digest state this attempt's renders establish. The told-set records
-   * only chats the model actually received, so it is derived from the baseline
-   * entries either prompt surface emitted rather than from the baseline that
-   * was resolved: a template that omits the digest leaves every entry untold,
-   * to enter through an append.
-   */
-  private async accountAttemptDigestDisclosure(input: {
-    tx: Db;
-    input: ExecuteRunInput;
-    prompt: AttemptPromptInputs;
-    disclosures: ReadonlyArray<PromptChatsDisclosure>;
-  }): Promise<AttemptDigestDisclosure> {
-    const { chat, digestCandidate, promptDigestBaseline } = input.prompt;
-
-    if (digestCandidate === undefined || promptDigestBaseline === null) {
-      return { digestDelta: null };
-    }
-
-    const disclosed = disclosedRecencyDigestEntries({
-      baseline: promptDigestBaseline,
-      disclosures: input.disclosures,
-      candidates: digestCandidate.candidates,
+    const change = await this.recencyDigest.deriveChanges({
+      tx: input.tx,
+      ownerUserId: input.input.userId,
+      currentChatId: input.input.chatId,
+      candidate,
+      announced: state.announced,
     });
 
-    if (chat.recencyDigestBaseline === null) {
-      return {
-        recencyDigestInitialization: {
-          baseline: digestCandidate.baseline,
-          told: disclosed,
-        },
-        digestDelta: null,
-      };
+    if (change.additions.length === 0 && change.corrections.length === 0) {
+      return [];
     }
 
-    if (chat.recencyDigestTold === null) {
-      return { digestDelta: null };
+    if (
+      !(await this.memory.getForOwnerForBinding(input.tx, input.input.userId))
+        .shareRecentChats
+    ) {
+      return [];
     }
 
-    // Prior told state wins over this render: a later append may have told
-    // the model a pin change the immutable baseline still contradicts.
-    const toldChatIds = new Set(
-      chat.recencyDigestTold.map(({ chatId }) => chatId),
-    );
+    try {
+      return [
+        createRecencyDigestItem({
+          runId: input.input.runId,
+          payload: {
+            version: 1,
+            kind: 'notice',
+            announced: change.announced,
+            association: input.prompt.checkpoint
+              ? { kind: 'checkpoint', checkpointId: input.prompt.checkpoint.id }
+              : { kind: 'origin', chatId: input.input.chatId },
+          },
+          body: renderRecencyDigestNotice(change),
+        }),
+      ];
+    } catch {
+      this.logger.error('recency_digest_resolution_failed');
 
-    const told = [
-      ...chat.recencyDigestTold,
-      ...disclosed.filter(({ chatId }) => !toldChatIds.has(chatId)),
-    ];
-
-    return {
-      digestDelta: deriveRecencyDigestDelta({
-        candidate: digestCandidate,
-        told,
-        pinnedChatIds: await new ChatsRepository(input.tx).findPinnedChatIds(
-          input.input.userId,
-          told.map(({ chatId }) => chatId),
-        ),
-      }),
-    };
+      return [];
+    }
   }
 
   private renderAttemptSystemPrompt(input: {
     model: SystemModelCatalogEntry;
     anchor: TemporalAnchor;
     user: PromptUserInput | undefined;
-    chats: Chat['recencyDigestBaseline'];
-    /** The frozen catalog baseline; undefined renders no skill section. */
     skills: SkillCatalogBaseline | undefined;
     admittedToolIds: ReadonlyArray<string>;
   }): RenderedPrompt {
-    const renderInput: SystemPromptRenderInput = {
+    const rendered = this.systemPrompts.render({
       model: input.model,
       anchor: input.anchor,
       user: input.user,
-      chats: input.chats ?? undefined,
       ...(input.skills !== undefined && { skills: input.skills }),
       webSearch: this.webSearch,
       admittedToolIds: input.admittedToolIds,
-    };
-
-    let rendered: RenderedPrompt;
-
-    if (input.chats === null) {
-      rendered = this.systemPrompts.render(renderInput);
-    } else {
-      try {
-        rendered = this.systemPrompts.render(renderInput);
-      } catch {
-        this.logger.error('recency_digest_render_failed');
-        // Do not let a renderer error carry the owner's digest text out of
-        // this boundary.
-        throw new Error('Failed to render system prompt');
-      }
-    }
+    });
 
     if (rendered.text.trim().length === 0) {
       throw new ModelContextExecutionError('System prompt rendered empty.');
@@ -10946,16 +10940,11 @@ export class RunExecutionService {
     return rendered;
   }
 
-  /**
-   * Composes the attempt's catalog; `disclosures` receives each admitted
-   * description's digest disclosure, private to the told-set accounting.
-   */
   private async composeAttemptCatalog(
     tx: Db,
     input: ExecuteRunInput,
     prompt: AttemptPromptInputs,
     workspaceMcpKey: WorkspaceMcpKey | undefined,
-    disclosures: Array<PromptChatsDisclosure>,
   ): Promise<AttemptToolCatalog> {
     const allowedToolRules = this.instanceConfig.config.tools.allowed;
 
@@ -10993,11 +10982,8 @@ export class RunExecutionService {
           model: prompt.model,
           anchor: prompt.anchor,
           user: prompt.user,
-          chats: prompt.promptDigestBaseline ?? undefined,
           admittedToolIds,
         });
-
-        disclosures.push(rendered.chatsDisclosure);
 
         return rendered.text;
       },
@@ -11049,6 +11035,7 @@ export class RunExecutionService {
 
   private async deriveAttemptStagedContext(input: {
     tx: Db;
+    digestState: DigestState;
     input: ExecuteRunInput;
     prompt: AttemptPromptContext;
     effectiveContext: AttemptToolCatalog;
@@ -11065,13 +11052,9 @@ export class RunExecutionService {
       input.followUp,
     );
 
-    // The model switch, the digest supersession marker and the temporal anchor
-    // are authored once per accepted turn, by the Run's first dispatch: an
-    // earlier dispatch already stored them on the trigger. A follow-up Run
-    // counts an earlier Run of its own message as such a dispatch, so the turn
-    // keeps one temporal item and keeps the model-switch item it stored
-    // (turn-actions D8). A checkpoint this attempt published re-bakes the
-    // digest after that dispatch, so its marker is still untold.
+    // The first dispatch stores the model switch and temporal anchor on the
+    // accepted turn. Follow-up Runs keep that temporal item; Regenerate alone
+    // replaces the serving-model comparison (turn-actions D8).
     const priorDispatch =
       baseline.ownAvailability !== null || baseline.priorTurnDispatched;
 
@@ -11167,12 +11150,12 @@ export class RunExecutionService {
     }
 
     stagedParts.push(
-      ...deriveRecencyDigestItems({
-        baseline,
-        runId: input.input.runId,
+      ...(await this.resolveAttemptDigestParts({
+        tx: input.tx,
+        input: input.input,
         prompt: input.prompt,
-        markerUntold: !priorDispatch || input.afterPublication,
-      }),
+        state: input.digestState,
+      })),
     );
 
     if (!priorDispatch) {
@@ -11189,7 +11172,7 @@ export class RunExecutionService {
       stagedParts,
       placement: priorDispatch ? 'append' : 'rank',
       removesModelSwitch: regenerateFirstDispatch,
-      recencyDigestTold: input.prompt.digestDelta?.told,
+
       ...(workspaceWrites !== undefined && { workspaceWrites }),
       ...(skillNotice !== undefined && {
         // The decision hands back a readonly list; the column holds a mutable
@@ -11520,6 +11503,20 @@ export class RunExecutionService {
       throw new CancellationRecordedError(run.runId);
     }
 
+    const publishesDigest = context.stagedParts.some(isRecencyDigestItem);
+
+    if (publishesDigest) {
+      // Preserve the same Chat-before-consent lock order as checkpoint writes.
+      if (!(await new ChatsRepository(tx).lock(run.chatId, run.userId)))
+        throw new RunNotRunnableError(run.runId);
+
+      if (
+        !(await this.memory.getForOwnerForBinding(tx, run.userId))
+          .shareRecentChats
+      )
+        throw new DigestConsentWithdrawnError();
+    }
+
     const events = new RunEventsRepository(tx);
 
     const deliveryIds =
@@ -11594,14 +11591,6 @@ export class RunExecutionService {
     });
 
     const chatsRepo = new ChatsRepository(tx);
-
-    if (context.recencyDigestTold !== undefined) {
-      await chatsRepo.updateRecencyDigestTold(
-        run.chatId,
-        run.userId,
-        context.recencyDigestTold,
-      );
-    }
 
     if (context.skillCatalogNoticeTold !== undefined) {
       await chatsRepo.updateSkillCatalogTold(
@@ -11877,51 +11866,6 @@ function deriveAttemptAvailabilityItem(input: {
   return payload
     ? createToolAvailabilityItem({ runId: input.runId, payload })
     : undefined;
-}
-
-/**
- * The recency digest items this attempt stages: the supersession marker when
- * the digest was re-baked for the checkpoint opening this epoch and no
- * dispatch of this Run stored a marker for it, then the delta since the told
- * state.
- */
-function deriveRecencyDigestItems(input: {
-  baseline: DisclosureBaseline;
-  runId: string;
-  prompt: AttemptPromptContext;
-  markerUntold: boolean;
-}): Array<MessagePart> {
-  const { baseline, runId, prompt } = input;
-  const items: Array<MessagePart> = [];
-
-  // The marker reports the re-bake to the first attempt that can dispatch
-  // after it — the new epoch's first turn — so it rides the same boundary.
-  const digestRebaked =
-    input.markerUntold &&
-    baseline.startsEpoch &&
-    prompt.chat.recencyDigestRebakedFrom === prompt.checkpoint?.id;
-
-  if (
-    digestRebaked &&
-    prompt.chat.recencyDigestBaseline !== null &&
-    prompt.shareRecentChats.shareRecentChats
-  ) {
-    items.push(createRecencyDigestSupersessionItem({ runId }));
-  }
-
-  if (prompt.digestDelta) {
-    items.push(
-      createRecencyDigestDeltaItem({
-        runId,
-        payload: {
-          entries: prompt.digestDelta.entries,
-          pinChanges: prompt.digestDelta.pinChanges,
-        },
-      }),
-    );
-  }
-
-  return items;
 }
 
 /**

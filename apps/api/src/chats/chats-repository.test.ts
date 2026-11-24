@@ -130,19 +130,6 @@ describe('ChatsRepository — owner-scoped queries (defense-in-depth)', () => {
     expect(lastQuery(queries).sql).not.toContain('inner join "pins"');
   });
 
-  it('countByOwner returns an uncapped exact population query', async () => {
-    const { db, queries } = makeMockDb();
-    await new ChatsRepository(db)
-      .countByOwner(ownerUserId, {
-        pinned: 'with',
-        excludeId: chatId,
-        titledOnly: true,
-      })
-      .catch(() => null);
-
-    expect(querySqlContains(queries, 'limit ')).toBe(false);
-  });
-
   it('findById scopes by chatId AND ownerUserId', async () => {
     const { db, queries } = makeMockDb();
     await new ChatsRepository(db)
@@ -176,9 +163,6 @@ describe('ChatsRepository — owner-scoped queries (defense-in-depth)', () => {
           archivedAt: Date | null;
           modelSelection: ChatModelSelection | null;
           projectId: string | null;
-          recencyDigestBaseline: null;
-          recencyDigestTold: null;
-          recencyDigestRebakedFrom: null;
           skillCatalogBaseline: null;
           skillCatalogRebakedFrom: null;
           skillCatalogTold: null;
@@ -212,9 +196,6 @@ describe('ChatsRepository — owner-scoped queries (defense-in-depth)', () => {
         archivedAt: null,
         modelSelection: null,
         projectId: null,
-        recencyDigestBaseline: null,
-        recencyDigestTold: null,
-        recencyDigestRebakedFrom: null,
         skillCatalogBaseline: null,
         skillCatalogRebakedFrom: null,
         skillCatalogTold: null,
@@ -249,9 +230,6 @@ describe('ChatsRepository — owner-scoped queries (defense-in-depth)', () => {
         archivedAt: null,
         modelSelection: null,
         projectId: null,
-        recencyDigestBaseline: null,
-        recencyDigestTold: null,
-        recencyDigestRebakedFrom: null,
         skillCatalogBaseline: null,
         skillCatalogRebakedFrom: null,
         skillCatalogTold: null,
@@ -286,9 +264,6 @@ describe('ChatsRepository — owner-scoped queries (defense-in-depth)', () => {
         archivedAt: null,
         modelSelection: null,
         projectId: null,
-        recencyDigestBaseline: null,
-        recencyDigestTold: null,
-        recencyDigestRebakedFrom: null,
         skillCatalogBaseline: null,
         skillCatalogRebakedFrom: null,
         skillCatalogTold: null,
@@ -327,9 +302,6 @@ describe('ChatsRepository — owner-scoped queries (defense-in-depth)', () => {
         archivedAt: null,
         modelSelection: null,
         projectId: null,
-        recencyDigestBaseline: null,
-        recencyDigestTold: null,
-        recencyDigestRebakedFrom: null,
         skillCatalogBaseline: null,
         skillCatalogRebakedFrom: null,
         skillCatalogTold: null,
@@ -363,9 +335,6 @@ describe('ChatsRepository — owner-scoped queries (defense-in-depth)', () => {
         archivedAt: new Date(),
         modelSelection: null,
         projectId: null,
-        recencyDigestBaseline: null,
-        recencyDigestTold: null,
-        recencyDigestRebakedFrom: null,
         skillCatalogBaseline: null,
         skillCatalogRebakedFrom: null,
         skillCatalogTold: null,
@@ -397,9 +366,6 @@ describe('ChatsRepository — owner-scoped queries (defense-in-depth)', () => {
         archivedAt: new Date(),
         modelSelection: null,
         projectId: null,
-        recencyDigestBaseline: null,
-        recencyDigestTold: null,
-        recencyDigestRebakedFrom: null,
         skillCatalogBaseline: null,
         skillCatalogRebakedFrom: null,
         skillCatalogTold: null,
@@ -433,9 +399,6 @@ describe('ChatsRepository — owner-scoped queries (defense-in-depth)', () => {
         archivedAt: null,
         modelSelection: null,
         projectId: null,
-        recencyDigestBaseline: null,
-        recencyDigestTold: null,
-        recencyDigestRebakedFrom: null,
         skillCatalogBaseline: null,
         skillCatalogRebakedFrom: null,
         skillCatalogTold: null,
@@ -500,65 +463,6 @@ describe('ChatsRepository — owner-scoped queries (defense-in-depth)', () => {
       .catch(() => null);
     expect(queryContains(queries, 'Titled')).toBe(true);
     expect(queryContains(queries, 'public')).toBe(true);
-  });
-
-  it('setRecencyDigestIfAbsent writes only when the baseline is still null', async () => {
-    const { db, queries } = makeMockDb();
-
-    const baseline = {
-      pinned: [],
-      recent: [],
-      pinnedShown: 0,
-      pinnedTotal: 0,
-      recentShown: 0,
-      recentTotal: 0,
-      compiledOn: '2026-09-03',
-    };
-
-    await new ChatsRepository(db)
-      .setRecencyDigestIfAbsent(chatId, ownerUserId, baseline, [])
-      .catch(() => null);
-    expect(querySqlContains(queries, 'update "chats"')).toBe(true);
-    expect(querySqlContains(queries, '"recency_digest_baseline" is null')).toBe(
-      true,
-    );
-    expect(queryContains(queries, ownerUserId)).toBe(true);
-  });
-
-  it('setRecencyDigest replaces baseline, told-set, and rebake marker', async () => {
-    const { db, queries } = makeMockDb();
-    await new ChatsRepository(db)
-      .setRecencyDigest({
-        chatId,
-        ownerUserId,
-        baseline: {
-          pinned: [],
-          recent: [],
-          pinnedShown: 0,
-          pinnedTotal: 0,
-          recentShown: 0,
-          recentTotal: 0,
-          compiledOn: '2026-09-03',
-        },
-        told: [{ chatId: 'other', pinned: true, title: 'Other' }],
-        rebakedFrom: 'compaction-1',
-      })
-      .catch(() => null);
-    expect(queryContains(queries, 'compaction-1')).toBe(true);
-    expect(queryContains(queries, ownerUserId)).toBe(true);
-    expect(updateSetSql(queries)).toContain('"recency_digest_rebaked_from"');
-  });
-
-  it('updateRecencyDigestTold writes only the told-set for the owner chat', async () => {
-    const { db, queries } = makeMockDb();
-    await new ChatsRepository(db)
-      .updateRecencyDigestTold(chatId, ownerUserId, [
-        { chatId: 'other', pinned: false, title: 'Other' },
-      ])
-      .catch(() => null);
-    expect(updateSetSql(queries)).toContain('"recency_digest_told"');
-    expect(queryContains(queries, ownerUserId)).toBe(true);
-    expect(queryContains(queries, chatId)).toBe(true);
   });
 
   it('updateSkillCatalogTold writes only the told names for the owner chat', async () => {
@@ -767,9 +671,6 @@ describe('ChatsRepository — owner-scoped queries (defense-in-depth)', () => {
       archivedAt: new Date(),
       modelSelection: null,
       projectId: null,
-      recencyDigestBaseline: null,
-      recencyDigestTold: null,
-      recencyDigestRebakedFrom: null,
       skillCatalogBaseline: null,
       skillCatalogRebakedFrom: null,
       skillCatalogTold: null,
@@ -811,9 +712,6 @@ describe('ChatsRepository — owner-scoped queries (defense-in-depth)', () => {
         archivedAt: null,
         modelSelection: null,
         projectId: null,
-        recencyDigestBaseline: null,
-        recencyDigestTold: null,
-        recencyDigestRebakedFrom: null,
         skillCatalogBaseline: null,
         skillCatalogRebakedFrom: null,
         skillCatalogTold: null,

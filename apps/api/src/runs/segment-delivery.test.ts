@@ -76,9 +76,6 @@ const chat: Chat = {
   archivedAt: null,
   modelSelection: null,
   projectId: null,
-  recencyDigestBaseline: null,
-  recencyDigestTold: null,
-  recencyDigestRebakedFrom: null,
   skillCatalogBaseline: null,
   skillCatalogRebakedFrom: null,
   skillCatalogTold: null,
@@ -1187,18 +1184,8 @@ describe('deliverPendingSteering', () => {
   });
 });
 
-describe('deliverPendingSteering closing usage and baselines', () => {
+describe('deliverPendingSteering closing usage', () => {
   const tx: Db = drizzle.mock();
-
-  const baseline = {
-    pinned: [],
-    recent: [],
-    pinnedShown: 0,
-    pinnedTotal: 0,
-    recentShown: 0,
-    recentTotal: 0,
-    compiledOn: '2026-11-08',
-  };
 
   afterEach(() => {
     vi.restoreAllMocks();
@@ -1257,9 +1244,6 @@ describe('deliverPendingSteering closing usage and baselines', () => {
       findTurnState: vi
         .spyOn(MessagesRepository.prototype, 'findTurnState')
         .mockResolvedValue({}),
-      setDigest: vi
-        .spyOn(ChatsRepository.prototype, 'setRecencyDigestIfAbsent')
-        .mockResolvedValue(undefined),
     };
   }
 
@@ -1283,7 +1267,6 @@ describe('deliverPendingSteering closing usage and baselines', () => {
         finishReason: 'tool-calls',
         telemetry,
       },
-      baselines: { recencyDigestInitialization: { baseline, told: [] } },
     });
 
     return telemetry;
@@ -1328,29 +1311,6 @@ describe('deliverPendingSteering closing usage and baselines', () => {
       userId,
       liveReply,
     ]);
-  });
-
-  it('writes the first-epoch baselines when every delivered item is a steer', async () => {
-    const spies = serve([first, second]);
-
-    await deliver();
-
-    expect(spies.setDigest).toHaveBeenCalledWith(chatId, userId, baseline, []);
-  });
-  it('does not write first-epoch baselines when a job notice joins an owner steer', async () => {
-    const spies = serve([first, jobNotice]);
-
-    await deliver();
-
-    expect(spies.setDigest).not.toHaveBeenCalled();
-  });
-
-  it('writes no first-epoch baseline when an interrupt is among the delivered items', async () => {
-    const spies = serve([first, { ...second, mode: 'interrupt' }]);
-
-    await deliver();
-
-    expect(spies.setDigest).not.toHaveBeenCalled();
   });
 });
 

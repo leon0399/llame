@@ -372,29 +372,10 @@ describe('RunWaitService.suspendForQuota', () => {
     );
   });
 
-  it('rehydrates every frozen boundary field from its persisted checkpoint', async () => {
+  it('rehydrates the frozen skill baseline and boundary fields from its checkpoint', async () => {
     const fixture = makeFixture();
 
     const baselines: FirstEpochBaselines = {
-      recencyDigestInitialization: {
-        baseline: {
-          pinned: [{ title: 'pinned', date: '2026-11-01', messageCount: 2 }],
-          recent: [
-            {
-              title: 'recent',
-              date: '2026-11-02',
-              messageCount: 3,
-              excerpt: 'excerpt',
-            },
-          ],
-          pinnedShown: 1,
-          pinnedTotal: 1,
-          recentShown: 1,
-          recentTotal: 1,
-          compiledOn: '2026-11-14T00:00:00.000Z',
-        },
-        told: [{ chatId: quotaInput.chatId, pinned: true }],
-      },
       skillCatalogFreeze: {
         baseline: {
           entries: [{ name: 'skill-a', description: 'does a' }],
