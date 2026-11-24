@@ -43,7 +43,7 @@ Proposal publication keeps Project status derived from the published PR. Do not 
 - [x] 2.11 Update reference/operator docs, tool inventory, dated changelog, and completed roadmap items. Document ten example groups, domain-restricted opt-in, statuses, privacy, bounds, and hard configuration cutover. Ship and document the one-time field-level digest exporter while the old renderer and templates still exist; verify its receipt checks and private export format.
 - [x] 2.12 Run focused reader/selector/permission/search/config tests, affected workspace lint/typecheck/build, and the common Markdown/format/whitespace checks. Exercise real `read` and search calls over two owned test Chats plus a second owner. Do not run aggregate local suites that CI owns.
 - [x] 2.13 After publication authorization, publish as draft with `Closes #703` and `Refs #1906`. Self-review the actual immediate-parent diff, fix verified findings, and rerun affected checks before ready.
-- [ ] 2.14 Complete current-head CI, expected GitHub reviewer responses, feedback handling, and at least 15 uninterrupted minutes of Ready-PR monitoring. Read back Project updates. Release the #703 implementation stage only when its work is handed back.
+- [x] 2.14 Complete current-head CI, expected GitHub reviewer responses, feedback handling, and at least 15 uninterrupted minutes of Ready-PR monitoring. Read back Project updates. Release the #703 implementation stage only when its work is handed back.
 
 ## 3. Digest layer
 
