@@ -25,7 +25,6 @@ import { MockLanguageModelV3, simulateReadableStream } from 'ai/test';
 import { streamText } from 'ai';
 import { expectMessageParts } from '../testing/support';
 import { fakeResolveSelection } from '../testing/fake-model-selection';
-import path from 'node:path';
 
 import { drizzle } from 'drizzle-orm/postgres-js';
 import { type Sql } from 'postgres';
@@ -982,7 +981,7 @@ describeIfDb(
           await chatLoop.createMessageStream({
             chatId: targetChatId,
             userId: digestOwnerId,
-            modelId: 'system:openai:gpt-5.4-mini',
+            selector: 'system:openai:gpt-5.4-mini',
             message: {
               id: crypto.randomUUID(),
               parts: [{ type: 'text', text }],

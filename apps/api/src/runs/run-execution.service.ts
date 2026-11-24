@@ -6851,6 +6851,7 @@ export class RunExecutionService {
     // built with it, and every part the caller appends after that resolves
     // through the same map.
     const toolCallIds = createToolCallIdMap();
+
     const trigger = await messagesRepo.findById(
       input.chatId,
       input.userId,
