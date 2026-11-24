@@ -1,8 +1,5 @@
 import { drizzle } from 'drizzle-orm/postgres-js';
 
-import { ChatDeliveriesRepository } from '../chats/chat-deliveries.repository';
-import { ChatJobsRepository } from '../jobs/chat-jobs.repository';
-import { ChatsRepository, MessagesRepository } from '../chats/chats-repository';
 import {
   type Chat,
   type ChatDelivery,
@@ -10,10 +7,8 @@ import {
   type Run,
 } from '../db/schema';
 import { type Db } from '../db/tenant-db.service';
-import { RunRowFenceRepository } from './run-row-fence.repository';
+import { mockModelSwitchRepositories } from './model-switch-test-fakes';
 import { runningReplyUsage } from './run-reply-finalizer';
-import { RunEventsRepository, RunsRepository } from './runs-repository';
-import { SystemPromptReceiptsRepository } from './system-prompt-receipts.repository';
 import { ProviderFailure } from '../models/provider-failure/provider-failure';
 import {
   afterLastToolPart,
@@ -179,134 +174,16 @@ describe('deliverModelSwitch', () => {
       modelSelection?: Chat['modelSelection'];
     } = {},
   ) {
-    const lockOrder: Array<string> = [];
-    const storedParts: Array<unknown> = [];
-
-    let closedUsage: unknown;
-
-    vi.spyOn(
-      SystemPromptReceiptsRepository.prototype,
-      'findByOwnedRun',
-    ).mockResolvedValue([]);
-
-    vi.spyOn(
-      ChatJobsRepository.prototype,
-      'settleOnDeadWorkers',
-    ).mockResolvedValue([]);
-
-    const lockRun = vi
-      .spyOn(RunRowFenceRepository.prototype, 'lockForDelivery')
-      .mockImplementation(() => {
-        lockOrder.push('run');
-
-        return Promise.resolve('locked' in options ? options.locked : run);
-      });
-
-    const lockChat = vi
-      .spyOn(ChatsRepository.prototype, 'lock')
-      .mockImplementation(() => {
-        lockOrder.push('chat');
-
-        return Promise.resolve(
-          options.unlockedChat
-            ? undefined
-            : {
-                ...chat,
-                modelSelection: options.modelSelection ?? chat.modelSelection,
-              },
-        );
-      });
-
-    const setModelSelection = vi
-      .spyOn(ChatsRepository.prototype, 'setModelSelection')
-      .mockResolvedValue(undefined);
-
-    vi.spyOn(ChatsRepository.prototype, 'transactionNow').mockResolvedValue(
+    return mockModelSwitchRepositories({
+      run,
+      chat,
+      userMessage,
+      reply,
+      deliveredMessage,
+      pending: [steer, compact, secondSteer],
       now,
-    );
-
-    const lockPending = vi
-      .spyOn(ChatDeliveriesRepository.prototype, 'lockPendingBoundary')
-      .mockResolvedValue([steer, compact, secondSteer]);
-
-    const markDelivered = vi
-      .spyOn(ChatDeliveriesRepository.prototype, 'markDelivered')
-      .mockImplementation((id) =>
-        Promise.resolve([steer, secondSteer].find((item) => item.id === id)),
-      );
-
-    const findTurnState = vi
-      .spyOn(MessagesRepository.prototype, 'findTurnState')
-      .mockResolvedValue({
-        userMessage,
-        assistantMessage: options.withoutReply
-          ? { ...reply, usage: { status: 'completed' } }
-          : reply,
-      });
-
-    const updateReply = vi
-      .spyOn(MessagesRepository.prototype, 'updateAssistantReply')
-      .mockImplementation((write) => {
-        closedUsage = write.usage;
-
-        return Promise.resolve({
-          ...reply,
-          parts: write.parts,
-          usage: write.usage,
-        });
-      });
-
-    const createUser = vi
-      .spyOn(MessagesRepository.prototype, 'createUserMessageIfAbsent')
-      .mockImplementation((write) => {
-        storedParts.push(...write.parts);
-
-        return Promise.resolve({ ...deliveredMessage, parts: write.parts });
-      });
-
-    let updateCount = 0;
-
-    const updateForAttempt = vi
-      .spyOn(RunsRepository.prototype, 'updateForAttempt')
-      .mockImplementation(() => {
-        updateCount += 1;
-
-        return Promise.resolve(
-          options.failModelUpdate && updateCount === 2 ? undefined : run,
-        );
-      });
-
-    const append = vi
-      .spyOn(RunEventsRepository.prototype, 'append')
-      .mockImplementation((appendedRunId, eventType, payload) =>
-        Promise.resolve({
-          sequence: 1,
-          runId: appendedRunId,
-          eventType,
-          payload,
-          createdAt: now,
-        }),
-      );
-
-    vi.spyOn(RunEventsRepository.prototype, 'listByRunId').mockResolvedValue(
-      [],
-    );
-
-    return {
-      lockOrder,
-      lockRun,
-      lockChat,
-      lockPending,
-      markDelivered,
-      findTurnState,
-      updateReply,
-      createUser,
-      updateForAttempt,
-      append,
-      setModelSelection,
-      storedParts,
-      closedUsage: () => closedUsage,
-    };
+      options,
+    });
   }
 
   function input(
