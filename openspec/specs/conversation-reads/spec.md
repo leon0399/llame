@@ -8,33 +8,13 @@ Defines owner-authorized, bounded reads over canonical conversation messages thr
 
 ### Requirement: Visible message text is deterministic and message-scoped
 
-The system SHALL define one stable visible-message text view as the exact stored `text` values of every eligible `type: "text"` part in one message, retained in stored part order and joined with exactly `\n\n`. It SHALL NOT trim, normalize, prefix, line-number, or otherwise rewrite those source values. Messages remain separate attributed records and MUST NOT be concatenated into one cross-message source string.
+The reader MUST use the stored `text` values of eligible text parts, in stored order, joined with exactly `\n\n`. It MUST NOT trim, normalize, or rewrite source text. Each message MUST retain its own attribution and line space.
 
-The visible view SHALL include eligible `user` messages and immutable eligible `assistant` messages only. System/tool-role messages, context-item parts, reasoning parts, tool parts, attachments, cap notices, and every other non-text part SHALL contribute no bytes. Interleaved excluded parts SHALL NOT change the visible order of retained text values.
+Only eligible user and immutable assistant messages contribute visible text. Reasoning, tool parts, context items, system/tool rows, and checkpoint rows MUST contribute no bytes. A digest-only host message MUST NOT be an evidence source.
 
-`conversation_read` SHALL follow a message's visible text with one placeholder line per owner
-`file` part of that message, in stored part order: `[pdf media://<id> <name>]` for a part whose
-`mediaType` is `application/pdf` and `[image media://<id> <name>]` for every other part, where
-`<name>` is the part's stored `filename` passed through the single-line source-label rules
-`media-store` defines, and `[pdf media://<id>]` or `[image media://<id>]` for a part without a
-`filename`.
+The reader MUST append one placeholder per stored owner `file` part, in stored order, only when the result reaches the text end. Use `[pdf media://<id> <name>]` for `application/pdf`, and `[image media://<id> <name>]` otherwise. Omit the name when absent. Names MUST follow the single-line source-label rules of `media-store`. The reader MUST NOT look up a media object for a placeholder.
 
-Each line SHALL be rendered from the stored part alone: the reader SHALL look up no media object for
-it, so a line discloses nothing beyond the owner's own stored part.
-
-Placeholder lines SHALL NOT be part of the visible text view: they SHALL NOT be line-numbered, SHALL
-NOT count toward `offset`, `lineCount`, `nextOffset`, or the line bounds, and SHALL NOT enter the
-search projection, lexical data, excerpts, embeddings, or projection hashes, so search line
-coordinates for a message are the same with or without its attachments.
-
-A successful result SHALL carry the placeholder lines only when it omits `nextOffset`; they SHALL end
-its `content`, each terminated by LF, preceded by one LF when the last returned source line has no
-delimiter. They SHALL count toward the 15,000-code-unit structured-result bound: the reader SHALL
-reserve their size before fitting text lines, so a complete result never exceeds that bound and is
-never clipped.
-
-Public shared pagination SHALL remain text-only and SHALL expose no `file` part, `media://` locator,
-or placeholder line.
+Placeholders MUST remain outside visible text, line coordinates, search, excerpts, embeddings, and projection hashes. Each placeholder MUST end with LF. Insert one preceding LF when the last source line lacks a delimiter. Reserve placeholder size within the common rendered-result bound before text fitting. A page with a continuation MUST omit placeholders. Public shared history MUST expose neither files nor their placeholders.
 
 #### Scenario: Several text parts form one visible message
 
@@ -67,7 +47,7 @@ or placeholder line.
 - **WHEN** an eligible user message stores one owner `file` part and no text part
 - **THEN** a read at offset zero succeeds with zero lines and `content` holding only that file part's
   placeholder line
-- **AND** a read at offset 1 returns `conversation_range_invalid`
+- **AND** a read at offset 1 returns `invalid_selector`
 
 #### Scenario: A read that stops before the end carries no placeholders
 
@@ -88,7 +68,7 @@ or placeholder line.
 
 - **WHEN** a stored `file` part of an owner's message names a media id that does not resolve under
   that owner, with `filename` `shot.png`
-- **THEN** `conversation_read` renders `[image media://<id> shot.png]` for it without looking up any
+- **THEN** `read` renders `[image media://<id> shot.png]` for it without looking up any
   media object
 - **AND** the result contains no dimensions and no other owner's source label
 
@@ -96,7 +76,7 @@ or placeholder line.
 
 - **WHEN** an owner supplies a Chat and sequence of another owner's message that carries owner
   `file` parts
-- **THEN** the reader returns `conversation_source_not_found`
+- **THEN** the reader returns `not_found`
 - **AND** the observation contains no placeholder line, `media://` locator, or source label
 
 #### Scenario: Public shared history omits attachments
@@ -117,23 +97,17 @@ or placeholder line.
 
 ### Requirement: Public message locators use immutable Chat-local sequence
 
-Every committed message row in one Chat SHALL have an immutable positive safe-integer `seq` allocated independently from every other Chat. A new Chat's first message SHALL use sequence 1, and each later successfully inserted message SHALL use the next integer in insertion order. Committed rows in a live Chat SHALL therefore occupy one dense `1..N` sequence. A committed `checkpoint` row occupies a sequence value like any other committed row. Rolled-back or colliding insert attempts SHALL NOT consume a committed sequence value.
+Each committed message MUST have an immutable positive safe-integer sequence local to its Chat. The first value MUST be 1. Later commits MUST allocate consecutive values in insertion order. Checkpoints and digest-only host messages MUST consume sequence values. Rolled-back or colliding inserts MUST consume none.
 
-The datastore SHALL enforce uniqueness of `(chat_id, seq)`. Product behavior SHALL NOT delete or reorder an individual message row; whole-Chat deletion removes the entire namespace through the existing cascade. An assistant retry that updates an existing row SHALL retain its sequence. A fork SHALL allocate a new Chat-local namespace beginning at 1 while preserving copied message order. Sequence SHALL NOT represent time, branch membership, cross-Chat order, or authority.
+The datastore MUST enforce uniqueness of `(chat_id, seq)`. The product MUST NOT delete or reorder individual message rows. Whole-Chat deletion MUST remove the namespace through its cascade. An in-place assistant retry MUST retain its sequence. A fork MUST allocate a new namespace from 1 in copied order. Sequence MUST NOT imply time, lineage, cross-Chat order, or authority.
 
-An owner-facing conversation source SHALL use `chatId` plus this sequence as positive safe-integer `messageSeq`. Internal message UUID, prior database-wide sequence, JSON part identity, projection row identity, model-facing content hash, visible-text version, embedding identity, score, and owner identity SHALL NOT appear in a newly issued public conversation locator. Current authority comes only from trusted execution context. Search line coordinates SHALL add zero-based `offset` and positive `limit`, and those four fields SHALL be directly accepted by `conversation_read`.
+A message locator MUST be `chat://<chatId>/<messageSeq>`. Search MUST append a canonical `L` selector for a message-local line window. It MUST NOT expose internal message UUIDs, part identities, hashes, projection identities, versions, scores, or owner identity as locator fields.
 
-Owner history and public shared-Chat message DTOs SHALL expose this same Chat-local sequence, and their `beforeSeq` cursors SHALL interpret it only inside the named Chat. Public shared pagination SHALL retain its existing text-only egress allowlist, public-visibility check, no-store behavior, and empty-identity RLS path; changing sequence allocation SHALL NOT grant target-mode access, owner metadata, reasoning, tool parts, or private-Chat existence.
+Owner history and public shared DTOs MUST use this same sequence and Chat-local `beforeSeq` cursors. Public pagination MUST retain its text-only allowlist, visibility check, no-store behavior, and empty-identity RLS path. Its policy and serialization MUST exclude checkpoints without renumbering.
 
-The datastore's public read policy on messages SHALL exclude a `checkpoint` row,
-and public shared pagination SHALL apply the same exclusion before serialization,
-so that no anonymous or non-owner reader ever receives a `checkpoint` row through
-either path. Excluding the role SHALL NOT renumber, renest, or otherwise consume
-the sequence a checkpoint occupied.
+Queue parsing MUST validate each triggering sequence as a positive safe integer before history access. It MUST reject zero, negative, fractional, non-finite, and unsafe values.
 
-Every durable Run queue payload carrying a triggering message sequence SHALL validate it as a positive safe integer before execution. Zero, negative, fractional, non-finite, or unsafe values SHALL fail queue parsing before they can bound history, select a checkpoint, or enter a tool locator.
-
-Where chronology navigation is returned, `previousMessageSeq` and `nextMessageSeq` SHALL identify the closest currently readable eligible messages under current owner scope. The caller SHALL NOT infer eligibility from arithmetic: an intervening system/tool row, `checkpoint` row, or retryable assistant row MAY occupy an adjacent committed sequence while remaining unavailable to evidence reads. A `checkpoint` row SHALL never be an addressable conversation source under any owner scope, and its sequence SHALL be skipped by chronology navigation exactly as a system or tool row is.
+Navigation MUST identify the nearest currently eligible previous and next messages under owner scope. The reader MUST skip ineligible rows without arithmetic guesses. Checkpoints and digest-only host messages MUST remain unaddressable.
 
 #### Scenario: Two Chats start independent namespaces
 
@@ -150,8 +124,8 @@ Where chronology navigation is returned, `previousMessageSeq` and `nextMessageSe
 #### Scenario: Search result is directly readable
 
 - **WHEN** model-facing lexical search returns a canonical-derived passage
-- **THEN** it identifies the Chat, Chat-local message sequence, zero-based line offset, and positive line limit
-- **AND** those fields are valid `conversation_read` arguments without a part ID, message UUID, prior global sequence, hash, version, or range discriminator
+- **THEN** it identifies the Chat, Chat-local message sequence, and canonical line-selected message locator
+- **AND** the canonical message locator is a valid `read.path` without a part ID, message UUID, prior global sequence, hash, version, or range discriminator
 
 #### Scenario: Public shared history uses the same local cursor
 
@@ -162,11 +136,9 @@ Where chronology navigation is returned, `previousMessageSeq` and `nextMessageSe
 
 #### Scenario: An anonymous reader of a compacted public Chat sees no checkpoint row
 
-- **WHEN** a public Chat carrying a `checkpoint` row is paginated by an anonymous
-  or non-owner reader
-- **THEN** the returned rows and cursors contain no `checkpoint` row
-- **AND** the sequence that checkpoint occupied stays consumed and is skipped by
-  the cursor rather than renumbered
+- **WHEN** an anonymous or non-owner reader paginates a public Chat with a checkpoint row
+- **THEN** the returned rows and cursors contain no checkpoint
+- **AND** the cursor skips that consumed sequence without renumbering
 
 #### Scenario: Invalid queued sequence fails before history access
 
@@ -183,7 +155,7 @@ Where chronology navigation is returned, `previousMessageSeq` and `nextMessageSe
 #### Scenario: A checkpoint row is addressable to nobody
 
 - **WHEN** a locator names the Chat-local sequence of a committed `checkpoint` row
-- **THEN** the reader returns `conversation_source_not_found`
+- **THEN** the reader returns `not_found`
 - **AND** adjacent navigation skips that sequence exactly as it skips a system or tool row, while the sequence itself stays consumed
 
 #### Scenario: Retry retains its message sequence
@@ -206,29 +178,11 @@ Where chronology navigation is returned, `previousMessageSeq` and `nextMessageSe
 
 ### Requirement: Conversation reads derive authority only from trusted Run identity
 
-`conversation_read` MUST be a strict read-only operation. It accepts `chatId`, a positive
-safe-integer `messageSeq`, an optional zero-based safe-integer `offset`, and an optional
-safe-integer `limit` from 1 through 2,000. When `offset` is absent, it MUST be zero. When `limit`
-is absent, the read MUST go to the current end of that message, in the server bounds. Input
-validation MUST reject each of these values before data access: unknown properties, malformed
-IDs, and a non-positive or unsafe sequence. It MUST also reject a negative or unsafe offset, and a
-limit outside that range.
+Chat reads MUST use only the trusted Run owner identity. Model input MUST contain one `read.path`, not an owner identity or message UUID. Parse the locator and selector strictly before data access. Reject malformed UUIDs, unsupported path components, and non-positive or unsafe message sequences.
 
-Owner identity MUST come only from the authenticated Run context. Each call MUST resolve the Chat,
-the message sequence, evidence eligibility, and the adjacent eligible sequences under the current
-owner RLS and explicit owner predicates. Some well-formed sources MUST get the same closed
-`conversation_source_not_found` observation. These are a source that is absent, deleted,
-retryable, or revised, a public or shared source without its owner, and a source of another
-owner. An empty trusted identity MUST fail closed. A source
-locator MUST NOT expand authority.
+Each lookup MUST apply owner RLS, the trusted session-identity guard, and an explicit owner predicate. Empty trusted identity MUST fail closed. Missing, deleted, foreign, shared-only, revised, and mutable sources MUST return the same `not_found` result. No rejected lookup can disclose title, status, Workspace, timestamp, sequence, or content.
 
-The reader MUST return only immutable evidence-eligible messages. A retryable assistant row is a
-reply whose usage records a status other than `completed`. Until #611 replaces the in-place change of a reply, a
-retryable assistant row MUST NOT be an addressable evidence source.
-A revised assistant row is a `completed` reply that a Regenerate from `turn-actions` replaced. A
-revised row MUST NOT be an addressable evidence source again. User messages stay eligible.
-Assistant messages that are `completed` or legacy-immutable, and that are not revised, stay
-eligible.
+The reader MUST admit user messages and completed or legacy-immutable assistant messages that no Regenerate replaces. It MUST exclude assistant messages with usage status other than `completed`, revised replies, checkpoints, and digest-only host messages. A public share or shared fork MUST grant no access to its source. Archived owned Chats MUST remain directly readable.
 
 #### Scenario: Direct owner message read succeeds
 
@@ -239,36 +193,38 @@ eligible.
 #### Scenario: Another owner's sequence fails closed
 
 - **WHEN** an owner gives a well-formed Chat and sequence pair that resolves only under another owner or under a public share
-- **THEN** the reader returns `conversation_source_not_found`
+- **THEN** the reader returns `not_found`
 - **AND** the observation reveals no foreign title, role, timestamp, sequence, content, or existence
 
 #### Scenario: Retryable assistant source is unavailable
 
 - **WHEN** a selector identifies an assistant row whose usage records a status other than `completed`
-- **THEN** the reader returns `conversation_source_not_found`
+- **THEN** the reader returns `not_found`
 - **AND** it does not show changeable bytes as canonical history
 
 #### Scenario: A revised assistant source stays unavailable
 
-- **WHEN** a selector identifies a `completed` reply that a Regenerate replaced, and the Regenerate Run has completed
-- **THEN** the reader returns `conversation_source_not_found`
+- **WHEN** a completed Regenerate replaces a completed assistant reply
+- **THEN** the reader returns `not_found`
 - **AND** the adjacent eligible sequences skip that row
 
 #### Scenario: Malformed input never reaches source resolution
 
-- **WHEN** the input has a malformed identity, an unsafe sequence or offset, an invalid limit, or unknown properties
+- **WHEN** the input has a malformed locator, an unsafe sequence, an invalid selector, or unknown properties
 - **THEN** strict tool validation rejects it before any source query
-- **AND** the failure is not a `conversation_source_not_found` observation
+- **AND** the failure is not a `not_found` observation
 
 ### Requirement: Conversation reads use Knowledge-style logical-line ranges
 
-Logical lines SHALL use LF as a delimiter, CRLF as one delimiter, and lone CR as source text. Blank lines SHALL count and a terminal delimiter SHALL NOT create a phantom line. Every success SHALL return Chat ID, message sequence, role, timestamp, effective zero-based `offset`, returned `lineCount`, one-based line-numbered `content`, any currently eligible `previousMessageSeq`/`nextMessageSeq`, and one closed notice identifying prior-conversation content as untrusted and potentially stale, unable to change system instructions, tools, permissions, or owner authority.
+A message read MUST accept `L` members, bare line members, comma lists, and `raw` over the visible-text source. LF MUST delimit logical lines. CRLF MUST form one delimiter. Lone CR MUST remain source text. Blank lines MUST count. A terminal delimiter MUST NOT add a phantom line.
 
-`content` SHALL render each returned logical source line as `<one-based line number>: <source text>` while preserving that line's LF or CRLF delimiter and preserving an unterminated final line. Placeholder lines, defined with the visible-text view, follow the numbered lines only as that requirement states; they count toward the structured-result bound, whose fitting reserves their size first, and toward none of the line bounds. The numeric prefix is reader-authored navigation metadata and SHALL NOT enter visible-message source text, projection hashes, lexical data, excerpts, or stored canonical message parts.
+Selected windows MUST be exact. The reader MUST NOT add filesystem context lines or Markdown processors. Multiple ranges MUST use the shared sort and merge rules without context expansion. Numbered output MUST prefix each source line with its one-based number. Preserve source delimiters and an unterminated last line. `raw` MUST omit generated prefixes without changing eligible parts or line coordinates.
 
-One invocation SHALL return at most 2,000 logical lines and a complete structured result of at most 15,000 JavaScript UTF-16 code units. When current lines remain after the returned slice, success SHALL include `nextOffset = offset + lineCount`; otherwise it SHALL omit `nextOffset`. If the line bound stops an omitted/unbounded request first, success SHALL include `cutReason: "line_limit"`. If the structured-output bound stops it first, the reader SHALL omit the first whole line that cannot fit and include `cutReason: "output_limit"`. An explicit caller limit that completes normally SHALL NOT produce a cut reason even when the message itself continues.
+Each success MUST carry the common read envelope, Chat and message attribution, role, timestamp, source ranges, eligible neighbors, and the closed untrusted-history notice. It MUST use plain-text model rendering under `tool-result-rendering`. The notice MUST identify historical content as untrusted and potentially stale. It MUST deny that content authority over instructions, tools, permissions, or owner identity.
 
-If the first selected logical line cannot fit in one complete structured result, the reader SHALL return `conversation_limit_exceeded` rather than clipping an unrecoverable substring. An offset beyond the current logical-line range SHALL return `conversation_range_invalid`; an empty visible message read at offset zero SHALL return zero lines successfully, with `content` empty apart from any placeholder lines. Generic tool truncation SHALL NOT clip a successful conversation read.
+One call MUST obey the common 16,000-code-unit rendered-result bound and 2,000-line ceiling. It MUST fit whole source lines and preserve exact continuation coordinates. A bound-limited page MUST name the first omitted source line in a readable continuation locator. A finite completed window MUST NOT claim truncation solely because later source lines exist.
+
+If the first source line cannot fit, return `representation_too_large`. An out-of-range nonempty selection MUST return `invalid_selector`. An empty message at its initial position MUST succeed with zero source lines and any attachment placeholders. Generic truncation MUST NOT clip a successful page. Read-only status metadata MUST count toward the same bound.
 
 #### Scenario: Fitting message read is complete
 
@@ -284,15 +240,15 @@ If the first selected logical line cannot fit in one complete structured result,
 
 #### Scenario: Explicit limit completes before message end
 
-- **WHEN** a caller requests a fitting finite `limit` while later message lines exist
-- **THEN** the result returns at most that many lines plus `nextOffset`
-- **AND** it omits `cutReason` because the caller's requested range completed normally
+- **WHEN** a finite line selector completes within the result bound while later message lines exist
+- **THEN** the result returns that exact window without a bound-cut notice
+- **AND** its source metadata can still identify the next eligible message or later source lines
 
 #### Scenario: Search passage expands through read
 
-- **WHEN** search supplies one passage's `chatId`, `messageSeq`, `offset`, and `limit`
-- **THEN** `conversation_read` returns the complete current line window represented by those coordinates subject only to normal whole-line output continuation
-- **AND** the cropped search excerpt is not mistaken for the complete numbered source
+- **WHEN** search supplies a canonical message locator with its `L` window
+- **THEN** read returns that complete message-local window, subject only to whole-line result bounds
+- **AND** a cropped discovery excerpt does not imply complete source text
 
 #### Scenario: Persistable read keeps historical-data framing
 
@@ -303,7 +259,7 @@ If the first selected logical line cannot fit in one complete structured result,
 #### Scenario: One oversized line fails closed
 
 - **WHEN** the first selected logical line cannot fit within the structured result bound
-- **THEN** the tool returns `conversation_limit_exceeded`
+- **THEN** the tool returns `representation_too_large`
 - **AND** it does not introduce a character-offset selector or irrecoverably clip the line
 
 #### Scenario: Empty message at zero succeeds
@@ -311,29 +267,30 @@ If the first selected logical line cannot fit in one complete structured result,
 - **WHEN** an eligible message has empty visible text and the caller reads offset zero
 - **THEN** the result succeeds with zero lines and empty content when the message has no owner
   `file` part
-- **AND** an offset beyond zero returns `conversation_range_invalid`
+- **AND** an offset beyond zero returns `invalid_selector`
 
 #### Scenario: Placeholder lines share the structured-result bound
 
-- **WHEN** a message carries owner `file` parts and visible text whose lines alone would fill the
-  15,000-code-unit structured-result bound, and the owner reads it from offset zero
-- **THEN** the result returns fewer text lines than it would without the placeholder reservation,
-  with `nextOffset` and `cutReason: "output_limit"`, and contains no placeholder line
+- **WHEN** a message has attachment placeholders and enough source text to reach the rendered-result bound
+- **THEN** the reader reserves placeholder space before it fits whole source lines
+- **AND** a cut page carries its exact continuation without placeholders
 - **AND** only the read that reaches the end of the visible text, which omits `nextOffset`, carries
   the placeholder lines
-- **AND** every complete result, placeholder lines included, is at most 15,000 code units
+- **AND** every complete result, placeholder lines included, is at most 16,000 code units
 
 ### Requirement: Owner-facing message links use the Chat-local sequence locator
 
-The owner Chat surface SHALL address a message target as `/chat/<chatId>#msg-<messageSeq>`, where `messageSeq` is the immutable one-based sequence local to that Chat. For a hash-targeted initial load, the client SHALL request a strict positive-safe-integer `targetSeq` mode on the existing owner message-history surface. `targetSeq` and `beforeSeq` SHALL be mutually exclusive. Fractional, zero, negative, unsafe, malformed, or unknown query values SHALL fail strict validation before repository access. A valid positive safe integer whose target is missing, public/shared-only, or owned by another user SHALL follow the same closed not-found path. The server SHALL first verify that the exact target exists under current owner scope, then return the normal fixed-size chronological window ending at that target sequence. The client SHALL keep target-mode history under a distinct query/cache identity, render and scroll to the target, and continue older pagination through the existing Chat-local `beforeSeq` cursor. Clearing the hash SHALL reinitialize the ordinary newest window rather than silently merging unseen newer messages into or reinterpreting the targeted cache.
+The owner interface MUST use `/chat/<chatId>#msg-<messageSeq>` for a message target. A hash-targeted initial load MUST use strict positive-safe-integer `targetSeq` on the owner history API. `targetSeq` and `beforeSeq` MUST be mutually exclusive. Reject malformed, zero, negative, fractional, unsafe, or unknown query values before repository access.
 
-Rendered owner messages SHALL expose the stable `msg-<messageSeq>` anchor without exposing internal message UUIDs or prior database-wide sequence values. This change SHALL NOT add a copy-link affordance. Target loading SHALL resolve current owner access independently and reveal no foreign target existence. The URL is navigation only and SHALL NOT grant `conversation_read` authority.
+The server MUST verify the exact target under current owner scope. It MUST then return the normal fixed-size history window that ends at that target. Missing and foreign targets MUST share one closed not-found path. A target beyond the ordinary initial page MUST remain reachable.
+
+Rendered messages MUST expose stable `msg-<messageSeq>` anchors without internal UUIDs or former database-wide sequences. This change MUST NOT add a copy-link control. A URL MUST remain navigation, not Chat-read authority. Target-mode cache identity MUST remain separate from the newest-window identity.
 
 #### Scenario: Copied owner link reaches its Chat-local message
 
 - **WHEN** an owner opens a copied canonical link to an eligible message outside the initially loaded page
 - **THEN** `targetSeq` returns the owner-authorized history window ending at that exact Chat-local sequence and the Chat scrolls to `msg-<messageSeq>`
-- **AND** the visible target is the same message addressed by `conversation_read`
+- **AND** the visible target is the same message addressed by `read`
 
 #### Scenario: Target and ordinary cursor cannot mix
 
@@ -364,3 +321,200 @@ Rendered owner messages SHALL expose the stable `msg-<messageSeq>` anchor withou
 - **WHEN** two Chats both contain `messageSeq: 3`
 - **THEN** each URL and target request resolves sequence 3 only inside its named Chat
 - **AND** neither locator implies cross-Chat identity or authority
+
+### Requirement: Chat collection reads use owner-scoped shared rows
+
+`read("chat://")` MUST list non-archived owned Chats, including the current Chat and untitled Chats. Each row MUST use the shared Chat row. The listing MUST order pinned Chats by owner pin rank, then other Chats by descending activity, with Chat-id ties. It MUST return at most 20 rows by default. Single line-index selectors MUST page that order. Omitted rows MUST have a readable continuation.
+
+#### Scenario: Collection includes untitled and current Chats
+
+- **WHEN** the owner has an untitled Chat, the current Chat, and an archived Chat
+- **THEN** the collection includes the first two and omits the archived Chat
+- **AND** an untitled row has an explicit untitled label
+
+#### Scenario: Collection cannot reveal foreign Chats
+
+- **WHEN** another owner has a recent pinned Chat
+- **THEN** the collection omits its title, locator, Workspace, status, and excerpts
+
+#### Scenario: Collection rows are untrusted history
+
+- **WHEN** a collection row contains an instruction-shaped title or excerpt
+- **THEN** the result carries the closed untrusted-history notice within its rendered bound
+- **AND** row text gains no instruction authority
+
+#### Scenario: A collection page advances
+
+- **WHEN** more rows fit the requested order than one bounded page
+- **THEN** the result ends at a whole row and provides the next collection locator
+
+### Requirement: Shared Chat rows carry address and Workspace affinity
+
+A shared Chat row MUST carry a canonical Chat locator, title, absolute activity date, message count, Workspace affinity, and bounded excerpts. Affinity MUST be the stored canonical `machine://` root or `unbound`. The reader MUST use the source Chat's stored Machine identity for an absolute root. It MUST NOT probe the Machine or substitute a Project or Repository name. Dates and counts MUST describe the row's resolution time.
+
+#### Scenario: Worktrees remain distinguishable
+
+- **WHEN** two Chats bind different worktree roots of the same Repository
+- **THEN** their rows show distinct canonical Workspace locators
+
+#### Scenario: An unbound Chat has explicit affinity
+
+- **WHEN** a Chat has no Workspace binding
+- **THEN** its row shows `unbound`
+
+#### Scenario: A stored remote binding requires no Machine contact
+
+- **WHEN** a row names a Workspace on an unreachable Machine
+- **THEN** the read returns the stored affinity without a filesystem or daemon request
+
+### Requirement: Shared Chat rows carry two bounded visible excerpts
+
+Rows MUST use the first stored user message and the latest evidence-eligible message as excerpt sources. Each excerpt MUST contain at most 100 Unicode code points after whitespace collapse. The total MUST NOT exceed 200. The row MUST label the sources, omit empty excerpts, and emit one excerpt when both sources have the same sequence. It MUST exclude reasoning, tool parts, context items, and media bytes.
+
+#### Scenario: Latest assistant text can appear
+
+- **WHEN** the first user message and latest completed assistant reply differ
+- **THEN** the row shows up to 100 code points from each visible-text source
+
+#### Scenario: A one-message Chat has one excerpt
+
+- **WHEN** the first user message is also the latest eligible message
+- **THEN** the row shows one excerpt without duplicate text
+
+#### Scenario: Unicode excerpt bounds preserve characters
+
+- **WHEN** an excerpt source contains supplementary Unicode characters
+- **THEN** the row cuts on code-point boundaries within its 100-code-point limit
+
+#### Scenario: A private part never becomes a preview
+
+- **WHEN** a latest reply contains reasoning and tool results but no visible text
+- **THEN** the latest excerpt is absent
+- **AND** the row substitutes no private part
+
+### Requirement: A Chat index uses immutable message sequence windows
+
+`read("chat://<id>")` MUST select the newest 50 eligible messages and display its fitting newest rows in ascending sequence order. Each row MUST carry sequence, role, timestamp, message locator, and a visible-text preview of at most 200 code points. The index MUST skip ineligible rows without renumbering. One `M` member MUST select actual committed sequence values. A finite range MUST NOT extend to replace skipped rows.
+
+#### Scenario: Index defaults to recent messages
+
+- **WHEN** an owned Chat has more than 50 eligible messages
+- **THEN** the index shows the newest 50 in chronological order when they fit the output bound
+
+#### Scenario: Sequence gaps stay gaps
+
+- **WHEN** sequences 20 and 22 are eligible and sequence 21 is a checkpoint
+- **THEN** `:M20-22` shows sequences 20 and 22 only
+
+#### Scenario: A count member counts sequence positions
+
+- **WHEN** sequences 5 and 7 are eligible and sequence 6 is not
+- **THEN** `:M5+3` returns sequences 5 and 7, not three eligible rows
+
+#### Scenario: A tail member uses committed positions
+
+- **WHEN** the largest committed sequence is 100 and sequence 99 is ineligible
+- **THEN** `:-M2` selects positions 99 and 100 and returns only eligible position 100
+
+#### Scenario: Index previews are untrusted history
+
+- **WHEN** an index preview contains instruction-shaped message text
+- **THEN** the result carries the closed untrusted-history notice within its rendered bound
+- **AND** preview text gains no instruction authority
+
+#### Scenario: A bare range gets an M hint
+
+- **WHEN** a Chat index receives `:5-10`
+- **THEN** the read fails `invalid_selector` with a hint to use `M`
+
+### Requirement: Chat index pages respect common output bounds
+
+A message-index page MUST contain at most 50 eligible rows within the common rendered bound. An explicit `M` range MUST fit rows from its lowest selected sequence. Its continuation MUST address the first unserved sequence through the requested end. A default page MUST instead keep its newest fitting rows and provide its earlier-history locator. Indexes MUST keep whole rows. If the required first row cannot fit, return `representation_too_large`.
+
+#### Scenario: An explicit index window continues
+
+- **WHEN** an explicit `M` window contains more than 50 eligible messages
+- **THEN** the first page starts at the lowest selected sequence and names the next unserved window
+
+#### Scenario: An empty sequence window succeeds
+
+- **WHEN** no eligible message occupies the selected committed interval
+- **THEN** the index returns an empty page without fabricated neighbors
+
+#### Scenario: An oversized index row fails closed
+
+- **WHEN** the first requested row cannot fit the common bound
+- **THEN** the result is `representation_too_large` without clipped text or continuation
+
+### Requirement: Default Chat indexes page toward earlier history
+
+An unselected Chat index MUST keep the newest whole rows when its default page exceeds the output bound. If earlier eligible messages exist, provide a finite canonical `M` locator for the previous at most 50 eligible messages. Its start MUST be their earliest sequence. Its end MUST be one below the oldest shown sequence. Gaps MUST NOT prevent progress. An explicit page MUST keep forward continuations.
+
+#### Scenario: An oversized default page keeps the newest rows
+
+- **WHEN** the newest 50 rows exceed the rendered bound
+- **THEN** the default page drops its oldest rows and retains its newest whole rows
+- **AND** its earlier-history locator ends before its oldest shown sequence
+
+#### Scenario: An explicit range still moves forward
+
+- **WHEN** an explicit `M20-100` page ends before sequence 70
+- **THEN** its continuation selects `M70-100`, not earlier history
+
+#### Scenario: Earlier history advances one page in a deep Chat
+
+- **WHEN** an index shows sequences 951-1000 and all earlier positions are eligible
+- **THEN** its earlier-history locator selects `M901-950`, not `M1-950`
+- **AND** an equivalent sparse Chat uses the earliest of its previous 50 eligible sequences as the start
+
+### Requirement: Chat reads report current durable Run status only on demand
+
+Every Chat collection row and addressed Chat or message read MUST annotate the current non-terminal Run status, or `idle` when none exists. Use `queued`, `running_model`, `awaiting_jobs`, or `awaiting_quota` as stored. The annotation MUST describe one owner-scoped point-in-time read. It MUST NOT expose Run ids or diagnostics. Shared Chat rows and recency-digest items MUST contain no Run-status annotation.
+
+#### Scenario: A live Chat is recognizable
+
+- **WHEN** an owned Chat has a `running_model` Run
+- **THEN** its collection row, message index, and message read report `running_model`
+
+#### Scenario: A waiting Run differs from active execution
+
+- **WHEN** the current Run of a Chat has status `awaiting_quota`
+- **THEN** read reports `awaiting_quota`, not `running_model` or `idle`
+
+#### Scenario: A terminal Run leaves the Chat idle
+
+- **WHEN** the Chat has only completed, failed, cancelled, or expired Runs
+- **THEN** read reports `idle` without exposing the last failure
+
+#### Scenario: Run activity never changes the digest
+
+- **WHEN** only the source Chat Run status changes
+- **THEN** digest text and comparison metadata remain unchanged
+
+### Requirement: Chat locators do not admit mutations or implicit imports
+
+`edit` and `write` MUST refuse admitted Chat locators with `unsupported_operation`, without effects or Run admission. A registered Chat reader MUST NOT make `@chat://` a prompt import. Chat locators MUST grant no file access, Machine access, share authority, or alias. An unsupported selector MUST fail before a source lookup.
+
+#### Scenario: A Chat write is still unavailable
+
+- **WHEN** an admitted `write` targets an owned Chat locator
+- **THEN** the call returns `unsupported_operation` and creates no message or Run
+
+#### Scenario: Chat registration does not expand imports
+
+- **WHEN** an owner message contains `@chat://<id>/1`
+- **THEN** prompt preparation treats it as prose and performs no implicit Chat read
+
+#### Scenario: Raw keeps the visible boundary
+
+- **WHEN** an owner reads a message with `:raw`
+- **THEN** the result omits line prefixes but exposes no reasoning, tool part, or context item
+
+### Requirement: Chat discovery results frame untrusted history
+
+Every successful Chat collection and message-index result MUST carry the same closed untrusted-history notice as message reads. Titles, excerpts, and previews MUST remain data. The notice MUST count within the common rendered bound.
+
+#### Scenario: An empty collection retains framing
+
+- **WHEN** the owner reads an empty Chat collection
+- **THEN** the successful result still carries the closed untrusted-history notice

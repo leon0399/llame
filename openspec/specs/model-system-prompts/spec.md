@@ -14,224 +14,6 @@ credentials.
 
 ## Requirements
 
-### Requirement: Each model resolves one complete effective system prompt
-
-The system SHALL provide a versioned project-default system prompt and SHALL allow each configured model to replace it with one independently resolved complete prompt. A model without an override SHALL use the project default.
-
-Both system-prompt file kinds and llame-owned description templates SHALL use the same **Handlebars templates** language and explicit context projection. The renderable context SHALL expose exactly `model.id` for the public llame model id and `model.name` for the configured public name, plus the requesting owner's **per-user paths** `user.personalization.preferredName`, `user.personalization.about`, `user.personalization.responsePreferences`, `user.name`, and `user.email`, plus the requesting chat's **recency-digest collections** `chats.pinned` and `chats.recent`, and the digest's **scalar metadata** `chats.pinnedShown`, `chats.pinnedTotal`, `chats.recentShown`, `chats.recentTotal`, and `chats.compiledOn`, plus the **unconditional temporal-anchor paths** `context.systemTime` and `context.systemTimezone`, plus the **skill-catalog collection** `skills.entries` and its **scalar metadata** `skills.omitted`, plus conditional-only, absent-safe `tools.<exact-id>` predicates defined by `tool-prompt-templates`. Operators MAY use the built-in `if` and `unless` conditionals, MAY use the built-in `each` block over an allowlisted collection, and MAY emit a literal expression by escaping it in the engine's own notation. Validation SHALL permit only an allowlisted set of node kinds — literal content, value expressions, block expressions, and comments — rejecting everything else by default, including partials in any form (plain, with a fallback block, or defined through a decorator). Referencing a context path outside the allowlist — evaluated on parsed segments and depth, so a bracketed path that merely displays as an allowlisted one is rejected — emitting unescaped output, invoking any helper other than `if`/`unless`/`each` (including one passed as a hash argument to an allowed block), giving a conditional or an iteration other than exactly one parameter, or declaring block parameters SHALL fail startup naming the model id and the offending construct without printing prompt contents. Referencing `model.name` when the selected model has no configured name SHALL **not** fail startup: the value renders empty, so that a conditional over a possibly-absent value is expressible. Fail-loud is preserved where it catches mistakes: an unknown path is still rejected at boot.
-
-**Iteration SHALL be bounded rather than general.** `each` SHALL accept only an allowlisted collection path as its single parameter; it SHALL NOT iterate a scalar, a gate-only path, or any path not explicitly declared as a collection. Inside an `each` body, only that collection's **declared per-item fields** SHALL be referenceable, and each collection SHALL declare its item fields explicitly rather than exposing whatever the projected item happens to carry. Iteration SHALL NOT be nestable within another iteration, index or key variables SHALL NOT be exposed, and the collection itself SHALL remain gate-only in value position, so emitting it renders no stringified structure. The digest collections SHALL each declare exactly the item fields `title`, `date`, `messageCount`, and `excerpt`. The skill-catalog collection `skills.entries` SHALL declare exactly the item fields `name` and `description`, and its entries SHALL be ordered by name in code-point order.
-
-The digest's **scalar metadata paths are separate from the collections and are not iterable**: `chats.pinnedShown`, `chats.pinnedTotal`, `chats.recentShown`, `chats.recentTotal`, and `chats.compiledOn`. They exist because the digest capability requires the rendered block to state shown/total ratios and the date the list was compiled, and a template that can only iterate item fields has no way to produce either. They SHALL be escaped as model-class values rather than passed through the tag sanitizer, being server-computed numbers and a date rather than owner-authored text. The skill catalog's `skills.omitted` SHALL be separate from the collection and not iterable, and SHALL be projected as a raw integer rather than a wrapped or escaped string, exactly as the digest's count scalars are projected, so that `{{#if skills.omitted}}` is false at zero; an integer has nothing to escape, and a template can therefore disclose overflow only when the bound left proactively eligible entries out.
-
-The digest collections SHALL be projected at the **top level as `chats`**, deliberately not beneath `user`. Nesting them under `user` would make `user` present for an owner who has chats but has authored no personalization and shares no account identity, which would render an operator's personalization block — framing prose included — around no content, contradicting the gate behavior the personalization capability requires.
-
-**The temporal-anchor namespace `context` SHALL be unconditional**, and is the first projected namespace that is. Unlike `user` and `chats`, which are legitimately absent for some owners and some chats, `context.systemTime` and `context.systemTimezone` SHALL always be present in the projection, because an anchor instant and a timezone are always computable. `context` SHALL therefore NOT be a gate-only subject: a bare `{{#if context}}` SHALL fail startup as an unsupported construct, so that an operator is told the guard is unnecessary rather than silently compiling a branch that is always taken. A conditional over either scalar remains expressible, exactly as for any allowlisted value path, and is simply always true. The omission rule for absent-or-empty values SHALL NOT apply to these two paths, and they SHALL be escaped as model-class values rather than passed through the tag sanitizer, being server-computed rather than owner-authored.
-
-Validation SHALL occur at execution-worker boot against the template; rendering SHALL be lenient, so an allowlisted path with no value at request time renders empty rather than failing a run. **Model paths SHALL be resolved at boot, while per-user and per-chat paths SHALL be validated at boot and resolved per execution attempt**, because no owner and no chat are in scope at startup; worker boot therefore renders each template across the cross product described below and fails if any combination is empty. A single no-owner probe is unsound: `unless` is permitted over the per-user gates, so a template whose only content sits behind an inverse user gate renders non-empty with no owner and empty for exactly the owners who personalized. The digest gates admit the same inversion, and because `user`, `chats`, and `skills` are **independent** gates the probe SHALL cover their **cross product** — every combination of absent and populated for all three, where the populated `chats` state includes each independently omittable collection state, pinned only and recent only — rather than varying them together. Varying them in lockstep is unsound for the same reason a single probe is: a template whose content sits in `{{#if user}}` and `{{#unless chats}}` renders non-empty when both are absent and when both are populated, while rendering empty for exactly the owners who have chats but authored no personalization. **The temporal anchor SHALL add no dimension to this probe, precisely because it cannot be absent**: every probe combination SHALL supply a representative anchor, and no probe SHALL exercise its absence, since no run can produce it. Rendered model and account-identity values, and rendered skill names, which are grammar-constrained identifiers, SHALL be escaped by replacing exactly `&`, `<`, and `>`, leaving all other punctuation verbatim; rendered owner-authored values, rendered digest item values, and rendered skill descriptions SHALL instead be neutralized by the two tag rules defined in the instance-config capability — a value can never close a tag it did not open within that same value, and can never emit a reserved delimiter name as a tag at all, with unmatched or malformed closers escaped fail-closed and everything else passing verbatim. Both SHALL be applied when the context is built rather than by mutating the engine's global escaping. A value that is absent or empty after trimming SHALL be omitted from the context, since an already-safe wrapper is always truthy and would otherwise make conditionals over it evaluate true. **Omission SHALL apply at every level of the per-user projection**: an individual field with no value is absent, `user.personalization` is absent when personalization is disabled or every authored field is empty, and `user` itself is absent when nothing beneath it would render — so that `{{#if user}}` gates an entire section including its operator-authored framing prose. **The same omission discipline SHALL apply to the digest projection**: an empty collection is absent rather than an empty array, and `chats` itself is absent when neither collection would render, so that `{{#if chats}}` gates the whole digest section including its framing prose. **The same discipline SHALL apply to the skill-catalog projection**: `skills` is absent when no proactively eligible entry is admitted to the frozen baseline, so that `{{#if skills}}` gates the whole skills section including its framing prose, and a template that never references `skills` renders no catalog for that model without failing boot. Boot validation SHALL record, for each resolved prompt, whether its template references the `skills` namespace, and SHALL expose that record to turn preparation, which gates catalog notices on it under `context-injection`; the packaged default references the namespace. Whitespace-control syntax is permitted. Resolution SHALL remain single-pass and non-recursive before recording the system-only prompt receipt: rendered output, including substituted owner text and substituted digest entries, MUST NOT be re-parsed or re-evaluated as a template. Prompt resolution MUST NOT use prompt fragments, inheritance, arbitrary config traversal, or another model's prompt — the prohibition on fragments and inheritance is what requires partials to be rejected. Per-user and per-chat substitution is a projection into one already-complete template and MUST NOT compose two prompt files.
-
-A run's rendered prompt MAY therefore derive from **stored per-chat state** as well as per-attempt owner state. That state SHALL be resolved and substituted by the worker under its existing capability lifecycle, alongside current per-user values, before the attempt's system-prompt-only receipt is recorded. No tool catalog or description is persisted with that receipt.
-
-#### Scenario: Model has no prompt override
-
-- **WHEN** a run selects a configured model whose entry omits `systemPromptFile`
-- **THEN** the run's effective system prompt is the project-default prompt
-- **AND** the receipt identifies its source as the project default
-
-#### Scenario: Two models use materially different prompts
-
-- **WHEN** two configured models reference different valid prompt files
-- **THEN** a run for each model receives that model's complete rendered contents as its top-level system prompt
-- **AND** neither prompt is inherited or composed from the other
-
-#### Scenario: Default prompt renders model id and name
-
-- **WHEN** the project-default prompt references `model.id` and `model.name` and a configured model supplies both values
-- **THEN** that model's effective prompt contains the public id and configured name
-- **AND** its immutable system-only attempt receipt contains the rendered text rather than the expressions
-
-#### Scenario: Prompt references an absent model name
-
-- **WHEN** a selected default or override prompt references `model.name` and that model omits `name`
-- **THEN** startup succeeds and the expression renders empty
-- **AND** a conditional over `model.name` in the same template evaluates false rather than failing
-
-#### Scenario: Literal expression is emitted
-
-- **WHEN** a prompt escapes an expression in the engine's literal notation
-- **THEN** its effective prompt contains that expression as literal text
-- **AND** the emitted literal is not recursively interpolated
-
-#### Scenario: Prompt uses a conditional
-
-- **WHEN** a prompt wraps a label and its value in an `if` conditional over an allowlisted path
-- **THEN** the wrapped region renders only when that path has a value
-- **AND** the surrounding prompt structure is otherwise unchanged
-
-#### Scenario: Prompt iterates an allowlisted collection
-
-- **WHEN** a prompt wraps entry markup in an `each` block over `chats.recent` and references that collection's declared item fields inside it
-- **THEN** the block renders once per entry with those fields substituted
-- **AND** startup succeeds
-
-#### Scenario: Iteration references an undeclared item field
-
-- **WHEN** a prompt references a field inside an `each` body that the collection does not declare
-- **THEN** startup fails naming the model id and the offending construct
-- **AND** no chat data is exposed through the unknown field
-
-#### Scenario: Iteration is attempted over a non-collection
-
-- **WHEN** a prompt applies `each` to a scalar path, a gate-only path, or an unknown path
-- **THEN** startup fails naming the model id and the offending construct
-- **AND** the template is rejected before any run uses it
-
-#### Scenario: A prompt renders the digest's scalar metadata
-
-- **WHEN** a prompt references `chats.pinnedShown`, `chats.pinnedTotal`, `chats.recentShown`, `chats.recentTotal`, or `chats.compiledOn` outside any iteration
-- **THEN** each renders its server-computed value
-- **AND** applying `each` to one of them fails boot, since they are scalars rather than declared collections
-
-#### Scenario: Iteration uses a forbidden escape construct
-
-- **WHEN** a prompt nests one `each` inside another, references `@index` or `@key` inside an iteration body, declares block parameters on an `each`, or passes a hash argument to one
-- **THEN** startup fails in each case naming the model id and the offending construct
-- **AND** no such template reaches a run, since these are the deny-by-default validator's escape paths rather than stylistic preferences
-
-#### Scenario: Prompt iterates the skill catalog
-
-- **WHEN** a prompt wraps entry markup in an `each` block over `skills.entries` and references `name` and `description` inside it
-- **THEN** the block renders once per admitted entry in code-point name order with the description tag-neutralized
-- **AND** startup succeeds
-
-#### Scenario: An entire skills section is gated on an admitted entry
-
-- **WHEN** a prompt wraps a skills section, framing prose included, in `{{#if skills}}`
-- **THEN** the section renders only for a chat whose frozen baseline admits at least one proactively eligible entry
-- **AND** a template that never references `skills` validates and renders no catalog
-
-#### Scenario: A prompt gates an overflow line on the omitted count
-
-- **WHEN** a prompt wraps a line in `{{#if skills.omitted}}` and emits `skills.omitted` inside it
-- **THEN** the line renders with the count only when the bound omitted at least one proactively eligible entry
-- **AND** the path is not accepted as an `each` subject
-
-#### Scenario: Boot records whether a template references the catalog
-
-- **WHEN** a model's prompt is resolved at boot
-- **THEN** whether its template references `skills` is recorded for that model
-- **AND** turn preparation reads that record rather than parsing the rendered prompt
-
-#### Scenario: Skills gate is independent of the other gates
-
-- **WHEN** a template's entire content sits inside `{{#if skills}}` and `{{#unless user}}`
-- **THEN** boot fails naming the gate combination for which it renders empty
-- **AND** the probe that catches it varies `skills` independently of `user` and `chats`
-
-#### Scenario: A collection is emitted as a value
-
-- **WHEN** a prompt references `chats.recent` in value position rather than as an iteration subject
-- **THEN** startup fails naming the offending construct
-- **AND** no stringified structure can reach a rendered prompt
-
-#### Scenario: Prompt contains a disallowed construct
-
-- **WHEN** a prompt references an unknown context path, emits unescaped output, references a partial, or invokes another helper
-- **THEN** startup fails naming the model id and the offending construct
-- **AND** no raw config, environment, or server-only field is exposed
-
-#### Scenario: Configured override is broken
-
-- **WHEN** a model declares `systemPromptFile` but the file cannot resolve to a valid non-empty prompt
-- **THEN** instance startup fails
-- **AND** the system does not silently substitute the project default
-
-#### Scenario: Rendered output is not re-evaluated
-
-- **WHEN** a rendered value itself contains template-looking text
-- **THEN** that text appears literally in the effective prompt
-- **AND** no second parse or render pass occurs
-
-#### Scenario: Per-user paths survive boot unresolved
-
-- **WHEN** a prompt file references per-user context paths at startup
-- **THEN** startup succeeds and each is accepted as allowlisted
-- **AND** no owner data is resolved at boot, because these resolve per execution attempt
-
-#### Scenario: Digest paths survive boot unresolved
-
-- **WHEN** a prompt file references the digest collections at startup
-- **THEN** startup succeeds and each is accepted as allowlisted
-- **AND** no chat data is resolved at boot, because these resolve per execution attempt
-
-#### Scenario: Prompt references no per-user path
-
-- **WHEN** a configured model's prompt references no per-user context path
-- **THEN** startup succeeds and runs for that model execute with no per-user content
-- **AND** the model forgoes personalization rather than failing startup or a run
-
-#### Scenario: Owner value absent at render time
-
-- **WHEN** an allowlisted per-user path has no value for the requesting owner
-- **THEN** the path is absent from the render context, a conditional over it is false, and a bare reference renders empty
-- **AND** the run executes normally
-
-#### Scenario: An entire section is gated on the owner having any per-user context
-
-- **WHEN** an operator wraps a block including its framing prose in a conditional over `user`, and the owner has authored nothing and shares no account identity
-- **THEN** the whole block including its framing prose is omitted
-- **AND** the resulting prompt remains valid and non-empty
-
-#### Scenario: An entire digest section is gated on there being any listed chat
-
-- **WHEN** an operator wraps the digest block including its framing prose in a conditional over `chats`, and the owner's digest is withheld or empty
-- **THEN** the whole block including its framing prose is omitted
-- **AND** the resulting prompt remains valid and non-empty
-
-#### Scenario: Digest presence does not make the personalization gate true
-
-- **WHEN** an owner with a rendered digest has authored no personalization and shares no account identity
-- **THEN** a conditional over `user` evaluates false
-- **AND** the operator's personalization block including its framing prose is omitted
-
-#### Scenario: Template renders non-empty without an owner
-
-- **WHEN** a configured template's content would be empty once every per-user path is absent
-- **THEN** startup fails as empty against the boot render, which uses the model context alone
-- **AND** no prompt that could render empty for an unpersonalized owner reaches a run
-
-#### Scenario: Template is empty only for one gate combination
-
-- **WHEN** a template's entire content sits inside `{{#if user}}` and `{{#unless chats}}`, so it renders non-empty when both gates are absent and when both are populated
-- **THEN** startup fails, because the cross-product probe covers the combination where the owner has chats but no per-user context
-- **AND** no prompt that would render empty for that population of owners reaches a run
-
-#### Scenario: Prompt renders the temporal anchor
-
-- **WHEN** a prompt references `context.systemTime` and `context.systemTimezone` outside any iteration
-- **THEN** startup succeeds and both are accepted as allowlisted scalar paths
-- **AND** each run renders an absolute timestamp carrying a numeric UTC offset, together with the IANA identifier of the timezone it is expressed in
-
-#### Scenario: Temporal namespace is guarded as though it were optional
-
-- **WHEN** a prompt wraps content in `{{#if context}}`
-- **THEN** startup fails naming the model id and the offending construct, without printing prompt contents
-- **AND** the operator is not left with an always-true branch implying the anchor can be absent
-
-#### Scenario: Prompt references no temporal path
-
-- **WHEN** a prompt references neither `context.systemTime` nor `context.systemTimezone`
-- **THEN** startup succeeds
-- **AND** the rendered prompt is byte-identical to what the same template rendered before the anchor existed
-
-#### Scenario: Every boot probe carries an anchor
-
-- **WHEN** boot validates a template across the cross product of the `user`, `chats`, and `skills` gates
-- **THEN** every probe combination supplies a representative anchor value
-- **AND** no probe exercises an absent anchor, because no run can produce one
-
-For templates with tool predicates, boot SHALL validate syntax and structure without failing merely because a referenced tool is absent. Every actual attempt SHALL reject empty effective system/description text before target-model I/O under `tool-prompt-templates`. API-only acceptance SHALL not resolve prompt files or values. Frozen digest and temporal-anchor semantics SHALL remain owned by their capabilities; rendering on a new attempt does not redefine those values.
-
 ### Requirement: Every execution attempt resolves its effective context in the worker
 
 API acceptance SHALL persist the user message, selected public model/effort, and
@@ -672,156 +454,61 @@ change model replay.
 
 ### Requirement: Compaction publishes a summary-only checkpoint before the Run's first model step
 
-Before the Run's first model step, compaction MUST be evaluated once against
-that attempt's prepared request, and exactly one variant MUST be selected. A
-prepared request that does not fit the Run model's context window or reserved
-output budget, which covers a switch to a smaller-context target, MUST select
-the window variant whether or not the measured context size also reaches the
-threshold, because a request that does not fit is also over the default
-threshold and only the window variant can summarize it. Otherwise a measured
-context size at or above the Run model's threshold MUST select the threshold
-variant. A request MUST NOT be compacted by both variants.
+The worker MUST evaluate automatic compaction once before the first model step, against that attempt's prepared request. It MUST select exactly one variant. A request beyond the model window or reserved output budget MUST select the window variant, even above the threshold. Otherwise, measured context at or above the model threshold MUST select the threshold variant. The worker MUST NOT apply both variants.
 
-A prepared request MUST also count as at the Run model's threshold when two conditions are true.
-First, it carries an image or PDF reference that `media-attachments` does not attach because the
-epoch's bounds are reached. Second, a row before the triggering user message holds a stored or
-retained reference of a kind that the Run model declares as input. That is an image when the model
-declares `image`, and a PDF when it declares `pdf`. A result with neither `media` nor `retainedMedia`
-in an earlier row never counts. Image or PDF overflow MUST therefore select the threshold variant on the
-attempt's own model, because that request fits. A request that also does not fit MUST select the
-window variant as above.
+Media overflow MUST also satisfy the threshold when two conditions hold. First, the request omits an image or PDF because the epoch media bounds are full. Second, a prior row contains a stored or retained reference of a kind the model accepts. The prior row MUST precede the triggering user message. A result without `media` or `retainedMedia` MUST NOT qualify. A non-fitting request MUST still select the window variant.
 
-When image or PDF overflow is the only trigger condition and its compaction
-fails or yields no usable summary, the attempt MUST proceed without a checkpoint
-and the overflowing references MUST keep the limit placeholder that
-`media-attachments` defines; image or PDF overflow alone MUST NOT fail an
-attempt. The trigger MUST be evaluated again before every Run's first model
-step, so those references stay unattached only until the next Run whose
-compaction succeeds and starts a new epoch.
+When media overflow alone triggers compaction, a failed summary MUST leave the attempt usable without a checkpoint. Overflowing references MUST retain their limit placeholders. The next Run MUST evaluate the trigger again. A successful checkpoint MUST start a new media epoch.
 
-Measured context size MUST be the previous completed assistant message's
-persisted final-request context size plus the estimate of the rows and rail
-items after it, and MUST be counted only when the user turn that assistant row
-answers has a sequence above the active checkpoint's absorbed-through sequence;
-otherwise the whole request MUST be estimated. That comparison MUST be by the
-user turn rather than by the assistant row's own sequence, because a retried
-assistant row is rewritten in place and keeps its sequence below a checkpoint
-published between its attempts. A failed, cancelled, or expired Run MUST NOT
-contribute a measured context size to a later trigger.
+Measured context MUST use the previous completed reply's persisted final-request size plus estimated later rows and rail items. That reply MUST answer a user turn above the active checkpoint's absorbed boundary. Otherwise, estimate the complete request. Compare the answered user turn, not the assistant sequence. An in-place retry can retain an assistant sequence below a newer checkpoint. Failed, cancelled, or expired Runs MUST supply no measured context to a later trigger.
 
-Compaction MUST NOT fire when no user or assistant row has a sequence between
-the active checkpoint's absorbed-through sequence and the triggering user
-message's sequence, because there is nothing left to absorb. On the threshold
-condition the attempt MUST proceed on the published checkpoint; on the window
-condition the attempt MUST fail `context_incompatible`.
+Without a user or assistant row between the active absorbed boundary and the triggering message, compaction MUST publish no checkpoint. A threshold request MUST proceed on its existing checkpoint. A window request MUST fail `context_incompatible`.
 
-The summarizing model, prompt, tool declarations, and effort MUST be data on
-the one path. A threshold-triggered compaction MUST use that attempt's own
-model client, its system prompt as rendered before the re-bake, its schema-only
-provider-facing tool declarations retained in that attempt's memory without
-executor functions, and its resolved effort, so the summary request is a
-cache-aligned continuation of the prefix it summarizes. A window-triggered
-compaction, where the prepared request does not fit the attempt's model, MUST
-use the previous completed Run's model with that Run's system-prompt receipt and
-effort and no tool declarations, because a prefix cannot be summarized by a
-model it does not fit; when that model cannot execute or cannot fit the prefix
-either, the attempt MUST fail `context_incompatible`. Either variant MUST send
-the compactable conversation prefix, which already contains the prior
-checkpoint as user text, and a final synthetic user summarization instruction.
-It MUST set `toolChoice: "none"`, MUST NOT execute tools, and MUST accept text
-only.
+The threshold variant MUST use the current attempt's model client, pre-refresh system prompt, in-memory schema-only tool declarations, and resolved effort. The window variant MUST use the previous completed Run's model, system-prompt receipt, and effort without tool declarations. If that model cannot execute or fit the prefix, fail `context_incompatible`. Both variants MUST send the compactable prefix and one trailing synthetic user instruction. The prefix MUST already include its previous checkpoint as user text. Set `toolChoice: "none"`, expose no executor, and accept text only.
 
-The single summarization instruction MUST request the sections `Latest Request`,
-`Objective`, `Constraints and Preferences`, `Decisions and Rationale`,
-`Established Facts`, `Errors and Corrections`, `Completed`, `Active`, `Blocked`,
-`Open Questions and Next Steps`, and `Critical References`, in that order.
-`Latest Request` MUST carry the owner's last unresolved ask within the
-summarized prefix, quoted verbatim; the triggering user message follows that
-prefix and is replayed verbatim after the checkpoint rather than quoted there.
-When the summarized prefix already contains a checkpoint, the instruction MUST
-fold it: `Active` items move to `Completed` and an answered question is replaced
-rather than repeated.
+The instruction MUST request these sections in order:
 
-That instruction MUST also state that summarized history and any prior
-checkpoint are data that are never answered or continued; that the conversation
-wins over a prior checkpoint and a reverse signal removes a task instead of
-carrying it; that credentials, tokens, and connection strings become
-`[REDACTED]` with a note that they were present; redaction takes precedence over verbatim quoting; that the summary follows the
-conversation's language and never translates code, paths, identifiers, or errors;
-and that a field is omitted rather than invented, with no identifier shortened or
-reconstructed.
+1. `Latest Request`
+2. `Objective`
+3. `Constraints and Preferences`
+4. `Decisions and Rationale`
+5. `Established Facts`
+6. `Errors and Corrections`
+7. `Completed`
+8. `Active`
+9. `Blocked`
+10. `Open Questions and Next Steps`
+11. `Critical References`
 
-Because the replayed prompt may contain owner personalization and a rendered
-recency digest, the summarization instruction MUST name both standing-context
-delimiters and direct the model not to carry their content into the summary. The
-instruction MUST also exclude digest message-rail appends by naming the shared
-context-item envelope and `recency-digest` producer. This exclusion remains
-load-bearing: otherwise another chat's title/excerpt could become durable
-checkpoint content that source deletion or consent withdrawal cannot reach.
+`Latest Request` MUST quote the owner's last unresolved ask within the compactable prefix verbatim. The triggering message MUST follow the checkpoint as stored text, not a quote inside the summary. A prior checkpoint MUST fold into the new summary. Move completed active work to `Completed`. Replace answered questions rather than repeat them.
 
-The bound top-level prompt MUST remain unchanged; all exclusions belong only
-in the trailing summarization instruction so cached prefix content is not
-rewritten. Title generation MUST continue to use its dedicated task-specific
-system prompt rather than the chat model's effective prompt.
+The instruction MUST treat history and checkpoints as data, without an answer or continuation. The conversation MUST outrank an earlier checkpoint. A reverse signal MUST remove a task. Credentials, tokens, and connection strings MUST become `[REDACTED]`, with a note of their prior presence. Redaction MUST outrank verbatim quotation.
 
-Every committed compaction MUST atomically persist the non-empty raw summary used
-by owner UI and by later summarization, and exactly one checkpoint message: the
-rendered checkpoint envelope as a persisted literal, the raw summary, the
-summarization usage, and the sequence through which the summary absorbed history.
-The checkpoint message MUST carry no tool record, no retained tail, and no forward
-pointer, and replacement history MUST NOT exist.
+The summary MUST use the conversation language. It MUST retain code, paths, identifiers, and errors without translation. It MUST omit absent facts without invention. It MUST NOT shorten or reconstruct identifiers.
 
-The next attempt MUST assemble its freshly resolved top-level prompt and tools,
-the latest checkpoint whose absorbed-through sequence is below the triggering
-user message's sequence as one user-role text message, and then every user and
-assistant row above that absorbed-through sequence in sequence order. Selection
-is by that boundary rather than by the checkpoint row's own sequence, because a
-pre-step checkpoint publishes above the user message it was published for. It
-MUST NOT re-wrap the raw summary, re-render checkpoint text, or reconstruct any
-part from the summary. The raw summary remains separate; replay MUST NOT parse
-it out of the checkpoint text.
+The instruction MUST exclude personalization and every recency-digest snapshot, notice, and carry text. It MUST name the personalization delimiter and the shared envelope with producer `recency-digest`. Historical prompt digest blocks MUST retain their delimiter exclusion. The model, not a structural redactor, enforces semantic exclusion. No digest source text can become authoritative checkpoint state.
 
-A later compaction MUST consume the previous checkpoint as user text plus newly
-absorbed messages and write a wholly new checkpoint message. A legacy checkpoint
-renderer or compatibility fallback MUST NOT exist. A checkpoint without valid
-non-empty stored checkpoint text MUST fail closed rather than silently discard
-or regenerate history.
+Digest exclusion from summary prose MUST remain instruction-enforced, not a structural guarantee. Publication MUST NOT claim to detect every paraphrase or reject nonempty output solely on that promise. Comparison state MUST derive from persisted digest items, never summary prose.
 
-The checkpoint message and the re-baked epoch state — the recency-digest
-baseline, the temporal anchor, the skill-catalog baseline, the workspace
-told-set, and the epoch markers naming the checkpoint message — MUST commit in
-one transaction before the model step the compaction preceded and before that
-attempt resolves its own system prompt, its rail items, and its
-system-prompt receipt, so the receipt records the prompt actually sent and every
-re-baked value takes effect for the request the checkpoint precedes. A later
-failure of that attempt MUST leave them in place, because a checkpoint
-describes committed history only, and a retry MUST reuse the published
-checkpoint instead of paying a second summary call. Publication MUST be
-idempotent across a worker-attempt cutover, and stale work MUST NOT alter a
-prepared live attempt's context.
+The summarization request MUST retain the bound prompt and prefix unchanged. Only its trailing instruction MUST carry exclusions. Title generation MUST retain its dedicated task prompt, not the Chat system prompt.
 
-Compaction MUST estimate the request actually sent and MUST NOT load,
-reconstruct, or persist a historical tool catalog. Tool execution remains
-disabled. If the request still does not fit after that one compaction, the
-attempt MUST fail `context_incompatible`. Post-cutover failed-attempt output
-MUST remain part of the record and enter compaction input like any other
-committed turn.
-Existing history and checkpoints MUST retain the preservation boundary defined
-by `context-injection`.
+Publication MUST atomically store a nonempty raw summary and exactly one checkpoint message. That message MUST carry its final literal envelope, raw summary, usage, and absorbed-through sequence. It MUST contain no tool record, retained tail, or forward pointer. No replacement-history store can exist. The raw summary MUST remain separate from its envelope text.
 
-The persisted checkpoint envelope MUST state that the session state may already
-reflect work described in it and MUST direct the assistant not to repeat that
-work.
+Request assembly MUST select the latest checkpoint with an absorbed boundary below the triggering user message. It MUST replay that checkpoint as one user-role text message. Its associated digest companion MUST follow immediately, outside the checkpoint row. Then replay retained user and assistant rows above the absorbed boundary. This pair-placement rule MUST precede ordinary sequence order. A pre-step checkpoint can have a sequence above the message it precedes.
+
+Replay MUST use stored checkpoint text without a new envelope or metadata-derived reconstruction. It MUST NOT parse the raw summary out of the envelope. A later compaction MUST consume the previous checkpoint plus newly absorbed rows and create a new checkpoint. Missing or invalid stored checkpoint text MUST fail preparation closed. No legacy renderer or compatibility fallback can exist.
+
+The checkpoint, separate digest companion, and refreshed epoch state MUST commit in one fenced transaction before the next model step. Other epoch state MUST retain its temporal, skill-catalog, Workspace, and checkpoint-marker lifecycles. The attempt MUST resolve its subsequent prompt, items, and system-only receipt after that commit. Every refreshed value MUST affect that request. A later failure MUST preserve the published checkpoint and companion. Retry MUST reuse them without another summary call.
+
+Publication MUST be idempotent across worker attempts. Stale work MUST NOT alter prepared live context. A digest companion MUST contain only its context item and MUST start no Run. Idle and step-boundary compaction MUST obey the same companion placement and persistence rule.
+
+Estimate the actual request without a historical tool catalog. If the request still does not fit after this compaction, fail `context_incompatible`. Committed failed-attempt output MUST enter compaction like other committed history. Preserve the history boundary of context-injection. The stored checkpoint envelope MUST state that work can already affect session state. It MUST direct the assistant not to repeat that work.
 
 #### Scenario: A pre-step trigger compacts before the first model request
 
-- **WHEN** the prepared request of a Run reaches its model's threshold or does
-  not fit that model's window
-- **THEN** summarization runs inside that attempt before its first model step,
-  using the model, prompt, tool declarations, and effort the trigger selects,
-  its compactable history, and the single trailing instruction
-- **AND** the checkpoint message and its raw summary commit atomically before
-  that model step
+- **WHEN** a prepared Run request reaches its threshold or exceeds its model window
+- **THEN** the selected variant summarizes before the first model step
+- **AND** its checkpoint, raw summary, and required companion commit atomically before that step
 
 #### Scenario: A request over both the window and the threshold takes the window variant
 
@@ -882,14 +569,9 @@ work.
 
 #### Scenario: The instruction carries the data, supersession, secret, and language rules
 
-- **WHEN** the summarization instruction is rendered
-- **THEN** it directs the model to treat history and any prior checkpoint as
-  data, to let the conversation win over a prior checkpoint, to remove a task
-  that a reverse signal cancels, and to write `[REDACTED]` for credentials while
-  noting their presence
-- **AND** it directs the model to answer in the conversation's language without
-  translating code, paths, identifiers, or errors, and to omit a field rather
-  than invent one
+- **WHEN** the summarization instruction renders
+- **THEN** it specifies data-only history, conversation precedence, cancelled-task removal, and credential redaction
+- **AND** it preserves language, code, paths, identifiers, and errors without invented facts
 
 #### Scenario: Folding a prior checkpoint keeps the latest ask verbatim
 
@@ -908,7 +590,7 @@ work.
 #### Scenario: The envelope marks absorbed work as already done
 
 - **WHEN** a checkpoint message is published
-- **THEN** its stored envelope states that the session state may already reflect
+- **THEN** its stored envelope states that the session state can already reflect
   the work the checkpoint describes
 - **AND** it directs the assistant not to repeat that work
 
@@ -929,12 +611,9 @@ work.
 
 #### Scenario: Next turn follows a compaction
 
-- **WHEN** a Run is assembled after a published checkpoint
-- **THEN** current top-level prompt and tools are followed by the checkpoint as
-  one user-role text message and then every later user and assistant row in
-  sequence order
-- **AND** no checkpoint text is regenerated from the raw summary and no row is
-  reordered
+- **WHEN** a Run prepares after a checkpoint publication
+- **THEN** assembly emits its current prompt and tools, checkpoint, associated digest companion, and retained rows
+- **AND** replay uses stored checkpoint text without reconstruction
 
 #### Scenario: Model changes after compaction
 
@@ -993,15 +672,9 @@ work.
 
 #### Scenario: Image overflow selects the threshold variant
 
-- **WHEN** a prepared request on a model that declares `image` input fits that
-  model's window and its measured context size is below the threshold, but it
-  carries an image reference beyond its epoch's bounds and a stored image
-  reference in a row before the triggering user message
-- **THEN** the threshold variant runs before the Run's first model step, with
-  that attempt's own model client, system prompt, schema-only tool declarations,
-  and effort
-- **AND** the request after the checkpoint admits images oldest first under the
-  new epoch
+- **WHEN** a fitting image-capable request exceeds epoch image bounds and a prior row holds an accepted image reference
+- **THEN** the attempt selects the threshold variant before its first model step
+- **AND** the new epoch admits images oldest first
 
 #### Scenario: Image overflow in the triggering message alone does not compact
 
@@ -1033,33 +706,21 @@ work.
 
 #### Scenario: PDF overflow selects the threshold variant
 
-- **WHEN** a prepared request on a model that declares `pdf` input fits that
-  model's window and its measured context size is below the threshold, but it
-  carries a PDF reference beyond its epoch's bounds and a stored PDF reference in
-  a row before the triggering user message
-- **THEN** the threshold variant runs before the Run's first model step, with
-  that attempt's own model client, system prompt, schema-only tool declarations,
-  and effort
-- **AND** the request after the checkpoint admits PDFs oldest first under the new
-  epoch
+- **WHEN** a fitting PDF-capable request exceeds epoch PDF bounds and a prior row holds an accepted PDF reference
+- **THEN** the attempt selects the threshold variant before its first model step
+- **AND** the new epoch admits PDFs oldest first
+
+#### Scenario: Compaction keeps the digest outside its summary row
+
+- **WHEN** a checkpoint publishes with effective digest state
+- **THEN** a separate atomic companion carries that state immediately after the checkpoint
+- **AND** the checkpoint row contains only its summary part
 
 ### Requirement: Summarization instructions and the title prompts are packaged templates
 
-The summarization instruction, the title-generation system prompt, and the
-title-generation user prompt SHALL be packaged template files owned by their
-modules and shipped with the executing process, rendered through the same engine
-and under the same producer-owned-values rule as item bodies under
-`context-injection`. They SHALL NOT be operator configuration: no configuration
-key SHALL select, replace, or disable one, and they SHALL remain outside
-system-prompt receipts.
+Each owning module MUST package its summary instruction and title prompts as template files. They MUST use the producer-owned-values engine of context-injection. No operator key can select, replace, or disable them. They MUST remain outside system-prompt receipts.
 
-The rendered title prompts SHALL be byte-identical to their previous inline
-text. The summarization instruction SHALL request the amended section headings
-this capability names and SHALL continue to name both standing-context
-delimiters and the `recency-digest` producer under the shared envelope. The
-section list and the exclusion sentence SHALL be carried by the instruction
-template itself and verified against independently authored literal text rather
-than derived from or compared with a shared constant.
+Title prompts MUST retain their prior inline bytes. The summary template MUST contain the required sections and context exclusions. It MUST name the personalization delimiter and the shared envelope with producer `recency-digest`. Historical prompt digest blocks MUST retain their delimiter exclusion. Independently authored literal expectations MUST verify those contracts. The check MUST NOT compare a template with itself or derive both sides from one shared constant.
 
 #### Scenario: Compaction request is unchanged by the template migration
 
@@ -1076,13 +737,13 @@ than derived from or compared with a shared constant.
   section headings or no longer names the `recency-digest` producer under the
   shared envelope
 - **THEN** the compaction contract check fails against its independently authored literal text
-- **AND** the omission cannot be masked by comparing the instruction with itself
+- **AND** a self-comparison cannot hide the omission
 
 #### Scenario: Title generation keeps its dedicated prompts
 
-- **WHEN** a title is generated after this change
-- **THEN** the request uses the packaged title system prompt and wraps the bounded conversation text with the packaged title user prompt, both byte-identical to the previous inline text
-- **AND** it does not use the chat model's effective system prompt or any owner personalization
+- **WHEN** the system generates a Chat title
+- **THEN** it uses its packaged title system and user prompts with unchanged prior bytes
+- **AND** it uses no Chat system prompt or personalization
 
 #### Scenario: No configuration replaces an instruction template
 
@@ -1399,3 +1060,202 @@ requests replay.
 
 - **WHEN** a turn Run replays a checkpoint that has a focus
 - **THEN** the checkpoint text in the request does not hold the focus text
+
+### Requirement: Each model resolves a complete prompt without digest variables
+
+Each model MUST use one complete effective system prompt. A model override MUST replace the project default, not inherit or compose it. Missing overrides MUST select the project default. System and tool-description templates MUST use the same validated Handlebars projection. That projection MUST exclude `chats` and `chats.*`, under instance-config. Receipts MUST contain rendered system text only.
+
+#### Scenario: Model has no prompt override
+
+- **WHEN** the selected model omits `systemPromptFile`
+- **THEN** the project default supplies its complete prompt and receipt source
+
+#### Scenario: Two models use materially different prompts
+
+- **WHEN** two model entries select different valid files
+- **THEN** each uses its complete file without inheritance or composition
+
+#### Scenario: Configured override is broken
+
+- **WHEN** a selected override cannot resolve to valid nonempty text
+- **THEN** startup fails without fallback
+
+#### Scenario: Retired digest paths fail startup
+
+- **WHEN** a template references a digest path or `chats` gate
+- **THEN** startup rejects it without source Chat resolution
+
+### Requirement: The current prompt projection remains explicit
+
+The projection MUST admit only `model.id`, optional `model.name`, declared owner paths, temporal scalars, skill fields, web-search fields, and conditional tool predicates. Preserve `webSearch` and `webSearch.engines` under tool-prompt-templates. An absent model name MUST render empty.
+
+Both temporal scalars MUST remain unconditional. A bare `context` gate MUST fail startup. Model paths MUST resolve at boot. Owner and Chat values MUST resolve per attempt.
+
+#### Scenario: Default prompt renders model id and name
+
+- **WHEN** the selected model has an id and configured name
+- **THEN** its receipt contains those rendered values
+
+#### Scenario: Prompt references an absent model name
+
+- **WHEN** the model omits its optional name
+- **THEN** startup succeeds, its value is absent, and its conditional is false
+
+#### Scenario: Prompt renders the temporal anchor
+
+- **WHEN** a prompt references both temporal scalars
+- **THEN** it renders the absolute timestamp, numeric UTC offset, and IANA timezone
+
+#### Scenario: Temporal namespace is guarded as though it were optional
+
+- **WHEN** a prompt checks the bare `context` namespace
+- **THEN** startup rejects that construct without prompt contents
+
+#### Scenario: Prompt references no temporal path
+
+- **WHEN** a prompt omits both temporal scalars
+- **THEN** the omitted anchor contributes no bytes
+
+#### Scenario: Per-user paths survive boot unresolved
+
+- **WHEN** a template references allowlisted owner paths
+- **THEN** boot validates them without an owner lookup
+- **AND** each attempt resolves the current values
+
+### Requirement: Template syntax stays closed and single-pass
+
+Validation MUST admit literal content, allowed values, comments, and `if`, `unless`, and `each` blocks only. It MUST reject partials, decorators, unescaped output, unknown paths, and other helpers. Parsed path segments and depth MUST govern admission. Blocks MUST accept exactly one parameter without hash arguments or block parameters. Rendered values MUST NOT undergo another parse. Literal engine escapes and whitespace-control syntax can remain.
+
+#### Scenario: Literal expression is emitted
+
+- **WHEN** a template uses the engine literal escape
+- **THEN** the expression stays literal without recursive evaluation
+
+#### Scenario: Prompt uses a conditional
+
+- **WHEN** an allowed value controls an `if` block
+- **THEN** only the applicable branch renders
+
+#### Scenario: Prompt contains a disallowed construct
+
+- **WHEN** a template uses an unknown path, partial, unescaped value, or forbidden helper
+- **THEN** startup rejects the model and construct without source contents
+
+#### Scenario: Rendered output is not re-evaluated
+
+- **WHEN** an owner value contains template syntax
+- **THEN** that syntax remains literal text
+
+### Requirement: Template iteration stays bounded to declared fields
+
+`each` MUST accept only an allowlisted collection. It MUST reject scalars, gates, nested iteration, index/key variables, hash arguments, and block parameters. Item expressions MUST use declared fields only. Collections MUST NOT render as scalar values. `skills.entries` MUST expose only `name` and `description`, in code-point name order. `skills.omitted` MUST be a non-iterable integer that is false at zero.
+
+#### Scenario: Prompt iterates an allowlisted collection
+
+- **WHEN** an `each` block selects `skills.entries` and its declared fields
+- **THEN** one body renders per entry
+
+#### Scenario: Iteration references an undeclared item field
+
+- **WHEN** an iteration uses an undeclared field
+- **THEN** startup rejects it without Chat disclosure
+
+#### Scenario: Iteration is attempted over a non-collection
+
+- **WHEN** `each` targets a scalar, gate, or unknown path
+- **THEN** startup fails before any Run
+
+#### Scenario: Iteration uses a forbidden escape construct
+
+- **WHEN** a template uses nested iteration, index/key variables, hashes, or block parameters
+- **THEN** startup rejects each construct
+
+#### Scenario: Prompt iterates the skill catalog
+
+- **WHEN** a template emits skill names and descriptions
+- **THEN** entries follow code-point name order and descriptions receive tag neutralization
+
+#### Scenario: A prompt gates an overflow line on the omitted count
+
+- **WHEN** a template checks `skills.omitted`
+- **THEN** the line appears only for a nonzero count
+- **AND** iteration over that scalar fails
+
+#### Scenario: A collection is emitted as a value
+
+- **WHEN** a template emits `skills.entries` as a scalar
+- **THEN** startup fails rather than stringify its structure
+
+### Requirement: Owner and skill gates remain independent and absent-safe
+
+Absent or whitespace-only owner fields MUST be absent from the projection. Empty personalization MUST remove that gate. No owner content MUST remove `user`. No proactively admitted skill entry MUST remove `skills`.
+
+Boot MUST probe independent `user`, `skills`, and `webSearch` gate combinations with a representative anchor. It MUST reject every empty result. Tool predicates MUST follow tool-prompt-templates without an exhaustive membership probe.
+
+#### Scenario: An entire skills section is gated on an admitted entry
+
+- **WHEN** a template checks `skills`
+- **THEN** its section appears only with admitted entries
+
+#### Scenario: Boot records whether a template references the catalog
+
+- **WHEN** worker boot validates a model template
+- **THEN** turn preparation receives its skills-reference flag
+
+#### Scenario: Skills gate is independent of the other gates
+
+- **WHEN** a template becomes empty for only one owner/skills combination
+- **THEN** boot detects that combination and rejects it
+
+#### Scenario: Prompt references no per-user path
+
+- **WHEN** a prompt has no owner expression
+- **THEN** startup succeeds without personalization bytes
+
+#### Scenario: Owner value absent at render time
+
+- **WHEN** an owner field has no nonempty value
+- **THEN** it remains absent, renders empty, and tests false
+
+#### Scenario: An entire section is gated on the owner having any per-user context
+
+- **WHEN** the owner supplies no profile or shared identity
+- **THEN** the `user` section and its prose disappear
+
+#### Scenario: Template renders non-empty without an owner
+
+- **WHEN** a template becomes empty for an unpersonalized owner
+- **THEN** boot rejects that empty combination
+
+#### Scenario: Template is empty only for one gate combination
+
+- **WHEN** one independent owner/skills combination yields empty text
+- **THEN** the boot cross product rejects it
+
+#### Scenario: Every boot probe carries an anchor
+
+- **WHEN** boot probes the independent gates
+- **THEN** each probe supplies a representative temporal anchor
+
+### Requirement: Prompt values keep their escaping and omission rules
+
+Model values, account identity, and grammar-constrained skill names MUST escape exactly `&`, `<`, and `>`. Owner-authored values and skill descriptions MUST use instance-config tag neutralization. Projection MUST apply those rules without a global engine-escape change. Catalog omission MUST retain its frozen-baseline semantics. Digest disclosure MUST use its own rail lifecycle and cannot make `user` present.
+
+#### Scenario: Digest presence does not make the personalization gate true
+
+- **WHEN** the owner has digest context but no profile or shared identity
+- **THEN** the `user` gate remains false
+
+#### Scenario: A prompt does not require a digest gate
+
+- **WHEN** the digest has no eligible Chats
+- **THEN** the system prompt has no digest field or empty digest framing
+
+### Requirement: Owner prompt paths remain a closed projection
+
+The owner paths MUST remain exactly `user.personalization.preferredName`, `user.personalization.about`, `user.personalization.responsePreferences`, `user.name`, and `user.email`. The temporal scalars MUST remain exactly `context.systemTime` and `context.systemTimezone`. Skill fields MUST remain the declared `skills.entries` item fields and `skills.omitted`. No prefix-path wildcard can expose other configuration or owner data.
+
+#### Scenario: An undeclared owner field remains unavailable
+
+- **WHEN** a configured template references another owner field
+- **THEN** boot rejects the unknown path without an owner lookup

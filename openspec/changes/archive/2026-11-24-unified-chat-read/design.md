@@ -8,7 +8,7 @@ See [proposal.md](proposal.md) for scope and decision links. The inspected base 
 
 The digest currently has a frozen JSON baseline and a growing told-set on `chats`. Baselines enter replaceable templates. Updates already use persisted `recency-digest` items. `gitToldState` and `instructionsSeenPaths` demonstrate reconstruction from effective context without producer columns.
 
-Prior art supplies mechanisms, not authorization. The [OMP reference](../../../docs/research/harnesses/oh-my-pi.md) is the primary tool reference. Its `history://` reads and the shared read selector model support one locator reader. The [OpenClaw reference](../../../docs/research/harnesses/openclaw.md) records session history and transcript ownership. Neither replaces llame's immutable message namespace or owner RLS. The [digest study](../../../docs/research/long-term-memory/2026-08-12-recency-digest-prior-art.md) separates disclosure volume from instruction authority. The 200-code-point total remains a disclosure bound, not a token estimate.
+Prior art supplies mechanisms, not authorization. The [OMP reference](../../../../docs/research/harnesses/oh-my-pi.md) is the primary tool reference. Its `history://` reads and the shared read selector model support one locator reader. The [OpenClaw reference](../../../../docs/research/harnesses/openclaw.md) records session history and transcript ownership. Neither replaces llame's immutable message namespace or owner RLS. The [digest study](../../../../docs/research/long-term-memory/2026-08-12-recency-digest-prior-art.md) separates disclosure volume from instruction authority. The 200-code-point total remains a disclosure bound, not a token estimate.
 
 ## Goals / Non-Goals
 

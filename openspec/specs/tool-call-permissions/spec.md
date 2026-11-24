@@ -694,7 +694,7 @@ Tool call stopped by operator permissions. Every address of the target host was 
 
 ### Requirement: Recommended portable policy with explicit replacement
 
-When `tools.permissions` is omitted, the system MUST create no permission groups, so every call is rejected. No built-in fallback policy exists. The shipped `llame.config.jsonc.example` MUST document exactly nine groups as the recommended portable map for operators to copy. The groups are `bash`, `read`, `edit`, `write`, `knowledge_search`, `search_conversations`, `conversation_read`, `enter_workspace`, and `exit_workspace`. It MUST also document the B1-B8, F1-F4, E1-E3, W1-W2, F5a-F5f, F6, and F7 rejects below. The groups `bash`, `read`, `edit`, `write`, `knowledge_search`, `search_conversations`, `conversation_read`, and `exit_workspace` MUST each have a whole-tool allow.
+When `tools.permissions` is absent, the system MUST create no groups and reject every call. No fallback policy exists. The example MUST document ten groups. They are `bash`, `read`, `edit`, `write`, `knowledge_search`, `search_conversations`, `wait`, `stop`, `enter_workspace`, and `exit_workspace`. Every group except `enter_workspace` MUST have a whole-tool allow. The example MUST retain the B1-B8, F1-F4, E1-E3, W1-W2, F5a-F5f, F6, and F7 rejects below.
 
 The `enter_workspace` group MUST instead use an operator-edited field allow on `path`, such as `{ "field": "path", "regex": "^machine://[^/]+/home/operator/projects/[^/]+/?$" }`. Its allow is not a whole-tool allow. It MUST contain the F1-F3 and E1-E3 path rejects against its `path` field and no other recommended rejects. Every directory that this field allow admits is trusted to run code and read secrets of its Machine through its Workspace MCP configuration.
 
@@ -780,7 +780,7 @@ They MUST match no hostname text, so the addresses that its host resolves to dec
 
 - **WHEN** both `tools.allowed` and `tools.permissions` are omitted
 - **THEN** no permission group exists and no tool is advertised or executable
-- **AND** a requested call would be rejected as `no_allow`
+- **AND** the evaluator rejects a requested call as `no_allow`
 
 #### Scenario: Operator map is the complete policy
 
@@ -812,19 +812,19 @@ They MUST match no hostname text, so the addresses that its host resolves to dec
 #### Scenario: Recommended entry policy rejects protected paths
 
 - **WHEN** the recommended policy is in force with its operator-edited `enter_workspace.path` allow admitting `/home/operator/.ssh`, `/home/operator/.ssh` is a directory, and `enter_workspace` submits `/home/operator/.ssh`
-- **THEN** the call is rejected by F1
+- **THEN** F1 rejects the call
 - **AND** no Workspace binding is established
 
 #### Scenario: Recommended write policy rejects Workspace control paths
 
 - **WHEN** the recommended example policy is in force and `write` submits `/project/.mcp.json` or `/project/.llame/skills/x/SKILL.md`
-- **THEN** each call is rejected by W1 or W2
+- **THEN** W1 or W2 rejects each call
 - **AND** no file is created or modified
 
 #### Scenario: Recommended entry policy rejects risky roots
 
 - **WHEN** the operator-edited `enter_workspace.path` allow admits `/home/operator/projects/app/node_modules`, `/tmp/project`, and `/home/operator/projects/Downloads`, and the recommended policy is in force
-- **THEN** the calls are rejected by E1, E2, and E3 respectively
+- **THEN** E1, E2, and E3 reject the respective calls
 - **AND** no Workspace binding is established for any of them
 
 #### Scenario: Recommended entry field allow names trusted roots
@@ -1473,3 +1473,24 @@ A reject that ends in `([/\\]|$|:)` MUST still refuse such a literal name.
 - **WHEN** a host file named `/home/u/secret:P3` exists and a reject matches `path` against `secret:P3$`
 - **THEN** the projected text is `machine://devl/home/u/secret`, so that reject does not refuse the read
 - **AND** a reject on `/home/u/secret` that ends in `([/\\]|$|:)` refuses it
+
+### Requirement: Chat reads match canonical selector-free resources
+
+The `read` group MUST authorize Chat reads on their canonical selector-free locator. Canonicalization MUST use the same parser as execution. It MUST normalize scheme and UUID case and retain a message sequence.
+
+Reject clauses MUST also inspect the submitted spelling without its selector. `chat://` MUST remain an owner collection, not a Machine path. Whole-tool allows can admit it. RLS MUST remain mandatory in every permission mode.
+
+#### Scenario: Selectors cannot evade a Chat reject
+
+- **WHEN** the read group rejects a Chat root and its message paths
+- **THEN** `CHAT://<uuid>/1:raw:L2-4` cannot evade the canonical rejection
+
+#### Scenario: A whole-tool read allow admits owned Chats
+
+- **WHEN** the example read group has `allow: true` and no matching reject
+- **THEN** an owned Chat read passes the policy without a special group
+
+#### Scenario: A narrow web allow grants no Chat read
+
+- **WHEN** only an HTTPS domain clause allows read
+- **THEN** `chat://` fails `no_allow` before any owner Chat query

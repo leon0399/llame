@@ -6,97 +6,6 @@ A bounded, owner-scoped digest of the owner's pinned and recent chats — each c
 
 ## Requirements
 
-### Requirement: The digest carries four bounded fields per chat and no identifier
-
-The digest SHALL contain, for each listed chat, at most four fields and no others: its **title**, its **last-activity date**, its **message count**, and an **excerpt** of that chat's first user message truncated to a documented maximum of **200 Unicode code points**, cut on a code-point boundary. The unit SHALL be code points rather than UTF-16 units or bytes, so the cap does not vary by script and cannot split a character. Only the excerpt is omissible, and only in the case named below; the other three SHALL always render. The excerpt SHALL be taken from the earliest stored user message by insertion order, independent of whether that chat has since been compacted, so an entry's content is immutable once resolved. Assistant replies, tool output, reasoning, and any message after the first SHALL NOT appear.
-
-The digest SHALL NOT carry chat identifiers. No shipped tool accepts a chat id, so an identifier would be inert while costing roughly eighteen to twenty tokens per entry — several hundred tokens of unusable text frozen into every chat's prompt. Identifiers belong on transient, requested surfaces that are paid for only when called, not in a standing prompt. Adding one later is a template edit rather than a migration, so the omission SHALL be revisited when a tool consumes one.
-
-The last-activity date SHALL be rendered as an **absolute calendar date** and SHALL be labelled as last activity, so it is not mistaken for the date of the excerpt it sits beside — the excerpt is the chat's opening message and the date is its most recent, and a long-running chat legitimately shows a wide gap between them. Relative expressions ("three days ago") SHALL NOT be used: a frozen baseline renders the same text indefinitely, so a relative date decays into a confident falsehood.
-
-The message count SHALL be the count of stored messages at the moment the entry was resolved, and SHALL be understood as frozen alongside the rest of the entry rather than tracking the chat.
-
-The 200-code-point cap SHALL be documented as an **injection and disclosure control rather than a token-budget control**: a first user message frequently contains bulk pasted material, and the cap exists to retain the owner's own leading prose while truncating that payload. Raising it for perceived answer quality is therefore a security decision, not a tuning decision. A chat whose first user message has no text content SHALL render with **no excerpt field at all** rather than an empty one, and SHALL still render its title. Omission rather than an empty value is required, not cosmetic: rendered values are `SafeString`s, and a `SafeString` wrapping `""` is still a truthy object, so an empty-valued excerpt would satisfy the template's own presence check and emit a bare label with nothing after it.
-
-The digest SHALL list at most **10 pinned chats** and at most **10 recent chats**. Pinned chats beyond the cap SHALL be absent from **both** lists, since the recent list is drawn from chats that are not pinned. This is accepted rather than worked around: the stated pinned ratio tells the model that more pinned chats exist, and the cut is a decision the owner made via pin rank rather than an arbitrary activity boundary. The two lists SHALL be **disjoint**: a chat that is both pinned and recent SHALL appear only under pinned, and the recent list SHALL backfill from the next-most-recent unpinned chats so that it carries a full 10 whenever the owner has that many. Pinned SHALL render before recent. The **pinned** list SHALL be ordered by the owner's pin rank (the same order as `GET /pins` / `GET /chats?pinned=only`, restricted to eligible chats). The **recent** list SHALL be ordered by last activity, most recent first.
-
-The rendered digest SHALL state, for each list, **how many entries it shows out of how many exist** — the pinned list against the owner's total **eligible pinned** chats, and the recent list against the owner's total eligible **unpinned** chats. "Eligible" carries the same meaning in both denominators as it does for list selection: the chat being rendered, archived chats, chats with no title or a whitespace-only title, and pins whose item is not a chat SHALL NOT be counted. A pinned chat that is excluded from the list for any of those reasons SHALL likewise be absent from `pinnedTotal`, so the ratio never claims a pinned chat the digest could not have shown. The recent list is drawn from eligible chats that are not pinned, so counting all eligible chats would describe a population the list is not selected from — with 30 pinned inside 247 eligible, the recent denominator is 217. Each denominator SHALL be the **exact** population its list is drawn from, so the two ratios describe the lists rather than approximating them. A capped read cannot yield an exact total, so the read path SHALL return the count independently of the capped rows — a cap that also truncates the denominator would report `10 of 10` for an owner with 247 chats, inverting the signal the ratio exists to give.
-
-Bare prose that entries were omitted is insufficient. A ratio is what tells the model whether the digest is nearly complete or a thin slice of a deep corpus, which is precisely the judgment that should decide whether it retrieves: `10 of 12` and `10 of 247` warrant opposite behavior and identical prose. The counts SHALL be presented as a statement about the owner's corpus, not as usage statistics about the owner, and no derived behavioral measure — message frequency, session depth, activity streaks, model-usage breakdowns — SHALL be included.
-
-The counts SHALL be resolved with the baseline and frozen alongside it; appends SHALL NOT update them. Their staleness is bounded by the same re-resolution boundary as every other entry and is covered by the stated compilation date.
-
-The rendered digest SHALL NOT name a retrieval tool that is not advertised for that turn.
-
-The rendered digest SHALL additionally state the **absolute date on which the list itself was compiled**, and that the list may be older than the current conversation. Without that anchor the per-entry dates are close to decorative: llame injects no current date anywhere, so a model reading `2026-07-20` cannot place it relative to now. A stated compilation date gives every entry a reference point and makes the list's frozen nature legible instead of hidden.
-
-The framing SHALL further state that **every entry is a point-in-time record rather than an authoritative description of the chat as it stands now**, naming renaming specifically. That case has a functional consequence rather than a cosmetic one: retrieval matches titles live, so a title renamed after the list was compiled can match nothing, and the model needs to read a miss as staleness rather than as the chat not existing. The entry's excerpt is verbatim message content and remains reachable, so a content-derived query still recovers the chat.
-
-#### Scenario: Digest lists a chat with a long first message
-
-- **WHEN** an eligible chat's first user message exceeds the documented excerpt maximum
-- **THEN** the rendered entry contains only the first 200 Unicode code points of that message
-- **AND** no later message from that chat appears in the digest
-
-#### Scenario: Digest contains no assistant or tool content
-
-- **WHEN** the digest is rendered for an owner whose chats contain assistant replies, tool results, and reasoning
-- **THEN** the rendered output contains none of that content
-- **AND** only titles, last-activity dates, message counts, and first-user-message excerpts are present
-
-#### Scenario: Digest carries no chat identifiers
-
-- **WHEN** the digest is rendered for any owner
-- **THEN** no chat identifier appears in the rendered output
-- **AND** no entry offers the model a handle it could pass to a tool
-
-#### Scenario: The list states when it was compiled and how far to trust it
-
-- **WHEN** the digest is rendered
-- **THEN** it states the absolute date the list was compiled, that it may be older than the current conversation, and that entries are point-in-time records whose titles may since have been renamed
-- **AND** every entry's date is interpretable relative to that stated point
-
-#### Scenario: A listed chat is renamed after the baseline is resolved
-
-- **WHEN** the owner renames a chat that the baseline lists
-- **THEN** the digest continues to show the title as it stood when the list was compiled
-- **AND** no append corrects it, the framing having already stated that titles are not authoritative
-
-#### Scenario: A long-running chat shows a recent date beside an old excerpt
-
-- **WHEN** a listed chat was started weeks before its most recent activity
-- **THEN** its date is labelled as last activity rather than presented as the excerpt's date
-- **AND** the date is absolute rather than expressed relative to the present
-
-#### Scenario: A pinned chat is also among the most recent
-
-- **WHEN** an owner's most recently updated chat is also pinned
-- **THEN** it appears once, under pinned, and not under recent
-- **AND** the recent list backfills with the next-most-recent unpinned chat so it still carries 10 entries
-
-#### Scenario: Digest states how much it is showing
-
-- **WHEN** an owner with 247 eligible chats, 30 of them eligible and pinned, has a digest resolved
-- **THEN** the rendered block states that it shows 10 of 30 pinned and 10 of 217 recent — the recent denominator excluding the 30 pinned, since the recent list is not drawn from them
-- **AND** it carries no message-frequency, session-depth, streak, or model-usage measure
-
-#### Scenario: Owner has fewer chats than the caps
-
-- **WHEN** an owner has three eligible chats and none pinned
-- **THEN** the pinned list is omitted entirely and the recent list contains those three
-- **AND** no placeholder or padding entry is rendered
-
-#### Scenario: A chat's first message carries no text
-
-- **WHEN** an eligible chat's first user message contains only non-text parts
-- **THEN** its entry renders its title, date, and message count with no excerpt
-- **AND** the entry is not dropped from the digest
-
-#### Scenario: Pinned digest follows owner pin rank
-
-- **WHEN** an owner has reordered pinned chats so eligible chat A ranks above eligible chat B while B was updated more recently
-- **THEN** the digest's pinned list lists A before B
-
 ### Requirement: Eligibility excludes the current chat, archived chats, and untitled chats
 
 The digest SHALL exclude the chat it is rendered into, SHALL exclude archived chats, and SHALL omit any chat with no title. A chat's title SHALL be the eligibility gate: because titles are generated asynchronously, a chat becomes eligible when its title exists and not before, which yields exactly one first appearance per chat. An untitled chat SHALL NOT be rendered under a placeholder label.
@@ -133,148 +42,39 @@ Pinned entries SHALL be drawn only from pins whose item type is `chat`; pins tar
 - **THEN** the rendered pinned ratio counts 9, not 12
 - **AND** the same exclusions that removed those three from the list removed them from the count, so the ratio never names a pinned chat the digest could not have shown
 
-### Requirement: Digest baselines publish with the successful attempt and disclosure state with the dispatched request
-
-Each chat SHALL carry two distinct pieces of digest state, and they SHALL NOT be conflated:
-
-- The **rendered baseline** — the capped, ordered entries available to both prompt surfaces. It is written once, with the chat's first successful turn whose attempt prepared it with the setting enabled, and is **immutable until re-resolution**, which keeps the digest contribution stable across the chat's turns.
-- The **told-set** — every chat this conversation has been told about in dispatched model context, whether through a rendered baseline in either prompt surface or a later append, with the pin state last communicated for each. It **grows** with every append.
-
-Both SHALL be reset together when the baseline is re-resolved at a checkpoint. The refresh SHALL be published with that checkpoint, in the same transaction, before the model step the checkpoint precedes; it SHALL not pretend the refreshed baseline was already disclosed by that step. The new epoch's told-set SHALL include only entries actually disclosed by a dispatched request, so a refresh awaiting its first request starts with no newly disclosed entries.
-
-The told-set SHALL record only chats the model actually received. Initialization SHALL therefore derive it from the baseline actually **rendered** in the winning attempt's system prompt or admitted tool descriptions, not merely from the fact that baseline state was written: operator templates that omit the digest from both surfaces leave the baseline unrendered, and marking those chats told would suppress their later appends and disclose them never. A chat whose baseline entry was never rendered SHALL remain untold, so it enters through the ordinary append path when the ordinary append rules make it eligible.
-
-Both prompt renders SHALL return private disclosure metadata alongside text, keyed to the trusted digest candidates. Record entry ids only when their entry values are actually emitted along the executed template branch, not when a collection is tested/iterated or only aggregate counts are emitted. Use the existing validated renderer's emission path, not string matching, reparsing rendered text, or a second template engine. These ids SHALL not become new template variables or stored tool-description metadata. Use the union of prior told state and the current render's actual baseline disclosure when deriving this attempt's appends; when the request carries a digest append, commit that union plus the append in the attempt's dispatch transaction, whatever the Run's outcome; a chat's initial baseline and told-set still commit only with the winning turn.
-
-A checkpoint refresh SHALL reset the new epoch's told-set without pre-marking unrendered entries; the next dispatched request accounts for actual baseline disclosure. Unrendered entries remain eligible under the ordinary append rules.
-
-The told-set SHALL identify chats by their chat id. Storing an identifier for bookkeeping is not in tension with omitting identifiers from the rendered output: the two serve different purposes, and no stored id is ever rendered.
-
-The worker SHALL recheck the owner setting and chat digest epoch under tenant scope immediately before preparing the final request and system-only receipt, after candidate resolution. If sharing was disabled during resolution, discard the new baseline/append candidate and proceed without newly produced digest content. This check SHALL occur before target-model I/O, not after disclosure. A checkpoint's re-resolved baseline commits in the checkpoint's own fenced transaction, which precedes the final request, so for that candidate the recheck SHALL run inside that transaction, after candidate resolution and before the refreshed baseline is written; a withdrawal before that point discards the candidate and the checkpoint publishes without the digest refresh. Existing baseline retention on withdrawal remains unchanged.
-
-Baseline/told-set initialization SHALL be staged for the attempt and committed atomically with its successful turn; it is the only digest state that waits for a successful turn. When the request carries a digest append, that append's told-set advancement, together with the accounting for the request's actual baseline disclosure, SHALL commit in the attempt's fenced dispatch transaction, the one that persists the request's accepted-turn items on their message before that request is dispatched, whatever the Run's later outcome. A checkpoint SHALL publish its refreshed baseline and reset told-set in its own fenced atomic transaction under `model-system-prompts`, before the model step it precedes. Failed, cancelled, or superseded attempts SHALL leave the committed digest state unchanged beyond what their dispatch transactions committed: an attempt that ends before its dispatch transaction commits changes nothing, a failed initializing attempt leaves no baseline, told-set advancement already committed with a dispatched append remains because that append remains in history, and a checkpoint already published with its refreshed baseline survives the failure of the attempt it preceded, because the checkpoint and its epoch state describe committed history only and a retry reuses them rather than re-resolving. At most one baseline epoch SHALL exist per chat; existing single-flight and attempt/epoch fencing SHALL prevent competing initialization or a stale compaction candidate from overwriting current state.
-
-A setting change after request preparation applies to later attempts; it cannot undo content already sent. The dispatch transaction SHALL record the actual prepared disclosure rather than pretending a later withdrawal prevented it. Receipts and committed content retain the existing non-erasure contract.
-
-Detecting events SHALL NOT require re-reading the chat's persisted message parts to reconstruct what was already announced; the told-set is the record. The told-set SHALL be advanced **in the same transaction as the append it accounts for**, so a run that fails to persist cannot leave the conversation marked as having been told something it never received. Because that transaction is the one that dispatches the request, a Run that fails after dispatch keeps both the append and the advancement, and the next Run does not announce the same event again. A request that carries no append advances nothing in its dispatch transaction; initializing a baseline and its told-set still commits only with the winning turn.
-
-#### Scenario: Baseline stays fixed while the told-set grows
-
-- **WHEN** several appends are emitted over a chat's life
-- **THEN** the rendered baseline is byte-identical throughout
-- **AND** the told-set contains the baseline chats a request actually disclosed plus every appended chat
-
-#### Scenario: Re-resolution resets both
-
-- **WHEN** the baseline is re-resolved at a checkpoint
-- **THEN** the new epoch replaces the old told-set and records only actual disclosure of the fresh baseline by a dispatched request
-- **AND** the request prepared after that publication accounts for entries rendered in either prompt surface before deriving appends, so that same request does not re-announce them
-
-#### Scenario: A failed attempt leaves the refreshed epoch in place
-
-- **WHEN** a checkpoint published a refreshed baseline before a model step and that attempt then failed
-- **THEN** the refreshed baseline and its reset told-set remain committed
-- **AND** the retry reuses them rather than resolving another baseline
-
-#### Scenario: Concurrent initializing sends produce one baseline
-
-- **WHEN** two initializing sends for the same chat race, both with the setting enabled
-- **THEN** exactly one baseline epoch exists afterwards
-- **AND** the losing request aborts or retries against the winner's baseline rather than publishing a competing baseline from its own candidate
-
-#### Scenario: Owner re-enables the setting for a chat that has no baseline
-
-- **WHEN** an owner turns `shareRecentChats` back on for an ongoing chat whose runs all happened while it was off
-- **THEN** the next successful turn prepared with sharing enabled initializes the baseline and told-set atomically
-- **AND** no append is emitted before that baseline exists
-
-#### Scenario: The setting is disabled between resolution and request preparation
-
-- **WHEN** an owner disables `shareRecentChats` after the worker has resolved a baseline candidate but before its final pre-request owner-setting check, and before any checkpoint transaction has published that candidate
-- **THEN** the candidate is discarded and no new baseline or append is sent or committed
-- **AND** the run proceeds without digest content rather than failing
-
-#### Scenario: Sharing is withdrawn after checkpoint publication
-
-- **WHEN** an owner disables `shareRecentChats` after a checkpoint transaction has published a refreshed baseline but before the final pre-request owner-setting check
-- **THEN** the request proceeds without newly produced digest content
-- **AND** the published checkpoint and refreshed baseline remain committed
-
-#### Scenario: A failed attempt leaves no baseline
-
-- **WHEN** an initializing attempt resolves a baseline but does not successfully complete
-- **THEN** no baseline or told-set state persists for that chat
-- **AND** a permitted retry or later Run resolves the baseline afresh
-
-#### Scenario: A failed run does not advance the told-set
-
-- **WHEN** an append is prepared but its attempt fails before the dispatch transaction that persists it commits
-- **THEN** the told-set is unchanged and the append is not in history
-- **AND** the same event is detected again on the next run
-
-#### Scenario: A failed run keeps the told-set its dispatched append advanced
-
-- **WHEN** an append is persisted and the told-set advanced in the dispatch transaction, and the Run then fails, is cancelled, or expires
-- **THEN** the append remains in history and the told-set still records it
-- **AND** the next run does not announce the same event again
-
-#### Scenario: A retry reuses the dispatched append
-
-- **WHEN** an attempt persisted an append at dispatch and then failed, and a retry of the same Run prepares its request
-- **THEN** the retry replays the stored append unchanged and in place
-- **AND** it derives appends against the told-set that dispatch advanced, so it derives no second append for the same event
-
-#### Scenario: The first request after a checkpoint refresh advances nothing without an append
-
-- **WHEN** a checkpoint published a refreshed baseline, the next request renders some of its entries in a prompt surface and derives no append, and that request is dispatched
-- **THEN** the request's dispatch transaction advances no told state
-- **AND** if the Run then fails, is cancelled, or expires, the epoch's told-set is unchanged by that Run
-
-#### Scenario: A tool description is the only baseline disclosure
-
-- **WHEN** the successful attempt's system template omits the digest but an admitted tool description renders it
-- **THEN** the told-set accounts for the baseline entries actually disclosed through that description
-- **AND** the tool description itself is not persisted in a receipt
-
-#### Scenario: Sharing is withdrawn after the prepared request
-
-- **WHEN** sharing is disabled after the attempt's pre-request check and that attempt's request is dispatched
-- **THEN** the digest state committed for that request records the digest actually sent under the checked setting
-- **AND** later attempts obey withdrawal without rewriting existing receipts or committed content
-
 ### Requirement: Committed digest baselines remain stable until compaction
 
-The digest SHALL be resolved for an initializing execution attempt with `shareRecentChats` enabled and stored as an immutable per-chat baseline only on its successful turn, and every subsequent run for that chat SHALL render that stored baseline rather than re-querying the owner's chats. Rendering the same baseline SHALL be deterministic, so **the digest contributes no per-turn variation to the prompt**: across runs whose other effective-context inputs are unchanged, the resulting system prompt is byte-identical and the prompt text/hash is unchanged, although each attempt has its own receipt. An owner fork that copied a baseline from its source SHALL continue that baseline rather than resolve a new one on its first Run.
+The producer MUST publish one baseline snapshot per enabled compaction epoch. Later requests MUST replay its stored text without re-resolution. Digest content MUST contribute no bytes to newly rendered system prompts or tool descriptions. Other prompt inputs MUST retain their own lifecycles.
 
-The stability claim is scoped to the digest, not the whole prompt. Current personalization and admitted membership resolve per attempt, selected model templates may differ, and worker restart may load changed files. Each prepared attempt has its own system-only receipt even when its rendered text/hash matches another attempt's. Failed initializing attempts publish no baseline, so their retries may resolve a fresh candidate.
+A model switch MUST NOT refresh the baseline. A published checkpoint MUST start a new epoch for its next request. With sharing enabled, the producer MUST apply current selection rules.
 
-The baseline SHALL be re-resolved **only when that chat publishes a checkpoint**. A model switch SHALL NOT re-resolve it: the stored baseline SHALL be re-rendered through the new model's template, so the prompt text changes while the listed chats do not. The rationale SHALL be documented — compaction is a context boundary at which the conversation is rewritten anyway, whereas a model switch changes only which provider reads an unchanged conversation, and refreshing the chat list there would silently change what the assistant knows about the owner as a side effect of an unrelated action.
+With sharing disabled, it MUST carry only the frozen baseline, without accumulated notices or source reads. Its new comparison state MUST describe that baseline alone. A later attempt failure MUST preserve the checkpoint and companion. Retry MUST reuse both.
 
-Re-resolution SHALL apply every eligibility, cap, ordering, and disjointness rule afresh, and SHALL overwrite the stored baseline. Earlier attempts SHALL retain their immutable system-only receipts. Runtime-only tool descriptions cannot be recovered from those receipts.
+Earlier receipts and persisted items MUST remain unchanged. Owner forks MUST derive their baseline and disclosure from the copied effective prefix, not source state after the selected anchor.
 
 #### Scenario: Second turn in a chat reuses the baseline
 
-- **WHEN** a second attempt executes in a chat with a committed baseline and every other rendered system-prompt input is unchanged
-- **THEN** its rendered system prompt is byte-identical to the earlier attempt's
-- **AND** its distinct attempt receipt carries the same system-prompt text/hash
+- **WHEN** a second request follows a persisted baseline and other prompt inputs stay unchanged
+- **THEN** the request replays the same stored digest snapshot
+- **AND** its distinct system-only receipt contains no new digest text
 
 #### Scenario: A changed non-digest input has a fresh receipt
 
-- **WHEN** owner inputs, the selected model template, or admitted membership changes between attempts
-- **THEN** the worker renders from those current inputs and creates that attempt's system-only receipt
-- **AND** the digest uses the same stored baseline until compaction
+- **WHEN** owner inputs, the selected template, or admitted membership changes
+- **THEN** the worker records its current system prompt in a fresh receipt
+- **AND** the same digest snapshot remains on the rail until compaction
 
 #### Scenario: Compaction refreshes the listed chats
 
-- **WHEN** a chat publishes a checkpoint and its owner's eligible chats have changed since the chat was created
-- **THEN** the baseline is re-resolved against the owner's current chats
-- **AND** the request that follows that publication, and later runs in that chat, render the refreshed list
+- **WHEN** an enabled Chat publishes a checkpoint
+- **THEN** a separate companion snapshot carries the newly selected baseline
+- **AND** the next request receives it immediately after the checkpoint
 
 #### Scenario: Model switch preserves the listed chats
 
-- **WHEN** an owner switches models mid-chat
-- **THEN** the digest lists exactly the chats it listed before the switch
-- **AND** the new model's prompt text differs only because its template differs
+- **WHEN** the owner switches models without a checkpoint
+- **THEN** the model receives the same stored digest snapshot
+- **AND** ordinary digest notices can still describe independent source changes
 
 #### Scenario: An earlier run's receipt is not rewritten
 
@@ -284,42 +84,29 @@ Re-resolution SHALL apply every eligibility, cap, ordering, and disjointness rul
 
 #### Scenario: Owner continues a fork
 
-- **WHEN** the fork's first Run follows a baseline copied from the source Chat
-- **THEN** it renders that baseline without initializing a new one
-- **AND** later appends and compaction in the fork evolve its own copy only
+- **WHEN** an owner continues a fork with copied digest items
+- **THEN** the producer derives disclosure only from the copied effective prefix
+- **AND** later notices affect only the fork
 
 ### Requirement: Changes after the baseline are appended as events, never as a restated list
 
-Between baselines, changes SHALL reach the model as appended server-authored context items on the rail the `context-injection` capability defines, ordered as that capability specifies. The envelope, the per-item provenance framing, and the placement rule are owned by that capability and SHALL NOT be restated here. An append SHALL describe **what happened**, not the current state of either list, and SHALL never restate the digest.
+Within an epoch, the producer MUST append notices rather than restate the baseline. A notice MUST describe a newly announced Chat, a pin change, or a Workspace change. Derive events from the latest effective comparison state, not timestamps.
 
-There SHALL be exactly **one** event: a chat **entered the told-set**, or **its pin state changed** relative to what the told-set records. Events SHALL be derived by comparison against stored state and SHALL NOT be derived from timestamps.
+New entries MUST come only from the current top-10 pinned and top-10 recent views, minus announced ids. Pin corrections MUST inspect already-announced ids against actual owner pin membership. A capped-list displacement MUST NOT imply an unpin. An untold Chat MUST NOT enter through a correction. A Chat that returns to a capped view MUST qualify as a new entry if no prior item announces it.
 
-The two halves of that comparison SHALL read **different candidate sets**, and conflating them breaks the digest in opposite directions:
+Workspace corrections MUST compare stored canonical bindings of already-announced, still-owned, non-archived Chats. No source Machine probe is permitted. Unknown historical affinity MUST differ from known `unbound`. A title, excerpt, activity, or Run-status change alone MUST produce no notice.
 
-- **New entries** SHALL be drawn only from the **capped views** — the same top-10 pinned and top-10 recent selection the baseline uses, resolved afresh — minus the told-set. Comparing against the owner's whole _eligible_ corpus instead would append every untold titled chat on the next run: an owner with 500 chats would receive hundreds of appends and have their entire corpus disclosed, defeating the cap the digest exists to enforce.
-- **Pin-state changes** SHALL be checked over the **already-told chat ids only**, against `pins` membership, and SHALL NOT be restricted to the capped views. Restricting them would miss an unpin of a told chat that has since fallen outside the top 10, leaving the model permanently wrong about it.
+Unknown imported affinity MUST produce no correction until an enabled checkpoint refresh records a current binding. It MUST NOT trigger a first disclosure of historical Workspace roots.
 
-So: capped views bound what may be _added_; the told-set bounds what may be _corrected_. This is required rather than preferred: no stored column records when a chat gained a title, and unpinning is a hard row deletion that leaves no trace, so a timestamp-based derivation cannot see two of the three transitions it would need.
+Departures through displacement, archival, or deletion MUST produce no notice. Notices MUST use shared Chat rows for additions. Corrections MUST identify their source Chat and changed field without a full-list refresh.
 
-The comparison SHALL be **asymmetric**. A chat present in the current eligible view and absent from the told-set SHALL produce an append. A chat whose current pin state differs from its told pin state SHALL produce an append, in both directions. A chat that has **left** the eligible view SHALL produce nothing. Archival, deletion, and displacement by newer chats therefore need no rule of their own: each is simply a departure, and departures are ignored.
+One preparation MUST batch at most 20 corrections in Chat-id order. Advance comparison state only for included corrections. Deferred corrections MUST remain detectable next preparation. New entries retain their existing 20-row bound.
 
-**Pin state SHALL mean membership in the owner's pins, never membership in the rendered pinned list.** The two diverge whenever a newly pinned chat pushes another out of the capped rendering: the displaced chat is still pinned, and reporting it as unpinned would be false. An unpin append SHALL therefore fire only when the owner actually removed the pin. Deriving pin state from the rendered list instead would turn every cap displacement into a fabricated unpin.
-
-The told-set SHALL record only chats the model was actually told about. Resolving the lists requires reading the owner's complete pin set, since a capped, ordered selection cannot be computed from a partial one — but that full set is **selection input, not told state**. Recording pin state for a chat the model was never told about would let unpinning it emit an append that introduces the chat solely in order to demote it, which discloses more than saying nothing. Such a chat instead enters through the ordinary path if and when it becomes eligible.
-
-Gaining a title SHALL NOT be specified as the event. It is the most common _reason_ a chat becomes eligible, not the transition itself — a chat that was below the cap and re-enters the view because the owner returned to it has gained nothing, and SHALL produce an append on the same footing as a newly titled one.
-
-An append SHALL carry the same per-entry shape as a baseline entry, including the capped excerpt, so that an appended chat and a baseline chat are equally usable. Multiple events occurring between two runs SHALL be batched into a single append.
-
-When the baseline is re-resolved at a checkpoint, a single **supersession marker** SHALL be appended stating that the list has been refreshed and that earlier chat-list updates are superseded. That marker SHALL ride the request prepared after the checkpoint publication, since the checkpoint itself absorbs the earlier appends. It SHALL be expressed through the rail's `snapshot` form, whose defined meaning is that a later snapshot from the same producer supersedes an earlier one, rather than through a marker shape private to this capability. No supersession marker SHALL be emitted on a model switch, because nothing is superseded. When a delta and an effective-context change fall on the same turn, both items SHALL be emitted independently with no combined or special-cased form.
-
-Appends SHALL be persisted with the message they accompany and SHALL NOT be rewritten or retracted.
-
-No ceiling SHALL be imposed on how many appends accumulate between re-resolutions. Accumulation is driven by how often the owner starts or returns to other chats, while re-resolution is driven by the current chat's length — **uncorrelated axes**, so a long-lived, low-volume conversation may accumulate appends indefinitely without ever re-baking. This is accepted rather than capped: a cap would silently withhold chats the owner is actively working in, and the alternative reset trigger — re-resolving on size — would change the prompt mid-chat and forfeit the cache for the whole accumulated history, which is the cost the frozen baseline exists to avoid. The consequence SHALL be documented, and a future adaptive-append policy MAY revisit it.
+Co-occurring model changes and digest notices MUST remain separate items under the rail order. At an enabled checkpoint, a fresh snapshot MUST supersede prior digest items and state that fact. Disabled carry MUST retain only the frozen baseline without new supersession body text. Persisted items MUST remain immutable. The epoch MUST have no accumulated notice-count cap.
 
 #### Scenario: A new chat becomes eligible mid-conversation
 
-- **WHEN** the owner creates another chat and its title is generated while the current chat is ongoing
+- **WHEN** another owned Chat gains a title during the current Chat
 - **THEN** the next run in the current chat carries an append naming that chat with its title, date, message count, and capped excerpt
 - **AND** the system prompt is unchanged
 
@@ -331,13 +118,13 @@ No ceiling SHALL be imposed on how many appends accumulate between re-resolution
 
 #### Scenario: An already-told chat does not repeat
 
-- **WHEN** a chat announced by an earlier append remains eligible on every subsequent run
-- **THEN** no further append names it
-- **AND** the comparison is made against the told-set rather than the rendered baseline
+- **WHEN** an announced Chat remains eligible without a pin or Workspace change
+- **THEN** no notice repeats it
+- **AND** comparison uses the latest effective item, not only the baseline
 
 #### Scenario: Displacement produces nothing
 
-- **WHEN** enough new chats become eligible that a chat listed in the baseline would no longer fall within the recency cap
+- **WHEN** new eligible Chats push an announced Chat beyond the recency cap
 - **THEN** no append is emitted about the displaced chat
 - **AND** the baseline continues to list it
 
@@ -350,14 +137,14 @@ No ceiling SHALL be imposed on how many appends accumulate between re-resolution
 #### Scenario: An untold pinned chat is unpinned
 
 - **WHEN** the owner unpins a pinned chat that was beyond the cap and never announced
-- **THEN** no append is emitted, because the told-set holds no pin state for it
-- **AND** it may later enter through the ordinary eligibility path
+- **THEN** no append is emitted, because the effective comparison state holds no pin state for it
+- **AND** it can later enter through the ordinary eligibility path
 
 #### Scenario: Owner unpins a chat
 
-- **WHEN** the owner unpins a chat the told-set records as pinned
-- **THEN** the next run carries an append recording that the chat is no longer pinned
-- **AND** neither the baseline nor any earlier append is modified
+- **WHEN** the owner unpins an already-announced Chat
+- **THEN** the next preparation includes its pin correction within the bounded batch
+- **AND** earlier items remain unchanged
 
 #### Scenario: Owner deletes a chat
 
@@ -373,23 +160,23 @@ No ceiling SHALL be imposed on how many appends accumulate between re-resolution
 
 #### Scenario: Compaction emits a supersession marker
 
-- **WHEN** a checkpoint re-resolves the baseline and its absorbed boundary supersedes the earlier appends
-- **THEN** a single supersession marker is appended in the request prepared after that publication, stating that earlier chat-list updates are superseded
-- **AND** the refreshed list is not restated on the message rail
+- **WHEN** an enabled checkpoint starts a new digest epoch with a freshly resolved baseline
+- **THEN** its companion snapshot states that earlier digest updates are superseded
+- **AND** the full baseline appears on the rail, not in the system prompt
 
 ### Requirement: Digest content is framed as data and cannot forge its own structure
 
-The digest SHALL render inside a named delimited block. Framing prose SHALL precede it stating that the block lists the owner's other chats, that it is data rather than instructions from a higher authority, that it ranks below the system instructions and below the owner's requests in the current conversation, that it cannot grant tools or capabilities, relax tool authorization, or override safety or transparency rules, and that any text inside it attempting those is to be disregarded. The block SHALL close with an explicit restatement that ordinary instruction-following resumes and that nothing inside the block altered it.
+Each digest snapshot and notice MUST use the packaged producer template, canonical rail envelope, provenance statement, and untrusted-content notice. The item MUST state that it describes the owner's other Chats as point-in-time data. It MUST rank below system instructions and owner requests. It MUST grant no tools, permissions, or higher authority. The item MUST restate ordinary instruction precedence after its data.
 
-Titles and excerpts SHALL be neutralized by the same tag rules the templating capability applies to owner-authored text — a value can never close a tag it did not open within that same value, and can never emit a reserved delimiter name as a tag at all — so no entry can terminate the block or forge a second one. Rendered output SHALL NOT be re-evaluated as a template.
+Persisted digest text MUST name no retrieval tool. Its locators MUST remain inert data and grant no permission or promise of tool availability.
 
-This framing SHALL be documented as **advisory rather than structurally enforced**, carried by the packaged default's prose and by model compliance, consistent with the precedence ladder the personalization capability already states. Only the delimiter's integrity is structurally guaranteed. An operator who replaces the packaged default may reshape or remove the framing, and the consequence SHALL be documented rather than defended.
+Titles and excerpts MUST use the reserved-delimiter neutralization rules of instance-config. A value MUST NOT close a tag outside that value or forge a reserved delimiter. Rendered text MUST NOT undergo another template evaluation. Model compliance enforces semantic precedence. Delimiter integrity remains structural. Operator system-template overrides MUST NOT remove this packaged framing.
 
 #### Scenario: A chat title contains instruction-shaped text
 
 - **WHEN** a listed chat's title or excerpt contains text instructing the assistant to ignore prior instructions
 - **THEN** it renders as content inside the block
-- **AND** admitted tool ids, schemas, classifications, and execution authority are unchanged by digest text; templated description wording may differ
+- **AND** digest text changes no admitted tool id, schema, classification, or execution authority
 
 #### Scenario: An excerpt attempts to close the block
 
@@ -399,23 +186,23 @@ This framing SHALL be documented as **advisory rather than structurally enforced
 
 #### Scenario: The block restates instruction-following on exit
 
-- **WHEN** the digest renders for any owner
-- **THEN** framing prose precedes the block and a restatement of instruction-following follows it
-- **AND** both appear in the system-only receipt when rendered in the system prompt; descriptions remain runtime-only
+- **WHEN** a digest snapshot or notice renders
+- **THEN** its packaged text frames the data and restates instruction precedence
+- **AND** the stored context item preserves both parts
 
 ### Requirement: The digest is owner-scoped, and the setting gates production of digest state
 
-The digest SHALL read only the requesting owner's own chats, under that owner's tenant scope, with row-level security as the enforcing boundary and application-level owner filters retained as defense-in-depth. It SHALL be unreachable through the public or shared-chat path, which carries no owner identity, and SHALL fail closed when identity is absent.
+The producer MUST read only the trusted owner's Chats under owner RLS and explicit owner predicates. Empty identity MUST fail closed. Public shares and shared forks MUST expose no digest or comparison state.
 
-The setting gates the **production** of digest state, not the rendering of state already bound to a chat. While `shareRecentChats` is disabled: no baseline SHALL be resolved for a new chat, no baseline SHALL be re-resolved at compaction, and no appends SHALL be emitted. A chat that already carries a baseline SHALL continue to render it unchanged, because withdrawal is not retroactive — see the withdrawal requirement below, which this clause must be read with rather than against.
+`shareRecentChats` MUST remain opt-in and off by default. Disabled sharing MUST prevent fresh baseline resolution and new notices. Existing effective items MUST replay unchanged.
 
-For a chat that carries **no** baseline — every chat of an owner who has never enabled the setting, and every chat first run after they disabled it — omission SHALL be complete at every level: no digest content, no framing prose, no empty block, so the rendered prompt is byte-identical to the same template with the digest section removed.
+Disabled compaction MUST carry only the frozen baseline into a separate snapshot. It MUST NOT query source Chats or introduce new titles, excerpts, locators, or Workspace changes. Prior notices MUST leave the effective epoch. Without a prior baseline, publish no disabled snapshot.
 
-Compaction of a chat whose owner has since disabled the setting SHALL leave the existing baseline and told-set untouched rather than re-resolving or clearing them, so the chat continues to send exactly what it was already sending.
+Re-enabling MUST resume comparison against effective disclosed state. Without an effective baseline, the next enabled dispatch MUST establish one. No request can receive a delta before its baseline.
 
-Re-enabling SHALL be defined rather than left to interpretation. For a chat that **already has** a baseline, re-enabling resumes appends and compaction re-bakes against the existing epoch. For a chat that has **no** baseline — one whose runs all happened while the setting was off — the next successful turn whose attempt prepares a baseline with sharing enabled SHALL initialize the baseline and told-set atomically, exactly as an ordinary initializing run does. Appends SHALL NOT be emitted for a chat with no baseline, since there is no told-set to diff against; the gate on appends is therefore the setting **and** the existence of a baseline, not the setting alone.
+The producer MUST recheck consent after resolution and before fenced publication. Withdrawal MUST discard fresh candidates without failure. During checkpoint publication, that race MUST select the disabled frozen-baseline carry instead. Later setting changes MUST NOT rewrite committed disclosure.
 
-Appends SHALL be gated by the setting together with the existence of a baseline, and by nothing else. The system SHALL NOT gate appends on whether either prompt surface rendered the digest; operator templates that omit the block from both surfaces while the setting is enabled SHALL still receive appends, and this consequence SHALL be documented rather than mitigated, consistent with the existing rule that a prompt referencing no per-user path silently forgoes that content.
+Operator templates MUST NOT gate production or replay. New system prompts and tool descriptions MUST contain no digest content.
 
 #### Scenario: Setting is disabled and the chat has no baseline
 
@@ -425,9 +212,9 @@ Appends SHALL be gated by the setting together with the existence of a baseline,
 
 #### Scenario: Setting is disabled after a chat already carries a baseline
 
-- **WHEN** an owner disables `shareRecentChats` while a chat that already carries a baseline remains open
-- **THEN** that chat continues to render its bound baseline unchanged
-- **AND** no further appends are emitted, and compaction neither re-resolves nor clears it
+- **WHEN** the owner disables sharing after a baseline snapshot exists
+- **THEN** existing digest items replay unchanged and new notices stop
+- **AND** compaction carries only the frozen baseline, not its notices, without source reads
 
 #### Scenario: Public read of a shared chat
 
@@ -443,47 +230,21 @@ Appends SHALL be gated by the setting together with the existence of a baseline,
 
 #### Scenario: Operator template omits the block
 
-- **WHEN** an owner with the setting enabled uses system and tool templates that reference no digest path
-- **THEN** the run executes normally with no digest in the prompt
-- **AND** appends are still emitted, and nothing reports the mismatch
-
-### Requirement: The owner can inspect system-prompt digest text and committed appends
-
-The owner's system-only receipt SHALL contain the exact digest text included in that attempt's system prompt, including an attempt that later failed. Successful appends SHALL be inspectable as parts of the owner's own messages. Digest variables MAY also render in tool descriptions, but those descriptions SHALL remain runtime-only: receipts SHALL neither expose a stored description nor claim to reconstruct its historical wording. Document this inspection boundary.
-
-No digest content SHALL be exposed to any identity other than the owner, or written to operator logs or error messages. Resolution/render failures SHALL record safe failure kinds without titles or excerpts.
-
-#### Scenario: Owner inspects a run's receipt
-
-- **WHEN** an owner requests a system-only receipt whose system prompt carried the digest
-- **THEN** it contains that rendered digest exactly as sent
-- **AND** it exposes no host path, provider internal, or credential
-
-#### Scenario: Digest appears only in a tool description
-
-- **WHEN** a tool description rendered the digest but the system prompt did not
-- **THEN** the receipt does not contain or reconstruct the tool description
-- **AND** the documented receipt scope makes that limitation explicit
-
-#### Scenario: Digest resolution fails
-
-- **WHEN** resolving or rendering the digest fails
-- **THEN** the log records the failure kind
-- **AND** no chat title or excerpt appears in the log or in any error response
+- **WHEN** a valid operator system prompt contains no digest paths
+- **THEN** the digest still uses its packaged rail template
+- **AND** template omission cannot suppress its framing
 
 ### Requirement: Enabling reaches backwards, withdrawal does not reach forwards, and both are disclosed
 
-Turning `shareRecentChats` off SHALL stop future baselines and appends; it SHALL NOT rewrite chats that already carry a digest, which continue to send the baseline bound to them. Deleting or archiving a chat SHALL remove it from baselines resolved afterwards; it SHALL NOT remove its title or excerpt from other chats' already-bound prompts, from appends already persisted, or from receipts already issued.
+Enabling `shareRecentChats` MUST make existing eligible Chats available immediately, including their bounded excerpts and Workspace affinity. Disabled sharing MUST stop new baseline resolution and notices, not erase earlier disclosure.
 
-**Enabling, by contrast, IS retroactive over the corpus.** Turning the setting on SHALL make chats created long before that moment eligible immediately, including their opening excerpts; the setting governs sharing, not collection, and nothing was withheld from storage while it was off. This asymmetry — consent reaching backwards while withdrawal does not reach forwards — SHALL be disclosed as explicitly as the withdrawal limitation, because it is the more consequential of the two and the less likely to be anticipated.
-
-All three consequences SHALL be stated in the API contract and in whatever surface presents the setting, in the same terms the personalization capability uses for account-identity sharing. They SHALL be presented as documented limitations rather than as erasure, because an owner will reasonably read the control as "stop sharing my other chats" and read deletion as removal everywhere.
+Deleting or archiving a source Chat MUST exclude it from future selection. It MUST NOT redact earlier digest text, read observations, or receipts in another Chat. Disabled compaction MUST preserve prior disclosure without new source reads. The API contract and the setting interface MUST disclose retroactive enablement, non-retroactive withdrawal, and non-erasing deletion. They MUST NOT describe these operations as erasure.
 
 #### Scenario: Owner enables the setting for the first time
 
 - **WHEN** an owner with an existing corpus turns `shareRecentChats` on
 - **THEN** the next chat they create lists chats that predate the setting being enabled, including their opening excerpts
-- **AND** this retroactive reach is disclosed by the surface that offers the setting
+- **AND** the setting interface discloses that retroactive reach
 
 #### Scenario: Owner disables the setting mid-chat
 
@@ -499,28 +260,214 @@ All three consequences SHALL be stated in the API contract and in whatever surfa
 
 ### Requirement: Digest rail items persist their author-time projection
 
-Every recency-digest append and supersession marker SHALL be neutralized, framed, and rendered before the message carrying it commits. The message SHALL persist the complete final model-facing text block alongside its producer, form, Run linkage, and semantic payload.
+Every digest snapshot and notice MUST persist its complete final model-facing text before the request that carries it. It MUST also persist producer, form, Run linkage, and validated comparison metadata. Ordinary publication MUST share the fenced dispatch transaction. A checkpoint companion MUST share checkpoint publication instead.
 
-Later replay SHALL use the stored text block verbatim and in stored part order. It SHALL NOT regenerate titles, excerpts, precedence framing, supersession prose, or envelope text from the semantic payload, and a later sanitizer or renderer change SHALL affect only newly authored digest items.
-
-Existing digest parts that carry no complete text SHALL follow the
-`context-injection` capability's inert-part rule and SHALL NOT be backfilled
-from other chats or the told-set.
+Replay MUST use stored text verbatim and in effective-context order. It MUST NOT regenerate historical titles, excerpts, Workspace affinity, or framing from metadata. Renderer changes MUST affect only new items. A metadata-only historical item MUST remain inert. The producer MUST derive told state from its effective nonempty items, including committed input of a retry. It MUST NOT keep producer-specific columns or tables.
 
 #### Scenario: A renderer changes after an append was written
 
 - **WHEN** an existing chat containing a persisted digest append is replayed after its producer wording changes
 - **THEN** the append's complete stored text and position remain unchanged
-- **AND** newly authored appends may use the new wording
+- **AND** newly authored appends can use the new text
 
 #### Scenario: A source chat changes after an append was written
 
-- **WHEN** the title or opening excerpt of a chat named by an existing append later changes or is deleted
-- **THEN** the persisted append remains unchanged
-- **AND** replay does not re-read the source chat to reconstruct it
+- **WHEN** a source title, excerpt, or Workspace changes after a notice persists
+- **THEN** the stored notice remains unchanged
+- **AND** replay reads no source Chat to rebuild it
 
 #### Scenario: A data-only digest part is replayed
 
 - **WHEN** an existing digest part carries semantic payload but no complete text
 - **THEN** it contributes no model-visible block
 - **AND** no source-chat content is re-read to backfill it
+
+### Requirement: Digest rows reuse the shared owner Chat row
+
+Each newly resolved digest row MUST use the shared Chat row of conversation-reads, including its locator, Workspace affinity, and two bounded excerpts. The digest MUST retain the 10-pinned and 10-recent caps, disjoint lists, pin-rank order, and recent backfill. It MUST preserve eligible shown/total ratios, absolute compilation date, and point-in-time framing. It MUST contain no Run status or other activity telemetry.
+
+#### Scenario: A digest entry is directly readable
+
+- **WHEN** a baseline lists another owned Chat
+- **THEN** its row contains a `chat://` locator that read accepts
+
+#### Scenario: A long corpus keeps its caps
+
+- **WHEN** the owner has 30 eligible pinned and 217 eligible unpinned Chats
+- **THEN** the snapshot shows at most 10 of 30 pinned and 10 of 217 recent
+
+#### Scenario: The shared row does not imply fresh state
+
+- **WHEN** an announced Chat changes its title or latest reply
+- **THEN** the existing row stays unchanged until an ordinary event or checkpoint refresh
+
+### Requirement: An enabled epoch starts with one dispatched snapshot
+
+The first enabled dispatch of an epoch MUST persist one baseline snapshot before model I/O. Its payload MUST identify every row it actually discloses. An empty corpus MUST produce an empty baseline snapshot. A failure before publication MUST establish no disclosure. A failure after publication MUST keep it. Retry, Continue, and Regenerate MUST compare against effective stored items and avoid duplicate snapshots.
+
+#### Scenario: A failed dispatched attempt keeps its baseline
+
+- **WHEN** an attempt dispatches its baseline and then fails
+- **THEN** the next attempt reuses the stored snapshot without resolving a second baseline
+
+#### Scenario: A pre-dispatch failure changes nothing
+
+- **WHEN** an initializing attempt fails before its publication transaction commits
+- **THEN** no baseline item or comparison state persists
+
+#### Scenario: Empty baseline does not repeat
+
+- **WHEN** an enabled epoch has no eligible source Chat
+- **THEN** one empty baseline snapshot persists and later preparations compare against it
+
+#### Scenario: A retry does not duplicate an item
+
+- **WHEN** an earlier attempt persists its baseline on the triggering message
+- **THEN** the retry replays it once and derives only new events
+
+### Requirement: Workspace-only changes produce bounded notices
+
+An enabled preparation MUST compare canonical Workspace bindings for already-announced owned Chats. A changed binding MUST produce a correction notice within the bounded batch. The correction MUST distinguish entry, switch, and exit through the old and new binding values. It MUST NOT restate the full digest, probe a Machine, or attach Run status. Comparison state MUST advance only with the persisted correction.
+
+#### Scenario: A source Chat switches Workspace
+
+- **WHEN** an announced Chat changes its binding without a pin or message change
+- **THEN** the receiving Chat next preparation produces a Workspace correction
+
+#### Scenario: A deferred correction remains detectable
+
+- **WHEN** more than 20 corrections await one preparation
+- **THEN** the next preparation can still detect each correction that no prior item disclosed
+
+#### Scenario: Workspace exit is not an unknown value
+
+- **WHEN** a known bound Chat becomes unbound
+- **THEN** the correction explicitly records `unbound`
+
+### Requirement: The owner inspects digest items rather than new prompt receipts
+
+New digest text MUST be inspectable through the owner's persisted context items. New system-only receipts MUST contain no digest contribution. Historical receipts MUST remain unchanged. Public inspection, logs, and error responses MUST expose no digest text or comparison state. Resolution failures MUST report safe failure kinds without titles, excerpts, or Workspace roots.
+
+#### Scenario: An owner inspects new disclosure
+
+- **WHEN** an owner inspects a dispatched baseline or notice
+- **THEN** the stored item contains the exact sent text
+- **AND** its system-only receipt does not claim to contain that item
+
+#### Scenario: Resolution diagnostics are safe
+
+- **WHEN** digest resolution fails
+- **THEN** diagnostics contain a failure kind and no source content or Workspace root
+
+### Requirement: Digest columns retire without silent disclosure loss
+
+The cutover MUST convert provable baseline fields and known literal digest items before it deletes the three dedicated Chat columns. It MUST query no source Chat to enrich old rows. It MUST preserve messages, parts, and receipts.
+
+It MUST omit unprovable derived disclosure and privately report each affected Chat and field. Missing proof MUST NOT block other Chats. Unknown identity or affinity MUST NOT become a guess. Runtime MUST retain no old-column reader.
+
+#### Scenario: Disabled sharing survives conversion
+
+- **WHEN** a Chat has prior digest disclosure and sharing is off
+- **THEN** conversion retains only accounted old text and comparison state
+- **AND** no new locator, excerpt, or Workspace root enters its carried text
+
+#### Scenario: Unprovable fields do not block the whole migration
+
+- **WHEN** a receipt is absent, a description was runtime-only, or a duplicate title prevents safe field attribution
+- **THEN** migration omits only the unprovable derived fields and privately reports the affected Chat
+- **AND** it preserves messages, parts, known literal items, and historical receipts
+
+### Requirement: Digest conversion uses only proved field emissions
+
+The reader layer MUST export field-level emissions while its old renderer exists. The converter MUST verify owner and destination Chat identity before import. A baseline or told-set MUST NOT prove every text field's disclosure. Conversion MUST add no Chat locator, latest excerpt, or Workspace root. It MUST infer no identity from duplicate titles. SQL column deletion MUST follow the separate converter, not invoke a renderer.
+
+#### Scenario: A title-only template proves no excerpt
+
+- **WHEN** the old template emits only a title and checks an excerpt as a condition
+- **THEN** export proves only the title field
+- **AND** migration does not emit the stored excerpt
+
+### Requirement: Imported comparison state requires emission proof
+
+Each imported comparison id and pin state MUST have destination-bound proof of actual emission. A stored told-set alone MUST prove neither. Without that proof, omit and privately report the entry.
+
+#### Scenario: An unproved told id remains eligible
+
+- **WHEN** an old told-set contains an id without proved emission to the destination Chat
+- **THEN** conversion omits that comparison entry and privately reports it
+- **AND** the id remains eligible for an ordinary addition when sharing is enabled
+
+### Requirement: Imported digest baselines precede historical notices
+
+Conversion MUST append a host snapshot for proven baseline fields, associated with the active checkpoint or Chat origin. Replay MUST place it at epoch start before notices. A latest content-free notice can preserve trusted comparison state. It MUST record the latest pre-conversion turn and logical cutoff for retry and fork selection. It MUST NOT supersede old literal notices. Old items without current-format state MUST remain replayable and inert for comparison.
+
+#### Scenario: An old pin correction remains the last word
+
+- **WHEN** the frozen baseline lists a Chat as recent and a later literal notice pins it
+- **THEN** the imported baseline replays before that pin notice
+- **AND** the latest imported comparison state retains the known pin state without re-emitting the list
+
+### Requirement: Disabled carry has one bounded canonical envelope
+
+Disabled compaction MUST preserve only the baseline body and its comparison state. It MUST remove the validated code-owned outer envelope and provenance line before it authors one fresh envelope and provenance line. It MUST preserve body bytes and change no source item. It MUST NOT nest envelopes, carry accumulated notices, or grow wrapper text on repeated compaction. This author-time transform MUST NOT change ordinary replay.
+
+#### Scenario: Repeated disabled compaction remains bounded
+
+- **WHEN** a disabled Chat with one baseline and many notices crosses two checkpoints
+- **THEN** each companion carries only the same frozen baseline body under one envelope
+- **AND** the companion excludes notices while the summary instruction requests their exclusion without a structural guarantee
+
+#### Scenario: Withdrawal during checkpoint preparation preserves the baseline
+
+- **WHEN** sharing becomes disabled after fresh candidate resolution but before checkpoint publication
+- **THEN** publication discards that candidate and carries the previous frozen baseline
+- **AND** it performs no source read for the carry
+
+### Requirement: Column deletion requires transactional conversion evidence
+
+The converter and SQL deletion MUST use one advisory-locked transaction. Conversion MUST account for every legacy Chat, including omissions, and verify export identity and old-column fingerprints. It MUST set a transaction-local witness only after complete accounting. SQL MUST require that witness unconditionally before column deletion. A fresh schema MUST also establish it from catalog-proved absence of the legacy table, not an RLS-filtered empty scan. No persistent producer table is permitted.
+
+#### Scenario: All fields are unprovable
+
+- **WHEN** conversion omits every derived field for one Chat
+- **THEN** its omission is privately reported and included in transaction-local completion accounting
+- **AND** other Chats convert and SQL can safely complete without a fabricated Run or context item
+
+#### Scenario: The converter is skipped
+
+- **WHEN** SQL reaches digest column deletion without the transaction-local completion witness, regardless of visible row count
+- **THEN** the migration rolls back without dropping columns
+
+#### Scenario: An export is stale or misbound
+
+- **WHEN** an export's owner, destination, or old-column fingerprint does not match
+- **THEN** the converter omits and privately reports that Chat's unprovable derived fields
+- **AND** it imports no misbound text and continues accounting for other Chats
+
+#### Scenario: Imported affinity is unknown
+
+- **WHEN** a migrated announced Chat has unknown historical affinity and is currently bound
+- **THEN** no Workspace correction is emitted before an enabled checkpoint refresh establishes a known binding
+- **AND** unknown does not become a claimed historical `unbound` value
+
+### Requirement: Conversion inventory and tenant scope remain complete
+
+Conversion MUST discover legacy Chat ids and owners through the repository's transaction-bounded `NO FORCE` migration pattern under an exclusive table lock. It MUST restore `FORCE` before owner-scoped content access. Each import MUST use its trusted owner identity. Before pending SQL migrations, conversion MUST reset that identity to empty and verify the reset. It MUST NOT grant a bypass role or leave weaker RLS after commit.
+
+#### Scenario: Private rows cannot hide a skipped converter
+
+- **WHEN** a legacy private Chat exists and a tenant-free SQL scan sees no rows
+- **THEN** absent conversion evidence still blocks column deletion
+- **AND** an RLS-filtered count cannot establish a fresh database
+
+#### Scenario: SQL runs without the last imported owner
+
+- **WHEN** conversion finishes imports for several owners and invokes pending SQL migrations
+- **THEN** the SQL runner observes empty tenant identity, not the last imported owner
+- **AND** a negative backfill check proves no owner scope leaked into migration execution
+
+#### Scenario: Inventory restores forced isolation
+
+- **WHEN** conversion enumerates legacy destination ids and owners
+- **THEN** the exclusive-lock inventory window restores forced RLS before content access and commit
+- **AND** a failure rolls back the window and every import

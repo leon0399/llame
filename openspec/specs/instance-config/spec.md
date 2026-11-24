@@ -618,54 +618,47 @@ available-model entry of the model MUST publish the resolved array, as `availabl
 
 ### Requirement: Model prompt files are dedicated visible-content configuration
 
-Each `models[]` entry MAY include a `systemPromptFile` string naming a complete system-prompt file. The setting SHALL be handled as a host path, not as `{path:...}` secret interpolation, because the resolved prompt contents are intentionally visible to the chat owner. An omitted field SHALL select the versioned project-default prompt. A configured field SHALL replace the default completely for that model; models MUST NOT inherit or compose prompts from other model entries.
+A model entry can declare `systemPromptFile` as its complete system-prompt file. This MUST be a host path, not secret interpolation. Its contents are owner-visible. Omission MUST select the versioned packaged default. An override MUST replace that default completely. Models MUST NOT inherit or compose prompts.
 
-Relative prompt paths SHALL resolve against the directory containing the resolved instance configuration file, and absolute paths SHALL remain absolute. The loader SHALL read prompt files at execution-worker boot, normalize CRLF/CR line endings to LF, remove trailing whitespace only at the end of the file, and require non-empty rendered content.
+Relative paths MUST resolve against the active configuration directory. Absolute paths MUST remain absolute. Worker boot MUST read files, normalize CRLF and CR to LF, and remove trailing whitespace only at the file end. Rendered content MUST be nonempty.
 
-Prompt files SHALL be **Handlebars templates**. The loader SHALL parse each template at execution-worker boot and validate its abstract syntax tree, failing startup and naming the model id together with the offending construct on anything it does not explicitly permit.
+Files MUST use Handlebars templates. Worker boot MUST validate their parsed syntax trees. Errors MUST name the model and offending construct without prompt contents. Only literal content, value expressions, block expressions, and comments are permitted. All other nodes MUST fail validation.
 
-Validation SHALL permit only these node kinds: literal content, a value expression, a block expression, and a comment. Everything else SHALL be rejected. An allowlist is used because it is simpler than enumerating bad forms and does not need revisiting when the engine adds a node kind — partials, for example, exist in three syntactic forms that a blocklist would have to name individually.
+Value expressions MUST name allowlisted paths without parameters. Validation MUST inspect parsed segments and depth, not display strings. Bracketed literal segments MUST NOT impersonate dotted paths. Parent-context paths MUST fail validation.
 
-Within permitted node kinds:
+Blocks MUST use only permitted `if`, `unless`, or bounded `each` forms from model-system-prompts. Each MUST take exactly one permitted subject, without hash arguments or block parameters. Unescaped output, fragments, partials, and other helpers MUST fail validation before rendering.
 
-- a value expression SHALL reference an allowlisted context path and SHALL carry no parameters, since a parameterized value expression is a helper invocation;
-- a context path SHALL be validated on its **parsed segments and depth**, not on its display string: a bracketed path such as `{{[model.id]}}` reports an allowlisted display string while parsing to a single literal segment, so accepting it would silently render empty instead of failing boot, and a parent-context path (`../`) escapes the projection entirely;
-- a block expression SHALL use `if`/`unless` or the bounded `each` defined by `model-system-prompts`, SHALL take exactly one permitted subject, and SHALL carry neither hash arguments nor block parameters — a hash pair can hold a subexpression, which is a helper invocation the parameter check alone does not see; a wrong argument count left to the engine surfaces at render time as an unwrapped error naming neither the model nor the field; and `as |x|` binds a name outside the projected context;
-- unescaped output SHALL be rejected.
+A template without literal text MUST fail boot validation. Literal text inside a conditional MUST count. Missing allowlisted values MUST render empty, not fail expression resolution. Complete prompts and admitted descriptions MUST remain nonempty per attempt. Validation and boot probes MUST NOT require an absent tool to exist.
 
-Fragments stay rejected because `model-system-prompts` forbids prompt composition; with an allowlist this costs nothing to enforce.
+Model values and account identity values MUST escape exactly `&`, `<`, and `>` with character references. Owner-authored personalization fields MUST use the following tag rules instead:
 
-A template SHALL be rejected at execution-worker boot as empty when it contains no literal text at all. Literal text SHALL count wherever it appears, **including inside a conditional body** — a prompt may legitimately consist of nothing but an `if` block wrapping its only prose, and rejecting that would defeat the conditional idiom this capability exists to enable.
+1. A value MUST NOT close a tag it did not open. A closing tag can close an earlier opener across unclosed intermediate openers. The sanitizer MUST escape unmatched, malformed, or whitespace-padded closing tags.
+2. Reserved tag names MUST never render as tags, even in balanced pairs. The reserved set MUST include the packaged delimiter. Documentation MUST disclose that custom delimiter names receive only the first rule unless reserved.
 
-Template **rendering** SHALL be lenient where validation is strict: a context path that is allowlisted but has no value at render time SHALL render as empty rather than raising, so absence is not an expression-resolution error. The complete rendered system prompt and each admitted description SHALL still satisfy the nonempty-attempt requirement; an empty final result fails preparation. Boot structural validation and the supported probe rules SHALL not require an absent tool to exist.
+Other self-contained markup, unmatched openers, comparisons, and punctuation MUST remain byte-identical. Neutralization MUST happen during context construction. Context construction MUST mark values safe against another escaping pass. Code MUST NOT change the engine's global escape function, because created environments share its utility object.
 
-Rendered values SHALL be neutralized in two regimes, by field kind. **Model and account-identity values** (`model.*`, `user.name`, `user.email`) SHALL be escaped by replacing exactly `&`, `<`, and `>` with character references — short single-line strings with no legitimate markup. **Owner-authored values** (the `user.personalization.*` text fields) SHALL instead pass through a tag sanitizer enforcing exactly two rules:
+Both template kinds MUST use one explicit renderable projection from model-system-prompts, including temporal paths and conditional-only `tools.<exact-id>` predicates. They MUST NOT receive database rows, ORM entities, configuration records, secrets, or unrequested capability flags. The projection MUST contain no `chats` namespace.
 
-1. **A value SHALL never close a tag it did not open within that same value.** A closing tag passes through only when it names a tag opened earlier in the same value (closing past unclosed intermediate openers is permitted, as in HTML recovery, so a prose mention that merely reads as an opening tag cannot cause a legitimate closer to be escaped). An unmatched closing tag, or one whose spelling is malformed or whitespace-padded, SHALL be entity-escaped regardless of what is open — fail closed, because a model may honor a spelling a strict parser rejects. This rule is deliberately template-agnostic: it protects whatever wrapper the surrounding template uses without the sanitizer knowing its name.
-2. **A reserved tag name SHALL never be emitted as a tag at all**, opening or closing, matched or not. Rule 1 alone is insufficient: a value that both opens and closes the wrapper's own name satisfies it while rendering a complete forged copy of the wrapper inside the real one. The reserved set SHALL contain the packaged default prompt's delimiter name. An operator whose replacement template wraps per-user content in a differently-named tag retains rule 1's protection but not rule 2's, and this limitation SHALL be documented rather than implied away.
+Worker boot MUST validate attempt-dependent paths without resolving owner data. Values MUST resolve per attempt through the exposed template. Without tool predicates, probes MUST vary `user`, `skills`, and `webSearch` independently across supported absent and populated states. Every probe MUST include an unconditional representative temporal anchor. Any empty probe MUST fail boot.
 
-Everything else — self-contained markup under a non-reserved name, unmatched opening tags, prose comparisons, ampersands — SHALL pass byte-for-byte, because owners legitimately author tag-structured preference text and entity-mangling it destroys the structure it exists to convey. In both regimes no other character SHALL be altered, so apostrophes, quotation marks, equals signs, backticks, and other prose punctuation survive verbatim; the engine's default escaping MUST NOT be used, because it converts all of those and mangles both prose and code fragments. Neutralization SHALL be applied when building the context and the value marked already-safe, so the engine emits it without a second pass. The engine's global escaping behavior MUST NOT be mutated: a created environment shares its utility object with the global one, so replacing that function process-wide would alter behavior for every other consumer.
+Lockstep optional gates and absent anchors are invalid probes. A prompt without per-user paths MUST remain valid.
 
-The template **context** SHALL be an explicit, hand-constructed projection containing only values intended to be renderable. A database row, ORM entity, or configuration object MUST NOT be passed as context, so that no column, field, or secret becomes reachable merely because it exists on a record — including when the context is extended with per-user values. The renderable set SHALL be the complete explicit projection defined by `model-system-prompts`, including its chat collections and temporal paths, plus absent-safe conditional-only `tools.<exact-id>` predicates. Both template kinds SHALL use that same projection. Neither records nor unrequested capability flags become renderable.
+Missing, unreadable, non-file, or empty configured files MUST fail boot naming the model and field, without fallback. Missing allowlisted values MUST remain empty, not configuration errors. Worker boot MUST validate the packaged default as an application asset.
 
-Per-user and per-chat paths SHALL be validated at execution-worker boot, while their values resolve per execution attempt because no owner or Chat is in scope at startup. The loader SHALL expose a template for the worker attempt path to render. For templates without tool predicates, boot SHALL probe the independent absent/populated `user` × `chats` cross-product defined by `model-system-prompts` and SHALL fail if any combination renders empty. Every probe SHALL supply a representative unconditional temporal anchor; varying the optional gates together or probing an absent anchor is invalid. A template SHALL NOT fail startup merely because it references no per-user path; that model simply forgoes per-user context.
+The packaged default MUST reference per-user paths inside conditionals. It MUST apply personalization without operator edits and obey `shareAccountIdentity`. An override without those paths MUST forgo that context silently. Documentation MUST explain the consequence. No per-model activation report is required.
 
-A missing, unreadable, non-file, or empty configured prompt SHALL fail worker startup naming the model id and field; it MUST NOT silently use the project default. An allowlisted path whose value is simply absent SHALL NOT fail worker startup — it renders empty, so that a conditional over a possibly-absent value is expressible; this SHALL apply to per-user paths at execution-worker boot, where no value can exist by construction. The built-in project prompt SHALL be validated at worker startup as a packaged application asset.
-
-The **packaged project-default prompt** SHALL reference the per-user paths, each inside a conditional, so that a stock installation applies an owner's personalization with no operator action and an owner's `shareAccountIdentity` toggle governs their account identity directly. An operator who replaces the default with a prompt referencing no per-user path SHALL silently forgo personalization for that model; this consequence SHALL be documented, and it is accepted rather than reported, because per-model activation reporting is out of scope.
-
-The resolved public model catalog and all user-facing APIs MUST omit `systemPromptFile` and every resolved host path. The resolved prompt contents and a source label MAY be exposed only through the owner-authorized run context receipt defined by the `model-system-prompts` capability. Config errors and operator logs MUST NOT print prompt contents.
+Public catalogs and APIs MUST omit `systemPromptFile` and all resolved host paths. Only an authorized owner receipt can expose resolved prompt contents and a source label. Configuration errors and operator logs MUST NOT print prompt contents.
 
 #### Scenario: A mixed optional-context state renders empty
 
-- **WHEN** a template without tool predicates renders non-empty for both lockstep gate states but empty when `user` is absent and `chats` is populated
-- **THEN** the independent gate probes reject it at worker boot
+- **WHEN** a template passes lockstep probes but renders empty with absent `user`, populated `skills`, and absent `webSearch`
+- **THEN** independent gate probes reject it at worker boot
 
 #### Scenario: A template uses only temporal context
 
 - **WHEN** an otherwise-valid template renders non-empty text using only `context.systemTime` and `context.systemTimezone`
 - **THEN** every boot probe supplies the anchor and succeeds
-- **AND** absence of per-user or per-chat values does not invalidate it
+- **AND** absence of optional context values does not invalidate it
 
 #### Scenario: Relative model prompt path resolves
 
@@ -711,9 +704,9 @@ The resolved public model catalog and all user-facing APIs MUST omit `systemProm
 
 #### Scenario: Path only appears allowlisted in its display form
 
-- **WHEN** a configured prompt file uses a bracketed path whose display string matches an allowlisted path but whose parsed segments do not, or a parent-context path
-- **THEN** worker startup fails naming the model id and that path
-- **AND** the template is not accepted to render empty at request time
+- **WHEN** a configured template uses a deceptive bracketed display path with different parsed segments, or a parent-context path
+- **THEN** boot rejects it naming the model and path
+- **AND** it cannot silently render empty at request time
 
 #### Scenario: Conditional has the wrong argument count
 
@@ -809,9 +802,9 @@ The resolved public model catalog and all user-facing APIs MUST omit `systemProm
 
 #### Scenario: Authored markup survives while the enclosing structure stays closed to it
 
-- **WHEN** an owner's authored field contains self-contained tag markup under a non-reserved name and, elsewhere, a closing tag for a tag the value never opened
-- **THEN** the self-contained markup renders verbatim
-- **AND** the unmatched closing tag is escaped as content, so the surrounding template structure cannot be terminated from inside the value
+- **WHEN** an authored value contains balanced non-reserved markup and a separate closing tag without its own opener
+- **THEN** the balanced markup renders verbatim
+- **AND** the unmatched closing tag renders escaped and cannot close the surrounding structure
 
 #### Scenario: Authored value spells the delimiter's own name as a balanced pair
 
@@ -2213,3 +2206,27 @@ the model id and the field. The field is server-only, and `GET /api/v1/models` M
 
 - **WHEN** a model entry sets `firstTokenTimeoutSeconds` to 900
 - **THEN** the entry of that model in `GET /api/v1/models` has no `firstTokenTimeoutSeconds`
+
+### Requirement: The retired conversation reader is not a configuration target
+
+Startup MUST reject `conversation_read` in `tools.allowed`, `tools.promptFiles`, and `models[].toolPromptFiles`. Its error MUST identify the field and direct the operator to `read` with `chat://`. A stale permission-group key MUST remain inert under exact-id matching. It MUST NOT restore a declaration, executor, or authority.
+
+#### Scenario: Old reader allowlist fails closed
+
+- **WHEN** configuration allowlists `conversation_read`
+- **THEN** startup fails with a migration diagnostic rather than a compatibility executor
+
+#### Scenario: An old prompt override cannot survive retirement
+
+- **WHEN** a model or instance overrides the `conversation_read` description
+- **THEN** startup rejects that target even when no model admits it
+
+### Requirement: Replaceable templates reject the retired chats namespace
+
+Worker boot MUST reject `chats` and `chats.*` references in system prompts and tool descriptions. The diagnostic MUST identify the model or tool and the retired namespace. It MUST direct the operator to remove those references because the digest uses context items. It MUST expose no prompt contents, source Chat text, or host path.
+
+#### Scenario: A custom digest template fails before model I/O
+
+- **WHEN** a configured prompt references `chats.recent`
+- **THEN** worker boot rejects it with an actionable diagnostic
+- **AND** no model call or source Chat resolution occurs
