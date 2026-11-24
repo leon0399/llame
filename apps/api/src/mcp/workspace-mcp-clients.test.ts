@@ -220,7 +220,7 @@ function workspaceConnector(
       if (call.method !== 'mcp.servers') return undefined;
       const root = field(call.params, 'root');
 
-      if (!isString(root)) return { error: 'invalid_params' };
+      if (!isString(root)) return { error: 'invalid_argument' };
 
       try {
         return { value: { servers: configs(root).map(machineEntry) } };

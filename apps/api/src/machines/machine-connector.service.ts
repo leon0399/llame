@@ -88,6 +88,20 @@ export type MachineConnectorDeps = {
   readonly now?: () => number;
   readonly idleCloseMs?: number;
   readonly handshakeTimeoutMs?: number;
+  /** In-process method handler used by focused connector tests. */
+  readonly requestHandler?: (
+    method: string,
+    params: Record<string, unknown>,
+    options: MachineRequestOptions,
+  ) => Promise<JsonValue>;
+  /** In-process bidirectional method handler for streaming contract tests. */
+  readonly streamHandler?: (
+    method: string,
+    params: Record<string, unknown>,
+    notify: (notification: { readonly method: string; readonly params?: JsonValue }) => void,
+    send: (frame: unknown) => void,
+    options: MachineRequestOptions,
+  ) => Promise<JsonValue>;
 };
 
 type SessionEntry = {
@@ -122,10 +136,12 @@ export class MachineConnector {
   private readonly reachability = new Map<string, Promise<boolean>>();
   private readonly refusals = new Map<string, MachineUnavailableError>();
   private readonly mutations = new Map<string, Promise<void>>();
+  private readonly requestHandler: MachineConnectorDeps['requestHandler'];
+  private readonly streamHandler: MachineConnectorDeps['streamHandler'];
   private readonly injected: MachineTransportFactory | undefined;
   private readonly injectedLocal: MachineTransportFactory | undefined;
-  private ssh: MachineSshTransportFactory | undefined;
   private local: MachineTransportFactory | undefined;
+  private ssh: MachineSshTransportFactory | undefined;
 
   constructor(deps: MachineConnectorDeps) {
     this.machines = deps.machines;
@@ -138,6 +154,9 @@ export class MachineConnector {
     this.handshakeTimeoutMs = deps.handshakeTimeoutMs;
     this.injected = deps.transportFactory;
     this.injectedLocal = deps.localTransportFactory;
+    const testFactory = deps.transportFactory ?? deps.localTransportFactory;
+    this.requestHandler = deps.requestHandler ?? testFactory?.requestHandler;
+    this.streamHandler = deps.streamHandler ?? testFactory?.streamHandler;
   }
 
   /** Whether Machines exist at all: an absent section means no Machine surface. */
@@ -262,6 +281,25 @@ export class MachineConnector {
 
     return handle;
   }
+  /** The typed Jobs RPC client and lifetime of one established Machine session. */
+  async jobsClient(
+    name: string,
+  ): Promise<{
+    readonly client: MachineSession['jobsClient'];
+    readonly callOptions: MachineSession['callOptions'];
+    readonly ended: Promise<MachineSessionEnd>;
+    readonly instanceId: string;
+  }> {
+    const session = await this.session(name);
+    const hello = session.hello;
+    if (hello === undefined) throw new Error('Machine handshake is incomplete.');
+    return {
+      client: session.jobsClient,
+      callOptions: session.callOptions.bind(session),
+      ended: session.ended,
+      instanceId: hello.instanceId,
+    };
+  }
 
   /**
    * Run `operation` after every earlier Machine mutation finished, for this
@@ -342,6 +380,21 @@ export class MachineConnector {
     }
   }
 
+  /** An established, identity-bound session for service-specific streaming RPCs. */
+  async machineSession(name: string): Promise<MachineSession> {
+    const session = await this.session(name);
+    const entry = this.sessions.get(name);
+    if (entry !== undefined) clearTimeout(entry.idleTimer);
+    session.retain();
+    return session;
+  }
+
+  /** Release a session lease after its service stream ends. */
+  releaseMachineSession(name: string, session: MachineSession): void {
+    session.release();
+    this.armIdle(name);
+  }
+
   /** The Machine's live session, opening one when it has none. */
   private async session(name: string): Promise<MachineSession> {
     if (!this.enabled() || !this.isConfigured(name))
@@ -391,6 +444,12 @@ export class MachineConnector {
       transport: this.factory(name).open({ name, destination }),
       hubVersion: this.hubVersion,
       handshakeTimeoutMs: this.handshakeTimeoutMs,
+      ...(this.requestHandler === undefined
+        ? {}
+        : { requestHandler: this.requestHandler }),
+      ...(this.streamHandler === undefined
+        ? {}
+        : { streamHandler: this.streamHandler }),
     });
 
     this.sessions.set(name, { session });

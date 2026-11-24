@@ -556,7 +556,7 @@ describe('readFsGrepResult', () => {
   ): JsonValue {
     return {
       ok: true,
-      results,
+      results: results.filter((value): value is JsonValue => value !== undefined),
       complete: true,
       warnings: [],
       consumed: { files: results.length, entries: results.length, bytes: 40 },

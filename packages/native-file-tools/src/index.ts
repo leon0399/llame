@@ -41,6 +41,8 @@ export { boundFlatResult, directoryResult } from "./directory-page";
 
 /** The local entry order: directories first, then by name, as every listing sorts. */
 export { compareEntries } from "./directory-listing";
+export { renderCollectedDirectoryParts } from "./directory-listing";
+export type { ChildDir, DirEntry, DirectoryListingOptions } from "./directory-listing";
 
 export type {
   NativeReadOptions,
@@ -97,3 +99,4 @@ export {
 } from "./source-lines";
 
 export * from "./grep";
+export { similarNames } from "./read-suggestions";

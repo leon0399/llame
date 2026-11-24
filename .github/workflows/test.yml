@@ -57,8 +57,6 @@ jobs:
             dir: packages/config-interpolation
           - flag: native-file-tools
             dir: packages/native-file-tools
-          - flag: machine
-            dir: apps/machine
           - flag: machine-protocol
             dir: packages/machine-protocol
           - flag: mcp-workspace

@@ -39,7 +39,7 @@ import {
 
 import type { MachinesConfig } from '../../instance-config/machines-config';
 import { createSshConfigFile, type SshConfigFile } from '../../ssh/ssh-config';
-import { MACHINE_BUNDLE } from '../local-daemon';
+import { MACHINE_BINARY } from '../local-daemon';
 import {
   SSHD_STARTUP_MS,
   ensureRunning,
@@ -94,7 +94,7 @@ const DROP_RULE = ['-p', 'tcp', '--dport', '22', '-j', 'DROP'];
 export const MACHINE_SSHD_NAME = 'devl';
 export const MACHINE_SSHD_ALIAS = 'box';
 
-/** The box's registered root (baked into the image's roots.json). */
+/** The box's registered root (added by the static daemon before test startup). */
 export const MACHINE_SSHD_ROOT = '/home/box/work';
 export const MACHINE_SSHD_NOTES_FILE = `${MACHINE_SSHD_ROOT}/notes.txt`;
 
@@ -115,7 +115,7 @@ export const MACHINE_SSHD_NOTES_CONTENT = readFileSync(
 );
 
 /** How an `ssh` child of this process names the daemon it was told to run. */
-export const MACHINE_SSHD_REMOTE_COMMAND = 'llame-machine serve --stdio';
+export const MACHINE_SSHD_REMOTE_COMMAND = 'llame-machine attach --stdio';
 
 /** Which of the four file pairs the suite selects between. */
 type ConnectionVariant = {
@@ -213,13 +213,13 @@ function builder(): GenericContainerBuilder {
   return fixtureBuilder;
 }
 
-/** The daemon bundled for this checkout. */
-function daemonBundle(): Buffer {
+/** Read the static daemon binary for the sshd test container. */
+function daemonBinaryContents(): Buffer {
   try {
-    return readFileSync(MACHINE_BUNDLE);
+    return readFileSync(MACHINE_BINARY);
   } catch (error) {
     throw new Error(
-      `The Machine SSH integration suite needs the built daemon at ${MACHINE_BUNDLE}: run \`pnpm --filter machine build\`.`,
+      `The Machine SSH integration suite needs the daemon binary at ${MACHINE_BINARY}: run \`pnpm --filter machine build\`.`,
       { cause: error },
     );
   }
@@ -279,19 +279,32 @@ async function startBox(
   authorizedKeys: string,
   daemon: Buffer,
 ): Promise<StartedTestContainer> {
-  return (await builder().build())
+  const box = await (await builder().build())
     .withNetwork(network)
     .withNetworkAliases(MACHINE_SSHD_ALIAS)
+    .withExposedPorts(22)
     .withAutoRemove(false)
     .withCopyContentToContainer([
       { content: authorizedKeys, target: SETUP_KEYS_TARGET, mode: 0o644 },
-      // Copied in before start, so the forced command's path exists from the
-      // first session, and the image never has to be rebuilt with the daemon.
       { content: daemon, target: DAEMON_TARGET, mode: 0o755 },
     ])
     .withWaitStrategy(SSHD_READY)
     .withStartupTimeout(SSHD_STARTUP_MS)
     .start();
+
+  const registeredRoot = await box.exec([
+    'su',
+    '-s',
+    '/bin/sh',
+    'box',
+    '-c',
+    `${DAEMON_TARGET} roots add ${MACHINE_SSHD_ROOT}`,
+  ]);
+
+  if (registeredRoot.exitCode !== 0)
+    throw new Error('Could not register the SSH fixture Machine root.');
+
+  return box;
 }
 
 /**
@@ -600,7 +613,7 @@ async function startContainers(
 
   const box = await startBox(
     network,
-    `restrict,command="${DAEMON_TARGET} serve --stdio" ${keys.hubPublic}\n` +
+    `restrict,command="${DAEMON_TARGET} attach --stdio" ${keys.hubPublic}\n` +
       `restrict,environment="BASH_ENV=/home/box/.bashrc" ${keys.plainPublic}\n`,
     daemon,
   );
@@ -617,7 +630,7 @@ async function provision(directory: string): Promise<MachineSshd> {
   const { bastion, box, shBox } = await startContainers(
     network,
     keys,
-    daemonBundle(),
+    daemonBinaryContents(),
   );
 
   const context: FixtureContext = {

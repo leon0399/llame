@@ -57,6 +57,3 @@ coverage/
 stryker.changed-lines.json
 stryker.log
 apps/api/stryker-sql-fixtures-*/
-
-# Rust (Cargo workspace)
-/target/

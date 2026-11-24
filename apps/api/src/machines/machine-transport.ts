@@ -11,7 +11,17 @@
  * hosts (the implicit jump command carries it), unlike command-line `-o`/`-i`.
  */
 
+import { execFileSync } from 'node:child_process';
+import { chmodSync, mkdtempSync, rmSync } from 'node:fs';
+import { connect as connectNetSocket, type Socket } from 'node:net';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { connectSocket } from '@workspace/machine-protocol';
 import type { Readable, Writable } from 'node:stream';
+import type { Transport } from '@connectrpc/connect';
+import type { JsonValue } from '@workspace/machine-protocol';
+
+
 
 import type { ResolvedSshFiles } from '../instance-config/machines-config';
 import {
@@ -25,8 +35,8 @@ import {
   type SshProcess,
   type SshSpawn,
 } from '../ssh/ssh-process';
+import { MachineUnavailableError, type MachineRequestOptions } from './machine-session';
 
-import { MachineUnavailableError } from './machine-session';
 
 /** How the link ended; `diagnostic` is the link process's own stderr. */
 export type MachineLinkEnd = {
@@ -36,26 +46,49 @@ export type MachineLinkEnd = {
   /** True when llame ended the link itself (idle close or shutdown). */
   readonly closedByHub: boolean;
 };
+/** Extracts the daemon's absolute socket path from command output. */
+export function machineSocketPath(output: string): string | undefined {
+  const matches = output
+    .split(/\r?\n/u)
+    .map((line) => line.trim())
+    .filter((line) => line.startsWith('/') && line.endsWith('/daemon.sock'));
 
-export type MachineTransport = {
-  /** Frames from the Machine. */
-  readonly input: Readable;
-  /** Frames to the Machine. */
-  readonly output: Writable;
-  /** End the link. Idempotent. */
-  close(): void;
-  /** Resolves once the link has ended, however it ended. */
-  readonly ended: Promise<MachineLinkEnd>;
-};
+  return matches.length === 1 ? matches[0] : undefined;
+}
+
+
+export type MachineTransport =
+  | {
+      readonly input: Readable;
+      readonly output: Writable;
+      close(): void;
+      readonly ended: Promise<MachineLinkEnd>;
+    }
+  | {
+      readonly rpcTransport: Transport;
+      close(): void;
+      readonly ended: Promise<MachineLinkEnd>;
+    };
 
 export type MachineTransportRequest = {
   readonly name: string;
-  /** The SSH destination; absent for the local Machine, which is a child process. */
   readonly destination?: string;
 };
 
-/** The seam the session manager opens a link through (tests inject a peer). */
+/** Session-level test hooks use method/result shapes, not a simulated wire. */
 export type MachineTransportFactory = {
+  readonly requestHandler?: (
+    method: string,
+    params: Record<string, unknown>,
+    options: MachineRequestOptions,
+  ) => Promise<JsonValue>;
+  readonly streamHandler?: (
+    method: string,
+    params: Record<string, unknown>,
+    notify: (notification: { readonly method: string; readonly params?: JsonValue }) => void,
+    send: (frame: unknown) => void,
+    options: MachineRequestOptions,
+  ) => Promise<JsonValue>;
   open(request: MachineTransportRequest): MachineTransport;
 };
 
@@ -91,42 +124,37 @@ export function createProcessTransport(link: SshProcess): MachineTransport {
   };
 }
 
+export type SshMachineCommandRunner = (
+  command: string,
+  args: ReadonlyArray<string>,
+) => string;
+
+export type SshMachineSocketConnector = (path: string) => Socket;
+
 export type MachineSshTransportFactoryOptions = {
   readonly ssh: ResolvedSshFiles | undefined;
-  /** Test seam: where the link process comes from. */
+  /** Test seam: where the SSH tunnel process comes from. */
   readonly spawn?: SshSpawn;
   /** Test seam: a pre-made generated configuration file. */
   readonly configFile?: SshConfigFile;
+  /** Test seam for obtaining the remote daemon socket path. */
+  readonly runCommand?: SshMachineCommandRunner;
+  /** Test seam for opening the forwarded Unix socket. */
+  readonly connect?: SshMachineSocketConnector;
 };
-
-export type MachineSshTransportFactory = MachineTransportFactory & {
-  /** The generated configuration's text, or undefined when none was written. */
-  readonly sshConfigText: () => string | undefined;
-  /** Remove the generated configuration's private directory. */
-  dispose(): void;
-};
-
 /**
- * The destination as ssh's argv takes it. OpenSSH reads a bare
- * `[user@]host:port` as a host name containing a colon, so a configured port
- * is passed in the URI form `ssh://[user@]host:port` that ssh does parse; an
- * alias or a portless host is passed as written.
- */
-function sshDestination(destination: string): string {
-  return destination.includes(':') ? `ssh://${destination}` : destination;
-}
-
-/**
- * The one `ssh …serve --stdio` spawn of a session, after the destination and
- * settings guards: the connector picks this factory only for an entry with a
- * destination, and the guards keep a direct caller from spawning `ssh
- * undefined`.
+ * Opens a socket-tunnelled SSH session, after the destination and settings
+ * guards: the connector picks this factory only for an entry with a
+ * destination, and the guards keep a direct caller from spawning SSH for an
+ * undefined destination.
  */
 function openSshSession(
   deps: {
     readonly ssh: ResolvedSshFiles | undefined;
     readonly spawnLink: SshSpawn;
     readonly path: (ssh: ResolvedSshFiles) => string;
+    readonly runCommand: SshMachineCommandRunner;
+    readonly connect: SshMachineSocketConnector;
   },
   request: MachineTransportRequest,
 ): MachineTransport {
@@ -147,19 +175,85 @@ function openSshSession(
       'No Machine SSH settings are configured.',
     );
 
-  return createProcessTransport(
-    deps.spawnLink('ssh', [
-      '-F',
-      deps.path(ssh),
-      '-T',
-      '--',
-      sshDestination(request.destination),
-      'llame-machine',
-      'serve',
-      '--stdio',
-    ]),
-  );
+  const configPath = deps.path(ssh);
+  const destination = sshDestination(request.destination);
+  const remoteSocketOutput = deps.runCommand('ssh', [
+    '-F',
+    configPath,
+    '-T',
+    '--',
+    destination,
+    'llame-machine',
+    'attach',
+    '--print-socket',
+  ]);
+  const remoteSocket = machineSocketPath(remoteSocketOutput);
+
+  if (remoteSocket === undefined)
+    throw new MachineUnavailableError(
+      request.name,
+      'unreachable',
+      false,
+      'The Machine daemon did not return a valid socket path.',
+    );
+
+  const socketDirectory = mkdtempSync(join(tmpdir(), 'llame-machine-ssh-'));
+  chmodSync(socketDirectory, 0o700);
+  const localSocket = join(socketDirectory, 'machine.sock');
+  const link = createProcessTransport(deps.spawnLink('ssh', [
+    '-F',
+    configPath,
+    '-N',
+    '-o',
+    'StreamLocalBindUnlink=yes',
+    '-L',
+    `${localSocket}:${remoteSocket}`,
+    '--',
+    destination,
+  ]));
+  const socket = deps.connect(localSocket);
+  let closedByHub = false;
+  const { promise: ended, resolve } = Promise.withResolvers<MachineLinkEnd>();
+  void link.ended.then((end) => {
+    rmSync(socketDirectory, { recursive: true, force: true });
+    resolve({ ...end, closedByHub });
+  });
+  socket.once('close', () => {
+    if (closedByHub) return;
+    link.close();
+  });
+  socket.once('error', () => undefined);
+
+  return {
+    rpcTransport: connectSocket(socket),
+    close: () => {
+      closedByHub = true;
+      socket.destroy();
+      link.close();
+      rmSync(socketDirectory, { recursive: true, force: true });
+    },
+    ended,
+  };
 }
+
+
+export type MachineSshTransportFactory = MachineTransportFactory & {
+  /** The generated configuration's text, or undefined when none was written. */
+  readonly sshConfigText: () => string | undefined;
+  /** Remove the generated configuration's private directory. */
+  dispose(): void;
+};
+
+/**
+ * The destination as ssh's argv takes it. OpenSSH reads a bare
+ * `[user@]host:port` as a host name containing a colon, so a configured port
+ * is passed in the URI form `ssh://[user@]host:port` that ssh does parse; an
+ * alias or a portless host is passed as written.
+ */
+function sshDestination(destination: string): string {
+  return destination.includes(':') ? `ssh://${destination}` : destination;
+}
+
 
 /**
  * The production factory: one generated SSH configuration per process, written
@@ -169,6 +263,9 @@ export function createMachineSshTransportFactory(
   options: MachineSshTransportFactoryOptions,
 ): MachineSshTransportFactory {
   const spawnLink = options.spawn ?? spawnSshProcess;
+  const runCommand = options.runCommand ?? ((command, args) =>
+    execFileSync(command, [...args], { encoding: 'utf8' }));
+  const connect = options.connect ?? connectNetSocket;
   let configFile = options.configFile;
 
   function path(ssh: ResolvedSshFiles): string {
@@ -184,7 +281,13 @@ export function createMachineSshTransportFactory(
   return {
     sshConfigText: () => configFile?.text,
     open: (request) =>
-      openSshSession({ ssh: options.ssh, spawnLink, path }, request),
+      openSshSession({
+        ssh: options.ssh,
+        spawnLink,
+        path,
+        runCommand,
+        connect,
+      }, request),
     dispose: () => {
       configFile?.dispose();
       configFile = undefined;

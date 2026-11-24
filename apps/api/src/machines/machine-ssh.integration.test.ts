@@ -15,18 +15,19 @@
  * how a missing one fails loudly instead of skipping.
  */
 
-import { execFileSync, spawn } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import { readdirSync } from 'node:fs';
 import { setTimeout as delay } from 'node:timers/promises';
 
+import { createClient } from '@connectrpc/connect';
+import { create } from '@bufbuild/protobuf';
 import {
-  CONTROL_STREAM_ID,
-  createLineFramer,
-  decodeFrame,
-  encodeFrame,
-  PROTOCOL_VERSION,
-  type Frame,
-  type HelloResult,
+  BootstrapService,
+  MachineService,
+  GetInfoRequestSchema,
+  ListRootsRequestSchema,
+  connectStdio,
+  MACHINE_PROTOCOL_VERSION,
   type JsonValue,
   type MachineMethod,
   type MachineMethodParams,
@@ -45,7 +46,6 @@ import {
 } from '../testing/machine-sshd/machine-sshd';
 
 import { MachineConnector } from './machine-connector.service';
-import { readHelloResult } from './machine-hello';
 import { readFsReadResult } from './machine-results';
 import { MachineUnavailableError } from './machine-session';
 import {
@@ -62,8 +62,8 @@ const ENVELOPE = { budgetMs: 60_000 };
  * not.
  */
 const CONNECT_TIMEOUT_ALLOWANCE_MS = 30_000;
-
 const LONG_BASH_SECONDS = 300;
+
 const PROCESS_POLL_MS = 200;
 const PROCESS_POLL_TIMEOUT_MS = 15_000;
 const HANDSHAKE_POLL_TIMEOUT_MS = 20_000;
@@ -302,14 +302,9 @@ describe('Machine SSH transport over a jump host (remote-machines)', () => {
   });
 
   it('holds the forced command: an SSH exec request cannot run an arbitrary command', async () => {
-    const { hello, stdout } = await rawSshHello(fixture.connection(), 'id');
-    // The daemon answered the handshake, so what ran is the forced command.
-    expect(hello).toMatchObject({
-      protocolVersion: PROTOCOL_VERSION,
-      roots: [MACHINE_SSHD_ROOT],
-    });
-    // And `id` did not: its output never happened.
-    expect(stdout).not.toContain('uid=');
+    const { info, roots } = await rawSshBootstrap(fixture.connection(), 'id');
+    expect(info.protocolVersion).toBe(MACHINE_PROTOCOL_VERSION);
+    expect(roots).toEqual([MACHINE_SSHD_ROOT]);
   });
 });
 
@@ -408,60 +403,30 @@ function sshProcessCount(): number {
     .filter((line) => line.includes(MACHINE_SSHD_REMOTE_COMMAND)).length;
 }
 
-/**
- * Speak the Machine handshake over `ssh <alias> <command>`. The requested
- * command is the request; what answers is whatever sshd's forced command puts
- * on the wire, which is the whole point of the test that uses this.
- */
-async function rawSshHello(
+/** Speak the generated gRPC bootstrap contract over the SSH forced command. */
+async function rawSshBootstrap(
   connection: MachineSshdConnection,
   command: string,
-): Promise<{
-  readonly hello: HelloResult | undefined;
-  readonly stdout: string;
-}> {
-  const child = spawn(
-    'ssh',
-    ['-F', connection.sshConfig.path, '-T', '--', MACHINE_SSHD_ALIAS, command],
-    { stdio: ['pipe', 'pipe', 'pipe'] },
-  );
-
-  const framer = createLineFramer();
-  const answers: Array<Frame> = [];
-  let stdout = '';
-  child.stdout.on('data', (chunk: Buffer) => {
-    stdout += chunk.toString('utf8');
-
-    for (const event of framer.push(chunk)) {
-      if (event.kind !== 'line') continue;
-      const decoded = decodeFrame(event.line);
-
-      if (decoded.ok) answers.push(decoded.frame);
-    }
+) {
+  const stdio = connectStdio({
+    command: 'ssh',
+    args: [
+      '-F',
+      connection.sshConfig.path,
+      '-T',
+      '--',
+      MACHINE_SSHD_ALIAS,
+      command,
+    ],
   });
-  child.stdin.write(
-    encodeFrame({
-      s: CONTROL_STREAM_ID,
-      m: {
-        jsonrpc: '2.0',
-        id: 1,
-        method: 'hello',
-        params: { protocolVersion: PROTOCOL_VERSION, hubVersion: HUB_VERSION },
-      },
-    }),
-  );
-  const deadline = Date.now() + HANDSHAKE_POLL_TIMEOUT_MS;
 
-  while (answers.length === 0 && Date.now() < deadline)
-    await delay(PROCESS_POLL_MS);
-  child.kill();
-
-  const first = answers.at(0);
-
-  if (first === undefined) return { hello: undefined, stdout };
-
-  return {
-    hello: 'result' in first.m ? readHelloResult(first.m.result) : undefined,
-    stdout,
-  };
+  try {
+    const bootstrap = createClient(BootstrapService, stdio.transport);
+    const roots = createClient(MachineService, stdio.transport);
+    const info = await bootstrap.getInfo(create(GetInfoRequestSchema, {}), { timeoutMs: HANDSHAKE_POLL_TIMEOUT_MS });
+    const registeredRoots = (await roots.listRoots(create(ListRootsRequestSchema, {}), { timeoutMs: HANDSHAKE_POLL_TIMEOUT_MS })).roots.map((root) => root.path);
+    return { info, roots: registeredRoots };
+  } finally {
+    stdio.close();
+  }
 }

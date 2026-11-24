@@ -19,12 +19,7 @@ import {
   type ChatListItemResponse,
 } from '../chats/dto/chats.dto';
 import { MessagesRepository } from '../chats/messages-repository';
-import {
-  InstanceConfigService,
-  type InstanceConfigReader,
-} from '../instance-config/instance-config.service';
 import { ChatJobsRepository } from '../jobs/chat-jobs.repository';
-import { workerDeadAfterSeconds } from '../jobs/worker-liveness';
 import { TenantDbService, type TenantRunner } from '../db/tenant-db.service';
 import {
   toMachineResponse,
@@ -73,8 +68,6 @@ export class TenantLiveRecordLoader implements LiveRecordLoader {
     @Inject(TenantDbService)
     private readonly tenantDb: TenantRunner,
     private readonly machines: MachinesStatusRepository,
-    @Inject(InstanceConfigService)
-    private readonly instanceConfig: InstanceConfigReader,
   ) {}
 
   chat(owner: string, chatId: string) {
@@ -82,11 +75,7 @@ export class TenantLiveRecordLoader implements LiveRecordLoader {
       const [chat, [lastMessage], running] = await Promise.all([
         new ChatsRepository(tx).findById(chatId, owner),
         new MessagesRepository(tx).findLatestPerOwnedChat(owner, chatId),
-        new ChatJobsRepository(tx).countRunning(
-          owner,
-          workerDeadAfterSeconds(this.instanceConfig.config),
-          chatId,
-        ),
+        new ChatJobsRepository(tx).countRunning(owner),
       ]);
 
       return chat
@@ -95,13 +84,9 @@ export class TenantLiveRecordLoader implements LiveRecordLoader {
     });
   }
 
-  /** Zero groups retain Chats whose stored running jobs have expired leases. */
   runningJobs(owner: string) {
     return this.tenantDb.runAs(owner, (tx) =>
-      new ChatJobsRepository(tx).countRunning(
-        owner,
-        workerDeadAfterSeconds(this.instanceConfig.config),
-      ),
+      new ChatJobsRepository(tx).countRunning(owner),
     );
   }
 

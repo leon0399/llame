@@ -686,7 +686,7 @@ describe('ExecutorGit.inspect', () => {
 
     const invalid = hub({
       methods: ['git.inspect'],
-      answers: { 'git.inspect': { error: 'invalid_params' } },
+      answers: { 'git.inspect': { error: 'invalid_argument' } },
     });
 
     await expect(
@@ -1197,7 +1197,7 @@ describe('ExecutorGit refusals', () => {
   it('names the method and the Machine of a refusal', async () => {
     const { executors } = hub({
       methods: ['git.inspect'],
-      answers: { 'fs.stat': { error: 'invalid_params' } },
+      answers: { 'fs.stat': { error: 'invalid_argument' } },
     });
 
     await expect(

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { FS_GREP_METHOD, fsGrepCursorKey } from "./index";
+import { fsGrepCursorKey } from "./index";
 
 const SEARCH = {
   path: "/srv/app",
@@ -10,9 +10,6 @@ const SEARCH = {
 };
 
 describe("fs.grep", () => {
-  it("names the search method", () => {
-    expect(FS_GREP_METHOD).toBe("fs.grep");
-  });
 
   it("gives one search the same cursor key on both sides of the wire", () => {
     expect(fsGrepCursorKey({ ...SEARCH })).toBe(
