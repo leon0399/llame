@@ -1,0 +1,21 @@
+[package]
+name = "machine-files"
+description = "Machine daemon file operations"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+machine-core.workspace = true
+machine-protocol.workspace = true
+tokio.workspace = true
+tokio-stream.workspace = true
+tonic.workspace = true
+machine-grep.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

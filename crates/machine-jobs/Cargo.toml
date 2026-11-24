@@ -1,0 +1,21 @@
+[package]
+name = "machine-jobs"
+description = "Machine daemon jobs: every command, its output files, and its state"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+machine-core.workspace = true
+machine-protocol.workspace = true
+tokio.workspace = true
+tokio-stream.workspace = true
+tonic.workspace = true
+anyhow.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

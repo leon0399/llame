@@ -1,0 +1,28 @@
+syntax = "proto3";
+
+package stead.machine.v1;
+
+import "stead/machine/v1/common.proto";
+
+service RootsService {
+  rpc List(RootsServiceListRequest) returns (RootsServiceListResponse);
+}
+
+message RootsServiceListRequest {
+  Envelope envelope = 1;
+}
+
+message RootsServiceListResponse {
+  // Registered roots, in configuration order.
+  repeated string roots = 1;
+  // One entry per root, in the same order.
+  repeated RootDisk disks = 2;
+  // How many jobs may run at once on this Machine.
+  uint32 max_running_jobs = 3;
+}
+
+message RootDisk {
+  string root = 1;
+  // Total bytes of the filesystem holding the root; unset when unknown.
+  optional uint64 total_bytes = 2;
+}

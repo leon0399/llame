@@ -1,0 +1,25 @@
+[package]
+name = "machine-core"
+description = "Shared Machine daemon state: roots, configuration, identity, refusals"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+machine-protocol.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+toml.workspace = true
+uuid.workspace = true
+tokio.workspace = true
+tonic.workspace = true
+tonic-types.workspace = true
+rustix.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

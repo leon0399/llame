@@ -1,0 +1,141 @@
+syntax = "proto3";
+
+package stead.machine.v1;
+
+import "stead/machine/v1/common.proto";
+
+// Every command runs as a job. The daemon knows nothing of foreground,
+// background, or waiting; the installation decides those from this stream.
+// Each job carries an opaque owner tag, and every call that acts on one job
+// must present the same tag.
+service JobsService {
+  // Starts a job. A resend with the same job id returns the existing job.
+  // A Machine at its running-job limit refuses with RESOURCE_EXHAUSTED and
+  // the reason `machine_job_limit`.
+  rpc Start(StartRequest) returns (StartResponse);
+  // A snapshot of every job first, a `snapshot_end` marker, then one full
+  // record per change. The stream lasts as long as the connection.
+  rpc Watch(WatchRequest) returns (stream WatchResponse);
+  rpc List(JobsServiceListRequest) returns (JobsServiceListResponse);
+  // Output from `offset` to the current end of the stream, in chunks.
+  rpc ReadOutput(ReadOutputRequest) returns (stream ReadOutputResponse);
+  rpc Stop(StopRequest) returns (StopResponse);
+  // Deletes a settled job's directory once the installation holds its copy.
+  rpc Release(ReleaseRequest) returns (ReleaseResponse);
+}
+
+enum JobState {
+  JOB_STATE_UNSPECIFIED = 0;
+  JOB_STATE_RUNNING = 1;
+  JOB_STATE_SUCCEEDED = 2;
+  JOB_STATE_FAILED = 3;
+  JOB_STATE_CANCELLED = 4;
+  JOB_STATE_TIMED_OUT = 5;
+  JOB_STATE_LOST = 6;
+}
+
+enum JobOutput {
+  JOB_OUTPUT_UNSPECIFIED = 0;
+  JOB_OUTPUT_STDOUT = 1;
+  JOB_OUTPUT_STDERR = 2;
+}
+
+message Job {
+  // 32 lowercase hex characters, drawn by the installation.
+  string job_id = 1;
+  string owner = 2;
+  JobState state = 3;
+  string tool_call_id = 4;
+  uint32 pid = 5;
+  // Unix epoch milliseconds.
+  uint64 started_at_ms = 6;
+  optional uint64 ended_at_ms = 7;
+  optional int32 exit_code = 8;
+  optional string signal = 9;
+  uint64 stdout_bytes = 10;
+  uint64 stderr_bytes = 11;
+  // The Machine's output ceiling stopped recording; the process kept running.
+  bool truncated = 12;
+  // Why a job is `lost`: `daemon_restarted`, `machine_rebooted`, or
+  // `stop_unproved`.
+  optional string lost_cause = 13;
+  // Spawn to settlement, on the daemon's monotonic clock.
+  optional uint64 wall_time_ms = 14;
+  // The lifetime the job was started with; zero means none.
+  uint64 lifetime_ms = 15;
+}
+
+message StartRequest {
+  Envelope envelope = 1;
+  // The job id and idempotency key.
+  string job_id = 2;
+  string owner = 3;
+  // Passed to `bash -c`.
+  string command = 4;
+  optional string cwd = 5;
+  map<string, string> env = 6;
+  // The daemon ends the job as `timed_out` after this long; zero means none.
+  uint64 lifetime_ms = 7;
+}
+
+message StartResponse {
+  oneof result {
+    Job job = 1;
+    // `unavailable` (for example a missing `bash`) or `invalid_input`.
+    Failure failure = 2;
+  }
+}
+
+message WatchRequest {}
+
+message SnapshotEnd {}
+
+message WatchResponse {
+  oneof event {
+    Job job = 1;
+    SnapshotEnd snapshot_end = 2;
+  }
+}
+
+message JobsServiceListRequest {}
+
+message JobsServiceListResponse {
+  repeated Job jobs = 1;
+  uint32 max_running_jobs = 2;
+  uint32 running = 3;
+}
+
+message ReadOutputRequest {
+  string job_id = 1;
+  string owner = 2;
+  JobOutput output = 3;
+  uint64 offset = 4;
+  // Most bytes to send; zero means to the current end.
+  uint64 limit = 5;
+}
+
+message ReadOutputResponse {
+  // The offset of `data` in the output.
+  uint64 offset = 1;
+  bytes data = 2;
+}
+
+message StopRequest {
+  Envelope envelope = 1;
+  string idempotency_key = 2;
+  string job_id = 3;
+  string owner = 4;
+}
+
+message StopResponse {
+  Job job = 1;
+}
+
+message ReleaseRequest {
+  Envelope envelope = 1;
+  string idempotency_key = 2;
+  string job_id = 3;
+  string owner = 4;
+}
+
+message ReleaseResponse {}

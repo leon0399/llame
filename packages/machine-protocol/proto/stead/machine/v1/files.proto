@@ -1,0 +1,241 @@
+syntax = "proto3";
+
+package stead.machine.v1;
+
+import "stead/machine/v1/common.proto";
+
+// File operations on absolute host paths inside the registered roots. A path
+// outside every root is refused with PERMISSION_DENIED and the reason
+// `path_not_registered`, in the same words whether or not it exists. Result
+// paths are host paths; the installation renders locators.
+service FilesService {
+  rpc Stat(StatRequest) returns (StatResponse);
+  rpc List(ListRequest) returns (ListResponse);
+  rpc Read(ReadRequest) returns (ReadResponse);
+  rpc Edit(EditRequest) returns (EditResponse);
+  rpc Write(WriteRequest) returns (WriteResponse);
+  // The header (or a failure) first, then the bytes in chunks.
+  rpc ReadBytes(ReadBytesRequest) returns (stream ReadBytesResponse);
+  rpc Grep(GrepRequest) returns (GrepResponse);
+}
+
+message StatRequest {
+  Envelope envelope = 1;
+  string path = 2;
+}
+
+enum StatKind {
+  STAT_KIND_UNSPECIFIED = 0;
+  STAT_KIND_FILE = 1;
+  STAT_KIND_DIRECTORY = 2;
+  STAT_KIND_OTHER = 3;
+  STAT_KIND_MISSING = 4;
+}
+
+message StatResponse {
+  StatKind kind = 1;
+  optional uint64 size = 2;
+  optional string real_path = 3;
+  bool is_link = 4;
+}
+
+message ListRequest {
+  Envelope envelope = 1;
+  string path = 2;
+}
+
+message ListEntry {
+  string name = 1;
+  // "file", "directory", "link", or "other".
+  string kind = 2;
+}
+
+message ListSuccess {
+  repeated ListEntry entries = 1;
+  uint32 total_count = 2;
+  bool truncated = 3;
+}
+
+message ListResponse {
+  oneof result {
+    ListSuccess success = 1;
+    Failure failure = 2;
+  }
+}
+
+// How the result is shown: the selector suffix (for example `:5-10`, `:raw`,
+// `:outline`), and room withheld from the result bound for the caller.
+message DisplayOptions {
+  optional string selector = 1;
+  optional uint32 reserve_code_units = 2;
+}
+
+message ReadRequest {
+  Envelope envelope = 1;
+  string path = 2;
+  DisplayOptions options = 3;
+}
+
+message ReadSuccess {
+  // "file" or "directory".
+  string kind = 1;
+  string path = 2;
+  optional string real_path = 3;
+  string content = 4;
+  bool truncated = 5;
+  optional uint32 next_offset = 6;
+  optional uint32 line_count = 7;
+  optional uint32 entry_count = 8;
+  // "text", "raw", or "outline".
+  optional string representation = 9;
+  optional OptionalLineRange requested_range = 10;
+  optional OptionalLineRange shown_range = 11;
+  repeated LineRange requested_ranges = 12;
+  repeated LineRange shown_ranges = 13;
+}
+
+message ReadResponse {
+  oneof result {
+    ReadSuccess success = 1;
+    Failure failure = 2;
+  }
+}
+
+message EditRequest {
+  Envelope envelope = 1;
+  // A key the installation draws per call; a resend with the same key returns
+  // the first result instead of editing again.
+  string idempotency_key = 2;
+  string path = 3;
+  DisplayOptions options = 4;
+  string old_text = 5;
+  string new_text = 6;
+}
+
+message WriteRequest {
+  Envelope envelope = 1;
+  string idempotency_key = 2;
+  string path = 3;
+  DisplayOptions options = 4;
+  string content = 5;
+  bool replace = 6;
+}
+
+message MutateSuccess {
+  // "edit" or "write".
+  string operation = 1;
+  string path = 2;
+  bool created = 3;
+  bool replaced = 4;
+  optional uint32 replacements = 5;
+  optional string content = 6;
+  optional OptionalLineRange shown_range = 7;
+  optional bool truncated = 8;
+  optional bool cut = 9;
+  optional uint32 line_count = 10;
+  // The post-edit line the edited region starts at.
+  optional uint32 display_start_line = 11;
+}
+
+message EditResponse {
+  oneof result {
+    MutateSuccess success = 1;
+    Failure failure = 2;
+  }
+}
+
+message WriteResponse {
+  oneof result {
+    MutateSuccess success = 1;
+    Failure failure = 2;
+  }
+}
+
+message ReadBytesRequest {
+  Envelope envelope = 1;
+  string path = 2;
+  // Largest file the daemon sends.
+  uint64 max_bytes = 3;
+}
+
+message BytesHeader {
+  uint64 size = 1;
+  string media_type = 2;
+}
+
+message ReadBytesResponse {
+  oneof result {
+    BytesHeader header = 1;
+    bytes chunk = 2;
+    Failure failure = 3;
+  }
+}
+
+message GrepBounds {
+  optional uint64 files = 1;
+  optional uint64 entries = 2;
+  optional uint64 bytes = 3;
+  optional uint64 file_bytes = 4;
+  uint64 deadline_ms = 5;
+  uint32 limit = 6;
+  uint32 page_units = 7;
+  bool progressed = 8;
+}
+
+message GrepRequest {
+  Envelope envelope = 1;
+  // The absolute literal prefix.
+  string path = 2;
+  optional string glob_suffix = 3;
+  repeated string patterns = 4;
+  bool literal = 5;
+  bool ignore_case = 6;
+  optional string cursor = 7;
+  GrepBounds bounds = 8;
+}
+
+message GrepPassage {
+  // Relative to the prefix, `/`-separated; empty when the prefix is the file.
+  string path = 1;
+  uint32 start_line = 2;
+  uint32 end_line = 3;
+  string content = 4;
+  repeated uint32 matches = 5;
+  bool truncated = 6;
+  bool capped = 7;
+  bool cut = 8;
+}
+
+message GrepWarning {
+  string kind = 1;
+  uint64 count = 2;
+}
+
+message GrepConsumed {
+  uint64 files = 1;
+  uint64 entries = 2;
+  uint64 bytes = 3;
+}
+
+message GrepIgnored {
+  repeated string paths = 1;
+  bool at_least = 2;
+}
+
+message GrepSuccess {
+  repeated GrepPassage results = 1;
+  bool complete = 2;
+  optional string cursor = 3;
+  repeated GrepWarning warnings = 4;
+  GrepConsumed consumed = 5;
+  bool progressed = 6;
+  optional string unfinished = 7;
+  optional GrepIgnored ignored = 8;
+}
+
+message GrepResponse {
+  oneof result {
+    GrepSuccess success = 1;
+    Failure failure = 2;
+  }
+}

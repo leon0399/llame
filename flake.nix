@@ -1,4 +1,4 @@
-# Dev-only shell: reproducible Node/pnpm toolchain for local development.
+# Dev-only shell: reproducible Node/pnpm and Rust toolchains for local development.
 # Not a build/packaging flake — llame ships no Nix package output.
 {
   description = "llame dev shell";
@@ -27,6 +27,9 @@
             packages = [
               pkgs.nodejs_22
               pkgs.pnpm_12
+              # Reads rust-toolchain.toml, which pins the Machine daemon's
+              # toolchain and its musl targets.
+              pkgs.rustup
             ];
           };
         }

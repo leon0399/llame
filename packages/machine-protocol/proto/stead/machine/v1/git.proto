@@ -1,0 +1,198 @@
+syntax = "proto3";
+
+package stead.machine.v1;
+
+import "stead/machine/v1/common.proto";
+
+// Built-in git operations on absolute host paths inside the registered roots.
+// Failures carry git's raw standard error; the installation renders locators.
+service GitService {
+  rpc Inspect(InspectRequest) returns (InspectResponse);
+  rpc Locate(LocateRequest) returns (LocateResponse);
+  rpc State(StateRequest) returns (StateResponse);
+  rpc WorktreeAdd(WorktreeAddRequest) returns (WorktreeAddResponse);
+  rpc WorktreeList(WorktreeListRequest) returns (WorktreeListResponse);
+  rpc WorktreeRemove(WorktreeRemoveRequest) returns (WorktreeRemoveResponse);
+}
+
+// `type` is `invalid_input` (with `message`, before git starts) or one of
+// `not_a_repository`, `timed_out`, `git_failed`, `no_repository_in_root`,
+// `root_missing`, `git_entry_changed`, `outside_registered_root`,
+// `output_bound` (with `stderr`).
+message GitFailure {
+  string type = 1;
+  string message = 2;
+  string stderr = 3;
+}
+
+message GitRemote {
+  string name = 1;
+  string url = 2;
+}
+
+message InspectRequest {
+  Envelope envelope = 1;
+  string path = 2;
+}
+
+message InspectSuccess {
+  string toplevel = 1;
+  string common_dir = 2;
+  bool linked = 3;
+  optional string main_worktree = 4;
+  repeated GitRemote remotes = 5;
+  optional string branch = 6;
+  optional string head = 7;
+}
+
+message InspectResponse {
+  oneof result {
+    InspectSuccess success = 1;
+    GitFailure failure = 2;
+  }
+}
+
+message LocateRequest {
+  Envelope envelope = 1;
+  string path = 2;
+}
+
+message LocateSuccess {
+  string git_entry = 1;
+  // "directory" or "file".
+  string kind = 2;
+}
+
+message LocateResponse {
+  oneof result {
+    LocateSuccess success = 1;
+    GitFailure failure = 2;
+  }
+}
+
+message StateRequest {
+  Envelope envelope = 1;
+  string path = 2;
+  string git_entry = 3;
+  uint32 limit = 4;
+  // "skip" or "check".
+  string submodules = 5;
+  optional uint32 timeout_ms = 6;
+}
+
+message GitUpstream {
+  string name = 1;
+  bool gone = 2;
+  optional int64 ahead = 3;
+  optional int64 behind = 4;
+  optional string updated_at = 5;
+}
+
+message GitOperation {
+  // "merge", "rebase", "am", "cherry-pick", "revert", or "bisect".
+  string kind = 1;
+  optional uint32 step = 2;
+  optional uint32 total = 3;
+}
+
+message GitCounts {
+  uint32 staged = 1;
+  uint32 unstaged = 2;
+  uint32 untracked = 3;
+  uint32 conflicted = 4;
+}
+
+message GitStatusEntry {
+  string xy = 1;
+  string path = 2;
+  optional string from = 3;
+}
+
+message GitCommit {
+  string short = 1;
+  string subject = 2;
+}
+
+message StateSuccess {
+  string toplevel = 1;
+  string root_relative = 2;
+  optional string branch = 3;
+  bool detached = 4;
+  optional string head = 5;
+  optional GitUpstream upstream = 6;
+  optional GitOperation operation = 7;
+  GitCounts counts = 8;
+  repeated GitStatusEntry entries = 9;
+  uint32 omitted = 10;
+  repeated string submodules = 11;
+  repeated GitCommit commits = 12;
+  repeated GitRemote remotes = 13;
+}
+
+message StateResponse {
+  oneof result {
+    StateSuccess success = 1;
+    GitFailure failure = 2;
+  }
+}
+
+message WorktreeAddRequest {
+  Envelope envelope = 1;
+  string idempotency_key = 2;
+  string source = 3;
+  string branch = 4;
+  optional string base_ref = 5;
+  string directory = 6;
+}
+
+message WorktreeAddSuccess {
+  string path = 1;
+  string branch = 2;
+  string head = 3;
+}
+
+message WorktreeAddResponse {
+  oneof result {
+    WorktreeAddSuccess success = 1;
+    GitFailure failure = 2;
+  }
+}
+
+message WorktreeListRequest {
+  Envelope envelope = 1;
+  string source = 2;
+}
+
+message WorktreeEntry {
+  string path = 1;
+  optional string branch = 2;
+  optional string head = 3;
+  bool locked = 4;
+  bool prunable = 5;
+}
+
+message WorktreeListSuccess {
+  repeated WorktreeEntry worktrees = 1;
+}
+
+message WorktreeListResponse {
+  oneof result {
+    WorktreeListSuccess success = 1;
+    GitFailure failure = 2;
+  }
+}
+
+message WorktreeRemoveRequest {
+  Envelope envelope = 1;
+  string idempotency_key = 2;
+  string path = 3;
+}
+
+message WorktreeRemoveSuccess {}
+
+message WorktreeRemoveResponse {
+  oneof result {
+    WorktreeRemoveSuccess success = 1;
+    GitFailure failure = 2;
+  }
+}

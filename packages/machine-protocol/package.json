@@ -12,10 +12,16 @@
     "lint:fix": "oxlint --deny-warnings --fix",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage --reporter=default --reporter=junit --outputFile.junit=coverage/junit.xml && crap-typescript --threshold 42 --format none src",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "proto:generate": "buf generate",
+    "proto:fingerprint": "node scripts/protocol-fingerprint.mjs --write",
+    "proto:check": "buf lint && node scripts/protocol-fingerprint.mjs --base origin/master && buf generate && git diff --exit-code -- src/generated && test -z \"$(git ls-files --others --exclude-standard -- src/generated)\"",
+    "proto:breaking": "buf breaking proto --against '../../.git#branch=origin/master,subdir=packages/machine-protocol/proto' --path proto/stead/machine/bootstrap"
   },
   "devDependencies": {
     "@barney-media/crap-typescript": "catalog:",
+    "@bufbuild/buf": "1.75.0",
+    "@bufbuild/protoc-gen-es": "2.17.0",
     "@types/node": "catalog:",
     "@vitest/coverage-v8": "catalog:",
     "@workspace/config-typescript": "workspace:*",
@@ -23,5 +29,10 @@
     "oxlint-tsgolint": "catalog:",
     "typescript": "catalog:",
     "vitest": "catalog:"
+  },
+  "dependencies": {
+    "@bufbuild/protobuf": "2.17.0",
+    "@connectrpc/connect": "2.3.0",
+    "@connectrpc/connect-node": "2.3.0"
   }
 }

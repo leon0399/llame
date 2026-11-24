@@ -1,0 +1,44 @@
+syntax = "proto3";
+
+// The frozen bootstrap service. `buf breaking` refuses any breaking change to
+// this package: an out-of-date daemon must stay identifiable by every later
+// installation. Additions are allowed.
+package stead.machine.bootstrap.v1;
+
+service BootstrapService {
+  // Identity, versions, and static facts. Answered before any main-service
+  // call, and safe to call at any time.
+  rpc GetInfo(GetInfoRequest) returns (GetInfoResponse);
+}
+
+message GetInfoRequest {}
+
+message GetInfoResponse {
+  // Lowercase UUID v4, persisted on the Machine.
+  string instance_id = 1;
+  // The daemon's own release version.
+  string release_version = 2;
+  // Identifies the exact binary; changes with every build.
+  string build_id = 3;
+  // The main-service protocol version. During alpha it must match exactly.
+  uint32 protocol_version = 4;
+  // The kernel boot id; a change means the Machine rebooted.
+  string boot_id = 5;
+  Facts facts = 6;
+  repeated Capability capabilities = 7;
+}
+
+message Facts {
+  string os = 1;
+  string arch = 2;
+  string kernel = 3;
+  uint32 cpu_count = 4;
+  uint64 total_memory_bytes = 5;
+}
+
+// What the box can do, for example a Sandbox mechanism or a tool and its
+// version. Names are open strings so a new capability needs no proto change.
+message Capability {
+  string name = 1;
+  string version = 2;
+}

@@ -1,0 +1,68 @@
+syntax = "proto3";
+
+package stead.machine.v1;
+
+import "stead/machine/v1/common.proto";
+
+// Workspace MCP servers declared in `.mcp.json` and `.llame/mcp.json` under a
+// registered root. One `Open` stream is one server session: closing the
+// stream ends the server.
+service McpService {
+  rpc ListServers(ListServersRequest) returns (ListServersResponse);
+  // The first client frame is `open`. The first server frame is `opened` or
+  // `failure`. Then JSON-RPC message text travels both ways.
+  rpc Open(stream OpenRequest) returns (stream OpenResponse);
+}
+
+message ListServersRequest {
+  Envelope envelope = 1;
+  string root = 2;
+}
+
+message McpServer {
+  string name = 1;
+  // "stdio" or "http"; unset when the entry never resolved that far.
+  optional string transport = 2;
+  // "available" or "unavailable".
+  string state = 3;
+  optional string diagnostic = 4;
+}
+
+message ListServersResponse {
+  repeated McpServer servers = 1;
+}
+
+message McpOpen {
+  Envelope envelope = 1;
+  string root = 2;
+  string server = 3;
+}
+
+message OpenRequest {
+  oneof frame {
+    McpOpen open = 1;
+    // One JSON-RPC message, as JSON text.
+    string message = 2;
+    // The negotiated MCP protocol version, for HTTP servers.
+    string set_protocol_version = 3;
+  }
+}
+
+message McpOpened {
+  // Resolved secret values the installation must redact.
+  repeated string protected_values = 1;
+}
+
+message McpProtected {
+  repeated string values = 1;
+}
+
+message OpenResponse {
+  oneof frame {
+    McpOpened opened = 1;
+    string message = 2;
+    string stderr = 3;
+    McpProtected protected = 4;
+    Failure failure = 5;
+  }
+}
