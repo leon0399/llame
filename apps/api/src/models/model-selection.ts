@@ -434,6 +434,21 @@ export function effortAfterSwitch(input: {
   return fallbackEffort(input.model, input.candidateEffort);
 }
 
+/** The Run's stored effort after moving to a candidate model. */
+export function effortFor(
+  selectedEffort: string | null,
+  model: SystemModelCatalogEntry,
+  candidateEffort: string | undefined,
+): string | null {
+  const choice = effortAfterSwitch({
+    selectedEffort,
+    model,
+    candidateEffort,
+  });
+
+  return choice.kind === 'effort' ? choice.effort : null;
+}
+
 /**
  * The selection a request stores, or undefined when it writes none.
  *

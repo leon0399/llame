@@ -23,8 +23,11 @@ import {
   type ModelStreamInput,
 } from '../models/model-client';
 import { type SystemModelCatalogEntry } from '../models/model-catalog';
-import type { ModelSelectionValidator } from '../models/models.service';
-import { fakeResolveSelection } from '../testing/fake-model-selection';
+import type { RunModelCapability } from '../runs/run-execution.service';
+import {
+  fakeResolveSelection,
+  unexpectedCreateClient,
+} from '../testing/fake-model-selection';
 import { SystemPromptsService } from '../system-prompts/system-prompts.service';
 import { noopEmbedDispatch } from '../search/search-embed-dispatch.stub';
 import { noopQueryEmbedder } from '../search/chat-search-query-embedder.stub';
@@ -96,7 +99,7 @@ const fixtureModelEntry = (modelId: string): SystemModelCatalogEntry => ({
   referencesSkills: false,
 });
 
-const executionModels: ModelSelectionValidator = {
+const executionModels: RunModelCapability = {
   validateModelSelection: fixtureModelEntry,
   resolveEffortSelection: () => undefined,
   resolveSelection: fakeResolveSelection({
@@ -104,6 +107,7 @@ const executionModels: ModelSelectionValidator = {
     resolveEffortSelection: () => undefined,
     defaultSelector: 'system:openai:gpt-5.4-mini',
   }),
+  createClient: unexpectedCreateClient('MCP integration'),
 };
 
 const knowledgeCandidates: KnowledgeToolCandidateResolverPort = {

@@ -47,11 +47,12 @@ import type { InstanceConfigReader } from '../../instance-config/instance-config
 import { MemoryService } from '../../memory/memory.service';
 import type { ModelClient, ModelStreamInput } from '../../models/model-client';
 import { createModelClient } from '../../models/model-client-factory';
+import { ModelsService } from '../../models/models.service';
+import type { RunModelCapability } from '../../runs/run-execution.service';
 import {
-  ModelsService,
-  type ModelSelectionValidator,
-} from '../../models/models.service';
-import { fakeResolveSelection } from '../../testing/fake-model-selection';
+  fakeResolveSelection,
+  unexpectedCreateClient,
+} from '../../testing/fake-model-selection';
 import type {
   SystemModelCatalogEntry,
   TokenPrice,
@@ -724,7 +725,7 @@ function service(options: ServiceOptions): RunExecutionService {
 
   // The hosted scenario runs the real `ModelsService`, so the engine builds the
   // referenced model's client as a Run's worker would.
-  const fakeModels: ModelSelectionValidator = {
+  const fakeModels: RunModelCapability = {
     validateModelSelection: () => testModelEntry,
     resolveEffortSelection: () => undefined,
     resolveSelection: fakeResolveSelection({
@@ -732,9 +733,10 @@ function service(options: ServiceOptions): RunExecutionService {
       resolveEffortSelection: () => undefined,
       defaultSelector: testModelEntry.id,
     }),
+    createClient: unexpectedCreateClient('Web search integration'),
   };
 
-  const models: ModelSelectionValidator =
+  const models: RunModelCapability =
     options.hosted === undefined
       ? fakeModels
       : new ModelsService(

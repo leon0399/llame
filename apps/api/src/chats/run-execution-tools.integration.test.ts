@@ -91,8 +91,11 @@ import { mergeRetainedMedia } from '../media/attempt-media';
 import { toChatMessageResponse } from './dto/chats.dto';
 import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
 import type { SystemModelCatalogEntry } from '../models/model-catalog';
-import type { ModelSelectionValidator } from '../models/models.service';
-import { fakeResolveSelection } from '../testing/fake-model-selection';
+import type { RunModelCapability } from '../runs/run-execution.service';
+import {
+  fakeResolveSelection,
+  unexpectedCreateClient,
+} from '../testing/fake-model-selection';
 import type { InstanceConfigReader } from '../instance-config/instance-config.service';
 import { SystemPromptsService } from '../system-prompts/system-prompts.service';
 import type { TitleCapability } from '../titles/title.service';
@@ -738,7 +741,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
 
     const resolveEffortSelection = vi.fn().mockReturnValue(undefined);
 
-    const models: ModelSelectionValidator = {
+    const models: RunModelCapability = {
       validateModelSelection,
       resolveEffortSelection,
       resolveSelection: fakeResolveSelection({
@@ -746,6 +749,7 @@ describeIfDb('executeRun tool-loop persistence', () => {
         resolveEffortSelection,
         defaultSelector: testModelEntry.id,
       }),
+      createClient: unexpectedCreateClient('Tools integration'),
     };
 
     return {

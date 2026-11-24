@@ -19,10 +19,7 @@ import { RecencyDigestService } from '../chats/recency-digest.service';
 import { MemoryService } from '../memory/memory.service';
 import { type ModelClient } from '../models/model-client';
 import { type SystemModelCatalogEntry } from '../models/model-catalog';
-import {
-  resolveSelectionFromCatalog,
-  type ModelSelectionValidator,
-} from '../models/models.service';
+import { resolveSelectionFromCatalog } from '../models/models.service';
 import { noopQueryEmbedder } from '../search/chat-search-query-embedder.stub';
 import { noopEmbedDispatch } from '../search/search-embed-dispatch.stub';
 import { noopReindexDispatch } from '../search/search-reindex-dispatch.stub';
@@ -31,7 +28,10 @@ import { SystemPromptsService } from '../system-prompts/system-prompts.service';
 import { compileTestPermissionPolicy } from './tool-permission-policy';
 import { getRegisteredToolIds } from '../tools/registry';
 import { type KnowledgeToolResolver } from '../tools/types';
-import { RunExecutionService } from '../runs/run-execution.service';
+import {
+  RunExecutionService,
+  type RunModelCapability,
+} from '../runs/run-execution.service';
 
 /** A text-only catalog entry for one mock model. */
 export function catalogEntry(id: string): SystemModelCatalogEntry {
@@ -52,7 +52,7 @@ export function catalogEntry(id: string): SystemModelCatalogEntry {
 /** A validator over the entries a suite declares, by id. */
 export function catalogValidator(
   entries: ReadonlyArray<SystemModelCatalogEntry>,
-): ModelSelectionValidator {
+): RunModelCapability {
   return {
     validateModelSelection: (modelId) => {
       const entry = entries.find(({ id }) => id === modelId);
@@ -71,6 +71,15 @@ export function catalogValidator(
         },
         { stored, request, writer, now },
       ),
+    createClient: (modelId) => {
+      const entry = entries.find(({ id }) => id === modelId);
+
+      if (entry === undefined) throw new Error(`Unknown model ${modelId}`);
+
+      return scriptedClient(scriptedModel(answerChunks('')), modelId, {
+        contextWindowTokens: entry.contextWindowTokens,
+      });
+    },
   };
 }
 
@@ -180,7 +189,7 @@ export function scriptedClient(
 export function makeRunExecutionService(input: {
   tenantDb: TenantDbService;
   instanceConfig: InstanceConfigReader;
-  models: ModelSelectionValidator;
+  models: RunModelCapability;
   compaction?: CompactionCapability;
 }): RunExecutionService {
   const noopCompaction: CompactionCapability = {

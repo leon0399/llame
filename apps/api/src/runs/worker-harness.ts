@@ -36,6 +36,10 @@ import {
   type LlameConfig,
 } from '../instance-config/llame-config';
 import { ModelsService } from '../models/models.service';
+import {
+  RUN_MODEL_SWITCH_DECISION,
+  type ModelSwitchDecision,
+} from './run-execution.service';
 import { TenantDbService, type Db } from '../db/tenant-db.service';
 import { getRegisteredToolIds } from '../tools/registry';
 import { type PermissionGroup } from '../tools/permissions/types';
@@ -108,6 +112,8 @@ type HarnessOverrides = {
   heartbeatSeconds?: number;
   /** Explicit tool rules used to configure the worker boot. */
   allowedTools?: ReadonlyArray<string>;
+  /** Inject a decision for live model-switch scenarios. */
+  modelSwitchDecision?: ModelSwitchDecision;
   /**
    * Configure the scripted model service after graph compilation but before
    * module initialization starts queue consumers.
@@ -234,6 +240,12 @@ export async function bootWorkerHarness(
     .useValue(models)
     .overrideProvider(InstanceConfigService)
     .useValue({ config });
+
+  if (overrides?.modelSwitchDecision !== undefined) {
+    builder = builder
+      .overrideProvider(RUN_MODEL_SWITCH_DECISION)
+      .useValue(overrides.modelSwitchDecision);
+  }
 
   const machines = config.machines;
   let connector: MachineConnector | undefined;

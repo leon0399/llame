@@ -4,10 +4,9 @@
  * item and the pending boundary items, moves the Run onto that message, and
  * records the switch on the new model.
  *
- * The caller owns the rest of D6: it applies the failed-send cut before this
- * call, writes the hold after it, and re-enters execution on the new model.
- * This module deliberately does none of those, so a later layer can keep them
- * beside their policy while the record is written here.
+ * The caller applies the failed-send cut and re-enters execution on the new
+ * model. This module writes the hold beside the switch event in the same
+ * fenced transaction.
  */
 
 import { ChatDeliveriesRepository } from '../chats/chat-deliveries.repository';
@@ -17,11 +16,23 @@ import {
   createModelChangeItem,
   type ModelChangeModel,
 } from '../chats/context-item-producers';
-import { type ChatDelivery, type Run } from '../db/schema';
+import {
+  type ChatDelivery,
+  type Chat,
+  type Message,
+  type Run,
+  type RunEvent,
+} from '../db/schema';
 import { type Db } from '../db/tenant-db.service';
 import { ChatJobsRepository } from '../jobs/chat-jobs.repository';
-import { type FailureClass } from '../models/provider-failure/provider-failure';
-import { RunEventsRepository, RunsRepository } from './runs-repository';
+import {
+  type FailureClass,
+  type ProviderFailure,
+} from '../models/provider-failure/provider-failure';
+import { recordOwnerSwitch } from '../chats/selection-update';
+import { isRecord, isString } from '@workspace/runtime-safety';
+import { type FailureTiming, revertAtFor } from '../models/model-selection';
+import { RunsRepository } from './runs-repository';
 import { RunRowFenceRepository } from './run-row-fence.repository';
 import { moveRunToDelivery } from './segment-delivery';
 import {
@@ -29,6 +40,57 @@ import {
   storeDeliveredMessage,
   type DeliveryInput,
 } from './segment-delivery-close';
+
+/** Whether the latest delivery starts a failover segment without a request. */
+export function startsFailoverSegment(
+  events: ReadonlyArray<Pick<RunEvent, 'eventType' | 'payload'>>,
+): boolean {
+  const latestDeliveryIndex = events.findLastIndex(
+    (event) => event.eventType === 'run.delivered',
+  );
+
+  const latestDelivery = events[latestDeliveryIndex];
+
+  return (
+    latestDelivery !== undefined &&
+    isRecord(latestDelivery.payload) &&
+    latestDelivery.payload['cause'] === 'failover' &&
+    !events
+      .slice(latestDeliveryIndex + 1)
+      .some((event) => event.eventType === 'model.requested')
+  );
+}
+
+/** The index just past a reply's last tool part, or 0 when it has none. */
+export function afterLastToolPart(parts: ReadonlyArray<unknown>): number {
+  return (
+    parts.findLastIndex(
+      (part) => isRecord(part) && isString(part['toolCallId']),
+    ) + 1
+  );
+}
+
+/**
+ * The parts a switch keeps from a failed send: everything before the step's
+ * model output, and the step's settled tool parts.
+ */
+export function partsKeptBySwitch<T>(
+  parts: ReadonlyArray<T>,
+  outputStart: number,
+): Array<T> {
+  return parts.slice(0, Math.max(outputStart, afterLastToolPart(parts)));
+}
+
+/** The reset and retry hint of a failure, in the form a fallback hold reads. */
+export function failureTimingOf(failure: ProviderFailure): FailureTiming {
+  return {
+    resetsAt:
+      failure.resetsAt === undefined
+        ? null
+        : new Date(failure.resetsAt).toISOString(),
+    hintMs: failure.hintMs ?? null,
+  };
+}
 
 /** Who decided the switch: the owner, or the failover policy. */
 export type ModelSwitchOrigin = 'owner' | 'policy';
@@ -58,6 +120,13 @@ export type ModelSwitchInput = {
   toEffort: string | null;
   failureClass: FailureClass;
   origin: ModelSwitchOrigin;
+  failureTiming: FailureTiming;
+};
+
+export type ModelSwitchResult = {
+  attemptId: string;
+  message: Message;
+  closedReply: Message;
 };
 
 /**
@@ -68,7 +137,9 @@ export type ModelSwitchInput = {
 async function lockForSwitch(
   tx: Db,
   delivery: DeliveryInput,
-): Promise<{ locked: Run; items: ReadonlyArray<ChatDelivery> }> {
+): Promise<
+  { locked: Run; chat: Chat; items: ReadonlyArray<ChatDelivery> } | undefined
+> {
   const { run, attemptId } = delivery;
 
   const locked = await new RunRowFenceRepository(tx).lockForDelivery(
@@ -77,17 +148,12 @@ async function lockForSwitch(
     attemptId,
   );
 
-  if (!locked) {
-    throw new Error(`Run ${run.runId} no longer owns its attempt to switch.`);
-  }
-
-  if (locked.cancelRequestedAt !== null) {
-    throw new Error(`Run ${run.runId} was cancelled before its switch.`);
-  }
+  if (!locked || locked.cancelRequestedAt !== null) return undefined;
 
   const { chatId, userId } = locked;
+  const chat = await new ChatsRepository(tx).lock(chatId, userId);
 
-  if (!(await new ChatsRepository(tx).lock(chatId, userId))) {
+  if (chat === undefined) {
     throw new Error(`Run ${run.runId} could not lock its Chat to switch.`);
   }
 
@@ -102,14 +168,18 @@ async function lockForSwitch(
     userId,
   );
 
-  return { locked, items: pending.filter((item) => !isCompactCommand(item)) };
+  return {
+    locked,
+    chat,
+    items: pending.filter((item) => !isCompactCommand(item)),
+  };
 }
 
-/** Write the new model onto the Run and record the switch after its delivery. */
 async function recordSwitch(
   tx: Db,
   input: {
     locked: Run;
+    chat: Chat;
     switching: ModelSwitchInput;
     attemptId: string;
     messageId: string;
@@ -129,15 +199,24 @@ async function recordSwitch(
     throw new Error(`Run ${locked.id} could not take its switched model.`);
   }
 
-  await new RunEventsRepository(tx).append(locked.id, 'model.switched', {
-    fromModelId: locked.modelId,
-    fromEffort: locked.effort,
+  const chats = new ChatsRepository(tx);
+
+  const revertAt = revertAtFor(
+    switching.failureTiming,
+    await chats.transactionNow(),
+  );
+
+  await recordOwnerSwitch(tx, {
+    chat: input.chat,
+    run: locked,
+    eventRunId: locked.id,
     toModelId: toModel.id,
     toEffort,
     failureClass: switching.failureClass,
     messageId: input.messageId,
+    revertAt,
     origin: switching.origin,
-  } satisfies ModelSwitchedPayload);
+  });
 }
 
 /**
@@ -148,9 +227,13 @@ async function recordSwitch(
 export async function deliverModelSwitch(
   tx: Db,
   input: ModelSwitchInput,
-): Promise<{ attemptId: string; messageId: string }> {
+): Promise<ModelSwitchResult | undefined> {
   const fromAttemptId = input.delivery.attemptId;
-  const { locked, items } = await lockForSwitch(tx, input.delivery);
+  const lockedForSwitchResult = await lockForSwitch(tx, input.delivery);
+
+  if (lockedForSwitchResult === undefined) return undefined;
+
+  const { locked, chat, items } = lockedForSwitchResult;
 
   const closedReply = await closeReply(tx, input.delivery, locked, 'failover');
 
@@ -178,10 +261,11 @@ export async function deliverModelSwitch(
 
   await recordSwitch(tx, {
     locked,
+    chat,
     switching: input,
     attemptId,
     messageId: message.id,
   });
 
-  return { attemptId, messageId: message.id };
+  return { attemptId, message, closedReply };
 }

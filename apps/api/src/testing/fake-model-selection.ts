@@ -169,3 +169,8 @@ function fakeEffort(args: {
 
   return choice.kind === 'effort' ? choice.effort : undefined;
 }
+
+/** A test double must fail if an unexpected model switch creates a client. */
+export const unexpectedCreateClient = (suite: string) => (): never => {
+  throw new Error(`${suite} does not switch models`);
+};

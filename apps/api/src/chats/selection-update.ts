@@ -14,7 +14,10 @@
 import type { Chat, Run } from '../db/schema';
 import type { Db } from '../db/tenant-db.service';
 import type { FailureClass } from '../models/provider-failure/provider-failure';
-import type { ModelSwitchedPayload } from '../runs/model-switch';
+import type {
+  ModelSwitchOrigin,
+  ModelSwitchedPayload,
+} from '../runs/model-switch';
 import { RunEventsRepository } from '../runs/runs-repository';
 import { ChatsRepository } from './chats-repository';
 import type { ChatModelSelection } from '../models/model-selection';
@@ -77,7 +80,7 @@ export async function writeSwitchHold(
   });
 }
 
-/** Write the owner switch hold and its typed event together. */
+/** Write a model switch hold and its typed event together. */
 export async function recordOwnerSwitch(
   tx: Db,
   input: {
@@ -89,6 +92,7 @@ export async function recordOwnerSwitch(
     readonly failureClass: FailureClass;
     readonly messageId: string;
     readonly revertAt: Date;
+    readonly origin: ModelSwitchOrigin;
   },
 ): Promise<void> {
   await writeSwitchHold(new ChatsRepository(tx), input.chat, {
@@ -106,6 +110,6 @@ export async function recordOwnerSwitch(
     toEffort: input.toEffort,
     failureClass: input.failureClass,
     messageId: input.messageId,
-    origin: 'owner',
+    origin: input.origin,
   } satisfies ModelSwitchedPayload);
 }

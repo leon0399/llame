@@ -124,7 +124,10 @@ import type {
   PromptUserInput,
   SystemModelCatalogEntry,
 } from '../models/model-catalog';
-import type { ModelSelectionValidator } from '../models/models.service';
+import type {
+  ModelClientFactory,
+  ModelSelectionValidator,
+} from '../models/models.service';
 import { createFakeModelClient, ZERO_USAGE } from '../models/fake-model-client';
 import type { ModelClient } from '../models/model-client';
 import { ProviderFailure } from '../models/provider-failure/provider-failure';
@@ -271,7 +274,13 @@ import {
   RunExecutionService,
   RunNotRunnableError,
   resolveEffectivePermissionMode,
+  type ModelSwitchDecision,
 } from './run-execution.service';
+import {
+  mockModelSwitchRepositories,
+  type ModelSwitchFakeObservations,
+} from '../testing/model-switch-fakes';
+
 import { SystemPromptsService } from '../system-prompts/system-prompts.service';
 import type { SshConfig } from '../instance-config/ssh-settings';
 import type { WebSearchConfig } from '../instance-config/web-search-config';
@@ -598,6 +607,7 @@ type ExecutionServiceOptions = {
   /** Durable wait suspension dependency for the host-controlled wait tool. */
   runWait?: RunWaitService;
   jobNoticeRuns?: Pick<JobNoticeRunService, 'startAfterRunCompletion'>;
+  modelSwitchDecision?: ModelSwitchDecision;
 };
 
 function executionToolsConfig(
@@ -737,7 +747,7 @@ function makeExecutionService(
 
   const resolveEffortSelection = vi.fn().mockReturnValue(undefined);
 
-  const models: ModelSelectionValidator = {
+  const models: ModelSelectionValidator & ModelClientFactory = {
     validateModelSelection,
     resolveEffortSelection,
     resolveSelection: fakeResolveSelection({
@@ -745,6 +755,14 @@ function makeExecutionService(
       resolveEffortSelection,
       defaultSelector: (options.model ?? testModelEntry).id,
     }),
+    createClient: (modelId) => {
+      const client = createFakeModelClient(
+        [''],
+        (options.model ?? testModelEntry).contextWindowTokens,
+      );
+
+      return { ...client, model: modelId };
+    },
   };
 
   const memory: MemorySettingsBindingResolver = options.memory ?? {
@@ -817,6 +835,7 @@ function makeExecutionService(
     ),
     options.runWait,
     options.jobNoticeRuns,
+    options.modelSwitchDecision,
   );
 
   return {
@@ -837,6 +856,7 @@ function makeExecutionService(
     resolveProjectSelection,
     recordProjectSelection,
     projectContextHistory,
+    models,
   };
 }
 
@@ -8226,16 +8246,27 @@ describe('RunExecutionService executeRun — stream failure', () => {
     mockNormalExecutionRepositories();
     recordAppendedEvents();
     const capturing = makeCapturingClient();
-    const execution = makeExecutionService(capturing.client);
+
+    const decideModelSwitch = vi
+      .fn<ModelSwitchDecision>()
+      .mockResolvedValue(undefined);
+
+    const execution = makeExecutionService(
+      capturing.client,
+      undefined,
+      undefined,
+      { modelSwitchDecision: decideModelSwitch },
+    );
 
     await execution.service.executeRun(
       executionInput(capturing.client, controller.signal),
     );
     controller.abort();
-    await capturing
-      .streamOptions()
-      .onError?.({ error: new Error('stream aborted') });
+    await capturing.streamOptions().onError?.({
+      error: new ProviderFailure('stream aborted', { code: 'stream_broken' }),
+    });
 
+    expect(decideModelSwitch).not.toHaveBeenCalled();
     expect(Sentry.captureException).not.toHaveBeenCalled();
   });
 
@@ -8442,7 +8473,14 @@ describe('RunExecutionService executeRun — stream failure', () => {
       activeAttemptId: testAttemptId,
     });
 
-    const execution = makeExecutionService(client);
+    const decideModelSwitch = vi
+      .fn<ModelSwitchDecision>()
+      .mockResolvedValue(undefined);
+
+    const execution = makeExecutionService(client, undefined, undefined, {
+      modelSwitchDecision: decideModelSwitch,
+    });
+
     vi.spyOn(ChatsRepository.prototype, 'lock').mockImplementation(() =>
       Promise.resolve(requests.length === 0 ? chat : undefined),
     );
@@ -8454,6 +8492,7 @@ describe('RunExecutionService executeRun — stream failure', () => {
     });
 
     expect(requests).toHaveLength(1);
+    expect(decideModelSwitch).not.toHaveBeenCalled();
     expect(spies.markFinished).toHaveBeenCalledWith(
       runId,
       userId,
@@ -8858,21 +8897,82 @@ describe('RunExecutionService executeRun — stream failure', () => {
       });
     },
   );
+  it('does not decide a switch after a progress write fails', async () => {
+    mockNormalExecutionRepositories();
+    vi.spyOn(RunsRepository.prototype, 'findById').mockResolvedValue({
+      ...run,
+      activeAttemptId: testAttemptId,
+    });
+
+    const rejectedWrites: Array<string> = [];
+
+    vi.spyOn(RunEventsRepository.prototype, 'append').mockImplementation(
+      (_runId, eventType) => {
+        if (eventType !== 'model.delta') return Promise.resolve(event);
+
+        rejectedWrites.push(eventType);
+
+        return Promise.reject(new Error('event log unavailable'));
+      },
+    );
+    const capturing = makeCapturingClient();
+
+    const decideModelSwitch = vi.fn<ModelSwitchDecision>().mockResolvedValue({
+      toModelId: 'target-model',
+    });
+
+    const execution = makeExecutionService(
+      capturing.client,
+      undefined,
+      undefined,
+      { modelSwitchDecision: decideModelSwitch },
+    );
+
+    await execution.service.executeRun(executionInput(capturing.client));
+    const options = capturing.streamOptions();
+
+    options.onTextDelta?.('partial');
+    await options.onError?.({
+      error: new ProviderFailure('provider unavailable', {
+        code: 'stream_broken',
+      }),
+    });
+
+    expect(rejectedWrites).toContain('model.delta');
+    expect(decideModelSwitch).not.toHaveBeenCalled();
+  });
   it('persists a provider failure class and reset time on a failed model request', async () => {
     const spies = mockNormalExecutionRepositories();
     const appended = recordAppendedEvents();
     const capturing = makeCapturingClient();
-    const execution = makeExecutionService(capturing.client);
+
+    const decideModelSwitch = vi
+      .fn<ModelSwitchDecision>()
+      .mockResolvedValue(undefined);
+
+    const execution = makeExecutionService(
+      capturing.client,
+      undefined,
+      undefined,
+      { modelSwitchDecision: decideModelSwitch },
+    );
+
     const resetsAt = Date.now() + 60_000;
 
-    await execution.service.executeRun(executionInput(capturing.client));
-    await capturing.streamOptions().onError?.({
-      error: new ProviderFailure('model is unavailable', {
-        code: 'model_not_found',
-        resetsAt,
-      }),
+    const failure = new ProviderFailure('model is unavailable', {
+      code: 'model_not_found',
+      resetsAt,
+      hintMs: 30_000,
     });
 
+    await execution.service.executeRun(executionInput(capturing.client));
+    await capturing.streamOptions().onError?.({ error: failure });
+
+    expect(decideModelSwitch).toHaveBeenCalledWith({
+      selector: 'fake-model',
+      modelId: 'fake-model',
+      failure,
+    });
     expect(spies.markFinished).toHaveBeenCalledWith(
       runId,
       userId,
@@ -8882,6 +8982,7 @@ describe('RunExecutionService executeRun — stream failure', () => {
           message: 'model is unavailable',
           code: 'model_not_found',
           resetsAt,
+          hintMs: 30_000,
         },
       }),
     );
@@ -8892,6 +8993,7 @@ describe('RunExecutionService executeRun — stream failure', () => {
         message: 'model is unavailable',
         code: 'model_not_found',
         resetsAt,
+        hintMs: 30_000,
       },
     });
   });
@@ -8900,12 +9002,23 @@ describe('RunExecutionService executeRun — stream failure', () => {
     const spies = mockNormalExecutionRepositories();
     const appended = recordAppendedEvents();
     const capturing = makeCapturingClient();
-    const execution = makeExecutionService(capturing.client);
+
+    const decideModelSwitch = vi
+      .fn<ModelSwitchDecision>()
+      .mockResolvedValue(undefined);
+
+    const execution = makeExecutionService(
+      capturing.client,
+      undefined,
+      undefined,
+      { modelSwitchDecision: decideModelSwitch },
+    );
 
     await execution.service.executeRun(executionInput(capturing.client));
     await capturing.streamOptions().onError?.({
       error: new Error('unclassified failure'),
     });
+    expect(decideModelSwitch).not.toHaveBeenCalled();
 
     expect(spies.markFinished).toHaveBeenCalledWith(
       runId,
@@ -8953,6 +9066,51 @@ describe('RunExecutionService executeRun — stream failure', () => {
     });
   });
 
+  it('does not decide a switch after a synchronous unclassified throw', async () => {
+    const spies = mockNormalExecutionRepositories();
+    const appended = recordAppendedEvents();
+    const error = new Error('synchronous failure');
+
+    const client: ModelClient = {
+      model: 'fake-model',
+      provider: 'fake',
+      contextWindowTokens: 128_000,
+      streamText: () => {
+        throw error;
+      },
+    };
+
+    const decideModelSwitch = vi.fn<ModelSwitchDecision>().mockResolvedValue({
+      toModelId: 'target-model',
+    });
+
+    const execution = makeExecutionService(client, undefined, undefined, {
+      modelSwitchDecision: decideModelSwitch,
+    });
+
+    await expect(
+      execution.service.executeRun(executionInput(client)),
+    ).rejects.toBe(error);
+
+    expect(decideModelSwitch).not.toHaveBeenCalled();
+    expect(spies.markFinished).toHaveBeenCalledWith(
+      runId,
+      userId,
+      'failed',
+      expect.objectContaining({
+        error: { message: 'synchronous failure', code: 'unknown' },
+      }),
+    );
+    expect(appended.at(-1)).toStrictEqual({
+      type: 'run.failed',
+      payload: {
+        status: 'failed',
+        message: 'synchronous failure',
+        code: 'unknown',
+      },
+    });
+  });
+
   it('preserves a typed code and reset time when streamText throws synchronously', async () => {
     const spies = mockNormalExecutionRepositories();
     const appended = recordAppendedEvents();
@@ -8960,6 +9118,7 @@ describe('RunExecutionService executeRun — stream failure', () => {
     const failure = new ProviderFailure('provider misconfigured', {
       code: 'model_not_found',
       resetsAt: 1_900_000_000_000,
+      hintMs: 30_000,
     });
 
     const client: ModelClient = {
@@ -8971,11 +9130,22 @@ describe('RunExecutionService executeRun — stream failure', () => {
       },
     };
 
-    const execution = makeExecutionService(client);
+    const decideModelSwitch = vi
+      .fn<ModelSwitchDecision>()
+      .mockResolvedValue(undefined);
+
+    const execution = makeExecutionService(client, undefined, undefined, {
+      modelSwitchDecision: decideModelSwitch,
+    });
 
     await expect(
       execution.service.executeRun(executionInput(client)),
     ).rejects.toBe(failure);
+    expect(decideModelSwitch).toHaveBeenCalledWith({
+      selector: 'fake-model',
+      modelId: 'fake-model',
+      failure,
+    });
     expect(spies.markFinished).toHaveBeenCalledWith(
       runId,
       userId,
@@ -8985,6 +9155,7 @@ describe('RunExecutionService executeRun — stream failure', () => {
           message: 'provider misconfigured',
           code: 'model_not_found',
           resetsAt: 1_900_000_000_000,
+          hintMs: 30_000,
         },
       }),
     );
@@ -8995,6 +9166,293 @@ describe('RunExecutionService executeRun — stream failure', () => {
         message: 'provider misconfigured',
         code: 'model_not_found',
         resetsAt: 1_900_000_000_000,
+        hintMs: 30_000,
+      },
+    });
+  });
+
+  it('records an injected switch and starts its target model segment', async () => {
+    mockNormalExecutionRepositories();
+
+    const switchFakes = mockModelSwitchRepositories({
+      run: { ...run, activeAttemptId: testAttemptId, selectionRevision: 1 },
+      chat: {
+        ...chat,
+        modelSelection: { revision: 1, selector: 'fake-model', effort: null },
+      },
+      userMessage,
+      reply: runningReply({ runId, attemptId: testAttemptId }),
+      deliveredMessage: {
+        ...userMessage,
+        id: '77777777-7777-4777-8777-777777777777',
+        seq: 3,
+      },
+      pending: [],
+      now,
+    });
+
+    const appended = recordAppendedEvents();
+    const source = makeCapturingClient();
+    const target = makeCapturingClient();
+    const targetStreamText = vi.spyOn(target.client, 'streamText');
+    targetStreamText.mockImplementation(() =>
+      Object.assign(unusedStreamResult(), {
+        text: Promise.resolve('target segment'),
+      }),
+    );
+
+    const targetModel: SystemModelCatalogEntry = {
+      ...testModelEntry,
+      id: 'target-model',
+      providerModelId: 'target-provider-model',
+      reasoning: {
+        effortLevels: [{ value: 'high' }],
+        defaultEffort: 'high',
+        cacheInvalidatedByEffortChange: false,
+      },
+    };
+
+    const decideModelSwitch = vi.fn<ModelSwitchDecision>().mockResolvedValue({
+      toModelId: targetModel.id,
+      candidateEffort: 'high',
+    });
+
+    const execution = makeExecutionService(
+      source.client,
+      undefined,
+      undefined,
+      { model: targetModel, modelSwitchDecision: decideModelSwitch },
+    );
+
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(10_000);
+
+    const prepareFirstStep = vi.spyOn(
+      Object.getPrototypeOf(execution.service),
+      'prepareAttemptForFirstStep',
+    );
+
+    vi.spyOn(ChatsRepository.prototype, 'lock').mockResolvedValue({
+      ...chat,
+      modelSelection: { revision: 1, selector: 'fake-model', effort: null },
+    });
+
+    const createClient = vi
+      .spyOn(execution.models, 'createClient')
+      .mockReturnValue({ ...target.client, model: targetModel.id });
+
+    const failure = new ProviderFailure('provider unavailable', {
+      code: 'overloaded',
+      resetsAt: 1_900_000_000_000,
+      hintMs: 500,
+    });
+
+    const running = await execution.service.executeRun(
+      executionInput(source.client),
+    );
+
+    clock.mockReturnValue(10_100);
+    source.streamOptions().onRequestUsage?.(
+      requestUsageReceipt({
+        inputTokens: 2,
+        outputTokens: 4,
+        totalTokens: 6,
+      }),
+      1,
+    );
+    source.streamOptions().onTextDelta?.('partial');
+    clock.mockReturnValue(11_100);
+
+    await source.streamOptions().onError?.({ error: failure });
+    await expect(running.text).resolves.toBe('target segment');
+
+    const changePart = switchFakes.storedParts.find(
+      (part) =>
+        isContextItemPart(part) &&
+        part.data.producer === 'effective-context-change',
+    );
+
+    expect(isContextItemPart(changePart)).toBe(true);
+
+    if (isContextItemPart(changePart)) {
+      expect(changePart.data.payload).toMatchObject({
+        cause: 'failover',
+        fromModelId: 'fake-model',
+        toModelId: 'target-model',
+      });
+    }
+
+    expect(switchFakes.createMessage).toHaveBeenCalledOnce();
+
+    expect(switchFakes.updateReply).toHaveBeenCalledOnce();
+    expect(switchFakes.closedUsage()).toMatchObject({ status: 'error' });
+    expect(
+      appended.find(({ type }) => type === 'model.completed')?.payload,
+    ).toMatchObject({ telemetry: { complete: false } });
+    expect(
+      appended.find(({ type }) => type === 'model.completed')?.payload,
+    ).not.toHaveProperty('telemetry.tokensPerSecond');
+    expect(
+      switchFakes.updateForAttempt.mock.calls.some(
+        ([, , , update]) =>
+          isRecord(update) &&
+          update['modelId'] === 'target-model' &&
+          update['effort'] === 'high',
+      ),
+    ).toBe(true);
+
+    expect(appended.map(({ type }) => type)).toContain('run.delivered');
+    expect(appended.map(({ type }) => type)).toContain('model.switched');
+
+    expect(
+      appended.find(({ type }) => type === 'model.switched')?.payload,
+    ).toMatchObject({
+      fromModelId: 'fake-model',
+      toModelId: 'target-model',
+      toEffort: 'high',
+      origin: 'policy',
+    });
+
+    const selection = switchFakes.setModelSelection.mock.calls[0]?.[2];
+    expect(selection).toMatchObject({
+      hold: {
+        modelId: 'target-model',
+        effort: 'high',
+        revertAt: new Date(1_900_000_000_000).toISOString(),
+      },
+    });
+    expect(targetStreamText).toHaveBeenCalledOnce();
+    expect(createClient).toHaveBeenCalledWith('target-model');
+    expect(targetStreamText.mock.calls[0]?.[0].effort).toBe('high');
+    expect(prepareFirstStep.mock.calls.at(-1)?.[0]).toMatchObject({
+      firstSegment: true,
+    });
+    expect(appended.at(-1)?.type).not.toBe('run.failed');
+  });
+  it('switches a synchronous provider throw to the target segment', async () => {
+    mockNormalExecutionRepositories();
+
+    const switchFakes = mockModelSwitchRepositories({
+      run: { ...run, activeAttemptId: testAttemptId, selectionRevision: 1 },
+      chat: {
+        ...chat,
+        modelSelection: { revision: 1, selector: 'fake-model', effort: null },
+      },
+      userMessage,
+      reply: runningReply({ runId, attemptId: testAttemptId }),
+      deliveredMessage: {
+        ...userMessage,
+        id: '77777777-7777-4777-8777-777777777777',
+        seq: 3,
+      },
+      pending: [],
+      now,
+    });
+
+    recordAppendedEvents();
+    const target = makeCapturingClient();
+
+    const targetModel: SystemModelCatalogEntry = {
+      ...testModelEntry,
+      id: 'target-model',
+      providerModelId: 'target-provider-model',
+      reasoning: {
+        effortLevels: [{ value: 'high' }],
+        defaultEffort: 'high',
+        cacheInvalidatedByEffortChange: false,
+      },
+    };
+
+    const failure = new ProviderFailure('provider unavailable', {
+      code: 'overloaded',
+      resetsAt: 1_900_000_000_000,
+      hintMs: 500,
+    });
+
+    const source: ModelClient = {
+      model: 'fake-model',
+      provider: 'fake',
+      contextWindowTokens: 128_000,
+      streamText: () => {
+        throw failure;
+      },
+    };
+
+    const decision = vi.fn<ModelSwitchDecision>().mockResolvedValue({
+      toModelId: targetModel.id,
+      candidateEffort: 'high',
+    });
+
+    const execution = makeExecutionService(source, undefined, undefined, {
+      model: targetModel,
+      modelSwitchDecision: decision,
+    });
+
+    vi.spyOn(ChatsRepository.prototype, 'lock').mockResolvedValue({
+      ...chat,
+      modelSelection: { revision: 1, selector: 'fake-model', effort: null },
+    });
+
+    const createClient = vi
+      .spyOn(execution.models, 'createClient')
+      .mockReturnValue({ ...target.client, model: targetModel.id });
+
+    const running = await execution.service.executeRun(executionInput(source));
+
+    await running.consumeStream();
+
+    expect(decision).toHaveBeenCalledOnce();
+    expect(switchFakes.createMessage).toHaveBeenCalledOnce();
+    expect(switchFakes.updateReply).toHaveBeenCalledOnce();
+    expect(switchFakes.closedUsage()).toMatchObject({ status: 'error' });
+    const selection = switchFakes.setModelSelection.mock.calls[0]?.[2];
+    expect(selection).toMatchObject({
+      hold: {
+        revertAt: new Date(1_900_000_000_000).toISOString(),
+      },
+    });
+    expect(createClient).toHaveBeenCalledWith('target-model');
+    expect(target.streamOptions().effort).toBe('high');
+  });
+  it('fails a synchronous throw without absent retry metadata', async () => {
+    const spies = mockNormalExecutionRepositories();
+    const appended = recordAppendedEvents();
+
+    const failure = new ProviderFailure('provider misconfigured', {
+      code: 'model_not_found',
+    });
+
+    const client: ModelClient = {
+      model: 'fake-model',
+      provider: 'fake',
+      contextWindowTokens: 128_000,
+      streamText: () => {
+        throw failure;
+      },
+    };
+
+    const execution = makeExecutionService(client, undefined, undefined, {
+      modelSwitchDecision: vi
+        .fn<ModelSwitchDecision>()
+        .mockResolvedValue(undefined),
+    });
+
+    await expect(
+      execution.service.executeRun(executionInput(client)),
+    ).rejects.toBe(failure);
+
+    expect(spies.markFinished).toHaveBeenCalledWith(runId, userId, 'failed', {
+      error: {
+        message: 'provider misconfigured',
+        code: 'model_not_found',
+      },
+      attemptId: testAttemptId,
+    });
+    expect(appended.at(-1)).toStrictEqual({
+      type: 'run.failed',
+      payload: {
+        status: 'failed',
+        message: 'provider misconfigured',
+        code: 'model_not_found',
       },
     });
   });
@@ -14000,9 +14458,10 @@ describe('RunExecutionService executeRun — pre-step compaction trigger', () =>
     triggerParts?: RunUserMessage['parts'];
     /** Owned media the run's resolver describes (vision-media D6). */
     mediaRows?: ReadonlyArray<MediaDescriptor>;
+    runEvents?: ReadonlyArray<RunEvent>;
+    onSummarize?: () => CompactionSummary | null;
     /** The Project selection this attempt resolves once. */
     projectSelection?: ProjectBoundPayload;
-    /** Rows and checkpoint the pass after a publication reads. */
     rebake?: {
       rows: Array<Message>;
       checkpoint: CheckpointMessage;
@@ -14049,6 +14508,19 @@ describe('RunExecutionService executeRun — pre-step compaction trigger', () =>
     );
     const publication = serveCheckpointPublication();
     const rebake = input.rebake;
+
+    if (input.runEvents !== undefined) {
+      vi.spyOn(RunEventsRepository.prototype, 'listByRunId').mockImplementation(
+        (_runId, _userId, options) =>
+          Promise.resolve(
+            input.runEvents?.filter((runEvent) =>
+              options?.eventTypes?.some(
+                (eventType) => eventType === runEvent.eventType,
+              ),
+            ) ?? [],
+          ),
+      );
+    }
 
     if (rebake === undefined) {
       vi.spyOn(MessagesRepository.prototype, 'findByChatId').mockResolvedValue(
@@ -14125,6 +14597,12 @@ describe('RunExecutionService executeRun — pre-step compaction trigger', () =>
       execution.summarizeCheckpoint.mockResolvedValue(input.summary);
     }
 
+    if (input.onSummarize !== undefined) {
+      execution.summarizeCheckpoint.mockImplementation(() =>
+        Promise.resolve(input.onSummarize?.() ?? null),
+      );
+    }
+
     if (input.projectSelection !== undefined) {
       execution.resolveProjectSelection.mockResolvedValue(
         input.projectSelection,
@@ -14153,6 +14631,66 @@ describe('RunExecutionService executeRun — pre-step compaction trigger', () =>
 
     return { spies, publication, execution, result };
   }
+
+  it.each([
+    {
+      name: 'an over-threshold request that fits',
+      windowOverflow: false,
+      expectedVariant: undefined,
+    },
+    {
+      name: 'a request that overflows the window',
+      windowOverflow: true,
+      expectedVariant: 'window',
+    },
+  ])(
+    'honors disabled automatic compaction for a switch segment with $name',
+    async ({ windowOverflow, expectedVariant }) => {
+      const widening = windowOverflow ? makeWideningClient() : undefined;
+      const ordinary = windowOverflow ? undefined : triggerClient();
+
+      const client =
+        widening?.client ?? ordinary?.client ?? triggerClient().client;
+
+      const { execution } = await executeTriggerCase({
+        client,
+        historyRows: [
+          ...committedTurn({ contextTokens: 40_000 }),
+          triggerTurn(),
+        ],
+        ...(widening !== undefined && {
+          onSummarize: () => {
+            widening.widen();
+
+            return checkpointSummary(2);
+          },
+        }),
+        runEvents: [
+          {
+            ...event,
+            eventType: 'run.compaction_disabled',
+            payload: {},
+          },
+          {
+            ...event,
+            eventType: 'run.delivered',
+            payload: { cause: 'failover' },
+          },
+        ],
+      });
+
+      if (expectedVariant === undefined) {
+        expect(execution.summarizeCheckpoint).not.toHaveBeenCalled();
+      } else {
+        expect(execution.summarizeCheckpoint).toHaveBeenCalledWith(
+          expect.objectContaining({ variant: expectedVariant }),
+        );
+      }
+
+      if (ordinary !== undefined)
+        expect(ordinary.streamOptions()).toBeDefined();
+    },
+  );
 
   it('re-establishes the Run Project snapshot after the checkpoint absorbs the old one', async () => {
     const projectId = '11111111-1111-4111-8111-111111111111';
@@ -15131,6 +15669,11 @@ describe('RunExecutionService executeRun — pre-step compaction trigger', () =>
       },
     );
 
+    const prepareFirstStep = vi.spyOn(
+      Object.getPrototypeOf(execution.service),
+      'prepareAttemptForFirstStep',
+    );
+
     execution.summarizeCheckpoint
       .mockRejectedValueOnce(
         new ProviderFailure('The provider quota is exhausted.', {
@@ -15218,6 +15761,9 @@ describe('RunExecutionService executeRun — pre-step compaction trigger', () =>
       'Steer the next step.',
     );
     expect(markDelivered).toHaveBeenCalledOnce();
+    expect(prepareFirstStep.mock.calls.at(-1)?.[0]).toMatchObject({
+      firstSegment: false,
+    });
   });
 
   it('settles a cancelled redelivery with its restored prefix when summary quota arrives', async () => {
@@ -33213,6 +33759,26 @@ describe('a send that breaks after a started tool call', () => {
     };
   }
 
+  function serveModelSwitch(observations?: ModelSwitchFakeObservations) {
+    return mockModelSwitchRepositories({
+      run: {
+        ...run,
+        activeAttemptId: testAttemptId,
+        selectionRevision: 1,
+      },
+      chat: {
+        ...chat,
+        modelSelection: { revision: 1, selector: 'fake-model', effort: null },
+      },
+      userMessage,
+      reply: runningReply({ runId, attemptId: testAttemptId }),
+      deliveredMessage: deliveredMessageOf('model switch'),
+      pending: [],
+      now,
+      observations,
+    });
+  }
+
   /** A pending owner item, as the owner sent it before the calls settled. */
   function ownerItem(mode: 'steer' | 'interrupt', text: string): ChatDelivery {
     return {
@@ -36354,4 +36920,294 @@ describe('a send that breaks after a started tool call', () => {
       );
     },
   );
+
+  it('switches a failed send after its tool call settles', async () => {
+    let appended: Array<{ type: string; payload: unknown }> = [];
+
+    const observations: ModelSwitchFakeObservations = {
+      storedParts: [],
+      replyWrites: [],
+      runUpdates: [],
+      selectionWrites: [],
+    };
+
+    const targetModel: SystemModelCatalogEntry = {
+      ...testModelEntry,
+      id: 'target-model',
+      providerModelId: 'target-provider-model',
+      reasoning: {
+        effortLevels: [{ value: 'high' }],
+        defaultEffort: 'high',
+        cacheInvalidatedByEffortChange: false,
+      },
+    };
+
+    const decision = vi.fn<ModelSwitchDecision>().mockResolvedValue({
+      toModelId: targetModel.id,
+      candidateEffort: 'high',
+    });
+
+    const target = wireClient('responses', [providerText('target answer')]);
+    const targetStreamText = vi.spyOn(target.client, 'streamText');
+
+    const { spies, drained } = await startAndDrain({
+      wire: 'responses',
+      tools: toolset(echoTool(LOOKUP_TOOL)),
+      catalog: { model: targetModel, modelSwitchDecision: decision },
+      arrange: () => {
+        serveModelSwitch(observations);
+      },
+      arrangeEvents: (_repositories, events) => {
+        appended = events;
+      },
+      arrangeService: (execution) => {
+        vi.spyOn(execution.models, 'createClient').mockReturnValue({
+          ...target.client,
+          model: targetModel.id,
+        });
+
+        vi.spyOn(ChatsRepository.prototype, 'lock').mockResolvedValue({
+          ...chat,
+          modelSelection: { revision: 1, selector: 'fake-model', effort: null },
+        });
+      },
+      responses: [
+        failedSend(
+          [
+            lookupCall('switch-read', 'query'),
+            ...textParts('discard this failed text'),
+          ],
+          new ProviderFailure('provider unavailable', {
+            code: 'stream_broken',
+          }),
+        ),
+      ],
+    });
+
+    await drained;
+
+    expect(decision).toHaveBeenCalledOnce();
+    const types = appended.map(({ type }) => type);
+    expect(types).toContain('model.superseded');
+    expect(types).toContain('run.delivered');
+    expect(types).toContain('model.switched');
+    expect(types.indexOf('model.superseded')).toBeLessThan(
+      types.indexOf('run.delivered'),
+    );
+    expect(
+      appended.find(({ type }) => type === 'model.superseded')?.payload,
+    ).toMatchObject({ step: 0 });
+
+    const closedParts = observations.replyWrites?.[0]?.parts ?? [];
+
+    const toolIndex = closedParts.findIndex(
+      (part) => isRecord(part) && part['toolCallId'] === 'switch-read',
+    );
+
+    const noticeIndex = closedParts.findIndex(
+      (part) =>
+        isContextItemPart(part) && part.data.producer === 'provider-failure',
+    );
+
+    expect(toolIndex).toBeGreaterThanOrEqual(0);
+    expect(noticeIndex).toBeGreaterThan(toolIndex);
+    expect(
+      closedParts.filter(
+        (part) => isRecord(part) && part['state'] === 'output-available',
+      ),
+    ).toHaveLength(1);
+    expect(
+      closedParts.some(
+        (part) => isRecord(part) && part['text'] === 'discard this failed text',
+      ),
+    ).toBe(false);
+
+    const changePart = observations.storedParts?.find(
+      (part) =>
+        isContextItemPart(part) &&
+        part.data.producer === 'effective-context-change',
+    );
+
+    expect(isContextItemPart(changePart)).toBe(true);
+
+    if (isContextItemPart(changePart)) {
+      expect(changePart.data.payload).toMatchObject({
+        cause: 'failover',
+        toModelId: targetModel.id,
+      });
+    }
+
+    const modelUpdate = observations.runUpdates?.find(
+      ({ update }) =>
+        isRecord(update) &&
+        update['modelId'] === targetModel.id &&
+        update['effort'] === 'high',
+    );
+
+    expect(modelUpdate).toBeDefined();
+
+    const selectionWrite = observations.selectionWrites?.find(
+      ({ selection }) =>
+        isRecord(selection) &&
+        isRecord(selection['hold']) &&
+        selection['hold']['revertAt'] ===
+          new Date(now.getTime() + 5 * 60_000).toISOString(),
+    );
+
+    expect(selectionWrite).toBeDefined();
+
+    expect(target.requests).toHaveLength(1);
+    expect(targetStreamText.mock.calls[0]?.[0].effort).toBe('high');
+    expect(spies.markFinished).toHaveBeenCalledWith(
+      runId,
+      userId,
+      'completed',
+      expect.anything(),
+    );
+  });
+
+  it('does not switch when writing the owed failed-send cut fails', async () => {
+    const decision = vi
+      .fn<ModelSwitchDecision>()
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValue({ toModelId: 'target-model' });
+
+    const observations: ModelSwitchFakeObservations = {
+      storedParts: [],
+      runUpdates: [],
+      selectionWrites: [],
+    };
+
+    const rejectedWrites: Array<string> = [];
+    const appended: Array<string> = [];
+
+    const { drained } = await startAndDrain({
+      wire: 'responses',
+      tools: toolset(echoTool(LOOKUP_TOOL)),
+      catalog: { modelSwitchDecision: decision },
+      arrange: () => {
+        serveModelSwitch(observations);
+      },
+      arrangeEvents: () => {
+        vi.spyOn(RunEventsRepository.prototype, 'append').mockImplementation(
+          (_runId, eventType) => {
+            appended.push(eventType);
+
+            if (eventType === 'model.superseded') {
+              rejectedWrites.push(eventType);
+
+              return Promise.reject(new Error('event log unavailable'));
+            }
+
+            return Promise.resolve(event);
+          },
+        );
+      },
+      responses: [
+        failedSend(
+          [lookupCall('cut-read', 'query')],
+          new ProviderFailure('provider unavailable', {
+            code: 'stream_broken',
+          }),
+        ),
+        failedSend(
+          [{ type: 'text-delta', id: 'retry', delta: 'retry draft' }],
+          new ProviderFailure('provider unavailable', {
+            code: 'stream_broken',
+          }),
+        ),
+      ],
+    });
+
+    await drained;
+
+    expect(rejectedWrites).toContain('model.superseded');
+    expect(appended).not.toContain('model.switched');
+    expect(decision).toHaveBeenCalledTimes(2);
+    expect(observations.storedParts).toEqual([]);
+    expect(
+      observations.runUpdates?.some(
+        ({ update }) =>
+          isRecord(update) && update['modelId'] === 'target-model',
+      ),
+    ).toBe(false);
+    expect(
+      observations.selectionWrites?.some(
+        ({ selection }) => isRecord(selection) && isRecord(selection['hold']),
+      ),
+    ).toBe(false);
+  });
+
+  it('switches after the non-retryable failed-send decision', async () => {
+    const target = wireClient('responses', [providerText('target answer')]);
+    const targetStreamText = vi.spyOn(target.client, 'streamText');
+
+    const observations: ModelSwitchFakeObservations = {
+      storedParts: [],
+      replyWrites: [],
+      runUpdates: [],
+    };
+
+    const decision = vi
+      .fn<ModelSwitchDecision>()
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValue({ toModelId: 'target-model' });
+
+    let appended: Array<{ type: string; payload: unknown }> = [];
+
+    const { drained } = await startAndDrain({
+      wire: 'responses',
+      tools: toolset(echoTool(LOOKUP_TOOL)),
+      catalog: {
+        model: { ...testModelEntry, id: 'target-model' },
+        modelSwitchDecision: decision,
+      },
+      arrange: () => {
+        serveModelSwitch(observations);
+      },
+      arrangeEvents: (_repositories, events) => {
+        appended = events;
+      },
+      arrangeService: (execution) => {
+        vi.spyOn(execution.models, 'createClient').mockReturnValue({
+          ...target.client,
+          model: 'target-model',
+        });
+
+        vi.spyOn(ChatsRepository.prototype, 'lock').mockResolvedValue({
+          ...chat,
+          modelSelection: { revision: 1, selector: 'fake-model', effort: null },
+        });
+      },
+      responses: [
+        failedSend(
+          [lookupCall('auth-read', 'query')],
+          new ProviderFailure('credentials rejected', { code: 'auth' }),
+        ),
+      ],
+    });
+
+    await drained;
+
+    expect(decision).toHaveBeenCalledTimes(2);
+    expect(appended.map(({ type }) => type)).toContain('run.delivered');
+    expect(appended.map(({ type }) => type)).toContain('model.switched');
+
+    const changePart = observations.storedParts?.find(
+      (part) =>
+        isContextItemPart(part) &&
+        part.data.producer === 'effective-context-change',
+    );
+
+    expect(isContextItemPart(changePart)).toBe(true);
+
+    if (isContextItemPart(changePart)) {
+      expect(changePart.data.payload).toMatchObject({
+        cause: 'failover',
+        toModelId: 'target-model',
+      });
+    }
+
+    expect(targetStreamText).toHaveBeenCalledOnce();
+  });
 });

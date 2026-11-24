@@ -31,6 +31,14 @@ import {
   type DeliveryInput,
   type FirstEpochBaselines,
 } from './segment-delivery';
+import { effortFor } from '../models/model-selection';
+import {
+  afterLastToolPart,
+  deliverModelSwitch,
+  failureTimingOf,
+  partsKeptBySwitch,
+  startsFailoverSegment,
+} from './model-switch';
 import { machineAttemptKey } from './machine-attempt';
 import { probeMachinePromptTarget } from './machine-prompt-probe';
 import {
@@ -515,6 +523,17 @@ import {
 
 import { JobNoticeRunService } from './job-notice-run.service';
 
+export const RUN_MODEL_SWITCH_DECISION = Symbol('RUN_MODEL_SWITCH_DECISION');
+
+export type ModelSwitchDecision = (input: {
+  selector: string;
+  modelId: string;
+  failure: ProviderFailure;
+}) => Promise<{ toModelId: string; candidateEffort?: string } | undefined>;
+
+export const noModelSwitch: ModelSwitchDecision = () =>
+  Promise.resolve(undefined);
+
 /**
  * The skill-catalog baseline a turn that starts an epoch freezes, with the told
  * state it establishes. Applied by the terminal transaction of the attempt that
@@ -681,6 +700,7 @@ type CompactionTriggerInput = {
   /** The media references those kept steps add, counted from `keptMessages`. */
   keptRefCount: number;
   boundarySeq: number;
+  compactionDisabledAtStart: boolean;
   /** The prepared request's media sizing for the attempt model (vision-media D6). */
   media: MediaSizing | undefined;
 };
@@ -928,13 +948,18 @@ type ExecuteAttemptInput = {
   wakeState?: ContinueState;
   quotaRequest?: QuotaRequestState;
   quotaWake: boolean;
+  /** This delivery starts a new model after a provider failure. */
+  switchSegment?: boolean;
   /** The woken checkpoint is a failed send's cut (D6). */
   startedCallCut?: boolean;
   createdMessage: RunUserMessage;
 };
 
 type PreparedAttemptExecution = {
-  startDelivered: (delivery: DeliveredBoundary) => Promise<AttemptRun>;
+  startDelivered: (
+    delivery: DeliveredBoundary,
+    switched?: { client: ModelClient; effort: string | undefined },
+  ) => Promise<AttemptRun>;
   quotaRequest?: QuotaRequestState;
   stepBudgetOffset: number;
   wakeStepOffset: number;
@@ -955,6 +980,8 @@ type PreparedAttemptExecution = {
   turnInstructions: TurnInstructions;
   turnGit: TurnGit;
 };
+
+type StartDelivered = PreparedAttemptExecution['startDelivered'];
 
 type AttemptPreparationOutcome =
   | { kind: 'ready'; execution: PreparedAttemptExecution }
@@ -1358,13 +1385,8 @@ export type ChatSearchIndexer = Pick<SearchIndexService, 'reindexChat'>;
 type InstanceConfigWithIdentity = InstanceConfigReader &
   Partial<ProductIdentityReader>;
 
-/**
- * The injected model capability: selection validation, plus the client factory
- * when the value is the real service. A test double that only validates
- * selections leaves `createClient` unset, and a model-hosted web search engine
- * fails closed rather than building a client.
- */
-type RunModelCapability = ModelSelectionValidator & Partial<ModelClientFactory>;
+/** The model capabilities needed while a claimed Run is executing. */
+export type RunModelCapability = ModelSelectionValidator & ModelClientFactory;
 
 /**
  * Retry a complete transaction only when Postgres guarantees that it aborted.
@@ -1546,6 +1568,8 @@ export class RunExecutionService {
       JobNoticeRunService,
       'startAfterRunCompletion'
     >,
+    @Inject(RUN_MODEL_SWITCH_DECISION)
+    private readonly decideModelSwitch: ModelSwitchDecision = noModelSwitch,
   ) {
     this.webSearch = webSearchEngineItems(this.instanceConfig.config.webSearch);
     this.toolPromptRenderer = createToolPromptRenderer({
@@ -2389,7 +2413,7 @@ export class RunExecutionService {
     modelId: string;
     effort: string | undefined;
     permissionMode: PermissionMode;
-    startDelivered: (delivery: DeliveredBoundary) => Promise<AttemptRun>;
+    startDelivered: StartDelivered;
     stepBudgetOffset: number;
     wakeStepOffset: number;
   }): Promise<AttemptRun | undefined> {
@@ -2494,8 +2518,22 @@ export class RunExecutionService {
 
     const events = await this.tenantDb.runAs(input.userId, (tx) =>
       new RunEventsRepository(tx).listByRunId(input.runId, input.userId, {
-        eventTypes: ['run.delivered', 'run.compaction_disabled'],
+        eventTypes: [
+          'run.delivered',
+          'run.compaction_disabled',
+          'model.requested',
+        ],
       }),
+    );
+
+    const startsAfterFailoverDelivery = startsFailoverSegment(events);
+
+    const compactionDisabledAtStart = events.some(
+      (event) => event.eventType === 'run.compaction_disabled',
+    );
+
+    const lastDelivery = events.findLast(
+      (event) => event.eventType === 'run.delivered',
     );
 
     const stepBudgetOffset = readCompactionStepBudget(events);
@@ -2504,12 +2542,6 @@ export class RunExecutionService {
       attempt.quotaRequest?.stepBudgetUsed === undefined
         ? continueStepOffset(attempt.wakeState)
         : Math.max(0, attempt.quotaRequest.stepBudgetUsed - stepBudgetOffset);
-
-    const compactionDisabledAtStart = events.some(
-      (event) => event.eventType === 'run.compaction_disabled',
-    );
-
-    const lastDelivery = events.at(-1);
 
     const startsAfterCompaction =
       lastDelivery !== undefined &&
@@ -2526,16 +2558,19 @@ export class RunExecutionService {
 
     await this.settleIfAborted(input, attemptId);
 
-    const startDelivered = (delivery: DeliveredBoundary): Promise<AttemptRun> =>
+    const startDelivered: StartDelivered = (delivery, switched) =>
       this.executeAttempt({
         ...attempt,
         input: {
           ...input,
+          ...(switched && { client: switched.client }),
           userMessage: toRunUserMessage(delivery.message),
           followUpAction: null,
         },
+        ...(switched && { effort: switched.effort }),
         attemptId: delivery.attemptId,
         firstSegment: false,
+        switchSegment: switched !== undefined,
         wakeState: undefined,
         quotaRequest: undefined,
         quotaWake: false,
@@ -2636,6 +2671,9 @@ export class RunExecutionService {
         firstSegment,
         wakeCompaction,
         quotaRequest,
+        switchSegment:
+          (attempt.switchSegment ?? false) || startsAfterFailoverDelivery,
+        compactionDisabledAtStart,
         stepBudgetUsed: stepBudgetOffset + wakeStepOffset,
       });
 
@@ -3812,15 +3850,13 @@ export class RunExecutionService {
         failureClass: failure.code,
       });
 
-      const lastToolPart = kept.findLastIndex(
-        (part) => isRecord(part) && isString(part['toolCallId']),
-      );
+      const toolEnd = afterLastToolPart(kept);
 
       assistantPartCollector = createAssistantPartCollector();
       assistantPartCollector.seed([
-        ...kept.slice(0, lastToolPart + 1),
+        ...kept.slice(0, toolEnd),
         notice,
-        ...kept.slice(lastToolPart + 1),
+        ...kept.slice(toolEnd),
       ]);
       // The failed send reported no usage, so the reply is not complete.
       discardedSend = true;
@@ -4704,6 +4740,147 @@ export class RunExecutionService {
       return 'ready';
     };
 
+    const commitModelSwitch = async (switching: {
+      failure: ProviderFailure;
+      parts: Array<MessagePart>;
+      superseded?: SupersededModelOutput;
+      modelId: string;
+      toModel: SystemModelCatalogEntry;
+      toEffort: string | null;
+    }): Promise<AttemptRun | undefined> => {
+      const telemetry = buildAssistantTelemetry(null, 'error');
+
+      const switched = await retryRunTransaction(() =>
+        this.tenantDb.runAs(input.userId, (tx) =>
+          deliverModelSwitch(tx, {
+            delivery: {
+              run: { runId: input.runId, userId: input.userId },
+              attemptId,
+              modelCompleted: { finishReason: null, telemetry },
+              live: {
+                chatId: input.chatId,
+                inReplyTo: input.userMessage.id,
+                parts: switching.parts,
+                telemetry,
+              },
+              models: this.instanceConfig.config.models,
+              deadWorkerAfterSeconds: workerDeadAfterSeconds(
+                this.instanceConfig.config,
+              ),
+              ...(switching.superseded !== undefined && {
+                superseded: switching.superseded,
+              }),
+            },
+            fromModel: this.models.validateModelSelection(switching.modelId),
+            toModel: switching.toModel,
+            toEffort: switching.toEffort,
+            failureClass: switching.failure.code,
+            origin: 'policy',
+            failureTiming: failureTimingOf(switching.failure),
+          }),
+        ),
+      );
+
+      if (switched === undefined) return undefined;
+
+      await this.afterAssistantTurn(
+        switched.closedReply,
+        input.userId,
+        telemetry,
+      );
+
+      return await startDelivered(
+        {
+          kind: 'delivered',
+          cause: 'failover',
+          attemptId: switched.attemptId,
+          message: switched.message,
+          closedReply: switched.closedReply,
+        },
+        {
+          client: this.models.createClient(switching.toModel.id),
+          effort: switching.toEffort ?? undefined,
+        },
+      );
+    };
+
+    const persistOwedSwitchCut = async (
+      superseded: SupersededModelOutput | undefined,
+    ): Promise<boolean> => {
+      if (owedCut !== undefined && superseded !== owedCut.superseded) {
+        persistFencedModelEvent('model.superseded', owedCut.superseded);
+        await deltaWrites;
+      }
+
+      return !progressWriteFailed;
+    };
+
+    const switchProviderFailure = async (
+      failure: ProviderFailure,
+      parts: Array<MessagePart>,
+      superseded?: SupersededModelOutput,
+    ): Promise<AttemptRun | undefined> => {
+      const modelId = input.client.model;
+
+      const target = await this.decideModelSwitch({
+        selector: attempt.selector,
+        modelId,
+        failure,
+      });
+
+      if (target === undefined) return undefined;
+
+      const toModel = this.models.validateModelSelection(target.toModelId);
+
+      const toEffort = effortFor(
+        attempt.selectedEffort ?? null,
+        toModel,
+        target.candidateEffort,
+      );
+
+      if (!(await persistOwedSwitchCut(superseded))) return undefined;
+
+      return commitModelSwitch({
+        failure,
+        parts,
+        superseded,
+        modelId,
+        toModel,
+        toEffort,
+      });
+    };
+
+    const trySwitchStreamFailure = async (
+      error: unknown,
+      callSignal: AbortSignal | undefined,
+    ): Promise<AttemptRun | undefined> => {
+      if (
+        !(error instanceof ProviderFailure) ||
+        error.superseded !== undefined ||
+        callSignal?.aborted
+      ) {
+        return undefined;
+      }
+
+      persistReasoning(reasoningDeltas.flush());
+      persistDelta(deltas.flush());
+      await deltaWrites;
+
+      if (progressWriteFailed) return undefined;
+
+      const retained = partsKeptBySwitch(
+        assistantPartCollector.parts(),
+        stepModelOutputStart,
+      );
+
+      discardedSend = true;
+
+      return switchProviderFailure(error, retained, {
+        fromSequence: stepStartSequence,
+        step: currentStepNumber,
+      });
+    };
+
     const callStream = async (
       callMessages: typeof messages,
       stepBase: number,
@@ -4715,7 +4892,26 @@ export class RunExecutionService {
       },
     ): Promise<AttemptRun> => {
       let nextCall = noNextCall;
+
+      const switchedSend = async (
+        failure: ProviderFailure,
+        parts: Array<MessagePart>,
+        superseded?: SupersededModelOutput,
+      ): Promise<boolean> => {
+        const switched = await switchProviderFailure(
+          failure,
+          parts,
+          superseded,
+        );
+
+        if (switched === undefined) return false;
+        nextCall = () => Promise.resolve(switched);
+
+        return true;
+      };
+
       const partsBefore = assistantPartCollector.parts().length;
+
       // A new call is a new send: the anchor of its first step, its failure,
       // and its cut all start over, while the collector keeps the cut the
       // previous call left.
@@ -5181,8 +5377,18 @@ export class RunExecutionService {
           return;
         }
 
+        if (
+          await switchedSend(
+            failure.failure,
+            assistantPartCollector.parts(),
+            cut.superseded,
+          )
+        ) {
+          return;
+        }
         // A usage limit or rate limit with a reset in range parks the Run after
         // its started calls settled (D6).
+
         const awaiting = this.failedSendQuotaWait(
           failure.failure,
           quotaRequest,
@@ -5213,6 +5419,16 @@ export class RunExecutionService {
 
         // A class with no retry left beats the continue decision (R9).
         if (!continuesFailedSend(failure.failure)) {
+          if (
+            await switchedSend(
+              failure.failure,
+              assistantPartCollector.parts(),
+              cut.superseded,
+            )
+          ) {
+            return;
+          }
+
           await settleFailedSend(cut, finishReason);
 
           return;
@@ -5987,6 +6203,20 @@ export class RunExecutionService {
 
             if (await settlePendingAbort(false)) return;
 
+            if (restarting) {
+              await recoverSupersededSend(error, error.superseded);
+
+              return;
+            }
+
+            const switched = await trySwitchStreamFailure(error, callSignal);
+
+            if (switched !== undefined) {
+              nextCall = () => Promise.resolve(switched);
+
+              return;
+            }
+
             if (error instanceof ProviderFailure && !callSignal?.aborted) {
               const awaiting = quotaWaitForFailure(
                 error,
@@ -5999,12 +6229,6 @@ export class RunExecutionService {
 
                 return;
               }
-            }
-
-            if (restarting) {
-              await recoverSupersededSend(error, error.superseded);
-
-              return;
             }
 
             // On the request thread the stream has already sent HTTP headers, so
@@ -6441,9 +6665,8 @@ export class RunExecutionService {
         removeParentAbortListener();
         closeSegment();
 
-        // A synchronous throw from streamText (provider/config validation before
-        // any callback can fire) would otherwise strand the claimed run at
-        // 'running_model' until the deadman sweep expires it — fail it now.
+        // A synchronous throw can happen before stream callbacks exist, so
+        // settle the Run here rather than leave it for the deadman sweep.
         await this.settleIfAborted(input, attemptId);
 
         if (progressWriteFailed) {
@@ -6453,41 +6676,53 @@ export class RunExecutionService {
             attemptId,
             telemetry: buildAssistantTelemetry(null, 'error'),
           });
+
           throw error;
         }
 
-        const message = errorMessageWithoutParams(error);
-        const failure = modelRequestFailure(error);
-        // This attempt holds the claim; a reclaim during the synchronous throw
-        // must reject this write rather than let the superseded attempt publish.
-        await this.finishRunWithoutCollector({
-          userId: input.userId,
-          runId: input.runId,
-          status: 'failed',
-          attemptId,
-          runPayload: {
-            status: 'failed',
-            message,
-            code: failure.code,
-            ...(failure.resetsAt !== undefined && {
-              resetsAt: failure.resetsAt,
-            }),
-            ...(failure.hintMs !== undefined && { hintMs: failure.hintMs }),
-          },
-          error: {
-            message,
-            code: failure.code,
-            ...(failure.resetsAt !== undefined && {
-              resetsAt: failure.resetsAt,
-            }),
-            ...(failure.hintMs !== undefined && { hintMs: failure.hintMs }),
-          },
-        });
+        if (error instanceof ProviderFailure && !callSignal?.aborted) {
+          const switched = await switchProviderFailure(
+            error,
+            assistantPartCollector.parts(),
+            owedCut?.superseded,
+          );
+
+          if (switched !== undefined) return switched;
+        }
+
+        await this.failSynchronousThrow(input, attemptId, error);
+
         throw error;
       }
     };
 
     return callStream(messages, 0, 0, attempt.quotaWake);
+  }
+
+  /** Records a model call that threw before its stream started as a failed Run. */
+  private async failSynchronousThrow(
+    input: { userId: string; runId: string },
+    attemptId: string,
+    error: unknown,
+  ): Promise<void> {
+    const message = errorMessageWithoutParams(error);
+    const failure = modelRequestFailure(error);
+
+    const details = {
+      message,
+      code: failure.code,
+      ...(failure.resetsAt !== undefined && { resetsAt: failure.resetsAt }),
+      ...(failure.hintMs !== undefined && { hintMs: failure.hintMs }),
+    };
+
+    await this.finishRunWithoutCollector({
+      userId: input.userId,
+      runId: input.runId,
+      status: 'failed',
+      attemptId,
+      runPayload: { status: 'failed', ...details },
+      error: details,
+    });
   }
 
   /**
@@ -7654,6 +7889,8 @@ export class RunExecutionService {
 
       return { variant: 'window', plan };
     }
+
+    if (input.compactionDisabledAtStart) return undefined;
 
     // The stored triggering row: its prompt-imports item, appended after the
     // Run was queued, carries references the queued parts do not.
@@ -9476,7 +9713,7 @@ export class RunExecutionService {
     permissionMode: PermissionMode;
     live: AssistantTurnWrite;
     stepBudgetUsed: number;
-    startDelivered: (delivery: DeliveredBoundary) => Promise<AttemptRun>;
+    startDelivered: StartDelivered;
   }): Promise<AttemptRun | undefined> {
     const boundary = await retryRunTransaction(() =>
       this.tenantDb.runAs(input.run.userId, async (tx) => {
@@ -9525,7 +9762,7 @@ export class RunExecutionService {
     userId: string;
     runId: string;
     attemptId: string;
-    startDelivered: (delivery: DeliveredBoundary) => Promise<AttemptRun>;
+    startDelivered: StartDelivered;
   }): Promise<AttemptRun | undefined> {
     if (input.boundary?.kind === 'delivered') {
       await this.afterAssistantTurn(input.boundary.closedReply, input.userId);
@@ -9571,7 +9808,7 @@ export class RunExecutionService {
     input: Parameters<RunExecutionService['resumeQuotaBoundary']>[0] & {
       userId: string;
       runId: string;
-      startDelivered: (delivery: DeliveredBoundary) => Promise<AttemptRun>;
+      startDelivered: StartDelivered;
     },
   ): Promise<QuotaResumeAttemptResult> {
     const resumed = await this.resumeQuotaBoundary(input);
@@ -9616,7 +9853,7 @@ export class RunExecutionService {
     attemptId: string;
     wakeState: ContinueState | undefined;
     quotaRequest?: QuotaRequestState;
-    startDelivered: (delivery: DeliveredBoundary) => Promise<AttemptRun>;
+    startDelivered: StartDelivered;
     onCompactionSet: (
       set: Awaited<ReturnType<typeof readCompactionSet>>,
     ) => void;
@@ -9762,8 +9999,10 @@ export class RunExecutionService {
       'firstSegment' | 'projectSelection'
     > & {
       firstSegment: boolean;
+      switchSegment: boolean;
       quotaRequest?: QuotaRequestState;
       stepBudgetUsed: number;
+      compactionDisabledAtStart: boolean;
     },
   ): Promise<{
     firstStep: PreparedFirstStep;
@@ -9792,9 +10031,13 @@ export class RunExecutionService {
         ...input,
         projectSelection,
         firstSegment:
-          startsAutomaticCompaction(input.firstSegment, input.wakeCompaction) &&
-          (quotaRequest === undefined ||
-            quotaRequest.resumeAt === 'preDispatch'),
+          input.switchSegment ||
+          (startsAutomaticCompaction(
+            input.firstSegment,
+            input.wakeCompaction,
+          ) &&
+            (quotaRequest === undefined ||
+              quotaRequest.resumeAt === 'preDispatch')),
         quotaRequest: input.wakeCompaction ? undefined : quotaRequest,
       });
 
@@ -9858,9 +10101,11 @@ export class RunExecutionService {
     gitObservation: Promise<GitObservation> | undefined;
     /** False for a segment a delivery started. */
     firstSegment: boolean;
+
     /** A requested wake compaction gets to attempt before window admission. */
     wakeCompaction: boolean;
     quotaRequest?: QuotaRequestState;
+    compactionDisabledAtStart: boolean;
     /**
      * The selection this attempt resolved once before its first dispatch. Both
      * passes use it unchanged; neither live-resolves Project state.
@@ -9922,9 +10167,9 @@ export class RunExecutionService {
 
     // The same admission the step composer will make on this request, so the
     // trigger sees the not-attached result the request will carry.
-    // Compaction plans only before the Run's first model step: a segment start,
-    // and a retry inside a later segment, send the history as it stands
-    // (run-steering D3).
+    // Compaction plans before a Run's first model step and before a switch
+    // segment's first model step. Retries inside either segment use its history
+    // as it stands (run-steering D3).
     const trigger = input.firstSegment
       ? await this.evaluateCompactionTrigger({
           run: input.run,
@@ -9934,6 +10179,7 @@ export class RunExecutionService {
           keptMessages: kept.messages,
           keptRefCount: collectMediaRefs(kept.messages).length,
           boundarySeq: estimatePass.latestCheckpoint?.absorbedThroughSeq ?? 0,
+          compactionDisabledAtStart: input.compactionDisabledAtStart,
           media:
             input.media &&
             (await loadMediaSizing(

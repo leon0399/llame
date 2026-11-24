@@ -1,3 +1,4 @@
+import { ProviderFailure } from '../models/provider-failure/provider-failure';
 import { PROVIDER_ZERO_USAGE, scriptedStepParts } from './scripted-model-step';
 
 describe('scriptedStepParts', () => {
@@ -102,5 +103,20 @@ describe('scriptedStepParts', () => {
       { type: 'reasoning-end', id: 'r0' },
       { type: 'error', error: new Error('provider dropped') },
     ]);
+  });
+
+  it('emits a scripted ProviderFailure without replacing its classification', () => {
+    const failure = new ProviderFailure('quota exhausted', {
+      code: 'quota_exhausted',
+      resetsAt: 1_900_000_000_000,
+    });
+
+    const [part] = scriptedStepParts([{ type: 'error', error: failure }]);
+
+    expect(part).toEqual({ type: 'error', error: failure });
+
+    if (part?.type !== 'error') throw new Error('scripted failure was omitted');
+
+    expect(part.error).toBe(failure);
   });
 });

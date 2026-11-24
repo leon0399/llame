@@ -90,6 +90,7 @@ export type ScriptedBehavior = {
   | { kind: 'complete'; text?: string; delayMs?: number }
   | { kind: 'provider-error'; message?: string }
   | { kind: 'infra-throw'; message?: string }
+  | { kind: 'sync-throw'; error: Error }
   | { kind: 'hang' }
   | {
       kind: 'tool-script';
@@ -157,7 +158,13 @@ class HarnessModelClient implements ModelClient {
       effort: input.effort,
       chat: input.chat,
     });
+
     const behavior = this.behavior;
+
+    if (this.behavior.kind === 'sync-throw') {
+      throw this.behavior.error;
+    }
+
     const delayMs = behavior.kind === 'complete' ? behavior.delayMs : undefined;
     const settlement = trackAbortSettlement(input);
     // A whole-step script is the one behavior that exercises the production

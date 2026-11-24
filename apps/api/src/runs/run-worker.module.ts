@@ -19,7 +19,11 @@ import { SearchModule } from '../search/search.module';
 import { SkillsModule } from '../skills/skills.module';
 import { SystemPromptsModule } from '../system-prompts/system-prompts.module';
 import { TitlesModule } from '../titles/titles.module';
-import { RunExecutionService } from './run-execution.service';
+import {
+  noModelSwitch,
+  RunExecutionService,
+  RUN_MODEL_SWITCH_DECISION,
+} from './run-execution.service';
 import { RunStreamBridgeService } from './run-stream-bridge';
 import { RunsModule } from './runs.module';
 import { RunQueueModule } from './run-queue.module';
@@ -72,6 +76,7 @@ import { CompactionRunService } from './compaction-run.service';
   ],
   providers: [
     RunExecutionService,
+    { provide: RUN_MODEL_SWITCH_DECISION, useValue: noModelSwitch },
     {
       // Built by factory rather than by Nest's own construction so the Machine
       // connector — which only this provider needs — reaches it: a Workspace

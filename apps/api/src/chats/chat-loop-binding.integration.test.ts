@@ -25,14 +25,15 @@ import { ChatDeliveriesRepository } from './chat-deliveries.repository';
 import { MediaService } from '../media/media.service';
 import {
   resolveEffortSelection,
+  type ModelClientFactory,
   type ModelSelectionValidator,
 } from '../models/models.service';
-import { createFakeModelClient } from '../models/fake-model-client';
 import {
   type ModelClient,
   type ModelStreamInput,
 } from '../models/model-client';
 import { type SystemModelCatalogEntry } from '../models/model-catalog';
+import { createFakeModelClient } from '../models/fake-model-client';
 import {
   type MemorySettingsBindingResolver,
   type ResolvedMemorySettings,
@@ -636,13 +637,21 @@ describe('ChatLoopService accept/worker context binding', () => {
       requested: string | undefined,
     ) => resolveEffortSelection(selected, requested);
 
-    const modelsService: ModelSelectionValidator = {
+    const modelsService: ModelSelectionValidator & ModelClientFactory = {
       validateModelSelection,
       resolveEffortSelection: resolveSelectionEffort,
       resolveSelection: fakeResolveSelection({
         validateModelSelection,
         resolveEffortSelection: resolveSelectionEffort,
         defaultSelector: model.id,
+      }),
+      createClient: (modelId) => ({
+        ...createFakeModelClient(
+          ['worker response'],
+          model.contextWindowTokens,
+        ),
+        model: modelId,
+        provider: model.provider,
       }),
     };
 

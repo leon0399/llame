@@ -1,8 +1,5 @@
 import { drizzle } from 'drizzle-orm/postgres-js';
 
-import { ChatDeliveriesRepository } from '../chats/chat-deliveries.repository';
-import { ChatJobsRepository } from '../jobs/chat-jobs.repository';
-import { ChatsRepository, MessagesRepository } from '../chats/chats-repository';
 import {
   type Chat,
   type ChatDelivery,
@@ -10,11 +7,16 @@ import {
   type Run,
 } from '../db/schema';
 import { type Db } from '../db/tenant-db.service';
-import { RunRowFenceRepository } from './run-row-fence.repository';
+import { mockModelSwitchRepositories } from '../testing/model-switch-fakes';
 import { runningReplyUsage } from './run-reply-finalizer';
-import { RunEventsRepository, RunsRepository } from './runs-repository';
-import { SystemPromptReceiptsRepository } from './system-prompt-receipts.repository';
-import { deliverModelSwitch } from './model-switch';
+import { ProviderFailure } from '../models/provider-failure/provider-failure';
+import {
+  afterLastToolPart,
+  deliverModelSwitch,
+  failureTimingOf,
+  partsKeptBySwitch,
+  startsFailoverSegment,
+} from './model-switch';
 
 const runId = '11111111-1111-4111-8111-111111111111';
 const chatId = '22222222-2222-4222-8222-222222222222';
@@ -34,7 +36,7 @@ const run: Run = {
   modelId: 'old-model',
   selector: 'old-model',
   selectedEffort: null,
-  selectionRevision: null,
+  selectionRevision: 7,
   activeAttemptId: attemptId,
   completedAttemptId: null,
   turnToolAvailability: null,
@@ -62,7 +64,11 @@ const chat: Chat = {
   createdAt: now,
   updatedAt: now,
   archivedAt: null,
-  modelSelection: null,
+  modelSelection: {
+    revision: 7,
+    selector: 'old-model',
+    effort: 'high',
+  },
   projectId: null,
   recencyDigestBaseline: null,
   recencyDigestTold: null,
@@ -166,123 +172,24 @@ describe('deliverModelSwitch', () => {
       withoutReply?: boolean;
       unlockedChat?: boolean;
       failModelUpdate?: boolean;
+      modelSelection?: Chat['modelSelection'];
     } = {},
   ) {
-    const lockOrder: Array<string> = [];
-    const storedParts: Array<unknown> = [];
-
-    let closedUsage: unknown;
-
-    vi.spyOn(
-      SystemPromptReceiptsRepository.prototype,
-      'findByOwnedRun',
-    ).mockResolvedValue([]);
-
-    vi.spyOn(
-      ChatJobsRepository.prototype,
-      'settleOnDeadWorkers',
-    ).mockResolvedValue([]);
-
-    const lockRun = vi
-      .spyOn(RunRowFenceRepository.prototype, 'lockForDelivery')
-      .mockImplementation(() => {
-        lockOrder.push('run');
-
-        return Promise.resolve('locked' in options ? options.locked : run);
-      });
-
-    const lockChat = vi
-      .spyOn(ChatsRepository.prototype, 'lock')
-      .mockImplementation(() => {
-        lockOrder.push('chat');
-
-        return Promise.resolve(options.unlockedChat ? undefined : chat);
-      });
-
-    const lockPending = vi
-      .spyOn(ChatDeliveriesRepository.prototype, 'lockPendingBoundary')
-      .mockResolvedValue([steer, compact, secondSteer]);
-
-    const markDelivered = vi
-      .spyOn(ChatDeliveriesRepository.prototype, 'markDelivered')
-      .mockImplementation((id) =>
-        Promise.resolve([steer, secondSteer].find((item) => item.id === id)),
-      );
-
-    const findTurnState = vi
-      .spyOn(MessagesRepository.prototype, 'findTurnState')
-      .mockResolvedValue({
-        userMessage,
-        assistantMessage: options.withoutReply
-          ? { ...reply, usage: { status: 'completed' } }
-          : reply,
-      });
-
-    const updateReply = vi
-      .spyOn(MessagesRepository.prototype, 'updateAssistantReply')
-      .mockImplementation((write) => {
-        closedUsage = write.usage;
-
-        return Promise.resolve({
-          ...reply,
-          parts: write.parts,
-          usage: write.usage,
-        });
-      });
-
-    const createUser = vi
-      .spyOn(MessagesRepository.prototype, 'createUserMessageIfAbsent')
-      .mockImplementation((write) => {
-        storedParts.push(...write.parts);
-
-        return Promise.resolve({ ...deliveredMessage, parts: write.parts });
-      });
-
-    let updateCount = 0;
-
-    const updateForAttempt = vi
-      .spyOn(RunsRepository.prototype, 'updateForAttempt')
-      .mockImplementation(() => {
-        updateCount += 1;
-
-        return Promise.resolve(
-          options.failModelUpdate && updateCount === 2 ? undefined : run,
-        );
-      });
-
-    const append = vi
-      .spyOn(RunEventsRepository.prototype, 'append')
-      .mockImplementation((appendedRunId, eventType, payload) =>
-        Promise.resolve({
-          sequence: 1,
-          runId: appendedRunId,
-          eventType,
-          payload,
-          createdAt: now,
-        }),
-      );
-
-    vi.spyOn(RunEventsRepository.prototype, 'listByRunId').mockResolvedValue(
-      [],
-    );
-
-    return {
-      lockOrder,
-      lockRun,
-      lockChat,
-      lockPending,
-      markDelivered,
-      findTurnState,
-      updateReply,
-      createUser,
-      updateForAttempt,
-      append,
-      storedParts,
-      closedUsage: () => closedUsage,
-    };
+    return mockModelSwitchRepositories({
+      run,
+      chat,
+      userMessage,
+      reply,
+      deliveredMessage,
+      pending: [steer, compact, secondSteer],
+      now,
+      options,
+    });
   }
 
-  function input() {
+  function input(
+    failureTiming: { resetsAt?: string | null; hintMs?: number | null } = {},
+  ) {
     return {
       delivery: {
         run: { runId, userId },
@@ -314,27 +221,34 @@ describe('deliverModelSwitch', () => {
       toEffort: 'low',
       failureClass: 'overloaded' as const,
       origin: 'policy' as const,
+      failureTiming,
     };
   }
 
-  it('locks Run before Chat and refuses a fenced or cancelled Run before writing', async () => {
+  it('locks Run before Chat and returns undefined for a fenced or cancelled Run without writes', async () => {
     const fenced = serve({ locked: undefined });
 
-    await expect(deliverModelSwitch(tx, input())).rejects.toThrow(
-      'no longer owns its attempt',
-    );
+    await expect(deliverModelSwitch(tx, input())).resolves.toBeUndefined();
     expect(fenced.lockOrder).toEqual(['run']);
+    expect(fenced.lockChat).not.toHaveBeenCalled();
+    expect(fenced.lockPending).not.toHaveBeenCalled();
+    expect(fenced.updateReply).not.toHaveBeenCalled();
     expect(fenced.createUser).not.toHaveBeenCalled();
+    expect(fenced.updateForAttempt).not.toHaveBeenCalled();
+    expect(fenced.append).not.toHaveBeenCalled();
 
     vi.restoreAllMocks();
 
     const cancelled = serve({ locked: { ...run, cancelRequestedAt: now } });
 
-    await expect(deliverModelSwitch(tx, input())).rejects.toThrow(
-      'was cancelled',
-    );
+    await expect(deliverModelSwitch(tx, input())).resolves.toBeUndefined();
     expect(cancelled.lockOrder).toEqual(['run']);
     expect(cancelled.lockChat).not.toHaveBeenCalled();
+    expect(cancelled.lockPending).not.toHaveBeenCalled();
+    expect(cancelled.updateReply).not.toHaveBeenCalled();
+    expect(cancelled.createUser).not.toHaveBeenCalled();
+    expect(cancelled.updateForAttempt).not.toHaveBeenCalled();
+    expect(cancelled.append).not.toHaveBeenCalled();
   });
 
   it('rejects an unlocked Chat and a missing reply before storing a switch', async () => {
@@ -354,6 +268,7 @@ describe('deliverModelSwitch', () => {
       'no reply to close',
     );
     expect(missingReply.createUser).not.toHaveBeenCalled();
+    expect(missingReply.updateForAttempt).not.toHaveBeenCalled();
   });
 
   it('rejects when the new model cannot be recorded on the moved attempt', async () => {
@@ -380,6 +295,9 @@ describe('deliverModelSwitch', () => {
   it('closes the reply as failed and delivers the switch before steers, leaving compact pending', async () => {
     const spies = serve();
     const result = await deliverModelSwitch(tx, input());
+
+    if (result === undefined)
+      throw new Error('Expected a delivered model switch.');
 
     expect(spies.lockOrder).toEqual(['run', 'chat']);
     expect(spies.updateReply).toHaveBeenCalledWith(
@@ -430,6 +348,22 @@ describe('deliverModelSwitch', () => {
         effort: 'low',
       },
     );
+    expect(spies.append).toHaveBeenCalledWith(
+      runId,
+      'run.delivered',
+      expect.objectContaining({ cause: 'failover' }),
+    );
+    expect(spies.setModelSelection).toHaveBeenCalledWith(chatId, userId, {
+      revision: 7,
+      selector: 'old-model',
+      effort: 'high',
+      hold: {
+        selector: 'old-model',
+        modelId: 'new-model',
+        effort: 'low',
+        revertAt: '2026-11-08T00:05:00.000Z',
+      },
+    });
     expect(spies.append).toHaveBeenCalledWith(runId, 'model.switched', {
       fromModelId: 'old-model',
       fromEffort: 'high',
@@ -438,6 +372,126 @@ describe('deliverModelSwitch', () => {
       failureClass: 'overloaded',
       messageId: hostMessageId,
       origin: 'policy',
+    });
+  });
+  it.each([
+    [
+      'reset time',
+      { resetsAt: '2026-11-08T00:15:00.000Z' },
+      '2026-11-08T00:15:00.000Z',
+    ],
+    ['retry hint', { hintMs: 30_000 }, '2026-11-08T00:00:30.000Z'],
+    ['five-minute default', {}, '2026-11-08T00:05:00.000Z'],
+  ])(
+    'sets hold revertAt from the %s only when selection revision matches',
+    async (_label, failureTiming, revertAt) => {
+      const matching = serve();
+      await deliverModelSwitch(tx, input(failureTiming));
+
+      expect(matching.setModelSelection).toHaveBeenCalledWith(chatId, userId, {
+        revision: 7,
+        selector: 'old-model',
+        effort: 'high',
+        hold: {
+          selector: 'old-model',
+          modelId: 'new-model',
+          effort: 'low',
+          revertAt,
+        },
+      });
+
+      vi.restoreAllMocks();
+
+      const mismatched = serve({
+        modelSelection: { revision: 8, selector: 'old-model', effort: 'high' },
+      });
+
+      await deliverModelSwitch(tx, input(failureTiming));
+
+      expect(mismatched.setModelSelection).not.toHaveBeenCalled();
+    },
+  );
+});
+
+describe('model switch helpers', () => {
+  it.each([
+    ['no delivery', [], false],
+    [
+      'latest delivery is a steer',
+      [{ eventType: 'run.delivered', payload: { cause: 'steer' } }],
+      false,
+    ],
+    [
+      'failover delivery without a request after',
+      [{ eventType: 'run.delivered', payload: { cause: 'failover' } }],
+      true,
+    ],
+    [
+      'failover delivery followed by a request',
+      [
+        { eventType: 'run.delivered', payload: { cause: 'failover' } },
+        { eventType: 'model.requested', payload: {} },
+      ],
+      false,
+    ],
+    [
+      'earlier failover delivery followed by a steer delivery',
+      [
+        { eventType: 'run.delivered', payload: { cause: 'failover' } },
+        { eventType: 'run.delivered', payload: { cause: 'steer' } },
+      ],
+      false,
+    ],
+    [
+      'non-record payload',
+      [{ eventType: 'run.delivered', payload: 'failover' }],
+      false,
+    ],
+  ])('recognizes %s', (_name, events, expected) => {
+    expect(startsFailoverSegment(events)).toBe(expected);
+  });
+
+  it('keeps output through the last tool part, or outputStart without tools', () => {
+    const parts = [
+      { type: 'text', text: 'before' },
+      { type: 'tool-call', toolCallId: 'call-1' },
+      { type: 'text', text: 'after' },
+    ];
+
+    expect(afterLastToolPart([{ type: 'text', text: 'only' }])).toBe(0);
+    expect(afterLastToolPart(parts)).toBe(2);
+    expect(partsKeptBySwitch(parts, 1)).toEqual(parts.slice(0, 2));
+    expect(partsKeptBySwitch(parts, 3)).toEqual(parts);
+  });
+
+  it.each([
+    [
+      'both timing fields',
+      { resetsAt: 1_900_000_000_000, hintMs: 30_000 },
+      {
+        resetsAt: '2030-03-17T17:46:40.000Z',
+        hintMs: 30_000,
+      },
+    ],
+    ['no timing fields', {}, { resetsAt: null, hintMs: null }],
+  ])('normalizes %s', (_label, fields, expected) => {
+    expect(
+      failureTimingOf(
+        new ProviderFailure('failed', {
+          code: 'stream_broken',
+          ...fields,
+        }),
+      ),
+    ).toStrictEqual(expected);
+  });
+
+  it('normalizes an explicit null retry hint', () => {
+    const failure = new ProviderFailure('failed', { code: 'stream_broken' });
+    Object.defineProperty(failure, 'hintMs', { value: null });
+
+    expect(failureTimingOf(failure)).toStrictEqual({
+      resetsAt: null,
+      hintMs: null,
     });
   });
 });

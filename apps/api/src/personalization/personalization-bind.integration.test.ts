@@ -14,7 +14,10 @@ import { type Sql } from 'postgres';
 import { TenantDbService } from '../db/tenant-db.service';
 import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
 import { MediaService } from '../media/media.service';
-import { type ModelSelectionValidator } from '../models/models.service';
+import {
+  type ModelClientFactory,
+  type ModelSelectionValidator,
+} from '../models/models.service';
 import type { SystemModelCatalogEntry } from '../models/model-catalog';
 import { fakeResolveSelection } from '../testing/fake-model-selection';
 import { ChatLoopService } from '../chats/chat-loop.service';
@@ -167,7 +170,7 @@ describeIfDb('personalization binds per run', () => {
       referencesSkills: false,
     });
 
-    const models: ModelSelectionValidator = {
+    const models: ModelSelectionValidator & ModelClientFactory = {
       validateModelSelection,
       // No reasoning vocabulary on this double: effort always resolves to
       // "none".
@@ -176,6 +179,10 @@ describeIfDb('personalization binds per run', () => {
         validateModelSelection,
         resolveEffortSelection: () => undefined,
         defaultSelector: 'system:openai:gpt-5.4-mini',
+      }),
+      createClient: (modelId) => ({
+        ...createFakeModelClient(['']),
+        model: modelId,
       }),
     };
 
