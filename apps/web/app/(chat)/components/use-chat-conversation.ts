@@ -36,6 +36,15 @@ import { isCommandText, sendableText } from "@/lib/services/chat/deliveries";
 import { useChatDelivery } from "./use-chat-delivery";
 import { useRunHandoff } from "./use-run-handoff";
 import {
+  namedNextCandidate,
+  waitingNextCandidate,
+  type NamedNextCandidate,
+} from "@/lib/services/models/next-candidate";
+import {
+  useNextCandidateSwitch,
+  type RunNextCandidateSwitch,
+} from "./use-next-candidate";
+import {
   attachmentFileParts,
   type ComposerAttachments,
   revokePreviews,
@@ -375,6 +384,27 @@ function useChatEngineState(args: UseChatEngineStateArgs) {
   return { engine, handoff, ...transcript };
 }
 
+/** The quota wait's next candidate, named for the action, or null when no role
+ *  Run waits (model-roles "A role Run in a quota wait offers the next
+ *  candidate"). */
+function quotaNextCandidate(
+  setup: ReturnType<typeof useChatSetup>,
+  latestRun: ChatLatestRunResponse | null,
+): NamedNextCandidate | null {
+  const candidate = waitingNextCandidate(latestRun, setup.roles);
+
+  return candidate === undefined
+    ? null
+    : namedNextCandidate(candidate, setup.availableModels);
+}
+
+/** The Run state the composer paints: its newest Run and the action that
+ *  moves a waiting one onto the next candidate. */
+type ComposerRunState = {
+  latestRun: ChatLatestRunResponse | null;
+  nextCandidate: RunNextCandidateSwitch;
+};
+
 /** Pure — no hooks: the `ChatComposer` props derived from setup and
  *  actions. Split out purely to shrink `useChatConversation`'s own line
  *  count. */
@@ -382,8 +412,10 @@ function buildComposerState(
   setup: ReturnType<typeof useChatSetup>,
   actions: ReturnType<typeof useChatActions>,
   delivery: ReturnType<typeof useChatDelivery>,
-  latestRun: ChatLatestRunResponse | null,
+  run: ComposerRunState,
 ) {
+  const { latestRun, nextCandidate } = run;
+
   return {
     quotaWait:
       latestRun?.status === "awaiting_quota" ? latestRun.quotaWait : null,
@@ -391,6 +423,9 @@ function buildComposerState(
       latestRun === null
         ? ""
         : modelDisplayName(latestRun.modelId, setup.availableModels),
+    quotaNextCandidate: quotaNextCandidate(setup, latestRun),
+    pendingNextCandidate: nextCandidate.pending,
+    onNextCandidate: nextCandidate.request,
     input: actions.input,
     setInput: actions.setInput,
     // Only an existing Chat can recognize slash commands. On the draft page
@@ -433,6 +468,7 @@ function buildTranscriptState(
     displayMessages: engineState.displayMessages,
     compactionIndex: engineState.compactionIndex,
     availableModels: setup.availableModels,
+    roles: setup.roles,
     displayedError: actions.sendError ?? engineState.engine.error,
   };
 }
@@ -444,13 +480,21 @@ function buildTranscriptState(
 export function useFollowUpRun(
   regenerate: AgUiChatState["regenerate"],
   onSendStarted: () => void,
+  refreshChatMessages: () => void,
 ) {
   return useCallback(
     (request: FollowUpRunRequest) => {
       onSendStarted();
-      void regenerate({ body: request });
+      // The stream paints the new segment, while the reply it replaces (or,
+      // for a next candidate, the failed reply and the switch host message)
+      // only exists in history: re-read it once the segment settles, so the
+      // transcript's hiding rule can key on the fresh `latestRun.messageId`.
+      // A stream that fails reports through the engine's own error path.
+      void regenerate({ body: request })
+        .catch(() => undefined)
+        .finally(refreshChatMessages);
     },
-    [regenerate, onSendStarted],
+    [regenerate, onSendStarted, refreshChatMessages],
   );
 }
 
@@ -527,16 +571,25 @@ export function useChatConversation(args: UseChatConversationArgs) {
     onSendFailed,
   });
 
+  const nextCandidate = useNextCandidateSwitch(
+    args.latestRun,
+    setup.refreshChatMessages,
+  );
+
   const onFollowUp = useFollowUpRun(
     engineState.engine.regenerate,
     onSendStarted,
+    setup.refreshChatMessages,
   );
 
   const delivery = useConversationDelivery(args, setup, engineState, actions);
 
   return {
     status: engineState.engine.status,
-    composer: buildComposerState(setup, actions, delivery, args.latestRun),
+    composer: buildComposerState(setup, actions, delivery, {
+      latestRun: args.latestRun,
+      nextCandidate,
+    }),
     pending: buildPendingState(delivery),
     transcript: {
       ...buildTranscriptState(setup, actions, engineState),

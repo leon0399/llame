@@ -1,5 +1,6 @@
 import {
   Body,
+  HttpCode,
   ConflictException,
   Controller,
   Get,
@@ -9,6 +10,7 @@ import {
   Param,
   ParseUUIDPipe,
   Patch,
+  Post,
   Query,
   Req,
   Res,
@@ -34,6 +36,8 @@ import { type Run, type RunEvent } from '../db/schema';
 import { isRecord } from '@workspace/runtime-safety';
 import { RunWaitService } from './run-wait.service';
 import { retryRunTransaction } from './run-transaction';
+import { NextCandidateService } from './next-candidate.service';
+import { NextCandidateUnavailableError } from '../models/models.service';
 import { RunEventsRepository, RunsRepository } from './runs-repository';
 import { SystemPromptReceiptsRepository } from './system-prompt-receipts.repository';
 import { isTerminalRunStatus, isWaitingRunStatus } from './run-status';
@@ -80,6 +84,11 @@ export class RunsController {
     private readonly tenantDb: TenantRunner,
     @Inject(RunWaitService)
     private readonly runWait: Pick<RunWaitService, 'wakeInTransaction'>,
+    @Inject(NextCandidateService)
+    private readonly nextCandidates: Pick<
+      NextCandidateService,
+      'moveWaitingRun'
+    >,
   ) {}
 
   @Get(':id')
@@ -201,6 +210,44 @@ export class RunsController {
     }
 
     return toRunResponse(run);
+  }
+
+  /**
+   * Continue on next candidate for a Run parked in a quota wait (model-roles
+   * D7): ends the wait and moves the same Run onto the next candidate of its
+   * role, through the switch record of a `failover` delivery. A Run that cannot
+   * switch — not in the wait, a compaction Run, an exact selector, or the last
+   * candidate — answers 409 `next_candidate_unavailable`; another owner's Run
+   * answers 404 without reading its state.
+   */
+  @HttpCode(200)
+  @Post(':id/next-candidate')
+  @ApiOperation({ operationId: 'nextRunCandidate' })
+  @ApiParam({ name: 'id', format: 'uuid' })
+  @ApiOkResponse({ type: RunResponse })
+  @ApiUnauthorizedResponse()
+  @ApiNotFoundResponse({ description: 'Run not found or not owned' })
+  @ApiConflictResponse({
+    description: 'The Run is not in a quota wait or has no next candidate',
+  })
+  async nextCandidate(
+    @CurrentUser() userId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+  ): Promise<RunResponse> {
+    const outcome = await this.nextCandidates.moveWaitingRun({
+      runId: id,
+      userId,
+    });
+
+    if (outcome.kind === 'not-found') {
+      throw new NotFoundException(`Run ${id} not found`);
+    }
+
+    if (outcome.kind === 'unavailable') {
+      throw new NextCandidateUnavailableError();
+    }
+
+    return toRunResponse(outcome.run);
   }
 
   /**

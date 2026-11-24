@@ -213,7 +213,19 @@ Each error names the role and the field.
 `defaults.selector` is the default model selector.
 `defaults.titleGenerationSelector` is the selector for title generation. Each
 holds one model id or one role selector, and startup checks that it resolves. A
-role currently resolves to its first candidate.
+role resolves to its first candidate unless the Chat has a fallback hold on a
+later candidate. The hold ends at its revert time, when its model leaves the
+role, or when the owner picks a selector. [Model
+selection](../../reference/model-selection.md) describes the picker and the
+hold.
+
+This release switches a model only when the owner starts the switch. The owner
+can move a failed Run, or a Run in a quota wait, to the next candidate of its
+model role. The switch writes a fallback hold, and the next model answers after
+a boundary that names the failure. No automatic switching ships: a failed model
+request still fails or parks its Run, as [diagnosing failed model
+requests](#diagnosing-failed-model-requests) describes. Automatic failover per
+role arrives with the failover policy in a later release.
 
 `providers[]` and `models[]` entries accept an optional `billing` value. It is
 `"usage"`, `"subscription"`, or `"free"`. `usage` bills a price for each

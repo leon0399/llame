@@ -2,6 +2,7 @@
 
 import { memo, useEffect, useState, useSyncExternalStore } from "react";
 import { formatDuration } from "date-fns";
+import { ArrowRightIcon } from "lucide-react";
 import {
   Card,
   CardAction,
@@ -11,6 +12,10 @@ import {
 } from "@workspace/ui/components/card";
 import { Button } from "@workspace/ui/components/button";
 import type { ChatLatestRunResponse } from "@/lib/api/generated/models";
+import {
+  nextCandidateLabel,
+  type NamedNextCandidate,
+} from "@/lib/services/models/next-candidate";
 
 const HOUR_MS = 3_600_000;
 
@@ -111,13 +116,62 @@ type QuotaWaitNoticeProps = {
   modelName: string;
   onStop: () => void;
   pendingStop: boolean;
+  /** The next candidate of the waiting Run's role, or null when the action
+   *  does not apply (exact selector, last candidate, compaction Run). */
+  nextCandidate: NamedNextCandidate | null;
+  onNextCandidate: () => void;
+  pendingNextCandidate: boolean;
 };
+
+type QuotaWaitActionsProps = Pick<
+  QuotaWaitNoticeProps,
+  "onStop" | "pendingStop" | "onNextCandidate" | "pendingNextCandidate"
+> & { nextCandidate: NamedNextCandidate | null };
+
+function QuotaWaitActions({
+  nextCandidate,
+  onNextCandidate,
+  pendingNextCandidate,
+  onStop,
+  pendingStop,
+}: QuotaWaitActionsProps) {
+  return (
+    <CardAction>
+      {nextCandidate !== null && (
+        <Button
+          variant="ghost"
+          size="sm"
+          disabled={pendingNextCandidate}
+          onClick={onNextCandidate}
+        >
+          <ArrowRightIcon aria-hidden="true" />
+          {nextCandidateLabel(nextCandidate)}
+        </Button>
+      )}
+      {pendingStop ? (
+        <output>Stopping…</output>
+      ) : (
+        <Button
+          variant="ghost"
+          size="sm"
+          aria-label="Stop waiting for quota reset"
+          onClick={onStop}
+        >
+          Stop
+        </Button>
+      )}
+    </CardAction>
+  );
+}
 
 export function QuotaWaitNotice({
   quota,
   modelName,
   onStop,
   pendingStop,
+  nextCandidate,
+  onNextCandidate,
+  pendingNextCandidate,
 }: QuotaWaitNoticeProps) {
   return (
     <section aria-label="Provider quota wait" className="mb-2">
@@ -134,20 +188,13 @@ export function QuotaWaitNotice({
             <br />
             <QuotaWaitCountdown wakeAt={quota.wakeAt} />
           </CardDescription>
-          <CardAction>
-            {pendingStop ? (
-              <output>Stopping…</output>
-            ) : (
-              <Button
-                variant="ghost"
-                size="sm"
-                aria-label="Stop waiting for quota reset"
-                onClick={onStop}
-              >
-                Stop
-              </Button>
-            )}
-          </CardAction>
+          <QuotaWaitActions
+            nextCandidate={nextCandidate}
+            onNextCandidate={onNextCandidate}
+            pendingNextCandidate={pendingNextCandidate}
+            onStop={onStop}
+            pendingStop={pendingStop}
+          />
         </CardHeader>
       </Card>
     </section>

@@ -196,6 +196,39 @@ describe("follow-up requests", () => {
     },
   );
 
+  it("asks the next candidate for a continue that names it", () => {
+    const request = prepareSendMessagesRequest({
+      chatId: "chat-1",
+      trigger: "regenerate-message",
+      followUp: {
+        action: "continue",
+        candidate: "next",
+        permissionMode: "bypass",
+      },
+      // The action owns the model: the composer's values must not ride along.
+      selector: "system:openai:composer-model",
+      effort: "high",
+      messages: [USER_MESSAGE],
+    });
+
+    expect(request.body).toEqual({
+      action: "continue",
+      candidate: "next",
+      permissionMode: "bypass",
+    });
+  });
+
+  it("drops a candidate value this build does not send", () => {
+    const request = prepareSendMessagesRequest({
+      chatId: "chat-1",
+      trigger: "regenerate-message",
+      followUp: { action: "continue", candidate: "first" },
+      messages: [USER_MESSAGE],
+    });
+
+    expect(request.body).toEqual({ action: "continue" });
+  });
+
   it.each(["bypass", "read-only"] as const)(
     "sends the latest Run's own %s mode on a plain regenerate",
     (permissionMode) => {

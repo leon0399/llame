@@ -546,6 +546,59 @@ describe('ModelsService', () => {
     });
   });
 
+  describe('nextCandidate', () => {
+    const service = createService({
+      defaultSelector: '@coding',
+      models: [
+        withBilling('system:openai:primary', 'subscription'),
+        withBilling('system:openai:secondary', 'usage'),
+        withBilling('system:openai:third', 'free'),
+        withBilling('system:openai:elsewhere', 'free'),
+      ],
+      modelRoles: [
+        {
+          name: 'coding',
+          candidates: [
+            { modelId: 'system:openai:primary', effort: 'high' },
+            { modelId: 'system:openai:secondary' },
+            { modelId: 'system:openai:third' },
+          ],
+        },
+      ],
+    });
+
+    it('answers the next configured model and candidate effort', () => {
+      expect(
+        service.nextCandidate('@coding', 'system:openai:primary'),
+      ).toMatchObject({
+        modelId: 'system:openai:secondary',
+        model: { id: 'system:openai:secondary', billing: 'usage' },
+      });
+
+      expect(
+        service.nextCandidate('@coding', 'system:openai:secondary'),
+      ).toMatchObject({
+        modelId: 'system:openai:third',
+        model: { id: 'system:openai:third', billing: 'free' },
+      });
+    });
+
+    it('never wraps and never leaves the role', () => {
+      expect(
+        service.nextCandidate('@coding', 'system:openai:third'),
+      ).toBeUndefined();
+      expect(
+        service.nextCandidate('@coding', 'system:openai:elsewhere'),
+      ).toBeUndefined();
+      expect(
+        service.nextCandidate('system:openai:primary', 'system:openai:primary'),
+      ).toBeUndefined();
+      expect(
+        service.nextCandidate('@missing', 'system:openai:primary'),
+      ).toBeUndefined();
+    });
+  });
+
   describe('validateModelSelection', () => {
     it('accepts an available model id when the default is configured', () => {
       const service = createService({

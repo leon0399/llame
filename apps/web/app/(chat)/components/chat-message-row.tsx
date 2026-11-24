@@ -42,7 +42,10 @@ import {
   type ChatMarkdownRenderers,
 } from "./use-chat-markdown-ready";
 
-import type { ChatLatestRunResponse } from "@/lib/api/generated/models";
+import type {
+  ChatLatestRunResponse,
+  ModelRoleResponse,
+} from "@/lib/api/generated/models";
 import type { FollowUpRunRequest } from "@/lib/services/chat/transport";
 import type { AvailableModel } from "@/lib/services/models/queries";
 import {
@@ -153,6 +156,9 @@ export function messageRowMode({
 type ChatMessageActionProps = {
   message: UIMessage;
   availableModels: ReadonlyArray<AvailableModel>;
+  /** The configured roles, which decide whether the latest turn offers a
+   *  next candidate. */
+  roles: ReadonlyArray<ModelRoleResponse>;
   chatId: string;
   status: ChatStatus;
   onForked: (forkedChatId: string) => void;
@@ -231,6 +237,7 @@ function UserMessageFooter(props: ChatMessageFooterProps) {
 function AssistantMessageFooter({
   message,
   availableModels,
+  roles,
   chatId,
   status,
   onForked,
@@ -248,6 +255,8 @@ function AssistantMessageFooter({
           latestRun={latestRun}
           reply={message}
           status={status}
+          roles={roles}
+          availableModels={availableModels}
           onFollowUp={onFollowUp}
         />
       )}

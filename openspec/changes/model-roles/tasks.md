@@ -133,26 +133,26 @@ master <- model-roles/proposal <- model-roles/catalog <- model-roles/selection
 
 ## 6. Next candidate (`model-roles/next-candidate`)
 
-- [ ] 6.1 Continue with `candidate: "next"` in the admission transaction; verify "Continue on the next
+- [x] 6.1 Continue with `candidate: "next"` in the admission transaction; verify "Continue on the next
       candidate", "A Run with an exact selector", "The last candidate fails", `turn-actions`
       "Continue on the next candidate of a cancelled Run is refused", "The failed reply keeps its usage
       after a switch", "Continue on the next candidate sends the failed reply as history", "Continue
       after a switch keeps the effort of the last segment", and `model-system-prompts` "A role moves
       to its next candidate".
-- [ ] 6.2 `POST /api/v1/runs/:id/next-candidate` as design D7; verify "A weekly limit ends early",
+- [x] 6.2 `POST /api/v1/runs/:id/next-candidate` as design D7; verify "A weekly limit ends early",
       the negative isolation scenario "Another owner calls the action", "An exact selector in a quota
       wait", "A compaction Run in a quota wait", and `quota-wait` "Continue on next candidate wakes the Run".
-- [ ] 6.3 Hold write and effort after a switch; verify "A usage limit sets the hold to the reset",
+- [x] 6.3 Hold write and effort after a switch; verify "A usage limit sets the hold to the reset",
       "An auth failure sets a short hold", "The owner picked another selector", "The owner picked the
       same role during the Run", and the four scenarios of "The effort after a switch follows the
       selected effort".
-- [ ] 6.4 An exact selector never switches; verify "An exact model is unavailable".
-- [ ] 6.5 Web: the turn action, the failed-turn row, the quota-wait box action, and the paid label;
+- [x] 6.4 An exact selector never switches; verify "An exact model is unavailable".
+- [x] 6.5 Web: the turn action, the failed-turn row, the quota-wait box action, and the paid label;
       verify "A paid next candidate", "A failed role turn offers the next candidate", "A failed turn
       with no completed step shows only Regenerate", "A role Run in a quota wait offers the next
       candidate", "A reload after a switch", and "The live view shows the switch" with stories, the
       Storybook MCP tests, and one focused product E2E for Continue on next candidate.
-- [ ] 6.6 Owner docs for Continue on next candidate and a CHANGELOG entry; the PR carries
+- [x] 6.6 Owner docs for Continue on next candidate and a CHANGELOG entry; the PR carries
       `Closes #1839`. Verify `pnpm lint:markdown`.
 - [ ] 6.7 SR, then GR with the Ready-PR monitoring loop.
 

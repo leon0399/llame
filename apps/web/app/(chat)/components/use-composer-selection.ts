@@ -3,12 +3,16 @@
 import * as React from "react";
 
 import { useChatContext } from "@/contexts/chat-context";
-import type { ChatFallbackHoldResponse } from "@/lib/api/generated/models";
+import type {
+  ChatFallbackHoldResponse,
+  ModelRoleResponse,
+} from "@/lib/api/generated/models";
 import {
   type AvailableModel,
   type ModelsResponse,
   useModelsQuery,
 } from "@/lib/services/models/queries";
+import { NO_ROLES } from "@/lib/services/models/next-candidate";
 import {
   acceptedSelectionFor,
   applicableHold,
@@ -42,6 +46,9 @@ export type ComposerSelectionState = {
    *  the Chat read catches up; null when the send named nothing. */
   accepted: ComposerSelection | null;
   availableModels: ReadonlyArray<AvailableModel>;
+  /** The configured model roles, which decide whether a failed role Run
+   *  offers its next candidate. */
+  roles: ReadonlyArray<ModelRoleResponse>;
   modelReadyForSend: boolean;
   modelSendUnavailableReason: string | null;
 };
@@ -233,5 +240,6 @@ export function useComposerSelection(
     data,
     ...derived,
     ...composerReadiness(modelsQuery, data, derived.send.ready),
+    roles: data?.roles ?? NO_ROLES,
   };
 }

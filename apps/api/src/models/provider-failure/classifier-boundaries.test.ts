@@ -611,6 +611,14 @@ describe('provider classifier input boundaries', () => {
     },
   );
 
+  it('rejects retry hints outside the Date time range', () => {
+    const failure = new ProviderFailure('Quota is exhausted.', {
+      code: 'quota_exhausted',
+      hintMs: 1e20,
+    });
+
+    expect(failure.hintMs).toBeUndefined();
+  });
   it('requires a positive superseded retry while accepting zero delay', () => {
     const noRetry = new ProviderFailure('Provider request failed', {
       code: 'overloaded',

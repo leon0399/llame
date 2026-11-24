@@ -124,3 +124,42 @@ export const getRunContextReceipt = async (
   const data: ContextReceiptResponse = body ? JSON.parse(body) : {};
   return data;
 };
+
+export type nextRunCandidateError = void | void | void | void;
+
+export const getNextRunCandidateUrl = (id: string) => {
+  return `/api/v1/runs/${id}/next-candidate`;
+};
+
+export const nextRunCandidate = async (
+  id: string,
+  options: RequestInit | undefined,
+  fetchFn: typeof globalThis.fetch,
+): Promise<RunResponse> => {
+  const res = await fetchFn(getNextRunCandidateUrl(id), {
+    ...options,
+    method: "POST",
+  });
+
+  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+  if (!res.ok) {
+    const err: globalThis.Error & {
+      info?: nextRunCandidateError;
+      status?: number;
+    } = new globalThis.Error(
+      `POST ${getNextRunCandidateUrl(id)} failed (${res.status})`,
+    );
+    const data: nextRunCandidateError = (() => {
+      try {
+        return body ? JSON.parse(body) : {};
+      } catch {
+        return body;
+      }
+    })();
+    err.info = data;
+    err.status = res.status;
+    throw err;
+  }
+  const data: RunResponse = body ? JSON.parse(body) : {};
+  return data;
+};

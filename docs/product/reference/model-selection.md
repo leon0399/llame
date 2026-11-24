@@ -1,8 +1,9 @@
 ---
-summary: "What the model picker offers, how a Chat keeps one model selection, and how a fallback hold returns it to the role's first candidate"
+summary: "What the model picker offers, how a Chat keeps one model selection, and how the owner switches a turn to the role's next candidate"
 read_when:
   - you are picking a model or a model role and need to know what the next send uses
   - a Chat shows a held model and you need to know when it returns to the role
+  - you need to know when Continue on next candidate is offered and what it changes
   - you need to know what Regenerate and a fork keep of the model selection
 spec: available-models
 configured_by: ../operator/providers/routing.md
@@ -41,7 +42,8 @@ send names none, so the stored selection applies.
 Four owner requests write the selection: a send in any delivery mode, the first
 message of a new Chat, Regenerate, and `/compact`. Continue writes nothing: it
 keeps the model selector, the model, and the effort of the failed Run that it
-continues.
+continues. Continue on next candidate writes no selector or effort either. It
+writes only a fallback hold.
 
 A pick of an effort alone keeps the current model and stores the effort. A send
 that names an effort the resolved model does not declare is refused before
@@ -53,9 +55,9 @@ default selector with the effort it resolved.
 
 ## Fallback holds
 
-A model role can fail over to a later candidate after a model request fails.
-The Chat then keeps a fallback hold on the model that served the Run. The hold
-records the model role, the held model, and the time it ends.
+A fallback hold keeps a Chat on a later candidate of its model role.
+[Continue on next candidate](#continue-on-next-candidate) writes it, and the
+hold records the model role, the held model, and the time it ends.
 
 While the hold applies, a send that names no model selector uses the held model
 instead of the role's first candidate. The picker shows the model role, the
@@ -72,6 +74,40 @@ next send uses the first candidate.
 A pick of an effort alone keeps the hold and its model, with the new effort. A
 Run that is live when the revert time passes keeps the held model to its end,
 and Continue never clears the hold.
+
+## Continue on next candidate
+
+The owner can move a turn to the next candidate of its model role. The action
+appears under a failed reply and on the failed-turn row. It also appears in the
+[quota-wait box](continue-a-turn.md#waiting-for-a-provider-reset) while a Run
+waits for its reset.
+
+The action is offered only when the Run's selector names a model role, and the
+role lists a candidate after the model of the Run. It is not offered for an
+exact model selector, for the last candidate, for a compaction Run, or when the
+model is no longer in the role. Unlike Continue, it needs no settled step: a
+failed role turn offers it even when the reply holds no tool result.
+
+The action names the next candidate. A candidate billed per token is labeled
+paid.
+
+On a failed reply, the reply keeps its output and its usage, and its model stays
+the one that failed. The next model answers in a new reply, after a boundary
+that names the failed model, the new model, and the failure. The request of the
+new reply carries the failed reply as history.
+
+On a Run in a quota wait, the action ends the wait and the same Run continues on
+the next candidate. Its reply closes with the failure, the boundary names it,
+and the next model answers in a new reply.
+
+The switch writes a fallback hold on the new model. The hold ends at the reset
+time of the failure, else after its retry hint, else five minutes after the
+switch. The new model uses the selected effort of the Run when it declares that
+level, and otherwise the effort of its role candidate, then its default effort.
+
+The hold is written only when the Chat still stores the selection that the Run
+read at admission, with the same revision. A pick after that read wins, so the
+Chat then keeps your pick and no hold.
 
 ## Regenerate
 

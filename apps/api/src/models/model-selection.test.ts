@@ -16,7 +16,11 @@ import type {
   SelectionRequest,
   SelectionWriter,
 } from './model-selection';
-import { effortAfterSwitch } from './model-selection';
+import {
+  effortAfterSwitch,
+  nextCandidateInRole,
+  revertAtFor,
+} from './model-selection';
 import {
   EffortNotAvailableError,
   resolveSelectionFromCatalog,
@@ -382,5 +386,111 @@ describe('the effort after a switch follows the selected effort', () => {
         candidateEffort: undefined,
       }),
     ).toEqual({ kind: 'effort', effort: 'medium' });
+  });
+});
+
+describe('the next candidate of a role', () => {
+  it('returns the next model in config order with its effort', () => {
+    const catalog: SelectionCatalog = {
+      ...CATALOG,
+      roleCandidates: () => [
+        { modelId: 'codex', effort: 'high' },
+        { modelId: 'sonnet', effort: 'xhigh' },
+      ],
+    };
+
+    expect(nextCandidateInRole(catalog, '@coding', 'codex')).toEqual({
+      modelId: 'sonnet',
+      model: SONNET,
+      candidateEffort: 'xhigh',
+    });
+  });
+
+  it('answers no candidate for selectors and models outside the role', () => {
+    expect(nextCandidateInRole(CATALOG, 'codex', 'codex')).toBeUndefined();
+    expect(nextCandidateInRole(CATALOG, '@missing', 'codex')).toBeUndefined();
+    expect(nextCandidateInRole(CATALOG, '@coding', 'fast')).toBeUndefined();
+    expect(nextCandidateInRole(CATALOG, '@coding', 'sonnet')).toBeUndefined();
+  });
+  it('does not invent a candidate effort when the next role candidate omits it', () => {
+    const catalog: SelectionCatalog = {
+      ...CATALOG,
+      roleCandidates: () => [{ modelId: 'codex' }, { modelId: 'sonnet' }],
+    };
+
+    expect(nextCandidateInRole(catalog, '@coding', 'codex')).toEqual({
+      modelId: 'sonnet',
+      model: SONNET,
+    });
+  });
+
+  it('refuses a role candidate whose model is absent from the catalog', () => {
+    const catalog: SelectionCatalog = {
+      ...CATALOG,
+      roleCandidates: () => [
+        { modelId: 'codex' },
+        { modelId: 'not-in-catalog' },
+      ],
+    };
+
+    expect(nextCandidateInRole(catalog, '@coding', 'codex')).toBeUndefined();
+  });
+
+  it('falls back to five minutes when the retry hint cannot form a date', () => {
+    const now = new Date('2026-11-23T13:00:00.000Z');
+
+    expect(revertAtFor({ hintMs: Number.NaN }, now)).toEqual(
+      new Date('2026-11-23T13:05:00.000Z'),
+    );
+  });
+});
+
+describe('the hold of a switch ends at', () => {
+  const NOW = new Date('2026-11-23T13:00:00.000Z');
+
+  it('the reset of the failure, as an instant or an ISO string', () => {
+    expect(
+      revertAtFor(
+        { resetsAt: new Date(NOW.getTime() + 3_600_000).toISOString() },
+        NOW,
+      ),
+    ).toEqual(new Date('2026-11-23T14:00:00.000Z'));
+    expect(revertAtFor({ resetsAt: '2026-11-23T14:00:00.000Z' }, NOW)).toEqual(
+      new Date('2026-11-23T14:00:00.000Z'),
+    );
+  });
+
+  it('caps retry hints at one hour', () => {
+    const oneHour = new Date(NOW.getTime() + 3_600_000);
+    expect(revertAtFor({ hintMs: 1e20 }, NOW)).toEqual(oneHour);
+    expect(revertAtFor({ hintMs: 10 * 365 * 86_400_000 }, NOW)).toEqual(
+      oneHour,
+    );
+  });
+  it('falls back when the clock is invalid', () => {
+    expect(
+      Number.isFinite(
+        revertAtFor({ hintMs: 60_000 }, new Date(Number.NaN)).getTime(),
+      ),
+    ).toBe(true);
+  });
+
+  it('five minutes when the failure named neither', () => {
+    expect(revertAtFor({}, NOW)).toEqual(new Date('2026-11-23T13:05:00.000Z'));
+    expect(revertAtFor({ resetsAt: null, hintMs: null }, NOW)).toEqual(
+      new Date('2026-11-23T13:05:00.000Z'),
+    );
+  });
+
+  it('the reset before the hint when both exist', () => {
+    expect(
+      revertAtFor(
+        {
+          resetsAt: new Date(NOW.getTime() + 60_000).toISOString(),
+          hintMs: 3_600_000,
+        },
+        NOW,
+      ),
+    ).toEqual(new Date('2026-11-23T13:01:00.000Z'));
   });
 });

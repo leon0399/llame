@@ -1,3 +1,4 @@
+import { isRecord, isString } from '@workspace/runtime-safety';
 import { drizzle } from 'drizzle-orm/postgres-js';
 
 import { ChatDeliveriesRepository } from '../chats/chat-deliveries.repository';
@@ -5,12 +6,14 @@ import { ChatJobsRepository } from '../jobs/chat-jobs.repository';
 import { ChatsRepository, MessagesRepository } from '../chats/chats-repository';
 
 import {
+  runs,
   type Chat,
   type ChatDelivery,
   type Message,
   type Run,
 } from '../db/schema';
 import { type Db } from '../db/tenant-db.service';
+import { asDouble } from '../testing/support';
 import { runningReplyUsage } from './run-reply-finalizer';
 import { RunEventsRepository, RunsRepository } from './runs-repository';
 import { RunRowFenceRepository } from './run-row-fence.repository';
@@ -19,6 +22,7 @@ import {
   closedTelemetry,
   deliverPendingSteering,
   failedByFailover,
+  moveWaitingRunToDelivery,
   type DeliveredBoundary,
   type DeliveryCause,
 } from './segment-delivery';
@@ -1470,5 +1474,109 @@ describe('boundary compaction delivery cause', () => {
     expect(deliveryCause(input, [{ ...jobNotice, mode: 'interrupt' }])).toBe(
       'notice',
     );
+  });
+});
+
+describe('moveWaitingRunToDelivery', () => {
+  const parkedRun: Run = {
+    ...run,
+    status: 'awaiting_quota',
+    currentJobId: 'wait-job',
+    awaiting: {
+      kind: 'quota',
+      failureClass: 'rate_limited',
+      resetsAt: '',
+      wakeAt: '2026-11-23T13:02:00.000Z',
+      resumeAt: 'request',
+      waitCount: 1,
+    },
+  };
+
+  function makeMoveTx(rows: Array<{ id: string }>) {
+    const query = {
+      set: vi.fn(),
+      where: vi.fn(),
+      returning: vi.fn().mockResolvedValue(rows),
+    };
+
+    query.set.mockReturnValue(query);
+    query.where.mockReturnValue(query);
+
+    return {
+      tx: asDouble<Db>({ update: vi.fn(() => query) }),
+      query,
+    };
+  }
+
+  function delivery() {
+    return {
+      items: [],
+      message: deliveredMessage,
+      cause: 'failover' as const,
+      stoppedCalls: [],
+      fromJobId: 'wait-job',
+      nextJobId: 'next-job',
+      modelId: 'next-model',
+      effort: 'medium',
+    };
+  }
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('moves only the matching wait and records its new attempt and message', async () => {
+    const { tx, query } = makeMoveTx([{ id: parkedRun.id }]);
+
+    const append = vi
+      .spyOn(RunEventsRepository.prototype, 'append')
+      .mockImplementation((eventRunId, eventType, payload) =>
+        Promise.resolve({
+          sequence: 1,
+          runId: eventRunId,
+          eventType,
+          payload,
+          createdAt: now,
+        }),
+      );
+
+    await moveWaitingRunToDelivery(tx, parkedRun, delivery());
+
+    expect(query.set).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: 'queued',
+        messageId: deliveredMessage.id,
+        modelId: 'next-model',
+        effort: 'medium',
+        awaiting: null,
+        currentJobId: 'next-job',
+      }),
+    );
+    expect(query.returning).toHaveBeenCalledWith({ id: runs.id });
+    const resumed: unknown = append.mock.calls[0]?.[2];
+    const delivered: unknown = append.mock.calls[1]?.[2];
+
+    if (!isRecord(resumed) || !isRecord(delivered)) {
+      throw new Error('The quota delivery must append both event payloads.');
+    }
+
+    expect(resumed['kind']).toBe('quota');
+    expect(resumed['generation']).toBe(parkedRun.wakeGeneration);
+    expect(isString(resumed['attemptId'])).toBe(true);
+    expect(delivered['messageId']).toBe(deliveredMessage.id);
+    expect(delivered['cause']).toBe('failover');
+    expect(delivered['deliveryIds']).toEqual([]);
+    expect(delivered['attemptId']).toBe(resumed['attemptId']);
+  });
+
+  it('does not emit delivery events if the quota wait fence no longer matches', async () => {
+    const { tx } = makeMoveTx([]);
+    const append = vi.spyOn(RunEventsRepository.prototype, 'append');
+
+    await expect(
+      moveWaitingRunToDelivery(tx, parkedRun, delivery()),
+    ).rejects.toThrow(`Run ${parkedRun.id} could not leave its quota wait.`);
+
+    expect(append).not.toHaveBeenCalled();
   });
 });

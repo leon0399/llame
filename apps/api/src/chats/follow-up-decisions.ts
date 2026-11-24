@@ -13,9 +13,11 @@ import { isRecord } from '@workspace/runtime-safety';
 
 import { type Message, type Run, type RunStatus } from '../db/schema';
 import { type Db } from '../db/tenant-db.service';
+import { type NextCandidate } from '../models/model-selection';
 import {
   EffortNotAvailableError,
   ModelNotAvailableError,
+  NextCandidateUnavailableError,
   type ModelSelectionValidator,
 } from '../models/models.service';
 import { isCompletedAssistantTurn } from './assistant-completion';
@@ -134,6 +136,85 @@ export async function regenerateDecision(
     if (!isFollowUpRefusal(error)) throw error;
 
     return { refusal: error };
+  }
+}
+
+/** What Continue-on-next-candidate settles before the Run row exists. */
+export type ContinueNextDecision =
+  | {
+      latestRun: Run;
+      /** A stored reply exists only when the failed Run produced one. */
+      source?: Message;
+      next: NextCandidate;
+      keptParts: Array<unknown>;
+    }
+  | { refusal: Error };
+
+function nextCandidateForFailedRun(
+  latestRun: Run,
+  nextCandidate: (
+    selector: string,
+    currentModelId: string,
+  ) => NextCandidate | undefined,
+): NextCandidate {
+  if (latestRun.status !== 'failed' || latestRun.kind !== 'turn') {
+    throw new NextCandidateUnavailableError(
+      `A ${latestRun.status} ${latestRun.kind} Run cannot move to its next candidate`,
+    );
+  }
+
+  const next = nextCandidate(latestRun.selector, latestRun.modelId);
+
+  if (next === undefined) {
+    throw new NextCandidateUnavailableError(
+      `Selector '${latestRun.selector}' has no candidate after '${latestRun.modelId}'`,
+    );
+  }
+
+  return next;
+}
+/**
+ * Only a failed role Run with a following candidate qualifies. A failed Run
+ * without its own reply starts the new turn from the host message alone.
+ */
+
+export async function continueNextDecision(
+  tx: Db,
+  input: { chatId: string; userId: string },
+  userMessage: Message,
+  nextCandidate: (
+    selector: string,
+    currentModelId: string,
+  ) => NextCandidate | undefined,
+): Promise<ContinueNextDecision> {
+  try {
+    const latestRun = await latestTurnRun(tx, input, userMessage);
+
+    const next = nextCandidateForFailedRun(latestRun, nextCandidate);
+
+    const source = await new MessagesRepository(tx).findReply(
+      input.chatId,
+      input.userId,
+      userMessage.id,
+    );
+
+    if (source !== undefined) continuableReply(latestRun, source);
+
+    return {
+      latestRun,
+      ...(source !== undefined && { source }),
+      next,
+      keptParts: source === undefined ? [] : continueKeptParts(source.parts),
+    };
+  } catch (error) {
+    if (!isFollowUpRefusal(error)) throw error;
+
+    return {
+      refusal:
+        error instanceof HttpException && error.getStatus() === 409
+          ? new NextCandidateUnavailableError(error.message)
+          : error,
+    };
   }
 }
 

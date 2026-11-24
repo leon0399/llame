@@ -72,7 +72,8 @@ export class ProviderFailure extends Error {
     if (
       details.hintMs !== undefined &&
       Number.isFinite(details.hintMs) &&
-      details.hintMs >= 0
+      details.hintMs >= 0 &&
+      details.hintMs <= 8_640_000_000_000_000
     ) {
       this.hintMs = details.hintMs;
     }

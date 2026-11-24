@@ -2811,6 +2811,48 @@
         "tags": ["runs"]
       }
     },
+    "/api/v1/runs/{id}/next-candidate": {
+      "post": {
+        "operationId": "nextRunCandidate",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The request failed validation."
+          },
+          "401": {
+            "description": ""
+          },
+          "404": {
+            "description": "Run not found or not owned"
+          },
+          "409": {
+            "description": "The Run is not in a quota wait or has no next candidate"
+          }
+        },
+        "summary": "",
+        "tags": ["runs"]
+      }
+    },
     "/api/v1/runs/{id}/events": {
       "get": {
         "operationId": "streamRunEvents",
@@ -5821,6 +5863,11 @@
             "type": "string",
             "enum": ["continue"],
             "description": "Resume the completed steps of the latest Run and request its next step."
+          },
+          "candidate": {
+            "type": "string",
+            "enum": ["next"],
+            "description": "Move the turn to the next candidate of its role; omit to continue the same model."
           },
           "permissionMode": {
             "type": "string",

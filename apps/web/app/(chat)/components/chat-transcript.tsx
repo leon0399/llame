@@ -41,7 +41,10 @@ import {
   messageSeqFromMetadata,
   type Compaction,
 } from "@/lib/services/chat/history";
-import type { ChatLatestRunResponse } from "@/lib/api/generated/models";
+import type {
+  ChatLatestRunResponse,
+  ModelRoleResponse,
+} from "@/lib/api/generated/models";
 import type { FollowUpRunRequest } from "@/lib/services/chat/transport";
 import type { AvailableModel } from "@/lib/services/models/queries";
 
@@ -53,6 +56,7 @@ type ChatTranscriptMessageProps = {
   compaction: Compaction | null;
   compactionIndex: number;
   availableModels: ReadonlyArray<AvailableModel>;
+  roles: ReadonlyArray<ModelRoleResponse>;
   status: ChatStatus;
   latestRun: ChatLatestRunResponse | null;
   onFollowUp: (request: FollowUpRunRequest) => void;
@@ -134,6 +138,7 @@ type ChatTranscriptMessagesProps = {
   compaction: Compaction | null;
   compactionIndex: number;
   availableModels: ReadonlyArray<AvailableModel>;
+  roles: ReadonlyArray<ModelRoleResponse>;
   status: ChatStatus;
   latestRun: ChatLatestRunResponse | null;
   onFollowUp: (request: FollowUpRunRequest) => void;
@@ -153,6 +158,7 @@ export function ChatTranscriptMessageList({
   compaction,
   compactionIndex,
   availableModels,
+  roles,
   status,
   latestRun,
   onFollowUp,
@@ -178,6 +184,7 @@ export function ChatTranscriptMessageList({
       compaction={compaction}
       compactionIndex={compactionIndex}
       availableModels={availableModels}
+      roles={roles}
       status={status}
       latestRun={
         actions && index === displayMessages.length - 1 ? latestRun : null
@@ -225,6 +232,15 @@ function useForkedChatNavigation(): (forkedChatId: string) => void {
   );
 }
 
+/** The failed-turn row's heading, from how the Run ended. */
+function failedTurnTitle(latestRun: ChatLatestRunResponse): string {
+  if (latestRun.status === "cancelled") return "This turn was stopped";
+
+  return latestRun.error === null
+    ? "This turn ended without an answer"
+    : "This turn failed";
+}
+
 /** The latest turn's Regenerate when its Run left nothing an answer row could
  *  show (turn-actions D13): no reply at all, or a reply whose parts paint
  *  nothing — the one a Run persists when its provider call fails. This row
@@ -241,12 +257,7 @@ function ChatTranscriptFailedTurn(props: ChatTranscriptMessagesProps) {
 
   if (!showsFailedTurnRow(props)) return null;
 
-  const title =
-    latestRun.status === "cancelled"
-      ? "This turn was stopped"
-      : latestRun.error === null
-        ? "This turn ended without an answer"
-        : "This turn failed";
+  const title = failedTurnTitle(latestRun);
 
   return (
     <div className="mx-auto w-full max-w-3xl md:px-6">
@@ -268,6 +279,8 @@ function ChatTranscriptFailedTurn(props: ChatTranscriptMessagesProps) {
             latestRun={latestRun}
             reply={null}
             status={status}
+            roles={props.roles}
+            availableModels={props.availableModels}
             onFollowUp={onFollowUp}
           />
         </AlertAction>
@@ -389,6 +402,7 @@ type ChatTranscriptProps = {
   isLoadingOlderMessages: boolean;
   onLoadOlderMessages: () => void;
   availableModels: ReadonlyArray<AvailableModel>;
+  roles: ReadonlyArray<ModelRoleResponse>;
   status: ChatStatus;
   latestRun: ChatLatestRunResponse | null;
   onFollowUp: (request: FollowUpRunRequest) => void;

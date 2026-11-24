@@ -22,7 +22,8 @@ import {
  * resumes the completed steps of a failed, cancelled, or expired Run and takes
  * the model and the effort from that Run, so the schema has no field to send
  * either. A body that names one is not this variant, and the global validation
- * pipe rejects the unknown property.
+ * pipe rejects the unknown property. `candidate: "next"` asks for the next
+ * candidate of the Run's role instead of resuming the same model.
  */
 export class ContinueFollowUpRunDto {
   @ApiProperty({
@@ -32,6 +33,16 @@ export class ContinueFollowUpRunDto {
   })
   @IsIn(['continue'])
   action!: 'continue';
+
+  @ApiPropertyOptional({
+    enum: ['next'],
+    description:
+      'Move the turn to the next candidate of its role; omit to continue ' +
+      'the same model.',
+  })
+  @ValidateIf((o: ContinueFollowUpRunDto) => o.candidate !== undefined)
+  @IsIn(['next'])
+  candidate?: 'next';
 
   // ValidateIf (not IsOptional), for the reason `CreateMessageDto` states: an
   // explicit null is malformed, while absence is the only "not sent".

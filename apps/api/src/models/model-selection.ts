@@ -126,6 +126,100 @@ export function offerSelector(
     : { kind: 'selector', selector, model, candidate, storedUsed: false };
 }
 
+/** The candidate after a Run's model in its role, as the next-candidate action reads it. */
+export type NextCandidate = {
+  readonly modelId: string;
+  readonly model: SystemModelCatalogEntry;
+  /** The candidate's config-declared effort, when it declares one. */
+  readonly candidateEffort?: string;
+};
+
+/**
+ * The candidate after `currentModelId` in the current config of the role that
+ * `selector` names (`model-roles`: "The next candidate follows the current
+ * model in the role"). The chain never wraps: an exact selector, an unknown
+ * role, a model that is not a candidate, and the last candidate all answer
+ * `undefined`, which the action maps to 409 `next_candidate_unavailable`.
+ */
+export function nextCandidateInRole(
+  catalog: Pick<SelectionCatalog, 'roleCandidates' | 'model'>,
+  selector: string,
+  currentModelId: string,
+): NextCandidate | undefined {
+  const parsed = parseModelSelector(selector);
+
+  if (parsed.kind !== 'role') return undefined;
+
+  const candidates = catalog.roleCandidates(parsed.roleName);
+
+  const index =
+    candidates?.findIndex(
+      (candidate) => candidate.modelId === currentModelId,
+    ) ?? -1;
+
+  if (candidates === undefined || index === -1) return undefined;
+
+  const next = candidates[index + 1];
+  const model = next === undefined ? undefined : catalog.model(next.modelId);
+
+  // Boot validates every candidate against the catalog, so a missing model is
+  // a broken config rather than a switch this action can make.
+  if (next === undefined || model === undefined) return undefined;
+
+  return {
+    modelId: next.modelId,
+    model,
+    ...(next.effort !== undefined && { candidateEffort: next.effort }),
+  };
+}
+
+/**
+ * The saved timing of a failure that a switch's hold reads. `runs.error` is a
+ * JSON value, so its owner parses it into this shape; `resetsAt` is the ISO
+ * instant the stored millisecond value names.
+ */
+export type FailureTiming = {
+  readonly resetsAt?: string | null;
+  readonly hintMs?: number | null;
+};
+
+/**
+ * When a switch's fallback hold ends: the reset time of the failure, else the
+ * failure's retry hint from now, else five minutes from now (design D4).
+ */
+export function revertAtFor(failure: FailureTiming, now: Date): Date {
+  const resetsAt = failure.resetsAt;
+
+  if (resetsAt !== undefined && resetsAt !== null) {
+    const resetAt = Date.parse(resetsAt);
+
+    if (Number.isFinite(resetAt)) return new Date(resetAt);
+  }
+
+  const nowMs = now.getTime();
+  const base = Number.isFinite(nowMs) ? nowMs : Date.now();
+  const hintMs = failure.hintMs;
+
+  const cappedHint =
+    hintMs === undefined || hintMs === null
+      ? null
+      : Math.min(hintMs, 60 * 60_000);
+
+  const hintAt = cappedHint === null ? Number.NaN : base + cappedHint;
+
+  if (cappedHint !== null) {
+    const hintedDate = new Date(hintAt);
+
+    if (Number.isFinite(hintedDate.getTime())) return hintedDate;
+  }
+
+  const fallbackDate = new Date(base + 5 * 60_000);
+
+  return Number.isFinite(fallbackDate.getTime())
+    ? fallbackDate
+    : new Date(Date.now() + 5 * 60_000);
+}
+
 /**
  * The selector one request resolves to, in the spec's order: the one it names,
  * the one the Chat stores while the config still offers it, `defaults.selector`.

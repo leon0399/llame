@@ -4,9 +4,12 @@
  */
 
 import { describe, expect, it } from "vitest";
-import type { UIMessage } from "ai";
+import type { ChatStatus, UIMessage } from "ai";
 
-import type { ChatLatestRunResponse } from "@/lib/api/generated/models";
+import type {
+  ChatLatestRunResponse,
+  ModelRoleResponse,
+} from "@/lib/api/generated/models";
 
 import {
   carriesTurnActions,
@@ -19,6 +22,19 @@ import {
 
 const RUN_ID = "11111111-1111-4111-8111-111111111111";
 const NEXT_RUN_ID = "22222222-2222-4222-8222-222222222222";
+const CODEX = "system:openai:codex";
+const SONNET = "system:anthropic:sonnet";
+
+/** A role whose chain the tests move along: Codex, then the paid Sonnet. */
+const ROLES: ReadonlyArray<ModelRoleResponse> = [
+  {
+    selector: "@coding",
+    candidates: [
+      { modelId: CODEX, paid: false },
+      { modelId: SONNET, paid: true },
+    ],
+  },
+];
 
 function latestRun(
   overrides: Partial<ChatLatestRunResponse> = {},
@@ -80,6 +96,15 @@ function emptyStoredReply(): UIMessage {
   };
 }
 
+/** The visibility under the role catalog, so each case states only its Run. */
+function actionsOf(input: {
+  latestRun: ChatLatestRunResponse | null;
+  reply: TurnReply | null;
+  status: ChatStatus;
+}) {
+  return turnActionVisibility({ ...input, roles: ROLES });
+}
+
 function userMessage(
   id: string,
   overrides: Partial<UIMessage> = {},
@@ -90,50 +115,50 @@ function userMessage(
 describe("turnActionVisibility", () => {
   it("offers both actions on a failed turn that settled a tool call", () => {
     expect(
-      turnActionVisibility({
+      actionsOf({
         latestRun: latestRun(),
         reply: reply(),
         status: "ready",
       }),
-    ).toEqual({ continueTurn: true });
+    ).toEqual({ continueTurn: true, nextCandidate: null });
   });
 
   it("offers Continue on a cancelled and on an expired Run", () => {
     for (const status of ["cancelled", "expired"] as const) {
       expect(
-        turnActionVisibility({
+        actionsOf({
           latestRun: latestRun({ status }),
           reply: reply(),
           status: "ready",
         }),
-      ).toEqual({ continueTurn: true });
+      ).toEqual({ continueTurn: true, nextCandidate: null });
     }
   });
 
   it("hides Continue when no tool call settled", () => {
     expect(
-      turnActionVisibility({
+      actionsOf({
         latestRun: latestRun(),
         reply: reply({ parts: [ANSWER] }),
         status: "ready",
       }),
-    ).toEqual({ continueTurn: false });
+    ).toEqual({ continueTurn: false, nextCandidate: null });
   });
 
   it("hides Continue when the reply's usage completed", () => {
     expect(
-      turnActionVisibility({
+      actionsOf({
         latestRun: latestRun({ status: "completed" }),
         reply: reply({
           metadata: { seq: 2, usage: { runId: RUN_ID, status: "completed" } },
         }),
         status: "ready",
       }),
-    ).toEqual({ continueTurn: false });
+    ).toEqual({ continueTurn: false, nextCandidate: null });
   });
 
   it("hides Continue when another Run produced the reply", () => {
-    const visibility = turnActionVisibility({
+    const visibility = actionsOf({
       latestRun: latestRun(),
       reply: reply({
         metadata: { seq: 2, usage: { runId: NEXT_RUN_ID, status: "error" } },
@@ -141,23 +166,23 @@ describe("turnActionVisibility", () => {
       status: "ready",
     });
 
-    expect(visibility).toEqual({ continueTurn: false });
+    expect(visibility).toEqual({ continueTurn: false, nextCandidate: null });
   });
 
   it("offers Regenerate alone on a terminal turn with no reply", () => {
     expect(
-      turnActionVisibility({
+      actionsOf({
         latestRun: latestRun(),
         reply: null,
         status: "ready",
       }),
-    ).toEqual({ continueTurn: false });
+    ).toEqual({ continueTurn: false, nextCandidate: null });
   });
 
   it("offers nothing while a request is in flight", () => {
     for (const status of ["submitted", "streaming"] as const) {
       expect(
-        turnActionVisibility({
+        actionsOf({
           latestRun: latestRun(),
           reply: reply(),
           status,
@@ -168,7 +193,7 @@ describe("turnActionVisibility", () => {
 
   it("offers nothing while the latest Run still executes", () => {
     expect(
-      turnActionVisibility({
+      actionsOf({
         latestRun: latestRun({ status: "running_model" }),
         reply: reply(),
         status: "ready",
@@ -178,7 +203,7 @@ describe("turnActionVisibility", () => {
 
   it("offers nothing when the Chat has no Run", () => {
     expect(
-      turnActionVisibility({
+      actionsOf({
         latestRun: null,
         reply: reply(),
         status: "ready",
@@ -188,7 +213,7 @@ describe("turnActionVisibility", () => {
 
   it("offers no action for a completed compaction Run", () => {
     expect(
-      turnActionVisibility({
+      actionsOf({
         latestRun: latestRun({
           kind: "compaction",
           messageId: null,
@@ -198,6 +223,78 @@ describe("turnActionVisibility", () => {
         status: "ready",
       }),
     ).toBeNull();
+  });
+
+  it("offers the next candidate on a failed role turn with no settled step", () => {
+    // The action does not need a step to resume: the api keeps the failed
+    // reply and starts a new segment on the next model (turn-actions "A failed
+    // role turn offers the next candidate").
+    expect(
+      actionsOf({
+        latestRun: latestRun({ selector: "@coding", modelId: CODEX }),
+        reply: reply({ parts: [ANSWER] }),
+        status: "ready",
+      }),
+    ).toEqual({
+      continueTurn: false,
+      nextCandidate: { modelId: SONNET, paid: true },
+    });
+  });
+
+  it("hides the next candidate when the visible reply belongs to an earlier Run", () => {
+    expect(
+      actionsOf({
+        latestRun: latestRun({
+          id: NEXT_RUN_ID,
+          selector: "@coding",
+          modelId: CODEX,
+          status: "failed",
+        }),
+        reply: reply({
+          metadata: {
+            seq: 2,
+            usage: { runId: RUN_ID, status: "error" },
+          },
+        }),
+        status: "ready",
+      }),
+    ).toEqual({ continueTurn: false, nextCandidate: null });
+  });
+
+  it("offers no next candidate on a cancelled or expired Run", () => {
+    for (const status of ["cancelled", "expired"] as const) {
+      expect(
+        actionsOf({
+          latestRun: latestRun({
+            status,
+            selector: "@coding",
+            modelId: CODEX,
+          }),
+          reply: reply(),
+          status: "ready",
+        }),
+      ).toEqual({ continueTurn: true, nextCandidate: null });
+    }
+  });
+
+  it("offers no next candidate to a Run with an exact selector", () => {
+    expect(
+      actionsOf({
+        latestRun: latestRun({ selector: CODEX, modelId: CODEX }),
+        reply: reply(),
+        status: "ready",
+      }),
+    ).toEqual({ continueTurn: true, nextCandidate: null });
+  });
+
+  it("offers no next candidate from the last candidate of the role", () => {
+    expect(
+      actionsOf({
+        latestRun: latestRun({ selector: "@coding", modelId: SONNET }),
+        reply: reply(),
+        status: "ready",
+      }),
+    ).toEqual({ continueTurn: true, nextCandidate: null });
   });
 });
 

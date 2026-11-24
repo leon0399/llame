@@ -45,9 +45,11 @@ import { ChatsRepository, MessagesRepository } from './chats-repository';
 import { clearActiveRunSlot } from './chat-admission';
 import { type AcceptedRun } from './chat-loop.service';
 import { toRunUserMessage } from './chat-message-parts';
+import { openContinueNextCandidate } from './continue-next-candidate';
 import {
   continueDecision,
   continueFollowUp,
+  continueNextDecision,
   isFollowUpRefusal,
   regenerateDecision,
   type ContinueDecision,
@@ -71,6 +73,8 @@ export type FollowUpRequestInput = {
   action?: string;
   selector?: string;
   effort?: string;
+  /** Continue only: `next` moves to the next candidate of the Run's role. */
+  candidate?: string;
   /** Absent means `default`, as on a chat send. */
   permissionMode?: PermissionMode;
 };
@@ -82,7 +86,12 @@ export type FollowUpRequestInput = {
  * Chat's stored selection.
  */
 type ValidatedFollowUp =
-  | { readonly action: 'continue'; readonly permissionMode: PermissionMode }
+  | {
+      readonly action: 'continue';
+      /** Set when the owner asked for the next candidate of the role. */
+      readonly candidate: 'next' | undefined;
+      readonly permissionMode: PermissionMode;
+    }
   | {
       readonly action: 'regenerate';
       readonly selector: string | undefined;
@@ -236,7 +245,7 @@ export class FollowUpAdmissionService {
         });
 
         return validated.action === 'continue'
-          ? this.continueRun(tx, input, turn, validated.permissionMode)
+          ? this.continueRun(tx, input, turn, validated)
           : this.regenerateRun(tx, input, turn, validated);
       },
     );
@@ -275,6 +284,7 @@ export class FollowUpAdmissionService {
 
       return {
         action: 'continue',
+        candidate: this.continueCandidate(request.candidate),
         permissionMode: this.permissionMode(request),
       };
     }
@@ -283,12 +293,29 @@ export class FollowUpAdmissionService {
       throw new BadRequestException('action must be continue or regenerate');
     }
 
+    if (request.candidate !== undefined) {
+      throw new BadRequestException(
+        'A regenerate request does not name a candidate',
+      );
+    }
+
     return {
       action: 'regenerate',
       selector: request.selector,
       effort: request.effort,
       permissionMode: this.permissionMode(request),
     };
+  }
+
+  /** The one candidate value a Continue accepts, or its 400. */
+  private continueCandidate(candidate: string | undefined): 'next' | undefined {
+    if (candidate === undefined) return undefined;
+
+    if (candidate !== 'next') {
+      throw new BadRequestException('candidate must be next');
+    }
+
+    return 'next';
   }
 
   /** The mode the operator enabled; absent means `default`, as on a chat send. */
@@ -358,14 +385,25 @@ export class FollowUpAdmissionService {
    * selector and selected effort, while its model and effort pass the
    * chat-send checks again, so an operator who removed that model is answered
    * before any write; a stored effort stays exactly as it was. Continue never
-   * writes the owner's selection (design D3: "other Run creators").
+   * writes the owner's selection (design D3: "other Run creators"). With
+   * `candidate: "next"` the whole opening runs here (design D7) and the new
+   * Run starts on the switch's host message instead of the failed turn.
    */
   private async continueRun(
     tx: Db,
     input: { chatId: string; userId: string },
     turn: { chat: Chat; userMessage: Message },
-    permissionMode: PermissionMode,
+    validated: Extract<ValidatedFollowUp, { action: 'continue' }>,
   ): Promise<AdmissionOutcome> {
+    if (validated.candidate === 'next') {
+      return this.continueOnNextCandidate(
+        tx,
+        input,
+        turn,
+        validated.permissionMode,
+      );
+    }
+
     const decision = await continueDecision(
       tx,
       input,
@@ -384,7 +422,7 @@ export class FollowUpAdmissionService {
       request: input,
       turn,
       decision,
-      permissionMode,
+      permissionMode: validated.permissionMode,
     });
   }
 
@@ -418,6 +456,47 @@ export class FollowUpAdmissionService {
       userMessage: turn.userMessage,
       run,
       modelId: decision.latestRun.modelId,
+    });
+  }
+
+  /**
+   * Continue on the next candidate of a failed turn Run (design D7). The
+   * source Run is terminal, so the whole switch runs here: the Continue cut
+   * keeps the failed reply's settled parts with its usage and model, a host
+   * message carries the `failover` item, the new Run starts on that message as
+   * an ordinary first segment, and the Chat takes the fallback hold of D4.
+   */
+  private async continueOnNextCandidate(
+    tx: Db,
+    input: { chatId: string; userId: string },
+    turn: { chat: Chat; userMessage: Message },
+    permissionMode: PermissionMode,
+  ): Promise<AdmissionOutcome> {
+    const decision = await continueNextDecision(
+      tx,
+      input,
+      turn.userMessage,
+      (selector, currentModelId) =>
+        this.models.nextCandidate?.(selector, currentModelId),
+    );
+
+    if ('refusal' in decision) return decision;
+
+    await new ChatsRepository(tx).touch(input.chatId, input.userId);
+
+    const opened = await openContinueNextCandidate(tx, {
+      request: input,
+      turn,
+      decision,
+      permissionMode,
+      config: this.instanceConfig.config,
+    });
+
+    return admittedOutcome({
+      request: input,
+      userMessage: opened.message,
+      run: opened.run,
+      modelId: opened.modelId,
     });
   }
 

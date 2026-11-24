@@ -5,7 +5,11 @@ import {
   useQuery,
 } from "@tanstack/react-query";
 
-import { getRunContextReceipt, updateRun } from "../../api/generated/runs/runs";
+import {
+  getRunContextReceipt,
+  nextRunCandidate,
+  updateRun,
+} from "../../api/generated/runs/runs";
 import type { ContextReceiptResponse } from "../../api/generated/models";
 import { getApiErrorStatus } from "../../api/errors";
 import { createAuthenticatedBrowserFetch } from "../../api/fetch";
@@ -72,6 +76,16 @@ export function runIdToCancel(
   return last?.role === "assistant" ? last.id : null;
 }
 
+async function ignoringMootRefusal<T>(call: () => Promise<T>): Promise<void> {
+  try {
+    await call();
+  } catch (error) {
+    const status = getApiErrorStatus(error);
+
+    if (status !== 404 && status !== 409) throw error;
+  }
+}
+
 /**
  * Cancel a durable run (#48). `PATCH /api/v1/runs/:id { status: 'cancelled' }`
  * is the only client-writable transition — it stamps the cross-process cancel
@@ -83,21 +97,37 @@ export function runIdToCancel(
  * (409) makes the stop moot, so those are swallowed; any other error
  * propagates. Idempotent server-side (re-cancel → 200).
  */
-export async function cancelRun(runId: string): Promise<void> {
-  try {
-    await updateRun(
+export function cancelRun(runId: string): Promise<void> {
+  return ignoringMootRefusal(() =>
+    updateRun(
       runId,
       { status: "cancelled" },
       undefined,
       createAuthenticatedBrowserFetch(globalThis.fetch),
+    ),
+  );
+}
+
+/**
+ * Continue on next candidate for a Run parked in a quota wait (model-roles
+ * D7): `POST /api/v1/runs/:id/next-candidate` ends the wait and moves the same
+ * Run onto the next model of its role. A 404/409 refusal returns false so the
+ * caller can refresh role configuration; any other failure propagates.
+ */
+export async function nextCandidateRun(runId: string): Promise<boolean> {
+  try {
+    await nextRunCandidate(
+      runId,
+      undefined,
+      createAuthenticatedBrowserFetch(globalThis.fetch),
     );
+
+    return true;
   } catch (error) {
     const status = getApiErrorStatus(error);
 
-    if (status === 404 || status === 409) {
-      return;
-    }
+    if (status !== 404 && status !== 409) throw error;
 
-    throw error;
+    return false;
   }
 }

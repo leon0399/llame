@@ -3872,6 +3872,8 @@ export class RunExecutionService {
           ...(failure.resetsAt !== undefined && {
             resetsAt: failure.resetsAt,
           }),
+          // The owner's next-candidate switch ends its hold at this hint.
+          ...(failure.hintMs !== undefined && { hintMs: failure.hintMs }),
         }),
       };
 
@@ -5032,6 +5034,7 @@ export class RunExecutionService {
           ...(status === 'failed' && {
             code: stored.code,
             ...(stored.resetsAt !== undefined && { resetsAt: stored.resetsAt }),
+            ...(stored.hintMs !== undefined && { hintMs: stored.hintMs }),
           }),
         };
 
@@ -6469,6 +6472,7 @@ export class RunExecutionService {
             ...(failure.resetsAt !== undefined && {
               resetsAt: failure.resetsAt,
             }),
+            ...(failure.hintMs !== undefined && { hintMs: failure.hintMs }),
           },
           error: {
             message,
@@ -6476,6 +6480,7 @@ export class RunExecutionService {
             ...(failure.resetsAt !== undefined && {
               resetsAt: failure.resetsAt,
             }),
+            ...(failure.hintMs !== undefined && { hintMs: failure.hintMs }),
           },
         });
         throw error;
