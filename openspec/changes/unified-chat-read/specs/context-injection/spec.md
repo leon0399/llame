@@ -22,7 +22,7 @@ Ordinary persisted-literal items MUST commit in request dispatch before model I/
 
 A retry MUST keep earlier dispatched accepted-turn items unchanged and in place. It MUST derive each producer again against effective stored context. That comparison MUST count prior committed disclosure, seen state, and baseline items. Persist only newly derived items after the last stored item and before owner text. Order those new items by producer rank. A retry without earlier dispatch MUST use normal first-attempt ranks, relative to accepted prompt imports and skill activations.
 
-Follow-up Runs MUST follow the same keep-and-append rule. They MUST reuse accepted prompt imports and skill activations without another read or activation. Regenerate MUST remove prior model-switch items with cause `model` on its first dispatch. It MUST then append only the model switch its own comparison yields. Retry of that Regenerate MUST keep the newly stored switch.
+Follow-up Runs MUST follow the same keep-and-append rule. They MUST reuse accepted prompt imports and skill activations without another read or activation. Regenerate MUST remove prior model-switch items with cause `model` or `failover` on its first dispatch. It MUST then append only the model switch its own comparison yields. Retry of that Regenerate MUST keep the newly stored switch.
 
 Retry preparation MUST read ordinary history only through its triggering user message. It MUST also load the effective checkpoint and its associated companion. Its own reply MUST NOT enter that request. Only its dispatch can create or reset the reply to `running`. That reset MUST remove the dead attempt's output and in-Run items. Pre-dispatch failure MUST leave those records unchanged.
 
@@ -125,6 +125,11 @@ Failed, cancelled, expired, or superseded output and items MUST remain historica
 
 - **WHEN** a Run compacts mid-turn and continues with a host message
 - **THEN** that host message holds a `compaction` context item and no text part
+
+#### Scenario: A Regenerate removes a failover item
+
+- **WHEN** the latest turn is the host message of a switch from `codex` to `sonnet`, and the owner regenerates it
+- **THEN** the dispatch transaction of the Regenerate Run removes the `failover` item from that host message
 
 #### Scenario: A digest companion survives a failed compacting attempt
 
