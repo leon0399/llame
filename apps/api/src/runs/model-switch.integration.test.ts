@@ -270,6 +270,16 @@ describe('the model switch inside a live Run', () => {
       compactionThresholdTokens: 1,
     });
 
+    // A recovered job still names the Run's original user message, so the
+    // attempt is not a first segment: only the durable failover delivery can
+    // start the pre-step compaction check.
+    const original = (await messages(live.chatId)).find(
+      (message) => message.id === live.userMessageId,
+    );
+
+    if (original === undefined) throw new Error('The seeded message is gone.');
+    expect(switched.message.id).not.toBe(original.id);
+
     await dispatchRun({
       queue: fx.harness.queue,
       chatId: live.chatId,
@@ -277,9 +287,9 @@ describe('the model switch inside a live Run', () => {
       userId: fx.userId,
       modelId: SONNET,
       userMessage: {
-        id: switched.message.id,
-        seq: switched.message.seq,
-        parts: switched.message.parts.filter(isRecord),
+        id: original.id,
+        seq: original.seq,
+        parts: original.parts.filter(isRecord),
       },
     });
 
