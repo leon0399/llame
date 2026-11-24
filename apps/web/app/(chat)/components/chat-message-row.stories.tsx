@@ -897,13 +897,17 @@ export const ActionRowReveal: Story = {
 
     if (!row) throw new Error("fork has no action row");
 
-    const remainsVisibleWithoutHover =
-      window.matchMedia("(hover: none)").matches;
+    // The row is hidden unless something reveals it: a device that cannot
+    // hover, or the runner's real pointer resting over the message, which
+    // synthetic events cannot move away.
+    const message = row.closest(String.raw`.group\/message`);
+
+    const revealedAtStart =
+      window.matchMedia("(hover: none)").matches ||
+      message?.matches(":hover") === true;
 
     await waitFor(() =>
-      expect(getComputedStyle(row).opacity).toBe(
-        remainsVisibleWithoutHover ? "1" : "0",
-      ),
+      expect(getComputedStyle(row).opacity).toBe(revealedAtStart ? "1" : "0"),
     );
     await expect(row.getBoundingClientRect().height).toBeGreaterThan(0);
 
