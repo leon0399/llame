@@ -24,9 +24,13 @@ import {
 } from '../db/schema';
 import { type Db } from '../db/tenant-db.service';
 import { ChatJobsRepository } from '../jobs/chat-jobs.repository';
-import { type FailureClass } from '../models/provider-failure/provider-failure';
+import {
+  type FailureClass,
+  type ProviderFailure,
+} from '../models/provider-failure/provider-failure';
 import { recordOwnerSwitch } from '../chats/selection-update';
-import { revertAtFor, type FailureTiming } from '../models/model-selection';
+import { isRecord, isString } from '@workspace/runtime-safety';
+import { type FailureTiming, revertAtFor } from '../models/model-selection';
 import { RunsRepository } from './runs-repository';
 import { RunRowFenceRepository } from './run-row-fence.repository';
 import { moveRunToDelivery } from './segment-delivery';
@@ -35,6 +39,37 @@ import {
   storeDeliveredMessage,
   type DeliveryInput,
 } from './segment-delivery-close';
+
+/** The index just past a reply's last tool part, or 0 when it has none. */
+export function afterLastToolPart(parts: ReadonlyArray<unknown>): number {
+  return (
+    parts.findLastIndex(
+      (part) => isRecord(part) && isString(part['toolCallId']),
+    ) + 1
+  );
+}
+
+/**
+ * The parts a switch keeps from a failed send: everything before the step's
+ * model output, and the step's settled tool parts.
+ */
+export function partsKeptBySwitch<T>(
+  parts: ReadonlyArray<T>,
+  outputStart: number,
+): Array<T> {
+  return parts.slice(0, Math.max(outputStart, afterLastToolPart(parts)));
+}
+
+/** The reset and retry hint of a failure, in the form a fallback hold reads. */
+export function failureTimingOf(failure: ProviderFailure): FailureTiming {
+  return {
+    resetsAt:
+      failure.resetsAt === undefined
+        ? null
+        : new Date(failure.resetsAt).toISOString(),
+    hintMs: failure.hintMs ?? null,
+  };
+}
 
 /** Who decided the switch: the owner, or the failover policy. */
 export type ModelSwitchOrigin = 'owner' | 'policy';

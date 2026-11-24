@@ -14,7 +14,13 @@ import { RunRowFenceRepository } from './run-row-fence.repository';
 import { runningReplyUsage } from './run-reply-finalizer';
 import { RunEventsRepository, RunsRepository } from './runs-repository';
 import { SystemPromptReceiptsRepository } from './system-prompt-receipts.repository';
-import { deliverModelSwitch } from './model-switch';
+import { ProviderFailure } from '../models/provider-failure/provider-failure';
+import {
+  afterLastToolPart,
+  deliverModelSwitch,
+  failureTimingOf,
+  partsKeptBySwitch,
+} from './model-switch';
 
 const runId = '11111111-1111-4111-8111-111111111111';
 const chatId = '22222222-2222-4222-8222-222222222222';
@@ -527,4 +533,50 @@ describe('deliverModelSwitch', () => {
       expect(mismatched.setModelSelection).not.toHaveBeenCalled();
     },
   );
+});
+
+describe('model switch helpers', () => {
+  it('keeps output through the last tool part, or outputStart without tools', () => {
+    const parts = [
+      { type: 'text', text: 'before' },
+      { type: 'tool-call', toolCallId: 'call-1' },
+      { type: 'text', text: 'after' },
+    ];
+
+    expect(afterLastToolPart([{ type: 'text', text: 'only' }])).toBe(0);
+    expect(afterLastToolPart(parts)).toBe(2);
+    expect(partsKeptBySwitch(parts, 1)).toEqual(parts.slice(0, 2));
+    expect(partsKeptBySwitch(parts, 3)).toEqual(parts);
+  });
+
+  it.each([
+    [
+      'both timing fields',
+      { resetsAt: 1_900_000_000_000, hintMs: 30_000 },
+      {
+        resetsAt: '2030-03-17T17:46:40.000Z',
+        hintMs: 30_000,
+      },
+    ],
+    ['no timing fields', {}, { resetsAt: null, hintMs: null }],
+  ])('normalizes %s', (_label, fields, expected) => {
+    expect(
+      failureTimingOf(
+        new ProviderFailure('failed', {
+          code: 'stream_broken',
+          ...fields,
+        }),
+      ),
+    ).toStrictEqual(expected);
+  });
+
+  it('normalizes an explicit null retry hint', () => {
+    const failure = new ProviderFailure('failed', { code: 'stream_broken' });
+    Object.defineProperty(failure, 'hintMs', { value: null });
+
+    expect(failureTimingOf(failure)).toStrictEqual({
+      resetsAt: null,
+      hintMs: null,
+    });
+  });
 });

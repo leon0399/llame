@@ -274,6 +274,7 @@ import {
   RunExecutionService,
   RunNotRunnableError,
   resolveEffectivePermissionMode,
+  type ModelSwitchDecision,
 } from './run-execution.service';
 import { SystemPromptsService } from '../system-prompts/system-prompts.service';
 import type { SshConfig } from '../instance-config/ssh-settings';
@@ -601,6 +602,7 @@ type ExecutionServiceOptions = {
   /** Durable wait suspension dependency for the host-controlled wait tool. */
   runWait?: RunWaitService;
   jobNoticeRuns?: Pick<JobNoticeRunService, 'startAfterRunCompletion'>;
+  modelSwitchDecision?: ModelSwitchDecision;
 };
 
 function executionToolsConfig(
@@ -828,6 +830,7 @@ function makeExecutionService(
     ),
     options.runWait,
     options.jobNoticeRuns,
+    options.modelSwitchDecision,
   );
 
   return {
@@ -8237,16 +8240,27 @@ describe('RunExecutionService executeRun — stream failure', () => {
     mockNormalExecutionRepositories();
     recordAppendedEvents();
     const capturing = makeCapturingClient();
-    const execution = makeExecutionService(capturing.client);
+
+    const decideModelSwitch = vi
+      .fn<ModelSwitchDecision>()
+      .mockResolvedValue(undefined);
+
+    const execution = makeExecutionService(
+      capturing.client,
+      undefined,
+      undefined,
+      { modelSwitchDecision: decideModelSwitch },
+    );
 
     await execution.service.executeRun(
       executionInput(capturing.client, controller.signal),
     );
     controller.abort();
-    await capturing
-      .streamOptions()
-      .onError?.({ error: new Error('stream aborted') });
+    await capturing.streamOptions().onError?.({
+      error: new ProviderFailure('stream aborted', { code: 'stream_broken' }),
+    });
 
+    expect(decideModelSwitch).not.toHaveBeenCalled();
     expect(Sentry.captureException).not.toHaveBeenCalled();
   });
 
@@ -8453,7 +8467,14 @@ describe('RunExecutionService executeRun — stream failure', () => {
       activeAttemptId: testAttemptId,
     });
 
-    const execution = makeExecutionService(client);
+    const decideModelSwitch = vi
+      .fn<ModelSwitchDecision>()
+      .mockResolvedValue(undefined);
+
+    const execution = makeExecutionService(client, undefined, undefined, {
+      modelSwitchDecision: decideModelSwitch,
+    });
+
     vi.spyOn(ChatsRepository.prototype, 'lock').mockImplementation(() =>
       Promise.resolve(requests.length === 0 ? chat : undefined),
     );
@@ -8465,6 +8486,7 @@ describe('RunExecutionService executeRun — stream failure', () => {
     });
 
     expect(requests).toHaveLength(1);
+    expect(decideModelSwitch).not.toHaveBeenCalled();
     expect(spies.markFinished).toHaveBeenCalledWith(
       runId,
       userId,
@@ -8873,17 +8895,34 @@ describe('RunExecutionService executeRun — stream failure', () => {
     const spies = mockNormalExecutionRepositories();
     const appended = recordAppendedEvents();
     const capturing = makeCapturingClient();
-    const execution = makeExecutionService(capturing.client);
+
+    const decideModelSwitch = vi
+      .fn<ModelSwitchDecision>()
+      .mockResolvedValue(undefined);
+
+    const execution = makeExecutionService(
+      capturing.client,
+      undefined,
+      undefined,
+      { modelSwitchDecision: decideModelSwitch },
+    );
+
     const resetsAt = Date.now() + 60_000;
 
-    await execution.service.executeRun(executionInput(capturing.client));
-    await capturing.streamOptions().onError?.({
-      error: new ProviderFailure('model is unavailable', {
-        code: 'model_not_found',
-        resetsAt,
-      }),
+    const failure = new ProviderFailure('model is unavailable', {
+      code: 'model_not_found',
+      resetsAt,
+      hintMs: 30_000,
     });
 
+    await execution.service.executeRun(executionInput(capturing.client));
+    await capturing.streamOptions().onError?.({ error: failure });
+
+    expect(decideModelSwitch).toHaveBeenCalledWith({
+      selector: 'fake-model',
+      modelId: 'fake-model',
+      failure,
+    });
     expect(spies.markFinished).toHaveBeenCalledWith(
       runId,
       userId,
@@ -8893,6 +8932,7 @@ describe('RunExecutionService executeRun — stream failure', () => {
           message: 'model is unavailable',
           code: 'model_not_found',
           resetsAt,
+          hintMs: 30_000,
         },
       }),
     );
@@ -8903,6 +8943,7 @@ describe('RunExecutionService executeRun — stream failure', () => {
         message: 'model is unavailable',
         code: 'model_not_found',
         resetsAt,
+        hintMs: 30_000,
       },
     });
   });
@@ -8911,12 +8952,23 @@ describe('RunExecutionService executeRun — stream failure', () => {
     const spies = mockNormalExecutionRepositories();
     const appended = recordAppendedEvents();
     const capturing = makeCapturingClient();
-    const execution = makeExecutionService(capturing.client);
+
+    const decideModelSwitch = vi
+      .fn<ModelSwitchDecision>()
+      .mockResolvedValue(undefined);
+
+    const execution = makeExecutionService(
+      capturing.client,
+      undefined,
+      undefined,
+      { modelSwitchDecision: decideModelSwitch },
+    );
 
     await execution.service.executeRun(executionInput(capturing.client));
     await capturing.streamOptions().onError?.({
       error: new Error('unclassified failure'),
     });
+    expect(decideModelSwitch).not.toHaveBeenCalled();
 
     expect(spies.markFinished).toHaveBeenCalledWith(
       runId,
@@ -8971,6 +9023,7 @@ describe('RunExecutionService executeRun — stream failure', () => {
     const failure = new ProviderFailure('provider misconfigured', {
       code: 'model_not_found',
       resetsAt: 1_900_000_000_000,
+      hintMs: 30_000,
     });
 
     const client: ModelClient = {
@@ -8982,11 +9035,22 @@ describe('RunExecutionService executeRun — stream failure', () => {
       },
     };
 
-    const execution = makeExecutionService(client);
+    const decideModelSwitch = vi
+      .fn<ModelSwitchDecision>()
+      .mockResolvedValue(undefined);
+
+    const execution = makeExecutionService(client, undefined, undefined, {
+      modelSwitchDecision: decideModelSwitch,
+    });
 
     await expect(
       execution.service.executeRun(executionInput(client)),
     ).rejects.toBe(failure);
+    expect(decideModelSwitch).toHaveBeenCalledWith({
+      selector: 'fake-model',
+      modelId: 'fake-model',
+      failure,
+    });
     expect(spies.markFinished).toHaveBeenCalledWith(
       runId,
       userId,
@@ -8996,6 +9060,7 @@ describe('RunExecutionService executeRun — stream failure', () => {
           message: 'provider misconfigured',
           code: 'model_not_found',
           resetsAt: 1_900_000_000_000,
+          hintMs: 30_000,
         },
       }),
     );
@@ -9006,6 +9071,7 @@ describe('RunExecutionService executeRun — stream failure', () => {
         message: 'provider misconfigured',
         code: 'model_not_found',
         resetsAt: 1_900_000_000_000,
+        hintMs: 30_000,
       },
     });
   });

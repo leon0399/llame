@@ -31,8 +31,13 @@ import {
   type DeliveryInput,
   type FirstEpochBaselines,
 } from './segment-delivery';
-import { effortFor, type FailureTiming } from '../models/model-selection';
-import { deliverModelSwitch } from './model-switch';
+import { effortFor } from '../models/model-selection';
+import {
+  afterLastToolPart,
+  deliverModelSwitch,
+  failureTimingOf,
+  partsKeptBySwitch,
+} from './model-switch';
 import { machineAttemptKey } from './machine-attempt';
 import { probeMachinePromptTarget } from './machine-prompt-probe';
 import {
@@ -1033,34 +1038,6 @@ class CancellationRecordedError extends Error {
 }
 
 function noop(): void {}
-
-/** The index just past a reply's last tool part, or 0 when it has none. */
-function afterLastToolPart(parts: ReadonlyArray<unknown>): number {
-  return (
-    parts.findLastIndex(
-      (part) => isRecord(part) && isString(part['toolCallId']),
-    ) + 1
-  );
-}
-
-/**
- * The parts a switch keeps from a failed send: everything before the step's
- * model output, and the step's settled tool parts.
- */
-function partsKeptBySwitch<T>(parts: ReadonlyArray<T>, outputStart: number) {
-  return parts.slice(0, Math.max(outputStart, afterLastToolPart(parts)));
-}
-
-/** The reset and retry hint of a failure, in the form a fallback hold reads. */
-function failureTimingOf(failure: ProviderFailure): FailureTiming {
-  return {
-    resetsAt:
-      failure.resetsAt === undefined
-        ? null
-        : new Date(failure.resetsAt).toISOString(),
-    hintMs: failure.hintMs ?? null,
-  };
-}
 
 /** What a step end finds, or nothing: the Run's own record decides (D3). */
 type StepEndSignal = 'cancel' | 'delivery' | 'suspend' | undefined;
