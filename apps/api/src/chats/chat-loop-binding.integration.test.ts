@@ -550,10 +550,6 @@ describe('ChatLoopService accept/worker context binding', () => {
       });
 
     vi.spyOn(
-      ChatJobsRepository.prototype,
-      'settleOnDeadWorkers',
-    ).mockResolvedValue([]);
-    vi.spyOn(
       ChatDeliveriesRepository.prototype,
       'listDeliveredJobNotices',
     ).mockResolvedValue([]);

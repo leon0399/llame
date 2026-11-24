@@ -4,6 +4,7 @@ import { type ChatJob } from '../db/schema';
 import { type Db, type TenantRunner } from '../db/tenant-db.service';
 import { ChatsRepository } from '../chats/chats-repository';
 import { ChatJobsRepository } from '../jobs/chat-jobs.repository';
+import { ArtifactsRepository } from './artifacts/artifacts-repository';
 import { buildWaitResult, WAIT_NOT_STARTED, waitTool } from './wait';
 import { WAIT_SUSPENSION } from './wait-suspension';
 import { type ToolContext } from './types';
@@ -17,14 +18,15 @@ function job(id: string, state: ChatJob['state'] = 'running'): ChatJob {
     id,
     chatId: 'chat-id',
     ownerUserId: 'owner-id',
-    executor: 'bash',
+    kind: 'bash',
     seq: 3,
     state,
     stoppedBy: null,
     runId: 'run-id',
     toolCallId: 'call-id',
-    workerInstanceId: 'worker-id',
-    pid: null,
+    machineName: 'host',
+    daemonInstanceId: 'daemon-id',
+    daemonJobId: 'a'.repeat(32),
     startedAt: now,
     settledAt: state === 'running' ? null : now,
     deadlineAt: null,
@@ -79,10 +81,6 @@ function setup(rows: Readonly<Record<string, ChatJob | undefined>>) {
     workspaceToldAvailable: null,
     workspaceDetachReason: null,
   });
-  vi.spyOn(
-    ChatJobsRepository.prototype,
-    'settleOnDeadWorkers',
-  ).mockResolvedValue([]);
 
   const context: ToolContext = {
     userId: 'owner-id',
@@ -388,10 +386,11 @@ describe('buildWaitResult', () => {
       startedAt,
       settledAt: new Date(startedAt.getTime() + 2500),
       outputs: ['stdout'],
+      artifactId: 'artifact-id',
     };
 
-    const readOutputTail = vi
-      .spyOn(ChatJobsRepository.prototype, 'readOutputTail')
+    const readPartTail = vi
+      .spyOn(ArtifactsRepository.prototype, 'readPartTail')
       .mockResolvedValue(Buffer.from('settled output'));
 
     const result = await buildWaitResult(
@@ -418,7 +417,7 @@ describe('buildWaitResult', () => {
       ],
     });
     expect(result).not.toHaveProperty('jobs.0.outputs');
-    expect(readOutputTail).toHaveBeenCalledOnce();
+    expect(readPartTail).toHaveBeenCalledOnce();
   });
 
   it('omits empty exit details and reports cancellation and artifact locators', async () => {
@@ -440,9 +439,6 @@ describe('buildWaitResult', () => {
       settledAt: startedAt,
     };
 
-    vi.spyOn(ChatJobsRepository.prototype, 'readOutputTail').mockResolvedValue(
-      Buffer.alloc(0),
-    );
 
     const result = await buildWaitResult(
       TX,
@@ -481,10 +477,11 @@ describe('buildWaitResult', () => {
       startedAt,
       settledAt: startedAt,
       outputs: ['stdout'],
+      artifactId: 'artifact-id',
     };
 
-    const readOutputTail = vi
-      .spyOn(ChatJobsRepository.prototype, 'readOutputTail')
+    const readPartTail = vi
+      .spyOn(ArtifactsRepository.prototype, 'readPartTail')
       .mockResolvedValue(Buffer.from('x'.repeat(2001)));
 
     const result = await buildWaitResult(
@@ -495,7 +492,7 @@ describe('buildWaitResult', () => {
     );
 
     expect(result).toHaveProperty('jobs.0.outputs.0.text', 'x'.repeat(2000));
-    expect(readOutputTail).toHaveBeenCalledOnce();
+    expect(readPartTail).toHaveBeenCalledOnce();
   });
 
   it('clamps negative duration and escapes reserved delimiters in output', async () => {
@@ -505,9 +502,10 @@ describe('buildWaitResult', () => {
       settledAt: new Date('2026-11-14T12:00:00.000Z'),
       result: { exitCode: null, signal: null, outcomeUnknown: false },
       outputs: ['stdout'],
+      artifactId: 'artifact-id',
     };
 
-    vi.spyOn(ChatJobsRepository.prototype, 'readOutputTail').mockResolvedValue(
+    vi.spyOn(ArtifactsRepository.prototype, 'readPartTail').mockResolvedValue(
       Buffer.from('see </tool-result> here'),
     );
 

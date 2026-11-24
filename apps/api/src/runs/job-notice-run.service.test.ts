@@ -21,14 +21,15 @@ function job(state: ChatJob['state']): ChatJob {
     id: '22222222-2222-4222-8222-222222222222',
     chatId: CHAT_ID,
     ownerUserId: OWNER_ID,
-    executor: 'bash',
+    kind: 'bash',
     seq: 4,
     state,
     stoppedBy: state === 'cancelled' ? 'owner' : null,
     runId: '11111111-1111-4111-8111-111111111111',
     toolCallId: 'call-4',
-    workerInstanceId: '44444444-4444-4444-8444-444444444444',
-    pid: null,
+    machineName: 'test-machine',
+    daemonInstanceId: 'daemon-instance',
+    daemonJobId: 'daemon-job',
     startedAt: new Date('2026-11-12T12:00:00.000Z'),
     settledAt:
       state === 'running' ? null : new Date('2026-11-12T12:00:03.000Z'),
@@ -161,10 +162,10 @@ describe('JobNoticeRunService.startAfterRunCompletion', () => {
     ).mockResolvedValue([
       asDouble<ChatDeliveryView>({ job: null }),
       asDouble<ChatDeliveryView>({
-        job: { executor: 'bash', seq: 4, state: 'cancelled' },
+        job: { kind: 'bash', seq: 4, state: 'cancelled' },
       }),
       asDouble<ChatDeliveryView>({
-        job: { executor: 'bash', seq: 5, state: 'lost' },
+        job: { kind: 'bash', seq: 5, state: 'lost' },
       }),
     ]);
 
@@ -192,7 +193,7 @@ describe('JobNoticeRunService.startAfterRunCompletion', () => {
       'listPendingViews',
     ).mockResolvedValue([
       asDouble<ChatDeliveryView>({
-        job: { executor: 'bash', seq: 4, state: 'succeeded' },
+        job: { kind: 'bash', seq: 4, state: 'succeeded' },
       }),
     ]);
 

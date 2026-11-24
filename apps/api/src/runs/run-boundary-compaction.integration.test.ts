@@ -13,6 +13,8 @@ import {
   call,
   useSegmentsFixture,
 } from '../testing/run-segments.test-fixture';
+import { newChatJob } from '../testing/chat-job-rows';
+import { RunWaitService } from './run-wait.service';
 
 if (!process.env['TEST_DATABASE_URL']) {
   throw new Error(
@@ -154,19 +156,16 @@ describe('step-boundary compaction', () => {
         await fx.storeItems(seeded.chatId, ['/compact'], 'steer', seeded.runId);
 
         const job = await fx.db((tx) =>
-          new ChatJobsRepository(tx).insert({
-            chatId: seeded.chatId,
-            ownerUserId: fx.userId,
-            executor: 'bash',
-            seq: 1,
-            runId: seeded.runId,
-            toolCallId: `notice-${randomUUID()}`,
-            workerInstanceId: randomUUID(),
-            startedAt: new Date(),
-            outputs: [],
-            artifactReadable: false,
-            settings: { selector: seeded.modelId, permissionMode: 'default' },
-          }),
+          new ChatJobsRepository(tx).insert(
+            newChatJob({
+              chatId: seeded.chatId,
+              ownerUserId: fx.userId,
+              seq: 1,
+              runId: seeded.runId,
+              startedAt: new Date(),
+              settings: { selector: seeded.modelId, permissionMode: 'default' },
+            }),
+          ),
         );
 
         await settleBashJob(
@@ -180,12 +179,12 @@ describe('step-boundary compaction', () => {
               truncatedStreams: { stdout: false, stderr: false },
             },
             settlement: { state: 'failed', result: { exitCode: 1 } },
-            offsets: { stdout: 0, stderr: 0 },
           },
           {
             maxBytes: 65_536,
             hostFiles: false,
             noticeRuns: fx.harness.moduleRef.get(JobNoticeRunService),
+            wake: fx.harness.moduleRef.get(RunWaitService),
           },
         );
 
@@ -930,19 +929,19 @@ describe('step-boundary compaction', () => {
           );
 
           const job = await fx.db((tx) =>
-            new ChatJobsRepository(tx).insert({
-              chatId: seeded.chatId,
-              ownerUserId: fx.userId,
-              executor: 'bash',
-              seq: 1,
-              runId: seeded.runId,
-              toolCallId: `notice-${randomUUID()}`,
-              workerInstanceId: randomUUID(),
-              startedAt: new Date(),
-              outputs: [],
-              artifactReadable: false,
-              settings: { selector: seeded.modelId, permissionMode: 'default' },
-            }),
+            new ChatJobsRepository(tx).insert(
+              newChatJob({
+                chatId: seeded.chatId,
+                ownerUserId: fx.userId,
+                seq: 1,
+                runId: seeded.runId,
+                startedAt: new Date(),
+                settings: {
+                  selector: seeded.modelId,
+                  permissionMode: 'default',
+                },
+              }),
+            ),
           );
 
           await settleBashJob(
@@ -956,12 +955,12 @@ describe('step-boundary compaction', () => {
                 truncatedStreams: { stdout: false, stderr: false },
               },
               settlement: { state: 'failed', result: { exitCode: 1 } },
-              offsets: { stdout: 0, stderr: 0 },
             },
             {
               maxBytes: 65_536,
               hostFiles: false,
               noticeRuns: fx.harness.moduleRef.get(JobNoticeRunService),
+              wake: fx.harness.moduleRef.get(RunWaitService),
             },
           );
         }

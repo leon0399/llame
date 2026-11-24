@@ -146,7 +146,7 @@ describe('ChatDeliveriesService.withdraw', () => {
 
       const job =
         producer === 'job'
-          ? { executor: 'bash', seq: 7, state: 'failed' as const }
+          ? { kind: 'bash', seq: 7, state: 'failed' as const }
           : null;
 
       withdrawPending.mockResolvedValue(withdrawn);

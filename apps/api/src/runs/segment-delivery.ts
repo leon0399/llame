@@ -229,11 +229,6 @@ export async function deliverPendingSteering(
     return { kind: 'fenced' };
   }
 
-  await new ChatJobsRepository(tx).settleOnDeadWorkers(
-    chatId,
-    userId,
-    input.deadWorkerAfterSeconds,
-  );
 
   const items = await new ChatDeliveriesRepository(tx).lockPendingBoundary(
     chatId,

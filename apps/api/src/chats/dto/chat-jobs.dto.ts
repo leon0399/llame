@@ -102,8 +102,8 @@ export function toChatJobResponse(job: ChatJob): ChatJobResponse {
   return {
     id: job.id,
     chatId: job.chatId,
-    locator: formatJobLocator(job.executor, job.seq),
-    executor: job.executor,
+    locator: formatJobLocator(job.kind, job.seq),
+    executor: job.kind,
     state: job.state,
     stoppedBy: job.stoppedBy,
     startedAt: job.startedAt,

@@ -723,6 +723,24 @@ function makeExecutionService(
         });
 
   const instanceConfig = executionInstanceConfig(options, machines);
+  const machineConnector =
+    options.machineConnector ??
+    (machines === undefined
+      ? asDouble<MachineConnector>({ names: () => [] })
+      : new MachineConnector({
+          machines,
+          hubVersion: 'harness-local',
+          bindIdentity: () => Promise.resolve('match'),
+          transportFactory: machineFilesTransportFactory(),
+        }));
+  const noticeRuns = asDouble<
+    Pick<JobNoticeRunService, 'startOnSettlement'>
+  >({ startOnSettlement: vi.fn() });
+  const registryRunWait =
+    options.runWait ??
+    asDouble<RunWaitService>({
+      wakeForChatInTransaction: vi.fn().mockResolvedValue(false),
+    });
 
   // Held separately so tests can rescript it with its inferred Mock type
   // instead of asserting the capability interface back down to a mock.
@@ -823,20 +841,7 @@ function makeExecutionService(
     dynamicToolResolver,
     options.workspaceMcp,
     options.inRunProducer,
-    options.machineConnector ??
-      (machines === undefined
-        ? undefined
-        : // The same configuration the instance reads, so a binding names a
-          // Machine exactly as the operator declared it. Reads of instruction
-          // files and prompt imports are file-family reads and run on the
-          // Machine, so the peer answers the file methods from the real
-          // filesystem; its discovery walks stay in process.
-          new MachineConnector({
-            machines,
-            hubVersion: 'harness-local',
-            bindIdentity: () => Promise.resolve('match'),
-            transportFactory: machineFilesTransportFactory(),
-          })),
+    machineConnector,
     // No Machine status reader in these tests.
     undefined,
     options.sshClientFactory,
@@ -849,9 +854,10 @@ function makeExecutionService(
     // A host `bash` call spawns through the worker registry.
     new BashJobRegistry(
       tenantDb,
-      { instanceId: crypto.randomUUID() },
+      machineConnector,
       instanceConfig,
-      { startOnSettlement: vi.fn() },
+      noticeRuns,
+      registryRunWait,
     ),
     options.runWait,
     options.jobNoticeRuns,
@@ -1129,11 +1135,6 @@ function mockNormalExecutionRepositories() {
     .spyOn(NativeFilesRepository.prototype, 'hasMutation')
     .mockResolvedValue(false);
 
-  // The claim settles jobs of dead workers; none exist here.
-  vi.spyOn(
-    ChatJobsRepository.prototype,
-    'settleOnDeadWorkers',
-  ).mockResolvedValue([]);
 
   // No pending steer or interrupt, and no recorded cancellation: a step end
   // stops nothing and a completion delivers nothing (run-steering D3/D5).
@@ -8051,199 +8052,6 @@ describe('RunExecutionService executeRun — stream completion', () => {
   });
 });
 
-describe('RunExecutionService executeRun — queue promotion', () => {
-  const queued = chatDeliveryRow({
-    chatId,
-    ownerUserId: userId,
-    settings: { selector: 'fake-model', permissionMode: 'default' },
-  });
-
-  afterEach(() => {
-    vi.restoreAllMocks();
-  });
-
-  /**
-   * Starts a Run whose Chat has a pending queue item (or none), returning the
-   * callbacks that settle it and the repositories a promotion reads and writes.
-   */
-  async function startRun(options: {
-    dispatch?: RunDispatcher['dispatch'];
-    pending: boolean;
-    cancelRecorded?: boolean;
-  }) {
-    const repositories = mockNormalExecutionRepositories();
-
-    if (options.cancelRecorded === true) {
-      repositories.markFinished.mockResolvedValue({
-        ...run,
-        status: 'completed',
-        cancelRequestedAt: now,
-      });
-    }
-
-    recordAppendedEvents();
-
-    const lock = vi
-      .spyOn(ChatsRepository.prototype, 'lock')
-      .mockResolvedValue(chat);
-
-    // Promotion resolves the pending item against one transaction instant, so
-    // the model hold it carries and the Run it starts agree on "now".
-    vi.spyOn(ChatsRepository.prototype, 'transactionNow').mockResolvedValue(
-      now,
-    );
-
-    const firstPendingQueueItem = vi
-      .spyOn(ChatDeliveriesRepository.prototype, 'firstPendingQueueItem')
-      .mockResolvedValue(options.pending ? queued : undefined);
-
-    vi.spyOn(
-      ChatDeliveriesRepository.prototype,
-      'markDelivered',
-    ).mockResolvedValue(queued);
-    vi.spyOn(
-      MessagesRepository.prototype,
-      'createUserMessageIfAbsent',
-    ).mockResolvedValue({ ...userMessage, id: queued.id, seq: 3 });
-    vi.spyOn(
-      RunsRepository.prototype,
-      'cancelActiveRunsForMessage',
-    ).mockResolvedValue([]);
-
-    const createRun = vi
-      .spyOn(RunsRepository.prototype, 'create')
-      .mockImplementation((created) =>
-        Promise.resolve({ ...run, id: created.id ?? run.id, status: 'queued' }),
-      );
-
-    const capturing = makeCapturingClient();
-
-    const execution = makeExecutionService(
-      capturing.client,
-      undefined,
-      undefined,
-      {
-        ...(options.dispatch !== undefined && {
-          runDispatch: { dispatch: options.dispatch },
-        }),
-      },
-    );
-
-    // The savepoint the promotion runs its item in.
-    vi.spyOn(execution.db, 'transaction').mockImplementation((callback) =>
-      callback(
-        asDouble<Parameters<Parameters<Db['transaction']>[0]>[0]>(execution.db),
-      ),
-    );
-    await execution.service.executeRun(executionInput(capturing.client));
-    lock.mockClear();
-
-    return {
-      streamOptions: capturing.streamOptions(),
-      lock,
-      firstPendingQueueItem,
-      createRun,
-    };
-  }
-
-  async function finishCompleted(
-    streamOptions: Awaited<ReturnType<typeof startRun>>['streamOptions'],
-  ) {
-    await streamOptions.onFinish?.({
-      text: 'answer',
-      usage: ZERO_USAGE,
-      finishReason: 'stop',
-      stepCount: 1,
-    });
-  }
-
-  it('enqueues the Run the completion promoted, after the completion committed', async () => {
-    const dispatch = vi.fn<RunDispatcher['dispatch']>().mockResolvedValue();
-    const started = await startRun({ dispatch, pending: true });
-
-    await finishCompleted(started.streamOptions);
-
-    expect(started.lock).toHaveBeenCalledWith(chatId, userId);
-    expect(started.firstPendingQueueItem).toHaveBeenCalledWith(chatId, userId);
-    const promotedRunId = started.createRun.mock.calls[0]?.[0].id;
-    expect(promotedRunId).toEqual(expect.any(String));
-    expect(dispatch).toHaveBeenCalledTimes(1);
-    const job = dispatch.mock.calls[0]?.[0];
-    expect(job).toMatchObject({
-      runId: promotedRunId,
-      chatId,
-      userId,
-      modelId: 'fake-model',
-    });
-    expect(job?.userMessage).toMatchObject({ id: queued.id, seq: 3 });
-    // The enqueue names a committed Run row, never one still in the transaction.
-    expect(dispatch.mock.invocationCallOrder[0]).toBeGreaterThan(
-      started.createRun.mock.invocationCallOrder[0] ?? Number.MAX_SAFE_INTEGER,
-    );
-  });
-
-  it('enqueues nothing when no item is pending', async () => {
-    const dispatch = vi.fn<RunDispatcher['dispatch']>().mockResolvedValue();
-    const started = await startRun({ dispatch, pending: false });
-
-    await finishCompleted(started.streamOptions);
-
-    expect(started.firstPendingQueueItem).toHaveBeenCalledTimes(1);
-    expect(dispatch).not.toHaveBeenCalled();
-  });
-
-  it('keeps the Run completed when enqueueing the promoted Run fails', async () => {
-    const dispatch = vi
-      .fn<RunDispatcher['dispatch']>()
-      .mockRejectedValue(new Error('queue unavailable'));
-
-    const started = await startRun({ dispatch, pending: true });
-
-    await expect(
-      finishCompleted(started.streamOptions),
-    ).resolves.toBeUndefined();
-
-    expect(dispatch).toHaveBeenCalledTimes(1);
-  });
-
-  it('promotes nothing when the Run fails, whatever waits in the queue', async () => {
-    const dispatch = vi.fn<RunDispatcher['dispatch']>().mockResolvedValue();
-    const started = await startRun({ dispatch, pending: true });
-
-    await started.streamOptions.onError?.({
-      error: new Error('provider exploded'),
-    });
-
-    expect(started.lock).not.toHaveBeenCalled();
-    expect(started.firstPendingQueueItem).not.toHaveBeenCalled();
-    expect(dispatch).not.toHaveBeenCalled();
-  });
-
-  it('promotes nothing when the Run completes with a recorded cancellation', async () => {
-    const dispatch = vi.fn<RunDispatcher['dispatch']>().mockResolvedValue();
-
-    const started = await startRun({
-      dispatch,
-      pending: true,
-      cancelRecorded: true,
-    });
-
-    await finishCompleted(started.streamOptions);
-
-    expect(started.firstPendingQueueItem).not.toHaveBeenCalled();
-    expect(started.createRun).not.toHaveBeenCalled();
-    expect(dispatch).not.toHaveBeenCalled();
-  });
-
-  it('promotes nothing where no dispatcher exists', async () => {
-    const started = await startRun({ pending: true });
-
-    await finishCompleted(started.streamOptions);
-
-    expect(started.firstPendingQueueItem).not.toHaveBeenCalled();
-    expect(started.createRun).not.toHaveBeenCalled();
-  });
-});
 
 describe('RunExecutionService executeRun — stream failure', () => {
   afterEach(() => {
@@ -9956,14 +9764,15 @@ function settledBashJob(seq: number): ChatJob {
     id: `job-${seq}`,
     chatId,
     ownerUserId: userId,
-    executor: 'bash',
+    kind: 'bash',
     seq,
     state: 'succeeded',
     stoppedBy: null,
     runId,
     toolCallId: `bash-call-${seq}`,
-    workerInstanceId: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',
-    pid: null,
+    machineName: 'test-machine',
+    daemonInstanceId: 'daemon-instance',
+    daemonJobId: `daemon-job-${seq}`,
     startedAt: now,
     settledAt: now,
     deadlineAt: null,
@@ -18081,14 +17890,15 @@ describe('RunExecutionService runtime-context lifecycle', () => {
       id: jobId,
       chatId,
       ownerUserId: userId,
-      executor: 'bash',
+      kind: 'bash',
       seq: 4,
       state: 'succeeded',
       stoppedBy: null,
       runId,
       toolCallId: 'bash-call',
-      workerInstanceId: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',
-      pid: null,
+      machineName: 'test-machine',
+      daemonInstanceId: 'daemon-instance',
+      daemonJobId: 'daemon-job',
       startedAt: now,
       settledAt: now,
       deadlineAt: null,
@@ -18096,8 +17906,8 @@ describe('RunExecutionService runtime-context lifecycle', () => {
       stopRequestedBy: null,
       result: { exitCode: 0 },
       outputs: ['stdout'],
-      artifactId: null,
-      artifactReadable: false,
+      artifactId: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+      artifactReadable: true,
       settings: { selector: 'fake-model', permissionMode: 'default' },
     };
 
@@ -18108,7 +17918,7 @@ describe('RunExecutionService runtime-context lifecycle', () => {
     vi.spyOn(ChatJobsRepository.prototype, 'findById').mockResolvedValue(
       settledJob,
     );
-    vi.spyOn(ChatJobsRepository.prototype, 'readOutputTail').mockResolvedValue(
+    vi.spyOn(ArtifactsRepository.prototype, 'readPartTail').mockResolvedValue(
       Buffer.from('completed job output'),
     );
     const capturing = makeCapturingClient();
@@ -18452,14 +18262,15 @@ describe('RunExecutionService runtime-context lifecycle', () => {
         id: jobId,
         chatId,
         ownerUserId: userId,
-        executor: 'bash',
+        kind: 'bash',
         seq: 4,
         state: 'succeeded',
         stoppedBy: null,
         runId,
         toolCallId: 'bash-call',
-        workerInstanceId: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',
-        pid: null,
+        machineName: 'test-machine',
+        daemonInstanceId: 'daemon-instance',
+        daemonJobId: 'daemon-job',
         startedAt: now,
         settledAt: now,
         deadlineAt: null,
@@ -18467,8 +18278,8 @@ describe('RunExecutionService runtime-context lifecycle', () => {
         stopRequestedBy: null,
         result: { exitCode: 0 },
         outputs: ['stdout'],
-        artifactId: null,
-        artifactReadable: false,
+        artifactId: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+        artifactReadable: true,
         settings: { selector: 'fake-model', permissionMode: 'default' },
       };
 
@@ -18508,10 +18319,9 @@ describe('RunExecutionService runtime-context lifecycle', () => {
       vi.spyOn(ChatJobsRepository.prototype, 'findById').mockResolvedValue(
         settledJob,
       );
-      vi.spyOn(
-        ChatJobsRepository.prototype,
-        'readOutputTail',
-      ).mockResolvedValue(Buffer.from('already delivered output'));
+      vi.spyOn(ArtifactsRepository.prototype, 'readPartTail').mockResolvedValue(
+        Buffer.from('already delivered output'),
+      );
       const capturing = makeCapturingClient();
       const execution = makeExecutionService(capturing.client);
 

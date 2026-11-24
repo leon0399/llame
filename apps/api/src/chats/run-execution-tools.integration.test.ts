@@ -827,7 +827,8 @@ describeIfDb('executeRun tool-loop persistence', () => {
       undefined, // segmentAborts
       new BashJobRegistry(
         tenantDb,
-        { instanceId: crypto.randomUUID() },
+        resolved.machineConnector ??
+          machineFilesConnector({ name: 'test-machine' }),
         resolved.instanceConfig,
         new JobNoticeRunService(
           resolved.models,
@@ -839,6 +840,9 @@ describeIfDb('executeRun tool-loop persistence', () => {
             wakeForChatInTransaction: () => Promise.resolve(false),
           } satisfies Pick<RunWaitService, 'wakeForChatInTransaction'>,
         ),
+        {
+          wakeForChatInTransaction: () => Promise.resolve(false),
+        } satisfies Pick<RunWaitService, 'wakeForChatInTransaction'>,
       ),
     );
   }
@@ -1838,7 +1842,6 @@ describeIfDb('executeRun tool-loop persistence', () => {
           chatId: seeded.chatId,
           ownerUserId: userId,
           seq: 41,
-          workerInstanceId: crypto.randomUUID(),
         }),
       );
 
@@ -1935,7 +1938,6 @@ describeIfDb('executeRun tool-loop persistence', () => {
           chatId: seeded.chatId,
           ownerUserId: userId,
           seq: 42,
-          workerInstanceId: crypto.randomUUID(),
         }),
       );
 

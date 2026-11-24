@@ -10,8 +10,6 @@ import type { Server } from 'node:http';
 
 import { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
-import { sql } from 'drizzle-orm';
-import { type PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import request from 'supertest';
 import { z } from 'zod';
 
@@ -23,15 +21,12 @@ import {
   ChatJobsRepository,
   type NewChatJob,
 } from '../jobs/chat-jobs.repository';
-import { workerDeadAfterSeconds } from '../jobs/worker-liveness';
-import { WorkerHeartbeatService } from '../jobs/worker-heartbeat.service';
 import {
   LIVE_RECORD_LOADER,
   type LiveRecordLoader,
 } from '../live/live-record-loader';
 import { ModelsService } from '../models/models.service';
 import { CanonicalSearchCoverageService } from '../search/canonical-search-activation.service';
-import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
 import { newChatJob } from '../testing/chat-job-rows';
 import {
   FakeModelsService,
@@ -64,15 +59,12 @@ describe('chat jobs API', () => {
   let app: INestApplication<Server>;
   let http: Server;
   let tenantDb: TenantDbService;
-  let db: PostgresJsDatabase;
-  let liveWorker: string;
-  let deadWorker: string;
 
-  const tag = Date.now();
   let cookieA = '';
   let userAId = '';
   let cookieB = '';
   let userBId = '';
+  const tag = Date.now();
 
   async function register(email: string, name: string) {
     const res = await request(http)
@@ -99,14 +91,6 @@ describe('chat jobs API', () => {
     await app.listen(0);
     http = app.getHttpServer();
     tenantDb = app.get(TenantDbService);
-    db = app.get<PostgresJsDatabase>('DB_DEV', {
-      strict: false,
-    });
-    liveWorker = app.get(WorkerHeartbeatService, { strict: false }).instanceId;
-    deadWorker = crypto.randomUUID();
-
-    await db.execute(sql`INSERT INTO worker_instances (id, last_seen_at)
-      VALUES (${deadWorker}, now() - make_interval(secs => ${workerDeadAfterSeconds(BUILT_IN_DEFAULTS) + 5}))`);
 
     const userA = await register(`jobs-a-${tag}@example.com`, 'A');
 
@@ -119,9 +103,6 @@ describe('chat jobs API', () => {
   });
 
   afterAll(async () => {
-    await db?.execute(
-      sql`DELETE FROM worker_instances WHERE id = ${deadWorker}`,
-    );
     await app?.close();
   });
 
@@ -144,7 +125,6 @@ describe('chat jobs API', () => {
           chatId,
           ownerUserId: userAId,
           seq,
-          workerInstanceId: liveWorker,
           ...overrides,
         }),
       ),
@@ -168,7 +148,7 @@ describe('chat jobs API', () => {
     return rows;
   };
 
-  it('lists the jobs of the Chat with the live jobs first', async () => {
+  it('lists the running jobs of the Chat first', async () => {
     const chatId = await createChat();
     const done = await startJob(chatId, 2);
 
@@ -192,15 +172,6 @@ describe('chat jobs API', () => {
     expect(body.items.map((item) => item.truncated)).toEqual([[], ['stdout']]);
   });
 
-  it('settles the job of a dead worker as lost when it lists', async () => {
-    const chatId = await createChat();
-
-    await startJob(chatId, 1, { workerInstanceId: deadWorker });
-
-    const body = listBody.parse((await list(chatId)).body);
-
-    expect(body.items).toMatchObject([{ state: 'lost', outcomeUnknown: true }]);
-  });
 
   // Scenario: Another owner reads a job
   it('answers 404 to another owner who lists the jobs of a Chat', async () => {
@@ -287,13 +258,6 @@ describe('chat jobs API', () => {
     expect((await stop(chatId, job.id)).status).toBe(409);
   });
 
-  it('answers 409 and settles lost when the job sits on a dead worker', async () => {
-    const chatId = await createChat();
-    const job = await startJob(chatId, 1, { workerInstanceId: deadWorker });
-
-    expect((await stop(chatId, job.id)).status).toBe(409);
-    expect(await stateOf(chatId, job.id)).toMatchObject({ state: 'lost' });
-  });
 
   describe('404 answers', () => {
     it('answers 404 to an unknown job, a job of another Chat, and an unknown Chat', async () => {
@@ -353,7 +317,7 @@ describe('chat jobs API', () => {
         .find((item) => item.id === chatId);
     };
 
-    it('counts the running jobs on a live worker in the list and the live record', async () => {
+    it('counts the running jobs in the list and the live record', async () => {
       const chatId = await createChat();
 
       await startJob(chatId, 1);
@@ -384,21 +348,5 @@ describe('chat jobs API', () => {
       expect(await itemOf(chatId)).toMatchObject({ runningJobs: 0 });
     });
 
-    // Scenario: A job on a dead worker is not counted
-    it('does not count a job on a dead worker, and settles nothing', async () => {
-      const chatId = await createChat();
-      const job = await startJob(chatId, 1, { workerInstanceId: deadWorker });
-
-      expect(await itemOf(chatId)).toMatchObject({ runningJobs: 0 });
-
-      const loader = app.get<LiveRecordLoader>(LIVE_RECORD_LOADER, {
-        strict: false,
-      });
-
-      expect(await loader.chat(userAId, chatId)).toMatchObject({
-        runningJobs: 0,
-      });
-      expect(await stateOf(chatId, job.id)).toMatchObject({ state: 'running' });
-    });
   });
 });

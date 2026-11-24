@@ -18,13 +18,8 @@ import {
   useSegmentsFixture,
   type SeededRun,
 } from '../testing/run-segments.test-fixture';
-import {
-  chatDeliveries,
-  chatJobs,
-  runs,
-  workerInstances,
-  type ChatJob,
-} from '../db/schema';
+import { chatDeliveries, chatJobs, runs, type ChatJob } from '../db/schema';
+import { newChatJob } from '../testing/chat-job-rows';
 
 if (!process.env['TEST_DATABASE_URL']) {
   throw new Error(
@@ -54,30 +49,15 @@ describe('wait tool lifecycle through real Run streams', () => {
 
       const seq = (previous?.seq ?? 0) + 1;
 
-      if (seq === 1) {
-        return seedLiveChatJob({
-          tx,
-          userId,
-          modelId: seeded.modelId,
-          run: { chatId: seeded.chatId, runId: seeded.runId },
-        });
-      }
-
-      const workerInstanceId = crypto.randomUUID();
-      await tx.insert(workerInstances).values({ id: workerInstanceId });
-
-      return new ChatJobsRepository(tx).insert({
-        chatId: seeded.chatId,
-        ownerUserId: userId,
-        executor: 'bash',
-        seq,
-        runId: seeded.runId,
-        toolCallId: `wait-${crypto.randomUUID()}`,
-        workerInstanceId,
-        outputs: ['stdout', 'stderr'],
-        artifactReadable: false,
-        settings: { selector: seeded.modelId, permissionMode: 'default' },
-      });
+      return new ChatJobsRepository(tx).insert(
+        newChatJob({
+          chatId: seeded.chatId,
+          ownerUserId: userId,
+          seq,
+          runId: seeded.runId,
+          settings: { selector: seeded.modelId, permissionMode: 'default' },
+        }),
+      );
     });
   }
 
@@ -99,12 +79,12 @@ describe('wait tool lifecycle through real Run streams', () => {
           state,
           result: { exitCode: state === 'failed' ? 1 : 0 },
         },
-        offsets: { stdout: 0, stderr: 0 },
       },
       {
         maxBytes: 65_536,
         hostFiles: false,
         noticeRuns: fx.harness.moduleRef.get(JobNoticeRunService),
+        wake: fx.harness.moduleRef.get(RunWaitService),
       },
     );
   }
@@ -394,35 +374,6 @@ describe('wait tool lifecycle through real Run streams', () => {
     expect(notice?.state).toBe('delivered');
   });
 
-  it('reports a waited job lost when its worker lease expires before wait lookup', async () => {
-    const seeded = await fx.seed('wait for a dead worker');
-    const job = await seedJob(seeded);
-    await fx.harness.db
-      .update(workerInstances)
-      .set({ lastSeenAt: new Date(Date.now() - 60 * 60 * 1000) })
-      .where(eq(workerInstances.id, job.workerInstanceId));
-
-    const started = await fx.launch(seeded, [
-      call('lost-job-wait', 'wait', { jobs: [locator()] }),
-      answer('observed lost worker'),
-    ]);
-
-    expect((await fx.terminal(seeded.runId)).status).toBe('completed');
-    expect(started.prompts()).toHaveLength(2);
-
-    const result = toolResults(fx.harness.models.prompts.at(-1) ?? []).find(
-      (part) => part.toolCallId === 'lost-job-wait',
-    );
-
-    expect(result?.output).toMatchObject({
-      type: 'json',
-      value: {
-        ended: 'settled',
-        jobs: [{ locator: 'job://bash-1', state: 'lost' }],
-      },
-    });
-    expect(await fx.types(seeded.runId)).not.toContain('run.suspended');
-  });
 
   it('returns one of three listed failures and consumes exactly its notice', async () => {
     const seeded = await fx.seed('one listed job settles');

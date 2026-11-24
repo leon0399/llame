@@ -182,8 +182,8 @@ restrict,port-forwarding,command="/usr/local/bin/llame-machine attach --print-so
 
 `port-forwarding` is required because the hub forwards the daemon's Unix socket.
 OpenSSH's `permitopen` option restricts TCP forwarding destinations, not Unix
-socket paths. Keep this key limited to a dedicated account and use `from="<hub
-address>"` when the hub's address is stable.
+socket paths. Keep this key limited to a dedicated account and use
+`from="<hub address>"` when the hub's address is stable.
 
 On jump hosts, allow forwarding only to the next TCP hop, for example
 `restrict,port-forwarding,permitopen="box:22"`. Set sshd's
@@ -222,9 +222,11 @@ match the hub requires.
 The daemon keeps an instance id in `instance.json` in its configuration
 directory. That directory is `LLAME_MACHINE_CONFIG_DIR` when it is set,
 `$XDG_CONFIG_HOME/llame-machine` when that variable is set, and
-`~/.config/llame-machine` otherwise.
+`~/.config/llame-machine` otherwise. The Rust daemon reads the id the Node
+daemon wrote, so existing bindings survive the upgrade.
 
-The daemon creates the id once and reports it at every handshake. llame binds
+The daemon creates the id once and reports it from its bootstrap service at
+every connection. llame binds
 each Machine name to the first id it sees. A daemon that answers with another
 id is refused with `machine_identity_mismatch`, and the Machine reads offline
 until an operator acts.
@@ -241,11 +243,11 @@ to answer for the name gets `machine_identity_mismatch`. Set
 
 ## Upgrading
 
-Protocol version 3 carries the instance id, the build id, the static facts
-of the Machine, and the unit-letter and line-and-column read selectors. Upgrade every Machine daemon before the API. Run
-`llame-machine --version` on each box to read the release, the build, the
-protocol version, and the instance id. A box that runs an older daemon shows as
-offline with "update required" until you replace the binary.
+Protocol version 4 is the gRPC contract. Every Machine daemon must report
+exactly that version; a daemon with another version shows as "update required"
+until you replace the binary. Run `llame-machine info` on each box to read the
+release, the build, the protocol version, and the instance id. An older Node
+daemon cannot answer at all and shows as offline.
 
 The Machines list and the `machine://` listing show each Machine's OS and
 architecture once a handshake reports them.
@@ -288,11 +290,8 @@ The migration converts every stored `machine:<name>` executor to `<name>` and
 every stored bare root to a `machine://` locator. It rewrites one transaction
 and fails on an unknown executor value, so a failed run changes nothing.
 
-This release uses the host daemon child for every host path a Run touches. Host
-file tools, `grep`, every git and worktree call, host Workspace entry, host
-Workspace MCP servers, host instruction files, Workspace skills, and prompt
-imports all run through that child under its registered roots. Host `bash` and
-its background jobs remain the only host operations that run in the worker.
+Every host path a Run touches, including `bash` and its background jobs, runs
+through the host daemon under its registered roots.
 
 ## Register roots
 
@@ -304,10 +303,13 @@ llame-machine roots list
 llame-machine roots remove ~/work/shop
 ```
 
-Roots live in `$XDG_CONFIG_HOME/llame-machine/roots.json`. The daemon refuses
-every path outside them with `path_not_registered`. Roots bound addressing
-only: anything running as that user, including Machine `bash` and Workspace MCP
-servers, can edit the roots file. The hub has no operation that changes roots.
+Roots and limits live in `config.toml` in the configuration directory. The
+Rust daemon does not read the Node daemon's `roots.json`; run `roots add` again
+after upgrading. A change applies to the next call without a restart. The daemon
+refuses every path outside the roots with `path_not_registered`. Roots bound
+addressing only: anything running as that user, including Machine `bash` and
+Workspace MCP servers, can edit the file. The hub has no operation that changes
+roots.
 
 The host Machine needs roots too, registered on the host as the llame process
 user. A host Chat served by another worker over SSH is already root-bounded, so
@@ -335,6 +337,22 @@ main checkout inside a root — for example
 every root — a repository whose toplevel sits above them, as a tracked home
 directory does, or a worktree kept elsewhere — is refused the same way rather
 than reported as a locator.
+
+## Machine limits
+
+Each Machine sets its own capacity; the installation sets none per Machine.
+
+```bash
+llame-machine limits show
+llame-machine limits set --max-running-jobs 32 --job-output-bytes 67108864
+```
+
+`max_running_jobs` (default 32) refuses a new command with `machine_job_limit`
+while that many run. It protects against a Run that starts commands in a loop;
+it does not control load. `job_output_bytes` (default 64 MiB) is the most one
+output stream of a job writes to disk; past it the daemon stops recording and
+the command keeps running. **Breaking:** `tools.bash.maxProcesses` is removed
+from the installation configuration, and startup fails while it remains.
 
 ## Permissions
 
@@ -386,6 +404,45 @@ every eligible user. To scope access, allow per Machine:
   },
 }
 ```
+
+## Local development Machine
+
+`pnpm db:up` also starts `llame-machine`, a container that serves the daemon
+over sshd on `127.0.0.1:2622` (`LLAME_MACHINE_SSH_PORT` moves it). Build the
+daemon first with `pnpm --filter machine build`: the container runs the bundle
+from the working tree, so a rebuild applies to the next session without
+rebuilding the image.
+Its daemon reads `SENTRY_DSN` and `SENTRY_ENVIRONMENT` from
+`apps/machine/.env.local` when that file exists; recreate the container after
+editing it (`docker compose up -d machine`).
+
+On each start the container creates what is missing and writes it to
+`.llame-dev/machine/` at the repository root: a hub key pair (`id_ed25519`)
+authorized only for the daemon, and `known_hosts` pinning the box's host key.
+The example configuration registers the box as `docker` with those two files:
+
+```jsonc
+{
+  "machines": {
+    "ssh": {
+      "knownHostsFile": "../../.llame-dev/machine/known_hosts",
+      "identityFile": "../../.llame-dev/machine/id_ed25519",
+    },
+    "hosts": { "docker": { "destination": "box@127.0.0.1:2622" } },
+  },
+}
+```
+
+`knownHostsFile` applies to every Machine. To keep other hosts on
+`~/.ssh/known_hosts`, omit it and append the box's line instead:
+`cat .llame-dev/machine/known_hosts >> ~/.ssh/known_hosts`.
+
+The box's one root is `/home/box/work`, addressed as
+`machine://docker/home/box/work`; clone repositories there. Its home directory
+and host key live in the `llame-machine-home` and `llame-machine-hostkeys`
+volumes, so they survive `pnpm db:down`; `pnpm db:reset` deletes them with the
+database. The files are owned by uid and gid 1000; set `LLAME_HOST_UID` and
+`LLAME_HOST_GID` when yours differ, or the hub's ssh cannot read the key.
 
 ## Status
 

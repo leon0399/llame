@@ -5,7 +5,7 @@
  * verdict cache and the daemon's fence see one attempt, not one caller.
  */
 
-import { type RequestEnvelope } from '@workspace/machine-protocol';
+import { type MachineRequestEnvelope } from '../machines/machine-session';
 
 /**
  * The budget a preparation-time Machine call carries when the caller names
@@ -34,7 +34,7 @@ export function machineEnvelope(input: {
   readonly toolCallId?: string;
   readonly deliverySequence?: number;
   readonly budgetMs?: number;
-}): RequestEnvelope {
+}): MachineRequestEnvelope {
   return {
     ...(input.runId !== undefined && { runId: input.runId }),
     ...(input.attemptId !== undefined && { attemptId: input.attemptId }),

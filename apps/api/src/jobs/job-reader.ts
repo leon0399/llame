@@ -5,9 +5,9 @@ import {
   splitSelectorSuffix,
 } from '@workspace/native-file-tools';
 
-import { type ChatJob } from '../db/schema';
+import { BASH_BOUNDS, BYTES_CHUNK_BYTES, OutputStream } from '@workspace/machine-protocol';
 import { type Db } from '../db/tenant-db.service';
-import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
+import { type ChatJob } from '../db/schema';
 import { ArtifactsRepository } from '../tools/artifacts/artifacts-repository';
 import { artifactLineCount, artifactText } from '../tools/artifacts/lines';
 import {
@@ -19,7 +19,6 @@ import {
 import { nativeErrorResult, selectInMemoryText } from '../tools/text-selection';
 import { type ToolContext, type ToolResult } from '../tools/types';
 import { ChatJobsRepository } from './chat-jobs.repository';
-import { retryRunTransaction } from '../runs/run-transaction';
 import {
   formatJobLocator,
   JOB_SCHEME,
@@ -27,10 +26,9 @@ import {
   parseJobLocatorText,
   type JobLocator,
 } from './job-locator';
-import { workerDeadAfterSeconds } from './worker-liveness';
+
 
 const BARE_LOCATOR = `${JOB_SCHEME}://`;
-
 /**
  * The `job://` reader (background-jobs). It routes before local path
  * resolution, needs no native executor, and reads one Chat's jobs through the
@@ -61,22 +59,12 @@ export async function readJob(
 
   context.abortSignal?.throwIfAborted();
 
-  return retryRunTransaction(() =>
-    context.tenantDb.runAs(context.userId, async (db) => {
-      const jobs = new ChatJobsRepository(db);
-
-      await jobs.settleOnDeadWorkers(
-        context.chatId,
-        context.userId,
-        context.workerDeadAfterSeconds ??
-          workerDeadAfterSeconds(BUILT_IN_DEFAULTS),
-      );
-
-      return locator === undefined
-        ? listJobs(context, jobs, selector)
-        : readLocator(context, { db, jobs }, locator, selector);
-    }),
-  );
+  return context.tenantDb.runAs(context.userId, async (db) => {
+    const jobs = new ChatJobsRepository(db);
+    return locator === undefined
+      ? listJobs(context, jobs, selector)
+      : readLocator(context, { db, jobs }, locator, selector);
+  });
 }
 
 async function listJobs(
@@ -85,11 +73,17 @@ async function listJobs(
   selector: string | undefined,
 ): Promise<ToolResult> {
   const rows = await jobs.listByChat(context.chatId, context.userId);
-
-  const entries = rows.map(
-    (job) =>
-      `${formatJobLocator(job.executor, job.seq)} (${job.state}, ${job.startedAt.toISOString()})`,
+  const machineStatus = await context.machineStatus?.list(context.userId);
+  const reachable = new Map(
+    machineStatus?.map((machine) => [machine.name, machine.status === 'online']),
   );
+  const entries = rows.map((job) => {
+    const state =
+      job.state === 'running' && reachable.get(job.machineName) === false
+        ? 'unknown'
+        : job.state;
+    return `${formatJobLocator(job.kind, job.seq)} (${state}, ${job.startedAt.toISOString()})`;
+  });
 
   return renderListing(BARE_LOCATOR, entries, selector, {
     emptyContent: `${BARE_LOCATOR}: empty\n`,
@@ -109,13 +103,13 @@ async function readLocator(
   const job = await store.jobs.findByLocator(
     context.chatId,
     context.userId,
-    locator.executor,
+    locator.kind,
     locator.seq,
   );
 
   if (job === undefined) return notFoundResult();
 
-  const path = formatJobLocator(locator.executor, locator.seq, locator.output);
+  const path = formatJobLocator(locator.kind, locator.seq, locator.output);
 
   if (locator.output === undefined) {
     return renderListing(path, recordLines(job), selector, {
@@ -131,31 +125,59 @@ async function readLocator(
   return readText(path, stored, selector);
 }
 
-/**
- * The text of one output. A job that stored an artifact keeps the whole output
- * there; every other job keeps its increments. A part that the artifact lacks
- * falls back to the increments.
- */
+/** Read a settled artifact or a running daemon stream from byte offset zero. */
 async function storedOutput(
   context: ToolContext,
-  { db, jobs }: JobStore,
+  { db }: JobStore,
   job: ChatJob,
   output: string,
 ): Promise<string> {
-  if (job.artifactId !== null) {
+  if (job.state !== 'running') {
+    if (job.artifactId === null) return 'output unavailable right now';
     const part = await new ArtifactsRepository(db).readPart(
       context.chatId,
-      job.executor,
+      job.kind,
       job.seq,
       output,
     );
-
-    if (part !== undefined) return part.content.toString('utf8');
+    return part?.content.toString('utf8') ?? 'output unavailable right now';
   }
 
-  return (await jobs.readOutput(context.userId, job.id, output)).toString(
-    'utf8',
-  );
+  if (context.machines === undefined) return 'output unavailable right now';
+  try {
+    const { client, callOptions } =
+      await context.machines.jobsClient(job.machineName);
+    const chunks: Array<Buffer> = [];
+    let offset = 0n;
+    let remaining = BigInt(BASH_BOUNDS.outputBound * 4);
+    while (remaining > 0n) {
+      let read = 0n;
+      for await (const part of client.readOutput(
+        {
+          jobId: job.daemonJobId,
+          owner: context.userId,
+          stream:
+            output === 'stdout'
+              ? OutputStream.STDOUT
+              : OutputStream.STDERR,
+          offset,
+          limit: remaining < BigInt(BYTES_CHUNK_BYTES)
+            ? remaining
+            : BigInt(BYTES_CHUNK_BYTES),
+        },
+        callOptions(),
+      )) {
+        chunks.push(Buffer.from(part.data));
+        read += BigInt(part.data.length);
+      }
+      if (read === 0n) break;
+      offset += read;
+      remaining -= read;
+    }
+    return Buffer.concat(chunks).toString('utf8');
+  } catch {
+    return 'output unavailable right now';
+  }
 }
 
 /** One `<name>: <value>` line for each field of the record. */
@@ -163,7 +185,7 @@ function recordLines(job: ChatJob): Array<string> {
   const end = job.settledAt ?? new Date();
 
   const lines = [
-    `executor: ${job.executor}`,
+    `kind: ${job.kind}`,
     `state: ${job.state}`,
     `started_at: ${job.startedAt.toISOString()}`,
     `elapsed: ${((end.getTime() - job.startedAt.getTime()) / 1000).toFixed(1)} s`,
@@ -197,7 +219,15 @@ function recordLines(job: ChatJob): Array<string> {
   if (cut.length > 0) lines.push(`truncated: ${cut.join(', ')}`);
 
   if (result?.outcomeUnknown === true) {
-    lines.push('outcome: unknown (the worker of this job stopped)');
+    const causeText =
+      result.cause === 'daemon_restarted'
+        ? 'the Machine daemon restarted'
+        : result.cause === 'machine_rebooted'
+          ? 'the Machine rebooted'
+          : result.cause === 'stop_unproved'
+            ? 'the stop was not proved'
+            : 'the Machine daemon restarted';
+    lines.push(`outcome: unknown (${causeText})`);
   }
 
   const artifact = jobArtifactLocatorOf(job);

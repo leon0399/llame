@@ -21,7 +21,7 @@ import { z } from 'zod';
 
 import { AppModule } from '../app.module';
 import { configureApp } from '../app.setup';
-import { chatDeliveries, runs, workerInstances } from '../db/schema';
+import { chatDeliveries, runs } from '../db/schema';
 import { TenantDbService } from '../db/tenant-db.service';
 import {
   ModelNotAvailableError,
@@ -413,7 +413,6 @@ describe('chat deliveries — the steer mode', () => {
     it('a /compact steer makes a foreground job wait return interrupted', async () => {
       const { chatId, runId } = await chatWithLiveRun();
       const attemptId = crypto.randomUUID();
-      const workerInstanceId = crypto.randomUUID();
       const toolCallId = `call-${crypto.randomUUID()}`;
 
       const job = await tenantDb.runAs(userAId, async (tx) => {
@@ -421,14 +420,12 @@ describe('chat deliveries — the steer mode', () => {
           .update(runs)
           .set({ status: 'running_tool', activeAttemptId: attemptId })
           .where(eq(runs.id, runId));
-        await tx.insert(workerInstances).values({ id: workerInstanceId });
 
         return new ChatJobsRepository(tx).insert(
           newChatJob({
             chatId,
             ownerUserId: userAId,
             seq: 1,
-            workerInstanceId,
             runId,
             toolCallId,
             settings: { selector: MODEL, permissionMode: 'default' },
@@ -460,7 +457,6 @@ describe('chat deliveries — the steer mode', () => {
       await sendMode(chatId, 'queue', { id });
 
       const attemptId = crypto.randomUUID();
-      const workerInstanceId = crypto.randomUUID();
       const toolCallId = `call-${crypto.randomUUID()}`;
 
       const job = await tenantDb.runAs(userAId, async (tx) => {
@@ -468,14 +464,12 @@ describe('chat deliveries — the steer mode', () => {
           .update(runs)
           .set({ status: 'running_tool', activeAttemptId: attemptId })
           .where(eq(runs.id, runId));
-        await tx.insert(workerInstances).values({ id: workerInstanceId });
 
         return new ChatJobsRepository(tx).insert(
           newChatJob({
             chatId,
             ownerUserId: userAId,
             seq: 1,
-            workerInstanceId,
             runId,
             toolCallId,
             settings: { selector: MODEL, permissionMode: 'default' },
@@ -846,7 +840,6 @@ describe('chat deliveries — the steer mode', () => {
             chatId,
             ownerUserId: userAId,
             seq: 1,
-            workerInstanceId: crypto.randomUUID(),
           }),
         );
 

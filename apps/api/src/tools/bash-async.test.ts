@@ -71,21 +71,6 @@ describe('host-only background fields', () => {
       }),
     ).toMatchObject({ type: 'invalid_input' });
   });
-  it('refuses async on another Machine without naming this worker', async () => {
-    const result = await bashTool.execute(context, {
-      command: 'true',
-      cwd: 'machine://gpu/srv/app',
-      async: true,
-    });
-
-    expect(result).toEqual({
-      status: 'error',
-      type: 'invalid_input',
-      message:
-        '`async` is unavailable for Machine `gpu` on this attempt. Run the command synchronously.',
-    });
-    expect(JSON.stringify(result)).not.toContain('host-a');
-  });
   it('requires a string command before classifying host bash', () => {
     expect(isHostBashCall({}, context)).toBe(false);
   });
@@ -114,20 +99,16 @@ describe('host-only background fields', () => {
     );
   });
 
-  it('refuses an omitted cwd in a Machine Workspace after projection', async () => {
+  it('projects the current Machine Workspace into a Machine bash target', () => {
     const machine = {
       ...context,
       workspaceRoot: createWorkspaceRootCell('machine://gpu/tmp/project'),
     };
-
     expect(bashTarget(machine, { command: 'true' })).toMatchObject({
       target: 'machine',
       input: { cwd: 'machine://gpu/tmp/project' },
       machine: { name: 'gpu', path: '/tmp/project', local: false },
     });
-    expect(
-      await bashTool.execute(machine, { command: 'true', async: true }),
-    ).toMatchObject({ type: 'invalid_input' });
   });
   it('An unlimited job is refused by default', async () => {
     const result = await bashTool.execute(context, {

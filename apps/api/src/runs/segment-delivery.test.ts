@@ -2,7 +2,6 @@ import { isRecord, isString } from '@workspace/runtime-safety';
 import { drizzle } from 'drizzle-orm/postgres-js';
 
 import { ChatDeliveriesRepository } from '../chats/chat-deliveries.repository';
-import { ChatJobsRepository } from '../jobs/chat-jobs.repository';
 import { ChatsRepository, MessagesRepository } from '../chats/chats-repository';
 
 import {
@@ -178,11 +177,6 @@ describe('deliverPendingSteering', () => {
       SystemPromptReceiptsRepository.prototype,
       'findByOwnedRun',
     ).mockResolvedValue([]);
-    vi.spyOn(
-      ChatJobsRepository.prototype,
-      'settleOnDeadWorkers',
-    ).mockResolvedValue([]);
-
     const lockForDelivery = vi
       .spyOn(RunRowFenceRepository.prototype, 'lockForDelivery')
       .mockResolvedValue(has('locked') ? overrides.locked : run);
@@ -1198,10 +1192,6 @@ describe('deliverPendingSteering closing usage', () => {
       'lockForDelivery',
     ).mockResolvedValue(run);
     vi.spyOn(ChatsRepository.prototype, 'lock').mockResolvedValue(chat);
-    vi.spyOn(
-      ChatJobsRepository.prototype,
-      'settleOnDeadWorkers',
-    ).mockResolvedValue([]);
     vi.spyOn(
       ChatDeliveriesRepository.prototype,
       'lockPendingBoundary',

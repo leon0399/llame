@@ -3,9 +3,11 @@ import {
   Inject,
   Injectable,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
 import { type Chat, type Message, type Run } from '../db/schema';
 import { TenantDbService, type Db } from '../db/tenant-db.service';
+import { MachineConnector } from '../machines/machine-connector.service';
 import {
   ChatSearchQueryEmbedder,
   type QueryEmbedderPort,
@@ -96,6 +98,9 @@ export class ChatsService {
     private readonly embedDispatch: ChatEmbedDispatcher,
     @Inject(ChatSearchQueryEmbedder)
     private readonly queryEmbedder: QueryEmbedderPort,
+    @Optional()
+    @Inject(MachineConnector)
+    private readonly machines?: MachineConnector,
   ) {}
 
   /**
@@ -487,31 +492,40 @@ export class ChatsService {
   }
 
   async deleteChat(userId: string, chatId: string): Promise<boolean> {
-    return retryRunTransaction(() =>
+    const result = await retryRunTransaction(() =>
       this.tenantDb.runAs(userId, async (tx) => {
-        // Cancel before locking the Chat. The cascade removes a waiting Run,
-        // so deletion needs no queue wake.
         const runsRepo = new RunsRepository(tx);
         const active = await runsRepo.findActiveByChatId(chatId, userId);
-
-        if (active) {
-          await runsRepo.requestCancel(active.id, userId);
-        }
+        if (active) await runsRepo.requestCancel(active.id, userId);
 
         const chats = new ChatsRepository(tx);
+        if (!(await chats.lock(chatId, userId)))
+          return { deleted: false, jobs: [] };
 
-        if (!(await chats.lock(chatId, userId))) return false;
+        const runningJobs = (
+          await new ChatJobsRepository(tx).listByChat(chatId, userId)
+        ).filter((job) => job.state === 'running');
+        for (const job of runningJobs)
+          await notifyRunControl(tx, { kind: 'job-stop', jobId: job.id });
 
-        for (const jobId of await new ChatJobsRepository(tx).runningIdsInChat(
-          chatId,
-          userId,
-        )) {
-          await notifyRunControl(tx, { kind: 'job-stop', jobId });
-        }
-
-        return chats.deleteById(chatId, userId);
+        const deleted = await chats.deleteById(chatId, userId);
+        return { deleted, jobs: deleted ? runningJobs : [] };
       }),
     );
+
+    if (result.deleted && this.machines !== undefined)
+      await Promise.allSettled(
+        result.jobs.map(async (job) => {
+          const { client } = await this.machines!.jobsClient(job.machineName);
+          await client.cancelJob({
+            requestId: job.daemonJobId,
+            jobId: job.daemonJobId,
+            owner: job.ownerUserId,
+          });
+        }),
+      );
+
+    return result.deleted;
   }
 
   /**

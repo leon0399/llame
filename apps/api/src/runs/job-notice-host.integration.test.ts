@@ -6,18 +6,14 @@ import { type Db } from '../db/tenant-db.service';
 import { ArtifactsRepository } from '../tools/artifacts/artifacts-repository';
 import { ChatDeliveriesRepository } from '../chats/chat-deliveries.repository';
 import { ChatsRepository, MessagesRepository } from '../chats/chats-repository';
-import {
-  chatDeliveries,
-  chatJobChunks,
-  chatJobs,
-  type ChatJob,
-} from '../db/schema';
+import { chatDeliveries, chatJobs, type ChatJob } from '../db/schema';
 import {
   ChatJobsRepository,
   type JobSettlement,
 } from '../jobs/chat-jobs.repository';
 import { settleBashJob } from '../jobs/bash-job-store';
 import { JobNoticeRunService } from './job-notice-run.service';
+import { RunWaitService } from './run-wait.service';
 import { RunsRepository } from './runs-repository';
 import { RunDispatchService } from './run-dispatch.service';
 import {
@@ -27,6 +23,7 @@ import {
   type WorkerHarness,
 } from './worker-harness';
 import { waitFor } from '../testing/support';
+import { newChatJob } from '../testing/chat-job-rows';
 
 if (!process.env['TEST_DATABASE_URL']) {
   throw new Error(
@@ -102,18 +99,15 @@ describe('settled job host Runs', () => {
       if (seq === undefined)
         throw new Error('Could not reserve a sequence for the test job.');
 
-      return new ChatJobsRepository(tx).insert({
-        chatId,
-        ownerUserId: owner,
-        executor: 'bash',
-        seq,
-        runId,
-        toolCallId: randomUUID(),
-        workerInstanceId: randomUUID(),
-        outputs: ['stdout', 'stderr'],
-        artifactReadable: false,
-        settings,
-      });
+      return new ChatJobsRepository(tx).insert(
+        newChatJob({
+          chatId,
+          ownerUserId: owner,
+          seq,
+          runId,
+          settings,
+        }),
+      );
     });
   }
 
@@ -129,12 +123,12 @@ describe('settled job host Runs', () => {
           truncatedStreams: { stdout: false, stderr: false },
         },
         settlement,
-        offsets: { stdout: 0, stderr: 0 },
       },
       {
         maxBytes: 65_536,
         hostFiles: false,
         noticeRuns: harness.moduleRef.get(JobNoticeRunService),
+        wake: harness.moduleRef.get(RunWaitService),
       },
     );
   }
@@ -430,12 +424,8 @@ describe('settled job host Runs', () => {
         .where(eq(chatDeliveries.senderRef, job.id)),
     );
 
-    const output = await db((tx) =>
-      tx.select().from(chatJobChunks).where(eq(chatJobChunks.jobId, job.id)),
-    );
 
     expect(stored[0]?.state).toBe('running');
-    expect(output).toEqual([]);
     expect(notice).toEqual([]);
     expect(
       await db((tx) =>

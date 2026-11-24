@@ -94,9 +94,8 @@ describe('Run wait wake races', () => {
           truncatedStreams: { stdout: false, stderr: false },
         },
         settlement: { state: 'succeeded', result: { exitCode: 0 } },
-        offsets: { stdout: 0, stderr: 0 },
       },
-      { maxBytes: 65_536, hostFiles: false, noticeRuns },
+      { maxBytes: 65_536, hostFiles: false, noticeRuns, wake: fixture.harness.moduleRef.get(RunWaitService) },
     );
   }
 

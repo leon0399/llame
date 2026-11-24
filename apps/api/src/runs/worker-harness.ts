@@ -47,7 +47,6 @@ import { type PermissionMode } from '../tools/permissions/permission-mode';
 import { type EnqueueOptions, QUEUE, type Queue } from '../queue/queue';
 import { ChatJobsRepository } from '../jobs/chat-jobs.repository';
 import {
-  workerInstances,
   type ChatJob,
   type RunKind,
   type RunOrigin,
@@ -436,19 +435,20 @@ export async function seedLiveChatJob(input: {
   modelId: string;
   run: { chatId: string; runId: string };
 }): Promise<ChatJob> {
-  const workerInstanceId = crypto.randomUUID();
-  const toolCallId = `wait-${crypto.randomUUID()}`;
-
-  await input.tx.insert(workerInstances).values({ id: workerInstanceId });
+  const daemonInstanceId = crypto.randomUUID();
+  const daemonJobId = crypto.randomUUID();
 
   return new ChatJobsRepository(input.tx).insert({
     chatId: input.run.chatId,
     ownerUserId: input.userId,
-    executor: 'bash',
+    kind: 'bash',
     seq: 1,
     runId: input.run.runId,
-    toolCallId,
-    workerInstanceId,
+    toolCallId: `wait-${crypto.randomUUID()}`,
+    machineName: 'test-machine',
+    daemonInstanceId,
+    daemonJobId,
+    startedAt: new Date(),
     outputs: ['stdout', 'stderr'],
     artifactReadable: false,
     settings: { selector: input.modelId, permissionMode: 'default' },

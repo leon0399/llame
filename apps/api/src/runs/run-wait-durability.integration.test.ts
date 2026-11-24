@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { ConflictException } from '@nestjs/common';
 import { eq } from 'drizzle-orm';
 
-import { chatJobs, runs, workerInstances, type ChatJob } from '../db/schema';
+import { chatJobs, runs, type ChatJob } from '../db/schema';
 import { ChatDeliveriesRepository } from '../chats/chat-deliveries.repository';
 import { ChatJobsRepository } from '../jobs/chat-jobs.repository';
 import { recordJobSettlementNotice } from '../jobs/job-notices';
@@ -18,6 +18,7 @@ import {
   useSegmentsFixture,
   type SeededRun,
 } from '../testing/run-segments.test-fixture';
+import { newChatJob } from '../testing/chat-job-rows';
 
 if (!process.env.TEST_DATABASE_URL) {
   throw new Error(
@@ -34,25 +35,20 @@ describe('Run wait durable wake publication', () => {
   async function seedWaitingRun(): Promise<SeededWaitingRun> {
     const seeded = await fx.seed();
     const attemptId = randomUUID();
-    const workerId = randomUUID();
     await fx.db(async (tx) => {
       await tx
         .update(runs)
         .set({ status: 'running_tool', activeAttemptId: attemptId })
         .where(eq(runs.id, seeded.runId));
-      await tx.insert(workerInstances).values({ id: workerId });
-      await new ChatJobsRepository(tx).insert({
-        chatId: seeded.chatId,
-        ownerUserId: fx.userId,
-        executor: 'bash',
-        seq: 1,
-        runId: seeded.runId,
-        toolCallId: `call-${randomUUID()}`,
-        workerInstanceId: workerId,
-        outputs: ['stdout', 'stderr'],
-        artifactReadable: false,
-        settings: { selector: seeded.modelId, permissionMode: 'default' },
-      });
+      await new ChatJobsRepository(tx).insert(
+        newChatJob({
+          chatId: seeded.chatId,
+          ownerUserId: fx.userId,
+          seq: 1,
+          runId: seeded.runId,
+          settings: { selector: seeded.modelId, permissionMode: 'default' },
+        }),
+      );
     });
 
     const [job] = await fx.db((tx) =>

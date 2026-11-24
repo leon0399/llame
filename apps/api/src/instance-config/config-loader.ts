@@ -458,11 +458,7 @@ function resolveArtifactBounds(
   };
 }
 
-/**
- * The operator `tools.bash` block (background-jobs D7): the process bound of
- * one worker. It is a required positive safe integer; a smaller value, a
- * fraction, an unsafe integer, or an unknown key fails startup naming the path.
- */
+/** Resolve the foreground wait bound; process capacity belongs to the Machine. */
 function resolveBashBounds(
   raw: RawInstanceConfig | undefined,
   env: NodeJS.ProcessEnv,
@@ -471,19 +467,9 @@ function resolveBashBounds(
 
   if (!isRecord(bounds)) return BUILT_IN_DEFAULTS.tools.bash;
 
+  // Process capacity is enforced by each Machine daemon, not this instance.
+
   return {
-    maxProcesses: requireResolvedNumber(
-      resolveNumeric({
-        configPath: 'tools.bash.maxProcesses',
-        present: Object.hasOwn(bounds, 'maxProcesses'),
-        raw: bounds.maxProcesses,
-        builtInDefault: BUILT_IN_DEFAULTS.tools.bash.maxProcesses,
-        nullable: false,
-        env,
-        max: Number.MAX_SAFE_INTEGER,
-      }),
-      'tools.bash.maxProcesses',
-    ),
     backgroundAfterSeconds: requireResolvedNumber(
       resolveNumeric({
         configPath: 'tools.bash.backgroundAfterSeconds',
@@ -2116,6 +2102,7 @@ function assertValidRaw(
       // additionalProperties keyword's params always carries this shape.
       const extra = (e.params as { additionalProperty?: string })
         .additionalProperty;
+
 
       return `${instancePath}/${extra ?? '?'}: unrecognized key`;
     }

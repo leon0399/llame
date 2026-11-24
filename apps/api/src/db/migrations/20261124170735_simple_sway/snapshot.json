@@ -1,0 +1,324 @@
+{
+  "type": "diff",
+  "version": "9",
+  "dialect": "postgres",
+  "id": "df914fec-f29b-418f-a570-b22edbe884fb",
+  "prevIds": [
+    "391a0108-8bd7-4a00-891a-dddfea20bdec"
+  ],
+  "footprints": [
+    {
+      "statementType": "drop_policy",
+      "statementTarget": [
+        "table",
+        "public",
+        "chat_job_chunks"
+      ],
+      "writes": [
+        "s|pol|public.chat_job_chunks.chat_job_chunks_owner",
+        "n|pol|public.chat_job_chunks.chat_job_chunks_owner",
+        "e|pol|public.chat_job_chunks.chat_job_chunks_owner"
+      ],
+      "reads": [
+        "n|tbl|public.chat_job_chunks",
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "drop_table",
+      "statementTarget": [
+        "table",
+        "public",
+        "chat_job_chunks"
+      ],
+      "writes": [
+        "s|tbl|public.chat_job_chunks",
+        "n|tbl|public.chat_job_chunks",
+        "e|tbl|public.chat_job_chunks",
+        "n|rel|public.chat_job_chunks",
+        "n|type|public.chat_job_chunks"
+      ],
+      "reads": [
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "rename_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "chat_jobs",
+        "executor"
+      ],
+      "writes": [
+        "s|col|public.chat_jobs.executor",
+        "n|col|public.chat_jobs.executor",
+        "s|col|public.chat_jobs.kind",
+        "n|col|public.chat_jobs.kind"
+      ],
+      "reads": [
+        "n|tbl|public.chat_jobs",
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "add_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "chat_jobs",
+        "machine_name"
+      ],
+      "writes": [
+        "s|col|public.chat_jobs.machine_name",
+        "n|col|public.chat_jobs.machine_name",
+        "e|col|public.chat_jobs.machine_name"
+      ],
+      "reads": [
+        "n|tbl|public.chat_jobs",
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "add_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "chat_jobs",
+        "daemon_instance_id"
+      ],
+      "writes": [
+        "s|col|public.chat_jobs.daemon_instance_id",
+        "n|col|public.chat_jobs.daemon_instance_id",
+        "e|col|public.chat_jobs.daemon_instance_id"
+      ],
+      "reads": [
+        "n|tbl|public.chat_jobs",
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "add_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "chat_jobs",
+        "daemon_job_id"
+      ],
+      "writes": [
+        "s|col|public.chat_jobs.daemon_job_id",
+        "n|col|public.chat_jobs.daemon_job_id",
+        "e|col|public.chat_jobs.daemon_job_id"
+      ],
+      "reads": [
+        "n|tbl|public.chat_jobs",
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "drop_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "chat_jobs",
+        "worker_instance_id"
+      ],
+      "writes": [
+        "s|col|public.chat_jobs.worker_instance_id",
+        "n|col|public.chat_jobs.worker_instance_id",
+        "e|col|public.chat_jobs.worker_instance_id"
+      ],
+      "reads": [
+        "n|tbl|public.chat_jobs",
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "drop_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "chat_jobs",
+        "pid"
+      ],
+      "writes": [
+        "s|col|public.chat_jobs.pid",
+        "n|col|public.chat_jobs.pid",
+        "e|col|public.chat_jobs.pid"
+      ],
+      "reads": [
+        "n|tbl|public.chat_jobs",
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "rename_constraint",
+      "statementTarget": [
+        "table",
+        "public",
+        "chat_jobs"
+      ],
+      "writes": [
+        "s|uq|public.chat_jobs.chat_jobs_chat_executor_seq_unique",
+        "n|uq|public.chat_jobs.chat_jobs_chat_executor_seq_unique",
+        "n|con|public.chat_jobs.chat_jobs_chat_executor_seq_unique",
+        "n|rel|public.chat_jobs_chat_executor_seq_unique",
+        "s|uq|public.chat_jobs.chat_jobs_chat_kind_seq_unique",
+        "n|uq|public.chat_jobs.chat_jobs_chat_kind_seq_unique",
+        "n|con|public.chat_jobs.chat_jobs_chat_kind_seq_unique",
+        "n|rel|public.chat_jobs_chat_kind_seq_unique"
+      ],
+      "reads": [
+        "n|tbl|public.chat_jobs",
+        "n|sch|public",
+        "e|col|public.chat_jobs.chat_id",
+        "e|col|public.chat_jobs.kind",
+        "e|col|public.chat_jobs.seq"
+      ]
+    },
+    {
+      "statementType": "add_unique",
+      "statementTarget": [
+        "table",
+        "public",
+        "chat_jobs"
+      ],
+      "writes": [
+        "s|uq|public.chat_jobs.chat_jobs_daemon_instance_job_unique",
+        "n|uq|public.chat_jobs.chat_jobs_daemon_instance_job_unique",
+        "e|uq|public.chat_jobs.chat_jobs_daemon_instance_job_unique",
+        "n|con|public.chat_jobs.chat_jobs_daemon_instance_job_unique",
+        "n|rel|public.chat_jobs_daemon_instance_job_unique"
+      ],
+      "reads": [
+        "n|tbl|public.chat_jobs",
+        "n|sch|public",
+        "n|col|public.chat_jobs.daemon_instance_id",
+        "n|col|public.chat_jobs.daemon_job_id"
+      ]
+    }
+  ],
+  "deltas": [
+    {
+      "op": "rename",
+      "key": "columns\u0000[\"public\",\"chat_jobs\",\"executor\"]",
+      "set": {
+        "name": "kind"
+      }
+    },
+    {
+      "op": "rename",
+      "key": "uniques\u0000[\"public\",\"chat_jobs\",\"chat_jobs_chat_executor_seq_unique\"]",
+      "set": {
+        "name": "chat_jobs_chat_kind_seq_unique"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "chat_jobs",
+        "name": "machine_name",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "chat_jobs",
+        "name": "daemon_instance_id",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "chat_jobs",
+        "name": "daemon_job_id",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "chat_jobs",
+        "name": "chat_jobs_daemon_instance_job_unique",
+        "nameExplicit": true,
+        "columns": [
+          "daemon_instance_id",
+          "daemon_job_id"
+        ],
+        "nullsNotDistinct": false,
+        "entityType": "uniques"
+      }
+    },
+    {
+      "op": "drop",
+      "key": "tables\u0000[\"public\",\"chat_job_chunks\"]"
+    },
+    {
+      "op": "drop",
+      "key": "columns\u0000[\"public\",\"chat_job_chunks\",\"job_id\"]"
+    },
+    {
+      "op": "drop",
+      "key": "columns\u0000[\"public\",\"chat_job_chunks\",\"owner_user_id\"]"
+    },
+    {
+      "op": "drop",
+      "key": "columns\u0000[\"public\",\"chat_job_chunks\",\"output\"]"
+    },
+    {
+      "op": "drop",
+      "key": "columns\u0000[\"public\",\"chat_job_chunks\",\"position\"]"
+    },
+    {
+      "op": "drop",
+      "key": "columns\u0000[\"public\",\"chat_job_chunks\",\"content\"]"
+    },
+    {
+      "op": "drop",
+      "key": "columns\u0000[\"public\",\"chat_jobs\",\"worker_instance_id\"]"
+    },
+    {
+      "op": "drop",
+      "key": "columns\u0000[\"public\",\"chat_jobs\",\"pid\"]"
+    },
+    {
+      "op": "drop",
+      "key": "fks\u0000[\"public\",\"chat_job_chunks\",\"chat_job_chunks_job_id_owner_user_id_fk\"]"
+    },
+    {
+      "op": "drop",
+      "key": "pks\u0000[\"public\",\"chat_job_chunks\",\"chat_job_chunks_pk\"]"
+    },
+    {
+      "op": "drop",
+      "key": "policies\u0000[\"public\",\"chat_job_chunks\",\"chat_job_chunks_owner\"]"
+    }
+  ]
+}

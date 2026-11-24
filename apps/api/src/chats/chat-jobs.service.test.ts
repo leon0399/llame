@@ -10,21 +10,21 @@ import { ChatsRepository } from './chats-repository';
 
 const CHAT = 'chat-1';
 const USER = 'owner-1';
-const DEAD_AFTER = BUILT_IN_DEFAULTS.runs.heartbeatSeconds * 4;
 
 function job(overrides: Partial<ChatJob>): ChatJob {
   return {
     id: 'j',
     chatId: CHAT,
     ownerUserId: USER,
-    executor: 'bash',
+    kind: 'bash',
     seq: 1,
     state: 'running',
     stoppedBy: null,
     runId: 'r1',
     toolCallId: 't1',
-    workerInstanceId: 'w1',
-    pid: null,
+    machineName: 'test-machine',
+    daemonInstanceId: 'd1',
+    daemonJobId: 'dj1',
     startedAt: new Date('2026-11-11T10:00:00.000Z'),
     settledAt: null,
     deadlineAt: null,
@@ -62,11 +62,8 @@ const OWNED_CHAT: Chat = {
   workspaceDetachReason: null,
 };
 
-function makeService(
-  wakeForChatInTransaction = vi.fn().mockResolvedValue(false),
-) {
+function makeService() {
   const db = drizzle.mock();
-
   vi.spyOn(db, 'execute').mockResolvedValue(
     Object.assign([], {
       columns: [],
@@ -76,14 +73,8 @@ function makeService(
       state: { status: 'I', pid: 0, secret: 0 },
     }),
   );
-
   const runAs: TenantRunner['runAs'] = (_user, fn) => fn(db);
-
-  return new ChatJobsService(
-    { runAs },
-    { config: BUILT_IN_DEFAULTS },
-    { wakeForChatInTransaction },
-  );
+  return new ChatJobsService({ runAs });
 }
 
 function script() {
@@ -91,9 +82,6 @@ function script() {
     chat: vi
       .spyOn(ChatsRepository.prototype, 'findById')
       .mockResolvedValue(OWNED_CHAT),
-    settle: vi
-      .spyOn(ChatJobsRepository.prototype, 'settleOnDeadWorkers')
-      .mockResolvedValue([]),
     list: vi.spyOn(ChatJobsRepository.prototype, 'listByChat'),
     request: vi.spyOn(ChatJobsRepository.prototype, 'requestStop'),
     find: vi.spyOn(ChatJobsRepository.prototype, 'findById'),
@@ -101,12 +89,12 @@ function script() {
   };
 }
 
+
 describe('ChatJobsService', () => {
   afterEach(() => vi.restoreAllMocks());
 
-  it('lists the live jobs first, then the settled ones, each oldest first', async () => {
+  it('lists live jobs first, then settled jobs, each oldest first', async () => {
     const s = script();
-
     s.list.mockResolvedValue([
       job({ id: 'a', state: 'succeeded' }),
       job({ id: 'b', state: 'running' }),
@@ -117,24 +105,6 @@ describe('ChatJobsService', () => {
     const rows = await makeService().list(CHAT, USER);
 
     expect(rows.map((row) => row.id)).toEqual(['b', 'd', 'a', 'c']);
-    expect(s.settle).toHaveBeenCalledWith(CHAT, USER, DEAD_AFTER);
-  });
-
-  it('wakes the waiting Run when a dead-worker job is settled', async () => {
-    const s = script();
-    const wakeForChatInTransaction = vi.fn().mockResolvedValue(true);
-
-    s.settle.mockResolvedValue([job({ id: 'dead-job', state: 'lost' })]);
-    s.list.mockResolvedValue([]);
-
-    await makeService(wakeForChatInTransaction).list(CHAT, USER);
-
-    expect(wakeForChatInTransaction).toHaveBeenCalledWith(expect.anything(), {
-      chatId: CHAT,
-      userId: USER,
-      jobId: 'dead-job',
-      kind: 'settlement',
-    });
   });
 
   it('answers not found for a Chat that the owner does not hold, and touches nothing', async () => {
@@ -148,7 +118,7 @@ describe('ChatJobsService', () => {
     await expect(makeService().stop(CHAT, 'j', USER)).rejects.toThrow(
       `Chat ${CHAT} not found`,
     );
-    expect(s.settle).not.toHaveBeenCalled();
+    expect(s.list).not.toHaveBeenCalled();
   });
 
   it('records an owner stop request on a running job', async () => {
@@ -209,13 +179,13 @@ describe('ChatJobsService', () => {
     );
   });
 
-  it('counts the running jobs against the dead-worker window', async () => {
+  it('counts running jobs by owner', async () => {
     const s = script();
     const counts = new Map([[CHAT, 2]]);
 
     s.count.mockResolvedValue(counts);
 
     await expect(makeService().runningCounts(USER)).resolves.toBe(counts);
-    expect(s.count).toHaveBeenCalledWith(USER, DEAD_AFTER);
+    expect(s.count).toHaveBeenCalledWith(USER);
   });
 });

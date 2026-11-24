@@ -19,7 +19,6 @@ import {
   PATH_NOT_REGISTERED_MESSAGE,
   type JsonValue,
   type ProcBashResult,
-  type RequestEnvelope,
   type SerializableRecord,
 } from '@workspace/machine-protocol';
 import { isBoolean, isString } from '@workspace/runtime-safety';
@@ -30,6 +29,7 @@ import {
   MachineUnavailableError,
   MachineUpdateRequiredError,
 } from '../machines/machine-session-errors';
+import type { MachineRequestEnvelope } from '../machines/machine-session';
 import type { MachineConnector } from '../machines/machine-connector.service';
 import {
   machineEnvelope,
@@ -67,7 +67,7 @@ export function machineBudgetMs(context: ToolContext, ceiling: number): number {
 export function machineCallEnvelope(
   context: ToolContext,
   budgetMs: number,
-): RequestEnvelope {
+): MachineRequestEnvelope {
   return machineEnvelope({
     runId: context.runId,
     attemptId: context.machineAttemptKey,
@@ -190,6 +190,8 @@ export function machineProtocolFailureResult(
       message: BUDGET_EXHAUSTED_MESSAGE,
     };
 
+  if (error.code === 'machine_update_required')
+    return machineUnavailableResult(name, 'incompatible_version');
   if (error.code === 'invalid_argument')
     return {
       status: 'error',

@@ -1,6 +1,5 @@
 import { setTimeout as delay } from 'node:timers/promises';
 
-import { BashProcessLimiter } from '@workspace/bash-executor';
 import { isRecord, isString } from '@workspace/runtime-safety';
 
 import {
@@ -1448,8 +1447,6 @@ export class RunExecutionService {
     AttemptSkillCatalog
   >();
 
-  /** Built on first use: every Run of this worker shares it. */
-  private bashProcessLimiter: BashProcessLimiter | undefined;
 
   constructor(
     private readonly tenantDb: TenantDbService,
@@ -2082,14 +2079,6 @@ export class RunExecutionService {
             ),
           };
         }
-
-        // A claimed turn gets one settlement opportunity for host jobs whose
-        // worker died before this claim (background-jobs D9).
-        await new ChatJobsRepository(tx).settleOnDeadWorkers(
-          input.chatId,
-          input.userId,
-          workerDeadAfterSeconds(this.instanceConfig.config),
-        );
 
         const wakeCause =
           started.awaiting === null
@@ -3364,7 +3353,6 @@ export class RunExecutionService {
       webSearch: this.instanceConfig.config.webSearch,
       grepBounds: this.instanceConfig.config.tools.grep,
       ...this.artifactReadContext(),
-      bashProcessLimiter: this.hostBashLimiter(),
       bashJobs: this.bashJobs,
       jobSettings: {
         selector,
@@ -3689,7 +3677,7 @@ export class RunExecutionService {
                 const job = await jobs.findByLocator(
                   input.chatId,
                   input.userId,
-                  locator.executor,
+                  locator.kind,
                   locator.seq,
                 );
 
@@ -4719,20 +4707,13 @@ export class RunExecutionService {
       return events.length !== 0;
     };
 
-    // The step end settles dead Chat jobs before checking delivery/cancellation,
-    // so a lost worker's notice participates in this same boundary. A durable
-    // suspension belongs to this attempt even if a waker already queued or
-    // claimed the Run again.
+    // The suspension belongs to this attempt even if a waker already queued
+    // or claimed the Run again.
     const resolveStepEndSignal = async (): Promise<StepEndSignal> =>
       retryRunTransaction(() =>
         this.tenantDb.runAs(input.userId, async (tx) => {
-          await new ChatJobsRepository(tx).settleOnDeadWorkers(
-            input.chatId,
-            input.userId,
-            workerDeadAfterSeconds(this.instanceConfig.config),
-          );
-
           if (await suspendedByThisAttempt(tx)) return 'suspend';
+
 
           return new ChatDeliveriesRepository(tx).stepEndSignal({
             runId: input.runId,
@@ -7501,14 +7482,6 @@ export class RunExecutionService {
     };
   }
 
-  /** The one process limiter of this worker, built from `tools.bash.maxProcesses`. */
-  private hostBashLimiter(): BashProcessLimiter {
-    this.bashProcessLimiter ??= new BashProcessLimiter(
-      this.instanceConfig.config.tools.bash.maxProcesses,
-    );
-
-    return this.bashProcessLimiter;
-  }
 
   /**
    * The artifact surface of a Run (tool-result-artifacts "An artifact needs a

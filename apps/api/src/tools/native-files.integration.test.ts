@@ -13,7 +13,6 @@ import { join } from 'node:path';
 import postgres, { type Sql } from 'postgres';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import { eq } from 'drizzle-orm';
-import { BashProcessLimiter } from '@workspace/bash-executor';
 import * as schema from '../db/schema';
 import { randomPng } from '../media/media-fixtures';
 import { MediaService } from '../media/media.service';
@@ -124,8 +123,9 @@ describe('native file authority and durable effects', () => {
       machines: daemon.connector,
       nativeDeliverySequence: run.startedSequence,
       toolCallId: randomUUID(),
-      bashProcessLimiter: new BashProcessLimiter(64),
-      ...hostBashJobs(tenantDb),
+      ...hostBashJobs(tenantDb, daemon.connector, {
+        wakeForChatInTransaction: async () => false,
+      }),
       permissionPolicy: compileTestPermissionPolicy(),
     };
   });

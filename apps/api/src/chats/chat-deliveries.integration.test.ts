@@ -247,7 +247,6 @@ describe('chat deliveries — the queue mode', () => {
             chatId,
             ownerUserId: userAId,
             seq,
-            workerInstanceId: crypto.randomUUID(),
             artifactReadable: false,
           }),
         ),
@@ -264,12 +263,12 @@ describe('chat deliveries — the queue mode', () => {
             truncatedStreams: { stdout: false, stderr: false },
           },
           settlement: { state: 'succeeded', result: { exitCode: 0 } },
-          offsets: { stdout: 0, stderr: 0 },
         },
         {
           maxBytes: 65_536,
           hostFiles: false,
           noticeRuns,
+          wake: { wakeForChatInTransaction: vi.fn().mockResolvedValue(false) },
         },
       );
 
@@ -408,7 +407,6 @@ describe('chat deliveries — the queue mode', () => {
             chatId: jobChatId,
             ownerUserId: userAId,
             seq,
-            workerInstanceId: crypto.randomUUID(),
           }),
         );
 
@@ -507,7 +505,6 @@ describe('chat deliveries — the queue mode', () => {
             chatId,
             ownerUserId: userAId,
             seq: 7,
-            workerInstanceId: crypto.randomUUID(),
           }),
         );
 
@@ -575,7 +572,6 @@ describe('chat deliveries — the queue mode', () => {
             chatId: ownerBChat,
             ownerUserId: userBId,
             seq: 9,
-            workerInstanceId: crypto.randomUUID(),
           }),
         );
 
@@ -803,7 +799,6 @@ describe('chat deliveries — the queue mode', () => {
         ],
       });
       expect(JSON.stringify(body)).not.toContain(job.id);
-      expect(JSON.stringify(body)).not.toContain(job.workerInstanceId);
 
       for (const mode of ['steer', 'interrupt']) {
         const changed = await request(http)

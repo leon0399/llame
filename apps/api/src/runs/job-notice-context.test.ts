@@ -25,14 +25,15 @@ function job(overrides: Partial<ChatJob> = {}): ChatJob {
     id: '22222222-2222-4222-8222-222222222222',
     chatId: CHAT_ID,
     ownerUserId: OWNER_ID,
-    executor: 'bash',
+    kind: 'bash',
     seq: 4,
     state: 'succeeded',
     stoppedBy: null,
     runId: RUN_ID,
     toolCallId: 'call-4',
-    workerInstanceId: '44444444-4444-4444-8444-444444444444',
-    pid: null,
+    machineName: 'test-machine',
+    daemonInstanceId: 'daemon-instance',
+    daemonJobId: 'daemon-job',
     startedAt: new Date('2026-11-12T12:00:00.000Z'),
     settledAt: new Date('2026-11-12T12:00:03.000Z'),
     deadlineAt: null,
@@ -69,7 +70,6 @@ function notice(runId: string, senderRef: string | null): ChatDelivery {
 function setup(input: {
   notices: Array<ChatDelivery>;
   jobs: Map<string, ChatJob>;
-  chunkText?: string;
   artifactTexts?: Readonly<Record<number, string | null>>;
 }) {
   const tx = drizzle.mock();
@@ -79,9 +79,6 @@ function setup(input: {
   ).mockResolvedValue(input.notices);
   vi.spyOn(ChatJobsRepository.prototype, 'findById').mockImplementation(
     (_chatId, _ownerUserId, id) => Promise.resolve(input.jobs.get(id)),
-  );
-  vi.spyOn(ChatJobsRepository.prototype, 'readOutputTail').mockResolvedValue(
-    Buffer.from(input.chunkText ?? 'chunk output'),
   );
   vi.spyOn(ArtifactsRepository.prototype, 'readPartTail').mockImplementation(
     (_chatId, locator) => {
@@ -124,17 +121,15 @@ describe('createJobNoticeContext', () => {
         ['running', running],
         [accepted.id, accepted],
       ]),
-      chunkText: 'accepted settled output',
     });
 
     expect(items).toHaveLength(1);
-    expect(items[0]?.data.text).toContain('accepted settled output');
     expect(items[0]?.data.payload).toMatchObject({ locator: 'job://bash-4' });
     expect(items[0]?.data.text).not.toContain('foreign-run');
     expect(items[0]?.data.text).not.toContain('running');
   });
 
-  it('uses readable artifact content instead of chunk output and authors its host directory', async () => {
+  it('uses readable artifact content and authors its host directory', async () => {
     const items = await setup({
       notices: [notice(RUN_ID, 'artifact-job')],
       jobs: new Map<string, ChatJob>([
@@ -147,72 +142,33 @@ describe('createJobNoticeContext', () => {
           }),
         ],
       ]),
-      chunkText: 'private chunk output',
       artifactTexts: { 4: 'readable artifact output' },
     });
 
     expect(items[0]?.data.text).toContain('readable artifact output');
     expect(items[0]?.data.text).toContain(HOST_DIRECTORY);
-    expect(items[0]?.data.text).not.toContain('private chunk output');
   });
 
-  it('falls back to chunk output when artifact bytes are absent and withholds unreadable artifact details', async () => {
+  it('withholds artifact content and host paths when the job lacks readable artifact identity', async () => {
     const items = await setup({
-      notices: [notice(RUN_ID, 'fallback'), notice(RUN_ID, 'unreadable')],
+      notices: [notice(RUN_ID, 'unreadable')],
       jobs: new Map<string, ChatJob>([
-        [
-          'fallback',
-          job({
-            id: 'fallback',
-            artifactId: '77777777-7777-4777-8777-777777777777',
-            artifactReadable: true,
-          }),
-        ],
         [
           'unreadable',
           job({
             id: 'unreadable',
-            seq: 5,
             artifactId: '88888888-8888-4888-8888-888888888888',
             artifactReadable: false,
           }),
         ],
       ]),
-      chunkText: 'permitted chunk tail',
-      artifactTexts: { 4: null, 5: 'unreadable private artifact output' },
-    });
-
-    expect(items).toHaveLength(2);
-    expect(items[0]?.data.text).toContain('permitted chunk tail');
-    expect(items[0]?.data.text).toContain(HOST_DIRECTORY);
-    expect(items[1]?.data.text).toContain('permitted chunk tail');
-    expect(items[1]?.data.text).not.toContain(HOST_DIRECTORY);
-    expect(items[1]?.data.text).not.toContain(
-      'unreadable private artifact output',
-    );
-  });
-  it('withholds artifact content and host paths when the job has no artifact identity', async () => {
-    const items = await setup({
-      notices: [notice(RUN_ID, 'missing-artifact-identity')],
-      jobs: new Map<string, ChatJob>([
-        [
-          'missing-artifact-identity',
-          job({
-            id: 'missing-artifact-identity',
-            artifactId: null,
-            artifactReadable: true,
-          }),
-        ],
-      ]),
-      chunkText: 'permitted chunk output',
-      artifactTexts: { 4: 'private artifact output without identity' },
+      artifactTexts: { 4: 'unreadable private artifact output' },
     });
 
     expect(items).toHaveLength(1);
-    expect(items[0]?.data.text).toContain('permitted chunk output');
     expect(items[0]?.data.text).not.toContain(HOST_DIRECTORY);
     expect(items[0]?.data.text).not.toContain(
-      'private artifact output without identity',
+      'unreadable private artifact output',
     );
   });
 });

@@ -63,6 +63,18 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   enabling is retroactive, and disabling or deleting a source does not erase
   prior disclosure. Digest selection and ratios exclude untitled Chats; each
   newly announced row identifies its pinned or recent membership.
+- **Breaking:** the Machine daemon is a Rust binary serving gRPC
+  (`stead.machine.v1` and the frozen `stead.machine.bootstrap.v1`) instead of
+  the Node JSON-RPC daemon. Every connection runs `llame-machine attach
+  --stdio`, which starts the account's daemon when none runs; `serve --stdio`
+  is removed, so SSH forced commands must change. The daemon reads roots and
+  limits from `config.toml` (run `roots add` again) and keeps
+  `instance.json`. Every `bash` command, on the host and on every configured
+  Machine, runs as a daemon job whose output lives on the Machine; background
+  commands work on every Machine. `chat_job_chunks` and the stored output of
+  existing jobs are dropped, and every settled job keeps one bounded artifact
+  copy. `tools.bash.maxProcesses` is removed; each Machine sets
+  `max_running_jobs` (default 32) and its output ceiling.
 
 # 2026-11-23
 

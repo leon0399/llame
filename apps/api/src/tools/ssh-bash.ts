@@ -42,7 +42,7 @@ import {
   parseSshBashFrames,
   type SshBashFrames,
 } from '../ssh/ssh-script';
-import { acquireBashSlot, managedBashContext } from './bash-limits';
+import { managedBashContext } from './bash-limits';
 import { toToolResult } from './bash-result';
 import { spillBashResult } from './bash-spill';
 import { sshUnavailableResult, sshUnsupportedHostResult } from './ssh-results';
@@ -414,11 +414,7 @@ async function runWithSlot(
   executorContext: BashExecutorContext,
 ): Promise<ToolResult> {
   const budgetMs = bashBudgetMs(context, executorContext);
-  const slot = acquireBashSlot(context);
 
-  if ('status' in slot) return slot;
-
-  try {
     const preStart = preStartResult(context, budgetMs);
 
     if (preStart !== undefined) return preStart;
@@ -446,9 +442,6 @@ async function runWithSlot(
           budgetMs,
         }),
     });
-  } finally {
-    slot.release();
-  }
 }
 
 /**

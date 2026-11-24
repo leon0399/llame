@@ -23,6 +23,7 @@ import {
   type WorkerHarness,
 } from './worker-harness';
 import { RunEventsRepository, RunsRepository } from './runs-repository';
+import { RunWaitService } from './run-wait.service';
 
 if (!process.env.TEST_DATABASE_URL) {
   throw new Error(
@@ -130,12 +131,12 @@ describe('wait tool native-queue recovery', () => {
             truncatedStreams: { stdout: false, stderr: false },
           },
           settlement: { state: 'succeeded', result: { exitCode: 0 } },
-          offsets: { stdout: 0, stderr: 0 },
         },
         {
           maxBytes: 65_536,
           hostFiles: false,
           noticeRuns: harness.moduleRef.get(JobNoticeRunService),
+          wake: harness.moduleRef.get(RunWaitService),
         },
       );
       await harness.close();

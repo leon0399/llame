@@ -1,6 +1,6 @@
 /**
  * ChatJobsRepository as compiled SQL: the owner and Chat filters, the
- * first-writer-wins condition, and the dead-worker join. Real RLS is proven in
+ * settlement, and stop requests. Real RLS is proven in
  * job-store.integration.test.ts.
  */
 
@@ -97,16 +97,4 @@ describe('ChatJobsRepository', () => {
     );
   });
 
-  it('reads the increments of one output of the owner in order', async () => {
-    const { repository, last } = make();
-
-    await repository.readOutput(OWNER, JOB, 'stdout').catch(() => undefined);
-
-    expect(last().sql).toContain('"chat_job_chunks"."owner_user_id" =');
-    expect(last().sql).toContain('"chat_job_chunks"."output" =');
-    expect(last().sql).toContain('order by "chat_job_chunks"."position"');
-    expect(last().params).toEqual(
-      expect.arrayContaining([JOB, OWNER, 'stdout']),
-    );
-  });
 });

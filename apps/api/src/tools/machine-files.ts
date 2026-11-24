@@ -10,7 +10,6 @@
 
 import {
   type JsonValue,
-  type RequestEnvelope,
 } from '@workspace/machine-protocol';
 import {
   formatMachineLocator,
@@ -19,6 +18,7 @@ import {
   type MachineLocator,
 } from '../machines/machine-locator';
 import { readRootsListResult } from '../machines/machine-results';
+import { type MachineRequestEnvelope } from '../machines/machine-session';
 import { type MachineConnector } from '../machines/machine-connector.service';
 import { boundMachineRoots } from '../machines/machines-status';
 import {
@@ -299,7 +299,7 @@ async function performMachineMutation(
 /** The addressing and budget one Machine mutation request carries. */
 type MachineMutationRequest = {
   readonly machine: MachinePath;
-  readonly envelope: RequestEnvelope;
+  readonly envelope: MachineRequestEnvelope;
 };
 
 /** One `fs.edit` or `fs.write` request, whichever the machine call asked for. */

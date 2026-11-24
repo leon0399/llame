@@ -4,7 +4,6 @@
  */
 import { drizzle } from 'drizzle-orm/postgres-js';
 
-import { BashProcessLimiter } from '@workspace/bash-executor';
 
 import { type Db } from '../db/tenant-db.service';
 import { NativeFilesRepository } from '../runs/native-files-repository';
@@ -106,7 +105,6 @@ function context(
     runId: 'run',
     toolCallId: 'call',
     nativeDeliverySequence: 1,
-    bashProcessLimiter: new BashProcessLimiter(64),
     tenantDb: {
       runAs: <T>(_userId: string, callback: (tx: Db) => Promise<T>) =>
         callback(db),
