@@ -12,10 +12,15 @@ workspace = true
 [dependencies]
 machine-core.workspace = true
 machine-protocol.workspace = true
+prost-types.workspace = true
 tokio.workspace = true
 tokio-stream.workspace = true
 tonic.workspace = true
+serde.workspace = true
+serde_json.workspace = true
 anyhow.workspace = true
+rustix.workspace = true
+tracing.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true
