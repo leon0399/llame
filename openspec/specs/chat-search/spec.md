@@ -48,25 +48,53 @@ Chat search SHALL match a user's chats by title and by the text content of user/
 
 ### Requirement: Results are ranked by fused relevance with canonical model shaping
 
-Search SHALL rank candidates by Reciprocal Rank Fusion over independent retrieval legs (never by mixing raw scores), aggregate document matches into Chats with weighted top-N scoring, and produce a deterministic order with stable tie-breaking. The document legs SHALL be full-text, trigram, and — when the corpus has a selected embedding model and the query was embedded — an owner-filtered exact cosine scan over stored vectors. The vector leg SHALL rank only documents whose recorded model key equals the corpus's current selection, whose embedded content hash equals the live content hash, and whose recorded input version equals the current `EMBED_INPUT_VERSION`; every other document contributes nothing to that leg. Fusion weights and the rank constant SHALL be fixed values chosen by a recorded comparison, not runtime settings. Per-leg ranks and the set of legs a Chat matched on MAY be retained for logs and evaluation but SHALL NOT be exposed as a confidence value on any surface; raw cosine distance, lexical rank, and fused score SHALL NOT appear in web or model responses. The web response contract (`id`, nullable `title`, nullable `snippet`, `updatedAt`) SHALL be preserved. The `search_conversations` model input SHALL be the strict two-mode contract defined below; the prior `{ query, limit }` shape SHALL NOT be accepted or aliased. A web content match SHALL continue to receive the derived best-region snippet with presentation role attribution; a title-only web match SHALL yield a `null` snippet. A web Chat that won through the vector leg with no lexical match SHALL receive the unhighlighted leading fragment of its winning document as its snippet rather than `null`.
+Search MUST rank candidates by Reciprocal Rank Fusion across independent full-text, trigram, and optional vector legs. It MUST NOT combine raw scores. Weighted top-N document scores MUST aggregate into Chats with deterministic ties. Recorded constants MUST define fusion weights and the rank constant, not runtime settings.
 
-An allowlisted `search_conversations` tool SHALL expose only canonical model-facing shaping. `search.chats.canonicalModelExcerpts` and the legacy model preview result SHALL NOT exist. Before an HTTP process that can admit a Run with the allowlisted declaration starts accepting Runs, it SHALL verify that the current projection discovery function is correctly provisioned and that every eligible Chat has complete current-version locator coverage. Every process that consumes the `runs` queue SHALL pass the same gate before registering its consumer, regardless of its current local allowlist, so every executing process satisfies the source-provisioning prerequisite before it resolves an attempt-local catalog. When coverage is incomplete, the gate SHALL act as one more discovery producer: it SHALL enqueue a bounded batch of stale Chats on the coalesced per-Chat reindex queue and wait a bounded time for reindex workers to complete coverage, and SHALL NOT rebuild projections itself. The gate SHALL run only after a co-located reindex consumer, if the process has one, is registered. Missing provisioning SHALL fail startup, and so SHALL a repair enqueue that the queue rejects or a discovery pass that finds no stale Chat to enqueue, without waiting; stale Chats, mixed/old versions, or incomplete document locators that remain when the wait ends SHALL fail startup. In every case startup fails rather than route model search through presentation snippets. Failure diagnostics SHALL contain only aggregate counts and provisioning state; they SHALL NOT expose tenant/user/Chat/message/document identifiers, snippets, or content-derived values. A process that neither accepts potentially search-enabled Runs nor consumes the `runs` queue SHALL NOT require this coverage gate merely to start.
+The vector leg MUST use an owner-filtered exact cosine scan when the corpus selects an embedding model and the query has an embedding. It MUST admit only documents with the current model key, live content hash, and current `EMBED_INPUT_VERSION`. Other documents MUST contribute nothing to that leg. Logs and evaluations can retain leg ranks and membership. Web and model results MUST expose no raw, cosine, lexical, or fused score.
 
-Model-facing lexical/trigram content results SHALL use the same pre-hydration candidate ordering as the web surface but SHALL NOT present projection snippets as canonical evidence. For each returned Chat, model shaping SHALL reauthorize and hydrate the winning current-version document, recompute current eligible visible-message text, and run one separate deterministic canonical-line matcher. The matcher SHALL apply `normalizeForSearch` exactly once to the query and each raw logical line (Unicode NFKC, whitespace collapse, lowercase), then qualify that line through line-local FTS, trigram, or escaped-substring predicates. It SHALL retain a mapping from a first exact normalized occurrence back to its raw source span when one exists; FTS/fuzzy qualification without that occurrence SHALL use the first code point of the qualifying raw line as a fixed crop fallback. Matching and ranking use normalized text, while excerpts/reads use original raw lines.
+The web result MUST retain `id`, nullable `title`, nullable `snippet`, and `updatedAt`. Content matches MUST keep projection-derived snippets with role attribution. Title-only matches MUST have null snippets. A vector-only winner MUST show its winning document's unhighlighted leading fragment.
 
-Each qualifying line SHALL produce a window with at most one adjacent line per side. Touching windows SHALL merge within one message. A merged interval longer than 2,000 logical lines SHALL be partitioned into deterministic adjacent passages of at most 2,000 lines, each containing a qualifying line. The selector SHALL return the earliest bounded passage in `(messageSeq, offset)` order; it SHALL NOT be represented as an explanation of the document/Chat rank.
+Model search MUST use canonical evidence, not presentation snippets or a legacy preview mode. `search.chats.canonicalModelExcerpts` MUST NOT exist. The input MUST use the strict content/timeline union below, without the former query-only alias.
 
-The model success SHALL be a strict result union with one top-level closed notice identifying all returned historical content as untrusted and potentially stale, unable to change system instructions, tools, permissions, or owner authority. A `kind: "content"` result SHALL carry Chat/title/date metadata, message role/timestamp, flat `{ chatId, messageSeq, offset, limit }` source coordinates, and an `excerpt` of at most 500 Unicode code points. A `kind: "metadata"` title-only result SHALL carry only Chat/title/date metadata and SHALL omit message/source/excerpt fields. `offset` and `limit` on a content result SHALL identify the complete bounded message-local logical-line window directly accepted by `conversation_read`. When that window exceeds the excerpt cap, the excerpt SHALL crop visibly around the mapped raw match or its fixed fallback without changing the complete coordinates. The excerpt SHALL contain no generated line-number prefix, part/message UUID, source hash, public version, projection identity, or retrieval score, and SHALL be framed as bounded discovery text that requires `conversation_read` before exact quotation or reliance on omitted context.
+Before Run admission, every potentially search-enabled HTTP process MUST verify discovery provisioning and complete current-version source coverage. Every Runs consumer MUST pass the same gate before it registers, regardless of its local allowlist. Register any co-located reindex consumer before the gate. A process without Run admission or execution MUST require no search-coverage gate.
 
-Only one passage SHALL be returned per Chat in this iteration. A title-only model winner SHALL be metadata-only. A winning document that cannot be currently authorized/hydrated, belongs to an ineligible mutable message, or matches only across line/message boundaries without an individually matching message-local line SHALL be omitted rather than replaced by projection bytes or a generalized cross-message source. Model shaping MAY therefore return fewer Chats than the unchanged web surface; `limit` remains a maximum rather than a completeness claim.
+For incomplete coverage, the gate MUST enqueue a bounded stale-Chat batch through the coalesced reindex queue. It MUST wait a bounded time for workers and MUST NOT rebuild projections itself. Missing provisioning, rejected enqueue, or incomplete coverage without discoverable stale Chats MUST fail startup immediately. Remaining stale versions or incomplete locators after the wait MUST fail startup. Diagnostics MUST contain aggregate counts and provisioning state only. They MUST disclose no tenant identity, Chat/message/document identity, snippet, or content-derived value.
 
-A winning document that ranked without any individually qualifying canonical line — a vector-only winner — SHALL still be reauthorized and hydrated through the same canonical source contract. When hydration succeeds, model shaping SHALL return a `kind: "content"` result anchored to the winning document's **first** message: `messageSeq` is that message's sequence, `offset` is the logical line containing the document's first-message text offset, and `limit` runs to the end of that message's eligible visible text — or to the document's exclusive end offset when the document begins and ends in the same message. The excerpt SHALL be a fixed crop at the start of that window, framed exactly like every other content result. A document spanning several messages therefore yields the window of its first message only; the remaining messages are reachable through `conversation_read`, not implied by the coordinates. It SHALL NOT invent a match span, a semantic quote, a relevance explanation, or a score, and SHALL NOT be distinguishable to the model as "semantic" beyond the absence of a highlighted term. When hydration fails, it SHALL be omitted like any other stale candidate. This anchor is retained unchanged by the timeline-and-range contract; its interaction with a required range is defined below.
+Model lexical/trigram results MUST share the web candidate order before hydration. For each winner, the model path MUST reauthorize and hydrate its current document. It MUST recompute eligible visible-message text and use one deterministic canonical-line matcher. The matcher MUST normalize the query and each raw line exactly once through `normalizeForSearch`. That normalization MUST apply Unicode NFKC, whitespace collapse, and lowercase. Line-local FTS, trigram, or escaped-substring predicates MUST determine qualification.
 
-`search_conversations` SHALL accept exactly one strict object with unknown properties rejected: `mode` (`content` or `timeline`), optional `query`, optional `after` and `before` (absolute timezone-explicit instants forming the half-open interval `[after, before)`), optional `constraint` (`required` or `preferred`), and optional integer `limit`. In `content` mode `query` SHALL be present and non-blank, `constraint` SHALL be present when any bound is present and absent otherwise, and `limit` SHALL be 1–10 with default 5. In `timeline` mode `query` and `constraint` SHALL be absent, at least one bound SHALL be present, and `limit` SHALL be 1–50 with default 20. When both bounds are present `after` SHALL be strictly earlier than `before`. A bound MAY be omitted on either side; a missing bound imposes no clause and SHALL NOT be silently filled with the current instant. Every violation — unknown field, blank query, missing query, query or constraint in timeline mode, no bound in timeline mode, bound without constraint or constraint without bound in content mode, reversed or empty range, malformed instant, out-of-range limit — SHALL return a bounded invalid-argument observation before any retrieval statement executes, whether the violation is caught by the advertised schema or by the tool's own strict parse of its arguments. The tool SHALL NOT parse natural-language dates.
+The first exact normalized occurrence MUST map back to its raw source span. A fuzzy or FTS match without that occurrence MUST crop from the qualifying line's first code point. Normalization MUST select text, not replace evidence bytes. Each qualifying line MUST form a window with at most one adjacent line per side. Touching windows MUST merge within one message.
 
-A `required` range SHALL exclude candidates whose canonical eligible message timestamps fall outside `[after, before)` before ranking. When a winning document is hydrated, canonical-line passage selection SHALL consider only messages whose timestamps fall inside the range, so a returned content passage always carries an in-range timestamp; a vector-only winner whose first-message anchor falls outside the range SHALL be omitted. A title-only candidate under a required range SHALL be returned as `kind: "metadata"` only when the Chat has at least one eligible message inside the range. A `preferred` range SHALL NOT exclude any candidate and SHALL NOT admit one: it SHALL add one fixed additive rank-fusion contribution to documents whose span overlaps the range, smaller than the contribution a document earns by ranking first in a single leg, so that an in-range document can overtake only out-of-range documents ranked within a bounded window above it, and an out-of-range document keeps its actual timestamp when returned. The contract SHALL NOT be read as a guarantee that an exact out-of-range match survives `limit`: when more in-range documents than `limit` fall inside that window, it is displaced, and the model recovers it by widening `limit` or dropping the range. The magnitude SHALL be a recorded constant, not a runtime setting. With no range, content mode SHALL preserve the global relevance order and SHALL NOT apply a recency decay.
+Partition intervals beyond 2,000 lines into deterministic adjacent passages of at most 2,000 lines. Each passage MUST contain a qualifying line.
 
-Every success SHALL carry an envelope with the closed untrusted-history notice, `appliedRange` echoing exactly the bounds and constraint received (an omitted bound is absent), and `truncated: true` when the ranked candidate list held at least one further candidate beyond `limit` before shaping; because shaping may omit candidates, `truncated: true` MAY accompany fewer than `limit` rows. Per-leg ranks, fused scores, matched-by legs, and the reason a candidate was omitted SHALL NOT appear in any row or in the envelope.
+The selector MUST return the earliest bounded passage by `(messageSeq, offset)`. That passage MUST NOT claim to explain the Chat rank. Return at most one passage per Chat.
+
+Omit unauthorized, stale, mutable, or unhydrated winners. Omit a cross-message-only match without a qualifying individual line. Never substitute projection bytes or an arbitrary message. `limit` MUST remain a maximum, not a completeness claim.
+
+Each model success MUST carry the closed untrusted-history notice. That notice MUST identify excerpts as potentially stale data without instruction, tool, permission, or identity authority. Content rows MUST contain Chat/title/date metadata, role, timestamp, canonical source locator, and an excerpt of at most 500 Unicode code points. The locator MUST use `chat://<chatId>/<messageSeq>:L<start>-<end>`. Its start MUST equal the zero-based source offset plus one. Its end MUST equal that offset plus the complete source-window length.
+
+Separate `offset` and `limit` result fields MUST NOT remain. Internal passage calculation can retain those values. An oversized excerpt MUST crop visibly around the mapped match or fixed fallback without changing the locator window. Excerpts MUST contain no generated line prefixes, internal UUIDs, hashes, versions, projection identities, or scores. Exact quotations MUST follow a bounded read of the locator. A metadata-only row MUST carry its Chat locator and no fabricated message, line selector, or excerpt.
+
+A vector-only winner MUST use the same authorization and hydration. Its source MUST be the winning document's first message. Start at the logical line that contains the document's first-message offset. End at that message's visible-text end, or the document's exclusive end when both ends occupy the same message.
+
+Crop its excerpt at that window's start. Omit hydration failures. Later messages MUST require separate reads. Do not invent match spans, quotes, explanations, scores, or a semantic discriminator.
+
+`search_conversations` MUST accept one strict object with `mode`, optional `query`, optional `after`/`before`, optional `constraint`, and optional integer `limit`. Bounds MUST be timezone-explicit absolute instants for `[after, before)`.
+
+Content mode MUST require a nonblank query. It MUST require `constraint` with any bound and prohibit it without bounds. Its limit MUST be 1 through 10, default 5.
+
+Timeline mode MUST prohibit query and constraint. It MUST require at least one bound and a limit of 1 through 50, default 20.
+
+Two bounds MUST satisfy `after < before`. A missing bound MUST impose no clause, without an implicit current instant. Unknown fields, malformed values, invalid mode combinations, and invalid limits MUST fail before retrieval. The executor MUST enforce that rule even if SDK validation misses it. The tool MUST NOT parse natural-language dates.
+
+A required range MUST qualify candidates by canonical eligible message timestamps before rank selection. Hydrated lexical passages MUST use only in-range messages. Omit a vector-only winner whose first-message anchor falls outside the range. A title-only result MUST have at least one in-range eligible message.
+
+A preferred range MUST neither admit nor exclude candidates. It MUST add one recorded rank-fusion contribution to overlapping documents. That contribution MUST remain below a first-place contribution from one leg. It can let nearby lower-ranked in-range documents overtake out-of-range documents. It MUST NOT let a distant weak match overtake a strong one.
+
+Without a range, content mode MUST preserve global relevance without recency decay.
+
+A preferred range does not guarantee survival within `limit`. Enough nearby in-range documents can displace an out-of-range winner. The model can widen the limit or drop the range. Returned out-of-range messages MUST retain their actual timestamps.
+
+Every success MUST echo exactly the supplied bounds and constraint in `appliedRange`, without absent values. It MUST set `truncated: true` when another ranked candidate exists beyond the limit before hydration. Omitted candidates can leave fewer rows than the limit despite truncation. Rows and envelopes MUST expose no rank, score, retrieval-leg label, or omission reason.
 
 #### Scenario: Content match returns a highlighted snippet
 
@@ -88,33 +116,32 @@ Every success SHALL carry an envelope with the closed untrusted-history notice, 
 
 #### Scenario: Stale Chats left by an interrupted Run are repaired before admission
 
-- **WHEN** a process that can advertise or execute `search_conversations` starts while some Chats' projections lag their canonical messages, and a reindex consumer is running
-- **THEN** the gate enqueues those Chats on the reindex queue and the process starts once workers complete coverage within the wait
-- **AND** the gate itself rebuilds no projection, so concurrent processes coalesce on the same per-Chat jobs
+- **WHEN** a search-enabled process finds stale projections and has an active reindex consumer
+- **THEN** the gate enqueues repair and waits within its bound
+- **AND** only reindex workers rebuild the projections
 
 #### Scenario: Incomplete coverage fails startup
 
-- **WHEN** a process can advertise or execute `search_conversations` but its trusted discovery function is incomplete, a repair enqueue is rejected by the queue, coverage is incomplete with no stale Chat to enqueue, or current locator coverage is still incomplete when the bounded wait ends
-- **THEN** that process fails startup before accepting or consuming Runs
-- **AND** it does not silently expose the legacy model result shape or identify any tenant, Chat, message, document, or content in diagnostics
+- **WHEN** a search-enabled process lacks provisioning, cannot repair coverage, or reaches its repair deadline with incomplete locators
+- **THEN** the process fails startup before Run admission or execution
+- **AND** diagnostics disclose no tenant, source identity, or content
 
 #### Scenario: Non-Run process does not gate startup
 
-- **WHEN** a process neither accepts Runs that may bind `search_conversations` nor consumes the `runs` queue
+- **WHEN** a process neither accepts Runs that can bind `search_conversations` nor consumes the `runs` queue
 - **THEN** absence of canonical projection coverage does not by itself prevent that process from starting
 - **AND** that process does not execute a conversation-search declaration
 
 #### Scenario: Runs worker ignores its current allowlist for coverage admission
 
-- **WHEN** a worker profile consumes Runs and may admit `search_conversations` in its runtime catalog
-- **THEN** the worker requires complete canonical projection coverage before registering its consumer even when its current local allowlist omits that tool
-- **AND** execution cannot bypass this worker boot gate through queue acceptance by another process
+- **WHEN** a Runs consumer starts with search absent from its local allowlist
+- **THEN** it still verifies complete canonical coverage before consumer registration
 
 #### Scenario: Lexical model result carries reusable line coordinates
 
-- **WHEN** a winning current document contains an individually matching canonical message line
-- **THEN** the model result identifies that message by `messageSeq` and the merged match-plus-adjacent line window by zero-based `offset` and positive `limit`
-- **AND** those fields can be passed directly to `conversation_read`
+- **WHEN** a current winning document contains a qualifying canonical line
+- **THEN** the content row emits its canonical message locator with the merged bounded `L` window
+- **AND** read accepts the locator without coordinate translation
 
 #### Scenario: Canonical model result retains untrusted framing
 
@@ -126,7 +153,7 @@ Every success SHALL carry an envelope with the closed untrusted-history notice, 
 
 - **WHEN** the selected complete line window contains more than 500 Unicode code points
 - **THEN** search crops the excerpt visibly around a match to at most 500 code points
-- **AND** preserves the uncropped window's `offset` and `limit` for exact follow-up reading
+- **AND** preserves the complete uncropped window in the source locator
 
 #### Scenario: Multiple matching windows choose one deterministic passage
 
@@ -136,9 +163,9 @@ Every success SHALL carry an envelope with the closed untrusted-history notice, 
 
 #### Scenario: Long merged window stays reader-compatible
 
-- **WHEN** touching matching windows merge into more than 2,000 logical lines
-- **THEN** the selector partitions them into deterministic adjacent passages of at most 2,000 lines that each retain a qualifying line
-- **AND** returns only the earliest bounded passage with coordinates accepted by `conversation_read`
+- **WHEN** touching windows span more than 2,000 logical lines
+- **THEN** the selector divides them into deterministic adjacent passages with a qualifying line in each
+- **AND** the earliest bounded passage supplies a directly readable locator
 
 #### Scenario: Normalized match returns raw source
 
@@ -156,13 +183,13 @@ Every success SHALL carry an envelope with the closed untrusted-history notice, 
 
 - **WHEN** a candidate matches only the Chat title
 - **THEN** the model result uses `kind: "metadata"` and identifies the Chat/title as metadata-only
-- **AND** it carries no arbitrary message excerpt or source coordinates
+- **AND** it carries its Chat locator without a message sequence, line window, or excerpt
 
 #### Scenario: Content and metadata results are structurally distinct
 
 - **WHEN** one model response contains content and title-only Chat matches
-- **THEN** content entries use `kind: "content"` with all required message/source/excerpt fields
-- **AND** metadata entries use `kind: "metadata"` and reject those content-only fields
+- **THEN** content entries use `kind: "content"`, a line-selected message locator, role, timestamp, and excerpt
+- **AND** metadata entries use `kind: "metadata"` and a Chat-root locator without message sequence, line window, or excerpt
 
 #### Scenario: Stale candidate never becomes model evidence
 
@@ -174,19 +201,20 @@ Every success SHALL carry an envelope with the closed untrusted-history notice, 
 
 - **WHEN** a projection document matches only through terms distributed across lines/messages and no individual canonical message line satisfies the winning predicate
 - **THEN** model shaping omits that content result rather than choosing an arbitrary message
-- **AND** the unchanged web preview may still return the ranked Chat for navigation
+- **AND** the unchanged web preview can still return the ranked Chat for navigation
 
 #### Scenario: Vector-only winner returns the document window
 
-- **WHEN** a Chat wins through the vector leg and no individual canonical line qualifies lexically
-- **THEN** `search_conversations` returns a content result anchored to the winning document's first message, with `offset`/`limit` covering that message's eligible visible lines from the document's start offset, and an excerpt cropped at the window start
-- **AND** the result carries no score, match span, or generated quote, and `conversation_read` accepts the coordinates directly
-- **AND** the web palette shows the same Chat with the unhighlighted leading fragment of that document as its snippet
+- **WHEN** a document wins through the vector leg without a lexical canonical-line match
+- **THEN** the content locator selects its first-message window and the excerpt starts at that window
+- **AND** the row invents no score, match span, or quote
+- **AND** the web keeps its unhighlighted document preview
 
 #### Scenario: Stale or superseded vector contributes nothing
 
-- **WHEN** a document's stored vector was produced under a model key other than the corpus's current selection, or its embedded content hash no longer equals its content hash, or its recorded input version differs from the current `EMBED_INPUT_VERSION`
-- **THEN** that document is absent from the vector leg while remaining reachable through the lexical and trigram legs
+- **WHEN** a vector has an old model key, stale content hash, or old embedding input version
+- **THEN** it contributes nothing to the vector leg
+- **AND** lexical and trigram legs retain their independent eligibility
 
 #### Scenario: Vector response is not pre-shaped
 
@@ -196,9 +224,8 @@ Every success SHALL carry an envelope with the closed untrusted-history notice, 
 
 #### Scenario: Invalid mode and field combinations never reach retrieval
 
-- **WHEN** the model sends an unknown field, a blank or missing content query, a query or constraint in timeline mode, a timeline call with no bound, a content bound without a constraint, a reversed or empty two-sided range, a malformed instant, or a limit outside the mode's range
-- **THEN** the tool returns a bounded invalid-argument observation
-- **AND** no candidate or timeline statement is executed
+- **WHEN** input violates a mode, bound, query, constraint, limit, or unknown-field rule
+- **THEN** the tool returns a bounded invalid-argument observation before any retrieval query
 
 #### Scenario: Required range filters by canonical message time
 
@@ -213,9 +240,9 @@ Every success SHALL carry an envelope with the closed untrusted-history notice, 
 
 #### Scenario: Preferred range cannot hide a strong match
 
-- **WHEN** a content query with `constraint: "preferred"` has an exact match outside the range and only weak matches inside it
-- **THEN** the exact match remains within the returned results with its actual timestamp when fewer in-range documents than `limit` sit inside the overtake window
-- **AND** an in-range document ranked moderately below an out-of-range document overtakes it while a document far below does not
+- **WHEN** a preferred range has one strong out-of-range match and weak in-range matches
+- **THEN** the strong match survives when fewer nearby in-range candidates than the limit can overtake it
+- **AND** only documents inside the fixed overtake window can displace it
 
 #### Scenario: One-sided range is a single clause
 
@@ -240,7 +267,11 @@ Search surfaces SHALL treat the server's ranked results as authoritative. The co
 
 ### Requirement: Search never crosses the tenant boundary
 
-The search path SHALL return only chats owned by the requesting user. Another user's content MUST NOT be reachable through search even when it matches the query exactly, and a `visibility = 'public'` chat of another user MUST NOT surface in search results. System prompts, tool payloads, and model reasoning MUST NOT be matched or surfaced in snippets. Isolation SHALL be enforced by RLS on the underlying tables (owner filters remain as defense-in-depth) and proven by negative tests in the RLS harness. The vector leg SHALL carry the same explicit owner predicate inside its candidate query and SHALL be covered by the same negative tests, including the empty-identity case, so a stored vector is never reachable across a tenant boundary that lexical retrieval already enforces. Every predicate this capability evaluates over canonical messages — timeline discovery and required-range activity checks — SHALL carry the same identity guard as `conversation_read`: it SHALL refuse an empty trusted identity and SHALL require inside the statement that the session identity equals the owner predicate, so the public-read message policy can never satisfy an owner-scoped query. These predicates SHALL be covered by the same negative tests: another owner's activity, another owner's public Chat, and an empty identity combined with a real owner id yield no region, no count, no metadata row, and no title.
+Search MUST return only the trusted owner's Chats. RLS MUST enforce ownership with explicit owner predicates as defense in depth. Another owner's public visibility MUST grant no access. Search MUST match or excerpt no system prompt, tool payload, or reasoning part.
+
+The vector leg MUST carry the same owner predicate. Canonical timeline and required-range queries MUST also verify trusted session identity inside their statements. They MUST refuse empty identity even when a real owner id accompanies it. Public-read policies MUST NOT satisfy these owner queries.
+
+Negative datastore checks MUST cover both owners, foreign public Chats, and empty identity. Those checks MUST prove that foreign text, vectors, activity regions, counts, titles, sequences, and metadata remain absent.
 
 #### Scenario: Cross-tenant exclusion
 
@@ -254,13 +285,15 @@ The search path SHALL return only chats owned by the requesting user. Another us
 
 #### Scenario: Vector leg respects the tenant boundary
 
-- **WHEN** user B's query vector is nearest to a document vector stored in user A's chat, including a public chat, or the search runs with no identity
-- **THEN** that document contributes nothing and user B's results contain no chat of user A
+- **WHEN** owner B searches a vector nearest to owner A content, including a public Chat
+- **THEN** A contributes no result
+- **AND** empty identity grants no vector access
 
 #### Scenario: Timeline discovery respects the tenant boundary
 
-- **WHEN** user B requests a timeline range or required-range search during which only user A had activity, including in a public Chat, or the request runs with an empty identity while naming user A as owner
-- **THEN** the result contains no region, count, metadata row, title, or sequence from user A's Chats
+- **WHEN** owner B requests a period with only owner A activity
+- **THEN** no foreign region, count, title, sequence, or metadata appears
+- **AND** empty identity with a real owner id also reveals nothing
 
 ### Requirement: New content is searchable on turn completion
 
@@ -322,13 +355,17 @@ When the corpus has a selected embedding model, search SHALL embed the trimmed r
 
 ### Requirement: Timeline discovery returns canonical activity pointers without excerpts
 
-In `timeline` mode `search_conversations` SHALL qualify a Chat by the timestamps of its canonical evidence-eligible messages inside `[after, before)`, never by Chat creation time or a generic last-updated value. For each qualifying Chat it SHALL return exactly one region with `kind: "timeline"` as the closed discriminator, containing only `chatId`, the nullable title, `firstActivityAt` and `lastActivityAt` (the earliest and latest eligible message instants inside the range), `messageCount` (eligible messages inside the range), and `firstSeq` and `lastSeq` (the minimum and maximum Chat-local sequence among eligible messages inside the range, since a message and its reply may share one instant), each directly acceptable as `conversation_read` `messageSeq`. A timeline success SHALL contain only `kind: "timeline"` rows; content and metadata rows SHALL appear only in content mode, so the result union is closed per mode. Regions SHALL be ordered by `lastActivityAt` descending with `chatId` as the stable tie-break, bounded by `limit`, with `truncated` reported in the envelope. A region SHALL carry no excerpt, opening text, message body, snippet, score, matched-by value, embedding, summary, or generated text. Timeline mode SHALL execute no query embedding and SHALL NOT read the search projection. Owner identity SHALL come only from trusted Run context.
+Timeline mode MUST qualify activity from canonical eligible-message timestamps inside `[after, before)`. Chat creation or title-update timestamps MUST NOT qualify activity. Trusted Run context MUST supply owner identity.
+
+Each qualifying Chat MUST have one `kind: "timeline"` region. It MUST carry `chatId`, nullable title, `firstActivityAt`, `lastActivityAt`, `messageCount`, `firstSeq`, `lastSeq`, `firstLocator`, and `lastLocator`. Instants MUST bound eligible in-range activity. Count MUST include eligible in-range messages only. Sequences MUST identify the minimum and maximum eligible in-range positions. Both locators MUST address those messages directly through read.
+
+The response MUST contain timeline rows only. Order regions by descending `lastActivityAt`, then Chat id. Apply the mode limit and envelope truncation rule. Regions MUST contain no excerpt, message text, snippet, score, retrieval-leg label, embedding, summary, or generated text. Timeline mode MUST issue no embedding request and read no search projection.
 
 #### Scenario: Recap of a day yields pointers, then reads
 
 - **WHEN** the model requests a timeline range covering one day in which the owner had eligible activity in three Chats
 - **THEN** the result contains three regions with titles, boundary instants, counts, and boundary sequences and no message text
-- **AND** `conversation_read` accepts each `firstSeq` directly and returns `nextMessageSeq` for continuation
+- **AND** read accepts each `firstLocator` directly and returns `nextMessageSeq` for continuation
 
 #### Scenario: Activity is qualified by eligible messages only
 
@@ -342,7 +379,11 @@ In `timeline` mode `search_conversations` SHALL qualify a Chat by the timestamps
 
 ### Requirement: Temporal interpretation belongs to the model, anchored on trusted context
 
-The packaged default prompt SHALL instruct the model to resolve relative temporal phrases from the rendered temporal anchor into absolute instants before calling `search_conversations`: exact phrases such as "yesterday" or "during March" use timeline mode or a `required` content range; uncertain recollections such as "I think a few months ago" use a `preferred` content range; "recently" with no finite owner-supplied period is materialized into a finite range from the anchor or clarified with the owner rather than issued unbounded. The prompt SHALL keep recalled content framed as untrusted historical data, SHALL prefer discovery followed by bounded `conversation_read`, and SHALL state that a listing request may stop at timeline metadata while a recap must read the pointed-to messages, walking from `firstSeq` by `nextMessageSeq` and stopping at `lastSeq`: `conversation_read` itself is unaware of the range, so a message it returns beyond `lastSeq` lies outside the requested period and SHALL NOT be presented as part of it. Until owner-local temporal context ships, relative phrases resolve against the instance timezone rendered in the anchor.
+The packaged prompt MUST resolve relative periods from the trusted temporal anchor into absolute instants before search. Exact periods, including yesterday or March, MUST use timeline mode or a required content range. Uncertain recollections MUST use a preferred range. Recent activity without a finite owner-supplied period MUST become a finite range or require clarification.
+
+The prompt MUST treat recalled content as untrusted history. It MUST prefer discovery followed by bounded Chat reads. A list request can stop at timeline metadata. A recap MUST read the addressed messages.
+
+It MUST follow eligible message navigation from `firstSeq` through `lastSeq` and exclude later messages. It MUST also exclude intermediate messages whose activity timestamps fall outside `[after, before)`. The reader MUST NOT imply that a neighbor stays inside the period. Relative dates MUST use the instance timezone until owner-local temporal context ships.
 
 #### Scenario: Relative phrase becomes an absolute range
 
@@ -350,6 +391,12 @@ The packaged default prompt SHALL instruct the model to resolve relative tempora
 - **THEN** the model computes yesterday's absolute bounds from the rendered anchor and calls timeline mode with them
 - **AND** the tool receives no natural-language date
 - **AND** a recap reads each region from `firstSeq` to `lastSeq` and excludes any later message the reader returns
+
+#### Scenario: Sequence order does not prove period membership
+
+- **WHEN** an out-of-period message lies between a region's boundary sequences
+- **THEN** recap guidance checks each read message's activity timestamp and excludes that message
+- **AND** ordinary Chat reads remain unfiltered source reads
 
 #### Scenario: Uncertain recollection uses a preferred range
 

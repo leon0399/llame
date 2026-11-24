@@ -64,9 +64,13 @@ Proposal publication keeps Project status derived from the published PR. Do not 
 
 ## 4. Finalize layer
 
-- [ ] 4.1 Confirm both implementation layers passed their gates. Serialize canonical sync with overlapping `tool-search` and `model-roles` changes. If either remains active, stop before canonical writes. Rebase onto their canonical outcomes and preserve all new groups, frozen state, placement rules, and scenarios before synchronization.
-- [ ] 4.2 Enter `unified-chat-read/finalize` with `$gh-stack` before `$openspec-sync-specs` writes any canonical file. Synchronize the reviewed deltas and preserve all required scenarios.
-- [ ] 4.3 Verify canonical cross-capability semantics, source links, and removed-name references. Run `pnpm exec openspec validate --specs --strict`, `pnpm exec openspec validate --all --strict`, Markdown/format checks, and `git diff --check`.
-- [ ] 4.4 Inspect `openspec status --change unified-chat-read --json` and this task list. Confirm every planning artifact and tracked readiness task is complete before archive movement.
+- [x] 4.1 Confirm both implementation layers passed their gates. Serialize canonical sync with overlapping `tool-search` and `model-roles` changes. If either remains active, stop before canonical writes. Rebase onto their canonical outcomes and preserve all new groups, frozen state, placement rules, and scenarios before synchronization.
+- [x] 4.2 Enter `unified-chat-read/finalize` with `$gh-stack` before `$openspec-sync-specs` writes any canonical file. Synchronize the reviewed deltas and preserve all required scenarios.
+- [x] 4.3 Verify canonical cross-capability semantics, source links, and removed-name references. Run `pnpm exec openspec validate --specs --strict`, `pnpm exec openspec validate --all --strict`, Markdown/format checks, and `git diff --check`.
+- [x] 4.4 Inspect `openspec status --change unified-chat-read --json` and this task list. Confirm every planning artifact and tracked readiness task is complete before archive movement.
+
+Finalize evidence: model-roles finalized in #1919. Master `62fb43df6` also contains #1920's retry-before-failover correction and #1921's matching delta correction. Tool-search remains future design work under #338, with no published implementation or finalize writer; Leo explicitly requested this finalization. The previously green implementation layers were rebased with focused API typecheck, lint, build, 1,079 digest unit cases, 50 integration cases, and migration graph checks. Reader export adaptation passed 28 focused cases. Current-head CI and review monitoring restart on publication and remain post-archive gates.
+
+All 78 delta operations were checked after formatting. The 73 added or modified requirements match their deltas exactly, all removed requirements are absent, and 392 unmentioned requirements retain their exact text. Every prior scenario in a modified requirement remains in order. Strict validation passed 68 canonical specs and 70 total active items before archive. Markdown, formatting, and whitespace checks passed.
 
 Archive execution follows readiness. Run `$openspec-archive-change` only after every tracked task is checked. After movement, authorized draft publication, self-review before ready, GitHub review/CI, Ready-PR monitoring, Project readback, and explicit merge permission remain mandatory post-archive gates. They are not unchecked prerequisites of archive execution.

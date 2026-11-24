@@ -10,9 +10,11 @@
 
 ### Requirement: Compaction publishes a summary-only checkpoint before the Run's first model step
 
-The worker MUST evaluate automatic compaction once before the first model step, against that attempt's prepared request. It MUST select exactly one variant. A request beyond the model window or reserved output budget MUST select the window variant, even above the threshold. Otherwise, measured context at or above the model threshold MUST select the threshold variant. The worker MUST NOT apply both variants.
+The worker MUST evaluate automatic compaction once before the first model step, against that attempt's prepared request. When a trigger applies, the worker MUST select exactly one variant. A request beyond the model window or reserved output budget MUST select the window variant, even above the threshold. Otherwise, measured context at or above the model threshold MUST select the threshold variant. The worker MUST NOT apply both variants.
 
 Media overflow MUST also satisfy the threshold when two conditions hold. First, the request omits an image or PDF because the epoch media bounds are full. Second, a prior row contains a stored or retained reference of a kind the model accepts. The prior row MUST precede the triggering user message. A result without `media` or `retainedMedia` MUST NOT qualify. A non-fitting request MUST still select the window variant.
+
+When no window, threshold, or media-overflow trigger applies, the request MUST proceed without compaction.
 
 When media overflow alone triggers compaction, a failed summary MUST leave the attempt usable without a checkpoint. Overflowing references MUST retain their limit placeholders. The next Run MUST evaluate the trigger again. A successful checkpoint MUST start a new media epoch.
 
@@ -63,6 +65,7 @@ Estimate the actual request without a historical tool catalog. If the request st
 #### Scenario: A pre-step trigger compacts before the first model request
 
 - **WHEN** a prepared Run request reaches its threshold or exceeds its model window
+- **AND** a user or assistant row sits between the active absorbed boundary and the triggering message
 - **THEN** the selected variant summarizes before the first model step
 - **AND** its checkpoint, raw summary, and required companion commit atomically before that step
 

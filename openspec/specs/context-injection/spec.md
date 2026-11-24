@@ -8,44 +8,39 @@ The single rail on which llame injects server-authored context into a chat's mod
 
 ### Requirement: Server-authored context is injected as discrete items on one rail
 
-Some server-authored contributions to the model-visible conversation of a Chat are not part of
-the system prompt. The system MUST inject each of them as a **context item** on one rail. The system MUST show
-an item inside one canonical `<system-reminder>` envelope. An item MUST NOT add a top-level
-delimiter name of its own.
+Every server-authored contribution outside the system prompt MUST use one context item on one rail. Each item MUST use the canonical `<system-reminder>` envelope. A producer MUST NOT add its own top-level delimiter. Each item MUST occupy its own text block, separate from other items and owner text.
 
-A compaction checkpoint MUST stay a rail context item with producer `compaction`, form
-`checkpoint`, and rail residency for envelope semantics. It MUST NOT be a storage exception. Its
-durable form MUST be an ordinary persisted `data-context` part on a `checkpoint` row. Replay MUST
-convert that row to one user-role text message, as it converts each other persisted rail part.
-`model-system-prompts` MUST own the coverage boundary and the replay-selection contract of the row.
+The provider wire role MUST remain `user`. The system MUST NOT invent a provider role. An accepted-turn item MUST attach to its triggering user message when that message can carry it. A producer without a triggering message MUST use its existing producer-owned message.
 
-The wire role MUST stay `user`. The system MUST NOT invent a provider-level role for injected
-context. Items MUST NOT become separate conversation messages when a message already exists to
-carry them. Items attached to a turn MUST go inside the triggering user message of that turn.
+A compaction checkpoint MUST remain a rail item with producer `compaction` and form `checkpoint`. Its storage MUST be an ordinary `data-context` part on a checkpoint row. Replay MUST convert that part to one user-role message. Model-system-prompts MUST own its coverage and selection boundaries.
 
-An item authored **between the model steps of one Run** is an in-Run item, and no user message
-carries it. The system MUST store it as a `data-context` part on the assistant message of that Run. It goes
-directly after the last tool part of the step whose results triggered it. The model MUST receive
-it as a user-role text message after the last tool result of that step. This applies to the step
-after the trigger and to each later step of the same Run, at the same position. In a Run, the
-system MUST compute that placement from the live model messages of the step. It removes any earlier
-copy of the item and inserts the item after the tool-result message that carries the matching tool
-call. Thus the result is the same whether or not the model client keeps the message override of an
-earlier step. The item MUST use the same envelope, frame, and vocabulary as an attached item. The
-system MUST persist an in-Run item on that assistant message in the dispatch transaction of the
-first model request that carries it. This applies whatever the outcome of the Run. Each terminal outcome
-MUST keep it after the last tool part of its triggering step. When a step-boundary compaction
-absorbs the triggering step, the item reaches later requests only through the checkpoint summary,
-and the system MUST NOT place it again.
+A recency-digest snapshot associated with a checkpoint MUST use a separate host-authored user-role message. That message MUST contain only its digest context item. Its payload MUST name the checkpoint. Both rows MUST commit atomically.
 
-Each item MUST have its **own text content block** in that message. It MUST NOT join another item
-or the user's text in one block. Thus the separation between server-authored content and
-user-authored content is structural, not a text convention that user input can copy.
+Replay MUST place the companion immediately after its checkpoint and before retained owner messages. No companion can enter the summary or start another Run. Duplicate publication MUST create no second companion.
 
-A `job` item of `background-jobs` is never an in-Run item. `run-steering` delivers it at a step
-boundary in the delivered message of the owner. When that delivery has no owner message item, or
-when the host starts a Run for it, a host message carries it. A host message MUST hold
-context items only, and no text part.
+An in-Run item MUST persist on the Run's assistant message immediately after its triggering step's last tool part. Its next and later steps MUST receive it as user-role text after that tool result. Live assembly MUST remove earlier copies and place one item after the matching tool-result message. That placement MUST remain independent of model-client override retention. The item MUST use ordinary envelope, provenance, and vocabulary rules.
+
+The dispatch transaction of the first request with an in-Run item MUST persist it. Every terminal outcome MUST keep it. Only a retry or follow-up dispatch that resets the reply can remove it with that reply. A step-boundary compaction MUST absorb it once. It MUST NOT reappear outside the summary unless its producer defines a re-baseline snapshot.
+
+A job item MUST NOT be an in-Run item. Run steering MUST deliver it through the owner's delivery message. Without an owner message, the host message MUST carry context items only and no text part. A host-started job-notice Run MUST use that same rule.
+
+Ordinary persisted-literal items MUST commit in request dispatch before model I/O, regardless of the later outcome. A dispatch transaction that fails MUST send nothing. Accepted-turn items MUST precede the owner's text. The request MUST use their exact stored text.
+
+A retry MUST keep earlier dispatched accepted-turn items unchanged and in place. It MUST derive each producer again against effective stored context. That comparison MUST count prior committed disclosure, seen state, and baseline items. Persist only newly derived items after the last stored item and before owner text. Order those new items by producer rank. A retry without earlier dispatch MUST use normal first-attempt ranks, relative to accepted prompt imports and skill activations.
+
+Follow-up Runs MUST follow the same keep-and-append rule. They MUST reuse accepted prompt imports and skill activations without another read or activation. Regenerate MUST remove prior model-switch items with cause `model` or `failover` on its first dispatch. It MUST then append only the model switch its own comparison yields. Retry of that Regenerate MUST keep the newly stored switch.
+
+Retry preparation MUST read ordinary history only through its triggering user message. It MUST also load the effective checkpoint and its associated companion. Its own reply MUST NOT enter that request. Only its dispatch can create or reset the reply to `running`. That reset MUST remove the dead attempt's output and in-Run items. Pre-dispatch failure MUST leave those records unchanged.
+
+Preparation MUST also load an imported digest baseline associated with the effective epoch start, irrespective of its storage sequence. For the latest pre-conversion turn, retry and follow-up preparation MUST load its imported comparison notice. This notice MUST retain its distinct logical boundary. It MUST NOT enter an earlier fork through the baseline association.
+
+Failed, cancelled, expired, or superseded output and items MUST remain historical records until an authorized follow-up resets the reply. Later turns MUST replay them like other committed history. Acceptance of an owner message MUST NOT publish a failed attempt's uncommitted context. Checkpoints, their companions, and epoch state MUST publish before the next model step, outside ordinary dispatch. A later attempt failure MUST NOT retract them.
+
+#### Scenario: Regenerate retains imported epoch context
+
+- **WHEN** an owner regenerates the latest unabsorbed turn after digest conversion
+- **THEN** its request retains the imported epoch baseline and comparison notice despite their higher storage sequences
+- **AND** disabled sharing neither loses the baseline nor resolves a fresh one
 
 #### Scenario: Two items are injected on one turn
 
@@ -89,14 +84,10 @@ context items only, and no text part.
 
 #### Scenario: A retry keeps its stored accepted-turn items
 
-- **WHEN** a retry of a Run starts after an earlier attempt dispatched a request that carried accepted-turn items
-- **THEN** those items stay on the triggering user message unchanged and in place, and the request of the retry carries each of them once
-- **AND** the retry derives each accepted-turn producer again and counts as told the stored items and the told, seen, and baseline state that their dispatch advanced
-- **AND** thus it authors no second `temporal` or model-switch item for the same turn and loads no stored instruction file again
-- **AND** it stores only the items that this comparison newly yields, in its own dispatch transaction
-- **AND** it stores them after the last stored context item, in producer order among its own new items
-- **AND** its preparation reads history only through the triggering user message
-- **AND** only the dispatch transaction of the retry replaces the assistant output and the in-Run items of the earlier attempt, when it resets the reply
+- **WHEN** an earlier attempt dispatches accepted-turn items before a retry
+- **THEN** the retry keeps their stored text once and compares against their effective disclosure
+- **AND** it appends only newly derived items in producer order
+- **AND** only retry dispatch resets the prior assistant output and in-Run items
 
 #### Scenario: A retry that fails before dispatching changes nothing
 
@@ -132,50 +123,9 @@ context items only, and no text part.
 
 #### Scenario: A job item between two steps gets a host message
 
-- **WHEN** a job settles between two model steps of a Run, and no owner item is pending
+- **WHEN** a job settles between two model steps of a Run, and no owner item awaits delivery
 - **THEN** the `job` item is stored on a new host message, and not on the assistant message of the Run
 - **AND** the next segment of the Run answers that host message
-
-The system MUST persist in conversation history each persisted-literal rail item that a model
-request carries. It MUST do this in the dispatch transaction of that request, whatever the outcome
-of the Run.
-Items that the accepted user turn triggers go on the triggering user message, before its first
-model request. Items that an assistant tool call triggers go on the assistant message of the Run,
-after the last tool part of the triggering step. The request MUST carry exactly the stored text of
-those items. An attempt whose dispatch transaction does not commit MUST dispatch nothing. A retry
-of the same Run MUST keep each item that an earlier dispatch stored on the triggering user
-message, unchanged and in place. It MUST derive each accepted-turn producer
-again, and count as told those stored items and the told, seen, and baseline state that their
-dispatch advanced. It MUST store only the items that this comparison newly yields. It stores them in its own dispatch transaction,
-after the last stored context item and before the user text. Its own new items follow producer
-order. This keep-and-append rule MUST apply only to items that the
-dispatch transaction of an earlier attempt stored. Some Runs retry with no earlier dispatch. Such a
-retry MUST store each item that it yields at its producer rank, as a first attempt does. The
-rank is relative to the `prompt-imports` and `skill-activation` facts persisted before dispatch.
-
-A follow-up Run from `turn-actions` MUST follow the same keep-and-append rule. The rule applies to
-each item that an earlier Run of the triggering user message stored at its dispatch. A follow-up
-Run MUST also reuse the `prompt-imports` item and the `skill-activation` items that an earlier Run
-stored on that message before its dispatch. It MUST NOT import those targets or activate those
-skills again. The model-switch item is the one exception to the keep rule. The first dispatch of a
-Regenerate Run MUST remove each model-switch item with cause `model` or `failover` from the
-triggering user message. It then stores the model-switch item that its own comparison yields, if any, after the
-last stored context item. A retry of that Regenerate Run keeps the item that its first dispatch
-stored.
-
-A retry MUST create or reset the assistant message of the Run to `running` inside its own dispatch
-transaction, not before it reads history. Its preparation MUST read history only through the
-triggering user message, so its own assistant message never enters its request. That reset MUST
-remove the in-Run items of a dead attempt together with the output of that attempt. A retry that
-fails before its own dispatch MUST leave the assistant message, output, and items of the earlier
-attempt unchanged. The persisted items and the persisted output of a failed, cancelled, expired, or
-superseded attempt stay part of the record as the user saw it. They enter later model context like
-any other committed turn, until a follow-up Run replaces the reply. Real accepted-message facts
-stay persisted-literal; acceptance of a user message is not publication of the context of a failed
-attempt. Committed parts keep the exact prepared text and the current envelope and order. A
-compaction checkpoint row and the epoch state published with it are not contributions of a
-dispatch transaction. They commit in their own transaction before the model step that they
-precede, and a later failure of that attempt MUST NOT retract them.
 
 #### Scenario: A continue message holds only context items
 
@@ -186,6 +136,12 @@ precede, and a later failure of that attempt MUST NOT retract them.
 
 - **WHEN** the latest turn is the host message of a switch from `codex` to `sonnet`, and the owner regenerates it
 - **THEN** the dispatch transaction of the Regenerate Run removes the `failover` item from that host message
+
+#### Scenario: A digest companion survives a failed compacting attempt
+
+- **WHEN** a checkpoint and its companion commit before an attempt fails
+- **THEN** both remain effective for retry
+- **AND** replay places one companion immediately after the checkpoint
 
 ### Requirement: The envelope states its own provenance and an operator cannot remove it
 
@@ -386,27 +342,27 @@ The rail envelope, its `producer` and `form` attributes, and the provenance stat
 
 ### Requirement: Packaged item templates render from producer-owned values only
 
-A packaged item template SHALL render from its producer's own payload together with the view values that producer derives from the payload in the same module, such as booleans for closed kinds, human labels for closed reason codes, and pluralized or joined strings. No other value SHALL be supplied to it. In particular, the prefix projections that `model-system-prompts` defines for configured prompt files (`user.*`, `chats.*`, `skills.*`) SHALL NOT be supplied, so that no persisted-literal item can carry a copy of owner personal data or another chat's title or excerpt beyond what the producer's own payload already contains under its capability's rules. The recency-digest producer's own `entries` and pin changes are its payload and are unaffected.
+A packaged item template MUST receive only its producer payload and view values derived in that module. Those values can include closed-kind booleans, reason labels, and plural forms. Prefix projections MUST NOT enter that context. This includes owner, skill, and web-search projections. The digest producer MUST use only its own entries and comparison data.
 
-The names `model`, `context`, and `tools` SHALL be reserved and SHALL NOT be used as producer value names. The temporal item SHALL render from its own stored instant and zone, never from the prefix temporal anchor.
+`model`, `context`, and `tools` MUST remain reserved producer-value names. The temporal item MUST use its stored instant and zone, not the prefix anchor. Packaged item templates MUST remain separate from replaceable templates. The retired `chats.*` namespace MUST NOT exist as a supplied prefix projection.
 
 #### Scenario: Owner personalization is not renderable in an item
 
-- **WHEN** a packaged item template references a per-user personalization or account-identity path
-- **THEN** the reference renders empty because no such value is supplied
-- **AND** no persisted item text contains the owner's personalization or identity values
+- **WHEN** a packaged item references a per-user profile or identity path absent from its own values
+- **THEN** that reference renders empty
+- **AND** no prefix profile or identity enters the item
 
 #### Scenario: The prefix digest projection is not renderable in an item
 
-- **WHEN** a packaged item template references a `chats.*` prefix-projection path
-- **THEN** the reference renders empty because no such value is supplied
-- **AND** digest content reaches the rail only through the recency-digest producer's own payload
+- **WHEN** a packaged item references an absent `chats.*` value
+- **THEN** that reference renders empty without a prefix lookup
+- **AND** digest content reaches the rail only through its producer payload
 
 #### Scenario: A closed reason code renders its label
 
-- **WHEN** a producer's payload carries a closed reason code with a human label today
-- **THEN** the rendered body carries the same label as before the template migration
-- **AND** the code itself does not appear in the body
+- **WHEN** the producer derives a human label for its closed reason code
+- **THEN** the item renders that label
+- **AND** it does not emit the internal code
 
 ### Requirement: Co-occurring items have a total author-time order
 
@@ -567,20 +523,11 @@ item at its producer rank, as a first attempt does. When an earlier Run of the u
 
 ### Requirement: Residency determines whether a change re-renders the prompt or appends an item
 
-Every context contribution SHALL be classified by **residency**:
+Each contribution MUST have a residency class. Prefix-resident content MUST enter the system prompt in full on every request. Rail-resident events MUST enter as persisted items. Rail-only state MUST use snapshots and notices, not system-prompt content.
 
-- **prefix-resident** — re-supplied in full on every request as part of the system prompt. Updating it means re-rendering the prompt. It is cheap to read on every turn and expensive to change, because a change invalidates the cached prefix for the whole conversation.
-- **rail-resident** — appended once as a context item and never re-sent. Updating it means appending another item. It is cheap to add and paid for in every later turn until a checkpoint absorbs it.
-- **rail-only** — a small complete statement of current state whose re-statement after each checkpoint is cheaper than a prefix baseline. It MAY be kept only on the rail: a `snapshot` is emitted when the state changes and re-emitted after a checkpoint, rather than adding it to the system prompt. The Workspace producer uses this class.
+An event MUST be rail-resident. Rarely changed complete state MUST be prefix-resident unless its owning capability specifies rail-only residency. Frequently changed complete state MUST use a frozen prefix baseline with rail deltas, unless its owning capability specifies rail-only snapshots. Compact state can use rail-only snapshots after each checkpoint.
 
-A new context surface SHALL be classified by this procedure:
-
-1. A contribution that is an **account of something that happened** SHALL be rail-resident.
-2. A contribution that is a **complete statement of current state** which changes **less often than a checkpoint** SHALL be prefix-resident.
-3. A complete statement of current state which changes **more often than a checkpoint** SHALL be a frozen prefix-resident baseline plus rail-resident deltas, re-baked when a checkpoint is published, unless it qualifies as rail-only under step 4. A frequently-changing complete statement SHALL NOT be placed in the prefix, because that forfeits prefix caching for the whole conversation on every change.
-4. A small complete statement of current state whose re-statement after each checkpoint is cheaper than a prefix baseline MAY be rail-only, emitted as a `snapshot` on change and re-emitted after a checkpoint.
-
-A re-bake or re-emission at a checkpoint SHALL take effect for the very request that checkpoint precedes, and SHALL survive a failure of that attempt.
+The Workspace and recency-digest producers MUST be rail-only. The digest MUST use one baseline snapshot per epoch plus bounded notices. Its companion snapshot MUST follow checkpoint publication. Residency MUST NOT create a second system-prompt carrier. Checkpoint re-baseline state MUST affect the request the checkpoint precedes and survive later attempt failure.
 
 #### Scenario: A new surface reports an event
 
@@ -591,19 +538,19 @@ A re-bake or re-emission at a checkpoint SHALL take effect for the very request 
 #### Scenario: A new surface states rarely-changing state
 
 - **WHEN** a new context surface states current state that changes less often than the chat publishes checkpoints
-- **THEN** it is prefix-resident
-- **AND** a change to it re-renders the prompt rather than appending an item
+- **THEN** it is prefix-resident unless its capability specifies rail-only residency
+- **AND** when it is prefix-resident, a change to it re-renders the prompt rather than appending an item
 
 #### Scenario: A new surface states frequently-changing state
 
 - **WHEN** a new context surface states current state that changes more often than the chat publishes checkpoints
-- **THEN** it is a frozen prefix baseline with rail-resident deltas
+- **THEN** it follows its capability residency, with a frozen prefix baseline or rail-only snapshots and notices
 - **AND** the baseline is re-resolved when a checkpoint is published rather than on every change
 
 #### Scenario: A new surface states compact current state
 
 - **WHEN** a new context surface states a small complete statement of current state whose re-statement after each checkpoint is cheaper than a prefix baseline
-- **THEN** it MAY be rail-only, with a `snapshot` emitted when the state changes
+- **THEN** it can be rail-only, with a `snapshot` emitted when the state changes
 - **AND** the snapshot is re-emitted after a checkpoint rather than changing the system prompt
 
 ### Requirement: A prefix change is announced only when history was conditioned on the old value
@@ -710,13 +657,17 @@ defines. Assistant and tool replay follow the projection of `turn-replay`.
 
 ### Requirement: Compaction is the rail's re-baseline boundary
 
-A published compaction checkpoint SHALL be the single boundary at which rail state is re-established. A producer whose items express deltas against a baseline SHALL treat a newly published checkpoint as starting a fresh baseline, rather than comparing across it. A producer whose contribution is a frozen prefix baseline SHALL re-resolve it when a checkpoint is published and at no other time.
+A published checkpoint MUST be the rail re-baseline boundary. A delta producer MUST establish a new epoch instead of comparison across the boundary. Frozen prefix baselines MUST retain their owning lifecycle. Rail-only producers MUST re-establish state outside the summary for the request the checkpoint precedes.
 
-The checkpoint and the epoch state published with it commit before the model step they precede, so a producer re-baselines for the very request that follows the checkpoint rather than for a later turn. A failure of that attempt SHALL NOT retract them, and a retry reuses them.
+The checkpoint, its companion snapshot, and epoch state MUST commit before that request. A later attempt failure MUST NOT retract them. Retry MUST reuse them. Enabled digest compaction MUST refresh its selection. Disabled digest compaction MUST carry only the frozen baseline without source reads.
 
-This rule SHALL be stated once for the rail and inherited, rather than derived independently per producer.
+The summary instruction MUST exclude standing context and every recency-digest item. This semantic exclusion MUST rely on model compliance, not a claim of structural erasure.
 
-Standing context that is re-supplied on every request SHALL be excluded from the summary a compaction writes, so that a checkpoint does not freeze a stale copy of a value the next request supplies fresh. This exclusion SHALL be documented as resting on instruction and model compliance rather than structural enforcement.
+Runtime tool catalogs, descriptions, and owner-variable resolution MUST retain their per-attempt lifecycle. A Run MUST count as dispatched when `turn_tool_availability` is non-null or its status is completed. An empty stored record MUST count. Availability comparison MUST use the most recent prior dispatched Run within the current epoch, regardless of outcome. A non-dispatched attempt MUST establish no baseline. The active checkpoint boundary MUST still determine that epoch.
+
+A new epoch MUST begin when the active absorbed boundary reaches the triggering user sequence of the last prior dispatched Run. The worker MUST NOT compare checkpoint UUID inequality as the epoch test. A baseline from an absorbed source Run MUST NOT survive merely because an unexecuted Run copied another checkpoint id.
+
+The epoch test MUST NOT use checkpoint creation time or the assistant reply sequence. An in-place retry can retain its reply below a newer checkpoint.
 
 #### Scenario: A delta producer crosses a compaction
 
@@ -729,8 +680,6 @@ Standing context that is re-supplied on every request SHALL be excluded from the
 - **WHEN** a chat with a frozen prefix baseline publishes a checkpoint
 - **THEN** the baseline is re-resolved in the same transaction, before the model step that follows
 - **AND** it is not re-resolved by any other event
-
-Frozen per-chat digest and temporal baselines retain their owning lifecycles. This requirement SHALL not freeze owner-variable resolution, runtime tool catalogs, or descriptions across attempts. A Run SHALL count as **dispatched** when its stored availability record (`turn_tool_availability`) is not null, which the transaction dispatching its first model request writes even when the record is empty, or when its status is `completed`. Availability comparisons use the minimal id/state record of the most recent prior dispatched Run, whatever its outcome, within the current epoch; an attempt that dispatches no model request never establishes such a comparison baseline, and the epoch state a checkpoint publishes with itself survives the failure of the attempt it preceded. A new rail epoch SHALL begin when the active checkpoint's absorbed-through sequence is at or above the sequence of the most recent prior dispatched Run's triggering user message. That boundary SHALL NOT be decided by comparing checkpoint creation times, and SHALL NOT be read off the sequence of an assistant row, because a retried assistant row keeps its sequence below a checkpoint published between its attempts.
 
 #### Scenario: A failed dispatched Run anchors the epoch boundary
 
@@ -799,35 +748,28 @@ limitation MUST stay documented.
 
 ### Requirement: Worker-attempt cutover preserves existing conversation state
 
-The dispatch-time persistence rule and the retention of failed-attempt output and rail items SHALL
-apply to attempts executed after the coordinated runtime cutover. Cutover SHALL
-preserve existing messages and reminders, digest baseline/told-set state, and
-the epoch identity a live checkpoint publishes under, without rebuilding,
-clearing, or adding
-retrospective replay filters. Existing state SHALL retain its ordinary
-compaction, digest, and owner-access rules. These prospective rules SHALL NOT
-claim to remove failed pre-cutover Run contributions from existing history or
-aggregates, and SHALL NOT backfill rail items that a pre-cutover failed attempt did
-not publish. The separate system-receipt and tool-catalog storage migration
-remains required and SHALL NOT authorize rewriting conversation state.
+The coordinated cutover MUST preserve messages, literal reminders, checkpoints, epoch identity, and historical observations. It MUST add no retrospective replay filter or failed-attempt reconstruction. Post-cutover attempts MUST retain dispatched partial output and items under the ordinary lifecycle.
+
+The digest-column retirement MUST use the explicit chat-recency-digest conversion rules. That conversion can omit only unprovable derived fields under Q11. It MUST preserve source parts and receipts and report omissions privately. Removing columns MUST NOT authorize a Chat reset or lost message. Other receipt/catalog migrations MUST confer no permission to rewrite history.
 
 #### Scenario: An existing Chat crosses the worker-attempt cutover
 
-- **WHEN** an existing Chat has stored reminders, an active checkpoint, and digest disclosure state
-- **THEN** cutover preserves their contents and existing replay eligibility without reconstruction
-- **AND** later compaction and digest updates follow their ordinary lifecycle
+- **WHEN** a Chat has literal reminders, a checkpoint, and digest state
+- **THEN** cutover preserves its records and converts proven digest fields under the explicit migration rules
+- **AND** it privately reports only unprovable derived omissions
+- **AND** later compaction and updates follow the new rail lifecycle
 
 #### Scenario: A post-cutover attempt fails in an existing Chat
 
-- **WHEN** a newly prepared attempt fails after cutover
-- **THEN** its persisted partial output and every rail item its requests carried remain part of the record, and the digest and comparison state advanced in its dispatch transaction stay advanced
-- **AND** pre-existing conversation state is not retrospectively filtered or reset
+- **WHEN** an attempt fails after dispatch under the new runtime
+- **THEN** its stored output, items, and committed disclosure remain part of history
+- **AND** the failure causes no retrospective reset of earlier state
 
 #### Scenario: A pre-cutover failed Run is not backfilled
 
-- **WHEN** an existing Chat contains a Run that failed before cutover without publishing its rail items
-- **THEN** cutover adds none of those items to its messages
-- **AND** later turns derive their seen and told state from the history as stored
+- **WHEN** an old failed Run never published its items
+- **THEN** cutover invents none of those items
+- **AND** later production uses stored effective history
 
 ### Requirement: Stored parts cross a minimal SDK conversion boundary
 

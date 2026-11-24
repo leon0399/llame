@@ -4467,11 +4467,9 @@ of `5`. This refusal MUST NOT add the `%3A` spelling.
 
 ### Requirement: Unit letters are reserved
 
-The unit letters `L` for lines, `P` for pages, and `M` for messages MUST be reserved, in upper or
-lower case. No source accepts `P` or `M` yet. The tool MUST refuse a suffix with a `P` or `M` member
-with `invalid_selector` on every source, after any literal-path probe. This also applies on `ssh://`
-and on a Machine, where another unknown suffix stays on the path. Another letter MUST stay outside
-the grammar.
+The grammar MUST reserve `L` for lines, `P` for pages, and `M` for messages, in either case. Only a Chat message index accepts `M`, under conversation-reads. No source accepts `P`.
+
+Every non-Chat source MUST refuse an `M` or `P` member with `invalid_selector` after any literal-path probe. Remote SSH and Machine reads MUST also refuse those reserved units. An unknown letter MUST stay outside the grammar.
 
 #### Scenario: A reserved unit fails on a text file
 
@@ -4684,3 +4682,17 @@ the anchor and the selector as written.
 
 - **WHEN** `tools.webAdapters` enables no GitHub adapter and the model reads `https://github.com/o/r/blob/main/f.ts:5-9#L10-L20`
 - **THEN** the read applies `:5-9` to the generic render and drops the fragment
+
+### Requirement: Chat locators route to the owner datastore before Machine resolution
+
+Native `read` MUST accept `chat://`, `chat://<uuid>`, and `chat://<uuid>/<seq>` under conversation-reads. Chat routing MUST precede Workspace projection and need no Machine. The reader MUST accept the resource-specific selectors of that capability. It MUST reject extra address components before datastore access. Chat scheme registration MUST NOT enable prompt imports. Mutations MUST follow the structured refusal of conversation-reads.
+
+#### Scenario: Chat reads need no Machine
+
+- **WHEN** an admitted Chat read runs without a reachable current Machine
+- **THEN** it reads the owner datastore without binding or contacting a Machine
+
+#### Scenario: Workspace does not alter Chat authority
+
+- **WHEN** a bound Chat reads `chat://`
+- **THEN** the result uses the trusted owner datastore, not a Workspace path
