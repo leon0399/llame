@@ -807,10 +807,15 @@ dependencies = [
  "anyhow",
  "machine-core",
  "machine-protocol",
+ "prost-types",
+ "rustix",
+ "serde",
+ "serde_json",
  "tempfile",
  "tokio",
  "tokio-stream",
  "tonic",
+ "tracing",
 ]
 
 [[package]]
