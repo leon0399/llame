@@ -1,5 +1,6 @@
 import { drizzle } from 'drizzle-orm/postgres-js';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { isRecord } from '@workspace/runtime-safety';
 
 import { hashWithDomain } from '../canonical-json';
 
@@ -385,6 +386,33 @@ describe('recency digest export reconstruction consumer path', () => {
       },
     });
     expect(JSON.stringify(record)).not.toContain('Private excerpt');
+  });
+
+  it('does not accept a different attempt initialization witness for a dispatched receipt', async () => {
+    const events = initializedDispatchEvents().map((row) =>
+      row.eventType === 'run.suspended' && isRecord(row.payload)
+        ? {
+            ...row,
+            payload: {
+              ...row.payload,
+              summaryAttemptId: '88888888-8888-4888-8888-888888888888',
+            },
+          }
+        : row,
+    );
+
+    const rig = makeRig({
+      runs: [run()],
+      receipts: [receipt(renderedPrompt().text)],
+      events,
+    });
+
+    const { attempts, record } = await rig.export();
+
+    expect(attempts.baselinePublicationUnproved).toBe(true);
+    expect(attempts.proofCandidates).toEqual([]);
+    expect(record.baseline.entries).toEqual([]);
+    expect(JSON.stringify(record)).not.toContain('Private digest title');
   });
 
   it('fails closed when an initial baseline lacks its quota-initialization witness and emits safe generic omissions', async () => {
