@@ -4701,7 +4701,7 @@ export const QuotaWaitOffersNextCandidate: Story = {
     setChatMarkdownLoadForTests(() => Promise.resolve(RENDERERS));
     serveRoleCatalog();
     nextCandidateRun.mockClear();
-    nextCandidateRun.mockResolvedValue(undefined);
+    nextCandidateRun.mockResolvedValue(true);
     const original = Date.now;
     Date.now = () => QUOTA_STORY_NOW;
 

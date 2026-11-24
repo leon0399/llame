@@ -111,16 +111,23 @@ export function cancelRun(runId: string): Promise<void> {
 /**
  * Continue on next candidate for a Run parked in a quota wait (model-roles
  * D7): `POST /api/v1/runs/:id/next-candidate` ends the wait and moves the same
- * Run onto the next model of its role. A refusal (404/409) means the Run
- * already moved or can no longer switch, so the box is stale — swallowed like
- * a moot cancel; any other failure propagates.
+ * Run onto the next model of its role. A 404/409 refusal returns false so the
+ * caller can refresh role configuration; any other failure propagates.
  */
-export function nextCandidateRun(runId: string): Promise<void> {
-  return ignoringMootRefusal(() =>
-    nextRunCandidate(
+export async function nextCandidateRun(runId: string): Promise<boolean> {
+  try {
+    await nextRunCandidate(
       runId,
       undefined,
       createAuthenticatedBrowserFetch(globalThis.fetch),
-    ),
-  );
+    );
+
+    return true;
+  } catch (error) {
+    const status = getApiErrorStatus(error);
+
+    if (status !== 404 && status !== 409) throw error;
+
+    return false;
+  }
 }

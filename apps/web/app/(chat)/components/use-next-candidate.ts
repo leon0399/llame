@@ -1,11 +1,13 @@
 "use client";
 
 import { useCallback, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 
 import { toast } from "@workspace/ui/components/sonner";
 
 import type { ChatLatestRunResponse } from "@/lib/api/generated/models";
 import { nextCandidateRun } from "@/lib/services/chat/runs";
+import { modelQueryKeys } from "@/lib/services/models/queries";
 import { isWaitingTurnRun } from "@/lib/services/models/next-candidate";
 
 export type RunNextCandidateSwitch = {
@@ -26,6 +28,7 @@ export function useNextCandidateSwitch(
   refreshChatMessages: () => void,
 ): RunNextCandidateSwitch {
   const runId = isWaitingTurnRun(latestRun) ? latestRun.id : null;
+  const queryClient = useQueryClient();
   const [pending, setPending] = useState(false);
 
   const request = useCallback(() => {
@@ -33,6 +36,12 @@ export function useNextCandidateSwitch(
 
     setPending(true);
     void nextCandidateRun(runId)
+      .then((switched) => {
+        if (switched) return;
+
+        void queryClient.invalidateQueries({ queryKey: modelQueryKeys.all });
+        toast.error("The model switch didn't happen. Try again.");
+      })
       .catch(() =>
         toast.error("Couldn't continue on the next candidate. Try again."),
       )
@@ -42,7 +51,7 @@ export function useNextCandidateSwitch(
         // transcript follows it, and a refused action drops a stale box.
         refreshChatMessages();
       });
-  }, [runId, pending, refreshChatMessages]);
+  }, [runId, pending, queryClient, refreshChatMessages]);
 
   return { pending, request };
 }

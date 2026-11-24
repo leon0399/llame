@@ -241,6 +241,26 @@ describe("turnActionVisibility", () => {
     });
   });
 
+  it("hides the next candidate when the visible reply belongs to an earlier Run", () => {
+    expect(
+      actionsOf({
+        latestRun: latestRun({
+          id: NEXT_RUN_ID,
+          selector: "@coding",
+          modelId: CODEX,
+          status: "failed",
+        }),
+        reply: reply({
+          metadata: {
+            seq: 2,
+            usage: { runId: RUN_ID, status: "error" },
+          },
+        }),
+        status: "ready",
+      }),
+    ).toEqual({ continueTurn: false, nextCandidate: null });
+  });
+
   it("offers no next candidate on a cancelled or expired Run", () => {
     for (const status of ["cancelled", "expired"] as const) {
       expect(

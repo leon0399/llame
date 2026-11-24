@@ -103,10 +103,10 @@ function continuesTurn(
 /**
  * The actions the latest turn offers, or null for none: nothing while a
  * request is in flight, nothing while the latest Run still executes, and
- * nothing for a Chat with no Run. A terminal Run always offers Regenerate; a
- * turn that left no reply passes `reply: null` and gets Regenerate alone.
- * Continue on next candidate joins them for a `failed` Run whose role has a
- * candidate after the one it used.
+ * nothing for a Chat with no Run. A terminal Run always offers Regenerate.
+ * Continue on next candidate joins it for a `failed` Run whose role has a
+ * candidate after the one it used, unless a visible reply belongs to an older
+ * Run.
  */
 export function turnActionVisibility(input: {
   latestRun: ChatLatestRunResponse | null;
@@ -122,15 +122,19 @@ export function turnActionVisibility(input: {
 
   if (!isTerminalRunStatus(latestRun.status)) return null;
 
+  const nextCandidate =
+    latestRun.status === "failed" &&
+    (reply === null ||
+      runIdFromMessageMetadata(reply.metadata) === latestRun.id)
+      ? (nextCandidateOf(latestRun, roles) ?? null)
+      : null;
+
   return {
     continueTurn: reply !== null && continuesTurn(latestRun, reply),
     // Only a `failed` Run can move on: the api refuses a next candidate for a
-    // cancelled or expired Run (turn-actions "Continue on the next candidate
-    // of a cancelled Run is refused").
-    nextCandidate:
-      latestRun.status === "failed"
-        ? (nextCandidateOf(latestRun, roles) ?? null)
-        : null,
+    // cancelled or expired Run. A visible reply from an earlier Run also makes
+    // the action stale because the api refuses to switch that Run.
+    nextCandidate,
   };
 }
 

@@ -12,6 +12,7 @@ import { QueryClient } from "@tanstack/react-query";
 import {
   cancelRun,
   fetchRunContextReceipt,
+  nextCandidateRun,
   runIdToCancel,
   runQueryKeys,
 } from "./runs";
@@ -115,5 +116,31 @@ describe("cancelRun", () => {
 
     fetchMock.mockRejectedValueOnce(new Error("network down"));
     await expect(cancelRun("run-w")).rejects.toThrow("network down");
+  });
+});
+
+describe("nextCandidateRun", () => {
+  it("posts the switch and reports whether the server accepted it", async () => {
+    fetchMock.mockResolvedValueOnce(emptyResponse());
+    await expect(nextCandidateRun("run-1")).resolves.toBe(true);
+
+    const request = requestFromCall(fetchMock);
+    expect(request.method).toBe("POST");
+    expect(new URL(request.url).pathname).toBe(
+      "/api/v1/runs/run-1/next-candidate",
+    );
+
+    fetchMock.mockResolvedValueOnce(jsonResponse({}, 404));
+    await expect(nextCandidateRun("run-gone")).resolves.toBe(false);
+
+    fetchMock.mockResolvedValueOnce(jsonResponse({}, 409));
+    await expect(nextCandidateRun("run-stale")).resolves.toBe(false);
+  });
+
+  it("propagates refusals other than 404 and 409", async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse({}, 500));
+    await expect(nextCandidateRun("run-error")).rejects.toMatchObject({
+      status: 500,
+    });
   });
 });

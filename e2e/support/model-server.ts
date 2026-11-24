@@ -795,6 +795,7 @@ function classify(raw: string) {
       // failover fixture fails one model, not every request.
       model: body.model,
       lastUserContent: content,
+      hasNextCandidateMarker: raw.includes(NEXT_CANDIDATE_MARKER),
       lastUserImageCount: content.match(IMAGE_CONTENT_PART_RE)?.length ?? 0,
       lastUserPdfCount: content.match(PDF_CONTENT_PART_RE)?.length ?? 0,
       // Real Chat Completions servers always report a non-streaming
@@ -838,6 +839,7 @@ function classify(raw: string) {
       model: undefined,
       lastUserContent: "",
       lastUserImageCount: 0,
+      hasNextCandidateMarker: false,
       lastUserPdfCount: 0,
       reportsUsage: false,
     };
@@ -1522,19 +1524,35 @@ const NEXT_CANDIDATE_MARKER = "NEXT_CANDIDATE";
 /** The provider model of the e2e role's first candidate. */
 const NEXT_CANDIDATE_PRIMARY_MODEL = "gpt-5.4-mini";
 
+const nextCandidateRequests: Array<{
+  requestBody: string;
+  model: string | undefined;
+}> = [];
+
 /**
- * Whether this request fails the role's primary candidate: only a prompt that
- * carries the marker, so no other suite can trip it. The failed turn's
- * Continue on next candidate sends the switch host message as its last user
- * turn, so the marker does not reappear and the second candidate answers.
+ * Whether this request fails the role's primary candidate: only a marked
+ * request whose retained user history contains the marker, so the primary
+ * fails both the initial request and any continuation carrying that history.
  */
 function shouldFailPrimaryCandidate(
   classification: ReturnType<typeof classify>,
 ) {
   return (
     classification.model === NEXT_CANDIDATE_PRIMARY_MODEL &&
-    classification.lastUserContent.includes(NEXT_CANDIDATE_MARKER)
+    classification.hasNextCandidateMarker
   );
+}
+
+function recordNextCandidateRequest(
+  classification: Classification,
+  requestBody: string,
+): void {
+  if (!classification.hasNextCandidateMarker) return;
+
+  nextCandidateRequests.push({
+    requestBody,
+    model: classification.model,
+  });
 }
 
 /** The refusal the mock answers with when a turn is meant to fail. */
@@ -1552,6 +1570,8 @@ async function respondToChatCompletion(
   raw: string,
 ): Promise<void> {
   const classification = classify(raw);
+
+  recordNextCandidateRequest(classification, raw);
 
   if (
     shouldFailAfterTool(classification) ||
@@ -1683,6 +1703,25 @@ function respondToStructuredTitle(res: ServerResponse, raw: string): boolean {
 const server = http.createServer((req, res) => {
   if (req.method === "GET" && req.url === "/ready") {
     res.writeHead(200).end("ok");
+
+    return;
+  }
+
+  if (req.method === "GET" && req.url?.startsWith("/next-candidate/requests")) {
+    const marker = new URL(
+      req.url,
+      `http://localhost:${port}`,
+    ).searchParams.get("marker");
+
+    const models = nextCandidateRequests.flatMap((request) =>
+      marker !== null && request.requestBody.includes(marker)
+        ? [request.model]
+        : [],
+    );
+
+    res.writeHead(200, { "content-type": "application/json" });
+
+    res.end(JSON.stringify({ models }));
 
     return;
   }

@@ -708,7 +708,16 @@ describe('FollowUpAdmissionService', () => {
     expect(api.updateAssistantReply).toHaveBeenCalledWith(
       expect.objectContaining({
         id: 'reply-id',
-        parts: continueKeptParts(replyParts),
+        parts: [
+          { type: 'reasoning', text: 'think' },
+          {
+            type: 'tool-read',
+            toolCallId: 'call-1',
+            state: 'output-available',
+            input: { path: '/tmp/file.txt' },
+            output: { content: 'body' },
+          },
+        ],
       }),
     );
     expect(api.createRun).toHaveBeenCalledWith(

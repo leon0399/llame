@@ -19,6 +19,8 @@ import { randomUUID } from "node:crypto";
 import { readyComposer } from "../../support/composer";
 import { expect, test } from "../../support/fixtures";
 
+const MODEL_PORT = process.env.E2E_MODEL_PORT ?? "4303";
+
 const FOLLOW_UP_ROUTE =
   /\/api\/v1\/chats\/[0-9a-f-]{36}\/messages\/[0-9a-f-]{36}\/runs$/;
 
@@ -160,9 +162,10 @@ const NEXT_CANDIDATE_PRIMARY = NEXT_CANDIDATE_DEFAULT_MODEL;
 const NEXT_CANDIDATE_SECOND = "system:openai:gpt-5.4-nano";
 
 test("continues a failed role turn on its next candidate", async ({ page }) => {
-  // The mock fails the marked prompt on the role's primary provider model
-  // only, so the owner can move the same turn onto the second candidate.
-  const prompt = `NEXT_CANDIDATE summarise the release notes ${randomUUID()}`;
+  // The mock fails every marked request routed to the primary, including a
+  // continuation that retains the original user history.
+  const marker = randomUUID();
+  const prompt = `NEXT_CANDIDATE summarise the release notes ${marker}`;
   await page.goto("/", { waitUntil: "domcontentloaded" });
 
   // The client-fetched catalog is the hydration barrier; picking the role
@@ -210,4 +213,18 @@ test("continues a failed role turn on its next candidate", async ({ page }) => {
   await expect(
     log.getByText("Mocked answer from the e2e model server."),
   ).toBeVisible({ timeout: 30_000 });
+
+  await expect
+    .poll(async () => {
+      const response = await page.request.get(
+        `http://localhost:${MODEL_PORT}/next-candidate/requests?marker=${marker}`,
+      );
+
+      expect(response.ok()).toBe(true);
+
+      return response.json();
+    })
+    .toMatchObject({
+      models: ["gpt-5.4-mini", "gpt-5.4-nano"],
+    });
 });
