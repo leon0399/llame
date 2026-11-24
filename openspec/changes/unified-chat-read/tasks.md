@@ -60,7 +60,7 @@ Proposal publication keeps Project status derived from the published PR. Do not 
 - [x] 3.11 Update the operator migration/rollback runbook, context reference, consent/inspection documentation, affected architecture references, dated changelog, and completed roadmap items in this layer. Disclose Workspace-root and latest-assistant-text exposure. Do not claim whole-prompt identity or cache-hit gains.
 - [x] 3.12 Run focused digest/compaction/fork/config/migration tests, negative owner/public-projection tests, affected workspace lint/typecheck/build, and common document checks. Exercise the enabled-baseline, Workspace-change, disabled-compaction, retry, and anchored-fork scenario against a database. Run the bounded live-model untrusted-content probe and distinguish its result from deterministic safety proof.
 - [x] 3.13 After publication authorization, publish the digest layer as draft with `Closes #1906` and `Refs #703`. Self-review its actual immediate-parent diff and migration safety before ready.
-- [ ] 3.14 Complete current-head CI, expected GitHub reviewers, feedback handling, and Ready-PR monitoring. Read back Project updates and release the #1906 implementation claim when handed back.
+- [x] 3.14 Complete current-head CI, expected GitHub reviewers, feedback handling, and Ready-PR monitoring. Read back Project updates and release the #1906 implementation claim when handed back.
 
 ## 4. Finalize layer
 
