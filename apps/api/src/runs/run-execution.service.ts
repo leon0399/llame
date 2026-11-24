@@ -5396,6 +5396,15 @@ export class RunExecutionService {
           return;
         }
 
+        // A send the shared count still retries continues on the same model
+        // (R9). Failover is asked only once the retry rules decline (D11); a
+        // retryable failure resets within a minute, so it never owes a wait.
+        if (continuesFailedSend(failure.failure)) {
+          await continueFailedSend(cut, cause, finishReason);
+
+          return;
+        }
+
         if (
           await switchedSend(
             failure.failure,
@@ -5405,9 +5414,9 @@ export class RunExecutionService {
         ) {
           return;
         }
+
         // A usage limit or rate limit with a reset in range parks the Run after
         // its started calls settled (D6).
-
         const awaiting = this.failedSendQuotaWait(
           failure.failure,
           quotaRequest,
@@ -5436,24 +5445,7 @@ export class RunExecutionService {
           return;
         }
 
-        // A class with no retry left beats the continue decision (R9).
-        if (!continuesFailedSend(failure.failure)) {
-          if (
-            await switchedSend(
-              failure.failure,
-              assistantPartCollector.parts(),
-              cut.superseded,
-            )
-          ) {
-            return;
-          }
-
-          await settleFailedSend(cut, finishReason);
-
-          return;
-        }
-
-        await continueFailedSend(cut, cause, finishReason);
+        await settleFailedSend(cut, finishReason);
       };
 
       const deliverInterrupt = async (): Promise<void> => {
