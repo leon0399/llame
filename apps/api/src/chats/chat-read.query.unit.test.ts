@@ -152,6 +152,62 @@ describe('ChatReadRepository PostgreSQL query', () => {
     );
   }
 
+  it('renders canonical Workspace affinity without interpreting unsupported stored roots as Machines', async () => {
+    const owner = await seedUser();
+
+    const cases = [
+      { root: null, executor: null, expected: 'unbound' },
+      {
+        root: 'machine://build/repo',
+        executor: 'other',
+        expected: 'machine://build/repo',
+      },
+      { root: '/repo', executor: 'build', expected: 'machine://build/repo' },
+      { root: '/repo', executor: null, expected: 'unbound' },
+      { root: '//repo', executor: 'build', expected: 'unbound' },
+      { root: './repo', executor: 'build', expected: 'unbound' },
+      {
+        root: 'machine://build/repo:L2',
+        executor: 'build',
+        expected: 'unbound',
+      },
+    ];
+
+    const expected: Array<{
+      chatId: string;
+      workspace: string;
+      locator: string;
+    }> = [];
+
+    for (const entry of cases) {
+      const chatId = await seedChat(owner, 'Workspace source');
+      await seedMessage(owner, chatId, 1, {
+        role: 'user',
+        text: 'visible source',
+      });
+      await tenantDb.runAs(owner, (tx) =>
+        tx.execute(sql`
+        UPDATE chats SET workspace_root = ${entry.root}, workspace_executor_id = ${entry.executor}
+        WHERE id = ${chatId}::uuid AND owner_user_id = ${owner}
+      `),
+      );
+      expected.push({
+        chatId,
+        workspace: entry.expected,
+        locator: `chat://${chatId}`,
+      });
+    }
+
+    const page = await tenantDb.runAs(owner, (tx) =>
+      new ChatReadRepository(tx).readChatRows(owner, 0, 20),
+    );
+
+    for (const entry of expected)
+      expect(
+        page.rows.find(({ chatId }) => chatId === entry.chatId),
+      ).toMatchObject(entry);
+  });
+
   it('counts eligible owned chats and messages while ordering pins before recent activity', async () => {
     const owner = await seedUser();
     const foreign = await seedUser();
@@ -270,6 +326,15 @@ describe('ChatReadRepository PostgreSQL query', () => {
           beforeSeq: 10,
           limit: 2,
         }),
+        first: await repository.listEligibleIndex(chatId, owner, {
+          start: 4,
+          end: 9,
+          limit: 1,
+        }),
+        latest: await repository.listEligibleIndex(chatId, owner, {
+          beforeSeq: 10,
+          limit: 1,
+        }),
         previous: await repository.previousEligibleSequences(
           chatId,
           owner,
@@ -282,6 +347,8 @@ describe('ChatReadRepository PostgreSQL query', () => {
     expect(result.window.map(({ seq }) => seq)).toEqual([4, 9]);
     expect(result.before.map(({ seq }) => seq)).toEqual([4, 9]);
     expect(result.previous).toEqual([{ seq: 9 }, { seq: 4 }]);
+    expect(result.first.map(({ seq }) => seq)).toEqual([4]);
+    expect(result.latest.map(({ seq }) => seq)).toEqual([9]);
   });
 
   it('reads an exact eligible message with its nearest eligible neighbours', async () => {
