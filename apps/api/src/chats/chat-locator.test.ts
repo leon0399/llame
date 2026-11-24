@@ -36,6 +36,41 @@ describe('Chat locator', () => {
       new NativeFileError('invalid_path', 'The Chat locator is invalid.'),
     );
   });
+  it('accepts the largest safe sequence number and rejects values outside the valid range', () => {
+    const maxSafeSequence = Number.MAX_SAFE_INTEGER;
+
+    expect(parseChatLocator(`chat://${ID}/${maxSafeSequence}`)).toMatchObject({
+      kind: 'message',
+      messageSeq: maxSafeSequence,
+    });
+    expect(formatChatLocator(ID, maxSafeSequence)).toBe(
+      `chat://${ID.toLowerCase()}/${maxSafeSequence}`,
+    );
+    expect(() => formatChatLocator('not-a-uuid', 1)).toThrowError(
+      new NativeFileError('invalid_path', 'The Chat locator is invalid.'),
+    );
+
+    for (const sequence of [0, -1, 1.5, Number.MAX_SAFE_INTEGER + 1]) {
+      expect(() => formatChatLocator(ID, sequence)).toThrowError(
+        new NativeFileError('invalid_path', 'The Chat locator is invalid.'),
+      );
+    }
+  });
+
+  it.each([
+    `chat://${ID}/1/`,
+    `chat://${ID}/1\u0000`,
+    `chat://${ID}/1?`,
+    `chat://${ID}/1#`,
+    `chat://${ID}/1%`,
+    `chat://${ID}/1:m5%20`,
+    `chat://${ID}/1:m5?query`,
+    `chat://${ID}/1:m5#fragment`,
+  ])('refuses locator containing an invalid suffix %s', (locator) => {
+    expect(() => parseChatLocator(locator)).toThrowError(
+      new NativeFileError('invalid_path', 'The Chat locator is invalid.'),
+    );
+  });
 
   it('recognizes collection and index addresses', () => {
     expect(parseChatLocator('chat://')).toMatchObject({
