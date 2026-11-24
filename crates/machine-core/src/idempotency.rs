@@ -50,6 +50,9 @@ impl<T: Clone> IdempotencyCache<T> {
             return Arc::new(OnceCell::new());
         };
         slots.retain(|_, (at, slot)| now.duration_since(*at) < MAX_AGE || !slot.initialized());
+        if let Some((_, slot)) = slots.get(key) {
+            return Arc::clone(slot);
+        }
         if slots.len() >= MAX_KEYS
             && let Some(oldest) = slots
                 .iter()
@@ -83,5 +86,18 @@ mod tests {
         assert_eq!(cache.run("k", run).await, 10);
         assert_eq!(cache.run("", run).await, 11);
         assert_eq!(calls.load(Ordering::SeqCst), 2);
+    }
+
+    #[tokio::test]
+    async fn replays_existing_key_when_cache_is_full() {
+        let cache = IdempotencyCache::<usize>::default();
+        for index in 0..MAX_KEYS {
+            assert_eq!(
+                cache.run(&index.to_string(), || async { index }).await,
+                index
+            );
+        }
+
+        assert_eq!(cache.run("0", || async { MAX_KEYS }).await, 0);
     }
 }
