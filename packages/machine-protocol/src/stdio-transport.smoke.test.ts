@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createClient } from "@connectrpc/connect";
 import { BootstrapService } from "./generated/stead/machine/bootstrap/v1/bootstrap_pb";
-import { RootsService } from "./generated/stead/machine/v1/roots_pb";
+import { MachineService } from "./generated/stead/machine/v1/machine_pb";
 import { MACHINE_PROTOCOL_VERSION } from "./protocol-version";
 import { connectStdio, type StdioConnection } from "./stdio-transport";
 import { daemonBinary } from "./daemon-binary";
@@ -45,7 +45,7 @@ describe("Connect-ES over attach --stdio", () => {
 
     expect(info.protocolVersion).toBe(MACHINE_PROTOCOL_VERSION);
     expect(info.instanceId).toMatch(/^[0-9a-f-]{36}$/u);
-    const roots = await createClient(RootsService, connection.transport).list({});
+    const roots = await createClient(MachineService, connection.transport).listRoots({});
 
     expect(roots.roots).toEqual([]);
   });

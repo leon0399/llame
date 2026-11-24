@@ -4,49 +4,41 @@ package stead.machine.v1;
 
 import "google/protobuf/timestamp.proto";
 
-// GitService runs built-in git operations on repositories under the registered roots. Every path
-// is an absolute host path and goes through root enforcement; a result path outside every root is
-// refused as PATH_NOT_REGISTERED. Failures carry git's raw standard error; the installation
-// rewrites root prefixes into locators.
+// GitService reads repositories under the roots and manages their worktrees. Every path is
+// absolute and goes through root enforcement, including the repository's own data (git dir,
+// common dir, objects, alternates): data outside every root is OUTSIDE_ROOTS. Failures carry git's
+// raw standard error; the installation rewrites root prefixes into locators.
 service GitService {
-  // Inspect reports the repository that holds a path: toplevel, common dir, remotes, branch, head.
-  rpc Inspect(InspectRequest) returns (InspectResponse) {
+  // GetRepository reports the repository that holds a path, found without starting git.
+  rpc GetRepository(GetRepositoryRequest) returns (GetRepositoryResponse) {
     option idempotency_level = NO_SIDE_EFFECTS;
   }
-  // Locate finds the nearest `.git` entry at or above a path inside the roots without starting git.
-  rpc Locate(LocateRequest) returns (LocateResponse) {
+  // GetStatus reads the working-tree state of the repository that holds a path.
+  rpc GetStatus(GetStatusRequest) returns (GetStatusResponse) {
     option idempotency_level = NO_SIDE_EFFECTS;
   }
-  // State reads the working-tree state of a located repository.
-  rpc State(StateRequest) returns (StateResponse) {
-    option idempotency_level = NO_SIDE_EFFECTS;
-  }
-  // WorktreeAdd creates a worktree on a new branch. A resend with the same idempotency key returns
+  // CreateWorktree adds a worktree on a new branch. A resend with the same request id returns
   // the first result.
-  rpc WorktreeAdd(WorktreeAddRequest) returns (WorktreeAddResponse) {}
-  // WorktreeList returns every worktree of a repository, its main tree first.
-  rpc WorktreeList(WorktreeListRequest) returns (WorktreeListResponse) {
+  rpc CreateWorktree(CreateWorktreeRequest) returns (CreateWorktreeResponse) {}
+  rpc ListWorktrees(ListWorktreesRequest) returns (ListWorktreesResponse) {
     option idempotency_level = NO_SIDE_EFFECTS;
   }
-  // WorktreeRemove removes one registered worktree without force, with the same key rule as
-  // WorktreeAdd.
-  rpc WorktreeRemove(WorktreeRemoveRequest) returns (WorktreeRemoveResponse) {}
+  // DeleteWorktree removes a registered worktree without force.
+  rpc DeleteWorktree(DeleteWorktreeRequest) returns (DeleteWorktreeResponse) {}
 }
 
 enum GitFailureReason {
   GIT_FAILURE_REASON_UNSPECIFIED = 0;
+  // No repository holds the path.
+  GIT_FAILURE_REASON_NOT_A_REPOSITORY = 1;
+  // The repository's data lies outside every root.
+  GIT_FAILURE_REASON_OUTSIDE_ROOTS = 2;
   // Refused before git started; `message` says why.
-  GIT_FAILURE_REASON_INVALID_INPUT = 1;
-  GIT_FAILURE_REASON_NOT_A_REPOSITORY = 2;
-  GIT_FAILURE_REASON_TIMED_OUT = 3;
-  GIT_FAILURE_REASON_GIT_FAILED = 4;
-  GIT_FAILURE_REASON_NO_REPOSITORY_IN_ROOT = 5;
-  GIT_FAILURE_REASON_ROOT_MISSING = 6;
-  // The `.git` entry changed between locate and state.
-  GIT_FAILURE_REASON_GIT_ENTRY_CHANGED = 7;
-  // The repository's data (gitdir, common dir, objects, alternates) lies outside every root.
-  GIT_FAILURE_REASON_OUTSIDE_REGISTERED_ROOT = 8;
-  GIT_FAILURE_REASON_OUTPUT_BOUND = 9;
+  GIT_FAILURE_REASON_INVALID_INPUT = 3;
+  GIT_FAILURE_REASON_TIMED_OUT = 4;
+  // git exited non-zero; `stderr` says why.
+  GIT_FAILURE_REASON_GIT_FAILED = 5;
+  GIT_FAILURE_REASON_OUTPUT_TOO_LARGE = 6;
 }
 
 message GitFailure {
@@ -62,11 +54,11 @@ message Remote {
   string url = 2;
 }
 
-message InspectRequest {
+message GetRepositoryRequest {
   string path = 1;
 }
 
-message InspectResponse {
+message GetRepositoryResponse {
   oneof result {
     Repository repository = 1;
     GitFailure failure = 2;
@@ -74,39 +66,19 @@ message InspectResponse {
 }
 
 message Repository {
-  string toplevel = 1;
-  string common_dir = 2;
-  // A linked worktree rather than the main one.
-  bool linked = 3;
+  // The working tree that holds the path.
+  string worktree = 1;
+  // The `.git` directory or file of that working tree.
+  string git_dir = 2;
+  // The common directory; equals git_dir for a main working tree.
+  string common_dir = 3;
+  // The main working tree when this one is linked.
   optional string main_worktree = 4;
   repeated Remote remotes = 5;
   // Unset when HEAD is detached.
   optional string branch = 6;
-  // Unset on an unborn branch.
+  // Full commit id; unset on an unborn branch.
   optional string head = 7;
-}
-
-message LocateRequest {
-  string path = 1;
-}
-
-message LocateResponse {
-  oneof result {
-    GitEntry entry = 1;
-    GitFailure failure = 2;
-  }
-}
-
-enum GitEntryKind {
-  GIT_ENTRY_KIND_UNSPECIFIED = 0;
-  GIT_ENTRY_KIND_DIRECTORY = 1;
-  // A `.git` file of a linked worktree or submodule.
-  GIT_ENTRY_KIND_FILE = 2;
-}
-
-message GitEntry {
-  string path = 1;
-  GitEntryKind kind = 2;
 }
 
 enum SubmoduleMode {
@@ -115,41 +87,35 @@ enum SubmoduleMode {
   SUBMODULE_MODE_CHECK = 2;
 }
 
-message StateRequest {
+message GetStatusRequest {
   string path = 1;
-  // The entry Locate returned.
-  string git_entry = 2;
-  // The most changed and submodule paths listed; 0 to 1000.
-  uint32 limit = 3;
-  SubmoduleMode submodules = 4;
-  // Unset means the daemon's default.
-  optional uint32 timeout_ms = 5;
+  // Most changed paths listed; 0 means the daemon's default of 100, at most 1000.
+  uint32 max_entries = 2;
+  SubmoduleMode submodules = 3;
+  // Most recent commits listed; 0 means none.
+  uint32 max_commits = 4;
 }
 
-message StateResponse {
+message GetStatusResponse {
   oneof result {
-    RepositoryState state = 1;
+    Status status = 1;
     GitFailure failure = 2;
   }
 }
 
-message RepositoryState {
-  string toplevel = 1;
-  // The requested path relative to toplevel, POSIX; empty when equal.
-  string root_relative = 2;
-  optional string branch = 3;
-  bool detached = 4;
-  optional string head = 5;
-  optional Upstream upstream = 6;
-  optional Operation operation = 7;
-  ChangeCounts counts = 8;
-  repeated StatusEntry entries = 9;
-  // Changed and submodule paths not listed because of `limit`.
-  uint32 omitted = 10;
-  repeated string submodules = 11;
+message Status {
+  Repository repository = 1;
+  // The requested path relative to the working tree, `/`-separated; empty when equal.
+  string relative_path = 2;
+  optional Upstream upstream = 3;
+  optional Operation operation = 4;
+  ChangeCounts counts = 5;
+  repeated Change changes = 6;
+  // Changed paths not listed because of `max_entries`.
+  uint32 omitted = 7;
+  repeated string submodules = 8;
   // Most recent first.
-  repeated Commit commits = 12;
-  repeated Remote remotes = 13;
+  repeated Commit commits = 9;
 }
 
 message Upstream {
@@ -185,73 +151,74 @@ message ChangeCounts {
   uint32 conflicted = 4;
 }
 
-message StatusEntry {
-  // Two porcelain status characters; untracked is `??`.
-  string xy = 1;
-  // Root-relative POSIX path; may start with `../`.
+message Change {
+  // Two porcelain status characters; untracked is "??".
+  string status = 1;
+  // Relative to the working tree.
   string path = 2;
-  // The root-relative source of a rename.
+  // The source of a rename.
   optional string from = 3;
 }
 
 message Commit {
-  string short = 1;
+  string id = 1;
   string subject = 2;
 }
 
-message WorktreeAddRequest {
+message CreateWorktreeRequest {
   string request_id = 1;
-  // The main checkout.
-  string source = 2;
-  // A valid full ref name component; refused as INVALID_INPUT otherwise.
+  // The main working tree.
+  string repository = 2;
+  // A valid branch name; refused as INVALID_INPUT otherwise.
   string branch = 3;
-  // The commit-ish the branch starts from; unset means the source's HEAD.
-  optional string base_ref = 4;
-  // Where the worktree goes; must lie inside a registered root.
-  string directory = 5;
+  // The commit-ish the branch starts from; unset means HEAD.
+  optional string base = 4;
+  // Where the worktree goes; must lie inside a root.
+  string path = 5;
 }
 
-message WorktreeAddResponse {
+message CreateWorktreeResponse {
   oneof result {
     Worktree worktree = 1;
     GitFailure failure = 2;
   }
 }
 
-message WorktreeListRequest {
-  string source = 1;
+message ListWorktreesRequest {
+  string repository = 1;
 }
 
-message WorktreeListResponse {
+message ListWorktreesResponse {
   oneof result {
-    WorktreeList worktrees = 1;
+    Worktrees worktrees = 1;
     GitFailure failure = 2;
   }
 }
 
-message WorktreeList {
+message Worktrees {
+  // The main working tree first.
   repeated Worktree worktrees = 1;
 }
 
 message Worktree {
   string path = 1;
-  // Unset on a detached worktree.
+  // Unset when detached.
   optional string branch = 2;
   optional string head = 3;
   bool locked = 4;
   bool prunable = 5;
 }
 
-message WorktreeRemoveRequest {
+message DeleteWorktreeRequest {
   string request_id = 1;
   string path = 2;
 }
 
-message WorktreeRemoveResponse {
+message DeleteWorktreeResponse {
   oneof result {
-    Removed removed = 1;
+    Deleted deleted = 1;
     GitFailure failure = 2;
   }
 }
 
-message Removed {}
+message Deleted {}

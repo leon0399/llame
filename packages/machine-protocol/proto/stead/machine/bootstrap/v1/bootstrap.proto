@@ -2,9 +2,11 @@ syntax = "proto3";
 
 package stead.machine.bootstrap.v1;
 
+import "google/protobuf/timestamp.proto";
+
 // BootstrapService identifies a Machine daemon before any other call. This package is frozen:
 // `buf breaking` refuses an incompatible change, so an out-of-date daemon stays identifiable by
-// every later installation. Additions are allowed.
+// every later installation. Fields may be added.
 service BootstrapService {
   // GetInfo returns identity, versions, and static facts. It never refuses.
   rpc GetInfo(GetInfoRequest) returns (GetInfoResponse) {
@@ -15,33 +17,39 @@ service BootstrapService {
 message GetInfoRequest {}
 
 message GetInfoResponse {
-  // Lowercase UUID v4, created once and kept on the Machine.
+  // Lowercase UUID v4, created once and kept on the Machine across restarts and upgrades.
   string instance_id = 1;
-  // The daemon's own release version.
-  string release_version = 2;
-  // 12 hex characters of the binary's sha256, or "unknown".
+  // The daemon's release, a semantic version.
+  string release = 2;
+  // 12 hex characters of the binary's sha256; "unknown" when it cannot read itself.
   string build_id = 3;
-  // The main-service protocol version. During alpha it must match the installation's exactly.
+  // The main-service protocol version. During alpha it must equal the installation's.
   uint32 protocol_version = 4;
-  // The kernel boot id; a change means the Machine rebooted.
+  // The kernel boot id. It changes when the operating system reboots, not when the daemon
+  // restarts; a job started under another boot id is lost.
   string boot_id = 5;
-  Facts facts = 6;
-  repeated Capability capabilities = 7;
+  // When this daemon process started. It changes on every daemon restart.
+  google.protobuf.Timestamp started_at = 6;
+  Facts facts = 7;
+  // What the box can do. Names are open strings so a new capability needs no change here.
+  repeated Capability capabilities = 8;
 }
 
-// What the box is.
+// Static facts about the box.
 message Facts {
+  // "linux".
   string os = 1;
+  // "x86_64" or "aarch64".
   string arch = 2;
+  // The kernel release, such as "6.18.3".
   string kernel = 3;
   uint32 cpu_count = 4;
-  uint64 total_memory_bytes = 5;
+  uint64 memory_bytes = 5;
 }
 
-// Capability is something the box can do, such as a tool it has. Names are open strings so a new
-// capability needs no change to this package.
+// A tool or mechanism the box has, such as "bash" or "git".
 message Capability {
   string name = 1;
-  // Empty when unknown.
+  // A semantic version; empty when unknown.
   string version = 2;
 }

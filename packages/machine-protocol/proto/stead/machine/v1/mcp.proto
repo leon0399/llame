@@ -3,17 +3,16 @@ syntax = "proto3";
 package stead.machine.v1;
 
 // McpService lists and runs the MCP servers a Workspace declares in `.mcp.json` and
-// `.llame/mcp.json` under a registered root, with `{env:...}` and `{path:...}` resolved against the
-// Machine's own environment. One Open stream is one server session: closing the stream ends the
-// server.
+// `.llame/mcp.json` under a root, with `{env:...}` and `{path:...}` resolved against the
+// Machine's own environment. One OpenSession stream is one server session: closing the stream ends
+// the server.
 service McpService {
-  // ListServers reports the declared servers of a root and whether each can start.
   rpc ListServers(ListServersRequest) returns (ListServersResponse) {
     option idempotency_level = NO_SIDE_EFFECTS;
   }
-  // Open starts a server and relays JSON-RPC both ways. The first client frame is `open`; the
-  // first server frame is `opened` or `failure`.
-  rpc Open(stream OpenRequest) returns (stream OpenResponse) {}
+  // OpenSession starts a server and relays JSON-RPC both ways. The first client message is `open`;
+  // the first server message is `opened` or `failure`.
+  rpc OpenSession(stream OpenSessionRequest) returns (stream OpenSessionResponse) {}
 }
 
 enum Transport {
@@ -24,7 +23,8 @@ enum Transport {
 }
 
 message ListServersRequest {
-  string root = 1;
+  // A directory inside a root.
+  string workspace = 1;
 }
 
 message ListServersResponse {
@@ -33,46 +33,46 @@ message ListServersResponse {
 
 message Server {
   string name = 1;
-  // UNSPECIFIED when the entry never resolved far enough to name one.
+  // UNSPECIFIED when the declaration never resolved far enough to name one.
   Transport transport = 2;
   bool available = 3;
   // Why it is unavailable, with secrets redacted.
   string diagnostic = 4;
 }
 
-message OpenRequest {
-  oneof frame {
+message OpenSessionRequest {
+  oneof message {
     Open open = 1;
     // One JSON-RPC message as JSON text.
-    string message = 2;
-    // The negotiated MCP protocol version, sent by HTTP servers on later requests.
+    string json_rpc = 2;
+    // The negotiated MCP protocol version, which HTTP servers want on later requests.
     string protocol_version = 3;
   }
 }
 
 message Open {
-  string root = 1;
+  string workspace = 1;
   string server = 2;
 }
 
-message OpenResponse {
-  oneof frame {
+message OpenSessionResponse {
+  oneof message {
     Opened opened = 1;
-    string message = 2;
+    string json_rpc = 2;
     // A line of the server's standard error.
     string stderr = 3;
-    // Resolved secret values the installation must redact, learned after `opened`.
-    Protected protected = 4;
+    // Secret values learned after `opened`, which the installation must redact.
+    Secrets secrets = 4;
     McpFailure failure = 5;
   }
 }
 
 message Opened {
-  // Resolved secret values the installation must redact.
-  repeated string protected_values = 1;
+  // Secret values the installation must redact from everything it shows.
+  Secrets secrets = 1;
 }
 
-message Protected {
+message Secrets {
   repeated string values = 1;
 }
 
@@ -80,7 +80,6 @@ enum McpFailureReason {
   MCP_FAILURE_REASON_UNSPECIFIED = 0;
   // The server is not declared or cannot start.
   MCP_FAILURE_REASON_UNAVAILABLE = 1;
-  MCP_FAILURE_REASON_INVALID_INPUT = 2;
 }
 
 message McpFailure {

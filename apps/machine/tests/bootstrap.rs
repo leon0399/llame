@@ -2,7 +2,7 @@ mod common;
 
 use machine_protocol::{
     bootstrap::v1::{GetInfoRequest, bootstrap_service_client::BootstrapServiceClient},
-    v1::{RootsServiceListRequest, roots_service_client::RootsServiceClient},
+    v1::{GetLimitsRequest, ListRootsRequest, machine_service_client::MachineServiceClient},
 };
 
 #[tokio::test]
@@ -22,12 +22,14 @@ async fn attach_starts_one_daemon_and_reports_identity() {
     assert_eq!(again.instance_id, info.instance_id);
     assert_eq!(machine.daemon_pid(), Some(pid));
 
-    let roots = RootsServiceClient::new(channel).list(RootsServiceListRequest::default()).await.unwrap().into_inner();
+    let mut client = MachineServiceClient::new(channel);
+    let roots = client.list_roots(ListRootsRequest::default()).await.unwrap().into_inner();
     assert_eq!(
         roots.roots.iter().map(|root| root.path.as_str()).collect::<Vec<_>>(),
         vec![machine.root().to_string_lossy().as_ref()]
     );
-    assert_eq!(roots.max_running_jobs, 32);
+    let limits = client.get_limits(GetLimitsRequest::default()).await.unwrap().into_inner().limits.unwrap();
+    assert_eq!(limits.max_running_jobs, 32);
 }
 
 #[tokio::test]
@@ -37,7 +39,7 @@ async fn roots_added_while_running_apply_to_the_next_call() {
     let extra = machine.home.path().canonicalize().unwrap().join("extra");
     std::fs::create_dir(&extra).unwrap();
     machine.cli(&["roots", "add", extra.to_str().unwrap()]);
-    let roots = RootsServiceClient::new(channel).list(RootsServiceListRequest::default()).await.unwrap().into_inner();
+    let roots = MachineServiceClient::new(channel).list_roots(ListRootsRequest::default()).await.unwrap().into_inner();
     assert_eq!(roots.roots.len(), 2);
 }
 

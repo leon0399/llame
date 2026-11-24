@@ -1,0 +1,43 @@
+syntax = "proto3";
+
+package stead.machine.v1;
+
+// MachineService reports what this daemon serves: its roots and its limits. Both are set on the
+// Machine with `llame-machine roots` and `llame-machine limits`; the installation never changes
+// them.
+service MachineService {
+  rpc ListRoots(ListRootsRequest) returns (ListRootsResponse) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+  }
+  rpc GetLimits(GetLimitsRequest) returns (GetLimitsResponse) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+  }
+}
+
+message ListRootsRequest {}
+
+message ListRootsResponse {
+  // In configuration order.
+  repeated Root roots = 1;
+}
+
+// A directory tree the daemon serves. Roots bound addressing; they are not a Sandbox.
+message Root {
+  // Absolute, canonical.
+  string path = 1;
+  // Total bytes of the filesystem holding the root; unset when unknown.
+  optional uint64 filesystem_bytes = 2;
+}
+
+message GetLimitsRequest {}
+
+message GetLimitsResponse {
+  Limits limits = 1;
+}
+
+message Limits {
+  // How many jobs may run at once.
+  uint32 max_running_jobs = 1;
+  // The most bytes one output stream of a job is recorded to disk.
+  uint64 max_job_output_bytes = 2;
+}

@@ -4,13 +4,15 @@
 
 import type { GenFile, GenMessage, GenService } from "@bufbuild/protobuf/codegenv2";
 import { fileDesc, messageDesc, serviceDesc } from "@bufbuild/protobuf/codegenv2";
+import type { Timestamp } from "@bufbuild/protobuf/wkt";
+import { file_google_protobuf_timestamp } from "@bufbuild/protobuf/wkt";
 import type { Message } from "@bufbuild/protobuf";
 
 /**
  * Describes the file stead/machine/bootstrap/v1/bootstrap.proto.
  */
 export const file_stead_machine_bootstrap_v1_bootstrap: GenFile = /*@__PURE__*/
-  fileDesc("CipzdGVhZC9tYWNoaW5lL2Jvb3RzdHJhcC92MS9ib290c3RyYXAucHJvdG8SGnN0ZWFkLm1hY2hpbmUuYm9vdHN0cmFwLnYxIhAKDkdldEluZm9SZXF1ZXN0IuwBCg9HZXRJbmZvUmVzcG9uc2USEwoLaW5zdGFuY2VfaWQYASABKAkSFwoPcmVsZWFzZV92ZXJzaW9uGAIgASgJEhAKCGJ1aWxkX2lkGAMgASgJEhgKEHByb3RvY29sX3ZlcnNpb24YBCABKA0SDwoHYm9vdF9pZBgFIAEoCRIwCgVmYWN0cxgGIAEoCzIhLnN0ZWFkLm1hY2hpbmUuYm9vdHN0cmFwLnYxLkZhY3RzEjwKDGNhcGFiaWxpdGllcxgHIAMoCzImLnN0ZWFkLm1hY2hpbmUuYm9vdHN0cmFwLnYxLkNhcGFiaWxpdHkiYAoFRmFjdHMSCgoCb3MYASABKAkSDAoEYXJjaBgCIAEoCRIOCgZrZXJuZWwYAyABKAkSEQoJY3B1X2NvdW50GAQgASgNEhoKEnRvdGFsX21lbW9yeV9ieXRlcxgFIAEoBCIrCgpDYXBhYmlsaXR5EgwKBG5hbWUYASABKAkSDwoHdmVyc2lvbhgCIAEoCTJ7ChBCb290c3RyYXBTZXJ2aWNlEmcKB0dldEluZm8SKi5zdGVhZC5tYWNoaW5lLmJvb3RzdHJhcC52MS5HZXRJbmZvUmVxdWVzdBorLnN0ZWFkLm1hY2hpbmUuYm9vdHN0cmFwLnYxLkdldEluZm9SZXNwb25zZSIDkAIBYgZwcm90bzM");
+  fileDesc("CipzdGVhZC9tYWNoaW5lL2Jvb3RzdHJhcC92MS9ib290c3RyYXAucHJvdG8SGnN0ZWFkLm1hY2hpbmUuYm9vdHN0cmFwLnYxIhAKDkdldEluZm9SZXF1ZXN0IpQCCg9HZXRJbmZvUmVzcG9uc2USEwoLaW5zdGFuY2VfaWQYASABKAkSDwoHcmVsZWFzZRgCIAEoCRIQCghidWlsZF9pZBgDIAEoCRIYChBwcm90b2NvbF92ZXJzaW9uGAQgASgNEg8KB2Jvb3RfaWQYBSABKAkSLgoKc3RhcnRlZF9hdBgGIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXASMAoFZmFjdHMYByABKAsyIS5zdGVhZC5tYWNoaW5lLmJvb3RzdHJhcC52MS5GYWN0cxI8CgxjYXBhYmlsaXRpZXMYCCADKAsyJi5zdGVhZC5tYWNoaW5lLmJvb3RzdHJhcC52MS5DYXBhYmlsaXR5IloKBUZhY3RzEgoKAm9zGAEgASgJEgwKBGFyY2gYAiABKAkSDgoGa2VybmVsGAMgASgJEhEKCWNwdV9jb3VudBgEIAEoDRIUCgxtZW1vcnlfYnl0ZXMYBSABKAQiKwoKQ2FwYWJpbGl0eRIMCgRuYW1lGAEgASgJEg8KB3ZlcnNpb24YAiABKAkyewoQQm9vdHN0cmFwU2VydmljZRJnCgdHZXRJbmZvEiouc3RlYWQubWFjaGluZS5ib290c3RyYXAudjEuR2V0SW5mb1JlcXVlc3QaKy5zdGVhZC5tYWNoaW5lLmJvb3RzdHJhcC52MS5HZXRJbmZvUmVzcG9uc2UiA5ACAWIGcHJvdG8z", [file_google_protobuf_timestamp]);
 
 /**
  * @generated from message stead.machine.bootstrap.v1.GetInfoRequest
@@ -30,47 +32,57 @@ export const GetInfoRequestSchema: GenMessage<GetInfoRequest> = /*@__PURE__*/
  */
 export type GetInfoResponse = Message<"stead.machine.bootstrap.v1.GetInfoResponse"> & {
   /**
-   * Lowercase UUID v4, created once and kept on the Machine.
+   * Lowercase UUID v4, created once and kept on the Machine across restarts and upgrades.
    *
    * @generated from field: string instance_id = 1;
    */
   instanceId: string;
 
   /**
-   * The daemon's own release version.
+   * The daemon's release, a semantic version.
    *
-   * @generated from field: string release_version = 2;
+   * @generated from field: string release = 2;
    */
-  releaseVersion: string;
+  release: string;
 
   /**
-   * 12 hex characters of the binary's sha256, or "unknown".
+   * 12 hex characters of the binary's sha256; "unknown" when it cannot read itself.
    *
    * @generated from field: string build_id = 3;
    */
   buildId: string;
 
   /**
-   * The main-service protocol version. During alpha it must match the installation's exactly.
+   * The main-service protocol version. During alpha it must equal the installation's.
    *
    * @generated from field: uint32 protocol_version = 4;
    */
   protocolVersion: number;
 
   /**
-   * The kernel boot id; a change means the Machine rebooted.
+   * The kernel boot id. It changes when the operating system reboots, not when the daemon
+   * restarts; a job started under another boot id is lost.
    *
    * @generated from field: string boot_id = 5;
    */
   bootId: string;
 
   /**
-   * @generated from field: stead.machine.bootstrap.v1.Facts facts = 6;
+   * When this daemon process started. It changes on every daemon restart.
+   *
+   * @generated from field: google.protobuf.Timestamp started_at = 6;
+   */
+  startedAt?: Timestamp | undefined;
+
+  /**
+   * @generated from field: stead.machine.bootstrap.v1.Facts facts = 7;
    */
   facts?: Facts | undefined;
 
   /**
-   * @generated from field: repeated stead.machine.bootstrap.v1.Capability capabilities = 7;
+   * What the box can do. Names are open strings so a new capability needs no change here.
+   *
+   * @generated from field: repeated stead.machine.bootstrap.v1.Capability capabilities = 8;
    */
   capabilities: Capability[];
 };
@@ -83,22 +95,28 @@ export const GetInfoResponseSchema: GenMessage<GetInfoResponse> = /*@__PURE__*/
   messageDesc(file_stead_machine_bootstrap_v1_bootstrap, 1);
 
 /**
- * What the box is.
+ * Static facts about the box.
  *
  * @generated from message stead.machine.bootstrap.v1.Facts
  */
 export type Facts = Message<"stead.machine.bootstrap.v1.Facts"> & {
   /**
+   * "linux".
+   *
    * @generated from field: string os = 1;
    */
   os: string;
 
   /**
+   * "x86_64" or "aarch64".
+   *
    * @generated from field: string arch = 2;
    */
   arch: string;
 
   /**
+   * The kernel release, such as "6.18.3".
+   *
    * @generated from field: string kernel = 3;
    */
   kernel: string;
@@ -109,9 +127,9 @@ export type Facts = Message<"stead.machine.bootstrap.v1.Facts"> & {
   cpuCount: number;
 
   /**
-   * @generated from field: uint64 total_memory_bytes = 5;
+   * @generated from field: uint64 memory_bytes = 5;
    */
-  totalMemoryBytes: bigint;
+  memoryBytes: bigint;
 };
 
 /**
@@ -122,8 +140,7 @@ export const FactsSchema: GenMessage<Facts> = /*@__PURE__*/
   messageDesc(file_stead_machine_bootstrap_v1_bootstrap, 2);
 
 /**
- * Capability is something the box can do, such as a tool it has. Names are open strings so a new
- * capability needs no change to this package.
+ * A tool or mechanism the box has, such as "bash" or "git".
  *
  * @generated from message stead.machine.bootstrap.v1.Capability
  */
@@ -134,7 +151,7 @@ export type Capability = Message<"stead.machine.bootstrap.v1.Capability"> & {
   name: string;
 
   /**
-   * Empty when unknown.
+   * A semantic version; empty when unknown.
    *
    * @generated from field: string version = 2;
    */
@@ -151,7 +168,7 @@ export const CapabilitySchema: GenMessage<Capability> = /*@__PURE__*/
 /**
  * BootstrapService identifies a Machine daemon before any other call. This package is frozen:
  * `buf breaking` refuses an incompatible change, so an out-of-date daemon stays identifiable by
- * every later installation. Additions are allowed.
+ * every later installation. Fields may be added.
  *
  * @generated from service stead.machine.bootstrap.v1.BootstrapService
  */

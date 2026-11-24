@@ -1,17 +1,18 @@
-//! `JobsService`: every command runs as a job with output files on disk.
+//! `JobService`: every command runs as a job with output files on disk.
 
 use machine_core::Context;
 use machine_protocol::v1::{
-    JobsServiceListRequest, JobsServiceListResponse, ReadOutputRequest, ReadOutputResponse, ReleaseRequest,
-    ReleaseResponse, StartRequest, StartResponse, StopRequest, StopResponse, WatchRequest, WatchResponse,
-    jobs_service_server::{JobsService, JobsServiceServer},
+    CancelJobRequest, CancelJobResponse, CreateJobRequest, CreateJobResponse, DeleteJobRequest, DeleteJobResponse,
+    GetJobRequest, GetJobResponse, ListJobsRequest, ListJobsResponse, ReadOutputRequest, ReadOutputResponse,
+    WatchJobsRequest, WatchJobsResponse,
+    job_service_server::{JobService, JobServiceServer},
 };
 use tonic::{Request, Response, Status};
 
 /// Opens the job store under `<state_dir>/jobs`.
 #[allow(clippy::unused_async)]
-pub async fn service(context: Context) -> anyhow::Result<JobsServiceServer<Jobs>> {
-    Ok(JobsServiceServer::new(Jobs { _context: context }))
+pub async fn service(context: Context) -> anyhow::Result<JobServiceServer<Jobs>> {
+    Ok(JobServiceServer::new(Jobs { _context: context }))
 }
 
 pub struct Jobs {
@@ -21,25 +22,28 @@ pub struct Jobs {
 type Stream<T> = tokio_stream::wrappers::ReceiverStream<Result<T, Status>>;
 
 #[tonic::async_trait]
-impl JobsService for Jobs {
-    async fn start(&self, _: Request<StartRequest>) -> Result<Response<StartResponse>, Status> {
-        Err(Status::unimplemented("Jobs.Start"))
+impl JobService for Jobs {
+    async fn create_job(&self, _: Request<CreateJobRequest>) -> Result<Response<CreateJobResponse>, Status> {
+        Err(Status::unimplemented("JobService.CreateJob"))
     }
-    type WatchStream = Stream<WatchResponse>;
-    async fn watch(&self, _: Request<WatchRequest>) -> Result<Response<Self::WatchStream>, Status> {
-        Err(Status::unimplemented("Jobs.Watch"))
+    async fn get_job(&self, _: Request<GetJobRequest>) -> Result<Response<GetJobResponse>, Status> {
+        Err(Status::unimplemented("JobService.GetJob"))
     }
-    async fn list(&self, _: Request<JobsServiceListRequest>) -> Result<Response<JobsServiceListResponse>, Status> {
-        Err(Status::unimplemented("Jobs.List"))
+    async fn list_jobs(&self, _: Request<ListJobsRequest>) -> Result<Response<ListJobsResponse>, Status> {
+        Err(Status::unimplemented("JobService.ListJobs"))
+    }
+    type WatchJobsStream = Stream<WatchJobsResponse>;
+    async fn watch_jobs(&self, _: Request<WatchJobsRequest>) -> Result<Response<Self::WatchJobsStream>, Status> {
+        Err(Status::unimplemented("JobService.WatchJobs"))
     }
     type ReadOutputStream = Stream<ReadOutputResponse>;
     async fn read_output(&self, _: Request<ReadOutputRequest>) -> Result<Response<Self::ReadOutputStream>, Status> {
-        Err(Status::unimplemented("Jobs.ReadOutput"))
+        Err(Status::unimplemented("JobService.ReadOutput"))
     }
-    async fn stop(&self, _: Request<StopRequest>) -> Result<Response<StopResponse>, Status> {
-        Err(Status::unimplemented("Jobs.Stop"))
+    async fn cancel_job(&self, _: Request<CancelJobRequest>) -> Result<Response<CancelJobResponse>, Status> {
+        Err(Status::unimplemented("JobService.CancelJob"))
     }
-    async fn release(&self, _: Request<ReleaseRequest>) -> Result<Response<ReleaseResponse>, Status> {
-        Err(Status::unimplemented("Jobs.Release"))
+    async fn delete_job(&self, _: Request<DeleteJobRequest>) -> Result<Response<DeleteJobResponse>, Status> {
+        Err(Status::unimplemented("JobService.DeleteJob"))
     }
 }

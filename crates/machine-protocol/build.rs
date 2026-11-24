@@ -9,10 +9,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let files = [
         "stead/machine/bootstrap/v1/bootstrap.proto",
         "stead/machine/v1/errors.proto",
-        "stead/machine/v1/roots.proto",
-        "stead/machine/v1/files.proto",
+        "stead/machine/v1/machine.proto",
+        "stead/machine/v1/file.proto",
         "stead/machine/v1/git.proto",
-        "stead/machine/v1/jobs.proto",
+        "stead/machine/v1/job.proto",
         "stead/machine/v1/mcp.proto",
     ];
     let fds = protox::compile(files, [&proto_root])?;

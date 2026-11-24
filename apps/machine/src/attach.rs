@@ -14,7 +14,7 @@ use hyper_util::rt::TokioIo;
 use machine_core::paths;
 use machine_protocol::{
     bootstrap::v1::{GetInfoRequest, bootstrap_service_client::BootstrapServiceClient},
-    v1::{JobsServiceListRequest, jobs_service_client::JobsServiceClient},
+    v1::{ListJobsRequest, job_service_client::JobServiceClient},
 };
 use tokio::{io::AsyncWriteExt, net::UnixStream, time::sleep};
 use tonic::transport::{Channel, Endpoint, Uri};
@@ -91,7 +91,7 @@ async fn replace_outdated_daemon(state_dir: &Path) -> anyhow::Result<()> {
     if info.build_id == own || own == "unknown" {
         return Ok(());
     }
-    let running = match JobsServiceClient::new(channel).list(JobsServiceListRequest {}).await {
+    let running = match JobServiceClient::new(channel).list_jobs(ListJobsRequest {}).await {
         Ok(response) => response.into_inner().running,
         Err(status) if status.code() == tonic::Code::Unimplemented => 0,
         Err(status) => return Err(status.into()),

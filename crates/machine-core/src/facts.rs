@@ -12,7 +12,7 @@ pub fn facts() -> Facts {
         arch: std::env::consts::ARCH.to_owned(),
         kernel: uname.release().to_string_lossy().into_owned(),
         cpu_count,
-        total_memory_bytes: total_memory_bytes(),
+        memory_bytes: total_memory_bytes(),
     }
 }
 

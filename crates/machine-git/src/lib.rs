@@ -1,10 +1,9 @@
-//! `GitService`: built-in git operations.
+//! `GitService`: repositories, status, and worktrees.
 
 use machine_core::Context;
 use machine_protocol::v1::{
-    InspectRequest, InspectResponse, LocateRequest, LocateResponse, StateRequest, StateResponse,
-    WorktreeAddRequest, WorktreeAddResponse, WorktreeListRequest, WorktreeListResponse, WorktreeRemoveRequest,
-    WorktreeRemoveResponse,
+    CreateWorktreeRequest, CreateWorktreeResponse, DeleteWorktreeRequest, DeleteWorktreeResponse, GetRepositoryRequest,
+    GetRepositoryResponse, GetStatusRequest, GetStatusResponse, ListWorktreesRequest, ListWorktreesResponse,
     git_service_server::{GitService, GitServiceServer},
 };
 use tonic::{Request, Response, Status};
@@ -19,25 +18,19 @@ pub struct Git {
 
 #[tonic::async_trait]
 impl GitService for Git {
-    async fn inspect(&self, _: Request<InspectRequest>) -> Result<Response<InspectResponse>, Status> {
-        Err(Status::unimplemented("Git.Inspect"))
+    async fn get_repository(&self, _: Request<GetRepositoryRequest>) -> Result<Response<GetRepositoryResponse>, Status> {
+        Err(Status::unimplemented("GitService.GetRepository"))
     }
-    async fn locate(&self, _: Request<LocateRequest>) -> Result<Response<LocateResponse>, Status> {
-        Err(Status::unimplemented("Git.Locate"))
+    async fn get_status(&self, _: Request<GetStatusRequest>) -> Result<Response<GetStatusResponse>, Status> {
+        Err(Status::unimplemented("GitService.GetStatus"))
     }
-    async fn state(&self, _: Request<StateRequest>) -> Result<Response<StateResponse>, Status> {
-        Err(Status::unimplemented("Git.State"))
+    async fn create_worktree(&self, _: Request<CreateWorktreeRequest>) -> Result<Response<CreateWorktreeResponse>, Status> {
+        Err(Status::unimplemented("GitService.CreateWorktree"))
     }
-    async fn worktree_add(&self, _: Request<WorktreeAddRequest>) -> Result<Response<WorktreeAddResponse>, Status> {
-        Err(Status::unimplemented("Git.WorktreeAdd"))
+    async fn list_worktrees(&self, _: Request<ListWorktreesRequest>) -> Result<Response<ListWorktreesResponse>, Status> {
+        Err(Status::unimplemented("GitService.ListWorktrees"))
     }
-    async fn worktree_list(&self, _: Request<WorktreeListRequest>) -> Result<Response<WorktreeListResponse>, Status> {
-        Err(Status::unimplemented("Git.WorktreeList"))
-    }
-    async fn worktree_remove(
-        &self,
-        _: Request<WorktreeRemoveRequest>,
-    ) -> Result<Response<WorktreeRemoveResponse>, Status> {
-        Err(Status::unimplemented("Git.WorktreeRemove"))
+    async fn delete_worktree(&self, _: Request<DeleteWorktreeRequest>) -> Result<Response<DeleteWorktreeResponse>, Status> {
+        Err(Status::unimplemented("GitService.DeleteWorktree"))
     }
 }

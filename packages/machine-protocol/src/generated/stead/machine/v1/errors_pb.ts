@@ -32,9 +32,9 @@ export const ErrorDetailSchema: GenMessage<ErrorDetail> = /*@__PURE__*/
   messageDesc(file_stead_machine_v1_errors, 0);
 
 /**
- * ErrorReason says why a call was refused before any work started. It is sent as an ErrorDetail
- * with the gRPC status, and callers map it. Callers never parse the status message. An outcome of
- * work that started is never a refusal: it travels in the response.
+ * ErrorReason says why a call was refused before any work started. It is attached to the gRPC
+ * status as an ErrorDetail; callers map it and never parse the status message. An outcome of work
+ * that started is never a refusal: it travels in the response.
  *
  * @generated from enum stead.machine.v1.ErrorReason
  */
@@ -45,37 +45,36 @@ export enum ErrorReason {
   UNSPECIFIED = 0,
 
   /**
-   * A request field is malformed. Status INVALID_ARGUMENT.
+   * A request field is malformed. INVALID_ARGUMENT.
    *
    * @generated from enum value: ERROR_REASON_INVALID_ARGUMENT = 1;
    */
   INVALID_ARGUMENT = 1,
 
   /**
-   * The path, or where it resolves, lies outside every registered root. The message is the same
-   * whether or not the path exists. Status PERMISSION_DENIED.
+   * The path, or where it resolves, lies outside every root. The message is the same whether or
+   * not the path exists. PERMISSION_DENIED.
    *
    * @generated from enum value: ERROR_REASON_PATH_NOT_REGISTERED = 2;
    */
   PATH_NOT_REGISTERED = 2,
 
   /**
-   * The Machine already runs its limit of jobs. Status RESOURCE_EXHAUSTED.
+   * The Machine already runs its limit of jobs. RESOURCE_EXHAUSTED.
    *
    * @generated from enum value: ERROR_REASON_JOB_LIMIT = 3;
    */
   JOB_LIMIT = 3,
 
   /**
-   * The job id names no job of the caller. Unknown ids and other owners' jobs fail alike. Status
-   * NOT_FOUND.
+   * The id names no job of the caller; unknown ids and other owners' jobs fail alike. NOT_FOUND.
    *
    * @generated from enum value: ERROR_REASON_JOB_NOT_FOUND = 4;
    */
   JOB_NOT_FOUND = 4,
 
   /**
-   * The job has not settled yet, so it cannot be released. Status FAILED_PRECONDITION.
+   * The job has not settled, so it cannot be released. FAILED_PRECONDITION.
    *
    * @generated from enum value: ERROR_REASON_JOB_RUNNING = 5;
    */

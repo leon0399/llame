@@ -20,6 +20,13 @@ use tokio_stream::wrappers::UnixListenerStream;
 
 use crate::identity::Identity;
 
+/// When this daemon process started, for the bootstrap service.
+static STARTED_AT: std::sync::OnceLock<std::time::SystemTime> = std::sync::OnceLock::new();
+
+pub fn started_at() -> std::time::SystemTime {
+    *STARTED_AT.get_or_init(std::time::SystemTime::now)
+}
+
 /// `sun_path` holds 108 bytes including the terminating zero.
 const MAX_SOCKET_PATH: usize = 107;
 
@@ -51,6 +58,7 @@ pub fn try_lock(state_dir: &Path) -> anyhow::Result<Option<File>> {
 }
 
 pub fn run() -> ExitCode {
+    let _ = started_at();
     // Detach from the attaching session so its hangup does not end the daemon.
     let _ = rustix::process::setsid();
     tracing_subscriber::fmt()

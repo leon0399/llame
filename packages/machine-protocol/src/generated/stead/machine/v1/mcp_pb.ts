@@ -10,16 +10,18 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file stead/machine/v1/mcp.proto.
  */
 export const file_stead_machine_v1_mcp: GenFile = /*@__PURE__*/
-  fileDesc("ChpzdGVhZC9tYWNoaW5lL3YxL21jcC5wcm90bxIQc3RlYWQubWFjaGluZS52MSIiChJMaXN0U2VydmVyc1JlcXVlc3QSDAoEcm9vdBgBIAEoCSJAChNMaXN0U2VydmVyc1Jlc3BvbnNlEikKB3NlcnZlcnMYASADKAsyGC5zdGVhZC5tYWNoaW5lLnYxLlNlcnZlciJtCgZTZXJ2ZXISDAoEbmFtZRgBIAEoCRIuCgl0cmFuc3BvcnQYAiABKA4yGy5zdGVhZC5tYWNoaW5lLnYxLlRyYW5zcG9ydBIRCglhdmFpbGFibGUYAyABKAgSEgoKZGlhZ25vc3RpYxgEIAEoCSJtCgtPcGVuUmVxdWVzdBImCgRvcGVuGAEgASgLMhYuc3RlYWQubWFjaGluZS52MS5PcGVuSAASEQoHbWVzc2FnZRgCIAEoCUgAEhoKEHByb3RvY29sX3ZlcnNpb24YAyABKAlIAEIHCgVmcmFtZSIkCgRPcGVuEgwKBHJvb3QYASABKAkSDgoGc2VydmVyGAIgASgJIssBCgxPcGVuUmVzcG9uc2USKgoGb3BlbmVkGAEgASgLMhguc3RlYWQubWFjaGluZS52MS5PcGVuZWRIABIRCgdtZXNzYWdlGAIgASgJSAASEAoGc3RkZXJyGAMgASgJSAASMAoJcHJvdGVjdGVkGAQgASgLMhsuc3RlYWQubWFjaGluZS52MS5Qcm90ZWN0ZWRIABIvCgdmYWlsdXJlGAUgASgLMhwuc3RlYWQubWFjaGluZS52MS5NY3BGYWlsdXJlSABCBwoFZnJhbWUiIgoGT3BlbmVkEhgKEHByb3RlY3RlZF92YWx1ZXMYASADKAkiGwoJUHJvdGVjdGVkEg4KBnZhbHVlcxgBIAMoCSJRCgpNY3BGYWlsdXJlEjIKBnJlYXNvbhgBIAEoDjIiLnN0ZWFkLm1hY2hpbmUudjEuTWNwRmFpbHVyZVJlYXNvbhIPCgdtZXNzYWdlGAIgASgJKk8KCVRyYW5zcG9ydBIZChVUUkFOU1BPUlRfVU5TUEVDSUZJRUQQABITCg9UUkFOU1BPUlRfU1RESU8QARISCg5UUkFOU1BPUlRfSFRUUBACKoABChBNY3BGYWlsdXJlUmVhc29uEiIKHk1DUF9GQUlMVVJFX1JFQVNPTl9VTlNQRUNJRklFRBAAEiIKHk1DUF9GQUlMVVJFX1JFQVNPTl9VTkFWQUlMQUJMRRABEiQKIE1DUF9GQUlMVVJFX1JFQVNPTl9JTlZBTElEX0lOUFVUEAIyugEKCk1jcFNlcnZpY2USXwoLTGlzdFNlcnZlcnMSJC5zdGVhZC5tYWNoaW5lLnYxLkxpc3RTZXJ2ZXJzUmVxdWVzdBolLnN0ZWFkLm1hY2hpbmUudjEuTGlzdFNlcnZlcnNSZXNwb25zZSIDkAIBEksKBE9wZW4SHS5zdGVhZC5tYWNoaW5lLnYxLk9wZW5SZXF1ZXN0Gh4uc3RlYWQubWFjaGluZS52MS5PcGVuUmVzcG9uc2UiACgBMAFiBnByb3RvMw");
+  fileDesc("ChpzdGVhZC9tYWNoaW5lL3YxL21jcC5wcm90bxIQc3RlYWQubWFjaGluZS52MSInChJMaXN0U2VydmVyc1JlcXVlc3QSEQoJd29ya3NwYWNlGAEgASgJIkAKE0xpc3RTZXJ2ZXJzUmVzcG9uc2USKQoHc2VydmVycxgBIAMoCzIYLnN0ZWFkLm1hY2hpbmUudjEuU2VydmVyIm0KBlNlcnZlchIMCgRuYW1lGAEgASgJEi4KCXRyYW5zcG9ydBgCIAEoDjIbLnN0ZWFkLm1hY2hpbmUudjEuVHJhbnNwb3J0EhEKCWF2YWlsYWJsZRgDIAEoCBISCgpkaWFnbm9zdGljGAQgASgJIncKEk9wZW5TZXNzaW9uUmVxdWVzdBImCgRvcGVuGAEgASgLMhYuc3RlYWQubWFjaGluZS52MS5PcGVuSAASEgoIanNvbl9ycGMYAiABKAlIABIaChBwcm90b2NvbF92ZXJzaW9uGAMgASgJSABCCQoHbWVzc2FnZSIpCgRPcGVuEhEKCXdvcmtzcGFjZRgBIAEoCRIOCgZzZXJ2ZXIYAiABKAki0QEKE09wZW5TZXNzaW9uUmVzcG9uc2USKgoGb3BlbmVkGAEgASgLMhguc3RlYWQubWFjaGluZS52MS5PcGVuZWRIABISCghqc29uX3JwYxgCIAEoCUgAEhAKBnN0ZGVychgDIAEoCUgAEiwKB3NlY3JldHMYBCABKAsyGS5zdGVhZC5tYWNoaW5lLnYxLlNlY3JldHNIABIvCgdmYWlsdXJlGAUgASgLMhwuc3RlYWQubWFjaGluZS52MS5NY3BGYWlsdXJlSABCCQoHbWVzc2FnZSI0CgZPcGVuZWQSKgoHc2VjcmV0cxgBIAEoCzIZLnN0ZWFkLm1hY2hpbmUudjEuU2VjcmV0cyIZCgdTZWNyZXRzEg4KBnZhbHVlcxgBIAMoCSJRCgpNY3BGYWlsdXJlEjIKBnJlYXNvbhgBIAEoDjIiLnN0ZWFkLm1hY2hpbmUudjEuTWNwRmFpbHVyZVJlYXNvbhIPCgdtZXNzYWdlGAIgASgJKk8KCVRyYW5zcG9ydBIZChVUUkFOU1BPUlRfVU5TUEVDSUZJRUQQABITCg9UUkFOU1BPUlRfU1RESU8QARISCg5UUkFOU1BPUlRfSFRUUBACKloKEE1jcEZhaWx1cmVSZWFzb24SIgoeTUNQX0ZBSUxVUkVfUkVBU09OX1VOU1BFQ0lGSUVEEAASIgoeTUNQX0ZBSUxVUkVfUkVBU09OX1VOQVZBSUxBQkxFEAEyzwEKCk1jcFNlcnZpY2USXwoLTGlzdFNlcnZlcnMSJC5zdGVhZC5tYWNoaW5lLnYxLkxpc3RTZXJ2ZXJzUmVxdWVzdBolLnN0ZWFkLm1hY2hpbmUudjEuTGlzdFNlcnZlcnNSZXNwb25zZSIDkAIBEmAKC09wZW5TZXNzaW9uEiQuc3RlYWQubWFjaGluZS52MS5PcGVuU2Vzc2lvblJlcXVlc3QaJS5zdGVhZC5tYWNoaW5lLnYxLk9wZW5TZXNzaW9uUmVzcG9uc2UiACgBMAFiBnByb3RvMw");
 
 /**
  * @generated from message stead.machine.v1.ListServersRequest
  */
 export type ListServersRequest = Message<"stead.machine.v1.ListServersRequest"> & {
   /**
-   * @generated from field: string root = 1;
+   * A directory inside a root.
+   *
+   * @generated from field: string workspace = 1;
    */
-  root: string;
+  workspace: string;
 };
 
 /**
@@ -56,7 +58,7 @@ export type Server = Message<"stead.machine.v1.Server"> & {
   name: string;
 
   /**
-   * UNSPECIFIED when the entry never resolved far enough to name one.
+   * UNSPECIFIED when the declaration never resolved far enough to name one.
    *
    * @generated from field: stead.machine.v1.Transport transport = 2;
    */
@@ -83,13 +85,13 @@ export const ServerSchema: GenMessage<Server> = /*@__PURE__*/
   messageDesc(file_stead_machine_v1_mcp, 2);
 
 /**
- * @generated from message stead.machine.v1.OpenRequest
+ * @generated from message stead.machine.v1.OpenSessionRequest
  */
-export type OpenRequest = Message<"stead.machine.v1.OpenRequest"> & {
+export type OpenSessionRequest = Message<"stead.machine.v1.OpenSessionRequest"> & {
   /**
-   * @generated from oneof stead.machine.v1.OpenRequest.frame
+   * @generated from oneof stead.machine.v1.OpenSessionRequest.message
    */
-  frame: {
+  message: {
     /**
      * @generated from field: stead.machine.v1.Open open = 1;
      */
@@ -99,13 +101,13 @@ export type OpenRequest = Message<"stead.machine.v1.OpenRequest"> & {
     /**
      * One JSON-RPC message as JSON text.
      *
-     * @generated from field: string message = 2;
+     * @generated from field: string json_rpc = 2;
      */
     value: string;
-    case: "message";
+    case: "jsonRpc";
   } | {
     /**
-     * The negotiated MCP protocol version, sent by HTTP servers on later requests.
+     * The negotiated MCP protocol version, which HTTP servers want on later requests.
      *
      * @generated from field: string protocol_version = 3;
      */
@@ -115,10 +117,10 @@ export type OpenRequest = Message<"stead.machine.v1.OpenRequest"> & {
 };
 
 /**
- * Describes the message stead.machine.v1.OpenRequest.
- * Use `create(OpenRequestSchema)` to create a new message.
+ * Describes the message stead.machine.v1.OpenSessionRequest.
+ * Use `create(OpenSessionRequestSchema)` to create a new message.
  */
-export const OpenRequestSchema: GenMessage<OpenRequest> = /*@__PURE__*/
+export const OpenSessionRequestSchema: GenMessage<OpenSessionRequest> = /*@__PURE__*/
   messageDesc(file_stead_machine_v1_mcp, 3);
 
 /**
@@ -126,9 +128,9 @@ export const OpenRequestSchema: GenMessage<OpenRequest> = /*@__PURE__*/
  */
 export type Open = Message<"stead.machine.v1.Open"> & {
   /**
-   * @generated from field: string root = 1;
+   * @generated from field: string workspace = 1;
    */
-  root: string;
+  workspace: string;
 
   /**
    * @generated from field: string server = 2;
@@ -144,13 +146,13 @@ export const OpenSchema: GenMessage<Open> = /*@__PURE__*/
   messageDesc(file_stead_machine_v1_mcp, 4);
 
 /**
- * @generated from message stead.machine.v1.OpenResponse
+ * @generated from message stead.machine.v1.OpenSessionResponse
  */
-export type OpenResponse = Message<"stead.machine.v1.OpenResponse"> & {
+export type OpenSessionResponse = Message<"stead.machine.v1.OpenSessionResponse"> & {
   /**
-   * @generated from oneof stead.machine.v1.OpenResponse.frame
+   * @generated from oneof stead.machine.v1.OpenSessionResponse.message
    */
-  frame: {
+  message: {
     /**
      * @generated from field: stead.machine.v1.Opened opened = 1;
      */
@@ -158,10 +160,10 @@ export type OpenResponse = Message<"stead.machine.v1.OpenResponse"> & {
     case: "opened";
   } | {
     /**
-     * @generated from field: string message = 2;
+     * @generated from field: string json_rpc = 2;
      */
     value: string;
-    case: "message";
+    case: "jsonRpc";
   } | {
     /**
      * A line of the server's standard error.
@@ -172,12 +174,12 @@ export type OpenResponse = Message<"stead.machine.v1.OpenResponse"> & {
     case: "stderr";
   } | {
     /**
-     * Resolved secret values the installation must redact, learned after `opened`.
+     * Secret values learned after `opened`, which the installation must redact.
      *
-     * @generated from field: stead.machine.v1.Protected protected = 4;
+     * @generated from field: stead.machine.v1.Secrets secrets = 4;
      */
-    value: Protected;
-    case: "protected";
+    value: Secrets;
+    case: "secrets";
   } | {
     /**
      * @generated from field: stead.machine.v1.McpFailure failure = 5;
@@ -188,10 +190,10 @@ export type OpenResponse = Message<"stead.machine.v1.OpenResponse"> & {
 };
 
 /**
- * Describes the message stead.machine.v1.OpenResponse.
- * Use `create(OpenResponseSchema)` to create a new message.
+ * Describes the message stead.machine.v1.OpenSessionResponse.
+ * Use `create(OpenSessionResponseSchema)` to create a new message.
  */
-export const OpenResponseSchema: GenMessage<OpenResponse> = /*@__PURE__*/
+export const OpenSessionResponseSchema: GenMessage<OpenSessionResponse> = /*@__PURE__*/
   messageDesc(file_stead_machine_v1_mcp, 5);
 
 /**
@@ -199,11 +201,11 @@ export const OpenResponseSchema: GenMessage<OpenResponse> = /*@__PURE__*/
  */
 export type Opened = Message<"stead.machine.v1.Opened"> & {
   /**
-   * Resolved secret values the installation must redact.
+   * Secret values the installation must redact from everything it shows.
    *
-   * @generated from field: repeated string protected_values = 1;
+   * @generated from field: stead.machine.v1.Secrets secrets = 1;
    */
-  protectedValues: string[];
+  secrets?: Secrets | undefined;
 };
 
 /**
@@ -214,9 +216,9 @@ export const OpenedSchema: GenMessage<Opened> = /*@__PURE__*/
   messageDesc(file_stead_machine_v1_mcp, 6);
 
 /**
- * @generated from message stead.machine.v1.Protected
+ * @generated from message stead.machine.v1.Secrets
  */
-export type Protected = Message<"stead.machine.v1.Protected"> & {
+export type Secrets = Message<"stead.machine.v1.Secrets"> & {
   /**
    * @generated from field: repeated string values = 1;
    */
@@ -224,10 +226,10 @@ export type Protected = Message<"stead.machine.v1.Protected"> & {
 };
 
 /**
- * Describes the message stead.machine.v1.Protected.
- * Use `create(ProtectedSchema)` to create a new message.
+ * Describes the message stead.machine.v1.Secrets.
+ * Use `create(SecretsSchema)` to create a new message.
  */
-export const ProtectedSchema: GenMessage<Protected> = /*@__PURE__*/
+export const SecretsSchema: GenMessage<Secrets> = /*@__PURE__*/
   messageDesc(file_stead_machine_v1_mcp, 7);
 
 /**
@@ -295,11 +297,6 @@ export enum McpFailureReason {
    * @generated from enum value: MCP_FAILURE_REASON_UNAVAILABLE = 1;
    */
   UNAVAILABLE = 1,
-
-  /**
-   * @generated from enum value: MCP_FAILURE_REASON_INVALID_INPUT = 2;
-   */
-  INVALID_INPUT = 2,
 }
 
 /**
@@ -310,16 +307,14 @@ export const McpFailureReasonSchema: GenEnum<McpFailureReason> = /*@__PURE__*/
 
 /**
  * McpService lists and runs the MCP servers a Workspace declares in `.mcp.json` and
- * `.llame/mcp.json` under a registered root, with `{env:...}` and `{path:...}` resolved against the
- * Machine's own environment. One Open stream is one server session: closing the stream ends the
- * server.
+ * `.llame/mcp.json` under a root, with `{env:...}` and `{path:...}` resolved against the
+ * Machine's own environment. One OpenSession stream is one server session: closing the stream ends
+ * the server.
  *
  * @generated from service stead.machine.v1.McpService
  */
 export const McpService: GenService<{
   /**
-   * ListServers reports the declared servers of a root and whether each can start.
-   *
    * @generated from rpc stead.machine.v1.McpService.ListServers
    */
   listServers: {
@@ -328,15 +323,15 @@ export const McpService: GenService<{
     output: typeof ListServersResponseSchema;
   },
   /**
-   * Open starts a server and relays JSON-RPC both ways. The first client frame is `open`; the
-   * first server frame is `opened` or `failure`.
+   * OpenSession starts a server and relays JSON-RPC both ways. The first client message is `open`;
+   * the first server message is `opened` or `failure`.
    *
-   * @generated from rpc stead.machine.v1.McpService.Open
+   * @generated from rpc stead.machine.v1.McpService.OpenSession
    */
-  open: {
+  openSession: {
     methodKind: "bidi_streaming";
-    input: typeof OpenRequestSchema;
-    output: typeof OpenResponseSchema;
+    input: typeof OpenSessionRequestSchema;
+    output: typeof OpenSessionResponseSchema;
   },
 }> = /*@__PURE__*/
   serviceDesc(file_stead_machine_v1_mcp, 0);

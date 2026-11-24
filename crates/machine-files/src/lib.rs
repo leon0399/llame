@@ -1,53 +1,55 @@
-//! `FilesService`: stat, list, read, edit, write, bytes, and grep.
+//! `FileService`: entries, bytes, lines, mutations, and search.
 
 mod mutate;
 
 use machine_core::{Context, IdempotencyCache};
 use machine_protocol::v1::{
-    EditRequest, EditResponse, GrepRequest, GrepResponse, FilesServiceListRequest, FilesServiceListResponse, ReadBytesRequest,
-    ReadBytesResponse, ReadRequest, ReadResponse, StatRequest, StatResponse, WriteRequest, WriteResponse,
-    files_service_server::{FilesService, FilesServiceServer},
+    GetEntryRequest, GetEntryResponse, ListDirectoryRequest, ListDirectoryResponse, ReadBytesRequest,
+    ReadBytesResponse, ReadLinesRequest, ReadLinesResponse, ReplaceTextRequest, ReplaceTextResponse,
+    SearchFilesRequest, SearchFilesResponse, WriteFileRequest, WriteFileResponse,
+    file_service_server::{FileService, FileServiceServer},
 };
 use tonic::{Request, Response, Status};
 
-pub fn service(context: Context) -> FilesServiceServer<Files> {
-    FilesServiceServer::new(Files { context, edits: IdempotencyCache::default(), writes: IdempotencyCache::default() })
+pub fn service(context: Context) -> FileServiceServer<Files> {
+    FileServiceServer::new(Files { context, writes: IdempotencyCache::default(), replaces: IdempotencyCache::default() })
 }
 
 pub struct Files {
     context: Context,
-    edits: IdempotencyCache<Result<EditResponse, Status>>,
-    writes: IdempotencyCache<Result<WriteResponse, Status>>,
+    writes: IdempotencyCache<Result<WriteFileResponse, Status>>,
+    replaces: IdempotencyCache<Result<ReplaceTextResponse, Status>>,
 }
 
-type Bytes = tokio_stream::wrappers::ReceiverStream<Result<ReadBytesResponse, Status>>;
+type Stream<T> = tokio_stream::wrappers::ReceiverStream<Result<T, Status>>;
 
 #[tonic::async_trait]
-impl FilesService for Files {
-    async fn stat(&self, _: Request<StatRequest>) -> Result<Response<StatResponse>, Status> {
-        Err(Status::unimplemented("Files.Stat"))
+impl FileService for Files {
+    async fn get_entry(&self, _: Request<GetEntryRequest>) -> Result<Response<GetEntryResponse>, Status> {
+        Err(Status::unimplemented("FileService.GetEntry"))
     }
-    async fn list(&self, _: Request<FilesServiceListRequest>) -> Result<Response<FilesServiceListResponse>, Status> {
-        Err(Status::unimplemented("Files.List"))
+    async fn list_directory(&self, _: Request<ListDirectoryRequest>) -> Result<Response<ListDirectoryResponse>, Status> {
+        Err(Status::unimplemented("FileService.ListDirectory"))
     }
-    async fn read(&self, _: Request<ReadRequest>) -> Result<Response<ReadResponse>, Status> {
-        Err(Status::unimplemented("Files.Read"))
+    type ReadBytesStream = Stream<ReadBytesResponse>;
+    async fn read_bytes(&self, _: Request<ReadBytesRequest>) -> Result<Response<Self::ReadBytesStream>, Status> {
+        Err(Status::unimplemented("FileService.ReadBytes"))
     }
-    async fn edit(&self, request: Request<EditRequest>) -> Result<Response<EditResponse>, Status> {
+    async fn read_lines(&self, _: Request<ReadLinesRequest>) -> Result<Response<ReadLinesResponse>, Status> {
+        Err(Status::unimplemented("FileService.ReadLines"))
+    }
+    async fn write_file(&self, request: Request<WriteFileRequest>) -> Result<Response<WriteFileResponse>, Status> {
         let request = request.into_inner();
-        let key = request.idempotency_key.clone();
-        self.edits.run(&key, || mutate::edit(&self.context, request)).await.map(Response::new)
-    }
-    async fn write(&self, request: Request<WriteRequest>) -> Result<Response<WriteResponse>, Status> {
-        let request = request.into_inner();
-        let key = request.idempotency_key.clone();
+        let key = request.request_id.clone();
         self.writes.run(&key, || mutate::write(&self.context, request)).await.map(Response::new)
     }
-    type ReadBytesStream = Bytes;
-    async fn read_bytes(&self, _: Request<ReadBytesRequest>) -> Result<Response<Self::ReadBytesStream>, Status> {
-        Err(Status::unimplemented("Files.ReadBytes"))
+    async fn replace_text(&self, request: Request<ReplaceTextRequest>) -> Result<Response<ReplaceTextResponse>, Status> {
+        let request = request.into_inner();
+        let key = request.request_id.clone();
+        self.replaces.run(&key, || mutate::replace(&self.context, request)).await.map(Response::new)
     }
-    async fn grep(&self, request: Request<GrepRequest>) -> Result<Response<GrepResponse>, Status> {
-        machine_grep::grep(&self.context, request.into_inner()).await.map(Response::new)
+    type SearchFilesStream = Stream<SearchFilesResponse>;
+    async fn search_files(&self, request: Request<SearchFilesRequest>) -> Result<Response<Self::SearchFilesStream>, Status> {
+        machine_grep::search(&self.context, request.into_inner()).await.map(Response::new)
     }
 }
