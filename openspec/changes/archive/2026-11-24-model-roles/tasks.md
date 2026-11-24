@@ -33,7 +33,7 @@ master <- model-roles/proposal <- model-roles/catalog <- model-roles/selection
   because they name the renamed keys. Section 3 is the atomic `modelId` rename. `RunsRepository.create`
   defaults the new columns, which removes about 77 fixture edits; the rest is DTO and fixture churn.
 - Each layer uses `$gh-stack` for its branch and `$openspec-apply-change` for its tasks, and stops at
-  the layer boundary for the gates in [CONTRIBUTING.md](../../../CONTRIBUTING.md).
+  the layer boundary for the gates in [CONTRIBUTING.md](../../../../CONTRIBUTING.md).
 - Generated churn (OpenAPI, the web client, the AsyncAPI websocket protocol, Drizzle snapshots) counts
   zero and is reported apart. Re-estimate at each boundary.
 
@@ -67,7 +67,7 @@ master <- model-roles/proposal <- model-roles/catalog <- model-roles/selection
 - [x] 2.6 Update the example config, `docs/product/operator/providers/routing.md` (roles and
       `free`), README, the glossary (`free` billing, Model selector), and a dated **Breaking**
       CHANGELOG entry for the key renames; verify `pnpm lint:markdown`.
-- [ ] 2.7 SR, then GR with the Ready-PR monitoring loop.
+- [x] 2.7 SR, then GR with the Ready-PR monitoring loop.
 
 ## 3. Selection (`model-roles/selection`)
 
@@ -93,7 +93,7 @@ master <- model-roles/proposal <- model-roles/catalog <- model-roles/selection
       sent as a steer", and the negative isolation scenario "Another owner reads a Chat" in the API
       integration suite.
 - [x] 3.5 CHANGELOG entry for the API rename; verify `pnpm lint:markdown`.
-- [ ] 3.6 SR, then GR with the Ready-PR monitoring loop.
+- [x] 3.6 SR, then GR with the Ready-PR monitoring loop.
 
 ## 4. Selection UX (`model-roles/selection-ux`)
 
@@ -112,7 +112,7 @@ master <- model-roles/proposal <- model-roles/catalog <- model-roles/selection
       pick; verify "A held Chat in the picker" and the modified "Web sends only with valid selected
       model" scenarios with stories and the Storybook MCP tests.
 - [x] 4.6 Owner docs for model selectors and holds; verify `pnpm lint:markdown`.
-- [ ] 4.7 SR, then GR with the Ready-PR monitoring loop.
+- [x] 4.7 SR, then GR with the Ready-PR monitoring loop.
 
 ## 5. Switch records (`model-roles/switch-records`)
 
@@ -129,7 +129,7 @@ master <- model-roles/proposal <- model-roles/catalog <- model-roles/selection
       wire" and "Two ids map to the same value" in context-builder and compaction tests.
 - [x] 5.5 The effective-context inspector names each attempt's model, and the web boundary renders the
       `failover` item; verify with stories.
-- [ ] 5.6 SR, then GR with the Ready-PR monitoring loop.
+- [x] 5.6 SR, then GR with the Ready-PR monitoring loop.
 
 ## 6. Next candidate (`model-roles/next-candidate`)
 
@@ -154,7 +154,7 @@ master <- model-roles/proposal <- model-roles/catalog <- model-roles/selection
       Storybook MCP tests, and one focused product E2E for Continue on next candidate.
 - [x] 6.6 Owner docs for Continue on next candidate and a CHANGELOG entry; the PR carries
       `Closes #1839`. Verify `pnpm lint:markdown`.
-- [ ] 6.7 SR, then GR with the Ready-PR monitoring loop.
+- [x] 6.7 SR, then GR with the Ready-PR monitoring loop.
 
 ## 7. In-Run switch (`model-roles/in-run-switch`)
 
@@ -165,7 +165,7 @@ master <- model-roles/proposal <- model-roles/catalog <- model-roles/selection
       `tool-calling` "A model switch removes the failed send", with a test decision that switches.
 - [x] 7.2 The pre-step compaction check at a switch segment; verify `run-steering` "A switch to a
       smaller window compacts first".
-- [ ] 7.3 SR, then GR with the Ready-PR monitoring loop.
+- [x] 7.3 SR, then GR with the Ready-PR monitoring loop.
 
 ## 8. Failover policy (`model-roles/failover-policy`)
 
@@ -188,17 +188,17 @@ master <- model-roles/proposal <- model-roles/catalog <- model-roles/selection
 - [x] 8.8 Example config with `agent × availability` on, `docs/product/operator/providers/routing.md`
       for the matrix, the glossary, and a CHANGELOG entry; the PR carries `Closes #1840` and
       `Closes #1772`. Verify `pnpm lint:markdown`.
-- [ ] 8.9 SR, then GR with the Ready-PR monitoring loop.
+- [x] 8.9 SR, then GR with the Ready-PR monitoring loop.
 
 ## 9. Finalize (`model-roles/finalize`)
 
-- [ ] 9.1 Enter `model-roles/finalize` with `$gh-stack` from the top of the stack before any spec
+- [x] 9.1 Enter `model-roles/finalize` with `$gh-stack` from the top of the stack before any spec
       write; verify `gh stack view --json` shows it on top.
-- [ ] 9.2 Run `$openspec-sync-specs`, set the Purpose of `model-roles` and `model-failover`, update
+- [x] 9.2 Run `$openspec-sync-specs`, set the Purpose of `model-roles` and `model-failover`, update
       the `available-models` Purpose that names `modelId`, point the ADR links from the change to the
       archived change, and confirm `openspec status --change model-roles --json` reports every
       artifact done and every task above checked.
-- [ ] 9.3 Verify `pnpm exec openspec validate --specs --strict` and
+- [x] 9.3 Verify `pnpm exec openspec validate --specs --strict` and
       `pnpm exec openspec validate --all --strict`, then run `$openspec-archive-change`.
 
 SR and GR of the finalize PR are post-archive gates under CONTRIBUTING.md, not tasks here.

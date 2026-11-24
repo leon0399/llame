@@ -49,11 +49,11 @@ Map decisions: [#1755](https://github.com/leon0399/llame/issues/1755),
 [#1777](https://github.com/leon0399/llame/issues/1777),
 [#1816](https://github.com/leon0399/llame/issues/1816),
 [#1822](https://github.com/leon0399/llame/issues/1822), and the ADRs
-[Automatic failover is opt-in per model role, failure group, and Run origin](../../../docs/adr/2026-11-20-automatic-failover-is-opt-in.md)
-and [A model switch within a Run opens a new segment](../../../docs/adr/2026-11-20-a-model-switch-opens-a-segment.md).
+[Automatic failover is opt-in per model role, failure group, and Run origin](../../../../docs/adr/2026-11-20-automatic-failover-is-opt-in.md)
+and [A model switch within a Run opens a new segment](../../../../docs/adr/2026-11-20-a-model-switch-opens-a-segment.md).
 This change adds the ADRs
-[Requests name a selector, and `modelId` names the model that served](../../../docs/adr/2026-11-23-requests-name-a-selector.md)
-and [A title call walks its model role's chain](../../../docs/adr/2026-11-23-a-title-call-walks-its-role-chain.md).
+[Requests name a selector, and `modelId` names the model that served](../../../../docs/adr/2026-11-23-requests-name-a-selector.md)
+and [A title call walks its model role's chain](../../../../docs/adr/2026-11-23-a-title-call-walks-its-role-chain.md).
 Spec grilling on 2026-11-23 ([record](https://github.com/leon0399/llame/issues/1772#issuecomment-7101877446)):
 
 - grilling Q1 A: one top-level `modelRoles` map.
