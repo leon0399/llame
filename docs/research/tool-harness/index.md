@@ -17,6 +17,7 @@ and extraction models.
 - [Objective-ranked results with offloaded artifacts](./2026-11-02-objective-rerank-engine.md) - Whether every search tool should rank its whole result by a model-supplied objective, show the most suitable findings inline, and offload the rest to an `artifact://` snapshot instead of a cursor: prior art, costs, and a shared engine design.
 - [Per-call overhead of Machine daemon tools](./2026-11-18-daemon-call-overhead.md) - Measures today's Node daemon process boundary and JSON serialization cost for `fs.read` and `fs.grep`, without predicting Rust/gRPC performance.
 - [Jobs that outlive the Machine daemon](./2026-11-23-detached-jobs.md) - Compares process detachment, subreapers, pidfds, systemd transient units, tmux sessions and confinement interactions, with measured WSL2 probes, so the Machine daemon can adopt a job after a restart.
+- [gRPC over a child process stdio](./2026-11-24-grpc-over-stdio.md) - Tests Node HTTP/2 over a child pipe, tonic over incoming IO and Unix sockets, disconnect behavior, code generation and pipe-based RPC prior art.
 
 ## Research bundles
 
