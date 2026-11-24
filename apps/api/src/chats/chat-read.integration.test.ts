@@ -250,12 +250,12 @@ describe('Chat reader owner isolation', () => {
     for (const { status, expected } of cases) {
       const statusChat = await seed(owner, 'Status source');
       await tenantDb.runAs(owner, async (tx) => {
-        await tx.execute(sql`INSERT INTO runs (chat_id, user_id, model_id, status, created_at)
-          VALUES (${statusChat}::uuid, ${owner}, 'system:test', ${status}::run_status, now() - interval '2 minutes')`);
+        await tx.execute(sql`INSERT INTO runs (chat_id, user_id, model_id, selector, status, created_at)
+          VALUES (${statusChat}::uuid, ${owner}, 'system:test', 'system:test', ${status}::run_status, now() - interval '2 minutes')`);
 
         if (expected !== 'idle')
-          await tx.execute(sql`INSERT INTO runs (chat_id, user_id, model_id, status, created_at)
-            VALUES (${statusChat}::uuid, ${owner}, 'system:test', 'completed', now())`);
+          await tx.execute(sql`INSERT INTO runs (chat_id, user_id, model_id, selector, status, created_at)
+            VALUES (${statusChat}::uuid, ${owner}, 'system:test', 'system:test', 'completed', now())`);
       });
       await assertResourceRunStatus(statusChat, expected);
 

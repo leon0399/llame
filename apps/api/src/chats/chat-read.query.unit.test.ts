@@ -386,10 +386,10 @@ describe('ChatReadRepository PostgreSQL query', () => {
     const chatId = await seedChat(owner, 'Run state');
 
     await tenantDb.runAs(owner, async (tx) => {
-      await tx.execute(sql`INSERT INTO runs (chat_id, user_id, model_id, status, created_at)
-        VALUES (${chatId}::uuid, ${owner}, 'system:test', 'running_model', now() - interval '2 minutes')`);
-      await tx.execute(sql`INSERT INTO runs (chat_id, user_id, model_id, status, created_at)
-        VALUES (${chatId}::uuid, ${owner}, 'system:test', 'completed', now())`);
+      await tx.execute(sql`INSERT INTO runs (chat_id, user_id, model_id, selector, status, created_at)
+        VALUES (${chatId}::uuid, ${owner}, 'system:test', 'system:test', 'running_model', now() - interval '2 minutes')`);
+      await tx.execute(sql`INSERT INTO runs (chat_id, user_id, model_id, selector, status, created_at)
+        VALUES (${chatId}::uuid, ${owner}, 'system:test', 'system:test', 'completed', now())`);
     });
 
     await expect(
