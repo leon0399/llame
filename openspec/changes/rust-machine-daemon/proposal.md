@@ -5,7 +5,7 @@ its connection ends. Background jobs on every Machine, attach-or-start, and a
 frozen bootstrap service need a daemon that outlives connections and ships as
 one static binary per Linux architecture. The decisions are recorded on the
 [execution-layer map](https://github.com/leon0399/llame/issues/1778) and in
-[The Machine daemon is a one-shot Rust rewrite with a gRPC contract](../../../docs/adr/2026-11-24-machine-daemon-rust-rewrite.md).
+[The Machine daemon is a Rust binary with a gRPC contract](../../../docs/adr/2026-11-24-machine-daemon-is-rust-with-grpc-contract.md).
 
 ## What Changes
 
@@ -52,7 +52,7 @@ one static binary per Linux architecture. The decisions are recorded on the
 - New toolchain: Rust 1.98.1 through `rust-toolchain.toml` (the Nix dev shell
   provides `rustup`), `buf` and `protoc-gen-es` for TypeScript generation.
 - New ADRs:
-  [The Machine daemon is a one-shot Rust rewrite with a gRPC contract](../../../docs/adr/2026-11-24-machine-daemon-rust-rewrite.md),
+  [The Machine daemon is a Rust binary with a gRPC contract](../../../docs/adr/2026-11-24-machine-daemon-is-rust-with-grpc-contract.md),
   [Every command is a Machine daemon job](../../../docs/adr/2026-11-24-every-command-is-a-machine-daemon-job.md),
   [Machines own their capacity limits](../../../docs/adr/2026-11-24-machines-own-their-capacity-limits.md).
 - Related ADRs:
