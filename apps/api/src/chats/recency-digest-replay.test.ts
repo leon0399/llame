@@ -314,6 +314,145 @@ describe('imported digest replay boundaries', () => {
       ).map((row) => row.id),
     ).toEqual([checkpointRow.id]);
   });
+  it('selects an origin baseline only outside a checkpoint history', () => {
+    const baseline = message(10, {
+      senderUserId: null,
+      parts: [
+        createRecencyDigestItem({
+          runId,
+          body: 'Origin baseline',
+          payload: {
+            version: 1,
+            kind: 'baseline',
+            announced: [],
+            association: { kind: 'origin', chatId },
+          },
+        }),
+      ],
+    });
+
+    const turn = message(11);
+    const stored = toStoredMessages([baseline, turn]);
+
+    const originHistory = selectContextHistory(stored, undefined);
+    expect(originHistory.originBaseline?.id).toBe(baseline.id);
+    expect(originHistory.ordered.map(({ id }) => id)).toEqual([turn.id]);
+
+    const checkpointHistory = selectContextHistory(stored, {
+      id: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+      text: 'Checkpoint summary',
+      absorbedThroughSeq: 9,
+    });
+
+    expect(checkpointHistory.originBaseline).toBeUndefined();
+    expect(checkpointHistory.ordered.map(({ id }) => id)).toEqual([turn.id]);
+  });
+
+  it('recognizes an origin baseline only when its chat association matches its row', () => {
+    const matching = message(10, {
+      senderUserId: null,
+      parts: [
+        createRecencyDigestItem({
+          runId,
+          body: 'Matching origin baseline',
+          payload: {
+            version: 1,
+            kind: 'baseline',
+            announced: [],
+            association: { kind: 'origin', chatId },
+          },
+        }),
+      ],
+    });
+
+    const mismatched = message(11, {
+      senderUserId: null,
+      parts: [
+        createRecencyDigestItem({
+          runId,
+          body: 'Baseline from another origin',
+          payload: {
+            version: 1,
+            kind: 'baseline',
+            announced: [],
+            association: { kind: 'origin', chatId: sourceId },
+          },
+        }),
+      ],
+    });
+
+    const selection = selectContextHistory(
+      toStoredMessages([matching, mismatched]),
+      undefined,
+    );
+
+    expect(selection.originBaseline?.id).toBe(matching.id);
+
+    const foreignOnly = selectContextHistory(
+      toStoredMessages([mismatched]),
+      undefined,
+    );
+
+    expect(foreignOnly.originBaseline).toBeUndefined();
+  });
+
+  it('keeps legacy unassociated imported notices in the origin epoch only', () => {
+    const legacyNotice = message(101, {
+      senderUserId: null,
+      parts: [
+        createRecencyDigestItem({
+          runId,
+          body: 'Legacy imported comparison',
+          payload: {
+            version: 1,
+            kind: 'notice',
+            announced: [],
+            importedCutoff: { latestTurnSeq: 99, lastOriginalSeq: 100 },
+          },
+        }),
+      ],
+    });
+
+    const nextTurn = message(102);
+    const stored = toStoredMessages([legacyNotice, nextTurn]);
+
+    expect(
+      selectContextHistory(stored, undefined).ordered.map(({ id }) => id),
+    ).toEqual([legacyNotice.id, nextTurn.id]);
+    expect(
+      selectContextHistory(stored, {
+        id: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+        text: 'Checkpoint summary',
+        absorbedThroughSeq: 98,
+      }).ordered.map(({ id }) => id),
+    ).toEqual([nextTurn.id]);
+  });
+
+  it('requires both checkpoint id and role when selecting the replay boundary', () => {
+    const checkpointId = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
+
+    const wrongRoleWithId = message(30, {
+      id: checkpointId,
+      role: 'user',
+      absorbedThroughSeq: 10,
+    });
+
+    const wrongIdWithRole = message(31, {
+      id: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',
+      role: 'checkpoint',
+      absorbedThroughSeq: 10,
+    });
+
+    const trigger = message(5);
+
+    expect(
+      selectEffectiveDigestMessages(
+        [wrongIdWithRole, wrongRoleWithId, trigger],
+        chatId,
+        { throughSeq: 20, checkpointId },
+      ).map(({ id }) => id),
+    ).toEqual([trigger.id]);
+  });
 
   it('expires an imported comparison when a later checkpoint absorbs its original history', () => {
     const trigger = message(99);

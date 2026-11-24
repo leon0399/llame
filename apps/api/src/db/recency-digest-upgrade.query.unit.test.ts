@@ -600,6 +600,12 @@ describe('recency digest data upgrade', () => {
         },
         {
           entries: [
+            { title, date: 'x2026-01-01', messageCount: 1, pinned: true },
+          ],
+          pinChanges: [],
+        },
+        {
+          entries: [
             { title, date: 'abcd-01-01', messageCount: 1, pinned: true },
           ],
           pinChanges: [],
@@ -678,6 +684,152 @@ describe('recency digest data upgrade', () => {
         ).toEqual({ effectiveCorrection: true, proofMatches: false });
         await tx`delete from messages where id = ${malformedMessageId}::uuid`;
       }
+
+      const mixedNoticeMessageId = randomUUID();
+
+      const mixedNotice = createContextItemPart({
+        producer: 'recency-digest',
+        form: 'notice',
+        runId,
+        payload: {
+          entries: [
+            {
+              title: 'New historical title',
+              date: '2026-01-01',
+              messageCount: 1,
+              pinned: false,
+            },
+          ],
+          pinChanges: [{ title, pinned: true }],
+        },
+        text: 'A new entry; the previously announced Chat is now pinned.',
+      });
+
+      await tx`insert into messages (id, chat_id, seq, role, sender_user_id, parts) values (${mixedNoticeMessageId}::uuid, ${chatId}::uuid, 3, 'assistant', null, ${JSON.stringify([mixedNotice])}::text::json)`;
+      record.provenance.lastOriginalSeq = 3;
+      expect(
+        await noticePinHasProof({
+          connection: tx,
+          chat: {
+            id: chatId,
+            owner_user_id: ownerId,
+            recency_digest_told: columns.told,
+          },
+          record,
+          entry: {
+            ...noticeEntry,
+            proofs: {
+              ...noticeEntry.proofs,
+              pin: { kind: 'notice', messageId: mixedNoticeMessageId },
+            },
+          },
+          cutoffSupported: true,
+        }),
+      ).toEqual({ effectiveCorrection: true, proofMatches: true });
+      await tx`delete from messages where id = ${mixedNoticeMessageId}::uuid`;
+      record.provenance.lastOriginalSeq = 2;
+      const unknownFormMessageId = randomUUID();
+
+      const unknownFormNotice = {
+        ...mixedNotice,
+        data: { ...mixedNotice.data, form: 'legacy-notice' },
+      };
+
+      await tx`insert into messages (id, chat_id, seq, role, sender_user_id, parts) values (${unknownFormMessageId}::uuid, ${chatId}::uuid, 3, 'assistant', null, ${JSON.stringify([unknownFormNotice])}::text::json)`;
+      record.provenance.lastOriginalSeq = 3;
+      expect(
+        await noticePinHasProof({
+          connection: tx,
+          chat: {
+            id: chatId,
+            owner_user_id: ownerId,
+            recency_digest_told: columns.told,
+          },
+          record,
+          entry: {
+            ...noticeEntry,
+            proofs: {
+              ...noticeEntry.proofs,
+              pin: { kind: 'notice', messageId: unknownFormMessageId },
+            },
+          },
+          cutoffSupported: true,
+        }),
+      ).toEqual({ effectiveCorrection: true, proofMatches: false });
+      await tx`delete from messages where id = ${unknownFormMessageId}::uuid`;
+      record.provenance.lastOriginalSeq = 2;
+
+      const boundarySnapshotId = randomUUID();
+      const laterNoticeId = randomUUID();
+
+      const nonemptySnapshot = createContextItemPart({
+        producer: 'recency-digest',
+        form: 'snapshot',
+        runId,
+        payload: { entries: [] },
+        text: 'Malformed snapshot boundary.',
+      });
+
+      const laterNotice = createContextItemPart({
+        producer: 'recency-digest',
+        form: 'notice',
+        runId,
+        payload: { entries: [], pinChanges: [{ title, pinned: true }] },
+        text: 'The previously announced Chat is now pinned.',
+      });
+
+      await tx`insert into messages (id, chat_id, seq, role, sender_user_id, parts) values (${boundarySnapshotId}::uuid, ${chatId}::uuid, 3, 'assistant', null, ${JSON.stringify([nonemptySnapshot])}::text::json)`;
+      await tx`insert into messages (id, chat_id, seq, role, sender_user_id, parts) values (${laterNoticeId}::uuid, ${chatId}::uuid, 4, 'assistant', null, ${JSON.stringify([laterNotice])}::text::json)`;
+      record.provenance.lastOriginalSeq = 4;
+
+      const laterNoticeEntry = {
+        ...noticeEntry,
+        proofs: {
+          ...noticeEntry.proofs,
+          pin: { kind: 'notice' as const, messageId: laterNoticeId },
+        },
+      };
+
+      expect(
+        await noticePinHasProof({
+          connection: tx,
+          chat: {
+            id: chatId,
+            owner_user_id: ownerId,
+            recency_digest_told: columns.told,
+          },
+          record,
+          entry: laterNoticeEntry,
+          cutoffSupported: true,
+        }),
+      ).toEqual({ effectiveCorrection: true, proofMatches: false });
+
+      await tx`delete from messages where id = ${boundarySnapshotId}::uuid`;
+
+      const emptySnapshotBoundary = createContextItemPart({
+        producer: 'recency-digest',
+        form: 'snapshot',
+        runId,
+        payload: {},
+        text: 'Valid snapshot boundary.',
+      });
+
+      await tx`insert into messages (id, chat_id, seq, role, sender_user_id, parts) values (${boundarySnapshotId}::uuid, ${chatId}::uuid, 3, 'assistant', null, ${JSON.stringify([emptySnapshotBoundary])}::text::json)`;
+      expect(
+        await noticePinHasProof({
+          connection: tx,
+          chat: {
+            id: chatId,
+            owner_user_id: ownerId,
+            recency_digest_told: columns.told,
+          },
+          record,
+          entry: laterNoticeEntry,
+          cutoffSupported: true,
+        }),
+      ).toEqual({ effectiveCorrection: true, proofMatches: true });
+      await tx`delete from messages where id in (${boundarySnapshotId}::uuid, ${laterNoticeId}::uuid)`;
+      record.provenance.lastOriginalSeq = 2;
 
       const emptyTextMessageId = randomUUID();
 
@@ -807,6 +959,42 @@ describe('recency digest data upgrade', () => {
           entry,
         }),
       ).toBe(false);
+      const otherOwnedChatId = randomUUID();
+      await tx`insert into chats (id, owner_user_id, recency_digest_baseline, recency_digest_told, recency_digest_rebaked_from) values (${otherOwnedChatId}::uuid, ${ownerId}, null, null, null)`;
+
+      const identityForTold = async (
+        told: Array<{ chatId: string; title?: string }>,
+      ): Promise<boolean> => {
+        await tx`delete from run_events where run_id = ${runId}::uuid and event_type = 'run.suspended'`;
+        await tx`insert into run_events (run_id, event_type, payload) values (${runId}::uuid, 'run.suspended', ${JSON.stringify({ summaryAttemptId: attemptId, baselines: { recencyDigestInitialization: { baseline: columns.baseline, told } } })}::text::jsonb)`;
+
+        return immutableIdentityHasProof({
+          connection: tx,
+          ownerId,
+          chatId,
+          legacyBaseline: columns.baseline,
+          rebakedFrom: null,
+          entry,
+        });
+      };
+
+      expect(
+        await identityForTold([
+          { chatId: sourceChatId, title: `  ${title}  ` },
+          { chatId: randomUUID(), title: 'Unrelated disclosed title' },
+          { chatId: randomUUID() },
+        ]),
+      ).toBe(true);
+      expect(
+        await identityForTold([
+          { chatId: sourceChatId, title },
+          { chatId: otherOwnedChatId, title },
+        ]),
+      ).toBe(false);
+      expect(await identityForTold([{ chatId: otherOwnedChatId, title }])).toBe(
+        false,
+      );
+
       expect(
         await immutableIdentityHasProof({
           connection: tx,
@@ -817,6 +1005,7 @@ describe('recency digest data upgrade', () => {
           entry,
         }),
       ).toBe(false);
+      await identityForTold([{ chatId: sourceChatId, title }]);
 
       const nonDefaultAttempt = randomUUID();
       const promptHash = hashWithDomain(SYSTEM_PROMPT_RECEIPT_DOMAIN, prompt);
@@ -1150,6 +1339,7 @@ describe('recency digest data upgrade', () => {
     const chatA = randomUUID();
     const chatB = randomUUID();
     const staleChat = randomUUID();
+    const missingRecordChat = randomUUID();
     const absentRunChat = randomUUID();
     const misboundChat = randomUUID();
     const noProofChat = randomUUID();
@@ -1161,8 +1351,10 @@ describe('recency digest data upgrade', () => {
     const staleProofAttempt = randomUUID();
     const runA = randomUUID();
     const runB = randomUUID();
+    const staleRun = randomUUID();
     const attemptA = randomUUID();
     const attemptB = randomUUID();
+    const staleAttempt = randomUUID();
     const sourceA = randomUUID();
     const sourceB = randomUUID();
 
@@ -1184,7 +1376,13 @@ describe('recency digest data upgrade', () => {
     };
 
     const staleLegacy = {
-      baseline: { pinned: [], recent: [] },
+      baseline: { pinned: [{ title: 'Valid stale fingerprint' }], recent: [] },
+      told: [],
+      rebakedFrom: null,
+    };
+
+    const missingRecordLegacy = {
+      baseline: { pinned: [{ title: 'Owned without export' }], recent: [] },
       told: [],
       rebakedFrom: null,
     };
@@ -1208,6 +1406,7 @@ describe('recency digest data upgrade', () => {
     };
 
     const legacyValueMismatchPrompt = 'Prompt proved Forged export title';
+    const stalePrompt = 'Prompt showed Valid stale fingerprint';
     const promptA = 'Prompt showed Alpha';
     const staleProofPrompt = 'Prompt showed Stale proof';
     const promptB = 'Prompt showed Beta';
@@ -1229,7 +1428,22 @@ describe('recency digest data upgrade', () => {
         prompt: promptB,
         columns: legacyB,
       },
-      { ownerId: ownerA, chatId: staleChat, columns: staleLegacy },
+      {
+        ownerId: ownerA,
+        chatId: staleChat,
+        runId: staleRun,
+        attemptId: staleAttempt,
+        prompt: stalePrompt,
+        initialTold: [
+          { chatId: staleChat, title: 'Valid stale fingerprint', pinned: true },
+        ],
+        columns: staleLegacy,
+      },
+      {
+        ownerId: ownerA,
+        chatId: missingRecordChat,
+        columns: missingRecordLegacy,
+      },
       { ownerId: ownerA, chatId: absentRunChat, columns: noProofLegacy },
       { ownerId: ownerB, chatId: misboundChat, columns: noProofLegacy },
       { ownerId: ownerB, chatId: noProofChat, columns: noProofLegacy },
@@ -1286,7 +1500,11 @@ describe('recency digest data upgrade', () => {
       makeRecord({
         ownerId: ownerA,
         chatId: staleChat,
-        runId: null,
+        runId: staleRun,
+        attemptId: staleAttempt,
+        prompt: stalePrompt,
+        title: 'Valid stale fingerprint',
+        sourceChatId: staleChat,
         legacyColumns: staleLegacy,
         fingerprint: '0'.repeat(64),
       }),
@@ -1404,13 +1622,21 @@ describe('recency digest data upgrade', () => {
       });
     });
 
-    expect(report.inventoryChats).toBe(10);
+    expect(report.inventoryChats).toBe(11);
     expect(report.importedChats).toBe(2);
-    expect(report.omittedChats).toBe(6);
+    expect(report.omittedChats).toBe(7);
     expect(
       report.omissions.some(
         ({ chatId, reason }) =>
           chatId === staleChat && reason === 'legacy_fingerprint_mismatch',
+      ),
+    ).toBe(true);
+    expect(
+      report.omissions.some(
+        ({ chatId, field, reason }) =>
+          chatId === missingRecordChat &&
+          field === 'record' &&
+          reason === 'missing_export_record',
       ),
     ).toBe(true);
     expect(
@@ -1465,6 +1691,10 @@ describe('recency digest data upgrade', () => {
           ({ parts }) => Array.isArray(parts) && parts.length === 1,
         ),
       ).toBe(true);
+      expect(visible.some(({ chat_id }) => chat_id === staleChat)).toBe(false);
+      expect(visible.some(({ chat_id }) => chat_id === missingRecordChat)).toBe(
+        false,
+      );
 
       const payloads = visible.flatMap(({ parts }) =>
         Array.isArray(parts)

@@ -1215,6 +1215,39 @@ describe('bounded web-search engine projection', () => {
   });
 });
 
+describe('boot probes every optional-context combination', () => {
+  it.each([
+    [false, false, false],
+    [true, false, false],
+    [false, true, false],
+    [false, false, true],
+    [true, true, false],
+    [true, false, true],
+    [false, true, true],
+    [true, true, true],
+  ])(
+    'rejects a prompt empty only for user=%s, skills=%s, webSearch=%s',
+    (userPresent, skillsPresent, webSearchPresent) => {
+      let template = 'Target';
+
+      for (const [gate, present] of [
+        ['webSearch', webSearchPresent],
+        ['skills', skillsPresent],
+        ['user', userPresent],
+      ] as const) {
+        template = `{{#if ${gate}}}${present ? template : 'Base'}{{else}}${present ? 'Base' : template}{{/if}}`;
+      }
+
+      writeFileSync(defaultPromptPath, template);
+      expect(renderFor({ id: 'm' })).toBe(
+        userPresent || skillsPresent || webSearchPresent ? 'Base' : 'Target',
+      );
+      writeFileSync(defaultPromptPath, template.replace('Target', ''));
+      expect(() => loader().resolve({ id: 'm' })).toThrow(InstanceConfigError);
+    },
+  );
+});
+
 describe('boot probes the web-search gate independently', () => {
   it('rejects a template empty only for a deployment with engines and no owner', () => {
     writeFileSync(

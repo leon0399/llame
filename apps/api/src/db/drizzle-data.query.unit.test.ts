@@ -33,6 +33,7 @@ import {
   findLatestAssistantPerOwnedChat,
 } from '../chats/recency-digest-message-projections';
 import { createRecencyDigestItem } from '../chats/recency-digest-item';
+import { countAbsorbedMessages } from '../chats/absorbed-message-count';
 
 const text = (value: string) => [{ type: 'text', text: value }];
 
@@ -476,6 +477,14 @@ describe('database data-query PostgreSQL regressions', () => {
     await tenantDb.runAs(owner, async (tx) => {
       const ids = [chatId, foreignChatId];
       expect(
+        (await new ChatsRepository(tx).findByOwner(owner, { ids })).map(
+          ({ id }) => id,
+        ),
+      ).toEqual([chatId]);
+      expect(
+        await new ChatsRepository(tx).findByOwner(owner, { ids: [] }),
+      ).toEqual([]);
+      expect(
         (await findLatestAssistantPerOwnedChat(tx, ids, owner)).map(
           ({ id }) => id,
         ),
@@ -549,12 +558,26 @@ describe('database data-query PostgreSQL regressions', () => {
       expect(
         (await repository.findByChatId(chatId, owner)).map(({ id }) => id),
       ).toEqual([original.id, carrier.id, later.id]);
+
+      const checkpoint = await repository.create({
+        chatId,
+        role: 'checkpoint',
+        absorbedThroughSeq: later.seq,
+        parts: [],
+      });
+
+      expect(
+        await countAbsorbedMessages(tx, chatId, owner, [checkpoint.id]),
+      ).toEqual(new Map([[checkpoint.id, 2]]));
     });
   });
 
   it('includes associated carriers above the replay and fork storage boundary', async () => {
     const owner = await seedUser();
     const chatId = await seedChat(owner, 'replay source');
+    const foreignOwner = await seedUser();
+    await seedChat(foreignOwner, 'foreign replay source');
+    await seedChat(owner, 'unrequested replay source');
 
     await tenantDb.runAs(owner, async (tx) => {
       const repository = new MessagesRepository(tx);
@@ -605,6 +628,55 @@ describe('database data-query PostgreSQL regressions', () => {
           ({ id }) => id,
         ),
       ).toEqual([original.id, baseline.id]);
+    });
+  });
+
+  it('uses only an actual checkpoint row as the owned replay boundary', async () => {
+    const owner = await seedUser();
+    const chatId = await seedChat(owner, 'checkpoint source');
+
+    await tenantDb.runAs(owner, async (tx) => {
+      const repository = new MessagesRepository(tx);
+      const original = (await repository.findByChatId(chatId, owner))[0];
+
+      if (!original) throw new Error('Missing original owner message');
+
+      const trigger = await repository.create({
+        chatId,
+        role: 'user',
+        senderUserId: owner,
+        parts: text('unabsorbed trigger'),
+      });
+
+      const reply = await repository.create({
+        chatId,
+        role: 'assistant',
+        parts: text('reply beyond the replay boundary'),
+      });
+
+      const checkpoint = await repository.create({
+        chatId,
+        role: 'checkpoint',
+        absorbedThroughSeq: original.seq,
+        parts: [],
+      });
+
+      expect(
+        (
+          await repository.findEffectiveContextMessages(chatId, owner, {
+            throughSeq: reply.seq,
+            checkpointId: checkpoint.id,
+          })
+        ).map(({ id }) => id),
+      ).toEqual([trigger.id]);
+      expect(
+        (
+          await repository.findEffectiveContextMessages(chatId, owner, {
+            throughSeq: reply.seq,
+            checkpointId: original.id,
+          })
+        ).map(({ id }) => id),
+      ).toEqual([original.id, trigger.id]);
     });
   });
 });

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { ContextItemPart } from './context-item';
 import type { ChatRow } from './chat-row';
+import { isDigestOnlyHostMessage } from './message-eligibility';
 import {
   createRecencyDigestItem,
   deriveRecencyDigestState,
@@ -51,6 +52,34 @@ const baseline: DigestPayload = {
 };
 
 describe('recency digest items', () => {
+  it('classifies only a sole host-authored digest part as a digest carrier', () => {
+    const snapshot = item(baseline);
+    const host = { role: 'user', senderUserId: null, parts: [snapshot] };
+
+    expect(isDigestOnlyHostMessage(host)).toBe(true);
+    expect(isDigestOnlyHostMessage({ ...host, role: 'assistant' })).toBe(false);
+    expect(isDigestOnlyHostMessage({ ...host, senderUserId: 'owner' })).toBe(
+      false,
+    );
+    expect(
+      isDigestOnlyHostMessage({
+        ...host,
+        parts: [
+          {
+            ...snapshot,
+            data: { ...snapshot.data, producer: 'skills' },
+          },
+        ],
+      }),
+    ).toBe(false);
+    expect(
+      isDigestOnlyHostMessage({
+        ...host,
+        parts: [snapshot, { type: 'text', text: 'Owner-visible evidence' }],
+      }),
+    ).toBe(false);
+  });
+
   it('reads baseline content and keeps an associated notice as the latest disclosed state', () => {
     const snapshot = item(baseline, 'Baseline was compiled.');
 

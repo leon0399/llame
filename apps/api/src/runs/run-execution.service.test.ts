@@ -175,6 +175,7 @@ import {
   promptImportMediaKey,
 } from '../chats/prompt-imports-item';
 import { createJobNoticeItem } from '../chats/job-context-item';
+import { createRecencyDigestItem } from '../chats/recency-digest-item';
 import { createProviderFailureItem } from '../chats/provider-failure-notice';
 import {
   createProjectSnapshotItem,
@@ -5326,6 +5327,283 @@ describe('RunExecutionService executeRun', () => {
       announced: candidate.announced,
       association: { kind: 'origin', chatId },
     });
+  });
+
+  it.each([
+    {
+      name: 'additions',
+      additions: true,
+      corrections: false,
+      expected: ['Recent: Title: Added source'],
+    },
+    {
+      name: 'corrections',
+      additions: false,
+      corrections: true,
+      expected: ['is now pinned.'],
+    },
+    {
+      name: 'additions and corrections',
+      additions: true,
+      corrections: true,
+      expected: ['Recent: Title: Added source', 'is now pinned.'],
+    },
+  ])(
+    'dispatches a baseline-relative digest notice for $name',
+    async ({ additions, corrections, expected }) => {
+      const sourceId = '22222222-2222-4222-8222-222222222222';
+      const knownSourceId = '33333333-3333-4333-8333-333333333333';
+
+      const addedRow = {
+        chatId: sourceId,
+        locator: `chat://${sourceId}`,
+        title: 'Added source',
+        activityAt: '2026-09-01T00:00:00.000Z',
+        messageCount: 1,
+        workspace: 'unbound',
+        openingExcerpt: 'opening excerpt',
+        latestExcerpt: 'latest excerpt',
+      };
+
+      const previouslyKnown = {
+        chatId: knownSourceId,
+        pinned: false,
+        title: 'Previously known source',
+        workspace: 'unbound',
+      };
+
+      const previouslyAnnounced = [previouslyKnown];
+
+      const knownRow = {
+        ...addedRow,
+        chatId: knownSourceId,
+        locator: `chat://${knownSourceId}`,
+        title: previouslyKnown.title,
+      };
+
+      const recentShown = (corrections ? 0 : 1) + (additions ? 1 : 0);
+
+      const candidate: RecencyDigestResolution = {
+        rows: [knownRow, ...(additions ? [addedRow] : [])],
+        announced: [
+          { ...previouslyKnown, pinned: corrections },
+          ...(additions
+            ? [
+                {
+                  chatId: sourceId,
+                  pinned: false,
+                  title: 'Added source',
+                  workspace: 'unbound',
+                },
+              ]
+            : []),
+        ],
+        pinnedShown: corrections ? 1 : 0,
+        pinnedTotal: corrections ? 1 : 0,
+        recentShown,
+        recentTotal: recentShown,
+        compiledOn: '2026-09-01',
+      };
+
+      const change = {
+        additions: additions ? [{ row: addedRow, pinned: false }] : [],
+        corrections: corrections
+          ? [
+              {
+                chatId: knownSourceId,
+                title: previouslyKnown.title,
+                field: 'pinned' as const,
+                value: 'pinned',
+              },
+            ]
+          : [],
+        announced: candidate.announced,
+      };
+
+      const baseline = createRecencyDigestItem({
+        runId,
+        payload: {
+          version: 1,
+          kind: 'baseline',
+          announced: previouslyAnnounced,
+          association: { kind: 'origin', chatId },
+        },
+        body: 'Previously disclosed digest',
+      });
+
+      const resolveCandidate = vi
+        .fn<RecencyDigestResolver['resolveCandidate']>()
+        .mockResolvedValue(candidate);
+
+      const deriveChanges = vi
+        .fn<RecencyDigestResolver['deriveChanges']>()
+        .mockResolvedValue(change);
+
+      const getForOwnerForBinding = vi
+        .fn<MemorySettingsBindingResolver['getForOwnerForBinding']>()
+        .mockResolvedValue({ shareRecentChats: true });
+
+      const repositories = mockNormalExecutionRepositories();
+      const capturing = makeCapturingClient();
+
+      const execution = makeExecutionService(
+        capturing.client,
+        undefined,
+        undefined,
+        {
+          memory: { getForOwnerForBinding },
+          recencyDigest: {
+            resolveCandidate,
+            deriveChanges,
+            renderBaseline: vi.fn().mockReturnValue('unused baseline'),
+          },
+        },
+      );
+
+      vi.spyOn(MessagesRepository.prototype, 'findByChatId').mockResolvedValue([
+        { ...userMessage, parts: [{ type: 'text', text: 'hello' }, baseline] },
+      ]);
+
+      await execution.service.executeRun(executionInput(capturing.client));
+
+      const request = JSON.stringify(capturing.streamOptions().messages);
+      expect(request).toContain('Previously disclosed digest');
+
+      for (const text of expected) {
+        expect(request).toContain(text);
+        expect(request.indexOf(text)).toBeLessThan(request.indexOf('hello'));
+      }
+
+      const dispatched = repositories.storeAtDispatch.mock.calls[0]?.[0].items;
+
+      const notice = dispatched?.find(
+        (part) =>
+          isContextItemPart(part) &&
+          part.data.producer === 'recency-digest' &&
+          part.data.form === 'notice',
+      );
+
+      expect(isContextItemPart(notice) && notice.data.payload).toEqual({
+        version: 1,
+        kind: 'notice',
+        announced: change.announced,
+        association: { kind: 'origin', chatId },
+      });
+
+      for (const text of expected)
+        expect(isContextItemPart(notice) && notice.data.text).toContain(text);
+    },
+  );
+
+  it('does not dispatch a baseline-relative notice when consent is withdrawn after derivation', async () => {
+    const sourceId = '44444444-4444-4444-8444-444444444444';
+
+    const candidate: RecencyDigestResolution = {
+      rows: [
+        {
+          chatId: sourceId,
+          locator: `chat://${sourceId}`,
+          title: 'Withdrawn source',
+          activityAt: '2026-09-01T00:00:00.000Z',
+          messageCount: 1,
+          workspace: 'unbound',
+          openingExcerpt: 'withdrawn excerpt',
+          latestExcerpt: 'withdrawn excerpt',
+        },
+      ],
+      announced: [
+        {
+          chatId: sourceId,
+          pinned: true,
+          title: 'Withdrawn source',
+          workspace: 'unbound',
+        },
+      ],
+      pinnedShown: 1,
+      pinnedTotal: 1,
+      recentShown: 0,
+      recentTotal: 0,
+      compiledOn: '2026-09-01',
+    };
+
+    const baseline = createRecencyDigestItem({
+      runId,
+      payload: {
+        version: 1,
+        kind: 'baseline',
+        announced: [
+          {
+            chatId: sourceId,
+            pinned: false,
+            title: 'Withdrawn source',
+            workspace: 'unbound',
+          },
+        ],
+        association: { kind: 'origin', chatId },
+      },
+      body: 'Previously disclosed baseline',
+    });
+
+    const resolveCandidate = vi
+      .fn<RecencyDigestResolver['resolveCandidate']>()
+      .mockResolvedValue(candidate);
+
+    const deriveChanges = vi
+      .fn<RecencyDigestResolver['deriveChanges']>()
+      .mockResolvedValue({
+        additions: [],
+        corrections: [
+          {
+            chatId: sourceId,
+            title: 'Withdrawn source',
+            field: 'pinned',
+            value: 'pinned',
+          },
+        ],
+        announced: candidate.announced,
+      });
+
+    const getForOwnerForBinding = vi
+      .fn<MemorySettingsBindingResolver['getForOwnerForBinding']>()
+      .mockResolvedValueOnce({ shareRecentChats: true })
+      .mockResolvedValueOnce({ shareRecentChats: true })
+      .mockResolvedValue({ shareRecentChats: false });
+
+    const repositories = mockNormalExecutionRepositories();
+    const capturing = makeCapturingClient();
+
+    const execution = makeExecutionService(
+      capturing.client,
+      undefined,
+      undefined,
+      {
+        memory: { getForOwnerForBinding },
+        recencyDigest: {
+          resolveCandidate,
+          deriveChanges,
+          renderBaseline: vi.fn().mockReturnValue('unused baseline'),
+        },
+      },
+    );
+
+    vi.spyOn(MessagesRepository.prototype, 'findByChatId').mockResolvedValue([
+      { ...userMessage, parts: [{ type: 'text', text: 'hello' }, baseline] },
+    ]);
+
+    await execution.service.executeRun(executionInput(capturing.client));
+
+    expect(JSON.stringify(capturing.streamOptions().messages)).not.toContain(
+      'Withdrawn source',
+    );
+    const dispatched = repositories.storeAtDispatch.mock.calls[0]?.[0].items;
+    expect(
+      dispatched?.some(
+        (part) =>
+          isContextItemPart(part) &&
+          part.data.producer === 'recency-digest' &&
+          part.data.form === 'notice',
+      ),
+    ).toBe(false);
   });
 
   it('persists an empty first-dispatch snapshot instead of treating it as no baseline', async () => {
@@ -16082,7 +16360,43 @@ describe('RunExecutionService executeRun — pre-step compaction trigger', () =>
     expect(publication.create).toHaveBeenCalledTimes(1);
   });
 
-  it('keeps checkpoint requests free of digest content without recent-chat consent', async () => {
+  it('carries a frozen digest baseline across a consent-disabled checkpoint without querying sources', async () => {
+    const sourceId = '44444444-4444-4444-8444-444444444444';
+
+    const announced = [
+      {
+        chatId: sourceId,
+        pinned: false,
+        title: 'Previously authorized source',
+        workspace: 'unbound',
+      },
+    ];
+
+    const carriedBaseline = createRecencyDigestItem({
+      runId,
+      payload: {
+        version: 1,
+        kind: 'baseline',
+        announced,
+        association: { kind: 'origin', chatId },
+      },
+      body: 'Previously authorized digest body',
+    });
+
+    const resolveCandidate = vi.fn().mockResolvedValue({
+      rows: [],
+      announced: [],
+      pinnedShown: 0,
+      pinnedTotal: 0,
+      recentShown: 0,
+      recentTotal: 0,
+      compiledOn: '2026-09-01',
+    });
+
+    const createMessage = vi
+      .spyOn(MessagesRepository.prototype, 'create')
+      .mockResolvedValue(userMessage);
+
     const capturing = makeCapturingClient();
 
     const client = Object.assign(capturing.client, {
@@ -16090,31 +16404,19 @@ describe('RunExecutionService executeRun — pre-step compaction trigger', () =>
     });
 
     const recencyDigest: RecencyDigestResolver = {
-      resolveCandidate: vi.fn().mockResolvedValue({
-        rows: [
-          {
-            chatId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
-            locator: 'chat://aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
-            title: 'Private source title',
-            activityAt: '2026-09-01T00:00:00.000Z',
-            messageCount: 1,
-            workspace: 'unbound',
-            latestExcerpt: 'Private source excerpt',
-          },
-        ],
-        announced: [],
-        pinnedShown: 0,
-        pinnedTotal: 0,
-        recentShown: 1,
-        recentTotal: 1,
-        compiledOn: '2026-09-01',
-      }),
+      resolveCandidate,
       deriveChanges: vi.fn(),
       renderBaseline: vi.fn().mockReturnValue('Private source excerpt'),
     };
 
     const { spies, publication } = await executeTriggerCase({
-      historyRows: publicationHistory(),
+      historyRows: [
+        ...committedTurn({
+          contextTokens: 40_000,
+          parts: [{ type: 'text', text: 'earlier question' }, carriedBaseline],
+        }),
+        triggerTurn(),
+      ],
       summary: checkpointSummary(2),
       shareRecentChats: false,
       recencyDigest,
@@ -16122,6 +16424,24 @@ describe('RunExecutionService executeRun — pre-step compaction trigger', () =>
     });
 
     expect(publication.create).toHaveBeenCalledTimes(1);
+    expect(resolveCandidate).not.toHaveBeenCalled();
+
+    const companion = createMessage.mock.calls.find((call) =>
+      call[0].parts.some(
+        (part) =>
+          isContextItemPart(part) && part.data.producer === 'recency-digest',
+      ),
+    )?.[0]?.parts[0];
+
+    expect(isContextItemPart(companion) && companion.data.payload).toEqual({
+      version: 1,
+      kind: 'baseline',
+      announced,
+      association: { kind: 'checkpoint', checkpointId: publishedCheckpointId },
+    });
+    expect(isContextItemPart(companion) && companion.data.text).toContain(
+      'Previously authorized digest body',
+    );
     expect(JSON.stringify(capturing.streamOptions().messages)).not.toContain(
       'Private source',
     );

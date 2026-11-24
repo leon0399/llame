@@ -91,8 +91,19 @@ describe('selectForkMessages', () => {
       'user-2',
       'checkpoint-1',
     ]);
-  });
 
+    const exactlyAtAnchor = checkpoint('checkpoint-at-anchor', 7, 3);
+    expect(
+      selectForkMessages([...rows, exactlyAtAnchor], 3)
+        .map(({ id }) => id)
+        .includes(exactlyAtAnchor.id),
+    ).toBe(true);
+    expect(
+      selectForkMessages([...rows, exactlyAtAnchor], 2)
+        .map(({ id }) => id)
+        .includes(exactlyAtAnchor.id),
+    ).toBe(false);
+  });
   it('selects every valid row for a whole-chat fork and keeps source order', () => {
     const rows = [row('user-1', 7), checkpoint('checkpoint-1', 8, 7)];
 
@@ -451,6 +462,24 @@ describe('copiedMessageRows', () => {
     expect(copied[1].inReplyTo).toBe(copied[0].id);
     expect(copied[2].absorbedThroughSeq).toBe(2);
     expect(copied[2].parts).toEqual(checkpointRow.parts);
+  });
+
+  it('leaves a legacy unassociated digest item unchanged when copying', () => {
+    const legacyBaseline = createRecencyDigestItem({
+      runId: '123e4567-e89b-12d3-a456-426614174000',
+      payload: {
+        version: 1,
+        kind: 'baseline',
+        announced: [],
+      },
+      body: 'legacy baseline',
+    });
+
+    const source = row('legacy-baseline', 1, { parts: [legacyBaseline] });
+
+    const copied = copiedMessageRows([source], FORK_CHAT_ID);
+
+    expect(copied[0]?.parts).toEqual(source.parts);
   });
 
   it.each(['baseline', 'notice'] as const)(
