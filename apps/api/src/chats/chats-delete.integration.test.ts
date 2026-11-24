@@ -119,6 +119,7 @@ describeIfDb('chat deletion — RLS + cascade + run cancel', () => {
           id: runId,
           chatId: chat,
           userId: a,
+          selector: 'system:openai:gpt-5.4-mini',
           modelId: 'system:openai:gpt-5.4-mini',
           status,
         }),

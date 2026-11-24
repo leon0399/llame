@@ -47,7 +47,7 @@ describe('held job notices', () => {
         startedAt: new Date(),
         outputs: [],
         artifactReadable: false,
-        settings: { modelId, permissionMode: 'default' },
+        settings: { selector: modelId, permissionMode: 'default' },
       }),
     );
 
@@ -97,7 +97,7 @@ describe('held job notices', () => {
         mode,
         parts: [{ type: 'text', text: `queued ${mode} item` }],
         settings: {
-          modelId: seeded.modelId,
+          selector: seeded.modelId,
           permissionMode: 'default',
         },
       }),
@@ -215,7 +215,7 @@ describe('held job notices', () => {
     await loop.createMessageStream({
       chatId: seeded.chatId,
       userId: fx.userId,
-      modelId,
+      selector: modelId,
       message: { id: randomUUID(), parts: [{ type: 'text', text: ownerText }] },
     });
 
@@ -362,7 +362,7 @@ describe('held job notices', () => {
       loop.createMessageStream({
         chatId: seeded.chatId,
         userId: fx.userId,
-        modelId,
+        selector: modelId,
         message: {
           id: randomUUID(),
           parts: [{ type: 'text', text: 'request before any dispatch' }],
@@ -525,7 +525,7 @@ describe('held job notices', () => {
       await loop.createMessageStream({
         chatId: seeded.chatId,
         userId: fx.userId,
-        modelId,
+        selector: modelId,
         message: {
           id: randomUUID(),
           parts: [{ type: 'text', text: ownerText }],

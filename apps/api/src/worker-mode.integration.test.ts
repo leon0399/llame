@@ -28,6 +28,7 @@ import {
   resolveEffortSelection,
   type ModelSelectionValidator,
 } from './models/models.service';
+import { fakeResolveSelection } from './testing/fake-model-selection';
 import {
   cookieOf,
   expectRegisteredUserId,
@@ -93,6 +94,16 @@ class FakeModelsService implements ModelSelectionValidator {
       referencesSkills: false,
     };
   }
+
+  /** The admission half of the narrow contract; worker paths never read it. */
+  readonly resolveSelection: ModelSelectionValidator['resolveSelection'] =
+    fakeResolveSelection({
+      validateModelSelection: (modelId: string) =>
+        this.validateModelSelection(modelId),
+      resolveEffortSelection: (model, requested) =>
+        this.resolveEffortSelection(model, requested),
+      defaultSelector: 'system:openai:gpt-5.4-mini',
+    });
 
   /** Delegates to production rather than restating the rules. */
   resolveEffortSelection(
@@ -209,7 +220,7 @@ d('queue-executed runs behind the stream bridge', () => {
       .post(`/api/v1/chats/${chatId}/messages`)
       .set('Cookie', cookie)
       .send({
-        modelId: 'system:openai:gpt-5.4-mini',
+        selector: 'system:openai:gpt-5.4-mini',
         message: {
           id: messageId,
           parts: [{ type: 'text', text: 'Hello via the worker' }],
@@ -274,7 +285,7 @@ d('queue-executed runs behind the stream bridge', () => {
       .post(`/api/v1/chats/${chatId}/messages`)
       .set('Cookie', cookie)
       .send({
-        modelId: 'system:openai:gpt-5.4-mini',
+        selector: 'system:openai:gpt-5.4-mini',
         message: {
           id: crypto.randomUUID(),
           parts: [{ type: 'text', text: 'Cancel me' }],
@@ -331,7 +342,7 @@ d('queue-executed runs behind the stream bridge', () => {
       .post(`/api/v1/chats/${chatId}/messages`)
       .set('Cookie', cookie)
       .send({
-        modelId: 'system:openai:gpt-5.4-mini',
+        selector: 'system:openai:gpt-5.4-mini',
         message: {
           id: crypto.randomUUID(),
           parts: [{ type: 'text', text: 'Finish first' }],
@@ -389,7 +400,7 @@ d('queue-executed runs behind the stream bridge', () => {
       .post(`/api/v1/chats/${chatId}/messages`)
       .set('Cookie', cookie)
       .send({
-        modelId: 'system:openai:gpt-5.4-mini',
+        selector: 'system:openai:gpt-5.4-mini',
         message: {
           id: crypto.randomUUID(),
           parts: [{ type: 'text', text: 'Seed for single-flight' }],
@@ -435,7 +446,7 @@ d('queue-executed runs behind the stream bridge', () => {
       .post(`/api/v1/chats/${chatId}/messages`)
       .set('Cookie', cookie)
       .send({
-        modelId: 'system:openai:gpt-5.4-mini',
+        selector: 'system:openai:gpt-5.4-mini',
         message: {
           id: crypto.randomUUID(),
           parts: [{ type: 'text', text: 'Blocked by the in-flight run' }],
@@ -478,7 +489,7 @@ d('queue-executed runs behind the stream bridge', () => {
       path: `/api/v1/chats/${chatId}/messages`,
       cookie,
       body: {
-        modelId: 'system:openai:gpt-5.4-mini',
+        selector: 'system:openai:gpt-5.4-mini',
         message: {
           id: crypto.randomUUID(),
           parts: [{ type: 'text', text: 'Resume me' }],
@@ -553,7 +564,7 @@ d('queue-executed runs behind the stream bridge', () => {
       path: `/api/v1/chats/${chatId}/messages`,
       cookie,
       body: {
-        modelId: 'system:openai:gpt-5.4-mini',
+        selector: 'system:openai:gpt-5.4-mini',
         message: {
           id: messageId,
           parts: [{ type: 'text', text: 'Refresh-proof?' }],

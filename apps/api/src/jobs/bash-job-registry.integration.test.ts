@@ -135,7 +135,7 @@ describe('BashJobRegistry', () => {
       runId: crypto.randomUUID(),
       toolCallId: crypto.randomUUID(),
       startedAt: new Date(),
-      settings: { modelId: 'gpt-5.5', permissionMode: 'default' },
+      settings: { selector: 'gpt-5.5', permissionMode: 'default' },
       maxBytes: 65_536,
       configuredCredentials: [],
       artifactReadable: true,

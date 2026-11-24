@@ -41,6 +41,7 @@ import type { PermissionMode } from '../tools/permissions/permission-mode';
 import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
 import type { InstanceConfigReader } from '../instance-config/instance-config.service';
 import type { SystemModelCatalogEntry } from '../models/model-catalog';
+import { fakeResolveSelection } from '../testing/fake-model-selection';
 import { ChatLoopService } from './chat-loop.service';
 import { FollowUpAdmissionService } from './follow-up-admission.service';
 import { ChatsRepository, MessagesRepository } from './chats-repository';
@@ -113,6 +114,18 @@ function modelValidator(): ModelSelectionValidator {
     // The production implementation, so the stored-effort rules are real.
     resolveEffortSelection: (model, effort) =>
       resolveEffortSelection(model, effort),
+    resolveSelection: fakeResolveSelection({
+      validateModelSelection: (modelId: string) => {
+        if (modelId === REMOVED_MODEL_ID) {
+          throw new ModelNotAvailableError(modelId);
+        }
+
+        return catalogEntry(modelId);
+      },
+      resolveEffortSelection: (model, effort) =>
+        resolveEffortSelection(model, effort),
+      defaultSelector: MODEL_ID,
+    }),
   };
 }
 
@@ -490,7 +503,7 @@ describeIfDb('follow-up admission', () => {
           startedAt: new Date(),
           outputs: [],
           artifactReadable: false,
-          settings: { modelId: MODEL_ID, permissionMode: 'default' },
+          settings: { selector: MODEL_ID, permissionMode: 'default' },
         });
 
         const settled = await jobs.settle(fixture.chatId, api.userId, job.id, {
@@ -574,7 +587,7 @@ describeIfDb('follow-up admission', () => {
           startedAt: new Date(),
           outputs: [],
           artifactReadable: false,
-          settings: { modelId: MODEL_ID, permissionMode: 'default' },
+          settings: { selector: MODEL_ID, permissionMode: 'default' },
         });
 
         const settled = await jobs.settle(fixture.chatId, api.userId, job.id, {
@@ -697,6 +710,7 @@ describeIfDb('follow-up admission', () => {
             message_id,
             user_id,
             model_id,
+            selector,
             status,
             kind,
             created_at,
@@ -706,6 +720,7 @@ describeIfDb('follow-up admission', () => {
             ${fixture.chatId},
             NULL,
             ${api.userId},
+            ${MODEL_ID},
             ${MODEL_ID},
             'completed',
             'compaction',
@@ -857,7 +872,7 @@ describeIfDb('follow-up admission', () => {
 
     it.each([
       ['continue', { action: 'continue' } as const],
-      ['regenerate', { action: 'regenerate', modelId: MODEL_ID } as const],
+      ['regenerate', { action: 'regenerate', selector: MODEL_ID } as const],
     ])(
       "reveals nothing about another owner's Chat for a %s request",
       async (_name, request) => {
@@ -890,7 +905,7 @@ describeIfDb('follow-up admission', () => {
 
     it.each([
       ['continue', { action: 'continue' } as const],
-      ['regenerate', { action: 'regenerate', modelId: MODEL_ID } as const],
+      ['regenerate', { action: 'regenerate', selector: MODEL_ID } as const],
     ])(
       "answers 404 for another owner's message id on an owned Chat for a %s request",
       async (_name, request) => {
@@ -916,7 +931,7 @@ describeIfDb('follow-up admission', () => {
         api.chatLoop.createMessageStream({
           chatId: fixture.chatId,
           userId: api.userId,
-          modelId: MODEL_ID,
+          selector: MODEL_ID,
           message: {
             id: fixture.messageId,
             parts: [{ type: 'text', text: 'again' }],
@@ -931,25 +946,44 @@ describeIfDb('follow-up admission', () => {
   });
 
   describe('task 2.3 — validation and the Continue check', () => {
-    it('rejects a model or an effort on Continue before any write', async () => {
+    it('rejects an effort on Continue before any write', async () => {
       const fixture = await seedTurn({ status: 'failed' });
 
-      await expect(
-        admit(fixture, { action: 'continue', modelId: REMOVED_MODEL_ID }),
-      ).rejects.toMatchObject({
-        constructor: BadRequestException,
-        message: 'A continue request does not name a model',
-      });
       await expect(
         admit(fixture, { action: 'continue', effort: 'high' }),
       ).rejects.toMatchObject({
         constructor: BadRequestException,
         message: 'A continue request does not name an effort',
       });
-      await expect(
-        admit(fixture, { action: 'regenerate' }),
-      ).rejects.toBeInstanceOf(BadRequestException);
       expect(await runsOfChat(fixture.chatId)).toHaveLength(1);
+    });
+
+    it('Regenerate needs a model', async () => {
+      const fixture = await seedTurn({
+        status: 'completed',
+        modelId: 'system:openai:gpt-5.4',
+        replyUsageStatus: 'completed',
+      });
+
+      await api.tenantDb.runAs(api.userId, (tx) =>
+        new ChatsRepository(tx).setModelSelection(fixture.chatId, api.userId, {
+          revision: 3,
+          selector: MODEL_ID,
+          effort: 'high',
+        }),
+      );
+
+      const admitted = await admit(fixture, { action: 'regenerate' });
+
+      expect(admitted.modelId).toBe(MODEL_ID);
+      expect(await runById(admitted.runId)).toMatchObject({
+        modelId: MODEL_ID,
+        selector: MODEL_ID,
+        effort: 'high',
+        selectionRevision: 3,
+        followUpAction: 'regenerate',
+        sourceRunId: fixture.runId,
+      });
     });
 
     it('rejects a permission mode the operator did not enable', async () => {
@@ -1114,13 +1148,13 @@ describeIfDb('follow-up admission', () => {
       await expect(
         admit(fixture, {
           action: 'regenerate',
-          modelId: REMOVED_MODEL_ID,
+          selector: REMOVED_MODEL_ID,
         }),
       ).rejects.toBeInstanceOf(ModelNotAvailableError);
       await expect(
         admit(fixture, {
           action: 'regenerate',
-          modelId: MODEL_ID,
+          selector: MODEL_ID,
           effort: 'max',
         }),
       ).rejects.toBeInstanceOf(EffortNotAvailableError);
@@ -1142,7 +1176,7 @@ describeIfDb('follow-up admission', () => {
           fixture,
           {
             action: 'regenerate',
-            modelId: MODEL_ID,
+            selector: MODEL_ID,
             permissionMode: 'bypass',
           },
           { admission },
@@ -1171,7 +1205,7 @@ describeIfDb('follow-up admission', () => {
 
       const admitted = await admit(fixture, {
         action: 'regenerate',
-        modelId: MODEL_ID,
+        selector: MODEL_ID,
         effort: 'high',
         permissionMode: 'bypass',
       });
@@ -1202,7 +1236,7 @@ describeIfDb('follow-up admission', () => {
 
       const admitted = await admit(fixture, {
         action: 'regenerate',
-        modelId: MODEL_ID,
+        selector: MODEL_ID,
       });
 
       const events = await eventsOfRun(admitted.runId);
@@ -1219,7 +1253,7 @@ describeIfDb('follow-up admission', () => {
 
       const admitted = await admit(fixture, {
         action: 'regenerate',
-        modelId: MODEL_ID,
+        selector: MODEL_ID,
       });
 
       const events = await eventsOfRun(admitted.runId);
@@ -1235,7 +1269,7 @@ describeIfDb('follow-up admission', () => {
 
       const admitted = await admit(fixture, {
         action: 'regenerate',
-        modelId: MODEL_ID,
+        selector: MODEL_ID,
       });
 
       expect(
@@ -1248,7 +1282,7 @@ describeIfDb('follow-up admission', () => {
 
       const admitted = await admit(fixture, {
         action: 'regenerate',
-        modelId: MODEL_ID,
+        selector: MODEL_ID,
       });
 
       expect(await runById(admitted.runId)).toMatchObject({
@@ -1279,7 +1313,7 @@ describeIfDb('follow-up admission', () => {
 
       const regenerate = await admit(fixture, {
         action: 'regenerate',
-        modelId: MODEL_ID,
+        selector: MODEL_ID,
       });
 
       // The Regenerate Run died before it dispatched, so the reply still
@@ -1378,7 +1412,7 @@ describeIfDb('follow-up admission', () => {
 
       const admitted = await admit(fixture, {
         action: 'regenerate',
-        modelId: MODEL_ID,
+        selector: MODEL_ID,
       });
 
       expect(await runById(admitted.runId)).toMatchObject({

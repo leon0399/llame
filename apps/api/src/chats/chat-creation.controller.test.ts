@@ -29,6 +29,7 @@ const chat: Chat = {
   workspaceToldFrom: null,
   workspaceToldAvailable: null,
   workspaceDetachReason: null,
+  modelSelection: null,
 };
 
 const chatId = '3f9b2ab7-8ba1-4f34-9a4e-0f6e3f6a2b10';

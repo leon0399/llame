@@ -113,6 +113,7 @@ describe('ChangeHubService', () => {
         archivedAt: null,
         projectId: null,
         workspaceRoot: null,
+        modelSelection: null,
         lastMessage: 'hello',
         runningJobs: 0,
       },

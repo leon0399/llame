@@ -426,7 +426,7 @@ describeIfDb(
           chatLoop.createMessageStream({
             chatId: seed.chatId,
             userId,
-            modelId: hangModel,
+            selector: hangModel,
             message: {
               id: crypto.randomUUID(),
               parts: [{ type: 'text', text: 'blocked by the in-flight run' }],

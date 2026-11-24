@@ -864,6 +864,10 @@ export type RunClaimResult =
   | { settledReply: Message | undefined }
   | { nativeRecovery: true; attemptId: string }
   | {
+      /** The selector the Run was admitted under (`runs.selector`). */
+      selector: string;
+      /** The effort the selection named, frozen on the Run at admission. */
+      selectedEffort?: string;
       effort?: string;
       permissionMode: Run['permissionMode'];
       attemptId: string;
@@ -898,6 +902,10 @@ type ExecuteRunInput = {
 type ExecuteAttemptInput = {
   input: ExecuteRunInput;
   nativeAbort: AbortController | undefined;
+  /** The Run's selector, frozen at admission; a job inherits it. */
+  selector: string;
+  /** The selection's effort, frozen at admission; a job inherits it. */
+  selectedEffort: string | undefined;
   effort: string | undefined;
   permissionMode: PermissionMode;
   attemptId: string;
@@ -2040,6 +2048,8 @@ export class RunExecutionService {
         // Effort is frozen on the Run at admission; never re-read current
         // configuration on a retry.
         return {
+          selector: started.selector,
+          selectedEffort: started.selectedEffort ?? undefined,
           effort: started.effort ?? undefined,
           permissionMode: started.permissionMode,
           attemptId: started.activeAttemptId!,
@@ -2108,7 +2118,8 @@ export class RunExecutionService {
       throw new RunNotRunnableError(input.runId);
     }
 
-    const { effort, permissionMode, attemptId } = claim;
+    const { selector, selectedEffort, effort, permissionMode, attemptId } =
+      claim;
     // Every attempt, a crash retry included, reads the Run's current message
     // from the Run row, not from the job: a delivery moved it (run-steering D3).
 
@@ -2121,6 +2132,8 @@ export class RunExecutionService {
         ? input
         : await this.currentSegmentInput(input, claim.messageId),
       nativeAbort,
+      selector,
+      selectedEffort,
       effort,
       permissionMode,
       attemptId,
@@ -2686,6 +2699,8 @@ export class RunExecutionService {
     const {
       input,
       nativeAbort,
+      selector,
+      selectedEffort,
       effort,
       attemptId,
       nativeDeliverySequence,
@@ -3212,8 +3227,8 @@ export class RunExecutionService {
       bashProcessLimiter: this.hostBashLimiter(),
       bashJobs: this.bashJobs,
       jobSettings: {
-        modelId: client.model,
-        effort,
+        selector,
+        effort: selectedEffort,
         permissionMode: effectivePermissionMode,
       },
       allowUnlimitedJobs: this.instanceConfig.config.tools.jobs.allowUnlimited,

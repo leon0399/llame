@@ -35,7 +35,7 @@ function handlerFor(options: {
       isPending: false,
     } as never,
     selections: {
-      modelId: "system:openai:gpt-5.4",
+      selector: "system:openai:gpt-5.4",
       effort: undefined,
       permissionMode: "default",
       modelReadyForSend: true,

@@ -30,8 +30,8 @@ import { MessagePartsDto } from './message-parts.dto';
  * `POST /api/v1/chats` — the create request (openspec `chat-start-location`,
  * design D9). It is its own schema: it shares only the message-parts schema
  * with the message route, because a field typed as `CreateMessageBodyDto`
- * would reject `message.modelId` under the strict whitelist and the message
- * route must never accept a location field.
+ * would reject the message's selection fields under the strict whitelist and
+ * the message route must never accept a location field.
  */
 
 /** The optional `worktree` object: a supplied name, a base ref, or both. */
@@ -70,19 +70,22 @@ export class CreateChatMessageDto extends MessagePartsDto {
   @IsUUID()
   id!: string;
 
-  @ApiProperty({
-    description: 'Opaque llame model id selected for this turn.',
+  @ApiPropertyOptional({
+    description:
+      "`@role` or a model id; omit to use the Chat's stored selection",
     pattern: '\\S',
   })
+  @ValidateIf((o: CreateChatMessageDto) => o.selector !== undefined)
   @IsString()
-  @Matches(/\S/, { message: 'modelId must not be blank' })
-  modelId!: string;
+  @Matches(/\S/, { message: 'selector must not be blank' })
+  selector?: string;
 
   @ApiPropertyOptional({
     pattern: '\\S',
     description:
-      "Reasoning effort for this turn. Must be one of the selected model's " +
-      '`reasoning.effortLevels[].value`; omit to use its `defaultEffort`.',
+      "Reasoning effort for this turn. Must be one of the resolved model's " +
+      '`reasoning.effortLevels[].value`; omit to use the stored effort or the ' +
+      "model's `defaultEffort`.",
   })
   @ValidateIf((o: CreateChatMessageDto) => o.effort !== undefined)
   @IsString()

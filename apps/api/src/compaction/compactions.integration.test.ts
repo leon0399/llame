@@ -99,7 +99,7 @@ d('compaction lineage over HTTP (#57)', () => {
       .post(`/api/v1/chats/${chatId}/messages`)
       .set('Cookie', cookie)
       .send({
-        modelId: 'system:openai:gpt-5.4-mini',
+        selector: 'system:openai:gpt-5.4-mini',
         message: {
           id: crypto.randomUUID(),
           parts: [{ type: 'text', text }],

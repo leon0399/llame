@@ -627,6 +627,7 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
       kind: 'turn',
       status: 'failed',
       followUpAction: null,
+      selector: 'system:test-model-a',
       modelId: 'system:test-model-a',
       effort: 'high',
       permissionMode: 'bypass',
@@ -672,6 +673,7 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
       messageId: userMessageId,
       status: 'cancelled',
       followUpAction: 'continue',
+      selector: 'system:test-model-a',
       modelId: 'system:test-model-a',
       effort: 'high',
       permissionMode: 'default',
@@ -776,6 +778,7 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
       messageId,
       status: 'awaiting_quota',
       followUpAction: null,
+      selector: 'system:test-model-a',
       modelId: 'system:test-model-a',
       effort: null,
       permissionMode: 'default',
@@ -1122,7 +1125,7 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
       .post(`/api/v1/chats/${chatA}/messages`)
       .set('Cookie', cookieA)
       .send({
-        modelId: 'system:openai:gpt-5.4-mini',
+        selector: 'system:openai:gpt-5.4-mini',
         message: {
           id: userMessageId,
           parts: [{ type: 'text', text: 'Hello' }],
@@ -1220,7 +1223,7 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
       .post(`/api/v1/chats/${chatA}/messages`)
       .set('Cookie', cookieA)
       .send({
-        modelId: 'system:openai:gpt-5.4-mini',
+        selector: 'system:openai:gpt-5.4-mini',
         message: {
           id: userMessageId,
           parts: [{ type: 'text', text: 'Hello' }],
@@ -1252,7 +1255,7 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
       .post(`/api/v1/chats/${chatA}/messages`)
       .set('Cookie', cookieB)
       .send({
-        modelId: 'system:openai:gpt-5.4-mini',
+        selector: 'system:openai:gpt-5.4-mini',
         message: {
           id: crypto.randomUUID(),
           parts: [{ type: 'text', text: 'steal' }],
@@ -1272,7 +1275,7 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
       .post(`/api/v1/chats/${chatA}/messages`)
       .set('Cookie', cookieA)
       .send({
-        modelId: 'system:openai:gpt-5.4-mini',
+        selector: 'system:openai:gpt-5.4-mini',
         message: {
           id: userMessageId,
           parts: [{ type: 'text', text: 'No key' }],
@@ -1302,7 +1305,7 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
       .post(`/api/v1/chats/${chatA}/messages`)
       .set('Cookie', cookieA)
       .send({
-        modelId: 'system:openai:gpt-5.4-mini',
+        selector: 'system:openai:gpt-5.4-mini',
         message: {
           id: collisionId,
           parts: [{ type: 'text', text: 'Colliding prompt' }],
@@ -1322,7 +1325,7 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
       .post(`/api/v1/chats/${chatA}/messages`)
       .set('Cookie', cookieA)
       .send({
-        modelId: 'system:openai:gpt-5.4-mini',
+        selector: 'system:openai:gpt-5.4-mini',
         message: {
           id: userMessageId,
           parts: [{ type: 'text', text: 'Once' }],
@@ -1335,7 +1338,7 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
       .post(`/api/v1/chats/${chatA}/messages`)
       .set('Cookie', cookieA)
       .send({
-        modelId: 'system:openai:gpt-5.4-mini',
+        selector: 'system:openai:gpt-5.4-mini',
         message: {
           id: userMessageId,
           parts: [{ type: 'text', text: 'Once' }],
@@ -1387,7 +1390,7 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
       .post(`/api/v1/chats/${chatA}/messages`)
       .set('Cookie', cookieA)
       .send({
-        modelId: 'system:openai:gpt-5.4-mini',
+        selector: 'system:openai:gpt-5.4-mini',
         message: {
           id: userMessageId,
           parts: [{ type: 'text', text: 'Abort me mid-stream' }],
@@ -1438,7 +1441,7 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
       .post(`/api/v1/chats/${chatA}/messages`)
       .set('Cookie', cookieA)
       .send({
-        modelId: 'system:openai:gpt-5.4-mini',
+        selector: 'system:openai:gpt-5.4-mini',
         message: {
           id: userMessageId,
           parts: [{ type: 'text', text: 'Try again' }],
@@ -1478,7 +1481,7 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
       .post(`/api/v1/chats/${chatA}/messages`)
       .set('Cookie', cookieA)
       .send({
-        modelId: 'system:openai:gpt-5.4-mini',
+        selector: 'system:openai:gpt-5.4-mini',
         message: {
           id: userMessageId,
           parts: [{ type: 'text', text: 'Try again' }],
@@ -1507,7 +1510,7 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
       .post(`/api/v1/chats/${chatA}/messages`)
       .set('Cookie', cookieA)
       .send({
-        modelId: 'system:openai:gpt-5.4-mini',
+        selector: 'system:openai:gpt-5.4-mini',
         message: {
           id: firstId,
           parts: [{ type: 'text', text: 'Prompt one' }],
@@ -1528,7 +1531,7 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
       .post(`/api/v1/chats/${chatA}/messages`)
       .set('Cookie', cookieA)
       .send({
-        modelId: 'system:openai:gpt-5.4-mini',
+        selector: 'system:openai:gpt-5.4-mini',
         message: {
           id: crypto.randomUUID(),
           parts: [{ type: 'text', text: 'Prompt two' }],
@@ -1555,7 +1558,7 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
       .post(`/api/v1/chats/${chatA}/messages`)
       .set('Cookie', cookieA)
       .send({
-        modelId: 'system:openai:gpt-5.4-mini',
+        selector: 'system:openai:gpt-5.4-mini',
         message: {
           id: secondId,
           parts: [{ type: 'text', text: 'Prompt two' }],
@@ -1584,7 +1587,7 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
       .post(`/api/v1/chats/${chatA}/messages`)
       .set('Cookie', cookieA)
       .send({
-        modelId: 'system:openai:gpt-5.4-mini',
+        selector: 'system:openai:gpt-5.4-mini',
         message: {
           id: crypto.randomUUID(),
           parts: [{ type: 'text', text: '' }],
@@ -1606,7 +1609,7 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
       .post(`/api/v1/chats/${newChatId}/messages`)
       .set('Cookie', cookieA)
       .send({
-        modelId: 'system:openai:gpt-5.4-mini',
+        selector: 'system:openai:gpt-5.4-mini',
         message: {
           id: userMessageId,
           parts: [{ type: 'text', text: 'First' }],
@@ -1749,7 +1752,7 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
       .post(`/api/v1/chats/${newChatId}/messages`)
       .set('Cookie', cookieA)
       .send({
-        modelId: 'system:openai:gpt-5.4-mini',
+        selector: 'system:openai:gpt-5.4-mini',
         message: {
           id: userMessageId,
           parts: [{ type: 'text', text: 'First' }],
@@ -1792,7 +1795,7 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
       .post(`/api/v1/chats/${chatA}/messages`)
       .set('Cookie', cookieA)
       .send({
-        modelId: 'system:openai:gpt-5.4-mini',
+        selector: 'system:openai:gpt-5.4-mini',
         message: { id: firstId, parts: [{ type: 'text', text: 'First' }] },
       });
 
@@ -1816,7 +1819,7 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
       .post(`/api/v1/chats/${chatA}/messages`)
       .set('Cookie', cookieA)
       .send({
-        modelId: 'system:openai:gpt-5.4-mini',
+        selector: 'system:openai:gpt-5.4-mini',
         message: { id: secondId, parts: [{ type: 'text', text: 'Second' }] },
       });
 
@@ -1844,7 +1847,7 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
       .post(`/api/v1/chats/${newChatId}/messages`)
       .set('Cookie', cookieA)
       .send({
-        modelId: 'system:openai:gpt-5.4-mini',
+        selector: 'system:openai:gpt-5.4-mini',
         message: {
           id: userMessageId,
           parts: [{ type: 'text', text: 'Replay me' }],
@@ -1988,7 +1991,7 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
       .post(`/api/v1/chats/${newChatId}/messages`)
       .set('Cookie', cookieA)
       .send({
-        modelId: 'system:openai:gpt-5.4-mini',
+        selector: 'system:openai:gpt-5.4-mini',
         message: {
           id: crypto.randomUUID(),
           parts: [{ type: 'text', text: 'No key' }],
@@ -2015,7 +2018,7 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
       .post(`/api/v1/chats/${sharedId}/messages`)
       .set('Cookie', cookieB)
       .send({
-        modelId: 'system:openai:gpt-5.4-mini',
+        selector: 'system:openai:gpt-5.4-mini',
         message: {
           id: crypto.randomUUID(),
           parts: [{ type: 'text', text: 'mine' }],
@@ -2028,7 +2031,7 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
       .post(`/api/v1/chats/${sharedId}/messages`)
       .set('Cookie', cookieA)
       .send({
-        modelId: 'system:openai:gpt-5.4-mini',
+        selector: 'system:openai:gpt-5.4-mini',
         message: {
           id: crypto.randomUUID(),
           parts: [{ type: 'text', text: 'steal' }],
@@ -2058,7 +2061,7 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
       .post(`/api/v1/chats/${chatA}/messages`)
       .set('Cookie', cookieA)
       .send({
-        modelId: 'not-a-chat-model',
+        selector: 'not-a-chat-model',
         delivery: 'queue',
         message: {
           id: crypto.randomUUID(),
@@ -2112,7 +2115,7 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
       .post(`/api/v1/chats/${storedChatId}/messages`)
       .set('Cookie', cookieA)
       .send({
-        modelId: 'not-a-chat-model',
+        selector: 'not-a-chat-model',
         message: {
           id: crypto.randomUUID(),
           parts: [{ type: 'text', text: '/rename Filed command' }],
@@ -2140,7 +2143,7 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
       .post(`/api/v1/chats/${chatA}/messages`)
       .set('Cookie', cookieA)
       .send({
-        modelId: 'system:openai:gpt-5.4-mini',
+        selector: 'system:openai:gpt-5.4-mini',
         message: {
           id: crypto.randomUUID(),
           parts: [{ type: 'text', text: `/rename ${'x'.repeat(201)}` }],
@@ -2185,7 +2188,7 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
       .post(`/api/v1/chats/${titleChatId}/messages`)
       .set('Cookie', cookieA)
       .send({
-        modelId: 'system:openai:gpt-5.4-mini',
+        selector: 'system:openai:gpt-5.4-mini',
         message: {
           id: crypto.randomUUID(),
           parts: [{ type: 'text', text: '/rename' }],
@@ -2222,7 +2225,7 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
       .post(`/api/v1/chats/${newChatId}/messages`)
       .set('Cookie', cookieA)
       .send({
-        modelId: 'system:openai:gpt-5.4-mini',
+        selector: 'system:openai:gpt-5.4-mini',
         message: {
           id: userMessageId,
           parts: [{ type: 'text', text: '/rename First message' }],
@@ -2257,7 +2260,7 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
       .post(`/api/v1/chats/${chatA}/messages`)
       .set('Cookie', cookieA)
       .send({
-        modelId: 'system:openai:gpt-5.4-mini',
+        selector: 'system:openai:gpt-5.4-mini',
         message: {
           id: crypto.randomUUID(),
           parts: [{ type: 'text', text: '/etc/hosts is broken' }],
@@ -2282,7 +2285,7 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
         .post(`/api/v1/chats/${chatA}/messages`)
         .set('Cookie', cookieB)
         .send({
-          modelId: 'system:openai:gpt-5.4-mini',
+          selector: 'system:openai:gpt-5.4-mini',
           message: {
             id: crypto.randomUUID(),
             parts: [{ type: 'text', text }],
@@ -2313,7 +2316,7 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
       .post(`/api/v1/chats/${chatA}/messages`)
       .set('Cookie', cookieA)
       .send({
-        modelId: 'system:openai:gpt-5.4-mini',
+        selector: 'system:openai:gpt-5.4-mini',
         message: {
           id: crypto.randomUUID(),
           parts: [
@@ -2350,7 +2353,7 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
       .post(`/api/v1/chats/${archivedChatId}/messages`)
       .set('Cookie', cookieA)
       .send({
-        modelId: 'system:openai:gpt-5.4-mini',
+        selector: 'system:openai:gpt-5.4-mini',
         message: {
           id: crypto.randomUUID(),
           parts: [{ type: 'text', text: '/rename New title' }],
@@ -2379,7 +2382,7 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
       .post(`/api/v1/chats/${archivedChatId}/messages`)
       .set('Cookie', cookieA)
       .send({
-        modelId: 'system:openai:gpt-5.4-mini',
+        selector: 'system:openai:gpt-5.4-mini',
         message: {
           id: crypto.randomUUID(),
           parts: [{ type: 'text', text: '/rename' }],
@@ -2405,7 +2408,7 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
       .post(`/api/v1/chats/${chatA}/messages`)
       .set('Cookie', cookieA)
       .send({
-        modelId: 'system:openai:gpt-5.4-mini',
+        selector: 'system:openai:gpt-5.4-mini',
         message: {
           id: userMessageId,
           parts: [{ type: 'text', text: 'Hold this Run' }],
@@ -2419,7 +2422,7 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
       .post(`/api/v1/chats/${chatA}/messages`)
       .set('Cookie', cookieA)
       .send({
-        modelId: 'not-a-chat-model',
+        selector: 'not-a-chat-model',
         delivery: 'steer',
         message: {
           id: crypto.randomUUID(),
@@ -2456,7 +2459,7 @@ d('POST /api/v1/chats/:id/messages — streaming loop', () => {
       .post(`/api/v1/chats/${chatA}/messages`)
       .set('Cookie', cookieA)
       .send({
-        modelId: 'system:openai:gpt-5.4-mini',
+        selector: 'system:openai:gpt-5.4-mini',
         message: {
           id: crypto.randomUUID(),
           parts: [{ type: 'text', text }],

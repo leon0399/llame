@@ -57,6 +57,12 @@ export class RunResponse {
   @ApiProperty({ enum: runKinds })
   kind!: RunKind;
 
+  @ApiProperty({
+    description:
+      'The `@role` or model id the Run recorded when it was admitted.',
+  })
+  selector!: string;
+
   @ApiProperty()
   modelId!: string;
 
@@ -176,6 +182,7 @@ export function toRunResponse(run: Run): RunResponse {
     chatId: run.chatId,
     messageId: run.messageId,
     kind: run.kind,
+    selector: run.selector,
     modelId: run.modelId,
     permissionMode: run.permissionMode,
     ...(run.effort !== null && { effort: run.effort }),

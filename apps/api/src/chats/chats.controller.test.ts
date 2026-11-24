@@ -8,7 +8,7 @@ import {
   ChatsController,
   type ChatsControllerService,
 } from './chats.controller';
-import { CHAT_MESSAGES_DEFAULT_LIMIT } from './dto/chats.dto';
+import { CHAT_MESSAGES_DEFAULT_LIMIT } from './dto/chats-query.dto';
 import { type ContinueFollowUpRunDto } from './dto/follow-up-run.dto';
 import type { ChatLoopService } from './chat-loop.service';
 import type { FollowUpAdmissionService } from './follow-up-admission.service';
@@ -47,6 +47,7 @@ const chat: Chat = {
   workspaceToldFrom: null,
   workspaceToldAvailable: null,
   workspaceDetachReason: null,
+  modelSelection: null,
 };
 
 const chatMessages: Array<Message> = [
@@ -228,6 +229,35 @@ describe('ChatsController', () => {
     await expect(
       controller.getChatById('verified-user', chat.id),
     ).resolves.toEqual(expect.objectContaining({ workspaceRoot: null }));
+  });
+
+  it('reports the stored model selection without its internal revision', async () => {
+    const { controller } = makeController({
+      getChatById: vi.fn().mockResolvedValue({
+        ...chat,
+        modelSelection: {
+          revision: 4,
+          selector: '@reasoning',
+          effort: 'high',
+        },
+      }),
+    });
+
+    const response = await controller.getChatById('verified-user', chat.id);
+
+    expect(response.modelSelection).toEqual({
+      selector: '@reasoning',
+      effort: 'high',
+    });
+    expect(response.modelSelection).not.toHaveProperty('revision');
+  });
+
+  it('reports a null model selection for a Chat that stored none', async () => {
+    const { controller } = makeController();
+
+    await expect(
+      controller.getChatById('verified-user', chat.id),
+    ).resolves.toEqual(expect.objectContaining({ modelSelection: null }));
   });
 
   it('returns lastMessage null for a chat without messages', async () => {
@@ -414,7 +444,7 @@ describe('ChatsController', () => {
       'verified-user',
       chat.id,
       {
-        modelId: 'system:openai:gpt-5.4-mini',
+        selector: 'system:openai:gpt-5.4-mini',
         message: {
           id: '33333333-3333-3333-3333-333333333333',
           parts: [{ type: 'text', text: '/rename New title' }],
@@ -447,7 +477,7 @@ describe('ChatsController', () => {
         'verified-user',
         chat.id,
         {
-          modelId: 'system:openai:gpt-5.4-mini',
+          selector: 'system:openai:gpt-5.4-mini',
           message: {
             id: '33333333-3333-3333-3333-333333333333',
             parts: [{ type: 'text', text: '/rename New title' }],
@@ -507,7 +537,7 @@ describe('ChatsController', () => {
     const userMessageId = '33333333-3333-3333-3333-333333333333';
 
     const input = {
-      modelId: 'system:openai:gpt-5.4-mini',
+      selector: 'system:openai:gpt-5.4-mini',
       permissionMode: 'bypass' as const,
       userId: 'attacker',
       message: {
@@ -528,7 +558,7 @@ describe('ChatsController', () => {
     expect(call).toMatchObject({
       chatId: chat.id,
       userId: 'verified-user',
-      modelId: 'system:openai:gpt-5.4-mini',
+      selector: 'system:openai:gpt-5.4-mini',
       permissionMode: 'bypass' as const,
       message: {
         id: userMessageId,
@@ -577,7 +607,7 @@ describe('ChatsController', () => {
       'verified-user',
       chat.id,
       {
-        modelId: 'system:openai:gpt-5.4-mini',
+        selector: 'system:openai:gpt-5.4-mini',
         message: {
           id: '44444444-4444-4444-4444-444444444444',
           parts: [{ type: 'text' as const, text: 'Hello' }],
@@ -591,6 +621,30 @@ describe('ChatsController', () => {
     expect(call).not.toHaveProperty('permissionMode');
   });
 
+  it('does not forward an omitted selector to the chat loop', async () => {
+    const { controller, chatLoopService } = makeController();
+
+    chatLoopService.createMessageStream.mockResolvedValue({
+      toUIMessageStreamResponse: () => new Response(null),
+    });
+
+    await controller.createMessage(
+      'verified-user',
+      chat.id,
+      {
+        message: {
+          id: '55555555-5555-4555-8555-555555555555',
+          parts: [{ type: 'text' as const, text: 'Hello' }],
+        },
+      },
+      makeWritableResponse(),
+    );
+
+    expect(chatLoopService.createMessageStream).toHaveBeenCalledTimes(1);
+    const [call] = chatLoopService.createMessageStream.mock.calls[0];
+    expect(call).not.toHaveProperty('selector');
+  });
+
   it('maps unavailable model errors to the standard 422 body', async () => {
     const { controller, chatLoopService } = makeController();
     chatLoopService.createMessageStream.mockRejectedValue(
@@ -602,7 +656,7 @@ describe('ChatsController', () => {
         'verified-user',
         chat.id,
         {
-          modelId: 'missing-model',
+          selector: 'missing-model',
           message: {
             id: '0910fd41-1f2f-49de-b1c2-00ff4b3c7c60',
             parts: [{ type: 'text', text: 'Hello' }],
@@ -632,7 +686,7 @@ describe('ChatsController', () => {
         'verified-user',
         chat.id,
         {
-          modelId: 'system:openai:gpt-5.4-mini',
+          selector: 'system:openai:gpt-5.4-mini',
           permissionMode: 'bypass' as const,
           message: {
             id: '1910fd41-1f2f-49de-b1c2-00ff4b3c7c61',
@@ -663,7 +717,7 @@ describe('ChatsController', () => {
         'verified-user',
         chat.id,
         {
-          modelId: 'system:openai:gpt-5.4-mini',
+          selector: 'system:openai:gpt-5.4-mini',
           message: {
             id: '1910fd41-1f2f-49de-b1c2-00ff4b3c7c60',
             parts: [{ type: 'text', text: 'Hello' }],
@@ -899,7 +953,7 @@ describe('ChatsController response plumbing', () => {
       controller.createMessage(
         'user',
         chatId,
-        { modelId: 'm', message: { id: 'x', parts: [] } },
+        { selector: 'm', message: { id: 'x', parts: [] } },
         response,
       ),
     ).rejects.toThrow('validation blew up');
@@ -929,7 +983,7 @@ describe('ChatsController response plumbing', () => {
     await controller.createMessage(
       'user',
       chatId,
-      { modelId: 'm', message: { id: 'x', parts: [] } },
+      { selector: 'm', message: { id: 'x', parts: [] } },
       response,
     );
 
@@ -1082,7 +1136,7 @@ describe('ChatsController response plumbing', () => {
         'u',
         chatId,
         {
-          modelId: 'system:openai:gpt-5.4-mini',
+          selector: 'system:openai:gpt-5.4-mini',
           message: {
             id: '0910fd41-1f2f-49de-b1c2-00ff4b3c7c60',
             parts: [{ type: 'text' as const, text: 'Hello' }],

@@ -47,6 +47,7 @@ function chatRow(
     archivedAt: null,
     projectId: null,
     workspaceRoot: null,
+    modelSelection: null,
     lastMessage: null,
     runningJobs: 0,
     ...overrides,

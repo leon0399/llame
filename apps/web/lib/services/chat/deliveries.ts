@@ -102,7 +102,8 @@ export type DeliverySendRequest = {
   delivery?: DeliveryMode;
   /** A new client message id for every send, so an edit never reuses one. */
   message: { id: string; parts: UIMessage["parts"] };
-  modelId: string | undefined;
+  /** The composer's model id or role; absent until the catalog resolves one. */
+  selector: string | undefined;
   effort: string | undefined;
   permissionMode: PermissionModeResponseValue;
 };
@@ -146,7 +147,7 @@ export async function sendDelivery(
   const { api, body } = prepareSendMessagesRequest({
     chatId: request.chatId,
     messages: [request.message],
-    modelId: request.modelId,
+    selector: request.selector,
     effort: request.effort,
     permissionMode: request.permissionMode,
   });

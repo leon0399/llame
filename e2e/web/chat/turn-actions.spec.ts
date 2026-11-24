@@ -133,11 +133,11 @@ test("regenerates a completed answer after confirming the calls it discards", as
     .getByRole("button", { name: "Regenerate" })
     .click();
 
-  // The follow-up Run repeats the completed turn's own model and mode.
+  // The follow-up Run repeats the completed turn's own selector and mode.
   const body: unknown = (await followUp).postDataJSON();
   expect(body).toMatchObject({
     action: "regenerate",
-    modelId: expect.stringMatching(/\S/u),
+    selector: expect.stringMatching(/\S/u),
   });
 
   // The discarded attempt ran a call whose effects stay, so the turn's user

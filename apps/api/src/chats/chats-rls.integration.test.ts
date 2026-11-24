@@ -590,6 +590,63 @@ describeIfDb('RLS integration — cross-tenant isolation under FORCE', () => {
     }
   });
 
+  /**
+   * model-roles: the Chat's stored selection lives on the chat row and inherits
+   * its tenant boundary. B must neither read the selection nor rewrite it by
+   * naming A's chat, and A's value must survive B's UPDATE attempt.
+   */
+  it('model selection cross-tenant: B can neither read nor write A chat selection', async () => {
+    const chatId = crypto.randomUUID();
+    const selection = { revision: 1, selector: '@coding', effort: 'high' };
+
+    await asUser(userAId, async (tx) => {
+      await tx`INSERT INTO chats (id, owner_user_id, title) VALUES (${chatId}, ${userAId}, 'Chat A')`;
+      await tx`
+        UPDATE chats
+        SET model_selection = ${tx.json(selection)}::jsonb
+        WHERE id = ${chatId}`;
+
+      const owned = await tx`
+        SELECT model_selection FROM chats WHERE id = ${chatId}`;
+
+      expect(owned[0]?.model_selection).toEqual(selection);
+    });
+
+    try {
+      // Read denial: the row itself is invisible, so its selection is too.
+      const rows = await asUser(
+        userBId,
+        (tx) => tx`SELECT id, model_selection FROM chats WHERE id = ${chatId}`,
+      );
+
+      expect(rows).toHaveLength(0);
+
+      // Write denial: RLS's USING clause filters the row away before WITH
+      // CHECK is reached, so B's UPDATE matches zero rows and reports no error.
+      const forged = { revision: 2, selector: '@fast', effort: null };
+
+      const updated = await asUser(
+        userBId,
+        async (tx) =>
+          (
+            await tx`UPDATE chats SET model_selection = ${tx.json(forged)}::jsonb WHERE id = ${chatId} RETURNING id`
+          ).length,
+      );
+
+      expect(updated).toBe(0);
+
+      // A's selection is byte-identical after B's attempt.
+      const after = await asUser(
+        userAId,
+        (tx) => tx`SELECT model_selection FROM chats WHERE id = ${chatId}`,
+      );
+
+      expect(after[0]?.model_selection).toEqual(selection);
+    } finally {
+      await asUser(userAId, (tx) => tx`DELETE FROM chats WHERE id = ${chatId}`);
+    }
+  });
+
   // The follow-up columns are a tenant boundary of their own: a Run must name
   // only its own owner's Run as its source, and only the declared actions.
   it('rejects a source Run of another owner and an unknown follow-up action', async () => {
@@ -600,7 +657,7 @@ describeIfDb('RLS integration — cross-tenant isolation under FORCE', () => {
       assertRowId(chat);
 
       const [run] =
-        await tx`INSERT INTO runs (chat_id, user_id, model_id) VALUES (${chat.id}, ${userBId}, 'system:test') RETURNING id`;
+        await tx`INSERT INTO runs (chat_id, user_id, model_id, selector) VALUES (${chat.id}, ${userBId}, 'system:test', 'system:test') RETURNING id`;
 
       assertRowId(run);
 
@@ -622,7 +679,7 @@ describeIfDb('RLS integration — cross-tenant isolation under FORCE', () => {
         asUser(
           userAId,
           (tx) =>
-            tx`INSERT INTO runs (chat_id, user_id, model_id, source_run_id) VALUES (${ownChatId}, ${userAId}, 'system:test', ${foreignRunId})`,
+            tx`INSERT INTO runs (chat_id, user_id, model_id, selector, source_run_id) VALUES (${ownChatId}, ${userAId}, 'system:test', 'system:test', ${foreignRunId})`,
         ),
       ).rejects.toMatchObject({ code: '23503' });
 
@@ -631,7 +688,7 @@ describeIfDb('RLS integration — cross-tenant isolation under FORCE', () => {
         asUser(
           userAId,
           (tx) =>
-            tx`INSERT INTO runs (chat_id, user_id, model_id, follow_up_action) VALUES (${ownChatId}, ${userAId}, 'system:test', 'retry')`,
+            tx`INSERT INTO runs (chat_id, user_id, model_id, selector, follow_up_action) VALUES (${ownChatId}, ${userAId}, 'system:test', 'system:test', 'retry')`,
         ),
       ).rejects.toMatchObject({ code: '23514' });
 
@@ -809,7 +866,7 @@ describeIfDb('RLS integration — cross-tenant isolation under FORCE', () => {
 
     await asUser(userAId, async (tx) => {
       await tx`INSERT INTO chats (id, owner_user_id, title) VALUES (${chatId}, ${userAId}, 'Run Chat')`;
-      await tx`INSERT INTO runs (id, chat_id, user_id, model_id) VALUES (${runId}, ${chatId}, ${userAId}, 'system:openai:gpt-5.4-mini')`;
+      await tx`INSERT INTO runs (id, chat_id, user_id, model_id, selector) VALUES (${runId}, ${chatId}, ${userAId}, 'system:openai:gpt-5.4-mini', 'system:openai:gpt-5.4-mini')`;
       await tx`INSERT INTO run_events (run_id, event_type, payload) VALUES (${runId}, 'run.created', '{"private": true}')`;
     });
 
@@ -908,7 +965,7 @@ describeIfDb('RLS integration — cross-tenant isolation under FORCE', () => {
       await asUser(userAId, async (tx) => {
         await tx`INSERT INTO chats (id, owner_user_id, title) VALUES (${chatId}, ${userAId}, 'Import Chat')`;
         await tx`INSERT INTO messages (id, chat_id, seq, role, sender_user_id, parts) VALUES (${messageId}, ${chatId}, 1, 'user', ${userAId}, ${tx.json(promptImportParts)})`;
-        await tx`INSERT INTO runs (id, chat_id, user_id, model_id) VALUES (${runId}, ${chatId}, ${userAId}, 'system:openai:gpt-5.4-mini')`;
+        await tx`INSERT INTO runs (id, chat_id, user_id, model_id, selector) VALUES (${runId}, ${chatId}, ${userAId}, 'system:openai:gpt-5.4-mini', 'system:openai:gpt-5.4-mini')`;
         await tx`INSERT INTO run_events (run_id, event_type, payload) VALUES (${runId}, 'tool.requested', ${tx.json(importEventPayload)})`;
         await tx`INSERT INTO run_events (run_id, event_type, payload) VALUES (${runId}, 'tool.completed', ${tx.json({ ...importEventPayload, status: 'success', output: { content: 'PRIVATE_IMPORT_BODY' } })})`;
       });

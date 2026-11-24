@@ -73,7 +73,7 @@ describe('async host bash through the tool', () => {
       nativeDeliverySequence: 1,
       bashProcessLimiter: limiter,
       bashJobs: registry,
-      jobSettings: { modelId: 'm', effort: 'high', permissionMode: 'default' },
+      jobSettings: { selector: 'm', effort: 'high', permissionMode: 'default' },
       artifactReadable: true,
       permissionPolicy: compileTestPermissionPolicy(),
       tenantDb: {
@@ -226,7 +226,7 @@ describe('async host bash through the tool', () => {
       toolCallId: 'call-1',
       executor: 'bash',
       artifactReadable: true,
-      settings: { modelId: 'm', effort: 'high', permissionMode: 'default' },
+      settings: { selector: 'm', effort: 'high', permissionMode: 'default' },
     });
     await settled();
     expect(settlements[0]).toMatchObject({

@@ -6,6 +6,7 @@
  * OpenAPI spec version: 0.1
  */
 import type { ChatListItemResponseVisibility } from "./chatListItemResponseVisibility";
+import type { ChatModelSelectionResponse } from "./chatModelSelectionResponse";
 
 export interface ChatListItemResponse {
   id: string;
@@ -24,6 +25,11 @@ export interface ChatListItemResponse {
    * @nullable
    */
   workspaceRoot: string | null;
+  /**
+   * The model selection the Chat stores for its next send; null when none.
+   * @nullable
+   */
+  modelSelection: ChatModelSelectionResponse | null;
   /**
    * @maxLength 160
    * @nullable

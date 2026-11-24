@@ -25,6 +25,7 @@ const chat = (overrides: Partial<Chat> = {}): Chat => ({
   createdAt: NOW,
   updatedAt: NOW,
   archivedAt: null,
+  modelSelection: null,
   projectId: null,
   recencyDigestBaseline: null,
   recencyDigestTold: null,

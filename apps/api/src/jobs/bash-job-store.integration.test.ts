@@ -70,7 +70,7 @@ describe('bash-job-store on a live database', () => {
         workerInstanceId: crypto.randomUUID(),
         outputs: ['stdout', 'stderr'],
         artifactReadable: true,
-        settings: { modelId: 'gpt-5.5', permissionMode: 'default' },
+        settings: { selector: 'gpt-5.5', permissionMode: 'default' },
       }),
     );
 

@@ -221,7 +221,7 @@ describeIfDb('llame_notify_change triggers', () => {
         mode: 'queue',
         parts: [{ type: 'text', text: 'secret queued text' }],
         settings: {
-          modelId: 'system:openai:gpt-5.4-mini',
+          selector: 'system:openai:gpt-5.4-mini',
           permissionMode: 'default',
         },
       }),

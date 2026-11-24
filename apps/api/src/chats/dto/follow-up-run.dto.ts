@@ -47,8 +47,8 @@ export class ContinueFollowUpRunDto {
 /**
  * `POST /chats/:chatId/messages/:userMessageId/runs` body for `regenerate`: it
  * discards the turn's answer and asks the model again from the user message, so
- * it names the model the new Run uses, and the effort and the permission mode
- * it should apply.
+ * it may name the selector the new Run uses, and the effort and the permission
+ * mode it should apply.
  */
 export class RegenerateFollowUpRunDto {
   @ApiProperty({
@@ -59,15 +59,18 @@ export class RegenerateFollowUpRunDto {
   @IsIn(['regenerate'])
   action!: 'regenerate';
 
-  // Required, unlike the chat-send model: a Regenerate always names the model
-  // its new Run uses, because the Run it replaces may have used another.
-  @ApiProperty({
+  // Optional, unlike the chat-send selector at first glance: an omitted
+  // selector resolves through the Chat's stored selection, then the configured
+  // default — a Regenerate picks the answer apart, not the model.
+  @ApiPropertyOptional({
+    description:
+      "`@role` or a model id; omit to use the Chat's stored selection",
     pattern: '\\S',
-    description: 'Model for the regenerated Run.',
   })
+  @ValidateIf((o: RegenerateFollowUpRunDto) => o.selector !== undefined)
   @IsString()
-  @Matches(/\S/, { message: 'modelId must not be blank' })
-  modelId!: string;
+  @Matches(/\S/, { message: 'selector must not be blank' })
+  selector?: string;
 
   @ApiPropertyOptional({
     pattern: '\\S',
@@ -100,9 +103,9 @@ export type CreateFollowUpRunDto =
 /**
  * The follow-up request body as a discriminated union on `action`: each variant
  * declares only the fields its action accepts, so a schema-valid `continue`
- * never carries a model or an effort, and a schema-valid `regenerate` always
- * names its model. A further action adds its variant to the same `oneOf` and
- * its own `mapping` entry.
+ * never carries a selector or an effort, and a schema-valid `regenerate` may
+ * name a selector, an effort, and a mode. A further action adds its variant to
+ * the same `oneOf` and its own `mapping` entry.
  */
 export function followUpRunBodySchema() {
   return {

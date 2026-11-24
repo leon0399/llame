@@ -9,7 +9,10 @@ const run: Run = {
   chatId: '22222222-2222-4222-8222-222222222222',
   messageId: '33333333-3333-4333-8333-333333333333',
   userId: 'owner',
+  selector: 'system:openai:public-model',
   modelId: 'system:openai:public-model',
+  selectedEffort: null,
+  selectionRevision: 1,
   effort: null,
   permissionMode: 'default' as const,
   activeAttemptId: null,
@@ -39,6 +42,15 @@ describe('toContextReceiptResponse', () => {
       });
     },
   );
+
+  it('reports the selector the Run recorded beside the served model', () => {
+    const response = toRunResponse(run);
+
+    expect(response.selector).toBe('system:openai:public-model');
+    expect(response.modelId).toBe('system:openai:public-model');
+    expect(response).not.toHaveProperty('selectionRevision');
+    expect(response).not.toHaveProperty('selectedEffort');
+  });
 
   it('carries the effort the run resolved at accept time', () => {
     const response = toContextReceiptResponse({ ...run, effort: 'high' }, []);

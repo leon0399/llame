@@ -24,6 +24,7 @@ import type { LanguageModelV3StreamPart } from '@ai-sdk/provider';
 import { MockLanguageModelV3, simulateReadableStream } from 'ai/test';
 import { streamText } from 'ai';
 import { expectMessageParts } from '../testing/support';
+import { fakeResolveSelection } from '../testing/fake-model-selection';
 import path from 'node:path';
 
 import { drizzle } from 'drizzle-orm/postgres-js';
@@ -292,7 +293,7 @@ describeIfDb(
       chatId: string,
       text: string,
       effectiveContext: AttemptContextFixture,
-      modelId = 'system:openai:gpt-5.4-mini',
+      selector = 'system:openai:gpt-5.4-mini',
     ): Promise<PersistResult> => {
       // The API only persists the sanitized user message. Resolve the supplied
       // context through the actual worker preparation path up to its first
@@ -306,7 +307,7 @@ describeIfDb(
           .createMessageStream({
             chatId,
             userId,
-            modelId,
+            selector,
             message: {
               id: crypto.randomUUID(),
               parts: [{ type: 'text', text }],
@@ -403,8 +404,8 @@ describeIfDb(
         shareRecentChats: false,
       });
 
-      const models: ModelSelectionValidator = {
-        validateModelSelection: (modelId: string) => ({
+      const validateModelSelection: ModelSelectionValidator['validateModelSelection'] =
+        (modelId: string) => ({
           id: modelId,
           source: 'system',
           contextWindowTokens: 128_000,
@@ -414,10 +415,21 @@ describeIfDb(
           systemPromptTemplate: systemPrompt,
           systemPromptSource: 'project_default',
           referencesSkills: false,
-        }),
+        });
+
+      const resolveEffortSelection: ModelSelectionValidator['resolveEffortSelection'] =
         // No reasoning vocabulary on these doubles: effort always resolves
         // to "none".
-        resolveEffortSelection: () => undefined,
+        () => undefined;
+
+      const models: ModelSelectionValidator = {
+        validateModelSelection,
+        resolveEffortSelection,
+        resolveSelection: fakeResolveSelection({
+          validateModelSelection,
+          resolveEffortSelection,
+          defaultSelector: 'system:openai:gpt-5.4-mini',
+        }),
       };
 
       const bridge: RunStreamResponder = {
@@ -510,12 +522,12 @@ describeIfDb(
       chatId: string,
       messageId: string,
       text: string,
-      modelId = 'system:openai:gpt-5.4-mini',
+      selector = 'system:openai:gpt-5.4-mini',
     ) =>
       chatLoop.createMessageStream({
         chatId,
         userId,
-        modelId,
+        selector,
         message: { id: messageId, parts: [{ type: 'text', text }] },
       });
 
@@ -1123,6 +1135,7 @@ describeIfDb(
             chatId: theirChatId,
             messageId: theirMessageId,
             userId: otherUserId,
+            selector: 'system:openai:gpt-5.4-mini',
             modelId: 'system:openai:gpt-5.4-mini',
             status: 'queued',
           });
@@ -1136,7 +1149,7 @@ describeIfDb(
           chatLoop.createMessageStream({
             chatId: theirChatId,
             userId,
-            modelId: 'system:openai:gpt-5.4-mini',
+            selector: 'system:openai:gpt-5.4-mini',
             message: {
               id: crypto.randomUUID(),
               parts: [{ type: 'text', text: 'not mine' }],
@@ -1244,8 +1257,8 @@ describeIfDb(
       );
       const uniquePrompt = `Rollback prompt ${crypto.randomUUID()}`;
 
-      const models: ModelSelectionValidator = {
-        validateModelSelection: (modelId: string) => ({
+      const validateModelSelection: ModelSelectionValidator['validateModelSelection'] =
+        (modelId: string) => ({
           id: modelId,
           source: 'system',
           contextWindowTokens: 128_000,
@@ -1255,10 +1268,21 @@ describeIfDb(
           systemPromptTemplate: uniquePrompt,
           systemPromptSource: 'model_override',
           referencesSkills: false,
-        }),
+        });
+
+      const resolveEffortSelection: ModelSelectionValidator['resolveEffortSelection'] =
         // No reasoning vocabulary on these doubles: effort always resolves
         // to "none".
-        resolveEffortSelection: () => undefined,
+        () => undefined;
+
+      const models: ModelSelectionValidator = {
+        validateModelSelection,
+        resolveEffortSelection,
+        resolveSelection: fakeResolveSelection({
+          validateModelSelection,
+          resolveEffortSelection,
+          defaultSelector: 'system:openai:gpt-5.4-mini',
+        }),
       };
 
       const dispatchRun = vi
@@ -1317,7 +1341,7 @@ describeIfDb(
           failingLoop.createMessageStream({
             chatId: targetChatId,
             userId,
-            modelId: 'system:openai:gpt-5.4-mini',
+            selector: 'system:openai:gpt-5.4-mini',
             message: {
               id: crypto.randomUUID(),
               parts: [{ type: 'text', text: 'must roll back' }],
@@ -1487,7 +1511,7 @@ describeIfDb(
       await chatLoop.createMessageStream({
         chatId,
         userId,
-        modelId: 'system:openai:gpt-5.4-mini',
+        selector: 'system:openai:gpt-5.4-mini',
         message: {
           id: messageId,
           parts: [

@@ -195,7 +195,7 @@ describe('seeded host history boundaries', () => {
         outputs: ['stdout', 'stderr'],
         artifactReadable: false,
         settings: {
-          modelId: 'system:openai:gpt-5.5',
+          selector: 'system:openai:gpt-5.5',
           permissionMode: 'default',
         },
       }),
@@ -513,7 +513,7 @@ describe('seeded host history boundaries', () => {
       .post(`/api/v1/chats/${chat.id}/messages`)
       .set('Cookie', ownerCookie)
       .send({
-        modelId: 'system:openai:gpt-5.5',
+        selector: 'system:openai:gpt-5.5',
         message: {
           id: randomUUID(),
           parts: [{ type: 'text', text: 'Owner title source' }],
@@ -577,7 +577,7 @@ describe('seeded host history boundaries', () => {
         outputs: ['stdout', 'stderr'],
         artifactReadable: false,
         settings: {
-          modelId: 'system:openai:gpt-5.5',
+          selector: 'system:openai:gpt-5.5',
           permissionMode: 'default',
         },
       }),

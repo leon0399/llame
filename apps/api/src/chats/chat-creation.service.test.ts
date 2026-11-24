@@ -1,5 +1,4 @@
 /* eslint-disable typescript/no-unsafe-assignment -- a spied repository's mock call tuple and an `expect.any` matcher are `any`; every read is asserted through the typed spy signature. */
-import { NotFoundException } from '@nestjs/common';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import type { MockInstance } from 'vitest';
 
@@ -20,13 +19,22 @@ import {
 import { type MachinesService } from '../machines/machines.service';
 import { MachineConnector } from '../machines/machine-connector.service';
 import { type MachineStatusView } from '../machines/machines-status';
+import {
+  ModelNotAvailableError,
+  type ModelSelectionValidator,
+  type ResolvedSelection,
+} from '../models/models.service';
 import { ProjectLinksRepository } from '../projects/project-links.repository';
 import { ProjectsRepository } from '../projects/projects-repository';
 import { ProjectsService } from '../projects/projects.service';
 import { RepositoriesRepository } from '../repositories/repositories.repository';
 import { asDouble } from '../testing/support';
 import { ChatsRepository, MessagesRepository } from './chats-repository';
-import { ChatCreationLock } from './chat-creation-lock';
+import {
+  CREATION_IN_PROGRESS,
+  ChatCreationLock,
+  creationInProgress,
+} from './chat-creation-lock';
 import { ChatCreationRecordRepository } from './chat-creation-record.repository';
 import { ChatCreationService } from './chat-creation.service';
 import { ChatCreationWorkspace } from './chat-creation-workspace';
@@ -106,6 +114,7 @@ const chat: Chat = {
   workspaceToldFrom: null,
   workspaceToldAvailable: null,
   workspaceDetachReason: null,
+  modelSelection: null,
 };
 
 function projectRow(overrides: Partial<Project> = {}): Project {
@@ -197,7 +206,7 @@ function defaultRow(): ProjectRepositoryDefault {
 
 function turn(mode: ValidatedChatTurn['permissionMode'] = 'default') {
   return {
-    modelId: 'system:openai:gpt-5.4',
+    selector: 'system:openai:gpt-5.4',
     effort: undefined,
     permissionMode: mode,
     message: {
@@ -389,6 +398,14 @@ function makeService(options: {
     startFirstRun,
   } satisfies Pick<ChatLoopService, 'validateTurn' | 'startFirstRun'>;
 
+  // The selection pre-check resolves anything unless a test refuses it; the
+  // route discards this result, because admission resolves and writes again.
+  const resolveSelection = vi.fn<ModelSelectionValidator['resolveSelection']>(
+    () => asDouble<ResolvedSelection>({ selector: 'resolved' }),
+  );
+
+  const models = asDouble<ModelSelectionValidator>({ resolveSelection });
+
   const projects = new ProjectsService(tenantDb);
 
   const connector = new MachineConnector({
@@ -406,11 +423,13 @@ function makeService(options: {
       projects,
       locks,
       workspace,
+      models,
       chatLoop,
     ),
     runExclusively,
     enter,
     validateTurn,
+    resolveSelection,
     startFirstRun,
     recordProjectDefault,
     listMachines,
@@ -466,12 +485,13 @@ describe('ChatCreationService validation before any write', () => {
     expect(service.runExclusively).not.toHaveBeenCalled();
   });
 
-  it('answers a rejected turn exactly as the message route does', async () => {
+  it('answers a refused selection exactly as the message route does', async () => {
     const stubs = stubRepositories();
     const service = makeService({ stubs });
-    service.validateTurn.mockRejectedValue(
-      new NotFoundException('Model is not available'),
-    );
+    service.validateTurn.mockResolvedValue(turn());
+    service.resolveSelection.mockImplementation(() => {
+      throw new ModelNotAvailableError('@missing');
+    });
 
     await expect(
       service.service.create(
@@ -479,14 +499,98 @@ describe('ChatCreationService validation before any write', () => {
         request({
           message: {
             id: '65f0f6e8-d5ce-4791-a222-e7a0df638810',
-            modelId: 'missing',
+            selector: '@missing',
             parts: [{ type: 'text', text: 'hi' }],
           },
         }),
       ),
-    ).rejects.toMatchObject({ status: 404 });
-    expect(service.runExclusively).not.toHaveBeenCalled();
+    ).rejects.toBeInstanceOf(ModelNotAvailableError);
+
+    // A new Chat stores no selection, so the check resolves against `null`, and
+    // the refusal lands as the first step inside the lock, before any row is
+    // written.
+    expect(service.runExclusively).toHaveBeenCalledWith(
+      CHAT_ID,
+      expect.any(Function),
+    );
+    expect(service.resolveSelection).toHaveBeenCalledWith(
+      null,
+      { selector: '@missing', effort: undefined },
+      'owner',
+    );
     expect(stubs.createIfAbsent).not.toHaveBeenCalled();
+  });
+
+  it('answers the creation-in-progress 409 before an invalid selector', async () => {
+    const stubs = stubRepositories();
+    const service = makeService({ stubs });
+    service.validateTurn.mockResolvedValue(turn());
+    // A create holds the chat id's lock: the lock refuses and the callback
+    // never runs.
+    service.runExclusively.mockImplementation(() =>
+      Promise.reject(creationInProgress()),
+    );
+    service.resolveSelection.mockImplementation(() => {
+      throw new ModelNotAvailableError('@missing');
+    });
+
+    await expect(
+      service.service.create(
+        OWNER,
+        request({
+          message: {
+            id: '65f0f6e8-d5ce-4791-a222-e7a0df638810',
+            selector: '@missing',
+            parts: [{ type: 'text', text: 'hi' }],
+          },
+        }),
+      ),
+    ).rejects.toMatchObject({
+      status: 409,
+      response: { code: CREATION_IN_PROGRESS },
+    });
+
+    // The selector never reaches the model catalog, and nothing is read or
+    // written for the Chat: the refusal is the lock's, not the selection's.
+    expect(service.resolveSelection).not.toHaveBeenCalled();
+    expect(stubs.findChatById).not.toHaveBeenCalled();
+    expect(stubs.createIfAbsent).not.toHaveBeenCalled();
+  });
+
+  it('resolves a resend against the selection the Chat stores', async () => {
+    const stubs = stubRepositories();
+
+    const stored = {
+      revision: 2,
+      selector: '@coding',
+      effort: 'high',
+    } satisfies Chat['modelSelection'];
+
+    stubs.findChatById.mockResolvedValue({
+      ...chat,
+      modelSelection: stored,
+      workspaceRoot: ROOT,
+      workspaceExecutorId: 'host-a',
+      workspaceGeneration: 1,
+    });
+    const service = makeService({ stubs });
+    service.validateTurn.mockResolvedValue(turn());
+
+    await service.service.create(
+      OWNER,
+      request({
+        message: {
+          id: 'cc5ce18b-2f3a-4f6b-8c95-f9c6240a8f02',
+          parts: [{ type: 'text', text: 'resume' }],
+        },
+      }),
+    );
+
+    expect(service.resolveSelection).toHaveBeenCalledWith(
+      stored,
+      { selector: undefined, effort: undefined },
+      'owner',
+    );
   });
 
   it('forwards an optional effort and permission mode and omits absent ones', async () => {
@@ -500,7 +604,7 @@ describe('ChatCreationService validation before any write', () => {
       request({
         message: {
           id: '65f0f6e8-d5ce-4791-a222-e7a0df638810',
-          modelId: 'system:openai:gpt-5.4',
+          selector: 'system:openai:gpt-5.4',
           parts: [{ type: 'text', text: 'hi' }],
         },
       }),
@@ -510,7 +614,7 @@ describe('ChatCreationService validation before any write', () => {
       request({
         message: {
           id: 'cc5ce18b-2f3a-4f6b-8c95-f9c6240a8f02',
-          modelId: 'system:openai:gpt-5.4',
+          selector: 'system:openai:gpt-5.4',
           effort: 'high',
           permissionMode: 'bypass',
           parts: [{ type: 'text', text: 'hi' }],
@@ -522,7 +626,7 @@ describe('ChatCreationService validation before any write', () => {
     // `undefined` keys the chat loop would have to interpret.
     expect(service.validateTurn.mock.calls[0]?.[0]).toStrictEqual({
       userId: OWNER,
-      modelId: 'system:openai:gpt-5.4',
+      selector: 'system:openai:gpt-5.4',
       message: {
         id: '65f0f6e8-d5ce-4791-a222-e7a0df638810',
         parts: [{ type: 'text', text: 'hi' }],
@@ -554,7 +658,7 @@ describe('ChatCreationService Workspace outcomes', () => {
         repositoryId: REPOSITORY_ID,
         message: {
           id: '65f0f6e8-d5ce-4791-a222-e7a0df638810',
-          modelId: 'system:openai:gpt-5.4',
+          selector: 'system:openai:gpt-5.4',
           permissionMode: 'default',
           parts: [{ type: 'text', text: 'hi' }],
         },
@@ -615,7 +719,7 @@ describe('ChatCreationService Workspace outcomes', () => {
         repositoryId: REPOSITORY_ID,
         message: {
           id: '65f0f6e8-d5ce-4791-a222-e7a0df638810',
-          modelId: 'system:openai:gpt-5.4',
+          selector: 'system:openai:gpt-5.4',
           parts: [{ type: 'text', text: 'hi' }],
         },
       }),
@@ -683,7 +787,7 @@ describe('ChatCreationService Workspace outcomes', () => {
         projectId: PROJECT_ID,
         message: {
           id: '65f0f6e8-d5ce-4791-a222-e7a0df638810',
-          modelId: 'system:openai:gpt-5.4',
+          selector: 'system:openai:gpt-5.4',
           parts: [{ type: 'text', text: 'hi' }],
         },
       }),
@@ -716,7 +820,7 @@ describe('ChatCreationService Workspace outcomes', () => {
       request({
         message: {
           id: '65f0f6e8-d5ce-4791-a222-e7a0df638810',
-          modelId: 'system:openai:gpt-5.4',
+          selector: 'system:openai:gpt-5.4',
           parts: [{ type: 'text', text: 'hi' }],
         },
       }),
@@ -747,7 +851,7 @@ describe('ChatCreationService Workspace outcomes', () => {
         repositoryId: REPOSITORY_ID,
         message: {
           id: '65f0f6e8-d5ce-4791-a222-e7a0df638810',
-          modelId: 'system:openai:gpt-5.4',
+          selector: 'system:openai:gpt-5.4',
           parts: [{ type: 'text', text: 'hi' }],
         },
       }),
@@ -777,7 +881,7 @@ describe('ChatCreationService Workspace outcomes', () => {
           repositoryId: REPOSITORY_ID,
           message: {
             id: '65f0f6e8-d5ce-4791-a222-e7a0df638810',
-            modelId: 'system:openai:gpt-5.4',
+            selector: 'system:openai:gpt-5.4',
             parts: [{ type: 'text', text: 'hi' }],
           },
         }),
@@ -811,7 +915,7 @@ describe('ChatCreationService Workspace outcomes', () => {
           repositoryId: REPOSITORY_ID,
           message: {
             id: '65f0f6e8-d5ce-4791-a222-e7a0df638810',
-            modelId: 'system:openai:gpt-5.4',
+            selector: 'system:openai:gpt-5.4',
             parts: [{ type: 'text', text: 'hi' }],
           },
         }),
@@ -939,7 +1043,7 @@ describe('ChatCreationService resend rules', () => {
       request({
         message: {
           id: '65f0f6e8-d5ce-4791-a222-e7a0df638810',
-          modelId: 'system:openai:gpt-5.4',
+          selector: 'system:openai:gpt-5.4',
           parts: [{ type: 'text', text: 'hi' }],
         },
       }),
@@ -977,7 +1081,7 @@ describe('ChatCreationService resend rules', () => {
         worktree: {},
         message: {
           id: '65f0f6e8-d5ce-4791-a222-e7a0df638810',
-          modelId: 'system:openai:gpt-5.4',
+          selector: 'system:openai:gpt-5.4',
           parts: [{ type: 'text', text: 'hi' }],
         },
       }),

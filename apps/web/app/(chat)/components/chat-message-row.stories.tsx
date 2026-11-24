@@ -1752,6 +1752,7 @@ function turnRun(
     messageId: "user-turn",
     status: "failed",
     followUpAction: null,
+    selector: "system:openai:gpt-5.4-mini",
     modelId: "system:openai:gpt-5.4-mini",
     effort: "low",
     permissionMode: "default",
@@ -1987,7 +1988,7 @@ export const RegenerateRepeatsLatestRun: Story = {
     await userEvent.click(regenerate);
     await expect(args.onFollowUp).toHaveBeenCalledWith({
       action: "regenerate",
-      modelId: "system:openai:gpt-5.4-mini",
+      selector: "system:openai:gpt-5.4-mini",
       effort: "xhigh",
       permissionMode: "bypass",
     });
@@ -2061,7 +2062,7 @@ export const RegenerateConfirmedSends: Story = {
     );
     await expect(args.onFollowUp).toHaveBeenCalledWith({
       action: "regenerate",
-      modelId: "system:openai:gpt-5.4-mini",
+      selector: "system:openai:gpt-5.4-mini",
       effort: "low",
       permissionMode: "default",
     });
@@ -2092,7 +2093,7 @@ export const RegenerateReadOnlySkipsDialog: Story = {
     await expect(screen.queryByRole("alertdialog")).toBeNull();
     await expect(args.onFollowUp).toHaveBeenCalledWith({
       action: "regenerate",
-      modelId: "system:openai:gpt-5.4-mini",
+      selector: "system:openai:gpt-5.4-mini",
       effort: "low",
       permissionMode: "default",
     });
@@ -2205,7 +2206,7 @@ export const RegenerateMenuSetsTheComposer: Story = {
     );
     await expect(args.onFollowUp).toHaveBeenCalledWith({
       action: "regenerate",
-      modelId: "system:openai:model-three",
+      selector: "system:openai:model-three",
       permissionMode: "default",
     });
   },

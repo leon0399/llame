@@ -32,6 +32,7 @@ import {
 } from '../models/model-client';
 import type { SystemModelCatalogEntry } from '../models/model-catalog';
 import type { ModelSelectionValidator } from '../models/models.service';
+import { fakeResolveSelection } from '../testing/fake-model-selection';
 import { SystemPromptsService } from '../system-prompts/system-prompts.service';
 import type { KnowledgeToolCandidateResolverPort } from '../knowledge/knowledge-tool-candidate-resolver';
 import { TOOL_REGISTRY } from '../tools/registry';
@@ -116,6 +117,11 @@ const testModelEntry: SystemModelCatalogEntry = {
 const models: ModelSelectionValidator = {
   validateModelSelection: () => testModelEntry,
   resolveEffortSelection: () => undefined,
+  resolveSelection: fakeResolveSelection({
+    validateModelSelection: () => testModelEntry,
+    resolveEffortSelection: () => undefined,
+    defaultSelector: testModelEntry.id,
+  }),
 };
 
 const knowledgeCandidates: KnowledgeToolCandidateResolverPort = {

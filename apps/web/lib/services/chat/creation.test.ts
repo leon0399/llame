@@ -22,7 +22,7 @@ function draft(overrides: Partial<CreateChatDraft> = {}): CreateChatDraft {
     isolation: "reuse",
     message: {
       parts: [{ type: "text", text: "Start here" }],
-      modelId: "model-1",
+      selector: "model-1",
     },
     ...overrides,
   };
@@ -39,7 +39,7 @@ describe("buildCreateChatRequest", () => {
       message: {
         id: "message-1",
         parts: [{ type: "text", text: "Start here" }],
-        modelId: "model-1",
+        selector: "model-1",
       },
     });
   });
@@ -57,7 +57,7 @@ describe("buildCreateChatRequest", () => {
       draft({
         message: {
           parts: [{ type: "text", text: "Hi" }],
-          modelId: "model-1",
+          selector: "model-1",
           effort: "",
           permissionMode: "default",
         },
@@ -67,7 +67,7 @@ describe("buildCreateChatRequest", () => {
     expect(request.message).toEqual({
       id: "message-1",
       parts: [{ type: "text", text: "Hi" }],
-      modelId: "model-1",
+      selector: "model-1",
     });
   });
 
@@ -76,7 +76,7 @@ describe("buildCreateChatRequest", () => {
       draft({
         message: {
           parts: [{ type: "text", text: "Hi" }],
-          modelId: "model-1",
+          selector: "model-1",
           effort: "high",
           permissionMode: "bypass",
         },
@@ -94,7 +94,7 @@ describe("buildCreateChatRequest", () => {
       draft({
         message: {
           parts: [{ type: "text", text: "Hi" }],
-          modelId: "model-1",
+          selector: "model-1",
           permissionMode: "read-only",
         },
       }),

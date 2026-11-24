@@ -13,6 +13,11 @@ import { TenantDbService, type Db } from '../db/tenant-db.service';
 import { InstanceConfigService } from '../instance-config/instance-config.service';
 import { MachineConnector } from '../machines/machine-connector.service';
 import { MachinesService } from '../machines/machines.service';
+import {
+  ModelsService,
+  type ModelSelectionValidator,
+} from '../models/models.service';
+import { type ChatModelSelection } from '../models/model-selection';
 import { ProjectsRepository } from '../projects/projects-repository';
 import { ProjectsService } from '../projects/projects.service';
 import {
@@ -71,6 +76,8 @@ export class ChatCreationService {
     private readonly projects: ProjectsService,
     private readonly locks: ChatCreationLock,
     private readonly workspace: ChatCreationWorkspace,
+    @Inject(ModelsService)
+    private readonly models: ModelSelectionValidator,
     @Inject(ChatLoopService)
     private readonly chatLoop: Pick<
       ChatLoopService,
@@ -93,38 +100,92 @@ export class ChatCreationService {
       throw new UnprocessableEntityException(worktree.message);
     }
 
-    if (
-      input.executorId !== undefined &&
-      !this.connector.isConfigured(input.executorId)
-    ) {
-      throw new UnprocessableEntityException({
-        statusCode: 422,
-        error: 'Unprocessable Entity',
-        message: `Executor ${input.executorId} is not configured.`,
-        code: 'executor_unknown',
-      });
+    if (input.executorId !== undefined) {
+      this.assertExecutorConfigured(input.executorId);
     }
 
-    // Every message check runs before any write, and before the lock: a bad
-    // model, effort, mode, part, or foreign media stores nothing.
-    const turn =
-      input.message === undefined
-        ? undefined
-        : await this.chatLoop.validateTurn({
-            userId,
-            modelId: input.message.modelId,
-            ...(input.message.effort !== undefined && {
-              effort: input.message.effort,
-            }),
-            ...(input.message.permissionMode !== undefined && {
-              permissionMode: input.message.permissionMode,
-            }),
-            message: { id: input.message.id, parts: input.message.parts },
-          });
+    // Every check that can answer without the creation lock runs before it: a
+    // bad permission mode, part, or foreign media stores nothing. The selector
+    // check runs FIRST inside the lock instead, so a create that overlaps
+    // another for the same id answers the 409 and not a selector status. The
+    // admission transaction then resolves the selection again, against the row
+    // it locks, and writes it (design D3), so a refused one rolls that
+    // transaction back.
+    const turn = await this.validateTurnInput(userId, input);
 
     return this.locks.runExclusively(input.id, () =>
       this.createLocked(userId, input, worktree, turn),
     );
+  }
+
+  /** A request naming an executor this instance does not know stores nothing. */
+  private assertExecutorConfigured(executorId: string): void {
+    if (this.connector.isConfigured(executorId)) return;
+
+    throw new UnprocessableEntityException({
+      statusCode: 422,
+      error: 'Unprocessable Entity',
+      message: `Executor ${executorId} is not configured.`,
+      code: 'executor_unknown',
+    });
+  }
+
+  /** The first message's turn, validated before the lock takes the Chat. */
+  private async validateTurnInput(
+    userId: string,
+    input: CreateChatRequest,
+  ): Promise<ValidatedChatTurn | undefined> {
+    if (input.message === undefined) return undefined;
+
+    return this.chatLoop.validateTurn({
+      userId,
+      ...(input.message.selector !== undefined && {
+        selector: input.message.selector,
+      }),
+      ...(input.message.effort !== undefined && {
+        effort: input.message.effort,
+      }),
+      ...(input.message.permissionMode !== undefined && {
+        permissionMode: input.message.permissionMode,
+      }),
+      message: { id: input.message.id, parts: input.message.parts },
+    });
+  }
+
+  /**
+   * The first message's selection, as the first check under the creation lock
+   * (model-roles D3): the named selector, the Chat's stored one on a resend, or
+   * the configured default. An unknown selector or undeclared effort answers
+   * 422 here, and an unset default 503, so a refused create writes no Chat row,
+   * root binding, worktree, or project default. Only the admission transaction
+   * stores the selection it resolves against the row it locks.
+   */
+  private async assertSelectionResolvable(
+    userId: string,
+    input: CreateChatRequest,
+  ): Promise<void> {
+    if (input.message === undefined) return;
+
+    this.models.resolveSelection(
+      await this.storedSelection(userId, input.id),
+      {
+        selector: input.message.selector,
+        effort: input.message.effort,
+      },
+      'owner',
+    );
+  }
+
+  /** The selection the Chat stores today; a new Chat stores none. */
+  private async storedSelection(
+    userId: string,
+    chatId: string,
+  ): Promise<ChatModelSelection | null> {
+    const chat = await this.tenantDb.runAs(userId, (tx) =>
+      new ChatsRepository(tx).findById(chatId, userId),
+    );
+
+    return chat?.modelSelection ?? null;
   }
 
   /** The owner's creation record: one entry per attempt, newest last. */
@@ -161,9 +222,10 @@ export class ChatCreationService {
   }
 
   /**
-   * The whole request under the Chat's creation lock: admit the Chat and its
-   * location, run the Workspace step, store the message, and record the
-   * default. A failure answers the status it caused and stores no message.
+   * The whole request under the Chat's creation lock: check the selection,
+   * admit the Chat and its location, run the Workspace step, store the
+   * message, and record the default. A failure answers the status it caused
+   * and stores no message.
    */
   private async createLocked(
     userId: string,
@@ -171,6 +233,12 @@ export class ChatCreationService {
     worktree: WorktreeRequest | undefined,
     turn: ValidatedChatTurn | undefined,
   ): Promise<CreateChatResponse> {
+    // The selection check is the FIRST step under the lock, before the Chat
+    // insert and every write: a create that overlaps another for the same id
+    // never reaches it, because the lock answers the 409 first (openspec
+    // `chat-creation` "Creation serializes requests for one chat id").
+    await this.assertSelectionResolvable(userId, input);
+
     const admitted = await this.admitChat(userId, input);
 
     const workspace = await enterCreatedWorkspace(

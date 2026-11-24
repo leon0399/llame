@@ -342,7 +342,23 @@
             "content": {
               "text/event-stream": {
                 "schema": {
-                  "type": "string"
+                  "type": "object",
+                  "required": ["data"],
+                  "properties": {
+                    "event": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "type": "string",
+                      "description": "One AG-UI event as JSON"
+                    },
+                    "id": {
+                      "type": "string"
+                    },
+                    "retry": {
+                      "type": "integer"
+                    }
+                  }
                 }
               }
             }
@@ -821,7 +837,23 @@
             "content": {
               "text/event-stream": {
                 "schema": {
-                  "type": "string"
+                  "type": "object",
+                  "required": ["data"],
+                  "properties": {
+                    "event": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "type": "string",
+                      "description": "One AG-UI event as JSON"
+                    },
+                    "id": {
+                      "type": "string"
+                    },
+                    "retry": {
+                      "type": "integer"
+                    }
+                  }
                 }
               },
               "application/json": {
@@ -966,13 +998,29 @@
             "content": {
               "text/event-stream": {
                 "schema": {
-                  "type": "string"
+                  "type": "object",
+                  "required": ["data"],
+                  "properties": {
+                    "event": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "type": "string",
+                      "description": "One AG-UI event as JSON"
+                    },
+                    "id": {
+                      "type": "string"
+                    },
+                    "retry": {
+                      "type": "integer"
+                    }
+                  }
                 }
               }
             }
           },
           "400": {
-            "description": "Malformed chat or message id, a missing body or action, an unknown action, a model or an effort on a continue request, or a regenerate request without a model"
+            "description": "Malformed chat or message id, a missing body or action, a malformed or unknown action, a selector or an effort on a continue request, or a blank selector on a regenerate request"
           },
           "401": {
             "description": ""
@@ -2793,7 +2841,23 @@
             "content": {
               "text/event-stream": {
                 "schema": {
-                  "type": "string"
+                  "type": "object",
+                  "required": ["data"],
+                  "properties": {
+                    "event": {
+                      "type": "string"
+                    },
+                    "data": {
+                      "type": "string",
+                      "description": "One AG-UI event as JSON"
+                    },
+                    "id": {
+                      "type": "string"
+                    },
+                    "retry": {
+                      "type": "integer"
+                    }
+                  }
                 }
               }
             }
@@ -5020,6 +5084,53 @@
         },
         "required": ["revokedCount"]
       },
+      "ChatFallbackHoldResponse": {
+        "type": "object",
+        "properties": {
+          "selector": {
+            "type": "string",
+            "description": "The `@role` or model id the hold falls back from."
+          },
+          "modelId": {
+            "type": "string",
+            "description": "The exact model the hold stays on."
+          },
+          "effort": {
+            "type": "string",
+            "nullable": true,
+            "description": "The effort the hold pins; null when it pins none."
+          },
+          "revertAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When the Chat returns to `selector`."
+          }
+        },
+        "required": ["selector", "modelId", "effort", "revertAt"]
+      },
+      "ChatModelSelectionResponse": {
+        "type": "object",
+        "properties": {
+          "selector": {
+            "type": "string",
+            "description": "`@role` or model id the owner selected."
+          },
+          "effort": {
+            "type": "string",
+            "nullable": true,
+            "description": "The effort the owner selected; null when none."
+          },
+          "hold": {
+            "description": "The active fallback hold; absent when none.",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ChatFallbackHoldResponse"
+              }
+            ]
+          }
+        },
+        "required": ["selector", "effort"]
+      },
       "ChatListItemResponse": {
         "type": "object",
         "properties": {
@@ -5061,6 +5172,16 @@
             "nullable": true,
             "description": "Canonical absolute root of the current Workspace binding. Owner-only; null when this Chat has no binding."
           },
+          "modelSelection": {
+            "nullable": true,
+            "description": "The model selection the Chat stores for its next send; null when none.",
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ChatModelSelectionResponse"
+              }
+            ]
+          },
           "lastMessage": {
             "type": "string",
             "nullable": true,
@@ -5081,6 +5202,7 @@
           "archivedAt",
           "projectId",
           "workspaceRoot",
+          "modelSelection",
           "lastMessage",
           "runningJobs"
         ]
@@ -5160,6 +5282,16 @@
             "type": "string",
             "nullable": true,
             "description": "Canonical absolute root of the current Workspace binding. Owner-only; null when this Chat has no binding."
+          },
+          "modelSelection": {
+            "nullable": true,
+            "description": "The model selection the Chat stores for its next send; null when none.",
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ChatModelSelectionResponse"
+              }
+            ]
           }
         },
         "required": [
@@ -5171,7 +5303,8 @@
           "updatedAt",
           "archivedAt",
           "projectId",
-          "workspaceRoot"
+          "workspaceRoot",
+          "modelSelection"
         ]
       },
       "CheckpointStatsResponse": {
@@ -5357,6 +5490,10 @@
             "enum": ["continue", "regenerate"],
             "description": "The follow-up action that started this Run, or null for a chat send."
           },
+          "selector": {
+            "type": "string",
+            "description": "The `@role` or model id the Run recorded when it was admitted."
+          },
           "modelId": {
             "type": "string"
           },
@@ -5398,6 +5535,7 @@
           "messageId",
           "status",
           "followUpAction",
+          "selector",
           "modelId",
           "effort",
           "permissionMode",
@@ -5569,15 +5707,15 @@
       "CreateMessageDto": {
         "type": "object",
         "properties": {
-          "modelId": {
+          "selector": {
             "type": "string",
-            "description": "Opaque llame model id selected for this turn.",
+            "description": "`@role` or a model id; omit to use the Chat's stored selection",
             "pattern": "\\S"
           },
           "effort": {
             "type": "string",
             "pattern": "\\S",
-            "description": "Reasoning effort for this turn. Must be one of the selected model's `reasoning.effortLevels[].value`; omit to use its `defaultEffort`. Matched byte-exactly — not case-folded."
+            "description": "Reasoning effort for this turn. Must be one of the resolved model's `reasoning.effortLevels[].value`; omit to use the stored effort or the model's `defaultEffort`. Matched byte-exactly — not case-folded."
           },
           "permissionMode": {
             "type": "string",
@@ -5593,7 +5731,7 @@
             "$ref": "#/components/schemas/CreateMessageBodyDto"
           }
         },
-        "required": ["modelId", "message"],
+        "required": ["message"],
         "additionalProperties": false
       },
       "ChatDeliveryResponse": {
@@ -5648,8 +5786,9 @@
               "additionalProperties": true
             }
           },
-          "modelId": {
-            "type": "string"
+          "selector": {
+            "type": "string",
+            "description": "`@role` or a model id the item named; absent when it named none and the Chat's stored selection applies"
           },
           "effort": {
             "type": "string"
@@ -5671,7 +5810,6 @@
           "state",
           "command",
           "parts",
-          "modelId",
           "permissionMode",
           "createdAt"
         ]
@@ -5701,10 +5839,10 @@
             "enum": ["regenerate"],
             "description": "Discard the turn's answer and request a new one from the user message."
           },
-          "modelId": {
+          "selector": {
             "type": "string",
-            "pattern": "\\S",
-            "description": "Model for the regenerated Run."
+            "description": "`@role` or a model id; omit to use the Chat's stored selection",
+            "pattern": "\\S"
           },
           "effort": {
             "type": "string",
@@ -5717,7 +5855,7 @@
             "description": "Permission mode for this Run; omit for default."
           }
         },
-        "required": ["action", "modelId"],
+        "required": ["action"],
         "additionalProperties": false
       },
       "UpdateChatDto": {
@@ -5954,15 +6092,15 @@
             "type": "string",
             "format": "uuid"
           },
-          "modelId": {
+          "selector": {
             "type": "string",
-            "description": "Opaque llame model id selected for this turn.",
+            "description": "`@role` or a model id; omit to use the Chat's stored selection",
             "pattern": "\\S"
           },
           "effort": {
             "type": "string",
             "pattern": "\\S",
-            "description": "Reasoning effort for this turn. Must be one of the selected model's `reasoning.effortLevels[].value`; omit to use its `defaultEffort`."
+            "description": "Reasoning effort for this turn. Must be one of the resolved model's `reasoning.effortLevels[].value`; omit to use the stored effort or the model's `defaultEffort`."
           },
           "permissionMode": {
             "type": "string",
@@ -5970,7 +6108,7 @@
             "description": "Permission mode the Workspace step evaluates; omit for `default`."
           }
         },
-        "required": ["parts", "id", "modelId"],
+        "required": ["parts", "id"],
         "additionalProperties": false
       },
       "CreateChatRequest": {
@@ -7335,6 +7473,10 @@
             "type": "string",
             "enum": ["turn", "compaction"]
           },
+          "selector": {
+            "type": "string",
+            "description": "The `@role` or model id the Run recorded when it was admitted."
+          },
           "modelId": {
             "type": "string"
           },
@@ -7401,6 +7543,7 @@
           "chatId",
           "messageId",
           "kind",
+          "selector",
           "modelId",
           "permissionMode",
           "status",

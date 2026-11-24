@@ -44,7 +44,7 @@ function job(state: ChatJob['state']): ChatJob {
     outputs: ['stdout'],
     artifactId: null,
     artifactReadable: true,
-    settings: { modelId: 'gpt-5.5', permissionMode: 'default' },
+    settings: { selector: 'gpt-5.5', permissionMode: 'default' },
   };
 }
 

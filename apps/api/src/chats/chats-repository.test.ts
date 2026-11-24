@@ -12,6 +12,7 @@
 import { drizzle } from 'drizzle-orm/postgres-js';
 import { ChatsRepository, type Db } from './chats-repository';
 import { MessagesRepository } from './messages-repository';
+import type { ChatModelSelection } from '../models/model-selection';
 import { RunEventsRepository, RunsRepository } from '../runs/runs-repository';
 import { isRecord, isString } from '@workspace/runtime-safety';
 
@@ -173,6 +174,7 @@ describe('ChatsRepository — owner-scoped queries (defense-in-depth)', () => {
           createdAt: Date;
           updatedAt: Date;
           archivedAt: Date | null;
+          modelSelection: ChatModelSelection | null;
           projectId: string | null;
           recencyDigestBaseline: null;
           recencyDigestTold: null;
@@ -208,6 +210,7 @@ describe('ChatsRepository — owner-scoped queries (defense-in-depth)', () => {
         createdAt: new Date(),
         updatedAt: new Date(),
         archivedAt: null,
+        modelSelection: null,
         projectId: null,
         recencyDigestBaseline: null,
         recencyDigestTold: null,
@@ -244,6 +247,7 @@ describe('ChatsRepository — owner-scoped queries (defense-in-depth)', () => {
         createdAt: new Date(),
         updatedAt: new Date(),
         archivedAt: null,
+        modelSelection: null,
         projectId: null,
         recencyDigestBaseline: null,
         recencyDigestTold: null,
@@ -280,6 +284,7 @@ describe('ChatsRepository — owner-scoped queries (defense-in-depth)', () => {
         createdAt: new Date(),
         updatedAt: new Date(),
         archivedAt: null,
+        modelSelection: null,
         projectId: null,
         recencyDigestBaseline: null,
         recencyDigestTold: null,
@@ -320,6 +325,7 @@ describe('ChatsRepository — owner-scoped queries (defense-in-depth)', () => {
         createdAt: new Date(),
         updatedAt: new Date(),
         archivedAt: null,
+        modelSelection: null,
         projectId: null,
         recencyDigestBaseline: null,
         recencyDigestTold: null,
@@ -355,6 +361,7 @@ describe('ChatsRepository — owner-scoped queries (defense-in-depth)', () => {
         createdAt: new Date(),
         updatedAt: new Date(),
         archivedAt: new Date(),
+        modelSelection: null,
         projectId: null,
         recencyDigestBaseline: null,
         recencyDigestTold: null,
@@ -388,6 +395,7 @@ describe('ChatsRepository — owner-scoped queries (defense-in-depth)', () => {
         createdAt: new Date(),
         updatedAt: new Date(),
         archivedAt: new Date(),
+        modelSelection: null,
         projectId: null,
         recencyDigestBaseline: null,
         recencyDigestTold: null,
@@ -423,6 +431,7 @@ describe('ChatsRepository — owner-scoped queries (defense-in-depth)', () => {
         createdAt: new Date(),
         updatedAt: new Date(),
         archivedAt: null,
+        modelSelection: null,
         projectId: null,
         recencyDigestBaseline: null,
         recencyDigestTold: null,
@@ -561,6 +570,22 @@ describe('ChatsRepository — owner-scoped queries (defense-in-depth)', () => {
       .updateSkillCatalogTold(chatId, ownerUserId, ['pdf', 'research'])
       .catch(() => null);
     expect(updateSetSql(queries)).toContain('"skill_catalog_told"');
+    expect(queryContains(queries, ownerUserId)).toBe(true);
+    expect(queryContains(queries, chatId)).toBe(true);
+  });
+
+  it('setModelSelection writes only the selection for the owner chat', async () => {
+    // The same tenant guard as every other owner write: a caller naming another
+    // owner's chat updates nothing even after an earlier read.
+    const { db, queries } = makeMockDb();
+    await new ChatsRepository(db)
+      .setModelSelection(chatId, ownerUserId, {
+        revision: 1,
+        selector: '@coding',
+        effort: 'high',
+      })
+      .catch(() => null);
+    expect(updateSetSql(queries)).toContain('"model_selection"');
     expect(queryContains(queries, ownerUserId)).toBe(true);
     expect(queryContains(queries, chatId)).toBe(true);
   });
@@ -740,6 +765,7 @@ describe('ChatsRepository — owner-scoped queries (defense-in-depth)', () => {
       createdAt: new Date(),
       updatedAt: new Date(),
       archivedAt: new Date(),
+      modelSelection: null,
       projectId: null,
       recencyDigestBaseline: null,
       recencyDigestTold: null,
@@ -783,6 +809,7 @@ describe('ChatsRepository — owner-scoped queries (defense-in-depth)', () => {
         createdAt: new Date(),
         updatedAt: new Date(),
         archivedAt: null,
+        modelSelection: null,
         projectId: null,
         recencyDigestBaseline: null,
         recencyDigestTold: null,

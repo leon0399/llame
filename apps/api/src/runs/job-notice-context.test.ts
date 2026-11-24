@@ -42,7 +42,7 @@ function job(overrides: Partial<ChatJob> = {}): ChatJob {
     outputs: ['stdout'],
     artifactId: null,
     artifactReadable: true,
-    settings: { modelId: 'gpt-5.5', permissionMode: 'default' },
+    settings: { selector: 'gpt-5.5', permissionMode: 'default' },
     ...overrides,
   };
 }
@@ -56,7 +56,7 @@ function notice(runId: string, senderRef: string | null): ChatDelivery {
     senderRef,
     mode: 'notice',
     parts: [],
-    settings: { modelId: 'gpt-5.5', permissionMode: 'default' },
+    settings: { selector: 'gpt-5.5', permissionMode: 'default' },
     state: 'delivered',
     position: 1,
     deliveredMessageId: MESSAGE_ID,

@@ -5,6 +5,7 @@
  * llame auth and domain API
  * OpenAPI spec version: 0.1
  */
+import type { ChatModelSelectionResponse } from "./chatModelSelectionResponse";
 import type { ChatResponseVisibility } from "./chatResponseVisibility";
 
 export interface ChatResponse {
@@ -24,4 +25,9 @@ export interface ChatResponse {
    * @nullable
    */
   workspaceRoot: string | null;
+  /**
+   * The model selection the Chat stores for its next send; null when none.
+   * @nullable
+   */
+  modelSelection: ChatModelSelectionResponse | null;
 }

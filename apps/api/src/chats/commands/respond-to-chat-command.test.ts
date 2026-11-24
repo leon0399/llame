@@ -14,7 +14,7 @@ describe('respondToChatCommand', () => {
     const response = asDouble<ChatStreamResponse>({ status });
 
     const input = asDouble<CreateMessageDto>({
-      modelId: 'model-1',
+      selector: 'model-1',
       message: { parts: [{ type: 'text', text: '/compact' }] },
     });
 
@@ -31,7 +31,7 @@ describe('respondToChatCommand', () => {
       userId: 'owner-1',
       command: { name: 'compact', argument: '' },
       parts: [{ type: 'text', text: '/compact' }],
-      modelId: 'model-1',
+      selector: 'model-1',
       messageId: undefined,
       rawText: '/compact',
     });
@@ -51,7 +51,7 @@ describe('respondToChatCommand', () => {
     });
 
     const input = asDouble<CreateMessageDto>({
-      modelId: 'model-1',
+      selector: 'model-1',
       effort: 'high',
       permissionMode: 'read-only',
       delivery: 'queue',
@@ -82,7 +82,7 @@ describe('respondToChatCommand', () => {
     const response = asDouble<ChatStreamResponse>({ status });
 
     const input = asDouble<CreateMessageDto>({
-      modelId: 'model-1',
+      selector: 'model-1',
       message: { parts: [{ type: 'text', text: '/rename' }] },
     });
 
@@ -114,7 +114,7 @@ describe('respondToChatCommand', () => {
     const response = asDouble<ChatStreamResponse>({ status });
 
     const input = asDouble<CreateMessageDto>({
-      modelId: 'model-1',
+      selector: 'model-1',
       delivery: 'queue',
       message: {
         id: item.id,

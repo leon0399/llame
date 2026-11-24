@@ -46,7 +46,7 @@ function job(id: string, state: ChatJob['state']): ChatJob {
     outputs: state === 'running' ? [] : ['stdout'],
     artifactId: null,
     artifactReadable: false,
-    settings: { modelId: 'gpt-5.5', permissionMode: 'default' },
+    settings: { selector: 'gpt-5.5', permissionMode: 'default' },
   };
 }
 
@@ -58,6 +58,7 @@ function run(overrides: Partial<Run> = {}): Run {
     messageId: null,
     userId: 'owner-id',
     modelId: 'gpt-5.5',
+    selector: 'gpt-5.5',
     status: 'running_tool',
     wakeGeneration: 2,
     awaiting: {
@@ -75,6 +76,8 @@ function run(overrides: Partial<Run> = {}): Run {
     startedAt: new Date(0),
     finishedAt: null,
     effort: null,
+    selectedEffort: null,
+    selectionRevision: null,
     permissionMode: 'default',
     activeAttemptId: 'attempt-id',
     completedAttemptId: null,

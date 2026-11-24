@@ -508,6 +508,38 @@ describe('ScriptedModelsService observable contract', () => {
     });
   });
 
+  it('resolves a selection for derived writers without writing it', () => {
+    const service = new ScriptedModelsService();
+    service.registerReasoning('reasoner', {
+      effortLevels: [{ value: 'low' }, { value: 'high' }],
+      defaultEffort: 'low',
+      cacheInvalidatedByEffortChange: false,
+    });
+
+    const stored = { revision: 2, selector: 'reasoner', effort: 'high' };
+
+    expect(service.resolveSelection(stored, {}, 'derived')).toMatchObject({
+      selector: 'reasoner',
+      model: { id: 'reasoner' },
+      effort: 'high',
+      nextSelection: undefined,
+    });
+    expect(
+      service.resolveSelection(null, { selector: 'reasoner' }, 'owner'),
+    ).toMatchObject({
+      selector: 'reasoner',
+      effort: 'low',
+      nextSelection: {
+        revision: 1,
+        selector: 'reasoner',
+        effort: 'low',
+      },
+    });
+    expect(() => service.resolveSelection(null, {}, 'derived')).toThrow(
+      'defaults.selector is required.',
+    );
+  });
+
   it('gives the client and its catalog entry the registered input', () => {
     const service = new ScriptedModelsService();
     service.register('vision', { kind: 'complete' });

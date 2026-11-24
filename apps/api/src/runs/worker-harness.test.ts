@@ -53,6 +53,9 @@ const run: Run = {
   messageId: message.id,
   userId: 'user-1',
   modelId: 'model-1',
+  selector: 'model-1',
+  selectedEffort: null,
+  selectionRevision: null,
   activeAttemptId: null,
   completedAttemptId: null,
   turnToolAvailability: null,
@@ -353,6 +356,7 @@ describe('seedRun', () => {
         workspaceToldFrom: null,
         workspaceToldAvailable: null,
         workspaceDetachReason: null,
+        modelSelection: null,
       });
 
     const createMessage = vi
@@ -462,6 +466,7 @@ describe('dispatchRun and seedAndDispatchRun', () => {
       createdAt: now,
       updatedAt: now,
       archivedAt: null,
+      modelSelection: null,
       projectId: null,
       recencyDigestBaseline: null,
       recencyDigestTold: null,

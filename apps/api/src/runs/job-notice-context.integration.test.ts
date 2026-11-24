@@ -48,7 +48,7 @@ describe('job notice context dispatch', () => {
         startedAt: new Date(Date.now() - 5000),
         outputs: ['stdout', 'stderr'],
         artifactReadable: false,
-        settings: { modelId: input.modelId, permissionMode: 'default' },
+        settings: { selector: input.modelId, permissionMode: 'default' },
       });
 
       await appendJobOutput(
@@ -436,7 +436,7 @@ describe('job notice context dispatch', () => {
           mode: 'notice' as const,
           parts: [],
           settings: {
-            modelId: target.modelId,
+            selector: target.modelId,
             permissionMode: 'default' as const,
           },
           state: 'delivered' as const,

@@ -157,7 +157,7 @@ describe('run steering segment preparation', () => {
         ownerUserId: userId,
         mode,
         parts: [{ type: 'text', text }],
-        settings: { modelId, permissionMode: 'default' },
+        settings: { selector: modelId, permissionMode: 'default' },
       }),
     );
   }
@@ -593,7 +593,10 @@ describe('run steering segment preparation', () => {
             userId,
             chatId,
             modelId,
+            selector: modelId,
             effort: undefined,
+            selectedEffort: undefined,
+            selectionRevision: null,
             permissionMode: 'default',
             targetRunId: randomUUID(),
             followUp:

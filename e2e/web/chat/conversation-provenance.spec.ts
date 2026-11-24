@@ -250,7 +250,7 @@ test.describe("conversation provenance (browser, full stack)", () => {
       {
         headers: { Authorization: `Bearer ${freshAccount.token}` },
         data: {
-          modelId,
+          selector: modelId,
           message: {
             id: crypto.randomUUID(),
             parts: [{ type: "text", text: "Foreign target evidence." }],

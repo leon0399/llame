@@ -81,8 +81,12 @@ export class ChatDeliveryResponse {
   })
   parts!: Array<unknown>;
 
-  @ApiProperty()
-  modelId!: string;
+  @ApiPropertyOptional({
+    description:
+      '`@role` or a model id the item named; absent when it named none and ' +
+      "the Chat's stored selection applies",
+  })
+  selector?: string;
 
   @ApiPropertyOptional()
   effort?: string;
@@ -121,7 +125,9 @@ export function toChatDeliveryResponse({
     // The same egress as the history response: retained bytes and provider
     // metadata stay on the server.
     parts: withoutProviderMetadata(withoutRetainedMedia(item.parts)),
-    modelId: item.settings.modelId,
+    ...(item.settings.selector !== undefined && {
+      selector: item.settings.selector,
+    }),
     ...(item.settings.effort !== undefined && { effort: item.settings.effort }),
     permissionMode: item.settings.permissionMode,
     createdAt: item.createdAt,

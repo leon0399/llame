@@ -69,7 +69,7 @@ async function executeCommand(
       )[0] ?? '',
     ...(command.name === 'compact' &&
       request.delivery !== undefined && { delivery: request.delivery }),
-    modelId: request.modelId,
+    ...(request.selector !== undefined && { selector: request.selector }),
     ...(request.effort !== undefined && { effort: request.effort }),
     ...(request.permissionMode !== undefined && {
       permissionMode: request.permissionMode,

@@ -45,7 +45,7 @@ function item(
     command: null,
     state: "pending",
     parts,
-    modelId: "system:openai:model-one",
+    selector: "system:openai:model-one",
     permissionMode: "default",
     createdAt: "2026-01-01T00:00:00.000Z",
   };
@@ -58,6 +58,7 @@ function run(status: ChatLatestRunResponse["status"]): ChatLatestRunResponse {
     messageId: "m1",
     status,
     followUpAction: null,
+    selector: "system:openai:model-one",
     modelId: "system:openai:model-one",
     effort: null,
     permissionMode: "default",
@@ -82,7 +83,7 @@ const REQUEST = {
   chatId: CHAT_ID,
   delivery: "steer" as const,
   message: { id: "m2", parts: [{ type: "text" as const, text: "also" }] },
-  modelId: "system:openai:model-one",
+  selector: "system:openai:model-one",
   effort: "high",
   permissionMode: "default" as const,
 };
@@ -119,7 +120,7 @@ describe("sendDelivery", () => {
       `/api/v1/chats/${CHAT_ID}/messages`,
     );
     await expect(request.json()).resolves.toEqual({
-      modelId: "system:openai:model-one",
+      selector: "system:openai:model-one",
       effort: "high",
       message: { id: "m2", parts: [{ type: "text", text: "also" }] },
       delivery: "steer",
@@ -185,13 +186,13 @@ describe("sendDelivery", () => {
   it("joins validation messages from an array", async () => {
     fetchMock.mockResolvedValue(
       jsonResponse(
-        { statusCode: 400, message: ["modelId must not be blank", "bad id"] },
+        { statusCode: 400, message: ["selector must not be blank", "bad id"] },
         400,
       ),
     );
 
     await expect(sendDelivery(REQUEST)).rejects.toThrow(
-      "modelId must not be blank; bad id",
+      "selector must not be blank; bad id",
     );
   });
 

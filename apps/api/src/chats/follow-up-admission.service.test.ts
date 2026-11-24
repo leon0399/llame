@@ -21,6 +21,7 @@ import { type InstanceConfigReader } from '../instance-config/instance-config.se
 import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
 import type { SystemModelCatalogEntry } from '../models/model-catalog';
 import {
+  EffortNotAvailableError,
   ModelNotAvailableError,
   type ModelSelectionValidator,
 } from '../models/models.service';
@@ -72,6 +73,7 @@ const chat: Chat = {
   workspaceToldFrom: null,
   workspaceToldAvailable: null,
   workspaceDetachReason: null,
+  modelSelection: null,
 };
 
 const userMessage: Message = {
@@ -96,6 +98,9 @@ const sourceRun: Run = {
   messageId: userMessage.id,
   userId: chat.ownerUserId,
   modelId: model.id,
+  selector: model.id,
+  selectedEffort: null,
+  selectionRevision: null,
   status: 'failed',
   workerId: null,
   activeAttemptId: null,
@@ -206,9 +211,36 @@ function makeService() {
     ModelSelectionValidator['resolveEffortSelection']
   >((_model, effort) => effort);
 
+  // The resolver Regenerate runs inside its admission transaction: it echoes
+  // the request against the Chat's stored selection, as the real one does.
+  const resolveSelection = vi.fn<ModelSelectionValidator['resolveSelection']>(
+    (stored, request) => {
+      const selector = request.selector ?? stored?.selector ?? model.id;
+      const effort = request.effort ?? stored?.effort ?? undefined;
+
+      const named =
+        request.selector !== undefined || request.effort !== undefined;
+
+      return {
+        selector,
+        model,
+        effort,
+        nextSelection:
+          named || stored === null
+            ? {
+                revision: (stored?.revision ?? 0) + 1,
+                selector,
+                effort: effort ?? null,
+              }
+            : undefined,
+      };
+    },
+  );
+
   const models: ModelSelectionValidator = {
     validateModelSelection,
     resolveEffortSelection,
+    resolveSelection,
   };
 
   const instanceConfig: InstanceConfigReader = { config: BUILT_IN_DEFAULTS };
@@ -230,6 +262,10 @@ function makeService() {
   const touch = vi
     .spyOn(ChatsRepository.prototype, 'touch')
     .mockResolvedValue(chat);
+
+  const setModelSelection = vi
+    .spyOn(ChatsRepository.prototype, 'setModelSelection')
+    .mockResolvedValue(undefined);
 
   const findTurnState = vi
     .spyOn(MessagesRepository.prototype, 'findTurnState')
@@ -284,6 +320,9 @@ function makeService() {
         id: runInput.id ?? 'run-created',
         status: 'queued',
         effort: runInput.effort ?? null,
+        selector: runInput.selector ?? sourceRun.selector,
+        selectedEffort: runInput.selectedEffort ?? null,
+        selectionRevision: runInput.selectionRevision ?? null,
         permissionMode: runInput.permissionMode ?? 'default',
         followUpAction: runInput.followUpAction ?? null,
         sourceRunId: runInput.sourceRunId ?? null,
@@ -328,6 +367,8 @@ function makeService() {
     jobState,
     validateModelSelection,
     resolveEffortSelection,
+    resolveSelection,
+    setModelSelection,
   };
 }
 
@@ -368,6 +409,7 @@ describe('FollowUpAdmissionService', () => {
         messageId: userMessage.id,
         userId: chat.ownerUserId,
         modelId: model.id,
+        selector: model.id,
         effort: undefined,
         permissionMode: 'default',
         followUpAction: 'continue',
@@ -500,45 +542,63 @@ describe('FollowUpAdmissionService', () => {
     expect(runAs).not.toHaveBeenCalled();
   });
 
-  it('rejects a Regenerate without a model before any transaction', async () => {
-    const { service, runAs, validateModelSelection } = makeService();
+  it('resolves a Regenerate that names no selector against the stored selection', async () => {
+    const { service, runAs, resolveSelection, createRun } = makeService();
 
-    await expect(
-      admit(service, { action: 'regenerate' }),
-    ).rejects.toMatchObject({
-      constructor: BadRequestException,
-      message: 'A regenerate request must name a model',
-    });
-    expect(validateModelSelection).not.toHaveBeenCalled();
-    expect(runAs).not.toHaveBeenCalled();
+    await admit(service, { action: 'regenerate' });
+
+    expect(runAs).toHaveBeenCalled();
+    expect(resolveSelection).toHaveBeenCalledWith(
+      null,
+      { selector: undefined, effort: undefined },
+      'owner',
+    );
+    expect(createRun).toHaveBeenCalledWith(
+      expect.objectContaining({ selector: model.id, modelId: model.id }),
+    );
   });
 
-  it('validates a Regenerate like a chat send, in the chat-send order', async () => {
-    const { service, validateModelSelection, resolveEffortSelection, runAs } =
+  it('resolves a Regenerate inside its transaction, writing the selection it resolved', async () => {
+    const { service, resolveSelection, setModelSelection, runAs, createRun } =
       makeService();
-
-    resolveEffortSelection.mockReturnValue('high');
 
     await admit(service, {
       action: 'regenerate',
-      modelId: model.id,
+      selector: model.id,
       effort: 'high',
       permissionMode: 'default',
     });
 
-    expect(validateModelSelection).toHaveBeenCalledWith(model.id);
-    expect(resolveEffortSelection).toHaveBeenCalledWith(model, 'high');
     expect(runAs).toHaveBeenCalled();
+    expect(resolveSelection).toHaveBeenCalledWith(
+      null,
+      { selector: model.id, effort: 'high' },
+      'owner',
+    );
+    expect(setModelSelection).toHaveBeenCalledWith(chat.id, chat.ownerUserId, {
+      revision: 1,
+      selector: model.id,
+      effort: 'high',
+    });
+    expect(createRun).toHaveBeenCalledWith(
+      expect.objectContaining({
+        modelId: model.id,
+        selector: model.id,
+        effort: 'high',
+        selectedEffort: 'high',
+        selectionRevision: 1,
+      }),
+    );
   });
 
-  it('rejects a model or an effort named on a Continue', async () => {
+  it('rejects a selector or an effort named on a Continue', async () => {
     const { service, runAs } = makeService();
 
     await expect(
-      admit(service, { action: 'continue', modelId: model.id }),
+      admit(service, { action: 'continue', selector: model.id }),
     ).rejects.toMatchObject({
       constructor: BadRequestException,
-      message: 'A continue request does not name a model',
+      message: 'A continue request does not name a selector',
     });
     await expect(
       admit(service, { action: 'continue', effort: 'high' }),
@@ -555,6 +615,18 @@ describe('FollowUpAdmissionService', () => {
     await expect(
       admit(service, { action: 'continue', permissionMode: 'bypass' }),
     ).rejects.toThrow('bypass');
+  });
+
+  it('rejects a Regenerate mode the operator did not enable before any transaction', async () => {
+    const { service, runAs, touch } = makeService();
+
+    await expect(
+      admit(service, { action: 'regenerate', permissionMode: 'bypass' }),
+    ).rejects.toThrow('bypass');
+
+    // A refused mode costs no transaction, so the Chat's row is untouched.
+    expect(runAs).not.toHaveBeenCalled();
+    expect(touch).not.toHaveBeenCalled();
   });
 
   it('answers 404 for an unowned Chat before taking its row lock', async () => {
@@ -597,10 +669,9 @@ describe('FollowUpAdmissionService', () => {
       findReply,
       createRun,
       append,
-      resolveEffortSelection,
+      setModelSelection,
     } = makeService();
 
-    resolveEffortSelection.mockReturnValue('high');
     findLatestByChatId.mockResolvedValue({
       ...sourceRun,
       status: 'completed',
@@ -617,7 +688,7 @@ describe('FollowUpAdmissionService', () => {
 
     const admitted = await admit(service, {
       action: 'regenerate',
-      modelId: model.id,
+      selector: model.id,
       effort: 'high',
       permissionMode: 'default',
     });
@@ -626,12 +697,19 @@ describe('FollowUpAdmissionService', () => {
     expect(createRun).toHaveBeenCalledWith(
       expect.objectContaining({
         modelId: model.id,
+        selector: model.id,
         effort: 'high',
+        selectedEffort: 'high',
         permissionMode: 'default',
         followUpAction: 'regenerate',
         sourceRunId: sourceRun.id,
       }),
     );
+    expect(setModelSelection).toHaveBeenCalledWith(chat.id, chat.ownerUserId, {
+      revision: 1,
+      selector: model.id,
+      effort: 'high',
+    });
     // The reply holds only a read call, so no notice is owed; its usage is
     // replaced, so the new usage records `complete: false` (turn-actions D9,
     // D11).
@@ -679,7 +757,7 @@ describe('FollowUpAdmissionService', () => {
 
     const admitted = await admit(service, {
       action: 'regenerate',
-      modelId: model.id,
+      selector: model.id,
     });
 
     expect(append).toHaveBeenNthCalledWith(1, admitted.runId, 'run.created', {
@@ -724,7 +802,7 @@ describe('FollowUpAdmissionService', () => {
 
     const admitted = await admit(service, {
       action: 'regenerate',
-      modelId: model.id,
+      selector: model.id,
     });
 
     expect(append).toHaveBeenNthCalledWith(1, admitted.runId, 'run.created', {
@@ -779,7 +857,7 @@ describe('FollowUpAdmissionService', () => {
 
     const admitted = await admit(service, {
       action: 'regenerate',
-      modelId: model.id,
+      selector: model.id,
     });
 
     expect(append).toHaveBeenNthCalledWith(1, admitted.runId, 'run.created', {
@@ -796,7 +874,7 @@ describe('FollowUpAdmissionService', () => {
 
     const admitted = await admit(service, {
       action: 'regenerate',
-      modelId: model.id,
+      selector: model.id,
     });
 
     expect(append).toHaveBeenNthCalledWith(1, admitted.runId, 'run.created', {
@@ -816,7 +894,7 @@ describe('FollowUpAdmissionService', () => {
     });
 
     await expect(
-      admit(refusal.service, { action: 'regenerate', modelId: model.id }),
+      admit(refusal.service, { action: 'regenerate', selector: model.id }),
     ).rejects.toBeInstanceOf(ConflictException);
     expect(refusal.transactions.at(-1)?.rejected).toBe(false);
 
@@ -824,7 +902,7 @@ describe('FollowUpAdmissionService', () => {
     failure.findLatestByChatId.mockRejectedValue(new Error('datastore down'));
 
     await expect(
-      admit(failure.service, { action: 'regenerate', modelId: model.id }),
+      admit(failure.service, { action: 'regenerate', selector: model.id }),
     ).rejects.toThrow('datastore down');
     expect(failure.transactions.at(-1)?.rejected).toBe(true);
   });
@@ -852,7 +930,7 @@ describe('FollowUpAdmissionService', () => {
 
     const admitted = await admit(service, {
       action: 'regenerate',
-      modelId: model.id,
+      selector: model.id,
     });
 
     expect(append).toHaveBeenNthCalledWith(1, admitted.runId, 'run.created', {
@@ -904,7 +982,7 @@ describe('FollowUpAdmissionService', () => {
 
     const admitted = await admit(service, {
       action: 'regenerate',
-      modelId: model.id,
+      selector: model.id,
     });
 
     expect(append).toHaveBeenNthCalledWith(1, admitted.runId, 'run.created', {
@@ -920,7 +998,7 @@ describe('FollowUpAdmissionService', () => {
 
     const admitted = await admit(service, {
       action: 'regenerate',
-      modelId: model.id,
+      selector: model.id,
     });
 
     expect(createRun).toHaveBeenCalledWith(
@@ -938,7 +1016,7 @@ describe('FollowUpAdmissionService', () => {
     findLatestByChatId.mockResolvedValue({ ...sourceRun, status: 'queued' });
 
     await expect(
-      admit(service, { action: 'regenerate', modelId: model.id }),
+      admit(service, { action: 'regenerate', selector: model.id }),
     ).rejects.toMatchObject({
       constructor: ConflictException,
       message: 'A queued Run cannot be regenerated',
@@ -1127,6 +1205,46 @@ describe('FollowUpAdmissionService', () => {
         ModelNotAvailableError,
       );
 
+      expect(api.transactions).toEqual([{ rejected: false }]);
+    });
+
+    it('keeps the expiry when the Regenerate selector refuses', async () => {
+      const api = stuckAdmission();
+      api.findReply.mockResolvedValue(
+        replyWith({ status: 'error', runId: expiredRun.id, modelId: model.id }),
+      );
+      api.resolveSelection.mockImplementation(() => {
+        throw new ModelNotAvailableError('@missing');
+      });
+
+      await expect(
+        admit(api.service, { action: 'regenerate', selector: '@missing' }),
+      ).rejects.toBeInstanceOf(ModelNotAvailableError);
+
+      expect(api.setModelSelection).not.toHaveBeenCalled();
+      expect(api.createRun).not.toHaveBeenCalled();
+      // The Chat's recency stays untouched: the touch follows a successful
+      // selection, so the refusal writes nothing beside the expiry.
+      expect(api.touch).not.toHaveBeenCalled();
+      expect(api.transactions).toEqual([{ rejected: false }]);
+    });
+
+    it('keeps the expiry when the Regenerate effort refuses', async () => {
+      const api = stuckAdmission();
+      api.findReply.mockResolvedValue(
+        replyWith({ status: 'error', runId: expiredRun.id, modelId: model.id }),
+      );
+      api.resolveSelection.mockImplementation(() => {
+        throw new EffortNotAvailableError(model.id, 'ludicrous');
+      });
+
+      await expect(
+        admit(api.service, { action: 'regenerate', effort: 'ludicrous' }),
+      ).rejects.toBeInstanceOf(EffortNotAvailableError);
+
+      expect(api.setModelSelection).not.toHaveBeenCalled();
+      expect(api.createRun).not.toHaveBeenCalled();
+      expect(api.touch).not.toHaveBeenCalled();
       expect(api.transactions).toEqual([{ rejected: false }]);
     });
   });

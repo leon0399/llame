@@ -189,7 +189,7 @@ describe('chat deliveries — the queue mode', () => {
     body: {
       id?: string;
       text?: string;
-      modelId?: string;
+      selector?: string;
       effort?: string;
       delivery?: string;
     },
@@ -199,7 +199,7 @@ describe('chat deliveries — the queue mode', () => {
       .post(`/api/v1/chats/${chatId}/messages`)
       .set('Cookie', cookie)
       .send({
-        modelId: body.modelId ?? MODEL,
+        selector: body.selector ?? MODEL,
         ...(body.effort !== undefined && { effort: body.effort }),
         ...(body.delivery !== undefined && { delivery: body.delivery }),
         message: {
@@ -1101,7 +1101,7 @@ describe('chat deliveries — the queue mode', () => {
         mode: 'queue',
         state: 'pending',
         parts: [{ type: 'text', text: 'then summarize' }],
-        modelId: MODEL,
+        selector: MODEL,
         permissionMode: 'default',
       });
       // No Run and no message row: only the seeded Run and its message exist.
@@ -1143,7 +1143,7 @@ describe('chat deliveries — the queue mode', () => {
     it('An invalid pending item writes nothing', async () => {
       const { chatId } = await chatWithLiveRun();
 
-      const res = await queue(chatId, { modelId: 'system:openai:gone' });
+      const res = await queue(chatId, { selector: 'system:openai:gone' });
 
       expect(res.status).toBe(422);
       expect(await itemsOf(chatId)).toEqual([]);
@@ -1280,7 +1280,7 @@ describe('chat deliveries — the queue mode', () => {
             ownerUserId: userAId,
             mode: 'queue',
             parts: [{ type: 'text', text: 'x' }],
-            settings: { modelId: MODEL, permissionMode: 'default' },
+            settings: { selector: MODEL, permissionMode: 'default' },
           }),
         );
 
@@ -1416,7 +1416,7 @@ describe('chat deliveries — the queue mode', () => {
         ownerUserId,
         mode: 'queue' as const,
         parts: [{ type: 'text', text: 'x' }],
-        settings: { modelId: MODEL, permissionMode: 'default' as const },
+        settings: { selector: MODEL, permissionMode: 'default' as const },
       });
 
       // Owner B names the Chat of A: the composite key refuses it.
@@ -1456,11 +1456,11 @@ describe('chat deliveries — the queue mode', () => {
 
       await queue(chatId, {
         id: ids[0],
-        modelId: SECOND_MODEL,
+        selector: SECOND_MODEL,
         effort: 'high',
       });
-      await queue(chatId, { id: ids[1], modelId: THIRD_MODEL });
-      await queue(chatId, { id: ids[2], modelId: MODEL });
+      await queue(chatId, { id: ids[1], selector: THIRD_MODEL });
+      await queue(chatId, { id: ids[2], selector: MODEL });
 
       await settle(runId, 'completed');
       await until(
@@ -1506,7 +1506,7 @@ describe('chat deliveries — the queue mode', () => {
       const response = await queue(chatId, {
         id,
         text: '/compact keep the plan',
-        modelId: SECOND_MODEL,
+        selector: SECOND_MODEL,
         effort: 'high',
       });
 
@@ -1709,7 +1709,7 @@ describe('chat deliveries — the queue mode', () => {
           ownerUserId: userAId,
           mode: 'queue',
           parts: [{ type: 'text', text: 'bypass' }],
-          settings: { modelId: MODEL, permissionMode: 'bypass' },
+          settings: { selector: MODEL, permissionMode: 'bypass' },
         });
       });
 

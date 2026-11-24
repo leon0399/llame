@@ -5,9 +5,6 @@ import { type InstanceConfigReader } from '../instance-config/instance-config.se
 import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
 import { MediaService } from '../media/media.service';
 import {
-  ModelConfigurationError,
-  EffortNotAvailableError,
-  ModelNotAvailableError,
   PermissionModeNotAvailableError,
   type ModelSelectionValidator,
 } from '../models/models.service';
@@ -29,24 +26,29 @@ const model: SystemModelCatalogEntry = {
   referencesSkills: false,
 };
 
-function makeService(models?: {
-  validateModelSelection?: ModelSelectionValidator['validateModelSelection'];
-  resolveEffortSelection?: ModelSelectionValidator['resolveEffortSelection'];
-}) {
-  const runAs = vi.fn();
+/**
+ * The rejection that proves a tenant transaction was opened: every check that
+ * lives inside admission never runs here, because this stub never invokes the
+ * transaction callback.
+ */
+const TRANSACTION_OPENED = new Error('tenant transaction opened');
 
-  const validateModelSelection =
-    models?.validateModelSelection ?? vi.fn(() => model);
+function makeService() {
+  const runAs = vi.fn(() => Promise.reject(TRANSACTION_OPENED));
+
+  // The resolver only ever runs inside the transaction callback above, so a
+  // call to it here would prove the split moved the wrong way.
+  const resolveSelection = vi.fn(() => {
+    throw new Error('selection resolved before the transaction');
+  });
 
   const dispatchRun = vi.fn();
   const tenantDb: TenantRunner = { runAs };
 
-  const resolveEffortSelection =
-    models?.resolveEffortSelection ?? vi.fn(() => undefined);
-
   const modelsService: ModelSelectionValidator = {
-    validateModelSelection,
-    resolveEffortSelection,
+    validateModelSelection: vi.fn(() => model),
+    resolveEffortSelection: vi.fn(() => undefined),
+    resolveSelection,
   };
 
   const instanceConfig: InstanceConfigReader = {
@@ -75,7 +77,7 @@ function makeService(models?: {
       } satisfies Pick<RunWaitService, 'wakeForChatInTransaction'>,
     ),
     runAs,
-    validateModelSelection,
+    resolveSelection,
     dispatchRun,
   };
 }
@@ -83,7 +85,6 @@ function makeService(models?: {
 const input = {
   chatId: '0b6f5499-dde4-43cf-89fe-037998a0fe64',
   userId: 'verified-user',
-  modelId: model.id,
   message: {
     id: '0910fd41-1f2f-49de-b1c2-00ff4b3c7c60',
     parts: [{ type: 'text' as const, text: 'Hello' }],
@@ -91,48 +92,28 @@ const input = {
 };
 
 describe('ChatLoopService pre-transaction guards', () => {
-  it('rejects an unavailable model before any message, run, or queue write', async () => {
-    const validateModelSelection = vi.fn(() => {
-      throw new ModelNotAvailableError(input.modelId);
-    });
+  // Design D3: the selector, its model, and the effort resolve inside the
+  // admission transaction, against the Chat row it locks. Nothing here may
+  // judge them before that transaction opens.
+  it('resolves a named selector inside the admission transaction', async () => {
+    const { service, runAs, resolveSelection, dispatchRun } = makeService();
 
-    const { service, runAs, dispatchRun } = makeService({
-      validateModelSelection,
-    });
-
-    await expect(service.createMessageStream(input)).rejects.toBeInstanceOf(
-      ModelNotAvailableError,
-    );
-    expect(validateModelSelection).toHaveBeenCalledWith(input.modelId);
-    expect(runAs).not.toHaveBeenCalled();
+    await expect(
+      service.createMessageStream({ ...input, selector: '@missing' }),
+    ).rejects.toBe(TRANSACTION_OPENED);
+    expect(runAs).toHaveBeenCalledTimes(1);
+    expect(resolveSelection).not.toHaveBeenCalled();
     expect(dispatchRun).not.toHaveBeenCalled();
   });
 
-  it('rejects model configuration errors before any message, run, or queue write', async () => {
-    const { service, runAs, dispatchRun } = makeService({
-      validateModelSelection: vi.fn(() => {
-        throw new ModelConfigurationError('defaults.selector is required.');
-      }),
-    });
-
-    await expect(service.createMessageStream(input)).rejects.toBeInstanceOf(
-      ModelConfigurationError,
-    );
-    expect(runAs).not.toHaveBeenCalled();
-    expect(dispatchRun).not.toHaveBeenCalled();
-  });
-
-  it('rejects an unavailable effort before any message, run, or queue write', async () => {
-    const { service, runAs, dispatchRun } = makeService({
-      resolveEffortSelection: vi.fn(() => {
-        throw new EffortNotAvailableError(input.modelId, 'ludicrous');
-      }),
-    });
+  it('resolves the effort inside the admission transaction', async () => {
+    const { service, runAs, resolveSelection, dispatchRun } = makeService();
 
     await expect(
       service.createMessageStream({ ...input, effort: 'ludicrous' }),
-    ).rejects.toBeInstanceOf(EffortNotAvailableError);
-    expect(runAs).not.toHaveBeenCalled();
+    ).rejects.toBe(TRANSACTION_OPENED);
+    expect(runAs).toHaveBeenCalledTimes(1);
+    expect(resolveSelection).not.toHaveBeenCalled();
     expect(dispatchRun).not.toHaveBeenCalled();
   });
 
@@ -154,23 +135,20 @@ describe('ChatLoopService pre-transaction guards', () => {
     },
   );
 
-  // Model first, then effort: a level's legality is defined by the resolved
-  // model, so an unavailable model must be reported without the effort ever
-  // being considered.
-  it('reports an unavailable model without evaluating the effort', async () => {
-    const resolveEffortSelection = vi.fn(() => undefined);
-
-    const { service } = makeService({
-      validateModelSelection: vi.fn(() => {
-        throw new ModelNotAvailableError(input.modelId);
-      }),
-      resolveEffortSelection,
-    });
+  // The mode needs no Chat state, so its check keeps its place before the
+  // transaction; a selector that would also fail is only judged inside it.
+  it('reports a disabled mode before resolving a selector that the catalog lacks', async () => {
+    const { service, runAs, resolveSelection } = makeService();
 
     await expect(
-      service.createMessageStream({ ...input, effort: 'nonsense' }),
-    ).rejects.toBeInstanceOf(ModelNotAvailableError);
-    expect(resolveEffortSelection).not.toHaveBeenCalled();
+      service.createMessageStream({
+        ...input,
+        selector: '@missing',
+        permissionMode: 'bypass',
+      }),
+    ).rejects.toBeInstanceOf(PermissionModeNotAvailableError);
+    expect(runAs).not.toHaveBeenCalled();
+    expect(resolveSelection).not.toHaveBeenCalled();
   });
 
   it('rejects an all-non-text direct-service message before opening a tenant transaction', async () => {

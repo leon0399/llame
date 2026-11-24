@@ -579,7 +579,7 @@ describeIfDb('forkChat — copy correctness + RLS', () => {
           ownerUserId: a,
           mode: 'queue',
           parts: [{ type: 'text', text }],
-          settings: { modelId: 'gpt-x', permissionMode: 'default' },
+          settings: { selector: 'gpt-x', permissionMode: 'default' },
         });
       }
     });

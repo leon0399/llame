@@ -32,7 +32,10 @@ import {
   ApiUnauthorizedResponse,
   ApiUnprocessableEntityResponse,
 } from '@nestjs/swagger';
-import { ApiCreateChatMessageDocs } from './create-chat-message.api-docs';
+import {
+  ApiCreateChatMessageDocs,
+  sseEventSchema,
+} from './create-chat-message.api-docs';
 import { ChatCommandsService } from './commands/chat-commands.service';
 import { respondToChatCommand } from './commands/respond-to-chat-command';
 import { CurrentUser } from '../auth/auth-context';
@@ -58,19 +61,21 @@ import { ModelDomainErrorResponse } from '../models/dto/models.dto';
 import { throwModelDomainError } from './model-domain-error';
 import {
   ChatListItemResponse,
-  OwnerChatMessagesQueryDto,
   ChatMessagesResponse,
   ChatResponse,
-  ChatSearchQueryDto,
-  ChatSearchResponse,
   CreateMessageDto,
   ForkChatDto,
-  ListChatsQueryDto,
   toChatListItemResponse,
   toChatMessageResponse,
   toChatResponse,
   UpdateChatDto,
 } from './dto/chats.dto';
+import {
+  ChatSearchQueryDto,
+  ChatSearchResponse,
+  ListChatsQueryDto,
+  OwnerChatMessagesQueryDto,
+} from './dto/chats-query.dto';
 import { toChatDeliveryResponse } from './dto/chat-deliveries.dto';
 import { toChatLatestRunResponse } from './dto/latest-run.dto';
 import {
@@ -145,7 +150,7 @@ export class ChatsController {
   @ApiParam({ name: 'id', format: 'uuid' })
   @ApiOkResponse({
     description: 'AG-UI event stream (SSE) replaying the active run',
-    content: { 'text/event-stream': { schema: { type: 'string' } } },
+    content: { 'text/event-stream': { schema: sseEventSchema } },
   })
   @ApiResponse({ status: 204, description: 'No active run to resume' })
   @ApiBadRequestResponse({ description: 'Malformed chat id (not a UUID)' })
@@ -336,7 +341,7 @@ export class ChatsController {
       const send = {
         chatId,
         userId,
-        modelId: input.modelId,
+        ...(input.selector !== undefined && { selector: input.selector }),
         ...(input.effort !== undefined && { effort: input.effort }),
         ...(input.permissionMode !== undefined && {
           permissionMode: input.permissionMode,
@@ -386,15 +391,15 @@ export class ChatsController {
     description: 'AG-UI event stream (SSE)',
     content: {
       'text/event-stream': {
-        schema: { type: 'string' },
+        schema: sseEventSchema,
       },
     },
   })
   @ApiBadRequestResponse({
     description:
-      'Malformed chat or message id, a missing body or action, an unknown ' +
-      'action, a model or an effort on a continue request, or a regenerate ' +
-      'request without a model',
+      'Malformed chat or message id, a missing body or action, a malformed ' +
+      'or unknown action, a selector or an effort on a continue request, or ' +
+      'a blank selector on a regenerate request',
   })
   @ApiUnauthorizedResponse()
   @ApiNotFoundResponse({

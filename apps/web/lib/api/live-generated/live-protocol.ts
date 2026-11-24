@@ -4,6 +4,36 @@ import { z } from "zod";
 
 export const LIVE_CHANNEL_ADDRESS = "/api/v1/live";
 
+export const chatFallbackHoldResponseSchema = z.object({
+  selector: z
+    .string()
+    .describe("The `@role` or model id the hold falls back from."),
+  modelId: z.string().describe("The exact model the hold stays on."),
+  effort: z
+    .string()
+    .nullable()
+    .describe("The effort the hold pins; null when it pins none."),
+  revertAt: z
+    .string()
+    .datetime({ offset: true })
+    .describe("When the Chat returns to `selector`."),
+});
+export type ChatFallbackHoldResponse = z.infer<
+  typeof chatFallbackHoldResponseSchema
+>;
+
+export const chatModelSelectionResponseSchema = z.object({
+  selector: z.string().describe("`@role` or model id the owner selected."),
+  effort: z
+    .string()
+    .nullable()
+    .describe("The effort the owner selected; null when none."),
+  hold: chatFallbackHoldResponseSchema.optional(),
+});
+export type ChatModelSelectionResponse = z.infer<
+  typeof chatModelSelectionResponseSchema
+>;
+
 export const chatListItemResponseSchema = z.object({
   id: z.string().uuid(),
   ownerUserId: z.string(),
@@ -19,6 +49,7 @@ export const chatListItemResponseSchema = z.object({
     .describe(
       "Canonical absolute root of the current Workspace binding. Owner-only; null when this Chat has no binding.",
     ),
+  modelSelection: chatModelSelectionResponseSchema.nullable(),
   lastMessage: z.string().max(160).nullable(),
   runningJobs: z.number().gte(0),
 });
@@ -213,7 +244,12 @@ export const chatDeliveryResponseSchema = z.object({
     .nullable()
     .describe("The parsed command, or null for a message item."),
   parts: z.array(z.record(z.string(), z.any())),
-  modelId: z.string(),
+  selector: z
+    .string()
+    .describe(
+      "`@role` or a model id the item named; absent when it named none and the Chat's stored selection applies",
+    )
+    .optional(),
   effort: z.string().optional(),
   permissionMode: z.enum(["default", "bypass", "read-only"]),
   createdAt: z.string().datetime({ offset: true }),
@@ -241,6 +277,9 @@ export const runResponseSchema = z.object({
   chatId: z.string().uuid(),
   messageId: z.string().uuid().nullable(),
   kind: z.enum(["turn", "compaction"]),
+  selector: z
+    .string()
+    .describe("The `@role` or model id the Run recorded when it was admitted."),
   modelId: z.string(),
   effort: z
     .string()

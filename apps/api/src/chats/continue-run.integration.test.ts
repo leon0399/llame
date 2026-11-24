@@ -445,7 +445,10 @@ describeIfDb('a Continue Run', () => {
           userId,
           chatId,
           modelId: MODEL_ID,
+          selector: MODEL_ID,
           effort: undefined,
+          selectedEffort: undefined,
+          selectionRevision: null,
           permissionMode: 'default',
           targetRunId: crypto.randomUUID(),
           followUp: {
@@ -602,7 +605,7 @@ describeIfDb('a Continue Run', () => {
         ownerUserId: userId,
         mode: 'steer',
         parts: [{ type: 'text', text: '/compact' }],
-        settings: { modelId: MODEL_ID, permissionMode: 'default' },
+        settings: { selector: MODEL_ID, permissionMode: 'default' },
       }),
     );
 

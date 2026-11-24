@@ -129,7 +129,7 @@ describe('Run wait wake races', () => {
     const stored = await loop.createDeliveryMessage({
       chatId: seeded.chatId,
       userId: fx.userId,
-      modelId: seeded.modelId,
+      selector: seeded.modelId,
       message: {
         id: randomUUID(),
         parts: [{ type: 'text', text: 'owner steer' }],

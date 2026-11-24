@@ -1,16 +1,19 @@
 import { ArgumentMetadata, ValidationPipe } from '@nestjs/common';
-import { type Message } from '../../db/schema';
+import { type Chat, type Message } from '../../db/schema';
 import { chatDeliveryRow } from '../../testing/chat-delivery-rows';
 import {
   CreateMessageDto,
-  ChatMessagesQueryDto,
-  ChatSearchQueryDto,
   ForkChatDto,
-  OwnerChatMessagesQueryDto,
   toChatMessageResponse,
+  toChatResponse,
   UpdateChatDto,
   toSharedChatResponse,
 } from './chats.dto';
+import {
+  ChatMessagesQueryDto,
+  ChatSearchQueryDto,
+  OwnerChatMessagesQueryDto,
+} from './chats-query.dto';
 import { createCompactionCheckpointPart } from '../context-item-producers';
 import { toActiveRunResponse } from './active-runs.dto';
 import { toChatDeliveryResponse } from './chat-deliveries.dto';
@@ -20,7 +23,7 @@ describe('toChatDeliveryResponse', () => {
     const withEffort = toChatDeliveryResponse({
       item: chatDeliveryRow({
         settings: {
-          modelId: 'model-id',
+          selector: 'model-id',
           effort: 'high',
           permissionMode: 'default',
         },
@@ -32,12 +35,33 @@ describe('toChatDeliveryResponse', () => {
 
     const withoutEffort = toChatDeliveryResponse({
       item: chatDeliveryRow({
-        settings: { modelId: 'model-id', permissionMode: 'default' },
+        settings: { selector: 'model-id', permissionMode: 'default' },
       }),
       job: null,
     });
 
     expect(withoutEffort).not.toHaveProperty('effort');
+  });
+
+  it('echoes the selector the item named and never a served model id', () => {
+    const named = toChatDeliveryResponse({
+      item: chatDeliveryRow({
+        settings: { selector: '@reasoning', permissionMode: 'default' },
+      }),
+      job: null,
+    });
+
+    expect(named.selector).toBe('@reasoning');
+    expect(named).not.toHaveProperty('modelId');
+
+    const unnamed = toChatDeliveryResponse({
+      item: chatDeliveryRow({
+        settings: { permissionMode: 'default' },
+      }),
+      job: null,
+    });
+
+    expect(unnamed).not.toHaveProperty('selector');
   });
   it('computes the compact command from pending owner text', () => {
     const compact = toChatDeliveryResponse({
@@ -56,6 +80,88 @@ describe('toChatDeliveryResponse', () => {
 
     expect(compact.command).toBe('compact');
     expect(message.command).toBeNull();
+  });
+});
+
+describe('toChatResponse', () => {
+  function ownerChat(overrides: Partial<Chat> = {}): Chat {
+    return {
+      id: '0b6f5499-dde4-43cf-89fe-037998a0fe64',
+      ownerUserId: 'owner',
+      title: null,
+      visibility: 'private',
+      createdAt: new Date('2026-11-01T00:00:00.000Z'),
+      updatedAt: new Date('2026-11-01T00:00:00.000Z'),
+      archivedAt: null,
+      projectId: null,
+      recencyDigestBaseline: null,
+      recencyDigestTold: null,
+      recencyDigestRebakedFrom: null,
+      skillCatalogBaseline: null,
+      skillCatalogRebakedFrom: null,
+      skillCatalogTold: null,
+      workspaceRoot: null,
+      workspaceExecutorId: null,
+      workspaceGeneration: 0,
+      artifactSeq: 0,
+      workspaceTold: null,
+      workspaceToldFrom: null,
+      workspaceToldAvailable: null,
+      workspaceDetachReason: null,
+      modelSelection: null,
+      ...overrides,
+    };
+  }
+
+  it('reports the stored selection without its internal revision', () => {
+    const response = toChatResponse(
+      ownerChat({
+        modelSelection: {
+          revision: 3,
+          selector: '@reasoning',
+          effort: 'high',
+          hold: {
+            selector: '@reasoning',
+            modelId: 'system:openai:gpt-5.4-mini',
+            effort: 'high',
+            revertAt: '2026-12-01T00:00:00.000Z',
+          },
+        },
+      }),
+    );
+
+    expect(response.modelSelection).toEqual({
+      selector: '@reasoning',
+      effort: 'high',
+      hold: {
+        selector: '@reasoning',
+        modelId: 'system:openai:gpt-5.4-mini',
+        effort: 'high',
+        revertAt: '2026-12-01T00:00:00.000Z',
+      },
+    });
+    expect(response.modelSelection).not.toHaveProperty('revision');
+  });
+
+  it('reports null when the Chat stored no selection and omits an absent hold', () => {
+    expect(toChatResponse(ownerChat()).modelSelection).toBeNull();
+
+    const response = toChatResponse(
+      ownerChat({
+        modelSelection: {
+          revision: 1,
+          selector: 'system:openai:gpt-5.4-mini',
+          effort: null,
+        },
+      }),
+    );
+
+    expect(response.modelSelection).toEqual({
+      selector: 'system:openai:gpt-5.4-mini',
+      effort: null,
+    });
+    expect(response.modelSelection).not.toHaveProperty('hold');
+    expect(response.modelSelection).not.toHaveProperty('revision');
   });
 });
 
@@ -185,43 +291,51 @@ describe('CreateMessageDto', () => {
     parts: [{ type: 'text', text: 'Hello' }],
   };
 
-  it('requires a top-level nonblank modelId with no syntax restriction', async () => {
+  it('accepts an optional nonblank selector with no syntax restriction', async () => {
     await expect(
       pipe.transform(
         {
-          modelId: 'openrouter:openai:o3-pro',
+          selector: '@reasoning',
           message,
         },
         metadata,
       ),
     ).resolves.toMatchObject({
-      modelId: 'openrouter:openai:o3-pro',
+      selector: '@reasoning',
       message,
     });
 
-    await expect(pipe.transform({ message }, metadata)).rejects.toMatchObject({
-      status: 400,
+    // Omitted: the Chat's stored selection (then the configured default)
+    // resolves this send.
+    await expect(pipe.transform({ message }, metadata)).resolves.toMatchObject({
+      selector: undefined,
     });
+
+    for (const selector of ['', '   ', null, 7, {}]) {
+      await expect(
+        pipe.transform({ selector, message }, metadata),
+      ).rejects.toMatchObject({ status: 400 });
+    }
+  });
+
+  it('rejects a body that still names the removed modelId field', async () => {
     await expect(
-      pipe.transform({ modelId: '', message }, metadata),
-    ).rejects.toMatchObject({ status: 400 });
-    await expect(
-      pipe.transform({ modelId: '   ', message }, metadata),
-    ).rejects.toMatchObject({ status: 400 });
-    await expect(
-      pipe.transform({ modelId: null, message }, metadata),
+      pipe.transform(
+        { modelId: 'system:openai:gpt-5.4-mini', message },
+        metadata,
+      ),
     ).rejects.toMatchObject({ status: 400 });
   });
 
   it('accepts an optional nonblank effort with no vocabulary restriction', async () => {
-    const modelId = 'system:openai:gpt-5.4-mini';
+    const selector = 'system:openai:gpt-5.4-mini';
 
     // No enum or pattern here on purpose: the legal values are the SELECTED
     // model's operator-declared provider tokens, checked by exact membership
     // once the model resolves. The DTO's only job is shape.
     for (const effort of ['none', 'MAX', 'very-high', 'effort_2']) {
       await expect(
-        pipe.transform({ modelId, effort, message }, metadata),
+        pipe.transform({ selector, effort, message }, metadata),
       ).resolves.toMatchObject({ effort });
     }
 
@@ -230,57 +344,57 @@ describe('CreateMessageDto', () => {
     // carries `effort: undefined` rather than omitting the key — which is
     // exactly what the controller's `!== undefined` guard keys on.
     await expect(
-      pipe.transform({ modelId, message }, metadata),
+      pipe.transform({ selector, message }, metadata),
     ).resolves.toMatchObject({ effort: undefined });
   });
 
   it('accepts the closed permission-mode enum and rejects malformed values', async () => {
-    const modelId = 'system:openai:gpt-5.4-mini';
+    const selector = 'system:openai:gpt-5.4-mini';
 
     for (const permissionMode of ['default', 'bypass']) {
       await expect(
-        pipe.transform({ modelId, permissionMode, message }, metadata),
+        pipe.transform({ selector, permissionMode, message }, metadata),
       ).resolves.toMatchObject({ permissionMode });
     }
 
     for (const permissionMode of ['yolo', '', ' ', null, 7, {}]) {
       await expect(
-        pipe.transform({ modelId, permissionMode, message }, metadata),
+        pipe.transform({ selector, permissionMode, message }, metadata),
       ).rejects.toMatchObject({ status: 400 });
     }
 
     await expect(
-      pipe.transform({ modelId, message }, metadata),
+      pipe.transform({ selector, message }, metadata),
     ).resolves.toMatchObject({ permissionMode: undefined });
   });
 
   it('accepts only the delivery modes this API ships', async () => {
-    const modelId = 'system:openai:gpt-5.4-mini';
+    const selector = 'system:openai:gpt-5.4-mini';
 
     for (const delivery of ['queue', 'steer', 'interrupt']) {
       await expect(
-        pipe.transform({ modelId, delivery, message }, metadata),
+        pipe.transform({ selector, delivery, message }, metadata),
       ).resolves.toMatchObject({ delivery });
     }
 
     await expect(
-      pipe.transform({ modelId, message }, metadata),
+      pipe.transform({ selector, message }, metadata),
     ).resolves.toMatchObject({ delivery: undefined });
 
     // null is not "omitted".
     for (const delivery of ['later', '', null, 7]) {
       await expect(
-        pipe.transform({ modelId, delivery, message }, metadata),
+        pipe.transform({ selector, delivery, message }, metadata),
       ).rejects.toMatchObject({ status: 400 });
     }
   });
 
   it('rejects a blank, null, or non-string effort', async () => {
-    const modelId = 'system:openai:gpt-5.4-mini';
+    const selector = 'system:openai:gpt-5.4-mini';
 
     for (const effort of ['', '   ', null, 7, {}]) {
       await expect(
-        pipe.transform({ modelId, effort, message }, metadata),
+        pipe.transform({ selector, effort, message }, metadata),
       ).rejects.toMatchObject({ status: 400 });
     }
   });
@@ -289,7 +403,7 @@ describe('CreateMessageDto', () => {
     await expect(
       pipe.transform(
         {
-          modelId: 'system:openai:gpt-5.4-mini',
+          selector: 'system:openai:gpt-5.4-mini',
           message: {
             id: message.id,
             parts: [
@@ -317,7 +431,7 @@ describe('CreateMessageDto', () => {
   });
 
   describe('file parts', () => {
-    const modelId = 'system:openai:gpt-5.4-mini';
+    const selector = 'system:openai:gpt-5.4-mini';
 
     const media = (n: number) =>
       `media://0192f3a4-5b6c-7d8e-9f01-${String(n).padStart(12, '0')}`;
@@ -330,7 +444,10 @@ describe('CreateMessageDto', () => {
     });
 
     const send = (parts: ReadonlyArray<unknown>) =>
-      pipe.transform({ modelId, message: { id: message.id, parts } }, metadata);
+      pipe.transform(
+        { selector, message: { id: message.id, parts } },
+        metadata,
+      );
 
     it('accepts an image-only message and keeps text and file parts in submitted order', async () => {
       await expect(send([file(media(1))])).resolves.toMatchObject({

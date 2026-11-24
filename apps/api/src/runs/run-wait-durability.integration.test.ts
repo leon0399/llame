@@ -51,7 +51,7 @@ describe('Run wait durable wake publication', () => {
         workerInstanceId: workerId,
         outputs: ['stdout', 'stderr'],
         artifactReadable: false,
-        settings: { modelId: seeded.modelId, permissionMode: 'default' },
+        settings: { selector: seeded.modelId, permissionMode: 'default' },
       });
     });
 

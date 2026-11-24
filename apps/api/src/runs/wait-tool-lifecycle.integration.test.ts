@@ -76,7 +76,7 @@ describe('wait tool lifecycle through real Run streams', () => {
         workerInstanceId,
         outputs: ['stdout', 'stderr'],
         artifactReadable: false,
-        settings: { modelId: seeded.modelId, permissionMode: 'default' },
+        settings: { selector: seeded.modelId, permissionMode: 'default' },
       });
     });
   }
@@ -611,7 +611,7 @@ describe('wait tool lifecycle through real Run streams', () => {
     await loop.createDeliveryMessage({
       chatId: seeded.chatId,
       userId: fx.userId,
-      modelId: seeded.modelId,
+      selector: seeded.modelId,
       message: {
         id: crypto.randomUUID(),
         parts: [{ type: 'text', text: 'owner direction' }],

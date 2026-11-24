@@ -51,6 +51,7 @@ import {
   ModelsService,
   type ModelSelectionValidator,
 } from '../../models/models.service';
+import { fakeResolveSelection } from '../../testing/fake-model-selection';
 import type {
   SystemModelCatalogEntry,
   TokenPrice,
@@ -723,12 +724,19 @@ function service(options: ServiceOptions): RunExecutionService {
 
   // The hosted scenario runs the real `ModelsService`, so the engine builds the
   // referenced model's client as a Run's worker would.
+  const fakeModels: ModelSelectionValidator = {
+    validateModelSelection: () => testModelEntry,
+    resolveEffortSelection: () => undefined,
+    resolveSelection: fakeResolveSelection({
+      validateModelSelection: () => testModelEntry,
+      resolveEffortSelection: () => undefined,
+      defaultSelector: testModelEntry.id,
+    }),
+  };
+
   const models: ModelSelectionValidator =
     options.hosted === undefined
-      ? {
-          validateModelSelection: () => testModelEntry,
-          resolveEffortSelection: () => undefined,
-        }
+      ? fakeModels
       : new ModelsService(
           { config: config.config, productUserAgent: 'llame/web-search-test' },
           hostedModelFactory(options.hosted),

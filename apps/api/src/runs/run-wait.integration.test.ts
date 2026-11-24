@@ -47,7 +47,7 @@ describe('Run wait transactions', () => {
         workerInstanceId: workerId,
         outputs: ['stdout', 'stderr'],
         artifactReadable: false,
-        settings: { modelId: seeded.modelId, permissionMode: 'default' },
+        settings: { selector: seeded.modelId, permissionMode: 'default' },
       });
     });
 
@@ -277,7 +277,7 @@ describe('Run wait transactions', () => {
         workerInstanceId: lostWorkerId,
         outputs: ['stdout', 'stderr'],
         artifactReadable: false,
-        settings: { modelId: seeded.modelId, permissionMode: 'default' },
+        settings: { selector: seeded.modelId, permissionMode: 'default' },
       });
 
       await tx
@@ -504,7 +504,7 @@ describe('Run wait transactions', () => {
         workerInstanceId: outsideWorkerId,
         outputs: ['stdout', 'stderr'],
         artifactReadable: false,
-        settings: { modelId: seeded.modelId, permissionMode: 'default' },
+        settings: { selector: seeded.modelId, permissionMode: 'default' },
       });
     });
 

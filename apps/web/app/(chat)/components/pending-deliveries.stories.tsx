@@ -17,7 +17,7 @@ function item(
     command: null,
     state: "pending",
     parts: [{ type: "text", text }],
-    modelId: "system:openai:model-one",
+    selector: "system:openai:model-one",
     permissionMode: "default",
     createdAt: "2026-01-01T00:00:00.000Z",
   };

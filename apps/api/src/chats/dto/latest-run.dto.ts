@@ -51,6 +51,12 @@ export class ChatLatestRunResponse {
   })
   followUpAction!: FollowUpAction | null;
 
+  @ApiProperty({
+    description:
+      'The `@role` or model id the Run recorded when it was admitted.',
+  })
+  selector!: string;
+
   @ApiProperty()
   modelId!: string;
 
@@ -119,6 +125,7 @@ export function toChatLatestRunResponse(run: Run): ChatLatestRunResponse {
     messageId: run.messageId,
     status: run.status,
     followUpAction: run.followUpAction,
+    selector: run.selector,
     modelId: run.modelId,
     effort: run.effort,
     permissionMode: run.permissionMode,

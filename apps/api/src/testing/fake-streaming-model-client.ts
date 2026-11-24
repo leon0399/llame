@@ -35,8 +35,14 @@ import type { ModelReasoning, TokenPrice } from '../models/model-catalog';
 import {
   ModelNotAvailableError,
   resolveEffortSelection,
+  resolveSelectionFromCatalog,
   type ModelSelectionValidator,
 } from '../models/models.service';
+import type {
+  ChatModelSelection,
+  SelectionRequest,
+  SelectionWriter,
+} from '../models/model-selection';
 import { wrapStreamTextResult } from '../models/stream-text-result-proxy';
 
 /** Default "nothing to unblock yet" value for the fake stream's abort race. */
@@ -549,6 +555,31 @@ export class FakeModelsService implements ModelSelectionValidator {
     requested: string | undefined,
   ): string | undefined {
     return resolveEffortSelection(model, requested);
+  }
+
+  /**
+   * Delegates to the production resolver, so an HTTP-boundary suite accepts
+   * exactly the selectors and efforts the real API accepts. The fake declares
+   * no roles and no default selector: every available id is an exact selector.
+   */
+  resolveSelection(
+    stored: ChatModelSelection | null,
+    request: SelectionRequest,
+    writer: SelectionWriter,
+  ) {
+    return resolveSelectionFromCatalog(
+      {
+        defaultSelector: undefined,
+        roleCandidates: () => undefined,
+        model: (modelId) =>
+          this.isAvailable(modelId)
+            ? this.validateModelSelection(modelId)
+            : undefined,
+      },
+      stored,
+      request,
+      writer,
+    );
   }
 
   resolveTitleModelConfig() {

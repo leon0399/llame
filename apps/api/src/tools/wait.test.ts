@@ -34,7 +34,7 @@ function job(id: string, state: ChatJob['state'] = 'running'): ChatJob {
     outputs: [],
     artifactId: null,
     artifactReadable: false,
-    settings: { modelId: 'gpt-5.5', permissionMode: 'default' },
+    settings: { selector: 'gpt-5.5', permissionMode: 'default' },
   };
 }
 
@@ -65,6 +65,7 @@ function setup(rows: Readonly<Record<string, ChatJob | undefined>>) {
     createdAt: new Date(0),
     updatedAt: new Date(0),
     archivedAt: null,
+    modelSelection: null,
     projectId: null,
     recencyDigestBaseline: null,
     recencyDigestTold: null,

@@ -12,6 +12,7 @@ describe("parseLiveMessage", () => {
       kind: "compaction",
       chatId,
       messageId: null,
+      selector: "m",
       modelId: "m",
       permissionMode: "default",
       status: "failed",

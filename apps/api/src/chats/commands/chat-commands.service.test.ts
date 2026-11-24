@@ -14,6 +14,7 @@ import { ChatsRepository, MessagesRepository } from '../chats-repository';
 import { TitleService } from '../../titles/title.service';
 import { InstanceConfigService } from '../../instance-config/instance-config.service';
 import { ModelsService } from '../../models/models.service';
+import type { SystemModelCatalogEntry } from '../../models/model-catalog';
 import { BUILT_IN_DEFAULTS } from '../../instance-config/llame-config';
 import {
   RunEventsRepository,
@@ -40,7 +41,11 @@ function makeService() {
         callback(db),
     );
 
-  const chat = asDouble<Chat>({ id: 'chat-1', archivedAt: null });
+  const chat = asDouble<Chat>({
+    id: 'chat-1',
+    ownerUserId: 'user-1',
+    archivedAt: null,
+  });
 
   vi.spyOn(ChatDeliveriesRepository.prototype, 'findById').mockResolvedValue(
     undefined,
@@ -57,6 +62,10 @@ function makeService() {
   const lock = vi
     .spyOn(ChatsRepository.prototype, 'lock')
     .mockResolvedValue(chat);
+
+  const setModelSelection = vi
+    .spyOn(ChatsRepository.prototype, 'setModelSelection')
+    .mockResolvedValue(undefined);
 
   const update = vi
     .spyOn(ChatsRepository.prototype, 'update')
@@ -109,9 +118,37 @@ function makeService() {
   const validateModelSelection = vi.fn();
   const resolveEffortSelection = vi.fn().mockReturnValue(undefined);
 
+  // The resolver `/compact` runs inside its admission transaction: it echoes
+  // the request against the Chat's stored selection, as the real one does.
+  const resolveSelection = vi.fn().mockImplementation(
+    (
+      stored: {
+        selector?: string;
+        effort?: string | null;
+        revision?: number;
+      } | null,
+      selection: { selector?: string; effort?: string },
+    ) => {
+      const selector = selection.selector ?? stored?.selector ?? 'model-1';
+      const effort = selection.effort ?? stored?.effort ?? undefined;
+
+      return {
+        selector,
+        model: asDouble<SystemModelCatalogEntry>({ id: 'model-1' }),
+        effort,
+        nextSelection: {
+          revision: (stored?.revision ?? 0) + 1,
+          selector,
+          effort: effort ?? null,
+        },
+      };
+    },
+  );
+
   const models = asDouble<ModelsService>({
     validateModelSelection,
     resolveEffortSelection,
+    resolveSelection,
   });
 
   const instanceConfig = asDouble<InstanceConfigService>({
@@ -160,6 +197,8 @@ function makeService() {
     wakeForChatInTransaction,
     validateModelSelection,
     resolveEffortSelection,
+    resolveSelection,
+    setModelSelection,
     runAs,
   };
 }
@@ -171,7 +210,7 @@ const request = {
   parts: [{ type: 'text' as const, text: '/rename New name' }],
   messageId: 'message-1',
   rawText: '/rename New name',
-  modelId: 'model-1',
+  selector: 'model-1',
 };
 
 describe('ChatCommandsService', () => {
@@ -285,7 +324,8 @@ describe('ChatCommandsService', () => {
       createRun,
       append,
       dispatch,
-      validateModelSelection,
+      resolveSelection,
+      setModelSelection,
       runAs,
     } = makeService();
 
@@ -306,8 +346,10 @@ describe('ChatCommandsService', () => {
         messageId: null,
         kind: 'compaction',
         modelId: 'model-1',
+        selector: 'model-1',
         effort: undefined,
         permissionMode: 'default',
+        selectionRevision: 1,
       }),
     );
     expect(append).toHaveBeenCalledWith('run-1', 'run.created', {
@@ -324,7 +366,18 @@ describe('ChatCommandsService', () => {
     expect(dispatch.dispatch.mock.calls[0][0]).not.toHaveProperty(
       'userMessage',
     );
-    expect(validateModelSelection).toHaveBeenCalledWith('model-1');
+    // The Chat had no stored selection, so this `/compact` writes the one it
+    // resolved, in the same transaction that creates the Run.
+    expect(resolveSelection).toHaveBeenCalledWith(
+      null,
+      { selector: 'model-1', effort: undefined },
+      'owner',
+    );
+    expect(setModelSelection).toHaveBeenCalledWith('chat-1', 'user-1', {
+      revision: 1,
+      selector: 'model-1',
+      effort: null,
+    });
     expect(runAs).toHaveBeenCalledOnce();
   });
   it('admits a /compact steer and signals a Run waiting on jobs', async () => {
@@ -452,7 +505,7 @@ describe('ChatCommandsService', () => {
       id: 'compact-message',
       mode: 'queue',
       parts: [{ type: 'text', text: '/compact' }],
-      settings: { modelId: 'model-1', permissionMode: 'default' },
+      settings: { selector: 'model-1', permissionMode: 'default' },
     });
     expect(wakeForChatInTransaction).not.toHaveBeenCalled();
   });
@@ -537,9 +590,9 @@ describe('ChatCommandsService', () => {
     expect(dispatch.dispatch).not.toHaveBeenCalled();
   });
 
-  it('rejects an unknown model before Run creation', async () => {
-    const { service, createRun, validateModelSelection } = makeService();
-    validateModelSelection.mockImplementation(() => {
+  it('rejects an unknown selector before Run creation', async () => {
+    const { service, createRun, resolveSelection } = makeService();
+    resolveSelection.mockImplementation(() => {
       throw new Error('Selected model is unavailable.');
     });
 
@@ -549,6 +602,11 @@ describe('ChatCommandsService', () => {
         command: { name: 'compact', argument: '' },
       }),
     ).rejects.toThrow('Selected model is unavailable.');
+    expect(resolveSelection).toHaveBeenCalledWith(
+      null,
+      { selector: 'model-1', effort: undefined },
+      'owner',
+    );
     expect(createRun).not.toHaveBeenCalled();
   });
 
@@ -579,15 +637,7 @@ describe('ChatCommandsService', () => {
   });
 
   it('queues a compact with its selected settings while a Run holds the Chat slot', async () => {
-    const {
-      service,
-      activeRunLookup,
-      dispatch,
-      createRun,
-      resolveEffortSelection,
-    } = makeService();
-
-    resolveEffortSelection.mockReturnValue('high');
+    const { service, activeRunLookup, dispatch, createRun } = makeService();
 
     const insertPending = vi
       .spyOn(ChatDeliveriesRepository.prototype, 'insertPending')
@@ -600,7 +650,7 @@ describe('ChatCommandsService', () => {
           mode: 'queue',
           parts: [{ type: 'text', text: '/compact retain context' }],
           settings: {
-            modelId: 'model-1',
+            selector: 'model-1',
             effort: 'high',
             permissionMode: 'default',
           },
@@ -636,7 +686,7 @@ describe('ChatCommandsService', () => {
       mode: 'queue',
       parts: [{ type: 'text', text: '/compact retain context' }],
       settings: {
-        modelId: 'model-1',
+        selector: 'model-1',
         effort: 'high',
         permissionMode: 'default',
       },
@@ -657,7 +707,7 @@ describe('ChatCommandsService', () => {
           state: 'pending',
           mode: 'queue',
           parts: [{ type: 'text', text: '/compact' }],
-          settings: { modelId: 'model-1', permissionMode: 'default' },
+          settings: { selector: 'model-1', permissionMode: 'default' },
         }),
       );
 

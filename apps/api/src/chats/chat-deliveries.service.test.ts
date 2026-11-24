@@ -7,6 +7,7 @@ import {
 import { type Chat, type Run } from '../db/schema';
 import { type Db, type TenantRunner } from '../db/tenant-db.service';
 import { type InstanceConfigReader } from '../instance-config/instance-config.service';
+import { type ChatModelSelection } from '../models/model-selection';
 import { type ModelSelectionValidator } from '../models/models.service';
 import { type RunDispatcher } from '../runs/run-dispatch.service';
 import type { RunWaitService } from '../runs/run-wait.service';
@@ -33,6 +34,17 @@ function makeService() {
   const models = {
     validateModelSelection: vi.fn(),
     resolveEffortSelection: vi.fn(),
+    resolveSelection: vi.fn(
+      (
+        _stored: ChatModelSelection | null,
+        request: { selector?: string; effort?: string },
+      ) => ({
+        selector: request.selector ?? 'gpt-5.5',
+        model: { id: 'gpt-5.5' },
+        effort: request.effort,
+        nextSelection: undefined,
+      }),
+    ),
   };
 
   const execute = vi.fn(() => Promise.resolve([]));
@@ -349,7 +361,7 @@ describe('ChatDeliveriesService.changeMode', () => {
       userId,
       'steer',
     );
-    expect(models.validateModelSelection).not.toHaveBeenCalled();
+    expect(models.resolveSelection).not.toHaveBeenCalled();
     expect(createMessage).not.toHaveBeenCalled();
   });
 
@@ -440,8 +452,13 @@ describe('ChatDeliveriesService.changeMode', () => {
 
     await expect(attempt()).rejects.toBeInstanceOf(ConflictException);
     await expect(attempt()).rejects.toThrow('Message id already exists');
-    expect(models.validateModelSelection).toHaveBeenCalledWith(
-      item.settings.modelId,
+    expect(models.resolveSelection).toHaveBeenCalledWith(
+      null,
+      {
+        selector: item.settings.selector,
+        effort: item.settings.effort,
+      },
+      'derived',
     );
   });
 });

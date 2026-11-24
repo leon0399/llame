@@ -17,6 +17,8 @@ export interface RunResponse {
   /** @nullable */
   messageId: string | null;
   kind: RunResponseKind;
+  /** The `@role` or model id the Run recorded when it was admitted. */
+  selector: string;
   modelId: string;
   /** Reasoning effort this run executed at, resolved when the run was accepted. Absent when the run carried none. An opaque provider token — a receipt of what ran, never recomputed from current configuration. */
   effort?: string;

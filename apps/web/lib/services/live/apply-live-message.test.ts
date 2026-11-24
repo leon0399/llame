@@ -43,6 +43,7 @@ function chat(
     archivedAt: null,
     projectId: null,
     workspaceRoot: null,
+    modelSelection: null,
     lastMessage: "hi",
     runningJobs: 0,
     ...overrides,
@@ -422,7 +423,7 @@ describe("applyLiveMessage", () => {
       command: null,
       state: "pending" as const,
       parts: [{ type: "text", text: "later" }],
-      modelId: "system:openai:model-one",
+      selector: "system:openai:model-one",
       permissionMode: "default" as const,
       createdAt: "2026-10-01T00:00:00.000Z",
     };

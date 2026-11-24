@@ -40,6 +40,7 @@ import {
   type ModelClientFactory,
   type ModelSelectionValidator,
 } from '../models/models.service';
+import { fakeResolveSelection } from '../testing/fake-model-selection';
 import type { SystemModelCatalogEntry } from '../models/model-catalog';
 import { MemoryService } from '../memory/memory.service';
 import { SearchIndexService } from '../search/search-index.service';
@@ -135,19 +136,26 @@ const knowledgeResolver: KnowledgeToolResolver = {
   }),
 };
 
+const fixtureModelEntry = (modelId: string): SystemModelCatalogEntry => ({
+  id: modelId,
+  source: 'system',
+  contextWindowTokens: 128_000,
+  input: ['text'],
+  provider: 'fake',
+  providerModelId: modelId,
+  systemPromptTemplate: 'Test prompt: default',
+  systemPromptSource: 'project_default',
+  referencesSkills: false,
+});
+
 const executionModels: ModelSelectionValidator = {
-  validateModelSelection: (modelId: string): SystemModelCatalogEntry => ({
-    id: modelId,
-    source: 'system',
-    contextWindowTokens: 128_000,
-    input: ['text'],
-    provider: 'fake',
-    providerModelId: modelId,
-    systemPromptTemplate: 'Test prompt: default',
-    systemPromptSource: 'project_default',
-    referencesSkills: false,
-  }),
+  validateModelSelection: fixtureModelEntry,
   resolveEffortSelection: () => undefined,
+  resolveSelection: fakeResolveSelection({
+    validateModelSelection: fixtureModelEntry,
+    resolveEffortSelection: () => undefined,
+    defaultSelector: 'system:openai:gpt-5.4-mini',
+  }),
 };
 
 const knowledgeCandidates: KnowledgeToolCandidateResolverPort = {
@@ -194,19 +202,26 @@ const DEGRADED_KNOWLEDGE = {
 const EPOCH_TEMPLATE =
   'Epoch prompt at {{context.systemTime}}.{{#if chats}} Chats:{{#each chats.recent}} [{{title}}]{{/each}}{{/if}}{{#if skills}} Skills:{{#each skills.entries}} [{{name}}]{{/each}}{{/if}}';
 
+const epochModelEntry = (modelId: string): SystemModelCatalogEntry => ({
+  id: modelId,
+  source: 'system',
+  contextWindowTokens: 128_000,
+  input: ['text'],
+  provider: 'fake',
+  providerModelId: modelId,
+  systemPromptTemplate: EPOCH_TEMPLATE,
+  systemPromptSource: 'project_default',
+  referencesSkills: true,
+});
+
 const epochModels: ModelSelectionValidator = {
-  validateModelSelection: (modelId: string): SystemModelCatalogEntry => ({
-    id: modelId,
-    source: 'system',
-    contextWindowTokens: 128_000,
-    input: ['text'],
-    provider: 'fake',
-    providerModelId: modelId,
-    systemPromptTemplate: EPOCH_TEMPLATE,
-    systemPromptSource: 'project_default',
-    referencesSkills: true,
-  }),
+  validateModelSelection: epochModelEntry,
   resolveEffortSelection: () => undefined,
+  resolveSelection: fakeResolveSelection({
+    validateModelSelection: epochModelEntry,
+    resolveEffortSelection: () => undefined,
+    defaultSelector: 'system:openai:gpt-5.4-mini',
+  }),
 };
 
 const EPOCH_EXECUTOR_ID = 'compaction-epoch-host';
@@ -1793,6 +1808,11 @@ describeIfDb('snapshot-bound compaction continuity', () => {
           models: {
             validateModelSelection: () => packagedEntry,
             resolveEffortSelection: () => undefined,
+            resolveSelection: fakeResolveSelection({
+              validateModelSelection: () => packagedEntry,
+              resolveEffortSelection: () => undefined,
+              defaultSelector: packagedEntry.id,
+            }),
           },
         },
       ).executeRun(

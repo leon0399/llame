@@ -81,12 +81,14 @@ describe('settled job host Runs', () => {
     chatId: string,
     runId: string,
     settings: ChatJob['settings'] = {
-      modelId: `job-model-${randomUUID()}`,
+      selector: `job-model-${randomUUID()}`,
       permissionMode: 'default',
     },
   ) {
-    if (settings.effort !== undefined) {
-      harness.models.registerReasoning(settings.modelId, {
+    const selector = settings.selector;
+
+    if (settings.effort !== undefined && selector !== undefined) {
+      harness.models.registerReasoning(selector, {
         effortLevels: [{ value: 'low' }, { value: 'high' }],
         defaultEffort: 'low',
         cacheInvalidatedByEffortChange: false,
@@ -168,7 +170,7 @@ describe('settled job host Runs', () => {
       const prior = await completedChat();
 
       const job = await runningJob(prior.chatId, prior.runId, {
-        modelId: `job-model-${randomUUID()}`,
+        selector: `job-model-${randomUUID()}`,
         effort: 'high',
         permissionMode: 'default',
       });
@@ -184,7 +186,7 @@ describe('settled job host Runs', () => {
       expect(startedRuns).toHaveLength(1);
       expect(startedRuns[0]).toMatchObject({
         messageId: hostMessages[0]?.id,
-        modelId: job.settings.modelId,
+        modelId: job.settings.selector,
         permissionMode: job.settings.permissionMode,
         effort: job.settings.effort,
       });
@@ -259,7 +261,7 @@ describe('settled job host Runs', () => {
     const prior = await completedChat();
 
     const first = await runningJob(prior.chatId, prior.runId, {
-      modelId: `held-first-${randomUUID()}`,
+      selector: `held-first-${randomUUID()}`,
       effort: 'high',
       permissionMode: 'default',
     });
@@ -276,7 +278,7 @@ describe('settled job host Runs', () => {
     ).toHaveLength(1);
 
     const second = await runningJob(prior.chatId, prior.runId, {
-      modelId: `later-second-${randomUUID()}`,
+      selector: `later-second-${randomUUID()}`,
       effort: 'low',
       permissionMode: 'read-only',
     });
@@ -290,7 +292,7 @@ describe('settled job host Runs', () => {
     expect(hostMessages).toHaveLength(1);
     expect(startedRuns).toHaveLength(1);
     expect(startedRuns[0]).toMatchObject({
-      modelId: first.settings.modelId,
+      modelId: first.settings.selector,
       effort: first.settings.effort,
       permissionMode: first.settings.permissionMode,
     });
@@ -317,7 +319,7 @@ describe('settled job host Runs', () => {
     const prior = await completedChat();
 
     const job = await runningJob(prior.chatId, prior.runId, {
-      modelId: `removed-mode-${randomUUID()}`,
+      selector: `removed-mode-${randomUUID()}`,
       permissionMode: 'read-only',
     });
 
@@ -481,7 +483,7 @@ describe('settled job host Runs', () => {
     const modelId = `claimed-host-model-${randomUUID()}`;
 
     const first = await runningJob(prior.chatId, prior.runId, {
-      modelId,
+      selector: modelId,
       permissionMode: 'default',
     });
 

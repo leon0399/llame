@@ -38,12 +38,47 @@ export type FollowUpRunInput =
     })
   | (FollowUpRunIdentity & { action: 'regenerate'; notice: boolean });
 
-export type CreateRunForMessageInput = {
+/** The Run columns a resolved selection fills, for every Run creator. */
+export type RunSelection = {
+  /** The model that serves the Run's first segment. */
+  modelId: string;
+  /** What the owner (or the derived creator) resolved; `@role` or an exact id. */
+  selector: string;
+  /** The effort the first segment sends; absent means "send none". */
+  effort: string | undefined;
+  /** The Chat selection revision this Run read, or null when it had none. */
+  selectionRevision: number | null;
+  permissionMode: PermissionMode;
+};
+
+/** The Run columns one resolved selection fills, `selectedEffort` included. */
+export type RunSelectionFields = RunSelection & {
+  selectedEffort: string | undefined;
+};
+
+/**
+ * The selection columns of one Run. Every creator of this file and the
+ * admission paths around it spread this, so `selectedEffort` starts equal to
+ * the served effort and no creator can drop or reorder the columns.
+ */
+export function runSelectionFields(
+  selection: RunSelection,
+): RunSelectionFields {
+  return {
+    modelId: selection.modelId,
+    selector: selection.selector,
+    effort: selection.effort,
+    selectedEffort: selection.effort,
+    selectionRevision: selection.selectionRevision,
+    permissionMode: selection.permissionMode,
+  };
+}
+
+export type CreateRunForMessageInput = RunSelection & {
+  /** The selection's effort; defaults to the served effort when absent. */
+  selectedEffort?: string | undefined;
   userId: string;
   chatId: string;
-  modelId: string;
-  effort: string | undefined;
-  permissionMode: PermissionMode;
   targetRunId: string;
   /**
    * Present when a follow-up request creates the Run: the action, the earlier
@@ -109,39 +144,56 @@ export async function createRunForMessage(
   return { run };
 }
 
+/** What a `/compact` Run records; every field the selection resolved. */
+export type CompactionRunInput = {
+  id: string;
+  chatId: string;
+  userId: string;
+  modelId: string;
+  selector: string;
+  effort?: string;
+  selectedEffort?: string;
+  selectionRevision?: number | null;
+  permissionMode?: PermissionMode;
+  focus: string | null;
+};
+
 export async function createCompactionRun(
   tx: Db,
-  input: {
-    id: string;
-    chatId: string;
-    userId: string;
-    modelId: string;
-    effort?: string;
-    permissionMode?: PermissionMode;
-    focus: string | null;
-  },
+  input: CompactionRunInput,
+): Promise<Run> {
+  const run = await createCompactionRunRow(tx, input);
+
+  await new RunEventsRepository(tx).append(run.id, 'run.created', {
+    chatId: input.chatId,
+    messageId: null,
+    compaction: { focus: input.focus },
+  });
+
+  return run;
+}
+
+/** The compaction Run's row in its own savepoint, mapped to the 409 it causes. */
+async function createCompactionRunRow(
+  tx: Db,
+  input: CompactionRunInput,
 ): Promise<Run> {
   try {
-    const run = await tx.transaction((inner) =>
+    return await tx.transaction((inner) =>
       new RunsRepository(inner).create({
         id: input.id,
         chatId: input.chatId,
         messageId: null,
         userId: input.userId,
         modelId: input.modelId,
-        kind: 'compaction',
+        selector: input.selector,
         effort: input.effort,
+        selectedEffort: input.selectedEffort,
+        selectionRevision: input.selectionRevision ?? undefined,
         permissionMode: input.permissionMode,
+        kind: 'compaction',
       }),
     );
-
-    await new RunEventsRepository(tx).append(run.id, 'run.created', {
-      chatId: input.chatId,
-      messageId: null,
-      compaction: { focus: input.focus },
-    });
-
-    return run;
   } catch (error) {
     if (isInflightUniqueViolation(error)) {
       throw new ConflictException(
@@ -171,7 +223,10 @@ async function createRunRow(
         messageId: userMessage.id,
         userId: input.userId,
         modelId: input.modelId,
+        selector: input.selector,
         effort: input.effort,
+        selectedEffort: input.selectedEffort,
+        selectionRevision: input.selectionRevision ?? undefined,
         permissionMode: input.permissionMode,
         followUpAction: input.followUp?.action,
         sourceRunId: input.followUp?.sourceRunId,

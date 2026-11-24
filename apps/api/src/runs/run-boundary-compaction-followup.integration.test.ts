@@ -42,7 +42,7 @@ describe('step-boundary compaction follow-up', () => {
         workerInstanceId: crypto.randomUUID(),
         outputs: [],
         artifactReadable: false,
-        settings: { modelId: 'boundary-job-test', permissionMode: 'default' },
+        settings: { selector: 'boundary-job-test', permissionMode: 'default' },
       });
 
       const settled = await jobs.settle(chatId, fx.userId, inserted.id, {

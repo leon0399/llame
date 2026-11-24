@@ -663,7 +663,7 @@ describe('/api/v1/media (HTTP)', () => {
         .post(`/api/v1/chats/${chatId}/messages`)
         .set('Cookie', cookieA)
         .send({
-          modelId: MODEL,
+          selector: MODEL,
           message: {
             id: randomUUID(),
             parts: [

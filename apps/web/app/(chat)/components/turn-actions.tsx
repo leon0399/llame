@@ -35,13 +35,13 @@ type RegenerateSplitButtonProps = {
   requestFollowUp: (request: FollowUpRunRequest) => void;
 };
 
-/** The plain Regenerate click: a repeat of the latest Run's own model, effort,
- *  and accepted permission mode, whatever the composer shows (D13). The
- *  transport drops the fields the wire body does not take. */
+/** The plain Regenerate click: a repeat of the latest Run's own selector,
+ *  effort, and accepted permission mode, whatever the composer shows (D13).
+ *  The transport drops the fields the wire body does not take. */
 function repeatRequest(latestRun: ChatLatestRunResponse): FollowUpRunRequest {
   return {
     action: "regenerate",
-    modelId: latestRun.modelId,
+    selector: latestRun.selector,
     effort: latestRun.effort ?? undefined,
     permissionMode: latestRun.permissionMode,
   };

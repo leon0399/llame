@@ -169,13 +169,13 @@ describe('chat deliveries — the steer mode', () => {
 
   function send(
     chatId: string,
-    body: { id?: string; text?: string; modelId?: string; delivery?: string },
+    body: { id?: string; text?: string; selector?: string; delivery?: string },
   ) {
     return request(http)
       .post(`/api/v1/chats/${chatId}/messages`)
       .set('Cookie', cookieA)
       .send({
-        modelId: body.modelId ?? MODEL,
+        selector: body.selector ?? MODEL,
         ...(body.delivery !== undefined && { delivery: body.delivery }),
         message: {
           id: body.id ?? crypto.randomUUID(),
@@ -431,7 +431,7 @@ describe('chat deliveries — the steer mode', () => {
             workerInstanceId,
             runId,
             toolCallId,
-            settings: { modelId: MODEL, permissionMode: 'default' },
+            settings: { selector: MODEL, permissionMode: 'default' },
           }),
         );
       });
@@ -478,7 +478,7 @@ describe('chat deliveries — the steer mode', () => {
             workerInstanceId,
             runId,
             toolCallId,
-            settings: { modelId: MODEL, permissionMode: 'default' },
+            settings: { selector: MODEL, permissionMode: 'default' },
           }),
         );
       });

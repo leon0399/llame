@@ -28,6 +28,7 @@ import { type Message } from '../db/schema';
 import { ChatJobsRepository } from '../jobs/chat-jobs.repository';
 import { workerDeadAfterSeconds } from '../jobs/worker-liveness';
 import { newChatJob } from '../testing/chat-job-rows';
+import { fakeResolveSelection } from '../testing/fake-model-selection';
 import { TenantDbService } from '../db/tenant-db.service';
 import { ChatLoopService } from '../chats/chat-loop.service';
 import { ChatsRepository, MessagesRepository } from '../chats/chats-repository';
@@ -348,6 +349,11 @@ describeIfDb(
       const models: ModelSelectionValidator = {
         validateModelSelection: () => MODEL_ENTRY,
         resolveEffortSelection: () => undefined,
+        resolveSelection: fakeResolveSelection({
+          validateModelSelection: () => MODEL_ENTRY,
+          resolveEffortSelection: () => undefined,
+          defaultSelector: MODEL_ENTRY.id,
+        }),
       };
 
       const bridge: RunStreamResponder = {
@@ -867,7 +873,7 @@ describeIfDb(
           await chatLoop.createMessageStream({
             chatId: died.chatId,
             userId,
-            modelId: MODEL_ID,
+            selector: MODEL_ID,
             message: {
               id: crypto.randomUUID(),
               parts: [{ type: 'text', text: 'a new message' }],

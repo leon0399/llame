@@ -23,7 +23,7 @@ const facts: BashJobFacts = {
   runId: 'run',
   toolCallId: 'call',
   startedAt: new Date('2026-11-11T10:00:00.000Z'),
-  settings: { modelId: 'm', permissionMode: 'default' },
+  settings: { selector: 'm', permissionMode: 'default' },
   maxBytes: 1_000_000,
   configuredCredentials: [],
   artifactReadable: false,
@@ -54,7 +54,7 @@ function job(): ChatJob {
     outputs: [],
     artifactId: null,
     artifactReadable: false,
-    settings: { modelId: 'm', permissionMode: 'default' },
+    settings: { selector: 'm', permissionMode: 'default' },
   };
 }
 

@@ -52,6 +52,7 @@ const backgroundChat: ChatListItemResponse = {
   archivedAt: null,
   projectId: null,
   workspaceRoot: null,
+  modelSelection: null,
   lastMessage: null,
   runningJobs: 1,
 };

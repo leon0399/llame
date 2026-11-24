@@ -27,6 +27,26 @@ import {
   CreateTextMessagePartDto,
 } from './dto/message-parts.dto';
 
+/**
+ * The published shape of one server-sent event frame.
+ *
+ * An SSE response body is a sequence of frames, but OpenAPI has no
+ * content type for that, so a scanner validating a `text/event-stream`
+ * response validates each frame as one object: `event`, its `data`, and the
+ * optional `id` (the frame's sequence) and `retry` fields. `data` is required
+ * because a frame without one carries nothing for the client to read.
+ */
+export const sseEventSchema = {
+  type: 'object',
+  required: ['data'],
+  properties: {
+    event: { type: 'string' },
+    data: { type: 'string', description: 'One AG-UI event as JSON' },
+    id: { type: 'string' },
+    retry: { type: 'integer' },
+  },
+};
+
 const createChatMessageDocs: Array<MethodDecorator> = [
   ApiOperation({ operationId: 'createChatMessage' }),
   ApiTags('streaming'),
@@ -44,7 +64,7 @@ const createChatMessageDocs: Array<MethodDecorator> = [
     description: 'AG-UI event stream (SSE) or chat command result',
     content: {
       'text/event-stream': {
-        schema: { type: 'string' },
+        schema: sseEventSchema,
       },
       'application/json': {
         schema: {

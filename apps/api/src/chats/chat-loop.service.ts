@@ -4,7 +4,6 @@ import {
   Inject,
   Injectable,
   Logger,
-  NotFoundException,
 } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 
@@ -14,7 +13,12 @@ import {
   type TenantRunner,
 } from '../db/tenant-db.service';
 import { assertNotArchived } from '../db/assert-not-archived';
-import { type Chat, type ChatDelivery, type Message } from '../db/schema';
+import {
+  type Chat,
+  type ChatDelivery,
+  type Message,
+  type Run,
+} from '../db/schema';
 import {
   InstanceConfigService,
   type InstanceConfigReader,
@@ -22,15 +26,14 @@ import {
 import { type ModelClient } from '../models/model-client';
 import {
   ModelsService,
+  resolvePermissionMode,
   resolveSendSettings,
   type ModelSelectionValidator,
+  type ResolvedSendSettings,
 } from '../models/models.service';
 import { type PermissionMode } from '../tools/permissions/permission-mode';
 import { ChatsRepository, MessagesRepository } from './chats-repository';
-import {
-  creationInProgress,
-  tryCreationTransactionLock,
-} from './chat-creation-lock';
+import { resolveSendChat, takeCreationLock } from './chat-send-chat';
 import { type RunUserMessage } from '../runs/run-execution.service';
 import {
   RunStreamBridgeService,
@@ -56,7 +59,8 @@ import { RunWaitService } from '../runs/run-wait.service';
 import { retryRunTransaction } from '../runs/run-transaction';
 import { type SendableDeliveryMode } from './dto/chat-deliveries.dto';
 import { ChatDeliveriesRepository } from './chat-deliveries.repository';
-import { createRunForMessage } from './run-creation';
+import { createRunForMessage, runSelectionFields } from './run-creation';
+import { storeOwnerSelection } from './owner-selection';
 
 /**
  * A Run that passed admission, and the identity its dispatch needs: what
@@ -78,14 +82,16 @@ export type ChatMessageInput = {
 };
 
 /**
- * One turn that passed every pre-write check: the model selection, the
- * permission mode, the parts, and the ownership of every media part. Chat
- * creation validates before it stores a chat; the message route validates
- * before it opens its transaction.
+ * One turn that passed every pre-write check: the selector and effort the
+ * request named (both resolved inside the admission transaction), the
+ * permission mode, the bounded parts, and the ownership of every media part.
+ * Chat creation validates before it opens its admission transaction; the
+ * message route does the same.
  */
 export type ValidatedChatTurn = {
-  modelId: string;
-  /** Resolved at accept time; absent means "send no effort parameter". */
+  /** The selector the request named; undefined means "use the stored or default". */
+  selector: string | undefined;
+  /** The effort the request named; undefined means "follow the spec's order". */
   effort: string | undefined;
   permissionMode: PermissionMode;
   message: { id: string; parts: Array<ClientMessagePart> };
@@ -94,16 +100,17 @@ export type ValidatedChatTurn = {
 };
 
 /**
- * Accept-time inputs for the binding transaction: user identity, chat,
- * selected model/effort/mode, and the sanitized message. Prompt rendering,
- * tool-catalog composition, and context-item derivation are resolved by
- * the executing worker at attempt time, not here.
+ * Accept-time inputs for the binding transaction: user identity, chat, the
+ * selector and effort the request named, the enabled permission mode, and the
+ * sanitized message. The selector, its model, and the effort are resolved
+ * inside that transaction, against the selection the Chat row stores. Prompt
+ * rendering, tool-catalog composition, and context-item derivation are
+ * resolved by the executing worker at attempt time, not here.
  */
 export type PersistUserMessageAndRunInput = {
   chatId: string;
   userId: string;
-  modelId: string;
-  /** Resolved at accept time; absent means "send no effort parameter". */
+  selector: string | undefined;
   effort: string | undefined;
   /** Validated at accept time and persisted on the Run. */
   permissionMode: PermissionMode;
@@ -132,6 +139,8 @@ export type ChatMessageStream = Pick<
 type PersistUserMessageAndRunResult = {
   runId: string;
   userMessage: RunUserMessage;
+  /** The model the first segment serves, as admission resolved it. */
+  modelId: string;
 };
 
 /**
@@ -140,11 +149,22 @@ type PersistUserMessageAndRunResult = {
  */
 export type PendingDeliveryAnswer = { delivery: ChatDelivery };
 
+/** The Chat's single-flight slot as this send found it. */
+type SlotClaim =
+  | { readonly state: 'free' }
+  | {
+      readonly state: 'blocked';
+      readonly kind: Run['kind'];
+      /** The mode the pending item stores, as the send or the slot dictates. */
+      readonly mode: SendableDeliveryMode;
+    };
+
 type CreateMessageStreamInput = {
   chatId: string;
   userId: string;
-  modelId: string;
-  /** Requested by the caller; absent resolves the model's `defaultEffort`. */
+  /** The selector the caller named; absent uses the Chat's stored selection. */
+  selector?: string;
+  /** Requested by the caller; absent follows the spec's effort order. */
   effort?: string;
   /** Requested by the caller; absent resolves to the default permission mode. */
   permissionMode?: PermissionMode;
@@ -208,14 +228,20 @@ export class ChatLoopService {
     input: CreateMessageStreamInput,
     delivery: SendableDeliveryMode | undefined,
   ): Promise<ChatMessageStream | PendingDeliveryAnswer> {
-    // Validate BEFORE any database work: a rejected message must not cost a
-    // transaction, and input that was invalid anyway stays a 400.
+    // Validate the request's shape and its permission mode BEFORE any database
+    // work: a rejected message must not cost a transaction, and input that was
+    // invalid anyway stays a 400. The selector and the effort resolve inside
+    // the admission transaction, against the Chat's stored selection.
     const turn = await this.validateTurn(input);
 
     const admitted = await this.persistUserMessageAndRun({
       chatId: input.chatId,
       userId: input.userId,
-      ...turn,
+      selector: turn.selector,
+      effort: turn.effort,
+      permissionMode: turn.permissionMode,
+      message: turn.message,
+      parts: turn.parts,
       delivery,
       targetRunId: randomUUID(),
       takeCreationLock: true,
@@ -227,34 +253,35 @@ export class ChatLoopService {
       ...admitted,
       chatId: input.chatId,
       userId: input.userId,
-      modelId: input.modelId,
+      modelId: admitted.modelId,
       abortSignal: input.abortSignal,
     });
   }
 
   /**
    * Every pre-write check of one turn, shared by the message route and chat
-   * creation: the model, its effort, an enabled permission mode, the bounded
-   * parts, and the sender's ownership of every media part. Nothing here writes.
+   * creation: an enabled permission mode, the bounded parts, and the sender's
+   * ownership of every media part. Nothing here writes, and nothing here needs
+   * the Chat row — the selector, its model, and the effort are resolved inside
+   * the admission transaction instead (design D3).
    */
   async validateTurn(input: {
     userId: string;
-    modelId: string;
+    selector?: string;
     effort?: string;
     permissionMode?: PermissionMode;
     message: ChatMessageInput;
   }): Promise<ValidatedChatTurn> {
-    const { effort, permissionMode } = resolveSendSettings(
-      this.models,
-      this.instanceConfig.config.tools.permissionModes,
-      input,
-    );
-
     const message = this.sanitizeAndValidateMessage(input.message);
 
+    const permissionMode = resolvePermissionMode(
+      input.permissionMode,
+      this.instanceConfig.config.tools.permissionModes,
+    );
+
     return {
-      modelId: input.modelId,
-      effort,
+      selector: input.selector,
+      effort: input.effort,
       permissionMode,
       message,
       parts: await resolveOwnerFileParts(
@@ -296,7 +323,7 @@ export class ChatLoopService {
       runId,
       chatId: input.chatId,
       userId: input.userId,
-      modelId: input.turn.modelId,
+      modelId: admitted.modelId,
       userMessage,
     });
 
@@ -364,37 +391,80 @@ export class ChatLoopService {
     // message before any chat or message row is written. Media is immutable, so
     // reading it in its own transaction races nothing.
     return retryRunTransaction(() =>
-      this.tenantDb.runAs(input.userId, async (tx) => {
-        await this.takeCreationLock(tx, input);
-        const chatsRepo = new ChatsRepository(tx);
-        const messagesRepo = new MessagesRepository(tx);
+      this.tenantDb.runAs(input.userId, (tx) =>
+        this.admitUserMessageAndRun(tx, input),
+      ),
+    );
+  }
 
-        const { chat, createdByUs } = await this.resolveChat(chatsRepo, input);
+  /** The admission transaction itself: every step below runs in `tx`. */
+  private async admitUserMessageAndRun(
+    tx: Db,
+    input: PersistUserMessageAndRunInput,
+  ): Promise<PersistUserMessageAndRunResult | PendingDeliveryAnswer> {
+    await takeCreationLock(tx, input);
+    const chatsRepo = new ChatsRepository(tx);
+    const messagesRepo = new MessagesRepository(tx);
 
-        const item = await this.findStoredItem(
-          tx,
-          chatsRepo,
-          input,
-          createdByUs,
-        );
+    const { chat, createdByUs } = await resolveSendChat(chatsRepo, input);
+    const item = await this.findStoredItem(tx, chatsRepo, input, createdByUs);
 
-        if (item) return { delivery: item };
+    if (item) return { delivery: item };
 
-        const admittedMessage = await this.admitTurn(
-          chat,
-          createdByUs,
-          chatsRepo,
-          messagesRepo,
-          input,
-        );
+    const turn = await this.admitTurn(
+      chat,
+      createdByUs,
+      chatsRepo,
+      messagesRepo,
+      input,
+    );
 
-        return this.persistAcceptedMessageAndRun(
-          tx,
-          messagesRepo,
-          input,
-          admittedMessage,
-        );
-      }),
+    return this.persistAcceptedTurn(tx, {
+      input,
+      turn,
+      chatsRepo,
+      messagesRepo,
+    });
+  }
+
+  /**
+   * Resolve the selection and start the Run, after every check before them
+   * answered: the selector, its model, and the effort answer 422 here, inside
+   * this transaction, so a 422 rolls back every write it made.
+   */
+  private async persistAcceptedTurn(
+    tx: Db,
+    context: {
+      input: PersistUserMessageAndRunInput;
+      turn: { chat: Chat; userMessage: Message | undefined };
+      chatsRepo: ChatsRepository;
+      messagesRepo: MessagesRepository;
+    },
+  ): Promise<PersistUserMessageAndRunResult | PendingDeliveryAnswer> {
+    const { input, turn, chatsRepo, messagesRepo } = context;
+
+    const slot = await this.claimSlot(tx, input);
+
+    const selection = resolveSendSettings(
+      this.models,
+      this.instanceConfig.config.tools.permissionModes,
+      {
+        stored: turn.chat.modelSelection ?? null,
+        request: { selector: input.selector, effort: input.effort },
+        writer: 'owner',
+        permissionMode: input.permissionMode,
+      },
+    );
+
+    await storeOwnerSelection(chatsRepo, turn.chat, selection);
+
+    return this.persistAcceptedMessageAndRun(
+      tx,
+      messagesRepo,
+      input,
+      turn.userMessage,
+      slot,
+      selection,
     );
   }
 
@@ -407,8 +477,10 @@ export class ChatLoopService {
     messagesRepo: MessagesRepository,
     input: PersistUserMessageAndRunInput,
     admittedMessage: Message | undefined,
+    slot: SlotClaim,
+    selection: ResolvedSendSettings,
   ): Promise<PersistUserMessageAndRunResult | PendingDeliveryAnswer> {
-    const pending = await this.admitToSlot(tx, input);
+    const pending = await this.storeOrStart(tx, input, slot);
 
     if (pending) return pending;
 
@@ -424,12 +496,33 @@ export class ChatLoopService {
       input.parts,
     );
 
-    // Durable run (#48): every accepted user message becomes exactly one run
-    // (SPEC §9.3). The run row + run.created land in the SAME transaction as
-    // the user message, so a message can never exist without its execution
-    // record. Reusing a message id is rejected above; retries are a separate
-    // feature, not implicit idempotency.
-    const { run } = await createRunForMessage(tx, input, userMessage);
+    return this.createAcceptedRun(tx, input, userMessage, selection);
+  }
+
+  /**
+   * Durable run (#48): every accepted user message becomes exactly one run
+   * (SPEC §9.3). The run row + run.created land in the SAME transaction as the
+   * user message, so a message can never exist without its execution record.
+   * Reusing a message id is rejected above; retries are a separate feature, not
+   * implicit idempotency.
+   */
+  private async createAcceptedRun(
+    tx: Db,
+    input: PersistUserMessageAndRunInput,
+    userMessage: Message,
+    selection: ResolvedSendSettings,
+  ): Promise<PersistUserMessageAndRunResult> {
+    const { run } = await createRunForMessage(
+      tx,
+      {
+        userId: input.userId,
+        chatId: input.chatId,
+        ...runSelectionFields(selection),
+        targetRunId: input.targetRunId,
+      },
+      userMessage,
+    );
+
     await new ChatDeliveriesRepository(tx).deliverPendingJobNotices(
       input.chatId,
       input.userId,
@@ -439,20 +532,21 @@ export class ChatLoopService {
     return {
       runId: run.id,
       userMessage: toRunUserMessage(userMessage),
+      modelId: selection.modelId,
     };
   }
   /**
    * The single-flight step of admission. A send without `delivery` answers 409
-   * while a live Run holds the slot. A delivery send stores the message as a
-   * pending item instead: neither a message row nor a Run (run-steering D2).
-   * Without a live blocker the send goes on to start its Run, whatever
-   * `delivery` says. An id that already names a message of the owner, in any
-   * Chat, is a duplicate and is refused before the item is stored.
+   * while a live Run holds the slot. A delivery send claims the slot and, when
+   * a live Run holds it, goes on to store the message as a pending item
+   * instead (run-steering D2). An id that already names a message of the
+   * owner, in any Chat, is a duplicate and is refused before the item is
+   * stored — and before the selector is judged, so this 409 wins over a 422.
    */
-  private async admitToSlot(
+  private async claimSlot(
     tx: Db,
     input: PersistUserMessageAndRunInput,
-  ): Promise<PendingDeliveryAnswer | undefined> {
+  ): Promise<SlotClaim> {
     const slot = {
       tx,
       chatId: input.chatId,
@@ -464,28 +558,53 @@ export class ChatLoopService {
     if (input.delivery === undefined) {
       await clearActiveRunSlot(slot);
 
-      return undefined;
+      return { state: 'free' };
     }
 
     const slotState = await claimActiveRunSlot(slot);
 
-    if (slotState.state === 'free') return undefined;
-    const deliveries = new ChatDeliveriesRepository(tx);
+    if (slotState.state === 'free') return slotState;
 
-    if (await deliveries.messageIdTaken(input.message.id, input.userId))
+    if (
+      await new ChatDeliveriesRepository(tx).messageIdTaken(
+        input.message.id,
+        input.userId,
+      )
+    ) {
       throw new ConflictException('Message id already exists');
+    }
 
-    const storedMode =
-      slotState.kind === 'compaction' ? 'queue' : input.delivery;
+    return {
+      state: 'blocked',
+      kind: slotState.kind,
+      // A compaction in flight queues the item instead of steering a Run that
+      // is not serving it (run-steering D2).
+      mode: slotState.kind === 'compaction' ? 'queue' : input.delivery,
+    };
+  }
+
+  /**
+   * Finish the single-flight step: a free slot starts the Run; a blocked one
+   * stores the message as a pending item — neither a message row nor a Run
+   * (run-steering D2). The item stores only what the send named; its Run later
+   * resolves the selector and the effort against the Chat's selection.
+   */
+  private async storeOrStart(
+    tx: Db,
+    input: PersistUserMessageAndRunInput,
+    slot: SlotClaim,
+  ): Promise<PendingDeliveryAnswer | undefined> {
+    if (slot.state === 'free') return undefined;
+    const deliveries = new ChatDeliveriesRepository(tx);
 
     const created = await deliveries.insertPending({
       id: input.message.id,
       chatId: input.chatId,
       ownerUserId: input.userId,
-      mode: storedMode,
+      mode: slot.mode,
       parts: input.parts,
       settings: {
-        modelId: input.modelId,
+        ...(input.selector !== undefined && { selector: input.selector }),
         ...(input.effort !== undefined && { effort: input.effort }),
         permissionMode: input.permissionMode,
       },
@@ -493,59 +612,11 @@ export class ChatLoopService {
 
     if (!created) throw new ConflictException('Message id already exists');
 
-    if (storedMode === 'interrupt' || storedMode === 'steer') {
-      await notifyLiveRunSteering(tx, input, storedMode, this.runWait);
+    if (slot.mode === 'interrupt' || slot.mode === 'steer') {
+      await notifyLiveRunSteering(tx, input, slot.mode, this.runWait);
     }
 
     return { delivery: created };
-  }
-
-  /**
-   * The Chat's creation lock, inside the admission transaction: a create
-   * request holding it answers 409 here, and this route holds it only until the
-   * transaction ends, never for the life of the Run.
-   */
-  private async takeCreationLock(
-    tx: Db,
-    input: PersistUserMessageAndRunInput,
-  ): Promise<void> {
-    if (
-      input.takeCreationLock &&
-      !(await tryCreationTransactionLock(tx, input.chatId))
-    ) {
-      throw creationInProgress();
-    }
-  }
-
-  /**
-   * Resolve or create the chat: the first message creates the chat (#86). The
-   * client supplies the id (routing + idempotency); the owner is always the
-   * session user. If the chat is absent, upsert it; a conflict means the id is
-   * already taken — by us (a concurrent first send) or by another tenant.
-   * Re-query to disambiguate: our own row becomes visible (relies on the
-   * default READ COMMITTED seeing the concurrent commit), a cross-tenant id
-   * stays invisible → 404 (no existence leak).
-   */
-  private async resolveChat(
-    chatsRepo: ChatsRepository,
-    input: PersistUserMessageAndRunInput,
-  ): Promise<{ chat: Chat; createdByUs: boolean }> {
-    let chat = await chatsRepo.findById(input.chatId, input.userId);
-
-    if (chat) return { chat, createdByUs: false };
-    chat = await chatsRepo.createIfAbsent({
-      id: input.chatId,
-      ownerUserId: input.userId,
-    });
-
-    if (chat) return { chat, createdByUs: true };
-    chat = await chatsRepo.findById(input.chatId, input.userId);
-
-    if (!chat) {
-      throw new NotFoundException(`Chat ${input.chatId} not found`);
-    }
-
-    return { chat, createdByUs: false };
   }
 
   /**
@@ -585,7 +656,8 @@ export class ChatLoopService {
    * ensures two transactions do not both commit against the same baseline. A
    * freshly inserted chat already carries this transaction's row lock; an
    * existing chat is locked here (by the activity update) before any
-   * downstream state is read.
+   * downstream state is read, and the row the update returns is the one whose
+   * stored selection admission resolves — not the pre-lock read.
    */
   private async admitTurn(
     chat: Chat,
@@ -593,7 +665,7 @@ export class ChatLoopService {
     chatsRepo: ChatsRepository,
     messagesRepo: MessagesRepository,
     input: PersistUserMessageAndRunInput,
-  ): Promise<Message | undefined> {
+  ): Promise<{ chat: Chat; userMessage: Message | undefined }> {
     // Archive guard (chat-project-archive): a freshly created chat
     // (createdByUs) is never archived, so this only fires for a pre-existing
     // archived chat — sending does NOT unarchive.
@@ -609,9 +681,11 @@ export class ChatLoopService {
       throw new ConflictException('Message id already exists');
     }
 
-    if (!createdByUs) await chatsRepo.touch(input.chatId, input.userId);
+    if (createdByUs) return { chat, userMessage: turn.userMessage };
 
-    return turn.userMessage;
+    const locked = await chatsRepo.touch(input.chatId, input.userId);
+
+    return { chat: locked ?? chat, userMessage: turn.userMessage };
   }
 
   private async persistUserMessageIfAbsent(

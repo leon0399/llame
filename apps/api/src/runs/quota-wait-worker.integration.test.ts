@@ -287,7 +287,10 @@ describe('quota wait worker acceptance', () => {
         ownerUserId: userId,
         mode: 'steer',
         parts: [{ type: 'text', text: 'include this pending steer' }],
-        settings: { modelId: 'ignored-steer-model', permissionMode: 'default' },
+        settings: {
+          selector: 'ignored-steer-model',
+          permissionMode: 'default',
+        },
       }),
     );
 

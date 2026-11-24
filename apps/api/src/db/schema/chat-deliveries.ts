@@ -37,9 +37,15 @@ export const chatDeliveryStates = [
 
 export type ChatDeliveryState = (typeof chatDeliveryStates)[number];
 
-/** The send settings an item keeps until it becomes a Run (accept-time values). */
+/**
+ * The send settings an item keeps until it becomes a Run (accept-time values).
+ * An owner item stores only what the send named: `selector` is absent when the
+ * request named none, so promotion re-resolves the Chat's stored selection.
+ * A job item always names the selector and effort of the Run that started it.
+ */
 export type ChatDeliverySettings = {
-  modelId: string;
+  /** A role (`@fast`) or an exact model id. */
+  selector?: string;
   effort?: string;
   permissionMode: PermissionMode;
 };

@@ -136,6 +136,9 @@ const run: Run = {
   messageId: 'message-1',
   userId: 'owner-1',
   modelId: 'model-1',
+  selector: 'model-1',
+  selectedEffort: null,
+  selectionRevision: null,
   activeAttemptId: null,
   completedAttemptId: null,
   turnToolAvailability: null,
@@ -249,10 +252,11 @@ describe('RunsRepository', () => {
 
     expect(values[0]).toStrictEqual({
       ...input,
+      selector: 'model-1',
       followUpAction: 'continue',
       sourceRunId: 'run-source',
     });
-    expect(values[1]).toStrictEqual(input);
+    expect(values[1]).toStrictEqual({ ...input, selector: 'model-1' });
   });
 
   it('findMostRecentByMessageSequence returns the run and triggering sequence, with a strict message-sequence bound', async () => {

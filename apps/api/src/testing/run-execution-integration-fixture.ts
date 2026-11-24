@@ -19,7 +19,10 @@ import { RecencyDigestService } from '../chats/recency-digest.service';
 import { MemoryService } from '../memory/memory.service';
 import { type ModelClient } from '../models/model-client';
 import { type SystemModelCatalogEntry } from '../models/model-catalog';
-import { type ModelSelectionValidator } from '../models/models.service';
+import {
+  resolveSelectionFromCatalog,
+  type ModelSelectionValidator,
+} from '../models/models.service';
 import { noopQueryEmbedder } from '../search/chat-search-query-embedder.stub';
 import { noopEmbedDispatch } from '../search/search-embed-dispatch.stub';
 import { noopReindexDispatch } from '../search/search-reindex-dispatch.stub';
@@ -59,6 +62,17 @@ export function catalogValidator(
       return entry;
     },
     resolveEffortSelection: () => undefined,
+    resolveSelection: (stored, request, writer) =>
+      resolveSelectionFromCatalog(
+        {
+          defaultSelector: undefined,
+          roleCandidates: () => undefined,
+          model: (modelId) => entries.find(({ id }) => id === modelId),
+        },
+        stored,
+        request,
+        writer,
+      ),
   };
 }
 

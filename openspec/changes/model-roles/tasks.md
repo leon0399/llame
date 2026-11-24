@@ -71,28 +71,28 @@ master <- model-roles/proposal <- model-roles/catalog <- model-roles/selection
 
 ## 3. Selection (`model-roles/selection`)
 
-- [ ] 3.1 Migration with the RLS window of design D14, the `RunsRepository.create` defaults, and the
+- [x] 3.1 Migration with the RLS window of design D14, the `RunsRepository.create` defaults, and the
       queue-promotion and job-notice readers of `settings.selector`; verify "An old Chat keeps its
       model" and "A queue item survives the migration" against a seeded database, and that a second
       run changes nothing.
-- [ ] 3.2 Split admission as design D3 and add the resolver; verify the scenarios of "A send names a
+- [x] 3.2 Split admission as design D3 and add the resolver; verify the scenarios of "A send names a
       selector or uses the stored selection", "A selector resolves to one model at admission", "A
       stored selection that no longer resolves uses the default", "An omitted effort follows one
       order", "A send effort is validated against the resolved model", the modified
       `available-models` effort scenarios, and `available-models` "Compaction uses triggering run
       model". Update the tests that pin the old error order.
-- [ ] 3.3 Replace `modelId` with `selector` in the send, chat-creation, Regenerate, delivery, and
+- [x] 3.3 Replace `modelId` with `selector` in the send, chat-creation, Regenerate, delivery, and
       `/compact` DTOs; publish `selector` on `latestRun`, `RunResponse`, and the delivery echo;
       regenerate OpenAPI, the web client, and the AsyncAPI websocket protocol; move the web senders
       (transport, creation, delivery, Regenerate, turn actions) and the E2E suites to `selector`.
       Verify `chat-creation` "A create request names a role", the `chat-commands` scenarios,
       `turn-actions` "The latest Run names its role", "Continue rejects an unknown candidate value",
       and "Continue keeps the model and the effort".
-- [ ] 3.4 Write and return the selection with its revision; verify "Another device shows the same
+- [x] 3.4 Write and return the selection with its revision; verify "Another device shows the same
       selection", "A refused send stores no selection", "A pick resets the stored effort", "A pick
       sent as a steer", and the negative isolation scenario "Another owner reads a Chat" in the API
       integration suite.
-- [ ] 3.5 CHANGELOG entry for the API rename; verify `pnpm lint:markdown`.
+- [x] 3.5 CHANGELOG entry for the API rename; verify `pnpm lint:markdown`.
 - [ ] 3.6 SR, then GR with the Ready-PR monitoring loop.
 
 ## 4. Selection UX (`model-roles/selection-ux`)

@@ -344,7 +344,7 @@ describe('LiveGatewayService', () => {
         mode: 'queue',
         parts: [{ type: 'text', text: 'then summarize' }],
         settings: {
-          modelId: 'system:openai:gpt-5.4-mini',
+          selector: 'system:openai:gpt-5.4-mini',
           permissionMode: 'default',
         },
       }),

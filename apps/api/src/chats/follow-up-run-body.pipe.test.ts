@@ -40,7 +40,7 @@ describe('FollowUpRunBodyPipe', () => {
   it('accepts a regenerate body and returns the regenerate variant', async () => {
     const parsed = await transform({
       action: 'regenerate',
-      modelId: 'model-a',
+      selector: '@reasoning',
       effort: 'high',
       permissionMode: 'bypass',
     });
@@ -48,30 +48,37 @@ describe('FollowUpRunBodyPipe', () => {
     expect(parsed).toBeInstanceOf(RegenerateFollowUpRunDto);
     expect(parsed).toEqual({
       action: 'regenerate',
-      modelId: 'model-a',
+      selector: '@reasoning',
       effort: 'high',
       permissionMode: 'bypass',
     });
   });
 
-  it('rejects a continue body that names a model or an effort', async () => {
+  it('rejects a continue body that names a selector or an effort', async () => {
     await expect(
-      transform({ action: 'continue', modelId: 'model-a' }),
+      transform({ action: 'continue', selector: 'model-a' }),
     ).rejects.toBeInstanceOf(BadRequestException);
     await expect(
       transform({ action: 'continue', effort: 'high' }),
     ).rejects.toBeInstanceOf(BadRequestException);
   });
 
-  it('rejects a regenerate body without its model', async () => {
-    await expect(transform({ action: 'regenerate' })).rejects.toBeInstanceOf(
-      BadRequestException,
-    );
+  it('accepts a regenerate body without a selector — the stored selection supplies it', async () => {
+    const parsed = await transform({ action: 'regenerate' });
+
+    expect(parsed).toBeInstanceOf(RegenerateFollowUpRunDto);
+    expect(parsed).toEqual({ action: 'regenerate' });
+  });
+
+  it('rejects a regenerate body that still names the removed modelId field', async () => {
+    await expect(
+      transform({ action: 'regenerate', modelId: 'model-a' }),
+    ).rejects.toBeInstanceOf(BadRequestException);
   });
 
   it('rejects a field neither variant declares', async () => {
     await expect(
-      transform({ action: 'regenerate', modelId: 'model-a', extra: true }),
+      transform({ action: 'regenerate', selector: 'model-a', extra: true }),
     ).rejects.toBeInstanceOf(BadRequestException);
   });
 

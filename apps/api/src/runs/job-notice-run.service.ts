@@ -5,24 +5,22 @@ import { randomUUID } from 'node:crypto';
 import { ChatDeliveriesRepository } from '../chats/chat-deliveries.repository';
 import { ChatsRepository, MessagesRepository } from '../chats/chats-repository';
 import { toRunUserMessage } from '../chats/chat-message-parts';
-import { createRunForMessage } from '../chats/run-creation';
-import {
-  type ChatDelivery,
-  type ChatDeliverySettings,
-  type ChatJob,
-  runs,
-  type Run,
-} from '../db/schema';
+import { createRunForMessage, runSelectionFields } from '../chats/run-creation';
+import { type ChatDelivery, type ChatJob, runs, type Run } from '../db/schema';
 import { type Db } from '../db/tenant-db.service';
 import {
   InstanceConfigService,
   type InstanceConfigReader,
 } from '../instance-config/instance-config.service';
+import { type ChatModelSelection } from '../models/model-selection';
 import {
   ModelsService,
-  resolveSendSettings,
   type ModelSelectionValidator,
 } from '../models/models.service';
+import {
+  type ItemRunResolution,
+  tryResolveItemRunSettings,
+} from './queue-promotion';
 import { type RunJob } from './run-queues';
 import { RunDispatchService } from './run-dispatch.service';
 import { RunsRepository } from './runs-repository';
@@ -65,12 +63,12 @@ export class JobNoticeRunService {
       return;
     }
 
-    await this.startNoticeRunForIdleChat(
-      tx,
+    await this.startNoticeRunForIdleChat(tx, {
       owner,
       deliveries,
-      new RunsRepository(tx),
-    );
+      runs: new RunsRepository(tx),
+      stored: chat.modelSelection,
+    });
   }
 
   async startOnSettlement(tx: Db, job: ChatJob): Promise<void> {
@@ -105,16 +103,26 @@ export class JobNoticeRunService {
       return;
     }
 
-    await this.startNoticeRunForIdleChat(tx, job, deliveries, runs);
+    await this.startNoticeRunForIdleChat(tx, {
+      owner: job,
+      deliveries,
+      runs,
+      stored: chat.modelSelection,
+    });
   }
 
   /** Start the first pending notice only after the latest Run completed. */
   private async startNoticeRunForIdleChat(
     tx: Db,
-    owner: ChatOwner,
-    deliveries: ChatDeliveriesRepository,
-    runs: RunsRepository,
+    context: {
+      owner: ChatOwner;
+      deliveries: ChatDeliveriesRepository;
+      runs: RunsRepository;
+      stored: ChatModelSelection | null;
+    },
   ): Promise<void> {
+    const { owner, deliveries, runs, stored } = context;
+
     const latestRun = await runs.findLatestByChatId(
       owner.chatId,
       owner.ownerUserId,
@@ -129,7 +137,7 @@ export class JobNoticeRunService {
 
     if (first === undefined) return;
 
-    await this.startHostRun(tx, owner, first, deliveries);
+    await this.startHostRun(tx, { owner, first, deliveries, stored });
   }
 
   private async attachToQueuedHostRun(
@@ -174,23 +182,25 @@ export class JobNoticeRunService {
 
   private async startHostRun(
     tx: Db,
-    owner: ChatOwner,
-    first: ChatDelivery,
-    deliveries: ChatDeliveriesRepository,
+    context: {
+      owner: ChatOwner;
+      first: ChatDelivery;
+      deliveries: ChatDeliveriesRepository;
+      stored: ChatModelSelection | null;
+    },
   ): Promise<void> {
-    const resolved = validateNoticeSettings(
-      this.models,
-      this.instanceConfig,
-      first.settings,
-    );
+    const { owner, first, deliveries, stored } = context;
+
+    const resolved = tryResolveItemRunSettings({
+      models: this.models,
+      enabledPermissionModes: this.instanceConfig.config.tools.permissionModes,
+      settings: first.settings,
+      stored,
+    });
 
     if (resolved === undefined) return;
 
-    const runJob = await this.createHostRun(tx, owner, {
-      ...first.settings,
-      effort: resolved.effort,
-      permissionMode: resolved.permissionMode,
-    });
+    const runJob = await this.createHostRun(tx, owner, resolved);
 
     await deliveries.deliverPendingJobNotices(owner.chatId, owner.ownerUserId, {
       messageId: runJob.userMessage.id,
@@ -203,7 +213,7 @@ export class JobNoticeRunService {
   private async createHostRun(
     tx: Db,
     owner: ChatOwner,
-    settings: ChatDeliverySettings,
+    resolved: ItemRunResolution,
   ): Promise<RunJob & { userMessage: RunUserMessage }> {
     const message = await new MessagesRepository(tx).create({
       id: randomUUID(),
@@ -218,9 +228,7 @@ export class JobNoticeRunService {
       {
         userId: owner.ownerUserId,
         chatId: owner.chatId,
-        modelId: settings.modelId,
-        effort: settings.effort,
-        permissionMode: settings.permissionMode,
+        ...runSelectionFields(resolved),
         targetRunId: randomUUID(),
       },
       message,
@@ -230,7 +238,7 @@ export class JobNoticeRunService {
       runId: run.id,
       chatId: owner.chatId,
       userId: owner.ownerUserId,
-      modelId: settings.modelId,
+      modelId: resolved.modelId,
       userMessage: toRunUserMessage(message),
     };
   }
@@ -246,22 +254,6 @@ const RUN_STARTING_JOB_STATES: ReadonlyArray<ChatJob['state']> = [
 
 function startsNoticeRun(job: Pick<ChatJob, 'state'>): boolean {
   return RUN_STARTING_JOB_STATES.includes(job.state);
-}
-
-function validateNoticeSettings(
-  models: ModelSelectionValidator,
-  instanceConfig: InstanceConfigReader,
-  settings: ChatDeliverySettings,
-) {
-  try {
-    return resolveSendSettings(
-      models,
-      instanceConfig.config.tools.permissionModes,
-      settings,
-    );
-  } catch {
-    return undefined;
-  }
 }
 
 async function lockQueuedHostRun(

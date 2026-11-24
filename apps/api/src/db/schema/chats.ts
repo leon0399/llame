@@ -23,6 +23,7 @@ import { users } from './auth';
 import { projects } from './projects';
 import { type TurnToolAvailabilityEntry } from './model-context';
 import { type PermissionMode } from '../../tools/permissions/permission-mode';
+import { type ChatModelSelection } from '../../models/model-selection';
 
 export type AwaitingJobs = {
   kind: 'jobs';
@@ -197,6 +198,13 @@ export const chats = pgTable(
     // a stale id fails closed and causes the next turn to re-tell the snapshot.
     workspaceToldFrom: uuid('workspace_told_from'),
     workspaceDetachReason: text('workspace_detach_reason'),
+    // The model selection this Chat sends under (model-roles): the selector the
+    // owner last named (`@role` or an exact model id), the effort stored beside
+    // it, a monotonic revision a Run records what it read, and the optional
+    // fallback hold. NULL means no owner request has written one yet, so
+    // admission falls back to the configured `defaults.selector` without
+    // writing the row — a Chat never gets a selection just by being read.
+    modelSelection: jsonb('model_selection').$type<ChatModelSelection>(),
   },
   (t) => [
     // Matches findByOwner's ORDER BY (recency); pin state now lives in the
@@ -407,6 +415,15 @@ export const runs = pgTable(
     // Opaque llame model id captured at enqueue time. Required: changing the
     // system default later must not silently alter an already queued run.
     modelId: text('model_id').notNull(),
+    // The model selector the Run was accepted under (model-roles): either a
+    // role (`@fast`) or an exact model id. `model_id` above is what that
+    // selector RESOLVED to at accept time; keeping the selector beside it means
+    // the record of the owner's choice survives a configuration edit that
+    // changes what the role points at.
+    //
+    // No database default: only admission can supply one, and every writer
+    // does. The migration backfills existing rows from `model_id`.
+    selector: text('selector').notNull(),
     status: runStatus('status').notNull().default('queued'),
     // The current queue delivery that may claim or wake this Run.
     wakeGeneration: integer('wake_generation').notNull().default(0),
@@ -442,6 +459,16 @@ export const runs = pgTable(
     // `model_id`, which execution cannot proceed without): a run that predates
     // the feature genuinely had no effort.
     effort: text('effort'),
+    // The effort admission resolved for this Run, as opposed to `effort`
+    // above, which is what the current segment actually SENT. It equals the
+    // first segment's effort; a later model switch changes `effort`, not
+    // `selectedEffort`. Nullable for the same reason as `effort`: a
+    // selection may resolve no effort at all.
+    selectedEffort: text('selected_effort'),
+    // The Chat selection revision this Run read (model-roles). NULL for a Run
+    // admitted before the Chat stored a selection, and for a writer that reads
+    // one that does not exist.
+    selectionRevision: integer('selection_revision'),
     permissionMode: text('permission_mode')
       .notNull()
       .default('default')

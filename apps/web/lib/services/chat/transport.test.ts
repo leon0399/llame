@@ -44,14 +44,14 @@ describe("prepareSendMessagesRequest", () => {
     // that structural check.
     const body = sendBody({
       chatId: "chat-1",
-      modelId: "system:openai:gpt-5.4-mini",
+      selector: "system:openai:gpt-5.4-mini",
       messages: [
         { id: "m1", role: "user", parts: [{ type: "text", text: "old" }] },
         { id: "m2", role: "user", parts: [{ type: "text", text: "new" }] },
       ],
     } as never);
 
-    expect(body.modelId).toBe("system:openai:gpt-5.4-mini");
+    expect(body.selector).toBe("system:openai:gpt-5.4-mini");
     expect(body.message.id).toBe("m2");
     expect(body.message.parts).toEqual([{ type: "text", text: "new" }]);
     expect(JSON.stringify(body)).not.toContain("m1");
@@ -62,7 +62,7 @@ describe("prepareSendMessagesRequest", () => {
     // carries a `role` field beyond `Pick<UIMessage, "id" | "parts">`.
     const body = sendBody({
       chatId: "chat-1",
-      modelId: "system:openai:reasoner",
+      selector: "system:openai:reasoner",
       effort: "xhigh",
       messages: [{ id: "m1", role: "user", parts: [] }],
     } as never);
@@ -77,7 +77,7 @@ describe("prepareSendMessagesRequest", () => {
     // carries a `role` field beyond `Pick<UIMessage, "id" | "parts">`.
     const body = sendBody({
       chatId: "chat-1",
-      modelId: "system:openai:reasoner",
+      selector: "system:openai:reasoner",
       effort,
       messages: [{ id: "m1", role: "user", parts: [] }],
     } as never);
@@ -92,7 +92,7 @@ describe("prepareSendMessagesRequest", () => {
       // carries a `role` field beyond `Pick<UIMessage, "id" | "parts">`.
       const body = sendBody({
         chatId: "chat-1",
-        modelId: "system:openai:reasoner",
+        selector: "system:openai:reasoner",
         permissionMode,
         messages: [{ id: "m1", role: "user", parts: [] }],
       } as never);
@@ -108,7 +108,7 @@ describe("prepareSendMessagesRequest", () => {
       // carries a `role` field beyond `Pick<UIMessage, "id" | "parts">`.
       const body = sendBody({
         chatId: "chat-1",
-        modelId: "system:openai:reasoner",
+        selector: "system:openai:reasoner",
         permissionMode,
         messages: [{ id: "m1", role: "user", parts: [] }],
       } as never);
@@ -118,7 +118,7 @@ describe("prepareSendMessagesRequest", () => {
   );
 
   it("rejects an empty message list", () => {
-    // SAFETY: this fixture omits the required `modelId` on purpose — it
+    // SAFETY: this fixture omits the required `selector` on purpose — it
     // proves the empty-messages runtime check throws before that field is
     // ever read, so a deliberately invalid literal is exactly the point;
     // `as never` opts out of the compile-time required-field check.
@@ -129,25 +129,25 @@ describe("prepareSendMessagesRequest", () => {
 
   it("rejects a missing selected model", () => {
     // SAFETY: same excess-property mismatch as the tests above (fixture
-    // message carries `role`); `modelId` itself is intentionally blank to
+    // message carries `role`); `selector` itself is intentionally blank to
     // exercise the runtime guard, which is a valid `string`, not a type hole.
     expect(() =>
       prepareSendMessagesRequest({
         chatId: "chat-1",
-        modelId: " ",
+        selector: " ",
         messages: [{ id: "m1", role: "user", parts: [] }],
       } as never),
     ).toThrow(/selected model/i);
   });
 
   it("refuses a chat send with no model resolved yet", () => {
-    // `modelId: undefined` is what the composer holds before the catalog
+    // `selector: undefined` is what the composer holds before the catalog
     // resolves; the send path must refuse it rather than shape a request
     // without a model.
     expect(() =>
       prepareSendMessagesRequest({
         chatId: "chat-1",
-        modelId: undefined,
+        selector: undefined,
         messages: [{ id: "m1", parts: [] }],
       }),
     ).toThrow(/selected model/i);
@@ -164,7 +164,7 @@ describe("follow-up requests", () => {
         chatId: "chat-1",
         trigger: "regenerate-message",
         followUp: { action: "continue", permissionMode },
-        modelId: "system:openai:composer-model",
+        selector: "system:openai:composer-model",
         effort: "high",
         messages: [USER_MESSAGE],
       });
@@ -188,7 +188,7 @@ describe("follow-up requests", () => {
         chatId: "chat-1",
         trigger: "regenerate-message",
         followUp: { action: "continue", permissionMode },
-        modelId: "system:openai:composer-model",
+        selector: "system:openai:composer-model",
         messages: [USER_MESSAGE],
       });
 
@@ -204,19 +204,19 @@ describe("follow-up requests", () => {
         trigger: "regenerate-message",
         followUp: {
           action: "regenerate",
-          modelId: "system:openai:previous",
+          selector: "system:openai:previous",
           effort: "low",
           permissionMode,
         },
         // The composer shows another model; a plain click repeats the Run.
-        modelId: "system:openai:composer-model",
+        selector: "system:openai:composer-model",
         effort: "high",
         messages: [USER_MESSAGE],
       });
 
       expect(request.body).toEqual({
         action: "regenerate",
-        modelId: "system:openai:previous",
+        selector: "system:openai:previous",
         effort: "low",
         permissionMode,
       });
@@ -227,8 +227,8 @@ describe("follow-up requests", () => {
     const request = prepareSendMessagesRequest({
       chatId: "chat-1",
       trigger: "regenerate-message",
-      followUp: { action: "regenerate", modelId: "system:openai:previous" },
-      modelId: undefined,
+      followUp: { action: "regenerate", selector: "system:openai:previous" },
+      selector: undefined,
       messages: [
         { id: "user-1", parts: [] },
         // The failed Run left no reply row, so the user turn is the last
@@ -239,7 +239,7 @@ describe("follow-up requests", () => {
     expect(request.api).toMatch(/\/messages\/user-1\/runs$/);
     expect(request.body).toEqual({
       action: "regenerate",
-      modelId: "system:openai:previous",
+      selector: "system:openai:previous",
     });
   });
 
@@ -248,7 +248,7 @@ describe("follow-up requests", () => {
       prepareSendMessagesRequest({
         chatId: "chat-1",
         trigger: "regenerate-message",
-        modelId: "system:openai:composer-model",
+        selector: "system:openai:composer-model",
         messages: [USER_MESSAGE],
       }),
     ).toThrow(NO_FOLLOW_UP_ACTION_ERROR);
@@ -260,7 +260,7 @@ describe("follow-up requests", () => {
         chatId: "chat-1",
         trigger: "regenerate-message",
         followUp: { action: "regenerate" },
-        modelId: "system:openai:composer-model",
+        selector: "system:openai:composer-model",
         messages: [USER_MESSAGE],
       }),
     ).toThrow(NO_FOLLOW_UP_ACTION_ERROR);
@@ -272,7 +272,7 @@ describe("followUpRunRequest", () => {
     expect(
       followUpRunRequest({
         action: "continue",
-        modelId: "system:openai:previous",
+        selector: "system:openai:previous",
         effort: "low",
       }),
     ).toEqual({ action: "continue" });
@@ -282,11 +282,11 @@ describe("followUpRunRequest", () => {
     expect(
       followUpRunRequest({
         action: "regenerate",
-        modelId: "system:openai:previous",
+        selector: "system:openai:previous",
         effort: "",
         permissionMode: "default",
       }),
-    ).toEqual({ action: "regenerate", modelId: "system:openai:previous" });
+    ).toEqual({ action: "regenerate", selector: "system:openai:previous" });
   });
 
   it("drops a permission mode this build does not know", () => {
@@ -302,7 +302,7 @@ describe("followUpRunRequest", () => {
     expect(followUpRunRequest(undefined)).toBeNull();
     expect(followUpRunRequest({ action: "delete" })).toBeNull();
     expect(
-      followUpRunRequest({ action: "regenerate", modelId: " " }),
+      followUpRunRequest({ action: "regenerate", selector: " " }),
     ).toBeNull();
   });
 });
