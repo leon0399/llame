@@ -21,6 +21,13 @@ import {
   upgradeRecencyDigest,
 } from './recency-digest-upgrade';
 import { runRecencyDigestUpgrade } from './recency-digest-upgrade.cli';
+import {
+  defaultReceiptProvesTitle,
+  exportedValueHasPromptProof,
+  immutableIdentityHasProof,
+  noticePinHasProof,
+  originalRunHasPromptProof,
+} from './recency-digest-upgrade-proofs';
 import { readDigestPayload } from '../chats/recency-digest-item';
 import {
   createContextItemPart,
@@ -379,6 +386,367 @@ describe('recency digest data upgrade', () => {
     };
 
     expect(() => parseDigestExportDocument(invalid)).toThrow(ZodError);
+  });
+
+  it('binds exported proofs to the receipt owner, Chat, run, attempt, hash and request event', async () => {
+    const ownerId = 'proof-binding-owner';
+    const chatId = randomUUID();
+    const sourceChatId = randomUUID();
+    const runId = randomUUID();
+    const attemptId = randomUUID();
+    const noticeMessageId = randomUUID();
+    const title = 'Receipt-bound title';
+    const prompt = `Disclosed ${title}`;
+
+    const columns = {
+      baseline: { pinned: [{ title }], recent: [] },
+      told: [{ chatId: sourceChatId, title, pinned: true }],
+      rebakedFrom: null,
+    };
+
+    await seedChat({ ownerId, chatId, runId, attemptId, prompt, columns });
+    await seedChat({
+      ownerId,
+      chatId: sourceChatId,
+      columns: { baseline: null, told: null, rebakedFrom: null },
+    });
+
+    const record = makeRecord({
+      ownerId,
+      chatId,
+      runId,
+      attemptId,
+      prompt,
+      title,
+      sourceChatId,
+      legacyColumns: columns,
+    });
+
+    const entry = record.comparison.entries[0];
+
+    if (!entry)
+      throw new Error('Migration proof fixture could not be constructed');
+
+    await sql.begin(async (tx) => {
+      await tx`select set_config('app.current_user_id', ${ownerId}, true)`;
+      const absentEventAttemptId = randomUUID();
+      await tx`insert into system_prompt_receipts (owner_user_id, run_id, attempt_id, prompt_hash, system_prompt, source) values (${ownerId}, ${runId}::uuid, ${absentEventAttemptId}::uuid, ${hashWithDomain(SYSTEM_PROMPT_RECEIPT_DOMAIN, prompt)}, ${prompt}, 'project_default')`;
+
+      const noticePart = createContextItemPart({
+        producer: 'recency-digest',
+        form: 'notice',
+        runId,
+        payload: { entries: [], pinChanges: [{ title, pinned: true }] },
+        text: 'The previously announced Chat is now pinned.',
+      });
+
+      await tx`insert into messages (id, chat_id, seq, role, sender_user_id, parts) values (${noticeMessageId}::uuid, ${chatId}::uuid, 2, 'assistant', null, ${JSON.stringify([noticePart])}::text::json)`;
+
+      const input = {
+        connection: tx,
+        run: {
+          ownerId,
+          chatId,
+          proof: entry.proofs.identity,
+          value: title,
+        },
+      };
+
+      expect(await exportedValueHasPromptProof(input)).toBe(true);
+      expect(
+        await exportedValueHasPromptProof({
+          ...input,
+          run: { ...input.run, ownerId: 'different-owner' },
+        }),
+      ).toBe(false);
+      expect(
+        await exportedValueHasPromptProof({
+          ...input,
+          run: { ...input.run, chatId: randomUUID() },
+        }),
+      ).toBe(false);
+      expect(
+        await exportedValueHasPromptProof({
+          ...input,
+          run: {
+            ...input.run,
+            proof: { ...input.run.proof, runId: randomUUID() },
+          },
+        }),
+      ).toBe(false);
+      expect(
+        await exportedValueHasPromptProof({
+          ...input,
+          run: {
+            ...input.run,
+            proof: { ...input.run.proof, attemptId: randomUUID() },
+          },
+        }),
+      ).toBe(false);
+      expect(
+        await exportedValueHasPromptProof({
+          ...input,
+          run: {
+            ...input.run,
+            proof: { ...input.run.proof, promptHash: '0'.repeat(64) },
+          },
+        }),
+      ).toBe(false);
+      expect(
+        await exportedValueHasPromptProof({
+          ...input,
+          run: {
+            ...input.run,
+            proof: { ...input.run.proof, attemptId: absentEventAttemptId },
+          },
+        }),
+      ).toBe(false);
+      record.provenance.lastOriginalSeq = 2;
+      const wrongNoticeMessageId = randomUUID();
+      expect(
+        await noticePinHasProof({
+          connection: tx,
+          chat: {
+            id: chatId,
+            owner_user_id: ownerId,
+            recency_digest_told: columns.told,
+          },
+          record,
+          entry: {
+            ...entry,
+            proofs: {
+              ...entry.proofs,
+              pin: { kind: 'notice', messageId: wrongNoticeMessageId },
+            },
+          },
+          cutoffSupported: true,
+        }),
+      ).toEqual({ effectiveCorrection: true, proofMatches: false });
+      expect(
+        await noticePinHasProof({
+          connection: tx,
+          chat: {
+            id: chatId,
+            owner_user_id: ownerId,
+            recency_digest_told: columns.told,
+          },
+          record,
+          entry: {
+            ...entry,
+            proofs: {
+              ...entry.proofs,
+              pin: { kind: 'notice', messageId: noticeMessageId },
+            },
+          },
+          cutoffSupported: true,
+        }),
+      ).toEqual({ effectiveCorrection: true, proofMatches: true });
+      expect(
+        await originalRunHasPromptProof({
+          connection: tx,
+          run: { ownerId, chatId, runId, attemptId },
+        }),
+      ).toBe(true);
+      expect(
+        await originalRunHasPromptProof({
+          connection: tx,
+          run: { ownerId: 'different-owner', chatId, runId, attemptId },
+        }),
+      ).toBe(false);
+      expect(
+        await defaultReceiptProvesTitle({
+          connection: tx,
+          run: { ownerId, chatId, proof: entry.proofs.identity, title },
+        }),
+      ).toBe(true);
+      expect(
+        await immutableIdentityHasProof({
+          connection: tx,
+          ownerId,
+          chatId,
+          legacyBaseline: columns.baseline,
+          rebakedFrom: null,
+          entry,
+        }),
+      ).toBe(true);
+      expect(
+        await immutableIdentityHasProof({
+          connection: tx,
+          ownerId,
+          chatId,
+          legacyBaseline: { pinned: [], recent: [] },
+          rebakedFrom: null,
+          entry,
+        }),
+      ).toBe(false);
+      expect(
+        await immutableIdentityHasProof({
+          connection: tx,
+          ownerId,
+          chatId,
+          legacyBaseline: columns.baseline,
+          rebakedFrom: randomUUID(),
+          entry,
+        }),
+      ).toBe(false);
+
+      const nonDefaultAttempt = randomUUID();
+      const promptHash = hashWithDomain(SYSTEM_PROMPT_RECEIPT_DOMAIN, prompt);
+      await tx`insert into system_prompt_receipts (owner_user_id, run_id, attempt_id, prompt_hash, system_prompt, source) values (${ownerId}, ${runId}::uuid, ${nonDefaultAttempt}::uuid, ${promptHash}, ${prompt}, 'user_override')`;
+      await tx`insert into run_events (run_id, event_type, payload) values (${runId}::uuid, 'model.requested', ${JSON.stringify({ attemptId: nonDefaultAttempt })}::text::jsonb)`;
+
+      const nonDefaultProof = {
+        ...entry.proofs.identity,
+        attemptId: nonDefaultAttempt,
+      };
+
+      expect(
+        await exportedValueHasPromptProof({
+          connection: tx,
+          run: { ownerId, chatId, proof: nonDefaultProof, value: title },
+        }),
+      ).toBe(true);
+      expect(
+        await defaultReceiptProvesTitle({
+          connection: tx,
+          run: { ownerId, chatId, proof: nonDefaultProof, title },
+        }),
+      ).toBe(false);
+      expect(
+        await immutableIdentityHasProof({
+          connection: tx,
+          ownerId,
+          chatId,
+          legacyBaseline: columns.baseline,
+          rebakedFrom: null,
+          entry: {
+            ...entry,
+            proofs: {
+              ...entry.proofs,
+              identity: nonDefaultProof,
+            },
+          },
+        }),
+      ).toBe(false);
+      expect(
+        await exportedValueHasPromptProof({
+          connection: tx,
+          run: {
+            ownerId,
+            chatId,
+            proof: { ...entry.proofs.identity, attemptId: randomUUID() },
+            value: title,
+          },
+        }),
+      ).toBe(false);
+    });
+  });
+
+  it('keeps independently proved baseline fields when the pin receipt source is not a default', async () => {
+    const ownerId = 'independent-proof-owner';
+    const chatId = randomUUID();
+    const sourceChatId = randomUUID();
+    const runId = randomUUID();
+    const attemptId = randomUUID();
+    const excerptAttemptId = randomUUID();
+    const title = 'Default-only pin title';
+    const excerpt = 'Independently disclosed excerpt';
+    const prompt = `Disclosed ${title}; ${excerpt}`;
+
+    const columns = {
+      baseline: { pinned: [{ title, excerpt }], recent: [] },
+      told: [{ chatId: sourceChatId, title, pinned: true }],
+      rebakedFrom: null,
+    };
+
+    await seedChat({ ownerId, chatId, runId, attemptId, prompt, columns });
+    await seedChat({
+      ownerId,
+      chatId: sourceChatId,
+      columns: { baseline: null, told: null, rebakedFrom: null },
+    });
+    await sql.begin(async (tx) => {
+      await tx`select set_config('app.current_user_id', ${ownerId}, true)`;
+      const promptHash = hashWithDomain(SYSTEM_PROMPT_RECEIPT_DOMAIN, prompt);
+      await tx`insert into system_prompt_receipts (owner_user_id, run_id, attempt_id, prompt_hash, system_prompt, source) values (${ownerId}, ${runId}::uuid, ${excerptAttemptId}::uuid, ${promptHash}, ${prompt}, 'user_override')`;
+      await tx`insert into run_events (run_id, event_type, payload) values (${runId}::uuid, 'model.requested', ${JSON.stringify({ attemptId: excerptAttemptId })}::text::jsonb)`;
+    });
+
+    const record = makeRecord({
+      ownerId,
+      chatId,
+      runId,
+      attemptId,
+      prompt,
+      title,
+      sourceChatId,
+      legacyColumns: columns,
+    });
+
+    const baselineEntry = record.baseline.entries[0];
+    const comparison = record.comparison.entries[0];
+
+    if (!baselineEntry || !comparison)
+      throw new Error('Migration proof fixture could not be constructed');
+    baselineEntry.fields.excerpt = excerpt;
+    baselineEntry.proofs.excerpt = {
+      runId,
+      attemptId: excerptAttemptId,
+      promptHash: hashWithDomain(SYSTEM_PROMPT_RECEIPT_DOMAIN, prompt),
+    };
+    comparison.proofs.pin = {
+      kind: 'baseline',
+      proof: {
+        ...comparison.proofs.identity,
+        attemptId: excerptAttemptId,
+      },
+    };
+
+    const report = await sql.begin(async (tx) =>
+      upgradeRecencyDigest(tx, emptyDocument([record]), () =>
+        Promise.resolve(),
+      ),
+    );
+
+    expect(report.importedChats).toBe(1);
+    expect(
+      report.omissions.some(
+        ({ chatId: omittedChatId, field }) =>
+          omittedChatId === chatId && field === 'comparison.pin',
+      ),
+    ).toBe(true);
+    await sql.begin(async (tx) => {
+      await tx`select set_config('app.current_user_id', ${ownerId}, true)`;
+
+      const carriers = await tx<Array<{ parts: unknown }>>`
+        select parts from messages
+        where chat_id = ${chatId}::uuid and sender_user_id is null and role = 'user'
+        order by seq
+      `;
+
+      const digestParts = carriers.flatMap(({ parts }) =>
+        Array.isArray(parts) ? parts.filter(isContextItemPart) : [],
+      );
+
+      const baselinePart = digestParts.find(
+        (part) => readDigestPayload(part)?.kind === 'baseline',
+      );
+
+      const noticePart = digestParts.find(
+        (part) => readDigestPayload(part)?.kind === 'notice',
+      );
+
+      expect(digestParts).toHaveLength(2);
+      expect(
+        baselinePart && readDigestPayload(baselinePart)?.announced,
+      ).toEqual([]);
+      expect(baselinePart?.data.text).toContain(title);
+      expect(baselinePart?.data.text).toContain(excerpt);
+      expect(noticePart && readDigestPayload(noticePart)?.announced).toEqual(
+        [],
+      );
+      expect(carriers).toHaveLength(2);
+    });
   });
 
   it('imports only proved per-owner rows, restores FORCE, resets identity before SQL, and rolls back/retries atomically', async () => {

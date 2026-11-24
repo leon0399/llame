@@ -175,6 +175,183 @@ describe('selectForkMessages', () => {
   });
 });
 
+describe('fork digest history selection', () => {
+  it('copies an anchored fork companion only with its checkpoint and remaps its binding', () => {
+    const checkpointId = 'c941f34a-815d-4c0c-9ad8-6483cd50c29a';
+    const checkpointRow = checkpoint(checkpointId, 4, 2);
+
+    const companion = row('checkpoint-companion', 12, {
+      senderUserId: null,
+      parts: [
+        createRecencyDigestItem({
+          runId: '123e4567-e89b-12d3-a456-426614174000',
+          payload: {
+            version: 1,
+            kind: 'baseline',
+            announced: [],
+            association: { kind: 'checkpoint', checkpointId },
+          },
+          body: 'checkpoint baseline',
+        }),
+      ],
+    });
+
+    const matchingOrigin = row('matching-origin-baseline', 13, {
+      senderUserId: null,
+      parts: [
+        createRecencyDigestItem({
+          runId: '123e4567-e89b-12d3-a456-426614174000',
+          payload: {
+            version: 1,
+            kind: 'baseline',
+            announced: [],
+            association: { kind: 'origin', chatId: CHAT_ID },
+          },
+          body: 'origin baseline',
+        }),
+      ],
+    });
+
+    const foreignOrigin = row('foreign-origin-baseline', 14, {
+      senderUserId: null,
+      parts: [
+        createRecencyDigestItem({
+          runId: '123e4567-e89b-12d3-a456-426614174000',
+          payload: {
+            version: 1,
+            kind: 'baseline',
+            announced: [],
+            association: {
+              kind: 'origin',
+              chatId: 'db3f4d78-b8d3-469a-a083-b17f1d8e08e5',
+            },
+          },
+          body: 'another chat baseline',
+        }),
+      ],
+    });
+
+    const rows = [
+      row('first', 1),
+      row('absorbed-turn', 2),
+      row('anchor', 3),
+      checkpointRow,
+      companion,
+      matchingOrigin,
+      foreignOrigin,
+    ];
+
+    const selected = selectForkMessages(rows, 3, CHAT_ID);
+    expect(selectForkMessages(rows, 1, CHAT_ID).map(({ id }) => id)).toEqual([
+      'first',
+      matchingOrigin.id,
+    ]);
+
+    expect(selected.map(({ id }) => id)).toEqual([
+      'first',
+      'absorbed-turn',
+      'anchor',
+      checkpointId,
+      companion.id,
+      matchingOrigin.id,
+    ]);
+
+    const copiedCheckpointId = 'b1d0994d-3be8-49f3-b6b0-751a9bc01eb0';
+
+    const copied = copiedMessageRows(
+      selected,
+      FORK_CHAT_ID,
+      new Map(
+        selected.map((message) => [
+          message.id,
+          message.id === checkpointId
+            ? copiedCheckpointId
+            : `copied-${message.id}`,
+        ]),
+      ),
+    );
+
+    const copiedCompanion = copied.find(
+      (message) => message.id === `copied-${companion.id}`,
+    );
+
+    const copiedPart = copiedCompanion?.parts[0];
+
+    if (!isContextItemPart(copiedPart)) {
+      throw new Error('Copied checkpoint companion part is invalid');
+    }
+
+    expect(readDigestPayload(copiedPart)?.association).toEqual({
+      kind: 'checkpoint',
+      checkpointId: copiedCheckpointId,
+    });
+    expect(copiedCompanion?.seq).toBe(5);
+  });
+
+  it('keeps an imported cutoff notice in an anchored fork when both cutoff turns are included', () => {
+    const notice = row('comparison', 20, {
+      senderUserId: null,
+      parts: [
+        createRecencyDigestItem({
+          runId: '123e4567-e89b-12d3-a456-426614174000',
+          payload: {
+            version: 1,
+            kind: 'notice',
+            announced: [],
+            importedCutoff: { latestTurnSeq: 3, lastOriginalSeq: 5 },
+          },
+          body: 'historical comparison',
+        }),
+      ],
+    });
+
+    const rows = [
+      row('original-1', 1),
+      row('latest-trigger', 3),
+      row('original-last', 5),
+      notice,
+      row('after-cutoff', 6),
+    ];
+
+    expect(selectForkMessages(rows, 5, CHAT_ID).map(({ id }) => id)).toEqual([
+      'original-1',
+      'latest-trigger',
+      'original-last',
+      notice.id,
+    ]);
+    expect(selectForkMessages(rows, 3, CHAT_ID).map(({ id }) => id)).toEqual([
+      'original-1',
+      'latest-trigger',
+    ]);
+  });
+
+  it('includes the imported cutoff notice when an anchored fork ends exactly at its latest turn', () => {
+    const notice = row('comparison', 20, {
+      senderUserId: null,
+      parts: [
+        createRecencyDigestItem({
+          runId: '123e4567-e89b-12d3-a456-426614174000',
+          payload: {
+            version: 1,
+            kind: 'notice',
+            announced: [],
+            importedCutoff: { latestTurnSeq: 3, lastOriginalSeq: 3 },
+          },
+          body: 'historical comparison',
+        }),
+      ],
+    });
+
+    const rows = [row('original', 2), row('latest-trigger', 3), notice];
+
+    expect(selectForkMessages(rows, 3, CHAT_ID).map(({ id }) => id)).toEqual([
+      'original',
+      'latest-trigger',
+      notice.id,
+    ]);
+  });
+});
+
 describe('inheritForkedChatState', () => {
   const first = checkpoint('checkpoint-1', 3, 2);
   const latest = checkpoint('checkpoint-2', 6, 5);

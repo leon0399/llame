@@ -256,4 +256,160 @@ describe('imported digest replay boundaries', () => {
       projectDigestEpochParts([ownerText, current], { kind: 'origin', chatId }),
     ).toEqual([ownerText]);
   });
+
+  it('selects a baseline only in its associated replay epoch', () => {
+    const checkpointId = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
+
+    const origin = createRecencyDigestItem({
+      runId,
+      body: 'Origin baseline',
+      payload: {
+        version: 1,
+        kind: 'baseline',
+        announced: [],
+        association: { kind: 'origin', chatId },
+      },
+    });
+
+    const checkpointBaseline = createRecencyDigestItem({
+      runId,
+      body: 'Checkpoint baseline',
+      payload: {
+        version: 1,
+        kind: 'baseline',
+        announced: [],
+        association: { kind: 'checkpoint', checkpointId },
+      },
+    });
+
+    const originRow = message(10, { senderUserId: null, parts: [origin] });
+
+    const checkpointRow = message(11, {
+      senderUserId: null,
+      parts: [checkpointBaseline],
+    });
+
+    const turn = message(12);
+
+    expect(
+      selectEffectiveDigestMessages([originRow, checkpointRow, turn], chatId, {
+        throughSeq: 12,
+      }).map((row) => row.id),
+    ).toEqual([originRow.id]);
+    expect(
+      selectEffectiveDigestMessages(
+        [
+          originRow,
+          checkpointRow,
+          message(13, {
+            id: checkpointId,
+            role: 'checkpoint',
+            senderUserId: null,
+            absorbedThroughSeq: 9,
+          }),
+          turn,
+        ],
+        chatId,
+        { throughSeq: 12, checkpointId },
+      ).map((row) => row.id),
+    ).toEqual([checkpointRow.id]);
+  });
+
+  it('expires an imported comparison when a later checkpoint absorbs its original history', () => {
+    const trigger = message(99);
+    const originNotice = importedNotice();
+    const checkpointId = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
+
+    const checkpointNotice = importedNotice({
+      kind: 'checkpoint',
+      checkpointId,
+    });
+
+    const beforeExpiry = message(102, {
+      id: checkpointId,
+      role: 'checkpoint',
+      senderUserId: null,
+      absorbedThroughSeq: 99,
+    });
+
+    const atExpiry = message(103, {
+      id: checkpointId,
+      role: 'checkpoint',
+      senderUserId: null,
+      absorbedThroughSeq: 100,
+    });
+
+    expect(
+      selectEffectiveDigestMessages([originNotice, trigger], chatId, {
+        throughSeq: 99,
+      }).map((row) => row.id),
+    ).toEqual([originNotice.id]);
+    expect(
+      selectEffectiveDigestMessages(
+        [checkpointNotice, beforeExpiry, trigger],
+        chatId,
+        { throughSeq: 99, checkpointId: beforeExpiry.id },
+      ).map((row) => row.id),
+    ).toEqual([checkpointNotice.id]);
+    expect(
+      selectEffectiveDigestMessages(
+        [checkpointNotice, atExpiry, trigger],
+        chatId,
+        { throughSeq: 99, checkpointId: atExpiry.id },
+      ).map((row) => row.id),
+    ).toEqual([]);
+  });
+
+  it('replays only matching trigger digest parts in their stored order without rewriting bytes', () => {
+    const checkpointId = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
+
+    const stale = createRecencyDigestItem({
+      runId,
+      body: 'Stale disclosure',
+      payload: {
+        version: 1,
+        kind: 'notice',
+        announced: [{ chatId: sourceId, title: 'Stale', pinned: false }],
+        association: { kind: 'origin', chatId },
+      },
+    });
+
+    const first = createRecencyDigestItem({
+      runId,
+      body: 'Current first disclosure',
+      payload: {
+        version: 1,
+        kind: 'notice',
+        announced: [{ chatId: sourceId, title: 'Current', pinned: false }],
+        association: { kind: 'checkpoint', checkpointId },
+      },
+    });
+
+    const ownerText = { type: 'text', text: 'Keep this request byte-for-byte' };
+
+    const second = createRecencyDigestItem({
+      runId,
+      body: 'Current pin correction',
+      payload: {
+        version: 1,
+        kind: 'notice',
+        announced: [{ chatId: sourceId, title: 'Current', pinned: true }],
+        association: { kind: 'checkpoint', checkpointId },
+      },
+    });
+
+    const stored = [stale, first, ownerText, second];
+    const storedBytes = JSON.stringify(stored);
+
+    const projected = projectDigestEpochParts(stored, {
+      kind: 'checkpoint',
+      checkpointId,
+    });
+
+    expect(projected).toEqual([first, ownerText, second]);
+    expect(deriveRecencyDigestState(projected).announced).toEqual([
+      { chatId: sourceId, title: 'Current', pinned: true },
+    ]);
+    expect(JSON.stringify(stored)).toBe(storedBytes);
+  });
 });

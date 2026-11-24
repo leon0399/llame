@@ -111,4 +111,236 @@ describe('legacy digest literal projection', () => {
       'Proved title',
     );
   });
+
+  it('requires independent legacy evidence at the exported list and index', () => {
+    const exported = record();
+    exported.baseline.entries.push({
+      list: 'recent',
+      index: 0,
+      fields: { title: 'Exported title' },
+      proofs: { title: proof },
+    });
+
+    expect(
+      projectBaselineProofs({
+        record: exported,
+        legacyBaseline: { recent: [{ title: 'Different title' }] },
+      }),
+    ).toEqual({ values: [], mismatches: ['title'] });
+    expect(
+      projectBaselineProofs({
+        record: exported,
+        legacyBaseline: { pinned: [{ title: 'Exported title' }], recent: [] },
+      }),
+    ).toEqual({ values: [], mismatches: ['title'] });
+    expect(
+      projectBaselineProofs({
+        record: exported,
+        legacyBaseline: {
+          recent: [{ title: 'Other title' }, { title: 'Exported title' }],
+        },
+      }),
+    ).toEqual({ values: [], mismatches: ['title'] });
+    expect(
+      projectBaselineProofs({ record: exported, legacyBaseline: undefined }),
+    ).toEqual({ values: [], mismatches: ['title'] });
+  });
+
+  it('compares scalar legacy values without entry text trimming or sanitizing', () => {
+    const exported = record();
+    exported.baseline.compiledOn = '  2026-04-05  ';
+    exported.baseline.scalarProofs = { compiledOn: proof };
+
+    expect(
+      projectBaselineProofs({
+        record: exported,
+        legacyBaseline: { compiledOn: '  2026-04-05  ' },
+      }),
+    ).toEqual({
+      values: [{ proof, field: 'compiledOn', value: '  2026-04-05  ' }],
+      mismatches: [],
+    });
+    expect(
+      projectBaselineProofs({
+        record: exported,
+        legacyBaseline: { compiledOn: '2026-04-05' },
+      }),
+    ).toEqual({ values: [], mismatches: ['compiledOn'] });
+  });
+
+  it('does not project entry fields without both their exported value and proof', () => {
+    const exported = record();
+    exported.baseline.entries.push({
+      list: 'recent',
+      index: 0,
+      fields: { title: 'Unproved title', date: 'Proved date' },
+      proofs: { date: proof },
+    });
+
+    expect(
+      projectBaselineProofs({
+        record: exported,
+        legacyBaseline: {
+          recent: [{ title: 'Unproved title', date: 'Proved date' }],
+        },
+      }),
+    ).toEqual({
+      values: [{ proof, field: 'date', value: 'Proved date' }],
+      mismatches: [],
+    });
+
+    const missingValue = record();
+    missingValue.baseline.entries.push({
+      list: 'recent',
+      index: 0,
+      fields: {},
+      proofs: { title: proof },
+    });
+    expect(
+      projectBaselineProofs({
+        record: missingValue,
+        legacyBaseline: { recent: [{ title: 'Not exported' }] },
+      }),
+    ).toEqual({ values: [], mismatches: [] });
+  });
+
+  it('binds proof keys to every proof component, field, and value', () => {
+    expect(proofKey(proof, 'title', 'Actual title')).toBe(
+      `${proof.runId}:${proof.attemptId}:${proof.promptHash}:title:Actual title`,
+    );
+
+    const exported = record();
+    exported.baseline.entries.push({
+      list: 'recent',
+      index: 0,
+      fields: { title: 'Actual title' },
+      proofs: { title: proof },
+    });
+    const accepted = proofKey(proof, 'title', 'Actual title');
+    expect(
+      renderBaselineBody(
+        exported,
+        new Set([
+          accepted,
+          proofKey({ ...proof, runId: 'other-run' }, 'title', 'Actual title'),
+          proofKey(
+            { ...proof, attemptId: 'other-attempt' },
+            'title',
+            'Actual title',
+          ),
+          proofKey(
+            { ...proof, promptHash: 'd'.repeat(64) },
+            'title',
+            'Actual title',
+          ),
+          proofKey(proof, 'date', 'Actual title'),
+          proofKey(proof, 'title', 'Different title'),
+        ]),
+      ),
+    ).toContain('- Actual title');
+
+    for (const unsupported of [
+      proofKey({ ...proof, runId: 'other-run' }, 'title', 'Actual title'),
+      proofKey(
+        { ...proof, attemptId: 'other-attempt' },
+        'title',
+        'Actual title',
+      ),
+      proofKey(
+        { ...proof, promptHash: 'd'.repeat(64) },
+        'title',
+        'Actual title',
+      ),
+      proofKey(proof, 'date', 'Actual title'),
+      proofKey(proof, 'title', 'Different title'),
+    ]) {
+      expect(
+        renderBaselineBody(exported, new Set([unsupported])),
+      ).not.toContain('Actual title');
+    }
+  });
+
+  it('renders only independently supported baseline scalars and entry fields', () => {
+    const exported = record();
+    exported.baseline.compiledOn = '2026-04-05';
+    exported.baseline.pinnedShown = 2;
+    exported.baseline.pinnedTotal = 4;
+    exported.baseline.recentShown = 1;
+    exported.baseline.recentTotal = 1;
+    exported.baseline.scalarProofs = {
+      compiledOn: proof,
+      pinnedShown: proof,
+      pinnedTotal: proof,
+      recentShown: proof,
+      recentTotal: proof,
+    };
+    exported.baseline.entries.push(
+      {
+        list: 'pinned',
+        index: 0,
+        fields: {
+          title: 'Pinned title',
+          date: 'Pinned date',
+          messageCount: 3,
+          excerpt: 'Pinned excerpt',
+        },
+        proofs: {
+          title: proof,
+          date: proof,
+          messageCount: proof,
+          excerpt: proof,
+        },
+      },
+      {
+        list: 'recent',
+        index: 0,
+        fields: {
+          title: 'Recent title',
+          date: 'Private recent date',
+          messageCount: 7,
+          excerpt: 'Private recent excerpt',
+        },
+        proofs: { title: proof },
+      },
+    );
+
+    const supported = new Set([
+      proofKey(proof, 'compiledOn', '2026-04-05'),
+      proofKey(proof, 'pinnedShown', 2),
+      proofKey(proof, 'pinnedTotal', 4),
+      proofKey(proof, 'recentShown', 1),
+      proofKey(proof, 'recentTotal', 1),
+      proofKey(proof, 'title', 'Pinned title'),
+      proofKey(proof, 'date', 'Pinned date'),
+      proofKey(proof, 'messageCount', 3),
+      proofKey(proof, 'excerpt', 'Pinned excerpt'),
+      proofKey(proof, 'title', 'Recent title'),
+    ]);
+
+    const body = renderBaselineBody(exported, supported);
+    expect(body).toContain('Compiled on 2026-04-05.');
+    expect(body).toContain('Pinned Chats (2 of 4):');
+    expect(body).toContain(
+      '- Pinned title | date: Pinned date | messages: 3 | excerpt: Pinned excerpt',
+    );
+    expect(body).toContain('Recent Chats (1 of 1):');
+    expect(body).toContain('- Recent title');
+    expect(body).not.toContain('Private recent date');
+    expect(body).not.toContain('Private recent excerpt');
+  });
+
+  it('renders a list from one independently supported zero count', () => {
+    const exported = record();
+    exported.baseline.pinnedShown = 0;
+    exported.baseline.scalarProofs = { pinnedShown: proof };
+
+    const body = renderBaselineBody(
+      exported,
+      new Set([proofKey(proof, 'pinnedShown', 0)]),
+    );
+
+    expect(body).toContain('Pinned Chats:');
+    expect(body).not.toContain('Pinned Chats (');
+    expect(body).not.toContain('Recent Chats');
+  });
 });

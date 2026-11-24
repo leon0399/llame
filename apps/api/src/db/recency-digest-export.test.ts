@@ -13,7 +13,7 @@ const checkpointId = '33333333-3333-4333-8333-333333333333';
 const chatId = '44444444-4444-4444-8444-444444444444';
 const sourceChatId = '55555555-5555-4555-8555-555555555555';
 const noticeId = '66666666-6666-4666-8666-666666666666';
-const promptHash = 'a'.repeat(64);
+const promptHash = '0123456789abcdef'.repeat(4);
 
 const proof = { runId, attemptId, promptHash };
 
@@ -26,7 +26,7 @@ function validDocument(): DigestExportDocument {
       {
         ownerUserId: 'owner-123',
         chatId,
-        fingerprint: 'b'.repeat(64),
+        fingerprint: 'fedcba9876543210'.repeat(4),
         baseline: {
           compiledOn: '2026-11-20T12:00:00.000Z',
           pinnedShown: 1,
@@ -111,6 +111,7 @@ function validDocument(): DigestExportDocument {
 describe('parseDigestExportDocument', () => {
   it('accepts complete evidence at the safe integer boundary', () => {
     const document = validDocument();
+    expect(parseDigestExportDocument(document)).toEqual(document);
     const record = document.records[0];
 
     for (const field of [
