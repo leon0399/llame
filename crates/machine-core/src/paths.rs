@@ -7,7 +7,9 @@ fn home() -> PathBuf {
 }
 
 fn non_empty(name: &str) -> Option<PathBuf> {
-    env::var_os(name).filter(|value| !value.is_empty()).map(PathBuf::from)
+    env::var_os(name)
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from)
 }
 
 /// `LLAME_MACHINE_CONFIG_DIR`, then `$XDG_CONFIG_HOME/llame-machine`, then

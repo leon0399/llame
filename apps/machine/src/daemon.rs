@@ -40,7 +40,8 @@ pub fn lock_path(state_dir: &Path) -> PathBuf {
 
 /// Creates the state directory with mode 0700.
 pub fn prepare_state_dir(state_dir: &Path) -> anyhow::Result<()> {
-    fs::create_dir_all(state_dir).with_context(|| format!("cannot create {}", state_dir.display()))?;
+    fs::create_dir_all(state_dir)
+        .with_context(|| format!("cannot create {}", state_dir.display()))?;
     fs::set_permissions(state_dir, fs::Permissions::from_mode(0o700))?;
     Ok(())
 }
@@ -48,7 +49,12 @@ pub fn prepare_state_dir(state_dir: &Path) -> anyhow::Result<()> {
 /// Takes the daemon lock without waiting, or returns `None` when another
 /// daemon holds it. The holder's pid is written into the file.
 pub fn try_lock(state_dir: &Path) -> anyhow::Result<Option<File>> {
-    let mut file = OpenOptions::new().read(true).write(true).create(true).truncate(false).open(lock_path(state_dir))?;
+    let mut file = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(lock_path(state_dir))?;
     if flock(&file, FlockOperation::NonBlockingLockExclusive).is_err() {
         return Ok(None);
     }
@@ -62,7 +68,10 @@ pub fn run() -> ExitCode {
     // Detach from the attaching session so its hangup does not end the daemon.
     let _ = rustix::process::setsid();
     tracing_subscriber::fmt()
-        .with_env_filter(tracing_subscriber::EnvFilter::try_from_env("LLAME_MACHINE_LOG").unwrap_or_else(|_| "info".into()))
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::try_from_env("LLAME_MACHINE_LOG")
+                .unwrap_or_else(|_| "info".into()),
+        )
         .with_writer(std::io::stderr)
         .init();
     match serve() {
@@ -79,18 +88,25 @@ fn serve() -> anyhow::Result<()> {
     prepare_state_dir(&state_dir)?;
     let socket = socket_path(&state_dir);
     if socket.as_os_str().len() > MAX_SOCKET_PATH {
-        bail!("socket path {} is longer than {MAX_SOCKET_PATH} bytes", socket.display());
+        bail!(
+            "socket path {} is longer than {MAX_SOCKET_PATH} bytes",
+            socket.display()
+        );
     }
     let Some(_lock) = try_lock(&state_dir)? else {
         bail!("another daemon already runs for {}", state_dir.display());
     };
     let identity = Identity::load()?;
     let config = ConfigHandle::open(config_file(&paths::config_dir()))?;
-    let context = Context { config: Arc::new(config), state_dir: state_dir.clone() };
+    let context = Context {
+        config: Arc::new(config),
+        state_dir: state_dir.clone(),
+    };
     let runtime = tokio::runtime::Runtime::new()?;
     runtime.block_on(async move {
         let _ = fs::remove_file(&socket);
-        let listener = UnixListener::bind(&socket).with_context(|| format!("cannot bind {}", socket.display()))?;
+        let listener = UnixListener::bind(&socket)
+            .with_context(|| format!("cannot bind {}", socket.display()))?;
         fs::set_permissions(&socket, fs::Permissions::from_mode(0o600))?;
         tracing::info!(socket = %socket.display(), build = %identity.build_id, "daemon listening");
         let routes = crate::services::routes(&context, identity).await?;
@@ -108,7 +124,10 @@ fn serve() -> anyhow::Result<()> {
 
 async fn shutdown_signal() {
     use tokio::signal::unix::{SignalKind, signal};
-    let (Ok(mut term), Ok(mut int)) = (signal(SignalKind::terminate()), signal(SignalKind::interrupt())) else {
+    let (Ok(mut term), Ok(mut int)) = (
+        signal(SignalKind::terminate()),
+        signal(SignalKind::interrupt()),
+    ) else {
         return std::future::pending().await;
     };
     tokio::select! {

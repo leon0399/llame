@@ -17,16 +17,26 @@ pub fn facts() -> Facts {
 }
 
 fn total_memory_bytes() -> u64 {
-    let Ok(text) = fs::read_to_string("/proc/meminfo") else { return 0 };
+    let Ok(text) = fs::read_to_string("/proc/meminfo") else {
+        return 0;
+    };
     text.lines()
         .find_map(|line| line.strip_prefix("MemTotal:"))
-        .and_then(|rest| rest.trim().trim_end_matches("kB").trim().parse::<u64>().ok())
+        .and_then(|rest| {
+            rest.trim()
+                .trim_end_matches("kB")
+                .trim()
+                .parse::<u64>()
+                .ok()
+        })
         .map_or(0, |kib| kib * 1024)
 }
 
 /// The kernel boot id; empty when the kernel does not report one.
 pub fn boot_id() -> String {
-    fs::read_to_string("/proc/sys/kernel/random/boot_id").map(|id| id.trim().to_owned()).unwrap_or_default()
+    fs::read_to_string("/proc/sys/kernel/random/boot_id")
+        .map(|id| id.trim().to_owned())
+        .unwrap_or_default()
 }
 
 /// Total bytes of the filesystem holding `path`.

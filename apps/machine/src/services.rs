@@ -18,10 +18,15 @@ use crate::identity::Identity;
 
 /// Every service, built once per daemon. A layer that adds a service family
 /// registers it here.
-pub async fn routes(context: &Context, identity: Identity) -> anyhow::Result<tonic::service::Routes> {
+pub async fn routes(
+    context: &Context,
+    identity: Identity,
+) -> anyhow::Result<tonic::service::Routes> {
     let mut routes = RoutesBuilder::default();
     routes.add_service(BootstrapServiceServer::new(Bootstrap { identity }));
-    routes.add_service(MachineServiceServer::new(Machine { context: context.clone() }));
+    routes.add_service(MachineServiceServer::new(Machine {
+        context: context.clone(),
+    }));
     routes.add_service(machine_files::service(context.clone()));
     routes.add_service(machine_jobs::service(context.clone()).await?);
     routes.add_service(machine_git::service(context.clone()));
@@ -35,7 +40,10 @@ struct Bootstrap {
 
 #[tonic::async_trait]
 impl BootstrapService for Bootstrap {
-    async fn get_info(&self, request: Request<GetInfoRequest>) -> Result<Response<GetInfoResponse>, Status> {
+    async fn get_info(
+        &self,
+        request: Request<GetInfoRequest>,
+    ) -> Result<Response<GetInfoResponse>, Status> {
         crate::metadata::log(&request);
         Ok(Response::new(GetInfoResponse {
             instance_id: self.identity.instance_id.clone(),
@@ -59,16 +67,23 @@ fn capabilities() -> Vec<machine_protocol::bootstrap::v1::Capability> {
                 std::env::split_paths(&path).any(|dir| dir.join(tool).is_file())
             })
         })
-        .map(|tool| machine_protocol::bootstrap::v1::Capability { name: tool.to_owned(), version: tool_version(tool) })
+        .map(|tool| machine_protocol::bootstrap::v1::Capability {
+            name: tool.to_owned(),
+            version: tool_version(tool),
+        })
         .collect()
 }
 
 /// The first dotted number in `<tool> --version`, as a semantic version.
 fn tool_version(tool: &str) -> String {
-    let Ok(output) = std::process::Command::new(tool).arg("--version").output() else { return String::new() };
+    let Ok(output) = std::process::Command::new(tool).arg("--version").output() else {
+        return String::new();
+    };
     let text = String::from_utf8_lossy(&output.stdout);
     text.split(|c: char| c.is_whitespace() || c == '(' || c == ')' || c == '-')
-        .find(|word| word.split('.').count() >= 2 && word.split('.').all(|part| part.parse::<u32>().is_ok()))
+        .find(|word| {
+            word.split('.').count() >= 2 && word.split('.').all(|part| part.parse::<u32>().is_ok())
+        })
         .map(|word| {
             let mut parts: Vec<&str> = word.split('.').collect();
             parts.truncate(3);
@@ -86,22 +101,34 @@ struct Machine {
 
 #[tonic::async_trait]
 impl MachineService for Machine {
-    async fn list_roots(&self, request: Request<ListRootsRequest>) -> Result<Response<ListRootsResponse>, Status> {
+    async fn list_roots(
+        &self,
+        request: Request<ListRootsRequest>,
+    ) -> Result<Response<ListRootsResponse>, Status> {
         crate::metadata::log(&request);
         let config = self.context.config.current();
         let roots = config
             .roots
             .iter()
-            .map(|root| Root { path: root.clone(), filesystem_bytes: facts::disk_total_bytes(root) })
+            .map(|root| Root {
+                path: root.clone(),
+                filesystem_bytes: facts::disk_total_bytes(root),
+            })
             .collect();
         Ok(Response::new(ListRootsResponse { roots }))
     }
 
-    async fn get_limits(&self, request: Request<GetLimitsRequest>) -> Result<Response<GetLimitsResponse>, Status> {
+    async fn get_limits(
+        &self,
+        request: Request<GetLimitsRequest>,
+    ) -> Result<Response<GetLimitsResponse>, Status> {
         crate::metadata::log(&request);
         let limits = self.context.limits();
         Ok(Response::new(GetLimitsResponse {
-            limits: Some(Limits { max_running_jobs: limits.max_running_jobs, max_job_output_bytes: limits.job_output_bytes }),
+            limits: Some(Limits {
+                max_running_jobs: limits.max_running_jobs,
+                max_job_output_bytes: limits.job_output_bytes,
+            }),
         }))
     }
 }

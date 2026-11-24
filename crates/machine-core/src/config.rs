@@ -25,7 +25,10 @@ pub struct Limits {
 
 impl Default for Limits {
     fn default() -> Self {
-        Self { max_running_jobs: DEFAULT_MAX_RUNNING_JOBS, job_output_bytes: DEFAULT_JOB_OUTPUT_BYTES }
+        Self {
+            max_running_jobs: DEFAULT_MAX_RUNNING_JOBS,
+            job_output_bytes: DEFAULT_JOB_OUTPUT_BYTES,
+        }
     }
 }
 
@@ -58,10 +61,17 @@ impl Config {
         let text = match fs::read_to_string(file) {
             Ok(text) => text,
             Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(Self::default()),
-            Err(source) => return Err(ConfigError::Read { path: file.to_path_buf(), source }),
+            Err(source) => {
+                return Err(ConfigError::Read {
+                    path: file.to_path_buf(),
+                    source,
+                });
+            }
         };
-        let config: Self = toml::from_str(&text)
-            .map_err(|error| ConfigError::Parse { path: file.to_path_buf(), message: error.to_string() })?;
+        let config: Self = toml::from_str(&text).map_err(|error| ConfigError::Parse {
+            path: file.to_path_buf(),
+            message: error.to_string(),
+        })?;
         config.validate()?;
         Ok(config)
     }
@@ -69,11 +79,15 @@ impl Config {
     fn validate(&self) -> Result<(), ConfigError> {
         for root in &self.roots {
             if !root.starts_with('/') || root.contains('\0') {
-                return Err(ConfigError::Invalid(format!("root {root:?} is not an absolute path")));
+                return Err(ConfigError::Invalid(format!(
+                    "root {root:?} is not an absolute path"
+                )));
             }
         }
         if self.limits.max_running_jobs == 0 {
-            return Err(ConfigError::Invalid("limits.max_running_jobs must be at least 1".into()));
+            return Err(ConfigError::Invalid(
+                "limits.max_running_jobs must be at least 1".into(),
+            ));
         }
         Ok(())
     }
@@ -81,7 +95,10 @@ impl Config {
     /// Writes the configuration atomically, mode 0600, in a 0700 directory.
     pub fn save(&self, file: &Path) -> Result<(), ConfigError> {
         self.validate()?;
-        let write_error = |source| ConfigError::Write { path: file.to_path_buf(), source };
+        let write_error = |source| ConfigError::Write {
+            path: file.to_path_buf(),
+            source,
+        };
         let dir = file.parent().unwrap_or_else(|| Path::new("/"));
         fs::create_dir_all(dir).map_err(write_error)?;
         let _ = fs::set_permissions(dir, fs::Permissions::from_mode(0o700));
@@ -115,7 +132,10 @@ impl ConfigHandle {
     pub fn open(file: PathBuf) -> Result<Self, ConfigError> {
         let config = Config::load(&file)?;
         let mtime = modified(&file);
-        Ok(Self { file, cached: Mutex::new((mtime, Arc::new(config))) })
+        Ok(Self {
+            file,
+            cached: Mutex::new((mtime, Arc::new(config))),
+        })
     }
 
     /// The current configuration. A file that changed into an invalid one keeps
@@ -151,7 +171,10 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let file = config_file(dir.path());
         assert_eq!(Config::load(&file).unwrap(), Config::default());
-        let config = Config { roots: vec!["/srv".into()], limits: Limits::default() };
+        let config = Config {
+            roots: vec!["/srv".into()],
+            limits: Limits::default(),
+        };
         config.save(&file).unwrap();
         assert_eq!(Config::load(&file).unwrap(), config);
     }

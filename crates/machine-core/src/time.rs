@@ -15,11 +15,15 @@ pub fn timestamp(time: SystemTime) -> Timestamp {
             let duration = error.duration();
             let seconds = i64::try_from(duration.as_secs()).unwrap_or(i64::MAX);
             if duration.subsec_nanos() == 0 {
-                Timestamp { seconds: seconds.saturating_neg(), nanos: 0 }
+                Timestamp {
+                    seconds: seconds.saturating_neg(),
+                    nanos: 0,
+                }
             } else {
                 Timestamp {
                     seconds: seconds.saturating_neg().saturating_sub(1),
-                    nanos: 1_000_000_000 - i32::try_from(duration.subsec_nanos()).unwrap_or_default(),
+                    nanos: 1_000_000_000
+                        - i32::try_from(duration.subsec_nanos()).unwrap_or_default(),
                 }
             }
         }

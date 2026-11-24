@@ -4,16 +4,19 @@
 use machine_protocol::v1::{ErrorDetail, ErrorReason};
 use prost::Message;
 use prost_types::Any;
-use tonic_types::pb::Status as RpcStatus;
 use tonic::{Code, Status};
+use tonic_types::pb::Status as RpcStatus;
 
 /// The fixed refusal for a path outside the roots. Identical whether or not
 /// the path exists.
-pub const PATH_NOT_REGISTERED_MESSAGE: &str = "The path is outside every root registered on this Machine.";
+pub const PATH_NOT_REGISTERED_MESSAGE: &str =
+    "The path is outside every root registered on this Machine.";
 
 /// Attach an `ErrorDetail` to the gRPC status details.
 pub fn status(code: Code, reason: ErrorReason, message: impl Into<String>) -> Status {
-    let detail = ErrorDetail { reason: reason as i32 };
+    let detail = ErrorDetail {
+        reason: reason as i32,
+    };
     let rpc_status = RpcStatus {
         code: code as i32,
         message: message.into(),
@@ -37,7 +40,11 @@ pub fn decode(status: &Status) -> Option<ErrorDetail> {
 }
 
 pub fn path_not_registered() -> Status {
-    status(Code::PermissionDenied, ErrorReason::PathNotRegistered, PATH_NOT_REGISTERED_MESSAGE)
+    status(
+        Code::PermissionDenied,
+        ErrorReason::PathNotRegistered,
+        PATH_NOT_REGISTERED_MESSAGE,
+    )
 }
 
 pub fn invalid_argument(message: impl Into<String>) -> Status {
@@ -53,11 +60,19 @@ pub fn job_limit(limit: u32) -> Status {
 }
 
 pub fn job_not_found() -> Status {
-    status(Code::NotFound, ErrorReason::JobNotFound, "The job was not found.")
+    status(
+        Code::NotFound,
+        ErrorReason::JobNotFound,
+        "The job was not found.",
+    )
 }
 
 pub fn job_running() -> Status {
-    status(Code::FailedPrecondition, ErrorReason::JobRunning, "The job is still running.")
+    status(
+        Code::FailedPrecondition,
+        ErrorReason::JobRunning,
+        "The job is still running.",
+    )
 }
 
 pub fn internal(message: impl Into<String>) -> Status {
@@ -66,7 +81,7 @@ pub fn internal(message: impl Into<String>) -> Status {
 
 #[cfg(test)]
 mod tests {
-    use super::{decode, path_not_registered, PATH_NOT_REGISTERED_MESSAGE};
+    use super::{PATH_NOT_REGISTERED_MESSAGE, decode, path_not_registered};
     use machine_protocol::v1::ErrorReason;
     use tonic::Code;
 
@@ -75,6 +90,9 @@ mod tests {
         let refusal = path_not_registered();
         assert_eq!(refusal.code(), Code::PermissionDenied);
         assert_eq!(refusal.message(), PATH_NOT_REGISTERED_MESSAGE);
-        assert_eq!(decode(&refusal).map(|detail| detail.reason), Some(ErrorReason::PathNotRegistered as i32));
+        assert_eq!(
+            decode(&refusal).map(|detail| detail.reason),
+            Some(ErrorReason::PathNotRegistered as i32)
+        );
     }
 }

@@ -25,7 +25,9 @@ const START_WAIT: Duration = Duration::from_secs(10);
 const POLL: Duration = Duration::from_millis(50);
 
 pub fn run() -> anyhow::Result<ExitCode> {
-    let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build()?;
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()?;
     runtime.block_on(attach())?;
     Ok(ExitCode::SUCCESS)
 }
@@ -38,7 +40,9 @@ async fn attach() -> anyhow::Result<()> {
         start_daemon(&state_dir).await?;
     }
     replace_outdated_daemon(&state_dir).await?;
-    let stream = UnixStream::connect(&socket).await.context("the Machine daemon is not reachable")?;
+    let stream = UnixStream::connect(&socket)
+        .await
+        .context("the Machine daemon is not reachable")?;
     relay(stream).await
 }
 
@@ -46,7 +50,10 @@ async fn attach() -> anyhow::Result<()> {
 async fn start_daemon(state_dir: &Path) -> anyhow::Result<()> {
     if let Some(lock) = try_lock(state_dir)? {
         drop(lock);
-        let log = OpenOptions::new().create(true).append(true).open(state_dir.join("daemon.log"))?;
+        let log = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(state_dir.join("daemon.log"))?;
         Command::new(std::env::current_exe()?)
             .arg("daemon")
             .stdin(Stdio::null())
@@ -67,7 +74,10 @@ async fn wait_for_socket(socket: &Path) -> anyhow::Result<()> {
         sleep(POLL).await;
         waited += POLL;
     }
-    bail!("the Machine daemon did not start; see {}", socket.with_file_name("daemon.log").display())
+    bail!(
+        "the Machine daemon did not start; see {}",
+        socket.with_file_name("daemon.log").display()
+    )
 }
 
 async fn channel(socket: &Path) -> anyhow::Result<Channel> {
@@ -87,11 +97,17 @@ async fn replace_outdated_daemon(state_dir: &Path) -> anyhow::Result<()> {
     let own = crate::identity::build_id();
     let socket = socket_path(state_dir);
     let channel = channel(&socket).await?;
-    let info = BootstrapServiceClient::new(channel.clone()).get_info(GetInfoRequest {}).await?.into_inner();
+    let info = BootstrapServiceClient::new(channel.clone())
+        .get_info(GetInfoRequest {})
+        .await?
+        .into_inner();
     if info.build_id == own || own == "unknown" {
         return Ok(());
     }
-    let running = match JobServiceClient::new(channel).list_jobs(ListJobsRequest {}).await {
+    let running = match JobServiceClient::new(channel)
+        .list_jobs(ListJobsRequest {})
+        .await
+    {
         Ok(response) => response.into_inner().running,
         Err(status) if status.code() == tonic::Code::Unimplemented => 0,
         Err(status) => return Err(status.into()),
@@ -108,11 +124,17 @@ async fn replace_outdated_daemon(state_dir: &Path) -> anyhow::Result<()> {
 }
 
 fn tracing_warn(message: &str) {
-    let _ = std::io::Write::write_all(&mut std::io::stderr(), format!("llame-machine: {message}\n").as_bytes());
+    let _ = std::io::Write::write_all(
+        &mut std::io::stderr(),
+        format!("llame-machine: {message}\n").as_bytes(),
+    );
 }
 
 async fn stop_daemon(state_dir: &Path) -> anyhow::Result<()> {
-    let pid = fs::read_to_string(lock_path(state_dir))?.trim().parse::<i32>().context("the daemon lock holds no pid")?;
+    let pid = fs::read_to_string(lock_path(state_dir))?
+        .trim()
+        .parse::<i32>()
+        .context("the daemon lock holds no pid")?;
     if let Some(pid) = rustix::process::Pid::from_raw(pid) {
         let _ = rustix::process::kill_process(pid, rustix::process::Signal::TERM);
     }

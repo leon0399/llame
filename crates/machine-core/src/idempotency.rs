@@ -23,7 +23,9 @@ pub struct IdempotencyCache<T> {
 
 impl<T> Default for IdempotencyCache<T> {
     fn default() -> Self {
-        Self { slots: Mutex::new(HashMap::new()) }
+        Self {
+            slots: Mutex::new(HashMap::new()),
+        }
     }
 }
 
@@ -44,7 +46,9 @@ impl<T: Clone> IdempotencyCache<T> {
 
     fn slot(&self, key: &str) -> Slot<T> {
         let now = Instant::now();
-        let Ok(mut slots) = self.slots.lock() else { return Arc::new(OnceCell::new()) };
+        let Ok(mut slots) = self.slots.lock() else {
+            return Arc::new(OnceCell::new());
+        };
         slots.retain(|_, (at, slot)| now.duration_since(*at) < MAX_AGE || !slot.initialized());
         if slots.len() >= MAX_KEYS
             && let Some(oldest) = slots
@@ -55,7 +59,12 @@ impl<T: Clone> IdempotencyCache<T> {
         {
             slots.remove(&oldest);
         }
-        Arc::clone(&slots.entry(key.to_owned()).or_insert_with(|| (now, Arc::new(OnceCell::new()))).1)
+        Arc::clone(
+            &slots
+                .entry(key.to_owned())
+                .or_insert_with(|| (now, Arc::new(OnceCell::new())))
+                .1,
+        )
     }
 }
 

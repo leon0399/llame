@@ -27,7 +27,8 @@ fn corrupt(file: &Path) -> io::Error {
 }
 
 fn is_instance_id(text: &str) -> bool {
-    uuid::Uuid::parse_str(text).is_ok_and(|id| id.get_version_num() == 4 && id.hyphenated().to_string() == text)
+    uuid::Uuid::parse_str(text)
+        .is_ok_and(|id| id.get_version_num() == 4 && id.hyphenated().to_string() == text)
 }
 
 fn read(file: &Path) -> io::Result<Option<String>> {
@@ -52,10 +53,18 @@ pub fn read_or_create(config_dir: &Path) -> io::Result<String> {
     fs::create_dir_all(config_dir)?;
     let _ = fs::set_permissions(config_dir, fs::Permissions::from_mode(0o700));
     let id = uuid::Uuid::new_v4().hyphenated().to_string();
-    let temp = config_dir.join(format!("instance.json.{}.{}.tmp", std::process::id(), uuid::Uuid::new_v4()));
+    let temp = config_dir.join(format!(
+        "instance.json.{}.{}.tmp",
+        std::process::id(),
+        uuid::Uuid::new_v4()
+    ));
     let result = (|| {
         use std::io::Write;
-        let mut out = fs::OpenOptions::new().write(true).create_new(true).mode(0o600).open(&temp)?;
+        let mut out = fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(&temp)?;
         out.write_all(format!("{{\"instanceId\":\"{id}\"}}\n").as_bytes())?;
         out.sync_all()?;
         match fs::hard_link(&temp, &file) {
@@ -85,7 +94,11 @@ mod tests {
     fn reads_the_node_daemon_format() {
         let dir = tempfile::tempdir().unwrap();
         let id = "0b0f1c4e-2d4a-4c1b-9a7e-3f2d1c0b9a8e";
-        fs::write(instance_file(dir.path()), format!("{{\"instanceId\":\"{id}\"}}\n")).unwrap();
+        fs::write(
+            instance_file(dir.path()),
+            format!("{{\"instanceId\":\"{id}\"}}\n"),
+        )
+        .unwrap();
         assert_eq!(read_or_create(dir.path()).unwrap(), id);
     }
 

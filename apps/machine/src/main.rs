@@ -16,7 +16,10 @@ fn main() -> ExitCode {
     match cli::run(args) {
         Ok(code) => code,
         Err(error) => {
-            let _ = std::io::Write::write_all(&mut std::io::stderr(), format!("llame-machine: {error:#}\n").as_bytes());
+            let _ = std::io::Write::write_all(
+                &mut std::io::stderr(),
+                format!("llame-machine: {error:#}\n").as_bytes(),
+            );
             ExitCode::from(1)
         }
     }

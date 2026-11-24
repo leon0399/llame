@@ -75,7 +75,10 @@ pub fn run(cli: Cli) -> anyhow::Result<ExitCode> {
             let identity = crate::identity::Identity::load()?;
             out(&format!(
                 "release {}\nbuild {}\nprotocol {}\ninstance {}\n",
-                identity.release_version, identity.build_id, identity.protocol_version, identity.instance_id
+                identity.release_version,
+                identity.build_id,
+                identity.protocol_version,
+                identity.instance_id
             ))?;
             Ok(ExitCode::SUCCESS)
         }
@@ -87,7 +90,8 @@ fn config_path() -> PathBuf {
 }
 
 fn canonical_directory(directory: &Path) -> anyhow::Result<String> {
-    let canonical = fs::canonicalize(directory).with_context(|| format!("{} does not exist", directory.display()))?;
+    let canonical = fs::canonicalize(directory)
+        .with_context(|| format!("{} does not exist", directory.display()))?;
     if !canonical.is_dir() {
         bail!("{} is not a directory", canonical.display());
     }
@@ -132,7 +136,11 @@ fn roots(action: RootsAction) -> anyhow::Result<ExitCode> {
 fn limits(action: LimitsAction) -> anyhow::Result<ExitCode> {
     let file = config_path();
     let mut config = Config::load(&file)?;
-    if let LimitsAction::Set { max_running_jobs, job_output_bytes } = action {
+    if let LimitsAction::Set {
+        max_running_jobs,
+        job_output_bytes,
+    } = action
+    {
         if let Some(value) = max_running_jobs {
             config.limits.max_running_jobs = value;
         }

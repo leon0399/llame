@@ -75,8 +75,12 @@ fn canonical_target(target: &Path, depth: u32) -> Result<PathBuf, Status> {
         Err(error) if is_absent(&error) => {}
         Err(_) => return Err(refusal::path_not_registered()),
     }
-    let Some(parent) = target.parent() else { return Ok(target.to_path_buf()) };
-    let Some(name) = target.file_name() else { return Ok(target.to_path_buf()) };
+    let Some(parent) = target.parent() else {
+        return Ok(target.to_path_buf());
+    };
+    let Some(name) = target.file_name() else {
+        return Ok(target.to_path_buf());
+    };
     let is_link = fs::symlink_metadata(target).is_ok_and(|meta| meta.file_type().is_symlink());
     if is_link {
         let hop = fs::read_link(target).map_err(|_| refusal::path_not_registered())?;
@@ -92,7 +96,12 @@ fn canonical_target(target: &Path, depth: u32) -> Result<PathBuf, Status> {
 
 impl RootGuard {
     pub fn new(roots: &[String]) -> Self {
-        Self { roots: roots.iter().map(|root| normalize(Path::new(root))).collect() }
+        Self {
+            roots: roots
+                .iter()
+                .map(|root| normalize(Path::new(root)))
+                .collect(),
+        }
     }
 
     pub fn roots(&self) -> &[PathBuf] {
@@ -103,7 +112,9 @@ impl RootGuard {
     /// effect to re-verify that the address still resolves to the same place.
     pub fn resolve(&self, path: &str) -> Result<GuardedPath, Status> {
         if !path.starts_with('/') || path.contains('\0') {
-            return Err(refusal::invalid_argument("A Machine path must be an absolute POSIX path."));
+            return Err(refusal::invalid_argument(
+                "A Machine path must be an absolute POSIX path.",
+            ));
         }
         let lexical = normalize(Path::new(path));
         if !is_inside(&self.roots, &lexical) {
@@ -113,14 +124,21 @@ impl RootGuard {
         if !is_inside(&self.roots, &canonical) {
             return Err(refusal::path_not_registered());
         }
-        let is_link = fs::symlink_metadata(&lexical).is_ok_and(|meta| meta.file_type().is_symlink());
+        let is_link =
+            fs::symlink_metadata(&lexical).is_ok_and(|meta| meta.file_type().is_symlink());
         let (kind, size) = match fs::metadata(&lexical) {
             Ok(meta) if meta.is_file() => (PathKind::File, Some(meta.len())),
             Ok(meta) if meta.is_dir() => (PathKind::Directory, Some(meta.len())),
             Ok(meta) => (PathKind::Other, Some(meta.len())),
             Err(_) => (PathKind::Missing, None),
         };
-        Ok(GuardedPath { path: lexical, canonical, kind, size, is_link })
+        Ok(GuardedPath {
+            path: lexical,
+            canonical,
+            kind,
+            size,
+            is_link,
+        })
     }
 
     /// Refuses when `path` no longer resolves to `before.canonical`.
@@ -154,7 +172,9 @@ mod tests {
         let root = dir.path().canonicalize().unwrap();
         fs::write(root.join("a.txt"), "x").unwrap();
         let guard = guard(&root);
-        let ok = guard.resolve(&root.join("a.txt").to_string_lossy()).unwrap();
+        let ok = guard
+            .resolve(&root.join("a.txt").to_string_lossy())
+            .unwrap();
         assert_eq!(ok.kind, PathKind::File);
         assert!(denied(guard.resolve("/etc/passwd")));
         assert!(denied(guard.resolve(&format!("{}/../x", root.display()))));
@@ -167,7 +187,9 @@ mod tests {
         fs::create_dir(base.join("app")).unwrap();
         fs::create_dir(base.join("application")).unwrap();
         let guard = guard(&base.join("app"));
-        assert!(denied(guard.resolve(&base.join("application/x").to_string_lossy())));
+        assert!(denied(
+            guard.resolve(&base.join("application/x").to_string_lossy())
+        ));
     }
 
     #[test]
@@ -182,8 +204,12 @@ mod tests {
         symlink(root.join("inner.txt"), root.join("in")).unwrap();
         let guard = guard(&root);
         assert!(denied(guard.resolve(&root.join("out").to_string_lossy())));
-        assert!(denied(guard.resolve(&root.join("dangling").to_string_lossy())));
-        assert!(denied(guard.resolve(&root.join("dangling/new.txt").to_string_lossy())));
+        assert!(denied(
+            guard.resolve(&root.join("dangling").to_string_lossy())
+        ));
+        assert!(denied(
+            guard.resolve(&root.join("dangling/new.txt").to_string_lossy())
+        ));
         let inner = guard.resolve(&root.join("in").to_string_lossy()).unwrap();
         assert_eq!(inner.kind, PathKind::Missing);
         assert!(inner.is_link);
@@ -192,6 +218,10 @@ mod tests {
     #[test]
     fn refuses_relative_paths() {
         let guard = RootGuard::new(&["/".into()]);
-        assert!(guard.resolve("relative").is_err_and(|s| s.code() == tonic::Code::InvalidArgument));
+        assert!(
+            guard
+                .resolve("relative")
+                .is_err_and(|s| s.code() == tonic::Code::InvalidArgument)
+        );
     }
 }

@@ -23,7 +23,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let protocol: serde_json::Value =
         serde_json::from_str(&fs::read_to_string(proto_root.join("protocol.json"))?)?;
-    let version = protocol["version"].as_u64().ok_or("protocol.json has no version")?;
+    let version = protocol["version"]
+        .as_u64()
+        .ok_or("protocol.json has no version")?;
     let out = PathBuf::from(env::var("OUT_DIR")?);
     fs::write(
         out.join("protocol_version.rs"),
