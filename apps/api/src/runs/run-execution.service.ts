@@ -2516,9 +2516,33 @@ export class RunExecutionService {
 
     const events = await this.tenantDb.runAs(input.userId, (tx) =>
       new RunEventsRepository(tx).listByRunId(input.runId, input.userId, {
-        eventTypes: ['run.delivered', 'run.compaction_disabled'],
+        eventTypes: [
+          'run.delivered',
+          'run.compaction_disabled',
+          'model.requested',
+        ],
       }),
     );
+
+    const latestDeliveryIndex = events.findLastIndex(
+      (event) => event.eventType === 'run.delivered',
+    );
+
+    const latestDelivery = events[latestDeliveryIndex];
+
+    const startsAfterFailoverDelivery =
+      latestDelivery !== undefined &&
+      isRecord(latestDelivery.payload) &&
+      latestDelivery.payload['cause'] === 'failover' &&
+      !events
+        .slice(latestDeliveryIndex + 1)
+        .some((event) => event.eventType === 'model.requested');
+
+    const compactionDisabledAtStart = events.some(
+      (event) => event.eventType === 'run.compaction_disabled',
+    );
+
+    const lastDelivery = latestDelivery;
 
     const stepBudgetOffset = readCompactionStepBudget(events);
 
@@ -2526,12 +2550,6 @@ export class RunExecutionService {
       attempt.quotaRequest?.stepBudgetUsed === undefined
         ? continueStepOffset(attempt.wakeState)
         : Math.max(0, attempt.quotaRequest.stepBudgetUsed - stepBudgetOffset);
-
-    const compactionDisabledAtStart = events.some(
-      (event) => event.eventType === 'run.compaction_disabled',
-    );
-
-    const lastDelivery = events.at(-1);
 
     const startsAfterCompaction =
       lastDelivery !== undefined &&
@@ -2661,7 +2679,8 @@ export class RunExecutionService {
         firstSegment,
         wakeCompaction,
         quotaRequest,
-        switchSegment: attempt.switchSegment ?? false,
+        switchSegment:
+          (attempt.switchSegment ?? false) || startsAfterFailoverDelivery,
         stepBudgetUsed: stepBudgetOffset + wakeStepOffset,
       });
 

@@ -47,6 +47,8 @@ function partTypes(parts: ReadonlyArray<unknown>): Array<string> {
 describe('in-run model switches', () => {
   const switchDecisionCalls = new Map<string, number>();
 
+  beforeEach(() => switchDecisionCalls.clear());
+
   const fx = useSegmentsFixture('in-run-switch', {
     allowedTools: ['bash', 'read'],
     modelSwitchDecision: ({ failure }) => {
@@ -112,6 +114,25 @@ describe('in-run model switches', () => {
     expect(partTypes(failedReply?.parts ?? [])).toEqual([]);
     expect(host).toBeDefined();
     expect(hasSwitchItem(host?.parts ?? [])).toBe(true);
+
+    const switchPart = host?.parts.find(
+      (part) =>
+        isContextItemPart(part) &&
+        part.data.producer === 'effective-context-change',
+    );
+
+    expect(isContextItemPart(switchPart)).toBe(true);
+
+    const switchText = isContextItemPart(switchPart)
+      ? switchPart.data.text
+      : undefined;
+
+    expect(isString(switchText) && switchText.trim().length > 0).toBe(true);
+
+    if (isString(switchText)) {
+      expect(launched.prompts().flat().join('\n')).toContain(switchText);
+    }
+
     expect(
       transcript.some((message) =>
         hasTextPart(message.parts, 'answer from target'),
@@ -134,6 +155,13 @@ describe('in-run model switches', () => {
       (event) => event.eventType === 'model.superseded',
     );
 
+    const deliveredIndex = runEvents.findIndex(
+      (event) =>
+        event.eventType === 'run.delivered' &&
+        isRecord(event.payload) &&
+        event.payload['cause'] === 'failover',
+    );
+
     const completedIndex = runEvents.findIndex(
       (event) => event.eventType === 'model.completed',
     );
@@ -146,6 +174,7 @@ describe('in-run model switches', () => {
     expect(switched?.payload).toMatchObject({ origin: 'policy' });
     expect(supersededIndex).toBeGreaterThanOrEqual(0);
     expect(supersededIndex).toBeLessThan(completedIndex);
+    expect(supersededIndex).toBeLessThan(deliveredIndex);
     expect(JSON.stringify(host?.parts)).not.toContain('scripted overloaded');
     expect(JSON.stringify(run?.error)).not.toContain('scripted overloaded');
     expect(launched.prompts().flat().join('\n')).not.toContain(
@@ -179,9 +208,30 @@ describe('in-run model switches', () => {
 
     expect(partTypes(host?.parts ?? [])).toContain('text');
     expect(switchIndex).toBe(0);
-    expect(launched.prompts().join('\n')).toContain(
-      'steer delivered by switch',
+
+    const targetPrompt = launched.prompts().at(-1)?.join('\n') ?? '';
+    expect(targetPrompt).toContain('steer delivered by switch');
+
+    const reminder = host?.parts.find(
+      (part) =>
+        isContextItemPart(part) &&
+        part.data.producer === 'effective-context-change',
     );
+
+    expect(isContextItemPart(reminder)).toBe(true);
+
+    const reminderText = isContextItemPart(reminder)
+      ? reminder.data.text
+      : undefined;
+
+    expect(isString(reminderText) && reminderText.length > 0).toBe(true);
+
+    if (isString(reminderText)) {
+      expect(targetPrompt.indexOf(reminderText)).toBeGreaterThanOrEqual(0);
+      expect(targetPrompt.indexOf(reminderText)).toBeLessThan(
+        targetPrompt.indexOf('steer delivered by switch'),
+      );
+    }
   });
 
   it('Settled tool calls stay while an unsettled send is removed', async () => {
@@ -239,8 +289,29 @@ describe('in-run model switches', () => {
     expect(
       hasTextPart(failedReply?.parts ?? [], 'discarded tool send text'),
     ).toBe(false);
-    expect(partTypes(failedReply?.parts ?? [])).toContain('tool-bash');
-    expect(launched.prompts().at(-1)?.join('\n')).toContain('tool:tool-result');
+
+    const settledPart = failedReply?.parts.find(
+      (part) => isRecord(part) && part['toolCallId'] === 'settled-call',
+    );
+
+    const failedPart = failedReply?.parts.find(
+      (part) => isRecord(part) && part['toolCallId'] === 'failed-call',
+    );
+
+    // Both calls settled before the send broke, so both stay with their
+    // outcomes; only the send's streamed text is cut (spec: "Settled tool
+    // calls stay").
+    expect(settledPart).toMatchObject({
+      state: 'output-error',
+      errorText:
+        'No current Machine: configure machines.default or enter a Workspace.',
+    });
+    expect(failedPart).toMatchObject({ state: 'output-error' });
+
+    const targetPrompt = launched.prompts().at(-1)?.join('\n') ?? '';
+
+    expect(targetPrompt).toContain('tool:tool-result');
+    expect(targetPrompt).not.toContain('discarded tool send text');
     expect(
       (await events(launched.runId)).some(
         (event) => event.eventType === 'model.switched',
@@ -314,7 +385,7 @@ describe('in-run model switches', () => {
     ).toHaveLength(1);
   });
 
-  it('A switch segment runs pre-step compaction for a smaller context', async () => {
+  it('A switch segment runs threshold-based pre-step compaction', async () => {
     fx.harness.models.register(TARGET, {
       kind: 'step-script',
       steps: [answer('summary for target'), answer('compacted target answer')],
@@ -331,23 +402,30 @@ describe('in-run model switches', () => {
 
     const transcript = await messages(launched.chatId);
 
+    const checkpoint = transcript.find(
+      (message) => message.role === 'checkpoint',
+    );
+
+    const checkpointText = checkpoint?.parts.find(
+      (part) => isContextItemPart(part) && part.data.producer === 'compaction',
+    );
+
     const eventTypes = (await events(launched.runId)).map(
       (event) => event.eventType,
     );
 
-    expect(
-      transcript.some((message) => message.role === 'checkpoint') ||
-        eventTypes.includes('run.compaction_failed'),
-    ).toBe(true);
+    expect(JSON.stringify(checkpointText)).toContain('summary for target');
     expect(
       transcript.some((message) =>
         hasTextPart(message.parts, 'compacted target answer'),
       ),
     ).toBe(true);
+    expect(eventTypes).not.toContain('run.compaction_failed');
   });
 
   it('An ordinary steer segment does not run a pre-step compaction check', async () => {
     const seeded = await seed();
+    const streamCallsBefore = fx.harness.models.streamCalls.length;
 
     const launched = await launch(
       seeded,
@@ -362,14 +440,27 @@ describe('in-run model switches', () => {
 
     await terminal(launched.runId);
 
+    const pending = await fx.items(launched.chatId);
+
     const transcript = await messages(launched.chatId);
 
-    expect(transcript.map((message) => message.role)).not.toContain(
-      'checkpoint',
-    );
     expect(
-      (await events(launched.runId)).map((event) => event.eventType),
-    ).not.toContain('model.switched');
+      transcript.some((message) =>
+        hasTextPart(message.parts, 'ordinary steer'),
+      ),
+    ).toBe(true);
+    expect(
+      (await events(launched.runId)).some(
+        (event) => event.eventType === 'run.delivered',
+      ),
+    ).toBe(true);
+    expect(
+      (await messages(launched.chatId)).some((message) =>
+        hasTextPart(message.parts, 'ordinary steer segment'),
+      ),
+    ).toBe(true);
+    expect(fx.harness.models.streamCalls.length - streamCallsBefore).toBe(2);
+    expect(pending).toHaveLength(0);
   });
 
   it('A synchronous provider throw switches before terminal settlement', async () => {

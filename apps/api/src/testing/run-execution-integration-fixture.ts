@@ -71,8 +71,15 @@ export function catalogValidator(
         },
         { stored, request, writer, now },
       ),
-    createClient: (modelId) =>
-      scriptedClient(scriptedModel(answerChunks('')), modelId),
+    createClient: (modelId) => {
+      const entry = entries.find(({ id }) => id === modelId);
+
+      if (entry === undefined) throw new Error(`Unknown model ${modelId}`);
+
+      return scriptedClient(scriptedModel(answerChunks('')), modelId, {
+        contextWindowTokens: entry.contextWindowTokens,
+      });
+    },
   };
 }
 

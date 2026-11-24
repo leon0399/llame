@@ -8899,12 +8899,21 @@ describe('RunExecutionService executeRun — stream failure', () => {
   );
   it('does not decide a switch after a progress write fails', async () => {
     mockNormalExecutionRepositories();
-    vi.spyOn(Logger.prototype, 'error').mockImplementation(() => {});
+    vi.spyOn(RunsRepository.prototype, 'findById').mockResolvedValue({
+      ...run,
+      activeAttemptId: testAttemptId,
+    });
+
+    const rejectedWrites: Array<string> = [];
+
     vi.spyOn(RunEventsRepository.prototype, 'append').mockImplementation(
-      (_runId, eventType) =>
-        eventType === 'model.delta'
-          ? Promise.reject(new Error('event log unavailable'))
-          : Promise.resolve(event),
+      (_runId, eventType) => {
+        if (eventType !== 'model.delta') return Promise.resolve(event);
+
+        rejectedWrites.push(eventType);
+
+        return Promise.reject(new Error('event log unavailable'));
+      },
     );
     const capturing = makeCapturingClient();
 
@@ -8929,6 +8938,7 @@ describe('RunExecutionService executeRun — stream failure', () => {
       }),
     });
 
+    expect(rejectedWrites).toContain('model.delta');
     expect(decideModelSwitch).not.toHaveBeenCalled();
   });
   it('persists a provider failure class and reset time on a failed model request', async () => {
@@ -36901,6 +36911,9 @@ describe('a send that breaks after a started tool call', () => {
     expect(types).toContain('model.superseded');
     expect(types).toContain('run.delivered');
     expect(types).toContain('model.switched');
+    expect(types.indexOf('model.superseded')).toBeLessThan(
+      types.indexOf('run.delivered'),
+    );
     expect(
       appended.find(({ type }) => type === 'model.superseded')?.payload,
     ).toMatchObject({ step: 0 });
@@ -36979,7 +36992,14 @@ describe('a send that breaks after a started tool call', () => {
       .mockResolvedValueOnce(undefined)
       .mockResolvedValue({ toModelId: 'target-model' });
 
-    const observations: ModelSwitchFakeObservations = { storedParts: [] };
+    const observations: ModelSwitchFakeObservations = {
+      storedParts: [],
+      runUpdates: [],
+      selectionWrites: [],
+    };
+
+    const rejectedWrites: Array<string> = [];
+    const appended: Array<string> = [];
 
     const { drained } = await startAndDrain({
       wire: 'responses',
@@ -36990,10 +37010,17 @@ describe('a send that breaks after a started tool call', () => {
       },
       arrangeEvents: () => {
         vi.spyOn(RunEventsRepository.prototype, 'append').mockImplementation(
-          (_runId, eventType) =>
-            eventType === 'model.superseded'
-              ? Promise.reject(new Error('event log unavailable'))
-              : Promise.resolve(event),
+          (_runId, eventType) => {
+            appended.push(eventType);
+
+            if (eventType === 'model.superseded') {
+              rejectedWrites.push(eventType);
+
+              return Promise.reject(new Error('event log unavailable'));
+            }
+
+            return Promise.resolve(event);
+          },
         );
       },
       responses: [
@@ -37014,8 +37041,21 @@ describe('a send that breaks after a started tool call', () => {
 
     await drained;
 
+    expect(rejectedWrites).toContain('model.superseded');
+    expect(appended).not.toContain('model.switched');
     expect(decision).toHaveBeenCalledTimes(2);
     expect(observations.storedParts).toEqual([]);
+    expect(
+      observations.runUpdates?.some(
+        ({ update }) =>
+          isRecord(update) && update['modelId'] === 'target-model',
+      ),
+    ).toBe(false);
+    expect(
+      observations.selectionWrites?.some(
+        ({ selection }) => isRecord(selection) && isRecord(selection['hold']),
+      ),
+    ).toBe(false);
   });
 
   it('switches after the non-retryable failed-send decision', async () => {

@@ -14,8 +14,11 @@ import { isModelChangePayload } from '../chats/context-item-producers';
 import { ChatsRepository, MessagesRepository } from '../chats/chats-repository';
 import { RunningReplyRepository } from '../chats/running-reply-repository';
 import { type Message } from '../db/schema';
+import { isRecord, isString } from '@workspace/runtime-safety';
+
 import { useSegmentsFixture } from '../testing/run-segments.test-fixture';
 import { type Db } from '../db/tenant-db.service';
+import { dispatchRun } from './worker-harness';
 import { deliverModelSwitch, type ModelSwitchResult } from './model-switch';
 import { runningReplyUsage } from './run-reply-finalizer';
 import { RunEventsRepository, RunsRepository } from './runs-repository';
@@ -252,6 +255,57 @@ describe('the model switch inside a live Run', () => {
       type: 'text',
       text: 'wait for me',
     });
+  });
+  it('recovered switch delivery compacts before its first target step', async () => {
+    const live = await seedLiveSwitch();
+    const switched = await fx.db((tx) => switchFrom(tx, live));
+    const promptsBefore = fx.harness.models.prompts.length;
+
+    fx.harness.models.register(SONNET, {
+      kind: 'step-script',
+      steps: [
+        [{ type: 'text', id: 'summary', text: 'recovery summary' }],
+        [{ type: 'text', id: 'answer', text: 'recovered target answer' }],
+      ],
+      compactionThresholdTokens: 1,
+    });
+
+    await dispatchRun({
+      queue: fx.harness.queue,
+      chatId: live.chatId,
+      runId: live.runId,
+      userId: fx.userId,
+      modelId: SONNET,
+      userMessage: {
+        id: switched.message.id,
+        seq: switched.message.seq,
+        parts: switched.message.parts.filter(isRecord),
+      },
+    });
+
+    const finished = await fx.terminal(live.runId);
+    const transcript = await messages(live.chatId);
+
+    expect(finished.status).toBe('completed');
+    expect(
+      transcript.some(
+        (message) =>
+          message.role === 'checkpoint' &&
+          message.parts.some(
+            (part) =>
+              isContextItemPart(part) &&
+              part.data.producer === 'compaction' &&
+              isString(part.data.text) &&
+              part.data.text.includes('recovery summary'),
+          ),
+      ),
+    ).toBe(true);
+    expect(fx.harness.models.prompts.slice(promptsBefore)).toHaveLength(2);
+    expect(
+      (await events(live.runId)).some(
+        (event) => event.eventType === 'run.compaction_failed',
+      ),
+    ).toBe(false);
   });
 
   it('The transcript after a switch', async () => {
