@@ -240,6 +240,8 @@ export class ChatsRepository {
       eq(chats.ownerUserId, ownerUserId),
       isNull(chats.archivedAt),
       not(eq(chats.id, filter.excludeId)),
+      isNotNull(chats.title),
+      sql`btrim(${chats.title}) <> ''`,
     ];
 
     const pinCondition = this.pinCondition(ownerUserId, filter.pinned);

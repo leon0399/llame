@@ -283,8 +283,8 @@ describeIfDb(
         await result.consumeStream?.();
       }
 
-      const run = await tenantDb.runAs(userId, (tx) =>
-        new RunsRepository(tx).findById(job.runId, userId),
+      const run = await tenantDb.runAs(turnJob.userId, (tx) =>
+        new RunsRepository(tx).findById(job.runId, turnJob.userId),
       );
 
       if (!run) throw new Error(`Expected worker run ${job.runId}`);
@@ -872,6 +872,193 @@ describeIfDb(
         ).rejects.toThrow('requires a non-empty userId');
       } finally {
         await sql`DELETE FROM users WHERE id = ${otherUserId}`;
+      }
+    });
+
+    it('counts and announces only owned, titled, active digest sources', async () => {
+      const digestOwnerId = crypto.randomUUID();
+      await sql`INSERT INTO users (id, name, email) VALUES (${digestOwnerId}, 'Digest Isolated', ${`digest-isolated-${digestOwnerId}@test.com`})`;
+      await new MemoryService(tenantDb).updateForOwner(digestOwnerId, {
+        shareRecentChats: true,
+      });
+
+      const untitledPinned = await seedEligibleChat(
+        digestOwnerId,
+        'Temporary title',
+        'must stay undisclosed',
+      );
+
+      await tenantDb.runAs(digestOwnerId, (tx) =>
+        tx
+          .update(schema.chats)
+          .set({ title: null })
+          .where(eq(schema.chats.id, untitledPinned.id)),
+      );
+
+      await seedEligibleChat(
+        digestOwnerId,
+        '   ',
+        'whitespace title must stay undisclosed',
+      );
+
+      const titledPinned = await seedEligibleChat(
+        digestOwnerId,
+        'Titled pinned source',
+        'pinned opening',
+      );
+
+      const titledRecent = await seedEligibleChat(
+        digestOwnerId,
+        'Titled recent source',
+        'recent opening',
+      );
+
+      const archived = await seedEligibleChat(
+        digestOwnerId,
+        'Archived source',
+        'archived opening',
+      );
+
+      const current = await seedEligibleChat(
+        digestOwnerId,
+        'Current source',
+        'current opening',
+      );
+
+      const otherUserId = crypto.randomUUID();
+      await sql`INSERT INTO users (id, name, email) VALUES (${otherUserId}, 'Digest Other', ${`digest-other-${otherUserId}@test.com`})`;
+
+      try {
+        await seedEligibleChat(
+          otherUserId,
+          'FOREIGN SECRET TITLE',
+          'FOREIGN SECRET EXCERPT',
+        );
+
+        await tenantDb.runAs(digestOwnerId, async (tx) => {
+          await tx.insert(schema.pins).values([
+            {
+              userId: digestOwnerId,
+              itemType: 'chat',
+              itemId: untitledPinned.id,
+              position: 0,
+            },
+            {
+              userId: digestOwnerId,
+              itemType: 'chat',
+              itemId: titledPinned.id,
+              position: 1,
+            },
+          ]);
+          await new ChatsRepository(tx).update(archived.id, digestOwnerId, {
+            archived: true,
+          });
+        });
+
+        const resolver = new RecencyDigestService(tenantDb);
+
+        const candidate = await resolver.resolveCandidate(
+          digestOwnerId,
+          current.id,
+        );
+
+        expect(candidate).toMatchObject({
+          pinnedShown: 1,
+          pinnedTotal: 1,
+          recentShown: 1,
+          recentTotal: 1,
+        });
+        expect(candidate.rows.map(({ chatId }) => chatId)).toEqual([
+          titledPinned.id,
+          titledRecent.id,
+        ]);
+        expect(JSON.stringify(candidate.rows)).not.toMatch(
+          /must stay undisclosed|FOREIGN SECRET|archived opening|current opening/,
+        );
+
+        const targetChatId = crypto.randomUUID();
+
+        const executeTurn = async (text: string) => {
+          await chatLoop.createMessageStream({
+            chatId: targetChatId,
+            userId: digestOwnerId,
+            modelId: 'system:openai:gpt-5.4-mini',
+            message: {
+              id: crypto.randomUUID(),
+              parts: [{ type: 'text', text }],
+            },
+          });
+
+          const run = await tenantDb.runAs(digestOwnerId, (tx) =>
+            new RunsRepository(tx).findActiveByChatId(
+              targetChatId,
+              digestOwnerId,
+            ),
+          );
+
+          const job = dispatchCalls.find(({ runId }) => runId === run?.id);
+
+          if (!job) throw new Error('Expected an owned digest Run dispatch');
+          await executeWorker(job);
+        };
+
+        await executeTurn('first digest turn');
+
+        const firstMessages = await tenantDb.runAs(digestOwnerId, (tx) =>
+          new MessagesRepository(tx).findByChatId(targetChatId, digestOwnerId),
+        );
+
+        const firstDigest = firstMessages
+          .find(({ role }) => role === 'user')
+          ?.parts.find(
+            (part) =>
+              isContextItemPart(part) &&
+              part.data.producer === 'recency-digest',
+          );
+
+        const firstPayload = isContextItemPart(firstDigest)
+          ? readDigestPayload(firstDigest)
+          : undefined;
+
+        expect(firstPayload?.kind).toBe('baseline');
+
+        expect(
+          firstPayload?.announced.map(({ chatId }) => chatId),
+        ).not.toContain(untitledPinned.id);
+
+        await tenantDb.runAs(digestOwnerId, (tx) =>
+          new ChatsRepository(tx).update(untitledPinned.id, digestOwnerId, {
+            title: 'Named after first digest',
+          }),
+        );
+        await executeTurn('second digest turn');
+
+        const latestMessages = await tenantDb.runAs(digestOwnerId, (tx) =>
+          new MessagesRepository(tx).findByChatId(targetChatId, digestOwnerId),
+        );
+
+        const latestDigest = latestMessages
+          .filter(({ role }) => role === 'user')
+          .at(-1)
+          ?.parts.find(
+            (part) =>
+              isContextItemPart(part) &&
+              part.data.producer === 'recency-digest',
+          );
+
+        const latestPayload = isContextItemPart(latestDigest)
+          ? readDigestPayload(latestDigest)
+          : undefined;
+
+        expect(latestPayload).toMatchObject({
+          kind: 'notice',
+          announced: expect.arrayContaining([
+            expect.objectContaining({ chatId: untitledPinned.id }),
+          ]),
+        });
+      } finally {
+        await sql`DELETE FROM users WHERE id = ${otherUserId}`;
+        await sql`DELETE FROM users WHERE id = ${digestOwnerId}`;
       }
     });
 

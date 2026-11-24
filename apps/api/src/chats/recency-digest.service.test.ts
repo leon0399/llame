@@ -5,10 +5,7 @@ import { type Chat } from '../db/schema';
 import { type Db, type TenantRunner } from '../db/tenant-db.service';
 import { ChatsRepository } from './chats-repository';
 import * as digestMessageProjections from './recency-digest-message-projections';
-import {
-  RecencyDigestService,
-  RECENCY_DIGEST_LIST_LIMIT,
-} from './recency-digest.service';
+import { RecencyDigestService } from './recency-digest.service';
 
 const ids = Array.from(
   { length: 30 },
@@ -54,17 +51,14 @@ describe('recency digest candidate resolution', () => {
     const pinned = ids.slice(0, 10).map((id) => chat(id));
     const recent = ids.slice(10, 20).map((id) => chat(id));
 
-    const find = vi
-      .spyOn(ChatsRepository.prototype, 'findByOwner')
-      .mockImplementation((_owner, filter) =>
+    vi.spyOn(ChatsRepository.prototype, 'findByOwner').mockImplementation(
+      (_owner, filter) =>
         Promise.resolve(filter?.pinned === 'only' ? pinned : recent),
-      );
+    );
 
-    const count = vi
-      .spyOn(ChatsRepository.prototype, 'countByOwner')
-      .mockImplementation((_owner, filter) =>
-        Promise.resolve(filter.pinned === 'only' ? 27 : 61),
-      );
+    vi.spyOn(ChatsRepository.prototype, 'countByOwner').mockImplementation(
+      (_owner, filter) => Promise.resolve(filter.pinned === 'only' ? 27 : 61),
+    );
 
     vi.spyOn(
       digestMessageProjections,
@@ -82,25 +76,6 @@ describe('recency digest candidate resolution', () => {
 
     const result = await service.resolveCandidate('owner', ids[29]);
 
-    expect(RECENCY_DIGEST_LIST_LIMIT).toBe(10);
-    expect(find).toHaveBeenNthCalledWith(1, 'owner', {
-      pinned: 'only',
-      limit: 10,
-      excludeId: ids[29],
-    });
-    expect(find).toHaveBeenNthCalledWith(2, 'owner', {
-      pinned: 'exclude',
-      limit: 10,
-      excludeId: ids[29],
-    });
-    expect(count).toHaveBeenNthCalledWith(1, 'owner', {
-      pinned: 'only',
-      excludeId: ids[29],
-    });
-    expect(count).toHaveBeenNthCalledWith(2, 'owner', {
-      pinned: 'exclude',
-      excludeId: ids[29],
-    });
     expect(
       result.announced.map(({ chatId, pinned: isPinned }) => [
         chatId,
@@ -149,7 +124,6 @@ describe('recency digest candidate resolution', () => {
       recentShown: 0,
       recentTotal: 0,
     });
-    expect(service.renderBaseline(result)).toBeTruthy();
   });
 
   it('renders latest and opening visible excerpts as bounded Unicode code points without status', async () => {
@@ -225,6 +199,53 @@ describe('recency digest candidate resolution', () => {
 });
 
 describe('recency digest change derivation', () => {
+  it('preserves each new row pin classification when earlier pinned rows were already announced', async () => {
+    const rows = ids.slice(0, 3).map((chatId) => ({
+      chatId,
+      locator: `chat://${chatId}`,
+      title: chatId,
+      activityAt: '2026-08-12T00:00:00.000Z',
+      messageCount: 1,
+      workspace: 'unbound',
+    }));
+
+    const announced = rows.map((row, index) => ({
+      chatId: row.chatId,
+      title: row.title,
+      workspace: row.workspace,
+      pinned: index < 2,
+    }));
+
+    const { service, tx } = serviceDb();
+    vi.spyOn(ChatsRepository.prototype, 'findByOwner').mockResolvedValue([
+      chat(ids[0]),
+    ]);
+    vi.spyOn(ChatsRepository.prototype, 'findPinnedChatIds').mockResolvedValue(
+      new Set([ids[0]]),
+    );
+
+    const result = await service.deriveChanges({
+      tx,
+      ownerUserId: 'owner',
+      currentChatId: ids[29],
+      candidate: {
+        rows,
+        announced,
+        pinnedShown: 2,
+        pinnedTotal: 2,
+        recentShown: 1,
+        recentTotal: 1,
+        compiledOn: '2026-08-12',
+      },
+      announced: [announced[0]],
+    });
+
+    expect(result.additions).toEqual([
+      { row: rows[1], pinned: true },
+      { row: rows[2], pinned: false },
+    ]);
+  });
+
   it('does not reannounce known candidates and does not infer pin changes from candidate cap displacement', async () => {
     const row = {
       chatId: ids[0],

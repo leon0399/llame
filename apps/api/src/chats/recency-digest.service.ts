@@ -51,7 +51,10 @@ export type RecencyDigestCorrection = {
 };
 
 export type RecencyDigestChange = {
-  readonly additions: ReadonlyArray<ChatRow>;
+  readonly additions: ReadonlyArray<{
+    readonly row: ChatRow;
+    readonly pinned: boolean;
+  }>;
   readonly corrections: ReadonlyArray<RecencyDigestCorrection>;
   readonly announced: ReadonlyArray<DigestAnnouncedEntry>;
 };
@@ -220,7 +223,7 @@ export class RecencyDigestService {
     currentChatId: string,
   ): Promise<RecencyDigestResolution> {
     const chats = new ChatsRepository(tx);
-    const scope = { excludeId: currentChatId };
+    const scope = { excludeId: currentChatId, titledOnly: true };
     const limit = RECENCY_DIGEST_LIST_LIMIT;
 
     const [pinnedChats, recentChats, pinnedTotal, recentTotal] =
@@ -266,9 +269,15 @@ export class RecencyDigestService {
       input.announced.map((entry) => [entry.chatId, entry]),
     );
 
-    const additions = input.candidate.rows.filter(
-      (row) => !known.has(row.chatId),
-    );
+    const additions: Array<RecencyDigestChange['additions'][number]> = [];
+
+    for (const [index, row] of input.candidate.rows.entries()) {
+      if (!known.has(row.chatId))
+        additions.push({
+          row,
+          pinned: index < input.candidate.pinnedShown,
+        });
+    }
 
     const chats = new ChatsRepository(input.tx);
 

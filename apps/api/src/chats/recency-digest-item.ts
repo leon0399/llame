@@ -311,7 +311,10 @@ export function renderRecencyDigestBaseline(
 }
 
 export function renderRecencyDigestNotice(input: {
-  readonly additions: ReadonlyArray<ChatRow>;
+  readonly additions: ReadonlyArray<{
+    readonly row: ChatRow;
+    readonly pinned: boolean;
+  }>;
   readonly corrections: ReadonlyArray<{
     readonly chatId: string;
     readonly title: string;
@@ -326,7 +329,12 @@ export function renderRecencyDigestNotice(input: {
 
   return renderNoticeTemplate({
     hasAdditions: input.additions.length > 0,
-    additions: input.additions.map(renderChatRow).join('\n'),
+    additions: input.additions
+      .map(
+        ({ row, pinned }) =>
+          `${pinned ? 'Pinned' : 'Recent'}: ${renderChatRow(row)}`,
+      )
+      .join('\n'),
     hasCorrections: corrections.length > 0,
     corrections: corrections.join('\n'),
   });

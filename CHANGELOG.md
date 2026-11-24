@@ -114,7 +114,8 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   contain digest items. Disabled compaction carries only the frozen baseline,
   without source reads or notices. `shareRecentChats` remains off by default;
   enabling is retroactive, and disabling or deleting a source does not erase
-  prior disclosure.
+  prior disclosure. Digest selection and ratios exclude untitled Chats; each
+  newly announced row identifies its pinned or recent membership.
 
 # 2026-11-22
 

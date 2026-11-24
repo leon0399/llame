@@ -217,12 +217,26 @@ describe('recency-digest versioned producer', () => {
     const body = renderRecencyDigestNotice({
       additions: [
         {
-          chatId: second.chatId,
-          locator: `chat://${second.chatId}`,
-          title: second.title ?? null,
-          activityAt: '2026-08-12T00:00:00.000Z',
-          messageCount: 2,
-          workspace: 'unbound',
+          pinned: true,
+          row: {
+            chatId: first.chatId,
+            locator: `chat://${first.chatId}`,
+            title: first.title ?? null,
+            activityAt: '2026-08-12T00:00:00.000Z',
+            messageCount: 1,
+            workspace: 'machine://build/repo',
+          },
+        },
+        {
+          pinned: false,
+          row: {
+            chatId: second.chatId,
+            locator: `chat://${second.chatId}`,
+            title: second.title ?? null,
+            activityAt: '2026-08-12T00:00:00.000Z',
+            messageCount: 2,
+            workspace: 'unbound',
+          },
         },
       ],
       corrections: [
@@ -235,6 +249,8 @@ describe('recency-digest versioned producer', () => {
       ],
     });
 
+    expect(body).toContain(`Pinned: Title: ${first.title}`);
+    expect(body).toContain(`Recent: Title: ${second.title}`);
     expect(body).toContain(`chat://${second.chatId}`);
     expect(body).toContain('unbound');
     expect(body).not.toMatch(/\b(?:idle|running|status|probe)\b/iu);

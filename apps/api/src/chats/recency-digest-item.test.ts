@@ -285,7 +285,10 @@ describe('recency digest rendering', () => {
 
   it('renders notices with additions and authored correction values, without inventing absent sections', () => {
     const rendered = renderRecencyDigestNotice({
-      additions: [row],
+      additions: [
+        { row, pinned: true },
+        { row: unboundRow, pinned: false },
+      ],
       corrections: [
         {
           chatId: secondChatId,
@@ -295,6 +298,11 @@ describe('recency digest rendering', () => {
         },
       ],
     });
+
+    expect(rendered).toContain(
+      'Pinned: Title: Planning <trusted>kept</trusted>',
+    );
+    expect(rendered).toContain('Recent: Title: Unbound chat');
 
     expect(rendered).toContain('Newly announced Chats:');
     expect(rendered).toContain('Workspace: unknown');
