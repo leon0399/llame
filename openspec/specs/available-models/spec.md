@@ -103,7 +103,7 @@ The available models response SHALL return a flat `models` array. The API SHALL 
 #### Scenario: Default is identified by field
 
 - **WHEN** a client needs the default model
-- **THEN** it uses `defaultModelId`, not array position
+- **THEN** it uses `defaultSelector`, not array position
 
 ### Requirement: System model configuration is explicit
 

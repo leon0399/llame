@@ -64,7 +64,7 @@ A class outside these groups MUST NOT cause a switch.
 
 A failure MUST switch the Run only when four conditions are true. The request has no request retry
 left. The selector of the Run is a role. A next candidate exists. The cell of the Run origin and the
-failure group is on. The switch MUST use the model switch of `model-roles`, with cause `policy`.
+failure group is on. The switch MUST use the model switch of `model-roles`, with origin `policy`.
 
 #### Scenario: An agent Run fails over
 
