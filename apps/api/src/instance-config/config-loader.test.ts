@@ -75,6 +75,9 @@ const ENV_KEYS = [
   'PROVIDER_OPTIONS_SECRET',
   'IC_MODEL_FIRST_TOKEN_TIMEOUT',
   'GITHUB_READ_TOKEN',
+  'ROLE_MODEL',
+  'ROLE_EFFORT',
+  'ROLE_UNKNOWN_MODEL',
 ] as const;
 
 let originalEnv: Record<string, string | undefined>;
@@ -125,8 +128,8 @@ const SINGLE_PROVIDER_JSON =
 
 /**
  * A minimal valid `providers[]`/`models[]` pair naming a single model with
- * the given id — spliced into fixtures that set `defaults.modelId` (or
- * `titleGenerationModelId`) to a value they expect to resolve successfully.
+ * the given id — spliced into fixtures that set `defaults.selector` (or
+ * `titleGenerationSelector`) to a value they expect to resolve successfully.
  * Boot now validates that pointer against `models[]` (providers-and-models-
  * as-code, #167), so a fixture asserting a specific resolved modelId must
  * also configure a model with that id, or it fails the boot validation this
@@ -266,13 +269,13 @@ describe('loadInstanceConfig — file presence', () => {
   it('resolves entirely from an explicitly passed env — process.env is never consulted', () => {
     process.env.IC_LOADER_TRUST = 'from-process-env';
     writeConfig(`{
-      "defaults": { "modelId": "{env:IC_LOADER_MODEL:-}" },
+      "defaults": { "selector": "{env:IC_LOADER_MODEL:-}" },
       "http": { "trustProxy": "{env:IC_LOADER_TRUST:-1}" },
       ${modelFixtureJson('from-custom-env')}
     }`);
     const config = loadInstanceConfig({ IC_LOADER_MODEL: 'from-custom-env' });
     // Interpolation reads the passed env only:
-    expect(config.defaults.modelId).toBe('from-custom-env');
+    expect(config.defaults.selector).toBe('from-custom-env');
     // IC_LOADER_TRUST is set in process.env but NOT in the passed env — the
     // token's :- default applies, proving process.env is never consulted.
     expect(config.http.trustProxy).toBe('1');
@@ -281,12 +284,12 @@ describe('loadInstanceConfig — file presence', () => {
 
   it('populates settings from a well-formed file', () => {
     writeConfig(`{
-      "defaults": { "modelId": "system:openai:gpt-5.4-mini" },
+      "defaults": { "selector": "system:openai:gpt-5.4-mini" },
       "runs": { "timeoutSeconds": 120 },
       ${modelFixtureJson('system:openai:gpt-5.4-mini')}
     }`);
     const config = loadInstanceConfig();
-    expect(config.defaults.modelId).toBe('system:openai:gpt-5.4-mini');
+    expect(config.defaults.selector).toBe('system:openai:gpt-5.4-mini');
     expect(config.runs.timeoutSeconds).toBe(120);
     // Untouched settings still carry their built-in defaults.
     expect(config.runs.heartbeatSeconds).toBe(15);
@@ -307,7 +310,7 @@ describe('loadInstanceConfig — file presence', () => {
     writeFileSync(copy, readFileSync(examplePath, 'utf8'));
     process.env.LLAME_CONFIG_PATH = copy;
     const config = loadInstanceConfig();
-    expect(config.defaults.modelId).toBe('system:openai:gpt-5.4-mini');
+    expect(config.defaults.selector).toBe('system:openai:gpt-5.4-mini');
     expect(config.tools.allowed).toContain('search_conversations');
     // Run limits are opt-in: the shipped example configures none, so a fresh
     // `cp`-and-boot instance runs with no budget and no step cap.
@@ -319,19 +322,19 @@ describe('loadInstanceConfig — file presence', () => {
     writeConfig(`{
       // instance defaults
       "defaults": {
-        "modelId": "system:openai:gpt-5.4-mini", // trailing comma below
+        "selector": "system:openai:gpt-5.4-mini", // trailing comma below
       },
       /* runs block */
       "runs": { "timeoutSeconds": 90, },
       ${modelFixtureJson('system:openai:gpt-5.4-mini')},
     }`);
     const config = loadInstanceConfig();
-    expect(config.defaults.modelId).toBe('system:openai:gpt-5.4-mini');
+    expect(config.defaults.selector).toBe('system:openai:gpt-5.4-mini');
     expect(config.runs.timeoutSeconds).toBe(90);
   });
 
   it('fails loudly, naming the file and parse location, on malformed JSONC', () => {
-    const file = writeConfig('{ "defaults": { "modelId": "x", } ');
+    const file = writeConfig('{ "defaults": { "selector": "x", } ');
     expect(() => loadInstanceConfig()).toThrow(InstanceConfigError);
 
     try {
@@ -345,20 +348,20 @@ describe('loadInstanceConfig — file presence', () => {
 
   it('LLAME_CONFIG_PATH loads that file instead of the default location', () => {
     writeConfig(
-      `{ "defaults": { "modelId": "from-override" }, ${modelFixtureJson('from-override')} }`,
+      `{ "defaults": { "selector": "from-override" }, ${modelFixtureJson('from-override')} }`,
       'somewhere-else.json',
     );
     process.env.LLAME_CONFIG_PATH = path.join(tmpDir, 'somewhere-else.json');
-    expect(loadInstanceConfig().defaults.modelId).toBe('from-override');
+    expect(loadInstanceConfig().defaults.selector).toBe('from-override');
   });
 
   it('a top-level $schema key is exempt and ignored', () => {
     writeConfig(`{
       "$schema": "./llame.config.schema.json",
-      "defaults": { "modelId": "system:openai:gpt-5.4-mini" },
+      "defaults": { "selector": "system:openai:gpt-5.4-mini" },
       ${modelFixtureJson('system:openai:gpt-5.4-mini')}
     }`);
-    expect(loadInstanceConfig().defaults.modelId).toBe(
+    expect(loadInstanceConfig().defaults.selector).toBe(
       'system:openai:gpt-5.4-mini',
     );
   });
@@ -383,7 +386,7 @@ describe('loadInstanceConfig — file presence', () => {
 describe('loadInstanceConfig — YAML (with anchors) and TOML', () => {
   const YAML = `\
 defaults:
-  modelId: system:openai:gpt-5.4-mini
+  selector: system:openai:gpt-5.4-mini
 providers:
   - &base_provider
     type: openai-responses
@@ -401,7 +404,7 @@ runs:
 
   const TOML = `\
 [defaults]
-modelId = "system:openai:gpt-5.4-mini"
+selector = "system:openai:gpt-5.4-mini"
 
 [[providers]]
 id = "p"
@@ -422,7 +425,7 @@ timeoutSeconds = 120
     process.env.LLAME_CONFIG_PATH = path.join(tmpDir, 'llame.config.yaml');
 
     const config = loadInstanceConfig();
-    expect(config.defaults.modelId).toBe('system:openai:gpt-5.4-mini');
+    expect(config.defaults.selector).toBe('system:openai:gpt-5.4-mini');
     expect(config.runs.timeoutSeconds).toBe(120);
     // The merged-and-overridden second provider proves the *base_provider
     // alias dereferenced; without alias expansion the fixture would fail.
@@ -433,7 +436,7 @@ timeoutSeconds = 120
     writeConfig(YAML, 'llame.config.yml');
     process.env.LLAME_CONFIG_PATH = path.join(tmpDir, 'llame.config.yml');
 
-    expect(loadInstanceConfig().defaults.modelId).toBe(
+    expect(loadInstanceConfig().defaults.selector).toBe(
       'system:openai:gpt-5.4-mini',
     );
   });
@@ -443,7 +446,7 @@ timeoutSeconds = 120
     process.env.LLAME_CONFIG_PATH = path.join(tmpDir, 'llame.config.toml');
 
     const config = loadInstanceConfig();
-    expect(config.defaults.modelId).toBe('system:openai:gpt-5.4-mini');
+    expect(config.defaults.selector).toBe('system:openai:gpt-5.4-mini');
     expect(config.runs.timeoutSeconds).toBe(120);
   });
 
@@ -607,9 +610,9 @@ describe('loadInstanceConfig — whole-value numeric interpolation (task 2.2)', 
   it('embeds a token within a string-typed setting', () => {
     process.env.RUN_TIMEOUT_SECONDS_SRC = 'gpt-5.4-nano';
     writeConfig(
-      `{ "defaults": { "modelId": "system:openai:{env:RUN_TIMEOUT_SECONDS_SRC}" }, ${modelFixtureJson('system:openai:gpt-5.4-nano')} }`,
+      `{ "defaults": { "selector": "system:openai:{env:RUN_TIMEOUT_SECONDS_SRC}" }, ${modelFixtureJson('system:openai:gpt-5.4-nano')} }`,
     );
-    expect(loadInstanceConfig().defaults.modelId).toBe(
+    expect(loadInstanceConfig().defaults.selector).toBe(
       'system:openai:gpt-5.4-nano',
     );
     delete process.env.RUN_TIMEOUT_SECONDS_SRC;
@@ -619,16 +622,16 @@ describe('loadInstanceConfig — whole-value numeric interpolation (task 2.2)', 
     const secretFile = path.join(tmpDir, 'model-id.secret');
     writeFileSync(secretFile, '  system:openai:gpt-5.4-mini  \n');
     writeConfig(
-      `{ "defaults": { "modelId": "{path:${secretFile.replaceAll('\\', String.raw`\\`)}}" }, ${modelFixtureJson('system:openai:gpt-5.4-mini')} }`,
+      `{ "defaults": { "selector": "{path:${secretFile.replaceAll('\\', String.raw`\\`)}}" }, ${modelFixtureJson('system:openai:gpt-5.4-mini')} }`,
     );
-    expect(loadInstanceConfig().defaults.modelId).toBe(
+    expect(loadInstanceConfig().defaults.selector).toBe(
       'system:openai:gpt-5.4-mini',
     );
   });
 
   it('fails startup, naming the location, when the {path:...} file is missing', () => {
     const missing = path.join(tmpDir, 'does-not-exist.secret');
-    writeConfig(`{ "defaults": { "modelId": "{path:${missing}}" } }`);
+    writeConfig(`{ "defaults": { "selector": "{path:${missing}}" } }`);
     expect(() => loadInstanceConfig()).toThrow(InstanceConfigError);
 
     try {
@@ -652,9 +655,9 @@ describe('loadInstanceConfig — whole-value numeric interpolation (task 2.2)', 
     // env-fallback branch always trimmed — the same setting could carry
     // padding or not depending purely on which source set it.
     writeConfig(
-      `{ "defaults": { "modelId": "  system:openai:gpt-5.4-mini  " }, ${modelFixtureJson('system:openai:gpt-5.4-mini')} }`,
+      `{ "defaults": { "selector": "  system:openai:gpt-5.4-mini  " }, ${modelFixtureJson('system:openai:gpt-5.4-mini')} }`,
     );
-    expect(loadInstanceConfig().defaults.modelId).toBe(
+    expect(loadInstanceConfig().defaults.selector).toBe(
       'system:openai:gpt-5.4-mini',
     );
   });
@@ -2135,7 +2138,7 @@ describe('loadInstanceConfig — precedence (file > built-in default, no bare en
     process.env.TRUST_PROXY = '1';
     writeConfig('{ "runs": { "heartbeatSeconds": 20 } }');
     const config = loadInstanceConfig();
-    expect(config.defaults.modelId).toBeNull();
+    expect(config.defaults.selector).toBeNull();
     expect(config.runs.timeoutSeconds).toBe(
       BUILT_IN_DEFAULTS.runs.timeoutSeconds,
     );
@@ -2147,9 +2150,9 @@ describe('loadInstanceConfig — precedence (file > built-in default, no bare en
   it('the same env var DOES apply when the file references it via a token', () => {
     process.env.DEFAULT_MODEL_ID = 'from-env-via-token';
     writeConfig(
-      `{ "defaults": { "modelId": "{env:DEFAULT_MODEL_ID}" }, ${modelFixtureJson('from-env-via-token')} }`,
+      `{ "defaults": { "selector": "{env:DEFAULT_MODEL_ID}" }, ${modelFixtureJson('from-env-via-token')} }`,
     );
-    expect(loadInstanceConfig().defaults.modelId).toBe('from-env-via-token');
+    expect(loadInstanceConfig().defaults.selector).toBe('from-env-via-token');
   });
 
   it('an explicit null on a nullable setting is unset, same as absent', () => {
@@ -2209,7 +2212,7 @@ describe('loadInstanceConfig — providers[] / models[] (providers-and-models-as
     writeConfig(`{
       "providers": [{ "id": "openai", "type": "openai-responses", "key": "{env:PM_KEY:-}", "baseUrl": "{env:PM_BASE_URL:-}" }],
       "models": [{ "id": "system:openai:gpt-5.4-mini", "provider": "openai", "providerModelId": "gpt-5.4-mini", "contextWindowTokens": 400000 }],
-      "defaults": { "modelId": "system:openai:gpt-5.4-mini" }
+      "defaults": { "selector": "system:openai:gpt-5.4-mini" }
     }`);
     const config = loadInstanceConfig();
     expect(config.providers).toEqual([
@@ -2783,23 +2786,23 @@ describe('loadInstanceConfig — providers[] / models[] (providers-and-models-as
     expect(loadInstanceConfig().models[0].compactionThresholdTokens).toBe(300);
   });
 
-  it('fails boot naming the dangling reference when defaults.modelId does not match any models[].id', () => {
+  it('fails boot naming the dangling reference when defaults.selector does not match any configured model or model role', () => {
     writeConfig(`{
       ${SINGLE_PROVIDER_JSON},
       "models": [{ "id": "m", "provider": "p", "providerModelId": "x", "contextWindowTokens": 1000 }],
-      "defaults": { "modelId": "not-configured" }
+      "defaults": { "selector": "not-configured" }
     }`);
     expect(() => loadInstanceConfig()).toThrow(InstanceConfigError);
-    expect(() => loadInstanceConfig()).toThrow(/defaults\.modelId/);
+    expect(() => loadInstanceConfig()).toThrow(/defaults\.selector/);
   });
 
-  it('fails boot naming the dangling reference when titleGenerationModelId does not match any models[].id', () => {
+  it('fails boot naming the dangling reference when titleGenerationSelector does not match any configured model or model role', () => {
     writeConfig(`{
-      "defaults": { "titleGenerationModelId": "not-configured" }
+      "defaults": { "titleGenerationSelector": "not-configured" }
     }`);
     expect(() => loadInstanceConfig()).toThrow(InstanceConfigError);
     expect(() => loadInstanceConfig()).toThrow(
-      /defaults\.titleGenerationModelId/,
+      /defaults\.titleGenerationSelector/,
     );
   });
 
@@ -2823,11 +2826,11 @@ describe('loadInstanceConfig — providers[] / models[] (providers-and-models-as
     }
   });
 
-  it('a dangling defaults.modelId error never contains the resolved (secret-sourced) value', () => {
+  it('a dangling defaults.selector error never contains the resolved (secret-sourced) value', () => {
     const secretFile = path.join(tmpDir, 'model-id.secret');
     writeFileSync(secretFile, 'sk-should-never-appear-either');
     writeConfig(
-      `{ "defaults": { "modelId": "{path:${secretFile.replaceAll('\\', String.raw`\\`)}}" } }`,
+      `{ "defaults": { "selector": "{path:${secretFile.replaceAll('\\', String.raw`\\`)}}" } }`,
     );
 
     try {
@@ -2933,7 +2936,7 @@ describe('loadInstanceConfig — billing mode (run-usage-accounting M9)', () => 
   });
 
   it.each([
-    ['provider', 'unknown string', '"free"', '/providers[p]/billing'],
+    ['provider', 'unknown string', '"metered"', '/providers[p]/billing'],
     ['provider', 'non-string', 'true', '/providers[p]/billing'],
     [
       'provider',
@@ -2941,7 +2944,7 @@ describe('loadInstanceConfig — billing mode (run-usage-accounting M9)', () => 
       '"{env:BILLING}"',
       '/providers[p]/billing',
     ],
-    ['model', 'unknown string', '"free"', '/models[m]/billing'],
+    ['model', 'unknown string', '"metered"', '/models[m]/billing'],
     ['model', 'non-string', 'true', '/models[m]/billing'],
     [
       'model',
@@ -2977,6 +2980,318 @@ describe('loadInstanceConfig — billing mode (run-usage-accounting M9)', () => 
       } catch (error) {
         expect(errorMessage(error)).toContain(path);
       }
+    },
+  );
+
+  it('accepts "free" on a provider, resolving it onto its models', () => {
+    writeConfig(`{
+      "providers": [{
+        "id": "p",
+        "type": "openai-responses",
+        "billing": "free"
+      }],
+      "models": [{
+        "id": "m",
+        "provider": "p",
+        "providerModelId": "x",
+        "contextWindowTokens": 1000
+      }]
+    }`);
+
+    const config = loadInstanceConfig();
+    expect(config.providers[0]).toMatchObject({ billing: 'free' });
+    expect(config.models[0]).toMatchObject({ billing: 'free' });
+  });
+
+  it('accepts "free" on a model and lets it override the provider type default', () => {
+    writeConfig(`{
+      "providers": [{
+        "id": "p",
+        "type": "openai-codex",
+        "key": "codex-key",
+        "accountId": "account"
+      }],
+      "models": [{
+        "id": "m",
+        "provider": "p",
+        "providerModelId": "x",
+        "contextWindowTokens": 1000,
+        "billing": "free"
+      }]
+    }`);
+
+    const config = loadInstanceConfig();
+    expect(config.models[0]).toMatchObject({ billing: 'free' });
+  });
+
+  it('boots a free model that declares pricing with billing still free', () => {
+    writeConfig(`{
+      ${SINGLE_PROVIDER_JSON},
+      "models": [{
+        "id": "m",
+        "provider": "p",
+        "providerModelId": "x",
+        "contextWindowTokens": 1000,
+        "billing": "free",
+        "pricingUsdPer1M": { "input": 1, "output": 2 }
+      }]
+    }`);
+
+    const model = loadInstanceConfig().models[0];
+    expect(model).toMatchObject({ billing: 'free' });
+    expect(model.pricingUsdPer1M).toEqual({ input: 1, output: 2 });
+  });
+});
+
+describe('loadInstanceConfig — modelRoles / defaults selectors (model-roles)', () => {
+  /** A model that declares reasoning levels, plus one that does not. */
+  const ROLE_MODELS_JSON = `${SINGLE_PROVIDER_JSON}, "models": [
+    {
+      "id": "reasoning-model",
+      "provider": "p",
+      "providerModelId": "x",
+      "contextWindowTokens": 1000,
+      "reasoning": { "effortLevels": ["low", "high"], "defaultEffort": "low" }
+    },
+    {
+      "id": "plain-model",
+      "provider": "p",
+      "providerModelId": "y",
+      "contextWindowTokens": 1000
+    }
+  ]`;
+
+  it('resolves a role with two candidates in order, keeping per-candidate effort', () => {
+    writeConfig(`{
+      ${ROLE_MODELS_JSON},
+      "modelRoles": {
+        "coding": {
+          "candidates": [
+            { "model": "reasoning-model", "effort": "high" },
+            { "model": "plain-model" }
+          ]
+        },
+        "fast": { "candidates": [{ "model": "plain-model" }] }
+      }
+    }`);
+
+    const config = loadInstanceConfig();
+    expect(config.modelRoles.map((role) => role.name)).toEqual([
+      'coding',
+      'fast',
+    ]);
+    expect(config.modelRoles[0]?.candidates).toEqual([
+      { modelId: 'reasoning-model', effort: 'high' },
+      { modelId: 'plain-model' },
+    ]);
+  });
+
+  it('interpolates env tokens in a candidate model and effort before resolving them', () => {
+    writeConfig(`{
+      ${ROLE_MODELS_JSON},
+      "modelRoles": {
+        "coding": {
+          "candidates": [
+            { "model": "{env:ROLE_MODEL}", "effort": "{env:ROLE_EFFORT}" }
+          ]
+        }
+      }
+    }`);
+
+    const config = loadInstanceConfig({
+      ...process.env,
+      ROLE_MODEL: 'reasoning-model',
+      ROLE_EFFORT: 'high',
+    });
+
+    expect(config.modelRoles[0]?.candidates).toEqual([
+      { modelId: 'reasoning-model', effort: 'high' },
+    ]);
+  });
+
+  it('fails boot naming the candidate path, not the resolved value, when an interpolated model is unknown', () => {
+    writeConfig(`{
+      ${ROLE_MODELS_JSON},
+      "modelRoles": {
+        "coding": { "candidates": [{ "model": "{env:ROLE_UNKNOWN_MODEL}" }] }
+      }
+    }`);
+
+    let message: string | undefined;
+
+    try {
+      loadInstanceConfig({
+        ...process.env,
+        ROLE_UNKNOWN_MODEL: 'absent-model',
+      });
+    } catch (error) {
+      message = errorMessage(error);
+    }
+
+    expect(message).toBe(
+      'modelRoles.coding.candidates[0].model: does not reference any configured model',
+    );
+    expect(message).not.toContain('absent-model');
+  });
+
+  it('does not trim a candidate model reference to match a catalogue id', () => {
+    writeConfig(`{
+      ${SINGLE_PROVIDER_JSON},
+      "models": [
+        { "id": "edge", "provider": "p", "providerModelId": "x", "contextWindowTokens": 1000 }
+      ],
+      "modelRoles": {
+        "coding": { "candidates": [{ "model": " edge " }] }
+      }
+    }`);
+
+    expect(() => loadInstanceConfig()).toThrow(
+      'modelRoles.coding.candidates[0].model: does not reference any configured model',
+    );
+  });
+
+  it('does not trim a candidate effort to match a declared level', () => {
+    writeConfig(`{
+      ${ROLE_MODELS_JSON},
+      "modelRoles": {
+        "coding": {
+          "candidates": [{ "model": "reasoning-model", "effort": " high " }]
+        }
+      }
+    }`);
+
+    expect(() => loadInstanceConfig()).toThrow(
+      'modelRoles.coding.candidates[0].effort: not a declared effort level of model "reasoning-model"',
+    );
+  });
+
+  it('fails boot naming a role key that breaks the name grammar', () => {
+    writeConfig(`{
+      ${ROLE_MODELS_JSON},
+      "modelRoles": { "Coding": { "candidates": [{ "model": "plain-model" }] } }
+    }`);
+
+    expect(() => loadInstanceConfig()).toThrow(
+      /modelRoles\.Coding: role name must match \^\[a-z\]\[a-z0-9_-\]\{0,31\}\$/,
+    );
+  });
+
+  it('fails boot naming the candidate when its model is not configured', () => {
+    writeConfig(`{
+      ${ROLE_MODELS_JSON},
+      "modelRoles": { "coding": { "candidates": [{ "model": "absent-model" }] } }
+    }`);
+
+    expect(() => loadInstanceConfig()).toThrow(
+      'modelRoles.coding.candidates[0].model: does not reference any configured model',
+    );
+  });
+
+  it('fails boot naming the candidate effort when the model declares no reasoning', () => {
+    writeConfig(`{
+      ${ROLE_MODELS_JSON},
+      "modelRoles": {
+        "coding": {
+          "candidates": [{ "model": "plain-model", "effort": "high" }]
+        }
+      }
+    }`);
+
+    expect(() => loadInstanceConfig()).toThrow(
+      'modelRoles.coding.candidates[0].effort: model "plain-model" declares no reasoning',
+    );
+  });
+
+  it('fails boot naming the candidate effort when the model does not declare that level', () => {
+    writeConfig(`{
+      ${ROLE_MODELS_JSON},
+      "modelRoles": {
+        "coding": {
+          "candidates": [{ "model": "reasoning-model", "effort": "medium" }]
+        }
+      }
+    }`);
+
+    expect(() => loadInstanceConfig()).toThrow(
+      'modelRoles.coding.candidates[0].effort: not a declared effort level of model "reasoning-model"',
+    );
+  });
+
+  it('fails boot when one role names the same model twice', () => {
+    writeConfig(`{
+      ${ROLE_MODELS_JSON},
+      "modelRoles": {
+        "coding": {
+          "candidates": [
+            { "model": "plain-model" },
+            { "model": "plain-model" }
+          ]
+        }
+      }
+    }`);
+
+    expect(() => loadInstanceConfig()).toThrow(
+      'modelRoles.coding.candidates[1].model: model "plain-model" already occurs in @coding',
+    );
+  });
+
+  it('fails validation when a role declares no candidates', () => {
+    writeConfig(`{
+      ${ROLE_MODELS_JSON},
+      "modelRoles": { "coding": { "candidates": [] } }
+    }`);
+
+    expect(() => loadInstanceConfig()).toThrow(InstanceConfigError);
+    expect(() => loadInstanceConfig()).toThrow(
+      /\/modelRoles\/coding\/candidates/,
+    );
+  });
+
+  it('rejects a models[].id that starts with the role sign, naming the entry', () => {
+    writeConfig(`{
+      ${SINGLE_PROVIDER_JSON},
+      "models": [
+        { "id": "@fast", "provider": "p", "providerModelId": "x", "contextWindowTokens": 1000 }
+      ]
+    }`);
+
+    expect(() => loadInstanceConfig()).toThrow(
+      'models[@fast].id: must not start with "@" (that sign names a model role)',
+    );
+  });
+
+  it('boots when defaults.selector names a configured role', () => {
+    writeConfig(`{
+      ${ROLE_MODELS_JSON},
+      "modelRoles": { "coding": { "candidates": [{ "model": "plain-model" }] } },
+      "defaults": { "selector": "@coding" }
+    }`);
+
+    expect(loadInstanceConfig().defaults.selector).toBe('@coding');
+  });
+
+  it('fails boot when defaults.selector names a role that is not configured', () => {
+    writeConfig(`{
+      ${ROLE_MODELS_JSON},
+      "defaults": { "selector": "@missing" }
+    }`);
+
+    expect(() => loadInstanceConfig()).toThrow(
+      'defaults.selector: does not reference any configured model or model role',
+    );
+  });
+
+  it.each(['modelId', 'titleGenerationModelId'] as const)(
+    'fails boot on the retired defaults.%s key as an unrecognized key',
+    (key) => {
+      writeConfig(`{
+        ${ROLE_MODELS_JSON},
+        "defaults": { ${JSON.stringify(key)}: "plain-model" }
+      }`);
+
+      expect(() => loadInstanceConfig()).toThrow(
+        new RegExp(`/defaults/${key}: unrecognized key`, 'u'),
+      );
     },
   );
 });
@@ -3129,7 +3444,7 @@ describe('loadInstanceConfig — no secret in logs', () => {
     // http.trustProxy resolves before runs.* in loadInstanceConfig's assembly
     // order, so the secret below is already resolved in memory by the time
     // the runs.timeoutSeconds coercion throws. (Not routed through
-    // defaults.modelId here — providers-and-models-as-code, #167, boot-
+    // defaults.selector here — providers-and-models-as-code, #167, boot-
     // validates that pointer against models[], which would throw earlier for
     // an unrelated reason and stop exercising this coercion-failure path.)
     process.env.RUN_TIMEOUT_SECONDS_SRC = 'garbage';
@@ -4584,30 +4899,30 @@ describe('loadInstanceConfig — settings name themselves in every failure', () 
 
   it('names the dangling pointer and the catalog it failed to reference', () => {
     writeConfig(`{
-      "defaults": { "modelId": "absent-model" },
+      "defaults": { "selector": "absent-model" },
       ${modelFixtureJson('present-model')}
     }`);
 
     try {
       loadInstanceConfig();
-      throw new Error('expected a dangling defaults.modelId to fail');
+      throw new Error('expected a dangling defaults.selector to fail');
     } catch (error) {
       expect(errorMessage(error)).toBe(
-        'defaults.modelId: does not reference any configured models[].id',
+        'defaults.selector: does not reference any configured model or model role',
       );
     }
 
     writeConfig(`{
-      "defaults": { "titleGenerationModelId": "absent-model" },
+      "defaults": { "titleGenerationSelector": "absent-model" },
       ${modelFixtureJson('present-model')}
     }`);
 
     try {
       loadInstanceConfig();
-      throw new Error('expected a dangling titleGenerationModelId to fail');
+      throw new Error('expected a dangling titleGenerationSelector to fail');
     } catch (error) {
       expect(errorMessage(error)).toBe(
-        'defaults.titleGenerationModelId: does not reference any configured models[].id',
+        'defaults.titleGenerationSelector: does not reference any configured model or model role',
       );
     }
 
@@ -4630,17 +4945,17 @@ describe('loadInstanceConfig — settings name themselves in every failure', () 
   });
 
   it('scopes an interpolation failure to the setting that carries the token', () => {
-    writeConfig('{ "defaults": { "modelId": "{env:IC_ABSENT_VARIABLE}" } }');
+    writeConfig('{ "defaults": { "selector": "{env:IC_ABSENT_VARIABLE}" } }');
 
     try {
       loadInstanceConfig({});
       throw new Error('expected an unresolved token to fail');
     } catch (error) {
-      expect(errorMessage(error)).toMatch(/^defaults\.modelId: /u);
+      expect(errorMessage(error)).toMatch(/^defaults\.selector: /u);
     }
 
     writeConfig(
-      '{ "defaults": { "titleGenerationModelId": "{env:IC_ABSENT_VARIABLE}" } }',
+      '{ "defaults": { "titleGenerationSelector": "{env:IC_ABSENT_VARIABLE}" } }',
     );
 
     try {
@@ -4648,7 +4963,7 @@ describe('loadInstanceConfig — settings name themselves in every failure', () 
       throw new Error('expected an unresolved token to fail');
     } catch (error) {
       expect(errorMessage(error)).toMatch(
-        /^defaults\.titleGenerationModelId: /u,
+        /^defaults\.titleGenerationSelector: /u,
       );
     }
   });

@@ -12,13 +12,14 @@ import {
 import { renderHook, waitFor } from "@testing-library/react";
 
 import {
+  defaultModelIdOf,
   fetchModels,
   hasModelId,
   modelDisplayName,
   modelQueryKeys,
   useModelsQuery,
 } from "./queries";
-import type { AvailableModel } from "./queries";
+import type { AvailableModel, ModelsResponse } from "./queries";
 import {
   jsonResponse,
   requestFromCall,
@@ -57,9 +58,10 @@ describe("model query keys", () => {
 
 describe("fetchModels", () => {
   it("fetches the authenticated models envelope through the generated endpoint", async () => {
-    const response = {
-      defaultModelId: model.id,
+    const response: ModelsResponse = {
+      defaultSelector: model.id,
       models: [model],
+      roles: [],
     };
 
     fetchMock.mockResolvedValue(jsonResponse(response));
@@ -75,7 +77,12 @@ describe("fetchModels", () => {
 
 describe("useModelsQuery", () => {
   it("surfaces the models envelope under modelQueryKeys.all", async () => {
-    const response = { defaultModelId: model.id, models: [model] };
+    const response: ModelsResponse = {
+      defaultSelector: model.id,
+      models: [model],
+      roles: [],
+    };
+
     fetchMock.mockResolvedValue(jsonResponse(response));
     const queryClient = newTestQueryClient();
 
@@ -110,5 +117,53 @@ describe("model helpers", () => {
     expect(hasModelId([model], model.id)).toBe(true);
     expect(hasModelId([model], "system:openai:missing")).toBe(false);
     expect(hasModelId([model], undefined)).toBe(false);
+  });
+
+  it("resolves a role default selector to the role's first candidate", () => {
+    const data: ModelsResponse = {
+      defaultSelector: "@coding",
+      models: [model],
+      roles: [
+        {
+          selector: "@coding",
+          candidates: [
+            { modelId: model.id, paid: false },
+            { modelId: "system:openai:gpt-5.4", effort: "high", paid: true },
+          ],
+        },
+      ],
+    };
+
+    expect(defaultModelIdOf(data)).toBe(model.id);
+  });
+
+  it("passes an exact model default selector through unchanged", () => {
+    const data: ModelsResponse = {
+      defaultSelector: model.id,
+      models: [model],
+      roles: [
+        {
+          selector: "@coding",
+          candidates: [{ modelId: "system:openai:gpt-5.4", paid: true }],
+        },
+      ],
+    };
+
+    expect(defaultModelIdOf(data)).toBe(model.id);
+  });
+
+  it("resolves an unknown role default selector to nothing", () => {
+    const data: ModelsResponse = {
+      defaultSelector: "@missing",
+      models: [model],
+      roles: [
+        {
+          selector: "@coding",
+          candidates: [{ modelId: model.id, paid: false }],
+        },
+      ],
+    };
+
+    expect(defaultModelIdOf(data)).toBeUndefined();
   });
 });

@@ -8,7 +8,10 @@ import { ChatProvider } from "@/contexts/chat-context";
 // Import via the REAL specifier: sb.mock (preview.tsx) redirects it to the
 // __mocks__ module, so this is the SAME hook instance the component reads.
 import * as modelQueries from "@/lib/services/models/queries";
-import type { AvailableModel } from "@/lib/services/models/queries";
+import type {
+  AvailableModel,
+  ModelsResponse,
+} from "@/lib/services/models/queries";
 import { EffortSelector } from "./effort-selector";
 import { ModelSelector } from "./model-selector";
 
@@ -80,8 +83,12 @@ const TERSE_MODEL: AvailableModel = {
 function catalog(
   defaultModel: AvailableModel,
   ...others: Array<AvailableModel>
-) {
-  return { defaultModelId: defaultModel.id, models: [defaultModel, ...others] };
+): ModelsResponse {
+  return {
+    defaultSelector: defaultModel.id,
+    models: [defaultModel, ...others],
+    roles: [],
+  };
 }
 
 const meta = {
@@ -156,7 +163,7 @@ export const LabeledLevel: Story = {
 
 /**
  * Mounted with nothing selected yet — no ModelSelector has seeded the context.
- * The control must still resolve the catalog's own `defaultModelId`; it
+ * The control must still resolve the catalog's own `defaultSelector`; it
  * previously rendered nothing here, because it depended on another
  * component's seeding effect rather than on the catalog data.
  *

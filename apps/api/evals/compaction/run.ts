@@ -188,15 +188,6 @@ function createEvalModelClient(): ModelClient {
     throw new CompactionEvalSetupError('configuration', errorMessage(error));
   }
 
-  const modelId = config.defaults.modelId;
-
-  if (modelId === null) {
-    throw new CompactionEvalSetupError(
-      'model',
-      'eval.config.json does not declare defaults.modelId',
-    );
-  }
-
   let productUserAgent: string;
 
   try {
@@ -208,7 +199,9 @@ function createEvalModelClient(): ModelClient {
   const modelsService = new ModelsService({ config, productUserAgent });
 
   try {
-    return modelsService.createClient(modelId);
+    return modelsService.createClient(
+      modelsService.resolveDefaultModelConfig().id,
+    );
   } catch (error: unknown) {
     throw new CompactionEvalSetupError('model', errorMessage(error));
   }

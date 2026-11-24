@@ -180,7 +180,7 @@ function fiveWireConfigJson(): string {
         contextWindowTokens: 128_000,
       },
     ],
-    defaults: { modelId: WIRE_MODEL_ID.responses },
+    defaults: { selector: WIRE_MODEL_ID.responses },
   });
 }
 

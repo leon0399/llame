@@ -1,5 +1,19 @@
 _Reverse-chronological record of shipped work — features, fixes, and chores. Newest first._
 
+# 2026-11-23
+
+- Group model entries into ordered model roles in `modelRoles`, name a role with
+  an `@` selector in `defaults.selector` and `defaults.titleGenerationSelector`,
+  and read the role catalog from `GET /api/v1/models` as `roles` beside
+  `defaultSelector`. A role resolves to its first candidate in this release.
+  `billing` accepts `free` for a model that is never billed, and a declared
+  price under `free` or `subscription` is a notional cost. **Breaking**:
+  `defaults.modelId` becomes `defaults.selector`, and
+  `defaults.titleGenerationModelId` becomes `defaults.titleGenerationSelector`,
+  so startup fails on the old keys. `GET /api/v1/models` returns
+  `defaultSelector` instead of `defaultModelId`. A `models[].id` that starts
+  with `@` fails startup. (#1772)
+
 # 2026-11-22
 
 - Select lines from a GitHub blob link's own anchor. With `tools.webAdapters`

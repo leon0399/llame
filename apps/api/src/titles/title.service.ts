@@ -115,7 +115,7 @@ export class TitleService {
 
     if (!titleModel) {
       this.logger.error(
-        'TITLE_GENERATION_MODEL_ID is missing or does not reference an available model; skipping title generation.',
+        'defaults.titleGenerationSelector is missing or does not reference an available model; skipping title generation.',
       );
 
       return;

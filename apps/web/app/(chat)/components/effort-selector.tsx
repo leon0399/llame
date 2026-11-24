@@ -12,7 +12,10 @@ import { Slider } from "@workspace/ui/components/slider";
 import { cn } from "@workspace/ui/lib/utils";
 
 import { useChatContext } from "@/contexts/chat-context";
-import { useModelsQuery } from "@/lib/services/models/queries";
+import {
+  defaultModelIdOf,
+  useModelsQuery,
+} from "@/lib/services/models/queries";
 import type { EffortLevelResponse } from "@/lib/api/generated/models";
 import { ComposerTooltip } from "./composer-tooltip";
 
@@ -60,7 +63,7 @@ function useActiveEffortSelection(): EffortSelection | null {
   // rather than on the data, which made it render nothing at all whenever it
   // was mounted alone.
   const reasoning = React.useMemo(() => {
-    const modelId = selectedModel ?? data?.defaultModelId;
+    const modelId = selectedModel ?? (data && defaultModelIdOf(data));
 
     return data?.models.find((model) => model.id === modelId)?.reasoning;
   }, [data, selectedModel]);

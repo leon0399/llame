@@ -366,8 +366,8 @@
     },
     "billingMode": {
       "type": "string",
-      "enum": ["usage", "subscription"],
-      "description": "Whether requests are billed per token or run under a flat subscription."
+      "enum": ["usage", "subscription", "free"],
+      "description": "Whether requests are billed per token (`usage`), run under a flat subscription (`subscription`), or are never billed (`free`). A subscription and a free model both report a notional cost when the model declares pricing; only `usage` is billed."
     },
     "modelWire": {
       "type": "string",
@@ -721,6 +721,36 @@
         }
       }
     },
+    "modelRole": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "One named model role: an ordered candidate list a selector can name as `@` plus the role key. The role key grammar (`^[a-z][a-z0-9_-]{0,31}$`) is checked at startup with an error naming the offending key. The first candidate is the role's primary — what a default that names the role resolves to.",
+      "required": ["candidates"],
+      "properties": {
+        "candidates": {
+          "type": "array",
+          "minItems": 1,
+          "description": "Ordered fallback list, at least one entry. Every candidate must reference a distinct `models[].id`, and the references are checked at startup.",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["model"],
+            "properties": {
+              "model": {
+                "type": "string",
+                "minLength": 1,
+                "description": "References a `models[].id`. A model absent from `models[]`, or named twice in the same role, fails startup naming this candidate."
+              },
+              "effort": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Optional provider-native reasoning-effort level this candidate runs at. Must be one of that model's `reasoning.effortLevels[].value` entries, byte-for-byte; naming effort for a model that declares no `reasoning` block, or a value the model does not declare, fails startup naming this candidate. Absent uses the model's own default."
+              }
+            }
+          }
+        }
+      }
+    },
     "modelEntry": {
       "type": "object",
       "additionalProperties": false,
@@ -731,7 +761,7 @@
         "id": {
           "type": "string",
           "minLength": 1,
-          "description": "Opaque llame model id, e.g. \"system:openai:gpt-5.4-mini\". Clients treat this as opaque; it is never parsed for routing."
+          "description": "Opaque llame model id, e.g. \"system:openai:gpt-5.4-mini\". Clients treat this as opaque; it is never parsed for routing. Must not start with `@`, which names a model role — such an id fails startup naming this model."
         },
         "provider": {
           "type": "string",
@@ -740,7 +770,7 @@
         },
         "billing": {
           "$ref": "#/$defs/billingMode",
-          "description": "Whether requests are billed per token or run under a flat subscription. Server-only; never returned by GET /api/v1/models."
+          "description": "Whether requests are billed per token (`usage`), run under a flat subscription (`subscription`), or are never billed (`free`). Server-only; never returned by GET /api/v1/models."
         },
         "providerModelId": {
           "type": "string",
@@ -818,15 +848,15 @@
     "defaults": {
       "type": "object",
       "additionalProperties": false,
-      "description": "Instance-level model pointers. Deliberately not under the `models` key, which holds the executable catalog itself. Each pointer, when set, must reference a `models[].id` or startup fails.",
+      "description": "Instance-level model selectors. Deliberately not under the `models` key, which holds the executable catalog itself. Each selector, when set, must name a `models[].id` or a `@` plus a `modelRoles` key, or startup fails.",
       "properties": {
-        "modelId": {
+        "selector": {
           "$ref": "#/$defs/nullableString",
-          "description": "Default model id used for new chats when the user hasn't chosen one. Must reference an entry in `models[]` when set (boot failure otherwise); unset means model selection fails as a server configuration error at request time."
+          "description": "Default model selector used for new chats when the user hasn't chosen one: either a `models[].id` or `@` plus a `modelRoles` key. Must reference a configured model or model role when set (boot failure otherwise); unset means model selection fails as a server configuration error at request time."
         },
-        "titleGenerationModelId": {
+        "titleGenerationSelector": {
           "$ref": "#/$defs/nullableString",
-          "description": "Model id used to generate chat titles. Must reference an entry in `models[]` when set (boot failure otherwise); unset means title generation is skipped."
+          "description": "Model selector used to generate chat titles: either a `models[].id` or `@` plus a `modelRoles` key. Must reference a configured model or model role when set (boot failure otherwise); unset means title generation is skipped."
         }
       }
     },
@@ -839,6 +869,11 @@
       "type": "array",
       "description": "The executable model catalog (providers-and-models-as-code, #167), superseding the formerly hardcoded server catalog. Each entry's `provider` must reference a `providers[].id`.",
       "items": { "$ref": "#/$defs/modelEntry" }
+    },
+    "modelRoles": {
+      "type": "object",
+      "description": "Named model roles, keyed by role name. A selector names a role as `@` plus the key. Role keys must match `^[a-z][a-z0-9_-]{0,31}$`; a key that does not fails startup naming it. Each candidate's model reference and effort level are validated at startup.",
+      "additionalProperties": { "$ref": "#/$defs/modelRole" }
     },
     "embeddingModels": {
       "type": "array",

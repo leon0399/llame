@@ -7,6 +7,7 @@ import {
 } from '../instance-config/instance-config.service';
 import type { ProductIdentityReader } from '../instance-config/product-identity';
 import type { ProviderConfig } from '../instance-config/llame-config';
+import type { ModelRoleConfig } from '../instance-config/model-roles-config';
 import { type PermissionMode } from '../tools/permissions/permission-mode';
 import {
   toPublicModel,
@@ -20,10 +21,31 @@ import {
   type ModelClient,
   type ModelCredentialResolver,
 } from './model-client';
+import { parseModelSelector, ROLE_SIGN } from './model-selector';
+
+/** One candidate of a published role, as a client may present it. */
+export type ModelRoleCandidateAvailability = {
+  modelId: string;
+  /** Config-declared effort; absent when the candidate declares none. */
+  effort?: string;
+  /** Per-token (`usage`) billing — false for `subscription` and `free`. */
+  paid: boolean;
+};
+
+/** One published model role, resolvable through its `@name` selector. */
+export type ModelRoleAvailability = {
+  selector: string;
+  candidates: Array<ModelRoleCandidateAvailability>;
+};
 
 export type ModelsAvailability = {
-  defaultModelId: string;
+  /**
+   * The configured default selector itself: `@role` or a model id. A role is
+   * resolved to one sendable model through `roles`.
+   */
+  defaultSelector: string;
   models: Array<PublicModelCatalogEntry>;
+  roles: Array<ModelRoleAvailability>;
 };
 
 export class ModelConfigurationError extends Error {
@@ -175,6 +197,7 @@ export const CREATE_MODEL_CLIENT = Symbol('CREATE_MODEL_CLIENT');
 export class ModelsService {
   private readonly modelsById: Map<string, SystemModelCatalogEntry>;
   private readonly providersById: Map<string, ProviderConfig>;
+  private readonly rolesByName: Map<string, ModelRoleConfig>;
 
   constructor(
     @Inject(InstanceConfigService)
@@ -193,45 +216,49 @@ export class ModelsService {
         provider,
       ]),
     );
+    this.rolesByName = new Map(
+      this.instanceConfig.config.modelRoles.map((role) => [role.name, role]),
+    );
   }
 
   getAvailableModels(): ModelsAvailability {
-    const defaultModel = this.resolveDefaultModelConfig();
+    const defaultSelector = this.configuredDefaultSelector();
+
+    // A selector that resolves to nothing is a 503 for the whole endpoint: the
+    // catalogue must never publish a default a client cannot turn into a send.
+    this.resolveDefaultModelConfig();
 
     if (this.modelsById.size === 0) {
       throw new ModelConfigurationError('No models are configured.');
     }
 
     return {
-      defaultModelId: defaultModel.id,
+      defaultSelector,
       models: Array.from(this.modelsById.values(), toPublicModel),
+      roles: this.modelRoles(),
     };
   }
 
   resolveDefaultModelConfig(): SystemModelCatalogEntry {
     // InstanceConfigService already hands out a trimmed-or-null value, and
-    // config-loader has already boot-validated that a SET modelId references
-    // a configured model — this only guards the unset case.
-    const modelId = this.instanceConfig.config.defaults.modelId;
+    // config-loader has already boot-validated that a SET selector references
+    // a configured model or role — this only guards the unset case.
+    const model = this.primaryEntry(this.configuredDefaultSelector());
 
-    if (!modelId) {
-      throw new ModelConfigurationError('defaults.modelId is required.');
+    if (!model) {
+      throw new ModelConfigurationError(
+        'defaults.selector must reference a configured model or model role.',
+      );
     }
 
-    return this.resolveConfiguredModel(
-      modelId,
-      'defaults.modelId must reference a configured model.',
-    );
+    return model;
   }
 
   resolveTitleModelConfig(): SystemModelCatalogEntry | undefined {
-    const modelId = this.instanceConfig.config.defaults.titleGenerationModelId;
+    const selector =
+      this.instanceConfig.config.defaults.titleGenerationSelector;
 
-    if (!modelId) {
-      return undefined;
-    }
-
-    return this.modelsById.get(modelId);
+    return selector === null ? undefined : this.primaryEntry(selector);
   }
 
   requireAvailableModel(modelId: string): SystemModelCatalogEntry {
@@ -309,16 +336,55 @@ export class ModelsService {
     });
   }
 
-  private resolveConfiguredModel(
-    modelId: string,
-    message: string,
-  ): SystemModelCatalogEntry {
-    const model = this.modelsById.get(modelId);
+  private configuredDefaultSelector(): string {
+    const selector = this.instanceConfig.config.defaults.selector;
 
-    if (!model) {
-      throw new ModelConfigurationError(message);
+    if (!selector) {
+      throw new ModelConfigurationError('defaults.selector is required.');
     }
 
-    return model;
+    return selector;
+  }
+
+  /**
+   * The one executable entry a selector names, or `undefined`. A role yields
+   * its primary (the first configured candidate): this layer sends an exact
+   * model id, so the rest of a role's chain is a later layer's walk.
+   */
+  private primaryEntry(selector: string): SystemModelCatalogEntry | undefined {
+    const parsed = parseModelSelector(selector);
+
+    if (parsed.kind === 'model') {
+      return this.modelsById.get(parsed.modelId);
+    }
+
+    const primary = this.rolesByName.get(parsed.roleName)?.candidates[0];
+
+    return primary === undefined
+      ? undefined
+      : this.modelsById.get(primary.modelId);
+  }
+
+  /**
+   * The published role table. `paid` comes from the internal catalog entry
+   * because `toPublicModel` strips `billing`; only per-token (`usage`) billing
+   * is paid, so a `subscription` or `free` candidate is not.
+   */
+  private modelRoles(): Array<ModelRoleAvailability> {
+    return this.instanceConfig.config.modelRoles.map((role) => ({
+      selector: `${ROLE_SIGN}${role.name}`,
+      candidates: role.candidates.map((candidate) => {
+        const availability: ModelRoleCandidateAvailability = {
+          modelId: candidate.modelId,
+          paid: this.modelsById.get(candidate.modelId)?.billing === 'usage',
+        };
+
+        if (candidate.effort !== undefined) {
+          availability.effort = candidate.effort;
+        }
+
+        return availability;
+      }),
+    }));
   }
 }

@@ -131,12 +131,62 @@ export class AvailableModelResponse {
   releasedAt?: string;
 }
 
+export class ModelRoleCandidateResponse {
+  @ApiProperty({
+    description:
+      'The candidate `models[].id`, exactly as a chat send names it.',
+  })
+  modelId!: string;
+
+  @ApiPropertyOptional({
+    description:
+      'Effort the operator declared with this candidate. Absent when the ' +
+      'candidate declares none; the model default then applies.',
+  })
+  effort?: string;
+
+  @ApiProperty({
+    description:
+      'Whether this candidate bills per token (the `usage` billing mode). ' +
+      'False for a `subscription` candidate and for a `free` one, whose ' +
+      'declared price is notional.',
+  })
+  paid!: boolean;
+}
+
+export class ModelRoleResponse {
+  @ApiProperty({
+    description:
+      'Role selector a client may send: `@` plus the role name. A role is ' +
+      'an ordered fallback chain; the first candidate is its primary.',
+    example: '@coding',
+  })
+  selector!: string;
+
+  @ApiProperty({
+    type: () => [ModelRoleCandidateResponse],
+    description: 'Candidates in the order the operator declared them.',
+  })
+  candidates!: Array<ModelRoleCandidateResponse>;
+}
+
 export class ModelsResponse {
-  @ApiProperty()
-  defaultModelId!: string;
+  @ApiProperty({
+    description:
+      'The configured default model selector: `@role` or a model id. A role ' +
+      'resolves through `roles`; the first step of its chain is the model a ' +
+      'client presents.',
+  })
+  defaultSelector!: string;
 
   @ApiProperty({ type: () => [AvailableModelResponse] })
   models!: Array<AvailableModelResponse>;
+
+  @ApiProperty({
+    type: () => [ModelRoleResponse],
+    description: 'Configured model roles, in config order.',
+  })
+  roles!: Array<ModelRoleResponse>;
 }
 
 export class ModelDomainErrorResponse {

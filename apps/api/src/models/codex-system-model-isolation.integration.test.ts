@@ -31,8 +31,8 @@ function configuredCodexModels(): ModelsService {
     config: {
       ...BUILT_IN_DEFAULTS,
       defaults: {
-        modelId: CODEX_MODEL_ID,
-        titleGenerationModelId: null,
+        selector: CODEX_MODEL_ID,
+        titleGenerationSelector: null,
       },
       providers: [
         {
@@ -99,7 +99,7 @@ describeIfDb('Codex system-model owner isolation', () => {
   it('shares the system catalog without sharing Chats, Runs, or conversation search data', async () => {
     const models = configuredCodexModels();
     const catalog = models.getAvailableModels();
-    expect(catalog.defaultModelId).toBe(CODEX_MODEL_ID);
+    expect(catalog.defaultSelector).toBe(CODEX_MODEL_ID);
     expect(catalog.models).toEqual([
       expect.objectContaining({
         id: CODEX_MODEL_ID,

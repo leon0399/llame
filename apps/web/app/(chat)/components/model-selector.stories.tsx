@@ -8,15 +8,15 @@ import { ChatProvider } from "@/contexts/chat-context";
 // Import via the REAL specifier: sb.mock (preview.tsx) redirects it to the
 // __mocks__ module, so this is the SAME hook instance the component reads.
 import * as modelQueries from "@/lib/services/models/queries";
-import type { AvailableModel } from "@/lib/services/models/queries";
+import type { ModelsResponse } from "@/lib/services/models/queries";
 import { ModelSelector } from "./model-selector";
 
 const useModelsQuery = vi.mocked(modelQueries.useModelsQuery, {
   partial: true,
 });
 
-const CATALOG = {
-  defaultModelId: "system:openai:model-two",
+const CATALOG: ModelsResponse = {
+  defaultSelector: "system:openai:model-two",
   models: [
     {
       id: "system:openai:model-one",
@@ -33,7 +33,8 @@ const CATALOG = {
       input: ["text"],
     },
   ],
-} satisfies { defaultModelId: string; models: Array<AvailableModel> };
+  roles: [],
+};
 
 const meta = {
   component: ModelSelector,
@@ -66,7 +67,7 @@ type Story = StoryObj<typeof meta>;
 
 /**
  * The composer's model picker with a loaded catalog: the visible selection
- * initializes from the API's own default model id, so the user always sees
+ * initializes from the API's own default selector, so the user always sees
  * which model will answer.
  *
  * @summary selection initialized from the API default model

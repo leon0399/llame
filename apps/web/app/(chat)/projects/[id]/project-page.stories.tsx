@@ -20,7 +20,7 @@ import type {
   CreateChatResponse,
   CreationWorkspaceResponse,
 } from "@/lib/api/generated/models";
-import type { AvailableModel } from "@/lib/services/models/queries";
+import type { ModelsResponse } from "@/lib/services/models/queries";
 import * as modelQueries from "@/lib/services/models/queries";
 import type { ProjectResponse } from "@/lib/services/project/types";
 import {
@@ -38,8 +38,8 @@ const useModelsQuery = vi.mocked(modelQueries.useModelsQuery, {
 // send carries.
 const MODEL_ID = "system:openai:model-one";
 
-const MODEL_CATALOG = {
-  defaultModelId: MODEL_ID,
+const MODEL_CATALOG: ModelsResponse = {
+  defaultSelector: MODEL_ID,
   models: [
     {
       id: MODEL_ID,
@@ -49,7 +49,8 @@ const MODEL_CATALOG = {
       input: ["text"],
     },
   ],
-} satisfies { defaultModelId: string; models: Array<AvailableModel> };
+  roles: [],
+};
 
 const routerPush = fn().mockName("router.push");
 

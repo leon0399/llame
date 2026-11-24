@@ -111,7 +111,7 @@ describe('ChatLoopService pre-transaction guards', () => {
   it('rejects model configuration errors before any message, run, or queue write', async () => {
     const { service, runAs, dispatchRun } = makeService({
       validateModelSelection: vi.fn(() => {
-        throw new ModelConfigurationError('DEFAULT_MODEL_ID is required.');
+        throw new ModelConfigurationError('defaults.selector is required.');
       }),
     });
 

@@ -17,6 +17,7 @@ import type { SystemModelCatalogEntry } from '../models/model-catalog';
 import { type ToolPermissionMap } from '../tools/permissions/types';
 import type { PermissionMode } from '../tools/permissions/permission-mode';
 import type { MachinesConfig, RawMachinesConfig } from './machines-config';
+import type { RawModelRole, ModelRoleConfig } from './model-roles-config';
 import type * as Rerank from './rerank-config';
 import type { RawSshConfig, SshConfig } from './ssh-settings';
 import type { ToolRerankConfig } from './tool-rerank-config';
@@ -553,6 +554,7 @@ export interface RawInstanceConfig extends Record<string, unknown> {
   workers?: Record<string, WorkerProfile>;
   providers?: Array<RawProviderEntry>;
   models?: Array<RawModelEntry>;
+  modelRoles?: Record<string, RawModelRole>;
   embeddingModels?: Array<RawEmbeddingModelEntry>;
   decisionModels?: Array<RawDecisionModelEntry>;
   rerankModels?: Array<Rerank.RerankModelConfig>;
@@ -649,8 +651,8 @@ export type WebAdapterConfig =
 
 export type LlameConfig = {
   defaults: {
-    modelId: string | null;
-    titleGenerationModelId: string | null;
+    selector: string | null;
+    titleGenerationSelector: string | null;
   };
   runs: {
     maxOutputTokens: number | null;
@@ -800,6 +802,14 @@ export type LlameConfig = {
    */
   models: Array<SystemModelCatalogEntry>;
   /**
+   * The resolved named model roles (model roles, design D1), in file key
+   * order. A role's candidates are distinct `models[].id` references in the
+   * declared order — the first is the role's primary, so a default that
+   * names a role sends through exactly that model. Default: empty — an
+   * instance declaring no roles is unchanged.
+   */
+  modelRoles: ReadonlyArray<ModelRoleConfig>;
+  /**
    * The declared embedding-model catalog (chat-search-embeddings, design
    * D1). Default: empty — an instance declaring none is unchanged from
    * today (off-by-default; part of the exit contract).
@@ -831,8 +841,8 @@ export type LlameConfig = {
  */
 export const BUILT_IN_DEFAULTS: LlameConfig = {
   defaults: {
-    modelId: null,
-    titleGenerationModelId: null,
+    selector: null,
+    titleGenerationSelector: null,
   },
   runs: {
     maxOutputTokens: null,
@@ -878,6 +888,7 @@ export const BUILT_IN_DEFAULTS: LlameConfig = {
   },
   providers: [],
   models: [],
+  modelRoles: [],
   embeddingModels: [],
   search: {
     chats: { embeddingModelId: null },

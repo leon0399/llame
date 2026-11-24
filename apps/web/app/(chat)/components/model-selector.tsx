@@ -21,6 +21,7 @@ import {
 } from "@workspace/ui/components/popover";
 import { Avatar, AvatarFallback } from "@workspace/ui/components/avatar";
 import {
+  defaultModelIdOf,
   hasModelId,
   modelDisplayName,
   type AvailableModel,
@@ -193,7 +194,9 @@ function useDefaultModelSeed(
     if (!data || models.length === 0) return;
 
     if (!hasModelId(models, value)) {
-      setValue(data.defaultModelId);
+      const fallbackModelId = defaultModelIdOf(data);
+
+      if (fallbackModelId !== undefined) setValue(fallbackModelId);
     }
   }, [data, models, setValue, value]);
 }
@@ -356,7 +359,7 @@ export function ModelSelector({ className }: { className?: string }) {
   // Fall back to the catalog default during render so the label/checkmark
   // never flash "Select a model" in the frame before the seeding effect above
   // commits the default into context.
-  const effectiveValue = value ?? data?.defaultModelId;
+  const effectiveValue = value ?? (data && defaultModelIdOf(data));
   const selectedLabel = resolveSelectedLabel(isError, effectiveValue, models);
 
   const handleSelect = (modelId: string) => {

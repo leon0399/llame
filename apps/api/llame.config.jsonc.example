@@ -27,11 +27,27 @@
     // }
   },
 
-  // Each default must name an id from models[] below.
+  // Each selector names either an id from models[] or a model role — `@`
+  // plus a key from modelRoles. A selector that names neither fails startup.
   "defaults": {
-    "modelId": "{env:DEFAULT_MODEL_ID:-system:openai:gpt-5.4-mini}",
-    "titleGenerationModelId": "{env:TITLE_GENERATION_MODEL_ID:-system:openai:gpt-5.4-nano}",
+    "selector": "{env:DEFAULT_MODEL_ID:-system:openai:gpt-5.4-mini}",
+    "titleGenerationSelector": "{env:TITLE_GENERATION_MODEL_ID:-system:openai:gpt-5.4-nano}",
   },
+
+  // Named model roles: ordered candidate lists that a selector targets as
+  // "@" plus the role name. The first candidate is the role's primary, so a
+  // default naming the role resolves to it. Every candidate must reference a
+  // models[].id, appear once per role, and declare `effort` only when that
+  // model declares the matching reasoning.effortLevels value; all of it is
+  // checked at startup.
+  // "modelRoles": {
+  //   "coding": {
+  //     "candidates": [
+  //       { "model": "system:openai:gpt-5.6-sol", "effort": "high" },
+  //       { "model": "system:openai:gpt-5.4-mini" }
+  //     ]
+  //   }
+  // },
 
   // Provider accounts share credentials and headers across model kinds.
   // Vendor types: openai, anthropic, openrouter, opencode-zen, opencode-go.
@@ -39,9 +55,11 @@
   // fail startup. Explicit wire profiles also support custom endpoints.
   // Go requires a subscription key and has a fixed base URL.
   // See docs/product/operator/providers/routing.md for the route table.
-  // Optional `billing` on providers and models accepts "usage" or
-  // "subscription"; a model overrides its provider. Defaults are
-  // `subscription` for `openai-codex` and `opencode-go`, `usage` otherwise.
+  // Optional `billing` on providers and models accepts "usage",
+  // "subscription", or "free"; a model overrides its provider. "usage" is
+  // billed per token; "subscription" and "free" are never billed, and a
+  // declared price on them is a notional cost. Defaults are `subscription`
+  // for `openai-codex` and `opencode-go`, `usage` otherwise.
   "providers": [
     {
       "id": "openai",

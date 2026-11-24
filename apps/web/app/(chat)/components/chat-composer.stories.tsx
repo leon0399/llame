@@ -14,7 +14,7 @@ import type { ProjectResponse } from "@/lib/api/generated/models";
 import * as uploads from "@/lib/services/media/uploads";
 import type { MediaDescriptor } from "@/lib/services/media/uploads";
 import * as modelQueries from "@/lib/services/models/queries";
-import type { AvailableModel } from "@/lib/services/models/queries";
+import type { ModelsResponse } from "@/lib/services/models/queries";
 import { ChatComposer } from "./chat-composer";
 import {
   type ComposerAttachments,
@@ -32,8 +32,8 @@ const VISION_MODEL_ID = "system:openai:vision-one";
 const PDF_MODEL_ID = "system:openai:pdf-one";
 const OMNI_MODEL_ID = "system:openai:omni-one";
 
-const CATALOG = {
-  defaultModelId: TEXT_MODEL_ID,
+const CATALOG: ModelsResponse = {
+  defaultSelector: TEXT_MODEL_ID,
   models: [
     {
       id: TEXT_MODEL_ID,
@@ -64,7 +64,8 @@ const CATALOG = {
       input: ["text", "image", "pdf"],
     },
   ],
-} satisfies { defaultModelId: string; models: Array<AvailableModel> };
+  roles: [],
+};
 
 /** Attachment state for stories that attach nothing. */
 const NO_ATTACHMENTS: ComposerAttachments = {

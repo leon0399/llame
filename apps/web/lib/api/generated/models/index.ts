@@ -154,6 +154,8 @@ export * from "./memoryResponse";
 export * from "./modelDomainErrorResponse";
 export * from "./modelPricingResponse";
 export * from "./modelReasoningResponse";
+export * from "./modelRoleCandidateResponse";
+export * from "./modelRoleResponse";
 export * from "./modelsResponse";
 export * from "./orgUnitConflictErrorResponse";
 export * from "./orgUnitConflictErrorResponseCode";

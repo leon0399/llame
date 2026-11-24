@@ -48,8 +48,9 @@ export class ModelsController {
       const response = this.models.getAvailableModels();
 
       return {
-        defaultModelId: response.defaultModelId,
+        defaultSelector: response.defaultSelector,
         models: response.models.map(toAvailableModelResponse),
+        roles: response.roles,
       };
     } catch (error) {
       if (error instanceof ModelConfigurationError) {

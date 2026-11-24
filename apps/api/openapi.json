@@ -6919,20 +6919,64 @@
         },
         "required": ["id", "source", "contextWindowTokens", "input"]
       },
+      "ModelRoleCandidateResponse": {
+        "type": "object",
+        "properties": {
+          "modelId": {
+            "type": "string",
+            "description": "The candidate `models[].id`, exactly as a chat send names it."
+          },
+          "effort": {
+            "type": "string",
+            "description": "Effort the operator declared with this candidate. Absent when the candidate declares none; the model default then applies."
+          },
+          "paid": {
+            "type": "boolean",
+            "description": "Whether this candidate bills per token (the `usage` billing mode). False for a `subscription` candidate and for a `free` one, whose declared price is notional."
+          }
+        },
+        "required": ["modelId", "paid"]
+      },
+      "ModelRoleResponse": {
+        "type": "object",
+        "properties": {
+          "selector": {
+            "type": "string",
+            "description": "Role selector a client may send: `@` plus the role name. A role is an ordered fallback chain; the first candidate is its primary.",
+            "example": "@coding"
+          },
+          "candidates": {
+            "description": "Candidates in the order the operator declared them.",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ModelRoleCandidateResponse"
+            }
+          }
+        },
+        "required": ["selector", "candidates"]
+      },
       "ModelsResponse": {
         "type": "object",
         "properties": {
-          "defaultModelId": {
-            "type": "string"
+          "defaultSelector": {
+            "type": "string",
+            "description": "The configured default model selector: `@role` or a model id. A role resolves through `roles`; the first step of its chain is the model a client presents."
           },
           "models": {
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/AvailableModelResponse"
             }
+          },
+          "roles": {
+            "description": "Configured model roles, in config order.",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ModelRoleResponse"
+            }
           }
         },
-        "required": ["defaultModelId", "models"]
+        "required": ["defaultSelector", "models", "roles"]
       },
       "CreateProjectDto": {
         "type": "object",

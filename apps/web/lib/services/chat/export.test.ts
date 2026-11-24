@@ -130,7 +130,7 @@ describe("exportChatAsMarkdown", () => {
       {
         ok: true,
         body: {
-          defaultModelId: "system:openai:gpt-4o",
+          defaultSelector: "system:openai:gpt-4o",
           models: [
             {
               id: "system:openai:gpt-4o",
@@ -140,6 +140,7 @@ describe("exportChatAsMarkdown", () => {
               input: ["text"],
             },
           ],
+          roles: [],
         },
       },
     );

@@ -2,11 +2,11 @@ import { fn } from "storybook/test";
 
 // Type-only import: erased at runtime, so it cannot re-enter the sb.mock
 // redirect the way a value re-export would.
-import type { AvailableModel } from "../queries";
+import type { AvailableModel, ModelsResponse } from "../queries";
 
 // Storybook manual mock for the models catalog query (registered globally via
 // `sb.mock` in .storybook/preview.tsx). Only the QUERY HOOK is stubbed; the
-// two pure helpers are re-implemented here verbatim rather than re-exported
+// pure helpers are re-implemented here verbatim rather than re-exported
 // from "../queries" — sb.mock redirects that specifier back to THIS module,
 // so a re-export would be a circular self-import that breaks the preview.
 
@@ -17,7 +17,7 @@ export const modelQueryKeys = {
 export const fetchModels = fn().mockName("fetchModels");
 
 type MockedModelsQuery = {
-  data: { defaultModelId: string; models: Array<AvailableModel> } | undefined;
+  data: ModelsResponse | undefined;
   isError: boolean;
   isPending: boolean;
   /** The real query result's success flag, which send-readiness reads. */
@@ -42,4 +42,12 @@ export function hasModelId(
   modelId: string | undefined,
 ): boolean {
   return modelId !== undefined && models.some((model) => model.id === modelId);
+}
+
+export function defaultModelIdOf(data: ModelsResponse): string | undefined {
+  if (!data.defaultSelector.startsWith("@")) return data.defaultSelector;
+
+  return data.roles
+    .find((role) => role.selector === data.defaultSelector)
+    ?.candidates.at(0)?.modelId;
 }

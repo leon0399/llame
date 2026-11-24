@@ -125,6 +125,12 @@ describe("parseTurnUsage", () => {
     expect(parsed?.billing).toBeUndefined();
   });
 
+  it("accepts the free billing marker", () => {
+    const parsed = parseTurnUsage({ usage: { billing: "free" } });
+
+    expect(parsed?.billing).toBe("free");
+  });
+
   it("does not read legacy model/provider fields", () => {
     expect(
       parseTurnUsage({
@@ -682,6 +688,59 @@ describe("buildUsageLine", () => {
         { label: "Notional cost", value: "≥ $0.0063" },
       ],
     });
+  });
+
+  it("labels a free cost as notional", () => {
+    const result = line({
+      modelId: "system:openai:gpt-4o",
+      totalTokens: 2700,
+      costUsd: 0.002,
+      complete: true,
+      billing: "free",
+    });
+
+    expect(result?.sections).toContainEqual({
+      header: "Cost & model",
+      rows: [
+        { label: "Model", value: "GPT-4o" },
+        { label: "Total tokens", value: "2.7k" },
+        { label: "Notional cost", value: "$0.0020" },
+      ],
+    });
+  });
+
+  it("keeps a free lower-bound cost out of the badge", () => {
+    const result = line({
+      modelId: "system:openai:gpt-4o",
+      totalTokens: 2700,
+      costUsd: 0.002,
+      complete: false,
+      billing: "free",
+    });
+
+    expect(result?.text).toBe("GPT-4o · ≥ 2.7k tokens");
+  });
+
+  it("omits cost for an unpriced free model", () => {
+    const result = line({
+      modelId: "acme:custom-7b",
+      inputTokens: 10,
+      outputTokens: 20,
+      totalTokens: 30,
+      costUsd: null,
+      billing: "free",
+    });
+
+    const costSection = result?.sections.find(
+      (section) => section.header === "Cost & model",
+    );
+
+    expect(costSection?.rows.map((row) => row.label)).not.toContain(
+      "Notional cost",
+    );
+    expect(costSection?.rows.some((row) => row.value.includes("$"))).toBe(
+      false,
+    );
   });
 
   it("omits cost for an unpriced subscription model", () => {
