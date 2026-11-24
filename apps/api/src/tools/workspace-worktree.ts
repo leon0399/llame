@@ -1,7 +1,52 @@
 import { randomBytes, randomInt } from 'node:crypto';
 import path from 'node:path';
 
-import { baseReference, branchName } from '@workspace/git-executor';
+/**
+ * The ref-name rules that keep a caller value from becoming an option or an
+ * ambiguous revision.
+ */
+// eslint-disable-next-line no-control-regex
+const FORBIDDEN_REF_CHARACTERS = /[\s~^:?*[\\\u0000-\u001f\u007f]/u;
+// eslint-disable-next-line no-control-regex
+const FORBIDDEN_BYTES = /[\s\u0000-\u001f\u007f]/u;
+
+function branchName(
+  value: string,
+): { readonly name: string } | { readonly message: string } {
+  if (value === '') return { message: 'A branch name must not be empty.' };
+  if (value.startsWith('-'))
+    return { message: 'A branch name must not start with `-`.' };
+  if (FORBIDDEN_REF_CHARACTERS.test(value))
+    return {
+      message: 'A branch name must not hold whitespace or ref punctuation.',
+    };
+  if (value.includes('..') || value.includes('@{'))
+    return { message: 'A branch name must not hold `..` or `@{`.' };
+  if (value.endsWith('/') || value.endsWith('.') || value.endsWith('.lock'))
+    return {
+      message: 'A branch name must not end with `/`, `.`, or `.lock`.',
+    };
+  if (
+    value
+      .split('/')
+      .some((segment) => segment === '' || segment.startsWith('.'))
+  )
+    return {
+      message: 'A branch name must not hold an empty or dot-leading segment.',
+    };
+  return { name: value };
+}
+
+function baseReference(
+  value: string,
+): { readonly ref: string } | { readonly message: string } {
+  if (value === '') return { message: 'A base ref must not be empty.' };
+  if (value.startsWith('-'))
+    return { message: 'A base ref must not start with `-`.' };
+  if (FORBIDDEN_BYTES.test(value))
+    return { message: 'A base ref must not hold whitespace or control bytes.' };
+  return { ref: value };
+}
 
 /*
  * The name, branch, and placement rules of a worktree entry (openspec
@@ -11,9 +56,7 @@ import { baseReference, branchName } from '@workspace/git-executor';
  * Everything here is pure: the caller resolves the source clone, renders the
  * directory on its executor, and canonicalizes it through its deepest existing
  * ancestor. A rule that could reach git, the filesystem, or the database does
- * not live here, so a refused name or base reference starts nothing. The ref
- * rules themselves are `@workspace/git-executor`'s, so the refusal here and the
- * one at the executor cannot drift apart.
+ * not live here, so a refused name or base reference starts nothing.
  */
 
 /** The hidden directory that holds the worktrees of one clone. */

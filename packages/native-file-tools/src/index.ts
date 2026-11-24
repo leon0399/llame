@@ -11,7 +11,6 @@ export {
   parsePathScheme,
   RAW_SUFFIX,
   resolveEndRelativeSelector,
-  resolveReadTarget,
   splitSelectorSuffix,
 } from "./path";
 
@@ -20,7 +19,6 @@ export type { ReadTarget } from "./path";
 export {
   readFile,
   readResolvedFile,
-  loadText,
   splitSourceLines,
   selectSourceLines,
   MAX_READ_LINES,
@@ -93,7 +91,6 @@ export {
   renderWriteText,
 } from "./model-text";
 
-export { openFlags } from "./path";
 
 export { statHostPath } from "./stat";
 

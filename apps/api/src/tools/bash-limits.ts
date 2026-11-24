@@ -7,7 +7,7 @@
  * (tool-result-artifacts D4). A Machine keeps the protocol constant instead.
  */
 
-import { type BashExecutorContext } from '@workspace/bash-executor';
+import { type BashExecutorContext } from './bash-contract';
 import { isNumber, isRecord } from '@workspace/runtime-safety';
 import { artifactMaxBytes } from './artifacts/spill';
 import { bashWorkingDirectory } from './env';

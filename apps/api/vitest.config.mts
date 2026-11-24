@@ -89,14 +89,6 @@ export default defineConfig({
         replacement: pkgSrc('native-file-tools'),
       },
       {
-        find: /^@workspace\/git-executor$/,
-        replacement: pkgSrc('git-executor'),
-      },
-      {
-        find: /^@workspace\/bash-executor$/,
-        replacement: pkgSrc('bash-executor'),
-      },
-      {
         find: /^@workspace\/mcp-workspace$/,
         replacement: pkgSrc('mcp-workspace'),
       },

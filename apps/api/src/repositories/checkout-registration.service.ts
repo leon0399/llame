@@ -2,7 +2,7 @@ import { HttpException, Injectable } from '@nestjs/common';
 import {
   type GitFailure,
   type GitInspectSuccess,
-} from '@workspace/git-executor';
+} from '@workspace/machine-protocol';
 
 import {
   type Checkout,

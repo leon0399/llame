@@ -367,9 +367,8 @@ export type ProcBashParams = {
   readonly env?: Readonly<Record<string, string>>;
 };
 
-/** The managed-executor result, exactly as `@workspace/bash-executor` returns
- *  it; a non-zero exit is this result, not a protocol error. `wallTimeMs` is
- *  optional: a daemon that predates it reports none. */
+/** The managed bash result; a non-zero exit is this result, not a protocol
+ *  error. `wallTimeMs` is optional: a daemon that predates it reports none. */
 export type ProcBashResult =
   | {
       readonly status: "success" | "error";
@@ -477,8 +476,8 @@ export type GitFailure =
       readonly stderr: string;
     };
 
-/** `git.inspect`, exactly as `@workspace/git-executor` returns it: every path
- *  field is a locator on a Machine and an absolute host path locally. */
+/** `git.inspect`: every path field is a locator on a Machine and an absolute
+ *  host path locally. */
 export type GitInspectParams = {
   readonly envelope: RequestEnvelope;
   readonly path: string;

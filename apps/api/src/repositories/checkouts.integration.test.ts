@@ -28,7 +28,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { type INestApplication } from '@nestjs/common';
-import { type GitInspectResult } from '@workspace/git-executor';
+import { type GitInspectResult } from '@workspace/machine-protocol';
 import { Test } from '@nestjs/testing';
 import { GIT_METHODS } from '@workspace/machine-protocol';
 import postgres, { type Sql } from 'postgres';

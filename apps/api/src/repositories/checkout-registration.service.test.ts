@@ -15,7 +15,7 @@ import {
 import {
   type GitInspectResult,
   type GitInspectSuccess,
-} from '@workspace/git-executor';
+} from '@workspace/machine-protocol';
 import { TenantDbService, type Db } from '../db/tenant-db.service';
 import {
   type LlameConfig,

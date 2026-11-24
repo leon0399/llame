@@ -47,9 +47,8 @@ const MACHINE_CONFIGURATION_NAMES = [
 ] as const;
 
 /**
- * The fixed locale pair every managed child gets
- * (`packages/bash-executor/src/env.ts`): a daemon started under an operator's
- * interactive locale would otherwise pass it on to every tool it runs.
+ * The fixed locale pair every managed child gets: a daemon started under an
+ * operator's interactive locale would otherwise pass it on to every tool.
  */
 const FIXED_LOCALE = {
   LANG: 'C.UTF-8',

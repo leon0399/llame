@@ -23,7 +23,7 @@
 
 import { isString, type UnknownRecord } from '@workspace/runtime-safety';
 
-import { managedEnvironmentCollision } from '@workspace/bash-executor';
+import { managedEnvironmentCollision } from './bash-contract';
 
 import {
   formatSshLocator,

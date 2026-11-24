@@ -1,8 +1,0 @@
-{
-  "extends": "@workspace/config-typescript/base.json",
-  "compilerOptions": {
-    "types": ["node", "vitest/globals"]
-  },
-  "include": ["src"],
-  "exclude": ["node_modules", "dist"]
-}

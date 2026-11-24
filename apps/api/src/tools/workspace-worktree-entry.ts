@@ -3,7 +3,7 @@ import {
   type GitInspectSuccess,
   type GitWorktreeAddResult,
   type GitWorktreeRemoveResult,
-} from '@workspace/git-executor';
+} from '@workspace/machine-protocol';
 
 import { WorkspaceBindingRepository } from '../chats/workspace-binding.repository';
 import { type Checkout } from '../db/schema';
