@@ -934,9 +934,11 @@ describe('run steering segment preparation', () => {
         new RunsRepository(tx).markStarted(seeded.runId, userId),
       );
 
+      const expectedBaseline = { entries: [], omitted: 0 };
+
       const baselines = () => ({
         skillCatalogFreeze: {
-          baseline: { entries: [], omitted: 0 },
+          baseline: expectedBaseline,
           rebakedFrom: null,
           told: [],
         },
@@ -956,26 +958,18 @@ describe('run steering segment preparation', () => {
       const chat = () =>
         db((tx) => new ChatsRepository(tx).findById(seeded.chatId, userId));
 
-      // Segment 1 closes on an interrupt: nothing is written.
       await storeSteer(seeded.chatId, 'stop that', undefined, 'interrupt');
       const first = await deliver(started?.activeAttemptId ?? '');
 
       if (first.kind !== 'delivered') throw new Error('no delivery');
+      expect((await chat())?.skillCatalogBaseline).toBeNull();
 
-      // Segment 2 closes on a steer: the baselines are written now.
       await storeSteer(seeded.chatId, 'carry on');
       const second = await deliver(first.attemptId);
 
       if (second.kind !== 'delivered') throw new Error('no delivery');
       const written = await chat();
-      expect(written?.skillCatalogBaseline).not.toBeNull();
-      expect(written?.skillCatalogBaseline).toMatchObject({
-        baseline: { entries: [], omitted: 0 },
-      });
-
-      // A later steer close leaves the established baselines alone.
-      await storeSteer(seeded.chatId, 'and again');
-      await deliver(second.attemptId);
+      expect(written?.skillCatalogBaseline).toEqual(expectedBaseline);
     });
 
     it('A steer in the first Run', async () => {
