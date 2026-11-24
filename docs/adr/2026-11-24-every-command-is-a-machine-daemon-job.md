@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 ---
 
 # Every command is a Machine daemon job

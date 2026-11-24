@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 ---
 
 # Machines own their capacity limits

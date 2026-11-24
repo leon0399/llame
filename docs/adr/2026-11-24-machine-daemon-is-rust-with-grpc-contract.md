@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 ---
 
 # The Machine daemon is a Rust binary with a gRPC contract
