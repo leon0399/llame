@@ -263,7 +263,7 @@ describe('recency digest data upgrade', () => {
     });
   });
 
-  it('runs the operator upgrade, writes a private report, and refuses to replace it', async () => {
+  it('cleans failed operator reports, writes a private report, and refuses to replace it', async () => {
     await freshSql.unsafe('CREATE ROLE app_rls NOLOGIN BYPASSRLS');
     await freshSql.unsafe('CREATE DATABASE digest_cli_test');
     const databaseUrl = new URL(freshContainer.getConnectionUri());
@@ -281,6 +281,18 @@ describe('recency digest data upgrade', () => {
       await writeFile(exportPath, JSON.stringify(emptyDocument()), {
         mode: 0o600,
       });
+      const unavailableDatabase = new URL(databaseUrl);
+      unavailableDatabase.pathname = '/digest_cli_unavailable';
+      vi.stubEnv('POSTGRES_URL', unavailableDatabase.href);
+      await expect(
+        runRecencyDigestUpgrade([
+          '--export',
+          exportPath,
+          '--report',
+          reportPath,
+        ]),
+      ).rejects.toMatchObject({ code: '3D000' });
+      await expect(stat(reportPath)).rejects.toMatchObject({ code: 'ENOENT' });
       vi.stubEnv('POSTGRES_URL', databaseUrl.href);
       await runRecencyDigestUpgrade([
         '--report',
