@@ -1,4 +1,5 @@
 import { isRecord } from '@workspace/runtime-safety';
+import { collectPinCorrectionsFromMessage } from './recency-digest-export-notices';
 
 import type { Db } from '../db/tenant-db.service';
 import { canonicalJson, hashWithDomain } from '../canonical-json';
@@ -44,9 +45,13 @@ type ScalarProofs = NonNullable<
   RecencyDigestExportRecord['baseline']['scalarProofs']
 >;
 
+type PinCorrection = { title: string; pinned: boolean };
+
 type AttemptState = {
   proofCandidates: Array<ProvenDigestEntry>;
   emittedTitles: Set<string>;
+  pinCorrections: Array<PinCorrection>;
+  pinCorrectionUnproved: boolean;
   matchedRun: RunIdentity | null;
   latestPreTurn: { runId: string; seq: number } | null;
   anyReceipt: boolean;
@@ -98,6 +103,8 @@ function createState(): AttemptState {
   return {
     proofCandidates: [],
     emittedTitles: new Set(),
+    pinCorrections: [],
+    pinCorrectionUnproved: false,
     matchedRun: null,
     latestPreTurn: null,
     anyReceipt: false,
@@ -444,10 +451,11 @@ async function rebakedBaselinePublishedAt(
     : null;
 }
 
-/** Where the destination Chat stands now, independent of any run's turn. */
+/** Where the destination stands and which literal notices remain selected. */
 async function loadDestinationPosition(
   messages: MessagesRepository,
   input: ReconstructionInput,
+  state: AttemptState,
 ): Promise<
   Pick<ReconstructedDigestAttempts, 'activeCheckpointId' | 'lastOriginalSeq'>
 > {
@@ -456,13 +464,23 @@ async function loadDestinationPosition(
     input.ownerId,
   );
 
-  // The current checkpoint: distinct from each run's historical checkpoint
-  // and from the re-bake marker.
   const activeCheckpoint = await messages.findActiveCheckpoint(
     input.chat.id,
     input.ownerId,
     { beforeSeq: Number.MAX_SAFE_INTEGER },
   );
+
+  const boundary = activeCheckpoint?.absorbedThroughSeq ?? null;
+
+  const selected = destinationMessages.filter(
+    (message) =>
+      boundary === null ||
+      message.id === activeCheckpoint?.id ||
+      message.seq > boundary,
+  );
+
+  for (const message of selected)
+    collectPinCorrectionsFromMessage(message, state);
 
   return {
     activeCheckpointId: activeCheckpoint?.id ?? null,
@@ -500,13 +518,19 @@ export async function reconstructDigestAttempts(
 
   for (const run of runs) await reconstructRun(context, run);
 
+  const destinationPosition = await loadDestinationPosition(
+    messages,
+    input,
+    state,
+  );
+
   return {
     ...state,
     // One proved dispatch establishes publication; a later unproved receipt
     // does not revoke it.
     baselinePublicationUnproved:
       state.baselinePublicationUnproved && !state.baselinePublicationProved,
-    ...(await loadDestinationPosition(messages, input)),
+    ...destinationPosition,
     runCount: runs.length,
   };
 }

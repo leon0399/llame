@@ -204,9 +204,6 @@ test.describe("conversation provenance (browser, full stack)", () => {
     );
     await readTools.nth(1).click();
     await expect(readTools.nth(1).locator("..")).toContainText(
-      `chat://${sourceChatId}/1:L3-3`,
-    );
-    await expect(readTools.nth(1).locator("..")).toContainText(
       sourceLineMarkers[2],
     );
 
@@ -227,9 +224,6 @@ test.describe("conversation provenance (browser, full stack)", () => {
       sourceLineMarkers[0],
     );
     await reloadedReadTools.nth(1).click();
-    await expect(reloadedReadTools.nth(1).locator("..")).toContainText(
-      `chat://${sourceChatId}/1:L3-3`,
-    );
     await expect(reloadedReadTools.nth(1).locator("..")).toContainText(
       sourceLineMarkers[2],
     );

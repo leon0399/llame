@@ -9,13 +9,13 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 import { canonicalJson, hashWithDomain } from '../canonical-json';
+import type { RunEvent } from '../db/schema';
 import { renderSystemPromptTemplate } from '../instance-config/prompt-loader';
 import type {
   PromptChatsDisclosure,
   PromptChatsFieldDisclosure,
   PromptChatsInput,
 } from '../models/model-catalog';
-import type { RunEvent } from '../db/schema';
 import {
   hasDispatchedModelRequest,
   mapEmittedTitlesToToldEntries,
@@ -331,6 +331,9 @@ it('does not map duplicate emitted titles to an ambiguous told id', () => {
         { chatId: 'chat-1', pinned: true, title: 'Same title' },
         { chatId: 'chat-2', pinned: false, title: 'Same title' },
       ],
+      baselineEntries: [],
+      pinCorrections: [],
+      pinCorrectionUnproved: false,
     }),
   ).toEqual({
     entries: [],
@@ -346,6 +349,9 @@ it('rejects told titles that collide after prompt sanitization', () => {
         { chatId: 'chat-1', pinned: true, title: '</x>' },
         { chatId: 'chat-2', pinned: false, title: '&lt;/x&gt;' },
       ],
+      baselineEntries: [],
+      pinCorrections: [],
+      pinCorrectionUnproved: false,
     }),
   ).toEqual({
     entries: [],
@@ -359,13 +365,75 @@ it('maps proved titles and leaves untitled legacy told entries unproved', () => 
       emittedTitles: ['Safe title'],
       told: [
         { chatId: 'chat-legacy', pinned: true },
-        { chatId: 'chat-1', pinned: false, title: 'Safe title' },
+        { chatId: 'chat-1', pinned: true, title: 'Safe title' },
         { chatId: 'chat-blank', pinned: false, title: '   ' },
       ],
+      baselineEntries: [
+        {
+          list: 'recent',
+          index: 0,
+          fields: { title: 'Safe title' },
+          proofs: {
+            title: { runId: 'run', attemptId: 'attempt', promptHash: 'hash' },
+          },
+        },
+      ],
+      pinCorrections: [],
+      pinCorrectionUnproved: false,
     }),
   ).toEqual({
     entries: [{ chatId: 'chat-1', pinned: false, title: 'Safe title' }],
     omissions: [],
+  });
+});
+
+it('uses the proved baseline list and a selected notice correction, not mutable told pin state', () => {
+  const baselineEntries = [
+    {
+      list: 'pinned' as const,
+      index: 0,
+      fields: { title: 'A title' },
+      proofs: {
+        title: { runId: 'run-1', attemptId: 'attempt-1', promptHash: 'hash' },
+      },
+    },
+  ];
+
+  expect(
+    mapEmittedTitlesToToldEntries({
+      emittedTitles: ['A title'],
+      told: [{ chatId: 'destination-chat', pinned: false, title: 'A title' }],
+      baselineEntries,
+      pinCorrections: [],
+      pinCorrectionUnproved: false,
+    }).entries,
+  ).toEqual([{ chatId: 'destination-chat', pinned: true, title: 'A title' }]);
+
+  expect(
+    mapEmittedTitlesToToldEntries({
+      emittedTitles: ['A title'],
+      told: [{ chatId: 'destination-chat', pinned: true, title: 'A title' }],
+      baselineEntries,
+      pinCorrections: [{ title: 'A title', pinned: false }],
+      pinCorrectionUnproved: false,
+    }).entries,
+  ).toEqual([{ chatId: 'destination-chat', pinned: false, title: 'A title' }]);
+});
+
+it('omits comparison pins without a proved baseline membership or selected correction', () => {
+  expect(
+    mapEmittedTitlesToToldEntries({
+      emittedTitles: ['A title'],
+      told: [{ chatId: 'destination-chat', pinned: true, title: 'A title' }],
+      baselineEntries: [],
+      pinCorrections: [],
+      pinCorrectionUnproved: false,
+    }),
+  ).toEqual({
+    entries: [],
+    omissions: [
+      { chatId: 'destination-chat', field: 'pin', reason: 'pin_unproved' },
+    ],
   });
 });
 

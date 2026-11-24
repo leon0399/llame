@@ -98,6 +98,9 @@ function buildComparison(
   const compared = mapEmittedTitlesToToldEntries({
     emittedTitles: [...attempts.emittedTitles],
     told: chat.recencyDigestTold ?? [],
+    baselineEntries: mergeProvenDigestEntries(attempts.proofCandidates),
+    pinCorrections: attempts.pinCorrections,
+    pinCorrectionUnproved: attempts.pinCorrectionUnproved,
   });
 
   return {
@@ -107,7 +110,12 @@ function buildComparison(
       ...(chat.recencyDigestTold ?? [])
         .filter(
           (entry) =>
-            !compared.entries.some((proved) => proved.chatId === entry.chatId),
+            !compared.entries.some(
+              (proved) => proved.chatId === entry.chatId,
+            ) &&
+            !compared.omissions.some(
+              (omission) => omission.chatId === entry.chatId,
+            ),
         )
         .map((entry) => ({
           chatId: entry.chatId,
@@ -152,8 +160,8 @@ function collectRecordOmissions(
   if (comparisonHasOmissions)
     omissions.push({
       scope: 'comparison',
-      field: 'identity',
-      reason: 'duplicate_title',
+      field: '*',
+      reason: 'comparison_proof_unavailable',
     });
 
   if (baselinePresent)
@@ -224,9 +232,7 @@ export function buildRecencyDigestExportRecord(input: {
       chat.recencyDigestBaseline !== null,
       attempts,
       missingScalars,
-      comparison.omissions.some(
-        (omission) => omission.reason === 'duplicate_title',
-      ),
+      comparison.omissions.length > 0,
     ),
   };
 }

@@ -70,8 +70,8 @@ mode is `0600`. The exporter writes one version 1 JSON object identified as
 the old-column fingerprint, proved emitted fields, comparison state,
 provenance, and omissions. It contains no full prompt, template, or transcript.
 
-The exporter includes a field only when its emission is proved against the
-applicable stored system receipt and the owner and destination binding. The
+The exporter includes a baseline field only when its emission is proved against
+the applicable stored system receipt and the owner and destination binding. The
 proof compares the reconstructed system text with that exact receipt. A missing
 receipt, a receipt mismatch, or any other missing proof means the exporter
 omits that derived field and privately reports the affected Chat and field. It
@@ -86,6 +86,12 @@ first-epoch Chat can have all derived digest fields omitted with
 `baseline_input_unproved`. The exporter leaves stored messages and receipts
 unchanged. Titles that collide after prompt sanitization cannot prove a
 comparison identity.
+
+Comparison pin state comes from proved baseline list membership and the last
+proved pin correction in the destination's effective stored notices. It never
+comes from the mutable told-set's pin flag. A notice without model-visible
+text or an uncertain correction order cannot prove the pin; affected entries
+are omitted with `pin_unproved` rather than suppress a future announcement.
 
 Preserve the export with the database backup. The later digest upgrade's
 converter consumes this file before removing legacy columns. That converter
