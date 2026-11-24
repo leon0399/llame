@@ -780,6 +780,9 @@ version = "0.1.0"
 dependencies = [
  "machine-core",
  "machine-protocol",
+ "prost-types",
+ "regex",
+ "rustix",
  "tempfile",
  "tokio",
  "tokio-stream",
