@@ -6,9 +6,9 @@ status: accepted
 
 The Machine daemon is a Rust binary that serves a gRPC contract defined in
 `.proto` files under `packages/machine-protocol/proto`. It outlives its
-connections and holds background jobs, so each Machine needs one small static
-binary per Linux architecture and no language runtime, and the API needs a
-typed wire with a frozen bootstrap service that every daemon version answers.
+connections and holds background jobs. Each Machine needs one small static
+binary per Linux architecture and no language runtime. The API needs a typed
+wire with a frozen bootstrap service that every daemon version answers.
 
 ## Considered options
 
