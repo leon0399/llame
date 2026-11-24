@@ -37095,7 +37095,6 @@ describe('a send that breaks after a started tool call', () => {
   it('does not switch when writing the owed failed-send cut fails', async () => {
     const decision = vi
       .fn<ModelSwitchDecision>()
-      .mockResolvedValueOnce(undefined)
       .mockResolvedValue({ toModelId: 'target-model' });
 
     const observations: ModelSwitchFakeObservations = {
@@ -37132,15 +37131,7 @@ describe('a send that breaks after a started tool call', () => {
       responses: [
         failedSend(
           [lookupCall('cut-read', 'query')],
-          new ProviderFailure('provider unavailable', {
-            code: 'stream_broken',
-          }),
-        ),
-        failedSend(
-          [{ type: 'text-delta', id: 'retry', delta: 'retry draft' }],
-          new ProviderFailure('provider unavailable', {
-            code: 'stream_broken',
-          }),
+          new ProviderFailure('credentials rejected', { code: 'auth' }),
         ),
       ],
     });
@@ -37149,7 +37140,7 @@ describe('a send that breaks after a started tool call', () => {
 
     expect(rejectedWrites).toContain('model.superseded');
     expect(appended).not.toContain('model.switched');
-    expect(decision).toHaveBeenCalledTimes(2);
+    expect(decision).toHaveBeenCalledOnce();
     expect(observations.storedParts).toEqual([]);
     expect(
       observations.runUpdates?.some(
@@ -37176,7 +37167,6 @@ describe('a send that breaks after a started tool call', () => {
 
     const decision = vi
       .fn<ModelSwitchDecision>()
-      .mockResolvedValueOnce(undefined)
       .mockResolvedValue({ toModelId: 'target-model' });
 
     let appended: Array<{ type: string; payload: unknown }> = [];
@@ -37215,7 +37205,7 @@ describe('a send that breaks after a started tool call', () => {
 
     await drained;
 
-    expect(decision).toHaveBeenCalledTimes(2);
+    expect(decision).toHaveBeenCalledOnce();
     expect(appended.map(({ type }) => type)).toContain('run.delivered');
     expect(appended.map(({ type }) => type)).toContain('model.switched');
 
@@ -37235,5 +37225,37 @@ describe('a send that breaks after a started tool call', () => {
     }
 
     expect(targetStreamText).toHaveBeenCalledOnce();
+  });
+
+  it('continues a retryable failed send on the same model without asking failover', async () => {
+    const decision = vi
+      .fn<ModelSwitchDecision>()
+      .mockResolvedValue({ toModelId: 'target-model' });
+
+    let appended: Array<{ type: string; payload: unknown }> = [];
+
+    const { drained } = await startAndDrain({
+      wire: 'responses',
+      tools: toolset(echoTool(LOOKUP_TOOL)),
+      catalog: { modelSwitchDecision: decision },
+      arrangeEvents: (_repositories, events) => {
+        appended = events;
+      },
+      responses: [
+        failedSend(
+          [lookupCall('retry-read', 'query')],
+          new ProviderFailure('provider unavailable', {
+            code: 'stream_broken',
+          }),
+        ),
+        providerText('same model answer'),
+      ],
+    });
+
+    await drained;
+
+    expect(decision).not.toHaveBeenCalled();
+    expect(appended.map(({ type }) => type)).not.toContain('model.switched');
+    expect(appended.map(({ type }) => type)).toContain('run.completed');
   });
 });
