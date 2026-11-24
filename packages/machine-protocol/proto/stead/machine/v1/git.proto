@@ -36,9 +36,10 @@ enum GitFailureReason {
   // Refused before git started; `message` says why.
   GIT_FAILURE_REASON_INVALID_INPUT = 3;
   GIT_FAILURE_REASON_TIMED_OUT = 4;
-  // git exited non-zero; `stderr` says why.
-  GIT_FAILURE_REASON_GIT_FAILED = 5;
-  GIT_FAILURE_REASON_OUTPUT_TOO_LARGE = 6;
+  GIT_FAILURE_REASON_OUTPUT_TOO_LARGE = 5;
+  // git exited non-zero for a reason without its own value; `stderr` says why. Kept last so a
+  // later specific reason slots in before it.
+  GIT_FAILURE_REASON_GIT_FAILED = 255;
 }
 
 message GitFailure {
