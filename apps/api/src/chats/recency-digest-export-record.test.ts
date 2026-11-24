@@ -28,6 +28,7 @@ function chat(overrides: Partial<Chat> = {}): Chat {
     createdAt: new Date('2026-11-01T00:00:00Z'),
     updatedAt: new Date('2026-11-23T00:00:00Z'),
     archivedAt: null,
+    modelSelection: null,
     projectId: null,
     skillCatalogBaseline: null,
     skillCatalogRebakedFrom: null,

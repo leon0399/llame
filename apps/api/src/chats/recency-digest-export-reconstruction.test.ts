@@ -94,6 +94,7 @@ const chat: Chat = {
   createdAt: new Date('2026-11-01T00:00:00.000Z'),
   updatedAt: DATE,
   archivedAt: null,
+  modelSelection: null,
   projectId: null,
   recencyDigestBaseline: baseline,
   recencyDigestTold: [
@@ -157,10 +158,14 @@ function run(): Run {
   return {
     id: RUN_ID,
     kind: 'turn',
+    origin: 'owner',
     chatId: CHAT_ID,
     messageId: TRIGGER_ID,
     userId: OWNER,
     modelId: model.id,
+    selector: model.id,
+    selectedEffort: null,
+    selectionRevision: null,
     status: 'completed',
     wakeGeneration: 0,
     currentJobId: null,

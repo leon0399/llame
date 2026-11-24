@@ -1,5 +1,37 @@
 _Reverse-chronological record of shipped work — features, fixes, and chores. Newest first._
 
+# 2026-11-24
+
+- Update Schemathesis to 4.32.2 so a negative test that mutates both
+  authentication and a request body does not refill the rejected credential.
+- Activate API static and hybrid mutants before module imports and run all
+  related tests. A first importing test alone does not exercise every consumer
+  of a module-initialized schema.
+- Read owner Chat history through native `read` using `chat://`, `chat://<id>`,
+  and `chat://<id>/<seq>`. The collection lists eligible non-archived Chats;
+  owners can still address archived Chats directly. Indexes and message reads
+  use eligible stored rows, shared bounds, and owner-scoped not-found parity.
+  Run status is a separate read-only annotation. Search now returns `chat://`
+  locators, with line delimiters bound to their originating lines. The old
+  `conversation_read` tool is removed; remove it from
+  `tools.allowed` and tool prompt overrides before upgrading. A stale
+  permission group remains inert.
+- Keep existing digest columns, renderer, and templates during this reader
+  layer. Before the later digest upgrade, back up the database, stop acceptance,
+  drain old workers, and run the reader-binary exporter:
+  `pnpm --filter api recency-digest:export --out <path>`. Store its
+  version 1 owner-bound JSON output as private mode `0600` data. Baseline
+  disclosure requires the immutable version 1 quota initializer and the
+  matching dispatched receipt identity. The packaged `project_default`
+  template proves membership only for emitted rows; custom title-only templates
+  prove only exact emitted titles. The mutable told-set is inventory, not
+  disclosure proof. Ambiguous identities or pin corrections are omitted and
+  reported privately, including total omissions. The export contains no whole
+  prompt or transcript. The later digest converter consumes this file; it is
+  not part of this reader release.
+  Bootstrap diagnostics and YAML warnings do not echo configuration source;
+  malformed YAML still rejects startup.
+
 # 2026-11-23
 
 - Automatic model failover can be enabled per Run origin (`owner` or `agent`)
@@ -43,37 +75,6 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   so startup fails on the old keys. `GET /api/v1/models` returns
   `defaultSelector` instead of `defaultModelId`. A `models[].id` that starts
   with `@` fails startup. (#1772)
-# 2026-11-24
-
-- Update Schemathesis to 4.32.2 so a negative test that mutates both
-  authentication and a request body does not refill the rejected credential.
-- Activate API static and hybrid mutants before module imports and run all
-  related tests. A first importing test alone does not exercise every consumer
-  of a module-initialized schema.
-- Read owner Chat history through native `read` using `chat://`, `chat://<id>`,
-  and `chat://<id>/<seq>`. The collection lists eligible non-archived Chats;
-  owners can still address archived Chats directly. Indexes and message reads
-  use eligible stored rows, shared bounds, and owner-scoped not-found parity.
-  Run status is a separate read-only annotation. Search now returns `chat://`
-  locators, with line delimiters bound to their originating lines. The old
-  `conversation_read` tool is removed; remove it from
-  `tools.allowed` and tool prompt overrides before upgrading. A stale
-  permission group remains inert.
-- Keep existing digest columns, renderer, and templates during this reader
-  layer. Before the later digest upgrade, back up the database, stop acceptance,
-  drain old workers, and run the reader-binary exporter:
-  `pnpm --filter api recency-digest:export --out <path>`. Store its
-  version 1 owner-bound JSON output as private mode `0600` data. Baseline
-  disclosure requires the immutable version 1 quota initializer and the
-  matching dispatched receipt identity. The packaged `project_default`
-  template proves membership only for emitted rows; custom title-only templates
-  prove only exact emitted titles. The mutable told-set is inventory, not
-  disclosure proof. Ambiguous identities or pin corrections are omitted and
-  reported privately, including total omissions. The export contains no whole
-  prompt or transcript. The later digest converter consumes this file; it is
-  not part of this reader release.
-  Bootstrap diagnostics and YAML warnings do not echo configuration source;
-  malformed YAML still rejects startup.
 
 # 2026-11-22
 
