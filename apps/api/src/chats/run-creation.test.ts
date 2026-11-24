@@ -20,7 +20,9 @@ describe('createCompactionRun', () => {
       constraint_name: 'runs_chat_inflight_unique',
     });
 
-    vi.spyOn(RunsRepository.prototype, 'create').mockRejectedValue(duplicate);
+    const createRun = vi
+      .spyOn(RunsRepository.prototype, 'create')
+      .mockRejectedValue(duplicate);
 
     await expect(
       createCompactionRun(tx, {
@@ -30,10 +32,12 @@ describe('createCompactionRun', () => {
         modelId: 'model-1',
         selector: 'model-1',
         focus: null,
+        origin: 'agent',
       }),
     ).rejects.toThrow(
       new ConflictException('Another run is already in flight for this chat'),
     );
+    expect(createRun.mock.calls[0]?.[0]).toMatchObject({ origin: 'agent' });
   });
 });
 
@@ -68,7 +72,10 @@ describe('createRunForMessage', () => {
       RunsRepository.prototype,
       'cancelActiveRunsForMessage',
     ).mockResolvedValue([]);
-    vi.spyOn(RunsRepository.prototype, 'create').mockRejectedValue(duplicate);
+
+    const createRun = vi
+      .spyOn(RunsRepository.prototype, 'create')
+      .mockRejectedValue(duplicate);
 
     await expect(
       createRunForMessage(
@@ -83,11 +90,13 @@ describe('createRunForMessage', () => {
           selectionRevision: null,
           permissionMode: 'default',
           targetRunId: 'run-1',
+          origin: 'agent',
         },
         userMessage,
       ),
     ).rejects.toThrow(
       new ConflictException('Another run is already in flight for this chat'),
     );
+    expect(createRun.mock.calls[0]?.[0]).toMatchObject({ origin: 'agent' });
   });
 });

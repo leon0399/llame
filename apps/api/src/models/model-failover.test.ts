@@ -40,13 +40,19 @@ function config(
     failover?: FailoverMatrix;
     roleFailover?: FailoverMatrix;
     allowPaidFallback?: boolean;
+    candidateEffort?: string;
   } = {},
 ) {
   const role: ModelRoleConfig = {
     name: 'chat',
     candidates: [
       { modelId: 'primary' },
-      { modelId: 'paid' },
+      {
+        modelId: 'paid',
+        ...(options.candidateEffort !== undefined && {
+          effort: options.candidateEffort,
+        }),
+      },
       { modelId: 'fallback' },
     ],
     ...(options.allowPaidFallback !== undefined && {
@@ -161,6 +167,90 @@ describe('model failover policy', () => {
     ).toEqual({
       toModelId: 'fallback',
     });
+  });
+
+  it('waits when the quota reset exactly meets the configured threshold', () => {
+    expect(
+      switched(
+        { failover: { agent: { quota: { switchAfterSeconds: 7200 } } } },
+        failure('quota_exhausted', at + 7_200_000),
+      ),
+    ).toBeUndefined();
+  });
+
+  it('keeps a started tool call on quota wait only after the cut', () => {
+    const policy = {
+      failover: { agent: { quota: { switchAfterSeconds: 7200 } } },
+    };
+
+    const error = failure('quota_exhausted', at + 3_600_000, true);
+
+    expect(
+      failoverTarget({
+        config: config(policy),
+        selector: '@chat',
+        currentModelId: 'primary',
+        origin: 'agent',
+        failure: error,
+        afterCut: true,
+        now: at,
+      }),
+    ).toBeUndefined();
+    expect(
+      failoverTarget({
+        config: config(policy),
+        selector: '@chat',
+        currentModelId: 'primary',
+        origin: 'agent',
+        failure: error,
+        now: at,
+      }),
+    ).toEqual({ toModelId: 'fallback' });
+  });
+
+  it('uses a rate-limit reset as quota evidence', () => {
+    expect(
+      switched(
+        { failover: { agent: { quota: 'on' } } },
+        failure('rate_limited', at + 3_600_000),
+      ),
+    ).toEqual({ toModelId: 'fallback' });
+    expect(
+      switched(
+        { failover: { agent: { quota: 'on' } } },
+        failure('rate_limited'),
+      ),
+    ).toBeUndefined();
+  });
+
+  it('carries the selected fallback candidate effort into the decision', () => {
+    expect(
+      switched({
+        failover: { agent: { availability: 'on' } },
+        allowPaidFallback: true,
+        candidateEffort: 'high',
+      }),
+    ).toEqual({ toModelId: 'paid', candidateEffort: 'high' });
+  });
+
+  it('skips a paid candidate after a free candidate when paid fallback is off', () => {
+    const settings = config({
+      failover: { agent: { availability: 'on' } },
+    });
+
+    expect(
+      failoverTarget({
+        config: {
+          ...settings,
+          models: [model('primary', 'free'), ...baseModels.slice(1)],
+        },
+        selector: '@chat',
+        currentModelId: 'primary',
+        origin: 'agent',
+        failure: failure('overloaded'),
+        now: at,
+      }),
+    ).toEqual({ toModelId: 'fallback' });
   });
 
   it('switches immediately when the quota cell is on', () => {

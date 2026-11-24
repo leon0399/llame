@@ -3315,6 +3315,34 @@ describe('loadInstanceConfig — modelRoles / defaults selectors (model-roles)',
     expect(() => loadInstanceConfig()).toThrow(/failover.*availability/u);
   });
 
+  it('resolves global failover cells across origins and groups', () => {
+    writeConfig(`{
+      ${SINGLE_PROVIDER_JSON},
+      "failover": {
+        "owner": { "availability": "on", "access": "off" },
+        "agent": { "quota": { "switchAfterSeconds": 42 } }
+      }
+    }`);
+
+    expect(loadInstanceConfig().failover).toEqual({
+      owner: { availability: 'on', access: 'off' },
+      agent: { quota: { switchAfterSeconds: 42 } },
+    });
+  });
+
+  it('names a top-level quota threshold when environment resolution fails', () => {
+    writeConfig(`{
+      ${SINGLE_PROVIDER_JSON},
+      "failover": {
+        "agent": { "quota": { "switchAfterSeconds": "{env:FAILOVER_WAIT}" } }
+      }
+    }`);
+
+    expect(() =>
+      loadInstanceConfig({ ...process.env, FAILOVER_WAIT: 'not-a-number' }),
+    ).toThrow(/failover\.agent\.quota\.switchAfterSeconds/u);
+  });
+
   it('resolves a role failover cell and keeps the override partial', () => {
     writeConfig(`{
       ${ROLE_MODELS_JSON},

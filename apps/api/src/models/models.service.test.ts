@@ -434,6 +434,43 @@ describe('ModelsService', () => {
     ).toBeUndefined();
   });
 
+  it('preserves the role paid-fallback opt-in for title generation', () => {
+    const service = createService({
+      defaultSelector: '@titles',
+      titleGenerationSelector: '@titles',
+      models: [
+        withBilling('system:openai:primary', 'subscription'),
+        withBilling('system:openai:paid', 'usage'),
+      ],
+      modelRoles: [
+        {
+          name: 'titles',
+          candidates: [
+            { modelId: 'system:openai:primary' },
+            { modelId: 'system:openai:paid' },
+          ],
+          allowPaidFallback: true,
+        },
+      ],
+    });
+
+    expect(service.resolveTitleModelCandidates()).toMatchObject({
+      models: [{ id: 'system:openai:primary' }, { id: 'system:openai:paid' }],
+      allowPaidFallback: true,
+    });
+  });
+
+  it('keeps an exact title-model selector from opting into paid fallback', () => {
+    const service = createService({
+      titleGenerationSelector: 'system:openai:gpt-5.4-nano',
+    });
+
+    expect(service.resolveTitleModelCandidates()).toMatchObject({
+      models: [{ id: 'system:openai:gpt-5.4-nano' }],
+      allowPaidFallback: false,
+    });
+  });
+
   describe('model roles', () => {
     it('publishes roles in config order, marking only usage billing as paid', () => {
       const service = createService({
