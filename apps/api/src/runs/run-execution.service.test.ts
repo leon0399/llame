@@ -4232,6 +4232,89 @@ describe('RunExecutionService executeRun', () => {
       });
     });
 
+    function serveRepeatedHistoryId(): void {
+      const priorCall = {
+        type: 'tool-search_conversations',
+        toolCallId: 'call_0',
+        state: 'output-available',
+        input: { query: 'prior' },
+        output: { status: 'success', value: 'prior result' },
+        outcome: 'success',
+      };
+
+      mockNormalExecutionRepositories();
+      vi.spyOn(MessagesRepository.prototype, 'findByChatId').mockResolvedValue([
+        { ...assistantMessage, seq: 1, parts: [priorCall] },
+        { ...userMessage, seq: 2, parts: [{ type: 'text', text: 'again' }] },
+      ]);
+      vi.spyOn(
+        RunsRepository.prototype,
+        'findDispatchedBaselineForTurn',
+      ).mockResolvedValue(undefined);
+    }
+
+    function repeatedIdExecution(notice: AuthoredContextItemPart) {
+      const { client, requests } = createToolLoopClient([
+        providerToolCallInput(toolDeclaration.id, 'call_0', { q: 'first' }),
+        providerText('answer'),
+      ]);
+
+      const executor: Tool = {
+        id: toolDeclaration.id,
+        description: toolDeclaration.description,
+        classification: 'unverified',
+        inputSchema: toolDeclaration.inputSchema,
+        execute: () => ({ status: 'success' as const }),
+      };
+
+      const execution = makeExecutionService(
+        client,
+        makeDynamicResolver(executor),
+        undefined,
+        {
+          ...withDeclaredTool(),
+          inRunProducer: stepProducer((step) => {
+            if (step.stepNumber === 1) step.stage(notice);
+          }),
+        },
+      );
+
+      return { client, execution, requests };
+    }
+
+    async function runAfterRepeatedHistoryId(notice: AuthoredContextItemPart) {
+      serveRepeatedHistoryId();
+      const { client, execution, requests } = repeatedIdExecution(notice);
+
+      const result = await execution.service.executeRun({
+        ...executionInput(client),
+        userMessage: {
+          id: messageId,
+          seq: 2,
+          parts: [{ type: 'text' as const, text: 'again' }],
+        },
+      });
+
+      await expect(result.text).resolves.toBe('answer');
+
+      return requests;
+    }
+
+    it('keeps an in-Run anchor beside a call renamed for a reused history id', async () => {
+      const notice = workspaceNotice(runId);
+      const requests = await runAfterRepeatedHistoryId(notice);
+      const prompt = requests.at(-1) ?? [];
+
+      expect(prompt.at(-2)).toMatchObject({
+        role: 'tool',
+        content: [{ type: 'tool-result', toolCallId: 'call_0' }],
+      });
+      expect(prompt.at(-1)).toMatchObject({
+        role: 'user',
+        content: [{ type: 'text', text: notice.data.text }],
+      });
+    });
+
     it('publishes a staged in-Run item after the step tool part on completion', async () => {
       const notice = workspaceNotice(runId);
 
@@ -31698,6 +31781,88 @@ describe('RunExecutionService wake boundary preparation', () => {
       untitled: false,
     };
   }
+
+  it('normalizes boundary-summary tool ids across history and the current reply', async () => {
+    vi.spyOn(RunsRepository.prototype, 'findById').mockResolvedValue({
+      ...run,
+      activeAttemptId: testAttemptId,
+    });
+
+    const storedCall = {
+      type: 'tool-search_conversations',
+      toolCallId: 'call_0',
+      state: 'output-available',
+      input: { query: 'same call' },
+      output: { status: 'success', value: 'result' },
+      outcome: 'success',
+    };
+
+    const history = committedTurn();
+    const historyUser = history[0];
+    const historyReply = history[1];
+
+    if (historyUser === undefined || historyReply === undefined) {
+      throw new Error('Missing committed history.');
+    }
+
+    const execution = makeExecutionService();
+
+    const context = boundaryContext([
+      historyUser,
+      { ...historyReply, parts: [storedCall] },
+    ]);
+
+    context.toolCallIds.resolve('call_0', true);
+
+    await execution.service['prepareBoundaryCompaction']({
+      run: executionInput(createFakeModelClient(['answer'])),
+      attemptId: testAttemptId,
+      context,
+      prepared: {
+        messages: [
+          {
+            role: 'assistant',
+            content: [
+              {
+                type: 'tool-call',
+                toolCallId: 'call_0',
+                toolName: 'search_conversations',
+                input: { query: 'history' },
+              },
+            ],
+          },
+        ],
+        system: '',
+        untitled: false,
+        toolDeclarations: [],
+        tools: [],
+      },
+      effort: undefined,
+      media: createRunMediaResolver(execution.tenantDb, userId),
+      workspaceRoot: createWorkspaceRootCell('/workspace'),
+      replyParts: [storedCall],
+      keptPartCount: 0,
+      stepBudgetUsed: 1,
+      compactionSet: { ids: ['compact-id'], focus: null },
+    });
+
+    const closedReply =
+      execution.computeBoundarySummary.mock.calls[0]?.[0].closedReply;
+
+    const ids =
+      closedReply?.flatMap((message) => {
+        if (message.role !== 'assistant' || !Array.isArray(message.content)) {
+          return [];
+        }
+
+        return message.content.flatMap((part) =>
+          part.type === 'tool-call' ? [part.toolCallId] : [],
+        );
+      }) ?? [];
+
+    expect(ids).toHaveLength(2);
+    expect(new Set(ids).size).toBe(2);
+  });
 
   it('keeps a non-final wake summary free of final-answer metadata and includes its reply', async () => {
     vi.spyOn(RunsRepository.prototype, 'findById').mockResolvedValue({

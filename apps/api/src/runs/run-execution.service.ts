@@ -6404,18 +6404,26 @@ export class RunExecutionService {
               nextCall = async () => {
                 // The step's own ids stay unless an earlier part of this
                 // request already used them (D13).
-                const produced = normalizeStepToolCallIds(
-                  (await result.response).messages,
-                  attemptContext.toolCallIds,
-                );
+                const produced = (await result.response).messages;
 
                 const carried = [...callMessages, ...produced];
-                // The staged in-Run items are part of the carried request now;
-                // the next call stages its own against the new Run boundary.
+                // Apply staged items before normalizing this live step: their
+                // anchors use the stored ids, while the request map may rename
+                // a repeated id. Normalize only this new step; callMessages
+                // already crossed the map and resolving it again is not safe.
                 const next = inRunItems.applyToStep(carried) ?? carried;
+
+                const normalized = [
+                  ...callMessages,
+                  ...normalizeStepToolCallIds(
+                    next.slice(callMessages.length),
+                    attemptContext.toolCallIds,
+                  ),
+                ];
+
                 inRunItems = createInRunContextItems();
 
-                return callStream(next, segmentSteps);
+                return callStream(normalized, segmentSteps);
               };
             } else if (boundaryKind === 'cancelled') {
               // The items stay pending and the Run settles cancelled.
@@ -8917,6 +8925,7 @@ export class RunExecutionService {
 
     const projected = projectStoredReplyParts(input.replyParts, {
       privateParts: true,
+      toolCallIds: input.context.toolCallIds,
       mediaKey: (index) => continuedMediaKey(input.keptPartCount + index),
     });
 

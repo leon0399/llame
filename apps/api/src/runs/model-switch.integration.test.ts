@@ -20,9 +20,6 @@ import { deliverModelSwitch } from './model-switch';
 import { runningReplyUsage } from './run-reply-finalizer';
 import { RunEventsRepository, RunsRepository } from './runs-repository';
 
-const describeIfDb =
-  process.env['TEST_DATABASE_URL'] === undefined ? describe.skip : describe;
-
 const SONNET = 'system:anthropic:claude-sonnet';
 
 const telemetry = (input: { attemptId: string; modelId: string }) => ({
@@ -35,7 +32,7 @@ const telemetry = (input: { attemptId: string; modelId: string }) => ({
   complete: true,
 });
 
-describeIfDb('the model switch inside a live Run', () => {
+describe('the model switch inside a live Run', () => {
   const fx = useSegmentsFixture('model-switch', {
     allowedTools: ['read'],
     localMachine: 'model-switch-host',
