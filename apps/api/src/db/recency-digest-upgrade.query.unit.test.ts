@@ -18,6 +18,7 @@ import {
 } from './recency-digest-export';
 import {
   RECENCY_DIGEST_UPGRADE_WITNESS,
+  establishFreshRecencyDigestWitness,
   upgradeRecencyDigest,
 } from './recency-digest-upgrade';
 import { runRecencyDigestUpgrade } from './recency-digest-upgrade.cli';
@@ -269,6 +270,18 @@ describe('recency digest data upgrade', () => {
       });
     });
   });
+  it('does not establish a fresh-inventory witness when the legacy table exists', async () => {
+    await sql.begin(async (tx) => {
+      await tx`select set_config(${RECENCY_DIGEST_UPGRADE_WITNESS}, 'not-authorized', true)`;
+      expect(await establishFreshRecencyDigestWitness(tx)).toBe(false);
+
+      const [witness] = await tx<
+        Array<{ value: string | null }>
+      >`select current_setting(${RECENCY_DIGEST_UPGRADE_WITNESS}, true) as value`;
+
+      expect(witness?.value).toBe('not-authorized');
+    });
+  });
 
   it('cleans failed operator reports, writes a private report, and refuses to replace it', async () => {
     await freshSql.unsafe('CREATE ROLE app_rls NOLOGIN BYPASSRLS');
@@ -427,6 +440,14 @@ describe('recency digest data upgrade', () => {
     if (!entry)
       throw new Error('Migration proof fixture could not be constructed');
 
+    const noticeEntry: typeof entry = {
+      ...entry,
+      proofs: {
+        ...entry.proofs,
+        pin: { kind: 'notice', messageId: noticeMessageId },
+      },
+    };
+
     await sql.begin(async (tx) => {
       await tx`select set_config('app.current_user_id', ${ownerId}, true)`;
       const absentEventAttemptId = randomUUID();
@@ -531,22 +552,215 @@ describe('recency digest data upgrade', () => {
             recency_digest_told: columns.told,
           },
           record,
+          entry: noticeEntry,
+          cutoffSupported: true,
+        }),
+      ).toEqual({ effectiveCorrection: true, proofMatches: true });
+      expect(
+        await noticePinHasProof({
+          connection: tx,
+          chat: {
+            id: chatId,
+            owner_user_id: ownerId,
+            recency_digest_told: columns.told,
+          },
+          record,
+          entry: { ...noticeEntry, pinned: !entry.pinned },
+          cutoffSupported: true,
+        }),
+      ).toEqual({ effectiveCorrection: true, proofMatches: false });
+      record.provenance.activeCheckpointId = randomUUID();
+      expect(
+        await noticePinHasProof({
+          connection: tx,
+          chat: {
+            id: chatId,
+            owner_user_id: ownerId,
+            recency_digest_told: columns.told,
+          },
+          record,
+          entry: noticeEntry,
+          cutoffSupported: true,
+        }),
+      ).toEqual({ effectiveCorrection: true, proofMatches: false });
+      record.provenance.activeCheckpointId = null;
+
+      const malformedNoticePayloads = [
+        {
+          entries: [
+            { title, date: 'not-a-date', messageCount: 1, pinned: true },
+          ],
+          pinChanges: [],
+        },
+        {
+          entries: [
+            { title, date: '2026-1-01', messageCount: 1, pinned: true },
+          ],
+          pinChanges: [],
+        },
+        {
+          entries: [
+            { title, date: 'abcd-01-01', messageCount: 1, pinned: true },
+          ],
+          pinChanges: [],
+        },
+        {
+          entries: [
+            { title, date: '2026-01-1', messageCount: 1, pinned: true },
+          ],
+          pinChanges: [],
+        },
+        {
+          entries: [
+            { title, date: '2026-01-01x', messageCount: 1, pinned: true },
+          ],
+          pinChanges: [],
+        },
+        {
+          entries: [
+            { title, date: '2026-01-01', messageCount: 1.5, pinned: true },
+          ],
+          pinChanges: [],
+        },
+        {
+          entries: [
+            {
+              title,
+              date: '2026-01-01',
+              messageCount: 9_007_199_254_740_992,
+              pinned: true,
+            },
+          ],
+          pinChanges: [],
+        },
+        { entries: [], pinChanges: [{ title: '', pinned: true }] },
+        {
+          entries: [
+            { title, date: '2026-01-01', messageCount: -1, pinned: true },
+          ],
+          pinChanges: [],
+        },
+        {
+          entries: [
+            { title: '   ', date: '2026-01-01', messageCount: 1, pinned: true },
+          ],
+          pinChanges: [],
+        },
+        { entries: [], pinChanges: [{ title: ' ', pinned: true }] },
+        { entries: [], pinChanges: [] },
+      ];
+
+      for (const payload of malformedNoticePayloads) {
+        const malformedMessageId = randomUUID();
+
+        const malformedNotice = createContextItemPart({
+          producer: 'recency-digest',
+          form: 'notice',
+          runId,
+          payload,
+          text: 'Historical notice content.',
+        });
+
+        await tx`insert into messages (id, chat_id, seq, role, sender_user_id, parts) values (${malformedMessageId}::uuid, ${chatId}::uuid, 3, 'assistant', null, ${JSON.stringify([malformedNotice])}::text::json)`;
+        record.provenance.lastOriginalSeq = 3;
+        expect(
+          await noticePinHasProof({
+            connection: tx,
+            chat: {
+              id: chatId,
+              owner_user_id: ownerId,
+              recency_digest_told: columns.told,
+            },
+            record,
+            entry: noticeEntry,
+            cutoffSupported: true,
+          }),
+        ).toEqual({ effectiveCorrection: true, proofMatches: false });
+        await tx`delete from messages where id = ${malformedMessageId}::uuid`;
+      }
+
+      const emptyTextMessageId = randomUUID();
+
+      const emptyTextNotice = createContextItemPart({
+        producer: 'recency-digest',
+        form: 'notice',
+        runId,
+        payload: { entries: [], pinChanges: [{ title, pinned: true }] },
+        text: ' ',
+      });
+
+      await tx`insert into messages (id, chat_id, seq, role, sender_user_id, parts) values (${emptyTextMessageId}::uuid, ${chatId}::uuid, 3, 'assistant', null, ${JSON.stringify([emptyTextNotice])}::text::json)`;
+      record.provenance.lastOriginalSeq = 3;
+      expect(
+        await noticePinHasProof({
+          connection: tx,
+          chat: {
+            id: chatId,
+            owner_user_id: ownerId,
+            recency_digest_told: columns.told,
+          },
+          record,
           entry: {
             ...entry,
             proofs: {
               ...entry.proofs,
-              pin: { kind: 'notice', messageId: noticeMessageId },
+              pin: { kind: 'notice', messageId: emptyTextMessageId },
             },
           },
           cutoffSupported: true,
         }),
-      ).toEqual({ effectiveCorrection: true, proofMatches: true });
+      ).toEqual({ effectiveCorrection: true, proofMatches: false });
+      await tx`delete from messages where id = ${emptyTextMessageId}::uuid`;
+
+      const snapshotId = randomUUID();
+
+      const emptySnapshot = createContextItemPart({
+        producer: 'recency-digest',
+        form: 'snapshot',
+        runId,
+        payload: {},
+        text: 'Snapshot boundary.',
+      });
+
+      await tx`insert into messages (id, chat_id, seq, role, sender_user_id, parts) values (${snapshotId}::uuid, ${chatId}::uuid, 3, 'assistant', null, ${JSON.stringify([emptySnapshot])}::text::json)`;
+      record.provenance.lastOriginalSeq = 3;
+      expect(
+        await noticePinHasProof({
+          connection: tx,
+          chat: {
+            id: chatId,
+            owner_user_id: ownerId,
+            recency_digest_told: columns.told,
+          },
+          record,
+          entry: {
+            ...entry,
+            proofs: {
+              ...entry.proofs,
+              pin: { kind: 'notice', messageId: snapshotId },
+            },
+          },
+          cutoffSupported: true,
+        }),
+      ).toEqual({ effectiveCorrection: false, proofMatches: false });
+      await tx`delete from messages where id = ${snapshotId}::uuid`;
+      record.provenance.lastOriginalSeq = 2;
+
       expect(
         await originalRunHasPromptProof({
           connection: tx,
           run: { ownerId, chatId, runId, attemptId },
         }),
       ).toBe(true);
+      await tx`update system_prompt_receipts set system_prompt = 'altered prompt' where owner_user_id = ${ownerId} and run_id = ${runId}::uuid and attempt_id = ${attemptId}::uuid`;
+      expect(
+        await originalRunHasPromptProof({
+          connection: tx,
+          run: { ownerId, chatId, runId, attemptId },
+        }),
+      ).toBe(false);
+      await tx`update system_prompt_receipts set system_prompt = ${prompt} where owner_user_id = ${ownerId} and run_id = ${runId}::uuid and attempt_id = ${attemptId}::uuid`;
+
       expect(
         await originalRunHasPromptProof({
           connection: tx,
@@ -559,6 +773,8 @@ describe('recency digest data upgrade', () => {
           run: { ownerId, chatId, proof: entry.proofs.identity, title },
         }),
       ).toBe(true);
+      await tx`insert into run_events (run_id, event_type, payload) values (${runId}::uuid, 'run.suspended', ${JSON.stringify({ summaryAttemptId: attemptId, baselines: { recencyDigestInitialization: { baseline: columns.baseline, told: [{ chatId: sourceChatId, title: 'A different disclosed title', pinned: true }] } } })}::text::jsonb)`;
+
       expect(
         await immutableIdentityHasProof({
           connection: tx,
@@ -569,6 +785,18 @@ describe('recency digest data upgrade', () => {
           entry,
         }),
       ).toBe(true);
+      const unownedIdentityChatId = randomUUID();
+      await tx`insert into run_events (run_id, event_type, payload) values (${runId}::uuid, 'run.suspended', ${JSON.stringify({ summaryAttemptId: attemptId, baselines: { recencyDigestInitialization: { baseline: columns.baseline, told: [{ chatId: unownedIdentityChatId, title, pinned: true }] } } })}::text::jsonb)`;
+      expect(
+        await immutableIdentityHasProof({
+          connection: tx,
+          ownerId,
+          chatId,
+          legacyBaseline: columns.baseline,
+          rebakedFrom: null,
+          entry: { ...entry, chatId: unownedIdentityChatId },
+        }),
+      ).toBe(false);
       expect(
         await immutableIdentityHasProof({
           connection: tx,
@@ -746,6 +974,173 @@ describe('recency digest data upgrade', () => {
         [],
       );
       expect(carriers).toHaveLength(2);
+    });
+  });
+  it('does not announce a baseline pin when its proved list disagrees with the comparison pin', async () => {
+    const ownerId = 'pin-membership-owner';
+    const chatId = randomUUID();
+    const sourceChatId = randomUUID();
+    const runId = randomUUID();
+    const attemptId = randomUUID();
+    const title = 'Recent but not pinned';
+    const prompt = `Disclosed ${title}`;
+
+    const columns = {
+      baseline: { pinned: [{ title }], recent: [{ title }] },
+      told: [{ chatId: sourceChatId, title, pinned: true }],
+      rebakedFrom: null,
+    };
+
+    await seedChat({
+      ownerId,
+      chatId,
+      runId,
+      attemptId,
+      prompt,
+      columns,
+      initialTold: columns.told,
+    });
+    await seedChat({
+      ownerId,
+      chatId: sourceChatId,
+      columns: { baseline: null, told: null, rebakedFrom: null },
+    });
+
+    const record = makeRecord({
+      ownerId,
+      chatId,
+      runId,
+      attemptId,
+      prompt,
+      title,
+      sourceChatId,
+      legacyColumns: columns,
+    });
+
+    const baselineEntry = record.baseline.entries[0];
+
+    if (!baselineEntry)
+      throw new Error('Migration proof fixture could not be constructed');
+    baselineEntry.list = 'recent';
+
+    const report = await sql.begin(async (tx) => {
+      await tx`select set_config('app.current_user_id', ${ownerId}, true)`;
+
+      return upgradeRecencyDigest(tx, emptyDocument([record]), () =>
+        Promise.resolve(),
+      );
+    });
+
+    expect(report.importedChats).toBe(1);
+    expect(
+      report.omissions.some(
+        ({ chatId: omittedChatId, field }) =>
+          omittedChatId === chatId && field === 'comparison.pin',
+      ),
+    ).toBe(true);
+    await sql.begin(async (tx) => {
+      await tx`select set_config('app.current_user_id', ${ownerId}, true)`;
+
+      const carriers = await tx<Array<{ parts: unknown }>>`
+        select parts from messages
+        where chat_id = ${chatId}::uuid and sender_user_id is null and role = 'user'
+        order by seq
+      `;
+
+      const payloads = carriers.flatMap(({ parts }) =>
+        Array.isArray(parts)
+          ? parts.flatMap((part) =>
+              isContextItemPart(part) ? [readDigestPayload(part)] : [],
+            )
+          : [],
+      );
+
+      expect(payloads).toHaveLength(2);
+      expect(payloads[0]?.announced).toEqual([]);
+      expect(payloads[1]?.announced).toEqual([]);
+    });
+  });
+  it('refuses a baseline pin when identical legacy titles make its source ambiguous', async () => {
+    const ownerId = 'ambiguous-baseline-pin-owner';
+    const chatId = randomUUID();
+    const sourceChatId = randomUUID();
+    const runId = randomUUID();
+    const attemptId = randomUUID();
+    const title = 'Repeated legacy title';
+    const prompt = `Disclosed ${title}`;
+
+    const columns = {
+      baseline: { pinned: [{ title }, { title }], recent: [] },
+      told: [{ chatId: sourceChatId, title, pinned: true }],
+      rebakedFrom: null,
+    };
+
+    await seedChat({
+      ownerId,
+      chatId,
+      runId,
+      attemptId,
+      prompt,
+      columns,
+      initialTold: columns.told,
+    });
+    await seedChat({
+      ownerId,
+      chatId: sourceChatId,
+      columns: { baseline: null, told: null, rebakedFrom: null },
+    });
+
+    const record = makeRecord({
+      ownerId,
+      chatId,
+      runId,
+      attemptId,
+      prompt,
+      title,
+      sourceChatId,
+      legacyColumns: columns,
+    });
+
+    const first = record.baseline.entries[0];
+
+    if (!first)
+      throw new Error('Migration proof fixture could not be constructed');
+    record.baseline.entries.push({ ...first, index: 1 });
+
+    const report = await sql.begin(async (tx) => {
+      await tx`select set_config('app.current_user_id', ${ownerId}, true)`;
+
+      return upgradeRecencyDigest(tx, emptyDocument([record]), () =>
+        Promise.resolve(),
+      );
+    });
+
+    expect(report.importedChats).toBe(1);
+    expect(
+      report.omissions.some(
+        ({ chatId: omittedChatId, field }) =>
+          omittedChatId === chatId && field === 'comparison.pin',
+      ),
+    ).toBe(true);
+    await sql.begin(async (tx) => {
+      await tx`select set_config('app.current_user_id', ${ownerId}, true)`;
+
+      const carriers = await tx<Array<{ parts: unknown }>>`
+        select parts from messages
+        where chat_id = ${chatId}::uuid and sender_user_id is null and role = 'user'
+        order by seq
+      `;
+
+      const payloads = carriers.flatMap(({ parts }) =>
+        Array.isArray(parts)
+          ? parts.flatMap((part) =>
+              isContextItemPart(part) ? [readDigestPayload(part)] : [],
+            )
+          : [],
+      );
+
+      expect(payloads[0]?.announced).toEqual([]);
+      expect(payloads[1]?.announced).toEqual([]);
     });
   });
 
@@ -945,6 +1340,15 @@ describe('recency digest data upgrade', () => {
       }),
     ];
 
+    const validRecord = records[0];
+
+    if (validRecord)
+      validRecord.omissions.push({
+        scope: 'baseline',
+        field: 'baseline.excerpt',
+        reason: 'unsupported_legacy_excerpt',
+      });
+
     const misbound = records[4];
     const staleProof = records[6];
     const staleTitleProof = staleProof?.baseline.entries[0]?.proofs.title;
@@ -1007,6 +1411,14 @@ describe('recency digest data upgrade', () => {
       report.omissions.some(
         ({ chatId, reason }) =>
           chatId === staleChat && reason === 'legacy_fingerprint_mismatch',
+      ),
+    ).toBe(true);
+    expect(
+      report.omissions.some(
+        ({ chatId, field, reason }) =>
+          chatId === chatA &&
+          field === 'baseline.excerpt' &&
+          reason === 'unsupported_legacy_excerpt',
       ),
     ).toBe(true);
     expect(
@@ -1302,6 +1714,81 @@ describe('recency digest data upgrade', () => {
         kind: 'notice',
         importedCutoff: { latestTurnSeq: 2, lastOriginalSeq: 2 },
       });
+    });
+  });
+  it('omits imported state when exported cutoff provenance is not the latest turn', async () => {
+    const ownerId = 'unsupported-cutoff-owner';
+    const chatId = randomUUID();
+    const sourceChatId = randomUUID();
+    const runId = randomUUID();
+    const attemptId = randomUUID();
+    const latestTurnId = randomUUID();
+    const title = 'Cutoff-bound title';
+    const prompt = `Disclosed ${title}`;
+
+    const columns = {
+      baseline: { pinned: [{ title }], recent: [] },
+      told: [],
+      rebakedFrom: null,
+    };
+
+    await seedChat({ ownerId, chatId, runId, attemptId, prompt, columns });
+    await seedChat({
+      ownerId,
+      chatId: sourceChatId,
+      columns: { baseline: null, told: null, rebakedFrom: null },
+    });
+    await sql.begin(async (tx) => {
+      await tx`select set_config('app.current_user_id', ${ownerId}, true)`;
+      await tx`insert into messages (id, chat_id, seq, role, sender_user_id, parts) values (${latestTurnId}::uuid, ${chatId}::uuid, 2, 'user', ${ownerId}, '[]'::text::json)`;
+      await tx`update runs set message_id = ${latestTurnId}::uuid where id = ${runId}::uuid`;
+    });
+
+    const record = makeRecord({
+      ownerId,
+      chatId,
+      runId,
+      attemptId,
+      prompt,
+      title,
+      sourceChatId,
+      legacyColumns: columns,
+    });
+
+    const invalidCutoffs = [
+      { runId: randomUUID(), seq: 2 },
+      { runId, seq: 1 },
+    ];
+
+    for (const latestPreTurn of invalidCutoffs) {
+      record.provenance.latestPreTurn = latestPreTurn;
+      record.provenance.lastOriginalSeq = 2;
+
+      const report = await sql.begin(async (tx) => {
+        await tx`select set_config('app.current_user_id', ${ownerId}, true)`;
+
+        return upgradeRecencyDigest(tx, emptyDocument([record]), () =>
+          Promise.resolve(),
+        );
+      });
+
+      expect(report.importedChats).toBe(0);
+      expect(
+        report.omissions.some(
+          ({ chatId: omittedChatId, reason }) =>
+            omittedChatId === chatId && reason === 'logical_cutoff_unavailable',
+        ),
+      ).toBe(true);
+    }
+
+    await sql.begin(async (tx) => {
+      await tx`select set_config('app.current_user_id', ${ownerId}, true)`;
+
+      const carriers = await tx`
+        select id from messages where chat_id = ${chatId}::uuid and sender_user_id is null
+      `;
+
+      expect(carriers).toHaveLength(0);
     });
   });
 

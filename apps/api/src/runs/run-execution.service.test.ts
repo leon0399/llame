@@ -5294,9 +5294,10 @@ describe('RunExecutionService executeRun', () => {
       .mockResolvedValue({ shareRecentChats: true });
 
     const repositories = mockNormalExecutionRepositories();
+    const capturing = makeCapturingClient();
 
     const execution = makeExecutionService(
-      createFakeModelClient(['answer']),
+      capturing.client,
       undefined,
       undefined,
       {
@@ -5305,11 +5306,13 @@ describe('RunExecutionService executeRun', () => {
       },
     );
 
-    const result = await execution.service.executeRun(
-      executionInput(execution.client),
+    await execution.service.executeRun(executionInput(capturing.client));
+    const request = JSON.stringify(capturing.streamOptions().messages);
+    expect(request).toContain('baseline body');
+    expect(request.indexOf('baseline body')).toBeLessThan(
+      request.indexOf('hello'),
     );
 
-    await expect(result.text).resolves.toBe('answer');
     const stored = repositories.storeAtDispatch.mock.calls[0]?.[0].items;
 
     const digest = stored?.find(
@@ -16077,6 +16080,59 @@ describe('RunExecutionService executeRun — pre-step compaction trigger', () =>
       'recency_digest_resolution_failed',
     );
     expect(publication.create).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps checkpoint requests free of digest content without recent-chat consent', async () => {
+    const capturing = makeCapturingClient();
+
+    const client = Object.assign(capturing.client, {
+      compactionThresholdTokens: triggerThreshold,
+    });
+
+    const recencyDigest: RecencyDigestResolver = {
+      resolveCandidate: vi.fn().mockResolvedValue({
+        rows: [
+          {
+            chatId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+            locator: 'chat://aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+            title: 'Private source title',
+            activityAt: '2026-09-01T00:00:00.000Z',
+            messageCount: 1,
+            workspace: 'unbound',
+            latestExcerpt: 'Private source excerpt',
+          },
+        ],
+        announced: [],
+        pinnedShown: 0,
+        pinnedTotal: 0,
+        recentShown: 1,
+        recentTotal: 1,
+        compiledOn: '2026-09-01',
+      }),
+      deriveChanges: vi.fn(),
+      renderBaseline: vi.fn().mockReturnValue('Private source excerpt'),
+    };
+
+    const { spies, publication } = await executeTriggerCase({
+      historyRows: publicationHistory(),
+      summary: checkpointSummary(2),
+      shareRecentChats: false,
+      recencyDigest,
+      client,
+    });
+
+    expect(publication.create).toHaveBeenCalledTimes(1);
+    expect(JSON.stringify(capturing.streamOptions().messages)).not.toContain(
+      'Private source',
+    );
+    expect(
+      spies.storeAtDispatch.mock.calls
+        .at(-1)?.[0]
+        .items.some(
+          (part) =>
+            isContextItemPart(part) && part.data.producer === 'recency-digest',
+        ),
+    ).toBe(false);
   });
 
   it('rebakes the skill baseline and copies its told names after publication', async () => {

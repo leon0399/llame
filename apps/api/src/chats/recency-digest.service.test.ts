@@ -86,12 +86,18 @@ describe('recency digest candidate resolution', () => {
       ...recent.map(({ id }) => [id, false]),
     ]);
     expect(new Set(result.announced.map(({ chatId }) => chatId)).size).toBe(20);
+    expect(
+      result.rows.every(
+        (row) => !('openingExcerpt' in row) && !('latestExcerpt' in row),
+      ),
+    ).toBe(true);
     expect(result).toMatchObject({
       pinnedShown: 10,
       pinnedTotal: 27,
       recentShown: 10,
       recentTotal: 61,
     });
+    expect(result.compiledOn).toMatch(/^\d{4}-\d{2}-\d{2}$/);
     const rendered = service.renderBaseline(result);
     expect(rendered).toContain('Pinned Chats (10 of 27 eligible)');
     expect(rendered).toContain('Recent Chats (10 of 61 eligible)');
@@ -244,6 +250,7 @@ describe('recency digest change derivation', () => {
       { row: rows[1], pinned: true },
       { row: rows[2], pinned: false },
     ]);
+    expect(result.announced).toEqual(announced);
   });
 
   it('does not reannounce known candidates and does not infer pin changes from candidate cap displacement', async () => {
@@ -291,6 +298,49 @@ describe('recency digest change derivation', () => {
 
     expect(result.additions).toEqual([]);
     expect(result.corrections).toEqual([]);
+  });
+
+  it('keeps pin corrections in stable chat-id order and retains unowned known entries', async () => {
+    const known = [ids[1], ids[0], ids[2]].map((chatId) => ({
+      chatId,
+      pinned: true,
+      title: chatId,
+      workspace: 'unbound',
+    }));
+
+    const { service, tx } = serviceDb();
+    vi.spyOn(ChatsRepository.prototype, 'findByOwner').mockResolvedValue(
+      known.slice(0, 2).map(({ chatId }) => chat(chatId)),
+    );
+    vi.spyOn(ChatsRepository.prototype, 'findPinnedChatIds').mockResolvedValue(
+      new Set(),
+    );
+
+    const result = await service.deriveChanges({
+      tx,
+      ownerUserId: 'owner',
+      currentChatId: ids[29],
+      candidate: {
+        rows: [],
+        announced: [],
+        pinnedShown: 0,
+        pinnedTotal: 0,
+        recentShown: 0,
+        recentTotal: 0,
+        compiledOn: '2026-08-12',
+      },
+      announced: known,
+    });
+
+    expect(result.corrections.map(({ chatId }) => chatId)).toEqual([
+      ids[0],
+      ids[1],
+    ]);
+    expect(result.announced).toEqual([
+      { ...known[0], pinned: false },
+      { ...known[1], pinned: false },
+      known[2],
+    ]);
   });
 
   it('emits corrections deterministically with a 20-field budget and advances only included fields', async () => {

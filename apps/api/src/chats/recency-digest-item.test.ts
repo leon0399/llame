@@ -92,6 +92,16 @@ describe('recency digest items', () => {
     };
 
     expect(readDigestPayload(item(imported))).toEqual(imported);
+
+    const zeroCutoff: DigestPayload = {
+      version: 1,
+      kind: 'notice',
+      announced: [],
+      importedCutoff: { latestTurnSeq: 0, lastOriginalSeq: 0 },
+    };
+
+    expect(readDigestPayload(item(zeroCutoff))).toEqual(zeroCutoff);
+
     expect(() =>
       item({
         ...imported,
@@ -141,6 +151,10 @@ describe('recency digest items', () => {
         importedCutoff: { latestTurnSeq: 0, lastOriginalSeq: -1 },
       },
       { ...baseline, importedCutoff: { latestTurnSeq: 0, lastOriginalSeq: 0 } },
+      {
+        ...baseline,
+        association: { kind: 'origin', chatId: 'not-a-uuid' },
+      },
       {
         ...validNotice,
         association: { kind: 'checkpoint', checkpointId, extra: 1 },

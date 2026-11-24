@@ -168,6 +168,22 @@ describe('legacy digest literal projection', () => {
     ).toEqual({ values: [], mismatches: ['compiledOn'] });
   });
 
+  it('rejects scalar evidence from a structurally invalid legacy baseline', () => {
+    const exported = record();
+    exported.baseline.compiledOn = '2026-04-05';
+    exported.baseline.scalarProofs = { compiledOn: proof };
+
+    expect(
+      projectBaselineProofs({
+        record: exported,
+        legacyBaseline: {
+          compiledOn: '2026-04-05',
+          pinned: 'not a list',
+        },
+      }),
+    ).toEqual({ values: [], mismatches: ['compiledOn'] });
+  });
+
   it('does not project entry fields without both their exported value and proof', () => {
     const exported = record();
     exported.baseline.entries.push({
@@ -342,5 +358,56 @@ describe('legacy digest literal projection', () => {
     expect(body).toContain('Pinned Chats:');
     expect(body).not.toContain('Pinned Chats (');
     expect(body).not.toContain('Recent Chats');
+  });
+
+  it('keeps proved entries in their source lists and omits entries without proved fields', () => {
+    const exported = record();
+    exported.baseline.entries = [
+      {
+        list: 'pinned',
+        index: 0,
+        fields: { title: 'Pinned source' },
+        proofs: { title: proof },
+      },
+      { list: 'pinned', index: 1, fields: {}, proofs: {} },
+      {
+        list: 'recent',
+        index: 0,
+        fields: { title: 'Recent source' },
+        proofs: { title: proof },
+      },
+    ];
+    exported.baseline.pinnedShown = 2;
+    exported.baseline.recentShown = 1;
+    exported.baseline.scalarProofs = {
+      pinnedShown: proof,
+      recentShown: proof,
+    };
+
+    const body = renderBaselineBody(
+      exported,
+      new Set([
+        proofKey(proof, 'title', 'Pinned source'),
+        proofKey(proof, 'title', 'Recent source'),
+        proofKey(proof, 'pinnedShown', 2),
+        proofKey(proof, 'recentShown', 1),
+      ]),
+    );
+
+    expect(body.split('\n').filter((line) => line.startsWith('-'))).toEqual([
+      '- Pinned source',
+      '- Recent source',
+    ]);
+    expect(body).toContain('Pinned Chats:');
+    expect(body).toContain('Recent Chats:');
+    expect(body.indexOf('Pinned Chats:')).toBeLessThan(
+      body.indexOf('Pinned source'),
+    );
+    expect(body.indexOf('Pinned source')).toBeLessThan(
+      body.indexOf('Recent Chats:'),
+    );
+    expect(body.indexOf('Recent Chats:')).toBeLessThan(
+      body.indexOf('Recent source'),
+    );
   });
 });

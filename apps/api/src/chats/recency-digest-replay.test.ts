@@ -412,4 +412,108 @@ describe('imported digest replay boundaries', () => {
     ]);
     expect(JSON.stringify(stored)).toBe(storedBytes);
   });
+  it('applies imported cutoff epoch and checkpoint boundary independently', () => {
+    const checkpointId = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
+
+    const associatedNotice = importedNotice({
+      kind: 'checkpoint',
+      checkpointId,
+    });
+
+    const checkpoint = message(110, {
+      id: checkpointId,
+      role: 'checkpoint',
+      senderUserId: null,
+      absorbedThroughSeq: 99,
+    });
+
+    const trigger = message(99);
+
+    expect(
+      selectEffectiveDigestMessages(
+        [associatedNotice, checkpoint, trigger],
+        chatId,
+        { throughSeq: 100, checkpointId },
+      ),
+    ).toEqual([]);
+    expect(
+      selectEffectiveDigestMessages(
+        [associatedNotice, checkpoint, trigger],
+        chatId,
+        { throughSeq: 101, checkpointId },
+      ).map((row) => row.id),
+    ).toEqual([associatedNotice.id]);
+
+    const expired = message(111, {
+      id: checkpointId,
+      role: 'checkpoint',
+      senderUserId: null,
+      absorbedThroughSeq: 100,
+    });
+
+    expect(
+      selectEffectiveDigestMessages(
+        [associatedNotice, expired, trigger],
+        chatId,
+        { throughSeq: 101, checkpointId },
+      ),
+    ).toEqual([]);
+    expect(
+      selectEffectiveDigestMessages(
+        [associatedNotice, checkpoint, trigger],
+        chatId,
+        { throughSeq: 101 },
+      ),
+    ).toEqual([trigger]);
+
+    const stored = toStoredMessages([associatedNotice, trigger]);
+
+    const active = {
+      id: checkpointId,
+      text: 'Active checkpoint',
+      absorbedThroughSeq: 99,
+    };
+
+    expect(
+      selectContextHistory(stored, active).ordered.map(({ id }) => id),
+    ).toEqual([associatedNotice.id]);
+    expect(
+      selectContextHistory(stored, {
+        ...active,
+        absorbedThroughSeq: 100,
+      }).ordered,
+    ).toEqual([]);
+  });
+
+  it('projects origin disclosures only into the matching origin epoch', () => {
+    const originNotice = createRecencyDigestItem({
+      runId,
+      body: 'Origin disclosure.',
+      payload: {
+        version: 1,
+        kind: 'notice',
+        announced: [{ chatId: sourceId, pinned: true }],
+        association: { kind: 'origin', chatId },
+      },
+    });
+
+    const ownerText = { type: 'text', text: 'Keep this part' };
+    const parts = [ownerText, originNotice];
+
+    expect(projectDigestEpochParts(parts, { kind: 'origin', chatId })).toEqual(
+      parts,
+    );
+    expect(
+      projectDigestEpochParts(parts, {
+        kind: 'origin',
+        chatId: sourceId,
+      }),
+    ).toEqual([ownerText]);
+    expect(
+      projectDigestEpochParts([originNotice], {
+        kind: 'checkpoint',
+        checkpointId: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+      }),
+    ).toEqual([]);
+  });
 });

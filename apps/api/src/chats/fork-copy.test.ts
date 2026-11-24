@@ -309,8 +309,9 @@ describe('fork digest history selection', () => {
       row('original-1', 1),
       row('latest-trigger', 3),
       row('original-last', 5),
+      row('last-original-boundary', 25),
       notice,
-      row('after-cutoff', 6),
+      row('after-cutoff', 26),
     ];
 
     expect(selectForkMessages(rows, 5, CHAT_ID).map(({ id }) => id)).toEqual([
@@ -526,6 +527,7 @@ describe('copiedMessageRows', () => {
       checkpointRow,
       row('latest-user', 10),
       row('latest-assistant', 20, { role: 'assistant', senderUserId: null }),
+      row('last-original-boundary', 25),
       notice,
     ];
 
@@ -534,11 +536,12 @@ describe('copiedMessageRows', () => {
       [checkpointId, 'b1d0994d-3be8-49f3-b6b0-751a9bc01eb0'],
       ['latest-user', 'c77f65f4-d2e5-475d-8429-29f708ff5d2c'],
       ['latest-assistant', 'd31f3fa1-b0f0-4871-98b8-bb6553bb7948'],
+      ['last-original-boundary', '9f408b11-fac0-4ff2-a9ac-829cc8178bf2'],
       ['comparison', 'b4d9d1c8-85de-41ec-a76e-50f54ff934a2'],
     ]);
 
     const copied = copiedMessageRows(rows, FORK_CHAT_ID, ids);
-    const copiedPart = copied[4]?.parts[0];
+    const copiedPart = copied[5]?.parts[0];
     const sourcePart = notice.parts[0];
 
     if (!isContextItemPart(copiedPart) || !isContextItemPart(sourcePart)) {
@@ -550,7 +553,7 @@ describe('copiedMessageRows', () => {
         kind: 'checkpoint',
         checkpointId: ids.get(checkpointId),
       },
-      importedCutoff: { latestTurnSeq: 3, lastOriginalSeq: 4 },
+      importedCutoff: { latestTurnSeq: 3, lastOriginalSeq: 5 },
     });
     expect(copiedPart.data.text).toBe(sourcePart.data.text);
   });
@@ -592,6 +595,47 @@ describe('copiedMessageRows', () => {
       usage,
       absorbedThroughSeq: null,
     });
+  });
+
+  it('rejects digest references outside the copied fork prefix', () => {
+    const missingTurn = row('comparison', 20, {
+      parts: [
+        createRecencyDigestItem({
+          runId: '123e4567-e89b-12d3-a456-426614174000',
+          payload: {
+            version: 1,
+            kind: 'notice',
+            announced: [],
+            importedCutoff: { latestTurnSeq: 10, lastOriginalSeq: 10 },
+          },
+          body: 'historical comparison',
+        }),
+      ],
+    });
+
+    expect(() => copiedMessageRows([missingTurn], FORK_CHAT_ID)).toThrow(Error);
+
+    const missingCheckpoint = row('orphan-companion', 1, {
+      parts: [
+        createRecencyDigestItem({
+          runId: '123e4567-e89b-12d3-a456-426614174000',
+          payload: {
+            version: 1,
+            kind: 'baseline',
+            announced: [],
+            association: {
+              kind: 'checkpoint',
+              checkpointId: 'c941f34a-815d-4c0c-9ad8-6483cd50c29a',
+            },
+          },
+          body: 'orphaned checkpoint baseline',
+        }),
+      ],
+    });
+
+    expect(() => copiedMessageRows([missingCheckpoint], FORK_CHAT_ID)).toThrow(
+      Error,
+    );
   });
 
   it('fails closed when a copied checkpoint does not name a copied row', () => {
