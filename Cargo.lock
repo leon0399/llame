@@ -703,6 +703,7 @@ dependencies = [
  "machine-core",
  "machine-grep",
  "machine-protocol",
+ "prost-types",
  "tempfile",
  "tokio",
  "tokio-stream",
@@ -727,6 +728,7 @@ version = "0.1.0"
 dependencies = [
  "machine-core",
  "machine-protocol",
+ "regex",
  "tempfile",
  "tokio",
  "tokio-stream",
