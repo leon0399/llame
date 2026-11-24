@@ -507,6 +507,7 @@ Estimate the actual request without a historical tool catalog. If the request st
 #### Scenario: A pre-step trigger compacts before the first model request
 
 - **WHEN** a prepared Run request reaches its threshold or exceeds its model window
+- **AND** a user or assistant row sits between the active absorbed boundary and the triggering message
 - **THEN** the selected variant summarizes before the first model step
 - **AND** its checkpoint, raw summary, and required companion commit atomically before that step
 

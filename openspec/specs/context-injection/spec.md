@@ -539,7 +539,7 @@ The Workspace and recency-digest producers MUST be rail-only. The digest MUST us
 
 - **WHEN** a new context surface states current state that changes less often than the chat publishes checkpoints
 - **THEN** it is prefix-resident unless its capability specifies rail-only residency
-- **AND** a change to it re-renders the prompt rather than appending an item
+- **AND** when it is prefix-resident, a change to it re-renders the prompt rather than appending an item
 
 #### Scenario: A new surface states frequently-changing state
 

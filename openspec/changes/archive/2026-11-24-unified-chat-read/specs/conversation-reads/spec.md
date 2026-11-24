@@ -204,7 +204,7 @@ The reader MUST admit user messages and completed or legacy-immutable assistant 
 
 #### Scenario: Malformed input never reaches source resolution
 
-- **WHEN** the input has a malformed locator, an unsafe sequence, an invalid selector, or unknown properties
+- **WHEN** the input has a malformed locator, an unsafe sequence, a malformed selector, or unknown properties
 - **THEN** strict tool validation rejects it before any source query
 - **AND** the failure is not a `not_found` observation
 
