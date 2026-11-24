@@ -9,9 +9,9 @@ import {
   type Message,
   type Run,
 } from '../db/schema';
-import { RunRowFenceRepository } from './run-row-fence.repository';
-import { RunEventsRepository, RunsRepository } from './runs-repository';
-import { SystemPromptReceiptsRepository } from './system-prompt-receipts.repository';
+import { RunRowFenceRepository } from '../runs/run-row-fence.repository';
+import { RunEventsRepository, RunsRepository } from '../runs/runs-repository';
+import { SystemPromptReceiptsRepository } from '../runs/system-prompt-receipts.repository';
 
 export type ModelSwitchFakeOptions = {
   locked?: Run | undefined;

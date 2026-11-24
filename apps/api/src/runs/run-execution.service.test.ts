@@ -279,7 +279,7 @@ import {
 import {
   mockModelSwitchRepositories,
   type ModelSwitchFakeObservations,
-} from './model-switch-test-fakes';
+} from '../testing/model-switch-fakes';
 
 import { SystemPromptsService } from '../system-prompts/system-prompts.service';
 import type { SshConfig } from '../instance-config/ssh-settings';
@@ -36764,13 +36764,10 @@ describe('a send that breaks after a started tool call', () => {
       },
     };
 
-    const decision = vi
-      .fn<ModelSwitchDecision>()
-      .mockResolvedValueOnce(undefined)
-      .mockResolvedValue({
-        toModelId: targetModel.id,
-        candidateEffort: 'high',
-      });
+    const decision = vi.fn<ModelSwitchDecision>().mockResolvedValue({
+      toModelId: targetModel.id,
+      candidateEffort: 'high',
+    });
 
     const target = wireClient('responses', [providerText('target answer')]);
     const targetStreamText = vi.spyOn(target.client, 'streamText');
@@ -36806,18 +36803,12 @@ describe('a send that breaks after a started tool call', () => {
             code: 'stream_broken',
           }),
         ),
-        failedSend(
-          [...textParts('discard the retry text')],
-          new ProviderFailure('provider unavailable', {
-            code: 'stream_broken',
-          }),
-        ),
       ],
     });
 
     await drained;
 
-    expect(decision).toHaveBeenCalledTimes(2);
+    expect(decision).toHaveBeenCalledOnce();
     const types = appended.map(({ type }) => type);
     expect(types).toContain('model.superseded');
     expect(types).toContain('run.delivered');
@@ -36839,6 +36830,11 @@ describe('a send that breaks after a started tool call', () => {
 
     expect(toolIndex).toBeGreaterThanOrEqual(0);
     expect(noticeIndex).toBeGreaterThan(toolIndex);
+    expect(
+      closedParts.filter(
+        (part) => isRecord(part) && part['state'] === 'output-available',
+      ),
+    ).toHaveLength(1);
     expect(
       closedParts.some(
         (part) => isRecord(part) && part['text'] === 'discard this failed text',

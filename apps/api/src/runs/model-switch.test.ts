@@ -7,7 +7,7 @@ import {
   type Run,
 } from '../db/schema';
 import { type Db } from '../db/tenant-db.service';
-import { mockModelSwitchRepositories } from './model-switch-test-fakes';
+import { mockModelSwitchRepositories } from '../testing/model-switch-fakes';
 import { runningReplyUsage } from './run-reply-finalizer';
 import { ProviderFailure } from '../models/provider-failure/provider-failure';
 import {
