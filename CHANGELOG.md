@@ -45,6 +45,11 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   with `@` fails startup. (#1772)
 # 2026-11-24
 
+- Update Schemathesis to 4.32.2 so a negative test that mutates both
+  authentication and a request body does not refill the rejected credential.
+- Activate API static and hybrid mutants before module imports and run all
+  related tests. A first importing test alone does not exercise every consumer
+  of a module-initialized schema.
 - Read owner Chat history through native `read` using `chat://`, `chat://<id>`,
   and `chat://<id>/<seq>`. The collection lists eligible non-archived Chats;
   owners can still address archived Chats directly. Indexes and message reads

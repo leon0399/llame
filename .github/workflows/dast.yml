@@ -148,7 +148,7 @@ jobs:
             -v "$PWD/scripts/dast/schemathesis.toml:/cfg/schemathesis.toml:ro" \
             -v "$RUNNER_TEMP/dast-secrets:/secrets:ro" \
             -v "$PWD/dast-report/schemathesis:/out" \
-            schemathesis/schemathesis:4.32.0@sha256:c4935c2c27489923b0091246aa831c92166fa169fb8f35ebdeefd408a7a935f5 \
+            schemathesis/schemathesis:4.32.2@sha256:d6d1e1e33718e449006c0c486aa36f6f36c6666e10fc27ea1223430232920ad2 \
             --config-file /cfg/schemathesis.toml \
             run /spec/openapi.json --url http://localhost:4301 \
             ${DAST_SEED:+--seed "$DAST_SEED"} \
