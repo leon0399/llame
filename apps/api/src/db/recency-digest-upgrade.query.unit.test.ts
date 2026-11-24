@@ -1,9 +1,13 @@
 import { randomUUID } from 'node:crypto';
+import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import {
   PostgreSqlContainer,
   type StartedPostgreSqlContainer,
 } from '@testcontainers/postgresql';
 import postgres, { type Sql } from 'postgres';
+import { vi } from 'vitest';
 import { ZodError } from 'zod';
 import { hashWithDomain } from '../canonical-json';
 import {
@@ -16,21 +20,15 @@ import {
   RECENCY_DIGEST_UPGRADE_WITNESS,
   upgradeRecencyDigest,
 } from './recency-digest-upgrade';
+import { runRecencyDigestUpgrade } from './recency-digest-upgrade.cli';
 import { readDigestPayload } from '../chats/recency-digest-item';
 import {
   createContextItemPart,
   isContextItemPart,
 } from '../chats/context-item';
 
-const TEST_DATABASE_URL = process.env['TEST_DATABASE_URL'];
-
-if (!TEST_DATABASE_URL)
-  throw new Error(
-    'recency-digest-upgrade.integration.test.ts requires TEST_DATABASE_URL',
-  );
-
 const SYSTEM_PROMPT_RECEIPT_DOMAIN = 'llame:model-context:prompt:v1';
-const migrationGuard = `DO $$ BEGIN IF current_setting('${RECENCY_DIGEST_UPGRADE_WITNESS}', true) IS DISTINCT FROM 'v1' THEN RAISE EXCEPTION 'recency digest upgrade witness is required before column deletion'; END IF; END; $$`;
+let retireDigestMigrationSql: string;
 const schemaName = `digest_upgrade_${randomUUID().replaceAll('-', '')}`;
 let admin: Sql;
 let sql: Sql;
@@ -197,12 +195,27 @@ async function seedChat(input: {
 
 describe('recency digest data upgrade', () => {
   beforeAll(async () => {
+    retireDigestMigrationSql = await readFile(
+      path.resolve(
+        process.cwd(),
+        'src/db/migrations/20261124014016_retire_recency_digest_columns/migration.sql',
+      ),
+      'utf8',
+    );
     freshContainer = await new PostgreSqlContainer(
       'pgvector/pgvector:pg17@sha256:cf134a767f474095eeba57e0117be8e568e011a63f33fbf252f14c9b760f8e6f',
     ).start();
     freshSql = postgres(freshContainer.getConnectionUri(), { max: 1 });
-    admin = postgres(TEST_DATABASE_URL, { max: 1 });
-    sql = postgres(TEST_DATABASE_URL, {
+    await freshSql.unsafe(
+      "CREATE ROLE app LOGIN PASSWORD 'app' NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE",
+    );
+    await freshSql.unsafe('CREATE DATABASE digest_upgrade_test OWNER app');
+    const databaseUrl = new URL(freshContainer.getConnectionUri());
+    databaseUrl.pathname = '/digest_upgrade_test';
+    databaseUrl.username = 'app';
+    databaseUrl.password = 'app';
+    admin = postgres(databaseUrl.href, { max: 1 });
+    sql = postgres(databaseUrl.href, {
       max: 1,
       connection: { options: `-c search_path=${schemaName},public` },
     });
@@ -214,15 +227,17 @@ describe('recency digest data upgrade', () => {
   });
 
   afterAll(async () => {
-    if (freshSql) await freshSql.end();
+    try {
+      if (sql) await sql.end();
 
-    if (freshContainer) await freshContainer.stop();
+      if (admin) {
+        await admin.unsafe(`drop schema if exists "${schemaName}" cascade`);
+        await admin.end();
+      }
 
-    if (sql) await sql.end();
-
-    if (admin) {
-      await admin.unsafe(`drop schema if exists "${schemaName}" cascade`);
-      await admin.end();
+      if (freshSql) await freshSql.end();
+    } finally {
+      if (freshContainer) await freshContainer.stop();
     }
   });
   it('proves fresh inventory from catalog absence and sets the transaction witness', async () => {
@@ -246,6 +261,68 @@ describe('recency digest data upgrade', () => {
         omissions: [],
       });
     });
+  });
+
+  it('runs the operator upgrade, writes a private report, and refuses to replace it', async () => {
+    await freshSql.unsafe('CREATE ROLE app_rls NOLOGIN BYPASSRLS');
+    await freshSql.unsafe('CREATE DATABASE digest_cli_test');
+    const databaseUrl = new URL(freshContainer.getConnectionUri());
+    databaseUrl.pathname = '/digest_cli_test';
+    const connection = postgres(databaseUrl.href, { max: 1 });
+
+    const directory = await mkdtemp(
+      path.join(tmpdir(), 'llame-digest-upgrade-'),
+    );
+
+    const exportPath = path.join(directory, 'export.json');
+    const reportPath = path.join(directory, 'report.json');
+
+    try {
+      await writeFile(exportPath, JSON.stringify(emptyDocument()), {
+        mode: 0o600,
+      });
+      vi.stubEnv('POSTGRES_URL', databaseUrl.href);
+      await runRecencyDigestUpgrade([
+        '--report',
+        reportPath,
+        '--export',
+        exportPath,
+      ]);
+      const reportText = await readFile(reportPath, 'utf8');
+      const report: unknown = JSON.parse(reportText);
+      expect(report).toEqual({
+        inventoryChats: 0,
+        importedChats: 0,
+        omittedChats: 0,
+        omissions: [],
+      });
+      expect((await stat(reportPath)).mode & 0o777).toBe(0o600);
+
+      const [catalog] = await connection<
+        Array<{ relation: string | null; legacyColumns: number }>
+      >`
+        select to_regclass('public.chats')::text as relation,
+          (select count(*)::integer from information_schema.columns
+           where table_schema = 'public' and table_name = 'chats'
+             and column_name in ('recency_digest_baseline', 'recency_digest_told',
+               'recency_digest_rebaked_from')) as "legacyColumns"
+      `;
+
+      expect(catalog).toEqual({ relation: 'chats', legacyColumns: 0 });
+      await expect(
+        runRecencyDigestUpgrade([
+          '--export',
+          exportPath,
+          '--report',
+          reportPath,
+        ]),
+      ).rejects.toMatchObject({ code: 'EEXIST' });
+      expect(await readFile(reportPath, 'utf8')).toBe(reportText);
+    } finally {
+      vi.unstubAllEnvs();
+      await connection.end();
+      await rm(directory, { recursive: true, force: true });
+    }
   });
 
   it('rejects v1 comparison entries without immutable identity and pin proofs', () => {
@@ -539,10 +616,7 @@ describe('recency digest data upgrade', () => {
         expect(identity?.value).toBe('');
         expect(force?.forced).toBe(true);
         expect(witness?.value).toBe('v1');
-        await tx.unsafe(migrationGuard);
-        await tx.unsafe(
-          'alter table chats drop column recency_digest_baseline, drop column recency_digest_told, drop column recency_digest_rebaked_from',
-        );
+        await tx.unsafe(retireDigestMigrationSql);
       });
     });
 
@@ -1001,14 +1075,7 @@ describe('recency digest data upgrade', () => {
   });
   it('fails closed when a legacy migration attempts deletion without a witness', async () => {
     await expect(
-      sql.begin(async (tx) => {
-        const [current] = await tx<
-          Array<{ value: string | null }>
-        >`select current_setting(${RECENCY_DIGEST_UPGRADE_WITNESS}, true) as value`;
-
-        expect(current?.value).toBe('');
-        await tx.unsafe(migrationGuard);
-      }),
-    ).rejects.toThrow('recency digest upgrade witness is required');
+      sql.begin((tx) => tx.unsafe(retireDigestMigrationSql)),
+    ).rejects.toMatchObject({ code: 'P0001' });
   });
 });
