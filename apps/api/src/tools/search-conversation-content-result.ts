@@ -138,7 +138,8 @@ function lineIndexAtOffset(
   charOffset: number,
 ): number {
   for (const line of lines) {
-    if (charOffset < line.endOffsetExclusive) return line.line;
+    if (charOffset < line.endOffsetExclusive + line.delimiter.length)
+      return line.line;
   }
 
   return Math.max(lines.length - 1, 0);

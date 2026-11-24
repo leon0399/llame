@@ -245,4 +245,83 @@ describe('readChatMessage selector and result bounds', () => {
       type: 'representation_too_large',
     });
   });
+  it('keeps a finite selector window distinct from the full message text and attachments', async () => {
+    const result = await read(
+      [
+        { type: 'text', text: 'first\nmiddle\nlast' },
+        {
+          type: 'file',
+          url: 'media://00000000-0000-0000-0000-000000000002',
+          mediaType: 'image/png',
+          filename: 'photo.png',
+        },
+      ],
+      'raw:2-2',
+    ).result;
+
+    expect(result).toMatchObject({
+      status: 'success',
+      representation: 'raw',
+      lineCount: 3,
+      requestedRange: { startLine: 2, endLine: 2 },
+      shownRange: { startLine: 2, endLine: 2 },
+      content: 'middle\n',
+      truncated: false,
+    });
+    expect(result.status === 'success' && result.content).not.toContain(
+      'photo.png',
+    );
+  });
+
+  it('includes the attachment trailer only when the selected window reaches the final text line', async () => {
+    const parts = [
+      { type: 'text', text: 'first\nlast' },
+      {
+        type: 'file',
+        url: 'media://00000000-0000-0000-0000-000000000002',
+        mediaType: 'image/png',
+        filename: 'photo.png',
+      },
+    ];
+
+    await expect(read(parts, 'raw:1-1').result).resolves.toMatchObject({
+      status: 'success',
+      content: 'first\n',
+      shownRange: { startLine: 1, endLine: 1 },
+    });
+    await expect(read(parts, 'raw:2-2').result).resolves.toMatchObject({
+      status: 'success',
+      content:
+        'last\n[image media://00000000-0000-0000-0000-000000000002 photo.png]\n',
+      shownRange: { startLine: 2, endLine: 2 },
+    });
+  });
+
+  it('rejects a finite window whose first line is beyond the message boundary', async () => {
+    await expect(
+      read([{ type: 'text', text: 'first\nlast' }], 'raw:3-4').result,
+    ).resolves.toMatchObject({
+      status: 'error',
+      type: 'invalid_selector',
+    });
+  });
+
+  it('reports the next line after an actual result-size cut of a ranged window', async () => {
+    const line = 'x'.repeat(12_000);
+
+    const result = await read(
+      [{ type: 'text', text: `before\n${line}\n${line}\nafter` }],
+      'raw:2-4',
+    ).result;
+
+    expect(result).toMatchObject({
+      status: 'success',
+      lineCount: 4,
+      requestedRange: { startLine: 2, endLine: 4 },
+      shownRange: { startLine: 2, endLine: 2 },
+      truncated: true,
+      nextOffset: 2,
+      content: `${line}\n`,
+    });
+  });
 });

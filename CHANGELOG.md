@@ -50,7 +50,8 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   owners can still address archived Chats directly. Indexes and message reads
   use eligible stored rows, shared bounds, and owner-scoped not-found parity.
   Run status is a separate read-only annotation. Search now returns `chat://`
-  locators. The old `conversation_read` tool is removed; remove it from
+  locators, with line delimiters bound to their originating lines. The old
+  `conversation_read` tool is removed; remove it from
   `tools.allowed` and tool prompt overrides before upgrading. A stale
   permission group remains inert.
 - Keep existing digest columns, renderer, and templates during this reader

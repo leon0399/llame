@@ -152,3 +152,107 @@ it('omits unproved identity and binds the fingerprint to rebake state', () => {
     }).fingerprint,
   ).toBe(record.fingerprint);
 });
+
+it.each([
+  {
+    evidence: { baselinePublicationUnproved: true },
+    reason: 'baseline_input_unproved',
+  },
+  { evidence: { matchedReceipt: true }, reason: 'emission_unproved' },
+  {
+    evidence: { attemptNotDispatched: true },
+    reason: 'attempt_not_dispatched',
+  },
+  { evidence: { candidateUnavailable: true }, reason: 'input_unavailable' },
+  { evidence: { anyReceipt: true }, reason: 'receipt_mismatch' },
+  { evidence: { runCount: 1 }, reason: 'no_receipt' },
+])('accounts for omitted private fields as $reason', ({ evidence, reason }) => {
+  const record = buildRecencyDigestExportRecord({
+    ownerId: 'owner-1',
+    chat: chat(),
+    attempts: attempts(evidence),
+  });
+
+  expect(record.baseline.omissions).toContainEqual({
+    list: 'recent',
+    index: 0,
+    field: 'title',
+    reason,
+  });
+  expect(record.omissions).toContainEqual({
+    scope: 'baseline',
+    field: 'compiledOn',
+    reason,
+  });
+  expect(JSON.stringify(record)).not.toContain('Private title');
+  expect(JSON.stringify(record)).not.toContain('Private excerpt');
+});
+
+it('distinguishes an absent baseline from unproved content and tool surfaces', () => {
+  const record = buildRecencyDigestExportRecord({
+    ownerId: 'owner-1',
+    chat: chat({ recencyDigestBaseline: null }),
+    attempts: attempts(),
+  });
+
+  expect(record.baseline.entries).toEqual([]);
+  expect(record.baseline.omissions).toEqual([]);
+  expect(record.omissions).toContainEqual({
+    scope: 'baseline',
+    field: '*',
+    reason: 'no_baseline',
+  });
+  expect(record.omissions.some(({ scope }) => scope === 'tool_surface')).toBe(
+    false,
+  );
+});
+
+it('merges independent field proofs without reporting proved fields as omissions', () => {
+  const proof = {
+    runId: '33333333-3333-4333-8333-333333333333',
+    attemptId: '44444444-4444-4444-8444-444444444444',
+    promptHash: 'a'.repeat(64),
+  };
+
+  const record = buildRecencyDigestExportRecord({
+    ownerId: 'owner-1',
+    chat: chat(),
+    attempts: attempts({
+      matchedReceipt: true,
+      matchedRun: { runId: proof.runId, attemptId: proof.attemptId },
+      proofCandidates: [
+        {
+          list: 'recent',
+          index: 0,
+          fields: { title: 'Private title' },
+          proofs: { title: proof },
+        },
+        {
+          list: 'recent',
+          index: 0,
+          fields: { date: '2026-11-23' },
+          proofs: { date: proof },
+        },
+      ],
+      provenScalars: { compiledOn: '2026-11-23' },
+      scalarProofs: { compiledOn: proof },
+    }),
+  });
+
+  expect(record.baseline.entries.map(({ fields }) => fields)).toEqual([
+    { title: 'Private title', date: '2026-11-23' },
+  ]);
+  expect(record.baseline.omissions.map(({ field }) => field)).toEqual([
+    'messageCount',
+    'excerpt',
+  ]);
+  expect(record.omissions.some(({ field }) => field === 'compiledOn')).toBe(
+    false,
+  );
+  expect(
+    record.omissions.some(
+      ({ scope, field }) => scope === 'baseline' && field === '*',
+    ),
+  ).toBe(false);
+  expect(JSON.stringify(record)).not.toContain('Private excerpt');
+});
