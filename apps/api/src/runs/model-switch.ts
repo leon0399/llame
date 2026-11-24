@@ -21,6 +21,7 @@ import {
   type Chat,
   type Message,
   type Run,
+  type RunEvent,
 } from '../db/schema';
 import { type Db } from '../db/tenant-db.service';
 import { ChatJobsRepository } from '../jobs/chat-jobs.repository';
@@ -39,6 +40,26 @@ import {
   storeDeliveredMessage,
   type DeliveryInput,
 } from './segment-delivery-close';
+
+/** Whether the latest delivery starts a failover segment without a request. */
+export function startsFailoverSegment(
+  events: ReadonlyArray<Pick<RunEvent, 'eventType' | 'payload'>>,
+): boolean {
+  const latestDeliveryIndex = events.findLastIndex(
+    (event) => event.eventType === 'run.delivered',
+  );
+
+  const latestDelivery = events[latestDeliveryIndex];
+
+  return (
+    latestDelivery !== undefined &&
+    isRecord(latestDelivery.payload) &&
+    latestDelivery.payload['cause'] === 'failover' &&
+    !events
+      .slice(latestDeliveryIndex + 1)
+      .some((event) => event.eventType === 'model.requested')
+  );
+}
 
 /** The index just past a reply's last tool part, or 0 when it has none. */
 export function afterLastToolPart(parts: ReadonlyArray<unknown>): number {

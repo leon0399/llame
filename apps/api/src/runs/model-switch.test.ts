@@ -15,6 +15,7 @@ import {
   deliverModelSwitch,
   failureTimingOf,
   partsKeptBySwitch,
+  startsFailoverSegment,
 } from './model-switch';
 
 const runId = '11111111-1111-4111-8111-111111111111';
@@ -413,6 +414,43 @@ describe('deliverModelSwitch', () => {
 });
 
 describe('model switch helpers', () => {
+  it.each([
+    ['no delivery', [], false],
+    [
+      'latest delivery is a steer',
+      [{ eventType: 'run.delivered', payload: { cause: 'steer' } }],
+      false,
+    ],
+    [
+      'failover delivery without a request after',
+      [{ eventType: 'run.delivered', payload: { cause: 'failover' } }],
+      true,
+    ],
+    [
+      'failover delivery followed by a request',
+      [
+        { eventType: 'run.delivered', payload: { cause: 'failover' } },
+        { eventType: 'model.requested', payload: {} },
+      ],
+      false,
+    ],
+    [
+      'earlier failover delivery followed by a steer delivery',
+      [
+        { eventType: 'run.delivered', payload: { cause: 'failover' } },
+        { eventType: 'run.delivered', payload: { cause: 'steer' } },
+      ],
+      false,
+    ],
+    [
+      'non-record payload',
+      [{ eventType: 'run.delivered', payload: 'failover' }],
+      false,
+    ],
+  ])('recognizes %s', (_name, events, expected) => {
+    expect(startsFailoverSegment(events)).toBe(expected);
+  });
+
   it('keeps output through the last tool part, or outputStart without tools', () => {
     const parts = [
       { type: 'text', text: 'before' },

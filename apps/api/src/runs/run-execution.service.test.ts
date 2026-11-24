@@ -14458,9 +14458,10 @@ describe('RunExecutionService executeRun — pre-step compaction trigger', () =>
     triggerParts?: RunUserMessage['parts'];
     /** Owned media the run's resolver describes (vision-media D6). */
     mediaRows?: ReadonlyArray<MediaDescriptor>;
+    runEvents?: ReadonlyArray<RunEvent>;
+    onSummarize?: () => CompactionSummary | null;
     /** The Project selection this attempt resolves once. */
     projectSelection?: ProjectBoundPayload;
-    /** Rows and checkpoint the pass after a publication reads. */
     rebake?: {
       rows: Array<Message>;
       checkpoint: CheckpointMessage;
@@ -14507,6 +14508,19 @@ describe('RunExecutionService executeRun — pre-step compaction trigger', () =>
     );
     const publication = serveCheckpointPublication();
     const rebake = input.rebake;
+
+    if (input.runEvents !== undefined) {
+      vi.spyOn(RunEventsRepository.prototype, 'listByRunId').mockImplementation(
+        (_runId, _userId, options) =>
+          Promise.resolve(
+            input.runEvents?.filter((runEvent) =>
+              options?.eventTypes?.some(
+                (eventType) => eventType === runEvent.eventType,
+              ),
+            ) ?? [],
+          ),
+      );
+    }
 
     if (rebake === undefined) {
       vi.spyOn(MessagesRepository.prototype, 'findByChatId').mockResolvedValue(
@@ -14583,6 +14597,12 @@ describe('RunExecutionService executeRun — pre-step compaction trigger', () =>
       execution.summarizeCheckpoint.mockResolvedValue(input.summary);
     }
 
+    if (input.onSummarize !== undefined) {
+      execution.summarizeCheckpoint.mockImplementation(() =>
+        Promise.resolve(input.onSummarize?.() ?? null),
+      );
+    }
+
     if (input.projectSelection !== undefined) {
       execution.resolveProjectSelection.mockResolvedValue(
         input.projectSelection,
@@ -14611,6 +14631,66 @@ describe('RunExecutionService executeRun — pre-step compaction trigger', () =>
 
     return { spies, publication, execution, result };
   }
+
+  it.each([
+    {
+      name: 'an over-threshold request that fits',
+      windowOverflow: false,
+      expectedVariant: undefined,
+    },
+    {
+      name: 'a request that overflows the window',
+      windowOverflow: true,
+      expectedVariant: 'window',
+    },
+  ])(
+    'honors disabled automatic compaction for a switch segment with $name',
+    async ({ windowOverflow, expectedVariant }) => {
+      const widening = windowOverflow ? makeWideningClient() : undefined;
+      const ordinary = windowOverflow ? undefined : triggerClient();
+
+      const client =
+        widening?.client ?? ordinary?.client ?? triggerClient().client;
+
+      const { execution } = await executeTriggerCase({
+        client,
+        historyRows: [
+          ...committedTurn({ contextTokens: 40_000 }),
+          triggerTurn(),
+        ],
+        ...(widening !== undefined && {
+          onSummarize: () => {
+            widening.widen();
+
+            return checkpointSummary(2);
+          },
+        }),
+        runEvents: [
+          {
+            ...event,
+            eventType: 'run.compaction_disabled',
+            payload: {},
+          },
+          {
+            ...event,
+            eventType: 'run.delivered',
+            payload: { cause: 'failover' },
+          },
+        ],
+      });
+
+      if (expectedVariant === undefined) {
+        expect(execution.summarizeCheckpoint).not.toHaveBeenCalled();
+      } else {
+        expect(execution.summarizeCheckpoint).toHaveBeenCalledWith(
+          expect.objectContaining({ variant: expectedVariant }),
+        );
+      }
+
+      if (ordinary !== undefined)
+        expect(ordinary.streamOptions()).toBeDefined();
+    },
+  );
 
   it('re-establishes the Run Project snapshot after the checkpoint absorbs the old one', async () => {
     const projectId = '11111111-1111-4111-8111-111111111111';

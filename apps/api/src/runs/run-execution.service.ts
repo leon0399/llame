@@ -37,6 +37,7 @@ import {
   deliverModelSwitch,
   failureTimingOf,
   partsKeptBySwitch,
+  startsFailoverSegment,
 } from './model-switch';
 import { machineAttemptKey } from './machine-attempt';
 import { probeMachinePromptTarget } from './machine-prompt-probe';
@@ -699,6 +700,7 @@ type CompactionTriggerInput = {
   /** The media references those kept steps add, counted from `keptMessages`. */
   keptRefCount: number;
   boundarySeq: number;
+  compactionDisabledAtStart: boolean;
   /** The prepared request's media sizing for the attempt model (vision-media D6). */
   media: MediaSizing | undefined;
 };
@@ -2524,25 +2526,15 @@ export class RunExecutionService {
       }),
     );
 
-    const latestDeliveryIndex = events.findLastIndex(
-      (event) => event.eventType === 'run.delivered',
-    );
-
-    const latestDelivery = events[latestDeliveryIndex];
-
-    const startsAfterFailoverDelivery =
-      latestDelivery !== undefined &&
-      isRecord(latestDelivery.payload) &&
-      latestDelivery.payload['cause'] === 'failover' &&
-      !events
-        .slice(latestDeliveryIndex + 1)
-        .some((event) => event.eventType === 'model.requested');
+    const startsAfterFailoverDelivery = startsFailoverSegment(events);
 
     const compactionDisabledAtStart = events.some(
       (event) => event.eventType === 'run.compaction_disabled',
     );
 
-    const lastDelivery = latestDelivery;
+    const lastDelivery = events.findLast(
+      (event) => event.eventType === 'run.delivered',
+    );
 
     const stepBudgetOffset = readCompactionStepBudget(events);
 
@@ -2681,6 +2673,7 @@ export class RunExecutionService {
         quotaRequest,
         switchSegment:
           (attempt.switchSegment ?? false) || startsAfterFailoverDelivery,
+        compactionDisabledAtStart,
         stepBudgetUsed: stepBudgetOffset + wakeStepOffset,
       });
 
@@ -7897,6 +7890,8 @@ export class RunExecutionService {
       return { variant: 'window', plan };
     }
 
+    if (input.compactionDisabledAtStart) return undefined;
+
     // The stored triggering row: its prompt-imports item, appended after the
     // Run was queued, carries references the queued parts do not.
     const triggerParts =
@@ -10007,6 +10002,7 @@ export class RunExecutionService {
       switchSegment: boolean;
       quotaRequest?: QuotaRequestState;
       stepBudgetUsed: number;
+      compactionDisabledAtStart: boolean;
     },
   ): Promise<{
     firstStep: PreparedFirstStep;
@@ -10109,6 +10105,7 @@ export class RunExecutionService {
     /** A requested wake compaction gets to attempt before window admission. */
     wakeCompaction: boolean;
     quotaRequest?: QuotaRequestState;
+    compactionDisabledAtStart: boolean;
     /**
      * The selection this attempt resolved once before its first dispatch. Both
      * passes use it unchanged; neither live-resolves Project state.
@@ -10182,6 +10179,7 @@ export class RunExecutionService {
           keptMessages: kept.messages,
           keptRefCount: collectMediaRefs(kept.messages).length,
           boundarySeq: estimatePass.latestCheckpoint?.absorbedThroughSeq ?? 0,
+          compactionDisabledAtStart: input.compactionDisabledAtStart,
           media:
             input.media &&
             (await loadMediaSizing(
