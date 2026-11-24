@@ -4,27 +4,73 @@
 
 import type { GenEnum, GenFile, GenMessage, GenService } from "@bufbuild/protobuf/codegenv2";
 import { enumDesc, fileDesc, messageDesc, serviceDesc } from "@bufbuild/protobuf/codegenv2";
-import type { Envelope, Failure, LineRange, OptionalLineRange } from "./common_pb";
-import { file_stead_machine_v1_common } from "./common_pb";
 import type { Message } from "@bufbuild/protobuf";
 
 /**
  * Describes the file stead/machine/v1/files.proto.
  */
 export const file_stead_machine_v1_files: GenFile = /*@__PURE__*/
-  fileDesc("ChxzdGVhZC9tYWNoaW5lL3YxL2ZpbGVzLnByb3RvEhBzdGVhZC5tYWNoaW5lLnYxIkkKC1N0YXRSZXF1ZXN0EiwKCGVudmVsb3BlGAEgASgLMhouc3RlYWQubWFjaGluZS52MS5FbnZlbG9wZRIMCgRwYXRoGAIgASgJIosBCgxTdGF0UmVzcG9uc2USKAoEa2luZBgBIAEoDjIaLnN0ZWFkLm1hY2hpbmUudjEuU3RhdEtpbmQSEQoEc2l6ZRgCIAEoBEgAiAEBEhYKCXJlYWxfcGF0aBgDIAEoCUgBiAEBEg8KB2lzX2xpbmsYBCABKAhCBwoFX3NpemVCDAoKX3JlYWxfcGF0aCJJCgtMaXN0UmVxdWVzdBIsCghlbnZlbG9wZRgBIAEoCzIaLnN0ZWFkLm1hY2hpbmUudjEuRW52ZWxvcGUSDAoEcGF0aBgCIAEoCSInCglMaXN0RW50cnkSDAoEbmFtZRgBIAEoCRIMCgRraW5kGAIgASgJImMKC0xpc3RTdWNjZXNzEiwKB2VudHJpZXMYASADKAsyGy5zdGVhZC5tYWNoaW5lLnYxLkxpc3RFbnRyeRITCgt0b3RhbF9jb3VudBgCIAEoDRIRCgl0cnVuY2F0ZWQYAyABKAgieAoMTGlzdFJlc3BvbnNlEjAKB3N1Y2Nlc3MYASABKAsyHS5zdGVhZC5tYWNoaW5lLnYxLkxpc3RTdWNjZXNzSAASLAoHZmFpbHVyZRgCIAEoCzIZLnN0ZWFkLm1hY2hpbmUudjEuRmFpbHVyZUgAQggKBnJlc3VsdCJsCg5EaXNwbGF5T3B0aW9ucxIVCghzZWxlY3RvchgBIAEoCUgAiAEBEh8KEnJlc2VydmVfY29kZV91bml0cxgCIAEoDUgBiAEBQgsKCV9zZWxlY3RvckIVChNfcmVzZXJ2ZV9jb2RlX3VuaXRzInwKC1JlYWRSZXF1ZXN0EiwKCGVudmVsb3BlGAEgASgLMhouc3RlYWQubWFjaGluZS52MS5FbnZlbG9wZRIMCgRwYXRoGAIgASgJEjEKB29wdGlvbnMYAyABKAsyIC5zdGVhZC5tYWNoaW5lLnYxLkRpc3BsYXlPcHRpb25zIq8ECgtSZWFkU3VjY2VzcxIMCgRraW5kGAEgASgJEgwKBHBhdGgYAiABKAkSFgoJcmVhbF9wYXRoGAMgASgJSACIAQESDwoHY29udGVudBgEIAEoCRIRCgl0cnVuY2F0ZWQYBSABKAgSGAoLbmV4dF9vZmZzZXQYBiABKA1IAYgBARIXCgpsaW5lX2NvdW50GAcgASgNSAKIAQESGAoLZW50cnlfY291bnQYCCABKA1IA4gBARIbCg5yZXByZXNlbnRhdGlvbhgJIAEoCUgEiAEBEkEKD3JlcXVlc3RlZF9yYW5nZRgKIAEoCzIjLnN0ZWFkLm1hY2hpbmUudjEuT3B0aW9uYWxMaW5lUmFuZ2VIBYgBARI9CgtzaG93bl9yYW5nZRgLIAEoCzIjLnN0ZWFkLm1hY2hpbmUudjEuT3B0aW9uYWxMaW5lUmFuZ2VIBogBARI1ChByZXF1ZXN0ZWRfcmFuZ2VzGAwgAygLMhsuc3RlYWQubWFjaGluZS52MS5MaW5lUmFuZ2USMQoMc2hvd25fcmFuZ2VzGA0gAygLMhsuc3RlYWQubWFjaGluZS52MS5MaW5lUmFuZ2VCDAoKX3JlYWxfcGF0aEIOCgxfbmV4dF9vZmZzZXRCDQoLX2xpbmVfY291bnRCDgoMX2VudHJ5X2NvdW50QhEKD19yZXByZXNlbnRhdGlvbkISChBfcmVxdWVzdGVkX3JhbmdlQg4KDF9zaG93bl9yYW5nZSJ4CgxSZWFkUmVzcG9uc2USMAoHc3VjY2VzcxgBIAEoCzIdLnN0ZWFkLm1hY2hpbmUudjEuUmVhZFN1Y2Nlc3NIABIsCgdmYWlsdXJlGAIgASgLMhkuc3RlYWQubWFjaGluZS52MS5GYWlsdXJlSABCCAoGcmVzdWx0IrkBCgtFZGl0UmVxdWVzdBIsCghlbnZlbG9wZRgBIAEoCzIaLnN0ZWFkLm1hY2hpbmUudjEuRW52ZWxvcGUSFwoPaWRlbXBvdGVuY3lfa2V5GAIgASgJEgwKBHBhdGgYAyABKAkSMQoHb3B0aW9ucxgEIAEoCzIgLnN0ZWFkLm1hY2hpbmUudjEuRGlzcGxheU9wdGlvbnMSEAoIb2xkX3RleHQYBSABKAkSEAoIbmV3X3RleHQYBiABKAkiuAEKDFdyaXRlUmVxdWVzdBIsCghlbnZlbG9wZRgBIAEoCzIaLnN0ZWFkLm1hY2hpbmUudjEuRW52ZWxvcGUSFwoPaWRlbXBvdGVuY3lfa2V5GAIgASgJEgwKBHBhdGgYAyABKAkSMQoHb3B0aW9ucxgEIAEoCzIgLnN0ZWFkLm1hY2hpbmUudjEuRGlzcGxheU9wdGlvbnMSDwoHY29udGVudBgFIAEoCRIPCgdyZXBsYWNlGAYgASgIIpADCg1NdXRhdGVTdWNjZXNzEhEKCW9wZXJhdGlvbhgBIAEoCRIMCgRwYXRoGAIgASgJEg8KB2NyZWF0ZWQYAyABKAgSEAoIcmVwbGFjZWQYBCABKAgSGQoMcmVwbGFjZW1lbnRzGAUgASgNSACIAQESFAoHY29udGVudBgGIAEoCUgBiAEBEj0KC3Nob3duX3JhbmdlGAcgASgLMiMuc3RlYWQubWFjaGluZS52MS5PcHRpb25hbExpbmVSYW5nZUgCiAEBEhYKCXRydW5jYXRlZBgIIAEoCEgDiAEBEhAKA2N1dBgJIAEoCEgEiAEBEhcKCmxpbmVfY291bnQYCiABKA1IBYgBARIfChJkaXNwbGF5X3N0YXJ0X2xpbmUYCyABKA1IBogBAUIPCg1fcmVwbGFjZW1lbnRzQgoKCF9jb250ZW50Qg4KDF9zaG93bl9yYW5nZUIMCgpfdHJ1bmNhdGVkQgYKBF9jdXRCDQoLX2xpbmVfY291bnRCFQoTX2Rpc3BsYXlfc3RhcnRfbGluZSJ6CgxFZGl0UmVzcG9uc2USMgoHc3VjY2VzcxgBIAEoCzIfLnN0ZWFkLm1hY2hpbmUudjEuTXV0YXRlU3VjY2Vzc0gAEiwKB2ZhaWx1cmUYAiABKAsyGS5zdGVhZC5tYWNoaW5lLnYxLkZhaWx1cmVIAEIICgZyZXN1bHQiewoNV3JpdGVSZXNwb25zZRIyCgdzdWNjZXNzGAEgASgLMh8uc3RlYWQubWFjaGluZS52MS5NdXRhdGVTdWNjZXNzSAASLAoHZmFpbHVyZRgCIAEoCzIZLnN0ZWFkLm1hY2hpbmUudjEuRmFpbHVyZUgAQggKBnJlc3VsdCJhChBSZWFkQnl0ZXNSZXF1ZXN0EiwKCGVudmVsb3BlGAEgASgLMhouc3RlYWQubWFjaGluZS52MS5FbnZlbG9wZRIMCgRwYXRoGAIgASgJEhEKCW1heF9ieXRlcxgDIAEoBCIvCgtCeXRlc0hlYWRlchIMCgRzaXplGAEgASgEEhIKCm1lZGlhX3R5cGUYAiABKAkijQEKEVJlYWRCeXRlc1Jlc3BvbnNlEi8KBmhlYWRlchgBIAEoCzIdLnN0ZWFkLm1hY2hpbmUudjEuQnl0ZXNIZWFkZXJIABIPCgVjaHVuaxgCIAEoDEgAEiwKB2ZhaWx1cmUYAyABKAsyGS5zdGVhZC5tYWNoaW5lLnYxLkZhaWx1cmVIAEIICgZyZXN1bHQi3gEKCkdyZXBCb3VuZHMSEgoFZmlsZXMYASABKARIAIgBARIUCgdlbnRyaWVzGAIgASgESAGIAQESEgoFYnl0ZXMYAyABKARIAogBARIXCgpmaWxlX2J5dGVzGAQgASgESAOIAQESEwoLZGVhZGxpbmVfbXMYBSABKAQSDQoFbGltaXQYBiABKA0SEgoKcGFnZV91bml0cxgHIAEoDRISCgpwcm9ncmVzc2VkGAggASgIQggKBl9maWxlc0IKCghfZW50cmllc0IICgZfYnl0ZXNCDQoLX2ZpbGVfYnl0ZXMi+QEKC0dyZXBSZXF1ZXN0EiwKCGVudmVsb3BlGAEgASgLMhouc3RlYWQubWFjaGluZS52MS5FbnZlbG9wZRIMCgRwYXRoGAIgASgJEhgKC2dsb2Jfc3VmZml4GAMgASgJSACIAQESEAoIcGF0dGVybnMYBCADKAkSDwoHbGl0ZXJhbBgFIAEoCBITCgtpZ25vcmVfY2FzZRgGIAEoCBITCgZjdXJzb3IYByABKAlIAYgBARIsCgZib3VuZHMYCCABKAsyHC5zdGVhZC5tYWNoaW5lLnYxLkdyZXBCb3VuZHNCDgoMX2dsb2Jfc3VmZml4QgkKB19jdXJzb3IikwEKC0dyZXBQYXNzYWdlEgwKBHBhdGgYASABKAkSEgoKc3RhcnRfbGluZRgCIAEoDRIQCghlbmRfbGluZRgDIAEoDRIPCgdjb250ZW50GAQgASgJEg8KB21hdGNoZXMYBSADKA0SEQoJdHJ1bmNhdGVkGAYgASgIEg4KBmNhcHBlZBgHIAEoCBILCgNjdXQYCCABKAgiKgoLR3JlcFdhcm5pbmcSDAoEa2luZBgBIAEoCRINCgVjb3VudBgCIAEoBCI9CgxHcmVwQ29uc3VtZWQSDQoFZmlsZXMYASABKAQSDwoHZW50cmllcxgCIAEoBBINCgVieXRlcxgDIAEoBCIuCgtHcmVwSWdub3JlZBINCgVwYXRocxgBIAMoCRIQCghhdF9sZWFzdBgCIAEoCCLPAgoLR3JlcFN1Y2Nlc3MSLgoHcmVzdWx0cxgBIAMoCzIdLnN0ZWFkLm1hY2hpbmUudjEuR3JlcFBhc3NhZ2USEAoIY29tcGxldGUYAiABKAgSEwoGY3Vyc29yGAMgASgJSACIAQESLwoId2FybmluZ3MYBCADKAsyHS5zdGVhZC5tYWNoaW5lLnYxLkdyZXBXYXJuaW5nEjAKCGNvbnN1bWVkGAUgASgLMh4uc3RlYWQubWFjaGluZS52MS5HcmVwQ29uc3VtZWQSEgoKcHJvZ3Jlc3NlZBgGIAEoCBIXCgp1bmZpbmlzaGVkGAcgASgJSAGIAQESMwoHaWdub3JlZBgIIAEoCzIdLnN0ZWFkLm1hY2hpbmUudjEuR3JlcElnbm9yZWRIAogBAUIJCgdfY3Vyc29yQg0KC191bmZpbmlzaGVkQgoKCF9pZ25vcmVkIngKDEdyZXBSZXNwb25zZRIwCgdzdWNjZXNzGAEgASgLMh0uc3RlYWQubWFjaGluZS52MS5HcmVwU3VjY2Vzc0gAEiwKB2ZhaWx1cmUYAiABKAsyGS5zdGVhZC5tYWNoaW5lLnYxLkZhaWx1cmVIAEIICgZyZXN1bHQqfgoIU3RhdEtpbmQSGQoVU1RBVF9LSU5EX1VOU1BFQ0lGSUVEEAASEgoOU1RBVF9LSU5EX0ZJTEUQARIXChNTVEFUX0tJTkRfRElSRUNUT1JZEAISEwoPU1RBVF9LSU5EX09USEVSEAMSFQoRU1RBVF9LSU5EX01JU1NJTkcQBDKTBAoMRmlsZXNTZXJ2aWNlEkUKBFN0YXQSHS5zdGVhZC5tYWNoaW5lLnYxLlN0YXRSZXF1ZXN0Gh4uc3RlYWQubWFjaGluZS52MS5TdGF0UmVzcG9uc2USRQoETGlzdBIdLnN0ZWFkLm1hY2hpbmUudjEuTGlzdFJlcXVlc3QaHi5zdGVhZC5tYWNoaW5lLnYxLkxpc3RSZXNwb25zZRJFCgRSZWFkEh0uc3RlYWQubWFjaGluZS52MS5SZWFkUmVxdWVzdBoeLnN0ZWFkLm1hY2hpbmUudjEuUmVhZFJlc3BvbnNlEkUKBEVkaXQSHS5zdGVhZC5tYWNoaW5lLnYxLkVkaXRSZXF1ZXN0Gh4uc3RlYWQubWFjaGluZS52MS5FZGl0UmVzcG9uc2USSAoFV3JpdGUSHi5zdGVhZC5tYWNoaW5lLnYxLldyaXRlUmVxdWVzdBofLnN0ZWFkLm1hY2hpbmUudjEuV3JpdGVSZXNwb25zZRJWCglSZWFkQnl0ZXMSIi5zdGVhZC5tYWNoaW5lLnYxLlJlYWRCeXRlc1JlcXVlc3QaIy5zdGVhZC5tYWNoaW5lLnYxLlJlYWRCeXRlc1Jlc3BvbnNlMAESRQoER3JlcBIdLnN0ZWFkLm1hY2hpbmUudjEuR3JlcFJlcXVlc3QaHi5zdGVhZC5tYWNoaW5lLnYxLkdyZXBSZXNwb25zZWIGcHJvdG8z", [file_stead_machine_v1_common]);
+  fileDesc("ChxzdGVhZC9tYWNoaW5lL3YxL2ZpbGVzLnByb3RvEhBzdGVhZC5tYWNoaW5lLnYxInEKC0ZpbGVGYWlsdXJlEjMKBnJlYXNvbhgBIAEoDjIjLnN0ZWFkLm1hY2hpbmUudjEuRmlsZUZhaWx1cmVSZWFzb24SDwoHbWVzc2FnZRgCIAEoCRISCgVjb3VudBgDIAEoDUgAiAEBQggKBl9jb3VudCIxCglMaW5lUmFuZ2USEgoKc3RhcnRfbGluZRgBIAEoDRIQCghlbmRfbGluZRgCIAEoDSIbCgtTdGF0UmVxdWVzdBIMCgRwYXRoGAEgASgJIowBCgxTdGF0UmVzcG9uc2USKQoEa2luZBgBIAEoDjIbLnN0ZWFkLm1hY2hpbmUudjEuRW50cnlLaW5kEhEKBHNpemUYAiABKARIAIgBARIWCglyZWFsX3BhdGgYAyABKAlIAYgBARIPCgdpc19saW5rGAQgASgIQgcKBV9zaXplQgwKCl9yZWFsX3BhdGgiJwoXRmlsZXNTZXJ2aWNlTGlzdFJlcXVlc3QSDAoEcGF0aBgBIAEoCSKEAQoYRmlsZXNTZXJ2aWNlTGlzdFJlc3BvbnNlEiwKB2xpc3RpbmcYASABKAsyGS5zdGVhZC5tYWNoaW5lLnYxLkxpc3RpbmdIABIwCgdmYWlsdXJlGAIgASgLMh0uc3RlYWQubWFjaGluZS52MS5GaWxlRmFpbHVyZUgAQggKBnJlc3VsdCJbCgdMaXN0aW5nEigKB2VudHJpZXMYASADKAsyFy5zdGVhZC5tYWNoaW5lLnYxLkVudHJ5EhMKC3RvdGFsX2NvdW50GAIgASgNEhEKCXRydW5jYXRlZBgDIAEoCCJACgVFbnRyeRIMCgRuYW1lGAEgASgJEikKBGtpbmQYAiABKA4yGy5zdGVhZC5tYWNoaW5lLnYxLkVudHJ5S2luZCJJCgtSZWFkUmVxdWVzdBIMCgRwYXRoGAEgASgJEhAKCHNlbGVjdG9yGAIgASgJEhoKEnJlc2VydmVfY29kZV91bml0cxgDIAEoDSJ2CgxSZWFkUmVzcG9uc2USKgoEdGV4dBgBIAEoCzIaLnN0ZWFkLm1hY2hpbmUudjEuVGV4dFJlYWRIABIwCgdmYWlsdXJlGAIgASgLMh0uc3RlYWQubWFjaGluZS52MS5GaWxlRmFpbHVyZUgAQggKBnJlc3VsdCKtAwoIVGV4dFJlYWQSKQoEa2luZBgBIAEoDjIbLnN0ZWFkLm1hY2hpbmUudjEuRW50cnlLaW5kEgwKBHBhdGgYAiABKAkSFgoJcmVhbF9wYXRoGAMgASgJSACIAQESDwoHY29udGVudBgEIAEoCRIRCgl0cnVuY2F0ZWQYBSABKAgSGAoLbmV4dF9vZmZzZXQYBiABKA1IAYgBARIXCgpsaW5lX2NvdW50GAcgASgNSAKIAQESGAoLZW50cnlfY291bnQYCCABKA1IA4gBARI4Cg5yZXByZXNlbnRhdGlvbhgJIAEoDjIgLnN0ZWFkLm1hY2hpbmUudjEuUmVwcmVzZW50YXRpb24SNQoQcmVxdWVzdGVkX3JhbmdlcxgKIAMoCzIbLnN0ZWFkLm1hY2hpbmUudjEuTGluZVJhbmdlEjEKDHNob3duX3JhbmdlcxgLIAMoCzIbLnN0ZWFkLm1hY2hpbmUudjEuTGluZVJhbmdlQgwKCl9yZWFsX3BhdGhCDgoMX25leHRfb2Zmc2V0Qg0KC19saW5lX2NvdW50Qg4KDF9lbnRyeV9jb3VudCJ0CgtFZGl0UmVxdWVzdBIXCg9pZGVtcG90ZW5jeV9rZXkYASABKAkSDAoEcGF0aBgCIAEoCRIQCghvbGRfdGV4dBgDIAEoCRIQCghuZXdfdGV4dBgEIAEoCRIaChJyZXNlcnZlX2NvZGVfdW5pdHMYBSABKA0iegoMRWRpdFJlc3BvbnNlEi4KCG11dGF0aW9uGAEgASgLMhouc3RlYWQubWFjaGluZS52MS5NdXRhdGlvbkgAEjAKB2ZhaWx1cmUYAiABKAsyHS5zdGVhZC5tYWNoaW5lLnYxLkZpbGVGYWlsdXJlSABCCAoGcmVzdWx0IlcKDFdyaXRlUmVxdWVzdBIXCg9pZGVtcG90ZW5jeV9rZXkYASABKAkSDAoEcGF0aBgCIAEoCRIPCgdjb250ZW50GAMgASgJEg8KB3JlcGxhY2UYBCABKAgiewoNV3JpdGVSZXNwb25zZRIuCghtdXRhdGlvbhgBIAEoCzIaLnN0ZWFkLm1hY2hpbmUudjEuTXV0YXRpb25IABIwCgdmYWlsdXJlGAIgASgLMh0uc3RlYWQubWFjaGluZS52MS5GaWxlRmFpbHVyZUgAQggKBnJlc3VsdCLsAQoITXV0YXRpb24SDAoEcGF0aBgBIAEoCRIPCgdjcmVhdGVkGAIgASgIEhAKCHJlcGxhY2VkGAMgASgIEhIKCmxpbmVfY291bnQYBCABKA0SDwoHY29udGVudBgFIAEoCRI1CgtzaG93bl9yYW5nZRgGIAEoCzIbLnN0ZWFkLm1hY2hpbmUudjEuTGluZVJhbmdlSACIAQESCwoDY3V0GAcgASgIEh8KEmRpc3BsYXlfc3RhcnRfbGluZRgIIAEoDUgBiAEBQg4KDF9zaG93bl9yYW5nZUIVChNfZGlzcGxheV9zdGFydF9saW5lIjMKEFJlYWRCeXRlc1JlcXVlc3QSDAoEcGF0aBgBIAEoCRIRCgltYXhfYnl0ZXMYAiABKAQikQEKEVJlYWRCeXRlc1Jlc3BvbnNlEi8KBmhlYWRlchgBIAEoCzIdLnN0ZWFkLm1hY2hpbmUudjEuQnl0ZXNIZWFkZXJIABIPCgVjaHVuaxgCIAEoDEgAEjAKB2ZhaWx1cmUYAyABKAsyHS5zdGVhZC5tYWNoaW5lLnYxLkZpbGVGYWlsdXJlSABCCAoGcmVzdWx0Ii8KC0J5dGVzSGVhZGVyEgwKBHNpemUYASABKAQSEgoKbWVkaWFfdHlwZRgCIAEoCSKmAQoLR3JlcFJlcXVlc3QSDAoEcGF0aBgBIAEoCRITCgtnbG9iX3N1ZmZpeBgCIAEoCRIQCghwYXR0ZXJucxgDIAMoCRIPCgdsaXRlcmFsGAQgASgIEhMKC2lnbm9yZV9jYXNlGAUgASgIEg4KBmN1cnNvchgGIAEoCRIsCgZib3VuZHMYByABKAsyHC5zdGVhZC5tYWNoaW5lLnYxLkdyZXBCb3VuZHMi3gEKCkdyZXBCb3VuZHMSEgoFZmlsZXMYASABKARIAIgBARIUCgdlbnRyaWVzGAIgASgESAGIAQESEgoFYnl0ZXMYAyABKARIAogBARIXCgpmaWxlX2J5dGVzGAQgASgESAOIAQESEwoLZGVhZGxpbmVfbXMYBSABKAQSDQoFbGltaXQYBiABKA0SEgoKcGFnZV91bml0cxgHIAEoDRISCgpwcm9ncmVzc2VkGAggASgIQggKBl9maWxlc0IKCghfZW50cmllc0IICgZfYnl0ZXNCDQoLX2ZpbGVfYnl0ZXMidgoMR3JlcFJlc3BvbnNlEioKBHBhZ2UYASABKAsyGi5zdGVhZC5tYWNoaW5lLnYxLkdyZXBQYWdlSAASMAoHZmFpbHVyZRgCIAEoCzIdLnN0ZWFkLm1hY2hpbmUudjEuRmlsZUZhaWx1cmVIAEIICgZyZXN1bHQijwIKCEdyZXBQYWdlEisKCHBhc3NhZ2VzGAEgAygLMhkuc3RlYWQubWFjaGluZS52MS5QYXNzYWdlEhAKCGNvbXBsZXRlGAIgASgIEg4KBmN1cnNvchgDIAEoCRIvCgh3YXJuaW5ncxgEIAMoCzIdLnN0ZWFkLm1hY2hpbmUudjEuR3JlcFdhcm5pbmcSMAoIY29uc3VtZWQYBSABKAsyHi5zdGVhZC5tYWNoaW5lLnYxLkdyZXBDb25zdW1lZBISCgpwcm9ncmVzc2VkGAYgASgIEhIKCnVuZmluaXNoZWQYByABKAkSDwoHaWdub3JlZBgIIAMoCRIYChBpZ25vcmVkX2F0X2xlYXN0GAkgASgIIo8BCgdQYXNzYWdlEgwKBHBhdGgYASABKAkSEgoKc3RhcnRfbGluZRgCIAEoDRIQCghlbmRfbGluZRgDIAEoDRIPCgdjb250ZW50GAQgASgJEg8KB21hdGNoZXMYBSADKA0SEQoJdHJ1bmNhdGVkGAYgASgIEg4KBmNhcHBlZBgHIAEoCBILCgNjdXQYCCABKAgiTQoLR3JlcFdhcm5pbmcSLwoEa2luZBgBIAEoDjIhLnN0ZWFkLm1hY2hpbmUudjEuR3JlcFdhcm5pbmdLaW5kEg0KBWNvdW50GAIgASgEIj0KDEdyZXBDb25zdW1lZBINCgVmaWxlcxgBIAEoBBIPCgdlbnRyaWVzGAIgASgEEg0KBWJ5dGVzGAMgASgEKoAFChFGaWxlRmFpbHVyZVJlYXNvbhIjCh9GSUxFX0ZBSUxVUkVfUkVBU09OX1VOU1BFQ0lGSUVEEAASJAogRklMRV9GQUlMVVJFX1JFQVNPTl9JTlZBTElEX1BBVEgQARIoCiRGSUxFX0ZBSUxVUkVfUkVBU09OX0lOVkFMSURfU0VMRUNUT1IQAhIhCh1GSUxFX0ZBSUxVUkVfUkVBU09OX05PVF9GT1VORBADEigKJEZJTEVfRkFJTFVSRV9SRUFTT05fTk9UX1JFR1VMQVJfRklMRRAEEiQKIEZJTEVfRkFJTFVSRV9SRUFTT05fSU5WQUxJRF9VVEY4EAUSJQohRklMRV9GQUlMVVJFX1JFQVNPTl9JTlZBTElEX0lOUFVUEAYSIwofRklMRV9GQUlMVVJFX1JFQVNPTl9GSUxFX0VYSVNUUxAHEioKJkZJTEVfRkFJTFVSRV9SRUFTT05fT0xEX1RFWFRfTk9UX0ZPVU5EEAgSKgomRklMRV9GQUlMVVJFX1JFQVNPTl9PTERfVEVYVF9BTUJJR1VPVVMQCRInCiNGSUxFX0ZBSUxVUkVfUkVBU09OX09VVENPTUVfVU5LTk9XThAKEisKJ0ZJTEVfRkFJTFVSRV9SRUFTT05fRElSRUNUT1JZX1RPT19MQVJHRRALEjAKLEZJTEVfRkFJTFVSRV9SRUFTT05fUkVQUkVTRU5UQVRJT05fVE9PX0xBUkdFEAwSJwojRklMRV9GQUlMVVJFX1JFQVNPTl9NRURJQV9UT09fTEFSR0UQDRIuCipGSUxFX0ZBSUxVUkVfUkVBU09OX1VOU1VQUE9SVEVEX01FRElBX1RZUEUQDiqZAQoJRW50cnlLaW5kEhoKFkVOVFJZX0tJTkRfVU5TUEVDSUZJRUQQABITCg9FTlRSWV9LSU5EX0ZJTEUQARIYChRFTlRSWV9LSU5EX0RJUkVDVE9SWRACEhMKD0VOVFJZX0tJTkRfTElOSxADEhQKEEVOVFJZX0tJTkRfT1RIRVIQBBIWChJFTlRSWV9LSU5EX01JU1NJTkcQBSp9Cg5SZXByZXNlbnRhdGlvbhIeChpSRVBSRVNFTlRBVElPTl9VTlNQRUNJRklFRBAAEhcKE1JFUFJFU0VOVEFUSU9OX1RFWFQQARIWChJSRVBSRVNFTlRBVElPTl9SQVcQAhIaChZSRVBSRVNFTlRBVElPTl9PVVRMSU5FEAMqggMKD0dyZXBXYXJuaW5nS2luZBIhCh1HUkVQX1dBUk5JTkdfS0lORF9VTlNQRUNJRklFRBAAEhwKGEdSRVBfV0FSTklOR19LSU5EX0JJTkFSWRABEiIKHkdSRVBfV0FSTklOR19LSU5EX0lOVkFMSURfVVRGOBACEh8KG0dSRVBfV0FSTklOR19LSU5EX09WRVJTSVpFRBADEiAKHEdSRVBfV0FSTklOR19LSU5EX1VOUkVBREFCTEUQBBIaChZHUkVQX1dBUk5JTkdfS0lORF9MSU5LEAUSIAocR1JFUF9XQVJOSU5HX0tJTkRfRklMRV9CT1VORBAGEiEKHUdSRVBfV0FSTklOR19LSU5EX0VOVFJZX0JPVU5EEAcSIAocR1JFUF9XQVJOSU5HX0tJTkRfQllURV9CT1VORBAIEiQKIEdSRVBfV0FSTklOR19LSU5EX0FSVElGQUNUX0JPVU5EEAkSHgoaR1JFUF9XQVJOSU5HX0tJTkRfREVBRExJTkUQCjLIBAoMRmlsZXNTZXJ2aWNlEkoKBFN0YXQSHS5zdGVhZC5tYWNoaW5lLnYxLlN0YXRSZXF1ZXN0Gh4uc3RlYWQubWFjaGluZS52MS5TdGF0UmVzcG9uc2UiA5ACARJiCgRMaXN0Eikuc3RlYWQubWFjaGluZS52MS5GaWxlc1NlcnZpY2VMaXN0UmVxdWVzdBoqLnN0ZWFkLm1hY2hpbmUudjEuRmlsZXNTZXJ2aWNlTGlzdFJlc3BvbnNlIgOQAgESSgoEUmVhZBIdLnN0ZWFkLm1hY2hpbmUudjEuUmVhZFJlcXVlc3QaHi5zdGVhZC5tYWNoaW5lLnYxLlJlYWRSZXNwb25zZSIDkAIBEkcKBEVkaXQSHS5zdGVhZC5tYWNoaW5lLnYxLkVkaXRSZXF1ZXN0Gh4uc3RlYWQubWFjaGluZS52MS5FZGl0UmVzcG9uc2UiABJKCgVXcml0ZRIeLnN0ZWFkLm1hY2hpbmUudjEuV3JpdGVSZXF1ZXN0Gh8uc3RlYWQubWFjaGluZS52MS5Xcml0ZVJlc3BvbnNlIgASWwoJUmVhZEJ5dGVzEiIuc3RlYWQubWFjaGluZS52MS5SZWFkQnl0ZXNSZXF1ZXN0GiMuc3RlYWQubWFjaGluZS52MS5SZWFkQnl0ZXNSZXNwb25zZSIDkAIBMAESSgoER3JlcBIdLnN0ZWFkLm1hY2hpbmUudjEuR3JlcFJlcXVlc3QaHi5zdGVhZC5tYWNoaW5lLnYxLkdyZXBSZXNwb25zZSIDkAIBYgZwcm90bzM");
+
+/**
+ * @generated from message stead.machine.v1.FileFailure
+ */
+export type FileFailure = Message<"stead.machine.v1.FileFailure"> & {
+  /**
+   * @generated from field: stead.machine.v1.FileFailureReason reason = 1;
+   */
+  reason: FileFailureReason;
+
+  /**
+   * For the owner and the model; may name the host path.
+   *
+   * @generated from field: string message = 2;
+   */
+  message: string;
+
+  /**
+   * @generated from field: optional uint32 count = 3;
+   */
+  count?: number | undefined;
+};
+
+/**
+ * Describes the message stead.machine.v1.FileFailure.
+ * Use `create(FileFailureSchema)` to create a new message.
+ */
+export const FileFailureSchema: GenMessage<FileFailure> = /*@__PURE__*/
+  messageDesc(file_stead_machine_v1_files, 0);
+
+/**
+ * @generated from message stead.machine.v1.LineRange
+ */
+export type LineRange = Message<"stead.machine.v1.LineRange"> & {
+  /**
+   * 1-based, inclusive.
+   *
+   * @generated from field: uint32 start_line = 1;
+   */
+  startLine: number;
+
+  /**
+   * @generated from field: uint32 end_line = 2;
+   */
+  endLine: number;
+};
+
+/**
+ * Describes the message stead.machine.v1.LineRange.
+ * Use `create(LineRangeSchema)` to create a new message.
+ */
+export const LineRangeSchema: GenMessage<LineRange> = /*@__PURE__*/
+  messageDesc(file_stead_machine_v1_files, 1);
 
 /**
  * @generated from message stead.machine.v1.StatRequest
  */
 export type StatRequest = Message<"stead.machine.v1.StatRequest"> & {
   /**
-   * @generated from field: stead.machine.v1.Envelope envelope = 1;
-   */
-  envelope?: Envelope | undefined;
-
-  /**
-   * @generated from field: string path = 2;
+   * @generated from field: string path = 1;
    */
   path: string;
 };
@@ -34,16 +80,18 @@ export type StatRequest = Message<"stead.machine.v1.StatRequest"> & {
  * Use `create(StatRequestSchema)` to create a new message.
  */
 export const StatRequestSchema: GenMessage<StatRequest> = /*@__PURE__*/
-  messageDesc(file_stead_machine_v1_files, 0);
+  messageDesc(file_stead_machine_v1_files, 2);
 
 /**
  * @generated from message stead.machine.v1.StatResponse
  */
 export type StatResponse = Message<"stead.machine.v1.StatResponse"> & {
   /**
-   * @generated from field: stead.machine.v1.StatKind kind = 1;
+   * MISSING when nothing is there; LINK is never reported here, see is_link.
+   *
+   * @generated from field: stead.machine.v1.EntryKind kind = 1;
    */
-  kind: StatKind;
+  kind: EntryKind;
 
   /**
    * @generated from field: optional uint64 size = 2;
@@ -51,6 +99,8 @@ export type StatResponse = Message<"stead.machine.v1.StatResponse"> & {
   size?: bigint | undefined;
 
   /**
+   * The canonical path when the path resolves elsewhere.
+   *
    * @generated from field: optional string real_path = 3;
    */
   realPath?: string | undefined;
@@ -66,64 +116,66 @@ export type StatResponse = Message<"stead.machine.v1.StatResponse"> & {
  * Use `create(StatResponseSchema)` to create a new message.
  */
 export const StatResponseSchema: GenMessage<StatResponse> = /*@__PURE__*/
-  messageDesc(file_stead_machine_v1_files, 1);
+  messageDesc(file_stead_machine_v1_files, 3);
 
 /**
- * @generated from message stead.machine.v1.ListRequest
+ * @generated from message stead.machine.v1.FilesServiceListRequest
  */
-export type ListRequest = Message<"stead.machine.v1.ListRequest"> & {
+export type FilesServiceListRequest = Message<"stead.machine.v1.FilesServiceListRequest"> & {
   /**
-   * @generated from field: stead.machine.v1.Envelope envelope = 1;
-   */
-  envelope?: Envelope | undefined;
-
-  /**
-   * @generated from field: string path = 2;
+   * @generated from field: string path = 1;
    */
   path: string;
 };
 
 /**
- * Describes the message stead.machine.v1.ListRequest.
- * Use `create(ListRequestSchema)` to create a new message.
+ * Describes the message stead.machine.v1.FilesServiceListRequest.
+ * Use `create(FilesServiceListRequestSchema)` to create a new message.
  */
-export const ListRequestSchema: GenMessage<ListRequest> = /*@__PURE__*/
-  messageDesc(file_stead_machine_v1_files, 2);
+export const FilesServiceListRequestSchema: GenMessage<FilesServiceListRequest> = /*@__PURE__*/
+  messageDesc(file_stead_machine_v1_files, 4);
 
 /**
- * @generated from message stead.machine.v1.ListEntry
+ * @generated from message stead.machine.v1.FilesServiceListResponse
  */
-export type ListEntry = Message<"stead.machine.v1.ListEntry"> & {
+export type FilesServiceListResponse = Message<"stead.machine.v1.FilesServiceListResponse"> & {
   /**
-   * @generated from field: string name = 1;
+   * @generated from oneof stead.machine.v1.FilesServiceListResponse.result
    */
-  name: string;
-
-  /**
-   * "file", "directory", "link", or "other".
-   *
-   * @generated from field: string kind = 2;
-   */
-  kind: string;
+  result: {
+    /**
+     * @generated from field: stead.machine.v1.Listing listing = 1;
+     */
+    value: Listing;
+    case: "listing";
+  } | {
+    /**
+     * @generated from field: stead.machine.v1.FileFailure failure = 2;
+     */
+    value: FileFailure;
+    case: "failure";
+  } | { case: undefined; value?: undefined };
 };
 
 /**
- * Describes the message stead.machine.v1.ListEntry.
- * Use `create(ListEntrySchema)` to create a new message.
+ * Describes the message stead.machine.v1.FilesServiceListResponse.
+ * Use `create(FilesServiceListResponseSchema)` to create a new message.
  */
-export const ListEntrySchema: GenMessage<ListEntry> = /*@__PURE__*/
-  messageDesc(file_stead_machine_v1_files, 3);
+export const FilesServiceListResponseSchema: GenMessage<FilesServiceListResponse> = /*@__PURE__*/
+  messageDesc(file_stead_machine_v1_files, 5);
 
 /**
- * @generated from message stead.machine.v1.ListSuccess
+ * @generated from message stead.machine.v1.Listing
  */
-export type ListSuccess = Message<"stead.machine.v1.ListSuccess"> & {
+export type Listing = Message<"stead.machine.v1.Listing"> & {
   /**
-   * @generated from field: repeated stead.machine.v1.ListEntry entries = 1;
+   * @generated from field: repeated stead.machine.v1.Entry entries = 1;
    */
-  entries: ListEntry[];
+  entries: Entry[];
 
   /**
+   * Every entry the directory holds, of which `entries` may be a head.
+   *
    * @generated from field: uint32 total_count = 2;
    */
   totalCount: number;
@@ -135,84 +187,57 @@ export type ListSuccess = Message<"stead.machine.v1.ListSuccess"> & {
 };
 
 /**
- * Describes the message stead.machine.v1.ListSuccess.
- * Use `create(ListSuccessSchema)` to create a new message.
+ * Describes the message stead.machine.v1.Listing.
+ * Use `create(ListingSchema)` to create a new message.
  */
-export const ListSuccessSchema: GenMessage<ListSuccess> = /*@__PURE__*/
-  messageDesc(file_stead_machine_v1_files, 4);
-
-/**
- * @generated from message stead.machine.v1.ListResponse
- */
-export type ListResponse = Message<"stead.machine.v1.ListResponse"> & {
-  /**
-   * @generated from oneof stead.machine.v1.ListResponse.result
-   */
-  result: {
-    /**
-     * @generated from field: stead.machine.v1.ListSuccess success = 1;
-     */
-    value: ListSuccess;
-    case: "success";
-  } | {
-    /**
-     * @generated from field: stead.machine.v1.Failure failure = 2;
-     */
-    value: Failure;
-    case: "failure";
-  } | { case: undefined; value?: undefined };
-};
-
-/**
- * Describes the message stead.machine.v1.ListResponse.
- * Use `create(ListResponseSchema)` to create a new message.
- */
-export const ListResponseSchema: GenMessage<ListResponse> = /*@__PURE__*/
-  messageDesc(file_stead_machine_v1_files, 5);
-
-/**
- * How the result is shown: the selector suffix (for example `:5-10`, `:raw`,
- * `:outline`), and room withheld from the result bound for the caller.
- *
- * @generated from message stead.machine.v1.DisplayOptions
- */
-export type DisplayOptions = Message<"stead.machine.v1.DisplayOptions"> & {
-  /**
-   * @generated from field: optional string selector = 1;
-   */
-  selector?: string | undefined;
-
-  /**
-   * @generated from field: optional uint32 reserve_code_units = 2;
-   */
-  reserveCodeUnits?: number | undefined;
-};
-
-/**
- * Describes the message stead.machine.v1.DisplayOptions.
- * Use `create(DisplayOptionsSchema)` to create a new message.
- */
-export const DisplayOptionsSchema: GenMessage<DisplayOptions> = /*@__PURE__*/
+export const ListingSchema: GenMessage<Listing> = /*@__PURE__*/
   messageDesc(file_stead_machine_v1_files, 6);
+
+/**
+ * @generated from message stead.machine.v1.Entry
+ */
+export type Entry = Message<"stead.machine.v1.Entry"> & {
+  /**
+   * @generated from field: string name = 1;
+   */
+  name: string;
+
+  /**
+   * @generated from field: stead.machine.v1.EntryKind kind = 2;
+   */
+  kind: EntryKind;
+};
+
+/**
+ * Describes the message stead.machine.v1.Entry.
+ * Use `create(EntrySchema)` to create a new message.
+ */
+export const EntrySchema: GenMessage<Entry> = /*@__PURE__*/
+  messageDesc(file_stead_machine_v1_files, 7);
 
 /**
  * @generated from message stead.machine.v1.ReadRequest
  */
 export type ReadRequest = Message<"stead.machine.v1.ReadRequest"> & {
   /**
-   * @generated from field: stead.machine.v1.Envelope envelope = 1;
-   */
-  envelope?: Envelope | undefined;
-
-  /**
-   * @generated from field: string path = 2;
+   * @generated from field: string path = 1;
    */
   path: string;
 
   /**
-   * @generated from field: stead.machine.v1.DisplayOptions options = 3;
+   * The selector suffix without the path, for example `:L5-10`, `:raw`, `:outline`; empty for the
+   * default window.
+   *
+   * @generated from field: string selector = 2;
    */
-  options?: DisplayOptions | undefined;
+  selector: string;
+
+  /**
+   * Room withheld from the result bound for the caller's own framing, in UTF-16 code units.
+   *
+   * @generated from field: uint32 reserve_code_units = 3;
+   */
+  reserveCodeUnits: number;
 };
 
 /**
@@ -220,18 +245,47 @@ export type ReadRequest = Message<"stead.machine.v1.ReadRequest"> & {
  * Use `create(ReadRequestSchema)` to create a new message.
  */
 export const ReadRequestSchema: GenMessage<ReadRequest> = /*@__PURE__*/
-  messageDesc(file_stead_machine_v1_files, 7);
+  messageDesc(file_stead_machine_v1_files, 8);
 
 /**
- * @generated from message stead.machine.v1.ReadSuccess
+ * @generated from message stead.machine.v1.ReadResponse
  */
-export type ReadSuccess = Message<"stead.machine.v1.ReadSuccess"> & {
+export type ReadResponse = Message<"stead.machine.v1.ReadResponse"> & {
   /**
-   * "file" or "directory".
-   *
-   * @generated from field: string kind = 1;
+   * @generated from oneof stead.machine.v1.ReadResponse.result
    */
-  kind: string;
+  result: {
+    /**
+     * @generated from field: stead.machine.v1.TextRead text = 1;
+     */
+    value: TextRead;
+    case: "text";
+  } | {
+    /**
+     * @generated from field: stead.machine.v1.FileFailure failure = 2;
+     */
+    value: FileFailure;
+    case: "failure";
+  } | { case: undefined; value?: undefined };
+};
+
+/**
+ * Describes the message stead.machine.v1.ReadResponse.
+ * Use `create(ReadResponseSchema)` to create a new message.
+ */
+export const ReadResponseSchema: GenMessage<ReadResponse> = /*@__PURE__*/
+  messageDesc(file_stead_machine_v1_files, 9);
+
+/**
+ * @generated from message stead.machine.v1.TextRead
+ */
+export type TextRead = Message<"stead.machine.v1.TextRead"> & {
+  /**
+   * FILE or DIRECTORY.
+   *
+   * @generated from field: stead.machine.v1.EntryKind kind = 1;
+   */
+  kind: EntryKind;
 
   /**
    * @generated from field: string path = 2;
@@ -249,6 +303,8 @@ export type ReadSuccess = Message<"stead.machine.v1.ReadSuccess"> & {
   content: string;
 
   /**
+   * A bound cut the content; next_offset is where a continuation resumes.
+   *
    * @generated from field: bool truncated = 5;
    */
   truncated: boolean;
@@ -259,176 +315,54 @@ export type ReadSuccess = Message<"stead.machine.v1.ReadSuccess"> & {
   nextOffset?: number | undefined;
 
   /**
+   * The file's line count when known.
+   *
    * @generated from field: optional uint32 line_count = 7;
    */
   lineCount?: number | undefined;
 
   /**
+   * Every entry the listed level holds, of which `content` may be a page.
+   *
    * @generated from field: optional uint32 entry_count = 8;
    */
   entryCount?: number | undefined;
 
   /**
-   * "text", "raw", or "outline".
+   * @generated from field: stead.machine.v1.Representation representation = 9;
+   */
+  representation: Representation;
+
+  /**
+   * The ranges the selector asked for and the ranges shown, in selector order.
    *
-   * @generated from field: optional string representation = 9;
-   */
-  representation?: string | undefined;
-
-  /**
-   * @generated from field: optional stead.machine.v1.OptionalLineRange requested_range = 10;
-   */
-  requestedRange?: OptionalLineRange | undefined;
-
-  /**
-   * @generated from field: optional stead.machine.v1.OptionalLineRange shown_range = 11;
-   */
-  shownRange?: OptionalLineRange | undefined;
-
-  /**
-   * @generated from field: repeated stead.machine.v1.LineRange requested_ranges = 12;
+   * @generated from field: repeated stead.machine.v1.LineRange requested_ranges = 10;
    */
   requestedRanges: LineRange[];
 
   /**
-   * @generated from field: repeated stead.machine.v1.LineRange shown_ranges = 13;
+   * @generated from field: repeated stead.machine.v1.LineRange shown_ranges = 11;
    */
   shownRanges: LineRange[];
 };
 
 /**
- * Describes the message stead.machine.v1.ReadSuccess.
- * Use `create(ReadSuccessSchema)` to create a new message.
+ * Describes the message stead.machine.v1.TextRead.
+ * Use `create(TextReadSchema)` to create a new message.
  */
-export const ReadSuccessSchema: GenMessage<ReadSuccess> = /*@__PURE__*/
-  messageDesc(file_stead_machine_v1_files, 8);
-
-/**
- * @generated from message stead.machine.v1.ReadResponse
- */
-export type ReadResponse = Message<"stead.machine.v1.ReadResponse"> & {
-  /**
-   * @generated from oneof stead.machine.v1.ReadResponse.result
-   */
-  result: {
-    /**
-     * @generated from field: stead.machine.v1.ReadSuccess success = 1;
-     */
-    value: ReadSuccess;
-    case: "success";
-  } | {
-    /**
-     * @generated from field: stead.machine.v1.Failure failure = 2;
-     */
-    value: Failure;
-    case: "failure";
-  } | { case: undefined; value?: undefined };
-};
-
-/**
- * Describes the message stead.machine.v1.ReadResponse.
- * Use `create(ReadResponseSchema)` to create a new message.
- */
-export const ReadResponseSchema: GenMessage<ReadResponse> = /*@__PURE__*/
-  messageDesc(file_stead_machine_v1_files, 9);
+export const TextReadSchema: GenMessage<TextRead> = /*@__PURE__*/
+  messageDesc(file_stead_machine_v1_files, 10);
 
 /**
  * @generated from message stead.machine.v1.EditRequest
  */
 export type EditRequest = Message<"stead.machine.v1.EditRequest"> & {
   /**
-   * @generated from field: stead.machine.v1.Envelope envelope = 1;
-   */
-  envelope?: Envelope | undefined;
-
-  /**
-   * A key the installation draws per call; a resend with the same key returns
-   * the first result instead of editing again.
+   * A key the installation draws per call.
    *
-   * @generated from field: string idempotency_key = 2;
+   * @generated from field: string idempotency_key = 1;
    */
   idempotencyKey: string;
-
-  /**
-   * @generated from field: string path = 3;
-   */
-  path: string;
-
-  /**
-   * @generated from field: stead.machine.v1.DisplayOptions options = 4;
-   */
-  options?: DisplayOptions | undefined;
-
-  /**
-   * @generated from field: string old_text = 5;
-   */
-  oldText: string;
-
-  /**
-   * @generated from field: string new_text = 6;
-   */
-  newText: string;
-};
-
-/**
- * Describes the message stead.machine.v1.EditRequest.
- * Use `create(EditRequestSchema)` to create a new message.
- */
-export const EditRequestSchema: GenMessage<EditRequest> = /*@__PURE__*/
-  messageDesc(file_stead_machine_v1_files, 10);
-
-/**
- * @generated from message stead.machine.v1.WriteRequest
- */
-export type WriteRequest = Message<"stead.machine.v1.WriteRequest"> & {
-  /**
-   * @generated from field: stead.machine.v1.Envelope envelope = 1;
-   */
-  envelope?: Envelope | undefined;
-
-  /**
-   * @generated from field: string idempotency_key = 2;
-   */
-  idempotencyKey: string;
-
-  /**
-   * @generated from field: string path = 3;
-   */
-  path: string;
-
-  /**
-   * @generated from field: stead.machine.v1.DisplayOptions options = 4;
-   */
-  options?: DisplayOptions | undefined;
-
-  /**
-   * @generated from field: string content = 5;
-   */
-  content: string;
-
-  /**
-   * @generated from field: bool replace = 6;
-   */
-  replace: boolean;
-};
-
-/**
- * Describes the message stead.machine.v1.WriteRequest.
- * Use `create(WriteRequestSchema)` to create a new message.
- */
-export const WriteRequestSchema: GenMessage<WriteRequest> = /*@__PURE__*/
-  messageDesc(file_stead_machine_v1_files, 11);
-
-/**
- * @generated from message stead.machine.v1.MutateSuccess
- */
-export type MutateSuccess = Message<"stead.machine.v1.MutateSuccess"> & {
-  /**
-   * "edit" or "write".
-   *
-   * @generated from field: string operation = 1;
-   */
-  operation: string;
 
   /**
    * @generated from field: string path = 2;
@@ -436,59 +370,27 @@ export type MutateSuccess = Message<"stead.machine.v1.MutateSuccess"> & {
   path: string;
 
   /**
-   * @generated from field: bool created = 3;
+   * @generated from field: string old_text = 3;
    */
-  created: boolean;
+  oldText: string;
 
   /**
-   * @generated from field: bool replaced = 4;
+   * @generated from field: string new_text = 4;
    */
-  replaced: boolean;
+  newText: string;
 
   /**
-   * @generated from field: optional uint32 replacements = 5;
+   * @generated from field: uint32 reserve_code_units = 5;
    */
-  replacements?: number | undefined;
-
-  /**
-   * @generated from field: optional string content = 6;
-   */
-  content?: string | undefined;
-
-  /**
-   * @generated from field: optional stead.machine.v1.OptionalLineRange shown_range = 7;
-   */
-  shownRange?: OptionalLineRange | undefined;
-
-  /**
-   * @generated from field: optional bool truncated = 8;
-   */
-  truncated?: boolean | undefined;
-
-  /**
-   * @generated from field: optional bool cut = 9;
-   */
-  cut?: boolean | undefined;
-
-  /**
-   * @generated from field: optional uint32 line_count = 10;
-   */
-  lineCount?: number | undefined;
-
-  /**
-   * The post-edit line the edited region starts at.
-   *
-   * @generated from field: optional uint32 display_start_line = 11;
-   */
-  displayStartLine?: number | undefined;
+  reserveCodeUnits: number;
 };
 
 /**
- * Describes the message stead.machine.v1.MutateSuccess.
- * Use `create(MutateSuccessSchema)` to create a new message.
+ * Describes the message stead.machine.v1.EditRequest.
+ * Use `create(EditRequestSchema)` to create a new message.
  */
-export const MutateSuccessSchema: GenMessage<MutateSuccess> = /*@__PURE__*/
-  messageDesc(file_stead_machine_v1_files, 12);
+export const EditRequestSchema: GenMessage<EditRequest> = /*@__PURE__*/
+  messageDesc(file_stead_machine_v1_files, 11);
 
 /**
  * @generated from message stead.machine.v1.EditResponse
@@ -499,15 +401,15 @@ export type EditResponse = Message<"stead.machine.v1.EditResponse"> & {
    */
   result: {
     /**
-     * @generated from field: stead.machine.v1.MutateSuccess success = 1;
+     * @generated from field: stead.machine.v1.Mutation mutation = 1;
      */
-    value: MutateSuccess;
-    case: "success";
+    value: Mutation;
+    case: "mutation";
   } | {
     /**
-     * @generated from field: stead.machine.v1.Failure failure = 2;
+     * @generated from field: stead.machine.v1.FileFailure failure = 2;
      */
-    value: Failure;
+    value: FileFailure;
     case: "failure";
   } | { case: undefined; value?: undefined };
 };
@@ -517,6 +419,40 @@ export type EditResponse = Message<"stead.machine.v1.EditResponse"> & {
  * Use `create(EditResponseSchema)` to create a new message.
  */
 export const EditResponseSchema: GenMessage<EditResponse> = /*@__PURE__*/
+  messageDesc(file_stead_machine_v1_files, 12);
+
+/**
+ * @generated from message stead.machine.v1.WriteRequest
+ */
+export type WriteRequest = Message<"stead.machine.v1.WriteRequest"> & {
+  /**
+   * @generated from field: string idempotency_key = 1;
+   */
+  idempotencyKey: string;
+
+  /**
+   * @generated from field: string path = 2;
+   */
+  path: string;
+
+  /**
+   * @generated from field: string content = 3;
+   */
+  content: string;
+
+  /**
+   * Replace an existing regular file instead of refusing with FILE_EXISTS.
+   *
+   * @generated from field: bool replace = 4;
+   */
+  replace: boolean;
+};
+
+/**
+ * Describes the message stead.machine.v1.WriteRequest.
+ * Use `create(WriteRequestSchema)` to create a new message.
+ */
+export const WriteRequestSchema: GenMessage<WriteRequest> = /*@__PURE__*/
   messageDesc(file_stead_machine_v1_files, 13);
 
 /**
@@ -528,15 +464,15 @@ export type WriteResponse = Message<"stead.machine.v1.WriteResponse"> & {
    */
   result: {
     /**
-     * @generated from field: stead.machine.v1.MutateSuccess success = 1;
+     * @generated from field: stead.machine.v1.Mutation mutation = 1;
      */
-    value: MutateSuccess;
-    case: "success";
+    value: Mutation;
+    case: "mutation";
   } | {
     /**
-     * @generated from field: stead.machine.v1.Failure failure = 2;
+     * @generated from field: stead.machine.v1.FileFailure failure = 2;
      */
-    value: Failure;
+    value: FileFailure;
     case: "failure";
   } | { case: undefined; value?: undefined };
 };
@@ -549,23 +485,80 @@ export const WriteResponseSchema: GenMessage<WriteResponse> = /*@__PURE__*/
   messageDesc(file_stead_machine_v1_files, 14);
 
 /**
- * @generated from message stead.machine.v1.ReadBytesRequest
+ * What a successful edit or write did.
+ *
+ * @generated from message stead.machine.v1.Mutation
  */
-export type ReadBytesRequest = Message<"stead.machine.v1.ReadBytesRequest"> & {
+export type Mutation = Message<"stead.machine.v1.Mutation"> & {
   /**
-   * @generated from field: stead.machine.v1.Envelope envelope = 1;
-   */
-  envelope?: Envelope | undefined;
-
-  /**
-   * @generated from field: string path = 2;
+   * @generated from field: string path = 1;
    */
   path: string;
 
   /**
-   * Largest file the daemon sends.
+   * @generated from field: bool created = 2;
+   */
+  created: boolean;
+
+  /**
+   * @generated from field: bool replaced = 3;
+   */
+  replaced: boolean;
+
+  /**
+   * The written or post-edit file's line count.
    *
-   * @generated from field: uint64 max_bytes = 3;
+   * @generated from field: uint32 line_count = 4;
+   */
+  lineCount: number;
+
+  /**
+   * The numbered post-edit region with two lines of context; empty for a write.
+   *
+   * @generated from field: string content = 5;
+   */
+  content: string;
+
+  /**
+   * @generated from field: optional stead.machine.v1.LineRange shown_range = 6;
+   */
+  shownRange?: LineRange | undefined;
+
+  /**
+   * The daemon's own bound cut the region.
+   *
+   * @generated from field: bool cut = 7;
+   */
+  cut: boolean;
+
+  /**
+   * The post-edit line the replacement starts at; unset for a write.
+   *
+   * @generated from field: optional uint32 display_start_line = 8;
+   */
+  displayStartLine?: number | undefined;
+};
+
+/**
+ * Describes the message stead.machine.v1.Mutation.
+ * Use `create(MutationSchema)` to create a new message.
+ */
+export const MutationSchema: GenMessage<Mutation> = /*@__PURE__*/
+  messageDesc(file_stead_machine_v1_files, 15);
+
+/**
+ * @generated from message stead.machine.v1.ReadBytesRequest
+ */
+export type ReadBytesRequest = Message<"stead.machine.v1.ReadBytesRequest"> & {
+  /**
+   * @generated from field: string path = 1;
+   */
+  path: string;
+
+  /**
+   * Largest file the daemon sends; above it the failure is MEDIA_TOO_LARGE.
+   *
+   * @generated from field: uint64 max_bytes = 2;
    */
   maxBytes: bigint;
 };
@@ -575,28 +568,6 @@ export type ReadBytesRequest = Message<"stead.machine.v1.ReadBytesRequest"> & {
  * Use `create(ReadBytesRequestSchema)` to create a new message.
  */
 export const ReadBytesRequestSchema: GenMessage<ReadBytesRequest> = /*@__PURE__*/
-  messageDesc(file_stead_machine_v1_files, 15);
-
-/**
- * @generated from message stead.machine.v1.BytesHeader
- */
-export type BytesHeader = Message<"stead.machine.v1.BytesHeader"> & {
-  /**
-   * @generated from field: uint64 size = 1;
-   */
-  size: bigint;
-
-  /**
-   * @generated from field: string media_type = 2;
-   */
-  mediaType: string;
-};
-
-/**
- * Describes the message stead.machine.v1.BytesHeader.
- * Use `create(BytesHeaderSchema)` to create a new message.
- */
-export const BytesHeaderSchema: GenMessage<BytesHeader> = /*@__PURE__*/
   messageDesc(file_stead_machine_v1_files, 16);
 
 /**
@@ -620,9 +591,9 @@ export type ReadBytesResponse = Message<"stead.machine.v1.ReadBytesResponse"> & 
     case: "chunk";
   } | {
     /**
-     * @generated from field: stead.machine.v1.Failure failure = 3;
+     * @generated from field: stead.machine.v1.FileFailure failure = 3;
      */
-    value: Failure;
+    value: FileFailure;
     case: "failure";
   } | { case: undefined; value?: undefined };
 };
@@ -635,6 +606,87 @@ export const ReadBytesResponseSchema: GenMessage<ReadBytesResponse> = /*@__PURE_
   messageDesc(file_stead_machine_v1_files, 17);
 
 /**
+ * @generated from message stead.machine.v1.BytesHeader
+ */
+export type BytesHeader = Message<"stead.machine.v1.BytesHeader"> & {
+  /**
+   * @generated from field: uint64 size = 1;
+   */
+  size: bigint;
+
+  /**
+   * From the file's leading bytes: image/png, image/jpeg, image/gif, image/webp, application/pdf.
+   *
+   * @generated from field: string media_type = 2;
+   */
+  mediaType: string;
+};
+
+/**
+ * Describes the message stead.machine.v1.BytesHeader.
+ * Use `create(BytesHeaderSchema)` to create a new message.
+ */
+export const BytesHeaderSchema: GenMessage<BytesHeader> = /*@__PURE__*/
+  messageDesc(file_stead_machine_v1_files, 18);
+
+/**
+ * @generated from message stead.machine.v1.GrepRequest
+ */
+export type GrepRequest = Message<"stead.machine.v1.GrepRequest"> & {
+  /**
+   * The absolute literal prefix: a directory or a file.
+   *
+   * @generated from field: string path = 1;
+   */
+  path: string;
+
+  /**
+   * The glob text from the first glob segment on; empty for none. `{}` and `[]` are refused.
+   *
+   * @generated from field: string glob_suffix = 2;
+   */
+  globSuffix: string;
+
+  /**
+   * 1 to 8 patterns, each up to 512 bytes, RE2 syntax unless `literal`.
+   *
+   * @generated from field: repeated string patterns = 3;
+   */
+  patterns: string[];
+
+  /**
+   * @generated from field: bool literal = 4;
+   */
+  literal: boolean;
+
+  /**
+   * @generated from field: bool ignore_case = 5;
+   */
+  ignoreCase: boolean;
+
+  /**
+   * The cursor of an earlier page of the same search; another search's cursor is INVALID_ARGUMENT.
+   *
+   * @generated from field: string cursor = 6;
+   */
+  cursor: string;
+
+  /**
+   * @generated from field: stead.machine.v1.GrepBounds bounds = 7;
+   */
+  bounds?: GrepBounds | undefined;
+};
+
+/**
+ * Describes the message stead.machine.v1.GrepRequest.
+ * Use `create(GrepRequestSchema)` to create a new message.
+ */
+export const GrepRequestSchema: GenMessage<GrepRequest> = /*@__PURE__*/
+  messageDesc(file_stead_machine_v1_files, 19);
+
+/**
+ * What is left of a search's bounds. An unset count is unbounded.
+ *
  * @generated from message stead.machine.v1.GrepBounds
  */
 export type GrepBounds = Message<"stead.machine.v1.GrepBounds"> & {
@@ -654,6 +706,8 @@ export type GrepBounds = Message<"stead.machine.v1.GrepBounds"> & {
   bytes?: bigint | undefined;
 
   /**
+   * Largest file read, by announced and read size.
+   *
    * @generated from field: optional uint64 file_bytes = 4;
    */
   fileBytes?: bigint | undefined;
@@ -664,16 +718,22 @@ export type GrepBounds = Message<"stead.machine.v1.GrepBounds"> & {
   deadlineMs: bigint;
 
   /**
+   * Most passages on the page.
+   *
    * @generated from field: uint32 limit = 6;
    */
   limit: number;
 
   /**
+   * The page bound in UTF-16 code units of rendered text.
+   *
    * @generated from field: uint32 page_units = 7;
    */
   pageUnits: number;
 
   /**
+   * Whether the call already progressed in an earlier page.
+   *
    * @generated from field: bool progressed = 8;
    */
   progressed: boolean;
@@ -684,68 +744,114 @@ export type GrepBounds = Message<"stead.machine.v1.GrepBounds"> & {
  * Use `create(GrepBoundsSchema)` to create a new message.
  */
 export const GrepBoundsSchema: GenMessage<GrepBounds> = /*@__PURE__*/
-  messageDesc(file_stead_machine_v1_files, 18);
+  messageDesc(file_stead_machine_v1_files, 20);
 
 /**
- * @generated from message stead.machine.v1.GrepRequest
+ * @generated from message stead.machine.v1.GrepResponse
  */
-export type GrepRequest = Message<"stead.machine.v1.GrepRequest"> & {
+export type GrepResponse = Message<"stead.machine.v1.GrepResponse"> & {
   /**
-   * @generated from field: stead.machine.v1.Envelope envelope = 1;
+   * @generated from oneof stead.machine.v1.GrepResponse.result
    */
-  envelope?: Envelope | undefined;
-
-  /**
-   * The absolute literal prefix.
-   *
-   * @generated from field: string path = 2;
-   */
-  path: string;
-
-  /**
-   * @generated from field: optional string glob_suffix = 3;
-   */
-  globSuffix?: string | undefined;
-
-  /**
-   * @generated from field: repeated string patterns = 4;
-   */
-  patterns: string[];
-
-  /**
-   * @generated from field: bool literal = 5;
-   */
-  literal: boolean;
-
-  /**
-   * @generated from field: bool ignore_case = 6;
-   */
-  ignoreCase: boolean;
-
-  /**
-   * @generated from field: optional string cursor = 7;
-   */
-  cursor?: string | undefined;
-
-  /**
-   * @generated from field: stead.machine.v1.GrepBounds bounds = 8;
-   */
-  bounds?: GrepBounds | undefined;
+  result: {
+    /**
+     * @generated from field: stead.machine.v1.GrepPage page = 1;
+     */
+    value: GrepPage;
+    case: "page";
+  } | {
+    /**
+     * @generated from field: stead.machine.v1.FileFailure failure = 2;
+     */
+    value: FileFailure;
+    case: "failure";
+  } | { case: undefined; value?: undefined };
 };
 
 /**
- * Describes the message stead.machine.v1.GrepRequest.
- * Use `create(GrepRequestSchema)` to create a new message.
+ * Describes the message stead.machine.v1.GrepResponse.
+ * Use `create(GrepResponseSchema)` to create a new message.
  */
-export const GrepRequestSchema: GenMessage<GrepRequest> = /*@__PURE__*/
-  messageDesc(file_stead_machine_v1_files, 19);
+export const GrepResponseSchema: GenMessage<GrepResponse> = /*@__PURE__*/
+  messageDesc(file_stead_machine_v1_files, 21);
 
 /**
- * @generated from message stead.machine.v1.GrepPassage
+ * @generated from message stead.machine.v1.GrepPage
  */
-export type GrepPassage = Message<"stead.machine.v1.GrepPassage"> & {
+export type GrepPage = Message<"stead.machine.v1.GrepPage"> & {
   /**
-   * Relative to the prefix, `/`-separated; empty when the prefix is the file.
+   * @generated from field: repeated stead.machine.v1.Passage passages = 1;
+   */
+  passages: Passage[];
+
+  /**
+   * No more pages.
+   *
+   * @generated from field: bool complete = 2;
+   */
+  complete: boolean;
+
+  /**
+   * The next page's cursor when not complete.
+   *
+   * @generated from field: string cursor = 3;
+   */
+  cursor: string;
+
+  /**
+   * @generated from field: repeated stead.machine.v1.GrepWarning warnings = 4;
+   */
+  warnings: GrepWarning[];
+
+  /**
+   * @generated from field: stead.machine.v1.GrepConsumed consumed = 5;
+   */
+  consumed?: GrepConsumed | undefined;
+
+  /**
+   * Whether the walk got past where this call started.
+   *
+   * @generated from field: bool progressed = 6;
+   */
+  progressed: boolean;
+
+  /**
+   * The file a bound stopped the walk inside before any progress, relative to the prefix.
+   *
+   * @generated from field: string unfinished = 7;
+   */
+  unfinished: string;
+
+  /**
+   * Directories an ignore rule excluded, relative to the prefix.
+   *
+   * @generated from field: repeated string ignored = 8;
+   */
+  ignored: string[];
+
+  /**
+   * More directories were excluded than listed in `ignored`.
+   *
+   * @generated from field: bool ignored_at_least = 9;
+   */
+  ignoredAtLeast: boolean;
+};
+
+/**
+ * Describes the message stead.machine.v1.GrepPage.
+ * Use `create(GrepPageSchema)` to create a new message.
+ */
+export const GrepPageSchema: GenMessage<GrepPage> = /*@__PURE__*/
+  messageDesc(file_stead_machine_v1_files, 22);
+
+/**
+ * One group of nearby matches with context, named relative to the prefix.
+ *
+ * @generated from message stead.machine.v1.Passage
+ */
+export type Passage = Message<"stead.machine.v1.Passage"> & {
+  /**
+   * `/`-separated; empty when the prefix is the file.
    *
    * @generated from field: string path = 1;
    */
@@ -762,11 +868,15 @@ export type GrepPassage = Message<"stead.machine.v1.GrepPassage"> & {
   endLine: number;
 
   /**
+   * Numbered lines.
+   *
    * @generated from field: string content = 4;
    */
   content: string;
 
   /**
+   * The matching line numbers.
+   *
    * @generated from field: repeated uint32 matches = 5;
    */
   matches: number[];
@@ -777,31 +887,35 @@ export type GrepPassage = Message<"stead.machine.v1.GrepPassage"> & {
   truncated: boolean;
 
   /**
+   * The passage is its file's twentieth; later ones are not reported.
+   *
    * @generated from field: bool capped = 7;
    */
   capped: boolean;
 
   /**
+   * The page cut this passage at a line boundary; the next page continues it.
+   *
    * @generated from field: bool cut = 8;
    */
   cut: boolean;
 };
 
 /**
- * Describes the message stead.machine.v1.GrepPassage.
- * Use `create(GrepPassageSchema)` to create a new message.
+ * Describes the message stead.machine.v1.Passage.
+ * Use `create(PassageSchema)` to create a new message.
  */
-export const GrepPassageSchema: GenMessage<GrepPassage> = /*@__PURE__*/
-  messageDesc(file_stead_machine_v1_files, 20);
+export const PassageSchema: GenMessage<Passage> = /*@__PURE__*/
+  messageDesc(file_stead_machine_v1_files, 23);
 
 /**
  * @generated from message stead.machine.v1.GrepWarning
  */
 export type GrepWarning = Message<"stead.machine.v1.GrepWarning"> & {
   /**
-   * @generated from field: string kind = 1;
+   * @generated from field: stead.machine.v1.GrepWarningKind kind = 1;
    */
-  kind: string;
+  kind: GrepWarningKind;
 
   /**
    * @generated from field: uint64 count = 2;
@@ -814,7 +928,7 @@ export type GrepWarning = Message<"stead.machine.v1.GrepWarning"> & {
  * Use `create(GrepWarningSchema)` to create a new message.
  */
 export const GrepWarningSchema: GenMessage<GrepWarning> = /*@__PURE__*/
-  messageDesc(file_stead_machine_v1_files, 21);
+  messageDesc(file_stead_machine_v1_files, 24);
 
 /**
  * @generated from message stead.machine.v1.GrepConsumed
@@ -841,157 +955,260 @@ export type GrepConsumed = Message<"stead.machine.v1.GrepConsumed"> & {
  * Use `create(GrepConsumedSchema)` to create a new message.
  */
 export const GrepConsumedSchema: GenMessage<GrepConsumed> = /*@__PURE__*/
-  messageDesc(file_stead_machine_v1_files, 22);
-
-/**
- * @generated from message stead.machine.v1.GrepIgnored
- */
-export type GrepIgnored = Message<"stead.machine.v1.GrepIgnored"> & {
-  /**
-   * @generated from field: repeated string paths = 1;
-   */
-  paths: string[];
-
-  /**
-   * @generated from field: bool at_least = 2;
-   */
-  atLeast: boolean;
-};
-
-/**
- * Describes the message stead.machine.v1.GrepIgnored.
- * Use `create(GrepIgnoredSchema)` to create a new message.
- */
-export const GrepIgnoredSchema: GenMessage<GrepIgnored> = /*@__PURE__*/
-  messageDesc(file_stead_machine_v1_files, 23);
-
-/**
- * @generated from message stead.machine.v1.GrepSuccess
- */
-export type GrepSuccess = Message<"stead.machine.v1.GrepSuccess"> & {
-  /**
-   * @generated from field: repeated stead.machine.v1.GrepPassage results = 1;
-   */
-  results: GrepPassage[];
-
-  /**
-   * @generated from field: bool complete = 2;
-   */
-  complete: boolean;
-
-  /**
-   * @generated from field: optional string cursor = 3;
-   */
-  cursor?: string | undefined;
-
-  /**
-   * @generated from field: repeated stead.machine.v1.GrepWarning warnings = 4;
-   */
-  warnings: GrepWarning[];
-
-  /**
-   * @generated from field: stead.machine.v1.GrepConsumed consumed = 5;
-   */
-  consumed?: GrepConsumed | undefined;
-
-  /**
-   * @generated from field: bool progressed = 6;
-   */
-  progressed: boolean;
-
-  /**
-   * @generated from field: optional string unfinished = 7;
-   */
-  unfinished?: string | undefined;
-
-  /**
-   * @generated from field: optional stead.machine.v1.GrepIgnored ignored = 8;
-   */
-  ignored?: GrepIgnored | undefined;
-};
-
-/**
- * Describes the message stead.machine.v1.GrepSuccess.
- * Use `create(GrepSuccessSchema)` to create a new message.
- */
-export const GrepSuccessSchema: GenMessage<GrepSuccess> = /*@__PURE__*/
-  messageDesc(file_stead_machine_v1_files, 24);
-
-/**
- * @generated from message stead.machine.v1.GrepResponse
- */
-export type GrepResponse = Message<"stead.machine.v1.GrepResponse"> & {
-  /**
-   * @generated from oneof stead.machine.v1.GrepResponse.result
-   */
-  result: {
-    /**
-     * @generated from field: stead.machine.v1.GrepSuccess success = 1;
-     */
-    value: GrepSuccess;
-    case: "success";
-  } | {
-    /**
-     * @generated from field: stead.machine.v1.Failure failure = 2;
-     */
-    value: Failure;
-    case: "failure";
-  } | { case: undefined; value?: undefined };
-};
-
-/**
- * Describes the message stead.machine.v1.GrepResponse.
- * Use `create(GrepResponseSchema)` to create a new message.
- */
-export const GrepResponseSchema: GenMessage<GrepResponse> = /*@__PURE__*/
   messageDesc(file_stead_machine_v1_files, 25);
 
 /**
- * @generated from enum stead.machine.v1.StatKind
+ * FileFailureReason is why a file operation that started did not succeed.
+ *
+ * @generated from enum stead.machine.v1.FileFailureReason
  */
-export enum StatKind {
+export enum FileFailureReason {
   /**
-   * @generated from enum value: STAT_KIND_UNSPECIFIED = 0;
+   * @generated from enum value: FILE_FAILURE_REASON_UNSPECIFIED = 0;
    */
   UNSPECIFIED = 0,
 
   /**
-   * @generated from enum value: STAT_KIND_FILE = 1;
+   * @generated from enum value: FILE_FAILURE_REASON_INVALID_PATH = 1;
+   */
+  INVALID_PATH = 1,
+
+  /**
+   * @generated from enum value: FILE_FAILURE_REASON_INVALID_SELECTOR = 2;
+   */
+  INVALID_SELECTOR = 2,
+
+  /**
+   * @generated from enum value: FILE_FAILURE_REASON_NOT_FOUND = 3;
+   */
+  NOT_FOUND = 3,
+
+  /**
+   * @generated from enum value: FILE_FAILURE_REASON_NOT_REGULAR_FILE = 4;
+   */
+  NOT_REGULAR_FILE = 4,
+
+  /**
+   * @generated from enum value: FILE_FAILURE_REASON_INVALID_UTF8 = 5;
+   */
+  INVALID_UTF8 = 5,
+
+  /**
+   * @generated from enum value: FILE_FAILURE_REASON_INVALID_INPUT = 6;
+   */
+  INVALID_INPUT = 6,
+
+  /**
+   * @generated from enum value: FILE_FAILURE_REASON_FILE_EXISTS = 7;
+   */
+  FILE_EXISTS = 7,
+
+  /**
+   * @generated from enum value: FILE_FAILURE_REASON_OLD_TEXT_NOT_FOUND = 8;
+   */
+  OLD_TEXT_NOT_FOUND = 8,
+
+  /**
+   * old_text occurs more than once; `count` says how often.
+   *
+   * @generated from enum value: FILE_FAILURE_REASON_OLD_TEXT_AMBIGUOUS = 9;
+   */
+  OLD_TEXT_AMBIGUOUS = 9,
+
+  /**
+   * The effect may or may not have happened; the installation never repeats it.
+   *
+   * @generated from enum value: FILE_FAILURE_REASON_OUTCOME_UNKNOWN = 10;
+   */
+  OUTCOME_UNKNOWN = 10,
+
+  /**
+   * @generated from enum value: FILE_FAILURE_REASON_DIRECTORY_TOO_LARGE = 11;
+   */
+  DIRECTORY_TOO_LARGE = 11,
+
+  /**
+   * @generated from enum value: FILE_FAILURE_REASON_REPRESENTATION_TOO_LARGE = 12;
+   */
+  REPRESENTATION_TOO_LARGE = 12,
+
+  /**
+   * @generated from enum value: FILE_FAILURE_REASON_MEDIA_TOO_LARGE = 13;
+   */
+  MEDIA_TOO_LARGE = 13,
+
+  /**
+   * @generated from enum value: FILE_FAILURE_REASON_UNSUPPORTED_MEDIA_TYPE = 14;
+   */
+  UNSUPPORTED_MEDIA_TYPE = 14,
+}
+
+/**
+ * Describes the enum stead.machine.v1.FileFailureReason.
+ */
+export const FileFailureReasonSchema: GenEnum<FileFailureReason> = /*@__PURE__*/
+  enumDesc(file_stead_machine_v1_files, 0);
+
+/**
+ * @generated from enum stead.machine.v1.EntryKind
+ */
+export enum EntryKind {
+  /**
+   * @generated from enum value: ENTRY_KIND_UNSPECIFIED = 0;
+   */
+  UNSPECIFIED = 0,
+
+  /**
+   * @generated from enum value: ENTRY_KIND_FILE = 1;
    */
   FILE = 1,
 
   /**
-   * @generated from enum value: STAT_KIND_DIRECTORY = 2;
+   * @generated from enum value: ENTRY_KIND_DIRECTORY = 2;
    */
   DIRECTORY = 2,
 
   /**
-   * @generated from enum value: STAT_KIND_OTHER = 3;
+   * A symbolic link, never followed by a listing.
+   *
+   * @generated from enum value: ENTRY_KIND_LINK = 3;
    */
-  OTHER = 3,
+  LINK = 3,
 
   /**
-   * @generated from enum value: STAT_KIND_MISSING = 4;
+   * @generated from enum value: ENTRY_KIND_OTHER = 4;
    */
-  MISSING = 4,
+  OTHER = 4,
+
+  /**
+   * @generated from enum value: ENTRY_KIND_MISSING = 5;
+   */
+  MISSING = 5,
 }
 
 /**
- * Describes the enum stead.machine.v1.StatKind.
+ * Describes the enum stead.machine.v1.EntryKind.
  */
-export const StatKindSchema: GenEnum<StatKind> = /*@__PURE__*/
-  enumDesc(file_stead_machine_v1_files, 0);
+export const EntryKindSchema: GenEnum<EntryKind> = /*@__PURE__*/
+  enumDesc(file_stead_machine_v1_files, 1);
 
 /**
- * File operations on absolute host paths inside the registered roots. A path
- * outside every root is refused with PERMISSION_DENIED and the reason
- * `path_not_registered`, in the same words whether or not it exists. Result
- * paths are host paths; the installation renders locators.
+ * @generated from enum stead.machine.v1.Representation
+ */
+export enum Representation {
+  /**
+   * @generated from enum value: REPRESENTATION_UNSPECIFIED = 0;
+   */
+  UNSPECIFIED = 0,
+
+  /**
+   * Numbered lines.
+   *
+   * @generated from enum value: REPRESENTATION_TEXT = 1;
+   */
+  TEXT = 1,
+
+  /**
+   * Verbatim lines.
+   *
+   * @generated from enum value: REPRESENTATION_RAW = 2;
+   */
+  RAW = 2,
+
+  /**
+   * Markdown headings, frontmatter keys, and table excerpts.
+   *
+   * @generated from enum value: REPRESENTATION_OUTLINE = 3;
+   */
+  OUTLINE = 3,
+}
+
+/**
+ * Describes the enum stead.machine.v1.Representation.
+ */
+export const RepresentationSchema: GenEnum<Representation> = /*@__PURE__*/
+  enumDesc(file_stead_machine_v1_files, 2);
+
+/**
+ * Why files were skipped.
+ *
+ * @generated from enum stead.machine.v1.GrepWarningKind
+ */
+export enum GrepWarningKind {
+  /**
+   * @generated from enum value: GREP_WARNING_KIND_UNSPECIFIED = 0;
+   */
+  UNSPECIFIED = 0,
+
+  /**
+   * @generated from enum value: GREP_WARNING_KIND_BINARY = 1;
+   */
+  BINARY = 1,
+
+  /**
+   * @generated from enum value: GREP_WARNING_KIND_INVALID_UTF8 = 2;
+   */
+  INVALID_UTF8 = 2,
+
+  /**
+   * @generated from enum value: GREP_WARNING_KIND_OVERSIZED = 3;
+   */
+  OVERSIZED = 3,
+
+  /**
+   * @generated from enum value: GREP_WARNING_KIND_UNREADABLE = 4;
+   */
+  UNREADABLE = 4,
+
+  /**
+   * @generated from enum value: GREP_WARNING_KIND_LINK = 5;
+   */
+  LINK = 5,
+
+  /**
+   * @generated from enum value: GREP_WARNING_KIND_FILE_BOUND = 6;
+   */
+  FILE_BOUND = 6,
+
+  /**
+   * @generated from enum value: GREP_WARNING_KIND_ENTRY_BOUND = 7;
+   */
+  ENTRY_BOUND = 7,
+
+  /**
+   * @generated from enum value: GREP_WARNING_KIND_BYTE_BOUND = 8;
+   */
+  BYTE_BOUND = 8,
+
+  /**
+   * @generated from enum value: GREP_WARNING_KIND_ARTIFACT_BOUND = 9;
+   */
+  ARTIFACT_BOUND = 9,
+
+  /**
+   * @generated from enum value: GREP_WARNING_KIND_DEADLINE = 10;
+   */
+  DEADLINE = 10,
+}
+
+/**
+ * Describes the enum stead.machine.v1.GrepWarningKind.
+ */
+export const GrepWarningKindSchema: GenEnum<GrepWarningKind> = /*@__PURE__*/
+  enumDesc(file_stead_machine_v1_files, 3);
+
+/**
+ * FilesService reads and changes files under the registered roots. Every path is an absolute host
+ * path; a path outside every root, or one that resolves outside, is refused with
+ * PATH_NOT_REGISTERED in the same words whether or not it exists. Results name host paths; the
+ * installation renders locators. A failure of work that started is a FileFailure in the response.
  *
  * @generated from service stead.machine.v1.FilesService
  */
 export const FilesService: GenService<{
   /**
+   * Stat reports what is at a path without opening it.
+   *
    * @generated from rpc stead.machine.v1.FilesService.Stat
    */
   stat: {
@@ -1000,14 +1217,19 @@ export const FilesService: GenService<{
     output: typeof StatResponseSchema;
   },
   /**
+   * List returns the entries of one directory level, up to a bound.
+   *
    * @generated from rpc stead.machine.v1.FilesService.List
    */
   list: {
     methodKind: "unary";
-    input: typeof ListRequestSchema;
-    output: typeof ListResponseSchema;
+    input: typeof FilesServiceListRequestSchema;
+    output: typeof FilesServiceListResponseSchema;
   },
   /**
+   * Read returns a bounded, numbered text window of a file or a listing of a directory, as the
+   * selector asks. Image and PDF bytes come from ReadBytes.
+   *
    * @generated from rpc stead.machine.v1.FilesService.Read
    */
   read: {
@@ -1016,6 +1238,9 @@ export const FilesService: GenService<{
     output: typeof ReadResponseSchema;
   },
   /**
+   * Edit replaces exactly one occurrence of old_text with new_text. A resend with the same
+   * idempotency key returns the first result instead of editing again.
+   *
    * @generated from rpc stead.machine.v1.FilesService.Edit
    */
   edit: {
@@ -1024,6 +1249,8 @@ export const FilesService: GenService<{
     output: typeof EditResponseSchema;
   },
   /**
+   * Write creates a file, or replaces one when `replace` is set, with the same key rule as Edit.
+   *
    * @generated from rpc stead.machine.v1.FilesService.Write
    */
   write: {
@@ -1032,7 +1259,7 @@ export const FilesService: GenService<{
     output: typeof WriteResponseSchema;
   },
   /**
-   * The header (or a failure) first, then the bytes in chunks.
+   * ReadBytes streams an image or PDF: the header or a failure first, then 512 KiB chunks.
    *
    * @generated from rpc stead.machine.v1.FilesService.ReadBytes
    */
@@ -1042,6 +1269,8 @@ export const FilesService: GenService<{
     output: typeof ReadBytesResponseSchema;
   },
   /**
+   * Grep searches file contents under a prefix, bounded, with a cursor for the next page.
+   *
    * @generated from rpc stead.machine.v1.FilesService.Grep
    */
   grep: {

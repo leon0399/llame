@@ -2,212 +2,320 @@ syntax = "proto3";
 
 package stead.machine.v1;
 
-import "stead/machine/v1/common.proto";
-
-// File operations on absolute host paths inside the registered roots. A path
-// outside every root is refused with PERMISSION_DENIED and the reason
-// `path_not_registered`, in the same words whether or not it exists. Result
-// paths are host paths; the installation renders locators.
+// FilesService reads and changes files under the registered roots. Every path is an absolute host
+// path; a path outside every root, or one that resolves outside, is refused with
+// PATH_NOT_REGISTERED in the same words whether or not it exists. Results name host paths; the
+// installation renders locators. A failure of work that started is a FileFailure in the response.
 service FilesService {
-  rpc Stat(StatRequest) returns (StatResponse);
-  rpc List(ListRequest) returns (ListResponse);
-  rpc Read(ReadRequest) returns (ReadResponse);
-  rpc Edit(EditRequest) returns (EditResponse);
-  rpc Write(WriteRequest) returns (WriteResponse);
-  // The header (or a failure) first, then the bytes in chunks.
-  rpc ReadBytes(ReadBytesRequest) returns (stream ReadBytesResponse);
-  rpc Grep(GrepRequest) returns (GrepResponse);
+  // Stat reports what is at a path without opening it.
+  rpc Stat(StatRequest) returns (StatResponse) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+  }
+  // List returns the entries of one directory level, up to a bound.
+  rpc List(FilesServiceListRequest) returns (FilesServiceListResponse) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+  }
+  // Read returns a bounded, numbered text window of a file or a listing of a directory, as the
+  // selector asks. Image and PDF bytes come from ReadBytes.
+  rpc Read(ReadRequest) returns (ReadResponse) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+  }
+  // Edit replaces exactly one occurrence of old_text with new_text. A resend with the same
+  // idempotency key returns the first result instead of editing again.
+  rpc Edit(EditRequest) returns (EditResponse) {}
+  // Write creates a file, or replaces one when `replace` is set, with the same key rule as Edit.
+  rpc Write(WriteRequest) returns (WriteResponse) {}
+  // ReadBytes streams an image or PDF: the header or a failure first, then 512 KiB chunks.
+  rpc ReadBytes(ReadBytesRequest) returns (stream ReadBytesResponse) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+  }
+  // Grep searches file contents under a prefix, bounded, with a cursor for the next page.
+  rpc Grep(GrepRequest) returns (GrepResponse) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+  }
+}
+
+// FileFailureReason is why a file operation that started did not succeed.
+enum FileFailureReason {
+  FILE_FAILURE_REASON_UNSPECIFIED = 0;
+  FILE_FAILURE_REASON_INVALID_PATH = 1;
+  FILE_FAILURE_REASON_INVALID_SELECTOR = 2;
+  FILE_FAILURE_REASON_NOT_FOUND = 3;
+  FILE_FAILURE_REASON_NOT_REGULAR_FILE = 4;
+  FILE_FAILURE_REASON_INVALID_UTF8 = 5;
+  FILE_FAILURE_REASON_INVALID_INPUT = 6;
+  FILE_FAILURE_REASON_FILE_EXISTS = 7;
+  FILE_FAILURE_REASON_OLD_TEXT_NOT_FOUND = 8;
+  // old_text occurs more than once; `count` says how often.
+  FILE_FAILURE_REASON_OLD_TEXT_AMBIGUOUS = 9;
+  // The effect may or may not have happened; the installation never repeats it.
+  FILE_FAILURE_REASON_OUTCOME_UNKNOWN = 10;
+  FILE_FAILURE_REASON_DIRECTORY_TOO_LARGE = 11;
+  FILE_FAILURE_REASON_REPRESENTATION_TOO_LARGE = 12;
+  FILE_FAILURE_REASON_MEDIA_TOO_LARGE = 13;
+  FILE_FAILURE_REASON_UNSUPPORTED_MEDIA_TYPE = 14;
+}
+
+message FileFailure {
+  FileFailureReason reason = 1;
+  // For the owner and the model; may name the host path.
+  string message = 2;
+  optional uint32 count = 3;
+}
+
+enum EntryKind {
+  ENTRY_KIND_UNSPECIFIED = 0;
+  ENTRY_KIND_FILE = 1;
+  ENTRY_KIND_DIRECTORY = 2;
+  // A symbolic link, never followed by a listing.
+  ENTRY_KIND_LINK = 3;
+  ENTRY_KIND_OTHER = 4;
+  ENTRY_KIND_MISSING = 5;
+}
+
+message LineRange {
+  // 1-based, inclusive.
+  uint32 start_line = 1;
+  uint32 end_line = 2;
 }
 
 message StatRequest {
-  Envelope envelope = 1;
-  string path = 2;
-}
-
-enum StatKind {
-  STAT_KIND_UNSPECIFIED = 0;
-  STAT_KIND_FILE = 1;
-  STAT_KIND_DIRECTORY = 2;
-  STAT_KIND_OTHER = 3;
-  STAT_KIND_MISSING = 4;
+  string path = 1;
 }
 
 message StatResponse {
-  StatKind kind = 1;
+  // MISSING when nothing is there; LINK is never reported here, see is_link.
+  EntryKind kind = 1;
   optional uint64 size = 2;
+  // The canonical path when the path resolves elsewhere.
   optional string real_path = 3;
   bool is_link = 4;
 }
 
-message ListRequest {
-  Envelope envelope = 1;
-  string path = 2;
+message FilesServiceListRequest {
+  string path = 1;
 }
 
-message ListEntry {
-  string name = 1;
-  // "file", "directory", "link", or "other".
-  string kind = 2;
+message FilesServiceListResponse {
+  oneof result {
+    Listing listing = 1;
+    FileFailure failure = 2;
+  }
 }
 
-message ListSuccess {
-  repeated ListEntry entries = 1;
+message Listing {
+  repeated Entry entries = 1;
+  // Every entry the directory holds, of which `entries` may be a head.
   uint32 total_count = 2;
   bool truncated = 3;
 }
 
-message ListResponse {
-  oneof result {
-    ListSuccess success = 1;
-    Failure failure = 2;
-  }
-}
-
-// How the result is shown: the selector suffix (for example `:5-10`, `:raw`,
-// `:outline`), and room withheld from the result bound for the caller.
-message DisplayOptions {
-  optional string selector = 1;
-  optional uint32 reserve_code_units = 2;
+message Entry {
+  string name = 1;
+  EntryKind kind = 2;
 }
 
 message ReadRequest {
-  Envelope envelope = 1;
-  string path = 2;
-  DisplayOptions options = 3;
-}
-
-message ReadSuccess {
-  // "file" or "directory".
-  string kind = 1;
-  string path = 2;
-  optional string real_path = 3;
-  string content = 4;
-  bool truncated = 5;
-  optional uint32 next_offset = 6;
-  optional uint32 line_count = 7;
-  optional uint32 entry_count = 8;
-  // "text", "raw", or "outline".
-  optional string representation = 9;
-  optional OptionalLineRange requested_range = 10;
-  optional OptionalLineRange shown_range = 11;
-  repeated LineRange requested_ranges = 12;
-  repeated LineRange shown_ranges = 13;
+  string path = 1;
+  // The selector suffix without the path, for example `:L5-10`, `:raw`, `:outline`; empty for the
+  // default window.
+  string selector = 2;
+  // Room withheld from the result bound for the caller's own framing, in UTF-16 code units.
+  uint32 reserve_code_units = 3;
 }
 
 message ReadResponse {
   oneof result {
-    ReadSuccess success = 1;
-    Failure failure = 2;
+    TextRead text = 1;
+    FileFailure failure = 2;
   }
 }
 
-message EditRequest {
-  Envelope envelope = 1;
-  // A key the installation draws per call; a resend with the same key returns
-  // the first result instead of editing again.
-  string idempotency_key = 2;
-  string path = 3;
-  DisplayOptions options = 4;
-  string old_text = 5;
-  string new_text = 6;
+enum Representation {
+  REPRESENTATION_UNSPECIFIED = 0;
+  // Numbered lines.
+  REPRESENTATION_TEXT = 1;
+  // Verbatim lines.
+  REPRESENTATION_RAW = 2;
+  // Markdown headings, frontmatter keys, and table excerpts.
+  REPRESENTATION_OUTLINE = 3;
 }
 
-message WriteRequest {
-  Envelope envelope = 1;
-  string idempotency_key = 2;
-  string path = 3;
-  DisplayOptions options = 4;
-  string content = 5;
-  bool replace = 6;
-}
-
-message MutateSuccess {
-  // "edit" or "write".
-  string operation = 1;
+message TextRead {
+  // FILE or DIRECTORY.
+  EntryKind kind = 1;
   string path = 2;
-  bool created = 3;
-  bool replaced = 4;
-  optional uint32 replacements = 5;
-  optional string content = 6;
-  optional OptionalLineRange shown_range = 7;
-  optional bool truncated = 8;
-  optional bool cut = 9;
-  optional uint32 line_count = 10;
-  // The post-edit line the edited region starts at.
-  optional uint32 display_start_line = 11;
+  optional string real_path = 3;
+  string content = 4;
+  // A bound cut the content; next_offset is where a continuation resumes.
+  bool truncated = 5;
+  optional uint32 next_offset = 6;
+  // The file's line count when known.
+  optional uint32 line_count = 7;
+  // Every entry the listed level holds, of which `content` may be a page.
+  optional uint32 entry_count = 8;
+  Representation representation = 9;
+  // The ranges the selector asked for and the ranges shown, in selector order.
+  repeated LineRange requested_ranges = 10;
+  repeated LineRange shown_ranges = 11;
+}
+
+message EditRequest {
+  // A key the installation draws per call.
+  string idempotency_key = 1;
+  string path = 2;
+  string old_text = 3;
+  string new_text = 4;
+  uint32 reserve_code_units = 5;
 }
 
 message EditResponse {
   oneof result {
-    MutateSuccess success = 1;
-    Failure failure = 2;
+    Mutation mutation = 1;
+    FileFailure failure = 2;
   }
+}
+
+message WriteRequest {
+  string idempotency_key = 1;
+  string path = 2;
+  string content = 3;
+  // Replace an existing regular file instead of refusing with FILE_EXISTS.
+  bool replace = 4;
 }
 
 message WriteResponse {
   oneof result {
-    MutateSuccess success = 1;
-    Failure failure = 2;
+    Mutation mutation = 1;
+    FileFailure failure = 2;
   }
 }
 
-message ReadBytesRequest {
-  Envelope envelope = 1;
-  string path = 2;
-  // Largest file the daemon sends.
-  uint64 max_bytes = 3;
+// What a successful edit or write did.
+message Mutation {
+  string path = 1;
+  bool created = 2;
+  bool replaced = 3;
+  // The written or post-edit file's line count.
+  uint32 line_count = 4;
+  // The numbered post-edit region with two lines of context; empty for a write.
+  string content = 5;
+  optional LineRange shown_range = 6;
+  // The daemon's own bound cut the region.
+  bool cut = 7;
+  // The post-edit line the replacement starts at; unset for a write.
+  optional uint32 display_start_line = 8;
 }
 
-message BytesHeader {
-  uint64 size = 1;
-  string media_type = 2;
+message ReadBytesRequest {
+  string path = 1;
+  // Largest file the daemon sends; above it the failure is MEDIA_TOO_LARGE.
+  uint64 max_bytes = 2;
 }
 
 message ReadBytesResponse {
   oneof result {
     BytesHeader header = 1;
     bytes chunk = 2;
-    Failure failure = 3;
+    FileFailure failure = 3;
   }
 }
 
+message BytesHeader {
+  uint64 size = 1;
+  // From the file's leading bytes: image/png, image/jpeg, image/gif, image/webp, application/pdf.
+  string media_type = 2;
+}
+
+message GrepRequest {
+  // The absolute literal prefix: a directory or a file.
+  string path = 1;
+  // The glob text from the first glob segment on; empty for none. `{}` and `[]` are refused.
+  string glob_suffix = 2;
+  // 1 to 8 patterns, each up to 512 bytes, RE2 syntax unless `literal`.
+  repeated string patterns = 3;
+  bool literal = 4;
+  bool ignore_case = 5;
+  // The cursor of an earlier page of the same search; another search's cursor is INVALID_ARGUMENT.
+  string cursor = 6;
+  GrepBounds bounds = 7;
+}
+
+// What is left of a search's bounds. An unset count is unbounded.
 message GrepBounds {
   optional uint64 files = 1;
   optional uint64 entries = 2;
   optional uint64 bytes = 3;
+  // Largest file read, by announced and read size.
   optional uint64 file_bytes = 4;
   uint64 deadline_ms = 5;
+  // Most passages on the page.
   uint32 limit = 6;
+  // The page bound in UTF-16 code units of rendered text.
   uint32 page_units = 7;
+  // Whether the call already progressed in an earlier page.
   bool progressed = 8;
 }
 
-message GrepRequest {
-  Envelope envelope = 1;
-  // The absolute literal prefix.
-  string path = 2;
-  optional string glob_suffix = 3;
-  repeated string patterns = 4;
-  bool literal = 5;
-  bool ignore_case = 6;
-  optional string cursor = 7;
-  GrepBounds bounds = 8;
+message GrepResponse {
+  oneof result {
+    GrepPage page = 1;
+    FileFailure failure = 2;
+  }
 }
 
-message GrepPassage {
-  // Relative to the prefix, `/`-separated; empty when the prefix is the file.
+message GrepPage {
+  repeated Passage passages = 1;
+  // No more pages.
+  bool complete = 2;
+  // The next page's cursor when not complete.
+  string cursor = 3;
+  repeated GrepWarning warnings = 4;
+  GrepConsumed consumed = 5;
+  // Whether the walk got past where this call started.
+  bool progressed = 6;
+  // The file a bound stopped the walk inside before any progress, relative to the prefix.
+  string unfinished = 7;
+  // Directories an ignore rule excluded, relative to the prefix.
+  repeated string ignored = 8;
+  // More directories were excluded than listed in `ignored`.
+  bool ignored_at_least = 9;
+}
+
+// One group of nearby matches with context, named relative to the prefix.
+message Passage {
+  // `/`-separated; empty when the prefix is the file.
   string path = 1;
   uint32 start_line = 2;
   uint32 end_line = 3;
+  // Numbered lines.
   string content = 4;
+  // The matching line numbers.
   repeated uint32 matches = 5;
   bool truncated = 6;
+  // The passage is its file's twentieth; later ones are not reported.
   bool capped = 7;
+  // The page cut this passage at a line boundary; the next page continues it.
   bool cut = 8;
 }
 
+// Why files were skipped.
+enum GrepWarningKind {
+  GREP_WARNING_KIND_UNSPECIFIED = 0;
+  GREP_WARNING_KIND_BINARY = 1;
+  GREP_WARNING_KIND_INVALID_UTF8 = 2;
+  GREP_WARNING_KIND_OVERSIZED = 3;
+  GREP_WARNING_KIND_UNREADABLE = 4;
+  GREP_WARNING_KIND_LINK = 5;
+  GREP_WARNING_KIND_FILE_BOUND = 6;
+  GREP_WARNING_KIND_ENTRY_BOUND = 7;
+  GREP_WARNING_KIND_BYTE_BOUND = 8;
+  GREP_WARNING_KIND_ARTIFACT_BOUND = 9;
+  GREP_WARNING_KIND_DEADLINE = 10;
+}
+
 message GrepWarning {
-  string kind = 1;
+  GrepWarningKind kind = 1;
   uint64 count = 2;
 }
 
@@ -215,27 +323,4 @@ message GrepConsumed {
   uint64 files = 1;
   uint64 entries = 2;
   uint64 bytes = 3;
-}
-
-message GrepIgnored {
-  repeated string paths = 1;
-  bool at_least = 2;
-}
-
-message GrepSuccess {
-  repeated GrepPassage results = 1;
-  bool complete = 2;
-  optional string cursor = 3;
-  repeated GrepWarning warnings = 4;
-  GrepConsumed consumed = 5;
-  bool progressed = 6;
-  optional string unfinished = 7;
-  optional GrepIgnored ignored = 8;
-}
-
-message GrepResponse {
-  oneof result {
-    GrepSuccess success = 1;
-    Failure failure = 2;
-  }
 }

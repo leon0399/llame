@@ -2,27 +2,26 @@ syntax = "proto3";
 
 package stead.machine.v1;
 
-import "stead/machine/v1/common.proto";
-
+// RootsService reports the directories this Machine serves. Roots bound addressing; they are not
+// a Sandbox. They are set on the Machine with `llame-machine roots add`.
 service RootsService {
-  rpc List(RootsServiceListRequest) returns (RootsServiceListResponse);
+  // List returns the registered roots in configuration order.
+  rpc List(RootsServiceListRequest) returns (RootsServiceListResponse) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+  }
 }
 
-message RootsServiceListRequest {
-  Envelope envelope = 1;
-}
+message RootsServiceListRequest {}
 
 message RootsServiceListResponse {
-  // Registered roots, in configuration order.
-  repeated string roots = 1;
-  // One entry per root, in the same order.
-  repeated RootDisk disks = 2;
+  repeated Root roots = 1;
   // How many jobs may run at once on this Machine.
-  uint32 max_running_jobs = 3;
+  uint32 max_running_jobs = 2;
 }
 
-message RootDisk {
-  string root = 1;
+message Root {
+  // Absolute host path.
+  string path = 1;
   // Total bytes of the filesystem holding the root; unset when unknown.
   optional uint64 total_bytes = 2;
 }

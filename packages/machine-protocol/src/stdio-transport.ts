@@ -78,7 +78,6 @@ export function connectStdio(
     transport,
     ...(child === undefined ? {} : { child }),
     close() {
-      duplex.destroy();
       closeStreams?.();
       if (child !== undefined && child.exitCode === null && child.signalCode === null)
         child.kill('SIGTERM');

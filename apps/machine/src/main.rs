@@ -4,6 +4,7 @@ mod attach;
 mod cli;
 mod daemon;
 mod identity;
+mod metadata;
 mod services;
 
 use std::process::ExitCode;

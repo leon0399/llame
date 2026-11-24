@@ -8,7 +8,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let proto_root = manifest.join("../../packages/machine-protocol/proto");
     let files = [
         "stead/machine/bootstrap/v1/bootstrap.proto",
-        "stead/machine/v1/common.proto",
+        "stead/machine/v1/errors.proto",
         "stead/machine/v1/roots.proto",
         "stead/machine/v1/files.proto",
         "stead/machine/v1/git.proto",

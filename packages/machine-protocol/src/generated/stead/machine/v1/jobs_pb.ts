@@ -4,15 +4,15 @@
 
 import type { GenEnum, GenFile, GenMessage, GenService } from "@bufbuild/protobuf/codegenv2";
 import { enumDesc, fileDesc, messageDesc, serviceDesc } from "@bufbuild/protobuf/codegenv2";
-import type { Envelope, Failure } from "./common_pb";
-import { file_stead_machine_v1_common } from "./common_pb";
+import type { Timestamp } from "@bufbuild/protobuf/wkt";
+import { file_google_protobuf_timestamp } from "@bufbuild/protobuf/wkt";
 import type { Message } from "@bufbuild/protobuf";
 
 /**
  * Describes the file stead/machine/v1/jobs.proto.
  */
 export const file_stead_machine_v1_jobs: GenFile = /*@__PURE__*/
-  fileDesc("ChtzdGVhZC9tYWNoaW5lL3YxL2pvYnMucHJvdG8SEHN0ZWFkLm1hY2hpbmUudjEioQMKA0pvYhIOCgZqb2JfaWQYASABKAkSDQoFb3duZXIYAiABKAkSKQoFc3RhdGUYAyABKA4yGi5zdGVhZC5tYWNoaW5lLnYxLkpvYlN0YXRlEhQKDHRvb2xfY2FsbF9pZBgEIAEoCRILCgNwaWQYBSABKA0SFQoNc3RhcnRlZF9hdF9tcxgGIAEoBBIYCgtlbmRlZF9hdF9tcxgHIAEoBEgAiAEBEhYKCWV4aXRfY29kZRgIIAEoBUgBiAEBEhMKBnNpZ25hbBgJIAEoCUgCiAEBEhQKDHN0ZG91dF9ieXRlcxgKIAEoBBIUCgxzdGRlcnJfYnl0ZXMYCyABKAQSEQoJdHJ1bmNhdGVkGAwgASgIEhcKCmxvc3RfY2F1c2UYDSABKAlIA4gBARIZCgx3YWxsX3RpbWVfbXMYDiABKARIBIgBARITCgtsaWZldGltZV9tcxgPIAEoBEIOCgxfZW5kZWRfYXRfbXNCDAoKX2V4aXRfY29kZUIJCgdfc2lnbmFsQg0KC19sb3N0X2NhdXNlQg8KDV93YWxsX3RpbWVfbXMi/QEKDFN0YXJ0UmVxdWVzdBIsCghlbnZlbG9wZRgBIAEoCzIaLnN0ZWFkLm1hY2hpbmUudjEuRW52ZWxvcGUSDgoGam9iX2lkGAIgASgJEg0KBW93bmVyGAMgASgJEg8KB2NvbW1hbmQYBCABKAkSEAoDY3dkGAUgASgJSACIAQESNAoDZW52GAYgAygLMicuc3RlYWQubWFjaGluZS52MS5TdGFydFJlcXVlc3QuRW52RW50cnkSEwoLbGlmZXRpbWVfbXMYByABKAQaKgoIRW52RW50cnkSCwoDa2V5GAEgASgJEg0KBXZhbHVlGAIgASgJOgI4AUIGCgRfY3dkIm0KDVN0YXJ0UmVzcG9uc2USJAoDam9iGAEgASgLMhUuc3RlYWQubWFjaGluZS52MS5Kb2JIABIsCgdmYWlsdXJlGAIgASgLMhkuc3RlYWQubWFjaGluZS52MS5GYWlsdXJlSABCCAoGcmVzdWx0Ig4KDFdhdGNoUmVxdWVzdCINCgtTbmFwc2hvdEVuZCJ1Cg1XYXRjaFJlc3BvbnNlEiQKA2pvYhgBIAEoCzIVLnN0ZWFkLm1hY2hpbmUudjEuSm9iSAASNQoMc25hcHNob3RfZW5kGAIgASgLMh0uc3RlYWQubWFjaGluZS52MS5TbmFwc2hvdEVuZEgAQgcKBWV2ZW50IhgKFkpvYnNTZXJ2aWNlTGlzdFJlcXVlc3QiaQoXSm9ic1NlcnZpY2VMaXN0UmVzcG9uc2USIwoEam9icxgBIAMoCzIVLnN0ZWFkLm1hY2hpbmUudjEuSm9iEhgKEG1heF9ydW5uaW5nX2pvYnMYAiABKA0SDwoHcnVubmluZxgDIAEoDSJ+ChFSZWFkT3V0cHV0UmVxdWVzdBIOCgZqb2JfaWQYASABKAkSDQoFb3duZXIYAiABKAkSKwoGb3V0cHV0GAMgASgOMhsuc3RlYWQubWFjaGluZS52MS5Kb2JPdXRwdXQSDgoGb2Zmc2V0GAQgASgEEg0KBWxpbWl0GAUgASgEIjIKElJlYWRPdXRwdXRSZXNwb25zZRIOCgZvZmZzZXQYASABKAQSDAoEZGF0YRgCIAEoDCJzCgtTdG9wUmVxdWVzdBIsCghlbnZlbG9wZRgBIAEoCzIaLnN0ZWFkLm1hY2hpbmUudjEuRW52ZWxvcGUSFwoPaWRlbXBvdGVuY3lfa2V5GAIgASgJEg4KBmpvYl9pZBgDIAEoCRINCgVvd25lchgEIAEoCSIyCgxTdG9wUmVzcG9uc2USIgoDam9iGAEgASgLMhUuc3RlYWQubWFjaGluZS52MS5Kb2IidgoOUmVsZWFzZVJlcXVlc3QSLAoIZW52ZWxvcGUYASABKAsyGi5zdGVhZC5tYWNoaW5lLnYxLkVudmVsb3BlEhcKD2lkZW1wb3RlbmN5X2tleRgCIAEoCRIOCgZqb2JfaWQYAyABKAkSDQoFb3duZXIYBCABKAkiEQoPUmVsZWFzZVJlc3BvbnNlKrEBCghKb2JTdGF0ZRIZChVKT0JfU1RBVEVfVU5TUEVDSUZJRUQQABIVChFKT0JfU1RBVEVfUlVOTklORxABEhcKE0pPQl9TVEFURV9TVUNDRUVERUQQAhIUChBKT0JfU1RBVEVfRkFJTEVEEAMSFwoTSk9CX1NUQVRFX0NBTkNFTExFRBAEEhcKE0pPQl9TVEFURV9USU1FRF9PVVQQBRISCg5KT0JfU1RBVEVfTE9TVBAGKlUKCUpvYk91dHB1dBIaChZKT0JfT1VUUFVUX1VOU1BFQ0lGSUVEEAASFQoRSk9CX09VVFBVVF9TVERPVVQQARIVChFKT0JfT1VUUFVUX1NUREVSUhACMvIDCgtKb2JzU2VydmljZRJICgVTdGFydBIeLnN0ZWFkLm1hY2hpbmUudjEuU3RhcnRSZXF1ZXN0Gh8uc3RlYWQubWFjaGluZS52MS5TdGFydFJlc3BvbnNlEkoKBVdhdGNoEh4uc3RlYWQubWFjaGluZS52MS5XYXRjaFJlcXVlc3QaHy5zdGVhZC5tYWNoaW5lLnYxLldhdGNoUmVzcG9uc2UwARJbCgRMaXN0Eiguc3RlYWQubWFjaGluZS52MS5Kb2JzU2VydmljZUxpc3RSZXF1ZXN0Gikuc3RlYWQubWFjaGluZS52MS5Kb2JzU2VydmljZUxpc3RSZXNwb25zZRJZCgpSZWFkT3V0cHV0EiMuc3RlYWQubWFjaGluZS52MS5SZWFkT3V0cHV0UmVxdWVzdBokLnN0ZWFkLm1hY2hpbmUudjEuUmVhZE91dHB1dFJlc3BvbnNlMAESRQoEU3RvcBIdLnN0ZWFkLm1hY2hpbmUudjEuU3RvcFJlcXVlc3QaHi5zdGVhZC5tYWNoaW5lLnYxLlN0b3BSZXNwb25zZRJOCgdSZWxlYXNlEiAuc3RlYWQubWFjaGluZS52MS5SZWxlYXNlUmVxdWVzdBohLnN0ZWFkLm1hY2hpbmUudjEuUmVsZWFzZVJlc3BvbnNlYgZwcm90bzM", [file_stead_machine_v1_common]);
+  fileDesc("ChtzdGVhZC9tYWNoaW5lL3YxL2pvYnMucHJvdG8SEHN0ZWFkLm1hY2hpbmUudjEiwwMKA0pvYhIOCgZqb2JfaWQYASABKAkSDQoFb3duZXIYAiABKAkSKQoFc3RhdGUYAyABKA4yGi5zdGVhZC5tYWNoaW5lLnYxLkpvYlN0YXRlEgsKA3BpZBgEIAEoDRIuCgpzdGFydGVkX2F0GAUgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcBIxCghlbmRlZF9hdBgGIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXBIAIgBARIWCglleGl0X2NvZGUYByABKAVIAYgBARITCgZzaWduYWwYCCABKAlIAogBARIUCgxzdGRvdXRfYnl0ZXMYCSABKAQSFAoMc3RkZXJyX2J5dGVzGAogASgEEhEKCXRydW5jYXRlZBgLIAEoCBIvCgpsb3N0X2NhdXNlGAwgASgOMhsuc3RlYWQubWFjaGluZS52MS5Mb3N0Q2F1c2USGQoMd2FsbF90aW1lX21zGA0gASgESAOIAQESEwoLbGlmZXRpbWVfbXMYDiABKARCCwoJX2VuZGVkX2F0QgwKCl9leGl0X2NvZGVCCQoHX3NpZ25hbEIPCg1fd2FsbF90aW1lX21zIs8BCgxTdGFydFJlcXVlc3QSDgoGam9iX2lkGAEgASgJEg0KBW93bmVyGAIgASgJEg8KB2NvbW1hbmQYAyABKAkSEAoDY3dkGAQgASgJSACIAQESNAoDZW52GAUgAygLMicuc3RlYWQubWFjaGluZS52MS5TdGFydFJlcXVlc3QuRW52RW50cnkSEwoLbGlmZXRpbWVfbXMYBiABKAQaKgoIRW52RW50cnkSCwoDa2V5GAEgASgJEg0KBXZhbHVlGAIgASgJOgI4AUIGCgRfY3dkInIKDVN0YXJ0UmVzcG9uc2USJAoDam9iGAEgASgLMhUuc3RlYWQubWFjaGluZS52MS5Kb2JIABIxCgdmYWlsdXJlGAIgASgLMh4uc3RlYWQubWFjaGluZS52MS5TdGFydEZhaWx1cmVIAEIICgZyZXN1bHQiVQoMU3RhcnRGYWlsdXJlEjQKBnJlYXNvbhgBIAEoDjIkLnN0ZWFkLm1hY2hpbmUudjEuU3RhcnRGYWlsdXJlUmVhc29uEg8KB21lc3NhZ2UYAiABKAkiDgoMV2F0Y2hSZXF1ZXN0InUKDVdhdGNoUmVzcG9uc2USJAoDam9iGAEgASgLMhUuc3RlYWQubWFjaGluZS52MS5Kb2JIABI1CgxzbmFwc2hvdF9lbmQYAiABKAsyHS5zdGVhZC5tYWNoaW5lLnYxLlNuYXBzaG90RW5kSABCBwoFZXZlbnQiDQoLU25hcHNob3RFbmQiGAoWSm9ic1NlcnZpY2VMaXN0UmVxdWVzdCJpChdKb2JzU2VydmljZUxpc3RSZXNwb25zZRIjCgRqb2JzGAEgAygLMhUuc3RlYWQubWFjaGluZS52MS5Kb2ISGAoQbWF4X3J1bm5pbmdfam9icxgCIAEoDRIPCgdydW5uaW5nGAMgASgNIoEBChFSZWFkT3V0cHV0UmVxdWVzdBIOCgZqb2JfaWQYASABKAkSDQoFb3duZXIYAiABKAkSLgoGc3RyZWFtGAMgASgOMh4uc3RlYWQubWFjaGluZS52MS5PdXRwdXRTdHJlYW0SDgoGb2Zmc2V0GAQgASgEEg0KBWxpbWl0GAUgASgEIjIKElJlYWRPdXRwdXRSZXNwb25zZRIOCgZvZmZzZXQYASABKAQSDAoEZGF0YRgCIAEoDCJFCgtTdG9wUmVxdWVzdBIXCg9pZGVtcG90ZW5jeV9rZXkYASABKAkSDgoGam9iX2lkGAIgASgJEg0KBW93bmVyGAMgASgJIjIKDFN0b3BSZXNwb25zZRIiCgNqb2IYASABKAsyFS5zdGVhZC5tYWNoaW5lLnYxLkpvYiJICg5SZWxlYXNlUmVxdWVzdBIXCg9pZGVtcG90ZW5jeV9rZXkYASABKAkSDgoGam9iX2lkGAIgASgJEg0KBW93bmVyGAMgASgJIhEKD1JlbGVhc2VSZXNwb25zZSqxAQoISm9iU3RhdGUSGQoVSk9CX1NUQVRFX1VOU1BFQ0lGSUVEEAASFQoRSk9CX1NUQVRFX1JVTk5JTkcQARIXChNKT0JfU1RBVEVfU1VDQ0VFREVEEAISFAoQSk9CX1NUQVRFX0ZBSUxFRBADEhcKE0pPQl9TVEFURV9DQU5DRUxMRUQQBBIXChNKT0JfU1RBVEVfVElNRURfT1VUEAUSEgoOSk9CX1NUQVRFX0xPU1QQBiqHAQoJTG9zdENhdXNlEhoKFkxPU1RfQ0FVU0VfVU5TUEVDSUZJRUQQABIfChtMT1NUX0NBVVNFX0RBRU1PTl9SRVNUQVJURUQQARIfChtMT1NUX0NBVVNFX01BQ0hJTkVfUkVCT09URUQQAhIcChhMT1NUX0NBVVNFX1NUT1BfVU5QUk9WRUQQAyphCgxPdXRwdXRTdHJlYW0SHQoZT1VUUFVUX1NUUkVBTV9VTlNQRUNJRklFRBAAEhgKFE9VVFBVVF9TVFJFQU1fU1RET1VUEAESGAoUT1VUUFVUX1NUUkVBTV9TVERFUlIQAiqIAQoSU3RhcnRGYWlsdXJlUmVhc29uEiQKIFNUQVJUX0ZBSUxVUkVfUkVBU09OX1VOU1BFQ0lGSUVEEAASJAogU1RBUlRfRkFJTFVSRV9SRUFTT05fVU5BVkFJTEFCTEUQARImCiJTVEFSVF9GQUlMVVJFX1JFQVNPTl9JTlZBTElEX0lOUFVUEAIyhwQKC0pvYnNTZXJ2aWNlEkoKBVN0YXJ0Eh4uc3RlYWQubWFjaGluZS52MS5TdGFydFJlcXVlc3QaHy5zdGVhZC5tYWNoaW5lLnYxLlN0YXJ0UmVzcG9uc2UiABJPCgVXYXRjaBIeLnN0ZWFkLm1hY2hpbmUudjEuV2F0Y2hSZXF1ZXN0Gh8uc3RlYWQubWFjaGluZS52MS5XYXRjaFJlc3BvbnNlIgOQAgEwARJgCgRMaXN0Eiguc3RlYWQubWFjaGluZS52MS5Kb2JzU2VydmljZUxpc3RSZXF1ZXN0Gikuc3RlYWQubWFjaGluZS52MS5Kb2JzU2VydmljZUxpc3RSZXNwb25zZSIDkAIBEl4KClJlYWRPdXRwdXQSIy5zdGVhZC5tYWNoaW5lLnYxLlJlYWRPdXRwdXRSZXF1ZXN0GiQuc3RlYWQubWFjaGluZS52MS5SZWFkT3V0cHV0UmVzcG9uc2UiA5ACATABEkcKBFN0b3ASHS5zdGVhZC5tYWNoaW5lLnYxLlN0b3BSZXF1ZXN0Gh4uc3RlYWQubWFjaGluZS52MS5TdG9wUmVzcG9uc2UiABJQCgdSZWxlYXNlEiAuc3RlYWQubWFjaGluZS52MS5SZWxlYXNlUmVxdWVzdBohLnN0ZWFkLm1hY2hpbmUudjEuUmVsZWFzZVJlc3BvbnNlIgBiBnByb3RvMw", [file_google_protobuf_timestamp]);
 
 /**
  * @generated from message stead.machine.v1.Job
@@ -36,73 +36,65 @@ export type Job = Message<"stead.machine.v1.Job"> & {
   state: JobState;
 
   /**
-   * @generated from field: string tool_call_id = 4;
-   */
-  toolCallId: string;
-
-  /**
-   * @generated from field: uint32 pid = 5;
+   * @generated from field: uint32 pid = 4;
    */
   pid: number;
 
   /**
-   * Unix epoch milliseconds.
-   *
-   * @generated from field: uint64 started_at_ms = 6;
+   * @generated from field: google.protobuf.Timestamp started_at = 5;
    */
-  startedAtMs: bigint;
+  startedAt?: Timestamp | undefined;
 
   /**
-   * @generated from field: optional uint64 ended_at_ms = 7;
+   * @generated from field: optional google.protobuf.Timestamp ended_at = 6;
    */
-  endedAtMs?: bigint | undefined;
+  endedAt?: Timestamp | undefined;
 
   /**
-   * @generated from field: optional int32 exit_code = 8;
+   * @generated from field: optional int32 exit_code = 7;
    */
   exitCode?: number | undefined;
 
   /**
-   * @generated from field: optional string signal = 9;
+   * The signal that ended the process, such as KILL.
+   *
+   * @generated from field: optional string signal = 8;
    */
   signal?: string | undefined;
 
   /**
-   * @generated from field: uint64 stdout_bytes = 10;
+   * @generated from field: uint64 stdout_bytes = 9;
    */
   stdoutBytes: bigint;
 
   /**
-   * @generated from field: uint64 stderr_bytes = 11;
+   * @generated from field: uint64 stderr_bytes = 10;
    */
   stderrBytes: bigint;
 
   /**
-   * The Machine's output ceiling stopped recording; the process kept running.
+   * The Machine's output ceiling stopped recording a stream; the process kept running.
    *
-   * @generated from field: bool truncated = 12;
+   * @generated from field: bool truncated = 11;
    */
   truncated: boolean;
 
   /**
-   * Why a job is `lost`: `daemon_restarted`, `machine_rebooted`, or
-   * `stop_unproved`.
-   *
-   * @generated from field: optional string lost_cause = 13;
+   * @generated from field: stead.machine.v1.LostCause lost_cause = 12;
    */
-  lostCause?: string | undefined;
+  lostCause: LostCause;
 
   /**
-   * Spawn to settlement, on the daemon's monotonic clock.
+   * Spawn to settlement on the daemon's monotonic clock.
    *
-   * @generated from field: optional uint64 wall_time_ms = 14;
+   * @generated from field: optional uint64 wall_time_ms = 13;
    */
   wallTimeMs?: bigint | undefined;
 
   /**
-   * The lifetime the job was started with; zero means none.
+   * The lifetime the job was started with; 0 means none.
    *
-   * @generated from field: uint64 lifetime_ms = 15;
+   * @generated from field: uint64 lifetime_ms = 14;
    */
   lifetimeMs: bigint;
 };
@@ -119,43 +111,42 @@ export const JobSchema: GenMessage<Job> = /*@__PURE__*/
  */
 export type StartRequest = Message<"stead.machine.v1.StartRequest"> & {
   /**
-   * @generated from field: stead.machine.v1.Envelope envelope = 1;
-   */
-  envelope?: Envelope | undefined;
-
-  /**
-   * The job id and idempotency key.
+   * The job id, which is also the idempotency key.
    *
-   * @generated from field: string job_id = 2;
+   * @generated from field: string job_id = 1;
    */
   jobId: string;
 
   /**
-   * @generated from field: string owner = 3;
+   * @generated from field: string owner = 2;
    */
   owner: string;
 
   /**
    * Passed to `bash -c`.
    *
-   * @generated from field: string command = 4;
+   * @generated from field: string command = 3;
    */
   command: string;
 
   /**
-   * @generated from field: optional string cwd = 5;
+   * Must lie inside a registered root; unset means the first root.
+   *
+   * @generated from field: optional string cwd = 4;
    */
   cwd?: string | undefined;
 
   /**
-   * @generated from field: map<string, string> env = 6;
+   * Added to the daemon's base environment.
+   *
+   * @generated from field: map<string, string> env = 5;
    */
   env: { [key: string]: string };
 
   /**
-   * The daemon ends the job as `timed_out` after this long; zero means none.
+   * After this long the daemon ends the job as TIMED_OUT; 0 means never.
    *
-   * @generated from field: uint64 lifetime_ms = 7;
+   * @generated from field: uint64 lifetime_ms = 6;
    */
   lifetimeMs: bigint;
 };
@@ -182,11 +173,9 @@ export type StartResponse = Message<"stead.machine.v1.StartResponse"> & {
     case: "job";
   } | {
     /**
-     * `unavailable` (for example a missing `bash`) or `invalid_input`.
-     *
-     * @generated from field: stead.machine.v1.Failure failure = 2;
+     * @generated from field: stead.machine.v1.StartFailure failure = 2;
      */
-    value: Failure;
+    value: StartFailure;
     case: "failure";
   } | { case: undefined; value?: undefined };
 };
@@ -199,6 +188,28 @@ export const StartResponseSchema: GenMessage<StartResponse> = /*@__PURE__*/
   messageDesc(file_stead_machine_v1_jobs, 2);
 
 /**
+ * @generated from message stead.machine.v1.StartFailure
+ */
+export type StartFailure = Message<"stead.machine.v1.StartFailure"> & {
+  /**
+   * @generated from field: stead.machine.v1.StartFailureReason reason = 1;
+   */
+  reason: StartFailureReason;
+
+  /**
+   * @generated from field: string message = 2;
+   */
+  message: string;
+};
+
+/**
+ * Describes the message stead.machine.v1.StartFailure.
+ * Use `create(StartFailureSchema)` to create a new message.
+ */
+export const StartFailureSchema: GenMessage<StartFailure> = /*@__PURE__*/
+  messageDesc(file_stead_machine_v1_jobs, 3);
+
+/**
  * @generated from message stead.machine.v1.WatchRequest
  */
 export type WatchRequest = Message<"stead.machine.v1.WatchRequest"> & {
@@ -209,19 +220,6 @@ export type WatchRequest = Message<"stead.machine.v1.WatchRequest"> & {
  * Use `create(WatchRequestSchema)` to create a new message.
  */
 export const WatchRequestSchema: GenMessage<WatchRequest> = /*@__PURE__*/
-  messageDesc(file_stead_machine_v1_jobs, 3);
-
-/**
- * @generated from message stead.machine.v1.SnapshotEnd
- */
-export type SnapshotEnd = Message<"stead.machine.v1.SnapshotEnd"> & {
-};
-
-/**
- * Describes the message stead.machine.v1.SnapshotEnd.
- * Use `create(SnapshotEndSchema)` to create a new message.
- */
-export const SnapshotEndSchema: GenMessage<SnapshotEnd> = /*@__PURE__*/
   messageDesc(file_stead_machine_v1_jobs, 4);
 
 /**
@@ -254,6 +252,19 @@ export const WatchResponseSchema: GenMessage<WatchResponse> = /*@__PURE__*/
   messageDesc(file_stead_machine_v1_jobs, 5);
 
 /**
+ * @generated from message stead.machine.v1.SnapshotEnd
+ */
+export type SnapshotEnd = Message<"stead.machine.v1.SnapshotEnd"> & {
+};
+
+/**
+ * Describes the message stead.machine.v1.SnapshotEnd.
+ * Use `create(SnapshotEndSchema)` to create a new message.
+ */
+export const SnapshotEndSchema: GenMessage<SnapshotEnd> = /*@__PURE__*/
+  messageDesc(file_stead_machine_v1_jobs, 6);
+
+/**
  * @generated from message stead.machine.v1.JobsServiceListRequest
  */
 export type JobsServiceListRequest = Message<"stead.machine.v1.JobsServiceListRequest"> & {
@@ -264,7 +275,7 @@ export type JobsServiceListRequest = Message<"stead.machine.v1.JobsServiceListRe
  * Use `create(JobsServiceListRequestSchema)` to create a new message.
  */
 export const JobsServiceListRequestSchema: GenMessage<JobsServiceListRequest> = /*@__PURE__*/
-  messageDesc(file_stead_machine_v1_jobs, 6);
+  messageDesc(file_stead_machine_v1_jobs, 7);
 
 /**
  * @generated from message stead.machine.v1.JobsServiceListResponse
@@ -291,7 +302,7 @@ export type JobsServiceListResponse = Message<"stead.machine.v1.JobsServiceListR
  * Use `create(JobsServiceListResponseSchema)` to create a new message.
  */
 export const JobsServiceListResponseSchema: GenMessage<JobsServiceListResponse> = /*@__PURE__*/
-  messageDesc(file_stead_machine_v1_jobs, 7);
+  messageDesc(file_stead_machine_v1_jobs, 8);
 
 /**
  * @generated from message stead.machine.v1.ReadOutputRequest
@@ -308,9 +319,9 @@ export type ReadOutputRequest = Message<"stead.machine.v1.ReadOutputRequest"> & 
   owner: string;
 
   /**
-   * @generated from field: stead.machine.v1.JobOutput output = 3;
+   * @generated from field: stead.machine.v1.OutputStream stream = 3;
    */
-  output: JobOutput;
+  stream: OutputStream;
 
   /**
    * @generated from field: uint64 offset = 4;
@@ -318,7 +329,7 @@ export type ReadOutputRequest = Message<"stead.machine.v1.ReadOutputRequest"> & 
   offset: bigint;
 
   /**
-   * Most bytes to send; zero means to the current end.
+   * Most bytes to send; 0 means to the current end.
    *
    * @generated from field: uint64 limit = 5;
    */
@@ -330,7 +341,7 @@ export type ReadOutputRequest = Message<"stead.machine.v1.ReadOutputRequest"> & 
  * Use `create(ReadOutputRequestSchema)` to create a new message.
  */
 export const ReadOutputRequestSchema: GenMessage<ReadOutputRequest> = /*@__PURE__*/
-  messageDesc(file_stead_machine_v1_jobs, 8);
+  messageDesc(file_stead_machine_v1_jobs, 9);
 
 /**
  * @generated from message stead.machine.v1.ReadOutputResponse
@@ -354,29 +365,24 @@ export type ReadOutputResponse = Message<"stead.machine.v1.ReadOutputResponse"> 
  * Use `create(ReadOutputResponseSchema)` to create a new message.
  */
 export const ReadOutputResponseSchema: GenMessage<ReadOutputResponse> = /*@__PURE__*/
-  messageDesc(file_stead_machine_v1_jobs, 9);
+  messageDesc(file_stead_machine_v1_jobs, 10);
 
 /**
  * @generated from message stead.machine.v1.StopRequest
  */
 export type StopRequest = Message<"stead.machine.v1.StopRequest"> & {
   /**
-   * @generated from field: stead.machine.v1.Envelope envelope = 1;
-   */
-  envelope?: Envelope | undefined;
-
-  /**
-   * @generated from field: string idempotency_key = 2;
+   * @generated from field: string idempotency_key = 1;
    */
   idempotencyKey: string;
 
   /**
-   * @generated from field: string job_id = 3;
+   * @generated from field: string job_id = 2;
    */
   jobId: string;
 
   /**
-   * @generated from field: string owner = 4;
+   * @generated from field: string owner = 3;
    */
   owner: string;
 };
@@ -386,7 +392,7 @@ export type StopRequest = Message<"stead.machine.v1.StopRequest"> & {
  * Use `create(StopRequestSchema)` to create a new message.
  */
 export const StopRequestSchema: GenMessage<StopRequest> = /*@__PURE__*/
-  messageDesc(file_stead_machine_v1_jobs, 10);
+  messageDesc(file_stead_machine_v1_jobs, 11);
 
 /**
  * @generated from message stead.machine.v1.StopResponse
@@ -403,29 +409,24 @@ export type StopResponse = Message<"stead.machine.v1.StopResponse"> & {
  * Use `create(StopResponseSchema)` to create a new message.
  */
 export const StopResponseSchema: GenMessage<StopResponse> = /*@__PURE__*/
-  messageDesc(file_stead_machine_v1_jobs, 11);
+  messageDesc(file_stead_machine_v1_jobs, 12);
 
 /**
  * @generated from message stead.machine.v1.ReleaseRequest
  */
 export type ReleaseRequest = Message<"stead.machine.v1.ReleaseRequest"> & {
   /**
-   * @generated from field: stead.machine.v1.Envelope envelope = 1;
-   */
-  envelope?: Envelope | undefined;
-
-  /**
-   * @generated from field: string idempotency_key = 2;
+   * @generated from field: string idempotency_key = 1;
    */
   idempotencyKey: string;
 
   /**
-   * @generated from field: string job_id = 3;
+   * @generated from field: string job_id = 2;
    */
   jobId: string;
 
   /**
-   * @generated from field: string owner = 4;
+   * @generated from field: string owner = 3;
    */
   owner: string;
 };
@@ -435,7 +436,7 @@ export type ReleaseRequest = Message<"stead.machine.v1.ReleaseRequest"> & {
  * Use `create(ReleaseRequestSchema)` to create a new message.
  */
 export const ReleaseRequestSchema: GenMessage<ReleaseRequest> = /*@__PURE__*/
-  messageDesc(file_stead_machine_v1_jobs, 12);
+  messageDesc(file_stead_machine_v1_jobs, 13);
 
 /**
  * @generated from message stead.machine.v1.ReleaseResponse
@@ -448,7 +449,7 @@ export type ReleaseResponse = Message<"stead.machine.v1.ReleaseResponse"> & {
  * Use `create(ReleaseResponseSchema)` to create a new message.
  */
 export const ReleaseResponseSchema: GenMessage<ReleaseResponse> = /*@__PURE__*/
-  messageDesc(file_stead_machine_v1_jobs, 13);
+  messageDesc(file_stead_machine_v1_jobs, 14);
 
 /**
  * @generated from enum stead.machine.v1.JobState
@@ -485,6 +486,8 @@ export enum JobState {
   TIMED_OUT = 5,
 
   /**
+   * The daemon cannot say how the job ended; `lost_cause` says why.
+   *
    * @generated from enum value: JOB_STATE_LOST = 6;
    */
   LOST = 6,
@@ -497,44 +500,108 @@ export const JobStateSchema: GenEnum<JobState> = /*@__PURE__*/
   enumDesc(file_stead_machine_v1_jobs, 0);
 
 /**
- * @generated from enum stead.machine.v1.JobOutput
+ * @generated from enum stead.machine.v1.LostCause
  */
-export enum JobOutput {
+export enum LostCause {
   /**
-   * @generated from enum value: JOB_OUTPUT_UNSPECIFIED = 0;
+   * @generated from enum value: LOST_CAUSE_UNSPECIFIED = 0;
    */
   UNSPECIFIED = 0,
 
   /**
-   * @generated from enum value: JOB_OUTPUT_STDOUT = 1;
+   * The daemon restarted while the job ran.
+   *
+   * @generated from enum value: LOST_CAUSE_DAEMON_RESTARTED = 1;
+   */
+  DAEMON_RESTARTED = 1,
+
+  /**
+   * The boot id changed since the job started.
+   *
+   * @generated from enum value: LOST_CAUSE_MACHINE_REBOOTED = 2;
+   */
+  MACHINE_REBOOTED = 2,
+
+  /**
+   * A stop did not prove the process group empty in time.
+   *
+   * @generated from enum value: LOST_CAUSE_STOP_UNPROVED = 3;
+   */
+  STOP_UNPROVED = 3,
+}
+
+/**
+ * Describes the enum stead.machine.v1.LostCause.
+ */
+export const LostCauseSchema: GenEnum<LostCause> = /*@__PURE__*/
+  enumDesc(file_stead_machine_v1_jobs, 1);
+
+/**
+ * @generated from enum stead.machine.v1.OutputStream
+ */
+export enum OutputStream {
+  /**
+   * @generated from enum value: OUTPUT_STREAM_UNSPECIFIED = 0;
+   */
+  UNSPECIFIED = 0,
+
+  /**
+   * @generated from enum value: OUTPUT_STREAM_STDOUT = 1;
    */
   STDOUT = 1,
 
   /**
-   * @generated from enum value: JOB_OUTPUT_STDERR = 2;
+   * @generated from enum value: OUTPUT_STREAM_STDERR = 2;
    */
   STDERR = 2,
 }
 
 /**
- * Describes the enum stead.machine.v1.JobOutput.
+ * Describes the enum stead.machine.v1.OutputStream.
  */
-export const JobOutputSchema: GenEnum<JobOutput> = /*@__PURE__*/
-  enumDesc(file_stead_machine_v1_jobs, 1);
+export const OutputStreamSchema: GenEnum<OutputStream> = /*@__PURE__*/
+  enumDesc(file_stead_machine_v1_jobs, 2);
 
 /**
- * Every command runs as a job. The daemon knows nothing of foreground,
- * background, or waiting; the installation decides those from this stream.
- * Each job carries an opaque owner tag, and every call that acts on one job
- * must present the same tag.
+ * @generated from enum stead.machine.v1.StartFailureReason
+ */
+export enum StartFailureReason {
+  /**
+   * @generated from enum value: START_FAILURE_REASON_UNSPECIFIED = 0;
+   */
+  UNSPECIFIED = 0,
+
+  /**
+   * `bash` or the working directory is unavailable on this Machine.
+   *
+   * @generated from enum value: START_FAILURE_REASON_UNAVAILABLE = 1;
+   */
+  UNAVAILABLE = 1,
+
+  /**
+   * @generated from enum value: START_FAILURE_REASON_INVALID_INPUT = 2;
+   */
+  INVALID_INPUT = 2,
+}
+
+/**
+ * Describes the enum stead.machine.v1.StartFailureReason.
+ */
+export const StartFailureReasonSchema: GenEnum<StartFailureReason> = /*@__PURE__*/
+  enumDesc(file_stead_machine_v1_jobs, 3);
+
+/**
+ * JobsService runs every command as a job with a record and output files on the Machine. The
+ * daemon knows nothing of foreground, background, or waiting; the installation decides those from
+ * the Watch stream. Each job carries an opaque owner, and a call on a job whose owner differs fails
+ * as JOB_NOT_FOUND, like an unknown id.
  *
  * @generated from service stead.machine.v1.JobsService
  */
 export const JobsService: GenService<{
   /**
-   * Starts a job. A resend with the same job id returns the existing job.
-   * A Machine at its running-job limit refuses with RESOURCE_EXHAUSTED and
-   * the reason `machine_job_limit`.
+   * Start runs a command as a job. A resend with the same job id returns the running job. A
+   * Machine at its running-job limit refuses with JOB_LIMIT.
    *
    * @generated from rpc stead.machine.v1.JobsService.Start
    */
@@ -544,8 +611,8 @@ export const JobsService: GenService<{
     output: typeof StartResponseSchema;
   },
   /**
-   * A snapshot of every job first, a `snapshot_end` marker, then one full
-   * record per change. The stream lasts as long as the connection.
+   * Watch sends every job the daemon knows, then a snapshot_end marker, then one full record per
+   * change for as long as the connection lasts.
    *
    * @generated from rpc stead.machine.v1.JobsService.Watch
    */
@@ -555,6 +622,8 @@ export const JobsService: GenService<{
     output: typeof WatchResponseSchema;
   },
   /**
+   * List returns every job the daemon knows, with the Machine's limit and running count.
+   *
    * @generated from rpc stead.machine.v1.JobsService.List
    */
   list: {
@@ -563,7 +632,7 @@ export const JobsService: GenService<{
     output: typeof JobsServiceListResponseSchema;
   },
   /**
-   * Output from `offset` to the current end of the stream, in chunks.
+   * ReadOutput streams one output from an offset to its current end, in 512 KiB chunks.
    *
    * @generated from rpc stead.machine.v1.JobsService.ReadOutput
    */
@@ -573,6 +642,8 @@ export const JobsService: GenService<{
     output: typeof ReadOutputResponseSchema;
   },
   /**
+   * Stop kills the job's process group and proves it ended. An unproved stop settles the job LOST.
+   *
    * @generated from rpc stead.machine.v1.JobsService.Stop
    */
   stop: {
@@ -581,7 +652,8 @@ export const JobsService: GenService<{
     output: typeof StopResponseSchema;
   },
   /**
-   * Deletes a settled job's directory once the installation holds its copy.
+   * Release deletes a settled job's directory once the installation holds its copy. A running job
+   * is refused with JOB_RUNNING.
    *
    * @generated from rpc stead.machine.v1.JobsService.Release
    */

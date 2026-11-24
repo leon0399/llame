@@ -2,31 +2,26 @@
 // @generated from file stead/machine/v1/git.proto (package stead.machine.v1, syntax proto3)
 /* eslint-disable */
 
-import type { GenFile, GenMessage, GenService } from "@bufbuild/protobuf/codegenv2";
-import { fileDesc, messageDesc, serviceDesc } from "@bufbuild/protobuf/codegenv2";
-import type { Envelope } from "./common_pb";
-import { file_stead_machine_v1_common } from "./common_pb";
+import type { GenEnum, GenFile, GenMessage, GenService } from "@bufbuild/protobuf/codegenv2";
+import { enumDesc, fileDesc, messageDesc, serviceDesc } from "@bufbuild/protobuf/codegenv2";
+import type { Timestamp } from "@bufbuild/protobuf/wkt";
+import { file_google_protobuf_timestamp } from "@bufbuild/protobuf/wkt";
 import type { Message } from "@bufbuild/protobuf";
 
 /**
  * Describes the file stead/machine/v1/git.proto.
  */
 export const file_stead_machine_v1_git: GenFile = /*@__PURE__*/
-  fileDesc("ChpzdGVhZC9tYWNoaW5lL3YxL2dpdC5wcm90bxIQc3RlYWQubWFjaGluZS52MSI7CgpHaXRGYWlsdXJlEgwKBHR5cGUYASABKAkSDwoHbWVzc2FnZRgCIAEoCRIOCgZzdGRlcnIYAyABKAkiJgoJR2l0UmVtb3RlEgwKBG5hbWUYASABKAkSCwoDdXJsGAIgASgJIkwKDkluc3BlY3RSZXF1ZXN0EiwKCGVudmVsb3BlGAEgASgLMhouc3RlYWQubWFjaGluZS52MS5FbnZlbG9wZRIMCgRwYXRoGAIgASgJIt4BCg5JbnNwZWN0U3VjY2VzcxIQCgh0b3BsZXZlbBgBIAEoCRISCgpjb21tb25fZGlyGAIgASgJEg4KBmxpbmtlZBgDIAEoCBIaCg1tYWluX3dvcmt0cmVlGAQgASgJSACIAQESLAoHcmVtb3RlcxgFIAMoCzIbLnN0ZWFkLm1hY2hpbmUudjEuR2l0UmVtb3RlEhMKBmJyYW5jaBgGIAEoCUgBiAEBEhEKBGhlYWQYByABKAlIAogBAUIQCg5fbWFpbl93b3JrdHJlZUIJCgdfYnJhbmNoQgcKBV9oZWFkIoEBCg9JbnNwZWN0UmVzcG9uc2USMwoHc3VjY2VzcxgBIAEoCzIgLnN0ZWFkLm1hY2hpbmUudjEuSW5zcGVjdFN1Y2Nlc3NIABIvCgdmYWlsdXJlGAIgASgLMhwuc3RlYWQubWFjaGluZS52MS5HaXRGYWlsdXJlSABCCAoGcmVzdWx0IksKDUxvY2F0ZVJlcXVlc3QSLAoIZW52ZWxvcGUYASABKAsyGi5zdGVhZC5tYWNoaW5lLnYxLkVudmVsb3BlEgwKBHBhdGgYAiABKAkiMAoNTG9jYXRlU3VjY2VzcxIRCglnaXRfZW50cnkYASABKAkSDAoEa2luZBgCIAEoCSJ/Cg5Mb2NhdGVSZXNwb25zZRIyCgdzdWNjZXNzGAEgASgLMh8uc3RlYWQubWFjaGluZS52MS5Mb2NhdGVTdWNjZXNzSAASLwoHZmFpbHVyZRgCIAEoCzIcLnN0ZWFkLm1hY2hpbmUudjEuR2l0RmFpbHVyZUgAQggKBnJlc3VsdCKoAQoMU3RhdGVSZXF1ZXN0EiwKCGVudmVsb3BlGAEgASgLMhouc3RlYWQubWFjaGluZS52MS5FbnZlbG9wZRIMCgRwYXRoGAIgASgJEhEKCWdpdF9lbnRyeRgDIAEoCRINCgVsaW1pdBgEIAEoDRISCgpzdWJtb2R1bGVzGAUgASgJEhcKCnRpbWVvdXRfbXMYBiABKA1IAIgBAUINCgtfdGltZW91dF9tcyKPAQoLR2l0VXBzdHJlYW0SDAoEbmFtZRgBIAEoCRIMCgRnb25lGAIgASgIEhIKBWFoZWFkGAMgASgDSACIAQESEwoGYmVoaW5kGAQgASgDSAGIAQESFwoKdXBkYXRlZF9hdBgFIAEoCUgCiAEBQggKBl9haGVhZEIJCgdfYmVoaW5kQg0KC191cGRhdGVkX2F0IlYKDEdpdE9wZXJhdGlvbhIMCgRraW5kGAEgASgJEhEKBHN0ZXAYAiABKA1IAIgBARISCgV0b3RhbBgDIAEoDUgBiAEBQgcKBV9zdGVwQggKBl90b3RhbCJUCglHaXRDb3VudHMSDgoGc3RhZ2VkGAEgASgNEhAKCHVuc3RhZ2VkGAIgASgNEhEKCXVudHJhY2tlZBgDIAEoDRISCgpjb25mbGljdGVkGAQgASgNIkYKDkdpdFN0YXR1c0VudHJ5EgoKAnh5GAEgASgJEgwKBHBhdGgYAiABKAkSEQoEZnJvbRgDIAEoCUgAiAEBQgcKBV9mcm9tIisKCUdpdENvbW1pdBINCgVzaG9ydBgBIAEoCRIPCgdzdWJqZWN0GAIgASgJIu8DCgxTdGF0ZVN1Y2Nlc3MSEAoIdG9wbGV2ZWwYASABKAkSFQoNcm9vdF9yZWxhdGl2ZRgCIAEoCRITCgZicmFuY2gYAyABKAlIAIgBARIQCghkZXRhY2hlZBgEIAEoCBIRCgRoZWFkGAUgASgJSAGIAQESNAoIdXBzdHJlYW0YBiABKAsyHS5zdGVhZC5tYWNoaW5lLnYxLkdpdFVwc3RyZWFtSAKIAQESNgoJb3BlcmF0aW9uGAcgASgLMh4uc3RlYWQubWFjaGluZS52MS5HaXRPcGVyYXRpb25IA4gBARIrCgZjb3VudHMYCCABKAsyGy5zdGVhZC5tYWNoaW5lLnYxLkdpdENvdW50cxIxCgdlbnRyaWVzGAkgAygLMiAuc3RlYWQubWFjaGluZS52MS5HaXRTdGF0dXNFbnRyeRIPCgdvbWl0dGVkGAogASgNEhIKCnN1Ym1vZHVsZXMYCyADKAkSLAoHY29tbWl0cxgMIAMoCzIbLnN0ZWFkLm1hY2hpbmUudjEuR2l0Q29tbWl0EiwKB3JlbW90ZXMYDSADKAsyGy5zdGVhZC5tYWNoaW5lLnYxLkdpdFJlbW90ZUIJCgdfYnJhbmNoQgcKBV9oZWFkQgsKCV91cHN0cmVhbUIMCgpfb3BlcmF0aW9uIn0KDVN0YXRlUmVzcG9uc2USMQoHc3VjY2VzcxgBIAEoCzIeLnN0ZWFkLm1hY2hpbmUudjEuU3RhdGVTdWNjZXNzSAASLwoHZmFpbHVyZRgCIAEoCzIcLnN0ZWFkLm1hY2hpbmUudjEuR2l0RmFpbHVyZUgAQggKBnJlc3VsdCKyAQoSV29ya3RyZWVBZGRSZXF1ZXN0EiwKCGVudmVsb3BlGAEgASgLMhouc3RlYWQubWFjaGluZS52MS5FbnZlbG9wZRIXCg9pZGVtcG90ZW5jeV9rZXkYAiABKAkSDgoGc291cmNlGAMgASgJEg4KBmJyYW5jaBgEIAEoCRIVCghiYXNlX3JlZhgFIAEoCUgAiAEBEhEKCWRpcmVjdG9yeRgGIAEoCUILCglfYmFzZV9yZWYiQAoSV29ya3RyZWVBZGRTdWNjZXNzEgwKBHBhdGgYASABKAkSDgoGYnJhbmNoGAIgASgJEgwKBGhlYWQYAyABKAkiiQEKE1dvcmt0cmVlQWRkUmVzcG9uc2USNwoHc3VjY2VzcxgBIAEoCzIkLnN0ZWFkLm1hY2hpbmUudjEuV29ya3RyZWVBZGRTdWNjZXNzSAASLwoHZmFpbHVyZRgCIAEoCzIcLnN0ZWFkLm1hY2hpbmUudjEuR2l0RmFpbHVyZUgAQggKBnJlc3VsdCJTChNXb3JrdHJlZUxpc3RSZXF1ZXN0EiwKCGVudmVsb3BlGAEgASgLMhouc3RlYWQubWFjaGluZS52MS5FbnZlbG9wZRIOCgZzb3VyY2UYAiABKAkiewoNV29ya3RyZWVFbnRyeRIMCgRwYXRoGAEgASgJEhMKBmJyYW5jaBgCIAEoCUgAiAEBEhEKBGhlYWQYAyABKAlIAYgBARIOCgZsb2NrZWQYBCABKAgSEAoIcHJ1bmFibGUYBSABKAhCCQoHX2JyYW5jaEIHCgVfaGVhZCJJChNXb3JrdHJlZUxpc3RTdWNjZXNzEjIKCXdvcmt0cmVlcxgBIAMoCzIfLnN0ZWFkLm1hY2hpbmUudjEuV29ya3RyZWVFbnRyeSKLAQoUV29ya3RyZWVMaXN0UmVzcG9uc2USOAoHc3VjY2VzcxgBIAEoCzIlLnN0ZWFkLm1hY2hpbmUudjEuV29ya3RyZWVMaXN0U3VjY2Vzc0gAEi8KB2ZhaWx1cmUYAiABKAsyHC5zdGVhZC5tYWNoaW5lLnYxLkdpdEZhaWx1cmVIAEIICgZyZXN1bHQibAoVV29ya3RyZWVSZW1vdmVSZXF1ZXN0EiwKCGVudmVsb3BlGAEgASgLMhouc3RlYWQubWFjaGluZS52MS5FbnZlbG9wZRIXCg9pZGVtcG90ZW5jeV9rZXkYAiABKAkSDAoEcGF0aBgDIAEoCSIXChVXb3JrdHJlZVJlbW92ZVN1Y2Nlc3MijwEKFldvcmt0cmVlUmVtb3ZlUmVzcG9uc2USOgoHc3VjY2VzcxgBIAEoCzInLnN0ZWFkLm1hY2hpbmUudjEuV29ya3RyZWVSZW1vdmVTdWNjZXNzSAASLwoHZmFpbHVyZRgCIAEoCzIcLnN0ZWFkLm1hY2hpbmUudjEuR2l0RmFpbHVyZUgAQggKBnJlc3VsdDKTBAoKR2l0U2VydmljZRJOCgdJbnNwZWN0EiAuc3RlYWQubWFjaGluZS52MS5JbnNwZWN0UmVxdWVzdBohLnN0ZWFkLm1hY2hpbmUudjEuSW5zcGVjdFJlc3BvbnNlEksKBkxvY2F0ZRIfLnN0ZWFkLm1hY2hpbmUudjEuTG9jYXRlUmVxdWVzdBogLnN0ZWFkLm1hY2hpbmUudjEuTG9jYXRlUmVzcG9uc2USSAoFU3RhdGUSHi5zdGVhZC5tYWNoaW5lLnYxLlN0YXRlUmVxdWVzdBofLnN0ZWFkLm1hY2hpbmUudjEuU3RhdGVSZXNwb25zZRJaCgtXb3JrdHJlZUFkZBIkLnN0ZWFkLm1hY2hpbmUudjEuV29ya3RyZWVBZGRSZXF1ZXN0GiUuc3RlYWQubWFjaGluZS52MS5Xb3JrdHJlZUFkZFJlc3BvbnNlEl0KDFdvcmt0cmVlTGlzdBIlLnN0ZWFkLm1hY2hpbmUudjEuV29ya3RyZWVMaXN0UmVxdWVzdBomLnN0ZWFkLm1hY2hpbmUudjEuV29ya3RyZWVMaXN0UmVzcG9uc2USYwoOV29ya3RyZWVSZW1vdmUSJy5zdGVhZC5tYWNoaW5lLnYxLldvcmt0cmVlUmVtb3ZlUmVxdWVzdBooLnN0ZWFkLm1hY2hpbmUudjEuV29ya3RyZWVSZW1vdmVSZXNwb25zZWIGcHJvdG8z", [file_stead_machine_v1_common]);
+  fileDesc("ChpzdGVhZC9tYWNoaW5lL3YxL2dpdC5wcm90bxIQc3RlYWQubWFjaGluZS52MSJhCgpHaXRGYWlsdXJlEjIKBnJlYXNvbhgBIAEoDjIiLnN0ZWFkLm1hY2hpbmUudjEuR2l0RmFpbHVyZVJlYXNvbhIPCgdtZXNzYWdlGAIgASgJEg4KBnN0ZGVychgDIAEoCSIjCgZSZW1vdGUSDAoEbmFtZRgBIAEoCRILCgN1cmwYAiABKAkiHgoOSW5zcGVjdFJlcXVlc3QSDAoEcGF0aBgBIAEoCSKAAQoPSW5zcGVjdFJlc3BvbnNlEjIKCnJlcG9zaXRvcnkYASABKAsyHC5zdGVhZC5tYWNoaW5lLnYxLlJlcG9zaXRvcnlIABIvCgdmYWlsdXJlGAIgASgLMhwuc3RlYWQubWFjaGluZS52MS5HaXRGYWlsdXJlSABCCAoGcmVzdWx0ItcBCgpSZXBvc2l0b3J5EhAKCHRvcGxldmVsGAEgASgJEhIKCmNvbW1vbl9kaXIYAiABKAkSDgoGbGlua2VkGAMgASgIEhoKDW1haW5fd29ya3RyZWUYBCABKAlIAIgBARIpCgdyZW1vdGVzGAUgAygLMhguc3RlYWQubWFjaGluZS52MS5SZW1vdGUSEwoGYnJhbmNoGAYgASgJSAGIAQESEQoEaGVhZBgHIAEoCUgCiAEBQhAKDl9tYWluX3dvcmt0cmVlQgkKB19icmFuY2hCBwoFX2hlYWQiHQoNTG9jYXRlUmVxdWVzdBIMCgRwYXRoGAEgASgJIngKDkxvY2F0ZVJlc3BvbnNlEisKBWVudHJ5GAEgASgLMhouc3RlYWQubWFjaGluZS52MS5HaXRFbnRyeUgAEi8KB2ZhaWx1cmUYAiABKAsyHC5zdGVhZC5tYWNoaW5lLnYxLkdpdEZhaWx1cmVIAEIICgZyZXN1bHQiRgoIR2l0RW50cnkSDAoEcGF0aBgBIAEoCRIsCgRraW5kGAIgASgOMh4uc3RlYWQubWFjaGluZS52MS5HaXRFbnRyeUtpbmQimwEKDFN0YXRlUmVxdWVzdBIMCgRwYXRoGAEgASgJEhEKCWdpdF9lbnRyeRgCIAEoCRINCgVsaW1pdBgDIAEoDRIzCgpzdWJtb2R1bGVzGAQgASgOMh8uc3RlYWQubWFjaGluZS52MS5TdWJtb2R1bGVNb2RlEhcKCnRpbWVvdXRfbXMYBSABKA1IAIgBAUINCgtfdGltZW91dF9tcyJ+Cg1TdGF0ZVJlc3BvbnNlEjIKBXN0YXRlGAEgASgLMiEuc3RlYWQubWFjaGluZS52MS5SZXBvc2l0b3J5U3RhdGVIABIvCgdmYWlsdXJlGAIgASgLMhwuc3RlYWQubWFjaGluZS52MS5HaXRGYWlsdXJlSABCCAoGcmVzdWx0IuYDCg9SZXBvc2l0b3J5U3RhdGUSEAoIdG9wbGV2ZWwYASABKAkSFQoNcm9vdF9yZWxhdGl2ZRgCIAEoCRITCgZicmFuY2gYAyABKAlIAIgBARIQCghkZXRhY2hlZBgEIAEoCBIRCgRoZWFkGAUgASgJSAGIAQESMQoIdXBzdHJlYW0YBiABKAsyGi5zdGVhZC5tYWNoaW5lLnYxLlVwc3RyZWFtSAKIAQESMwoJb3BlcmF0aW9uGAcgASgLMhsuc3RlYWQubWFjaGluZS52MS5PcGVyYXRpb25IA4gBARIuCgZjb3VudHMYCCABKAsyHi5zdGVhZC5tYWNoaW5lLnYxLkNoYW5nZUNvdW50cxIuCgdlbnRyaWVzGAkgAygLMh0uc3RlYWQubWFjaGluZS52MS5TdGF0dXNFbnRyeRIPCgdvbWl0dGVkGAogASgNEhIKCnN1Ym1vZHVsZXMYCyADKAkSKQoHY29tbWl0cxgMIAMoCzIYLnN0ZWFkLm1hY2hpbmUudjEuQ29tbWl0EikKB3JlbW90ZXMYDSADKAsyGC5zdGVhZC5tYWNoaW5lLnYxLlJlbW90ZUIJCgdfYnJhbmNoQgcKBV9oZWFkQgsKCV91cHN0cmVhbUIMCgpfb3BlcmF0aW9uIqgBCghVcHN0cmVhbRIMCgRuYW1lGAEgASgJEgwKBGdvbmUYAiABKAgSEgoFYWhlYWQYAyABKA1IAIgBARITCgZiZWhpbmQYBCABKA1IAYgBARIzCgp1cGRhdGVkX2F0GAUgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcEgCiAEBQggKBl9haGVhZEIJCgdfYmVoaW5kQg0KC191cGRhdGVkX2F0InQKCU9wZXJhdGlvbhItCgRraW5kGAEgASgOMh8uc3RlYWQubWFjaGluZS52MS5PcGVyYXRpb25LaW5kEhEKBHN0ZXAYAiABKA1IAIgBARISCgV0b3RhbBgDIAEoDUgBiAEBQgcKBV9zdGVwQggKBl90b3RhbCJXCgxDaGFuZ2VDb3VudHMSDgoGc3RhZ2VkGAEgASgNEhAKCHVuc3RhZ2VkGAIgASgNEhEKCXVudHJhY2tlZBgDIAEoDRISCgpjb25mbGljdGVkGAQgASgNIkMKC1N0YXR1c0VudHJ5EgoKAnh5GAEgASgJEgwKBHBhdGgYAiABKAkSEQoEZnJvbRgDIAEoCUgAiAEBQgcKBV9mcm9tIigKBkNvbW1pdBINCgVzaG9ydBgBIAEoCRIPCgdzdWJqZWN0GAIgASgJIoQBChJXb3JrdHJlZUFkZFJlcXVlc3QSFwoPaWRlbXBvdGVuY3lfa2V5GAEgASgJEg4KBnNvdXJjZRgCIAEoCRIOCgZicmFuY2gYAyABKAkSFQoIYmFzZV9yZWYYBCABKAlIAIgBARIRCglkaXJlY3RvcnkYBSABKAlCCwoJX2Jhc2VfcmVmIoABChNXb3JrdHJlZUFkZFJlc3BvbnNlEi4KCHdvcmt0cmVlGAEgASgLMhouc3RlYWQubWFjaGluZS52MS5Xb3JrdHJlZUgAEi8KB2ZhaWx1cmUYAiABKAsyHC5zdGVhZC5tYWNoaW5lLnYxLkdpdEZhaWx1cmVIAEIICgZyZXN1bHQiJQoTV29ya3RyZWVMaXN0UmVxdWVzdBIOCgZzb3VyY2UYASABKAkihgEKFFdvcmt0cmVlTGlzdFJlc3BvbnNlEjMKCXdvcmt0cmVlcxgBIAEoCzIeLnN0ZWFkLm1hY2hpbmUudjEuV29ya3RyZWVMaXN0SAASLwoHZmFpbHVyZRgCIAEoCzIcLnN0ZWFkLm1hY2hpbmUudjEuR2l0RmFpbHVyZUgAQggKBnJlc3VsdCI9CgxXb3JrdHJlZUxpc3QSLQoJd29ya3RyZWVzGAEgAygLMhouc3RlYWQubWFjaGluZS52MS5Xb3JrdHJlZSJ2CghXb3JrdHJlZRIMCgRwYXRoGAEgASgJEhMKBmJyYW5jaBgCIAEoCUgAiAEBEhEKBGhlYWQYAyABKAlIAYgBARIOCgZsb2NrZWQYBCABKAgSEAoIcHJ1bmFibGUYBSABKAhCCQoHX2JyYW5jaEIHCgVfaGVhZCI+ChVXb3JrdHJlZVJlbW92ZVJlcXVlc3QSFwoPaWRlbXBvdGVuY3lfa2V5GAEgASgJEgwKBHBhdGgYAiABKAkigQEKFldvcmt0cmVlUmVtb3ZlUmVzcG9uc2USLAoHcmVtb3ZlZBgBIAEoCzIZLnN0ZWFkLm1hY2hpbmUudjEuUmVtb3ZlZEgAEi8KB2ZhaWx1cmUYAiABKAsyHC5zdGVhZC5tYWNoaW5lLnYxLkdpdEZhaWx1cmVIAEIICgZyZXN1bHQiCQoHUmVtb3ZlZCqcAwoQR2l0RmFpbHVyZVJlYXNvbhIiCh5HSVRfRkFJTFVSRV9SRUFTT05fVU5TUEVDSUZJRUQQABIkCiBHSVRfRkFJTFVSRV9SRUFTT05fSU5WQUxJRF9JTlBVVBABEicKI0dJVF9GQUlMVVJFX1JFQVNPTl9OT1RfQV9SRVBPU0lUT1JZEAISIAocR0lUX0ZBSUxVUkVfUkVBU09OX1RJTUVEX09VVBADEiEKHUdJVF9GQUlMVVJFX1JFQVNPTl9HSVRfRkFJTEVEEAQSLAooR0lUX0ZBSUxVUkVfUkVBU09OX05PX1JFUE9TSVRPUllfSU5fUk9PVBAFEiMKH0dJVF9GQUlMVVJFX1JFQVNPTl9ST09UX01JU1NJTkcQBhIoCiRHSVRfRkFJTFVSRV9SRUFTT05fR0lUX0VOVFJZX0NIQU5HRUQQBxIuCipHSVRfRkFJTFVSRV9SRUFTT05fT1VUU0lERV9SRUdJU1RFUkVEX1JPT1QQCBIjCh9HSVRfRkFJTFVSRV9SRUFTT05fT1VUUFVUX0JPVU5EEAkqZQoMR2l0RW50cnlLaW5kEh4KGkdJVF9FTlRSWV9LSU5EX1VOU1BFQ0lGSUVEEAASHAoYR0lUX0VOVFJZX0tJTkRfRElSRUNUT1JZEAESFwoTR0lUX0VOVFJZX0tJTkRfRklMRRACKmIKDVN1Ym1vZHVsZU1vZGUSHgoaU1VCTU9EVUxFX01PREVfVU5TUEVDSUZJRUQQABIXChNTVUJNT0RVTEVfTU9ERV9TS0lQEAESGAoUU1VCTU9EVUxFX01PREVfQ0hFQ0sQAirRAQoNT3BlcmF0aW9uS2luZBIeChpPUEVSQVRJT05fS0lORF9VTlNQRUNJRklFRBAAEhgKFE9QRVJBVElPTl9LSU5EX01FUkdFEAESGQoVT1BFUkFUSU9OX0tJTkRfUkVCQVNFEAISFQoRT1BFUkFUSU9OX0tJTkRfQU0QAxIeChpPUEVSQVRJT05fS0lORF9DSEVSUllfUElDSxAEEhkKFU9QRVJBVElPTl9LSU5EX1JFVkVSVBAFEhkKFU9QRVJBVElPTl9LSU5EX0JJU0VDVBAGMqsECgpHaXRTZXJ2aWNlElMKB0luc3BlY3QSIC5zdGVhZC5tYWNoaW5lLnYxLkluc3BlY3RSZXF1ZXN0GiEuc3RlYWQubWFjaGluZS52MS5JbnNwZWN0UmVzcG9uc2UiA5ACARJQCgZMb2NhdGUSHy5zdGVhZC5tYWNoaW5lLnYxLkxvY2F0ZVJlcXVlc3QaIC5zdGVhZC5tYWNoaW5lLnYxLkxvY2F0ZVJlc3BvbnNlIgOQAgESTQoFU3RhdGUSHi5zdGVhZC5tYWNoaW5lLnYxLlN0YXRlUmVxdWVzdBofLnN0ZWFkLm1hY2hpbmUudjEuU3RhdGVSZXNwb25zZSIDkAIBElwKC1dvcmt0cmVlQWRkEiQuc3RlYWQubWFjaGluZS52MS5Xb3JrdHJlZUFkZFJlcXVlc3QaJS5zdGVhZC5tYWNoaW5lLnYxLldvcmt0cmVlQWRkUmVzcG9uc2UiABJiCgxXb3JrdHJlZUxpc3QSJS5zdGVhZC5tYWNoaW5lLnYxLldvcmt0cmVlTGlzdFJlcXVlc3QaJi5zdGVhZC5tYWNoaW5lLnYxLldvcmt0cmVlTGlzdFJlc3BvbnNlIgOQAgESZQoOV29ya3RyZWVSZW1vdmUSJy5zdGVhZC5tYWNoaW5lLnYxLldvcmt0cmVlUmVtb3ZlUmVxdWVzdBooLnN0ZWFkLm1hY2hpbmUudjEuV29ya3RyZWVSZW1vdmVSZXNwb25zZSIAYgZwcm90bzM", [file_google_protobuf_timestamp]);
 
 /**
- * `type` is `invalid_input` (with `message`, before git starts) or one of
- * `not_a_repository`, `timed_out`, `git_failed`, `no_repository_in_root`,
- * `root_missing`, `git_entry_changed`, `outside_registered_root`,
- * `output_bound` (with `stderr`).
- *
  * @generated from message stead.machine.v1.GitFailure
  */
 export type GitFailure = Message<"stead.machine.v1.GitFailure"> & {
   /**
-   * @generated from field: string type = 1;
+   * @generated from field: stead.machine.v1.GitFailureReason reason = 1;
    */
-  type: string;
+  reason: GitFailureReason;
 
   /**
    * @generated from field: string message = 2;
@@ -34,6 +29,8 @@ export type GitFailure = Message<"stead.machine.v1.GitFailure"> & {
   message: string;
 
   /**
+   * Bounded standard error of the git process; empty when none ran.
+   *
    * @generated from field: string stderr = 3;
    */
   stderr: string;
@@ -47,25 +44,27 @@ export const GitFailureSchema: GenMessage<GitFailure> = /*@__PURE__*/
   messageDesc(file_stead_machine_v1_git, 0);
 
 /**
- * @generated from message stead.machine.v1.GitRemote
+ * @generated from message stead.machine.v1.Remote
  */
-export type GitRemote = Message<"stead.machine.v1.GitRemote"> & {
+export type Remote = Message<"stead.machine.v1.Remote"> & {
   /**
    * @generated from field: string name = 1;
    */
   name: string;
 
   /**
+   * As configured; the installation normalizes it.
+   *
    * @generated from field: string url = 2;
    */
   url: string;
 };
 
 /**
- * Describes the message stead.machine.v1.GitRemote.
- * Use `create(GitRemoteSchema)` to create a new message.
+ * Describes the message stead.machine.v1.Remote.
+ * Use `create(RemoteSchema)` to create a new message.
  */
-export const GitRemoteSchema: GenMessage<GitRemote> = /*@__PURE__*/
+export const RemoteSchema: GenMessage<Remote> = /*@__PURE__*/
   messageDesc(file_stead_machine_v1_git, 1);
 
 /**
@@ -73,12 +72,7 @@ export const GitRemoteSchema: GenMessage<GitRemote> = /*@__PURE__*/
  */
 export type InspectRequest = Message<"stead.machine.v1.InspectRequest"> & {
   /**
-   * @generated from field: stead.machine.v1.Envelope envelope = 1;
-   */
-  envelope?: Envelope | undefined;
-
-  /**
-   * @generated from field: string path = 2;
+   * @generated from field: string path = 1;
    */
   path: string;
 };
@@ -91,53 +85,6 @@ export const InspectRequestSchema: GenMessage<InspectRequest> = /*@__PURE__*/
   messageDesc(file_stead_machine_v1_git, 2);
 
 /**
- * @generated from message stead.machine.v1.InspectSuccess
- */
-export type InspectSuccess = Message<"stead.machine.v1.InspectSuccess"> & {
-  /**
-   * @generated from field: string toplevel = 1;
-   */
-  toplevel: string;
-
-  /**
-   * @generated from field: string common_dir = 2;
-   */
-  commonDir: string;
-
-  /**
-   * @generated from field: bool linked = 3;
-   */
-  linked: boolean;
-
-  /**
-   * @generated from field: optional string main_worktree = 4;
-   */
-  mainWorktree?: string | undefined;
-
-  /**
-   * @generated from field: repeated stead.machine.v1.GitRemote remotes = 5;
-   */
-  remotes: GitRemote[];
-
-  /**
-   * @generated from field: optional string branch = 6;
-   */
-  branch?: string | undefined;
-
-  /**
-   * @generated from field: optional string head = 7;
-   */
-  head?: string | undefined;
-};
-
-/**
- * Describes the message stead.machine.v1.InspectSuccess.
- * Use `create(InspectSuccessSchema)` to create a new message.
- */
-export const InspectSuccessSchema: GenMessage<InspectSuccess> = /*@__PURE__*/
-  messageDesc(file_stead_machine_v1_git, 3);
-
-/**
  * @generated from message stead.machine.v1.InspectResponse
  */
 export type InspectResponse = Message<"stead.machine.v1.InspectResponse"> & {
@@ -146,10 +93,10 @@ export type InspectResponse = Message<"stead.machine.v1.InspectResponse"> & {
    */
   result: {
     /**
-     * @generated from field: stead.machine.v1.InspectSuccess success = 1;
+     * @generated from field: stead.machine.v1.Repository repository = 1;
      */
-    value: InspectSuccess;
-    case: "success";
+    value: Repository;
+    case: "repository";
   } | {
     /**
      * @generated from field: stead.machine.v1.GitFailure failure = 2;
@@ -164,6 +111,59 @@ export type InspectResponse = Message<"stead.machine.v1.InspectResponse"> & {
  * Use `create(InspectResponseSchema)` to create a new message.
  */
 export const InspectResponseSchema: GenMessage<InspectResponse> = /*@__PURE__*/
+  messageDesc(file_stead_machine_v1_git, 3);
+
+/**
+ * @generated from message stead.machine.v1.Repository
+ */
+export type Repository = Message<"stead.machine.v1.Repository"> & {
+  /**
+   * @generated from field: string toplevel = 1;
+   */
+  toplevel: string;
+
+  /**
+   * @generated from field: string common_dir = 2;
+   */
+  commonDir: string;
+
+  /**
+   * A linked worktree rather than the main one.
+   *
+   * @generated from field: bool linked = 3;
+   */
+  linked: boolean;
+
+  /**
+   * @generated from field: optional string main_worktree = 4;
+   */
+  mainWorktree?: string | undefined;
+
+  /**
+   * @generated from field: repeated stead.machine.v1.Remote remotes = 5;
+   */
+  remotes: Remote[];
+
+  /**
+   * Unset when HEAD is detached.
+   *
+   * @generated from field: optional string branch = 6;
+   */
+  branch?: string | undefined;
+
+  /**
+   * Unset on an unborn branch.
+   *
+   * @generated from field: optional string head = 7;
+   */
+  head?: string | undefined;
+};
+
+/**
+ * Describes the message stead.machine.v1.Repository.
+ * Use `create(RepositorySchema)` to create a new message.
+ */
+export const RepositorySchema: GenMessage<Repository> = /*@__PURE__*/
   messageDesc(file_stead_machine_v1_git, 4);
 
 /**
@@ -171,12 +171,7 @@ export const InspectResponseSchema: GenMessage<InspectResponse> = /*@__PURE__*/
  */
 export type LocateRequest = Message<"stead.machine.v1.LocateRequest"> & {
   /**
-   * @generated from field: stead.machine.v1.Envelope envelope = 1;
-   */
-  envelope?: Envelope | undefined;
-
-  /**
-   * @generated from field: string path = 2;
+   * @generated from field: string path = 1;
    */
   path: string;
 };
@@ -189,30 +184,6 @@ export const LocateRequestSchema: GenMessage<LocateRequest> = /*@__PURE__*/
   messageDesc(file_stead_machine_v1_git, 5);
 
 /**
- * @generated from message stead.machine.v1.LocateSuccess
- */
-export type LocateSuccess = Message<"stead.machine.v1.LocateSuccess"> & {
-  /**
-   * @generated from field: string git_entry = 1;
-   */
-  gitEntry: string;
-
-  /**
-   * "directory" or "file".
-   *
-   * @generated from field: string kind = 2;
-   */
-  kind: string;
-};
-
-/**
- * Describes the message stead.machine.v1.LocateSuccess.
- * Use `create(LocateSuccessSchema)` to create a new message.
- */
-export const LocateSuccessSchema: GenMessage<LocateSuccess> = /*@__PURE__*/
-  messageDesc(file_stead_machine_v1_git, 6);
-
-/**
  * @generated from message stead.machine.v1.LocateResponse
  */
 export type LocateResponse = Message<"stead.machine.v1.LocateResponse"> & {
@@ -221,10 +192,10 @@ export type LocateResponse = Message<"stead.machine.v1.LocateResponse"> & {
    */
   result: {
     /**
-     * @generated from field: stead.machine.v1.LocateSuccess success = 1;
+     * @generated from field: stead.machine.v1.GitEntry entry = 1;
      */
-    value: LocateSuccess;
-    case: "success";
+    value: GitEntry;
+    case: "entry";
   } | {
     /**
      * @generated from field: stead.machine.v1.GitFailure failure = 2;
@@ -239,6 +210,28 @@ export type LocateResponse = Message<"stead.machine.v1.LocateResponse"> & {
  * Use `create(LocateResponseSchema)` to create a new message.
  */
 export const LocateResponseSchema: GenMessage<LocateResponse> = /*@__PURE__*/
+  messageDesc(file_stead_machine_v1_git, 6);
+
+/**
+ * @generated from message stead.machine.v1.GitEntry
+ */
+export type GitEntry = Message<"stead.machine.v1.GitEntry"> & {
+  /**
+   * @generated from field: string path = 1;
+   */
+  path: string;
+
+  /**
+   * @generated from field: stead.machine.v1.GitEntryKind kind = 2;
+   */
+  kind: GitEntryKind;
+};
+
+/**
+ * Describes the message stead.machine.v1.GitEntry.
+ * Use `create(GitEntrySchema)` to create a new message.
+ */
+export const GitEntrySchema: GenMessage<GitEntry> = /*@__PURE__*/
   messageDesc(file_stead_machine_v1_git, 7);
 
 /**
@@ -246,34 +239,33 @@ export const LocateResponseSchema: GenMessage<LocateResponse> = /*@__PURE__*/
  */
 export type StateRequest = Message<"stead.machine.v1.StateRequest"> & {
   /**
-   * @generated from field: stead.machine.v1.Envelope envelope = 1;
-   */
-  envelope?: Envelope | undefined;
-
-  /**
-   * @generated from field: string path = 2;
+   * @generated from field: string path = 1;
    */
   path: string;
 
   /**
-   * @generated from field: string git_entry = 3;
+   * The entry Locate returned.
+   *
+   * @generated from field: string git_entry = 2;
    */
   gitEntry: string;
 
   /**
-   * @generated from field: uint32 limit = 4;
+   * The most changed and submodule paths listed; 0 to 1000.
+   *
+   * @generated from field: uint32 limit = 3;
    */
   limit: number;
 
   /**
-   * "skip" or "check".
-   *
-   * @generated from field: string submodules = 5;
+   * @generated from field: stead.machine.v1.SubmoduleMode submodules = 4;
    */
-  submodules: string;
+  submodules: SubmoduleMode;
 
   /**
-   * @generated from field: optional uint32 timeout_ms = 6;
+   * Unset means the daemon's default.
+   *
+   * @generated from field: optional uint32 timeout_ms = 5;
    */
   timeoutMs?: number | undefined;
 };
@@ -286,9 +278,121 @@ export const StateRequestSchema: GenMessage<StateRequest> = /*@__PURE__*/
   messageDesc(file_stead_machine_v1_git, 8);
 
 /**
- * @generated from message stead.machine.v1.GitUpstream
+ * @generated from message stead.machine.v1.StateResponse
  */
-export type GitUpstream = Message<"stead.machine.v1.GitUpstream"> & {
+export type StateResponse = Message<"stead.machine.v1.StateResponse"> & {
+  /**
+   * @generated from oneof stead.machine.v1.StateResponse.result
+   */
+  result: {
+    /**
+     * @generated from field: stead.machine.v1.RepositoryState state = 1;
+     */
+    value: RepositoryState;
+    case: "state";
+  } | {
+    /**
+     * @generated from field: stead.machine.v1.GitFailure failure = 2;
+     */
+    value: GitFailure;
+    case: "failure";
+  } | { case: undefined; value?: undefined };
+};
+
+/**
+ * Describes the message stead.machine.v1.StateResponse.
+ * Use `create(StateResponseSchema)` to create a new message.
+ */
+export const StateResponseSchema: GenMessage<StateResponse> = /*@__PURE__*/
+  messageDesc(file_stead_machine_v1_git, 9);
+
+/**
+ * @generated from message stead.machine.v1.RepositoryState
+ */
+export type RepositoryState = Message<"stead.machine.v1.RepositoryState"> & {
+  /**
+   * @generated from field: string toplevel = 1;
+   */
+  toplevel: string;
+
+  /**
+   * The requested path relative to toplevel, POSIX; empty when equal.
+   *
+   * @generated from field: string root_relative = 2;
+   */
+  rootRelative: string;
+
+  /**
+   * @generated from field: optional string branch = 3;
+   */
+  branch?: string | undefined;
+
+  /**
+   * @generated from field: bool detached = 4;
+   */
+  detached: boolean;
+
+  /**
+   * @generated from field: optional string head = 5;
+   */
+  head?: string | undefined;
+
+  /**
+   * @generated from field: optional stead.machine.v1.Upstream upstream = 6;
+   */
+  upstream?: Upstream | undefined;
+
+  /**
+   * @generated from field: optional stead.machine.v1.Operation operation = 7;
+   */
+  operation?: Operation | undefined;
+
+  /**
+   * @generated from field: stead.machine.v1.ChangeCounts counts = 8;
+   */
+  counts?: ChangeCounts | undefined;
+
+  /**
+   * @generated from field: repeated stead.machine.v1.StatusEntry entries = 9;
+   */
+  entries: StatusEntry[];
+
+  /**
+   * Changed and submodule paths not listed because of `limit`.
+   *
+   * @generated from field: uint32 omitted = 10;
+   */
+  omitted: number;
+
+  /**
+   * @generated from field: repeated string submodules = 11;
+   */
+  submodules: string[];
+
+  /**
+   * Most recent first.
+   *
+   * @generated from field: repeated stead.machine.v1.Commit commits = 12;
+   */
+  commits: Commit[];
+
+  /**
+   * @generated from field: repeated stead.machine.v1.Remote remotes = 13;
+   */
+  remotes: Remote[];
+};
+
+/**
+ * Describes the message stead.machine.v1.RepositoryState.
+ * Use `create(RepositoryStateSchema)` to create a new message.
+ */
+export const RepositoryStateSchema: GenMessage<RepositoryState> = /*@__PURE__*/
+  messageDesc(file_stead_machine_v1_git, 10);
+
+/**
+ * @generated from message stead.machine.v1.Upstream
+ */
+export type Upstream = Message<"stead.machine.v1.Upstream"> & {
   /**
    * @generated from field: string name = 1;
    */
@@ -300,38 +404,40 @@ export type GitUpstream = Message<"stead.machine.v1.GitUpstream"> & {
   gone: boolean;
 
   /**
-   * @generated from field: optional int64 ahead = 3;
+   * @generated from field: optional uint32 ahead = 3;
    */
-  ahead?: bigint | undefined;
+  ahead?: number | undefined;
 
   /**
-   * @generated from field: optional int64 behind = 4;
+   * @generated from field: optional uint32 behind = 4;
    */
-  behind?: bigint | undefined;
+  behind?: number | undefined;
 
   /**
-   * @generated from field: optional string updated_at = 5;
+   * The upstream ref's last reflog entry.
+   *
+   * @generated from field: optional google.protobuf.Timestamp updated_at = 5;
    */
-  updatedAt?: string | undefined;
+  updatedAt?: Timestamp | undefined;
 };
 
 /**
- * Describes the message stead.machine.v1.GitUpstream.
- * Use `create(GitUpstreamSchema)` to create a new message.
+ * Describes the message stead.machine.v1.Upstream.
+ * Use `create(UpstreamSchema)` to create a new message.
  */
-export const GitUpstreamSchema: GenMessage<GitUpstream> = /*@__PURE__*/
-  messageDesc(file_stead_machine_v1_git, 9);
+export const UpstreamSchema: GenMessage<Upstream> = /*@__PURE__*/
+  messageDesc(file_stead_machine_v1_git, 11);
 
 /**
- * @generated from message stead.machine.v1.GitOperation
+ * An operation in progress, such as a rebase at step 2 of 5.
+ *
+ * @generated from message stead.machine.v1.Operation
  */
-export type GitOperation = Message<"stead.machine.v1.GitOperation"> & {
+export type Operation = Message<"stead.machine.v1.Operation"> & {
   /**
-   * "merge", "rebase", "am", "cherry-pick", "revert", or "bisect".
-   *
-   * @generated from field: string kind = 1;
+   * @generated from field: stead.machine.v1.OperationKind kind = 1;
    */
-  kind: string;
+  kind: OperationKind;
 
   /**
    * @generated from field: optional uint32 step = 2;
@@ -345,16 +451,16 @@ export type GitOperation = Message<"stead.machine.v1.GitOperation"> & {
 };
 
 /**
- * Describes the message stead.machine.v1.GitOperation.
- * Use `create(GitOperationSchema)` to create a new message.
+ * Describes the message stead.machine.v1.Operation.
+ * Use `create(OperationSchema)` to create a new message.
  */
-export const GitOperationSchema: GenMessage<GitOperation> = /*@__PURE__*/
-  messageDesc(file_stead_machine_v1_git, 10);
+export const OperationSchema: GenMessage<Operation> = /*@__PURE__*/
+  messageDesc(file_stead_machine_v1_git, 12);
 
 /**
- * @generated from message stead.machine.v1.GitCounts
+ * @generated from message stead.machine.v1.ChangeCounts
  */
-export type GitCounts = Message<"stead.machine.v1.GitCounts"> & {
+export type ChangeCounts = Message<"stead.machine.v1.ChangeCounts"> & {
   /**
    * @generated from field: uint32 staged = 1;
    */
@@ -377,43 +483,49 @@ export type GitCounts = Message<"stead.machine.v1.GitCounts"> & {
 };
 
 /**
- * Describes the message stead.machine.v1.GitCounts.
- * Use `create(GitCountsSchema)` to create a new message.
+ * Describes the message stead.machine.v1.ChangeCounts.
+ * Use `create(ChangeCountsSchema)` to create a new message.
  */
-export const GitCountsSchema: GenMessage<GitCounts> = /*@__PURE__*/
-  messageDesc(file_stead_machine_v1_git, 11);
+export const ChangeCountsSchema: GenMessage<ChangeCounts> = /*@__PURE__*/
+  messageDesc(file_stead_machine_v1_git, 13);
 
 /**
- * @generated from message stead.machine.v1.GitStatusEntry
+ * @generated from message stead.machine.v1.StatusEntry
  */
-export type GitStatusEntry = Message<"stead.machine.v1.GitStatusEntry"> & {
+export type StatusEntry = Message<"stead.machine.v1.StatusEntry"> & {
   /**
+   * Two porcelain status characters; untracked is `??`.
+   *
    * @generated from field: string xy = 1;
    */
   xy: string;
 
   /**
+   * Root-relative POSIX path; may start with `../`.
+   *
    * @generated from field: string path = 2;
    */
   path: string;
 
   /**
+   * The root-relative source of a rename.
+   *
    * @generated from field: optional string from = 3;
    */
   from?: string | undefined;
 };
 
 /**
- * Describes the message stead.machine.v1.GitStatusEntry.
- * Use `create(GitStatusEntrySchema)` to create a new message.
+ * Describes the message stead.machine.v1.StatusEntry.
+ * Use `create(StatusEntrySchema)` to create a new message.
  */
-export const GitStatusEntrySchema: GenMessage<GitStatusEntry> = /*@__PURE__*/
-  messageDesc(file_stead_machine_v1_git, 12);
+export const StatusEntrySchema: GenMessage<StatusEntry> = /*@__PURE__*/
+  messageDesc(file_stead_machine_v1_git, 14);
 
 /**
- * @generated from message stead.machine.v1.GitCommit
+ * @generated from message stead.machine.v1.Commit
  */
-export type GitCommit = Message<"stead.machine.v1.GitCommit"> & {
+export type Commit = Message<"stead.machine.v1.Commit"> & {
   /**
    * @generated from field: string short = 1;
    */
@@ -426,116 +538,10 @@ export type GitCommit = Message<"stead.machine.v1.GitCommit"> & {
 };
 
 /**
- * Describes the message stead.machine.v1.GitCommit.
- * Use `create(GitCommitSchema)` to create a new message.
+ * Describes the message stead.machine.v1.Commit.
+ * Use `create(CommitSchema)` to create a new message.
  */
-export const GitCommitSchema: GenMessage<GitCommit> = /*@__PURE__*/
-  messageDesc(file_stead_machine_v1_git, 13);
-
-/**
- * @generated from message stead.machine.v1.StateSuccess
- */
-export type StateSuccess = Message<"stead.machine.v1.StateSuccess"> & {
-  /**
-   * @generated from field: string toplevel = 1;
-   */
-  toplevel: string;
-
-  /**
-   * @generated from field: string root_relative = 2;
-   */
-  rootRelative: string;
-
-  /**
-   * @generated from field: optional string branch = 3;
-   */
-  branch?: string | undefined;
-
-  /**
-   * @generated from field: bool detached = 4;
-   */
-  detached: boolean;
-
-  /**
-   * @generated from field: optional string head = 5;
-   */
-  head?: string | undefined;
-
-  /**
-   * @generated from field: optional stead.machine.v1.GitUpstream upstream = 6;
-   */
-  upstream?: GitUpstream | undefined;
-
-  /**
-   * @generated from field: optional stead.machine.v1.GitOperation operation = 7;
-   */
-  operation?: GitOperation | undefined;
-
-  /**
-   * @generated from field: stead.machine.v1.GitCounts counts = 8;
-   */
-  counts?: GitCounts | undefined;
-
-  /**
-   * @generated from field: repeated stead.machine.v1.GitStatusEntry entries = 9;
-   */
-  entries: GitStatusEntry[];
-
-  /**
-   * @generated from field: uint32 omitted = 10;
-   */
-  omitted: number;
-
-  /**
-   * @generated from field: repeated string submodules = 11;
-   */
-  submodules: string[];
-
-  /**
-   * @generated from field: repeated stead.machine.v1.GitCommit commits = 12;
-   */
-  commits: GitCommit[];
-
-  /**
-   * @generated from field: repeated stead.machine.v1.GitRemote remotes = 13;
-   */
-  remotes: GitRemote[];
-};
-
-/**
- * Describes the message stead.machine.v1.StateSuccess.
- * Use `create(StateSuccessSchema)` to create a new message.
- */
-export const StateSuccessSchema: GenMessage<StateSuccess> = /*@__PURE__*/
-  messageDesc(file_stead_machine_v1_git, 14);
-
-/**
- * @generated from message stead.machine.v1.StateResponse
- */
-export type StateResponse = Message<"stead.machine.v1.StateResponse"> & {
-  /**
-   * @generated from oneof stead.machine.v1.StateResponse.result
-   */
-  result: {
-    /**
-     * @generated from field: stead.machine.v1.StateSuccess success = 1;
-     */
-    value: StateSuccess;
-    case: "success";
-  } | {
-    /**
-     * @generated from field: stead.machine.v1.GitFailure failure = 2;
-     */
-    value: GitFailure;
-    case: "failure";
-  } | { case: undefined; value?: undefined };
-};
-
-/**
- * Describes the message stead.machine.v1.StateResponse.
- * Use `create(StateResponseSchema)` to create a new message.
- */
-export const StateResponseSchema: GenMessage<StateResponse> = /*@__PURE__*/
+export const CommitSchema: GenMessage<Commit> = /*@__PURE__*/
   messageDesc(file_stead_machine_v1_git, 15);
 
 /**
@@ -543,32 +549,35 @@ export const StateResponseSchema: GenMessage<StateResponse> = /*@__PURE__*/
  */
 export type WorktreeAddRequest = Message<"stead.machine.v1.WorktreeAddRequest"> & {
   /**
-   * @generated from field: stead.machine.v1.Envelope envelope = 1;
-   */
-  envelope?: Envelope | undefined;
-
-  /**
-   * @generated from field: string idempotency_key = 2;
+   * @generated from field: string idempotency_key = 1;
    */
   idempotencyKey: string;
 
   /**
-   * @generated from field: string source = 3;
+   * The main checkout.
+   *
+   * @generated from field: string source = 2;
    */
   source: string;
 
   /**
-   * @generated from field: string branch = 4;
+   * A valid full ref name component; refused as INVALID_INPUT otherwise.
+   *
+   * @generated from field: string branch = 3;
    */
   branch: string;
 
   /**
-   * @generated from field: optional string base_ref = 5;
+   * The commit-ish the branch starts from; unset means the source's HEAD.
+   *
+   * @generated from field: optional string base_ref = 4;
    */
   baseRef?: string | undefined;
 
   /**
-   * @generated from field: string directory = 6;
+   * Where the worktree goes; must lie inside a registered root.
+   *
+   * @generated from field: string directory = 5;
    */
   directory: string;
 };
@@ -581,33 +590,6 @@ export const WorktreeAddRequestSchema: GenMessage<WorktreeAddRequest> = /*@__PUR
   messageDesc(file_stead_machine_v1_git, 16);
 
 /**
- * @generated from message stead.machine.v1.WorktreeAddSuccess
- */
-export type WorktreeAddSuccess = Message<"stead.machine.v1.WorktreeAddSuccess"> & {
-  /**
-   * @generated from field: string path = 1;
-   */
-  path: string;
-
-  /**
-   * @generated from field: string branch = 2;
-   */
-  branch: string;
-
-  /**
-   * @generated from field: string head = 3;
-   */
-  head: string;
-};
-
-/**
- * Describes the message stead.machine.v1.WorktreeAddSuccess.
- * Use `create(WorktreeAddSuccessSchema)` to create a new message.
- */
-export const WorktreeAddSuccessSchema: GenMessage<WorktreeAddSuccess> = /*@__PURE__*/
-  messageDesc(file_stead_machine_v1_git, 17);
-
-/**
  * @generated from message stead.machine.v1.WorktreeAddResponse
  */
 export type WorktreeAddResponse = Message<"stead.machine.v1.WorktreeAddResponse"> & {
@@ -616,10 +598,10 @@ export type WorktreeAddResponse = Message<"stead.machine.v1.WorktreeAddResponse"
    */
   result: {
     /**
-     * @generated from field: stead.machine.v1.WorktreeAddSuccess success = 1;
+     * @generated from field: stead.machine.v1.Worktree worktree = 1;
      */
-    value: WorktreeAddSuccess;
-    case: "success";
+    value: Worktree;
+    case: "worktree";
   } | {
     /**
      * @generated from field: stead.machine.v1.GitFailure failure = 2;
@@ -634,19 +616,14 @@ export type WorktreeAddResponse = Message<"stead.machine.v1.WorktreeAddResponse"
  * Use `create(WorktreeAddResponseSchema)` to create a new message.
  */
 export const WorktreeAddResponseSchema: GenMessage<WorktreeAddResponse> = /*@__PURE__*/
-  messageDesc(file_stead_machine_v1_git, 18);
+  messageDesc(file_stead_machine_v1_git, 17);
 
 /**
  * @generated from message stead.machine.v1.WorktreeListRequest
  */
 export type WorktreeListRequest = Message<"stead.machine.v1.WorktreeListRequest"> & {
   /**
-   * @generated from field: stead.machine.v1.Envelope envelope = 1;
-   */
-  envelope?: Envelope | undefined;
-
-  /**
-   * @generated from field: string source = 2;
+   * @generated from field: string source = 1;
    */
   source: string;
 };
@@ -656,18 +633,66 @@ export type WorktreeListRequest = Message<"stead.machine.v1.WorktreeListRequest"
  * Use `create(WorktreeListRequestSchema)` to create a new message.
  */
 export const WorktreeListRequestSchema: GenMessage<WorktreeListRequest> = /*@__PURE__*/
+  messageDesc(file_stead_machine_v1_git, 18);
+
+/**
+ * @generated from message stead.machine.v1.WorktreeListResponse
+ */
+export type WorktreeListResponse = Message<"stead.machine.v1.WorktreeListResponse"> & {
+  /**
+   * @generated from oneof stead.machine.v1.WorktreeListResponse.result
+   */
+  result: {
+    /**
+     * @generated from field: stead.machine.v1.WorktreeList worktrees = 1;
+     */
+    value: WorktreeList;
+    case: "worktrees";
+  } | {
+    /**
+     * @generated from field: stead.machine.v1.GitFailure failure = 2;
+     */
+    value: GitFailure;
+    case: "failure";
+  } | { case: undefined; value?: undefined };
+};
+
+/**
+ * Describes the message stead.machine.v1.WorktreeListResponse.
+ * Use `create(WorktreeListResponseSchema)` to create a new message.
+ */
+export const WorktreeListResponseSchema: GenMessage<WorktreeListResponse> = /*@__PURE__*/
   messageDesc(file_stead_machine_v1_git, 19);
 
 /**
- * @generated from message stead.machine.v1.WorktreeEntry
+ * @generated from message stead.machine.v1.WorktreeList
  */
-export type WorktreeEntry = Message<"stead.machine.v1.WorktreeEntry"> & {
+export type WorktreeList = Message<"stead.machine.v1.WorktreeList"> & {
+  /**
+   * @generated from field: repeated stead.machine.v1.Worktree worktrees = 1;
+   */
+  worktrees: Worktree[];
+};
+
+/**
+ * Describes the message stead.machine.v1.WorktreeList.
+ * Use `create(WorktreeListSchema)` to create a new message.
+ */
+export const WorktreeListSchema: GenMessage<WorktreeList> = /*@__PURE__*/
+  messageDesc(file_stead_machine_v1_git, 20);
+
+/**
+ * @generated from message stead.machine.v1.Worktree
+ */
+export type Worktree = Message<"stead.machine.v1.Worktree"> & {
   /**
    * @generated from field: string path = 1;
    */
   path: string;
 
   /**
+   * Unset on a detached worktree.
+   *
    * @generated from field: optional string branch = 2;
    */
   branch?: string | undefined;
@@ -689,74 +714,23 @@ export type WorktreeEntry = Message<"stead.machine.v1.WorktreeEntry"> & {
 };
 
 /**
- * Describes the message stead.machine.v1.WorktreeEntry.
- * Use `create(WorktreeEntrySchema)` to create a new message.
+ * Describes the message stead.machine.v1.Worktree.
+ * Use `create(WorktreeSchema)` to create a new message.
  */
-export const WorktreeEntrySchema: GenMessage<WorktreeEntry> = /*@__PURE__*/
-  messageDesc(file_stead_machine_v1_git, 20);
-
-/**
- * @generated from message stead.machine.v1.WorktreeListSuccess
- */
-export type WorktreeListSuccess = Message<"stead.machine.v1.WorktreeListSuccess"> & {
-  /**
-   * @generated from field: repeated stead.machine.v1.WorktreeEntry worktrees = 1;
-   */
-  worktrees: WorktreeEntry[];
-};
-
-/**
- * Describes the message stead.machine.v1.WorktreeListSuccess.
- * Use `create(WorktreeListSuccessSchema)` to create a new message.
- */
-export const WorktreeListSuccessSchema: GenMessage<WorktreeListSuccess> = /*@__PURE__*/
+export const WorktreeSchema: GenMessage<Worktree> = /*@__PURE__*/
   messageDesc(file_stead_machine_v1_git, 21);
-
-/**
- * @generated from message stead.machine.v1.WorktreeListResponse
- */
-export type WorktreeListResponse = Message<"stead.machine.v1.WorktreeListResponse"> & {
-  /**
-   * @generated from oneof stead.machine.v1.WorktreeListResponse.result
-   */
-  result: {
-    /**
-     * @generated from field: stead.machine.v1.WorktreeListSuccess success = 1;
-     */
-    value: WorktreeListSuccess;
-    case: "success";
-  } | {
-    /**
-     * @generated from field: stead.machine.v1.GitFailure failure = 2;
-     */
-    value: GitFailure;
-    case: "failure";
-  } | { case: undefined; value?: undefined };
-};
-
-/**
- * Describes the message stead.machine.v1.WorktreeListResponse.
- * Use `create(WorktreeListResponseSchema)` to create a new message.
- */
-export const WorktreeListResponseSchema: GenMessage<WorktreeListResponse> = /*@__PURE__*/
-  messageDesc(file_stead_machine_v1_git, 22);
 
 /**
  * @generated from message stead.machine.v1.WorktreeRemoveRequest
  */
 export type WorktreeRemoveRequest = Message<"stead.machine.v1.WorktreeRemoveRequest"> & {
   /**
-   * @generated from field: stead.machine.v1.Envelope envelope = 1;
-   */
-  envelope?: Envelope | undefined;
-
-  /**
-   * @generated from field: string idempotency_key = 2;
+   * @generated from field: string idempotency_key = 1;
    */
   idempotencyKey: string;
 
   /**
-   * @generated from field: string path = 3;
+   * @generated from field: string path = 2;
    */
   path: string;
 };
@@ -766,20 +740,7 @@ export type WorktreeRemoveRequest = Message<"stead.machine.v1.WorktreeRemoveRequ
  * Use `create(WorktreeRemoveRequestSchema)` to create a new message.
  */
 export const WorktreeRemoveRequestSchema: GenMessage<WorktreeRemoveRequest> = /*@__PURE__*/
-  messageDesc(file_stead_machine_v1_git, 23);
-
-/**
- * @generated from message stead.machine.v1.WorktreeRemoveSuccess
- */
-export type WorktreeRemoveSuccess = Message<"stead.machine.v1.WorktreeRemoveSuccess"> & {
-};
-
-/**
- * Describes the message stead.machine.v1.WorktreeRemoveSuccess.
- * Use `create(WorktreeRemoveSuccessSchema)` to create a new message.
- */
-export const WorktreeRemoveSuccessSchema: GenMessage<WorktreeRemoveSuccess> = /*@__PURE__*/
-  messageDesc(file_stead_machine_v1_git, 24);
+  messageDesc(file_stead_machine_v1_git, 22);
 
 /**
  * @generated from message stead.machine.v1.WorktreeRemoveResponse
@@ -790,10 +751,10 @@ export type WorktreeRemoveResponse = Message<"stead.machine.v1.WorktreeRemoveRes
    */
   result: {
     /**
-     * @generated from field: stead.machine.v1.WorktreeRemoveSuccess success = 1;
+     * @generated from field: stead.machine.v1.Removed removed = 1;
      */
-    value: WorktreeRemoveSuccess;
-    case: "success";
+    value: Removed;
+    case: "removed";
   } | {
     /**
      * @generated from field: stead.machine.v1.GitFailure failure = 2;
@@ -808,16 +769,200 @@ export type WorktreeRemoveResponse = Message<"stead.machine.v1.WorktreeRemoveRes
  * Use `create(WorktreeRemoveResponseSchema)` to create a new message.
  */
 export const WorktreeRemoveResponseSchema: GenMessage<WorktreeRemoveResponse> = /*@__PURE__*/
-  messageDesc(file_stead_machine_v1_git, 25);
+  messageDesc(file_stead_machine_v1_git, 23);
 
 /**
- * Built-in git operations on absolute host paths inside the registered roots.
- * Failures carry git's raw standard error; the installation renders locators.
+ * @generated from message stead.machine.v1.Removed
+ */
+export type Removed = Message<"stead.machine.v1.Removed"> & {
+};
+
+/**
+ * Describes the message stead.machine.v1.Removed.
+ * Use `create(RemovedSchema)` to create a new message.
+ */
+export const RemovedSchema: GenMessage<Removed> = /*@__PURE__*/
+  messageDesc(file_stead_machine_v1_git, 24);
+
+/**
+ * @generated from enum stead.machine.v1.GitFailureReason
+ */
+export enum GitFailureReason {
+  /**
+   * @generated from enum value: GIT_FAILURE_REASON_UNSPECIFIED = 0;
+   */
+  UNSPECIFIED = 0,
+
+  /**
+   * Refused before git started; `message` says why.
+   *
+   * @generated from enum value: GIT_FAILURE_REASON_INVALID_INPUT = 1;
+   */
+  INVALID_INPUT = 1,
+
+  /**
+   * @generated from enum value: GIT_FAILURE_REASON_NOT_A_REPOSITORY = 2;
+   */
+  NOT_A_REPOSITORY = 2,
+
+  /**
+   * @generated from enum value: GIT_FAILURE_REASON_TIMED_OUT = 3;
+   */
+  TIMED_OUT = 3,
+
+  /**
+   * @generated from enum value: GIT_FAILURE_REASON_GIT_FAILED = 4;
+   */
+  GIT_FAILED = 4,
+
+  /**
+   * @generated from enum value: GIT_FAILURE_REASON_NO_REPOSITORY_IN_ROOT = 5;
+   */
+  NO_REPOSITORY_IN_ROOT = 5,
+
+  /**
+   * @generated from enum value: GIT_FAILURE_REASON_ROOT_MISSING = 6;
+   */
+  ROOT_MISSING = 6,
+
+  /**
+   * The `.git` entry changed between locate and state.
+   *
+   * @generated from enum value: GIT_FAILURE_REASON_GIT_ENTRY_CHANGED = 7;
+   */
+  GIT_ENTRY_CHANGED = 7,
+
+  /**
+   * The repository's data (gitdir, common dir, objects, alternates) lies outside every root.
+   *
+   * @generated from enum value: GIT_FAILURE_REASON_OUTSIDE_REGISTERED_ROOT = 8;
+   */
+  OUTSIDE_REGISTERED_ROOT = 8,
+
+  /**
+   * @generated from enum value: GIT_FAILURE_REASON_OUTPUT_BOUND = 9;
+   */
+  OUTPUT_BOUND = 9,
+}
+
+/**
+ * Describes the enum stead.machine.v1.GitFailureReason.
+ */
+export const GitFailureReasonSchema: GenEnum<GitFailureReason> = /*@__PURE__*/
+  enumDesc(file_stead_machine_v1_git, 0);
+
+/**
+ * @generated from enum stead.machine.v1.GitEntryKind
+ */
+export enum GitEntryKind {
+  /**
+   * @generated from enum value: GIT_ENTRY_KIND_UNSPECIFIED = 0;
+   */
+  UNSPECIFIED = 0,
+
+  /**
+   * @generated from enum value: GIT_ENTRY_KIND_DIRECTORY = 1;
+   */
+  DIRECTORY = 1,
+
+  /**
+   * A `.git` file of a linked worktree or submodule.
+   *
+   * @generated from enum value: GIT_ENTRY_KIND_FILE = 2;
+   */
+  FILE = 2,
+}
+
+/**
+ * Describes the enum stead.machine.v1.GitEntryKind.
+ */
+export const GitEntryKindSchema: GenEnum<GitEntryKind> = /*@__PURE__*/
+  enumDesc(file_stead_machine_v1_git, 1);
+
+/**
+ * @generated from enum stead.machine.v1.SubmoduleMode
+ */
+export enum SubmoduleMode {
+  /**
+   * @generated from enum value: SUBMODULE_MODE_UNSPECIFIED = 0;
+   */
+  UNSPECIFIED = 0,
+
+  /**
+   * @generated from enum value: SUBMODULE_MODE_SKIP = 1;
+   */
+  SKIP = 1,
+
+  /**
+   * @generated from enum value: SUBMODULE_MODE_CHECK = 2;
+   */
+  CHECK = 2,
+}
+
+/**
+ * Describes the enum stead.machine.v1.SubmoduleMode.
+ */
+export const SubmoduleModeSchema: GenEnum<SubmoduleMode> = /*@__PURE__*/
+  enumDesc(file_stead_machine_v1_git, 2);
+
+/**
+ * @generated from enum stead.machine.v1.OperationKind
+ */
+export enum OperationKind {
+  /**
+   * @generated from enum value: OPERATION_KIND_UNSPECIFIED = 0;
+   */
+  UNSPECIFIED = 0,
+
+  /**
+   * @generated from enum value: OPERATION_KIND_MERGE = 1;
+   */
+  MERGE = 1,
+
+  /**
+   * @generated from enum value: OPERATION_KIND_REBASE = 2;
+   */
+  REBASE = 2,
+
+  /**
+   * @generated from enum value: OPERATION_KIND_AM = 3;
+   */
+  AM = 3,
+
+  /**
+   * @generated from enum value: OPERATION_KIND_CHERRY_PICK = 4;
+   */
+  CHERRY_PICK = 4,
+
+  /**
+   * @generated from enum value: OPERATION_KIND_REVERT = 5;
+   */
+  REVERT = 5,
+
+  /**
+   * @generated from enum value: OPERATION_KIND_BISECT = 6;
+   */
+  BISECT = 6,
+}
+
+/**
+ * Describes the enum stead.machine.v1.OperationKind.
+ */
+export const OperationKindSchema: GenEnum<OperationKind> = /*@__PURE__*/
+  enumDesc(file_stead_machine_v1_git, 3);
+
+/**
+ * GitService runs built-in git operations on repositories under the registered roots. Every path
+ * is an absolute host path and goes through root enforcement; a result path outside every root is
+ * refused as PATH_NOT_REGISTERED. Failures carry git's raw standard error; the installation
+ * rewrites root prefixes into locators.
  *
  * @generated from service stead.machine.v1.GitService
  */
 export const GitService: GenService<{
   /**
+   * Inspect reports the repository that holds a path: toplevel, common dir, remotes, branch, head.
+   *
    * @generated from rpc stead.machine.v1.GitService.Inspect
    */
   inspect: {
@@ -826,6 +971,8 @@ export const GitService: GenService<{
     output: typeof InspectResponseSchema;
   },
   /**
+   * Locate finds the nearest `.git` entry at or above a path inside the roots without starting git.
+   *
    * @generated from rpc stead.machine.v1.GitService.Locate
    */
   locate: {
@@ -834,6 +981,8 @@ export const GitService: GenService<{
     output: typeof LocateResponseSchema;
   },
   /**
+   * State reads the working-tree state of a located repository.
+   *
    * @generated from rpc stead.machine.v1.GitService.State
    */
   state: {
@@ -842,6 +991,9 @@ export const GitService: GenService<{
     output: typeof StateResponseSchema;
   },
   /**
+   * WorktreeAdd creates a worktree on a new branch. A resend with the same idempotency key returns
+   * the first result.
+   *
    * @generated from rpc stead.machine.v1.GitService.WorktreeAdd
    */
   worktreeAdd: {
@@ -850,6 +1002,8 @@ export const GitService: GenService<{
     output: typeof WorktreeAddResponseSchema;
   },
   /**
+   * WorktreeList returns every worktree of a repository, its main tree first.
+   *
    * @generated from rpc stead.machine.v1.GitService.WorktreeList
    */
   worktreeList: {
@@ -858,6 +1012,9 @@ export const GitService: GenService<{
     output: typeof WorktreeListResponseSchema;
   },
   /**
+   * WorktreeRemove removes one registered worktree without force, with the same key rule as
+   * WorktreeAdd.
+   *
    * @generated from rpc stead.machine.v1.GitService.WorktreeRemove
    */
   worktreeRemove: {

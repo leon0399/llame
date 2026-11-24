@@ -2,10 +2,6 @@
 // @generated from file stead/machine/bootstrap/v1/bootstrap.proto (package stead.machine.bootstrap.v1, syntax proto3)
 /* eslint-disable */
 
-// The frozen bootstrap service. `buf breaking` refuses any breaking change to
-// this package: an out-of-date daemon must stay identifiable by every later
-// installation. Additions are allowed.
-
 import type { GenFile, GenMessage, GenService } from "@bufbuild/protobuf/codegenv2";
 import { fileDesc, messageDesc, serviceDesc } from "@bufbuild/protobuf/codegenv2";
 import type { Message } from "@bufbuild/protobuf";
@@ -14,7 +10,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file stead/machine/bootstrap/v1/bootstrap.proto.
  */
 export const file_stead_machine_bootstrap_v1_bootstrap: GenFile = /*@__PURE__*/
-  fileDesc("CipzdGVhZC9tYWNoaW5lL2Jvb3RzdHJhcC92MS9ib290c3RyYXAucHJvdG8SGnN0ZWFkLm1hY2hpbmUuYm9vdHN0cmFwLnYxIhAKDkdldEluZm9SZXF1ZXN0IuwBCg9HZXRJbmZvUmVzcG9uc2USEwoLaW5zdGFuY2VfaWQYASABKAkSFwoPcmVsZWFzZV92ZXJzaW9uGAIgASgJEhAKCGJ1aWxkX2lkGAMgASgJEhgKEHByb3RvY29sX3ZlcnNpb24YBCABKA0SDwoHYm9vdF9pZBgFIAEoCRIwCgVmYWN0cxgGIAEoCzIhLnN0ZWFkLm1hY2hpbmUuYm9vdHN0cmFwLnYxLkZhY3RzEjwKDGNhcGFiaWxpdGllcxgHIAMoCzImLnN0ZWFkLm1hY2hpbmUuYm9vdHN0cmFwLnYxLkNhcGFiaWxpdHkiYAoFRmFjdHMSCgoCb3MYASABKAkSDAoEYXJjaBgCIAEoCRIOCgZrZXJuZWwYAyABKAkSEQoJY3B1X2NvdW50GAQgASgNEhoKEnRvdGFsX21lbW9yeV9ieXRlcxgFIAEoBCIrCgpDYXBhYmlsaXR5EgwKBG5hbWUYASABKAkSDwoHdmVyc2lvbhgCIAEoCTJ2ChBCb290c3RyYXBTZXJ2aWNlEmIKB0dldEluZm8SKi5zdGVhZC5tYWNoaW5lLmJvb3RzdHJhcC52MS5HZXRJbmZvUmVxdWVzdBorLnN0ZWFkLm1hY2hpbmUuYm9vdHN0cmFwLnYxLkdldEluZm9SZXNwb25zZWIGcHJvdG8z");
+  fileDesc("CipzdGVhZC9tYWNoaW5lL2Jvb3RzdHJhcC92MS9ib290c3RyYXAucHJvdG8SGnN0ZWFkLm1hY2hpbmUuYm9vdHN0cmFwLnYxIhAKDkdldEluZm9SZXF1ZXN0IuwBCg9HZXRJbmZvUmVzcG9uc2USEwoLaW5zdGFuY2VfaWQYASABKAkSFwoPcmVsZWFzZV92ZXJzaW9uGAIgASgJEhAKCGJ1aWxkX2lkGAMgASgJEhgKEHByb3RvY29sX3ZlcnNpb24YBCABKA0SDwoHYm9vdF9pZBgFIAEoCRIwCgVmYWN0cxgGIAEoCzIhLnN0ZWFkLm1hY2hpbmUuYm9vdHN0cmFwLnYxLkZhY3RzEjwKDGNhcGFiaWxpdGllcxgHIAMoCzImLnN0ZWFkLm1hY2hpbmUuYm9vdHN0cmFwLnYxLkNhcGFiaWxpdHkiYAoFRmFjdHMSCgoCb3MYASABKAkSDAoEYXJjaBgCIAEoCRIOCgZrZXJuZWwYAyABKAkSEQoJY3B1X2NvdW50GAQgASgNEhoKEnRvdGFsX21lbW9yeV9ieXRlcxgFIAEoBCIrCgpDYXBhYmlsaXR5EgwKBG5hbWUYASABKAkSDwoHdmVyc2lvbhgCIAEoCTJ7ChBCb290c3RyYXBTZXJ2aWNlEmcKB0dldEluZm8SKi5zdGVhZC5tYWNoaW5lLmJvb3RzdHJhcC52MS5HZXRJbmZvUmVxdWVzdBorLnN0ZWFkLm1hY2hpbmUuYm9vdHN0cmFwLnYxLkdldEluZm9SZXNwb25zZSIDkAIBYgZwcm90bzM");
 
 /**
  * @generated from message stead.machine.bootstrap.v1.GetInfoRequest
@@ -34,7 +30,7 @@ export const GetInfoRequestSchema: GenMessage<GetInfoRequest> = /*@__PURE__*/
  */
 export type GetInfoResponse = Message<"stead.machine.bootstrap.v1.GetInfoResponse"> & {
   /**
-   * Lowercase UUID v4, persisted on the Machine.
+   * Lowercase UUID v4, created once and kept on the Machine.
    *
    * @generated from field: string instance_id = 1;
    */
@@ -48,14 +44,14 @@ export type GetInfoResponse = Message<"stead.machine.bootstrap.v1.GetInfoRespons
   releaseVersion: string;
 
   /**
-   * Identifies the exact binary; changes with every build.
+   * 12 hex characters of the binary's sha256, or "unknown".
    *
    * @generated from field: string build_id = 3;
    */
   buildId: string;
 
   /**
-   * The main-service protocol version. During alpha it must match exactly.
+   * The main-service protocol version. During alpha it must match the installation's exactly.
    *
    * @generated from field: uint32 protocol_version = 4;
    */
@@ -87,6 +83,8 @@ export const GetInfoResponseSchema: GenMessage<GetInfoResponse> = /*@__PURE__*/
   messageDesc(file_stead_machine_bootstrap_v1_bootstrap, 1);
 
 /**
+ * What the box is.
+ *
  * @generated from message stead.machine.bootstrap.v1.Facts
  */
 export type Facts = Message<"stead.machine.bootstrap.v1.Facts"> & {
@@ -124,8 +122,8 @@ export const FactsSchema: GenMessage<Facts> = /*@__PURE__*/
   messageDesc(file_stead_machine_bootstrap_v1_bootstrap, 2);
 
 /**
- * What the box can do, for example a Sandbox mechanism or a tool and its
- * version. Names are open strings so a new capability needs no proto change.
+ * Capability is something the box can do, such as a tool it has. Names are open strings so a new
+ * capability needs no change to this package.
  *
  * @generated from message stead.machine.bootstrap.v1.Capability
  */
@@ -136,6 +134,8 @@ export type Capability = Message<"stead.machine.bootstrap.v1.Capability"> & {
   name: string;
 
   /**
+   * Empty when unknown.
+   *
    * @generated from field: string version = 2;
    */
   version: string;
@@ -149,12 +149,15 @@ export const CapabilitySchema: GenMessage<Capability> = /*@__PURE__*/
   messageDesc(file_stead_machine_bootstrap_v1_bootstrap, 3);
 
 /**
+ * BootstrapService identifies a Machine daemon before any other call. This package is frozen:
+ * `buf breaking` refuses an incompatible change, so an out-of-date daemon stays identifiable by
+ * every later installation. Additions are allowed.
+ *
  * @generated from service stead.machine.bootstrap.v1.BootstrapService
  */
 export const BootstrapService: GenService<{
   /**
-   * Identity, versions, and static facts. Answered before any main-service
-   * call, and safe to call at any time.
+   * GetInfo returns identity, versions, and static facts. It never refuses.
    *
    * @generated from rpc stead.machine.bootstrap.v1.BootstrapService.GetInfo
    */

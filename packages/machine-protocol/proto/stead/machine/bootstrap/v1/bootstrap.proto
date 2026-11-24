@@ -1,26 +1,27 @@
 syntax = "proto3";
 
-// The frozen bootstrap service. `buf breaking` refuses any breaking change to
-// this package: an out-of-date daemon must stay identifiable by every later
-// installation. Additions are allowed.
 package stead.machine.bootstrap.v1;
 
+// BootstrapService identifies a Machine daemon before any other call. This package is frozen:
+// `buf breaking` refuses an incompatible change, so an out-of-date daemon stays identifiable by
+// every later installation. Additions are allowed.
 service BootstrapService {
-  // Identity, versions, and static facts. Answered before any main-service
-  // call, and safe to call at any time.
-  rpc GetInfo(GetInfoRequest) returns (GetInfoResponse);
+  // GetInfo returns identity, versions, and static facts. It never refuses.
+  rpc GetInfo(GetInfoRequest) returns (GetInfoResponse) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+  }
 }
 
 message GetInfoRequest {}
 
 message GetInfoResponse {
-  // Lowercase UUID v4, persisted on the Machine.
+  // Lowercase UUID v4, created once and kept on the Machine.
   string instance_id = 1;
   // The daemon's own release version.
   string release_version = 2;
-  // Identifies the exact binary; changes with every build.
+  // 12 hex characters of the binary's sha256, or "unknown".
   string build_id = 3;
-  // The main-service protocol version. During alpha it must match exactly.
+  // The main-service protocol version. During alpha it must match the installation's exactly.
   uint32 protocol_version = 4;
   // The kernel boot id; a change means the Machine rebooted.
   string boot_id = 5;
@@ -28,6 +29,7 @@ message GetInfoResponse {
   repeated Capability capabilities = 7;
 }
 
+// What the box is.
 message Facts {
   string os = 1;
   string arch = 2;
@@ -36,9 +38,10 @@ message Facts {
   uint64 total_memory_bytes = 5;
 }
 
-// What the box can do, for example a Sandbox mechanism or a tool and its
-// version. Names are open strings so a new capability needs no proto change.
+// Capability is something the box can do, such as a tool it has. Names are open strings so a new
+// capability needs no change to this package.
 message Capability {
   string name = 1;
+  // Empty when unknown.
   string version = 2;
 }

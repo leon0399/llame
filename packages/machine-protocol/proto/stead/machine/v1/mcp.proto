@@ -2,67 +2,88 @@ syntax = "proto3";
 
 package stead.machine.v1;
 
-import "stead/machine/v1/common.proto";
-
-// Workspace MCP servers declared in `.mcp.json` and `.llame/mcp.json` under a
-// registered root. One `Open` stream is one server session: closing the
-// stream ends the server.
+// McpService lists and runs the MCP servers a Workspace declares in `.mcp.json` and
+// `.llame/mcp.json` under a registered root, with `{env:...}` and `{path:...}` resolved against the
+// Machine's own environment. One Open stream is one server session: closing the stream ends the
+// server.
 service McpService {
-  rpc ListServers(ListServersRequest) returns (ListServersResponse);
-  // The first client frame is `open`. The first server frame is `opened` or
-  // `failure`. Then JSON-RPC message text travels both ways.
-  rpc Open(stream OpenRequest) returns (stream OpenResponse);
+  // ListServers reports the declared servers of a root and whether each can start.
+  rpc ListServers(ListServersRequest) returns (ListServersResponse) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+  }
+  // Open starts a server and relays JSON-RPC both ways. The first client frame is `open`; the
+  // first server frame is `opened` or `failure`.
+  rpc Open(stream OpenRequest) returns (stream OpenResponse) {}
+}
+
+enum Transport {
+  TRANSPORT_UNSPECIFIED = 0;
+  TRANSPORT_STDIO = 1;
+  // Streamable HTTP.
+  TRANSPORT_HTTP = 2;
 }
 
 message ListServersRequest {
-  Envelope envelope = 1;
-  string root = 2;
-}
-
-message McpServer {
-  string name = 1;
-  // "stdio" or "http"; unset when the entry never resolved that far.
-  optional string transport = 2;
-  // "available" or "unavailable".
-  string state = 3;
-  optional string diagnostic = 4;
+  string root = 1;
 }
 
 message ListServersResponse {
-  repeated McpServer servers = 1;
+  repeated Server servers = 1;
 }
 
-message McpOpen {
-  Envelope envelope = 1;
-  string root = 2;
-  string server = 3;
+message Server {
+  string name = 1;
+  // UNSPECIFIED when the entry never resolved far enough to name one.
+  Transport transport = 2;
+  bool available = 3;
+  // Why it is unavailable, with secrets redacted.
+  string diagnostic = 4;
 }
 
 message OpenRequest {
   oneof frame {
-    McpOpen open = 1;
-    // One JSON-RPC message, as JSON text.
+    Open open = 1;
+    // One JSON-RPC message as JSON text.
     string message = 2;
-    // The negotiated MCP protocol version, for HTTP servers.
-    string set_protocol_version = 3;
+    // The negotiated MCP protocol version, sent by HTTP servers on later requests.
+    string protocol_version = 3;
   }
 }
 
-message McpOpened {
-  // Resolved secret values the installation must redact.
-  repeated string protected_values = 1;
-}
-
-message McpProtected {
-  repeated string values = 1;
+message Open {
+  string root = 1;
+  string server = 2;
 }
 
 message OpenResponse {
   oneof frame {
-    McpOpened opened = 1;
+    Opened opened = 1;
     string message = 2;
+    // A line of the server's standard error.
     string stderr = 3;
-    McpProtected protected = 4;
-    Failure failure = 5;
+    // Resolved secret values the installation must redact, learned after `opened`.
+    Protected protected = 4;
+    McpFailure failure = 5;
   }
+}
+
+message Opened {
+  // Resolved secret values the installation must redact.
+  repeated string protected_values = 1;
+}
+
+message Protected {
+  repeated string values = 1;
+}
+
+enum McpFailureReason {
+  MCP_FAILURE_REASON_UNSPECIFIED = 0;
+  // The server is not declared or cannot start.
+  MCP_FAILURE_REASON_UNAVAILABLE = 1;
+  MCP_FAILURE_REASON_INVALID_INPUT = 2;
+}
+
+message McpFailure {
+  McpFailureReason reason = 1;
+  string message = 2;
 }

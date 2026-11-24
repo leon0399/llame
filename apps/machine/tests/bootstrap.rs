@@ -23,7 +23,10 @@ async fn attach_starts_one_daemon_and_reports_identity() {
     assert_eq!(machine.daemon_pid(), Some(pid));
 
     let roots = RootsServiceClient::new(channel).list(RootsServiceListRequest::default()).await.unwrap().into_inner();
-    assert_eq!(roots.roots, vec![machine.root().to_string_lossy().into_owned()]);
+    assert_eq!(
+        roots.roots.iter().map(|root| root.path.as_str()).collect::<Vec<_>>(),
+        vec![machine.root().to_string_lossy().as_ref()]
+    );
     assert_eq!(roots.max_running_jobs, 32);
 }
 

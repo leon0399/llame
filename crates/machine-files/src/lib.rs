@@ -4,7 +4,7 @@ mod mutate;
 
 use machine_core::{Context, IdempotencyCache};
 use machine_protocol::v1::{
-    EditRequest, EditResponse, GrepRequest, GrepResponse, ListRequest, ListResponse, ReadBytesRequest,
+    EditRequest, EditResponse, GrepRequest, GrepResponse, FilesServiceListRequest, FilesServiceListResponse, ReadBytesRequest,
     ReadBytesResponse, ReadRequest, ReadResponse, StatRequest, StatResponse, WriteRequest, WriteResponse,
     files_service_server::{FilesService, FilesServiceServer},
 };
@@ -27,7 +27,7 @@ impl FilesService for Files {
     async fn stat(&self, _: Request<StatRequest>) -> Result<Response<StatResponse>, Status> {
         Err(Status::unimplemented("Files.Stat"))
     }
-    async fn list(&self, _: Request<ListRequest>) -> Result<Response<ListResponse>, Status> {
+    async fn list(&self, _: Request<FilesServiceListRequest>) -> Result<Response<FilesServiceListResponse>, Status> {
         Err(Status::unimplemented("Files.List"))
     }
     async fn read(&self, _: Request<ReadRequest>) -> Result<Response<ReadResponse>, Status> {

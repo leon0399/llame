@@ -682,6 +682,8 @@ name = "machine-core"
 version = "0.1.0"
 dependencies = [
  "machine-protocol",
+ "prost",
+ "prost-types",
  "rustix",
  "serde",
  "serde_json",

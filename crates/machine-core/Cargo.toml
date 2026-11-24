@@ -18,6 +18,8 @@ uuid.workspace = true
 tokio.workspace = true
 tonic.workspace = true
 tonic-types.workspace = true
+prost.workspace = true
+prost-types.workspace = true
 rustix.workspace = true
 thiserror.workspace = true
 

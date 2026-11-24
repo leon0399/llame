@@ -25,7 +25,10 @@ impl Machine {
         let home = TempDir::new().unwrap();
         let root = home.path().canonicalize().unwrap().join("root");
         std::fs::create_dir_all(&root).unwrap();
-        let machine = Self { home, roots: vec![root] };
+        let machine = Self {
+            home,
+            roots: vec![root],
+        };
         machine.cli(&["roots", "add", machine.roots[0].to_str().unwrap()]);
         machine
     }
@@ -53,7 +56,11 @@ impl Machine {
     /// Runs a CLI command and returns its standard output.
     pub fn cli(&self, args: &[&str]) -> String {
         let output = self.command().args(args).output().unwrap();
-        assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
         String::from_utf8(output.stdout).unwrap()
     }
 
@@ -73,7 +80,10 @@ impl Machine {
         let channel = Endpoint::from_static("http://machine")
             .connect_with_connector(tower::service_fn(move |_: Uri| {
                 let io = io.lock().unwrap().take();
-                async move { io.map(TokioIo::new).ok_or_else(|| std::io::Error::other("one connection per attach")) }
+                async move {
+                    io.map(TokioIo::new)
+                        .ok_or_else(|| std::io::Error::other("one connection per attach"))
+                }
             }))
             .await
             .unwrap();
@@ -81,14 +91,20 @@ impl Machine {
     }
 
     pub fn daemon_pid(&self) -> Option<i32> {
-        std::fs::read_to_string(self.state_dir().join("daemon.lock")).ok()?.trim().parse().ok()
+        std::fs::read_to_string(self.state_dir().join("daemon.lock"))
+            .ok()?
+            .trim()
+            .parse()
+            .ok()
     }
 }
 
 impl Drop for Machine {
     fn drop(&mut self) {
         if let Some(pid) = self.daemon_pid() {
-            let _ = std::process::Command::new("kill").arg(pid.to_string()).status();
+            let _ = std::process::Command::new("kill")
+                .arg(pid.to_string())
+                .status();
             std::thread::sleep(Duration::from_millis(100));
         }
     }

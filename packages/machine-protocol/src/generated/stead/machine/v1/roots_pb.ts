@@ -4,24 +4,18 @@
 
 import type { GenFile, GenMessage, GenService } from "@bufbuild/protobuf/codegenv2";
 import { fileDesc, messageDesc, serviceDesc } from "@bufbuild/protobuf/codegenv2";
-import type { Envelope } from "./common_pb";
-import { file_stead_machine_v1_common } from "./common_pb";
 import type { Message } from "@bufbuild/protobuf";
 
 /**
  * Describes the file stead/machine/v1/roots.proto.
  */
 export const file_stead_machine_v1_roots: GenFile = /*@__PURE__*/
-  fileDesc("ChxzdGVhZC9tYWNoaW5lL3YxL3Jvb3RzLnByb3RvEhBzdGVhZC5tYWNoaW5lLnYxIkcKF1Jvb3RzU2VydmljZUxpc3RSZXF1ZXN0EiwKCGVudmVsb3BlGAEgASgLMhouc3RlYWQubWFjaGluZS52MS5FbnZlbG9wZSJuChhSb290c1NlcnZpY2VMaXN0UmVzcG9uc2USDQoFcm9vdHMYASADKAkSKQoFZGlza3MYAiADKAsyGi5zdGVhZC5tYWNoaW5lLnYxLlJvb3REaXNrEhgKEG1heF9ydW5uaW5nX2pvYnMYAyABKA0iQgoIUm9vdERpc2sSDAoEcm9vdBgBIAEoCRIYCgt0b3RhbF9ieXRlcxgCIAEoBEgAiAEBQg4KDF90b3RhbF9ieXRlczJtCgxSb290c1NlcnZpY2USXQoETGlzdBIpLnN0ZWFkLm1hY2hpbmUudjEuUm9vdHNTZXJ2aWNlTGlzdFJlcXVlc3QaKi5zdGVhZC5tYWNoaW5lLnYxLlJvb3RzU2VydmljZUxpc3RSZXNwb25zZWIGcHJvdG8z", [file_stead_machine_v1_common]);
+  fileDesc("ChxzdGVhZC9tYWNoaW5lL3YxL3Jvb3RzLnByb3RvEhBzdGVhZC5tYWNoaW5lLnYxIhkKF1Jvb3RzU2VydmljZUxpc3RSZXF1ZXN0IlsKGFJvb3RzU2VydmljZUxpc3RSZXNwb25zZRIlCgVyb290cxgBIAMoCzIWLnN0ZWFkLm1hY2hpbmUudjEuUm9vdBIYChBtYXhfcnVubmluZ19qb2JzGAIgASgNIj4KBFJvb3QSDAoEcGF0aBgBIAEoCRIYCgt0b3RhbF9ieXRlcxgCIAEoBEgAiAEBQg4KDF90b3RhbF9ieXRlczJyCgxSb290c1NlcnZpY2USYgoETGlzdBIpLnN0ZWFkLm1hY2hpbmUudjEuUm9vdHNTZXJ2aWNlTGlzdFJlcXVlc3QaKi5zdGVhZC5tYWNoaW5lLnYxLlJvb3RzU2VydmljZUxpc3RSZXNwb25zZSIDkAIBYgZwcm90bzM");
 
 /**
  * @generated from message stead.machine.v1.RootsServiceListRequest
  */
 export type RootsServiceListRequest = Message<"stead.machine.v1.RootsServiceListRequest"> & {
-  /**
-   * @generated from field: stead.machine.v1.Envelope envelope = 1;
-   */
-  envelope?: Envelope | undefined;
 };
 
 /**
@@ -36,23 +30,14 @@ export const RootsServiceListRequestSchema: GenMessage<RootsServiceListRequest> 
  */
 export type RootsServiceListResponse = Message<"stead.machine.v1.RootsServiceListResponse"> & {
   /**
-   * Registered roots, in configuration order.
-   *
-   * @generated from field: repeated string roots = 1;
+   * @generated from field: repeated stead.machine.v1.Root roots = 1;
    */
-  roots: string[];
-
-  /**
-   * One entry per root, in the same order.
-   *
-   * @generated from field: repeated stead.machine.v1.RootDisk disks = 2;
-   */
-  disks: RootDisk[];
+  roots: Root[];
 
   /**
    * How many jobs may run at once on this Machine.
    *
-   * @generated from field: uint32 max_running_jobs = 3;
+   * @generated from field: uint32 max_running_jobs = 2;
    */
   maxRunningJobs: number;
 };
@@ -65,13 +50,15 @@ export const RootsServiceListResponseSchema: GenMessage<RootsServiceListResponse
   messageDesc(file_stead_machine_v1_roots, 1);
 
 /**
- * @generated from message stead.machine.v1.RootDisk
+ * @generated from message stead.machine.v1.Root
  */
-export type RootDisk = Message<"stead.machine.v1.RootDisk"> & {
+export type Root = Message<"stead.machine.v1.Root"> & {
   /**
-   * @generated from field: string root = 1;
+   * Absolute host path.
+   *
+   * @generated from field: string path = 1;
    */
-  root: string;
+  path: string;
 
   /**
    * Total bytes of the filesystem holding the root; unset when unknown.
@@ -82,17 +69,22 @@ export type RootDisk = Message<"stead.machine.v1.RootDisk"> & {
 };
 
 /**
- * Describes the message stead.machine.v1.RootDisk.
- * Use `create(RootDiskSchema)` to create a new message.
+ * Describes the message stead.machine.v1.Root.
+ * Use `create(RootSchema)` to create a new message.
  */
-export const RootDiskSchema: GenMessage<RootDisk> = /*@__PURE__*/
+export const RootSchema: GenMessage<Root> = /*@__PURE__*/
   messageDesc(file_stead_machine_v1_roots, 2);
 
 /**
+ * RootsService reports the directories this Machine serves. Roots bound addressing; they are not
+ * a Sandbox. They are set on the Machine with `llame-machine roots add`.
+ *
  * @generated from service stead.machine.v1.RootsService
  */
 export const RootsService: GenService<{
   /**
+   * List returns the registered roots in configuration order.
+   *
    * @generated from rpc stead.machine.v1.RootsService.List
    */
   list: {

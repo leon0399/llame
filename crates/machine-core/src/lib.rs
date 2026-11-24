@@ -7,6 +7,7 @@ pub mod idempotency;
 pub mod instance;
 pub mod paths;
 pub mod refusal;
+pub mod time;
 
 use std::sync::Arc;
 

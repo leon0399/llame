@@ -8,7 +8,7 @@ use machine_protocol::{
         bootstrap_service_server::{BootstrapService, BootstrapServiceServer},
     },
     v1::{
-        RootsServiceListRequest, RootsServiceListResponse, RootDisk,
+        Root, RootsServiceListRequest, RootsServiceListResponse,
         roots_service_server::{RootsService, RootsServiceServer},
     },
 };
@@ -35,7 +35,8 @@ struct Bootstrap {
 
 #[tonic::async_trait]
 impl BootstrapService for Bootstrap {
-    async fn get_info(&self, _: Request<GetInfoRequest>) -> Result<Response<GetInfoResponse>, Status> {
+    async fn get_info(&self, request: Request<GetInfoRequest>) -> Result<Response<GetInfoResponse>, Status> {
+        crate::metadata::log(&request);
         Ok(Response::new(GetInfoResponse {
             instance_id: self.identity.instance_id.clone(),
             release_version: self.identity.release_version.clone(),
@@ -67,16 +68,19 @@ struct Roots {
 
 #[tonic::async_trait]
 impl RootsService for Roots {
-    async fn list(&self, _: Request<RootsServiceListRequest>) -> Result<Response<RootsServiceListResponse>, Status> {
+    async fn list(&self, request: Request<RootsServiceListRequest>) -> Result<Response<RootsServiceListResponse>, Status> {
+        crate::metadata::log(&request);
         let config = self.context.config.current();
-        let disks = config
+        let roots = config
             .roots
             .iter()
-            .map(|root| RootDisk { root: root.clone(), total_bytes: facts::disk_total_bytes(root) })
+            .map(|root| Root {
+                path: root.clone(),
+                total_bytes: facts::disk_total_bytes(root),
+            })
             .collect();
         Ok(Response::new(RootsServiceListResponse {
-            roots: config.roots.clone(),
-            disks,
+            roots,
             max_running_jobs: config.limits.max_running_jobs,
         }))
     }

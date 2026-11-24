@@ -2,29 +2,22 @@
 // @generated from file stead/machine/v1/mcp.proto (package stead.machine.v1, syntax proto3)
 /* eslint-disable */
 
-import type { GenFile, GenMessage, GenService } from "@bufbuild/protobuf/codegenv2";
-import { fileDesc, messageDesc, serviceDesc } from "@bufbuild/protobuf/codegenv2";
-import type { Envelope, Failure } from "./common_pb";
-import { file_stead_machine_v1_common } from "./common_pb";
+import type { GenEnum, GenFile, GenMessage, GenService } from "@bufbuild/protobuf/codegenv2";
+import { enumDesc, fileDesc, messageDesc, serviceDesc } from "@bufbuild/protobuf/codegenv2";
 import type { Message } from "@bufbuild/protobuf";
 
 /**
  * Describes the file stead/machine/v1/mcp.proto.
  */
 export const file_stead_machine_v1_mcp: GenFile = /*@__PURE__*/
-  fileDesc("ChpzdGVhZC9tYWNoaW5lL3YxL21jcC5wcm90bxIQc3RlYWQubWFjaGluZS52MSJQChJMaXN0U2VydmVyc1JlcXVlc3QSLAoIZW52ZWxvcGUYASABKAsyGi5zdGVhZC5tYWNoaW5lLnYxLkVudmVsb3BlEgwKBHJvb3QYAiABKAkidgoJTWNwU2VydmVyEgwKBG5hbWUYASABKAkSFgoJdHJhbnNwb3J0GAIgASgJSACIAQESDQoFc3RhdGUYAyABKAkSFwoKZGlhZ25vc3RpYxgEIAEoCUgBiAEBQgwKCl90cmFuc3BvcnRCDQoLX2RpYWdub3N0aWMiQwoTTGlzdFNlcnZlcnNSZXNwb25zZRIsCgdzZXJ2ZXJzGAEgAygLMhsuc3RlYWQubWFjaGluZS52MS5NY3BTZXJ2ZXIiVQoHTWNwT3BlbhIsCghlbnZlbG9wZRgBIAEoCzIaLnN0ZWFkLm1hY2hpbmUudjEuRW52ZWxvcGUSDAoEcm9vdBgCIAEoCRIOCgZzZXJ2ZXIYAyABKAkidAoLT3BlblJlcXVlc3QSKQoEb3BlbhgBIAEoCzIZLnN0ZWFkLm1hY2hpbmUudjEuTWNwT3BlbkgAEhEKB21lc3NhZ2UYAiABKAlIABIeChRzZXRfcHJvdG9jb2xfdmVyc2lvbhgDIAEoCUgAQgcKBWZyYW1lIiUKCU1jcE9wZW5lZBIYChBwcm90ZWN0ZWRfdmFsdWVzGAEgAygJIh4KDE1jcFByb3RlY3RlZBIOCgZ2YWx1ZXMYASADKAkizgEKDE9wZW5SZXNwb25zZRItCgZvcGVuZWQYASABKAsyGy5zdGVhZC5tYWNoaW5lLnYxLk1jcE9wZW5lZEgAEhEKB21lc3NhZ2UYAiABKAlIABIQCgZzdGRlcnIYAyABKAlIABIzCglwcm90ZWN0ZWQYBCABKAsyHi5zdGVhZC5tYWNoaW5lLnYxLk1jcFByb3RlY3RlZEgAEiwKB2ZhaWx1cmUYBSABKAsyGS5zdGVhZC5tYWNoaW5lLnYxLkZhaWx1cmVIAEIHCgVmcmFtZTKzAQoKTWNwU2VydmljZRJaCgtMaXN0U2VydmVycxIkLnN0ZWFkLm1hY2hpbmUudjEuTGlzdFNlcnZlcnNSZXF1ZXN0GiUuc3RlYWQubWFjaGluZS52MS5MaXN0U2VydmVyc1Jlc3BvbnNlEkkKBE9wZW4SHS5zdGVhZC5tYWNoaW5lLnYxLk9wZW5SZXF1ZXN0Gh4uc3RlYWQubWFjaGluZS52MS5PcGVuUmVzcG9uc2UoATABYgZwcm90bzM", [file_stead_machine_v1_common]);
+  fileDesc("ChpzdGVhZC9tYWNoaW5lL3YxL21jcC5wcm90bxIQc3RlYWQubWFjaGluZS52MSIiChJMaXN0U2VydmVyc1JlcXVlc3QSDAoEcm9vdBgBIAEoCSJAChNMaXN0U2VydmVyc1Jlc3BvbnNlEikKB3NlcnZlcnMYASADKAsyGC5zdGVhZC5tYWNoaW5lLnYxLlNlcnZlciJtCgZTZXJ2ZXISDAoEbmFtZRgBIAEoCRIuCgl0cmFuc3BvcnQYAiABKA4yGy5zdGVhZC5tYWNoaW5lLnYxLlRyYW5zcG9ydBIRCglhdmFpbGFibGUYAyABKAgSEgoKZGlhZ25vc3RpYxgEIAEoCSJtCgtPcGVuUmVxdWVzdBImCgRvcGVuGAEgASgLMhYuc3RlYWQubWFjaGluZS52MS5PcGVuSAASEQoHbWVzc2FnZRgCIAEoCUgAEhoKEHByb3RvY29sX3ZlcnNpb24YAyABKAlIAEIHCgVmcmFtZSIkCgRPcGVuEgwKBHJvb3QYASABKAkSDgoGc2VydmVyGAIgASgJIssBCgxPcGVuUmVzcG9uc2USKgoGb3BlbmVkGAEgASgLMhguc3RlYWQubWFjaGluZS52MS5PcGVuZWRIABIRCgdtZXNzYWdlGAIgASgJSAASEAoGc3RkZXJyGAMgASgJSAASMAoJcHJvdGVjdGVkGAQgASgLMhsuc3RlYWQubWFjaGluZS52MS5Qcm90ZWN0ZWRIABIvCgdmYWlsdXJlGAUgASgLMhwuc3RlYWQubWFjaGluZS52MS5NY3BGYWlsdXJlSABCBwoFZnJhbWUiIgoGT3BlbmVkEhgKEHByb3RlY3RlZF92YWx1ZXMYASADKAkiGwoJUHJvdGVjdGVkEg4KBnZhbHVlcxgBIAMoCSJRCgpNY3BGYWlsdXJlEjIKBnJlYXNvbhgBIAEoDjIiLnN0ZWFkLm1hY2hpbmUudjEuTWNwRmFpbHVyZVJlYXNvbhIPCgdtZXNzYWdlGAIgASgJKk8KCVRyYW5zcG9ydBIZChVUUkFOU1BPUlRfVU5TUEVDSUZJRUQQABITCg9UUkFOU1BPUlRfU1RESU8QARISCg5UUkFOU1BPUlRfSFRUUBACKoABChBNY3BGYWlsdXJlUmVhc29uEiIKHk1DUF9GQUlMVVJFX1JFQVNPTl9VTlNQRUNJRklFRBAAEiIKHk1DUF9GQUlMVVJFX1JFQVNPTl9VTkFWQUlMQUJMRRABEiQKIE1DUF9GQUlMVVJFX1JFQVNPTl9JTlZBTElEX0lOUFVUEAIyugEKCk1jcFNlcnZpY2USXwoLTGlzdFNlcnZlcnMSJC5zdGVhZC5tYWNoaW5lLnYxLkxpc3RTZXJ2ZXJzUmVxdWVzdBolLnN0ZWFkLm1hY2hpbmUudjEuTGlzdFNlcnZlcnNSZXNwb25zZSIDkAIBEksKBE9wZW4SHS5zdGVhZC5tYWNoaW5lLnYxLk9wZW5SZXF1ZXN0Gh4uc3RlYWQubWFjaGluZS52MS5PcGVuUmVzcG9uc2UiACgBMAFiBnByb3RvMw");
 
 /**
  * @generated from message stead.machine.v1.ListServersRequest
  */
 export type ListServersRequest = Message<"stead.machine.v1.ListServersRequest"> & {
   /**
-   * @generated from field: stead.machine.v1.Envelope envelope = 1;
-   */
-  envelope?: Envelope | undefined;
-
-  /**
-   * @generated from field: string root = 2;
+   * @generated from field: string root = 1;
    */
   root: string;
 };
@@ -37,49 +30,13 @@ export const ListServersRequestSchema: GenMessage<ListServersRequest> = /*@__PUR
   messageDesc(file_stead_machine_v1_mcp, 0);
 
 /**
- * @generated from message stead.machine.v1.McpServer
- */
-export type McpServer = Message<"stead.machine.v1.McpServer"> & {
-  /**
-   * @generated from field: string name = 1;
-   */
-  name: string;
-
-  /**
-   * "stdio" or "http"; unset when the entry never resolved that far.
-   *
-   * @generated from field: optional string transport = 2;
-   */
-  transport?: string | undefined;
-
-  /**
-   * "available" or "unavailable".
-   *
-   * @generated from field: string state = 3;
-   */
-  state: string;
-
-  /**
-   * @generated from field: optional string diagnostic = 4;
-   */
-  diagnostic?: string | undefined;
-};
-
-/**
- * Describes the message stead.machine.v1.McpServer.
- * Use `create(McpServerSchema)` to create a new message.
- */
-export const McpServerSchema: GenMessage<McpServer> = /*@__PURE__*/
-  messageDesc(file_stead_machine_v1_mcp, 1);
-
-/**
  * @generated from message stead.machine.v1.ListServersResponse
  */
 export type ListServersResponse = Message<"stead.machine.v1.ListServersResponse"> & {
   /**
-   * @generated from field: repeated stead.machine.v1.McpServer servers = 1;
+   * @generated from field: repeated stead.machine.v1.Server servers = 1;
    */
-  servers: McpServer[];
+  servers: Server[];
 };
 
 /**
@@ -87,34 +44,43 @@ export type ListServersResponse = Message<"stead.machine.v1.ListServersResponse"
  * Use `create(ListServersResponseSchema)` to create a new message.
  */
 export const ListServersResponseSchema: GenMessage<ListServersResponse> = /*@__PURE__*/
-  messageDesc(file_stead_machine_v1_mcp, 2);
+  messageDesc(file_stead_machine_v1_mcp, 1);
 
 /**
- * @generated from message stead.machine.v1.McpOpen
+ * @generated from message stead.machine.v1.Server
  */
-export type McpOpen = Message<"stead.machine.v1.McpOpen"> & {
+export type Server = Message<"stead.machine.v1.Server"> & {
   /**
-   * @generated from field: stead.machine.v1.Envelope envelope = 1;
+   * @generated from field: string name = 1;
    */
-  envelope?: Envelope | undefined;
+  name: string;
 
   /**
-   * @generated from field: string root = 2;
+   * UNSPECIFIED when the entry never resolved far enough to name one.
+   *
+   * @generated from field: stead.machine.v1.Transport transport = 2;
    */
-  root: string;
+  transport: Transport;
 
   /**
-   * @generated from field: string server = 3;
+   * @generated from field: bool available = 3;
    */
-  server: string;
+  available: boolean;
+
+  /**
+   * Why it is unavailable, with secrets redacted.
+   *
+   * @generated from field: string diagnostic = 4;
+   */
+  diagnostic: string;
 };
 
 /**
- * Describes the message stead.machine.v1.McpOpen.
- * Use `create(McpOpenSchema)` to create a new message.
+ * Describes the message stead.machine.v1.Server.
+ * Use `create(ServerSchema)` to create a new message.
  */
-export const McpOpenSchema: GenMessage<McpOpen> = /*@__PURE__*/
-  messageDesc(file_stead_machine_v1_mcp, 3);
+export const ServerSchema: GenMessage<Server> = /*@__PURE__*/
+  messageDesc(file_stead_machine_v1_mcp, 2);
 
 /**
  * @generated from message stead.machine.v1.OpenRequest
@@ -125,13 +91,13 @@ export type OpenRequest = Message<"stead.machine.v1.OpenRequest"> & {
    */
   frame: {
     /**
-     * @generated from field: stead.machine.v1.McpOpen open = 1;
+     * @generated from field: stead.machine.v1.Open open = 1;
      */
-    value: McpOpen;
+    value: Open;
     case: "open";
   } | {
     /**
-     * One JSON-RPC message, as JSON text.
+     * One JSON-RPC message as JSON text.
      *
      * @generated from field: string message = 2;
      */
@@ -139,12 +105,12 @@ export type OpenRequest = Message<"stead.machine.v1.OpenRequest"> & {
     case: "message";
   } | {
     /**
-     * The negotiated MCP protocol version, for HTTP servers.
+     * The negotiated MCP protocol version, sent by HTTP servers on later requests.
      *
-     * @generated from field: string set_protocol_version = 3;
+     * @generated from field: string protocol_version = 3;
      */
     value: string;
-    case: "setProtocolVersion";
+    case: "protocolVersion";
   } | { case: undefined; value?: undefined };
 };
 
@@ -153,43 +119,29 @@ export type OpenRequest = Message<"stead.machine.v1.OpenRequest"> & {
  * Use `create(OpenRequestSchema)` to create a new message.
  */
 export const OpenRequestSchema: GenMessage<OpenRequest> = /*@__PURE__*/
+  messageDesc(file_stead_machine_v1_mcp, 3);
+
+/**
+ * @generated from message stead.machine.v1.Open
+ */
+export type Open = Message<"stead.machine.v1.Open"> & {
+  /**
+   * @generated from field: string root = 1;
+   */
+  root: string;
+
+  /**
+   * @generated from field: string server = 2;
+   */
+  server: string;
+};
+
+/**
+ * Describes the message stead.machine.v1.Open.
+ * Use `create(OpenSchema)` to create a new message.
+ */
+export const OpenSchema: GenMessage<Open> = /*@__PURE__*/
   messageDesc(file_stead_machine_v1_mcp, 4);
-
-/**
- * @generated from message stead.machine.v1.McpOpened
- */
-export type McpOpened = Message<"stead.machine.v1.McpOpened"> & {
-  /**
-   * Resolved secret values the installation must redact.
-   *
-   * @generated from field: repeated string protected_values = 1;
-   */
-  protectedValues: string[];
-};
-
-/**
- * Describes the message stead.machine.v1.McpOpened.
- * Use `create(McpOpenedSchema)` to create a new message.
- */
-export const McpOpenedSchema: GenMessage<McpOpened> = /*@__PURE__*/
-  messageDesc(file_stead_machine_v1_mcp, 5);
-
-/**
- * @generated from message stead.machine.v1.McpProtected
- */
-export type McpProtected = Message<"stead.machine.v1.McpProtected"> & {
-  /**
-   * @generated from field: repeated string values = 1;
-   */
-  values: string[];
-};
-
-/**
- * Describes the message stead.machine.v1.McpProtected.
- * Use `create(McpProtectedSchema)` to create a new message.
- */
-export const McpProtectedSchema: GenMessage<McpProtected> = /*@__PURE__*/
-  messageDesc(file_stead_machine_v1_mcp, 6);
 
 /**
  * @generated from message stead.machine.v1.OpenResponse
@@ -200,9 +152,9 @@ export type OpenResponse = Message<"stead.machine.v1.OpenResponse"> & {
    */
   frame: {
     /**
-     * @generated from field: stead.machine.v1.McpOpened opened = 1;
+     * @generated from field: stead.machine.v1.Opened opened = 1;
      */
-    value: McpOpened;
+    value: Opened;
     case: "opened";
   } | {
     /**
@@ -212,21 +164,25 @@ export type OpenResponse = Message<"stead.machine.v1.OpenResponse"> & {
     case: "message";
   } | {
     /**
+     * A line of the server's standard error.
+     *
      * @generated from field: string stderr = 3;
      */
     value: string;
     case: "stderr";
   } | {
     /**
-     * @generated from field: stead.machine.v1.McpProtected protected = 4;
+     * Resolved secret values the installation must redact, learned after `opened`.
+     *
+     * @generated from field: stead.machine.v1.Protected protected = 4;
      */
-    value: McpProtected;
+    value: Protected;
     case: "protected";
   } | {
     /**
-     * @generated from field: stead.machine.v1.Failure failure = 5;
+     * @generated from field: stead.machine.v1.McpFailure failure = 5;
      */
-    value: Failure;
+    value: McpFailure;
     case: "failure";
   } | { case: undefined; value?: undefined };
 };
@@ -236,17 +192,134 @@ export type OpenResponse = Message<"stead.machine.v1.OpenResponse"> & {
  * Use `create(OpenResponseSchema)` to create a new message.
  */
 export const OpenResponseSchema: GenMessage<OpenResponse> = /*@__PURE__*/
+  messageDesc(file_stead_machine_v1_mcp, 5);
+
+/**
+ * @generated from message stead.machine.v1.Opened
+ */
+export type Opened = Message<"stead.machine.v1.Opened"> & {
+  /**
+   * Resolved secret values the installation must redact.
+   *
+   * @generated from field: repeated string protected_values = 1;
+   */
+  protectedValues: string[];
+};
+
+/**
+ * Describes the message stead.machine.v1.Opened.
+ * Use `create(OpenedSchema)` to create a new message.
+ */
+export const OpenedSchema: GenMessage<Opened> = /*@__PURE__*/
+  messageDesc(file_stead_machine_v1_mcp, 6);
+
+/**
+ * @generated from message stead.machine.v1.Protected
+ */
+export type Protected = Message<"stead.machine.v1.Protected"> & {
+  /**
+   * @generated from field: repeated string values = 1;
+   */
+  values: string[];
+};
+
+/**
+ * Describes the message stead.machine.v1.Protected.
+ * Use `create(ProtectedSchema)` to create a new message.
+ */
+export const ProtectedSchema: GenMessage<Protected> = /*@__PURE__*/
   messageDesc(file_stead_machine_v1_mcp, 7);
 
 /**
- * Workspace MCP servers declared in `.mcp.json` and `.llame/mcp.json` under a
- * registered root. One `Open` stream is one server session: closing the
- * stream ends the server.
+ * @generated from message stead.machine.v1.McpFailure
+ */
+export type McpFailure = Message<"stead.machine.v1.McpFailure"> & {
+  /**
+   * @generated from field: stead.machine.v1.McpFailureReason reason = 1;
+   */
+  reason: McpFailureReason;
+
+  /**
+   * @generated from field: string message = 2;
+   */
+  message: string;
+};
+
+/**
+ * Describes the message stead.machine.v1.McpFailure.
+ * Use `create(McpFailureSchema)` to create a new message.
+ */
+export const McpFailureSchema: GenMessage<McpFailure> = /*@__PURE__*/
+  messageDesc(file_stead_machine_v1_mcp, 8);
+
+/**
+ * @generated from enum stead.machine.v1.Transport
+ */
+export enum Transport {
+  /**
+   * @generated from enum value: TRANSPORT_UNSPECIFIED = 0;
+   */
+  UNSPECIFIED = 0,
+
+  /**
+   * @generated from enum value: TRANSPORT_STDIO = 1;
+   */
+  STDIO = 1,
+
+  /**
+   * Streamable HTTP.
+   *
+   * @generated from enum value: TRANSPORT_HTTP = 2;
+   */
+  HTTP = 2,
+}
+
+/**
+ * Describes the enum stead.machine.v1.Transport.
+ */
+export const TransportSchema: GenEnum<Transport> = /*@__PURE__*/
+  enumDesc(file_stead_machine_v1_mcp, 0);
+
+/**
+ * @generated from enum stead.machine.v1.McpFailureReason
+ */
+export enum McpFailureReason {
+  /**
+   * @generated from enum value: MCP_FAILURE_REASON_UNSPECIFIED = 0;
+   */
+  UNSPECIFIED = 0,
+
+  /**
+   * The server is not declared or cannot start.
+   *
+   * @generated from enum value: MCP_FAILURE_REASON_UNAVAILABLE = 1;
+   */
+  UNAVAILABLE = 1,
+
+  /**
+   * @generated from enum value: MCP_FAILURE_REASON_INVALID_INPUT = 2;
+   */
+  INVALID_INPUT = 2,
+}
+
+/**
+ * Describes the enum stead.machine.v1.McpFailureReason.
+ */
+export const McpFailureReasonSchema: GenEnum<McpFailureReason> = /*@__PURE__*/
+  enumDesc(file_stead_machine_v1_mcp, 1);
+
+/**
+ * McpService lists and runs the MCP servers a Workspace declares in `.mcp.json` and
+ * `.llame/mcp.json` under a registered root, with `{env:...}` and `{path:...}` resolved against the
+ * Machine's own environment. One Open stream is one server session: closing the stream ends the
+ * server.
  *
  * @generated from service stead.machine.v1.McpService
  */
 export const McpService: GenService<{
   /**
+   * ListServers reports the declared servers of a root and whether each can start.
+   *
    * @generated from rpc stead.machine.v1.McpService.ListServers
    */
   listServers: {
@@ -255,8 +328,8 @@ export const McpService: GenService<{
     output: typeof ListServersResponseSchema;
   },
   /**
-   * The first client frame is `open`. The first server frame is `opened` or
-   * `failure`. Then JSON-RPC message text travels both ways.
+   * Open starts a server and relays JSON-RPC both ways. The first client frame is `open`; the
+   * first server frame is `opened` or `failure`.
    *
    * @generated from rpc stead.machine.v1.McpService.Open
    */
