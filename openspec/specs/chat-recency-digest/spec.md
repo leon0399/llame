@@ -2,7 +2,7 @@
 
 ## Purpose
 
-A bounded, owner-scoped digest of the owner's pinned and recent chats — each carrying a title, last-activity date, message count, and a short excerpt of its first user message — resolved on a chat's first run, frozen into that chat's system prompt, and updated thereafter only by appended events. It gives the assistant enough awareness of what the owner has been working on to decide unprompted that a prior chat is worth retrieving, without re-rendering a conversation dump on every turn.
+The recency digest gives the assistant bounded awareness of the owner's other Chats through persisted context-rail snapshots and notices. Shared Chat rows include canonical Workspace affinity and bounded opening and latest visible-text excerpts.
 
 ## Requirements
 
