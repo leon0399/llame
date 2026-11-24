@@ -9056,6 +9056,51 @@ describe('RunExecutionService executeRun — stream failure', () => {
     });
   });
 
+  it('does not decide a switch after a synchronous unclassified throw', async () => {
+    const spies = mockNormalExecutionRepositories();
+    const appended = recordAppendedEvents();
+    const error = new Error('synchronous failure');
+
+    const client: ModelClient = {
+      model: 'fake-model',
+      provider: 'fake',
+      contextWindowTokens: 128_000,
+      streamText: () => {
+        throw error;
+      },
+    };
+
+    const decideModelSwitch = vi.fn<ModelSwitchDecision>().mockResolvedValue({
+      toModelId: 'target-model',
+    });
+
+    const execution = makeExecutionService(client, undefined, undefined, {
+      modelSwitchDecision: decideModelSwitch,
+    });
+
+    await expect(
+      execution.service.executeRun(executionInput(client)),
+    ).rejects.toBe(error);
+
+    expect(decideModelSwitch).not.toHaveBeenCalled();
+    expect(spies.markFinished).toHaveBeenCalledWith(
+      runId,
+      userId,
+      'failed',
+      expect.objectContaining({
+        error: { message: 'synchronous failure', code: 'unknown' },
+      }),
+    );
+    expect(appended.at(-1)).toStrictEqual({
+      type: 'run.failed',
+      payload: {
+        status: 'failed',
+        message: 'synchronous failure',
+        code: 'unknown',
+      },
+    });
+  });
+
   it('preserves a typed code and reset time when streamText throws synchronously', async () => {
     const spies = mockNormalExecutionRepositories();
     const appended = recordAppendedEvents();
@@ -9139,6 +9184,12 @@ describe('RunExecutionService executeRun — stream failure', () => {
     const appended = recordAppendedEvents();
     const source = makeCapturingClient();
     const target = makeCapturingClient();
+    const targetStreamText = vi.spyOn(target.client, 'streamText');
+    targetStreamText.mockImplementation(() =>
+      Object.assign(unusedStreamResult(), {
+        text: Promise.resolve('target segment'),
+      }),
+    );
 
     const targetModel: SystemModelCatalogEntry = {
       ...testModelEntry,
@@ -9163,6 +9214,13 @@ describe('RunExecutionService executeRun — stream failure', () => {
       { model: targetModel, modelSwitchDecision: decideModelSwitch },
     );
 
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(10_000);
+
+    const prepareFirstStep = vi.spyOn(
+      Object.getPrototypeOf(execution.service),
+      'prepareAttemptForFirstStep',
+    );
+
     vi.spyOn(ChatsRepository.prototype, 'lock').mockResolvedValue({
       ...chat,
       modelSelection: { revision: 1, selector: 'fake-model', effort: null },
@@ -9182,8 +9240,20 @@ describe('RunExecutionService executeRun — stream failure', () => {
       executionInput(source.client),
     );
 
+    clock.mockReturnValue(10_100);
+    source.streamOptions().onRequestUsage?.(
+      requestUsageReceipt({
+        inputTokens: 2,
+        outputTokens: 4,
+        totalTokens: 6,
+      }),
+      1,
+    );
+    source.streamOptions().onTextDelta?.('partial');
+    clock.mockReturnValue(11_100);
+
     await source.streamOptions().onError?.({ error: failure });
-    await running.consumeStream();
+    await expect(running.text).resolves.toBe('target segment');
 
     const changePart = switchFakes.storedParts.find(
       (part) =>
@@ -9205,6 +9275,12 @@ describe('RunExecutionService executeRun — stream failure', () => {
 
     expect(switchFakes.updateReply).toHaveBeenCalledOnce();
     expect(switchFakes.closedUsage()).toMatchObject({ status: 'error' });
+    expect(
+      appended.find(({ type }) => type === 'model.completed')?.payload,
+    ).toMatchObject({ telemetry: { complete: false } });
+    expect(
+      appended.find(({ type }) => type === 'model.completed')?.payload,
+    ).not.toHaveProperty('telemetry.tokensPerSecond');
     expect(
       switchFakes.updateForAttempt.mock.calls.some(
         ([, , , update]) =>
@@ -9234,8 +9310,12 @@ describe('RunExecutionService executeRun — stream failure', () => {
         revertAt: new Date(1_900_000_000_000).toISOString(),
       },
     });
+    expect(targetStreamText).toHaveBeenCalledOnce();
     expect(createClient).toHaveBeenCalledWith('target-model');
-    expect(target.streamOptions().effort).toBe('high');
+    expect(targetStreamText.mock.calls[0]?.[0].effort).toBe('high');
+    expect(prepareFirstStep.mock.calls.at(-1)?.[0]).toMatchObject({
+      firstSegment: true,
+    });
     expect(appended.at(-1)?.type).not.toBe('run.failed');
   });
   it('switches a synchronous provider throw to the target segment', async () => {
@@ -15499,6 +15579,11 @@ describe('RunExecutionService executeRun — pre-step compaction trigger', () =>
       },
     );
 
+    const prepareFirstStep = vi.spyOn(
+      Object.getPrototypeOf(execution.service),
+      'prepareAttemptForFirstStep',
+    );
+
     execution.summarizeCheckpoint
       .mockRejectedValueOnce(
         new ProviderFailure('The provider quota is exhausted.', {
@@ -15586,6 +15671,9 @@ describe('RunExecutionService executeRun — pre-step compaction trigger', () =>
       'Steer the next step.',
     );
     expect(markDelivered).toHaveBeenCalledOnce();
+    expect(prepareFirstStep.mock.calls.at(-1)?.[0]).toMatchObject({
+      firstSegment: false,
+    });
   });
 
   it('settles a cancelled redelivery with its restored prefix when summary quota arrives', async () => {
