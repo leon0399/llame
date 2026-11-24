@@ -149,7 +149,7 @@ message ReadOutputResponse {
 }
 
 message StopRequest {
-  string idempotency_key = 1;
+  string request_id = 1;
   string job_id = 2;
   string owner = 3;
 }
@@ -159,7 +159,7 @@ message StopResponse {
 }
 
 message ReleaseRequest {
-  string idempotency_key = 1;
+  string request_id = 1;
   string job_id = 2;
   string owner = 3;
 }

@@ -161,8 +161,9 @@ message TextRead {
 }
 
 message EditRequest {
-  // A key the installation draws per call.
-  string idempotency_key = 1;
+  // Per AIP-155: a UUID the installation draws per call. A resend with the same id returns the
+  // first result and never repeats the effect.
+  string request_id = 1;
   string path = 2;
   string old_text = 3;
   string new_text = 4;
@@ -177,7 +178,7 @@ message EditResponse {
 }
 
 message WriteRequest {
-  string idempotency_key = 1;
+  string request_id = 1;
   string path = 2;
   string content = 3;
   // Replace an existing regular file instead of refusing with FILE_EXISTS.

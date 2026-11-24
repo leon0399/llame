@@ -200,7 +200,7 @@ message Commit {
 }
 
 message WorktreeAddRequest {
-  string idempotency_key = 1;
+  string request_id = 1;
   // The main checkout.
   string source = 2;
   // A valid full ref name component; refused as INVALID_INPUT otherwise.
@@ -243,7 +243,7 @@ message Worktree {
 }
 
 message WorktreeRemoveRequest {
-  string idempotency_key = 1;
+  string request_id = 1;
   string path = 2;
 }
 
