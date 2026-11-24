@@ -80,19 +80,33 @@ model.
 
 An identical receipt alone does not bind the historical digest inputs. A
 rebaked baseline needs an owned checkpoint and a later dispatch by the exact
-receipt attempt. Before the first rebake, a recorded quota initializer tied to
-that attempt can supply the input witness. Without one, even an ordinary
-first-epoch Chat can have all derived digest fields omitted with
+receipt attempt. Before the first rebake, the exporter also requires the
+immutable version 1 quota initializer recorded for that attempt. A mutable
+told-set cannot replace this initializer. Without either input proof, even an
+ordinary first-epoch Chat can have all derived digest fields omitted with
 `baseline_input_unproved`. The exporter leaves stored messages and receipts
-unchanged. Titles that collide after prompt sanitization cannot prove a
-comparison identity.
+unchanged.
 
-Comparison pin state comes from proved baseline list membership and the last
-proved pin correction in the destination's effective stored notices. It never
-comes from the mutable told-set's pin flag. A notice without model-visible
-text or an uncertain correction order cannot prove the pin; affected entries
-are omitted with `pin_unproved` rather than suppress a future announcement.
+The packaged `project_default` template proves membership only for rows it
+actually emitted. A custom template that emits titles proves only those exact
+emitted title values; it does not prove list membership or other fields.
+Titles that collide after prompt sanitization cannot prove a comparison
+identity. The exporter does not infer an identity from a title.
 
+The mutable told-set is only an inventory of candidate comparison entries. It
+does not prove that a Chat was disclosed. Import a told id or pin state only
+when a destination-bound emission and its matching dispatched receipt prove
+the identity and pin value. If correction order or identity is ambiguous, omit
+the entry, report it privately, and leave it eligible for a future
+announcement. Pin state comes from proved baseline membership and the last
+proved pin correction in effective stored notices, never from the told-set's
+pin flag. A notice without model-visible text or an uncertain correction
+order cannot prove a pin.
+
+The exporter privately reports omitted fields and comparison entries,
+including Chats for which every derived field is omitted. Keep those reports
+and the export private. Neither contains a whole prompt or transcript. The
+exporter leaves stored messages and receipts unchanged.
 Preserve the export with the database backup. The later digest upgrade's
 converter consumes this file before removing legacy columns. That converter
 has not shipped with the reader layer.

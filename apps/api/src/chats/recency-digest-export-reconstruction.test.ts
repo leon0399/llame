@@ -12,7 +12,18 @@ import type {
   SystemPromptReceipt,
 } from '../db/schema';
 import type { Db } from '../db/tenant-db.service';
-import { renderSystemPromptTemplate } from '../instance-config/prompt-loader';
+import {
+  DEFAULT_CHAT_SYSTEM_PROMPT_PATH,
+  renderSystemPromptTemplate,
+} from '../instance-config/prompt-loader';
+import {
+  DEFAULT_PROMPT_FILE_ACCESS,
+  readPromptSource,
+} from '../prompts/template-engine';
+import {
+  formatTemporalAnchor,
+  resolveInstanceTimezone,
+} from '../prompts/temporal-anchor';
 import type { SystemModelCatalogEntry } from '../models/model-catalog';
 import { RunEventsRepository, RunsRepository } from '../runs/runs-repository';
 import { SystemPromptReceiptsRepository } from '../runs/system-prompt-receipts.repository';
@@ -20,7 +31,15 @@ import { MessagesRepository } from './messages-repository';
 import { reconstructDigestAttempts } from './recency-digest-export-attempts';
 import { buildRecencyDigestExportRecord } from './recency-digest-export-record';
 import { SYSTEM_PROMPT_RECEIPT_DOMAIN } from './recency-digest-export-proof';
-import { createRecencyDigestDeltaItem } from './recency-digest-item';
+import {
+  createRecencyDigestDeltaItem,
+  createRecencyDigestSupersessionItem,
+} from './recency-digest-item';
+
+const PACKAGED_DEFAULT_TEMPLATE = readPromptSource(
+  DEFAULT_CHAT_SYSTEM_PROMPT_PATH,
+  DEFAULT_PROMPT_FILE_ACCESS,
+);
 
 const OWNER = 'owner-1';
 const CHAT_ID = '11111111-1111-4111-8111-111111111111';
@@ -47,16 +66,24 @@ const baseline: RecencyDigestBaseline = {
   compiledOn: '2026-11-23',
 };
 
-function renderedPrompt() {
+function renderedPrompt(usingModel = model) {
   return renderSystemPromptTemplate({
-    template: model.systemPromptTemplate,
-    model,
-    anchor: { systemTime: DATE.toISOString(), systemTimezone: 'UTC' },
+    template: usingModel.systemPromptTemplate,
+    model: usingModel,
+    anchor: formatTemporalAnchor(chat.createdAt, resolveInstanceTimezone()),
     chats: baseline,
     admittedToolIds: [],
     captureChatsFieldDisclosure: true,
   });
 }
+
+const initialTold = [
+  {
+    chatId: '66666666-6666-4666-8666-666666666666',
+    pinned: false,
+    title: 'Private digest title',
+  },
+];
 
 const chat: Chat = {
   id: CHAT_ID,
@@ -98,8 +125,14 @@ const model: SystemModelCatalogEntry = {
   providerModelId: 'test-model',
   systemPromptTemplate:
     '{{chats.compiledOn}}|{{chats.pinnedShown}}|{{chats.pinnedTotal}}|{{chats.recentShown}}|{{chats.recentTotal}}|{{#each chats.recent}}{{title}}{{/each}}',
-  systemPromptSource: 'project_default',
+  systemPromptSource: 'model_override',
   referencesSkills: false,
+};
+
+const packagedDefaultModel: SystemModelCatalogEntry = {
+  ...model,
+  systemPromptTemplate: PACKAGED_DEFAULT_TEMPLATE,
+  systemPromptSource: 'project_default',
 };
 
 function triggerMessage(): Message {
@@ -150,13 +183,14 @@ function run(): Run {
 function receipt(
   systemPrompt: string,
   attemptId = ATTEMPT_ID,
+  usingModel = model,
 ): SystemPromptReceipt {
   return {
     id: '77777777-7777-4777-8777-777777777777',
     ownerUserId: OWNER,
     runId: RUN_ID,
     attemptId,
-    source: model.systemPromptSource,
+    source: usingModel.systemPromptSource,
     systemPrompt,
     promptHash: hashWithDomain(SYSTEM_PROMPT_RECEIPT_DOMAIN, systemPrompt),
     createdAt: DATE,
@@ -171,7 +205,7 @@ function event(
   return { sequence, runId: RUN_ID, eventType, payload, createdAt: DATE };
 }
 
-function initializedDispatchEvents(): Array<RunEvent> {
+function initializedDispatchEvents(told = initialTold): Array<RunEvent> {
   return [
     event(
       'run.suspended',
@@ -190,7 +224,7 @@ function initializedDispatchEvents(): Array<RunEvent> {
         baselines: {
           recencyDigestInitialization: {
             baseline,
-            told: chat.recencyDigestTold ?? [],
+            told,
           },
         },
       },
@@ -207,6 +241,7 @@ function makeRig(input: {
   events?: Array<RunEvent>;
   destinationMessages?: Array<Message>;
   activeCheckpoint?: (Message & { absorbedThroughSeq: number }) | undefined;
+  model?: SystemModelCatalogEntry;
 }) {
   const db: Db = drizzle.mock();
 
@@ -254,7 +289,7 @@ function makeRig(input: {
         tx: db,
         ownerId: OWNER,
         chat: exportChat,
-        models: [model],
+        models: [input.model ?? model],
         user: undefined,
         webSearch: undefined,
       });
@@ -433,6 +468,13 @@ describe('recency digest export reconstruction consumer path', () => {
             pinChanges: [{ title: 'Private digest title', pinned: false }],
           },
         }),
+        createRecencyDigestDeltaItem({
+          runId: RUN_ID,
+          payload: {
+            entries: [],
+            pinChanges: [{ title: 'Private digest title', pinned: true }],
+          },
+        }),
       ],
     };
 
@@ -459,24 +501,188 @@ describe('recency digest export reconstruction consumer path', () => {
     expect(attempts.activeCheckpointId).toBe(CHECKPOINT_ID);
     expect(attempts.lastOriginalSeq).toBe(7);
     expect(attempts.pinCorrectionUnproved).toBe(false);
-    expect(record.comparison.entries).toEqual([
+    expect(record.comparison.entries).toMatchObject([
       {
         chatId: '66666666-6666-4666-8666-666666666666',
-        pinned: false,
+        pinned: true,
         title: 'Private digest title',
+        proofs: {
+          identity: { runId: RUN_ID, attemptId: ATTEMPT_ID },
+          pin: {
+            kind: 'notice',
+            messageId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+          },
+        },
       },
     ]);
 
     rig.spies.findByChatId.mockResolvedValue([beforeBoundary, checkpoint]);
     const { record: withoutEffectiveCorrection } = await rig.export();
 
-    expect(withoutEffectiveCorrection.comparison.entries).toEqual([
+    expect(withoutEffectiveCorrection.comparison.entries).toEqual([]);
+  });
+  it('does not let mutable told titles identify an immutable baseline row', async () => {
+    const rig = makeRig({
+      runs: [run()],
+      receipts: [receipt(renderedPrompt().text)],
+      events: initializedDispatchEvents([
+        {
+          chatId: '99999999-9999-4999-8999-999999999999',
+          pinned: false,
+          title: 'A different immutable title',
+        },
+      ]),
+    });
+
+    const { record } = await rig.export();
+
+    expect(record.comparison.entries).toEqual([]);
+  });
+
+  it('keeps field proofs when immutable initialization told is empty without proving identity', async () => {
+    const rig = makeRig({
+      runs: [run()],
+      receipts: [receipt(renderedPrompt().text)],
+      events: initializedDispatchEvents([]),
+    });
+
+    const { record } = await rig.export();
+
+    expect(record.baseline.entries).toMatchObject([
+      { fields: { title: 'Private digest title' } },
+    ]);
+    expect(record.comparison.entries).toEqual([]);
+  });
+
+  it('omits baseline membership for a custom title-only prompt', async () => {
+    const rig = makeRig({
+      runs: [run()],
+      receipts: [receipt(renderedPrompt().text)],
+      events: initializedDispatchEvents(),
+    });
+
+    const { record } = await rig.export();
+
+    expect(record.comparison.entries).toEqual([]);
+    expect(record.comparison.omissions).toContainEqual({
+      chatId: '66666666-6666-4666-8666-666666666666',
+      field: 'pin',
+      reason: 'pin_unproved',
+    });
+  });
+
+  it('proves baseline membership from the packaged project default prompt', async () => {
+    const prompt = renderedPrompt(packagedDefaultModel);
+
+    const rig = makeRig({
+      runs: [run()],
+      receipts: [receipt(prompt.text, ATTEMPT_ID, packagedDefaultModel)],
+      events: initializedDispatchEvents(),
+      model: packagedDefaultModel,
+    });
+
+    const { record } = await rig.export();
+
+    expect(record.comparison.entries).toMatchObject([
       {
         chatId: '66666666-6666-4666-8666-666666666666',
         pinned: false,
         title: 'Private digest title',
+        proofs: {
+          identity: { runId: RUN_ID, attemptId: ATTEMPT_ID },
+          pin: {
+            kind: 'baseline',
+            proof: { runId: RUN_ID, attemptId: ATTEMPT_ID },
+          },
+        },
       },
     ]);
+  });
+
+  it.each([true, false])(
+    'privately reports unmatched told inventory with baseline present=%s',
+    async (withBaseline) => {
+      const unprovedId = '88888888-8888-4888-8888-888888888888';
+
+      const rig = makeRig({
+        chat: {
+          ...chat,
+          recencyDigestBaseline: withBaseline ? baseline : null,
+          recencyDigestTold: [{ chatId: unprovedId, pinned: true }],
+        },
+        runs: [],
+        receipts: [],
+        events: [],
+      });
+
+      const { record } = await rig.export();
+
+      expect(record.comparison.entries).toEqual([]);
+      expect(record.comparison.omissions).toContainEqual({
+        chatId: unprovedId,
+        field: 'identity',
+        reason: 'unproved_told_id',
+      });
+      expect(record.omissions).toContainEqual({
+        scope: 'comparison',
+        field: '*',
+        reason: 'comparison_proof_unavailable',
+      });
+    },
+  );
+
+  it('preserves the last notice proof after a snapshot reset within one message without mutating stored parts', async () => {
+    const prior: Message = {
+      ...triggerMessage(),
+      id: '99999999-9999-4999-8999-999999999999',
+      seq: 5,
+      parts: [
+        createRecencyDigestDeltaItem({
+          runId: RUN_ID,
+          payload: {
+            entries: [],
+            pinChanges: [{ title: 'Private digest title', pinned: false }],
+          },
+        }),
+      ],
+    };
+
+    const final: Message = {
+      ...triggerMessage(),
+      id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      seq: 6,
+      parts: [
+        createRecencyDigestSupersessionItem({ runId: RUN_ID }),
+        createRecencyDigestDeltaItem({
+          runId: RUN_ID,
+          payload: {
+            entries: [],
+            pinChanges: [{ title: 'Private digest title', pinned: true }],
+          },
+        }),
+      ],
+    };
+
+    const messages = [prior, final];
+    const before = JSON.stringify(messages);
+
+    const rig = makeRig({
+      runs: [run()],
+      receipts: [receipt(renderedPrompt().text)],
+      events: initializedDispatchEvents(),
+      destinationMessages: messages,
+    });
+
+    const { record } = await rig.export();
+
+    expect(record.comparison.entries).toMatchObject([
+      {
+        chatId: initialTold[0]?.chatId,
+        pinned: true,
+        proofs: { pin: { kind: 'notice', messageId: final.id } },
+      },
+    ]);
+    expect(JSON.stringify(messages)).toBe(before);
   });
 
   it('omits a pin correction when the current epoch has only legacy data without visible text', async () => {

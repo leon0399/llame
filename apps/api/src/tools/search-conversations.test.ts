@@ -443,10 +443,22 @@ describe('search_conversations', () => {
     expect(metadataResult).toMatchObject({
       locator: 'chat://00000000-0000-4000-8000-000000000004',
     });
-    expect(contentResult).not.toHaveProperty('offset');
-    expect(contentResult).not.toHaveProperty('limit');
-    expect(metadataResult).not.toHaveProperty('messageSeq');
-    expect(metadataResult).not.toHaveProperty('excerpt');
+
+    if (!Array.isArray(result.results)) {
+      throw new Error('Expected raw search result rows.');
+    }
+
+    const rawRows: ReadonlyArray<unknown> = result.results;
+    const [rawContentResult, rawMetadataResult] = rawRows;
+
+    if (!isRecord(rawContentResult) || !isRecord(rawMetadataResult)) {
+      throw new Error('Expected raw content and metadata result rows.');
+    }
+
+    expect(rawContentResult).not.toHaveProperty('offset');
+    expect(rawContentResult).not.toHaveProperty('limit');
+    expect(rawMetadataResult).not.toHaveProperty('messageSeq');
+    expect(rawMetadataResult).not.toHaveProperty('excerpt');
   });
 
   it('omits canonical candidates that cannot hydrate or match instead of falling back to projection text', async () => {

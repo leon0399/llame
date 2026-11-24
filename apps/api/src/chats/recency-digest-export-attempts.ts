@@ -1,5 +1,13 @@
+import {
+  DEFAULT_PROMPT_FILE_ACCESS,
+  readPromptSource,
+} from '../prompts/template-engine';
+import { sanitizeAuthoredText } from '../instance-config/authored-text';
 import { isRecord } from '@workspace/runtime-safety';
-import { collectPinCorrectionsFromMessage } from './recency-digest-export-notices';
+import {
+  collectPinCorrectionsFromMessage,
+  type PinCorrection,
+} from './recency-digest-export-notices';
 
 import type { Db } from '../db/tenant-db.service';
 import { canonicalJson, hashWithDomain } from '../canonical-json';
@@ -14,10 +22,12 @@ import { quotaRequestFromEvents } from '../runs/quota-wake-projection';
 
 import { SystemPromptReceiptsRepository } from '../runs/system-prompt-receipts.repository';
 import {
+  DEFAULT_CHAT_SYSTEM_PROMPT_PATH,
   renderSystemPromptTemplate,
   type PromptWebSearchInput,
   type RenderedPrompt,
 } from '../instance-config/prompt-loader';
+
 import {
   formatTemporalAnchor,
   resolveInstanceTimezone,
@@ -37,6 +47,11 @@ import {
   type RecencyDigestExportRecord,
 } from './recency-digest-export-proof';
 
+const PACKAGED_DEFAULT_TEMPLATE = readPromptSource(
+  DEFAULT_CHAT_SYSTEM_PROMPT_PATH,
+  DEFAULT_PROMPT_FILE_ACCESS,
+);
+
 type RunIdentity = { runId: string; attemptId: string };
 
 type ScalarField = PromptChatsScalarDisclosure;
@@ -45,7 +60,10 @@ type ScalarProofs = NonNullable<
   RecencyDigestExportRecord['baseline']['scalarProofs']
 >;
 
-type PinCorrection = { title: string; pinned: boolean };
+type ImmutableIdentity = {
+  proof: DigestProof;
+  told: NonNullable<Chat['recencyDigestTold']>;
+};
 
 type AttemptState = {
   proofCandidates: Array<ProvenDigestEntry>;
@@ -53,6 +71,8 @@ type AttemptState = {
   pinCorrections: Array<PinCorrection>;
   pinCorrectionUnproved: boolean;
   matchedRun: RunIdentity | null;
+  identityTitleProofs: Map<string, ImmutableIdentity>;
+  baselineMembershipProofs: Map<string, DigestProof>;
   latestPreTurn: { runId: string; seq: number } | null;
   anyReceipt: boolean;
   attemptNotDispatched: boolean;
@@ -106,6 +126,8 @@ function createState(): AttemptState {
     pinCorrections: [],
     pinCorrectionUnproved: false,
     matchedRun: null,
+    identityTitleProofs: new Map(),
+    baselineMembershipProofs: new Map(),
     latestPreTurn: null,
     anyReceipt: false,
     attemptNotDispatched: false,
@@ -126,11 +148,29 @@ function updateMatchedRun(state: AttemptState, proof: DigestProof): void {
   state.matchedRun = { runId: proof.runId, attemptId: proof.attemptId };
 }
 
-function recordEntryProof(state: AttemptState, entry: ProvenDigestEntry): void {
+function recordEntryProof(
+  state: AttemptState,
+  entry: ProvenDigestEntry,
+  identity: ImmutableIdentity | undefined,
+  membershipEligible: boolean,
+): void {
   state.proofCandidates.push(entry);
   const title = entry.fields.title;
 
-  if (title !== undefined) state.emittedTitles.add(title);
+  if (title !== undefined) {
+    state.emittedTitles.add(title);
+    const proof = entry.proofs.title;
+    const prior = state.identityTitleProofs.get(title);
+
+    if (identity && proof && (!prior || compareProof(proof, prior.proof) < 0))
+      state.identityTitleProofs.set(title, { proof, told: identity.told });
+
+    if (membershipEligible && proof)
+      state.baselineMembershipProofs.set(
+        sanitizeAuthoredText(title.trim()),
+        proof,
+      );
+  }
 
   for (const field of ['title', 'date', 'messageCount', 'excerpt'] as const) {
     const proof = entry.proofs[field];
@@ -142,8 +182,11 @@ function recordEntryProof(state: AttemptState, entry: ProvenDigestEntry): void {
 function recordProvenEntries(
   state: AttemptState,
   entries: ReadonlyArray<ProvenDigestEntry>,
+  identity: ImmutableIdentity | undefined,
+  membershipEligible: boolean,
 ): void {
-  for (const entry of entries) recordEntryProof(state, entry);
+  for (const entry of entries)
+    recordEntryProof(state, entry, identity, membershipEligible);
 }
 
 function copyProvenScalar(
@@ -205,9 +248,16 @@ function recordScalarProof(
 function recordReceiptProof(
   state: AttemptState,
   baseline: RecencyDigestBaseline,
-  rendered: RenderedPrompt,
-  receipt: SystemPromptReceipt,
+  prepared: PreparedPrompt,
+  dispatched: DispatchedReceipt,
 ): void {
+  const { rendered, model } = prepared;
+  const { receipt, identityTold } = dispatched;
+
+  const membershipEligible =
+    model.systemPromptSource === 'project_default' &&
+    model.systemPromptTemplate === PACKAGED_DEFAULT_TEMPLATE;
+
   const fieldDisclosure = rendered.chatsFieldDisclosure;
   const chatsDisclosure = rendered.chatsDisclosure;
 
@@ -230,23 +280,32 @@ function recordReceiptProof(
 
   if (proved.reason) return;
   state.matchedReceipt = true;
-  recordProvenEntries(state, proved.pinned);
-  recordProvenEntries(state, proved.recent);
+
+  const identity =
+    identityTold === undefined ? undefined : { proof, told: identityTold };
+
+  recordProvenEntries(state, proved.pinned, identity, membershipEligible);
+  recordProvenEntries(state, proved.recent, identity, membershipEligible);
   recordScalarProof(state, baseline, fieldDisclosure.scalars, proof);
 }
+
+type DispatchedReceipt = {
+  receipt: SystemPromptReceipt;
+  identityTold: NonNullable<Chat['recencyDigestTold']> | undefined;
+};
 
 async function dispatchedReceiptsForRun(
   context: RunContext,
   runId: string,
   baseline: RecencyDigestBaseline | null,
-): Promise<Array<SystemPromptReceipt>> {
+): Promise<Array<DispatchedReceipt>> {
   const { input, receipts, state, runEvents } = context;
   const runReceipts = await receipts.findByOwnedRun(runId, input.ownerId);
   state.anyReceipt ||= runReceipts.length > 0;
 
   if (!baseline) return [];
   const events = await runEvents.listByRunId(runId, input.ownerId);
-  const dispatched: Array<SystemPromptReceipt> = [];
+  const dispatched: Array<DispatchedReceipt> = [];
 
   for (const receipt of runReceipts) {
     const request = events.find(
@@ -261,17 +320,15 @@ async function dispatchedReceiptsForRun(
       continue;
     }
 
-    const publishedAt = context.baselinePublishedAt;
-
-    // An initial baseline (no marker) is proved only by the quota
-    // initialization witness of this exact attempt. A re-baked baseline is
-    // proved only by a dispatch strictly after its marker checkpoint; equal
-    // timestamps cannot order the two.
-    const published =
+    const identityTold =
       input.chat.recencyDigestRebakedFrom === null
         ? hasInitializationWitness(events, receipt.attemptId, baseline)
-        : publishedAt !== null &&
-          request.createdAt.getTime() > publishedAt.getTime();
+        : undefined;
+
+    const published =
+      identityTold !== undefined ||
+      (context.baselinePublishedAt !== null &&
+        request.createdAt.getTime() > context.baselinePublishedAt.getTime());
 
     if (!published) {
       state.baselinePublicationUnproved = true;
@@ -279,7 +336,7 @@ async function dispatchedReceiptsForRun(
     }
 
     state.baselinePublicationProved = true;
-    dispatched.push(receipt);
+    dispatched.push({ receipt, identityTold });
   }
 
   return dispatched;
@@ -289,18 +346,21 @@ function hasInitializationWitness(
   events: ReadonlyArray<RunEvent>,
   attemptId: string,
   baseline: RecencyDigestBaseline,
-): boolean {
-  return events.some((event) => {
-    if (event.eventType !== 'run.suspended') return false;
+): NonNullable<Chat['recencyDigestTold']> | undefined {
+  for (const event of events) {
+    if (event.eventType !== 'run.suspended') continue;
     const request = quotaRequestFromEvents([event]);
     const initialization = request?.baselines?.recencyDigestInitialization;
 
-    return (
+    if (
       request?.summaryAttemptId === attemptId &&
       initialization !== undefined &&
       canonicalJson(initialization.baseline) === canonicalJson(baseline)
-    );
-  });
+    )
+      return initialization.told;
+  }
+
+  return undefined;
 }
 
 function hasCurrentSkillBaseline(
@@ -352,9 +412,7 @@ function renderPrompt(
       captureChatsFieldDisclosure: true,
     });
 
-    if (!rendered.chatsFieldDisclosure) return undefined;
-
-    return rendered;
+    return rendered.chatsFieldDisclosure ? rendered : undefined;
   } catch {
     return undefined;
   }
@@ -430,9 +488,15 @@ async function reconstructRun(context: RunContext, run: Run): Promise<void> {
 
   if (!prepared) return;
 
-  for (const receipt of dispatched) {
-    if (receiptMatchesRender(receipt, prepared.model, prepared.rendered))
-      recordReceiptProof(state, baseline, prepared.rendered, receipt);
+  for (const dispatchedReceipt of dispatched) {
+    if (
+      receiptMatchesRender(
+        dispatchedReceipt.receipt,
+        prepared.model,
+        prepared.rendered,
+      )
+    )
+      recordReceiptProof(state, baseline, prepared, dispatchedReceipt);
   }
 }
 

@@ -57,10 +57,15 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   layer. Before the later digest upgrade, back up the database, stop acceptance,
   drain old workers, and run the reader-binary exporter:
   `pnpm --filter api recency-digest:export --out <path>`. Store its
-  version 1 owner-bound JSON output as private mode `0600` data. It exports only
-  field-level disclosures backed by exact receipt proof and omits and privately
-  reports fields without proof. The later digest converter consumes this file;
-  it is not part of this reader release.
+  version 1 owner-bound JSON output as private mode `0600` data. Baseline
+  disclosure requires the immutable version 1 quota initializer and the
+  matching dispatched receipt identity. The packaged `project_default`
+  template proves membership only for emitted rows; custom title-only templates
+  prove only exact emitted titles. The mutable told-set is inventory, not
+  disclosure proof. Ambiguous identities or pin corrections are omitted and
+  reported privately, including total omissions. The export contains no whole
+  prompt or transcript. The later digest converter consumes this file; it is
+  not part of this reader release.
   Bootstrap diagnostics and YAML warnings do not echo configuration source;
   malformed YAML still rejects startup.
 

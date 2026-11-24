@@ -3,7 +3,11 @@ import { isRecord, isString } from '@workspace/runtime-safety';
 import { isContextItemPart } from './context-item';
 import { isRecencyDigestDeltaPayload } from './recency-digest-item';
 
-type PinCorrection = { title: string; pinned: boolean };
+export type PinCorrection = {
+  title: string;
+  pinned: boolean;
+  messageId: string;
+};
 
 type PinEvidenceState = {
   pinCorrections: Array<PinCorrection>;
@@ -12,7 +16,10 @@ type PinEvidenceState = {
 
 type RecencyNoticeEvidence =
   | { form: 'snapshot' }
-  | { form: 'notice'; pinChanges: ReadonlyArray<PinCorrection> }
+  | {
+      form: 'notice';
+      pinChanges: ReadonlyArray<Omit<PinCorrection, 'messageId'>>;
+    }
   | { form: 'unproved' };
 
 /** Validate one stored envelope before interpreting any digest metadata. */
@@ -48,6 +55,7 @@ function readRecencyNoticeEvidence(
 function applyRecencyNoticeEvidence(
   evidence: RecencyNoticeEvidence,
   state: PinEvidenceState,
+  messageId: string,
 ): void {
   if (evidence.form === 'snapshot') {
     state.pinCorrections = [];
@@ -64,16 +72,18 @@ function applyRecencyNoticeEvidence(
   }
 
   if (!state.pinCorrectionUnproved)
-    state.pinCorrections.push(...evidence.pinChanges);
+    state.pinCorrections.push(
+      ...evidence.pinChanges.map((change) => ({ ...change, messageId })),
+    );
 }
 
 export function collectPinCorrectionsFromMessage(
-  message: { parts: ReadonlyArray<unknown> },
+  message: { id: string; parts: ReadonlyArray<unknown> },
   state: PinEvidenceState,
 ): void {
   for (const candidate of message.parts) {
     const evidence = readRecencyNoticeEvidence(candidate);
 
-    if (evidence) applyRecencyNoticeEvidence(evidence, state);
+    if (evidence) applyRecencyNoticeEvidence(evidence, state, message.id);
   }
 }

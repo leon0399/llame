@@ -56,30 +56,34 @@ async function exportOwnerRecords(input: {
   user: PromptUserInput | undefined;
   webSearch: PromptWebSearchInput | undefined;
 }): Promise<Array<RecencyDigestExportRecord>> {
-  return input.tenantDb.runAs(input.ownerId, async (tx) => {
-    const ownerChats = await tx
-      .select()
-      .from(chats)
-      .where(eq(chats.ownerUserId, input.ownerId));
+  return input.tenantDb.runAs(
+    input.ownerId,
+    async (tx) => {
+      const ownerChats = await tx
+        .select()
+        .from(chats)
+        .where(eq(chats.ownerUserId, input.ownerId));
 
-    const records: Array<RecencyDigestExportRecord> = [];
+      const records: Array<RecencyDigestExportRecord> = [];
 
-    for (const chat of ownerChats) {
-      if (chat.ownerUserId !== input.ownerId) continue;
-      records.push(
-        await exportChatRecord({
-          tx,
-          ownerId: input.ownerId,
-          chat,
-          models: input.models,
-          user: input.user,
-          webSearch: input.webSearch,
-        }),
-      );
-    }
+      for (const chat of ownerChats) {
+        if (chat.ownerUserId !== input.ownerId) continue;
+        records.push(
+          await exportChatRecord({
+            tx,
+            ownerId: input.ownerId,
+            chat,
+            models: input.models,
+            user: input.user,
+            webSearch: input.webSearch,
+          }),
+        );
+      }
 
-    return records;
-  });
+      return records;
+    },
+    { isolationLevel: 'repeatable read' },
+  );
 }
 
 type ExportOwner = { id: string };

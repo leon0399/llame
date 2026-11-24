@@ -95,35 +95,36 @@ function buildComparison(
   chat: Chat,
   attempts: AttemptEvidence,
 ): RecencyDigestExportRecord['comparison'] {
-  const compared = mapEmittedTitlesToToldEntries({
-    emittedTitles: [...attempts.emittedTitles],
-    told: chat.recencyDigestTold ?? [],
-    baselineEntries: mergeProvenDigestEntries(attempts.proofCandidates),
-    pinCorrections: attempts.pinCorrections,
-    pinCorrectionUnproved: attempts.pinCorrectionUnproved,
-  });
+  const baseline = chat.recencyDigestBaseline;
 
-  return {
-    entries: compared.entries,
-    omissions: [
-      ...compared.omissions,
-      ...(chat.recencyDigestTold ?? [])
-        .filter(
-          (entry) =>
-            !compared.entries.some(
-              (proved) => proved.chatId === entry.chatId,
-            ) &&
-            !compared.omissions.some(
-              (omission) => omission.chatId === entry.chatId,
-            ),
-        )
-        .map((entry) => ({
-          chatId: entry.chatId,
-          field: 'identity',
-          reason: 'unproved_told_id',
-        })),
-    ],
-  };
+  const compared: RecencyDigestExportRecord['comparison'] = baseline
+    ? mapEmittedTitlesToToldEntries({
+        emittedTitles: [...attempts.emittedTitles],
+        identityTitleProofs: attempts.identityTitleProofs,
+        toldInventory: chat.recencyDigestTold ?? [],
+        baseline,
+        baselineMembershipProofs: attempts.baselineMembershipProofs,
+        pinCorrections: attempts.pinCorrections,
+        pinCorrectionUnproved: attempts.pinCorrectionUnproved,
+      })
+    : { entries: [], omissions: [] };
+
+  const accounted = new Set(
+    [...compared.entries, ...compared.omissions].flatMap(({ chatId }) =>
+      chatId === undefined ? [] : [chatId],
+    ),
+  );
+
+  for (const { chatId } of chat.recencyDigestTold ?? []) {
+    if (!accounted.has(chatId))
+      compared.omissions.push({
+        chatId,
+        field: 'identity',
+        reason: 'unproved_told_id',
+      });
+  }
+
+  return compared;
 }
 
 function collectRecordOmissions(

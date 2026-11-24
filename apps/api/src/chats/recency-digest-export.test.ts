@@ -9,7 +9,11 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 import { canonicalJson, hashWithDomain } from '../canonical-json';
-import type { RunEvent } from '../db/schema';
+import type {
+  RecencyDigestBaseline,
+  RecencyDigestToldEntry,
+  RunEvent,
+} from '../db/schema';
 import { renderSystemPromptTemplate } from '../instance-config/prompt-loader';
 import type {
   PromptChatsDisclosure,
@@ -323,17 +327,67 @@ it('omits all fields when the stored receipt is absent or changed', () => {
   });
 });
 
-it('does not map duplicate emitted titles to an ambiguous told id', () => {
+const comparisonProof = {
+  runId: 'run-1',
+  attemptId: 'attempt-1',
+  promptHash: 'hash-1',
+};
+
+function compareTitles(input: {
+  emittedTitles: Array<string>;
+  told: Array<RecencyDigestToldEntry>;
+  toldInventory?: Array<RecencyDigestToldEntry>;
+  baseline?: RecencyDigestBaseline;
+  baselineMembershipProofs?: ReadonlyMap<string, typeof comparisonProof>;
+  pinCorrections?: Array<{
+    title: string;
+    pinned: boolean;
+    messageId: string;
+  }>;
+  pinCorrectionUnproved?: boolean;
+  identityProof?: typeof comparisonProof;
+}) {
+  const frozen =
+    input.baseline ??
+    ({
+      pinned: [],
+      recent: [],
+      pinnedShown: 0,
+      pinnedTotal: 0,
+      recentShown: 0,
+      recentTotal: 0,
+      compiledOn: '2026-11-23',
+    } satisfies RecencyDigestBaseline);
+
+  const identityProof = input.identityProof;
+
+  return mapEmittedTitlesToToldEntries({
+    emittedTitles: input.emittedTitles,
+    identityTitleProofs: identityProof
+      ? new Map(
+          input.emittedTitles.map(
+            (title) =>
+              [title, { proof: identityProof, told: input.told }] as const,
+          ),
+        )
+      : new Map(),
+    baseline: frozen,
+    toldInventory: input.toldInventory ?? input.told,
+    baselineMembershipProofs: input.baselineMembershipProofs ?? new Map(),
+    pinCorrections: input.pinCorrections ?? [],
+    pinCorrectionUnproved: input.pinCorrectionUnproved ?? false,
+  });
+}
+
+it('omits an emitted title when immutable told identity is ambiguous', () => {
   expect(
-    mapEmittedTitlesToToldEntries({
+    compareTitles({
       emittedTitles: ['Same title'],
       told: [
         { chatId: 'chat-1', pinned: true, title: 'Same title' },
         { chatId: 'chat-2', pinned: false, title: 'Same title' },
       ],
-      baselineEntries: [],
-      pinCorrections: [],
-      pinCorrectionUnproved: false,
+      identityProof: comparisonProof,
     }),
   ).toEqual({
     entries: [],
@@ -341,100 +395,213 @@ it('does not map duplicate emitted titles to an ambiguous told id', () => {
   });
 });
 
-it('rejects told titles that collide after prompt sanitization', () => {
+it('checks every frozen baseline title for duplicate identity even when undisclosed', () => {
+  const baseline = {
+    pinned: [
+      { title: 'Same title', date: '2026-11-22', messageCount: 1 },
+      { title: 'Same title', date: '2026-11-21', messageCount: 1 },
+    ],
+    recent: [],
+    pinnedShown: 1,
+    pinnedTotal: 2,
+    recentShown: 0,
+    recentTotal: 0,
+    compiledOn: '2026-11-23',
+  } satisfies RecencyDigestBaseline;
+
   expect(
-    mapEmittedTitlesToToldEntries({
+    compareTitles({
+      emittedTitles: ['Same title'],
+      told: [
+        { chatId: 'destination-chat', pinned: false, title: 'Same title' },
+      ],
+      baseline,
+      identityProof: comparisonProof,
+      pinCorrections: [
+        { title: 'Same title', pinned: true, messageId: 'message-correction' },
+      ],
+    }),
+  ).toMatchObject({
+    entries: [],
+    omissions: [{ field: 'identity', reason: 'duplicate_title' }],
+  });
+});
+
+it('uses immutable told title identity and rejects sanitization collisions', () => {
+  expect(
+    compareTitles({
       emittedTitles: ['&lt;/x&gt;'],
       told: [
         { chatId: 'chat-1', pinned: true, title: '</x>' },
         { chatId: 'chat-2', pinned: false, title: '&lt;/x&gt;' },
       ],
-      baselineEntries: [],
-      pinCorrections: [],
-      pinCorrectionUnproved: false,
+      baseline: {
+        pinned: [],
+        recent: [{ title: '</x>', date: '2026-11-22', messageCount: 1 }],
+        pinnedShown: 0,
+        pinnedTotal: 0,
+        recentShown: 1,
+        recentTotal: 1,
+        compiledOn: '2026-11-23',
+      },
+      identityProof: comparisonProof,
     }),
-  ).toEqual({
+  ).toMatchObject({
     entries: [],
     omissions: [{ field: 'identity', reason: 'duplicate_title' }],
   });
 });
 
-it('maps proved titles and leaves untitled legacy told entries unproved', () => {
-  expect(
-    mapEmittedTitlesToToldEntries({
-      emittedTitles: ['Safe title'],
-      told: [
-        { chatId: 'chat-legacy', pinned: true },
-        { chatId: 'chat-1', pinned: true, title: 'Safe title' },
-        { chatId: 'chat-blank', pinned: false, title: '   ' },
-      ],
-      baselineEntries: [
-        {
-          list: 'recent',
-          index: 0,
-          fields: { title: 'Safe title' },
-          proofs: {
-            title: { runId: 'run', attemptId: 'attempt', promptHash: 'hash' },
-          },
-        },
-      ],
-      pinCorrections: [],
-      pinCorrectionUnproved: false,
-    }),
-  ).toEqual({
-    entries: [{ chatId: 'chat-1', pinned: false, title: 'Safe title' }],
-    omissions: [],
+it('does not attribute a later same-title Chat pin notice to the baseline identity', () => {
+  const original = { chatId: 'chat-a', pinned: false, title: 'Same title' };
+
+  const result = compareTitles({
+    emittedTitles: ['Same title'],
+    told: [original],
+    toldInventory: [
+      original,
+      { chatId: 'chat-b', pinned: true, title: 'Same title' },
+    ],
+    baseline: {
+      pinned: [],
+      recent: [{ title: 'Same title', date: '2026-11-22', messageCount: 1 }],
+      pinnedShown: 0,
+      pinnedTotal: 0,
+      recentShown: 1,
+      recentTotal: 1,
+      compiledOn: '2026-11-23',
+    },
+    identityProof: comparisonProof,
+    baselineMembershipProofs: new Map([['Same title', comparisonProof]]),
+    pinCorrections: [
+      { title: 'Same title', pinned: true, messageId: 'notice-b' },
+    ],
+  });
+
+  expect(result).toEqual({
+    entries: [],
+    omissions: [{ chatId: 'chat-a', field: 'pin', reason: 'pin_unproved' }],
   });
 });
 
-it('uses the proved baseline list and a selected notice correction, not mutable told pin state', () => {
-  const baselineEntries = [
+it('exports the exact emitted title when immutable raw title mapping is unique', () => {
+  const baseline = {
+    pinned: [],
+    recent: [{ title: '</x>', date: '2026-11-22', messageCount: 1 }],
+    pinnedShown: 0,
+    pinnedTotal: 0,
+    recentShown: 1,
+    recentTotal: 1,
+    compiledOn: '2026-11-23',
+  } satisfies RecencyDigestBaseline;
+
+  expect(
+    compareTitles({
+      emittedTitles: ['&lt;/x&gt;'],
+      told: [{ chatId: 'destination-chat', pinned: false, title: '</x>' }],
+      baseline,
+      identityProof: comparisonProof,
+      baselineMembershipProofs: new Map([['&lt;/x&gt;', comparisonProof]]),
+    }).entries,
+  ).toEqual([
     {
-      list: 'pinned' as const,
-      index: 0,
-      fields: { title: 'A title' },
+      chatId: 'destination-chat',
+      pinned: false,
+      title: '&lt;/x&gt;',
       proofs: {
-        title: { runId: 'run-1', attemptId: 'attempt-1', promptHash: 'hash' },
+        identity: comparisonProof,
+        pin: { kind: 'baseline', proof: comparisonProof },
       },
     },
+  ]);
+});
+
+it('requires packaged default membership proof and emits exact displayed title', () => {
+  const baseline = {
+    pinned: [{ title: 'A title', date: '2026-11-22', messageCount: 1 }],
+    recent: [],
+    pinnedShown: 1,
+    pinnedTotal: 1,
+    recentShown: 0,
+    recentTotal: 0,
+    compiledOn: '2026-11-23',
+  } satisfies RecencyDigestBaseline;
+
+  const identity = [
+    { chatId: 'destination-chat', pinned: false, title: 'A title' },
   ];
 
   expect(
-    mapEmittedTitlesToToldEntries({
+    compareTitles({
       emittedTitles: ['A title'],
-      told: [{ chatId: 'destination-chat', pinned: false, title: 'A title' }],
-      baselineEntries,
-      pinCorrections: [],
-      pinCorrectionUnproved: false,
+      told: identity,
+      baseline,
+      identityProof: comparisonProof,
     }).entries,
-  ).toEqual([{ chatId: 'destination-chat', pinned: true, title: 'A title' }]);
+  ).toEqual([]);
 
   expect(
-    mapEmittedTitlesToToldEntries({
+    compareTitles({
       emittedTitles: ['A title'],
-      told: [{ chatId: 'destination-chat', pinned: true, title: 'A title' }],
-      baselineEntries,
-      pinCorrections: [{ title: 'A title', pinned: false }],
-      pinCorrectionUnproved: false,
+      told: identity,
+      baseline,
+      identityProof: comparisonProof,
+      baselineMembershipProofs: new Map([['A title', comparisonProof]]),
     }).entries,
-  ).toEqual([{ chatId: 'destination-chat', pinned: false, title: 'A title' }]);
+  ).toEqual([
+    {
+      chatId: 'destination-chat',
+      pinned: true,
+      title: 'A title',
+      proofs: {
+        identity: comparisonProof,
+        pin: { kind: 'baseline', proof: comparisonProof },
+      },
+    },
+  ]);
 });
 
-it('omits comparison pins without a proved baseline membership or selected correction', () => {
+it('uses the last literal correction and fails closed on unknown notice state', () => {
+  const baseline = {
+    pinned: [],
+    recent: [{ title: 'A title', date: '2026-11-22', messageCount: 1 }],
+    pinnedShown: 0,
+    pinnedTotal: 0,
+    recentShown: 1,
+    recentTotal: 1,
+    compiledOn: '2026-11-23',
+  } satisfies RecencyDigestBaseline;
+
+  const input = {
+    emittedTitles: ['A title'],
+    told: [{ chatId: 'destination-chat', pinned: true, title: 'A title' }],
+    baseline,
+    identityProof: comparisonProof,
+    baselineMembershipProofs: new Map([['A title', comparisonProof]]),
+  };
+
   expect(
-    mapEmittedTitlesToToldEntries({
-      emittedTitles: ['A title'],
-      told: [{ chatId: 'destination-chat', pinned: true, title: 'A title' }],
-      baselineEntries: [],
-      pinCorrections: [],
-      pinCorrectionUnproved: false,
-    }),
-  ).toEqual({
-    entries: [],
-    omissions: [
-      { chatId: 'destination-chat', field: 'pin', reason: 'pin_unproved' },
-    ],
+    compareTitles({
+      ...input,
+      pinCorrections: [
+        { title: 'A title', pinned: false, messageId: 'message-false' },
+        { title: 'A title', pinned: true, messageId: 'message-true' },
+      ],
+    }).entries[0],
+  ).toMatchObject({
+    pinned: true,
+    proofs: { pin: { kind: 'notice', messageId: 'message-true' } },
   });
+
+  expect(
+    compareTitles({
+      ...input,
+      pinCorrections: [
+        { title: 'A title', pinned: false, messageId: 'message-false' },
+      ],
+      pinCorrectionUnproved: true,
+    }).entries,
+  ).toEqual([]);
 });
 
 it('fingerprints only the three old columns with canonical key order', () => {

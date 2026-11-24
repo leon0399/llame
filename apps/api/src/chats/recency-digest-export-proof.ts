@@ -11,6 +11,7 @@ import type {
   PromptChatsFieldDisclosure,
   PromptChatsInput,
 } from '../models/model-catalog';
+import { type PinCorrection } from './recency-digest-export-notices';
 
 export const RECENCY_DIGEST_EXPORT_VERSION = 1 as const;
 export const RECENCY_DIGEST_EXPORT_DOMAIN = 'llame:recency-digest:export:v1';
@@ -66,7 +67,17 @@ export type RecencyDigestExportRecord = {
     }>;
   };
   comparison: {
-    entries: Array<{ chatId: string; pinned: boolean; title?: string }>;
+    entries: Array<{
+      chatId: string;
+      pinned: boolean;
+      title: string;
+      proofs: {
+        identity: DigestProof;
+        pin:
+          | { kind: 'baseline'; proof: DigestProof }
+          | { kind: 'notice'; messageId: string };
+      };
+    }>;
     omissions: Array<{ chatId?: string; field: string; reason: string }>;
   };
   provenance: {
@@ -222,130 +233,145 @@ export async function hasDispatchedModelRequest(input: {
   return events.length > 0;
 }
 
-type PinCorrection = { title: string; pinned: boolean };
+type ComparisonEntry =
+  RecencyDigestExportRecord['comparison']['entries'][number];
 
 type ToldEntryMapping = {
-  entries: Array<{ chatId: string; pinned: boolean; title: string }>;
-  omissions: Array<{ chatId?: string; field: string; reason: string }>;
+  entries: Array<ComparisonEntry>;
+  omissions: RecencyDigestExportRecord['comparison']['omissions'];
 };
 
-type TitledToldEntry = {
-  chatId: string;
-  title: string;
-  normalized: string;
-};
-
-type UniqueTitleMapping = {
-  matches: Array<TitledToldEntry>;
-  omissions: ToldEntryMapping['omissions'];
-};
-
-/** Legacy told entries may lack a title; such an entry has no title identity. */
-function titledToldEntry(
-  entry: RecencyDigestToldEntry,
-): Array<TitledToldEntry> {
-  const { chatId, title } = entry;
-
-  if (title === undefined) return [];
-  const trimmed = title.trim();
-
-  return trimmed.length > 0
-    ? [{ chatId, title, normalized: sanitizeAuthoredText(trimmed) }]
-    : [];
-}
-
-/** Identity proof uses only a unique emitted title in the destination's told state. */
-function mapUniqueEmittedTitles(input: {
+type ComparisonEvidence = {
   emittedTitles: ReadonlyArray<string>;
-  told: ReadonlyArray<RecencyDigestToldEntry>;
-}): UniqueTitleMapping {
-  const titled = input.told.flatMap(titledToldEntry);
-
-  const matches: Array<TitledToldEntry> = [];
-  const omissions: ToldEntryMapping['omissions'] = [];
-
-  for (const emittedTitle of new Set(input.emittedTitles)) {
-    const candidates = titled.filter(
-      (candidate) => candidate.normalized === emittedTitle,
-    );
-
-    if (candidates.length !== 1) {
-      if (candidates.length > 1)
-        omissions.push({ field: 'identity', reason: 'duplicate_title' });
-      continue;
-    }
-
-    const [toldEntry] = candidates;
-
-    if (toldEntry) matches.push(toldEntry);
-  }
-
-  return { matches, omissions };
-}
-
-/** Pin proof is independent of the mutable told entry used for identity. */
-function proveComparisonPin(input: {
-  title: string;
-  baselineEntries: ReadonlyArray<ProvenDigestEntry>;
+  identityTitleProofs: ReadonlyMap<
+    string,
+    { proof: DigestProof; told: ReadonlyArray<RecencyDigestToldEntry> }
+  >;
+  toldInventory: ReadonlyArray<RecencyDigestToldEntry>;
+  baseline: RecencyDigestBaseline;
+  baselineMembershipProofs: ReadonlyMap<string, DigestProof>;
   pinCorrections: ReadonlyArray<PinCorrection>;
   pinCorrectionUnproved: boolean;
-}): boolean | undefined {
+};
+
+type ResolvedTitleIdentity = {
+  chatId: string;
+  normalized: string;
+  proof: DigestProof;
+  baselinePinned: boolean;
+};
+
+function matchingBaselineLists(baseline: RecencyDigestBaseline, title: string) {
+  const matches: Array<'pinned' | 'recent'> = [];
+
+  for (const list of ['pinned', 'recent'] as const) {
+    for (const entry of baseline[list] ?? []) {
+      if (sanitizeAuthoredText(entry.title.trim()) === title)
+        matches.push(list);
+    }
+  }
+
+  return matches;
+}
+
+function immutableTitleIdentity(
+  input: ComparisonEvidence,
+  emittedTitle: string,
+  omissions: ToldEntryMapping['omissions'],
+): ResolvedTitleIdentity | undefined {
+  const identity = input.identityTitleProofs.get(emittedTitle);
+  const normalized = sanitizeAuthoredText(emittedTitle.trim());
+
+  const matches = (identity?.told ?? []).filter(
+    (entry) =>
+      entry.title !== undefined &&
+      sanitizeAuthoredText(entry.title.trim()) === normalized,
+  );
+
+  const lists = matchingBaselineLists(input.baseline, normalized);
+  const [entry] = matches;
+  const [list] = lists;
+
+  if (
+    !identity ||
+    matches.length !== 1 ||
+    lists.length !== 1 ||
+    !entry ||
+    !list
+  ) {
+    if (matches.length > 1 || lists.length > 1)
+      omissions.push({ field: 'identity', reason: 'duplicate_title' });
+    else if (entry)
+      omissions.push({
+        chatId: entry.chatId,
+        field: 'identity',
+        reason: 'unproved_told_id',
+      });
+
+    return undefined;
+  }
+
+  return {
+    chatId: entry.chatId,
+    normalized,
+    proof: identity.proof,
+    baselinePinned: list === 'pinned',
+  };
+}
+
+function comparisonPin(
+  input: ComparisonEvidence,
+  identity: ResolvedTitleIdentity,
+) {
   if (input.pinCorrectionUnproved) return undefined;
 
-  const normalized = sanitizeAuthoredText(input.title.trim());
-  let baselinePin: boolean | undefined;
-  let baselineMatches = 0;
+  const correction = input.pinCorrections.findLast(
+    ({ title }) => sanitizeAuthoredText(title.trim()) === identity.normalized,
+  );
 
-  for (const entry of input.baselineEntries) {
-    const title = entry.fields.title;
+  if (correction) {
+    const ambiguous = input.toldInventory.some(
+      (entry) =>
+        entry.chatId !== identity.chatId &&
+        entry.title !== undefined &&
+        sanitizeAuthoredText(entry.title.trim()) === identity.normalized,
+    );
 
-    if (
-      title === undefined ||
-      sanitizeAuthoredText(title.trim()) !== normalized
-    ) {
-      continue;
-    }
+    if (ambiguous) return undefined;
 
-    baselineMatches += 1;
-    baselinePin = entry.list === 'pinned';
+    return {
+      pinned: correction.pinned,
+      proof: { kind: 'notice' as const, messageId: correction.messageId },
+    };
   }
 
-  let correctionPin: boolean | undefined;
+  const proof = input.baselineMembershipProofs.get(identity.normalized);
 
-  for (const correction of input.pinCorrections) {
-    if (sanitizeAuthoredText(correction.title.trim()) === normalized)
-      correctionPin = correction.pinned;
-  }
-
-  if (correctionPin !== undefined) return correctionPin;
-
-  return baselineMatches === 1 ? baselinePin : undefined;
+  return proof
+    ? {
+        pinned: identity.baselinePinned,
+        proof: { kind: 'baseline' as const, proof },
+      }
+    : undefined;
 }
 
-/** Attribute unique emitted identities, then resolve each pin from independent proof. */
-export function mapEmittedTitlesToToldEntries(input: {
-  emittedTitles: ReadonlyArray<string>;
-  told: ReadonlyArray<RecencyDigestToldEntry>;
-  baselineEntries: ReadonlyArray<ProvenDigestEntry>;
-  pinCorrections: ReadonlyArray<PinCorrection>;
-  pinCorrectionUnproved: boolean;
-}): ToldEntryMapping {
-  const identities = mapUniqueEmittedTitles(input);
-
+/** Immutable evidence grants authority; current told only vetoes ambiguous notices. */
+export function mapEmittedTitlesToToldEntries(
+  input: ComparisonEvidence,
+): ToldEntryMapping {
   const entries: ToldEntryMapping['entries'] = [];
-  const omissions = [...identities.omissions];
+  const omissions: ToldEntryMapping['omissions'] = [];
 
-  for (const toldEntry of identities.matches) {
-    const pinned = proveComparisonPin({
-      title: toldEntry.title,
-      baselineEntries: input.baselineEntries,
-      pinCorrections: input.pinCorrections,
-      pinCorrectionUnproved: input.pinCorrectionUnproved,
-    });
+  for (const title of new Set(input.emittedTitles)) {
+    const identity = immutableTitleIdentity(input, title, omissions);
 
-    if (pinned === undefined) {
+    if (!identity) continue;
+
+    const pin = comparisonPin(input, identity);
+
+    if (!pin) {
       omissions.push({
-        chatId: toldEntry.chatId,
+        chatId: identity.chatId,
         field: 'pin',
         reason: 'pin_unproved',
       });
@@ -353,9 +379,10 @@ export function mapEmittedTitlesToToldEntries(input: {
     }
 
     entries.push({
-      chatId: toldEntry.chatId,
-      pinned,
-      title: toldEntry.title,
+      chatId: identity.chatId,
+      pinned: pin.pinned,
+      title,
+      proofs: { identity: identity.proof, pin: pin.proof },
     });
   }
 
