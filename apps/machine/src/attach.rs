@@ -24,15 +24,23 @@ use crate::daemon::{lock_path, prepare_state_dir, socket_path, try_lock};
 const START_WAIT: Duration = Duration::from_secs(10);
 const POLL: Duration = Duration::from_millis(50);
 
-pub fn run() -> anyhow::Result<ExitCode> {
+#[derive(Clone, Copy)]
+pub enum Mode {
+    /// Relay gRPC bytes between stdio and the socket.
+    Stdio,
+    /// Ensure the daemon runs, print the socket path, and exit.
+    PrintSocket,
+}
+
+pub fn run(mode: Mode) -> anyhow::Result<ExitCode> {
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()?;
-    runtime.block_on(attach())?;
+    runtime.block_on(attach(mode))?;
     Ok(ExitCode::SUCCESS)
 }
 
-async fn attach() -> anyhow::Result<()> {
+async fn attach(mode: Mode) -> anyhow::Result<()> {
     let state_dir = paths::state_dir();
     prepare_state_dir(&state_dir)?;
     let socket = socket_path(&state_dir);
@@ -40,10 +48,22 @@ async fn attach() -> anyhow::Result<()> {
         start_daemon(&state_dir).await?;
     }
     replace_outdated_daemon(&state_dir).await?;
-    let stream = UnixStream::connect(&socket)
-        .await
-        .context("the Machine daemon is not reachable")?;
-    relay(stream).await
+    match mode {
+        Mode::PrintSocket => {
+            let mut stdout = tokio::io::stdout();
+            stdout
+                .write_all(format!("{}\n", socket.display()).as_bytes())
+                .await?;
+            stdout.flush().await?;
+            Ok(())
+        }
+        Mode::Stdio => {
+            let stream = UnixStream::connect(&socket)
+                .await
+                .context("the Machine daemon is not reachable")?;
+            relay(stream).await
+        }
+    }
 }
 
 /// Starts the daemon unless one holds the lock, then waits for its socket.

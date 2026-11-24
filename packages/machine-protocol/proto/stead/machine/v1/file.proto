@@ -72,7 +72,7 @@ enum FileFailureReason {
   FILE_FAILURE_REASON_NOT_UTF8 = 3;
   FILE_FAILURE_REASON_ALREADY_EXISTS = 4;
   FILE_FAILURE_REASON_TEXT_NOT_FOUND = 5;
-  // `count` says how often the text occurs.
+  // `ambiguous_text` lists the occurrences.
   FILE_FAILURE_REASON_TEXT_AMBIGUOUS = 6;
   // The effect may or may not have happened; the installation never repeats it.
   FILE_FAILURE_REASON_OUTCOME_UNKNOWN = 7;
@@ -87,7 +87,27 @@ message FileFailure {
   FileFailureReason reason = 1;
   // For the owner, never parsed.
   string message = 2;
-  optional uint32 count = 3;
+  // Data some reasons carry, so the caller can act without another read.
+  oneof details {
+    // With TEXT_AMBIGUOUS.
+    AmbiguousText ambiguous_text = 3;
+  }
+}
+
+// Where `old_text` occurs, so the caller can widen it and try again.
+message AmbiguousText {
+  // Every occurrence.
+  uint32 count = 1;
+  // The first occurrences, at most 10.
+  repeated Occurrence occurrences = 2;
+}
+
+message Occurrence {
+  // The line the occurrence starts on.
+  uint32 line = 1;
+  // The lines the occurrence spans plus one line of context on each side, without line endings;
+  // each line is cut at 200 bytes.
+  repeated string excerpt = 2;
 }
 
 message GetEntryRequest {

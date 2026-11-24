@@ -12,7 +12,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file stead/machine/v1/file.proto.
  */
 export const file_stead_machine_v1_file: GenFile = /*@__PURE__*/
-  fileDesc("ChtzdGVhZC9tYWNoaW5lL3YxL2ZpbGUucHJvdG8SEHN0ZWFkLm1hY2hpbmUudjEikwIKBUVudHJ5EgwKBG5hbWUYASABKAkSKQoEa2luZBgCIAEoDjIbLnN0ZWFkLm1hY2hpbmUudjEuRW50cnlLaW5kEhEKBHNpemUYAyABKARIAIgBARI0Cgttb2RpZmllZF9hdBgEIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXBIAYgBARIYCgtsaW5rX3RhcmdldBgFIAEoCUgCiAEBEjUKC3RhcmdldF9raW5kGAYgASgOMhsuc3RlYWQubWFjaGluZS52MS5FbnRyeUtpbmRIA4gBAUIHCgVfc2l6ZUIOCgxfbW9kaWZpZWRfYXRCDgoMX2xpbmtfdGFyZ2V0Qg4KDF90YXJnZXRfa2luZCJxCgtGaWxlRmFpbHVyZRIzCgZyZWFzb24YASABKA4yIy5zdGVhZC5tYWNoaW5lLnYxLkZpbGVGYWlsdXJlUmVhc29uEg8KB21lc3NhZ2UYAiABKAkSEgoFY291bnQYAyABKA1IAIgBAUIICgZfY291bnQiHwoPR2V0RW50cnlSZXF1ZXN0EgwKBHBhdGgYASABKAkieAoQR2V0RW50cnlSZXNwb25zZRIoCgVlbnRyeRgBIAEoCzIXLnN0ZWFkLm1hY2hpbmUudjEuRW50cnlIABIwCgdmYWlsdXJlGAIgASgLMh0uc3RlYWQubWFjaGluZS52MS5GaWxlRmFpbHVyZUgAQggKBnJlc3VsdCJDChRMaXN0RGlyZWN0b3J5UmVxdWVzdBIMCgRwYXRoGAEgASgJEg4KBm9mZnNldBgCIAEoDRINCgVsaW1pdBgDIAEoDSKFAQoVTGlzdERpcmVjdG9yeVJlc3BvbnNlEjAKCWRpcmVjdG9yeRgBIAEoCzIbLnN0ZWFkLm1hY2hpbmUudjEuRGlyZWN0b3J5SAASMAoHZmFpbHVyZRgCIAEoCzIdLnN0ZWFkLm1hY2hpbmUudjEuRmlsZUZhaWx1cmVIAEIICgZyZXN1bHQiRAoJRGlyZWN0b3J5EigKB2VudHJpZXMYASADKAsyFy5zdGVhZC5tYWNoaW5lLnYxLkVudHJ5Eg0KBXRvdGFsGAIgASgNIj8KEFJlYWRCeXRlc1JlcXVlc3QSDAoEcGF0aBgBIAEoCRIOCgZvZmZzZXQYAiABKAQSDQoFbGltaXQYAyABKAQicAoRUmVhZEJ5dGVzUmVzcG9uc2USDgoEc2l6ZRgBIAEoBEgAEg8KBWNodW5rGAIgASgMSAASMAoHZmFpbHVyZRgDIAEoCzIdLnN0ZWFkLm1hY2hpbmUudjEuRmlsZUZhaWx1cmVIAEIICgZyZXN1bHQiVgoQUmVhZExpbmVzUmVxdWVzdBIMCgRwYXRoGAEgASgJEhIKCnN0YXJ0X2xpbmUYAiABKA0SDQoFbGltaXQYAyABKA0SEQoJbWF4X2J5dGVzGAQgASgEInkKEVJlYWRMaW5lc1Jlc3BvbnNlEigKBWxpbmVzGAEgASgLMhcuc3RlYWQubWFjaGluZS52MS5MaW5lc0gAEjAKB2ZhaWx1cmUYAiABKAsyHS5zdGVhZC5tYWNoaW5lLnYxLkZpbGVGYWlsdXJlSABCCAoGcmVzdWx0ImYKBUxpbmVzEg0KBWxpbmVzGAEgAygJEhIKCnN0YXJ0X2xpbmUYAiABKA0SEgoKbGluZV9jb3VudBgDIAEoDRIRCgl0cnVuY2F0ZWQYBCABKAgSEwoLbGluZV9lbmRpbmcYBSABKAkiiAEKEFdyaXRlRmlsZVJlcXVlc3QSEgoKcmVxdWVzdF9pZBgBIAEoCRIMCgRwYXRoGAIgASgJEg8KB2NvbnRlbnQYAyABKAwSKQoEbW9kZRgEIAEoDjIbLnN0ZWFkLm1hY2hpbmUudjEuV3JpdGVNb2RlEhYKDmNyZWF0ZV9wYXJlbnRzGAUgASgIIn0KEVdyaXRlRmlsZVJlc3BvbnNlEiwKB3dyaXR0ZW4YASABKAsyGS5zdGVhZC5tYWNoaW5lLnYxLldyaXR0ZW5IABIwCgdmYWlsdXJlGAIgASgLMh0uc3RlYWQubWFjaGluZS52MS5GaWxlRmFpbHVyZUgAQggKBnJlc3VsdCIoCgdXcml0dGVuEg8KB2NyZWF0ZWQYASABKAgSDAoEc2l6ZRgCIAEoBCJaChJSZXBsYWNlVGV4dFJlcXVlc3QSEgoKcmVxdWVzdF9pZBgBIAEoCRIMCgRwYXRoGAIgASgJEhAKCG9sZF90ZXh0GAMgASgJEhAKCG5ld190ZXh0GAQgASgJIoEBChNSZXBsYWNlVGV4dFJlc3BvbnNlEi4KCHJlcGxhY2VkGAEgASgLMhouc3RlYWQubWFjaGluZS52MS5SZXBsYWNlZEgAEjAKB2ZhaWx1cmUYAiABKAsyHS5zdGVhZC5tYWNoaW5lLnYxLkZpbGVGYWlsdXJlSABCCAoGcmVzdWx0IjIKCFJlcGxhY2VkEhIKCnN0YXJ0X2xpbmUYASABKA0SEgoKbGluZV9jb3VudBgCIAEoDSKNAgoSU2VhcmNoRmlsZXNSZXF1ZXN0EgwKBHBhdGgYASABKAkSDAoEZ2xvYhgCIAEoCRIQCghwYXR0ZXJucxgDIAMoCRIPCgdsaXRlcmFsGAQgASgIEhMKC2lnbm9yZV9jYXNlGAUgASgIEhUKDWNvbnRleHRfbGluZXMYBiABKA0SHAoUcmVzcGVjdF9pZ25vcmVfZmlsZXMYByABKAgSNAoFYWZ0ZXIYCCABKAsyIC5zdGVhZC5tYWNoaW5lLnYxLlNlYXJjaFBvc2l0aW9uSACIAQESLgoGYm91bmRzGAkgASgLMh4uc3RlYWQubWFjaGluZS52MS5TZWFyY2hCb3VuZHNCCAoGX2FmdGVyIiwKDlNlYXJjaFBvc2l0aW9uEgwKBHBhdGgYASABKAkSDAoEbGluZRgCIAEoDSKUAQoMU2VhcmNoQm91bmRzEhIKBWZpbGVzGAEgASgNSACIAQESEgoFYnl0ZXMYAiABKARIAYgBARIXCgpmaWxlX2J5dGVzGAMgASgESAKIAQESFAoHbWF0Y2hlcxgEIAEoDUgDiAEBQggKBl9maWxlc0IICgZfYnl0ZXNCDQoLX2ZpbGVfYnl0ZXNCCgoIX21hdGNoZXMi1AEKE1NlYXJjaEZpbGVzUmVzcG9uc2USKAoFbWF0Y2gYASABKAsyFy5zdGVhZC5tYWNoaW5lLnYxLk1hdGNoSAASLAoHc2tpcHBlZBgCIAEoCzIZLnN0ZWFkLm1hY2hpbmUudjEuU2tpcHBlZEgAEioKA2VuZBgDIAEoCzIbLnN0ZWFkLm1hY2hpbmUudjEuU2VhcmNoRW5kSAASMAoHZmFpbHVyZRgEIAEoCzIdLnN0ZWFkLm1hY2hpbmUudjEuRmlsZUZhaWx1cmVIAEIHCgVldmVudCJKCgVNYXRjaBIMCgRwYXRoGAEgASgJEgwKBGxpbmUYAiABKA0SJQoFbGluZXMYAyADKAsyFi5zdGVhZC5tYWNoaW5lLnYxLkxpbmUiSwoETGluZRIOCgZudW1iZXIYASABKA0SDAoEdGV4dBgCIAEoCRIlCgVzcGFucxgDIAMoCzIWLnN0ZWFkLm1hY2hpbmUudjEuU3BhbiIiCgRTcGFuEg0KBXN0YXJ0GAEgASgNEgsKA2VuZBgCIAEoDSJFCgdTa2lwcGVkEgwKBHBhdGgYASABKAkSLAoGcmVhc29uGAIgASgOMhwuc3RlYWQubWFjaGluZS52MS5Ta2lwUmVhc29uIqwBCglTZWFyY2hFbmQSKgoEc3RvcBgBIAEoDjIcLnN0ZWFkLm1hY2hpbmUudjEuU2VhcmNoU3RvcBI3Cghwb3NpdGlvbhgCIAEoCzIgLnN0ZWFkLm1hY2hpbmUudjEuU2VhcmNoUG9zaXRpb25IAIgBARINCgVmaWxlcxgDIAEoDRINCgVieXRlcxgEIAEoBBIPCgdtYXRjaGVzGAUgASgNQgsKCV9wb3NpdGlvbiqFAQoJRW50cnlLaW5kEhoKFkVOVFJZX0tJTkRfVU5TUEVDSUZJRUQQABITCg9FTlRSWV9LSU5EX0ZJTEUQARIYChRFTlRSWV9LSU5EX0RJUkVDVE9SWRACEhYKEkVOVFJZX0tJTkRfU1lNTElOSxADEhUKEEVOVFJZX0tJTkRfT1RIRVIQ/wEqtAMKEUZpbGVGYWlsdXJlUmVhc29uEiMKH0ZJTEVfRkFJTFVSRV9SRUFTT05fVU5TUEVDSUZJRUQQABIhCh1GSUxFX0ZBSUxVUkVfUkVBU09OX05PVF9GT1VORBABEiIKHkZJTEVfRkFJTFVSRV9SRUFTT05fV1JPTkdfS0lORBACEiAKHEZJTEVfRkFJTFVSRV9SRUFTT05fTk9UX1VURjgQAxImCiJGSUxFX0ZBSUxVUkVfUkVBU09OX0FMUkVBRFlfRVhJU1RTEAQSJgoiRklMRV9GQUlMVVJFX1JFQVNPTl9URVhUX05PVF9GT1VORBAFEiYKIkZJTEVfRkFJTFVSRV9SRUFTT05fVEVYVF9BTUJJR1VPVVMQBhInCiNGSUxFX0ZBSUxVUkVfUkVBU09OX09VVENPTUVfVU5LTk9XThAHEisKJ0ZJTEVfRkFJTFVSRV9SRUFTT05fRElSRUNUT1JZX1RPT19MQVJHRRAIEiYKIkZJTEVfRkFJTFVSRV9SRUFTT05fRklMRV9UT09fTEFSR0UQCRIbChZGSUxFX0ZBSUxVUkVfUkVBU09OX0lPEP8BKngKCVdyaXRlTW9kZRIaChZXUklURV9NT0RFX1VOU1BFQ0lGSUVEEAASFQoRV1JJVEVfTU9ERV9DUkVBVEUQARIWChJXUklURV9NT0RFX1JFUExBQ0UQAhIgChxXUklURV9NT0RFX0NSRUFURV9PUl9SRVBMQUNFEAMqxAEKClNraXBSZWFzb24SGwoXU0tJUF9SRUFTT05fVU5TUEVDSUZJRUQQABIWChJTS0lQX1JFQVNPTl9CSU5BUlkQARIYChRTS0lQX1JFQVNPTl9OT1RfVVRGOBACEhkKFVNLSVBfUkVBU09OX1RPT19MQVJHRRADEhoKFlNLSVBfUkVBU09OX1VOUkVBREFCTEUQBBIXChNTS0lQX1JFQVNPTl9TWU1MSU5LEAUSFwoTU0tJUF9SRUFTT05fSUdOT1JFRBAGKqQBCgpTZWFyY2hTdG9wEhsKF1NFQVJDSF9TVE9QX1VOU1BFQ0lGSUVEEAASGAoUU0VBUkNIX1NUT1BfQ09NUExFVEUQARIVChFTRUFSQ0hfU1RPUF9GSUxFUxACEhUKEVNFQVJDSF9TVE9QX0JZVEVTEAMSFwoTU0VBUkNIX1NUT1BfTUFUQ0hFUxAEEhgKFFNFQVJDSF9TVE9QX0RFQURMSU5FEAUynQUKC0ZpbGVTZXJ2aWNlElYKCEdldEVudHJ5EiEuc3RlYWQubWFjaGluZS52MS5HZXRFbnRyeVJlcXVlc3QaIi5zdGVhZC5tYWNoaW5lLnYxLkdldEVudHJ5UmVzcG9uc2UiA5ACARJlCg1MaXN0RGlyZWN0b3J5EiYuc3RlYWQubWFjaGluZS52MS5MaXN0RGlyZWN0b3J5UmVxdWVzdBonLnN0ZWFkLm1hY2hpbmUudjEuTGlzdERpcmVjdG9yeVJlc3BvbnNlIgOQAgESWwoJUmVhZEJ5dGVzEiIuc3RlYWQubWFjaGluZS52MS5SZWFkQnl0ZXNSZXF1ZXN0GiMuc3RlYWQubWFjaGluZS52MS5SZWFkQnl0ZXNSZXNwb25zZSIDkAIBMAESWQoJUmVhZExpbmVzEiIuc3RlYWQubWFjaGluZS52MS5SZWFkTGluZXNSZXF1ZXN0GiMuc3RlYWQubWFjaGluZS52MS5SZWFkTGluZXNSZXNwb25zZSIDkAIBElYKCVdyaXRlRmlsZRIiLnN0ZWFkLm1hY2hpbmUudjEuV3JpdGVGaWxlUmVxdWVzdBojLnN0ZWFkLm1hY2hpbmUudjEuV3JpdGVGaWxlUmVzcG9uc2UiABJcCgtSZXBsYWNlVGV4dBIkLnN0ZWFkLm1hY2hpbmUudjEuUmVwbGFjZVRleHRSZXF1ZXN0GiUuc3RlYWQubWFjaGluZS52MS5SZXBsYWNlVGV4dFJlc3BvbnNlIgASYQoLU2VhcmNoRmlsZXMSJC5zdGVhZC5tYWNoaW5lLnYxLlNlYXJjaEZpbGVzUmVxdWVzdBolLnN0ZWFkLm1hY2hpbmUudjEuU2VhcmNoRmlsZXNSZXNwb25zZSIDkAIBMAFiBnByb3RvMw", [file_google_protobuf_timestamp]);
+  fileDesc("ChtzdGVhZC9tYWNoaW5lL3YxL2ZpbGUucHJvdG8SEHN0ZWFkLm1hY2hpbmUudjEikwIKBUVudHJ5EgwKBG5hbWUYASABKAkSKQoEa2luZBgCIAEoDjIbLnN0ZWFkLm1hY2hpbmUudjEuRW50cnlLaW5kEhEKBHNpemUYAyABKARIAIgBARI0Cgttb2RpZmllZF9hdBgEIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXBIAYgBARIYCgtsaW5rX3RhcmdldBgFIAEoCUgCiAEBEjUKC3RhcmdldF9raW5kGAYgASgOMhsuc3RlYWQubWFjaGluZS52MS5FbnRyeUtpbmRIA4gBAUIHCgVfc2l6ZUIOCgxfbW9kaWZpZWRfYXRCDgoMX2xpbmtfdGFyZ2V0Qg4KDF90YXJnZXRfa2luZCKZAQoLRmlsZUZhaWx1cmUSMwoGcmVhc29uGAEgASgOMiMuc3RlYWQubWFjaGluZS52MS5GaWxlRmFpbHVyZVJlYXNvbhIPCgdtZXNzYWdlGAIgASgJEjkKDmFtYmlndW91c190ZXh0GAMgASgLMh8uc3RlYWQubWFjaGluZS52MS5BbWJpZ3VvdXNUZXh0SABCCQoHZGV0YWlscyJRCg1BbWJpZ3VvdXNUZXh0Eg0KBWNvdW50GAEgASgNEjEKC29jY3VycmVuY2VzGAIgAygLMhwuc3RlYWQubWFjaGluZS52MS5PY2N1cnJlbmNlIisKCk9jY3VycmVuY2USDAoEbGluZRgBIAEoDRIPCgdleGNlcnB0GAIgAygJIh8KD0dldEVudHJ5UmVxdWVzdBIMCgRwYXRoGAEgASgJIngKEEdldEVudHJ5UmVzcG9uc2USKAoFZW50cnkYASABKAsyFy5zdGVhZC5tYWNoaW5lLnYxLkVudHJ5SAASMAoHZmFpbHVyZRgCIAEoCzIdLnN0ZWFkLm1hY2hpbmUudjEuRmlsZUZhaWx1cmVIAEIICgZyZXN1bHQiQwoUTGlzdERpcmVjdG9yeVJlcXVlc3QSDAoEcGF0aBgBIAEoCRIOCgZvZmZzZXQYAiABKA0SDQoFbGltaXQYAyABKA0ihQEKFUxpc3REaXJlY3RvcnlSZXNwb25zZRIwCglkaXJlY3RvcnkYASABKAsyGy5zdGVhZC5tYWNoaW5lLnYxLkRpcmVjdG9yeUgAEjAKB2ZhaWx1cmUYAiABKAsyHS5zdGVhZC5tYWNoaW5lLnYxLkZpbGVGYWlsdXJlSABCCAoGcmVzdWx0IkQKCURpcmVjdG9yeRIoCgdlbnRyaWVzGAEgAygLMhcuc3RlYWQubWFjaGluZS52MS5FbnRyeRINCgV0b3RhbBgCIAEoDSI/ChBSZWFkQnl0ZXNSZXF1ZXN0EgwKBHBhdGgYASABKAkSDgoGb2Zmc2V0GAIgASgEEg0KBWxpbWl0GAMgASgEInAKEVJlYWRCeXRlc1Jlc3BvbnNlEg4KBHNpemUYASABKARIABIPCgVjaHVuaxgCIAEoDEgAEjAKB2ZhaWx1cmUYAyABKAsyHS5zdGVhZC5tYWNoaW5lLnYxLkZpbGVGYWlsdXJlSABCCAoGcmVzdWx0IlYKEFJlYWRMaW5lc1JlcXVlc3QSDAoEcGF0aBgBIAEoCRISCgpzdGFydF9saW5lGAIgASgNEg0KBWxpbWl0GAMgASgNEhEKCW1heF9ieXRlcxgEIAEoBCJ5ChFSZWFkTGluZXNSZXNwb25zZRIoCgVsaW5lcxgBIAEoCzIXLnN0ZWFkLm1hY2hpbmUudjEuTGluZXNIABIwCgdmYWlsdXJlGAIgASgLMh0uc3RlYWQubWFjaGluZS52MS5GaWxlRmFpbHVyZUgAQggKBnJlc3VsdCJmCgVMaW5lcxINCgVsaW5lcxgBIAMoCRISCgpzdGFydF9saW5lGAIgASgNEhIKCmxpbmVfY291bnQYAyABKA0SEQoJdHJ1bmNhdGVkGAQgASgIEhMKC2xpbmVfZW5kaW5nGAUgASgJIogBChBXcml0ZUZpbGVSZXF1ZXN0EhIKCnJlcXVlc3RfaWQYASABKAkSDAoEcGF0aBgCIAEoCRIPCgdjb250ZW50GAMgASgMEikKBG1vZGUYBCABKA4yGy5zdGVhZC5tYWNoaW5lLnYxLldyaXRlTW9kZRIWCg5jcmVhdGVfcGFyZW50cxgFIAEoCCJ9ChFXcml0ZUZpbGVSZXNwb25zZRIsCgd3cml0dGVuGAEgASgLMhkuc3RlYWQubWFjaGluZS52MS5Xcml0dGVuSAASMAoHZmFpbHVyZRgCIAEoCzIdLnN0ZWFkLm1hY2hpbmUudjEuRmlsZUZhaWx1cmVIAEIICgZyZXN1bHQiKAoHV3JpdHRlbhIPCgdjcmVhdGVkGAEgASgIEgwKBHNpemUYAiABKAQiWgoSUmVwbGFjZVRleHRSZXF1ZXN0EhIKCnJlcXVlc3RfaWQYASABKAkSDAoEcGF0aBgCIAEoCRIQCghvbGRfdGV4dBgDIAEoCRIQCghuZXdfdGV4dBgEIAEoCSKBAQoTUmVwbGFjZVRleHRSZXNwb25zZRIuCghyZXBsYWNlZBgBIAEoCzIaLnN0ZWFkLm1hY2hpbmUudjEuUmVwbGFjZWRIABIwCgdmYWlsdXJlGAIgASgLMh0uc3RlYWQubWFjaGluZS52MS5GaWxlRmFpbHVyZUgAQggKBnJlc3VsdCIyCghSZXBsYWNlZBISCgpzdGFydF9saW5lGAEgASgNEhIKCmxpbmVfY291bnQYAiABKA0ijQIKElNlYXJjaEZpbGVzUmVxdWVzdBIMCgRwYXRoGAEgASgJEgwKBGdsb2IYAiABKAkSEAoIcGF0dGVybnMYAyADKAkSDwoHbGl0ZXJhbBgEIAEoCBITCgtpZ25vcmVfY2FzZRgFIAEoCBIVCg1jb250ZXh0X2xpbmVzGAYgASgNEhwKFHJlc3BlY3RfaWdub3JlX2ZpbGVzGAcgASgIEjQKBWFmdGVyGAggASgLMiAuc3RlYWQubWFjaGluZS52MS5TZWFyY2hQb3NpdGlvbkgAiAEBEi4KBmJvdW5kcxgJIAEoCzIeLnN0ZWFkLm1hY2hpbmUudjEuU2VhcmNoQm91bmRzQggKBl9hZnRlciIsCg5TZWFyY2hQb3NpdGlvbhIMCgRwYXRoGAEgASgJEgwKBGxpbmUYAiABKA0ilAEKDFNlYXJjaEJvdW5kcxISCgVmaWxlcxgBIAEoDUgAiAEBEhIKBWJ5dGVzGAIgASgESAGIAQESFwoKZmlsZV9ieXRlcxgDIAEoBEgCiAEBEhQKB21hdGNoZXMYBCABKA1IA4gBAUIICgZfZmlsZXNCCAoGX2J5dGVzQg0KC19maWxlX2J5dGVzQgoKCF9tYXRjaGVzItQBChNTZWFyY2hGaWxlc1Jlc3BvbnNlEigKBW1hdGNoGAEgASgLMhcuc3RlYWQubWFjaGluZS52MS5NYXRjaEgAEiwKB3NraXBwZWQYAiABKAsyGS5zdGVhZC5tYWNoaW5lLnYxLlNraXBwZWRIABIqCgNlbmQYAyABKAsyGy5zdGVhZC5tYWNoaW5lLnYxLlNlYXJjaEVuZEgAEjAKB2ZhaWx1cmUYBCABKAsyHS5zdGVhZC5tYWNoaW5lLnYxLkZpbGVGYWlsdXJlSABCBwoFZXZlbnQiSgoFTWF0Y2gSDAoEcGF0aBgBIAEoCRIMCgRsaW5lGAIgASgNEiUKBWxpbmVzGAMgAygLMhYuc3RlYWQubWFjaGluZS52MS5MaW5lIksKBExpbmUSDgoGbnVtYmVyGAEgASgNEgwKBHRleHQYAiABKAkSJQoFc3BhbnMYAyADKAsyFi5zdGVhZC5tYWNoaW5lLnYxLlNwYW4iIgoEU3BhbhINCgVzdGFydBgBIAEoDRILCgNlbmQYAiABKA0iRQoHU2tpcHBlZBIMCgRwYXRoGAEgASgJEiwKBnJlYXNvbhgCIAEoDjIcLnN0ZWFkLm1hY2hpbmUudjEuU2tpcFJlYXNvbiKsAQoJU2VhcmNoRW5kEioKBHN0b3AYASABKA4yHC5zdGVhZC5tYWNoaW5lLnYxLlNlYXJjaFN0b3ASNwoIcG9zaXRpb24YAiABKAsyIC5zdGVhZC5tYWNoaW5lLnYxLlNlYXJjaFBvc2l0aW9uSACIAQESDQoFZmlsZXMYAyABKA0SDQoFYnl0ZXMYBCABKAQSDwoHbWF0Y2hlcxgFIAEoDUILCglfcG9zaXRpb24qhQEKCUVudHJ5S2luZBIaChZFTlRSWV9LSU5EX1VOU1BFQ0lGSUVEEAASEwoPRU5UUllfS0lORF9GSUxFEAESGAoURU5UUllfS0lORF9ESVJFQ1RPUlkQAhIWChJFTlRSWV9LSU5EX1NZTUxJTksQAxIVChBFTlRSWV9LSU5EX09USEVSEP8BKrQDChFGaWxlRmFpbHVyZVJlYXNvbhIjCh9GSUxFX0ZBSUxVUkVfUkVBU09OX1VOU1BFQ0lGSUVEEAASIQodRklMRV9GQUlMVVJFX1JFQVNPTl9OT1RfRk9VTkQQARIiCh5GSUxFX0ZBSUxVUkVfUkVBU09OX1dST05HX0tJTkQQAhIgChxGSUxFX0ZBSUxVUkVfUkVBU09OX05PVF9VVEY4EAMSJgoiRklMRV9GQUlMVVJFX1JFQVNPTl9BTFJFQURZX0VYSVNUUxAEEiYKIkZJTEVfRkFJTFVSRV9SRUFTT05fVEVYVF9OT1RfRk9VTkQQBRImCiJGSUxFX0ZBSUxVUkVfUkVBU09OX1RFWFRfQU1CSUdVT1VTEAYSJwojRklMRV9GQUlMVVJFX1JFQVNPTl9PVVRDT01FX1VOS05PV04QBxIrCidGSUxFX0ZBSUxVUkVfUkVBU09OX0RJUkVDVE9SWV9UT09fTEFSR0UQCBImCiJGSUxFX0ZBSUxVUkVfUkVBU09OX0ZJTEVfVE9PX0xBUkdFEAkSGwoWRklMRV9GQUlMVVJFX1JFQVNPTl9JTxD/ASp4CglXcml0ZU1vZGUSGgoWV1JJVEVfTU9ERV9VTlNQRUNJRklFRBAAEhUKEVdSSVRFX01PREVfQ1JFQVRFEAESFgoSV1JJVEVfTU9ERV9SRVBMQUNFEAISIAocV1JJVEVfTU9ERV9DUkVBVEVfT1JfUkVQTEFDRRADKsQBCgpTa2lwUmVhc29uEhsKF1NLSVBfUkVBU09OX1VOU1BFQ0lGSUVEEAASFgoSU0tJUF9SRUFTT05fQklOQVJZEAESGAoUU0tJUF9SRUFTT05fTk9UX1VURjgQAhIZChVTS0lQX1JFQVNPTl9UT09fTEFSR0UQAxIaChZTS0lQX1JFQVNPTl9VTlJFQURBQkxFEAQSFwoTU0tJUF9SRUFTT05fU1lNTElOSxAFEhcKE1NLSVBfUkVBU09OX0lHTk9SRUQQBiqkAQoKU2VhcmNoU3RvcBIbChdTRUFSQ0hfU1RPUF9VTlNQRUNJRklFRBAAEhgKFFNFQVJDSF9TVE9QX0NPTVBMRVRFEAESFQoRU0VBUkNIX1NUT1BfRklMRVMQAhIVChFTRUFSQ0hfU1RPUF9CWVRFUxADEhcKE1NFQVJDSF9TVE9QX01BVENIRVMQBBIYChRTRUFSQ0hfU1RPUF9ERUFETElORRAFMp0FCgtGaWxlU2VydmljZRJWCghHZXRFbnRyeRIhLnN0ZWFkLm1hY2hpbmUudjEuR2V0RW50cnlSZXF1ZXN0GiIuc3RlYWQubWFjaGluZS52MS5HZXRFbnRyeVJlc3BvbnNlIgOQAgESZQoNTGlzdERpcmVjdG9yeRImLnN0ZWFkLm1hY2hpbmUudjEuTGlzdERpcmVjdG9yeVJlcXVlc3QaJy5zdGVhZC5tYWNoaW5lLnYxLkxpc3REaXJlY3RvcnlSZXNwb25zZSIDkAIBElsKCVJlYWRCeXRlcxIiLnN0ZWFkLm1hY2hpbmUudjEuUmVhZEJ5dGVzUmVxdWVzdBojLnN0ZWFkLm1hY2hpbmUudjEuUmVhZEJ5dGVzUmVzcG9uc2UiA5ACATABElkKCVJlYWRMaW5lcxIiLnN0ZWFkLm1hY2hpbmUudjEuUmVhZExpbmVzUmVxdWVzdBojLnN0ZWFkLm1hY2hpbmUudjEuUmVhZExpbmVzUmVzcG9uc2UiA5ACARJWCglXcml0ZUZpbGUSIi5zdGVhZC5tYWNoaW5lLnYxLldyaXRlRmlsZVJlcXVlc3QaIy5zdGVhZC5tYWNoaW5lLnYxLldyaXRlRmlsZVJlc3BvbnNlIgASXAoLUmVwbGFjZVRleHQSJC5zdGVhZC5tYWNoaW5lLnYxLlJlcGxhY2VUZXh0UmVxdWVzdBolLnN0ZWFkLm1hY2hpbmUudjEuUmVwbGFjZVRleHRSZXNwb25zZSIAEmEKC1NlYXJjaEZpbGVzEiQuc3RlYWQubWFjaGluZS52MS5TZWFyY2hGaWxlc1JlcXVlc3QaJS5zdGVhZC5tYWNoaW5lLnYxLlNlYXJjaEZpbGVzUmVzcG9uc2UiA5ACATABYgZwcm90bzM", [file_google_protobuf_timestamp]);
 
 /**
  * A directory entry, or what a path names.
@@ -83,9 +83,19 @@ export type FileFailure = Message<"stead.machine.v1.FileFailure"> & {
   message: string;
 
   /**
-   * @generated from field: optional uint32 count = 3;
+   * Data some reasons carry, so the caller can act without another read.
+   *
+   * @generated from oneof stead.machine.v1.FileFailure.details
    */
-  count?: number | undefined;
+  details: {
+    /**
+     * With TEXT_AMBIGUOUS.
+     *
+     * @generated from field: stead.machine.v1.AmbiguousText ambiguous_text = 3;
+     */
+    value: AmbiguousText;
+    case: "ambiguousText";
+  } | { case: undefined; value?: undefined };
 };
 
 /**
@@ -94,6 +104,61 @@ export type FileFailure = Message<"stead.machine.v1.FileFailure"> & {
  */
 export const FileFailureSchema: GenMessage<FileFailure> = /*@__PURE__*/
   messageDesc(file_stead_machine_v1_file, 1);
+
+/**
+ * Where `old_text` occurs, so the caller can widen it and try again.
+ *
+ * @generated from message stead.machine.v1.AmbiguousText
+ */
+export type AmbiguousText = Message<"stead.machine.v1.AmbiguousText"> & {
+  /**
+   * Every occurrence.
+   *
+   * @generated from field: uint32 count = 1;
+   */
+  count: number;
+
+  /**
+   * The first occurrences, at most 10.
+   *
+   * @generated from field: repeated stead.machine.v1.Occurrence occurrences = 2;
+   */
+  occurrences: Occurrence[];
+};
+
+/**
+ * Describes the message stead.machine.v1.AmbiguousText.
+ * Use `create(AmbiguousTextSchema)` to create a new message.
+ */
+export const AmbiguousTextSchema: GenMessage<AmbiguousText> = /*@__PURE__*/
+  messageDesc(file_stead_machine_v1_file, 2);
+
+/**
+ * @generated from message stead.machine.v1.Occurrence
+ */
+export type Occurrence = Message<"stead.machine.v1.Occurrence"> & {
+  /**
+   * The line the occurrence starts on.
+   *
+   * @generated from field: uint32 line = 1;
+   */
+  line: number;
+
+  /**
+   * The lines the occurrence spans plus one line of context on each side, without line endings;
+   * each line is cut at 200 bytes.
+   *
+   * @generated from field: repeated string excerpt = 2;
+   */
+  excerpt: string[];
+};
+
+/**
+ * Describes the message stead.machine.v1.Occurrence.
+ * Use `create(OccurrenceSchema)` to create a new message.
+ */
+export const OccurrenceSchema: GenMessage<Occurrence> = /*@__PURE__*/
+  messageDesc(file_stead_machine_v1_file, 3);
 
 /**
  * @generated from message stead.machine.v1.GetEntryRequest
@@ -110,7 +175,7 @@ export type GetEntryRequest = Message<"stead.machine.v1.GetEntryRequest"> & {
  * Use `create(GetEntryRequestSchema)` to create a new message.
  */
 export const GetEntryRequestSchema: GenMessage<GetEntryRequest> = /*@__PURE__*/
-  messageDesc(file_stead_machine_v1_file, 2);
+  messageDesc(file_stead_machine_v1_file, 4);
 
 /**
  * @generated from message stead.machine.v1.GetEntryResponse
@@ -139,7 +204,7 @@ export type GetEntryResponse = Message<"stead.machine.v1.GetEntryResponse"> & {
  * Use `create(GetEntryResponseSchema)` to create a new message.
  */
 export const GetEntryResponseSchema: GenMessage<GetEntryResponse> = /*@__PURE__*/
-  messageDesc(file_stead_machine_v1_file, 3);
+  messageDesc(file_stead_machine_v1_file, 5);
 
 /**
  * @generated from message stead.machine.v1.ListDirectoryRequest
@@ -170,7 +235,7 @@ export type ListDirectoryRequest = Message<"stead.machine.v1.ListDirectoryReques
  * Use `create(ListDirectoryRequestSchema)` to create a new message.
  */
 export const ListDirectoryRequestSchema: GenMessage<ListDirectoryRequest> = /*@__PURE__*/
-  messageDesc(file_stead_machine_v1_file, 4);
+  messageDesc(file_stead_machine_v1_file, 6);
 
 /**
  * @generated from message stead.machine.v1.ListDirectoryResponse
@@ -199,7 +264,7 @@ export type ListDirectoryResponse = Message<"stead.machine.v1.ListDirectoryRespo
  * Use `create(ListDirectoryResponseSchema)` to create a new message.
  */
 export const ListDirectoryResponseSchema: GenMessage<ListDirectoryResponse> = /*@__PURE__*/
-  messageDesc(file_stead_machine_v1_file, 5);
+  messageDesc(file_stead_machine_v1_file, 7);
 
 /**
  * @generated from message stead.machine.v1.Directory
@@ -223,7 +288,7 @@ export type Directory = Message<"stead.machine.v1.Directory"> & {
  * Use `create(DirectorySchema)` to create a new message.
  */
 export const DirectorySchema: GenMessage<Directory> = /*@__PURE__*/
-  messageDesc(file_stead_machine_v1_file, 6);
+  messageDesc(file_stead_machine_v1_file, 8);
 
 /**
  * @generated from message stead.machine.v1.ReadBytesRequest
@@ -252,7 +317,7 @@ export type ReadBytesRequest = Message<"stead.machine.v1.ReadBytesRequest"> & {
  * Use `create(ReadBytesRequestSchema)` to create a new message.
  */
 export const ReadBytesRequestSchema: GenMessage<ReadBytesRequest> = /*@__PURE__*/
-  messageDesc(file_stead_machine_v1_file, 7);
+  messageDesc(file_stead_machine_v1_file, 9);
 
 /**
  * @generated from message stead.machine.v1.ReadBytesResponse
@@ -291,7 +356,7 @@ export type ReadBytesResponse = Message<"stead.machine.v1.ReadBytesResponse"> & 
  * Use `create(ReadBytesResponseSchema)` to create a new message.
  */
 export const ReadBytesResponseSchema: GenMessage<ReadBytesResponse> = /*@__PURE__*/
-  messageDesc(file_stead_machine_v1_file, 8);
+  messageDesc(file_stead_machine_v1_file, 10);
 
 /**
  * @generated from message stead.machine.v1.ReadLinesRequest
@@ -330,7 +395,7 @@ export type ReadLinesRequest = Message<"stead.machine.v1.ReadLinesRequest"> & {
  * Use `create(ReadLinesRequestSchema)` to create a new message.
  */
 export const ReadLinesRequestSchema: GenMessage<ReadLinesRequest> = /*@__PURE__*/
-  messageDesc(file_stead_machine_v1_file, 9);
+  messageDesc(file_stead_machine_v1_file, 11);
 
 /**
  * @generated from message stead.machine.v1.ReadLinesResponse
@@ -359,7 +424,7 @@ export type ReadLinesResponse = Message<"stead.machine.v1.ReadLinesResponse"> & 
  * Use `create(ReadLinesResponseSchema)` to create a new message.
  */
 export const ReadLinesResponseSchema: GenMessage<ReadLinesResponse> = /*@__PURE__*/
-  messageDesc(file_stead_machine_v1_file, 10);
+  messageDesc(file_stead_machine_v1_file, 12);
 
 /**
  * @generated from message stead.machine.v1.Lines
@@ -406,7 +471,7 @@ export type Lines = Message<"stead.machine.v1.Lines"> & {
  * Use `create(LinesSchema)` to create a new message.
  */
 export const LinesSchema: GenMessage<Lines> = /*@__PURE__*/
-  messageDesc(file_stead_machine_v1_file, 11);
+  messageDesc(file_stead_machine_v1_file, 13);
 
 /**
  * @generated from message stead.machine.v1.WriteFileRequest
@@ -448,7 +513,7 @@ export type WriteFileRequest = Message<"stead.machine.v1.WriteFileRequest"> & {
  * Use `create(WriteFileRequestSchema)` to create a new message.
  */
 export const WriteFileRequestSchema: GenMessage<WriteFileRequest> = /*@__PURE__*/
-  messageDesc(file_stead_machine_v1_file, 12);
+  messageDesc(file_stead_machine_v1_file, 14);
 
 /**
  * @generated from message stead.machine.v1.WriteFileResponse
@@ -477,7 +542,7 @@ export type WriteFileResponse = Message<"stead.machine.v1.WriteFileResponse"> & 
  * Use `create(WriteFileResponseSchema)` to create a new message.
  */
 export const WriteFileResponseSchema: GenMessage<WriteFileResponse> = /*@__PURE__*/
-  messageDesc(file_stead_machine_v1_file, 13);
+  messageDesc(file_stead_machine_v1_file, 15);
 
 /**
  * @generated from message stead.machine.v1.Written
@@ -499,7 +564,7 @@ export type Written = Message<"stead.machine.v1.Written"> & {
  * Use `create(WrittenSchema)` to create a new message.
  */
 export const WrittenSchema: GenMessage<Written> = /*@__PURE__*/
-  messageDesc(file_stead_machine_v1_file, 14);
+  messageDesc(file_stead_machine_v1_file, 16);
 
 /**
  * @generated from message stead.machine.v1.ReplaceTextRequest
@@ -533,7 +598,7 @@ export type ReplaceTextRequest = Message<"stead.machine.v1.ReplaceTextRequest"> 
  * Use `create(ReplaceTextRequestSchema)` to create a new message.
  */
 export const ReplaceTextRequestSchema: GenMessage<ReplaceTextRequest> = /*@__PURE__*/
-  messageDesc(file_stead_machine_v1_file, 15);
+  messageDesc(file_stead_machine_v1_file, 17);
 
 /**
  * @generated from message stead.machine.v1.ReplaceTextResponse
@@ -562,7 +627,7 @@ export type ReplaceTextResponse = Message<"stead.machine.v1.ReplaceTextResponse"
  * Use `create(ReplaceTextResponseSchema)` to create a new message.
  */
 export const ReplaceTextResponseSchema: GenMessage<ReplaceTextResponse> = /*@__PURE__*/
-  messageDesc(file_stead_machine_v1_file, 16);
+  messageDesc(file_stead_machine_v1_file, 18);
 
 /**
  * @generated from message stead.machine.v1.Replaced
@@ -588,7 +653,7 @@ export type Replaced = Message<"stead.machine.v1.Replaced"> & {
  * Use `create(ReplacedSchema)` to create a new message.
  */
 export const ReplacedSchema: GenMessage<Replaced> = /*@__PURE__*/
-  messageDesc(file_stead_machine_v1_file, 17);
+  messageDesc(file_stead_machine_v1_file, 19);
 
 /**
  * @generated from message stead.machine.v1.SearchFilesRequest
@@ -657,7 +722,7 @@ export type SearchFilesRequest = Message<"stead.machine.v1.SearchFilesRequest"> 
  * Use `create(SearchFilesRequestSchema)` to create a new message.
  */
 export const SearchFilesRequestSchema: GenMessage<SearchFilesRequest> = /*@__PURE__*/
-  messageDesc(file_stead_machine_v1_file, 18);
+  messageDesc(file_stead_machine_v1_file, 20);
 
 /**
  * Where a search is in its walk. Files are walked in a stable order.
@@ -683,7 +748,7 @@ export type SearchPosition = Message<"stead.machine.v1.SearchPosition"> & {
  * Use `create(SearchPositionSchema)` to create a new message.
  */
 export const SearchPositionSchema: GenMessage<SearchPosition> = /*@__PURE__*/
-  messageDesc(file_stead_machine_v1_file, 19);
+  messageDesc(file_stead_machine_v1_file, 21);
 
 /**
  * An unset bound is unbounded.
@@ -725,7 +790,7 @@ export type SearchBounds = Message<"stead.machine.v1.SearchBounds"> & {
  * Use `create(SearchBoundsSchema)` to create a new message.
  */
 export const SearchBoundsSchema: GenMessage<SearchBounds> = /*@__PURE__*/
-  messageDesc(file_stead_machine_v1_file, 20);
+  messageDesc(file_stead_machine_v1_file, 22);
 
 /**
  * @generated from message stead.machine.v1.SearchFilesResponse
@@ -770,7 +835,7 @@ export type SearchFilesResponse = Message<"stead.machine.v1.SearchFilesResponse"
  * Use `create(SearchFilesResponseSchema)` to create a new message.
  */
 export const SearchFilesResponseSchema: GenMessage<SearchFilesResponse> = /*@__PURE__*/
-  messageDesc(file_stead_machine_v1_file, 21);
+  messageDesc(file_stead_machine_v1_file, 23);
 
 /**
  * @generated from message stead.machine.v1.Match
@@ -803,7 +868,7 @@ export type Match = Message<"stead.machine.v1.Match"> & {
  * Use `create(MatchSchema)` to create a new message.
  */
 export const MatchSchema: GenMessage<Match> = /*@__PURE__*/
-  messageDesc(file_stead_machine_v1_file, 22);
+  messageDesc(file_stead_machine_v1_file, 24);
 
 /**
  * @generated from message stead.machine.v1.Line
@@ -832,7 +897,7 @@ export type Line = Message<"stead.machine.v1.Line"> & {
  * Use `create(LineSchema)` to create a new message.
  */
 export const LineSchema: GenMessage<Line> = /*@__PURE__*/
-  messageDesc(file_stead_machine_v1_file, 23);
+  messageDesc(file_stead_machine_v1_file, 25);
 
 /**
  * @generated from message stead.machine.v1.Span
@@ -854,7 +919,7 @@ export type Span = Message<"stead.machine.v1.Span"> & {
  * Use `create(SpanSchema)` to create a new message.
  */
 export const SpanSchema: GenMessage<Span> = /*@__PURE__*/
-  messageDesc(file_stead_machine_v1_file, 24);
+  messageDesc(file_stead_machine_v1_file, 26);
 
 /**
  * @generated from message stead.machine.v1.Skipped
@@ -876,7 +941,7 @@ export type Skipped = Message<"stead.machine.v1.Skipped"> & {
  * Use `create(SkippedSchema)` to create a new message.
  */
 export const SkippedSchema: GenMessage<Skipped> = /*@__PURE__*/
-  messageDesc(file_stead_machine_v1_file, 25);
+  messageDesc(file_stead_machine_v1_file, 27);
 
 /**
  * @generated from message stead.machine.v1.SearchEnd
@@ -915,7 +980,7 @@ export type SearchEnd = Message<"stead.machine.v1.SearchEnd"> & {
  * Use `create(SearchEndSchema)` to create a new message.
  */
 export const SearchEndSchema: GenMessage<SearchEnd> = /*@__PURE__*/
-  messageDesc(file_stead_machine_v1_file, 26);
+  messageDesc(file_stead_machine_v1_file, 28);
 
 /**
  * @generated from enum stead.machine.v1.EntryKind
@@ -995,7 +1060,7 @@ export enum FileFailureReason {
   TEXT_NOT_FOUND = 5,
 
   /**
-   * `count` says how often the text occurs.
+   * `ambiguous_text` lists the occurrences.
    *
    * @generated from enum value: FILE_FAILURE_REASON_TEXT_AMBIGUOUS = 6;
    */

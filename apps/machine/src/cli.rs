@@ -23,8 +23,13 @@ enum Command {
     /// Relay gRPC on stdin and stdout to the running daemon, starting one first
     /// when none runs.
     Attach {
-        #[arg(long, required = true)]
+        /// Relay on stdin and stdout.
+        #[arg(long, conflicts_with = "print_socket")]
         stdio: bool,
+        /// Start the daemon if needed, print its socket path, and exit. For a
+        /// local caller that connects to the socket itself.
+        #[arg(long, conflicts_with = "stdio")]
+        print_socket: bool,
     },
     /// Run the daemon in the foreground (normally started by `attach`).
     Daemon,
@@ -67,7 +72,11 @@ fn out(text: &str) -> anyhow::Result<()> {
 
 pub fn run(cli: Cli) -> anyhow::Result<ExitCode> {
     match cli.command {
-        Command::Attach { .. } => crate::attach::run(),
+        Command::Attach { stdio: true, .. } => crate::attach::run(crate::attach::Mode::Stdio),
+        Command::Attach {
+            print_socket: true, ..
+        } => crate::attach::run(crate::attach::Mode::PrintSocket),
+        Command::Attach { .. } => bail!("attach needs --stdio or --print-socket"),
         Command::Daemon => Ok(crate::daemon::run()),
         Command::Roots { action } => roots(action),
         Command::Limits { action } => limits(action),
