@@ -104,10 +104,8 @@
       }
     }
   },
-  // Tool-calling loop (openspec/changes/tool-calling-loop): the e2e tool-loop
-  // browser suite (e2e/web/chat/tool-loop.spec.ts) drives search_conversations
-  // through the mock model server — it must be allowlisted for those tests
-  // to see any tool activity at all.
+  // Tool-calling loop and conversation recall acceptance tests both drive
+  // search_conversations through the mock model server; it must be allowlisted.
   // One declared Machine that never answers: chat-start-location.spec.ts proves
   // the composer disables an offline Machine with its reason and that a create
   // naming it answers `machine_unavailable` instead of guessing a fallback.
@@ -125,7 +123,6 @@
     "allowed": [
       "bash",
       "search_conversations",
-      "conversation_read",
       "knowledge_search",
       "read",
       "enter_workspace",
@@ -148,7 +145,6 @@
       // a worktree of it), which is the same path decision a Run makes.
       "enter_workspace": { "allow": true },
       "search_conversations": { "allow": true },
-      "conversation_read": { "allow": true },
       "mcp__fixture_search__search": { "allow": true },
       "mcp__fixture_local__lookup": { "allow": true }
     }

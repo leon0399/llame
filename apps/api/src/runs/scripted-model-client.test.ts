@@ -35,12 +35,12 @@ const sourceResult = {
     {
       kind: 'content' as const,
       chatId: '0b6f5499-dde4-43cf-89fe-037998a0fe64',
-      messageSeq: 2,
-      offset: 0,
-      limit: 2,
+      locator: 'chat://0b6f5499-dde4-43cf-89fe-037998a0fe64/2:L1-4',
     },
   ],
 };
+
+type ScriptedReadResult = { status: 'success'; nextOffset?: number };
 
 function recallTools(search = vi.fn(() => sourceResult)) {
   return {
@@ -48,14 +48,9 @@ function recallTools(search = vi.fn(() => sourceResult)) {
       inputSchema: z.object({ query: z.string(), limit: z.number() }),
       execute: search,
     }),
-    conversation_read: tool({
-      inputSchema: z.object({
-        chatId: z.string(),
-        messageSeq: z.number(),
-        offset: z.number().optional(),
-        limit: z.number(),
-      }),
-      execute: () => ({ status: 'success' as const, nextOffset: 2 }),
+    read: tool({
+      inputSchema: z.object({ path: z.string() }),
+      execute: (): ScriptedReadResult => ({ status: 'success', nextOffset: 2 }),
     }),
   };
 }
@@ -235,7 +230,7 @@ describe('ScriptedModelsService', () => {
     const client = service.createClient('recall');
     const search = vi.fn(() => sourceResult);
     const tools = recallTools(search);
-    const read = vi.spyOn(tools.conversation_read, 'execute');
+    const read = vi.spyOn(tools.read, 'execute');
 
     await expect(
       client.streamText({
@@ -284,7 +279,7 @@ describe('ScriptedModelsService', () => {
       status: 'success' as const,
       results: [],
     });
-    const read = vi.spyOn(tools.conversation_read, 'execute');
+    const read = vi.spyOn(tools.read, 'execute');
 
     await expect(
       service.createClient('empty-recall').streamText({
@@ -352,7 +347,7 @@ describe('ScriptedModelsService', () => {
       return sourceResult;
     };
 
-    tools.conversation_read.execute = (input) => {
+    tools.read.execute = (input) => {
       readArgs.push(input);
 
       return { status: 'success' as const, nextOffset: 2 };
@@ -368,18 +363,10 @@ describe('ScriptedModelsService', () => {
     expect(searchArgs[0]).toEqual({ query: 'needle', limit: 5 });
     expect(readArgs).toHaveLength(2);
     expect(readArgs[0]).toEqual({
-      chatId: sourceResult.results[0].chatId,
-      messageSeq: 2,
-      offset: 0,
-      limit: 2,
+      path: 'chat://0b6f5499-dde4-43cf-89fe-037998a0fe64/2:L1-4',
     });
-    // The continuation reuses the searched coordinates but advances to the
-    // offset the previous read reported.
     expect(readArgs[1]).toEqual({
-      chatId: sourceResult.results[0].chatId,
-      messageSeq: 2,
-      offset: 2,
-      limit: 2,
+      path: 'chat://0b6f5499-dde4-43cf-89fe-037998a0fe64/2:L3-4',
     });
   });
 
@@ -391,7 +378,7 @@ describe('ScriptedModelsService', () => {
     });
     const readArgs: Array<unknown> = [];
     const tools = recallTools();
-    tools.conversation_read.execute = (input) => {
+    tools.read.execute = (input) => {
       readArgs.push(input);
 
       return { status: 'success' as const, nextOffset: 2 };
@@ -406,7 +393,91 @@ describe('ScriptedModelsService', () => {
       }).text,
     ).resolves.toBe('The source was read.');
     expect(readArgs).toHaveLength(1);
-    expect(readArgs[0]).toMatchObject({ offset: 0 });
+    expect(readArgs[0]).toEqual({
+      path: 'chat://0b6f5499-dde4-43cf-89fe-037998a0fe64/2:L1-4',
+    });
+  });
+
+  it('continues from the native read text rendering within the searched window', async () => {
+    const service = new ScriptedModelsService();
+    service.register('recall-native-continuation', {
+      kind: 'conversation-recall',
+      query: 'needle',
+      continueRead: true,
+    });
+
+    const read = vi.fn((_input: { path: string }) => ({
+      status: 'success' as const,
+    }));
+
+    const locator = sourceResult.results[0]?.locator;
+
+    const priorMessages: Array<ModelMessage> = [
+      ...messages,
+      {
+        role: 'assistant',
+        content: [
+          {
+            type: 'tool-call',
+            toolCallId: 'search-call',
+            toolName: 'search_conversations',
+            input: { query: 'needle', limit: 5 },
+          },
+        ],
+      },
+      {
+        role: 'tool',
+        content: [
+          {
+            type: 'tool-result',
+            toolCallId: 'search-call',
+            toolName: 'search_conversations',
+            output: { type: 'text', value: JSON.stringify(sourceResult) },
+          },
+        ],
+      },
+      {
+        role: 'assistant',
+        content: [
+          {
+            type: 'tool-call',
+            toolCallId: 'read-call',
+            toolName: 'read',
+            input: { path: locator },
+          },
+        ],
+      },
+      {
+        role: 'tool',
+        content: [
+          {
+            type: 'tool-result',
+            toolCallId: 'read-call',
+            toolName: 'read',
+            output: {
+              type: 'text',
+              value:
+                'chat://0b6f5499-dde4-43cf-89fe-037998a0fe64/2:L1-2\nfirst page\n[Use chat://0b6f5499-dde4-43cf-89fe-037998a0fe64/2:L3-4 to continue]',
+            },
+          },
+        ],
+      },
+    ];
+
+    const tools = recallTools();
+    tools.read.execute = read;
+
+    await service.createClient('recall-native-continuation').streamText({
+      chat,
+      messages: priorMessages,
+      tools,
+      maxSteps: 3,
+    }).text;
+
+    expect(read).toHaveBeenCalledOnce();
+    expect(read.mock.calls[0]?.[0]).toEqual({
+      path: 'chat://0b6f5499-dde4-43cf-89fe-037998a0fe64/2:L3-4',
+    });
   });
 
   it('returns final text when a recall prompt contains invalid prior tool output', async () => {
@@ -456,8 +527,6 @@ describe('ScriptedModelsService', () => {
 });
 
 describe('ScriptedModelsService observable contract', () => {
-  const chatId = '0b6f5499-dde4-43cf-89fe-037998a0fe64';
-
   const priorSearchMessages = (toolName: string): Array<ModelMessage> => [
     ...messages,
     {
@@ -593,12 +662,7 @@ describe('ScriptedModelsService observable contract', () => {
 
     const searchCalls: Array<{ query: string; limit: number }> = [];
 
-    const readCalls: Array<{
-      chatId: string;
-      messageSeq: number;
-      offset?: number;
-      limit: number;
-    }> = [];
+    const readCalls: Array<{ path: string }> = [];
 
     const receipts: Array<LanguageModelUsage> = [];
 
@@ -614,13 +678,8 @@ describe('ScriptedModelsService observable contract', () => {
             return sourceResult;
           },
         }),
-        conversation_read: tool({
-          inputSchema: z.object({
-            chatId: z.string(),
-            messageSeq: z.number(),
-            offset: z.number().optional(),
-            limit: z.number(),
-          }),
+        read: tool({
+          inputSchema: z.object({ path: z.string() }),
           execute: (args) => {
             readCalls.push(args);
 
@@ -651,8 +710,8 @@ describe('ScriptedModelsService observable contract', () => {
     ]);
     expect(searchCalls).toEqual([{ query: 'needle', limit: 5 }]);
     expect(readCalls).toEqual([
-      { chatId, messageSeq: 2, offset: 0, limit: 2 },
-      { chatId, messageSeq: 2, offset: 2, limit: 2 },
+      { path: 'chat://0b6f5499-dde4-43cf-89fe-037998a0fe64/2:L1-4' },
+      { path: 'chat://0b6f5499-dde4-43cf-89fe-037998a0fe64/2:L3-4' },
     ]);
     expect(steps.at(-1)?.content).toEqual([
       { type: 'text', text: 'source read' },
@@ -722,8 +781,10 @@ describe('ScriptedModelsService observable contract', () => {
 
     const result = service.createClient('foreign-output-recall').streamText({
       chat,
-      messages: priorSearchMessages('conversation_read'),
-      tools: recallTools(),
+      messages: priorSearchMessages('foreign_tool'),
+      tools: recallTools(
+        vi.fn(() => ({ status: 'success' as const, results: [] })),
+      ),
       maxSteps: 5,
     });
 

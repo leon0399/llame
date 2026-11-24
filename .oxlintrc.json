@@ -304,6 +304,7 @@
       // These API entrypoints compile as CommonJS. Remove this if API moves
       // to ESM.
       "files": [
+        "**/chats/recency-digest-export.cli.ts",
         "**/db/migrate.ts",
         "**/generate-openapi.ts",
         "**/media/pdf-parse-entry.ts",

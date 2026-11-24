@@ -260,10 +260,6 @@ function isJsonString(value: JsonValue): value is string {
   return typeof value === "string";
 }
 
-function isJsonNumber(value: JsonValue): value is number {
-  return typeof value === "number";
-}
-
 function isJsonObject(value: JsonValue): value is JsonObject {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
@@ -305,7 +301,6 @@ const INTENT_TOOLS = new Set([
   "stop",
   "enter_workspace",
   "search_conversations",
-  "conversation_read",
   "knowledge_search",
   "web_search",
 ]);
@@ -364,13 +359,6 @@ function toolFinishChunk(): string {
 
 type ChatMessage = { role?: string; content?: JsonValue };
 
-type ConversationCoordinates = {
-  chatId: string;
-  messageSeq: number;
-  offset: number;
-  limit: number;
-};
-
 function findStringProperty(value: JsonValue, key: string): string | undefined {
   if (isJsonString(value)) {
     return findStringProperty(parseJsonValue(value), key);
@@ -392,34 +380,6 @@ function findStringProperty(value: JsonValue, key: string): string | undefined {
 
   for (const item of Object.values(value).toReversed()) {
     const found = findStringProperty(item, key);
-
-    if (found !== undefined) return found;
-  }
-
-  return undefined;
-}
-
-function findNumberProperty(value: JsonValue, key: string): number | undefined {
-  if (isJsonString(value)) {
-    return findNumberProperty(parseJsonValue(value), key);
-  }
-
-  if (Array.isArray(value)) {
-    for (const item of value.toReversed()) {
-      const found = findNumberProperty(item, key);
-
-      if (found !== undefined) return found;
-    }
-
-    return undefined;
-  }
-
-  if (!isJsonObject(value)) return undefined;
-
-  if (isJsonNumber(value[key])) return value[key];
-
-  for (const item of Object.values(value).toReversed()) {
-    const found = findNumberProperty(item, key);
 
     if (found !== undefined) return found;
   }
@@ -455,47 +415,6 @@ function findSearchResult(value: JsonValue): JsonObject | undefined {
   return undefined;
 }
 
-function findCanonicalCoordinates(
-  value: JsonValue,
-): ConversationCoordinates | undefined {
-  const parsed = parseJsonValue(value);
-
-  if (Array.isArray(parsed)) {
-    for (const item of parsed.toReversed()) {
-      const found = findCanonicalCoordinates(item);
-
-      if (found !== undefined) return found;
-    }
-
-    return undefined;
-  }
-
-  if (!isJsonObject(parsed)) return undefined;
-
-  if (
-    parsed.kind === "content" &&
-    isJsonString(parsed.chatId) &&
-    isJsonNumber(parsed.messageSeq) &&
-    isJsonNumber(parsed.offset) &&
-    isJsonNumber(parsed.limit)
-  ) {
-    return {
-      chatId: parsed.chatId,
-      messageSeq: parsed.messageSeq,
-      offset: parsed.offset,
-      limit: parsed.limit,
-    };
-  }
-
-  for (const item of Object.values(parsed).toReversed()) {
-    const found = findCanonicalCoordinates(item);
-
-    if (found !== undefined) return found;
-  }
-
-  return undefined;
-}
-
 /** A `read` success reaches the model as its text shape, whose first line is
  *  `locator:L<start>-<end>` (or an empty or skipped-line form). A result
  *  stored before the unit letter keeps its bare `locator:<start>-<end>`, so
@@ -506,7 +425,7 @@ const READ_HEADER_RE =
 /** A cut read ends with one bracketed continuation line naming the locator
  *  and the one-based line the next read resumes at, in either spelling. */
 const READ_CONTINUATION_RE =
-  /Use (\S+?):(?:raw:|outline:)?L?(\d+)(?:-\S*)? to continue\]/u;
+  /Use ((\S+?):(?:raw:|outline:)?L?(\d+)(?:-\S*)?) to continue\]/u;
 
 /**
  * The contents of the current turn's `read` tool results, oldest first. A
@@ -580,19 +499,26 @@ function findReadTextLocator(value: JsonValue): string | undefined {
   return undefined;
 }
 
+type ReadContinuation = {
+  locator: string;
+  start: number;
+  continuationLocator: string;
+};
+
 /** The last read continuation line in `value`: the stored locator and the
  *  one-based line to resume at. */
-function findReadContinuation(
-  value: JsonValue,
-): { locator: string; start: number } | undefined {
+function findReadContinuation(value: JsonValue): ReadContinuation | undefined {
   if (isJsonString(value)) {
     const match = READ_CONTINUATION_RE.exec(value);
-    const locator = match?.[1];
-    const start = match?.[2];
+    const continuationLocator = match?.[1];
+    const locator = match?.[2];
+    const start = match?.[3];
 
-    return locator === undefined || start === undefined
+    return continuationLocator === undefined ||
+      locator === undefined ||
+      start === undefined
       ? undefined
-      : { locator, start: Number(start) };
+      : { locator, start: Number(start), continuationLocator };
   }
 
   if (Array.isArray(value)) {
@@ -614,22 +540,6 @@ function findReadContinuation(
   }
 
   return undefined;
-}
-
-function findConversationReadResult(value: JsonValue): boolean {
-  const parsed = parseJsonValue(value);
-
-  if (Array.isArray(parsed)) {
-    return parsed.some(findConversationReadResult);
-  }
-
-  if (!isJsonObject(parsed)) return false;
-
-  if (parsed.status === "success" && isJsonString(parsed.content)) {
-    return true;
-  }
-
-  return Object.values(parsed).some(findConversationReadResult);
 }
 
 /**
@@ -729,9 +639,8 @@ function classify(raw: string) {
       (m) => m.role === "tool",
     )?.content;
 
-    // Only a `read` call's result is a read text: a knowledge_search result
-    // carries `kb://` locator strings whose one-line reading would otherwise
-    // look like a read header.
+    // Only a `read` call's result is read text: search results can carry
+    // locators whose one-line reading would otherwise look like a read header.
     const readResults = readCallResults(currentTurnMessages);
     const readTextLocator = findReadTextLocator(readResults);
     const readContinuation = findReadContinuation(readResults);
@@ -744,7 +653,7 @@ function classify(raw: string) {
       ) ?? readTextLocator;
 
     const knowledge = classifyKnowledgeRequest(content);
-    const knowledgeLocatorSearchResult = findSearchResult(currentTurnMessages);
+    const conversationSearchResult = findSearchResult(currentTurnMessages);
 
     return {
       hasTools,
@@ -771,15 +680,13 @@ function classify(raw: string) {
       asksConversationRecall: content.includes(CONVERSATION_PROMPT_MARKER),
       hasConversationTools:
         toolIsOffered(body.tools, "search_conversations") &&
-        toolIsOffered(body.tools, "conversation_read"),
-      hasConversationSearchResult:
-        findSearchResult(currentTurnMessages) !== undefined,
-      hasConversationReadResult:
-        findConversationReadResult(currentTurnMessages),
-      conversationNextOffset: findNumberProperty(
-        latestToolContent,
-        "nextOffset",
-      ),
+        toolIsOffered(body.tools, NATIVE_READ_TOOL_ID),
+      hasConversationSearchResult: conversationSearchResult !== undefined,
+      hasConversationReadResult: readTextLocator !== undefined,
+      conversationLocatorFromSearch:
+        conversationSearchResult !== undefined
+          ? findStringProperty(conversationSearchResult.results, "locator")
+          : undefined,
       knowledgeOperation: knowledge.operation,
       knowledgeSpaceId: knowledge.spaceId,
       knowledgeReadPath: knowledge.readPath,
@@ -787,8 +694,8 @@ function classify(raw: string) {
       knowledgeCursor: findStringProperty(latestToolContent, "nextCursor"),
       knowledgeResultPath,
       knowledgeLocatorFromSearch:
-        knowledgeLocatorSearchResult !== undefined
-          ? findStringProperty(knowledgeLocatorSearchResult.results, "locator")
+        conversationSearchResult !== undefined
+          ? findStringProperty(conversationSearchResult.results, "locator")
           : undefined,
       hasKnowledgeLocatorReadResult: readTextLocator !== undefined,
       // The provider model id the api routed this request to: the role
@@ -826,8 +733,7 @@ function classify(raw: string) {
       asksConversationRecall: false,
       hasConversationTools: false,
       hasConversationSearchResult: false,
-      hasConversationReadResult: false,
-      conversationNextOffset: undefined,
+      conversationLocatorFromSearch: undefined,
       knowledgeOperation: "search",
       knowledgeSpaceId: undefined,
       knowledgeReadPath: "notes/worker-note.md",
@@ -886,11 +792,9 @@ function writeAnswer(ctx: ChunkContext, tokens: ReadonlyArray<string>): void {
   ctx.res.end();
 }
 
-// Episodic acceptance chain. The second and third calls are built from the
-// canonical search result itself; the model fixture never knows a message
-// UUID, part identity, hash, or version. Kept independent from the ordinary
-// "search" fixture below so generic prompts cannot accidentally gain a
-// second tool call.
+// Conversation recall acceptance chain. The read calls consume the search
+// result's locator and any native read continuation verbatim, without knowing
+// a chat UUID, message sequence, or source coordinates.
 function tryConversationSearchTurn(ctx: ChunkContext): boolean {
   if (
     !ctx.asksConversationRecall ||
@@ -919,13 +823,12 @@ function tryConversationReadTurn(ctx: ChunkContext): boolean {
     return false;
   }
 
-  const coordinates = findCanonicalCoordinates(ctx.raw);
+  if (ctx.conversationLocatorFromSearch === undefined) return false;
 
-  if (coordinates === undefined) return false;
   writeToolCall(ctx.res, {
-    id: "call_conversation_read_e2e",
-    name: "conversation_read",
-    arguments: coordinates,
+    id: "call_chat_read_e2e",
+    name: NATIVE_READ_TOOL_ID,
+    arguments: { path: ctx.conversationLocatorFromSearch },
   });
 
   return true;
@@ -937,20 +840,16 @@ function tryConversationReadContinuationOrAnswer(ctx: ChunkContext): boolean {
   if (!ctx.hasConversationReadResult) return false;
 
   if (
-    ctx.conversationNextOffset !== undefined &&
+    ctx.knowledgeContinuation !== undefined &&
     ctx.currentTurnToolResultCount === 2
   ) {
-    const coordinates = findCanonicalCoordinates(ctx.raw);
+    writeToolCall(ctx.res, {
+      id: "call_chat_read_continue_e2e",
+      name: NATIVE_READ_TOOL_ID,
+      arguments: { path: ctx.knowledgeContinuation.continuationLocator },
+    });
 
-    if (coordinates !== undefined) {
-      writeToolCall(ctx.res, {
-        id: "call_conversation_read_continue_e2e",
-        name: "conversation_read",
-        arguments: { ...coordinates, offset: ctx.conversationNextOffset },
-      });
-
-      return true;
-    }
+    return true;
   }
 
   writeAnswer(ctx, CONVERSATION_ANSWER_TOKENS);

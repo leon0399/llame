@@ -242,6 +242,11 @@ describe('resolveMachinePath', () => {
       locator: 'machine://devl/srv/notes%3Adraft',
     });
   });
+  it('keeps Chat locators with their reader when no Machine is bound', () => {
+    expect(
+      resolveMachinePath('CHAT://0190f5e2-7c1a-7b3e-9d4f-2a6b8c0d1e2f', {}),
+    ).toEqual({ kind: 'scheme' });
+  });
 });
 
 describe('currentMachine', () => {

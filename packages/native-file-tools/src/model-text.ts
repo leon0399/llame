@@ -50,7 +50,20 @@ const ATTRIBUTION_FIELDS: ReadonlyArray<string> = [
   "skillDirectory",
   "realSkillDirectory",
   "skillPathInstruction",
+  "chatId",
+  "messageSeq",
+  "role",
+  "timestamp",
+  "runStatus",
+  "previousMessageSeq",
+  "nextMessageSeq",
 ];
+
+const NUMERIC_ATTRIBUTION_FIELDS = {
+  messageSeq: true,
+  previousMessageSeq: true,
+  nextMessageSeq: true,
+};
 
 /** A stored string field, present only when it says something. */
 export function isNonEmptyString(value: unknown): value is string {
@@ -125,6 +138,13 @@ export function renderAttributionLines(result: UnknownRecord): Array<string> {
 
     if (field === "adapter") lines.push(...adapterLines(value));
     else if (field === "notes") lines.push(...noteLines(value));
+    else if (
+      Object.hasOwn(NUMERIC_ATTRIBUTION_FIELDS, field) &&
+      isNumber(value) &&
+      Number.isSafeInteger(value) &&
+      value > 0
+    )
+      lines.push(`${field}: ${value}`);
     else if (isNonEmptyString(value)) lines.push(`${field}: ${oneLine(value)}`);
   }
 
@@ -141,6 +161,44 @@ function noun(count: number, singular: "line" | "entry"): string {
 /** A count and its noun, as in `1 line` or `12 lines`. */
 function counted(count: number, singular: "line" | "entry"): string {
   return `${count} ${noun(count, singular)}`;
+}
+
+/** The header of a Chat message index. Sequence values are immutable Chat
+ *  coordinates, not line numbers or an inferred total. */
+function chatIndexHeader(result: UnknownRecord): string {
+  const path = isNonEmptyString(result.path) ? oneLine(result.path) : "";
+  const range = result.shownSeqRange;
+
+  if (
+    isRecord(range) &&
+    isNumber(range.startSeq) &&
+    Number.isSafeInteger(range.startSeq) &&
+    range.startSeq > 0 &&
+    isNumber(range.endSeq) &&
+    Number.isSafeInteger(range.endSeq) &&
+    range.endSeq >= range.startSeq
+  )
+    return `${path}:M${range.startSeq}-${range.endSeq}`;
+
+  return `${path}: empty`;
+}
+
+/** Chat-index navigation is locator-based; never reinterpret sequence values
+ *  as the native file reader's zero-based line offsets. */
+function chatIndexNotices(result: UnknownRecord): Array<string> {
+  const notices: Array<string> = [];
+
+  if (isNonEmptyString(result.continuationLocator))
+    notices.push(
+      `[More messages are available. Use ${oneLine(result.continuationLocator)} to continue.]`,
+    );
+
+  if (isNonEmptyString(result.earlierLocator))
+    notices.push(
+      `[Earlier history. Use ${oneLine(result.earlierLocator)} to read]`,
+    );
+
+  return notices;
 }
 
 /** The header of a file read: the shown range in the form of its
@@ -259,7 +317,8 @@ function resumeSelector(result: UnknownRecord, nextOffset: number): string {
  *  locator with no room for a selector states the remainder alone, because
  *  the read it would name is one the read tool refuses. */
 function continuationLine(result: UnknownRecord): string | undefined {
-  if (result.truncated !== true) return undefined;
+  if (result.kind === "chat-index" || result.truncated !== true)
+    return undefined;
   const { nextOffset } = result;
 
   if (!isNumber(nextOffset)) return undefined;
@@ -307,22 +366,26 @@ function continuationLine(result: UnknownRecord): string | undefined {
 }
 
 /**
- * The model-facing text of a `read` success — a file of any representation or
- * a directory listing. A directory renders its stored content, whose first
- * line is the path, with no second header.
+ * The model-facing text of a `read` success — a file, a Chat message index,
+ * or a directory listing. Directory content opens with its path, with no
+ * second header.
  */
 export function renderReadText(result: UnknownRecord): string {
   const content = isNonEmptyString(result.content) ? result.content : "";
   const body = content.replace(/\n$/u, "");
   const bodyLines = body === "" ? [] : [body];
 
-  // A file frames its content with the header and the attribution lines; a
-  // directory's stored content already opens with its path, so its
-  // attribution follows the listing whose origin it names.
   const lines =
     result.kind === "directory"
       ? [...bodyLines, ...renderAttributionLines(result)]
-      : [fileHeader(result), ...renderAttributionLines(result), ...bodyLines];
+      : result.kind === "chat-index"
+        ? [
+            chatIndexHeader(result),
+            ...renderAttributionLines(result),
+            ...bodyLines,
+            ...chatIndexNotices(result),
+          ]
+        : [fileHeader(result), ...renderAttributionLines(result), ...bodyLines];
 
   const continuation = continuationLine(result);
 

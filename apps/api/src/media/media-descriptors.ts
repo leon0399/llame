@@ -310,8 +310,8 @@ export function fileMediaIds(parts: ReadonlyArray<unknown>): Array<string> {
 }
 
 /**
- * The cause-free line of each stored owner `file` part (`conversation_read`,
- * title input), in stored order: `[pdf media://<id> <name>]` for a part whose
+ * The cause-free line of each stored owner `file` part (Chat reads and title
+ * input), in stored order: `[pdf media://<id> <name>]` for a part whose
  * stored `mediaType` is `application/pdf`, `[image media://<id> <name>]` for
  * any other, rendered from the part alone. `<name>` is its `filename` through
  * the source-label sanitizer, so a forged part cannot break the line; a part

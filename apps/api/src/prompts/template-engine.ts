@@ -139,7 +139,7 @@ export function promptValue(
  */
 export function promptValueObserved(
   value: PromptSafeValue | undefined,
-  onEmit: () => void,
+  onEmit: (value: string) => void,
 ): PromptSafeValue | undefined {
   if (value === undefined) {
     return undefined;
@@ -147,9 +147,10 @@ export function promptValueObserved(
 
   const observed = promptSafeString(value.toHTML());
   observed.toHTML = () => {
-    onEmit();
+    const emitted = value.toHTML();
+    onEmit(emitted);
 
-    return value.toHTML();
+    return emitted;
   };
 
   return observed;

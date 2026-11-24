@@ -108,6 +108,12 @@ command on that host; `edit` and `write` refuse it with
 canonical Project locator. `edit` and `write` refuse the scheme with
 `unsupported_operation`.
 
+`chat://` locators need no Machine. `read` serves them through the trusted
+owner's database scope after the ordinary `tools.permissions.read` group
+admits the canonical locator. `edit` and `write` refuse the scheme with
+`unsupported_operation`. See [Chat locators](../reference/locators/chat.md)
+for owner privacy, archive handling, status annotations, and paging.
+
 Optional trusted bash cwd (defaults to the cwd of the process that executes the
 Run, so a split web/worker deployment resolves it in the worker, and a bound
 Workspace root overrides it):

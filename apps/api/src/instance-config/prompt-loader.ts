@@ -25,8 +25,11 @@ import { parseMcpToolId } from '@workspace/mcp-workspace';
 import { isToolId } from '../tools/tool-id';
 import type {
   PromptChatDigestEntry,
+  PromptChatDigestField,
   PromptChatsDisclosure,
+  PromptChatsFieldDisclosure,
   PromptChatsInput,
+  PromptChatsScalarDisclosure,
   PromptSkillsInput,
   PromptUserInput,
   SystemPromptSource,
@@ -36,6 +39,7 @@ import type { WebSearchEngineConfig } from './web-search-config';
 
 export type {
   PromptChatsDisclosure,
+  PromptChatsFieldDisclosure,
   PromptChatsInput,
   PromptSkillsInput,
   PromptUserInput,
@@ -263,6 +267,8 @@ export type RenderSystemPromptInput = {
   /** The resolved engine list; absent renders no engine list. */
   webSearch?: PromptWebSearchInput;
   admittedToolIds?: ReadonlyArray<string>;
+  /** Private exporter-only trace; normal model renders leave this disabled. */
+  captureChatsFieldDisclosure?: boolean;
 };
 
 /**
@@ -286,6 +292,7 @@ export type ToolPromptRenderInput = Omit<
 export type RenderedPrompt = {
   readonly text: string;
   readonly chatsDisclosure: PromptChatsDisclosure;
+  readonly chatsFieldDisclosure?: PromptChatsFieldDisclosure;
 };
 
 export type ToolPromptRenderer = {
@@ -664,11 +671,21 @@ export function createModelPromptLoader(
   };
 }
 
+const RETIRED_TOOL_PROMPT_IDS = {
+  conversation_read: true,
+} as const;
+
 function assertToolPromptOverrideKeys(
   files: ToolPromptFileMap | undefined,
   field: string,
 ): void {
   for (const id of Object.keys(files ?? {})) {
+    if (Object.hasOwn(RETIRED_TOOL_PROMPT_IDS, id)) {
+      throw new InstanceConfigError(
+        `${field}: "${id}" is retired; use read with a chat:// locator`,
+      );
+    }
+
     if (!isToolPromptId(id)) {
       throw new InstanceConfigError(
         `${field}: unsupported tool prompt override "${id}"`,
@@ -1275,43 +1292,144 @@ function userContext(user: PromptUserInput | undefined) {
   return Object.keys(context).length === 0 ? undefined : context;
 }
 
-/** Every field reports one emission of this entry, whichever field it is. */
-function chatEntryContext(entry: PromptChatDigestEntry, onEmit: () => void) {
+type PromptChatsScalar = PromptChatsScalarDisclosure;
+
+type PromptChatEntryDisclosure = Map<
+  number,
+  Map<PromptChatDigestField, string>
+>;
+
+type PromptChatsTrace = {
+  pinned: PromptChatEntryDisclosure;
+  recent: PromptChatEntryDisclosure;
+  scalars: Map<PromptChatsScalar, string>;
+  conditionalScalars: ReadonlySet<PromptChatsScalar>;
+};
+
+function conditionallyReferencedChatScalars(
+  source: string,
+): ReadonlySet<PromptChatsScalar> {
+  const referenced = new Set<PromptChatsScalar>();
+  const ast = parsePromptTemplate(source);
+
+  const visit = (body: ReadonlyArray<hbs.AST.Statement>) => {
+    for (const node of body) {
+      if (!isBlockStatement(node)) continue;
+
+      const helper = node.path.original;
+      const subject = node.params[0];
+
+      if (
+        (helper === 'if' || helper === 'unless') &&
+        subject !== undefined &&
+        isPathExpression(subject) &&
+        subject.depth === 0 &&
+        !subject.data &&
+        subject.parts.length === 2 &&
+        subject.parts[0] === 'chats' &&
+        (subject.parts[1] === 'pinnedShown' ||
+          subject.parts[1] === 'pinnedTotal' ||
+          subject.parts[1] === 'recentShown' ||
+          subject.parts[1] === 'recentTotal')
+      ) {
+        referenced.add(subject.parts[1]);
+      }
+
+      visit(node.program?.body ?? []);
+      visit(node.inverse?.body ?? []);
+    }
+  };
+
+  visit(ast.body);
+
+  return referenced;
+}
+
+/** The runtime index and export-only field trace share the actual emit seam. */
+function chatEntryContext(
+  entry: PromptChatDigestEntry,
+  field: (
+    field: 'title' | 'date' | 'messageCount' | 'excerpt',
+    emitted: string,
+  ) => void,
+) {
   return {
     title: promptValueObserved(
       promptValue(entry.title, sanitizeAuthoredText),
-      onEmit,
+      (value) => field('title', value),
     ),
     date: promptValueObserved(
       promptValue(entry.date, sanitizeAuthoredText),
-      onEmit,
+      (value) => field('date', value),
     ),
     messageCount: promptValueObserved(
       promptValue(String(entry.messageCount), sanitizeAuthoredText),
-      onEmit,
+      (value) => field('messageCount', value),
     ),
     excerpt: promptValueObserved(
       promptValue(entry.excerpt ?? undefined, sanitizeAuthoredText),
-      onEmit,
+      (value) => field('excerpt', value),
     ),
   };
 }
 
-/**
- * One digest list, normalized to "absent or non-empty" so the emptiness rule
- * is stated in a single place: an empty ARRAY would be truthy, making `{{#if
- * chats.recent}}` pass over nothing. Each entry records its own index in
- * `emitted` when the render writes any of its values.
- */
 function chatListContext(
   entries: ReadonlyArray<PromptChatDigestEntry> | undefined,
   emitted: Set<number>,
+  fieldEmitted?: Map<
+    number,
+    Map<'title' | 'date' | 'messageCount' | 'excerpt', string>
+  >,
 ) {
   return entries === undefined || entries.length === 0
     ? undefined
     : entries.map((entry, index) =>
-        chatEntryContext(entry, () => emitted.add(index)),
+        chatEntryContext(entry, (field, value) => {
+          emitted.add(index);
+
+          if (fieldEmitted === undefined) return;
+          let fields = fieldEmitted.get(index);
+
+          if (fields === undefined) {
+            fields = new Map();
+            fieldEmitted.set(index, fields);
+          }
+
+          fields.set(field, value);
+        }),
       );
+}
+
+function chatsScalarContext(chats: PromptChatsInput, trace?: PromptChatsTrace) {
+  const observeCount = (
+    field: Exclude<PromptChatsScalar, 'compiledOn'>,
+    value: number,
+  ): number | PromptSafeValue => {
+    if (trace === undefined || trace.conditionalScalars.has(field))
+      return value;
+
+    // Keep raw numbers for branch tests: a SafeString around zero is truthy.
+    return (
+      promptValueObserved(promptSafeString(String(value)), (emitted) =>
+        trace.scalars.set(field, emitted),
+      ) ?? value
+    );
+  };
+
+  const compiledOn =
+    trace === undefined
+      ? promptValue(chats.compiledOn)
+      : promptValueObserved(promptValue(chats.compiledOn), (emitted) =>
+          trace.scalars.set('compiledOn', emitted),
+        );
+
+  return {
+    pinnedShown: observeCount('pinnedShown', chats.pinnedShown),
+    pinnedTotal: observeCount('pinnedTotal', chats.pinnedTotal),
+    recentShown: observeCount('recentShown', chats.recentShown),
+    recentTotal: observeCount('recentTotal', chats.recentTotal),
+    compiledOn,
+  };
 }
 
 /**
@@ -1322,46 +1440,20 @@ function chatListContext(
 function chatsContext(
   chats: PromptChatsInput | undefined,
   emitted: { pinned: Set<number>; recent: Set<number> },
+  trace?: PromptChatsTrace,
 ) {
-  if (chats === undefined) {
-    return undefined;
-  }
+  if (chats === undefined) return undefined;
 
-  const pinned = chatListContext(chats.pinned, emitted.pinned);
-  const recent = chatListContext(chats.recent, emitted.recent);
+  const pinned = chatListContext(chats.pinned, emitted.pinned, trace?.pinned);
+  const recent = chatListContext(chats.recent, emitted.recent, trace?.recent);
 
-  if (pinned === undefined && recent === undefined) {
-    return undefined;
-  }
+  if (pinned === undefined && recent === undefined) return undefined;
 
-  type ChatsPromptContext = {
-    pinned?: typeof pinned;
-    recent?: typeof recent;
-    pinnedShown: typeof chats.pinnedShown;
-    pinnedTotal: typeof chats.pinnedTotal;
-    recentShown: typeof chats.recentShown;
-    recentTotal: typeof chats.recentTotal;
-    compiledOn: ReturnType<typeof promptValue>;
+  return {
+    ...chatsScalarContext(chats, trace),
+    ...(pinned !== undefined && { pinned }),
+    ...(recent !== undefined && { recent }),
   };
-
-  const result: ChatsPromptContext = {
-    // Numbers, not strings. `promptValue` wraps its result in a SafeString,
-    // and a SafeString is an object — so a stringified `0` is TRUTHY, and an
-    // operator writing `{{#if chats.pinnedShown}}Showing …{{/if}}` would get
-    // that framing rendered around a zero count. These are server-computed
-    // integers with nothing to escape, so they need no wrapper to be safe.
-    pinnedShown: chats.pinnedShown,
-    pinnedTotal: chats.pinnedTotal,
-    recentShown: chats.recentShown,
-    recentTotal: chats.recentTotal,
-    compiledOn: promptValue(chats.compiledOn),
-  };
-
-  if (pinned !== undefined) result.pinned = pinned;
-
-  if (recent !== undefined) result.recent = recent;
-
-  return result;
 }
 
 /**
@@ -1456,16 +1548,15 @@ type RenderPromptContext = {
 function promptContext(
   fields: Omit<RenderSystemPromptInput, 'template'>,
   emitted: { pinned: Set<number>; recent: Set<number> },
+  trace?: PromptChatsTrace,
 ): RenderPromptContext {
   const { model, anchor, user, chats, skills, webSearch, admittedToolIds } =
     fields;
 
-  // An allowlisted path with no value renders empty rather than failing, so
-  // that `{{#if model.name}}...{{model.name}}...{{/if}}` is expressible. Typos
-  // still fail loudly: an unknown path is rejected in
-  // `assertSupportedTemplate`.
   const projectedUser = userContext(user);
-  const projectedChats = chatsContext(chats, emitted);
+
+  const projectedChats = chatsContext(chats, emitted, trace);
+
   const projectedSkills = skillsContext(skills);
   const projectedWebSearch = webSearchContext(webSearch);
 
@@ -1483,16 +1574,50 @@ function promptContext(
     tools: projectToolPredicates(admittedToolIds),
   };
 
-  if (projectedUser !== undefined) renderContext.user = projectedUser;
+  return appendPromptNamespaces(renderContext, {
+    projectedUser,
+    projectedChats,
+    projectedSkills,
+    projectedWebSearch,
+  });
+}
 
-  if (projectedChats !== undefined) renderContext.chats = projectedChats;
+function appendPromptNamespaces(
+  renderContext: RenderPromptContext,
+  projected: {
+    projectedUser: RenderPromptContext['user'];
+    projectedChats: RenderPromptContext['chats'];
+    projectedSkills: RenderPromptContext['skills'];
+    projectedWebSearch: RenderPromptContext['webSearch'];
+  },
+): RenderPromptContext {
+  if (projected.projectedUser !== undefined)
+    renderContext.user = projected.projectedUser;
 
-  if (projectedSkills !== undefined) renderContext.skills = projectedSkills;
+  if (projected.projectedChats !== undefined)
+    renderContext.chats = projected.projectedChats;
 
-  if (projectedWebSearch !== undefined)
-    renderContext.webSearch = projectedWebSearch;
+  if (projected.projectedSkills !== undefined)
+    renderContext.skills = projected.projectedSkills;
+
+  if (projected.projectedWebSearch !== undefined)
+    renderContext.webSearch = projected.projectedWebSearch;
 
   return renderContext;
+}
+
+function createPromptChatsTrace(
+  source: string,
+  enabled: boolean,
+): PromptChatsTrace | undefined {
+  if (!enabled) return undefined;
+
+  return {
+    pinned: new Map(),
+    recent: new Map(),
+    scalars: new Map(),
+    conditionalScalars: conditionallyReferencedChatScalars(source),
+  };
 }
 
 function renderPrompt(
@@ -1500,10 +1625,26 @@ function renderPrompt(
   fields: Omit<RenderSystemPromptInput, 'template'>,
 ): RenderedPrompt {
   const emitted = { pinned: new Set<number>(), recent: new Set<number>() };
-  const renderContext = promptContext(fields, emitted);
+
+  const trace = createPromptChatsTrace(
+    source,
+    fields.captureChatsFieldDisclosure === true,
+  );
+
+  const renderContext = promptContext(fields, emitted, trace);
   const text = compilePromptTemplate(source)(renderContext);
 
-  return { text, chatsDisclosure: emitted };
+  return {
+    text,
+    chatsDisclosure: emitted,
+    ...(trace !== undefined && {
+      chatsFieldDisclosure: {
+        pinned: trace.pinned,
+        recent: trace.recent,
+        scalars: trace.scalars,
+      },
+    }),
+  };
 }
 
 function promptReadError(field: string, error: unknown): InstanceConfigError {

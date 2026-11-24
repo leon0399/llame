@@ -53,8 +53,8 @@ below state additional ordering where a change needs it.
   mounts.
 - [Skills](skills.md): `skills.directories`, package format, and catalog
   advertisement.
-- [Conversation recall](conversation-recall.md): enabling
-  `search_conversations` and `conversation_read`.
+- [Conversation recall](conversation-recall.md): enabling Chat discovery with
+  `search_conversations` and native `read` over `chat://` locators.
 
 ## Providers and deployment
 

@@ -43,6 +43,26 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   so startup fails on the old keys. `GET /api/v1/models` returns
   `defaultSelector` instead of `defaultModelId`. A `models[].id` that starts
   with `@` fails startup. (#1772)
+# 2026-11-24
+
+- Read owner Chat history through native `read` using `chat://`, `chat://<id>`,
+  and `chat://<id>/<seq>`. The collection lists eligible non-archived Chats;
+  owners can still address archived Chats directly. Indexes and message reads
+  use eligible stored rows, shared bounds, and owner-scoped not-found parity.
+  Run status is a separate read-only annotation. Search now returns `chat://`
+  locators. The old `conversation_read` tool is removed; remove it from
+  `tools.allowed` and tool prompt overrides before upgrading. A stale
+  permission group remains inert.
+- Keep existing digest columns, renderer, and templates during this reader
+  layer. Before the later digest upgrade, back up the database, stop acceptance,
+  drain old workers, and run the reader-binary exporter:
+  `pnpm --filter api recency-digest:export --out <path>`. Store its
+  version 1 owner-bound JSON output as private mode `0600` data. It exports only
+  field-level disclosures backed by exact receipt proof and omits and privately
+  reports fields without proof. The later digest converter consumes this file;
+  it is not part of this reader release.
+  Bootstrap diagnostics and YAML warnings do not echo configuration source;
+  malformed YAML still rejects startup.
 
 # 2026-11-22
 

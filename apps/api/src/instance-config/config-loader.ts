@@ -2014,7 +2014,13 @@ export function parseConfigText(
       format === 'yaml'
         ? // merge:true resolves `<<: *anchor` merge keys in addition to the
           // always-on `*alias` reference expansion.
-          parseYaml(text, { merge: true })
+          // Parser warnings can quote credentials; error-only logging still
+          // throws syntax failures, unlike the parser's silent mode.
+          parseYaml(text, {
+            merge: true,
+            logLevel: 'error',
+            prettyErrors: false,
+          })
         : parseToml(text);
   } catch (error) {
     throw new InstanceConfigError(
@@ -2464,6 +2470,12 @@ function assertValidAllowlistId(
   configPath: string,
   registered: ReadonlySet<string>,
 ): void {
+  if (id === 'conversation_read') {
+    throw new InstanceConfigError(
+      `${configPath}: "conversation_read" was retired; use "read" with chat:// locators instead`,
+    );
+  }
+
   if (id.includes('*')) {
     const match = /^mcp__([A-Za-z0-9_-]+)__\*$/u.exec(id);
 

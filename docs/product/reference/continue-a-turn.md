@@ -194,11 +194,12 @@ before anything is written.
 The first request starts from the history through the triggering user message,
 so it carries no part of the answer being discarded. Its dispatch replaces the
 turn's reply — also a `completed` answer of an earlier Run — and the replaced
-row stops being evidence: search, `conversation_read`, and timeline discovery
-never return it again. The new answer is stored in that same row, so it is not
-searchable either. A Regenerate that ends before its dispatch leaves the old
-reply, its usage, and its evidence untouched, and a turn whose reply was never
-`completed` takes no mark at all.
+row stops being evidence: search, the native `chat://` index and message reads,
+and timeline discovery never return it again. The new answer is stored in that
+same row, so it is not searchable either.
+A Regenerate that ends before its dispatch leaves the old reply, its usage,
+and its evidence untouched. A turn whose reply was never `completed` takes no
+mark at all.
 
 ## The web actions
 

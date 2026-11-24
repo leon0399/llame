@@ -53,8 +53,6 @@ import {
 
 export { MessagesRepository } from './messages-repository';
 
-export { type ConversationMessageLookup } from './conversation-message-lookup';
-
 const DEFAULT_CHAT_VISIBILITY = 'private';
 
 /**

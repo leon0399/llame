@@ -284,7 +284,7 @@ provider. Removing an embedding model does not delete vectors; prune explicitly.
 `search_conversations` supports two modes (content keyword search with optional
 time ranges, and timeline activity-pointer discovery) and always returns
 canonical results; HTTP admission and every `runs` consumer enforce projection
-coverage. `conversation_read` is independently allowlisted. See
+coverage. Chat history reads use independently allowlisted `read` with `chat://` locators. See
 [the runbook](../../docs/product/operator/conversation-recall.md) and the
 chat-search/search-projection/conversation-read OpenSpecs.
 

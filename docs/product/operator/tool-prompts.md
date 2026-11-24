@@ -15,10 +15,11 @@ every execution attempt. An operator can replace any description with a template
 file, instance-wide or for a single model. The same template subset that renders
 `systemPromptFile` renders these, against the same variable projection.
 
-The llame-owned tool ids are `bash`, `conversation_read`, `edit`,
-`enter_workspace`, `exit_workspace`, `grep`, `knowledge_search`, `read`,
+The llame-owned tool ids are `bash`, `edit`, `enter_workspace`,
+`exit_workspace`, `grep`, `knowledge_search`, `read`,
 `search_conversations`, `stop`, `wait`, `web_search`, and `write`. MCP tool
-descriptions come from their server and are never templated.
+descriptions come from their server and are never templated. `chat://` uses the
+native `read` description; it is not a separate tool id.
 
 ## Configure overrides
 
@@ -49,8 +50,10 @@ description and never clears a lower-priority source. Only an advertised tool is
 rendered: a description for a tool the instance does not allow is validated but
 never sent.
 
-Keys must name a registered llame-owned tool id. An MCP id, a wildcard, or a
-typo fails startup of the process that reads the files.
+Keys must name a registered llame-owned tool id. An MCP id, a wildcard, a
+typo, or the removed `conversation_read` id fails startup of the process that
+reads the files. Remove old `conversation_read` entries from both
+`tools.promptFiles` and `models[].toolPromptFiles` during the tool cutover.
 
 Paths are literal filesystem paths — `{env:...}` and `{path:...}` interpolation
 does not apply, because the resolved description is visible to Chat owners. A

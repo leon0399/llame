@@ -1,5 +1,4 @@
 import { searchConversationsTool } from './search-conversations';
-import { conversationReadTool } from './conversation-read';
 import { webSearchTool } from './web-search/tool';
 import { knowledgeSearchTool } from '../knowledge/knowledge-tools';
 import {
@@ -17,13 +16,16 @@ describe('tool registry', () => {
     expect(TOOL_REGISTRY.get('search_conversations')).toBe(
       searchConversationsTool,
     );
-    expect(TOOL_REGISTRY.get('conversation_read')).toBe(conversationReadTool);
     expect(TOOL_REGISTRY.get('web_search')).toBe(webSearchTool);
     expect(TOOL_REGISTRY.get('knowledge_search')).toBe(knowledgeSearchTool);
     expect(searchConversationsTool.classification).toBe('read_only');
-    expect(conversationReadTool.classification).toBe('read_only');
     expect(webSearchTool.classification).toBe('read_only');
     expect(knowledgeSearchTool.classification).toBe('read_only');
+  });
+  it('does not register or advertise the retired conversation_read id', () => {
+    expect(TOOL_REGISTRY.has('conversation_read')).toBe(false);
+    expect(resolveAdvertisedTools(new Set(['conversation_read']))).toEqual([]);
+    expect(resolveAdvertisedTools(['conversation_*'])).toEqual([]);
   });
 
   it('keeps the static registry immutable while allowlisting Knowledge ids', () => {
@@ -31,21 +33,6 @@ describe('tool registry', () => {
       knowledgeSearchTool,
     ]);
     expect(TOOL_REGISTRY.get('knowledge_search')).toBe(knowledgeSearchTool);
-  });
-
-  it('advertises conversation_read only when it is explicitly allowlisted', () => {
-    expect(resolveAdvertisedTools(new Set(['conversation_read']))).toContain(
-      conversationReadTool,
-    );
-    expect(
-      resolveAdvertisedTools(new Set(['search_conversations'])),
-    ).not.toContain(conversationReadTool);
-  });
-
-  it('does not advertise code-owned conversation_read through a wildcard rule', () => {
-    expect(resolveAdvertisedTools(['conversation_*'])).not.toContain(
-      conversationReadTool,
-    );
   });
 });
 

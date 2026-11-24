@@ -3,13 +3,16 @@ summary: "Which authority each path scheme reaches, which tools accept it, and w
 read_when:
   - you have a path argument and need to know what it addresses
   - you need to know whether a scheme can be written to or triggers instructions
-spec: native-file-tools
+spec:
+  - native-file-tools
+  - conversation-reads
 configured_by:
   - ../../operator/native-files.md
   - ../../operator/knowledge.md
   - ../../operator/skills.md
   - ../../operator/web-read.md
   - ../../operator/media.md
+  - ../../operator/conversation-recall.md
 ---
 
 # Locators
@@ -44,6 +47,7 @@ and read-only. Each scheme page states its accepted spellings; see
 | [`artifact://`](artifact.md) | yes    | no     | no      | no          | this Chat's stored tool results, read-only                        | no         | no                    |
 | [`job://`](job.md)           | yes    | no     | no      | no          | this Chat's background jobs, read-only                            | no         | no                    |
 | [`projects://`](projects.md) | yes    | no     | no      | no          | the owner's Projects and registered checkouts, read-only          | no         | no                    |
+| [`chat://`](chat.md)         | yes    | no     | no      | no          | the trusted owner's Chats, through the API database               | no         | no                    |
 
 `edit` and `write` reject `http://`, `https://`,
 [`artifact://`](artifact.md), and [`job://`](job.md) with `invalid_path`, and reject `skill://`,
@@ -87,10 +91,11 @@ Each scheme's directory or catalog listing is documented on its own page: an
 absolute path and `file://` in [absolute paths](host-path.md), a Space directory in
 [kb](kb.md), a package directory and the catalog in [skill](skill.md), a
 Machine's status and registered roots in [machine](machine.md), an external
-host's directory in [ssh](ssh.md), a Chat's artifacts oldest first and a `bash` artifact's streams
-in [artifact](artifact.md), a Chat's jobs oldest first in [job](job.md), the
-owner's active or archived Projects in [projects](projects.md), and a web
-adapter directory in [web adapters](../web-adapters.md#github-adapter).
+host's directory in [ssh](ssh.md), a Chat collection and message index in
+[Chat locators](chat.md), a Chat's artifacts oldest first and a `bash`
+artifact's streams in [artifact](artifact.md), a Chat's jobs oldest first in
+[job](job.md), the owner's active or archived Projects in [projects](projects.md),
+and a web adapter directory in [web adapters](../web-adapters.md#github-adapter).
 
 ## Errors
 

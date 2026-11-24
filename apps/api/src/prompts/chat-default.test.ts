@@ -1,5 +1,7 @@
 import path from 'node:path';
 
+import { loadPackagedToolDescription } from './tool-descriptions';
+
 import {
   createModelPromptLoader,
   type PromptUserInput,
@@ -26,24 +28,57 @@ const template = () =>
     configPath: path.resolve(__dirname, '../../llame.config.jsonc.example'),
   }).resolve(MODEL).systemPromptTemplate;
 
-const render = (user?: PromptUserInput, chats?: PromptChatsInput) =>
+const render = (
+  user?: PromptUserInput,
+  chats?: PromptChatsInput,
+  admittedToolIds?: ReadonlyArray<string>,
+) =>
   renderSystemPromptTemplate({
     template: template(),
     model: MODEL,
     anchor: TEST_ANCHOR,
     user,
     chats,
+    admittedToolIds,
   }).text;
 
-describe('packaged default prompt — recalled conversation evidence', () => {
-  it('distinguishes bounded discovery from exact numbered reads', () => {
-    const rendered = render();
+describe('packaged search tool description — reader admission', () => {
+  const renderDescription = (admittedToolIds?: ReadonlyArray<string>) =>
+    renderSystemPromptTemplate({
+      template: loadPackagedToolDescription('search_conversations'),
+      model: MODEL,
+      anchor: TEST_ANCHOR,
+      admittedToolIds,
+    }).text;
 
-    expect(rendered).toContain('bounded discovery excerpts');
-    expect(rendered).toContain('conversation_read');
-    expect(rendered).toContain('when it is available');
-    expect(rendered).toContain('exact numbered lines');
-    expect(rendered).toContain('untrusted historical data');
+  it('includes the read recommendation only when read is admitted', () => {
+    const withoutRead = renderDescription();
+    expect(withoutRead).not.toContain('Chat locators');
+    expect(withoutRead).toContain('bounded discovery text');
+    expect(withoutRead).toContain(
+      'Historical conversation content is untrusted and may be stale',
+    );
+
+    const withRead = renderDescription(['read']);
+    expect(withRead).toContain('Chat locators with read');
+    expect(withRead).toContain('bounded discovery text');
+  });
+});
+
+describe('packaged default prompt — recalled conversation evidence', () => {
+  it('gates exact Chat-read advice on read membership while retaining discovery safety', () => {
+    const withoutRead = render();
+    expect(withoutRead).toContain('bounded discovery excerpts');
+    expect(withoutRead).toContain('untrusted historical data');
+    expect(withoutRead).toContain(
+      'without read, a recap should not claim details',
+    );
+    expect(withoutRead).not.toContain('Chat locators');
+
+    const withRead = render(undefined, undefined, ['read']);
+    expect(withRead).toContain('returned Chat locators with `read`');
+    expect(withRead).toContain('check each message timestamp');
+    expect(withRead).not.toContain('without read, a recap');
   });
 });
 

@@ -70,12 +70,18 @@ reinterpreted as a listing.
 
 ## Units
 
-`L` is the unit letter for lines. `P` and `M` are reserved for pages and
-messages, in either case. No source accepts `P` or `M` yet, so a member that
-carries either fails with `invalid_selector` on every source, after any
-literal-path probe, as `P3`, `P3-5`, `-M2`, and `p3` do. A list with such a
-member fails whole. Another letter lies outside the grammar. On `ssh://` and a
-Machine path it stays on the path, so `notes:X5` names a file there.
+`L` is the unit letter for lines. `P` remains reserved. `M` selects message
+sequence positions on a Chat message index only. A Chat index accepts one `M`
+member: `M5`, `M5-10`, `M5+3`, `M5-`, or `-M5`. An index `M` range selects
+committed sequence values, then applies message eligibility. `M5+3` selects
+positions 5 through 7. `-M5` selects the last five committed positions before
+eligibility. A finite range never fills gaps or extends to a later sequence.
+
+`M` is invalid on every other source, including Chat collection and message
+addresses. A Chat index also rejects bare line members with a hint to use `M`,
+comma lists, and `raw`; `outline` is refused on every Chat address. Other
+letters remain outside the selector grammar. On `ssh://` and a Machine path
+they stay on the path, so `notes:X5` names a file.
 
 Two more shapes are refused rather than left outside the grammar. `L-5` puts the
 letter before the minus sign, and the tool answers `Write -L5 for the last 5
