@@ -341,11 +341,12 @@ Reasoning support on the `openai-completions` wire SHALL be accepted only after 
 ### Requirement: Earlier reasoning replays only for the model that produced it
 
 A reasoning part of an earlier turn MUST replay only when two conditions are
-true. Its reply came from a Run with the llame model id of the request. That reply
+true. Its reply records the llame model id of the request. That reply
 completed, or an owner interrupt closed it. Otherwise the system MUST omit the part and its provider metadata.
 Within one turn, and in the kept parts of a Continue Run, a reasoning part MUST
-replay on the model of its Run. The segments of one Run are one turn for this rule,
-also before the Run completes. A reasoning part that an interrupt cut MUST NOT
+replay only on the model that its reply records. The segments of one Run are one turn for this rule,
+also before the Run completes. After a model switch, a reasoning part of a reply of another model
+MUST NOT replay. A reasoning part that an interrupt cut MUST NOT
 replay in any later request, whatever the status of its reply. In a reply that an
 interrupt closed, a reasoning part with no later kept part MUST NOT replay either. The system MUST NOT select reasoning parts by
 their content or their age.
@@ -405,3 +406,9 @@ their content or their age.
 - **WHEN** a steer closes the first segment reply `completed` with a reasoning part, the Run then fails in its second segment, and turn 2 runs on the same model
 - **THEN** the first request of turn 2 carries the reasoning part of the first segment
 - **AND** it carries no reasoning part of the failed second segment
+
+#### Scenario: A segment after a switch omits the reasoning of the earlier model
+
+- **WHEN** the first segment of a Run on `sonnet` stored a reasoning part, and a model switch starts a second segment on `glm-5`
+- **THEN** the first request of the second segment carries no reasoning part of the first segment
+- **AND** it carries the text and the settled tool activity of the first segment

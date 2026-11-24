@@ -2,43 +2,47 @@
 
 ## Purpose
 
-Authenticated, executable model availability: `GET /api/v1/models` is the source of models a caller can actually run, chat sends carry an explicit opaque `modelId` validated before persistence, the selected model id is persisted on the run and used for execution, compaction, and usage telemetry, and title generation resolves its own configured model. The catalog is config-sourced (`llame.config.jsonc`'s `providers[]`/`models[]`, providers-and-models-as-code); future org/group/user sources and BYOK extend the same flat response shape without changing route semantics.
+Authenticated, executable model availability: `GET /api/v1/models` is the source of models and model roles a caller can actually run, chat sends name an optional `selector` (a model id or a `@role`) validated before persistence, the resolved model id is persisted on the run and used for execution, compaction, and usage telemetry, and title generation resolves its own configured selector. The catalog is config-sourced (`llame.config.jsonc`'s `providers[]`/`models[]`/`modelRoles`, providers-and-models-as-code); future org/group/user sources and BYOK extend the same flat response shape without changing route semantics.
 
 ## Requirements
 
 ### Requirement: Authenticated executable models endpoint
 
-The system SHALL expose `GET /api/v1/models` as the authenticated API for executable models available to the caller. A successful response SHALL contain a non-empty flat `models` array and a non-null `defaultModelId` that references one returned model.
+The system MUST expose `GET /api/v1/models` as the authenticated API for the executable models of
+the caller. A successful response MUST contain a non-empty flat `models` array, the `roles` that
+`model-roles` defines, and a non-null `defaultSelector`. `defaultSelector` MUST name a returned model
+or a returned role.
 
-Model-domain errors SHALL use the application-standard error body shape `{ statusCode, error, message, code }`.
+Model-domain errors MUST use the standard error body `{ statusCode, error, message, code }`.
 
 #### Scenario: Authenticated caller reads available models
 
-- **WHEN** an authenticated caller requests `GET /api/v1/models` and model configuration is valid
-- **THEN** the API returns 200 with `models.length > 0` and `defaultModelId` matching one returned model id
-- **AND** the response does not expose title-generation model configuration
+- **WHEN** an authenticated caller requests `GET /api/v1/models` and the model config is valid
+- **THEN** the API returns 200 with `models.length > 0` and a `defaultSelector` that names a returned model or role
+- **AND** the response does not show the title-generation config
 
 #### Scenario: Unauthenticated caller is denied
 
 - **WHEN** a caller without a valid session requests `GET /api/v1/models`
-- **THEN** the API returns 401 and does not return model availability data
+- **THEN** the API returns 401 and returns no model data
 
 #### Scenario: Missing provider credential does not disable configured models
 
-- **WHEN** a configured provider has no credential (keyless or an unset key)
-- **THEN** `GET /api/v1/models` can still return the models routed to that provider
-- **AND** the API does not probe whether the provider will require credentials
+- **WHEN** a configured provider has no credential, because it is keyless or its key is unset
+- **THEN** `GET /api/v1/models` can still return the models of that provider
+- **AND** the API does not probe whether the provider requires credentials
 
 #### Scenario: Default model validity is enforced at boot, not per request
 
-- **WHEN** the endpoint is serving requests
-- **THEN** `defaultModelId` always references a returned model, because a `defaults.modelId` that does not reference a defined `models[]` entry fails startup (the instance never begins serving on an invalid default)
+- **WHEN** the endpoint serves requests
+- **THEN** `defaultSelector` always names a returned model or role
+- **AND** a `defaults.selector` that names no `models[]` entry and no role fails startup, so the instance never serves with an invalid default
 
 #### Scenario: Unset default model is a request-time configuration error
 
-- **WHEN** `defaults.modelId` is unset (absent or explicit `null`)
-- **THEN** `GET /api/v1/models` returns 503 with body containing `statusCode = 503`, `error = "Service Unavailable"`, and `code = "model_configuration_invalid"`
-- **AND** this case is distinct from a dangling reference, which fails startup instead (previous scenario)
+- **WHEN** `defaults.selector` is absent or `null`
+- **THEN** `GET /api/v1/models` returns 503 with `statusCode = 503`, `error = "Service Unavailable"`, and `code = "model_configuration_invalid"`
+- **AND** this case is different from a dangling reference, which fails startup
 
 ### Requirement: Available model entries use opaque ids and rich display metadata
 
@@ -103,46 +107,50 @@ The available models response SHALL return a flat `models` array. The API SHALL 
 
 ### Requirement: System model configuration is explicit
 
-The executable model set SHALL be the `models[]` catalog from the operator config file selected at startup, not a hardcoded catalog. `defaults.modelId` SHALL name one configured `models[].id` and is validated at startup. Provider execution configuration (credential, base URL) SHALL come from the `providers[]` entry a model references, not from `OPENAI_MODEL`, `OPENAI_BASE_URL`, or `OPENAI_API_KEY` read as bare environment variables (those names may still be referenced as `{env:…}` interpolation inputs inside `providers[]`).
+The executable model set MUST be the `models[]` catalog of the operator config file, not a compiled
+catalog. `defaults.selector` MUST name one `models[].id` or one role, and startup MUST validate it.
+The credential and the base URL of a model MUST come from its `providers[]` entry. The system MUST NOT
+read `OPENAI_MODEL`, `OPENAI_BASE_URL`, or `OPENAI_API_KEY` as bare variables. A `providers[]` entry
+can use them as `{env:…}` inputs.
 
 #### Scenario: Catalog is config-sourced
 
-- **WHEN** the instance resolves executable models
-- **THEN** it uses the `models[]` entries from the config file
-- **AND** it does not use a compiled-in hardcoded catalog
+- **WHEN** the instance resolves the executable models
+- **THEN** it uses the `models[]` entries of the config file
+- **AND** it does not use a compiled catalog
 
 #### Scenario: Shipped example reproduces the current catalog
 
-- **WHEN** an operator copies the committed `llame.config.jsonc.example` unchanged
-- **THEN** the executable catalog matches the previously hardcoded active system models (`system:openai:gpt-5.5`, `system:openai:gpt-5.4`, `system:openai:gpt-5.4-mini`, `system:openai:gpt-5.4-nano`, `system:openai:gpt-4o`, `system:openai:gpt-4o-mini`) routed to a default OpenAI provider
+- **WHEN** an operator copies the committed `llame.config.jsonc.example` with no change
+- **THEN** the executable catalog holds the earlier compiled system models (`system:openai:gpt-5.5`, `system:openai:gpt-5.4`, `system:openai:gpt-5.4-mini`, `system:openai:gpt-5.4-nano`, `system:openai:gpt-4o`, `system:openai:gpt-4o-mini`) on a default OpenAI provider
 
 #### Scenario: Base URL is not probed
 
 - **WHEN** a provider sets `baseUrl`
-- **THEN** the models endpoint does not probe provider reachability before returning configured models
+- **THEN** the models endpoint does not probe the provider before it returns the configured models
 
 #### Scenario: Provider credential validity is not prevalidated
 
 - **WHEN** a provider `key` is set, empty, or invalid
-- **THEN** model availability and chat enqueue validation do not verify whether the provider will accept it
-- **AND** provider authentication or reachability failures surface at provider request time
+- **THEN** model availability and send validation do not check whether the provider accepts it
+- **AND** an authentication or reachability failure shows at provider request time
 
 #### Scenario: Provider credential failure is not payment required
 
-- **WHEN** a provider request fails because credentials are missing, invalid, or the provider is unreachable
+- **WHEN** a provider request fails because a credential is missing or invalid, or because the provider is unreachable
 - **THEN** the system does not return `402 Payment Required`
-- **AND** the failure is represented as a generic execution failure for this slice
+- **AND** the failure is a failure of the Run, with the class of `provider-failures`
 
 #### Scenario: A model absent from the catalog is not executable
 
-- **WHEN** a model id is not present in the configured `models[]`
-- **THEN** it is not returned by `GET /api/v1/models` and is not accepted as a chat `modelId`
+- **WHEN** a model id is not in the configured `models[]`
+- **THEN** `GET /api/v1/models` does not return it, and a chat `selector` with that id gets `model_not_available`
 
 #### Scenario: Legacy OpenAI model env is ignored
 
 - **WHEN** `OPENAI_MODEL` is set
-- **THEN** it does not affect returned model availability, default-model selection, or chat execution
-- **AND** it does not make model configuration invalid
+- **THEN** it has no effect on the returned models, the default selector, or the Run execution
+- **AND** it does not make the model config invalid
 
 ### Requirement: Provider execution resolves through the configured provider
 
@@ -185,39 +193,6 @@ A model catalog entry MAY declare an optional `compactionThresholdTokens`. The c
 - **WHEN** `COMPACTION_TOKEN_THRESHOLD` or `MODEL_CONTEXT_WINDOW_TOKENS` is set in the environment
 - **THEN** it does not affect any run's compaction threshold
 
-### Requirement: Chat sends require explicit model id
-
-Creating a chat message SHALL require a top-level `modelId` naming one model from the caller's effective `GET /api/v1/models` response. The API SHALL validate `modelId` before creating the user message or run.
-
-`modelId` SHALL be treated as opaque. The API SHALL NOT impose a public syntax grammar beyond requiring a non-empty string; availability SHALL be checked by exact id lookup.
-
-#### Scenario: Send with valid model id
-
-- **WHEN** an authenticated caller posts a new chat message with a valid top-level `modelId`
-- **THEN** the API creates the user message and run, stores the selected model id on the run, and enqueues execution for that model
-
-#### Scenario: Missing model id
-
-- **WHEN** a caller posts a chat message without `modelId`
-- **THEN** the API returns 400 and creates no message or run
-
-#### Scenario: Malformed model id
-
-- **WHEN** a caller posts a chat message with a blank or non-string `modelId`
-- **THEN** the API returns 400 and creates no message or run
-
-#### Scenario: Unavailable model id
-
-- **WHEN** a caller posts a chat message with a nonblank string `modelId` that is not available to that caller
-- **THEN** the API returns 422 with body containing `statusCode = 422`, `error = "Unprocessable Entity"`, and `code = "model_not_available"`
-- **AND** it creates no message or run
-
-#### Scenario: Model configuration unavailable during send
-
-- **WHEN** the system cannot resolve executable model configuration during chat send
-- **THEN** the API returns 503 with the application-standard model configuration error body using code `model_configuration_invalid`
-- **AND** it creates no message or run
-
 ### Requirement: Selected model id is persisted for execution
 
 Runs SHALL persist the selected opaque model id as a required field. The worker SHALL execute the run using the run's stored model id and SHALL NOT silently fall back to a different default.
@@ -257,46 +232,38 @@ Runs SHALL persist the selected opaque model id as a required field. The worker 
 
 ### Requirement: Model use for compaction and title generation is explicit
 
-Compaction and title-generation work SHALL use explicit model selection, and
-one compaction selects exactly one of its two model sources. A prepared request
-that does not fit the Run model's window SHALL use the previous completed Run's
-model id whether or not the measured context size also reaches the threshold,
-because the model the attempt precedes cannot summarize a prefix it does not
-fit. A request that does fit and reaches the Run model's threshold SHALL use the
-model id stored on that Run. No compaction SHALL use both model ids. Title
-generation SHALL use a separate server-side `TITLE_GENERATION_MODEL_ID` that
-names a valid active system catalog id. The implementation SHALL NOT introduce
-a separate title-only model registry for this change.
+One compaction MUST use exactly one of two models. When the prepared request does not fit the window
+of the Run model, the summary MUST use the model of the previous completed Run. When it fits and
+reaches the threshold, the summary MUST use the model of the current segment. Title generation MUST
+resolve `defaults.titleGenerationSelector`, as `model-failover` defines for a role. The system MUST
+NOT add a model registry only for titles.
 
 #### Scenario: Compaction uses triggering run model
 
-- **WHEN** a run's first model request is preceded by a compaction the Run's own
-  threshold triggered
-- **THEN** the compaction model call uses the selected model id stored on that run
+- **WHEN** the Run's own threshold triggers a compaction before its first model request
+- **THEN** the summary request uses the model of the current segment of that Run
 
 #### Scenario: A window-triggered compaction uses the previous completed run's model
 
-- **WHEN** a run's first model request is preceded by a compaction because the
-  prepared request does not fit that run's model window
-- **THEN** the compaction model call uses the previous completed run's model id
-- **AND** it sends no model id from the run that prepared the request
+- **WHEN** a compaction precedes the first model request of a Run because the prepared request does not fit the model window
+- **THEN** the summary request uses the model of the previous completed Run
+- **AND** it sends no model id of the Run that prepared the request
 
 #### Scenario: Title generation uses separate configured model
 
 - **WHEN** title generation runs after a completed turn
-- **THEN** it resolves its model from `TITLE_GENERATION_MODEL_ID`
-- **AND** `TITLE_GENERATION_MODEL_ID` names a valid active system catalog id
-- **AND** it uses the same system provider credentials and transport config as chat execution
-- **AND** it does not silently use the chat selector's `defaultModelId`
-- **AND** it does not persist title-generation model id, usage, cost, or telemetry
-- **AND** it remains internal and is not exposed in `GET /api/v1/models`
+- **THEN** it resolves its model from `defaults.titleGenerationSelector`
+- **AND** it uses the credentials and the transport of that model's provider
+- **AND** it does not use `defaults.selector`
+- **AND** it persists no title model id, usage, cost, or telemetry
+- **AND** `GET /api/v1/models` does not show the title selector
 
 #### Scenario: Title model configuration failure does not break chat
 
-- **WHEN** `TITLE_GENERATION_MODEL_ID` is missing, blank, or unknown
-- **THEN** `GET /api/v1/models`, chat send, and run execution can still succeed if chat model configuration is valid
-- **AND** title generation leaves the chat untitled and logs a server error
-- **AND** title generation does not fall back to `DEFAULT_MODEL_ID`
+- **WHEN** `defaults.titleGenerationSelector` is absent
+- **THEN** `GET /api/v1/models`, chat sends, and Runs can still succeed with a valid chat config
+- **AND** title generation leaves the Chat untitled and logs a server error
+- **AND** title generation does not use `defaults.selector`
 
 ### Requirement: Assistant usage includes llame model id
 
@@ -341,28 +308,32 @@ that request names a user message that exists.
 
 ### Requirement: Web sends only with valid selected model
 
-The web app SHALL fetch `/api/v1/models`, initialize the selected model from `defaultModelId`, and include top-level `modelId` in every chat send. The composer input MAY remain usable while models load or fail, but the send action SHALL be disabled until a valid model selection exists.
+The web app MUST fetch `/api/v1/models` and MUST show the stored selection of the Chat, or
+`defaultSelector` for a Chat with no selection. A send MUST name `selector` only after the owner picks
+in the picker, or for the first send of a new Chat. The composer input can stay usable while models
+load or fail. The send action MUST stay disabled until a valid selection exists.
 
 #### Scenario: Web initializes selected model
 
-- **WHEN** the web app successfully loads available models
-- **THEN** it selects `defaultModelId` unless a future preference feature provides another valid selection
+- **WHEN** the web app loads the models for a new Chat
+- **THEN** the picker shows `defaultSelector`
 
 #### Scenario: Web sends selected model id
 
-- **WHEN** the user sends a chat message after models have loaded
-- **THEN** the request body includes top-level `modelId` equal to the visibly selected model id
+- **WHEN** the owner picks `@coding` in the picker and sends a message
+- **THEN** the request body holds `selector: "@coding"`
+- **AND** a later send with no new pick holds no `selector`
 
 #### Scenario: Web displays usage model id
 
-- **WHEN** the web app displays or exports assistant usage metadata
+- **WHEN** the web app shows or exports the usage of a reply
 - **THEN** it reads `usage.modelId`
-- **AND** it does not need to support legacy `usage.model` or `usage.provider` fallback
+- **AND** it does not need a legacy `usage.model` or `usage.provider` field
 
 #### Scenario: Send disabled while models are unavailable
 
-- **WHEN** models are loading, failed, or no valid selected model exists
-- **THEN** the chat input remains usable but the send action is disabled
+- **WHEN** the models load, fail to load, or no valid selection exists
+- **THEN** the chat input stays usable, and the send action is disabled
 
 ### Requirement: Available model entries publish their reasoning effort contract
 
@@ -409,77 +380,86 @@ The reasoning object SHALL NOT expose the provider execution id, the provider co
 
 ### Requirement: Chat sends accept an optional reasoning effort
 
-Creating a chat message SHALL accept an optional top-level `effort`. When present it SHALL be a nonblank string and SHALL be validated, before any message or run is created, against the `value`s of `reasoning.effortLevels` of the model named by the same request's `modelId`. A published `label` SHALL NOT be accepted as `effort`.
+A chat send MUST accept an optional top-level `effort`. A present `effort` MUST be a nonblank string.
+The API MUST validate it against the `value`s of `reasoning.effortLevels` of the resolved model of
+`model-roles`, before it creates a message or a Run. The API MUST NOT accept a published `label` as
+`effort`.
 
-`effort` SHALL be treated as opaque and matched byte-exactly against the selected model's declared values. The API SHALL NOT impose a vocabulary, character pattern, or casing rule of its own, and SHALL NOT case-fold, trim beyond blank rejection, or otherwise normalize the submitted value before matching.
+The API MUST match `effort` byte for byte. It MUST NOT apply its own vocabulary, pattern, or case
+rule. It MUST NOT case-fold, trim, or change the value before the match. It MUST reject only a blank
+value.
 
-Model validation SHALL precede effort validation. When the request's `modelId` is missing, malformed, or unavailable, the API SHALL return that failure and SHALL NOT evaluate `effort` at all, because a level's legality is defined only by a resolved model.
+The selector MUST be validated before the effort. A blank or unavailable selector MUST get its own
+failure, and the API MUST NOT evaluate `effort`.
 
-When `effort` is omitted, the API SHALL resolve the selected model's `defaultEffort`. When the selected model declares no reasoning, an omitted `effort` SHALL resolve to no effort and the request SHALL proceed.
+An omitted `effort` MUST resolve as `model-roles` defines. For a model with no reasoning, an omitted
+`effort` MUST resolve to no effort.
 
-An effort value that is not a declared `value` of the selected model, or any `effort` at all for a model that declares no reasoning, SHALL be rejected with 422 and `code = "effort_not_available"`, creating no message and no run.
+An effort that the resolved model does not declare MUST get 422 with `code = "effort_not_available"`.
+Any `effort` for a model with no reasoning MUST get the same answer. The API then MUST create no
+message and no Run.
 
 #### Scenario: Send with a valid effort
 
-- **WHEN** an authenticated caller posts a chat message with a valid `modelId` and an `effort` that equals one of that model's declared level values
-- **THEN** the API creates the user message and run and enqueues execution at that effort
+- **WHEN** a caller sends a message with a valid `selector` and an `effort` that equals a declared level of the resolved model
+- **THEN** the API creates the user message and the Run at that effort
 
 #### Scenario: Label is rejected as effort
 
-- **WHEN** a caller posts a chat message with an `effort` equal to a published `label` but not equal to any declared `value`
+- **WHEN** a caller sends an `effort` that equals a published `label` and no declared `value`
 - **THEN** the API returns 422 with `code = "effort_not_available"`
-- **AND** it creates no message or run
+- **AND** it creates no message and no Run
 
 #### Scenario: Omitted effort resolves the model default
 
-- **WHEN** a caller posts a chat message naming a model that declares reasoning, without `effort`
-- **THEN** the API resolves that model's `defaultEffort` for the run
+- **WHEN** a caller sends with the exact selector of a model that declares reasoning, and with no `effort`
+- **THEN** the Run uses that model's `defaultEffort`
 
 #### Scenario: Omitted effort on a non-reasoning model
 
-- **WHEN** a caller posts a chat message naming a model that declares no reasoning, without `effort`
-- **THEN** the API creates the message and run with no effort
-- **AND** the request is not rejected
+- **WHEN** a caller sends with the selector of a model that declares no reasoning, and with no `effort`
+- **THEN** the API creates the message and the Run with no effort
+- **AND** it does not reject the request
 
 #### Scenario: Effort not declared by the selected model
 
-- **WHEN** a caller posts a chat message with an `effort` that is not one of the selected model's declared values
+- **WHEN** a caller sends an `effort` that the resolved model does not declare
 - **THEN** the API returns 422 with `statusCode = 422`, `error = "Unprocessable Entity"`, and `code = "effort_not_available"`
-- **AND** it creates no message or run
+- **AND** it creates no message and no Run
 
 #### Scenario: Effort supplied for a non-reasoning model
 
-- **WHEN** a caller posts a chat message naming a model that declares no reasoning, with any `effort`
+- **WHEN** a caller sends any `effort` for a resolved model that declares no reasoning
 - **THEN** the API returns 422 with `code = "effort_not_available"`
-- **AND** it creates no message or run
+- **AND** it creates no message and no Run
 
 #### Scenario: Malformed effort
 
-- **WHEN** a caller posts a chat message with a blank or non-string `effort`
-- **THEN** the API returns 400 and creates no message or run
+- **WHEN** a caller sends a blank or non-string `effort`
+- **THEN** the API returns 400 and creates no message and no Run
 
 #### Scenario: Casing is significant
 
-- **WHEN** a caller posts an `effort` that differs from a declared value only by letter case
+- **WHEN** a caller sends an `effort` that differs from a declared value only in letter case
 - **THEN** the API returns 422 with `code = "effort_not_available"`
-- **AND** the value is not case-folded to match
+- **AND** it does not case-fold the value
 
 #### Scenario: Effort is validated against the request's own model
 
-- **WHEN** a caller posts an `effort` that is a declared value of some other catalog model but not of the request's `modelId`
+- **WHEN** a caller sends an `effort` that another catalog model declares and the resolved model does not
 - **THEN** the API returns 422 with `code = "effort_not_available"`
 
 #### Scenario: Unavailable model is reported before effort is considered
 
-- **WHEN** a caller posts a chat message whose `modelId` is unavailable and whose `effort` is also not a value of any model
+- **WHEN** a caller sends an unavailable `selector` and an `effort` that no model declares
 - **THEN** the API returns 422 with `code = "model_not_available"`
-- **AND** it does not return or additionally report an effort failure
+- **AND** it does not report an effort failure
 
 #### Scenario: Missing model id short-circuits effort validation
 
-- **WHEN** a caller posts a chat message with an `effort` but no `modelId`
-- **THEN** the API returns 400 for the missing model id
-- **AND** it does not evaluate the submitted effort
+- **WHEN** a caller sends an `effort` with a blank `selector`
+- **THEN** the API returns 400 for the selector
+- **AND** it does not evaluate the effort
 
 ### Requirement: Resolved reasoning effort is persisted and executed per run
 

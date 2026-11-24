@@ -12,14 +12,14 @@ result, and the `/rename` and `/compact` commands.
 A command is a send to `POST /api/v1/chats/:id/messages` for a Chat of the owner whose text part
 starts with `/` and a command name. The name ends at whitespace or at the end of the text. A send
 that also carries a file part is refused when its text part names a recognized command, as the
-attachment requirement below states. The API MUST parse the send before it validates the model or
+attachment requirement below states. The API MUST parse the send before it validates the selector or
 admits a pending item.
 
 #### Scenario: A command on the message endpoint
 
 - **WHEN** the owner sends `/rename Release plan` to a Chat of the owner
 - **THEN** the API runs the `/rename` command
-- **AND** it does not check the `modelId` of the send
+- **AND** it does not check the `selector` of the send
 
 #### Scenario: A first message is never a command
 
@@ -124,7 +124,7 @@ title, also while a Run is live, whatever `delivery` the send names. A longer ti
 
 ### Requirement: A bare rename regenerates the title
 
-`/rename` with no text after the name MUST ask the configured title model for a new title. The new
+`/rename` with no text after the name MUST ask the model of `defaults.titleGenerationSelector` for a new title. A title role follows `model-failover`. The new
 title MUST replace the current title. The API MUST NOT record usage for this request. The request
 MUST use the packaged title prompts that automatic titles use.
 
@@ -136,8 +136,8 @@ MUST use the packaged title prompts that automatic titles use.
 
 #### Scenario: A regenerate does not use the chat model
 
-- **WHEN** the owner sends `/rename` with `modelId` of a chat model
-- **THEN** the request goes to the model of `TITLE_GENERATION_MODEL_ID`
+- **WHEN** the owner sends `/rename` with the `selector` of a chat model
+- **THEN** the request goes to the model of `defaults.titleGenerationSelector`
 
 ### Requirement: A bare rename reads a bounded excerpt of recent turns
 
@@ -183,26 +183,27 @@ the block of the prompt. A bare `/rename` on an archived Chat MUST get 409 befor
 
 ### Requirement: A bare rename without a title model fails
 
-When `TITLE_GENERATION_MODEL_ID` does not name a usable model, a bare `/rename` MUST answer 422
-with a message that says title generation is not configured. When the title request fails or
+When `defaults.titleGenerationSelector` is absent, a bare `/rename` MUST answer 422 with a message
+that says title generation is not configured. When the title request fails on each candidate, or
 returns no usable title, the API MUST answer 502. In both cases the title MUST NOT change.
 
 #### Scenario: No title model is configured
 
-- **WHEN** no title model is configured and the owner sends `/rename`
+- **WHEN** no title selector is configured, and the owner sends `/rename`
 - **THEN** the API answers 422, and the title does not change
-- **AND** no model request is sent
+- **AND** the API sends no model request
 
 #### Scenario: A rename with a title still works without a title model
 
-- **WHEN** no title model is configured and the owner sends `/rename Foo`
+- **WHEN** no title selector is configured, and the owner sends `/rename Foo`
 - **THEN** the title is `Foo`
 
 ### Requirement: Compact on an idle Chat starts a compaction Run
 
-On a Chat with no live Run, `/compact` MUST start a compaction Run with the model, effort, and
-permission mode of the send. The API MUST validate them as for a chat send. It MUST expire a stuck
-Run as a chat send does. The command result MUST name the new Run id.
+On a Chat with no live Run, `/compact` MUST start a compaction Run with the selector, effort, and
+permission mode of the send. A send without `selector` MUST use the stored selection of the Chat, as
+`model-roles` defines. The API MUST validate them as for a chat send. It MUST expire a stuck Run as a
+chat send does. The command result MUST name the new Run id.
 
 #### Scenario: Compact starts a Run
 
@@ -212,13 +213,18 @@ Run as a chat send does. The command result MUST name the new Run id.
 
 #### Scenario: Compact after a stuck Run
 
-- **WHEN** the only non-terminal Run of the Chat is stuck and the owner sends `/compact`
+- **WHEN** the only non-terminal Run of the Chat is stuck, and the owner sends `/compact`
 - **THEN** the API expires the stuck Run and starts a compaction Run
 
 #### Scenario: A compact with an unknown model
 
-- **WHEN** the owner sends `/compact` with a `modelId` that the catalog does not offer
-- **THEN** the API answers with the error of a chat send with that model and starts no Run
+- **WHEN** the owner sends `/compact` with a `selector` that the catalog does not offer
+- **THEN** the API answers with the error of a chat send with that selector and starts no Run
+
+#### Scenario: A compact on a held Chat
+
+- **WHEN** the Chat has a fallback hold on `sonnet` for `@coding`, and the owner sends `/compact` with no `selector`
+- **THEN** the compaction Run uses `sonnet`
 
 ### Requirement: Compact with nothing to absorb is refused
 

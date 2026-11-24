@@ -158,8 +158,8 @@ each item that an earlier Run of the triggering user message stored at its dispa
 Run MUST also reuse the `prompt-imports` item and the `skill-activation` items that an earlier Run
 stored on that message before its dispatch. It MUST NOT import those targets or activate those
 skills again. The model-switch item is the one exception to the keep rule. The first dispatch of a
-Regenerate Run MUST remove each model-switch item with cause `model` from the triggering user
-message. It then stores the model-switch item that its own comparison yields, if any, after the
+Regenerate Run MUST remove each model-switch item with cause `model` or `failover` from the
+triggering user message. It then stores the model-switch item that its own comparison yields, if any, after the
 last stored context item. A retry of that Regenerate Run keeps the item that its first dispatch
 stored.
 
@@ -181,6 +181,11 @@ precede, and a later failure of that attempt MUST NOT retract them.
 
 - **WHEN** a Run compacts mid-turn and continues with a host message
 - **THEN** that host message holds a `compaction` context item and no text part
+
+#### Scenario: A Regenerate removes a failover item
+
+- **WHEN** the latest turn is the host message of a switch from `codex` to `sonnet`, and the owner regenerates it
+- **THEN** the dispatch transaction of the Regenerate Run removes the `failover` item from that host message
 
 ### Requirement: The envelope states its own provenance and an operator cannot remove it
 
