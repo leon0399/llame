@@ -283,14 +283,17 @@ with no `pricingUsdPer1M` keeps its unknown-cost contract (`costUsd: null`).
 The web usage panel shows the count as an `of which cache write` row beneath
 Input, the way cached input is shown.
 
-`shareRecentChats` defaults off. Enabling sends a frozen, capped digest of the
-owner's other Chats' titles and opening excerpts to the configured provider;
-retroactive over existing eligible Chats. Disabling stops new baselines,
-re-bakes, and updates, but does
-not remove a digest already bound to another Chat; deleting a source Chat is not
-erasure from those existing prompts or receipts. The digest is framed as
-untrusted data and has no Chat identifiers. Compaction excludes the digest from
-checkpoints by instruction, not structural enforcement.
+`shareRecentChats` defaults off. Enabling shares a bounded, owner-scoped view
+of existing eligible Chats, including titles, `chat://` locators, activity
+dates, message counts, canonical Workspace roots or `unbound`, and opening and
+latest visible-text excerpts. Each excerpt is capped at 100 Unicode code points
+after whitespace collapse. The opening excerpt comes from the first user
+message; the latest can include assistant text. Disabling stops new baselines,
+refreshes, and notices, but existing items continue to replay, including across
+disabled compaction. Deleting a source Chat does not erase its disclosure from
+other Chats' persisted items or historical receipts. Digest rows and notices
+are owner-only context items on the reminder rail, not system-prompt or
+tool-description content. Compaction exclusion remains instruction-enforced.
 
 MCP servers use a top-level `.mcp.json`-shaped `mcpServers` map in
 `llame.config.jsonc`, with two transports. A remote entry is exactly

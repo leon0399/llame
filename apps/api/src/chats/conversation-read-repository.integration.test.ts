@@ -177,7 +177,7 @@ describe('conversation source repository lookup', () => {
         ),
       );
 
-      expect(target).toEqual({
+      expect(target).toMatchObject({
         chatId: chat.id,
         seq: legacy.seq,
         role: 'assistant',

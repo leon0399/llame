@@ -32,6 +32,7 @@ import {
 import { toMessageParts, toRunUserMessage } from './chat-message-parts';
 import { ChatsRepository, MessagesRepository } from './chats-repository';
 import { ChatsService } from './chats.service';
+import { findEarliestUserMessagePerChat } from './recency-digest-message-projections';
 
 import { createCompactionContinueItem } from './compaction-continue-item';
 
@@ -452,7 +453,8 @@ describe('seeded host history boundaries', () => {
         parts: noticeParts,
       });
 
-      const selected = await messages.findEarliestUserMessagePerChat(
+      const selected = await findEarliestUserMessagePerChat(
+        tx,
         [hostOnly.id, earlierHost.id, chat.id],
         owner,
       );

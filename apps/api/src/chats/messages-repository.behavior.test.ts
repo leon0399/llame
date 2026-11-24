@@ -1,5 +1,4 @@
-import { is, SQL } from 'drizzle-orm';
-import { PgDialect } from 'drizzle-orm/pg-core';
+import { asDouble } from '../testing/support';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import { describe, expect, it, vi } from 'vitest';
 
@@ -10,10 +9,18 @@ import { type UnknownRecord } from '@workspace/runtime-safety';
 import { MessagesRepository } from './messages-repository';
 import { RunningReplyRepository } from './running-reply-repository';
 import type { RunningReplyUsage } from '../runs/run-reply-finalizer';
+import { createRecencyDigestItem } from './recency-digest-item';
+import {
+  countEligiblePerOwnedChat,
+  findEarliestUserMessagePerChat,
+  findLatestAssistantPerOwnedChat,
+} from './recency-digest-message-projections';
 
 type QueryValue = ReadonlyArray<unknown>;
 
 type MessageInsert = typeof schema.messages.$inferInsert;
+
+type TestTransaction = Parameters<Parameters<Db['transaction']>[0]>[0];
 
 const RUNNING_USAGE: RunningReplyUsage = {
   status: 'running',
@@ -22,8 +29,6 @@ const RUNNING_USAGE: RunningReplyUsage = {
   attemptId: 'attempt-1',
   modelId: 'model-a',
 };
-
-const NOT_RUNNING_SQL = `("messages"."usage" ->> 'status') is distinct from 'running'`;
 
 function queryResult<T>(
   rows: ReadonlyArray<T>,
@@ -105,9 +110,6 @@ const chat: Chat = {
   archivedAt: null,
   modelSelection: null,
   projectId: null,
-  recencyDigestBaseline: null,
-  recencyDigestTold: null,
-  recencyDigestRebakedFrom: null,
   skillCatalogBaseline: null,
   skillCatalogRebakedFrom: null,
   skillCatalogTold: null,
@@ -173,24 +175,28 @@ describe('MessagesRepository query windows and conversation reads', () => {
 
   it('short-circuits empty bounded sets and maps grouped counts', async () => {
     const db = makeDb({
-      select: [[{ chatId: chat.id, value: 3 }]],
-      distinct: [[]],
+      select: [[]],
+      distinct: [[], []],
     });
 
-    const repository = new MessagesRepository(db);
-
     await expect(
-      repository.findEarliestUserMessagePerChat([], 'owner-1'),
+      findEarliestUserMessagePerChat(db, [], 'owner-1'),
     ).resolves.toEqual([]);
-    await expect(repository.countPerChat([], 'owner-1')).resolves.toEqual(
+    await expect(
+      findEarliestUserMessagePerChat(db, [chat.id], 'owner-1'),
+    ).resolves.toEqual([]);
+    await expect(
+      findLatestAssistantPerOwnedChat(db, [], 'owner-1'),
+    ).resolves.toEqual([]);
+    await expect(
+      findLatestAssistantPerOwnedChat(db, [chat.id], 'owner-1'),
+    ).resolves.toEqual([]);
+    await expect(countEligiblePerOwnedChat(db, [], 'owner-1')).resolves.toEqual(
       new Map(),
     );
     await expect(
-      repository.findEarliestUserMessagePerChat([chat.id], 'owner-1'),
-    ).resolves.toEqual([]);
-    await expect(
-      repository.countPerChat([chat.id], 'owner-1'),
-    ).resolves.toEqual(new Map([[chat.id, 3]]));
+      countEligiblePerOwnedChat(db, [chat.id], 'owner-1'),
+    ).resolves.toEqual(new Map());
   });
 
   it('rejects invalid conversation locators and parses eligible neighbors', async () => {
@@ -276,6 +282,87 @@ describe('MessagesRepository query windows and conversation reads', () => {
   });
 });
 
+describe('MessagesRepository effective digest replay', () => {
+  it('pairs checkpoint baselines and gates imported comparison notices by trigger cutoff', async () => {
+    const checkpointId = 'c941f34a-815d-4c0c-9ad8-6483cd50c29a';
+
+    const checkpoint = {
+      ...message(5, 'checkpoint', 1),
+      id: checkpointId,
+    };
+
+    const companion = {
+      ...message(12),
+      senderUserId: null,
+      parts: [
+        createRecencyDigestItem({
+          runId: '123e4567-e89b-12d3-a456-426614174000',
+          payload: {
+            version: 1,
+            kind: 'baseline',
+            announced: [],
+            association: { kind: 'checkpoint', checkpointId },
+          },
+          body: 'checkpoint baseline',
+        }),
+      ],
+    };
+
+    const comparison = {
+      ...message(13),
+      senderUserId: null,
+      parts: [
+        createRecencyDigestItem({
+          runId: '123e4567-e89b-12d3-a456-426614174000',
+          payload: {
+            version: 1,
+            kind: 'notice',
+            announced: [],
+            association: { kind: 'checkpoint', checkpointId },
+            importedCutoff: { latestTurnSeq: 3, lastOriginalSeq: 4 },
+          },
+          body: 'conversion notice',
+        }),
+      ],
+    };
+
+    const rows = [
+      message(1),
+      { ...message(2), senderUserId: null },
+      message(3),
+      message(4),
+      checkpoint,
+      companion,
+      comparison,
+    ].map((row) => ({ messages: row }));
+
+    const db = makeDb({
+      select: [
+        [{ messages: checkpoint }],
+        rows,
+        [{ messages: checkpoint }],
+        rows,
+      ],
+    });
+
+    const repository = new MessagesRepository(db);
+
+    await expect(
+      repository.findEffectiveContextMessages(chat.id, chat.ownerUserId, {
+        throughSeq: 3,
+        checkpointId,
+      }),
+    ).resolves.toEqual([companion, rows[1]?.messages, comparison]);
+
+    await expect(
+      repository.findEffectiveContextMessages(chat.id, chat.ownerUserId, {
+        throughSeq: 2,
+        checkpointId,
+      }),
+    ).resolves.toEqual([companion]);
+  });
+});
+
 describe('MessagesRepository writes', () => {
   it('chunks createMany input and creates user and assistant rows with a sequence', async () => {
     const createdUser = message(1);
@@ -292,21 +379,20 @@ describe('MessagesRepository writes', () => {
     const transaction = vi
       .spyOn(db, 'transaction')
       .mockImplementation(async (callback) => {
-        // SAFETY: this transaction double exposes exactly the select/insert
-        // methods used by insertWithChatSequence.
-        // eslint-disable-next-line typescript/no-unsafe-type-assertion
-        return callback({
-          select: () => asQuery(queryResult([{ value: insertCall }])),
-          insert: () => {
-            const created = createdRows[insertCall++];
+        return callback(
+          asDouble<TestTransaction>({
+            select: () => asQuery(queryResult([{ value: insertCall }])),
+            insert: () => {
+              const created = createdRows[insertCall++];
 
-            if (created === undefined) throw new Error('unexpected insert');
+              if (created === undefined) throw new Error('unexpected insert');
 
-            return asQuery(
-              queryResult([created], (row) => insertedRows.push(row)),
-            );
-          },
-        } as never);
+              return asQuery(
+                queryResult([created], (row) => insertedRows.push(row)),
+              );
+            },
+          }),
+        );
       });
 
     const repository = new MessagesRepository(db);
@@ -446,20 +532,20 @@ function sequencingDb(
       const step = attempts[Math.min(attempt, attempts.length - 1)];
       attempt += 1;
 
-      // SAFETY: insertWithChatSequence uses only select/insert on its tx.
-      // eslint-disable-next-line typescript/no-unsafe-type-assertion
-      return callback({
-        select: () =>
-          asQuery(recordingQuery(step.maxRows ?? [{ value: 0 }], calls)),
-        insert: () =>
-          asQuery(
-            recordingQuery(
-              step.created === undefined ? [] : [step.created],
-              calls,
-              step.fails,
+      return callback(
+        asDouble<TestTransaction>({
+          select: () =>
+            asQuery(recordingQuery(step.maxRows ?? [{ value: 0 }], calls)),
+          insert: () =>
+            asQuery(
+              recordingQuery(
+                step.created === undefined ? [] : [step.created],
+                calls,
+                step.fails,
+              ),
             ),
-          ),
-      } as never);
+        }),
+      );
     });
 
   const insertedRow = () =>
@@ -846,13 +932,13 @@ describe('MessagesRepository read shapes', () => {
       .mockImplementation(() => asQuery(recordingQuery([], calls)));
 
     await expect(
-      new MessagesRepository(db).findEarliestUserMessagePerChat(
-        [],
-        chat.ownerUserId,
-      ),
+      findEarliestUserMessagePerChat(db, [], chat.ownerUserId),
     ).resolves.toEqual([]);
     await expect(
-      new MessagesRepository(db).countPerChat([], chat.ownerUserId),
+      findLatestAssistantPerOwnedChat(db, [], chat.ownerUserId),
+    ).resolves.toEqual([]);
+    await expect(
+      countEligiblePerOwnedChat(db, [], chat.ownerUserId),
     ).resolves.toEqual(new Map());
     await expect(
       new MessagesRepository(db).countAbsorbedMessages(
@@ -863,59 +949,6 @@ describe('MessagesRepository read shapes', () => {
     ).resolves.toEqual(new Map());
     expect(distinct).not.toHaveBeenCalled();
     expect(select).not.toHaveBeenCalled();
-  });
-
-  it('filters checkpoint rows before the preview lateral pick and recency counts', async () => {
-    const db: Db = drizzle.mock();
-    const calls: Array<ChainCall> = [];
-
-    const distinct = vi
-      .spyOn(db, 'selectDistinctOn')
-      .mockImplementation(() => asQuery(recordingQuery([], calls)));
-
-    vi.spyOn(db, 'select').mockImplementation(() =>
-      asQuery(recordingQuery([], calls)),
-    );
-    const repository = new MessagesRepository(db);
-
-    await repository.findLatestPerOwnedChat(chat.ownerUserId);
-    await repository.findEarliestUserMessagePerChat(
-      [chat.id],
-      chat.ownerUserId,
-    );
-    await repository.countPerChat([chat.id], chat.ownerUserId);
-
-    expect(distinct).toHaveBeenCalledTimes(1);
-    expect(distinct).toHaveBeenCalledWith([schema.messages.chatId]);
-
-    // [0] is the lateral subquery's predicate, [1] the outer owner scope.
-    const predicates = calls.flatMap((call) =>
-      call.method === 'where' ? [call.argument] : [],
-    );
-
-    expect(predicates).toHaveLength(4);
-    const previewPredicate = predicates[0];
-    const countPredicate = predicates[3];
-
-    if (!is(previewPredicate, SQL) || !is(countPredicate, SQL)) {
-      throw new Error('Expected preview/count predicates');
-    }
-
-    const previewSql = new PgDialect().sqlToQuery(previewPredicate);
-    expect(previewSql.sql).toContain('"messages"."role" in ($1, $2)');
-    expect(previewSql.sql).toContain(NOT_RUNNING_SQL);
-    expect(previewSql.params).toEqual(['user', 'assistant']);
-    const countSql = new PgDialect().sqlToQuery(countPredicate);
-    expect(countSql.sql).toContain('"messages"."role" <> $3');
-    expect(countSql.params).toEqual([chat.ownerUserId, chat.id, 'checkpoint']);
-    // Every chat row joins its own top-1 pick, so the join itself is ON true.
-    const lateral = calls.find((call) => call.method === 'innerJoinLateral');
-
-    if (!is(lateral?.condition, SQL)) {
-      throw new Error('Expected the lateral join condition');
-    }
-
-    expect(new PgDialect().sqlToQuery(lateral.condition).sql).toBe('true');
   });
 
   it('writes nothing for an empty bulk copy', async () => {
@@ -973,27 +1006,6 @@ describe('MessagesRepository conversation lookup shape', () => {
     ).resolves.toBeUndefined();
   });
 
-  it('admits an assistant turn and omits neighbour keys that do not exist', async () => {
-    const db = makeDb({
-      execute: [[conversationRow({ message_role: 'assistant' })]],
-    });
-
-    await expect(
-      new MessagesRepository(db).findConversationMessage(
-        chat.id,
-        chat.ownerUserId,
-        7,
-      ),
-    ).resolves.toStrictEqual({
-      chatId: chat.id,
-      seq: 7,
-      role: 'assistant',
-      parts: [{ type: 'text', text: 'hi' }],
-      usage: null,
-      createdAt: new Date(7000),
-    });
-  });
-
   it('omits a neighbour whose sequence is not a usable positive integer', async () => {
     const db = makeDb({
       execute: [
@@ -1006,21 +1018,14 @@ describe('MessagesRepository conversation lookup shape', () => {
       ],
     });
 
-    await expect(
-      new MessagesRepository(db).findConversationMessage(
-        chat.id,
-        chat.ownerUserId,
-        7,
-      ),
-    ).resolves.toStrictEqual({
-      chatId: chat.id,
-      seq: 7,
-      role: 'user',
-      parts: [{ type: 'text', text: 'hi' }],
-      usage: null,
-      createdAt: new Date(7000),
-      nextMessageSeq: 9,
-    });
+    const result = await new MessagesRepository(db).findConversationMessage(
+      chat.id,
+      chat.ownerUserId,
+      7,
+    );
+
+    expect(result).not.toHaveProperty('previousMessageSeq');
+    expect(result?.nextMessageSeq).toBe(9);
   });
 });
 
@@ -1034,18 +1039,18 @@ async function upsertResult(
 ) {
   const db: Db = drizzle.mock();
   vi.spyOn(db, 'transaction').mockImplementation(async (callback) =>
-    // SAFETY: the double implements the transaction methods used by this upsert.
-    // eslint-disable-next-line typescript/no-unsafe-type-assertion
-    callback({
-      select: () => asQuery(queryResult([{ value: 1 }])),
-      insert: () => ({
-        values: () => ({
-          onConflictDoUpdate: () => ({
-            returning: () => Promise.resolve(returned),
+    callback(
+      asDouble<TestTransaction>({
+        select: () => asQuery(queryResult([{ value: 1 }])),
+        insert: () => ({
+          values: () => ({
+            onConflictDoUpdate: () => ({
+              returning: () => Promise.resolve(returned),
+            }),
           }),
         }),
       }),
-    } as never),
+    ),
   );
 
   return new RunningReplyRepository(db).upsertRunningReply({

@@ -892,7 +892,6 @@ describeIfDb(
             .spyOn(SystemPromptsService.prototype, 'render')
             .mockReturnValue({
               text: '',
-              chatsDisclosure: { pinned: new Set(), recent: new Set() },
             });
 
           try {

@@ -114,61 +114,6 @@ export type PromptUserInput = {
   email?: string | null;
 };
 
-export type PromptChatDigestEntry = {
-  title: string;
-  /** Last-activity date, preformatted by the caller. */
-  date: string;
-  messageCount: number;
-  excerpt?: string | null;
-};
-
-export type PromptChatsInput = {
-  pinned?: ReadonlyArray<PromptChatDigestEntry>;
-  recent?: ReadonlyArray<PromptChatDigestEntry>;
-  pinnedShown: number;
-  pinnedTotal: number;
-  recentShown: number;
-  recentTotal: number;
-  /** Date the digest was compiled, preformatted by the caller. */
-  compiledOn: string;
-};
-
-/**
- * Export-only provenance from one actual escaped prompt render. Entry fields
- * are recorded only when Handlebars emits them, not when a template tests
- * their presence or list truthiness.
- */
-export type PromptChatDigestField =
-  | 'title'
-  | 'date'
-  | 'messageCount'
-  | 'excerpt';
-
-export type PromptChatsScalarDisclosure =
-  | 'compiledOn'
-  | 'pinnedShown'
-  | 'pinnedTotal'
-  | 'recentShown'
-  | 'recentTotal';
-
-export type PromptChatsFieldDisclosure = {
-  readonly pinned: ReadonlyMap<
-    number,
-    ReadonlyMap<PromptChatDigestField, string>
-  >;
-  readonly recent: ReadonlyMap<
-    number,
-    ReadonlyMap<PromptChatDigestField, string>
-  >;
-  readonly scalars: ReadonlyMap<PromptChatsScalarDisclosure, string>;
-};
-
-/** Positions of digest entries actually emitted by a single render. */
-export type PromptChatsDisclosure = {
-  readonly pinned: ReadonlySet<number>;
-  readonly recent: ReadonlySet<number>;
-};
-
 /** One proactively eligible skill as the prompt projects it. */
 export type PromptSkillEntry = {
   name: string;

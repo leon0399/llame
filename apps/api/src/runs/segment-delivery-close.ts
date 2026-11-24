@@ -5,10 +5,7 @@ import type { MessagePart } from '../chats/context-builder';
 import type { CompactionSummary } from '../compaction/compaction.service';
 import { type ChatDelivery, type Message, type Run } from '../db/schema';
 import { type Db } from '../db/tenant-db.service';
-import {
-  type RecencyDigestInitialization,
-  type SkillCatalogFreeze,
-} from './run-execution.service';
+import type { SkillCatalogFreeze } from './run-execution.service';
 import {
   finalizeRunReply,
   type AssistantTurnTelemetry,
@@ -19,14 +16,8 @@ import { RunEventsRepository } from './runs-repository';
 import { type SupersededModelOutput } from './superseded-output';
 import { finalizeUsageCompleteness } from './usage-completeness';
 
-/**
- * The baselines only a successful turn establishes: the chat's first digest
- * baseline and a first-epoch skill-catalog freeze. Both live only in the
- * system prompt, so no history item accompanies them and they ride the
- * attempt-fenced transaction that closes the turn.
- */
+/** First-epoch skill-catalog freeze, frozen from a successful target attempt. */
 export type FirstEpochBaselines = {
-  recencyDigestInitialization?: RecencyDigestInitialization | undefined;
   skillCatalogFreeze?: SkillCatalogFreeze | undefined;
 };
 
@@ -37,17 +28,7 @@ export async function persistFirstEpochBaselines(
 ): Promise<void> {
   const chatsRepo = new ChatsRepository(tx);
 
-  const { recencyDigestInitialization: digest, skillCatalogFreeze: freeze } =
-    baselines ?? {};
-
-  if (digest !== undefined) {
-    await chatsRepo.setRecencyDigestIfAbsent(
-      run.chatId,
-      run.userId,
-      digest.baseline,
-      digest.told,
-    );
-  }
+  const { skillCatalogFreeze: freeze } = baselines ?? {};
 
   if (freeze !== undefined) {
     await chatsRepo.setSkillCatalogBaseline({

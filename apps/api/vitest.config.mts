@@ -53,6 +53,7 @@ const unitTest = {
     // The upgrade regressions also run in the integration project for coverage.
     'src/db/migration-ledger-upgrade.query.unit.test.ts',
     'src/db/drizzle-data.query.unit.test.ts',
+    'src/db/recency-digest-upgrade.query.unit.test.ts',
     // This test reads the developer's local MCP configuration. Exclude it from
     // Stryker because it fails when that configuration references an unset
     // secret; a developer's personal config is not a mutation signal.

@@ -6,6 +6,7 @@ read_when:
 spec:
   - native-file-tools
   - conversation-reads
+  - chat-recency-digest
 configured_by: ../../operator/conversation-recall.md
 ---
 
@@ -61,6 +62,11 @@ owner-scoped database snapshot. The opening excerpt uses the first stored user
 message. The latest excerpt uses the highest-sequence eligible message. If a
 source has no visible text, the reader omits its excerpt instead of choosing a
 different message.
+
+Recency-digest baselines and notices are persisted on the owner's Chat as
+context items. The owner can inspect their exact stored text in that Chat.
+They are not part of the collection row or a system-only prompt receipt.
+Digest rows use the same Chat-row fields and excerpt bounds described above.
 
 `chat://<chat-id>` returns an index of eligible messages in chronological
 order. Rows show message sequence, role, timestamp, locator, and a preview of

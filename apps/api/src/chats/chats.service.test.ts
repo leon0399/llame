@@ -73,9 +73,6 @@ describe('ChatsService.getChatMessages targetSeq', () => {
     updatedAt: new Date('2026-08-28T00:00:00.000Z'),
     archivedAt: null,
     projectId: null,
-    recencyDigestBaseline: null,
-    recencyDigestTold: null,
-    recencyDigestRebakedFrom: null,
     skillCatalogBaseline: null,
     skillCatalogRebakedFrom: null,
     skillCatalogTold: null,
@@ -245,9 +242,6 @@ describe('ChatsService message windows, updates and forks', () => {
     updatedAt: new Date('2026-08-28T00:00:00.000Z'),
     archivedAt: null,
     projectId: null,
-    recencyDigestBaseline: null,
-    recencyDigestTold: null,
-    recencyDigestRebakedFrom: null,
     skillCatalogBaseline: null,
     skillCatalogRebakedFrom: null,
     skillCatalogTold: null,
@@ -558,14 +552,11 @@ describe('ChatsService message windows, updates and forks', () => {
 
     // The Chat-row values a fork copies off its source (complete-owner-forks
     // D3). This fixture carries no frozen baseline, so only the creation time
-    // and the model selection travel and both markers stay null rather than
-    // naming a copied checkpoint.
+    // and model selection travel; skill-catalog baseline, told-set and
+    // re-bake marker stay null rather than naming a copied checkpoint.
     const inheritedChatValues = {
       createdAt: heldChat.createdAt,
       modelSelection,
-      recencyDigestBaseline: null,
-      recencyDigestTold: null,
-      recencyDigestRebakedFrom: null,
       skillCatalogBaseline: null,
       skillCatalogTold: null,
       skillCatalogRebakedFrom: null,

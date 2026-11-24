@@ -11,8 +11,11 @@ import { type ResolvedMemorySettings } from '../memory.service';
  */
 export class UpdateMemoryDto {
   @ApiPropertyOptional({
-    description:
-      "Share titles and opening excerpts from your other chats with the model provider configured by the operator, which on a multi-user instance may be a third party with no relationship to you. Enabling is retroactive over your whole existing corpus, including chats and opening excerpts created long before opt-in. Disabling is not retroactive: it stops new baselines, re-bakes, and appends, but chats with an existing baseline keep sending it. Deleting a chat is not erasure: its title and excerpt survive in other chats' already-bound prompts, persisted appends, and receipts already issued. Defaults to false.",
+    description: `Share your other Chats' titles, activity dates, message counts, chat:// locators, canonical Workspace roots or unbound state, and bounded opening and latest visible-text excerpts with the model provider configured by the operator. \
+The latest excerpt can include assistant text. In a multi-user instance, the provider may be a third party with no relationship to you. \
+Enabling is retroactive over your existing eligible Chats. \
+Disabling stops new baselines, refreshes, and notices, but existing baseline items continue to replay, including through compaction. \
+Deleting a source Chat does not erase its disclosure from other Chats' persisted context items or historical receipts. Defaults to false.`,
   })
   @ValidateIf((_, value) => value !== undefined)
   @IsBoolean()

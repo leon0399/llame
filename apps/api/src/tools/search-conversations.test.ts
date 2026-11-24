@@ -154,6 +154,7 @@ function hydrationRow(
     message_chat_id: chatId,
     message_seq: '7',
     message_role: 'user',
+    message_sender_user_id: 'owner',
     message_parts: [{ type: 'text', text }],
     message_usage: null,
     message_revised_at: null,

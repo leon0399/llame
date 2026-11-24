@@ -25,7 +25,6 @@ import { MockLanguageModelV3, simulateReadableStream } from 'ai/test';
 import { streamText } from 'ai';
 import { expectMessageParts } from '../testing/support';
 import { fakeResolveSelection } from '../testing/fake-model-selection';
-import path from 'node:path';
 
 import { drizzle } from 'drizzle-orm/postgres-js';
 import { type Sql } from 'postgres';
@@ -59,7 +58,6 @@ import { RecencyDigestService } from './recency-digest.service';
 import { type InstanceConfigReader } from '../instance-config/instance-config.service';
 import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
 import { heartbeatSeconds } from '../runs/run-queues';
-import { createModelPromptLoader } from '../instance-config/prompt-loader';
 import { type CompactionCapability } from '../compaction/compaction.service';
 import { compileTestPermissionPolicy } from '../testing/tool-permission-policy';
 import { noopEmbedDispatch } from '../search/search-embed-dispatch.stub';
@@ -80,6 +78,7 @@ import {
 } from '../tools/turn-tool-catalog';
 import { createCompactionCheckpointPart } from './context-item-producers';
 import { isContextItemPart } from './context-item';
+import { readDigestPayload } from './recency-digest-item';
 
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
 const describeIfDb = TEST_DB_URL ? describe : describe.skip;
@@ -283,8 +282,8 @@ describeIfDb(
         await result.consumeStream?.();
       }
 
-      const run = await tenantDb.runAs(userId, (tx) =>
-        new RunsRepository(tx).findById(job.runId, userId),
+      const run = await tenantDb.runAs(turnJob.userId, (tx) =>
+        new RunsRepository(tx).findById(job.runId, turnJob.userId),
       );
 
       if (!run) throw new Error(`Expected worker run ${job.runId}`);
@@ -591,12 +590,7 @@ describeIfDb(
       return executeWorker(job);
     };
 
-    // The excerpt SOURCE is chosen by `findEarliestUserMessagePerChat`, not by
-    // the builder, so the capability's "no assistant or tool content" rule is
-    // enforced in SQL and has to be proved against a real database. A unit
-    // test over an in-memory list cannot see a DISTINCT ON partition or a role
-    // predicate.
-    it('excerpts the earliest USER message, never an assistant or later turn', async () => {
+    it('uses the owner opening and latest visible assistant text without reasoning or later owner text', async () => {
       await new MemoryService(tenantDb).updateForOwner(userId, {
         shareRecentChats: true,
       });
@@ -608,12 +602,11 @@ describeIfDb(
         });
 
         const messagesRepo = new MessagesRepository(tx);
-        // Assistant speaks FIRST, so a naive "earliest message" would leak it.
         await messagesRepo.create({
           chatId: chat.id,
           role: 'assistant',
           senderUserId: null,
-          parts: [{ type: 'text', text: 'assistant-must-not-leak' }],
+          parts: [{ type: 'text', text: 'latest-assistant-visible' }],
         });
         await messagesRepo.create({
           chatId: chat.id,
@@ -634,269 +627,151 @@ describeIfDb(
         return chat;
       });
 
-      systemPrompt =
-        'Base.{{#each chats.recent}} {{title}}|{{messageCount}}|{{excerpt}}{{/each}}';
-      const chatId = crypto.randomUUID();
+      const targetChatId = crypto.randomUUID();
+      await send(targetChatId, crypto.randomUUID(), 'target turn');
+      await finishActive(targetChatId);
 
-      await send(chatId, crypto.randomUUID(), 'target turn');
-      await finishActive(chatId);
-
-      const chat = await tenantDb.runAs(userId, (tx) =>
-        new ChatsRepository(tx).findById(chatId, userId),
+      const messages = await tenantDb.runAs(userId, (tx) =>
+        new MessagesRepository(tx).findByChatId(targetChatId, userId),
       );
 
-      const entry = chat?.recencyDigestBaseline?.recent.find(
-        ({ title }) => title === 'Mixed history source',
-      );
-
-      expect(entry).toMatchObject({
-        excerpt: 'owner-opening',
-        // Counts every stored message, not just the excerpted one.
-        messageCount: 3,
-      });
-      expect(JSON.stringify(chat?.recencyDigestBaseline)).not.toMatch(
-        /assistant-must-not-leak|reasoning-must-not-leak|later-user-must-not-leak/,
-      );
-      expect(source.id).toBeDefined();
-    });
-
-    it('freezes one baseline and records a receipt on each later run', async () => {
-      await new MemoryService(tenantDb).updateForOwner(userId, {
-        shareRecentChats: true,
-      });
-      await seedEligibleChat(userId, 'Baseline source', 'source opening');
-      systemPrompt =
-        'Base.{{#each chats.recent}} {{title}}|{{date}}|{{messageCount}}|{{excerpt}}{{/each}}';
-      const chatId = crypto.randomUUID();
-
-      await send(chatId, crypto.randomUUID(), 'first target turn');
-      const firstRun = await finishActive(chatId);
-
-      const firstChat = await tenantDb.runAs(userId, (tx) =>
-        new ChatsRepository(tx).findById(chatId, userId),
-      );
-
-      expect(firstChat?.recencyDigestBaseline?.recent[0]).toMatchObject({
-        title: 'Baseline source',
-        excerpt: 'source opening',
-      });
-
-      await seedEligibleChat(userId, 'Later source', 'must stay absent');
-      await send(chatId, crypto.randomUUID(), 'second target turn');
-      await finishActive(chatId);
-
-      const runs = await tenantDb.runAs(userId, (tx) =>
-        new RunsRepository(tx).findByChatId(chatId, userId),
-      );
-
-      expect(runs).toHaveLength(2);
-      expect(runs[0].id).toBe(firstRun.id);
-
-      const secondReceipts = await tenantDb.runAs(userId, (tx) =>
-        new SystemPromptReceiptsRepository(tx).findByOwnedRun(
-          runs[1].id,
-          userId,
-        ),
-      );
-
-      expect(secondReceipts[0]?.systemPrompt).not.toContain('Later source');
-      expect(secondReceipts[0]?.systemPrompt).not.toContain('must stay absent');
-    });
-
-    /** The chat row and the digest append on its latest user message. */
-    const digestState = (chatId: string) =>
-      tenantDb.runAs(userId, async (tx) => {
-        const chat = await new ChatsRepository(tx).findById(chatId, userId);
-
-        const messages = await new MessagesRepository(tx).findByChatId(
-          chatId,
-          userId,
+      const digest = messages
+        .find(({ role }) => role === 'user')
+        ?.parts.find(
+          (part) =>
+            isContextItemPart(part) && part.data.producer === 'recency-digest',
         );
 
-        const latestUser = messages
-          .filter(({ role }) => role === 'user')
-          .at(-1);
+      const payload = isContextItemPart(digest)
+        ? readDigestPayload(digest)
+        : undefined;
 
-        return {
-          told: chat?.recencyDigestTold,
-          baseline: chat?.recencyDigestBaseline,
-          append: (latestUser?.parts ?? [])
-            .filter(isContextItemPart)
-            .find(({ data }) => data.producer === 'recency-digest')?.data.text,
-        };
+      expect(payload).toMatchObject({
+        kind: 'baseline',
+        announced: expect.arrayContaining([
+          expect.objectContaining({ chatId: source.id }),
+        ]),
       });
+      expect(JSON.stringify(digest)).toContain('owner-opening');
+      expect(JSON.stringify(digest)).toContain('latest-assistant-visible');
+      expect(JSON.stringify(digest)).not.toMatch(
+        /reasoning-must-not-leak|later-user-must-not-leak/,
+      );
+    });
 
-    it('leaves a baseline no surface rendered untold, so its chats are appended on the next run', async () => {
+    it('persists cumulative digest state on the triggering user messages', async () => {
       await new MemoryService(tenantDb).updateForOwner(userId, {
         shareRecentChats: true,
       });
 
-      const source = await seedEligibleChat(
+      const firstSource = await seedEligibleChat(
         userId,
-        'Unrendered source',
-        'unrendered opening',
+        'Baseline source',
+        'source opening',
       );
 
-      // An operator template that renders the digest in neither surface: no
-      // admitted tool description in this harness references `chats` either.
-      systemPrompt = 'Base without the digest.';
       const chatId = crypto.randomUUID();
 
       await send(chatId, crypto.randomUUID(), 'first target turn');
       await finishActive(chatId);
-      const first = await digestState(chatId);
-      expect(first.baseline?.recent).toEqual(
-        expect.arrayContaining([
-          expect.objectContaining({ title: 'Unrendered source' }),
-        ]),
+
+      const firstMessages = await tenantDb.runAs(userId, (tx) =>
+        new MessagesRepository(tx).findByChatId(chatId, userId),
       );
-      // The baseline is bound, but the model was told about none of it.
-      expect(first.told).toEqual([]);
-      expect(first.append).toBeUndefined();
 
-      await send(chatId, crypto.randomUUID(), 'second target turn');
-      await finishActive(chatId);
-      const second = await digestState(chatId);
-      expect(second.append).toContain('Unrendered source');
-      expect(second.append).toContain('unrendered opening');
-      expect(second.told).toContainEqual({
-        chatId: source.id,
-        pinned: false,
-        title: 'Unrendered source',
-      });
-      expect(second.baseline).toEqual(first.baseline);
-    });
+      const firstUser = firstMessages.find(({ role }) => role === 'user');
 
-    it('records only the entries the executed template branch emitted', async () => {
-      await new MemoryService(tenantDb).updateForOwner(userId, {
-        shareRecentChats: true,
-      });
-      // No text in its opening message, so it renders no excerpt field.
-      const silent = await seedEligibleChat(userId, 'Silent source', '');
-      const shown = await seedEligibleChat(userId, 'Shown source', 'shown');
-      // The collection is iterated for both chats, but only an entry with an
-      // excerpt has any of its values emitted.
-      systemPrompt =
-        'Base.{{#each chats.recent}}{{#if excerpt}} {{title}}: {{excerpt}}{{/if}}{{/each}}';
-      const chatId = crypto.randomUUID();
-
-      await send(chatId, crypto.randomUUID(), 'first target turn');
-      await finishActive(chatId);
-      const first = await digestState(chatId);
-      expect(first.baseline?.recent).toEqual(
-        expect.arrayContaining([
-          expect.objectContaining({ title: 'Silent source' }),
-          expect.objectContaining({ title: 'Shown source' }),
-        ]),
+      const firstItem = firstUser?.parts.find(
+        (part) =>
+          isContextItemPart(part) && part.data.producer === 'recency-digest',
       );
-      expect(first.told).toContainEqual({
-        chatId: shown.id,
-        pinned: false,
-        title: 'Shown source',
+
+      const firstPayload = isContextItemPart(firstItem)
+        ? readDigestPayload(firstItem)
+        : undefined;
+
+      expect(firstPayload).toMatchObject({
+        version: 1,
+        kind: 'baseline',
+        announced: expect.arrayContaining([
+          expect.objectContaining({ chatId: firstSource.id }),
+        ]),
       });
-      expect(first.told?.map(({ chatId: told }) => told)).not.toContain(
-        silent.id,
+
+      const secondSource = await seedEligibleChat(
+        userId,
+        'Later source',
+        'later opening',
       );
 
       await send(chatId, crypto.randomUUID(), 'second target turn');
       await finishActive(chatId);
-      const second = await digestState(chatId);
-      expect(second.append).toContain('Silent source');
-      expect(second.append).not.toContain('Shown source');
-      expect(second.told).toContainEqual({
-        chatId: silent.id,
-        pinned: false,
-        title: 'Silent source',
-      });
-    });
-
-    it('renders the packaged digest into the receipt and retains a bound baseline after withdrawal', async () => {
-      await new MemoryService(tenantDb).updateForOwner(userId, {
-        shareRecentChats: true,
-      });
-      await seedEligibleChat(userId, 'Receipt source', 'receipt opening');
-      systemPrompt = createModelPromptLoader({
-        configPath: path.resolve(__dirname, '../../llame.config.jsonc'),
-      }).resolve({
-        id: 'system:openai:gpt-5.4-mini',
-        name: 'Test Model',
-      }).systemPromptTemplate;
-      const chatId = crypto.randomUUID();
-
-      await send(chatId, crypto.randomUUID(), 'first target turn');
-      const firstRun = await finishActive(chatId);
-
-      const firstReceipts = await tenantDb.runAs(userId, (tx) =>
-        new SystemPromptReceiptsRepository(tx).findByOwnedRun(
-          firstRun.id,
-          userId,
-        ),
-      );
-
-      const firstReceipt = firstReceipts[0];
-      expect(firstReceipt?.systemPrompt).toContain('<user_chat_history>');
-      expect(firstReceipt?.systemPrompt).toContain('Receipt source');
-      expect(firstReceipt?.systemPrompt).toContain('receipt opening');
-      expect(firstReceipt?.systemPrompt).not.toMatch(
-        /\/home\/|providerModelId|systemPromptFile/u,
-      );
-
-      await new MemoryService(tenantDb).updateForOwner(userId, {
-        shareRecentChats: false,
-      });
-      await seedEligibleChat(userId, 'Withheld new source', 'must not append');
-      await send(chatId, crypto.randomUUID(), 'withdrawn target turn');
-      await finishActive(chatId);
-
-      const [first, second] = await tenantDb.runAs(userId, (tx) =>
-        new RunsRepository(tx).findByChatId(chatId, userId),
-      );
-
-      const secondReceipts = await tenantDb.runAs(userId, (tx) =>
-        new SystemPromptReceiptsRepository(tx).findByOwnedRun(
-          second.id,
-          userId,
-        ),
-      );
-
-      const secondReceipt = secondReceipts[0];
 
       const messages = await tenantDb.runAs(userId, (tx) =>
         new MessagesRepository(tx).findByChatId(chatId, userId),
       );
 
-      const userMessages = messages.filter(({ role }) => role === 'user');
+      const users = messages.filter(({ role }) => role === 'user');
 
-      expect(first?.id).toBe(firstRun.id);
-      expect(secondReceipt?.systemPrompt).toBe(firstReceipt?.systemPrompt);
-      expectMessageParts(userMessages.at(-1)?.parts ?? [], [
-        { type: 'text', text: 'withdrawn target turn' },
-      ]);
+      const latestItem = users
+        .at(-1)
+        ?.parts.find(
+          (part) =>
+            isContextItemPart(part) && part.data.producer === 'recency-digest',
+        );
+
+      const latestPayload = isContextItemPart(latestItem)
+        ? readDigestPayload(latestItem)
+        : undefined;
+
+      expect(latestPayload).toMatchObject({
+        kind: 'notice',
+        announced: expect.arrayContaining([
+          expect.objectContaining({ chatId: firstSource.id }),
+          expect.objectContaining({ chatId: secondSource.id }),
+        ]),
+      });
     });
 
-    it('initializes on the first accepted run after re-enabling, with no pre-baseline append', async () => {
-      await seedEligibleChat(userId, 'Re-enable source', 'retroactive opening');
-      systemPrompt =
-        'Base.{{#each chats.recent}} {{title}}|{{excerpt}}{{/each}}';
+    it('does not disclose newly selected chats after consent withdrawal', async () => {
+      await new MemoryService(tenantDb).updateForOwner(userId, {
+        shareRecentChats: true,
+      });
+      await seedEligibleChat(userId, 'Previously disclosed', 'earlier opening');
       const chatId = crypto.randomUUID();
-
-      await send(chatId, crypto.randomUUID(), 'setting is off');
+      await send(chatId, crypto.randomUUID(), 'first target turn');
       await finishActive(chatId);
 
-      const before = await tenantDb.runAs(userId, async (tx) => ({
-        chat: await new ChatsRepository(tx).findById(chatId, userId),
-        messages: await new MessagesRepository(tx).findByChatId(chatId, userId),
-      }));
+      await new MemoryService(tenantDb).updateForOwner(userId, {
+        shareRecentChats: false,
+      });
+      await seedEligibleChat(
+        userId,
+        'Withheld source',
+        'must not be disclosed',
+      );
+      await send(chatId, crypto.randomUUID(), 'withdrawn target turn');
+      await finishActive(chatId);
 
-      const beforeUserMessages = before.messages.filter(
-        ({ role }) => role === 'user',
+      const messages = await tenantDb.runAs(userId, (tx) =>
+        new MessagesRepository(tx).findByChatId(chatId, userId),
       );
 
-      expect(before.chat?.recencyDigestBaseline).toBeNull();
-      expect(before.chat?.recencyDigestTold).toBeNull();
-      expectMessageParts(beforeUserMessages[0]?.parts ?? [], [
-        { type: 'text', text: 'setting is off' },
-      ]);
+      const users = messages.filter(({ role }) => role === 'user');
+      const latest = users.at(-1);
+      expect(
+        latest?.parts.some(
+          (part) =>
+            isContextItemPart(part) && part.data.producer === 'recency-digest',
+        ),
+      ).toBe(false);
+    });
+
+    it('starts a new snapshot on the first accepted run after re-enabling sharing', async () => {
+      await seedEligibleChat(userId, 'Re-enable source', 'retroactive opening');
+      const chatId = crypto.randomUUID();
+      await send(chatId, crypto.randomUUID(), 'setting is off');
+      await finishActive(chatId);
 
       await new MemoryService(tenantDb).updateForOwner(userId, {
         shareRecentChats: true,
@@ -904,33 +779,33 @@ describeIfDb(
       await send(chatId, crypto.randomUUID(), 'setting is on again');
       await finishActive(chatId);
 
-      const after = await tenantDb.runAs(userId, async (tx) => ({
-        chat: await new ChatsRepository(tx).findById(chatId, userId),
-        messages: await new MessagesRepository(tx).findByChatId(chatId, userId),
-      }));
-
-      const afterUserMessages = after.messages.filter(
-        ({ role }) => role === 'user',
+      const messages = await tenantDb.runAs(userId, (tx) =>
+        new MessagesRepository(tx).findByChatId(chatId, userId),
       );
 
-      expect(after.chat?.recencyDigestBaseline?.recent).toEqual(
-        expect.arrayContaining([
-          expect.objectContaining({ title: 'Re-enable source' }),
-        ]),
+      const users = messages.filter(({ role }) => role === 'user');
+      expect(
+        users[0]?.parts.some(
+          (part) =>
+            isContextItemPart(part) && part.data.producer === 'recency-digest',
+        ),
+      ).toBe(false);
+
+      const digest = users[1]?.parts.find(
+        (part) =>
+          isContextItemPart(part) && part.data.producer === 'recency-digest',
       );
-      expect(after.chat?.recencyDigestTold).not.toBeNull();
-      expectMessageParts(afterUserMessages[1]?.parts ?? [], [
-        { type: 'text', text: 'setting is on again' },
-      ]);
+
+      expect(
+        isContextItemPart(digest) ? readDigestPayload(digest)?.kind : undefined,
+      ).toBe('baseline');
     });
 
-    it('lets only one concurrent initializing send bind a baseline', async () => {
+    it('admits only one concurrent initializing send for the same Chat', async () => {
       await new MemoryService(tenantDb).updateForOwner(userId, {
         shareRecentChats: true,
       });
       await seedEligibleChat(userId, 'Concurrent source', 'one candidate');
-      systemPrompt =
-        'Base.{{#each chats.recent}} {{title}}|{{excerpt}}{{/each}}';
       const chatId = crypto.randomUUID();
 
       const results = await Promise.allSettled([
@@ -946,23 +821,27 @@ describeIfDb(
       ).toHaveLength(1);
       await finishActive(chatId);
 
-      const [chat, runs] = await tenantDb.runAs(userId, async (tx) => [
-        await new ChatsRepository(tx).findById(chatId, userId),
-        await new RunsRepository(tx).findByChatId(chatId, userId),
-      ]);
-
-      expect(chat?.recencyDigestBaseline).not.toBeNull();
-      expect(chat?.recencyDigestTold).not.toBeNull();
-      expect(runs).toHaveLength(1);
-
-      const receipts = await tenantDb.runAs(userId, (tx) =>
-        new SystemPromptReceiptsRepository(tx).findByOwnedRun(
-          runs[0].id,
-          userId,
-        ),
+      const runs = await tenantDb.runAs(userId, (tx) =>
+        new RunsRepository(tx).findByChatId(chatId, userId),
       );
 
-      expect(receipts).toHaveLength(1);
+      expect(runs).toHaveLength(1);
+
+      const messages = await tenantDb.runAs(userId, (tx) =>
+        new MessagesRepository(tx).findByChatId(chatId, userId),
+      );
+
+      expect(
+        messages.some(
+          ({ role, parts }) =>
+            role === 'user' &&
+            parts.some(
+              (part) =>
+                isContextItemPart(part) &&
+                part.data.producer === 'recency-digest',
+            ),
+        ),
+      ).toBe(true);
     });
 
     it('keeps another owner and the empty identity out of digest resolution', async () => {
@@ -983,8 +862,8 @@ describeIfDb(
           crypto.randomUUID(),
         );
 
-        expect(JSON.stringify(own.baseline)).toContain('Owner-visible title');
-        expect(JSON.stringify(own.baseline)).not.toMatch(
+        expect(JSON.stringify(own.rows)).toContain('Owner-visible title');
+        expect(JSON.stringify(own.rows)).not.toMatch(
           /OTHER OWNER SECRET TITLE|OTHER OWNER SECRET EXCERPT/,
         );
         await expect(
@@ -992,6 +871,193 @@ describeIfDb(
         ).rejects.toThrow('requires a non-empty userId');
       } finally {
         await sql`DELETE FROM users WHERE id = ${otherUserId}`;
+      }
+    });
+
+    it('counts and announces only owned, titled, active digest sources', async () => {
+      const digestOwnerId = crypto.randomUUID();
+      await sql`INSERT INTO users (id, name, email) VALUES (${digestOwnerId}, 'Digest Isolated', ${`digest-isolated-${digestOwnerId}@test.com`})`;
+      await new MemoryService(tenantDb).updateForOwner(digestOwnerId, {
+        shareRecentChats: true,
+      });
+
+      const untitledPinned = await seedEligibleChat(
+        digestOwnerId,
+        'Temporary title',
+        'must stay undisclosed',
+      );
+
+      await tenantDb.runAs(digestOwnerId, (tx) =>
+        tx
+          .update(schema.chats)
+          .set({ title: null })
+          .where(eq(schema.chats.id, untitledPinned.id)),
+      );
+
+      await seedEligibleChat(
+        digestOwnerId,
+        '   ',
+        'whitespace title must stay undisclosed',
+      );
+
+      const titledPinned = await seedEligibleChat(
+        digestOwnerId,
+        'Titled pinned source',
+        'pinned opening',
+      );
+
+      const titledRecent = await seedEligibleChat(
+        digestOwnerId,
+        'Titled recent source',
+        'recent opening',
+      );
+
+      const archived = await seedEligibleChat(
+        digestOwnerId,
+        'Archived source',
+        'archived opening',
+      );
+
+      const current = await seedEligibleChat(
+        digestOwnerId,
+        'Current source',
+        'current opening',
+      );
+
+      const otherUserId = crypto.randomUUID();
+      await sql`INSERT INTO users (id, name, email) VALUES (${otherUserId}, 'Digest Other', ${`digest-other-${otherUserId}@test.com`})`;
+
+      try {
+        await seedEligibleChat(
+          otherUserId,
+          'FOREIGN SECRET TITLE',
+          'FOREIGN SECRET EXCERPT',
+        );
+
+        await tenantDb.runAs(digestOwnerId, async (tx) => {
+          await tx.insert(schema.pins).values([
+            {
+              userId: digestOwnerId,
+              itemType: 'chat',
+              itemId: untitledPinned.id,
+              position: 0,
+            },
+            {
+              userId: digestOwnerId,
+              itemType: 'chat',
+              itemId: titledPinned.id,
+              position: 1,
+            },
+          ]);
+          await new ChatsRepository(tx).update(archived.id, digestOwnerId, {
+            archived: true,
+          });
+        });
+
+        const resolver = new RecencyDigestService(tenantDb);
+
+        const candidate = await resolver.resolveCandidate(
+          digestOwnerId,
+          current.id,
+        );
+
+        expect(candidate).toMatchObject({
+          pinnedShown: 1,
+          pinnedTotal: 1,
+          recentShown: 1,
+          recentTotal: 1,
+        });
+        expect(candidate.rows.map(({ chatId }) => chatId)).toEqual([
+          titledPinned.id,
+          titledRecent.id,
+        ]);
+        expect(JSON.stringify(candidate.rows)).not.toMatch(
+          /must stay undisclosed|FOREIGN SECRET|archived opening|current opening/,
+        );
+
+        const targetChatId = crypto.randomUUID();
+
+        const executeTurn = async (text: string) => {
+          await chatLoop.createMessageStream({
+            chatId: targetChatId,
+            userId: digestOwnerId,
+            selector: 'system:openai:gpt-5.4-mini',
+            message: {
+              id: crypto.randomUUID(),
+              parts: [{ type: 'text', text }],
+            },
+          });
+
+          const run = await tenantDb.runAs(digestOwnerId, (tx) =>
+            new RunsRepository(tx).findActiveByChatId(
+              targetChatId,
+              digestOwnerId,
+            ),
+          );
+
+          const job = dispatchCalls.find(({ runId }) => runId === run?.id);
+
+          if (!job) throw new Error('Expected an owned digest Run dispatch');
+          await executeWorker(job);
+        };
+
+        await executeTurn('first digest turn');
+
+        const firstMessages = await tenantDb.runAs(digestOwnerId, (tx) =>
+          new MessagesRepository(tx).findByChatId(targetChatId, digestOwnerId),
+        );
+
+        const firstDigest = firstMessages
+          .find(({ role }) => role === 'user')
+          ?.parts.find(
+            (part) =>
+              isContextItemPart(part) &&
+              part.data.producer === 'recency-digest',
+          );
+
+        const firstPayload = isContextItemPart(firstDigest)
+          ? readDigestPayload(firstDigest)
+          : undefined;
+
+        expect(firstPayload?.kind).toBe('baseline');
+
+        expect(
+          firstPayload?.announced.map(({ chatId }) => chatId),
+        ).not.toContain(untitledPinned.id);
+
+        await tenantDb.runAs(digestOwnerId, (tx) =>
+          new ChatsRepository(tx).update(untitledPinned.id, digestOwnerId, {
+            title: 'Named after first digest',
+          }),
+        );
+        await executeTurn('second digest turn');
+
+        const latestMessages = await tenantDb.runAs(digestOwnerId, (tx) =>
+          new MessagesRepository(tx).findByChatId(targetChatId, digestOwnerId),
+        );
+
+        const latestDigest = latestMessages
+          .filter(({ role }) => role === 'user')
+          .at(-1)
+          ?.parts.find(
+            (part) =>
+              isContextItemPart(part) &&
+              part.data.producer === 'recency-digest',
+          );
+
+        const latestPayload = isContextItemPart(latestDigest)
+          ? readDigestPayload(latestDigest)
+          : undefined;
+
+        expect(latestPayload).toMatchObject({
+          kind: 'notice',
+          announced: expect.arrayContaining([
+            expect.objectContaining({ chatId: untitledPinned.id }),
+          ]),
+        });
+      } finally {
+        await sql`DELETE FROM users WHERE id = ${otherUserId}`;
+        await sql`DELETE FROM users WHERE id = ${digestOwnerId}`;
       }
     });
 
@@ -1386,58 +1452,6 @@ describeIfDb(
       );
 
       expect(rolledBack).toBeUndefined();
-    });
-
-    it('leaves a pre-existing digest told-set unchanged when its append fails to bind', async () => {
-      await new MemoryService(tenantDb).updateForOwner(userId, {
-        shareRecentChats: true,
-      });
-
-      const target = await tenantDb.runAs(userId, async (tx) => {
-        const chats = new ChatsRepository(tx);
-
-        const chat = await chats.create({
-          ownerUserId: userId,
-          title: 'Target',
-        });
-
-        await chats.setRecencyDigestIfAbsent(
-          chat.id,
-          userId,
-          {
-            pinned: [],
-            recent: [],
-            pinnedShown: 0,
-            pinnedTotal: 0,
-            recentShown: 0,
-            recentTotal: 0,
-            compiledOn: '2026-08-13',
-          },
-          [],
-        );
-
-        return chat;
-      });
-
-      await seedEligibleChat(userId, 'Event source', 'opening');
-
-      const append = vi
-        .spyOn(RunEventsRepository.prototype, 'append')
-        .mockRejectedValueOnce(new Error('forced append failure'));
-
-      try {
-        await expect(
-          send(target.id, crypto.randomUUID(), 'must roll back append'),
-        ).rejects.toThrow('forced append failure');
-      } finally {
-        append.mockRestore();
-      }
-
-      const after = await tenantDb.runAs(userId, (tx) =>
-        new ChatsRepository(tx).findById(target.id, userId),
-      );
-
-      expect(after?.recencyDigestTold).toEqual([]);
     });
 
     it("keeps a failed dispatched turn's context items and fences a model-change marker to its run", async () => {
@@ -1977,7 +1991,7 @@ describeIfDb(
       expect(await availabilityItem(healthyAfterCompaction)).toBeUndefined();
     });
 
-    it("stores a failed Run's availability reminder at dispatch and initializes the digest only on success", async () => {
+    it('retains the first-dispatch digest snapshot when the Run fails', async () => {
       await new MemoryService(tenantDb).updateForOwner(userId, {
         shareRecentChats: true,
       });
@@ -2011,83 +2025,65 @@ describeIfDb(
         await finish(failedRun.id, 'failed');
       }
 
-      const afterFailure = await tenantDb.runAs(userId, async (tx) => ({
-        chat: await new ChatsRepository(tx).findById(chatId, userId),
-        messages: await new MessagesRepository(tx).findByChatId(chatId, userId),
-      }));
-
-      // A first-turn digest baseline waits for a completed turn.
-      expect(afterFailure.chat?.recencyDigestBaseline).toBeNull();
-      expect(afterFailure.chat?.recencyDigestTold).toBeNull();
-
-      // The reminder rode the dispatched request, so it stays on the failed
-      // turn's user message.
-      const unavailableReminder = {
-        type: 'data-context',
-        data: {
-          v: 1,
-          producer: 'tool-availability',
-          form: 'notice',
-          runId: failedRun.id,
-          payload: {
-            kind: 'initial',
-            added: [],
-            removed: [],
-            unavailable: [
-              { id: 'mcp__docs__lookup', reason: 'discovery_failed' },
-            ],
-            becameUnavailable: [],
-            nowAvailable: [],
-          },
-        },
-      };
-
-      expectMessageParts(
-        afterFailure.messages.find(({ role }) => role === 'user')?.parts ?? [],
-        [unavailableReminder, { type: 'text', text: 'worker failure' }],
-        failedRun.id,
+      const afterFailure = await tenantDb.runAs(userId, (tx) =>
+        new MessagesRepository(tx).findByChatId(chatId, userId),
       );
+
+      const failedUser = afterFailure.find(({ role }) => role === 'user');
+
+      const failedDigest = failedUser?.parts.find(
+        (part) =>
+          isContextItemPart(part) && part.data.producer === 'recency-digest',
+      );
+
+      expect(
+        isContextItemPart(failedDigest)
+          ? readDigestPayload(failedDigest)
+          : undefined,
+      ).toMatchObject({
+        kind: 'baseline',
+      });
+
+      expect(
+        failedUser?.parts.some(
+          (part) =>
+            isContextItemPart(part) &&
+            part.data.producer === 'tool-availability',
+        ),
+      ).toBe(true);
 
       const successfulResolve = vi
         .spyOn(effectiveContextResolver, 'composeAttemptToolCatalog')
         .mockResolvedValueOnce(degraded);
-
-      let successfulRun: Run;
 
       try {
         await send(chatId, crypto.randomUUID(), 'accepted after failure');
         const successfulJob = dispatchCalls.at(-1);
 
         if (!successfulJob) throw new Error('Expected successful Run dispatch');
-        successfulRun = await executeWorker(successfulJob);
+        await executeWorker(successfulJob);
       } finally {
         successfulResolve.mockRestore();
       }
 
-      const afterSuccess = await tenantDb.runAs(userId, async (tx) => ({
-        chat: await new ChatsRepository(tx).findById(chatId, userId),
-        messages: await new MessagesRepository(tx).findByChatId(chatId, userId),
-      }));
-
-      expect(afterSuccess.chat?.recencyDigestBaseline).not.toBeNull();
-      expect(afterSuccess.chat?.recencyDigestTold).not.toBeNull();
-
-      const userMessages = afterSuccess.messages.filter(
-        ({ role }) => role === 'user',
+      const afterSuccess = await tenantDb.runAs(userId, (tx) =>
+        new MessagesRepository(tx).findByChatId(chatId, userId),
       );
 
-      // The failed Run's record is the baseline, so the unchanged outage is
-      // not announced a second time.
-      expectMessageParts(
-        userMessages[0]?.parts ?? [],
-        [unavailableReminder, { type: 'text', text: 'worker failure' }],
-        failedRun.id,
-      );
-      expectMessageParts(
-        userMessages[1]?.parts ?? [],
-        [{ type: 'text', text: 'accepted after failure' }],
-        successfulRun.id,
-      );
+      const userMessages = afterSuccess.filter(({ role }) => role === 'user');
+      expect(userMessages).toHaveLength(2);
+
+      expect(
+        isContextItemPart(failedDigest)
+          ? readDigestPayload(failedDigest)?.kind
+          : undefined,
+      ).toBe('baseline');
+      expect(
+        userMessages[1]?.parts.some(
+          (part) =>
+            isContextItemPart(part) && part.data.producer === 'recency-digest',
+        ),
+      ).toBe(false);
     });
   },
 );

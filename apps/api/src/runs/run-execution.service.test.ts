@@ -1,5 +1,6 @@
 import { type DecisionJudge } from '../decisions/decisions.service';
 import * as jobNoticeRecovery from './job-notice-recovery';
+import { selectEffectiveDigestMessages } from '../chats/recency-digest-replay';
 import { runningReplyUsage } from './run-reply-finalizer';
 import type {
   LanguageModelV3Message,
@@ -174,6 +175,7 @@ import {
   promptImportMediaKey,
 } from '../chats/prompt-imports-item';
 import { createJobNoticeItem } from '../chats/job-context-item';
+import { createRecencyDigestItem } from '../chats/recency-digest-item';
 import { createProviderFailureItem } from '../chats/provider-failure-notice';
 import {
   createProjectSnapshotItem,
@@ -399,9 +401,6 @@ const chat: Chat = {
   archivedAt: null,
   modelSelection: null,
   projectId: null,
-  recencyDigestBaseline: null,
-  recencyDigestTold: null,
-  recencyDigestRebakedFrom: null,
   skillCatalogBaseline: null,
   skillCatalogRebakedFrom: null,
   skillCatalogTold: null,
@@ -655,6 +654,20 @@ function executionInstanceConfig(
   };
 }
 
+function resolverFor(
+  resolveCandidate: RecencyDigestResolver['resolveCandidate'],
+): RecencyDigestResolver {
+  return {
+    resolveCandidate,
+    deriveChanges: vi.fn().mockResolvedValue({
+      additions: [],
+      corrections: [],
+      announced: [],
+    }),
+    renderBaseline: vi.fn().mockReturnValue(''),
+  };
+}
+
 function makeExecutionService(
   client: ModelClient = createFakeModelClient(['answer']),
   dynamicToolResolver?: DynamicToolExecutorResolver,
@@ -776,6 +789,12 @@ function makeExecutionService(
     resolveCandidate: vi
       .fn()
       .mockRejectedValue(new Error('unexpected digest read')),
+    deriveChanges: vi.fn().mockResolvedValue({
+      additions: [],
+      corrections: [],
+      announced: [],
+    }),
+    renderBaseline: vi.fn().mockReturnValue(''),
   };
 
   // Held so a case can change the owner's personalization between two
@@ -998,6 +1017,47 @@ function mockNormalExecutionRepositories() {
   vi.spyOn(MessagesRepository.prototype, 'findByChatId').mockResolvedValue([
     userMessage,
   ]);
+  let loadedHistory: Array<Message> = [];
+  vi.spyOn(
+    MessagesRepository.prototype,
+    'findEffectiveContextMessages',
+  ).mockImplementation(async function (
+    this: MessagesRepository,
+    chatId,
+    ownerId,
+    options,
+  ) {
+    const history = await this.findByChatId(chatId, ownerId);
+    loadedHistory = history;
+
+    const checkpoint: unknown =
+      await findActiveCheckpoint.mock.results.at(-1)?.value;
+
+    const checkpointRow =
+      isRecord(checkpoint) &&
+      isNumber(checkpoint.absorbedThroughSeq) &&
+      options.checkpointId
+        ? {
+            ...userMessage,
+            id: options.checkpointId,
+            role: 'checkpoint' as const,
+            absorbedThroughSeq: checkpoint.absorbedThroughSeq,
+          }
+        : undefined;
+
+    return selectEffectiveDigestMessages(
+      checkpointRow ? [...history, checkpointRow] : history,
+      chatId,
+      options,
+    );
+  });
+  vi.spyOn(MessagesRepository.prototype, 'findById').mockImplementation(
+    (_chatId, _ownerId, id) => {
+      return Promise.resolve(
+        loadedHistory.findLast((message) => message.id === id),
+      );
+    },
+  );
   vi.spyOn(MessagesRepository.prototype, 'findTurnState').mockResolvedValue({
     userMessage,
     assistantMessage: undefined,
@@ -5183,61 +5243,373 @@ describe('RunExecutionService executeRun', () => {
       }),
     );
   });
-  it('resolves a recency digest only when the owner has opted in on the worker', async () => {
-    const baseline: RecencyDigestResolution['baseline'] = {
-      pinned: [],
-      recent: [],
+  it('persists a nonempty first-dispatch digest snapshot on the triggering message', async () => {
+    const sourceId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+
+    const candidate: RecencyDigestResolution = {
+      rows: [
+        {
+          chatId: sourceId,
+          locator: `chat://${sourceId}`,
+          title: 'Source chat',
+          activityAt: '2026-09-01T00:00:00.000Z',
+          messageCount: 1,
+          workspace: 'unbound',
+          openingExcerpt: 'opening',
+          latestExcerpt: 'latest',
+        },
+      ],
+      announced: [
+        {
+          chatId: sourceId,
+          pinned: false,
+          title: 'Source chat',
+          workspace: 'unbound',
+        },
+      ],
       pinnedShown: 0,
       pinnedTotal: 0,
-      recentShown: 0,
-      recentTotal: 0,
+      recentShown: 1,
+      recentTotal: 1,
       compiledOn: '2026-09-01',
     };
 
     const resolveCandidate = vi
       .fn<RecencyDigestResolver['resolveCandidate']>()
+      .mockResolvedValue(candidate);
+
+    const deriveChanges = vi
+      .fn<RecencyDigestResolver['deriveChanges']>()
       .mockResolvedValue({
-        baseline,
-        candidates: [],
+        additions: [],
+        corrections: [],
+        announced: candidate.announced,
       });
+
+    const renderBaseline = vi
+      .fn<RecencyDigestResolver['renderBaseline']>()
+      .mockReturnValue('baseline body');
 
     const getForOwnerForBinding = vi
       .fn<MemorySettingsBindingResolver['getForOwnerForBinding']>()
       .mockResolvedValue({ shareRecentChats: true });
 
-    const setBaseline = vi
-      .spyOn(ChatsRepository.prototype, 'setRecencyDigestIfAbsent')
-      .mockResolvedValue({
-        ...chat,
-        recencyDigestBaseline: baseline,
-        recencyDigestTold: [],
-      });
-
-    mockNormalExecutionRepositories();
+    const repositories = mockNormalExecutionRepositories();
+    const capturing = makeCapturingClient();
 
     const execution = makeExecutionService(
-      createFakeModelClient(['answer']),
+      capturing.client,
       undefined,
       undefined,
       {
         memory: { getForOwnerForBinding },
-        recencyDigest: { resolveCandidate },
+        recencyDigest: { resolveCandidate, deriveChanges, renderBaseline },
       },
     );
 
-    const result = await execution.service.executeRun(
-      executionInput(execution.client),
+    await execution.service.executeRun(executionInput(capturing.client));
+    const request = JSON.stringify(capturing.streamOptions().messages);
+    expect(request).toContain('baseline body');
+    expect(request.indexOf('baseline body')).toBeLessThan(
+      request.indexOf('hello'),
     );
 
-    await expect(result.text).resolves.toBe('answer');
-    expect(resolveCandidate).toHaveBeenCalledWith(userId, chatId);
-    expect(setBaseline).toHaveBeenCalledWith(chatId, userId, baseline, []);
+    const stored = repositories.storeAtDispatch.mock.calls[0]?.[0].items;
+
+    const digest = stored?.find(
+      (part) =>
+        isContextItemPart(part) && part.data.producer === 'recency-digest',
+    );
+
+    expect(isContextItemPart(digest) && digest.data.payload).toEqual({
+      version: 1,
+      kind: 'baseline',
+      announced: candidate.announced,
+      association: { kind: 'origin', chatId },
+    });
   });
 
-  it('discards a resolved digest candidate when the chat epoch advances during resolution', async () => {
-    const baseline: RecencyDigestResolution['baseline'] = {
-      pinned: [],
-      recent: [],
+  it.each([
+    {
+      name: 'additions',
+      additions: true,
+      corrections: false,
+      expected: ['Recent: Title: Added source'],
+    },
+    {
+      name: 'corrections',
+      additions: false,
+      corrections: true,
+      expected: ['is now pinned.'],
+    },
+    {
+      name: 'additions and corrections',
+      additions: true,
+      corrections: true,
+      expected: ['Recent: Title: Added source', 'is now pinned.'],
+    },
+  ])(
+    'dispatches a baseline-relative digest notice for $name',
+    async ({ additions, corrections, expected }) => {
+      const sourceId = '22222222-2222-4222-8222-222222222222';
+      const knownSourceId = '33333333-3333-4333-8333-333333333333';
+
+      const addedRow = {
+        chatId: sourceId,
+        locator: `chat://${sourceId}`,
+        title: 'Added source',
+        activityAt: '2026-09-01T00:00:00.000Z',
+        messageCount: 1,
+        workspace: 'unbound',
+        openingExcerpt: 'opening excerpt',
+        latestExcerpt: 'latest excerpt',
+      };
+
+      const previouslyKnown = {
+        chatId: knownSourceId,
+        pinned: false,
+        title: 'Previously known source',
+        workspace: 'unbound',
+      };
+
+      const previouslyAnnounced = [previouslyKnown];
+
+      const knownRow = {
+        ...addedRow,
+        chatId: knownSourceId,
+        locator: `chat://${knownSourceId}`,
+        title: previouslyKnown.title,
+      };
+
+      const recentShown = (corrections ? 0 : 1) + (additions ? 1 : 0);
+
+      const candidate: RecencyDigestResolution = {
+        rows: [knownRow, ...(additions ? [addedRow] : [])],
+        announced: [
+          { ...previouslyKnown, pinned: corrections },
+          ...(additions
+            ? [
+                {
+                  chatId: sourceId,
+                  pinned: false,
+                  title: 'Added source',
+                  workspace: 'unbound',
+                },
+              ]
+            : []),
+        ],
+        pinnedShown: corrections ? 1 : 0,
+        pinnedTotal: corrections ? 1 : 0,
+        recentShown,
+        recentTotal: recentShown,
+        compiledOn: '2026-09-01',
+      };
+
+      const change = {
+        additions: additions ? [{ row: addedRow, pinned: false }] : [],
+        corrections: corrections
+          ? [
+              {
+                chatId: knownSourceId,
+                title: previouslyKnown.title,
+                field: 'pinned' as const,
+                value: 'pinned',
+              },
+            ]
+          : [],
+        announced: candidate.announced,
+      };
+
+      const baseline = createRecencyDigestItem({
+        runId,
+        payload: {
+          version: 1,
+          kind: 'baseline',
+          announced: previouslyAnnounced,
+          association: { kind: 'origin', chatId },
+        },
+        body: 'Previously disclosed digest',
+      });
+
+      const resolveCandidate = vi
+        .fn<RecencyDigestResolver['resolveCandidate']>()
+        .mockResolvedValue(candidate);
+
+      const deriveChanges = vi
+        .fn<RecencyDigestResolver['deriveChanges']>()
+        .mockResolvedValue(change);
+
+      const getForOwnerForBinding = vi
+        .fn<MemorySettingsBindingResolver['getForOwnerForBinding']>()
+        .mockResolvedValue({ shareRecentChats: true });
+
+      const repositories = mockNormalExecutionRepositories();
+      const capturing = makeCapturingClient();
+
+      const execution = makeExecutionService(
+        capturing.client,
+        undefined,
+        undefined,
+        {
+          memory: { getForOwnerForBinding },
+          recencyDigest: {
+            resolveCandidate,
+            deriveChanges,
+            renderBaseline: vi.fn().mockReturnValue('unused baseline'),
+          },
+        },
+      );
+
+      vi.spyOn(MessagesRepository.prototype, 'findByChatId').mockResolvedValue([
+        { ...userMessage, parts: [{ type: 'text', text: 'hello' }, baseline] },
+      ]);
+
+      await execution.service.executeRun(executionInput(capturing.client));
+
+      const request = JSON.stringify(capturing.streamOptions().messages);
+      expect(request).toContain('Previously disclosed digest');
+
+      for (const text of expected) {
+        expect(request).toContain(text);
+        expect(request.indexOf(text)).toBeLessThan(request.indexOf('hello'));
+      }
+
+      const dispatched = repositories.storeAtDispatch.mock.calls[0]?.[0].items;
+
+      const notice = dispatched?.find(
+        (part) =>
+          isContextItemPart(part) &&
+          part.data.producer === 'recency-digest' &&
+          part.data.form === 'notice',
+      );
+
+      expect(isContextItemPart(notice) && notice.data.payload).toEqual({
+        version: 1,
+        kind: 'notice',
+        announced: change.announced,
+        association: { kind: 'origin', chatId },
+      });
+
+      for (const text of expected)
+        expect(isContextItemPart(notice) && notice.data.text).toContain(text);
+    },
+  );
+
+  it('does not dispatch a baseline-relative notice when consent is withdrawn after derivation', async () => {
+    const sourceId = '44444444-4444-4444-8444-444444444444';
+
+    const candidate: RecencyDigestResolution = {
+      rows: [
+        {
+          chatId: sourceId,
+          locator: `chat://${sourceId}`,
+          title: 'Withdrawn source',
+          activityAt: '2026-09-01T00:00:00.000Z',
+          messageCount: 1,
+          workspace: 'unbound',
+          openingExcerpt: 'withdrawn excerpt',
+          latestExcerpt: 'withdrawn excerpt',
+        },
+      ],
+      announced: [
+        {
+          chatId: sourceId,
+          pinned: true,
+          title: 'Withdrawn source',
+          workspace: 'unbound',
+        },
+      ],
+      pinnedShown: 1,
+      pinnedTotal: 1,
+      recentShown: 0,
+      recentTotal: 0,
+      compiledOn: '2026-09-01',
+    };
+
+    const baseline = createRecencyDigestItem({
+      runId,
+      payload: {
+        version: 1,
+        kind: 'baseline',
+        announced: [
+          {
+            chatId: sourceId,
+            pinned: false,
+            title: 'Withdrawn source',
+            workspace: 'unbound',
+          },
+        ],
+        association: { kind: 'origin', chatId },
+      },
+      body: 'Previously disclosed baseline',
+    });
+
+    const resolveCandidate = vi
+      .fn<RecencyDigestResolver['resolveCandidate']>()
+      .mockResolvedValue(candidate);
+
+    const deriveChanges = vi
+      .fn<RecencyDigestResolver['deriveChanges']>()
+      .mockResolvedValue({
+        additions: [],
+        corrections: [
+          {
+            chatId: sourceId,
+            title: 'Withdrawn source',
+            field: 'pinned',
+            value: 'pinned',
+          },
+        ],
+        announced: candidate.announced,
+      });
+
+    const getForOwnerForBinding = vi
+      .fn<MemorySettingsBindingResolver['getForOwnerForBinding']>()
+      .mockResolvedValueOnce({ shareRecentChats: true })
+      .mockResolvedValueOnce({ shareRecentChats: true })
+      .mockResolvedValue({ shareRecentChats: false });
+
+    const repositories = mockNormalExecutionRepositories();
+    const capturing = makeCapturingClient();
+
+    const execution = makeExecutionService(
+      capturing.client,
+      undefined,
+      undefined,
+      {
+        memory: { getForOwnerForBinding },
+        recencyDigest: {
+          resolveCandidate,
+          deriveChanges,
+          renderBaseline: vi.fn().mockReturnValue('unused baseline'),
+        },
+      },
+    );
+
+    vi.spyOn(MessagesRepository.prototype, 'findByChatId').mockResolvedValue([
+      { ...userMessage, parts: [{ type: 'text', text: 'hello' }, baseline] },
+    ]);
+
+    await execution.service.executeRun(executionInput(capturing.client));
+
+    expect(JSON.stringify(capturing.streamOptions().messages)).not.toContain(
+      'Withdrawn source',
+    );
+    const dispatched = repositories.storeAtDispatch.mock.calls[0]?.[0].items;
+    expect(
+      dispatched?.some(
+        (part) =>
+          isContextItemPart(part) &&
+          part.data.producer === 'recency-digest' &&
+          part.data.form === 'notice',
+      ),
+    ).toBe(false);
+  });
+
+  it('persists an empty first-dispatch snapshot instead of treating it as no baseline', async () => {
+    const candidate: RecencyDigestResolution = {
+      rows: [],
+      announced: [],
       pinnedShown: 0,
       pinnedTotal: 0,
       recentShown: 0,
@@ -5247,26 +5619,25 @@ describe('RunExecutionService executeRun', () => {
 
     const resolveCandidate = vi
       .fn<RecencyDigestResolver['resolveCandidate']>()
-      .mockResolvedValue({ baseline, candidates: [] });
+      .mockResolvedValue(candidate);
+
+    const deriveChanges = vi
+      .fn<RecencyDigestResolver['deriveChanges']>()
+      .mockResolvedValue({
+        additions: [],
+        corrections: [],
+        announced: [],
+      });
+
+    const renderBaseline = vi
+      .fn<RecencyDigestResolver['renderBaseline']>()
+      .mockReturnValue('empty baseline');
 
     const getForOwnerForBinding = vi
       .fn<MemorySettingsBindingResolver['getForOwnerForBinding']>()
       .mockResolvedValue({ shareRecentChats: true });
 
-    mockNormalExecutionRepositories();
-    // The attempt reads its own chat row, then rechecks it after candidate
-    // resolution. Here a compaction checkpoint has replaced the baseline in
-    // between, so the candidate was resolved against a superseded epoch.
-    vi.spyOn(ChatsRepository.prototype, 'findById')
-      .mockResolvedValueOnce(chat)
-      .mockResolvedValueOnce({
-        ...chat,
-        recencyDigestRebakedFrom: '11111111-1111-4111-8111-111111111111',
-      });
-
-    const setBaseline = vi
-      .spyOn(ChatsRepository.prototype, 'setRecencyDigestIfAbsent')
-      .mockResolvedValue({ ...chat, recencyDigestBaseline: baseline });
+    const repositories = mockNormalExecutionRepositories();
 
     const execution = makeExecutionService(
       createFakeModelClient(['answer']),
@@ -5274,7 +5645,7 @@ describe('RunExecutionService executeRun', () => {
       undefined,
       {
         memory: { getForOwnerForBinding },
-        recencyDigest: { resolveCandidate },
+        recencyDigest: { resolveCandidate, deriveChanges, renderBaseline },
       },
     );
 
@@ -5283,9 +5654,80 @@ describe('RunExecutionService executeRun', () => {
     );
 
     await expect(result.text).resolves.toBe('answer');
-    // The whole point of the recheck: superseded digest content never reaches
-    // the model, so nothing is committed for this attempt.
-    expect(setBaseline).not.toHaveBeenCalled();
+    const stored = repositories.storeAtDispatch.mock.calls[0]?.[0].items;
+    expect(
+      stored?.some(
+        (part) =>
+          isContextItemPart(part) &&
+          part.data.producer === 'recency-digest' &&
+          part.data.form === 'snapshot',
+      ),
+    ).toBe(true);
+  });
+  it('rebuilds the dispatch request when consent is withdrawn after preparation', async () => {
+    const candidate: RecencyDigestResolution = {
+      rows: [
+        {
+          chatId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+          locator: 'chat://aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+          title: 'Sensitive title',
+          activityAt: '2026-09-01T00:00:00.000Z',
+          messageCount: 1,
+          workspace: 'unbound',
+          openingExcerpt: 'Sensitive excerpt',
+          latestExcerpt: 'Sensitive excerpt',
+        },
+      ],
+      announced: [
+        {
+          chatId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+          pinned: false,
+          title: 'Sensitive title',
+          workspace: 'unbound',
+        },
+      ],
+      pinnedShown: 0,
+      pinnedTotal: 0,
+      recentShown: 1,
+      recentTotal: 1,
+      compiledOn: '2026-09-01',
+    };
+
+    const getForOwnerForBinding = vi
+      .fn<MemorySettingsBindingResolver['getForOwnerForBinding']>()
+      .mockResolvedValueOnce({ shareRecentChats: true })
+      .mockResolvedValue({ shareRecentChats: false });
+
+    const repositories = mockNormalExecutionRepositories();
+    const capturing = makeCapturingClient();
+
+    const execution = makeExecutionService(
+      capturing.client,
+      undefined,
+      undefined,
+      {
+        memory: { getForOwnerForBinding },
+        recencyDigest: resolverFor(
+          vi
+            .fn<RecencyDigestResolver['resolveCandidate']>()
+            .mockResolvedValue(candidate),
+        ),
+      },
+    );
+
+    await execution.service.executeRun(executionInput(capturing.client));
+
+    const request = capturing.streamOptions();
+    const messages = JSON.stringify(request.messages);
+    expect(messages).not.toContain('Sensitive title');
+    expect(messages).not.toContain('Sensitive excerpt');
+    const stored = repositories.storeAtDispatch.mock.calls.at(-1)?.[0].items;
+    expect(
+      stored?.some(
+        (part) =>
+          isContextItemPart(part) && part.data.producer === 'recency-digest',
+      ),
+    ).toBe(false);
   });
 
   it('swallows worker digest resolution failures without exposing corpus text', async () => {
@@ -5307,7 +5749,7 @@ describe('RunExecutionService executeRun', () => {
       undefined,
       {
         memory: { getForOwnerForBinding },
-        recencyDigest: { resolveCandidate },
+        recencyDigest: resolverFor(resolveCandidate),
       },
     );
 
@@ -5322,349 +5764,6 @@ describe('RunExecutionService executeRun', () => {
     expect(loggerError.mock.calls.flat().join(' ')).not.toContain(
       'secret excerpt',
     );
-  });
-  it('records the disclosed digest told-set at dispatch with the stored items', async () => {
-    const baseline: RecencyDigestResolution['baseline'] = {
-      pinned: [],
-      recent: [],
-      pinnedShown: 0,
-      pinnedTotal: 0,
-      recentShown: 0,
-      recentTotal: 0,
-      compiledOn: '2026-09-01',
-    };
-
-    const entry = {
-      title: 'Resurfaced through activity',
-      date: '2026-09-02',
-      messageCount: 2,
-      excerpt: 'opening',
-    };
-
-    const told = [
-      {
-        chatId: 'resurfaced',
-        pinned: false,
-        title: entry.title,
-      },
-    ];
-
-    const resolution: RecencyDigestResolution = {
-      baseline: {
-        ...baseline,
-        recent: [entry],
-        recentShown: 1,
-        recentTotal: 1,
-      },
-      candidates: [
-        {
-          chatId: 'resurfaced',
-          pinned: false,
-          entry,
-        },
-      ],
-    };
-
-    const chatWithDigest: Chat = {
-      ...chat,
-      recencyDigestBaseline: baseline,
-      recencyDigestTold: [],
-    };
-
-    const resolveCandidate = vi
-      .fn<RecencyDigestResolver['resolveCandidate']>()
-      .mockResolvedValue(resolution);
-
-    const getForOwnerForBinding = vi
-      .fn<MemorySettingsBindingResolver['getForOwnerForBinding']>()
-      .mockResolvedValue({ shareRecentChats: true });
-
-    const findPinnedChatIds = vi
-      .spyOn(ChatsRepository.prototype, 'findPinnedChatIds')
-      .mockResolvedValue(new Set());
-
-    const updateRecencyDigestTold = vi
-      .spyOn(ChatsRepository.prototype, 'updateRecencyDigestTold')
-      .mockResolvedValue(undefined);
-
-    const render = vi
-      .spyOn(SystemPromptsService.prototype, 'render')
-      .mockReturnValue({
-        text: 'Stable system prompt',
-        chatsDisclosure: { pinned: new Set(), recent: new Set() },
-      });
-
-    const repositories = mockNormalExecutionRepositories();
-
-    const findById = vi
-      .spyOn(ChatsRepository.prototype, 'findById')
-      .mockResolvedValue(chatWithDigest);
-
-    const execution = makeExecutionService(
-      createFakeModelClient(['answer']),
-      undefined,
-      undefined,
-      {
-        memory: { getForOwnerForBinding },
-        recencyDigest: { resolveCandidate },
-      },
-    );
-
-    const result = await execution.service.executeRun(
-      executionInput(execution.client),
-    );
-
-    await expect(result.text).resolves.toBe('answer');
-    expect(findById).toHaveBeenCalledWith(chatId, userId);
-    expect(findPinnedChatIds).toHaveBeenCalledWith(userId, []);
-    expect(render).toHaveBeenCalledWith(
-      expect.objectContaining({ chats: baseline }),
-    );
-
-    const recencyDigestContextData: unknown = expect.objectContaining({
-      producer: 'recency-digest',
-    });
-
-    const temporalDigestContextData: unknown = expect.objectContaining({
-      producer: 'temporal',
-    });
-
-    expect(stagedPartsOf(repositories.storeAtDispatch)).toEqual([
-      expect.objectContaining({
-        type: 'data-context',
-        data: recencyDigestContextData,
-      }),
-      expect.objectContaining({
-        type: 'data-context',
-        data: temporalDigestContextData,
-      }),
-      { type: 'text', text: 'hello' },
-    ]);
-    expect(updateRecencyDigestTold).toHaveBeenCalledWith(chatId, userId, told);
-    // The told set commits with the items it accounts for, in the dispatch
-    // transaction, not with the terminal one.
-    expect(updateRecencyDigestTold.mock.invocationCallOrder[0]).toBeGreaterThan(
-      repositories.storeAtDispatch.mock.invocationCallOrder[0] ?? Infinity,
-    );
-    expect(updateRecencyDigestTold.mock.invocationCallOrder[0]).toBeLessThan(
-      repositories.markFinished.mock.invocationCallOrder[0] ?? -Infinity,
-    );
-  });
-  describe('recency digest told-set records only rendered entries', () => {
-    const pinnedEntry = {
-      title: 'Pinned plan',
-      date: '2026-09-01',
-      messageCount: 4,
-      excerpt: 'pinned opening',
-    };
-
-    const recentEntry = {
-      title: 'Recent notes',
-      date: '2026-09-02',
-      messageCount: 2,
-      excerpt: 'recent opening',
-    };
-
-    const resolution: RecencyDigestResolution = {
-      baseline: {
-        pinned: [pinnedEntry],
-        recent: [recentEntry],
-        pinnedShown: 1,
-        pinnedTotal: 1,
-        recentShown: 1,
-        recentTotal: 1,
-        compiledOn: '2026-09-03',
-      },
-      candidates: [
-        { chatId: 'pinned-chat', pinned: true, entry: pinnedEntry },
-        { chatId: 'recent-chat', pinned: false, entry: recentEntry },
-      ],
-    };
-
-    const toldPinned = {
-      chatId: 'pinned-chat',
-      pinned: true,
-      title: 'Pinned plan',
-    };
-
-    const toldRecent = {
-      chatId: 'recent-chat',
-      pinned: false,
-      title: 'Recent notes',
-    };
-
-    function sharingOptions(
-      systemPromptTemplate: string,
-      extra: ExecutionServiceOptions = {},
-    ): ExecutionServiceOptions {
-      return {
-        ...extra,
-        model: { ...testModelEntry, systemPromptTemplate },
-        memory: {
-          getForOwnerForBinding: vi
-            .fn<MemorySettingsBindingResolver['getForOwnerForBinding']>()
-            .mockResolvedValue({ shareRecentChats: true }),
-        },
-        recencyDigest: {
-          resolveCandidate: vi
-            .fn<RecencyDigestResolver['resolveCandidate']>()
-            .mockResolvedValue(resolution),
-        },
-      };
-    }
-
-    async function initialize(options: ExecutionServiceOptions) {
-      const setBaseline = vi
-        .spyOn(ChatsRepository.prototype, 'setRecencyDigestIfAbsent')
-        .mockResolvedValue(undefined);
-
-      mockNormalExecutionRepositories();
-
-      const execution = makeExecutionService(
-        createFakeModelClient(['answer']),
-        undefined,
-        undefined,
-        options,
-      );
-
-      const result = await execution.service.executeRun(
-        executionInput(execution.client),
-      );
-
-      await expect(result.text).resolves.toBe('answer');
-      expect(setBaseline).toHaveBeenCalledTimes(1);
-
-      return setBaseline.mock.calls[0];
-    }
-
-    it('initializes an empty told-set when neither surface renders the digest', async () => {
-      const [, , baseline, told] = await initialize(
-        sharingOptions('Stable system prompt'),
-      );
-
-      expect(baseline).toEqual(resolution.baseline);
-      expect(told).toEqual([]);
-    });
-
-    it('initializes no told entry from aggregate counts alone', async () => {
-      const [, , , told] = await initialize(
-        sharingOptions(
-          'Shows {{chats.pinnedShown}} of {{chats.pinnedTotal}} pinned.{{#if chats.recent}} Some are recent.{{/if}}',
-        ),
-      );
-
-      expect(told).toEqual([]);
-    });
-
-    it('initializes the told-set from the entries the system prompt emitted', async () => {
-      const [, , , told] = await initialize(
-        sharingOptions('Base.{{#each chats.recent}} {{title}}{{/each}}'),
-      );
-
-      expect(told).toEqual([toldRecent]);
-    });
-
-    it('initializes the told-set from a tool description when it is the only disclosure', async () => {
-      const tmpDir = mkdtempSync(path.join(tmpdir(), 'digest-tool-only-'));
-      writeFileSync(
-        path.join(tmpDir, 'bash-digest.md'),
-        'Run commands.{{#each chats.pinned}} Related: {{title}}.{{/each}}',
-      );
-
-      const [, , , told] = await initialize(
-        sharingOptions('Stable system prompt', {
-          allowed: ['bash'],
-          configPath: path.join(tmpDir, 'llame.config.json'),
-          toolPromptFiles: { bash: 'bash-digest.md' },
-        }),
-      );
-
-      expect(told).toEqual([toldPinned]);
-    });
-
-    async function continueRefreshedEpoch(
-      systemPromptTemplate: string,
-      state: {
-        told?: NonNullable<Chat['recencyDigestTold']>;
-        pinnedChatIds?: ReadonlyArray<string>;
-      } = {},
-    ) {
-      const repositories = mockNormalExecutionRepositories();
-      // A checkpoint refresh published this baseline and reset the told-set;
-      // unless `state.told` says otherwise, nothing was dispatched against it.
-      vi.spyOn(ChatsRepository.prototype, 'findById').mockResolvedValue({
-        ...chat,
-        recencyDigestBaseline: resolution.baseline,
-        recencyDigestTold: state.told ?? [],
-        recencyDigestRebakedFrom: '55555555-5555-4555-8555-555555555555',
-      });
-      vi.spyOn(
-        ChatsRepository.prototype,
-        'findPinnedChatIds',
-      ).mockResolvedValue(new Set(state.pinnedChatIds ?? ['pinned-chat']));
-
-      const updateRecencyDigestTold = vi
-        .spyOn(ChatsRepository.prototype, 'updateRecencyDigestTold')
-        .mockResolvedValue(undefined);
-
-      const execution = makeExecutionService(
-        createFakeModelClient(['answer']),
-        undefined,
-        undefined,
-        sharingOptions(systemPromptTemplate),
-      );
-
-      const result = await execution.service.executeRun(
-        executionInput(execution.client),
-      );
-
-      await expect(result.text).resolves.toBe('answer');
-
-      const digestItems = stagedItemsOf(
-        repositories.storeAtDispatch,
-        'recency-digest',
-      );
-
-      return { updateRecencyDigestTold, digestItems };
-    }
-
-    it('does not re-announce a refreshed baseline the request renders, and advances nothing', async () => {
-      const { updateRecencyDigestTold, digestItems } =
-        await continueRefreshedEpoch(
-          'Base.{{#each chats.pinned}} {{title}}{{/each}}{{#each chats.recent}} {{title}}{{/each}}',
-        );
-
-      expect(digestItems).toEqual([]);
-      expect(updateRecencyDigestTold).not.toHaveBeenCalled();
-    });
-
-    it('appends only the refreshed entries the request did not render, with its rendered ones', async () => {
-      const { updateRecencyDigestTold, digestItems } =
-        await continueRefreshedEpoch(
-          'Base.{{#each chats.pinned}} {{title}}{{/each}}',
-        );
-
-      expect(digestItems).toHaveLength(1);
-      expect(JSON.stringify(digestItems)).toContain('Recent notes');
-      expect(JSON.stringify(digestItems)).not.toContain('Pinned plan');
-      expect(updateRecencyDigestTold).toHaveBeenCalledWith(chatId, userId, [
-        toldPinned,
-        toldRecent,
-      ]);
-    });
-
-    it('keeps the pin state an earlier append told over the baseline it contradicts', async () => {
-      // An earlier append told the model the pinned chat was unpinned; the
-      // immutable baseline still lists it as pinned.
-      const { updateRecencyDigestTold, digestItems } =
-        await continueRefreshedEpoch(
-          'Base.{{#each chats.pinned}} {{title}}{{/each}}{{#each chats.recent}} {{title}}{{/each}}',
-          { told: [{ ...toldPinned, pinned: false }], pinnedChatIds: [] },
-        );
-
-      expect(digestItems).toEqual([]);
-      expect(updateRecencyDigestTold).not.toHaveBeenCalled();
-    });
   });
   it('freezes the resolved skill baseline and records its told set when the turn completes', async () => {
     const baseline: SkillCatalogBaseline = {
@@ -13753,44 +13852,6 @@ describe('RunExecutionService executeRun — context preparation', () => {
     ).rejects.toThrow(/Parse error/);
   });
 
-  it('wraps a system-prompt render failure into a generic message once a digest baseline is in scope', async () => {
-    const baseline: RecencyDigestResolution['baseline'] = {
-      pinned: [],
-      recent: [],
-      pinnedShown: 0,
-      pinnedTotal: 0,
-      recentShown: 0,
-      recentTotal: 0,
-      compiledOn: '2026-09-01',
-    };
-
-    const resolveCandidate = vi
-      .fn<RecencyDigestResolver['resolveCandidate']>()
-      .mockResolvedValue({ baseline, candidates: [] });
-
-    const getForOwnerForBinding = vi
-      .fn<MemorySettingsBindingResolver['getForOwnerForBinding']>()
-      .mockResolvedValue({ shareRecentChats: true });
-
-    mockNormalExecutionRepositories();
-    const capturing = makeCapturingClient();
-
-    const execution = makeExecutionService(
-      capturing.client,
-      undefined,
-      undefined,
-      {
-        memory: { getForOwnerForBinding },
-        recencyDigest: { resolveCandidate },
-        model: { ...testModelEntry, systemPromptTemplate: 'Hello {{#if' },
-      },
-    );
-
-    await expect(
-      execution.service.executeRun(executionInput(capturing.client)),
-    ).rejects.toThrow('Failed to render system prompt');
-  });
-
   it('renders the packaged description for an admitted code-owned tool-prompt id', async () => {
     mockNormalExecutionRepositories();
     const capturing = makeCapturingClient();
@@ -15218,12 +15279,12 @@ describe('RunExecutionService executeRun — pre-step compaction trigger', () =>
 
       const { execution } = await executeTriggerCase({
         client,
-        triggerSeq: 2,
+        triggerSeq: 3,
         historyRows: [
           ...committedTurn({
             contextTokens: triggerThreshold - continuation,
           }),
-          { ...userMessage, seq: 2 },
+          { ...userMessage, seq: 3 },
         ],
       });
 
@@ -15921,18 +15982,22 @@ describe('RunExecutionService executeRun — pre-step compaction trigger', () =>
       // No checkpoint is active when the trigger runs; the pass after the
       // publication sees the row it just committed, whose later timestamp
       // re-anchors the prompt.
-      spies.findActiveCheckpoint
-        .mockResolvedValueOnce(undefined)
-        .mockResolvedValue(
-          activeCheckpoint({ uptoSeq: 2, createdAt: checkpointInstant }),
-        );
-      vi.spyOn(MessagesRepository.prototype, 'findByChatId')
-        .mockResolvedValueOnce([
-          ...committedTurn({ contextTokens: 40_000 }),
-          triggerTurn(),
-        ])
-        .mockResolvedValue([{ ...userMessage, seq: 3 }]);
       const publication = serveCheckpointPublication();
+      spies.findActiveCheckpoint.mockImplementation(() =>
+        Promise.resolve(
+          publication.create.mock.calls.length === 0
+            ? undefined
+            : activeCheckpoint({ uptoSeq: 2, createdAt: checkpointInstant }),
+        ),
+      );
+      vi.spyOn(MessagesRepository.prototype, 'findByChatId').mockImplementation(
+        () =>
+          Promise.resolve(
+            publication.create.mock.calls.length === 0
+              ? [...committedTurn({ contextTokens: 40_000 }), triggerTurn()]
+              : [triggerTurn()],
+          ),
+      );
       const thresholdCapture = triggerClient();
       const windowCapture = makeWideningClient();
 
@@ -16274,15 +16339,19 @@ describe('RunExecutionService executeRun — pre-step compaction trigger', () =>
       .spyOn(Logger.prototype, 'error')
       .mockImplementation(() => undefined);
 
-    const resolveCandidate = vi
-      .fn<RecencyDigestResolver['resolveCandidate']>()
-      .mockRejectedValue(new Error('secret excerpt'));
+    const recencyDigest: RecencyDigestResolver = {
+      resolveCandidate: vi
+        .fn<RecencyDigestResolver['resolveCandidate']>()
+        .mockRejectedValue(new Error('secret excerpt')),
+      deriveChanges: vi.fn(),
+      renderBaseline: vi.fn(),
+    };
 
     const { publication } = await executeTriggerCase({
       historyRows: publicationHistory(),
       summary: checkpointSummary(2),
       shareRecentChats: true,
-      recencyDigest: { resolveCandidate },
+      recencyDigest,
     });
 
     expect(loggerError).toHaveBeenCalledWith(
@@ -16290,123 +16359,100 @@ describe('RunExecutionService executeRun — pre-step compaction trigger', () =>
     );
     expect(publication.create).toHaveBeenCalledTimes(1);
   });
-  it('does not resolve or rebake a digest when publication consent is off', async () => {
-    const setRecencyDigest = vi
-      .spyOn(ChatsRepository.prototype, 'setRecencyDigest')
-      .mockResolvedValue(undefined);
 
-    const resolveCandidate = vi
-      .fn<RecencyDigestResolver['resolveCandidate']>()
-      .mockResolvedValue({
-        baseline: digestBaseline,
-        candidates: [],
-      });
+  it('carries a frozen digest baseline across a consent-disabled checkpoint without querying sources', async () => {
+    const sourceId = '44444444-4444-4444-8444-444444444444';
 
-    const rebakedChat = {
-      ...chat,
-      recencyDigestBaseline: digestBaseline,
-      recencyDigestTold: [],
+    const announced = [
+      {
+        chatId: sourceId,
+        pinned: false,
+        title: 'Previously authorized source',
+        workspace: 'unbound',
+      },
+    ];
+
+    const carriedBaseline = createRecencyDigestItem({
+      runId,
+      payload: {
+        version: 1,
+        kind: 'baseline',
+        announced,
+        association: { kind: 'origin', chatId },
+      },
+      body: 'Previously authorized digest body',
+    });
+
+    const resolveCandidate = vi.fn().mockResolvedValue({
+      rows: [],
+      announced: [],
+      pinnedShown: 0,
+      pinnedTotal: 0,
+      recentShown: 0,
+      recentTotal: 0,
+      compiledOn: '2026-09-01',
+    });
+
+    const createMessage = vi
+      .spyOn(MessagesRepository.prototype, 'create')
+      .mockResolvedValue(userMessage);
+
+    const capturing = makeCapturingClient();
+
+    const client = Object.assign(capturing.client, {
+      compactionThresholdTokens: triggerThreshold,
+    });
+
+    const recencyDigest: RecencyDigestResolver = {
+      resolveCandidate,
+      deriveChanges: vi.fn(),
+      renderBaseline: vi.fn().mockReturnValue('Private source excerpt'),
     };
 
-    await executeTriggerCase({
-      historyRows: publicationHistory(),
+    const { spies, publication } = await executeTriggerCase({
+      historyRows: [
+        ...committedTurn({
+          contextTokens: 40_000,
+          parts: [{ type: 'text', text: 'earlier question' }, carriedBaseline],
+        }),
+        triggerTurn(),
+      ],
       summary: checkpointSummary(2),
-      initialChat: rebakedChat,
-      touchChat: rebakedChat,
       shareRecentChats: false,
-      recencyDigest: { resolveCandidate },
+      recencyDigest,
+      client,
     });
 
-    // This assertion is intentionally on the candidate read: removing the
-    // publication guard would resolve owner chat titles while consent is off.
+    expect(publication.create).toHaveBeenCalledTimes(1);
     expect(resolveCandidate).not.toHaveBeenCalled();
-    expect(setRecencyDigest).not.toHaveBeenCalled();
-  });
 
-  it('does not rebake a recency digest when the chat has no baseline', async () => {
-    const setRecencyDigest = vi
-      .spyOn(ChatsRepository.prototype, 'setRecencyDigest')
-      .mockResolvedValue(undefined);
+    const companion = createMessage.mock.calls.find((call) =>
+      call[0].parts.some(
+        (part) =>
+          isContextItemPart(part) && part.data.producer === 'recency-digest',
+      ),
+    )?.[0]?.parts[0];
 
-    const rebakedChat = { ...chat, recencyDigestBaseline: null };
-
-    const resolveCandidate = vi
-      .fn<RecencyDigestResolver['resolveCandidate']>()
-      .mockResolvedValue({
-        baseline: digestBaseline,
-        candidates: [],
-      });
-
-    await executeTriggerCase({
-      historyRows: publicationHistory(),
-      summary: checkpointSummary(2),
-      initialChat: rebakedChat,
-      touchChat: rebakedChat,
-      shareRecentChats: true,
-      recencyDigest: { resolveCandidate },
+    expect(isContextItemPart(companion) && companion.data.payload).toEqual({
+      version: 1,
+      kind: 'baseline',
+      announced,
+      association: { kind: 'checkpoint', checkpointId: publishedCheckpointId },
     });
-
-    expect(setRecencyDigest).not.toHaveBeenCalled();
-  });
-
-  it('rebakes a recency digest baseline after checkpoint publication without pre-marking it told', async () => {
-    const setRecencyDigest = vi
-      .spyOn(ChatsRepository.prototype, 'setRecencyDigest')
-      .mockResolvedValue(undefined);
-
-    const updateRecencyDigestTold = vi
-      .spyOn(ChatsRepository.prototype, 'updateRecencyDigestTold')
-      .mockResolvedValue(undefined);
-
-    const rebakedChat = {
-      ...chat,
-      recencyDigestBaseline: digestBaseline,
-      recencyDigestTold: [],
-    };
-
-    const entry = {
-      title: 'Fresh source',
-      date: '2026-09-02',
-      messageCount: 3,
-    };
-
-    const refreshed = {
-      ...digestBaseline,
-      recent: [entry],
-      recentShown: 1,
-      recentTotal: 1,
-    };
-
-    const resolveCandidate = vi
-      .fn<RecencyDigestResolver['resolveCandidate']>()
-      .mockResolvedValue({
-        baseline: refreshed,
-        candidates: [{ chatId: 'fresh-source', pinned: false, entry }],
-      });
-
-    await executeTriggerCase({
-      historyRows: publicationHistory(),
-      summary: checkpointSummary(2),
-      initialChat: rebakedChat,
-      touchChat: rebakedChat,
-      shareRecentChats: true,
-      recencyDigest: { resolveCandidate },
-    });
-
-    // The checkpoint precedes the request that may disclose the refreshed
-    // baseline, so the new epoch starts with nothing told.
-    expect(setRecencyDigest).toHaveBeenCalledWith({
-      chatId,
-      ownerUserId: userId,
-      baseline: refreshed,
-      told: [],
-      rebakedFrom: publishedCheckpointId,
-    });
-    // This prompt renders no digest, so the entry stays eligible and enters
-    // through the request's own append instead.
-    expect(updateRecencyDigestTold).toHaveBeenCalledWith(chatId, userId, [
-      { chatId: 'fresh-source', pinned: false, title: 'Fresh source' },
-    ]);
+    expect(isContextItemPart(companion) && companion.data.text).toContain(
+      'Previously authorized digest body',
+    );
+    expect(JSON.stringify(capturing.streamOptions().messages)).not.toContain(
+      'Private source',
+    );
+    expect(
+      spies.storeAtDispatch.mock.calls
+        .at(-1)?.[0]
+        .items.some(
+          (part) =>
+            isContextItemPart(part) && part.data.producer === 'recency-digest',
+        ),
+    ).toBe(false);
   });
 
   it('rebakes the skill baseline and copies its told names after publication', async () => {
@@ -17717,9 +17763,9 @@ describe('RunExecutionService executeRun — context window and late tool result
 
     repositories.findActiveCheckpoint.mockResolvedValue(checkpoint);
 
-    const findByChatId = vi
-      .spyOn(MessagesRepository.prototype, 'findByChatId')
-      .mockResolvedValue([]);
+    vi.spyOn(MessagesRepository.prototype, 'findByChatId').mockResolvedValue(
+      [],
+    );
 
     recordAppendedEvents();
     const capturing = makeCapturingClient();
@@ -17732,15 +17778,6 @@ describe('RunExecutionService executeRun — context window and late tool result
         seq: 9,
         parts: [{ type: 'text', text: 'hello' }],
       },
-    });
-    expect(repositories.findActiveCheckpoint).toHaveBeenCalledWith(
-      chatId,
-      userId,
-      { beforeSeq: 9 },
-    );
-    expect(findByChatId).toHaveBeenCalledWith(chatId, userId, {
-      maxSeq: 9,
-      sinceSeq: 4,
     });
 
     // The checkpoint's stored text is the only replayed history: one user
@@ -17795,32 +17832,6 @@ describe('RunExecutionService executeRun — context window and late tool result
       'failed',
       expect.objectContaining({ error: modelContextError }),
     );
-  });
-
-  it('reads the whole history when the chat has never been compacted', async () => {
-    mockNormalExecutionRepositories();
-
-    const findByChatId = vi
-      .spyOn(MessagesRepository.prototype, 'findByChatId')
-      .mockResolvedValue([]);
-
-    recordAppendedEvents();
-    const capturing = makeCapturingClient();
-    const execution = makeExecutionService(capturing.client);
-
-    await execution.service.executeRun({
-      ...executionInput(capturing.client),
-      userMessage: {
-        id: messageId,
-        seq: 9,
-        parts: [{ type: 'text', text: 'hello' }],
-      },
-    });
-
-    expect(findByChatId).toHaveBeenCalledWith(chatId, userId, {
-      maxSeq: 9,
-      sinceSeq: undefined,
-    });
   });
 
   it('ignores a tool result that arrives after termination already settled the call', async () => {
@@ -18014,16 +18025,6 @@ function activeCheckpoint(input: {
   };
 }
 
-const digestBaseline: RecencyDigestResolution['baseline'] = {
-  pinned: [],
-  recent: [],
-  pinnedShown: 0,
-  pinnedTotal: 0,
-  recentShown: 0,
-  recentTotal: 0,
-  compiledOn: '2026-09-01',
-};
-
 /** One attempt against a chat whose last dispatched turn is `dispatched`, with
  * `checkpoint` the active row. Runs to a committed turn. */
 async function executeAvailabilityAttempt(input: {
@@ -18188,10 +18189,6 @@ describe('RunExecutionService runtime-context lifecycle', () => {
   it('stages the items with their form and commits the observed availability', async () => {
     const repositories = mockNormalExecutionRepositories();
 
-    const updateRecencyDigestTold = vi
-      .spyOn(ChatsRepository.prototype, 'updateRecencyDigestTold')
-      .mockResolvedValue(undefined);
-
     const execution = makeExecutionService(
       createFakeModelClient(['answer']),
       undefined,
@@ -18229,8 +18226,6 @@ describe('RunExecutionService runtime-context lifecycle', () => {
     // And the model is told what changed: no dispatched predecessor, so this
     // is the epoch's initial disclosure.
     expect(availability?.data.payload).toMatchObject(initialAvailability);
-    // A turn that disclosed no digest advances no told state.
-    expect(updateRecencyDigestTold).not.toHaveBeenCalled();
   });
 
   it('places the staged context text ahead of the user text on the triggering message', async () => {
@@ -19301,226 +19296,7 @@ describe('RunExecutionService runtime-context lifecycle', () => {
     }
   });
 
-  it('stages the rebake marker on the first turn of a re-baked epoch', async () => {
-    const compactionId = '77777777-7777-4777-8777-777777777777';
-    const repositories = mockNormalExecutionRepositories();
-    vi.spyOn(ChatsRepository.prototype, 'findById').mockResolvedValue({
-      ...chat,
-      recencyDigestBaseline: digestBaseline,
-      recencyDigestTold: [],
-      recencyDigestRebakedFrom: compactionId,
-    });
-    repositories.findActiveCheckpoint.mockResolvedValue(
-      activeCheckpoint({ uptoSeq: 1, createdAt: now, id: compactionId }),
-    );
-    vi.spyOn(ChatsRepository.prototype, 'findPinnedChatIds').mockResolvedValue(
-      new Set(),
-    );
-    vi.spyOn(
-      ChatsRepository.prototype,
-      'updateRecencyDigestTold',
-    ).mockResolvedValue(undefined);
-
-    const getForOwnerForBinding = vi
-      .fn<MemorySettingsBindingResolver['getForOwnerForBinding']>()
-      .mockResolvedValue({ shareRecentChats: true });
-
-    const resolveCandidate = vi
-      .fn<RecencyDigestResolver['resolveCandidate']>()
-      .mockResolvedValue({
-        baseline: digestBaseline,
-        candidates: [],
-      });
-
-    const execution = makeExecutionService(
-      createFakeModelClient(['answer']),
-      undefined,
-      undefined,
-      {
-        memory: { getForOwnerForBinding },
-        recencyDigest: { resolveCandidate },
-      },
-    );
-
-    const result = await execution.service.executeRun(
-      executionInput(execution.client),
-    );
-
-    await expect(result.text).resolves.toBe('answer');
-
-    // The re-bake is reported under the digest producer's snapshot form.
-    expect(
-      stagedItemsOf(repositories.storeAtDispatch, 'recency-digest').map(
-        (item) => item.data.form,
-      ),
-    ).toContain('snapshot');
-  });
-
-  it('withholds the rebake marker from a chat with no baseline to supersede', async () => {
-    const compactionId = '77777777-7777-4777-8777-777777777777';
-    const repositories = mockNormalExecutionRepositories();
-    vi.spyOn(ChatsRepository.prototype, 'findById').mockResolvedValue({
-      ...chat,
-      recencyDigestBaseline: null,
-      recencyDigestRebakedFrom: compactionId,
-    });
-    repositories.findActiveCheckpoint.mockResolvedValue(
-      activeCheckpoint({ uptoSeq: 1, createdAt: now, id: compactionId }),
-    );
-    vi.spyOn(
-      ChatsRepository.prototype,
-      'setRecencyDigestIfAbsent',
-    ).mockResolvedValue({ ...chat, recencyDigestBaseline: digestBaseline });
-
-    const getForOwnerForBinding = vi
-      .fn<MemorySettingsBindingResolver['getForOwnerForBinding']>()
-      .mockResolvedValue({ shareRecentChats: true });
-
-    const resolveCandidate = vi
-      .fn<RecencyDigestResolver['resolveCandidate']>()
-      .mockResolvedValue({
-        baseline: digestBaseline,
-        candidates: [],
-      });
-
-    const execution = makeExecutionService(
-      createFakeModelClient(['answer']),
-      undefined,
-      undefined,
-      {
-        memory: { getForOwnerForBinding },
-        recencyDigest: { resolveCandidate },
-      },
-    );
-
-    const result = await execution.service.executeRun(
-      executionInput(execution.client),
-    );
-
-    await expect(result.text).resolves.toBe('answer');
-
-    // The chat has no disclosed baseline, so there is nothing to supersede.
-    expect(
-      stagedItemsOf(repositories.storeAtDispatch, 'recency-digest').map(
-        (item) => item.data.form,
-      ),
-    ).not.toContain('snapshot');
-  });
-
-  it('discards a resolved digest candidate when its baseline moved underneath it', async () => {
-    const resolveCandidate = vi
-      .fn<RecencyDigestResolver['resolveCandidate']>()
-      .mockResolvedValue({
-        baseline: digestBaseline,
-        candidates: [],
-      });
-
-    const getForOwnerForBinding = vi
-      .fn<MemorySettingsBindingResolver['getForOwnerForBinding']>()
-      .mockResolvedValue({ shareRecentChats: true });
-
-    mockNormalExecutionRepositories();
-    // The chat row is re-read after resolution; here a checkpoint re-baked the
-    // baseline in between, so the candidate describes a superseded epoch.
-    vi.spyOn(ChatsRepository.prototype, 'findById')
-      .mockResolvedValueOnce(chat)
-      .mockResolvedValueOnce({
-        ...chat,
-        recencyDigestBaseline: { ...digestBaseline, compiledOn: '2026-09-02' },
-      });
-
-    const setBaseline = vi
-      .spyOn(ChatsRepository.prototype, 'setRecencyDigestIfAbsent')
-      .mockResolvedValue({ ...chat, recencyDigestBaseline: digestBaseline });
-
-    const execution = makeExecutionService(
-      createFakeModelClient(['answer']),
-      undefined,
-      undefined,
-      {
-        memory: { getForOwnerForBinding },
-        recencyDigest: { resolveCandidate },
-      },
-    );
-
-    const result = await execution.service.executeRun(
-      executionInput(execution.client),
-    );
-
-    await expect(result.text).resolves.toBe('answer');
-
-    expect(setBaseline).not.toHaveBeenCalled();
-  });
-
-  it('discloses no digest delta for a chat with no baseline to diff against', async () => {
-    const updateRecencyDigestTold = vi
-      .spyOn(ChatsRepository.prototype, 'updateRecencyDigestTold')
-      .mockResolvedValue(undefined);
-
-    const setBaseline = vi
-      .spyOn(ChatsRepository.prototype, 'setRecencyDigestIfAbsent')
-      .mockResolvedValue({ ...chat, recencyDigestBaseline: digestBaseline });
-
-    vi.spyOn(ChatsRepository.prototype, 'findPinnedChatIds').mockResolvedValue(
-      new Set(),
-    );
-    mockNormalExecutionRepositories();
-    vi.spyOn(ChatsRepository.prototype, 'findById').mockResolvedValue({
-      ...chat,
-      recencyDigestBaseline: null,
-      recencyDigestTold: [{ chatId: 'a', pinned: true, title: 'Earlier chat' }],
-    });
-
-    const resolveCandidate = vi
-      .fn<RecencyDigestResolver['resolveCandidate']>()
-      .mockResolvedValue({
-        baseline: digestBaseline,
-        candidates: [
-          {
-            chatId: 'b',
-            pinned: false,
-            entry: {
-              title: 'Newly active chat',
-              date: '2026-09-02',
-              messageCount: 3,
-            },
-          },
-        ],
-      });
-
-    const getForOwnerForBinding = vi
-      .fn<MemorySettingsBindingResolver['getForOwnerForBinding']>()
-      .mockResolvedValue({ shareRecentChats: true });
-
-    const execution = makeExecutionService(
-      createFakeModelClient(['answer']),
-      undefined,
-      undefined,
-      {
-        memory: { getForOwnerForBinding },
-        recencyDigest: { resolveCandidate },
-      },
-    );
-
-    const result = await execution.service.executeRun(
-      executionInput(execution.client),
-    );
-
-    await expect(result.text).resolves.toBe('answer');
-
-    // The epoch still initializes from the candidate, telling only what its
-    // renders disclosed: this baseline lists no entry...
-    expect(setBaseline).toHaveBeenCalledWith(
-      chatId,
-      userId,
-      digestBaseline,
-      [],
-    );
-    // ...but with no baseline to diff against, nothing is disclosed as a delta.
-    expect(updateRecencyDigestTold).not.toHaveBeenCalled();
-  });
-
-  it('publishes no winning-turn baseline from a settlement that did not complete', async () => {
+  it('does not write the skill baseline for a failed settlement', async () => {
     const repositories = mockNormalExecutionRepositories();
     vi.spyOn(RunsRepository.prototype, 'markFinished').mockResolvedValue({
       ...run,
@@ -19529,10 +19305,6 @@ describe('RunExecutionService runtime-context lifecycle', () => {
     vi.spyOn(RunEventsRepository.prototype, 'listByRunId').mockResolvedValue(
       [],
     );
-
-    const setDigest = vi
-      .spyOn(ChatsRepository.prototype, 'setRecencyDigestIfAbsent')
-      .mockResolvedValue({ ...chat, recencyDigestBaseline: digestBaseline });
 
     const setSkillBaseline = vi
       .spyOn(ChatsRepository.prototype, 'setSkillCatalogBaseline')
@@ -19551,7 +19323,6 @@ describe('RunExecutionService runtime-context lifecycle', () => {
       userId,
       runId,
       status: 'failed' as const,
-      recencyDigestInitialization: { baseline: digestBaseline, told: [] },
       skillCatalogFreeze: {
         baseline: { entries: [], omitted: 0 },
         rebakedFrom: null,
@@ -19565,7 +19336,6 @@ describe('RunExecutionService runtime-context lifecycle', () => {
     expect(finishCall?.[2]).toBe('failed');
     expect(finishCall?.[3]).not.toHaveProperty('turnToolAvailability');
     expect(repositories.storeAtDispatch).not.toHaveBeenCalled();
-    expect(setDigest).not.toHaveBeenCalled();
     expect(setSkillBaseline).not.toHaveBeenCalled();
     expect(updateSkillTold).not.toHaveBeenCalled();
   });
@@ -19803,26 +19573,6 @@ describe('RunExecutionService runtime-context lifecycle', () => {
     // explicit undefined: absent is what renders no catalog section.
     const [renderInput] = render.mock.calls[0] ?? [];
     expect(renderInput).not.toHaveProperty('skills');
-  });
-
-  it('reports a digest render failure without exposing the renderer error', async () => {
-    const loggerError = vi.spyOn(Logger.prototype, 'error');
-    mockNormalExecutionRepositories();
-    vi.spyOn(ChatsRepository.prototype, 'findById').mockResolvedValue({
-      ...chat,
-      recencyDigestBaseline: digestBaseline,
-    });
-    vi.spyOn(SystemPromptsService.prototype, 'render').mockImplementation(
-      () => {
-        throw new Error('owner digest text');
-      },
-    );
-    const execution = makeExecutionService();
-
-    await expect(
-      execution.service.executeRun(executionInput(execution.client)),
-    ).rejects.toThrow('Failed to render system prompt');
-    expect(loggerError).toHaveBeenCalledWith('recency_digest_render_failed');
   });
 
   it('lets a renderer error through untouched when no digest is rendered', async () => {
@@ -21070,13 +20820,12 @@ describe('RunExecutionService instruction files', () => {
         { ...userMessage, seq: 2 },
       ];
 
-      const findByChatId = vi
-        .spyOn(MessagesRepository.prototype, 'findByChatId')
-        .mockImplementation((_chatId, _userId, options) =>
+      vi.spyOn(MessagesRepository.prototype, 'findByChatId').mockImplementation(
+        (_chatId, _userId, options) =>
           Promise.resolve(
             history.filter((row) => row.seq > (options?.sinceSeq ?? 0)),
           ),
-        );
+      );
 
       const { client } = readThenAnswerClient(touch);
 
@@ -21101,10 +20850,6 @@ describe('RunExecutionService instruction files', () => {
         expect(repositories.createAssistantReplyIfAbsent).toHaveBeenCalled(),
       );
 
-      expect(findByChatId).toHaveBeenCalledWith(chatId, userId, {
-        maxSeq: 2,
-        sinceSeq: 1,
-      });
       // The item is gone from effective history: the accepted turn reloads
       // the file for its first request.
       expect(instructionItems(repositories)).toHaveLength(1);
@@ -26288,30 +26033,7 @@ describe('RunExecutionService executeRun — run segments', () => {
     expect(types).not.toContain('run.compaction_failed');
   });
 
-  it('freezes the baselines the answering target rendered across a final-answer wait', async () => {
-    const firstBaseline: RecencyDigestResolution['baseline'] = {
-      pinned: [],
-      recent: [],
-      pinnedShown: 0,
-      pinnedTotal: 0,
-      recentShown: 0,
-      recentTotal: 0,
-      compiledOn: '2026-09-01',
-    };
-
-    const wakeBaseline: RecencyDigestResolution['baseline'] = {
-      ...firstBaseline,
-      compiledOn: '2026-09-02',
-    };
-
-    const resolveCandidate = vi
-      .fn<RecencyDigestResolver['resolveCandidate']>()
-      .mockResolvedValue({ baseline: firstBaseline, candidates: [] });
-
-    const getForOwnerForBinding = vi
-      .fn<MemorySettingsBindingResolver['getForOwnerForBinding']>()
-      .mockResolvedValue({ shareRecentChats: true });
-
+  it('keeps the quota boundary tied to its answering target across a final-answer wait', async () => {
     const spies = mockNormalExecutionRepositories();
     spies.findById.mockResolvedValue({
       ...run,
@@ -26344,14 +26066,6 @@ describe('RunExecutionService executeRun — run segments', () => {
       'stepEndSignal',
     ).mockResolvedValue('delivery');
 
-    const setBaseline = vi
-      .spyOn(ChatsRepository.prototype, 'setRecencyDigestIfAbsent')
-      .mockResolvedValue({
-        ...chat,
-        recencyDigestBaseline: firstBaseline,
-        recencyDigestTold: [],
-      });
-
     const appended = recordAppendedEvents();
     serveCheckpointPublication();
 
@@ -26367,11 +26081,7 @@ describe('RunExecutionService executeRun — run segments', () => {
       realClient.client,
       undefined,
       undefined,
-      {
-        runWait: asDouble<RunWaitService>({ suspendForQuota }),
-        memory: { getForOwnerForBinding },
-        recencyDigest: { resolveCandidate },
-      },
+      { runWait: asDouble<RunWaitService>({ suspendForQuota }) },
     );
 
     const summarize = vi.spyOn(execution.compaction, 'computeBoundarySummary');
@@ -26407,18 +26117,6 @@ describe('RunExecutionService executeRun — run segments', () => {
     if (firstSummary === undefined)
       throw new Error('The suspended summary request is absent.');
 
-    expect(suspendForQuota.mock.lastCall?.[0].baselines).toMatchObject({
-      recencyDigestInitialization: {
-        baseline: firstBaseline,
-        told: [],
-      },
-    });
-
-    // A newer baseline resolves during the wait, but the target never saw it.
-    resolveCandidate.mockResolvedValue({
-      baseline: wakeBaseline,
-      candidates: [],
-    });
     serveSummaryReceipt(() => firstSummary.system);
     replayAppendedEvents(appended);
 
@@ -26438,20 +26136,12 @@ describe('RunExecutionService executeRun — run segments', () => {
         resumeAt: 'finalAnswer',
         waitCount: 1,
         ...resumedSummaryWait(firstSummary),
-        baselines: suspendForQuota.mock.lastCall?.[0].baselines,
       },
       quotaWake: true,
     });
     await expect(execution.service.executeRun(request)).rejects.toBeInstanceOf(
       RunNotRunnableError,
     );
-
-    expect(setBaseline).toHaveBeenCalledOnce();
-    expect(setBaseline.mock.calls[0]?.slice(0, 3)).toEqual([
-      chatId,
-      userId,
-      firstBaseline,
-    ]);
   });
 
   it('marks compaction failure when delivery disappears at the boundary', async () => {
@@ -27693,69 +27383,6 @@ describe('RunExecutionService executeRun — run segments', () => {
       continued.mock.calls.filter(([, , type]) => type === 'run.continued'),
     ).toHaveLength(1);
     expect(spies.markStarted).toHaveBeenCalledTimes(1);
-  });
-
-  it('passes the first-epoch digest baseline through final-answer delivery', async () => {
-    mockNormalExecutionRepositories();
-    vi.spyOn(
-      RunsRepository.prototype,
-      'findDispatchedBaselineForTurn',
-    ).mockResolvedValue(undefined);
-
-    const baseline: RecencyDigestResolution['baseline'] = {
-      pinned: [],
-      recent: [],
-      pinnedShown: 0,
-      pinnedTotal: 0,
-      recentShown: 0,
-      recentTotal: 0,
-      compiledOn: '2026-09-01',
-    };
-
-    const resolveCandidate = vi
-      .fn<RecencyDigestResolver['resolveCandidate']>()
-      .mockResolvedValue({ baseline, candidates: [] });
-
-    const setBaseline = vi
-      .spyOn(ChatsRepository.prototype, 'setRecencyDigestIfAbsent')
-      .mockResolvedValue({ ...chat, recencyDigestBaseline: baseline });
-
-    const signal = vi.spyOn(
-      ChatDeliveriesRepository.prototype,
-      'stepEndSignal',
-    );
-
-    const segment = makeSegmentClient();
-
-    const execution = makeExecutionService(
-      segment.client,
-      makeDynamicResolver({
-        id: toolDeclaration.id,
-        description: toolDeclaration.description,
-        classification: 'unverified',
-        inputSchema: toolDeclaration.inputSchema,
-        execute: () => Promise.resolve({ status: 'success' as const }),
-      }),
-      undefined,
-      {
-        ...withDeclaredTool(),
-        memory: {
-          getForOwnerForBinding: vi
-            .fn<MemorySettingsBindingResolver['getForOwnerForBinding']>()
-            .mockResolvedValue({ shareRecentChats: true }),
-        },
-        recencyDigest: { resolveCandidate },
-      },
-    );
-
-    await execution.service.executeRun(executionInput(segment.client));
-    const options = segment.calls[0];
-    signal.mockResolvedValueOnce('delivery');
-    await options?.stopWhenExtra?.();
-    serveDelivery([pendingItem]);
-    await options?.onFinish?.(finishToolCalls);
-
-    expect(setBaseline).toHaveBeenCalledWith(chatId, userId, baseline, []);
   });
 
   it('carries a compaction quote when the boundary input has no text', async () => {
@@ -31155,10 +30782,6 @@ describe('RunExecutionService suspendCompactionForQuota', () => {
       userMessage,
     );
 
-    const baselines = {
-      recencyDigestInitialization: { baseline: digestBaseline, told: [] },
-    };
-
     const parts = [{ type: 'text' as const, text: 'kept answer prefix' }];
 
     const stoppedCalls = [
@@ -31185,7 +30808,6 @@ describe('RunExecutionService suspendCompactionForQuota', () => {
         boundaryMode: 'owner',
         summaryAttemptId: 'source-summary-attempt',
         summaryPrefixFingerprint: 'source-prefix-fingerprint',
-        baselines,
         superseded,
       }),
     ).toBe(true);
@@ -31224,7 +30846,6 @@ describe('RunExecutionService suspendCompactionForQuota', () => {
       boundaryMode: 'owner',
       summaryAttemptId: 'source-summary-attempt',
       summaryPrefixFingerprint: 'source-prefix-fingerprint',
-      baselines,
     });
     const wakeAt = enqueueInTransaction.mock.lastCall?.[2]?.startAfter;
 
@@ -32095,18 +31716,17 @@ describe('RunExecutionService compaction aborts', () => {
           await digestGate;
 
           return {
-            baseline: {
-              pinned: [],
-              recent: [],
-              pinnedShown: 0,
-              pinnedTotal: 0,
-              recentShown: 0,
-              recentTotal: 0,
-              compiledOn: '2026-11-16',
-            },
-            candidates: [],
+            rows: [],
+            announced: [],
+            pinnedShown: 0,
+            pinnedTotal: 0,
+            recentShown: 0,
+            recentTotal: 0,
+            compiledOn: '2026-11-16',
           };
         }),
+        deriveChanges: vi.fn(),
+        renderBaseline: vi.fn().mockReturnValue(''),
       },
     });
 
@@ -32247,11 +31867,11 @@ describe('RunExecutionService compaction digest resolution', () => {
           .fn()
           .mockResolvedValue({ shareRecentChats: true }),
       },
-      recencyDigest: {
-        resolveCandidate: vi
-          .fn()
+      recencyDigest: resolverFor(
+        vi
+          .fn<RecencyDigestResolver['resolveCandidate']>()
           .mockRejectedValue(new Error('digest unavailable')),
-      },
+      ),
     });
 
     mockCompactionCompletionFence(execution, fenced);
@@ -32297,7 +31917,7 @@ describe('RunExecutionService compaction digest resolution', () => {
           .fn()
           .mockResolvedValue({ shareRecentChats: false }),
       },
-      recencyDigest: { resolveCandidate },
+      recencyDigest: resolverFor(resolveCandidate),
     });
 
     mockCompactionCompletionFence(execution, fenced);
@@ -33848,8 +33468,15 @@ describe('a send that breaks after a started tool call', () => {
       MessagesRepository.prototype,
       'createUserMessageIfAbsent',
     ).mockResolvedValue(delivered);
-    vi.spyOn(MessagesRepository.prototype, 'findById').mockResolvedValue(
-      delivered,
+    vi.spyOn(MessagesRepository.prototype, 'findById').mockImplementation(
+      (_chatId, _ownerId, id) =>
+        Promise.resolve(
+          id === delivered.id
+            ? delivered
+            : id === userMessage.id
+              ? userMessage
+              : undefined,
+        ),
     );
     // The delivered turn's history: the closed reply the delivery stored,
     // then the owner's message that starts the new segment.
@@ -34471,35 +34098,9 @@ describe('a send that breaks after a started tool call', () => {
     async (wire) => {
       const lookup = deferredTool(LOOKUP_TOOL);
 
-      const baseline: RecencyDigestResolution['baseline'] = {
-        pinned: [],
-        recent: [],
-        pinnedShown: 0,
-        pinnedTotal: 0,
-        recentShown: 0,
-        recentTotal: 0,
-        compiledOn: '2026-09-01',
-      };
-
-      const resolveCandidate = vi
-        .fn<RecencyDigestResolver['resolveCandidate']>()
-        .mockResolvedValue({ baseline, candidates: [] });
-
-      const setBaseline = vi
-        .spyOn(ChatsRepository.prototype, 'setRecencyDigestIfAbsent')
-        .mockResolvedValue(chat);
-
-      const getForOwnerForBinding = vi
-        .fn<MemorySettingsBindingResolver['getForOwnerForBinding']>()
-        .mockResolvedValue({ shareRecentChats: true });
-
       const { appended, requests, drained } = await startAndDrain({
         wire,
         tools: toolset(lookup),
-        catalog: {
-          recencyDigest: { resolveCandidate },
-          memory: { getForOwnerForBinding },
-        },
         arrange: (repositories) => {
           vi.spyOn(
             ChatDeliveriesRepository.prototype,
@@ -34545,14 +34146,6 @@ describe('a send that breaks after a started tool call', () => {
       expect(JSON.stringify(delivered)).not.toContain(
         'TRAILING TEXT MUST NOT SURVIVE',
       );
-      // The delivery closes a successful turn, so it establishes the
-      // first-epoch baselines that turn's own request rendered. Two writes
-      // prove it: the delivery's, then the delivered segment's terminal one.
-      expect(setBaseline).toHaveBeenCalledTimes(2);
-
-      for (const call of setBaseline.mock.calls) {
-        expect(call.slice(0, 3)).toEqual([chatId, userId, baseline]);
-      }
     },
   );
 

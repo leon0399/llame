@@ -14,6 +14,7 @@ spec:
   - agent-skills
   - personalization
   - model-system-prompts
+  - chat-recency-digest
 configured_by:
   - ../operator/native-files.md
   - ../operator/knowledge.md
@@ -21,6 +22,7 @@ configured_by:
   - ../operator/tool-prompts.md
   - ../operator/tool-call-permissions.md
   - ../operator/repositories.md
+  - ../operator/conversation-recall.md
 ---
 
 # Context documents
@@ -44,6 +46,7 @@ each row owns the rule.
 | Prompt import            | a marker in your message                                                                                                   | left as text in the imported body                                  | one `prompt-imports` item before your text                                                                    |
 | Skill instructions       | you write `$name` in the message                                                                                           | expanded, package-local only                                       | one `skill-activation` item: the `SKILL.md` body, then imported file blocks                                   |
 | Skill import             | a marker in that frontmatter-free body                                                                                     | expanded the same way, package-local, up to five hops              | a file block after the skill body in that `skill-activation` item                                             |
+| Recency digest           | the owner opts in to sharing other Chats                                                                                   | none                                                               | baseline and notice context items on the reminder rail                                                        |
 
 On the first dispatch of an accepted turn, the document items that apply are
 stored on your message in this order, each in its own block, and your text
@@ -104,6 +107,40 @@ omit Project items and selection-event payloads. Instructions and metadata are
 shared with the configured provider. An edit or deletion does not erase earlier
 messages, items, events, or provider copies. Do not store secrets in Project
 instructions.
+
+## Recency digest
+
+An opted-in Chat receives a baseline on its first enabled dispatch. The
+baseline and later notices are persisted as context items on the reminder rail,
+not in the system prompt or tool descriptions. A baseline uses the shared
+owner-Chat row: title, locator, activity date, message count, canonical
+Workspace root or `unbound`, and opening and latest visible-text excerpts. The
+Workspace binding comes from stored affinity. The digest does not probe a
+Machine or grant access to the root. Each excerpt is capped at 100 Unicode
+code points after whitespace collapse. The opening excerpt comes from the
+first user message; the latest can include assistant text. If both excerpts
+come from one message, the row shows it once. The baseline lists at most 10
+pinned and 10 recent unpinned Chats. Run status is excluded.
+Comparison state is derived from effective persisted items, not dedicated
+digest columns. Unknown imported Workspace affinity is not `unbound`; it stays
+unknown until an enabled checkpoint refreshes the baseline.
+Ordinary items and imported comparison state are bound to their origin or
+checkpoint epoch. A later checkpoint excludes stale items from an unabsorbed
+trigger's replay without rewriting that trigger's stored parts.
+
+Digest text frames the row contents as untrusted data below system instructions
+and the owner's request. Delimiter integrity is enforced, but semantic
+precedence depends on model compliance. The owner can inspect the exact
+persisted item text in their Chat. A system-only prompt receipt records only the
+system prompt and does not show digest items. Public shares and shared forks
+omit digest items and comparison state.
+
+Disabling sharing stops new baselines, refreshes, and notices. Existing items
+continue to replay. Disabled compaction carries only the frozen baseline,
+without sources or notices. Compaction summaries exclude digest items by
+instruction, not by structural filtering. See
+[Conversation recall](../operator/conversation-recall.md) for consent and
+upgrade procedure.
 
 ## The same marker, three importers
 

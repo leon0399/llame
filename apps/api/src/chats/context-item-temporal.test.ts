@@ -275,6 +275,7 @@ describe('temporal rows in assembled context', () => {
       systemPrompt,
       modelId: 'test-model',
       checkpoint: {
+        id: 'checkpoint-1',
         text: 'earlier history',
         absorbedThroughSeq: 2,
       },

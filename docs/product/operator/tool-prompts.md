@@ -69,17 +69,17 @@ sanitized before projection.
 
 ### Values
 
-| Path                                                                                                                       | Contents                            |
-| -------------------------------------------------------------------------------------------------------------------------- | ----------------------------------- |
-| `{{model.id}}`, `{{model.name}}`                                                                                           | The selected model                  |
-| `{{user.name}}`, `{{user.email}}`                                                                                          | Owner account identity              |
-| `{{user.personalization.preferredName}}`, `{{user.personalization.about}}`, `{{user.personalization.responsePreferences}}` | Owner-authored personalization      |
-| `{{chats.pinnedShown}}`, `{{chats.pinnedTotal}}`, `{{chats.recentShown}}`, `{{chats.recentTotal}}`, `{{chats.compiledOn}}` | Recency-digest counts and bake date |
-| `{{context.systemTime}}`, `{{context.systemTimezone}}`                                                                     | Temporal anchor — always present    |
+| Path                                                                                                                       | Contents                        |
+| -------------------------------------------------------------------------------------------------------------------------- | ------------------------------- |
+| `{{model.id}}`, `{{model.name}}`                                                                                           | The selected model              |
+| `{{user.name}}`, `{{user.email}}`                                                                                          | Owner account identity          |
+| `{{user.personalization.preferredName}}`, `{{user.personalization.about}}`, `{{user.personalization.responsePreferences}}` | Owner-authored personalization  |
+| `{{context.systemTime}}`, `{{context.systemTimezone}}`                                                                     | Temporal anchor, always present |
 
-These paths render empty when a value is absent (no digest baseline for this
-Chat, nothing configured on the owner), so `{{#if user.name}}…{{/if}}` is
-expressible. Any other path fails validation instead of rendering empty.
+These allowlisted values render empty when absent. Any other path fails
+validation instead of rendering empty. The `chats` namespace is retired, so
+remove all `chats.*` references from system-prompt and tool-description
+overrides. Digest content is carried by context items, not templates.
 
 ### Conditionals
 
@@ -88,8 +88,6 @@ never be emitted as a value:
 
 - `user` — true when any owner value would render.
 - `user.personalization` — true when any authored field would render.
-- `chats`, `chats.pinned`, `chats.recent` — true when that digest content is
-  present.
 - `skills` — true when the Chat's frozen skill catalog admits at least one
   skill. System-prompt templates only: a tool description never receives the
   catalog, so `{{#if skills}}` is always false there.
@@ -110,15 +108,10 @@ Predicates are conditional-only and exact: `{{tools.read}}`, `{{#if tools}}`,
 `{{#if ../tools.read}}` are all rejected, as are prototype names such as
 `tools.constructor`.
 
-Owner and digest values resolve per attempt; nothing rendered is shared between
-attempts, owners, or Chats.
+Owner values resolve per attempt. Digest baselines and notices do not use
+template values; they replay from stored context items.
 
 ### Iteration
-
-`{{#each chats.pinned}}` and `{{#each chats.recent}}` iterate digest entries.
-An entry exposes `{{title}}`, `{{date}}`, `{{messageCount}}`, and `{{excerpt}}`
-and nothing else. A loop's `{{else}}` arm renders when the collection is absent.
-Iteration does not nest.
 
 A system-prompt template can also iterate `{{#each skills.entries}}`: the
 Chat's frozen skill catalog, in catalog order, where an entry exposes `{{name}}`

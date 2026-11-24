@@ -602,28 +602,6 @@ describe('quota wake projection', () => {
   });
 });
 
-const digestBaseline = {
-  pinned: [],
-  recent: [
-    {
-      title: 'Earlier chat',
-      date: '2026-10-01',
-      messageCount: 4,
-      excerpt: 'A prior turn',
-    },
-  ],
-  pinnedShown: 0,
-  pinnedTotal: 0,
-  recentShown: 1,
-  recentTotal: 1,
-  compiledOn: '2026-10-01T00:00:00.000Z',
-};
-
-const recencyBaseline = {
-  baseline: digestBaseline,
-  told: [{ chatId: 'chat-a', pinned: false, title: 'Earlier chat' }],
-};
-
 const skillBaseline = {
   baseline: {
     entries: [{ name: 'review', description: 'Reviews a diff' }],
@@ -824,7 +802,6 @@ describe('quota checkpoint metadata projection', () => {
     stepBudgetUsed: 12,
     summaryAttemptId: 'summary-attempt',
     summaryPrefixFingerprint: 'sha256:prefix',
-    baselines: { recencyDigestInitialization: recencyBaseline },
     stoppedCalls: [{ toolName: 'bash', toolCallId: 'call-1' }],
   };
 
@@ -839,7 +816,6 @@ describe('quota checkpoint metadata projection', () => {
       stepBudgetUsed: 12,
       summaryAttemptId: 'summary-attempt',
       summaryPrefixFingerprint: 'sha256:prefix',
-      baselines: { recencyDigestInitialization: recencyBaseline },
       stoppedCalls: [{ toolName: 'bash', toolCallId: 'call-1' }],
     });
   });
@@ -860,7 +836,6 @@ describe('quota checkpoint metadata projection', () => {
       stepBudgetUsed: 12,
       summaryAttemptId: 'summary-attempt',
       summaryPrefixFingerprint: 'sha256:prefix',
-      baselines: { recencyDigestInitialization: recencyBaseline },
     });
   });
 

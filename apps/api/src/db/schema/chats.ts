@@ -51,37 +51,6 @@ export type AwaitingQuota = {
 
 export type RunAwaiting = AwaitingJobs | AwaitingQuota;
 
-export type RecencyDigestEntry = {
-  title: string;
-  date: string;
-  messageCount: number;
-  excerpt?: string;
-};
-
-/** Frozen prompt inputs. Deliberately excludes chat identifiers. */
-export type RecencyDigestBaseline = {
-  pinned: Array<RecencyDigestEntry>;
-  recent: Array<RecencyDigestEntry>;
-  pinnedShown: number;
-  pinnedTotal: number;
-  recentShown: number;
-  recentTotal: number;
-  compiledOn: string;
-};
-
-/**
- * Internal event bookkeeping; this is never passed to prompt rendering.
- *
- * `title` is optional only while old JSONB rows from the baseline layer remain
- * readable. Their pin corrections fail closed instead of emitting anonymous
- * events, because the model cannot attribute one to a previously announced chat.
- */
-export type RecencyDigestToldEntry = {
-  chatId: string;
-  pinned: boolean;
-  title?: string;
-};
-
 /** One admitted skill entry in the frozen prompt baseline. */
 export type SkillCatalogBaselineEntry = {
   name: string;
@@ -139,26 +108,6 @@ export const chats = pgTable(
     projectId: uuid('project_id').references(() => projects.id, {
       onDelete: 'set null',
     }),
-    // NULL means this chat has never entered a sharing epoch. No backfill: old
-    // chats must not disclose history until their owner accepts the setting.
-    recencyDigestBaseline: jsonb(
-      'recency_digest_baseline',
-    ).$type<RecencyDigestBaseline>(),
-    recencyDigestTold: jsonb('recency_digest_told').$type<
-      Array<RecencyDigestToldEntry>
-    >(),
-    // Set only when compaction actually re-resolves the baseline. This is the
-    // durable event record for the one-shot supersession marker; checkpoint
-    // rows exist even when re-resolution is correctly skipped.
-    //
-    // Deliberately carries NO foreign key to a checkpoint message. A checkpoint
-    // row references its chat, so a reference back would make the two records
-    // mutually dependent and put a cycle on the shipped chat-deletion path. The
-    // constraint would buy nothing: a dangling id fails safe, because the only
-    // read compares it for equality with the active checkpoint's id and a stale
-    // value simply never matches, which withholds the marker rather than
-    // asserting a re-bake that did not happen.
-    recencyDigestRebakedFrom: uuid('recency_digest_rebaked_from'),
     // The frozen `skills` prompt projection (system-provided-skills D4).
     // NULL means this chat has never resolved a baseline; an instance with no
     // configured skill source never writes one, so a chat that never had skills
@@ -166,10 +115,9 @@ export const chats = pgTable(
     skillCatalogBaseline: jsonb(
       'skill_catalog_baseline',
     ).$type<SkillCatalogBaseline>(),
-    // The checkpoint message id the baseline was resolved under. Same deliberate
-    // absence of a foreign key as `recencyDigestRebakedFrom`: a stale value
-    // simply never matches the active checkpoint, so it re-resolves rather
-    // than asserting a re-bake that did not happen.
+    // The checkpoint message id the baseline was resolved under. It has no
+    // foreign key by design: a stale id fails closed and triggers a re-resolve
+    // instead of asserting that a re-bake happened.
     skillCatalogRebakedFrom: uuid('skill_catalog_rebaked_from'),
     // Names of the advertised entries this chat was last TOLD about (D6).
     // Names only: an addition renders the entry's CURRENT description, so a

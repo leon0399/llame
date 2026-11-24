@@ -19,6 +19,7 @@ const MESSAGE: ChatReadMessage = {
   chatId: CHAT_ID,
   seq: 7,
   role: 'assistant',
+  senderUserId: null,
   parts: [],
   usage: null,
   createdAt: new Date('2026-01-01T00:00:00.000Z'),

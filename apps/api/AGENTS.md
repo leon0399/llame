@@ -174,10 +174,10 @@ function keeps its parameters.
   explicit boolean rather than relying on Handlebars truthiness for a number,
   since zero must be falsy and a `SafeString` wrapping an empty string is
   truthy.
-- `user`, `chats`, `skills`, `model`, `context`, and `tools` are reserved names
-  and are never supplied to a packaged rail template; the operator surfaces
-  keep those projections. A rail item is frozen into `messages.parts`, so
-  personalization must never be rendered into one.
+- `user`, `chats`, `skills`, `model`, `context`, and `tools` remain reserved
+  names in packaged rail templates. Operator templates retain `user`, `skills`,
+  `model`, `context`, and `tools`; `chats.*` is retired and fails startup.
+  A rail item is frozen into `messages.parts`, so personalization stays outside it.
 - Packaged templates compile with `noEscape`: the engine escapes nothing and
   every mustache renders raw. The producer keeps calling
   `sanitizeAuthoredText` on exactly the values it neutralizes today, before the
@@ -237,9 +237,10 @@ are a hard API/worker revision boundary. Specs:
 [memory](../../openspec/specs/memory/spec.md), and
 [recency digest](../../openspec/specs/chat-recency-digest/spec.md).
 
-`shareRecentChats` defaults off. Consent must state together: enabling scans
-existing chats; disabling does not remove already-bound baselines; deleting a
-source chat does not erase copies in prompts, appends, or receipts.
+`shareRecentChats` defaults off. Consent covers existing eligible Chats, their
+opening and latest assistant excerpts, and canonical Workspace bindings.
+Withdrawal stops new disclosure. Deletion and withdrawal leave earlier digest
+items, read observations, and historical prompt receipts intact.
 
 ## Tool schemas and MCP
 

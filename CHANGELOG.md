@@ -31,6 +31,16 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   not part of this reader release.
   Bootstrap diagnostics and YAML warnings do not echo configuration source;
   malformed YAML still rejects startup.
+- Store recency-digest baselines and notices as owner-only context items on the
+  reminder rail, not in system prompts or tool descriptions. Shared Chat rows
+  disclose the `chat://` locator, canonical Workspace affinity, and bounded
+  opening and latest visible-text excerpts, with no Run status. Owners inspect
+  the exact persisted text in their Chat; system-only prompt receipts do not
+  contain digest items. Disabled compaction carries only the frozen baseline,
+  without source reads or notices. `shareRecentChats` remains off by default;
+  enabling is retroactive, and disabling or deleting a source does not erase
+  prior disclosure. Digest selection and ratios exclude untitled Chats; each
+  newly announced row identifies its pinned or recent membership.
 
 # 2026-11-23
 
