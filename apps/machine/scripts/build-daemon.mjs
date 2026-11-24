@@ -30,6 +30,17 @@ function requireRustup() {
   }
 }
 
+/** ring's C code is freestanding; the host compiler can build it for the
+ * host musl target. Cross-architecture builds need their own CC_<target>.
+ * @param {string} target */
+function compilerEnv(target) {
+  const key = `CC_${target.replaceAll("-", "_")}`;
+
+  if (process.env[key] !== undefined || target !== hostTarget()) return {};
+
+  return { [key]: process.env["CC"] ?? "cc" };
+}
+
 /** @param {string} target */
 function build(target) {
   execFileSync(
@@ -43,7 +54,7 @@ function build(target) {
       "--target",
       target,
     ],
-    { cwd: repo, stdio: "inherit" },
+    { cwd: repo, stdio: "inherit", env: { ...process.env, ...compilerEnv(target) } },
   );
   const built = join(repo, "target", target, "release", "llame-machine");
   const out = join(app, "dist", target);
