@@ -56,6 +56,24 @@ describe('RunsController context receipt', () => {
     createdAt: new Date('2026-07-18T09:59:59.000Z'),
   };
 
+  const requestedEvent: RunEvent = {
+    runId: run.id,
+    sequence: 4,
+    eventType: 'model.requested',
+    payload: {
+      modelId: 'custom:anthropic:sonnet',
+      effort: 'high',
+      attemptId: promptReceipt.attemptId,
+    },
+    createdAt: new Date('2026-07-18T09:59:58.000Z'),
+  };
+
+  beforeEach(() => {
+    vi.spyOn(RunEventsRepository.prototype, 'listByRunId').mockResolvedValue(
+      [],
+    );
+  });
+
   afterEach(() => vi.restoreAllMocks());
 
   function controller(wakeInTransaction = vi.fn().mockResolvedValue(false)) {
@@ -111,6 +129,9 @@ describe('RunsController context receipt', () => {
       SystemPromptReceiptsRepository.prototype,
       'findByOwnedRun',
     ).mockResolvedValue([promptReceipt]);
+    vi.spyOn(RunEventsRepository.prototype, 'listByRunId').mockResolvedValue([
+      requestedEvent,
+    ]);
 
     const receipt = await controller().getContextReceipt('owner', run.id);
 
@@ -121,6 +142,8 @@ describe('RunsController context receipt', () => {
       receipts: [
         {
           attemptId: promptReceipt.attemptId,
+          modelId: 'custom:anthropic:sonnet',
+          effort: 'high',
           promptSource: 'model_override',
           systemPrompt: 'Complete effective prompt',
           promptHash: 'prompt-hash',
@@ -381,6 +404,9 @@ describe('RunsController context receipt', () => {
       receipts: [
         {
           attemptId: promptReceipt.attemptId,
+          // No `model.requested` event is stored for this attempt, so the
+          // receipt falls back to the Run's own model rather than inventing one.
+          modelId: attemptedRun.modelId,
           promptSource: promptReceipt.source,
           systemPrompt: promptReceipt.systemPrompt,
           promptHash: promptReceipt.promptHash,

@@ -12,7 +12,7 @@ import { systemPromptReceipts } from '../db/schema';
 import { TenantDbService } from '../db/tenant-db.service';
 import { isString } from '@workspace/runtime-safety';
 import { cookieOf, expectRegisteredUserId } from '../testing/support';
-import { RunsRepository } from './runs-repository';
+import { RunEventsRepository, RunsRepository } from './runs-repository';
 
 describe('GET /api/v1/runs/:id/context-receipt', () => {
   let app: INestApplication<Server>;
@@ -138,6 +138,19 @@ describe('GET /api/v1/runs/:id/context-receipt', () => {
         },
       ]),
     );
+    await tenantDb.runAs(ownerId, async (tx) => {
+      const events = new RunEventsRepository(tx);
+
+      await events.append(run.id, 'model.requested', {
+        modelId: 'custom:anthropic:sonnet',
+        effort: 'high',
+        attemptId: firstAttemptId,
+      });
+      await events.append(run.id, 'model.requested', {
+        modelId: 'custom:openai:gpt',
+        attemptId: secondAttemptId,
+      });
+    });
     await tenantDb.runAs(ownerId, (tx) =>
       new RunsRepository(tx).markFinished(run.id, ownerId, 'completed', {
         attemptId: secondAttemptId,
@@ -157,12 +170,15 @@ describe('GET /api/v1/runs/:id/context-receipt', () => {
       receipts: [
         {
           attemptId: firstAttemptId,
+          modelId: 'custom:anthropic:sonnet',
+          effort: 'high',
           promptSource: 'project_default',
           systemPrompt: 'First effective prompt',
           promptHash: 'first-prompt-hash',
         },
         {
           attemptId: secondAttemptId,
+          modelId: 'custom:openai:gpt',
           promptSource: 'model_override',
           systemPrompt: 'Second effective prompt',
           promptHash: 'second-prompt-hash',

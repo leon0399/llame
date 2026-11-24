@@ -161,6 +161,7 @@ import {
   type MessagePart,
   type StoredMessage,
 } from '../chats/context-builder';
+import { createToolCallIdMap } from '../chats/tool-call-ids';
 import { projectStoredToolPart } from '../chats/tool-observation-part';
 import { WorkspaceBindingRepository } from '../chats/workspace-binding.repository';
 import { PromptImportPartsRepository } from '../chats/prompt-import-parts.repository';
@@ -4228,6 +4229,89 @@ describe('RunExecutionService executeRun', () => {
       expect(appended).toContainEqual({
         type: 'run.cancelled',
         payload: { status: 'cancelled' },
+      });
+    });
+
+    function serveRepeatedHistoryId(): void {
+      const priorCall = {
+        type: 'tool-search_conversations',
+        toolCallId: 'call_0',
+        state: 'output-available',
+        input: { query: 'prior' },
+        output: { status: 'success', value: 'prior result' },
+        outcome: 'success',
+      };
+
+      mockNormalExecutionRepositories();
+      vi.spyOn(MessagesRepository.prototype, 'findByChatId').mockResolvedValue([
+        { ...assistantMessage, seq: 1, parts: [priorCall] },
+        { ...userMessage, seq: 2, parts: [{ type: 'text', text: 'again' }] },
+      ]);
+      vi.spyOn(
+        RunsRepository.prototype,
+        'findDispatchedBaselineForTurn',
+      ).mockResolvedValue(undefined);
+    }
+
+    function repeatedIdExecution(notice: AuthoredContextItemPart) {
+      const { client, requests } = createToolLoopClient([
+        providerToolCallInput(toolDeclaration.id, 'call_0', { q: 'first' }),
+        providerText('answer'),
+      ]);
+
+      const executor: Tool = {
+        id: toolDeclaration.id,
+        description: toolDeclaration.description,
+        classification: 'unverified',
+        inputSchema: toolDeclaration.inputSchema,
+        execute: () => ({ status: 'success' as const }),
+      };
+
+      const execution = makeExecutionService(
+        client,
+        makeDynamicResolver(executor),
+        undefined,
+        {
+          ...withDeclaredTool(),
+          inRunProducer: stepProducer((step) => {
+            if (step.stepNumber === 1) step.stage(notice);
+          }),
+        },
+      );
+
+      return { client, execution, requests };
+    }
+
+    async function runAfterRepeatedHistoryId(notice: AuthoredContextItemPart) {
+      serveRepeatedHistoryId();
+      const { client, execution, requests } = repeatedIdExecution(notice);
+
+      const result = await execution.service.executeRun({
+        ...executionInput(client),
+        userMessage: {
+          id: messageId,
+          seq: 2,
+          parts: [{ type: 'text' as const, text: 'again' }],
+        },
+      });
+
+      await expect(result.text).resolves.toBe('answer');
+
+      return requests;
+    }
+
+    it('keeps an in-Run anchor beside a call renamed for a reused history id', async () => {
+      const notice = workspaceNotice(runId);
+      const requests = await runAfterRepeatedHistoryId(notice);
+      const prompt = requests.at(-1) ?? [];
+
+      expect(prompt.at(-2)).toMatchObject({
+        role: 'tool',
+        content: [{ type: 'tool-result', toolCallId: 'call_0' }],
+      });
+      expect(prompt.at(-1)).toMatchObject({
+        role: 'user',
+        content: [{ type: 'text', text: notice.data.text }],
       });
     });
 
@@ -18214,6 +18298,38 @@ describe('RunExecutionService runtime-context lifecycle', () => {
     ).toEqual([]);
   });
 
+  it('A failover item stops a second switch item', async () => {
+    // The triggering message is the host message of a switch from
+    // `older-model` to `other-model`; this segment runs on `fake-model`, and
+    // the stored `failover` item already names the turn's transition.
+    const storedFailover = createModelChangeItem({
+      oldModel: { id: 'older-model' },
+      newModel: { id: 'other-model' },
+      runId,
+      failureClass: 'overloaded',
+    });
+
+    const repositories = mockNormalExecutionRepositories();
+    repositories.findLatestReplyModelId.mockImplementation(
+      replyModelBefore(1, 'other-model'),
+    );
+
+    const execution = makeExecutionService(createFakeModelClient(['answer']));
+
+    await execution.service.executeRun({
+      ...executionInput(execution.client),
+      userMessage: {
+        id: messageId,
+        seq: 1,
+        parts: [storedFailover, { type: 'text', text: 'hello' }],
+      },
+    });
+
+    expect(
+      stagedItemsOf(repositories.storeAtDispatch, 'effective-context-change'),
+    ).toEqual([]);
+  });
+
   /**
    * A Regenerate attempt over a turn whose earlier Run dispatched and stored a
    * model switch and a notice: `turnToolAvailability` is `null` for this Run's
@@ -18228,11 +18344,13 @@ describe('RunExecutionService runtime-context lifecycle', () => {
       client?: ModelClient;
       /** The `run.created` payload admission recorded. */
       created?: { chatId: string; messageId: string; notice?: true };
+      /** The model the turn's latest reply records, as the switch left it. */
+      replyModelId?: string;
     } = {},
   ) {
     const repositories = mockNormalExecutionRepositories();
     repositories.findLatestReplyModelId.mockImplementation(
-      replyModelBefore(1, 'other-model'),
+      replyModelBefore(1, options.replyModelId ?? 'other-model'),
     );
     repositories.findById.mockResolvedValue({
       ...run,
@@ -18327,6 +18445,49 @@ describe('RunExecutionService runtime-context lifecycle', () => {
       placement: 'append',
       removeModelSwitch: true,
     });
+  });
+
+  it('A Regenerate of a switch turn', async () => {
+    // The latest turn is the host message of a switch from `codex` to
+    // `other-model`; the reply the switch closed records `codex`, the model
+    // that ran before the switch. This Regenerate removes the stored
+    // `failover` item and stores the transition from that prior model to its
+    // own.
+    const storedFailover = createModelChangeItem({
+      oldModel: { id: 'codex' },
+      newModel: { id: 'other-model' },
+      runId,
+      failureClass: 'overloaded',
+    });
+
+    const capturing = makeCapturingClient();
+
+    const repositories = await executeRegenerate(null, {
+      client: capturing.client,
+      triggerParts: [storedFailover, { type: 'text', text: 'hello' }],
+      replyModelId: 'codex',
+    });
+
+    const [modelChange] = stagedItemsOf(
+      repositories.storeAtDispatch,
+      'effective-context-change',
+    );
+
+    expect(modelChange?.data.payload).toEqual({
+      cause: 'model',
+      fromModelId: 'codex',
+      toModelId: 'fake-model',
+    });
+    expect(repositories.storeAtDispatch.mock.calls.at(-1)?.[0]).toMatchObject({
+      placement: 'append',
+      removeModelSwitch: true,
+    });
+
+    // The request carries the replacement, not the stored failover item.
+    const sent = JSON.stringify(capturing.streamOptions().messages);
+    expect(sent).toContain('hello');
+    expect(sent).toContain('codex');
+    expect(sent).not.toContain('overloaded');
   });
 
   it("keeps a retry's stored switch item and notice on a Regenerate", async () => {
@@ -22982,6 +23143,31 @@ describe('RunExecutionService retained read media', () => {
     return found;
   }
 
+  /** Every tool-call id the request's assistant parts name, in request order. */
+  function promptToolCallIds(prompt: RequestPrompt | undefined): Array<string> {
+    const found: Array<string> = [];
+
+    const visit = (value: unknown): void => {
+      if (Array.isArray(value)) {
+        value.forEach(visit);
+
+        return;
+      }
+
+      if (!isRecord(value)) return;
+
+      if (value['type'] === 'tool-call' && isString(value['toolCallId'])) {
+        found.push(value['toolCallId']);
+      }
+
+      for (const nested of Object.values(value)) visit(nested);
+    };
+
+    visit(prompt);
+
+    return found;
+  }
+
   /**
    * A valid one-page PDF whose single content stream is `streamBytes` bytes of
    * a PDF comment: the page count parses, and the file is large enough for a
@@ -23260,6 +23446,101 @@ describe('RunExecutionService retained read media', () => {
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
+  });
+
+  it("gives a Continue Run's repeated tool-call id its own wire id", async () => {
+    // Both halves of one request carry `call_0`: the settled call in the
+    // history, and the kept step of this Continue Run — two providers that
+    // number ids per response. One request must not name an id twice (D13).
+    const priorCall = {
+      type: 'tool-search_conversations',
+      toolCallId: 'call_0',
+      state: 'output-available',
+      input: { query: 'prior' },
+      output: { status: 'success', value: 'PRIOR_RESULT' },
+      outcome: 'success',
+    };
+
+    const keptCall = {
+      ...priorCall,
+      input: { query: 'kept' },
+      output: { status: 'success', value: 'KEPT_RESULT' },
+    };
+
+    serveRepositories();
+    bindChat(repoRoot());
+    vi.spyOn(
+      RunEventsRepository.prototype,
+      'findFirstByType',
+    ).mockImplementation((_runId, _userId, eventType) =>
+      Promise.resolve(
+        eventType === 'run.created'
+          ? {
+              sequence: 1,
+              runId,
+              eventType,
+              payload: { chatId, messageId, replacesUsage: true },
+              createdAt: now,
+            }
+          : eventType === 'run.continued'
+            ? {
+                sequence: 2,
+                runId,
+                eventType,
+                payload: {
+                  sourceRunId: runId,
+                  parts: [keptCall],
+                  steps: { call_0: 0 },
+                  results: {},
+                },
+                createdAt: now,
+              }
+            : undefined,
+      ),
+    );
+    vi.spyOn(MessagesRepository.prototype, 'findByChatId').mockResolvedValue([
+      {
+        ...assistantMessage,
+        seq: 1,
+        parts: [priorCall],
+        usage: { status: 'completed', modelId: 'fake-model' },
+      },
+      { ...userMessage, seq: 2, parts: [{ type: 'text', text: 'again' }] },
+    ]);
+    vi.spyOn(
+      RunsRepository.prototype,
+      'findDispatchedBaselineForTurn',
+    ).mockResolvedValue(undefined);
+    vi.spyOn(
+      MessagesRepository.prototype,
+      'updateAssistantReply',
+    ).mockResolvedValue(undefined);
+
+    const { client, model } = readThenAnswerModel([], ['text']);
+
+    const execution = makeExecutionService(client, undefined, 'host-a', {
+      allowed: ['enter_workspace', 'read'],
+    });
+
+    const result = await execution.service.executeRun({
+      ...executionInput(client),
+      userMessage: {
+        id: messageId,
+        seq: 2,
+        parts: [{ type: 'text' as const, text: 'again' }],
+      },
+      followUpAction: 'continue',
+    });
+
+    await expect(result.text).resolves.toBe('answer');
+
+    const ids = promptToolCallIds(model.doStreamCalls[0]?.prompt);
+
+    // The history keeps its id; the kept call moves to a pattern-shaped id
+    // that cannot collide with it.
+    expect(ids).toHaveLength(2);
+    expect(ids[0]).toBe('call_0');
+    expect(ids[1]).toMatch(/^call_0_[0-9a-f]{8}$/);
   });
 
   it('replays each read of a changed file with its own bytes in a later request', async () => {
@@ -30522,6 +30803,7 @@ describe('RunExecutionService quota resume boundaries', () => {
     removesModelSwitch: false,
     triggerParts: undefined,
     historyRows: committedTurn(),
+    toolCallIds: createToolCallIdMap(),
     latestCheckpoint: undefined,
     seenInstructionPaths: new Set<string>(),
     toldGit: { text: undefined, root: undefined },
@@ -31492,12 +31774,95 @@ describe('RunExecutionService wake boundary preparation', () => {
       removesModelSwitch: false,
       triggerParts: undefined,
       historyRows,
+      toolCallIds: createToolCallIdMap(),
       latestCheckpoint: undefined,
       seenInstructionPaths: new Set<string>(),
       toldGit: { text: undefined, root: undefined },
       untitled: false,
     };
   }
+
+  it('normalizes boundary-summary tool ids across history and the current reply', async () => {
+    vi.spyOn(RunsRepository.prototype, 'findById').mockResolvedValue({
+      ...run,
+      activeAttemptId: testAttemptId,
+    });
+
+    const storedCall = {
+      type: 'tool-search_conversations',
+      toolCallId: 'call_0',
+      state: 'output-available',
+      input: { query: 'same call' },
+      output: { status: 'success', value: 'result' },
+      outcome: 'success',
+    };
+
+    const history = committedTurn();
+    const historyUser = history[0];
+    const historyReply = history[1];
+
+    if (historyUser === undefined || historyReply === undefined) {
+      throw new Error('Missing committed history.');
+    }
+
+    const execution = makeExecutionService();
+
+    const context = boundaryContext([
+      historyUser,
+      { ...historyReply, parts: [storedCall] },
+    ]);
+
+    context.toolCallIds.resolve('call_0', true);
+
+    await execution.service['prepareBoundaryCompaction']({
+      run: executionInput(createFakeModelClient(['answer'])),
+      attemptId: testAttemptId,
+      context,
+      prepared: {
+        messages: [
+          {
+            role: 'assistant',
+            content: [
+              {
+                type: 'tool-call',
+                toolCallId: 'call_0',
+                toolName: 'search_conversations',
+                input: { query: 'history' },
+              },
+            ],
+          },
+        ],
+        system: '',
+        untitled: false,
+        toolDeclarations: [],
+        tools: [],
+      },
+      effort: undefined,
+      media: createRunMediaResolver(execution.tenantDb, userId),
+      workspaceRoot: createWorkspaceRootCell('/workspace'),
+      replyParts: [storedCall],
+      keptPartCount: 0,
+      stepBudgetUsed: 1,
+      compactionSet: { ids: ['compact-id'], focus: null },
+    });
+
+    const closedReply =
+      execution.computeBoundarySummary.mock.calls[0]?.[0].closedReply;
+
+    const ids =
+      closedReply?.flatMap((message) => {
+        if (message.role !== 'assistant' || !Array.isArray(message.content)) {
+          return [];
+        }
+
+        return message.content.flatMap((part) =>
+          part.type === 'tool-call' ? [part.toolCallId] : [],
+        );
+      }) ?? [];
+
+    expect(ids).toHaveLength(2);
+    expect(new Set(ids).size).toBe(2);
+  });
 
   it('keeps a non-final wake summary free of final-answer metadata and includes its reply', async () => {
     vi.spyOn(RunsRepository.prototype, 'findById').mockResolvedValue({

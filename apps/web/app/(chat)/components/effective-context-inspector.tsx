@@ -21,6 +21,8 @@ function promptSourceLabel(source: "project_default" | "model_override") {
     : "Project default";
 }
 
+type AttemptReceiptView = RunContextReceipt["receipts"][number];
+
 function EffectiveContextLoading() {
   return (
     <div className="flex items-center justify-center p-6">
@@ -75,16 +77,20 @@ function EffectiveContextMetadata({ data }: { data: RunContextReceipt }) {
   );
 }
 
-function AttemptReceipt({
-  receipt,
-}: {
-  receipt: RunContextReceipt["receipts"][number];
-}) {
+function AttemptReceipt({ receipt }: { receipt: AttemptReceiptView }) {
   return (
     <article className="border p-3">
       <dl className="grid grid-cols-3 gap-x-4 gap-y-1 text-sm [&>dd]:col-span-2">
         <dt className="text-muted-foreground">Attempt</dt>
         <dd className="break-all font-mono text-xs">{receipt.attemptId}</dd>
+        <dt className="text-muted-foreground">Model</dt>
+        <dd className="break-all font-mono">{receipt.modelId}</dd>
+        {receipt.effort !== undefined ? (
+          <>
+            <dt className="text-muted-foreground">Effort</dt>
+            <dd className="break-all font-mono">{receipt.effort}</dd>
+          </>
+        ) : null}
         <dt className="text-muted-foreground">Source</dt>
         <dd>{promptSourceLabel(receipt.promptSource)}</dd>
         <dt className="text-muted-foreground">Hash</dt>

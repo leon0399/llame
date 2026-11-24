@@ -2905,6 +2905,189 @@ describe('buildContext', () => {
       expect(serialized).toContain('SONNET_THOUGHT');
       expect(serialized).not.toContain('GLM_THOUGHT');
     });
+
+    it('a segment after a switch omits the reasoning of the earlier model but keeps its text and settled tool activity', () => {
+      const closedReply = msg({
+        role: 'assistant',
+        // The reply completed on its own model: the switch's `error` close is
+        // not what keeps its reasoning out here.
+        usage: { status: 'completed', complete: true, modelId: 'codex' },
+        parts: [
+          { type: 'reasoning', text: 'CODEX_THOUGHT', providerMetadata },
+          { type: 'text', text: 'The file says 42.' },
+          {
+            type: 'tool-search_conversations',
+            toolCallId: 'call-before-switch',
+            state: 'output-available',
+            input: { query: 'answer' },
+            output: { status: 'success', value: 'SETTLED_RESULT' },
+            outcome: 'success',
+          },
+        ],
+      });
+
+      // The switched segment's request runs on the new model, so the reply the
+      // switch closed is another model's: its reasoning stays out, and its
+      // visible text and settled calls still answer the conversation.
+      const { messages } = buildContext([userMsg1, closedReply], {
+        systemPrompt,
+        modelId: 'sonnet',
+      });
+
+      const serialized = JSON.stringify(messages);
+
+      expect(serialized).not.toContain('CODEX_THOUGHT');
+      expect(serialized).toContain('The file says 42.');
+      expect(serialized).toContain('SETTLED_RESULT');
+      expect(
+        typedContentParts(messages[1].content).filter(
+          (part) => part.type === 'tool-call',
+        ),
+      ).toEqual([{ type: 'tool-call', toolCallId: 'call-before-switch' }]);
+      expect(messages[2]).toMatchObject({
+        role: 'tool',
+        content: [
+          expect.objectContaining({
+            type: 'tool-result',
+            toolCallId: 'call-before-switch',
+          }),
+        ],
+      });
+
+      // On its own model the same completed reply replays its reasoning, so
+      // the drop above is the model rule and not the switch's `error` close.
+      const own = buildContext([userMsg1, closedReply], {
+        systemPrompt,
+        modelId: 'codex',
+      });
+
+      expect(JSON.stringify(own.messages)).toContain('CODEX_THOUGHT');
+    });
+  });
+
+  describe('tool-call ids at the request boundary (D13)', () => {
+    const WIRE_ID = /^[a-zA-Z0-9_-]{1,40}$/;
+
+    const toolPart = (toolCallId: string): MessagePart => ({
+      type: 'tool-search_conversations',
+      toolCallId,
+      state: 'output-available',
+      input: { query: 'q' },
+      output: { status: 'success', value: 'ok' },
+      outcome: 'success',
+    });
+
+    // eslint-disable-next-line anti-slop/no-unknown-parameters -- the fixture forwards each scenario's stored jsonb usage verbatim.
+    const reply = (usage: unknown, parts: Array<MessagePart>): StoredMessage =>
+      msg({ role: 'assistant', usage, parts });
+
+    /** The call id of every assistant tool-call part in request order. */
+    const callIds = (messages: ReadonlyArray<ModelMessage>): Array<string> =>
+      messages.flatMap((message) =>
+        message.role === 'assistant'
+          ? typedContentParts(message.content)
+              .filter((part) => part.type === 'tool-call')
+              .flatMap((part) =>
+                part.toolCallId === undefined ? [] : [part.toolCallId],
+              )
+          : [],
+      );
+
+    it('a foreign id reaches another wire as one pattern-shaped id for the call and its result', () => {
+      const stored = toolPart('call.with.dots');
+
+      const { messages } = buildContext(
+        [userMsg1, reply({ status: 'completed', modelId: 'codex' }, [stored])],
+        { systemPrompt, modelId: 'sonnet' },
+      );
+
+      const [call, result] = messages.slice(1);
+
+      // Both parts of the pair carry the one wire id the mapped form produces.
+      const [wireId] = callIds(messages);
+
+      expect(wireId).toMatch(WIRE_ID);
+      expect(typedContentParts(call.content)).toMatchObject([
+        { type: 'tool-call', toolCallId: wireId },
+      ]);
+      expect(typedContentParts(result.content)).toMatchObject([
+        { type: 'tool-result', toolCallId: wireId },
+      ]);
+      expect(callIds(messages)).toHaveLength(1);
+      // The stored part keeps its original id.
+      expect(stored).toMatchObject({ toolCallId: 'call.with.dots' });
+    });
+
+    it('two ids that differ only outside the pattern stay distinct', () => {
+      const { messages } = buildContext(
+        [
+          userMsg1,
+          reply({ status: 'completed', modelId: 'codex' }, [
+            toolPart('call.1'),
+            toolPart('call:1'),
+          ]),
+        ],
+        { systemPrompt, modelId: 'sonnet' },
+      );
+
+      const ids = callIds(messages);
+
+      expect(ids).toHaveLength(2);
+      expect(ids[0]).toMatch(WIRE_ID);
+      expect(ids[1]).toMatch(WIRE_ID);
+      expect(ids[0]).not.toBe(ids[1]);
+    });
+
+    it('keeps an id the request’s own model produced', () => {
+      const { messages } = buildContext(
+        [
+          userMsg1,
+          reply({ status: 'completed', modelId: 'sonnet' }, [
+            toolPart('call_own'),
+          ]),
+        ],
+        { systemPrompt, modelId: 'sonnet' },
+      );
+
+      expect(callIds(messages)).toEqual(['call_own']);
+      expect(messages[2]).toMatchObject({
+        role: 'tool',
+        content: [
+          expect.objectContaining({
+            type: 'tool-result',
+            toolCallId: 'call_own',
+          }),
+        ],
+      });
+    });
+
+    it('remaps a repeated id an own-model reply produced', () => {
+      const { messages } = buildContext(
+        [
+          userMsg1,
+          reply({ status: 'completed', modelId: 'sonnet' }, [
+            toolPart('call_dup'),
+          ]),
+          userMsg2,
+          reply({ status: 'completed', modelId: 'sonnet' }, [
+            toolPart('call_dup'),
+          ]),
+        ],
+        { systemPrompt, modelId: 'sonnet' },
+      );
+
+      const [first, second] = callIds(messages);
+
+      expect(first).toBe('call_dup');
+      expect(second).toMatch(WIRE_ID);
+      expect(second).not.toBe(first);
+      // The second reply's result follows its call, not the first one's id.
+      const toolMessages = messages.filter(({ role }) => role === 'tool');
+
+      expect(typedContentParts(toolMessages[1].content)).toEqual([
+        { type: 'tool-result', toolCallId: second },
+      ]);
+    });
   });
 });
 

@@ -2277,6 +2277,72 @@ export const ModelSwitchBoundary: Story = {
   },
 };
 
+const MODEL_FAILOVER = contextPart(
+  "effective-context-change",
+  {
+    cause: "failover",
+    fromModelId: "model-a",
+    toModelId: "model-b",
+    failureClass: "overloaded",
+  },
+  "model failed over",
+);
+
+/**
+ * A switch inside a Run renders the same boundary, naming the failure that
+ * caused it. The history read carries the closed class, so a reload shows the
+ * reason with no live connection: the codex reply, the switch host message,
+ * and the sonnet reply around it.
+ *
+ * @summary a stored failover boundary names its failure label
+ */
+export const ModelFailoverBoundary: Story = {
+  tags: ["ai-generated"],
+  parameters: {
+    history: [
+      rawChatMessage({
+        id: "assistant-1",
+        chatId: CHAT_ID,
+        role: "assistant",
+        seq: 1,
+        parts: [{ type: "text", text: "Earlier answer" }],
+        usage: { runId: RUN_ID, modelId: "model-a" },
+      }),
+      rawChatMessage({
+        id: "user-2",
+        chatId: CHAT_ID,
+        role: "user",
+        seq: 2,
+        host: true,
+        parts: [MODEL_FAILOVER],
+      }),
+      rawChatMessage({
+        id: "assistant-3",
+        chatId: CHAT_ID,
+        role: "assistant",
+        seq: 3,
+        parts: [{ type: "text", text: "New model answer" }],
+        usage: { runId: RUN_ID, modelId: "model-b" },
+      }),
+    ],
+  } satisfies ChatPageParameters,
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await settledChat(canvasElement, OPEN_CHAT_ROUTES, "New model answer");
+
+    const boundary = canvas.getByRole("button", {
+      name: "Model changed from model-a to model-b: provider overload",
+    });
+
+    await expect(
+      precedes(transcriptText(canvasElement, "Earlier answer"), boundary),
+    ).toBe(true);
+    await expect(
+      precedes(boundary, transcriptText(canvasElement, "New model answer")),
+    ).toBe(true);
+  },
+};
+
 /**
  * Server-authored context parts — every producer, including one this build
  * does not know — print nothing into the transcript: no debug text, no

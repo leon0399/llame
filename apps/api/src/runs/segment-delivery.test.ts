@@ -18,6 +18,7 @@ import {
   abortedByInterrupt,
   closedTelemetry,
   deliverPendingSteering,
+  failedByFailover,
   type DeliveredBoundary,
   type DeliveryCause,
 } from './segment-delivery';
@@ -1383,6 +1384,42 @@ describe('the usage an interrupt closes a reply with', () => {
     expect(closedTelemetry(interrupt, telemetry)).toEqual(
       abortedByInterrupt(telemetry),
     );
+  });
+});
+
+describe('the usage a failover closes a reply with', () => {
+  const telemetry = {
+    runId,
+    attemptId,
+    modelId: 'fake-model',
+    latencyMs: 10,
+    finishReason: 'error' as const,
+    status: 'completed' as const,
+    complete: true,
+  };
+
+  it('is failed, incomplete, and not marked interrupted', () => {
+    expect(failedByFailover(telemetry)).toEqual({
+      ...telemetry,
+      status: 'error',
+      complete: false,
+    });
+    expect(failedByFailover(telemetry)).not.toHaveProperty('interrupted');
+  });
+
+  it('is applied by the closed telemetry of a failover delivery only', () => {
+    const delivered = (cause: DeliveryCause): DeliveredBoundary => ({
+      kind: 'delivered',
+      message: deliveredMessage,
+      attemptId: 'attempt-2',
+      cause,
+    });
+
+    expect(closedTelemetry(delivered('failover'), telemetry)).toEqual(
+      failedByFailover(telemetry),
+    );
+    expect(closedTelemetry(delivered('steer'), telemetry)).toBe(telemetry);
+    expect(closedTelemetry(delivered('compaction'), telemetry)).toBe(telemetry);
   });
 });
 

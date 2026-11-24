@@ -292,6 +292,23 @@ describe("trusted model-context projection", () => {
     },
   };
 
+  const failoverPart = {
+    type: "data-context" as const,
+    data: {
+      v: 1 as const,
+      producer: "effective-context-change" as const,
+      form: "notice" as const,
+      runId: "a5dc235e-1de8-4aad-84d8-e0e247b6a135",
+      payload: {
+        cause: "failover" as const,
+        fromModelId: "system:openai:model-a",
+        toModelId: "custom:anthropic:model-b",
+        failureClass: "overloaded" as const,
+      },
+      text: '<system-reminder producer="effective-context-change" form="notice">model failed over</system-reminder>',
+    },
+  };
+
   it("parses only the exact persisted model-switch shape", () => {
     expect(modelSwitchPart({ parts: [switchPart] })).toEqual(switchPart);
     expect(
@@ -312,6 +329,87 @@ describe("trusted model-context projection", () => {
         ],
       }),
     ).toBeNull();
+  });
+
+  it("accepts a failover switch only with its exact keys and a known class", () => {
+    expect(modelSwitchPart({ parts: [failoverPart] })).toEqual(failoverPart);
+
+    const withExtraKey = {
+      ...failoverPart,
+      data: {
+        ...failoverPart.data,
+        payload: { ...failoverPart.data.payload, extra: "leak" },
+      },
+    };
+
+    expect(modelSwitchPart({ parts: [withExtraKey] })).toBeNull();
+
+    const withoutClass = {
+      ...failoverPart,
+      data: {
+        ...failoverPart.data,
+        payload: {
+          cause: "failover",
+          fromModelId: "system:openai:model-a",
+          toModelId: "custom:anthropic:model-b",
+        },
+      },
+    };
+
+    expect(modelSwitchPart({ parts: [withoutClass] })).toBeNull();
+
+    const unknownClass = {
+      ...failoverPart,
+      data: {
+        ...failoverPart.data,
+        payload: {
+          ...failoverPart.data.payload,
+          failureClass: "meteor_strike",
+        },
+      },
+    };
+
+    expect(modelSwitchPart({ parts: [unknownClass] })).toBeNull();
+  });
+
+  it("rejects a failure class on a planned model change", () => {
+    const modelWithClass = {
+      ...switchPart,
+      data: {
+        ...switchPart.data,
+        payload: { ...switchPart.data.payload, failureClass: "overloaded" },
+      },
+    };
+
+    expect(modelSwitchPart({ parts: [modelWithClass] })).toBeNull();
+  });
+
+  it("keeps a failover boundary owner-visible through the trusted overlay", () => {
+    const messages = mergeTrustedModelContextParts(
+      [
+        {
+          id: "user-1",
+          role: "user",
+          parts: [{ type: "text", text: "Continue" }],
+        },
+      ],
+      [
+        {
+          id: "user-1",
+          role: "user",
+          // SAFETY: `failoverPart` is `ModelSwitchPart`, a narrower shape than
+          // `UIMessage["parts"]`'s generic element type (same mismatch
+          // `mergeTrustedModelContextParts` itself casts around) — `as
+          // never` opts this fixture value out of the part-shape check.
+          parts: [failoverPart as never, { type: "text", text: "Continue" }],
+        },
+      ],
+    );
+
+    expect(messages[0]?.parts).toEqual([
+      failoverPart,
+      { type: "text", text: "Continue" },
+    ]);
   });
 
   it("keeps metadata-only historical switch boundaries owner-visible", () => {

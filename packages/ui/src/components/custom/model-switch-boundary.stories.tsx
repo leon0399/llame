@@ -44,6 +44,27 @@ export const Collapsed: Story = {
 };
 
 /**
+ * A failover switch names why the model changed: the failure label sits on the
+ * boundary line and inside its accessible name, so the reason is visible
+ * without expanding the disclosure.
+ *
+ * @summary for a switch after a provider failure
+ */
+export const Failover: Story = {
+  tags: ["ai-generated"],
+  args: { reason: "provider overload" },
+  play: async ({ canvas }) => {
+    const trigger = canvas.getByRole("button", {
+      name: "Model changed from system:openai:gpt-5.4-mini to custom:anthropic:claude-sonnet: provider overload",
+    });
+
+    await expect(trigger).toHaveAttribute("aria-expanded", "false");
+    await expect(canvas.getByText("— provider overload")).toBeVisible();
+    await expect(trigger).toHaveAccessibleName(/provider overload$/);
+  },
+};
+
+/**
  * Public model ids are opaque and may be long. This state verifies that both
  * ids remain readable without forcing horizontal transcript overflow.
  *

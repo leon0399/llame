@@ -6,6 +6,17 @@ import { CompactionBoundary } from "./compaction-boundary";
 
 import type { AvailableModel } from "@/lib/services/models/queries";
 import { modelSwitchPart, type Compaction } from "@/lib/services/chat/history";
+import {
+  FAILURE_LABELS,
+  type ModelSwitchPayload,
+} from "@/lib/services/chat/model-switch-payload";
+
+/** Why a switch happened, when the item names a failover reason. */
+function switchReason(payload: ModelSwitchPayload): string | undefined {
+  return payload.cause === "failover"
+    ? FAILURE_LABELS[payload.failureClass]
+    : undefined;
+}
 
 type MessageBoundariesParams = {
   message: UIMessage;
@@ -46,6 +57,7 @@ export function messageBoundaries(params: MessageBoundariesParams) {
       <ModelSwitchBoundary
         fromModelId={switchPart.data.payload.fromModelId}
         toModelId={switchPart.data.payload.toModelId}
+        reason={switchReason(switchPart.data.payload)}
         onInspectContext={() => onInspectContext(switchPart.data.runId)}
       />
     </div>

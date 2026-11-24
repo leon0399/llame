@@ -1446,6 +1446,51 @@ describe('buildCompactionRequest', () => {
     });
   });
 
+  it('normalizes a replayed foreign tool-call id exactly as the Run request does', () => {
+    const question = msg('what did the search find?');
+    const answer = msg('', 'assistant');
+
+    const stored = {
+      type: 'tool-grep',
+      toolCallId: 'call.with.dots',
+      state: 'output-available',
+      input: { pattern: 'needle' },
+      output: { status: 'success', value: 'needle' },
+      outcome: 'success',
+    };
+
+    answer.usage = { status: 'completed', modelId: 'codex' };
+    answer.parts = [stored];
+
+    const compaction = buildCompactionRequest({
+      modelId: 'sonnet',
+      system: CHAT_SYSTEM,
+      previous: undefined,
+      absorb: [question, answer],
+    });
+
+    const run = buildContext([question, answer], {
+      systemPrompt: CHAT_SYSTEM,
+      modelId: 'sonnet',
+    });
+
+    const wireIds = (messages: ReadonlyArray<ModelMessage>): Array<string> =>
+      [...JSON.stringify(messages).matchAll(/"toolCallId":"([^"]+)"/g)].map(
+        (match) => match[1],
+      );
+
+    const compactionIds = wireIds(compaction.messages);
+
+    // The call and its result carry one pattern-shaped wire id, the same map
+    // the Run's own request builds (D13).
+    expect(compactionIds).toHaveLength(2);
+    expect(compactionIds[0]).toMatch(/^[a-zA-Z0-9_-]{1,40}$/);
+    expect(compactionIds[1]).toBe(compactionIds[0]);
+    expect(compactionIds).toEqual(wireIds(run.messages));
+    // The stored part keeps its original id.
+    expect(stored.toolCallId).toBe('call.with.dots');
+  });
+
   it('replays an absorbed turn’s result as its live rendering, with no artifact line', () => {
     const question = msg('what did the search find?');
     const answer = msg('', 'assistant');

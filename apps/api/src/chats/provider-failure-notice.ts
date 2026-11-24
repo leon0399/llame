@@ -22,11 +22,13 @@ export interface ProviderFailurePayload extends Record<string, unknown> {
 }
 
 /**
- * Plain-language names the model reads. Fixed text rather than the class code,
- * and a total `Record` so a failure class added to the closed union fails the
- * typecheck here instead of rendering a notice that names nothing.
+ * Plain-language names the model reads, exported so a sibling producer that
+ * also names a failure (the model switch) reads the same fixed prose instead
+ * of copying the table. Fixed text rather than the class code, and a total
+ * `Record` so a failure class added to the closed union fails the typecheck
+ * here instead of rendering a notice that names nothing.
  */
-const FAILURE_CLASS_LABELS: Record<FailureClass, string> = {
+export const FAILURE_CLASS_LABELS: Record<FailureClass, string> = {
   quota_exhausted: 'a usage limit',
   billing: 'a billing limit',
   rate_limited: 'a rate limit',

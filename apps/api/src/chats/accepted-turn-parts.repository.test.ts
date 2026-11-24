@@ -148,9 +148,23 @@ function switchItem(
   });
 }
 
+/** A stored switch inside a Run: cause `failover` with its failure class. */
+function failoverItem(
+  text = 'The active model changed during this Run.',
+): AuthoredContextItemPart {
+  return createContextItemPart({
+    producer: 'effective-context-change',
+    form: 'notice',
+    runId: RUN_ID,
+    payload: { cause: 'failover', failureClass: 'overloaded' },
+    text,
+  });
+}
+
 describe('isModelSwitchItem', () => {
   it('recognizes the model-switch item', () => {
     expect(isModelSwitchItem(switchItem())).toBe(true);
+    expect(isModelSwitchItem(failoverItem())).toBe(true);
   });
 
   it('rejects an item of another producer', () => {
@@ -307,6 +321,49 @@ describe('storeAtDispatch', () => {
       }),
     ).resolves.toEqual({ applied: true });
     expect(labelsOf(writes[0] ?? [])).toEqual(['temporal:temporal', 'text']);
+  });
+
+  it('A Regenerate removes a failover item', async () => {
+    const { db, writes } = dispatchDb([
+      item('temporal'),
+      failoverItem('switch host'),
+      USER_TEXT,
+    ]);
+
+    await expect(
+      new AcceptedTurnPartsRepository(db).storeAtDispatch({
+        ...input,
+        items: [switchItem('new comparison')],
+        removeModelSwitch: true,
+      }),
+    ).resolves.toEqual({ applied: true });
+
+    expect(labelsOf(writes[0] ?? [])).toEqual([
+      'temporal:temporal',
+      'effective-context-change:new comparison',
+      'text',
+    ]);
+  });
+
+  it('keeps a stored failover item when the dispatch does not replace it', async () => {
+    const { db, writes } = dispatchDb([
+      item('temporal'),
+      failoverItem('switch host'),
+      USER_TEXT,
+    ]);
+
+    await new AcceptedTurnPartsRepository(db).storeAtDispatch({
+      ...input,
+      items: [item('workspace')],
+      removeModelSwitch: false,
+    });
+
+    expect(labelsOf(writes[0] ?? [])).toEqual([
+      'temporal:temporal',
+      'effective-context-change:switch host',
+      'workspace:workspace',
+      'text',
+    ]);
   });
 
   it('keeps the model-switch item when the dispatch does not replace it', async () => {

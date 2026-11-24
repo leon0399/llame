@@ -27,7 +27,6 @@ import {
   storeDeliveredMessage,
   closeReply,
   closeSegmentAndStore,
-  closingAs,
   type BoundaryDelivery,
   type DeliveryCause,
   type DeliveryInput,
@@ -37,6 +36,7 @@ import {
 export {
   abortedByInterrupt,
   closedTelemetry,
+  failedByFailover,
   persistFirstEpochBaselines,
 } from './segment-delivery-close';
 
@@ -81,8 +81,10 @@ async function markDeliveryItems(
 /**
  * Mark items delivered as `message`, move the Run onto it, and append the event.
  * The pointer moves after message creation because it has an immediate FK.
+ * Exported for the model switch, which supplies a cause the pending items
+ * cannot derive.
  */
-async function moveRunToDelivery(
+export async function moveRunToDelivery(
   tx: Db,
   locked: Run,
   fromAttemptId: string,
@@ -267,11 +269,9 @@ async function closeAndPublishBoundaryCheckpoint(input: {
   compaction: NonNullable<DeliveryInput['boundaryCompaction']>;
   cause: DeliveryCause;
 }): Promise<{ closedReply: Message; checkpointId: string }> {
-  const closing = closingAs(input.delivery, input.cause);
-
   const closedReply = await findClosedReply({
     tx: input.tx,
-    closing,
+    closing: input.delivery,
     locked: input.locked,
     cause: input.cause,
   });
@@ -330,11 +330,14 @@ async function finishBoundaryCompaction(input: {
     { ...input, cause },
   );
 
+  const continuation =
+    input.compaction.finalAnswer === true ? [] : [createContinueItem(input)];
+
   const message = await storeDeliveredMessage(
     input.tx,
     input.locked,
     input.messageItems,
-    input.compaction.finalAnswer === true ? [] : [createContinueItem(input)],
+    { trailing: continuation },
   );
 
   const attemptId = await moveRunToDelivery(
@@ -494,11 +497,11 @@ async function finishOrdinaryDelivery(input: {
 
   const cause = deliveryCause(delivery, deliverableItems);
 
-  const { closedReply, message } = await closeSegmentAndStore(
-    tx,
-    closingAs(delivery, cause),
-    { locked, cause, items: deliverableItems },
-  );
+  const { closedReply, message } = await closeSegmentAndStore(tx, delivery, {
+    locked,
+    cause,
+    items: deliverableItems,
+  });
 
   if (
     cause === 'steer' &&
