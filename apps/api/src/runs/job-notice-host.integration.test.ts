@@ -342,6 +342,34 @@ describe('settled job host Runs', () => {
     expect(stored[0]?.state).toBe('failed');
   });
 
+  it('keeps a settled notice pending when its recorded effort was removed', async () => {
+    const prior = await completedChat();
+
+    const job = await runningJob(prior.chatId, prior.runId, {
+      selector: `removed-effort-${randomUUID()}`,
+      effort: 'removed',
+      permissionMode: 'default',
+    });
+
+    await settle(job, { state: 'failed', result: { exitCode: 1 } });
+
+    expect(await findHostRows(prior.chatId)).toMatchObject({
+      hostMessages: [],
+      hostRuns: [],
+    });
+    expect(
+      await db((tx) =>
+        new ChatDeliveriesRepository(tx).listPending(prior.chatId, owner),
+      ),
+    ).toMatchObject([
+      {
+        producer: 'job',
+        mode: 'notice',
+        state: 'pending',
+      },
+    ]);
+  });
+
   it('does not start a host Run in an archived Chat', async () => {
     const prior = await completedChat();
     await db((tx) =>

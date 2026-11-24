@@ -22,6 +22,7 @@ import {
   type RunSelection,
 } from '../chats/run-creation';
 import { toRunUserMessage } from '../chats/chat-message-parts';
+import { storeSelectionUpdate } from '../chats/selection-update';
 import {
   type ChatDelivery,
   type ChatDeliverySettings,
@@ -29,10 +30,14 @@ import {
   type Run,
 } from '../db/schema';
 import { type Db } from '../db/tenant-db.service';
-import { type ChatModelSelection } from '../models/model-selection';
+import {
+  type ChatModelSelection,
+  type EffortPolicy,
+} from '../models/model-selection';
 import {
   resolveSendSettings,
   type ModelSelectionValidator,
+  type ResolvedSendSettings,
 } from '../models/models.service';
 import { type PermissionMode } from '../tools/permissions/permission-mode';
 import { type RunJob } from './run-queues';
@@ -44,6 +49,9 @@ class ItemNoLongerPending extends Error {}
  * The selection one pending item starts its Run with, resolved by the caller
  * that owns the Chat row lock. `modelId` is the served model the Run and its
  * job record; `effort` is both the served effort and the selection's effort.
+ * {@link resolveItemRunSettings} returns the full settings, whose
+ * `nextSelection` is the only write a derived creator may make: the removal of
+ * a hold its admission dropped.
  */
 export type ItemRunResolution = RunSelection;
 
@@ -73,7 +81,8 @@ export async function promoteNextQueueItem(
 ): Promise<RunJob | undefined> {
   const { chatId, userId } = input.completed;
   // The locked Chat row decides: a missing or archived Chat promotes nothing.
-  const chat = await new ChatsRepository(tx).lock(chatId, userId);
+  const chats = new ChatsRepository(tx);
+  const chat = await chats.lock(chatId, userId);
 
   if (!chat || chat.archivedAt !== null) return undefined;
 
@@ -89,18 +98,14 @@ export async function promoteNextQueueItem(
     enabledPermissionModes: input.enabledPermissionModes,
     settings: item.settings,
     stored: chat.modelSelection,
+    now: await chats.transactionNow(),
   });
 
   if (resolved === undefined) return undefined;
 
-  // A savepoint, so an item that stopped being pending leaves no message and
-  // no Run behind while the completed Run's own settlement commits.
+  // A savepoint keeps the item and its derived selection update atomic.
   try {
-    const started = await tx.transaction((inner) =>
-      startItemRun(inner, item, resolved),
-    );
-
-    return started?.job;
+    return (await startPromotedItem(tx, chat, item, resolved))?.job;
   } catch (error) {
     if (error instanceof ItemNoLongerPending) return undefined;
 
@@ -110,27 +115,57 @@ export async function promoteNextQueueItem(
   }
 }
 
+async function startPromotedItem(
+  tx: Db,
+  chat: { readonly id: string; readonly ownerUserId: string },
+  item: ChatDelivery,
+  resolved: ResolvedSendSettings,
+): Promise<{ job: RunJob; delivered: ChatDelivery } | undefined> {
+  return tx.transaction(async (inner) => {
+    const started = await startItemRun(inner, item, resolved);
+
+    if (started) {
+      await storeSelectionUpdate(new ChatsRepository(inner), chat, resolved);
+    }
+
+    return started;
+  });
+}
+
 /**
- * The settings a pending item's Run starts with, resolved by the resolver a
- * send uses (writer `derived`): a named selector wins, else the Chat's stored
- * one, else the configured default. Queue promotion, a job notice, and a
- * delivery mode change share it, so an item starts only under settings a send
- * would be accepted with now.
+ * would be accepted with now. Each item's recorded effort is named; a job
+ * notice's hold can supersede its effort when a fallback hold applies.
  */
 export function resolveItemRunSettings(input: {
   models: ModelSelectionValidator;
   enabledPermissionModes: ReadonlyArray<PermissionMode>;
   settings: ChatDeliverySettings;
   stored: ChatModelSelection | null;
-}): ItemRunResolution {
+  /** How the item's recorded effort is read; `named` when omitted. */
+  effortPolicy?: EffortPolicy;
+  /** The starting transaction's `now()`, compared with a hold's `revertAt`. */
+  now: Date;
+}): ResolvedSendSettings {
   return resolveSendSettings(input.models, input.enabledPermissionModes, {
     stored: input.stored,
     request: {
-      selector: input.settings.selector,
+      // An item that records the selector the Chat already stores is not a
+      // pick: the owner's selection says the same role, so the item resolves
+      // that selection and a fallback hold still applies (`background-jobs`:
+      // "A notice uses the hold of the Chat"). A different selector serves the
+      // Run; a derived creator never writes it over the owner's selection.
+      selector:
+        input.settings.selector === input.stored?.selector
+          ? undefined
+          : input.settings.selector,
       effort: input.settings.effort,
+      ...(input.effortPolicy !== undefined && {
+        effortPolicy: input.effortPolicy,
+      }),
     },
     writer: 'derived',
     permissionMode: input.settings.permissionMode,
+    now: input.now,
   });
 }
 
@@ -142,7 +177,7 @@ export function resolveItemRunSettings(input: {
  */
 export function tryResolveItemRunSettings(
   input: Parameters<typeof resolveItemRunSettings>[0],
-): ItemRunResolution | undefined {
+): ResolvedSendSettings | undefined {
   try {
     return resolveItemRunSettings(input);
   } catch {

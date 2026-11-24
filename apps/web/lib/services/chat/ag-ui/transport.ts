@@ -28,26 +28,35 @@ async function streamEvents(response: Response) {
  * `prepare` builds and reads the Run's events from the response; a reconnect
  * GETs the stream of the Chat's executing Run (resume-on-refresh, #49), which
  * the api answers with 204 when the Chat has none.
+ *
+ * `onAccepted` runs once the api accepted a request (before its events are
+ * read), so the caller can retire the state that request carried.
  */
-export function createChatTransport(
-  prepare: (request: ChatRequest) => PreparedChatRequest,
+export function createChatTransport<TAccepted>(
+  prepare: (
+    request: ChatRequest,
+  ) => PreparedChatRequest & { accepted: TAccepted },
+  onAccepted: (request: ChatRequest, accepted: TAccepted) => void,
 ): ChatTransport {
   return {
     async sendMessages(request, signal) {
-      const { api, body } = prepare(request);
+      const prepared = prepare(request);
+      const { api, body } = prepared;
 
-      return streamEvents(
-        await authAwareFetch(api, {
-          method: "POST",
-          headers: {
-            "content-type": "application/json",
-            accept: "text/event-stream",
-          },
-          body: JSON.stringify(body),
-          credentials: "include",
-          signal,
-        }),
-      );
+      const response = await authAwareFetch(api, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          accept: "text/event-stream",
+        },
+        body: JSON.stringify(body),
+        credentials: "include",
+        signal,
+      });
+
+      if (response.ok) onAccepted(request, prepared.accepted);
+
+      return streamEvents(response);
     },
     async reconnectToStream(chatId, signal) {
       const response = await authAwareFetch(buildChatStreamUrl(chatId), {

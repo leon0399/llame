@@ -20,19 +20,27 @@ import {
   PopoverTrigger,
 } from "@workspace/ui/components/popover";
 import { Avatar, AvatarFallback } from "@workspace/ui/components/avatar";
+import type {
+  ChatFallbackHoldResponse,
+  ModelRoleResponse,
+} from "@/lib/api/generated/models";
 import {
-  defaultModelIdOf,
-  hasModelId,
   modelDisplayName,
   type AvailableModel,
   type ModelsResponse,
   useModelsQuery,
 } from "@/lib/services/models/queries";
+import {
+  localTimeOf,
+  resolveDisplayedModel,
+  type ComposerSelection,
+} from "@/lib/services/models/selection";
 import { useChatContext } from "@/contexts/chat-context";
 import { ModelPreviewCard } from "@/components/ai/model-preview-card";
 import { ComposerTooltip } from "./composer-tooltip";
+import { useComposerSelection } from "./use-composer-selection";
 
-const EMPTY_MODELS: Array<AvailableModel> = [];
+const EMPTY_ROLES: Array<ModelRoleResponse> = [];
 
 // Loading-placeholder rows: the title width cycles so the list doesn't read as
 // a uniform grid, and every other row gets a second (description) line.
@@ -68,7 +76,7 @@ function ModelSelectorTrigger({
               // Deliberate: this trigger opens a Command/cmdk popup whose own
               // searchable input (not this button) is the real combobox host,
               // so `aria-controls` can't be wired to it meaningfully — and
-              // model-selector.test.tsx / e2e already query this button by
+              // model-selector tests / e2e already query this button by
               // role=combobox, so changing the role is a separate follow-up.
               // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role, jsx-a11y/role-has-required-aria-props
               role="combobox"
@@ -130,6 +138,66 @@ function ModelListSkeleton() {
   );
 }
 
+/** The checkmark every option shows when it is the selection. */
+function SelectionCheck({ isSelected }: { isSelected: boolean }) {
+  return (
+    <div
+      className={cn(
+        "ml-auto text-foreground dark:text-foreground",
+        isSelected ? "opacity-100" : "opacity-0",
+      )}
+    >
+      <Check />
+    </div>
+  );
+}
+
+type RoleOptionProps = {
+  role: ModelRoleResponse;
+  models: ReadonlyArray<AvailableModel>;
+  isSelected: boolean;
+  onSelect: (selector: string) => void;
+  onHover: (selector: string) => void;
+};
+
+/** One role row: its selector, then the candidates in chain order. Picking it
+ *  makes the next send name `selector` instead of a model id. */
+function RoleOption({
+  role,
+  models,
+  isSelected,
+  onSelect,
+  onHover,
+}: RoleOptionProps) {
+  const candidateNames = role.candidates
+    .map((candidate) => modelDisplayName(candidate.modelId, models))
+    .join(" → ");
+
+  return (
+    <CommandItem
+      value={role.selector}
+      aria-label={role.selector}
+      onSelect={onSelect}
+      onMouseEnter={() => onHover(role.selector)}
+    >
+      <div className="gap-2 group/item flex flex-row items-center w-full">
+        <Avatar>
+          <AvatarFallback>
+            <BotIcon className="size-4" />
+          </AvatarFallback>
+        </Avatar>
+
+        <div className="flex flex-col gap-1 items-start text-start">
+          <div className="font-mono">{role.selector}</div>
+          <div className="text-xs">{candidateNames}</div>
+        </div>
+
+        <SelectionCheck isSelected={isSelected} />
+      </div>
+    </CommandItem>
+  );
+}
+
 type ModelOptionProps = {
   model: AvailableModel;
   isSelected: boolean;
@@ -169,105 +237,160 @@ function ModelOption({
           )}
         </div>
 
-        <div
-          className={cn(
-            "ml-auto text-foreground dark:text-foreground",
-            isSelected ? "opacity-100" : "opacity-0",
-          )}
-        >
-          <Check />
-        </div>
+        <SelectionCheck isSelected={isSelected} />
       </div>
     </CommandItem>
   );
 }
 
-/** Seeds context with the catalog default the first time the current
- *  selection isn't (or is no longer) a valid model id. */
-function useDefaultModelSeed(
-  data: ModelsResponse | undefined,
-  models: Array<AvailableModel>,
-  value: string | undefined,
-  setValue: (modelId: string) => void,
-): void {
-  React.useEffect(() => {
-    if (!data || models.length === 0) return;
+/** The selection the option under the pointer would show, keeping an
+ *  applicable hold only for the role it belongs to. */
+function hoveredSelection(
+  hovered: string,
+  selection: ComposerSelection | null,
+): ComposerSelection {
+  if (selection !== null && hovered === selection.selector) return selection;
 
-    if (!hasModelId(models, value)) {
-      const fallbackModelId = defaultModelIdOf(data);
-
-      if (fallbackModelId !== undefined) setValue(fallbackModelId);
-    }
-  }, [data, models, setValue, value]);
+  return { selector: hovered, effort: null };
 }
 
-/** The model shown in the preview card — the selection by default, or
- *  whatever option is under the pointer while browsing the list. The hover
- *  override is stored together with the selection it was made against, so
- *  choosing a model reverts the preview to the new selection by derivation:
- *  a `useEffect` that mirrored `value` back into this state only re-rendered
- *  one commit late (and could flash the old model). */
+/** The model shown in the preview card — the displayed selection's model by
+ *  default, or whatever option is under the pointer while browsing the list.
+ *  The hover override is stored together with the selection it was made
+ *  against, so choosing an option reverts the preview to the new selection by
+ *  derivation: a `useEffect` that mirrored the selection back into this state
+ *  only re-rendered one commit late (and could flash the old model). */
 function usePreviewModel(
-  models: Array<AvailableModel>,
-  value: string | undefined,
+  data: ModelsResponse | undefined,
+  selection: ComposerSelection | null,
 ) {
+  const shownSelector = selection?.selector;
+
   const [hover, setHover] = React.useState<{
-    modelId: string;
+    selector: string;
     selection: string | undefined;
   } | null>(null);
 
-  const setHoveredModelId = React.useCallback(
-    (modelId: string) => setHover({ modelId, selection: value }),
-    [value],
+  const setHoveredSelector = React.useCallback(
+    (selector: string) => setHover({ selector, selection: shownSelector }),
+    [shownSelector],
   );
 
-  const previewModelId =
-    hover !== null && hover.selection === value ? hover.modelId : value;
+  const previewed =
+    hover !== null && hover.selection === shownSelector
+      ? hoveredSelection(hover.selector, selection)
+      : selection;
 
   const previewModel = React.useMemo(
-    () => models.find((model) => model.id === previewModelId),
-    [models, previewModelId],
+    () => resolveDisplayedModel(previewed, data),
+    [data, previewed],
   );
 
-  return { previewModel, setHoveredModelId };
+  return { previewModel, setHoveredSelector };
 }
 
-// Rendered only once loaded (isPending shows a skeleton instead).
-function resolveSelectedLabel(
-  isError: boolean,
-  effectiveValue: string | undefined,
-  models: Array<AvailableModel>,
-): string {
-  if (isError) return "Models unavailable";
+/** The trigger label: the exact model's name, the role's selector, or — with
+ *  an applicable hold — the role, the held model, and when the Chat returns. */
+function resolveSelectedLabel(input: {
+  isError: boolean;
+  selection: ComposerSelection | null;
+  hold: ChatFallbackHoldResponse | undefined;
+  models: ReadonlyArray<AvailableModel>;
+}): string {
+  const { selection, hold } = input;
 
-  if (!effectiveValue) return "Select a model";
+  if (input.isError) return "Models unavailable";
 
-  return modelDisplayName(effectiveValue, models);
+  if (selection === null) return "Select a model";
+
+  if (hold !== undefined) {
+    return `${selection.selector} → ${modelDisplayName(
+      hold.modelId,
+      input.models,
+    )} until ${localTimeOf(hold.revertAt)}`;
+  }
+
+  if (selection.selector.startsWith("@")) return selection.selector;
+
+  return modelDisplayName(selection.selector, input.models);
 }
 
-type ModelPickerPanelProps = {
-  isPending: boolean;
-  isError: boolean;
-  models: Array<AvailableModel>;
+type RoleOptionsProps = {
+  roles: ReadonlyArray<ModelRoleResponse>;
+  models: ReadonlyArray<AvailableModel>;
   effectiveValue: string | undefined;
-  previewModel: AvailableModel | undefined;
-  onSelect: (modelId: string) => void;
-  onHover: (modelId: string) => void;
+  onSelect: (selector: string) => void;
+  onHover: (selector: string) => void;
 };
 
-type ModelCommandResultsProps = {
-  isPending: boolean;
-  isError: boolean;
-  models: Array<AvailableModel>;
+/** The role rows, ahead of the models: a pick sends the role selector. */
+function RoleOptions({
+  roles,
+  models,
+  effectiveValue,
+  onSelect,
+  onHover,
+}: RoleOptionsProps) {
+  if (roles.length === 0) return null;
+
+  return (
+    <CommandGroup heading="Roles">
+      {roles.map((role) => (
+        <RoleOption
+          key={role.selector}
+          role={role}
+          models={models}
+          isSelected={effectiveValue === role.selector}
+          onSelect={onSelect}
+          onHover={onHover}
+        />
+      ))}
+    </CommandGroup>
+  );
+}
+
+type ModelOptionsProps = {
+  models: ReadonlyArray<AvailableModel>;
+  heading: string | undefined;
   effectiveValue: string | undefined;
-  onSelect: (modelId: string) => void;
-  onHover: (modelId: string) => void;
+  onSelect: (selector: string) => void;
+  onHover: (selector: string) => void;
 };
+
+function ModelOptions({
+  models,
+  heading,
+  effectiveValue,
+  onSelect,
+  onHover,
+}: ModelOptionsProps) {
+  return (
+    <CommandGroup heading={heading}>
+      {models.map((model) => (
+        <ModelOption
+          key={model.id}
+          model={model}
+          isSelected={effectiveValue === model.id}
+          onSelect={onSelect}
+          onHover={onHover}
+        />
+      ))}
+    </CommandGroup>
+  );
+}
+
+type ModelCommandResultsProps = RoleOptionsProps &
+  Pick<ModelOptionsProps, "heading"> & {
+    isPending: boolean;
+    isError: boolean;
+  };
 
 function ModelCommandResults({
   isPending,
   isError,
   models,
+  roles,
+  heading,
   effectiveValue,
   onSelect,
   onHover,
@@ -279,30 +402,51 @@ function ModelCommandResults({
       <CommandEmpty>
         {isError ? "Models unavailable." : "No model found."}
       </CommandEmpty>
-      <CommandGroup>
-        {models.map((model) => (
-          <ModelOption
-            key={model.id}
-            model={model}
-            isSelected={effectiveValue === model.id}
-            onSelect={onSelect}
-            onHover={onHover}
-          />
-        ))}
-      </CommandGroup>
+      <RoleOptions
+        roles={roles}
+        models={models}
+        effectiveValue={effectiveValue}
+        onSelect={onSelect}
+        onHover={onHover}
+      />
+      <ModelOptions
+        models={models}
+        heading={heading}
+        effectiveValue={effectiveValue}
+        onSelect={onSelect}
+        onHover={onHover}
+      />
     </>
   );
 }
 
-function ModelPickerPanel({
-  isPending,
-  isError,
-  models,
-  effectiveValue,
-  previewModel,
-  onSelect,
-  onHover,
-}: ModelPickerPanelProps) {
+type ModelPickerSplitProps = ModelCommandResultsProps & {
+  previewModel: AvailableModel | undefined;
+};
+
+/** The picker's two panes: the searchable list, and the preview card. */
+function ModelPickerSplit({ previewModel, ...results }: ModelPickerSplitProps) {
+  return (
+    // The popover's own p-2.5 frame is cancelled by the negative margin so the
+    // two panes stay flush with the popover edge, exactly as they were when
+    // the padding was zeroed — the picker is a split view, not an inset card,
+    // and the divider has to run edge to edge.
+    <div className="relative -m-2.5 flex flex-row divide-x divide-border">
+      <Command className="w-72">
+        <CommandInput placeholder="Search model..." className="h-9" />
+        <CommandList>
+          <ModelCommandResults {...results} />
+        </CommandList>
+      </Command>
+
+      {previewModel && (
+        <ModelPreviewCard model={previewModel} className="w-72" />
+      )}
+    </div>
+  );
+}
+
+function ModelPickerPanel(props: ModelPickerSplitProps) {
   return (
     <PopoverContent
       // Base UI renders the popover with role=dialog, which needs its own
@@ -310,62 +454,37 @@ function ModelPickerPanel({
       // not carry over to it.
       aria-label="Model picker"
       // w-144 is 36rem: the two 18rem panes side by side.
-      className={previewModel ? "w-144" : "w-72"}
+      className={props.previewModel ? "w-144" : "w-72"}
       align="end"
       side="top"
     >
-      {/* The popover's own p-2.5 frame is cancelled by the negative margin so
-          the two panes stay flush with the popover edge, exactly as they were
-          when the padding was zeroed — the picker is a split view, not an
-          inset card, and the divider has to run edge to edge. */}
-      <div className="relative -m-2.5 flex flex-row divide-x divide-border">
-        <Command className="w-72">
-          <CommandInput placeholder="Search model..." className="h-9" />
-          <CommandList>
-            <ModelCommandResults
-              isPending={isPending}
-              isError={isError}
-              models={models}
-              effectiveValue={effectiveValue}
-              onSelect={onSelect}
-              onHover={onHover}
-            />
-          </CommandList>
-        </Command>
-
-        {previewModel && (
-          <ModelPreviewCard model={previewModel} className="w-72" />
-        )}
-      </div>
+      <ModelPickerSplit {...props} />
     </PopoverContent>
   );
 }
 
 /**
  * Model picker in the row under the composer's input card, beside the effort
- * selector. The trigger is a small ghost button showing the model's name;
- * the picker shows skeleton rows during the catalog's first load.
+ * selector. It lists the configured roles, then the models, and shows the
+ * Chat's stored selection — including an applicable fallback hold, with the
+ * held model and when the Chat returns to the role. A pick makes the next send
+ * name `selector`; without one, the Chat's stored selection applies.
  */
 export function ModelSelector({ className }: { className?: string }) {
   const [open, setOpen] = React.useState(false);
-  const { selectedModel: value, setSelectedModel: setValue } = useChatContext();
+  const { pickSelector } = useChatContext();
 
-  const { data, isError, isPending } = useModelsQuery();
-  const models = data?.models ?? EMPTY_MODELS;
+  const { data, selection, hold, availableModels } = useComposerSelection();
+  const { isError, isPending } = useModelsQuery();
 
-  useDefaultModelSeed(data, models, value, setValue);
-  const { previewModel, setHoveredModelId } = usePreviewModel(models, value);
+  const { previewModel, setHoveredSelector } = usePreviewModel(data, selection);
 
-  // Fall back to the catalog default during render so the label/checkmark
-  // never flash "Select a model" in the frame before the seeding effect above
-  // commits the default into context.
-  const effectiveValue = value ?? (data && defaultModelIdOf(data));
-  const selectedLabel = resolveSelectedLabel(isError, effectiveValue, models);
-
-  const handleSelect = (modelId: string) => {
-    setValue(modelId);
-    setOpen(false);
-  };
+  const selectedLabel = resolveSelectedLabel({
+    isError,
+    selection,
+    hold,
+    models: availableModels,
+  });
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -380,11 +499,18 @@ export function ModelSelector({ className }: { className?: string }) {
       <ModelPickerPanel
         isPending={isPending}
         isError={isError}
-        models={models}
-        effectiveValue={effectiveValue}
+        models={availableModels}
+        roles={data?.roles ?? EMPTY_ROLES}
+        heading={
+          data !== undefined && data.roles.length > 0 ? "Models" : undefined
+        }
+        effectiveValue={selection?.selector}
         previewModel={previewModel}
-        onSelect={handleSelect}
-        onHover={setHoveredModelId}
+        onSelect={(selector) => {
+          pickSelector(selector);
+          setOpen(false);
+        }}
+        onHover={setHoveredSelector}
       />
     </Popover>
   );

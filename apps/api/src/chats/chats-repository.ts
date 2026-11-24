@@ -63,7 +63,9 @@ const DEFAULT_CHAT_VISIBILITY = 'private';
  * Workspace root, executor identity, and generation. Prompt re-bake markers
  * are remapped onto copied compactions; told and detach state for Workspace
  * narration are intentionally not inherited. The baseline triples travel
- * together, never a baseline without its told-set. Derived from the row type so
+ * together, never a baseline without its told-set. An owner fork's stored model
+ * selection travels with it — hold and `revertAt` verbatim (`model-roles`: "An
+ * owner fork copies the selection and the hold"). Derived from the row type so
  * the column set cannot drift.
  *
  * `updatedAt` is deliberately absent: a fork is new activity that sorts by its
@@ -83,6 +85,7 @@ export type ChatInheritedValues = Partial<
     | 'workspaceExecutorId'
     | 'workspaceGeneration'
     | 'artifactSeq'
+    | 'modelSelection'
   >
 >;
 
@@ -315,6 +318,22 @@ export class ChatsRepository {
       .update(chats)
       .set({ modelSelection: selection })
       .where(and(eq(chats.id, chatId), eq(chats.ownerUserId, ownerUserId)));
+  }
+
+  /**
+   * The transaction's clock (`now()`), which every admission compares a hold's
+   * `revertAt` with. One reading per admission, so the resolution and the
+   * write that follows it cannot disagree about whether a hold had passed;
+   * Postgres `now()` is the transaction start, so reading it per admission
+   * still yields one stable instant.
+   */
+  async transactionNow(): Promise<Date> {
+    const rows = await this.db.execute<{ now: Date }>(
+      sql`select now() as now`,
+      'objects',
+    );
+
+    return new Date(rows[0].now);
   }
 
   /** Pin membership for the accumulated told-set, never the capped rendering. */

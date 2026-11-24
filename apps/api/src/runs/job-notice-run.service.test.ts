@@ -52,6 +52,10 @@ function service(woken: boolean) {
   const enqueue = vi.fn(() => Promise.resolve());
   const wake = vi.fn().mockResolvedValue(woken);
 
+  vi.spyOn(ChatsRepository.prototype, 'transactionNow').mockResolvedValue(
+    new Date('2026-11-23T13:00:00.000Z'),
+  );
+
   const run = new JobNoticeRunService(
     asDouble<ModelSelectionValidator>({}),
     asDouble<InstanceConfigReader>({}),

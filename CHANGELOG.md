@@ -2,6 +2,12 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-11-23
 
+- The model picker lists model roles as `@name` beside models and shows the
+  Chat's stored selection on every device. A send names a model only after the
+  owner picks one. Plain Regenerate repeats the stored selection, a Chat on a
+  fallback hold returns to the role's first model at the first send after the
+  hold ends, and a fork keeps the selection. (#1772)
+
 - Each Chat now stores its model selection: the selector and effort the owner
   last named, returned on the Chat as `modelSelection`. A send, chat creation,
   Regenerate, delivery, or `/compact` can omit the model to use it, and a Run

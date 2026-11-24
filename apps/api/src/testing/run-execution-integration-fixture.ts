@@ -62,16 +62,14 @@ export function catalogValidator(
       return entry;
     },
     resolveEffortSelection: () => undefined,
-    resolveSelection: (stored, request, writer) =>
+    resolveSelection: (stored, request, writer, now) =>
       resolveSelectionFromCatalog(
         {
           defaultSelector: undefined,
           roleCandidates: () => undefined,
           model: (modelId) => entries.find(({ id }) => id === modelId),
         },
-        stored,
-        request,
-        writer,
+        { stored, request, writer, now },
       ),
   };
 }

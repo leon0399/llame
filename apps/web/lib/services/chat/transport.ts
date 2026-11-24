@@ -14,8 +14,9 @@ export type FollowUpRunRequest =
   | { action: "continue"; permissionMode?: PermissionModeResponseValue }
   | {
       action: "regenerate";
-      /** A model role (`@name`) or one exact model id. */
-      selector: string;
+      /** A model role (`@name`) or one exact model id; omitted means the
+       *  Chat's stored selection. */
+      selector?: string;
       effort?: string;
       permissionMode?: PermissionModeResponseValue;
     };
@@ -33,8 +34,11 @@ export type ChatTransportRequestOptions = {
    * action here; a chat send carries none.
    */
   followUp?: ChatRequestOptions["body"];
-  /** The composer's model id or role, sent as this turn's `selector`. */
-  selector: string | undefined;
+  /**
+   * The selector the owner picked, sent as this turn's `selector`. Absent
+   * means the api resolves the Chat's stored selection.
+   */
+  selector?: string | undefined;
   /**
    * Reasoning effort for this turn. Absent means "use the model's own
    * default" — the api resolves it, so the client never has to guess a level
@@ -73,8 +77,8 @@ function isNonBlankString(value: unknown): value is string {
 /**
  * The follow-up request a `regenerate()` body names, or null when the body is
  * not one this build sends. `continue` carries only a permission mode;
- * `regenerate` always names a selector, because the Run it replaces may have
- * used another.
+ * `regenerate` names the selector and effort the owner picked, when any, so an
+ * unpicked Regenerate repeats the Chat's stored selection.
  */
 export function followUpRunRequest(
   value: ChatRequestOptions["body"],
@@ -93,14 +97,14 @@ export function followUpRunRequest(
   }
 
   if (!("action" in value) || value.action !== "regenerate") return null;
-
-  if (!("selector" in value) || !isNonBlankString(value.selector)) return null;
+  const selector = "selector" in value ? value.selector : undefined;
   const effort = "effort" in value ? value.effort : undefined;
 
   return {
     action: "regenerate",
-    selector: value.selector,
-    // Omitted, never sent as null or "": the api rejects a blank effort.
+    // Omitted, never sent as null or "": the api rejects a blank field, and an
+    // absent one means "use the Chat's stored selection".
+    ...(isNonBlankString(selector) && { selector }),
     ...(isNonBlankString(effort) && { effort }),
     ...(permissionMode !== undefined && { permissionMode }),
   };
@@ -108,7 +112,7 @@ export function followUpRunRequest(
 
 /** The chat-send body: the last message plus the composer's selections. */
 export type ChatSendBody = {
-  selector: string;
+  selector?: string;
   effort?: string;
   permissionMode?: PermissionModeResponseValue;
   message: { id: string; parts: UIMessage["parts"] };
@@ -148,14 +152,16 @@ function prepareChatSend(
 ): PreparedChatRequest {
   const { selector, effort, permissionMode } = options;
 
-  if (selector === undefined || selector.trim().length === 0) {
+  if (selector !== undefined && selector.trim().length === 0) {
     throw new Error(NO_MODEL_SELECTED_ERROR);
   }
 
   return {
     api: buildChatMessagesUrl(options.chatId),
     body: {
-      selector,
+      // Omitted, never sent as null or "": absence means the api resolves the
+      // Chat's stored selection, which a send without an owner pick intends.
+      ...(selector !== undefined && { selector }),
       // Omitted, never sent as null or "": the api rejects a blank effort with
       // 400 and treats absence as "resolve this model's defaultEffort".
       ...(effort !== undefined && effort.length > 0 && { effort }),

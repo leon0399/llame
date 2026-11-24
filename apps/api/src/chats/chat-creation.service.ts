@@ -166,26 +166,36 @@ export class ChatCreationService {
   ): Promise<void> {
     if (input.message === undefined) return;
 
+    const { stored, now } = await this.storedSelection(userId, input.id);
+
     this.models.resolveSelection(
-      await this.storedSelection(userId, input.id),
+      stored,
       {
         selector: input.message.selector,
         effort: input.message.effort,
       },
       'owner',
+      now,
     );
   }
 
-  /** The selection the Chat stores today; a new Chat stores none. */
+  /**
+   * The selection the Chat stores today and the transaction's clock, read
+   * together so a fallback hold applies or not as it would at admission.
+   */
   private async storedSelection(
     userId: string,
     chatId: string,
-  ): Promise<ChatModelSelection | null> {
-    const chat = await this.tenantDb.runAs(userId, (tx) =>
-      new ChatsRepository(tx).findById(chatId, userId),
-    );
+  ): Promise<{ stored: ChatModelSelection | null; now: Date }> {
+    return this.tenantDb.runAs(userId, async (tx) => {
+      const chats = new ChatsRepository(tx);
+      const chat = await chats.findById(chatId, userId);
 
-    return chat?.modelSelection ?? null;
+      return {
+        stored: chat?.modelSelection ?? null,
+        now: await chats.transactionNow(),
+      };
+    });
   }
 
   /** The owner's creation record: one entry per attempt, newest last. */

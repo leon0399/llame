@@ -9,7 +9,10 @@ import {
 import { chatDeliveryRow } from '../testing/chat-delivery-rows';
 import { type PermissionMode } from '../tools/permissions/permission-mode';
 import { asDouble } from '../testing/support';
-import { promoteNextQueueItem } from './queue-promotion';
+import {
+  promoteNextQueueItem,
+  resolveItemRunSettings,
+} from './queue-promotion';
 import { RunEventsRepository, RunsRepository } from './runs-repository';
 
 const at = new Date('2026-11-08T00:00:00.000Z');
@@ -68,6 +71,8 @@ function makeSetup(
       asDouble<Chat>({ archivedAt: null, modelSelection: null }),
     );
 
+  vi.spyOn(ChatsRepository.prototype, 'transactionNow').mockResolvedValue(at);
+
   const firstPendingQueueItem = vi
     .spyOn(ChatDeliveriesRepository.prototype, 'firstPendingQueueItem')
     .mockResolvedValue(item);
@@ -108,6 +113,7 @@ function makeSetup(
 
   return {
     promote,
+    models,
     resolveSelection,
     lock,
     firstPendingQueueItem,
@@ -205,6 +211,7 @@ describe('promoteNextQueueItem', () => {
       stored,
       { selector: 'model-1', effort: 'high' },
       'derived',
+      at,
     );
     expect(createUserMessageIfAbsent).toHaveBeenCalled();
     expect(createRun).toHaveBeenCalledWith(
@@ -215,6 +222,45 @@ describe('promoteNextQueueItem', () => {
         selectedEffort: 'high',
         selectionRevision: 4,
       }),
+    );
+  });
+
+  it('stores a resolved hold clear only after the promoted Run starts', async () => {
+    const { promote, resolveSelection, lock } = makeSetup();
+
+    const nextSelection = {
+      revision: 5,
+      selector: 'model-1',
+      effort: null,
+    };
+
+    lock.mockResolvedValue(
+      asDouble<Chat>({
+        id: item.chatId,
+        ownerUserId: item.ownerUserId,
+        archivedAt: null,
+        modelSelection: null,
+      }),
+    );
+
+    resolveSelection.mockReturnValue({
+      selector: 'model-1',
+      model: asDouble({ id: 'model-1' }),
+      effort: 'high',
+      nextSelection,
+    });
+
+    const storeSelection = vi
+      .spyOn(ChatsRepository.prototype, 'setModelSelection')
+      .mockResolvedValue(undefined);
+
+    const promoted = await promote();
+
+    expect(promoted?.runId).toBeDefined();
+    expect(storeSelection).toHaveBeenCalledWith(
+      item.chatId,
+      item.ownerUserId,
+      nextSelection,
     );
   });
 
@@ -335,6 +381,7 @@ describe('promoteNextQueueItem', () => {
       null,
       { selector: 'model-1', effort: 'high' },
       'derived',
+      at,
     );
     expect(createUserMessageIfAbsent).not.toHaveBeenCalled();
     expect(createRun).not.toHaveBeenCalled();
@@ -349,6 +396,86 @@ describe('promoteNextQueueItem', () => {
 
     expect(createUserMessageIfAbsent).not.toHaveBeenCalled();
     expect(createRun).not.toHaveBeenCalled();
+  });
+
+  it('keeps the hold when a promotion is skipped before its item starts', async () => {
+    const { promote, resolveSelection, lock, firstPendingQueueItem } =
+      makeSetup();
+
+    const stored = {
+      revision: 1,
+      selector: '@coding',
+      effort: 'high',
+      hold: {
+        selector: '@coding',
+        modelId: 'model-1',
+        effort: null,
+        revertAt: '2026-11-09T00:00:00.000Z',
+      },
+    };
+
+    lock.mockResolvedValue(
+      asDouble<Chat>({ archivedAt: null, modelSelection: stored }),
+    );
+
+    firstPendingQueueItem.mockResolvedValue({
+      ...item,
+      settings: { ...item.settings, selector: '@coding' },
+    });
+    resolveSelection.mockReturnValue({
+      selector: '@coding',
+      model: asDouble({ id: 'model-1' }),
+      effort: 'low',
+      nextSelection: {
+        revision: 2,
+        selector: '@coding',
+        effort: null,
+      },
+    });
+
+    vi.spyOn(
+      MessagesRepository.prototype,
+      'createUserMessageIfAbsent',
+    ).mockResolvedValue(undefined);
+
+    const storeSelection = vi.spyOn(
+      ChatsRepository.prototype,
+      'setModelSelection',
+    );
+
+    await expect(promote()).resolves.toBeUndefined();
+
+    expect(resolveSelection).toHaveBeenCalledWith(
+      stored,
+      { effort: 'high' },
+      'derived',
+      at,
+    );
+    expect(storeSelection).not.toHaveBeenCalled();
+  });
+
+  it('passes a notice effort policy for hold precedence', () => {
+    const { models, resolveSelection } = makeSetup();
+
+    resolveItemRunSettings({
+      models,
+      enabledPermissionModes: ['default', 'bypass'],
+      settings: item.settings,
+      stored: null,
+      effortPolicy: 'preferred',
+      now: at,
+    });
+
+    expect(resolveSelection).toHaveBeenCalledWith(
+      null,
+      {
+        selector: 'model-1',
+        effort: 'high',
+        effortPolicy: 'preferred',
+      },
+      'derived',
+      at,
+    );
   });
 
   it('leaves an item waiting when its id is already a message', async () => {

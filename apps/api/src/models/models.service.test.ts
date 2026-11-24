@@ -682,6 +682,9 @@ describe('ModelsService', () => {
   });
 
   describe('resolveSelection', () => {
+    /** The admission clock these cases resolve against: before any `revertAt`. */
+    const NOW = new Date('2026-11-23T13:00:00.000Z');
+
     const EFFORTS = {
       effortLevels: [{ value: 'low' }, { value: 'high', label: 'High' }],
       defaultEffort: 'low',
@@ -736,7 +739,7 @@ describe('ModelsService', () => {
 
     it('resolves a named role to its first candidate and that candidate’s effort', () => {
       expect(
-        service().resolveSelection(null, { selector: '@coding' }, 'owner'),
+        service().resolveSelection(null, { selector: '@coding' }, 'owner', NOW),
       ).toMatchObject({
         selector: '@coding',
         model: { id: 'codex' },
@@ -747,7 +750,7 @@ describe('ModelsService', () => {
 
     it('resolves a named exact model and its own default effort', () => {
       expect(
-        service().resolveSelection(null, { selector: 'sonnet' }, 'owner'),
+        service().resolveSelection(null, { selector: 'sonnet' }, 'owner', NOW),
       ).toMatchObject({
         selector: 'sonnet',
         model: { id: 'sonnet' },
@@ -760,6 +763,7 @@ describe('ModelsService', () => {
         { revision: 4, selector: '@coding', effort: 'low' },
         {},
         'owner',
+        NOW,
       );
 
       expect(resolved).toMatchObject({
@@ -778,6 +782,7 @@ describe('ModelsService', () => {
           { revision: 1, selector: '@coding', effort: 'xhigh' },
           {},
           'owner',
+          NOW,
         ).effort,
       ).toBe('high');
 
@@ -787,6 +792,7 @@ describe('ModelsService', () => {
           { revision: 2, selector: 'sonnet', effort: 'xhigh' },
           {},
           'owner',
+          NOW,
         ).effort,
       ).toBe('high');
     });
@@ -797,6 +803,7 @@ describe('ModelsService', () => {
           { revision: 7, selector: 'system:openai:gpt-4o', effort: 'low' },
           {},
           'owner',
+          NOW,
         ),
       ).toMatchObject({
         selector: '@coding',
@@ -812,20 +819,25 @@ describe('ModelsService', () => {
 
     it('rejects a named selector the catalog does not offer', () => {
       expect(() =>
-        service().resolveSelection(null, { selector: '@missing' }, 'owner'),
+        service().resolveSelection(
+          null,
+          { selector: '@missing' },
+          'owner',
+          NOW,
+        ),
       ).toThrow(ModelNotAvailableError);
       expect(() =>
-        service().resolveSelection(null, { selector: 'ghost' }, 'owner'),
+        service().resolveSelection(null, { selector: 'ghost' }, 'owner', NOW),
       ).toThrow(ModelNotAvailableError);
     });
 
     it('rejects an unset defaults.selector when neither a request nor a stored selection resolves', () => {
-      expect(() => service(null).resolveSelection(null, {}, 'owner')).toThrow(
-        ModelConfigurationError,
-      );
-      expect(() => service(null).resolveSelection(null, {}, 'owner')).toThrow(
-        'defaults.selector is required.',
-      );
+      expect(() =>
+        service(null).resolveSelection(null, {}, 'owner', NOW),
+      ).toThrow(ModelConfigurationError);
+      expect(() =>
+        service(null).resolveSelection(null, {}, 'owner', NOW),
+      ).toThrow('defaults.selector is required.');
     });
 
     it('rejects any effort on a model that declares no vocabulary', () => {
@@ -834,6 +846,7 @@ describe('ModelsService', () => {
           null,
           { selector: '@fast', effort: 'high' },
           'owner',
+          NOW,
         ),
       ).toThrow(EffortNotAvailableError);
     });
@@ -844,11 +857,12 @@ describe('ModelsService', () => {
           { revision: 2, selector: 'codex', effort: 'low' },
           { selector: '@coding' },
           'owner',
+          NOW,
         ).nextSelection,
       ).toEqual({ revision: 3, selector: '@coding', effort: 'high' });
     });
 
-    it('keeps the selector and the hold when the request names only an effort', () => {
+    it('keeps the hold and pins the named effort on it when the request names only an effort', () => {
       const hold = {
         selector: '@coding',
         modelId: 'sonnet',
@@ -860,28 +874,37 @@ describe('ModelsService', () => {
         { revision: 5, selector: '@coding', effort: 'low', hold },
         { effort: 'high' },
         'owner',
+        NOW,
       );
 
+      // The hold serves the Run on `sonnet`; the named effort rides on the hold
+      // while the owner's stored effort stays what a later send returns to.
       expect(resolved.selector).toBe('@coding');
+      expect(resolved.model).toMatchObject({ id: 'sonnet' });
       expect(resolved.effort).toBe('high');
       expect(resolved.nextSelection).toEqual({
         revision: 6,
         selector: '@coding',
-        effort: 'high',
-        hold,
+        effort: 'low',
+        hold: { ...hold, effort: 'high' },
       });
     });
 
     it('never writes the selection for a derived creator', () => {
       expect(
-        service().resolveSelection(null, { selector: '@coding' }, 'derived')
-          .nextSelection,
+        service().resolveSelection(
+          null,
+          { selector: '@coding' },
+          'derived',
+          NOW,
+        ).nextSelection,
       ).toBeUndefined();
       expect(
         service().resolveSelection(
           { revision: 3, selector: 'codex', effort: 'low' },
           { effort: 'high' },
           'derived',
+          NOW,
         ).nextSelection,
       ).toBeUndefined();
     });
@@ -891,6 +914,7 @@ describe('ModelsService', () => {
         { revision: 1, selector: 'codex', effort: 'low' },
         { selector: '@fast' },
         'owner',
+        NOW,
       );
 
       expect(pick).toMatchObject({ selector: '@fast', model: { id: 'fast' } });
@@ -906,6 +930,7 @@ describe('ModelsService', () => {
         pick.nextSelection ?? null,
         {},
         'owner',
+        NOW,
       );
 
       expect(later.selector).toBe('@fast');
@@ -921,13 +946,15 @@ describe('ModelsService', () => {
         revertAt: '2026-11-23T14:00:00.000Z',
       };
 
-      expect(
-        service().resolveSelection(
-          { revision: 1, selector: '@coding', effort: 'low', hold },
-          { selector: '@coding' },
-          'owner',
-        ).nextSelection,
-      ).not.toHaveProperty('hold');
+      const resolved = service().resolveSelection(
+        { revision: 1, selector: '@coding', effort: 'low', hold },
+        { selector: '@coding' },
+        'owner',
+        NOW,
+      );
+
+      expect(resolved.model).toMatchObject({ id: 'codex' });
+      expect(resolved.nextSelection).not.toHaveProperty('hold');
     });
   });
 });

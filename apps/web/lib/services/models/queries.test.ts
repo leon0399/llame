@@ -12,9 +12,7 @@ import {
 import { renderHook, waitFor } from "@testing-library/react";
 
 import {
-  defaultModelIdOf,
   fetchModels,
-  hasModelId,
   modelDisplayName,
   modelQueryKeys,
   useModelsQuery,
@@ -111,59 +109,5 @@ describe("model helpers", () => {
     expect(modelDisplayName("openrouter:openai:o3-pro", [])).toBe(
       "openrouter:openai:o3-pro",
     );
-  });
-
-  it("reports whether an opaque model id is in the loaded catalog", () => {
-    expect(hasModelId([model], model.id)).toBe(true);
-    expect(hasModelId([model], "system:openai:missing")).toBe(false);
-    expect(hasModelId([model], undefined)).toBe(false);
-  });
-
-  it("resolves a role default selector to the role's first candidate", () => {
-    const data: ModelsResponse = {
-      defaultSelector: "@coding",
-      models: [model],
-      roles: [
-        {
-          selector: "@coding",
-          candidates: [
-            { modelId: model.id, paid: false },
-            { modelId: "system:openai:gpt-5.4", effort: "high", paid: true },
-          ],
-        },
-      ],
-    };
-
-    expect(defaultModelIdOf(data)).toBe(model.id);
-  });
-
-  it("passes an exact model default selector through unchanged", () => {
-    const data: ModelsResponse = {
-      defaultSelector: model.id,
-      models: [model],
-      roles: [
-        {
-          selector: "@coding",
-          candidates: [{ modelId: "system:openai:gpt-5.4", paid: true }],
-        },
-      ],
-    };
-
-    expect(defaultModelIdOf(data)).toBe(model.id);
-  });
-
-  it("resolves an unknown role default selector to nothing", () => {
-    const data: ModelsResponse = {
-      defaultSelector: "@missing",
-      models: [model],
-      roles: [
-        {
-          selector: "@coding",
-          candidates: [{ modelId: model.id, paid: false }],
-        },
-      ],
-    };
-
-    expect(defaultModelIdOf(data)).toBeUndefined();
   });
 });

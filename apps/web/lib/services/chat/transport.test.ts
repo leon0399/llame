@@ -140,17 +140,17 @@ describe("prepareSendMessagesRequest", () => {
     ).toThrow(/selected model/i);
   });
 
-  it("refuses a chat send with no model resolved yet", () => {
-    // `selector: undefined` is what the composer holds before the catalog
-    // resolves; the send path must refuse it rather than shape a request
-    // without a model.
-    expect(() =>
-      prepareSendMessagesRequest({
-        chatId: "chat-1",
-        selector: undefined,
-        messages: [{ id: "m1", parts: [] }],
-      }),
-    ).toThrow(/selected model/i);
+  it("omits the selector when the owner picked none", () => {
+    // `selector: undefined` is what the composer holds before an owner pick;
+    // the api then resolves the Chat's stored selection, so the field must be
+    // absent rather than blank.
+    const request = prepareSendMessagesRequest({
+      chatId: "chat-1",
+      selector: undefined,
+      messages: [{ id: "m1", parts: [] }],
+    });
+
+    expect(request.body).not.toHaveProperty("selector");
   });
 });
 
@@ -254,16 +254,23 @@ describe("follow-up requests", () => {
     ).toThrow(NO_FOLLOW_UP_ACTION_ERROR);
   });
 
-  it("refuses a regenerate body that names no model", () => {
-    expect(() =>
-      prepareSendMessagesRequest({
-        chatId: "chat-1",
-        trigger: "regenerate-message",
-        followUp: { action: "regenerate" },
-        selector: "system:openai:composer-model",
-        messages: [USER_MESSAGE],
-      }),
-    ).toThrow(NO_FOLLOW_UP_ACTION_ERROR);
+  it("accepts a regenerate body that names no model", () => {
+    // A plain Regenerate click names no selector and no effort, so the Chat's
+    // stored selection applies (turn-actions "A plain click repeats the old
+    // settings").
+    const request = prepareSendMessagesRequest({
+      chatId: "chat-1",
+      trigger: "regenerate-message",
+      followUp: { action: "regenerate", permissionMode: "bypass" },
+      selector: "system:openai:composer-model",
+      effort: "high",
+      messages: [USER_MESSAGE],
+    });
+
+    expect(request.body).toEqual({
+      action: "regenerate",
+      permissionMode: "bypass",
+    });
   });
 });
 
@@ -301,8 +308,11 @@ describe("followUpRunRequest", () => {
   it("rejects a body that is not a follow-up request", () => {
     expect(followUpRunRequest(undefined)).toBeNull();
     expect(followUpRunRequest({ action: "delete" })).toBeNull();
+  });
+
+  it("drops a blank selector and effort from a regenerate", () => {
     expect(
-      followUpRunRequest({ action: "regenerate", selector: " " }),
-    ).toBeNull();
+      followUpRunRequest({ action: "regenerate", selector: " ", effort: " " }),
+    ).toEqual({ action: "regenerate" });
   });
 });

@@ -97,21 +97,21 @@ master <- model-roles/proposal <- model-roles/catalog <- model-roles/selection
 
 ## 4. Selection UX (`model-roles/selection-ux`)
 
-- [ ] 4.1 Hold read and return; verify "A held Chat resolves to the held model", "The held model left
+- [x] 4.1 Hold read and return; verify "A held Chat resolves to the held model", "The held model left
       the role", "An effort that only the held model declares", "The owner picks the role again",
       "The owner changes only the effort", "A send after the reset", "A long Run passes revertAt", and
       "A queue item after revertAt", with holds inserted by the test.
-- [ ] 4.2 Pending items and notices with holds; verify "A queue item after a switch" and "A queue item
+- [x] 4.2 Pending items and notices with holds; verify "A queue item after a switch" and "A queue item
       with its own selector" with a hold written by the test, `run-steering` "A job item names its
       job", and `background-jobs` "A notice uses the hold of the Chat".
-- [ ] 4.3 Forks and `/compact`; verify "A fork of a held Chat", "A shared fork gets no hold", and
+- [x] 4.3 Forks and `/compact`; verify "A fork of a held Chat", "A shared fork gets no hold", and
       `chat-commands` "A compact on a held Chat".
-- [ ] 4.4 Plain Regenerate sends no selector; verify `turn-actions` "Regenerate needs a model", "A
+- [x] 4.4 Plain Regenerate sends no selector; verify `turn-actions` "Regenerate needs a model", "A
       plain click repeats the old settings", and "A menu choice sets the composer".
-- [ ] 4.5 Web picker: roles, the stored selection, the hold display, and `selector` only after a
+- [x] 4.5 Web picker: roles, the stored selection, the hold display, and `selector` only after a
       pick; verify "A held Chat in the picker" and the modified "Web sends only with valid selected
       model" scenarios with stories and the Storybook MCP tests.
-- [ ] 4.6 Owner docs for model selectors and holds; verify `pnpm lint:markdown`.
+- [x] 4.6 Owner docs for model selectors and holds; verify `pnpm lint:markdown`.
 - [ ] 4.7 SR, then GR with the Ready-PR monitoring loop.
 
 ## 5. Switch records (`model-roles/switch-records`)

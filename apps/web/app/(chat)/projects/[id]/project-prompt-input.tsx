@@ -7,6 +7,7 @@ import type { StartLocationPrefill } from "@/lib/services/project/start-location
 import { ChatComposerBody } from "../../components/chat-composer";
 import { useChatCreation } from "../../components/use-chat-creation";
 import { useComposerAttachments } from "../../components/use-composer-attachments";
+import { useDraftChatSelection } from "../../components/use-chat-displayed-selection";
 
 /**
  * The project page's prompt input: the new-chat page's own composer — input,
@@ -28,6 +29,9 @@ export function ProjectPromptInput({
   const composerChatId = `project:${projectId}`;
   const [input, setInput] = React.useState("");
   const attachments = useComposerAttachments();
+  // A new Chat's composer: the catalog default, never the last opened Chat's
+  // stored selection.
+  useDraftChatSelection(composerChatId);
 
   const creation = useChatCreation({
     projectId,

@@ -133,12 +133,12 @@ test("regenerates a completed answer after confirming the calls it discards", as
     .getByRole("button", { name: "Regenerate" })
     .click();
 
-  // The follow-up Run repeats the completed turn's own selector and mode.
+  // A plain click names no selector and no effort — the Chat's stored
+  // selection applies — and repeats only the completed turn's mode.
   const body: unknown = (await followUp).postDataJSON();
-  expect(body).toMatchObject({
-    action: "regenerate",
-    selector: expect.stringMatching(/\S/u),
-  });
+  expect(body).toMatchObject({ action: "regenerate" });
+  expect(body).not.toHaveProperty("selector");
+  expect(body).not.toHaveProperty("effort");
 
   // The discarded attempt ran a call whose effects stay, so the turn's user
   // message now carries the notice, and the answer row was replaced in place

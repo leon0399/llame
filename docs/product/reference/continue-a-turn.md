@@ -52,9 +52,11 @@ still expires a stuck Run of the Chat, exactly as a chat send does.
 - Another owner's Chat or message answers 404, and nothing of its own is read or
   changed.
 - A live Run in the Chat answers 409.
-- A malformed body answers 400. Continue refuses `modelId` and `effort`,
-  because it takes both from the Run it continues. Regenerate requires
-  `modelId` and accepts `effort`.
+- A malformed body answers 400. Continue refuses `selector` and `effort`,
+  because it takes both from the Run it continues. Regenerate accepts
+  `selector` and `effort`, and a request that names no `selector` uses the
+  stored selection of the Chat, as [model selection](model-selection.md)
+  describes. A request that names `modelId` answers 400.
 - A model, an effort, or a permission mode that a Chat send cannot use answers
   with the error that Chat send gets. An absent mode means `default`.
 
@@ -67,7 +69,9 @@ never dispatched left no reply, so it cannot be continued either.
 
 The new Run keeps the model and the effort of the Run it continues. Both pass the
 Chat-send checks again, so a model that the operator has since removed is
-reported before any write.
+reported before any write. A Continue writes nothing to the stored selection of
+the Chat and leaves a fallback hold in place, as [model
+selection](model-selection.md) describes.
 
 ## What is kept
 
@@ -164,9 +168,11 @@ no second one is authored.
 
 Regenerate starts when the message's latest Run is terminal, whatever its
 status, and whether or not it left a reply. A Run that failed at pickup leaves
-no reply, and that turn needs Regenerate most. The new Run uses the model, the
-effort, and the permission mode the request names, and each passes the Chat-send
-checks before anything is written.
+no reply, and that turn needs Regenerate most. The new Run uses the model
+selector, the effort, and the permission mode that the request names. A request
+that names no model selector uses the stored selection of the Chat, as [model
+selection](model-selection.md) describes. Each value passes the Chat-send checks
+before anything is written.
 
 The first request starts from the history through the triggering user message,
 so it carries no part of the answer being discarded. Its dispatch replaces the
@@ -202,12 +208,12 @@ the latest Run, and it stays visible without a hover. The empty reply row keeps
 its own footer, without a second Regenerate.
 
 Every action in a message's row is an icon whose name shows as a tooltip, so
-the row stays on one line on a narrow screen. Regenerate is a split button: a
-plain click repeats the latest Run's model, the effort it ran with, and the
-permission mode it was accepted with, whatever the composer shows. The chevron
-beside it opens "Regenerate with": the composer's model, effort, and
-permission-mode selectors, where a pick sets the composer, and a Regenerate
-button that sends those values.
+the row stays on one line on a narrow screen. Regenerate is a split button. A
+plain click names no model selector and no effort, so the stored selection of
+the Chat applies. It sends the permission mode that the latest Run was accepted
+with, whatever the composer shows. The chevron beside it opens "Regenerate
+with": the composer's selection, effort, and permission-mode controls, where a
+pick sets the composer, and a Regenerate button that sends those values.
 
 Before a Regenerate discards a call whose effects outlive the reply, the web
 asks first. The dialog names each such tool, and says that their effects stay

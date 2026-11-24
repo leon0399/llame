@@ -36,18 +36,3 @@ export function modelDisplayName(
 ): string {
   return models?.find((model) => model.id === modelId)?.name ?? modelId;
 }
-
-export function hasModelId(
-  models: ReadonlyArray<AvailableModel>,
-  modelId: string | undefined,
-): boolean {
-  return modelId !== undefined && models.some((model) => model.id === modelId);
-}
-
-export function defaultModelIdOf(data: ModelsResponse): string | undefined {
-  if (!data.defaultSelector.startsWith("@")) return data.defaultSelector;
-
-  return data.roles
-    .find((role) => role.selector === data.defaultSelector)
-    ?.candidates.at(0)?.modelId;
-}

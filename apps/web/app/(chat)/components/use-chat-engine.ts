@@ -11,29 +11,29 @@ import { useCallback, useEffect, useMemo, useRef, type RefObject } from "react";
 import { getToolName, isToolUIPart, type ChatStatus, type UIMessage } from "ai";
 import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 
-import { useChatContext, type PermissionMode } from "@/contexts/chat-context";
+import {
+  useChatContext,
+  type ComposerPicks,
+  type PermissionMode,
+} from "@/contexts/chat-context";
 import { useLatestRef } from "@/lib/hooks/use-latest-ref";
 import type {
   ChatRequest,
   ChatTransport,
 } from "@/lib/services/chat/ag-ui/chat";
-import { useAgUiChat } from "@/lib/services/chat/ag-ui/use-ag-ui-chat";
 import { createChatTransport } from "@/lib/services/chat/ag-ui/transport";
+import { useAgUiChat } from "@/lib/services/chat/ag-ui/use-ag-ui-chat";
 import {
   type ChatTransportRequestOptions,
+  type PreparedChatRequest,
   prepareSendMessagesRequest,
 } from "@/lib/services/chat/transport";
 import { chatQueryKeys } from "@/lib/services/chat/queries";
 import { pinQueryKeys } from "@/lib/services/pins/queries";
-import {
-  defaultModelIdOf,
-  hasModelId,
-  type AvailableModel,
-  type ModelsResponse,
-  useModelsQuery,
-} from "@/lib/services/models/queries";
-
-const EMPTY_AVAILABLE_MODELS: ReadonlyArray<AvailableModel> = [];
+import type {
+  ComposerSelection,
+  SendSelection,
+} from "@/lib/services/models/selection";
 
 import { parseTurnUsage } from "./message-usage";
 import {
@@ -50,114 +50,6 @@ import {
 } from "@/lib/services/chat/run-notifications";
 import { safeRandomUUID } from "@/lib/uuid";
 
-/** The available models and this chat's ability to send right now — derived
- *  from the models query and kept in sync with `selectedModel` by one
- *  reconciliation effect. */
-export function useChatModelSelection(
-  selectedModel: string | undefined,
-  setSelectedModel: (modelId: string) => void,
-) {
-  const modelsQuery = useModelsQuery();
-  // Stable empty sentinel — `?? []` would allocate a new array every render
-  // and defeat memoized transcript rows while models are still loading.
-  const availableModels = modelsQuery.data?.models ?? EMPTY_AVAILABLE_MODELS;
-  const selectedModelAvailable = hasModelId(availableModels, selectedModel);
-
-  useEffect(() => {
-    if (!modelsQuery.data || modelsQuery.data.models.length === 0) return;
-
-    if (!hasModelId(modelsQuery.data.models, selectedModel)) {
-      const fallbackModelId = defaultModelIdOf(modelsQuery.data);
-
-      if (fallbackModelId !== undefined) setSelectedModel(fallbackModelId);
-    }
-  }, [modelsQuery.data, selectedModel, setSelectedModel]);
-
-  const modelSendUnavailableReason = (() => {
-    if (modelsQuery.isPending) return null;
-
-    if (modelsQuery.isError) {
-      return "Models could not be loaded; chat sending is unavailable.";
-    }
-
-    if (availableModels.length === 0) {
-      return "No chat models are configured; chat sending is unavailable.";
-    }
-
-    if (!selectedModelAvailable) {
-      return "Select an available model to send.";
-    }
-
-    return null;
-  })();
-
-  const modelReadyForSend = modelsQuery.isSuccess && selectedModelAvailable;
-
-  return { availableModels, modelSendUnavailableReason, modelReadyForSend };
-}
-
-/** The model, effort, and permission mode the chat's last recorded turn used,
- *  read from the persisted per-turn telemetry (`message.metadata.usage`),
- *  newest first, so an unanswered trailing user prompt falls back to the last
- *  completed assistant turn. `null` when no message records a turn (an empty or
- *  legacy-only chat). */
-type LastTurnSelections = {
-  modelId: string;
-  effort: string | undefined;
-  permissionMode: "bypass" | undefined;
-};
-
-function lastTurnSelections(
-  messages: ReadonlyArray<UIMessage>,
-): LastTurnSelections | null {
-  for (let index = messages.length - 1; index >= 0; index -= 1) {
-    const usage = parseTurnUsage(messages[index]?.metadata);
-
-    if (!usage || usage.modelId === undefined) continue;
-
-    return {
-      modelId: usage.modelId,
-      effort: usage.effort,
-      permissionMode: usage.permissionMode,
-    };
-  }
-
-  return null;
-}
-
-/** The model and effort a chat's last turn's composer should restore to. */
-type RestoredTargets = {
-  /** Absent only when the catalog's default selector names no catalog entry. */
-  modelId: string | undefined;
-  effort: string | undefined;
-};
-
-/** The model and effort a chat's last turn should restore to, validated
- *  against the model catalog so the next send never 422s on a stale model.
- *  Pure — no hooks; split out of `useChatLastTurnRestore` to keep it within the
- *  project's line cap. */
-export function resolveLastTurnModelEffort(
-  data: ModelsResponse,
-  turn: LastTurnSelections | null,
-): RestoredTargets {
-  const modelId =
-    turn !== null && hasModelId(data.models, turn.modelId)
-      ? turn.modelId
-      : defaultModelIdOf(data);
-
-  const effortLevels =
-    data.models.find((model) => model.id === modelId)?.reasoning
-      ?.effortLevels ?? [];
-
-  const effort =
-    turn?.effort !== undefined &&
-    effortLevels.some((level) => level.value === turn.effort)
-      ? turn.effort
-      : undefined;
-
-  return { modelId, effort };
-}
-
 /** The permission mode the composer restores to, decided only from the settled
  *  listing and the last turn's recorded mode — the model catalog plays no part
  *  in this half of the restore, so a slow catalog can neither delay nor
@@ -166,26 +58,43 @@ export function resolveLastTurnModelEffort(
  *  hooks; the single owner of the permission rule. */
 export function resolveRestoredPermissionMode(
   modes: PermissionModesResponse["modes"],
-  turn: LastTurnSelections | null,
+  lastPermissionMode: "bypass" | undefined,
 ): PermissionMode {
-  return turn?.permissionMode === "bypass" &&
+  return lastPermissionMode === "bypass" &&
     modes.some(({ value }) => value === "bypass")
     ? "bypass"
     : "default";
 }
 
-/** Restores this chat's last-used composer selections for an existing chat on
- *  the live view. The model and effort restore as soon as history and the model
- *  catalog are ready, independent of the permission listing; the permission
- *  mode restores only when the listing has settled, so `bypass` is held back
- *  (not treated as withdrawn) while it is still loading and restored when the
- *  operator still offers it. A brand-new chat, a target-window view, and the
- *  live view an accepted `#msg-N` send (finished or interrupted) remounts
- *  never restore: after that send the composer already holds the selections
- *  the newest turn used, while the cached history can still be the pre-send
- *  snapshot (#1084). Values fall back to their current default when no
- *  longer valid. */
-type UseChatLastTurnRestoreArgs = {
+/** The permission mode the chat's last recorded turn used, read from the
+ *  persisted per-turn telemetry (`message.metadata.usage`), newest first, so
+ *  an unanswered trailing user prompt falls back to the last completed
+ *  assistant turn. `undefined` when no message records a turn (an empty or
+ *  legacy-only chat). */
+function lastTurnPermissionMode(
+  messages: ReadonlyArray<UIMessage>,
+): "bypass" | undefined {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const usage = parseTurnUsage(messages[index]?.metadata);
+
+    if (!usage || usage.modelId === undefined) continue;
+
+    return usage.permissionMode;
+  }
+
+  return undefined;
+}
+
+/** Restores this chat's last-used permission mode for an existing chat on the
+ *  live view. The model and effort need no restore: they come from the Chat's
+ *  stored selection, which the page reads. The mode restores only when the
+ *  listing has settled, so `bypass` is held back (not treated as withdrawn)
+ *  while it is still loading and restored when the operator still offers it.
+ *  A brand-new chat, a target-window view, and the live view an accepted
+ *  `#msg-N` send (finished or interrupted) remounts never restore: after that
+ *  send the composer already holds the mode the newest turn used, while the
+ *  cached history can still be the pre-send snapshot (#1084). */
+type UseChatPermissionRestoreArgs = {
   chatId: string;
   chatMessages: ReadonlyArray<UIMessage>;
   initialChatExists: boolean;
@@ -193,65 +102,13 @@ type UseChatLastTurnRestoreArgs = {
   targetSeq: number | null;
 };
 
-export function useChatLastTurnRestore(args: UseChatLastTurnRestoreArgs) {
-  useChatModelEffortRestore(args);
-  useChatPermissionModeRestore(args);
-}
-
-/** Restores the model and effort once history and the model catalog are ready,
- *  independent of the permission listing. Latched per mount so a later manual
- *  pick is never reverted. */
-function useChatModelEffortRestore({
-  chatMessages,
-  initialChatExists,
-  mountedAfterTargetSend,
-  targetSeq,
-}: UseChatLastTurnRestoreArgs) {
-  const { setSelectedModel, setSelectedEffort } = useChatContext();
-  const modelsQuery = useModelsQuery();
-  const handledRef = useRef(false);
-
-  const skipMount =
-    !initialChatExists || targetSeq !== null || mountedAfterTargetSend;
-
-  useEffect(() => {
-    if (skipMount || handledRef.current) return;
-
-    if (chatMessages.length === 0) return; // history still loading
-    const data = modelsQuery.data;
-
-    if (!data || data.models.length === 0) return;
-    handledRef.current = true;
-
-    const target = resolveLastTurnModelEffort(
-      data,
-      lastTurnSelections(chatMessages),
-    );
-
-    if (target.modelId !== undefined) setSelectedModel(target.modelId);
-    setSelectedEffort(target.effort);
-  }, [
-    skipMount,
-    chatMessages,
-    modelsQuery.data,
-    setSelectedModel,
-    setSelectedEffort,
-  ]);
-}
-
-/** Restores the permission mode only once the listing has settled: while it is
- *  pending, `bypass` stays undecided rather than being treated as withdrawn
- *  (`resolveRestoredPermissionMode`). The model catalog is deliberately not a
- *  dependency — the decision needs only the settled listing and the last
- *  turn's mode, so a slow catalog can neither delay the restore nor clobber a
- *  later manual pick. Latched per mount. */
-function useChatPermissionModeRestore({
+export function useChatPermissionRestore({
   chatId,
   chatMessages,
   initialChatExists,
   mountedAfterTargetSend,
   targetSeq,
-}: UseChatLastTurnRestoreArgs) {
+}: UseChatPermissionRestoreArgs) {
   const { setPermissionMode } = useChatContext();
   const permissionModesQuery = usePermissionModesQuery();
   const appliedRef = useRef(false);
@@ -270,7 +127,7 @@ function useChatPermissionModeRestore({
       chatId,
       resolveRestoredPermissionMode(
         permissionModesQuery.data?.modes ?? [],
-        lastTurnSelections(chatMessages),
+        lastTurnPermissionMode(chatMessages),
       ),
     );
   }, [
@@ -283,68 +140,94 @@ function useChatPermissionModeRestore({
   ]);
 }
 
-/** The composer's latest selections, read at request time (never during
- *  render) so an id-stable transport always sends what is selected now. */
-function requestOptions(
+/** What one request carries into the accepted-send callback. */
+type AcceptedSendSnapshot = {
+  selection: ComposerSelection | null;
+  picks: ComposerPicks;
+};
+
+/** What the id-stable transport reads at request time. */
+export type ChatSendSelection = {
+  send: SendSelection;
+  accepted: ComposerSelection | null;
+};
+
+/** Prepare request fields and the matching selection snapshot atomically. */
+export function prepareChatRequest(
   options: ChatRequest,
   selections: {
-    model: RefObject<string | undefined>;
-    effort: RefObject<string | undefined>;
+    send: RefObject<SendSelection>;
+    accepted: RefObject<ComposerSelection | null>;
+    picks: RefObject<ComposerPicks>;
     permissionMode: RefObject<PermissionMode>;
   },
-): ChatTransportRequestOptions {
+): PreparedChatRequest & { accepted: AcceptedSendSnapshot } {
+  const send = selections.send.current;
+  const picks = selections.picks.current;
+
   return {
-    chatId: options.chatId,
-    messages: options.messages,
-    trigger: options.trigger,
-    followUp: options.body,
-    selector: selections.model.current,
-    effort: selections.effort.current,
-    permissionMode: selections.permissionMode.current,
+    ...prepareSendMessagesRequest({
+      chatId: options.chatId,
+      messages: options.messages,
+      trigger: options.trigger,
+      followUp: options.body,
+      selector: send.selector,
+      effort: send.effort,
+      permissionMode: selections.permissionMode.current,
+    } satisfies ChatTransportRequestOptions),
+    accepted: { selection: selections.accepted.current, picks },
+  };
+}
+
+/**
+ * A plain Regenerate (and Continue) names neither selector nor effort, so it
+ * must not retire a pick the owner made for a later send.
+ */
+function acceptedSendCallback(
+  accept: (selection: ComposerSelection | null, picks: ComposerPicks) => void,
+) {
+  return (request: ChatRequest, snapshot: AcceptedSendSnapshot) => {
+    const namesSelection =
+      request.body !== undefined &&
+      ("selector" in request.body || "effort" in request.body);
+
+    if (request.trigger === "regenerate-message" && !namesSelection) return;
+
+    accept(snapshot.selection, snapshot.picks);
   };
 }
 
 /** The Chat's AG-UI transport, id-stable per `chatId`. */
 export function useChatSendTransport(
   chatId: string,
-  selectedModel: string | undefined,
-  selectedEffort: string | undefined,
+  composer: ChatSendSelection,
 ) {
-  const { getPermissionMode } = useChatContext();
-  // The engine creates its chat once per chatId and NEVER adopts a new
-  // `transport` instance afterwards (it only recreates on an id change).
-  // Closing the transport over `selectedModel` therefore froze it at the
-  // first-render value (undefined, before models load), so a model chosen after
-  // load never reached the request — the send failed with "no selected model".
-  // Read the model from a ref instead, so the id-stable transport always sends
-  // the CURRENT selection. Assigned during render (not via an effect) — it's a
-  // plain latest-value mirror, only read later inside prepareSendMessagesRequest.
-  const selectedModelRef = useLatestRef(selectedModel);
-  // Same frozen-closure hazard as the model above: the transport is created
-  // once, so reading `selectedEffort` directly would pin the first turn's
-  // level for the life of the chat. `useLatestRef` bundles the per-render
-  // assignment with the ref's creation — writing the two separately is how
-  // effort came to be silently omitted from every send.
-  const selectedEffortRef = useLatestRef(selectedEffort);
-  // Permission mode is keyed by this chat id; mirror its latest selection so
-  // the id-stable transport reads the mode chosen immediately before sending.
+  const { getPermissionMode, acceptSend, picks } = useChatContext();
+
+  // The id-stable transport reads all request-time values from latest refs.
+  const sendRef = useLatestRef(composer.send);
+  const acceptedRef = useLatestRef(composer.accepted);
+  const picksRef = useLatestRef(picks);
   const selectedPermissionModeRef = useLatestRef(getPermissionMode(chatId));
+
+  const onAccepted = useMemo(
+    () => acceptedSendCallback(acceptSend),
+    [acceptSend],
+  );
 
   return useMemo(
     () =>
-      createChatTransport((request) =>
-        prepareSendMessagesRequest(
-          requestOptions(request, {
-            model: selectedModelRef,
-            effort: selectedEffortRef,
+      createChatTransport(
+        (request) =>
+          prepareChatRequest(request, {
+            send: sendRef,
+            accepted: acceptedRef,
+            picks: picksRef,
             permissionMode: selectedPermissionModeRef,
           }),
-        ),
+        onAccepted,
       ),
-    // The refs are listed for the exhaustive-deps rule's benefit only: a ref
-    // object is stable for the component's life, so including them cannot
-    // rebuild the transport.
-    [selectedModelRef, selectedEffortRef, selectedPermissionModeRef],
+    [onAccepted, acceptedRef, picksRef, selectedPermissionModeRef, sendRef],
   );
 }
 

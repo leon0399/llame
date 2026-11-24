@@ -38,6 +38,9 @@ import {
 
 const now = new Date('2026-10-27T00:00:00.000Z');
 
+/** What the Chat row's `transactionNow` answers: no test stores a hold. */
+const admissionNow = new Date('2026-11-23T13:00:00.000Z');
+
 const model: SystemModelCatalogEntry = {
   id: 'system:openai:gpt-5.4-mini',
   source: 'system',
@@ -258,6 +261,10 @@ function makeService() {
   const lock = vi
     .spyOn(ChatsRepository.prototype, 'lock')
     .mockResolvedValue(chat);
+
+  vi.spyOn(ChatsRepository.prototype, 'transactionNow').mockResolvedValue(
+    admissionNow,
+  );
 
   const touch = vi
     .spyOn(ChatsRepository.prototype, 'touch')
@@ -552,6 +559,7 @@ describe('FollowUpAdmissionService', () => {
       null,
       { selector: undefined, effort: undefined },
       'owner',
+      admissionNow,
     );
     expect(createRun).toHaveBeenCalledWith(
       expect.objectContaining({ selector: model.id, modelId: model.id }),
@@ -574,6 +582,7 @@ describe('FollowUpAdmissionService', () => {
       null,
       { selector: model.id, effort: 'high' },
       'owner',
+      admissionNow,
     );
     expect(setModelSelection).toHaveBeenCalledWith(chat.id, chat.ownerUserId, {
       revision: 1,

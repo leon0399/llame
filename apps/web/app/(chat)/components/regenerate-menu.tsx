@@ -19,9 +19,11 @@ import {
   TooltipTrigger,
 } from "@workspace/ui/components/tooltip";
 
-import { useChatContext, type ChatContextType } from "@/contexts/chat-context";
+import { useChatContext, type PermissionMode } from "@/contexts/chat-context";
 import type { FollowUpRunRequest } from "@/lib/services/chat/transport";
+import type { SendSelection } from "@/lib/services/models/selection";
 
+import { useComposerSelection } from "./use-composer-selection";
 import { EffortSelector } from "./effort-selector";
 import { ModelSelector } from "./model-selector";
 import { PermissionModeSelector } from "./permission-mode-selector";
@@ -31,25 +33,24 @@ type RegenerateMenuProps = {
   requestFollowUp: (request: FollowUpRunRequest) => void;
 };
 
-/** The follow-up request the composer's own selections produce. */
+/**
+ * The follow-up request the composer's own send would name: the same filtered
+ * selector and effort every send derives, so a pick the resolved model does
+ * not declare is dropped here too. Null until a model resolves to regenerate
+ * on. An untouched menu names neither, so the Chat's stored selection applies.
+ */
 function composerRegenerateRequest(
-  composer: Pick<
-    ChatContextType,
-    "selectedModel" | "selectedEffort" | "getPermissionMode"
-  >,
-  chatId: string,
+  send: SendSelection,
+  modelReadyForSend: boolean,
+  permissionMode: PermissionMode,
 ): FollowUpRunRequest | null {
-  const { selectedModel, selectedEffort, getPermissionMode } = composer;
-
-  // Regenerate always names a model; until the catalog resolved one there is
-  // nothing to submit.
-  if (selectedModel === undefined) return null;
+  if (!modelReadyForSend) return null;
 
   return {
     action: "regenerate",
-    selector: selectedModel,
-    effort: selectedEffort,
-    permissionMode: getPermissionMode(chatId),
+    ...(send.selector !== undefined && { selector: send.selector }),
+    ...(send.effort !== undefined && { effort: send.effort }),
+    permissionMode,
   };
 }
 
@@ -67,8 +68,14 @@ export function RegenerateMenu({
   requestFollowUp,
 }: RegenerateMenuProps) {
   const [open, setOpen] = useState(false);
-  const composer = useChatContext();
-  const request = composerRegenerateRequest(composer, chatId);
+  const { getPermissionMode } = useChatContext();
+  const { send, modelReadyForSend } = useComposerSelection();
+
+  const request = composerRegenerateRequest(
+    send,
+    modelReadyForSend,
+    getPermissionMode(chatId),
+  );
 
   return (
     <Popover open={open} onOpenChange={setOpen} modal={false}>

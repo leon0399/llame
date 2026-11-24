@@ -3,14 +3,16 @@ import {
   chooseEffort,
   chooseSelector,
   nextSelectionForWrite,
+  resolveHold,
   type ChatModelSelection,
+  type HoldResolution,
+  type EffortPolicy,
   type SelectionCatalog,
   type SelectionRequest,
   type SelectionWriter,
 } from '../models/model-selection';
 import {
-  ModelConfigurationError,
-  ModelNotAvailableError,
+  requireOfferedSelector,
   type ModelSelectionValidator,
   type ResolvedSelection,
 } from '../models/models.service';
@@ -39,12 +41,13 @@ export function fakeResolveSelection(
 ): ModelSelectionValidator['resolveSelection'] {
   const catalog = fakeSelectionCatalog(input);
 
-  return (stored, request, writer) =>
+  return (stored, request, writer, now) =>
     resolveFakeSelection({
       catalog,
       stored,
       request,
       writer,
+      now,
       resolveEffortSelection: input.resolveEffortSelection,
     });
 }
@@ -69,31 +72,33 @@ function offeredModel(
   }
 }
 
-function resolveFakeSelection(input: {
+type ResolveFakeSelectionInput = {
   catalog: SelectionCatalog;
   stored: ChatModelSelection | null;
   request: SelectionRequest;
   writer: SelectionWriter;
+  now: Date;
   resolveEffortSelection: ModelSelectionValidator['resolveEffortSelection'];
-}): ResolvedSelection {
+};
+
+function resolveFakeSelection(
+  input: ResolveFakeSelectionInput,
+): ResolvedSelection {
   const { catalog, stored, request, writer } = input;
-  const chosen = chooseSelector(catalog, stored, request);
 
-  if (chosen.kind === 'unknown') {
-    throw new ModelNotAvailableError(chosen.selector);
-  }
+  const chosen = requireOfferedSelector(
+    chooseSelector(catalog, stored, request),
+  );
 
-  if (chosen.kind === 'no-default') {
-    throw new ModelConfigurationError('defaults.selector is required.');
-  }
+  const hold = fakeHold(input, chosen.storedUsed);
 
-  if (chosen.kind === 'unresolved-default') {
-    throw new ModelConfigurationError(
-      'defaults.selector must reference a configured model or model role.',
-    );
-  }
-
-  const effort = fakeEffort(chosen.model, chosen.storedUsed, input);
+  const effort = fakeEffort({
+    model: chosen.model,
+    storedUsed: chosen.storedUsed,
+    input,
+    effortPolicy: request.effortPolicy ?? 'named',
+    hold,
+  });
 
   return {
     selector: chosen.selector,
@@ -106,33 +111,60 @@ function resolveFakeSelection(input: {
       selector: chosen.selector,
       effort,
       storedUsed: chosen.storedUsed,
+      hold,
     }),
   };
 }
 
-/**
- * The resolved effort: a named level goes through the injected resolver (the
- * doubles stay free to declare none), while the omitted order — the stored
- * effort, then the model's default — is the production `chooseEffort`.
- */
-function fakeEffort(
-  model: SystemModelCatalogEntry,
+function fakeHold(
+  input: ResolveFakeSelectionInput,
   storedUsed: boolean,
+): HoldResolution {
+  return resolveHold({
+    catalog: input.catalog,
+    stored: input.stored,
+    request: input.request,
+    writer: input.writer,
+    storedUsed,
+    now: input.now,
+  });
+}
+
+/**
+ * A recorded notice effort is named unless an applied hold supersedes it.
+ * Named choices use the injected resolver so test doubles can declare none.
+ */
+function fakeEffort(args: {
+  model: SystemModelCatalogEntry;
+  storedUsed: boolean;
   input: {
     stored: ChatModelSelection | null;
     request: SelectionRequest;
     resolveEffortSelection: ModelSelectionValidator['resolveEffortSelection'];
-  },
-): string | undefined {
-  if (input.request.effort !== undefined) {
-    return input.resolveEffortSelection(model, input.request.effort);
+  };
+  effortPolicy: EffortPolicy;
+  hold: HoldResolution;
+}): string | undefined {
+  const held =
+    args.effortPolicy === 'preferred' && args.hold.kind === 'applied';
+
+  if (args.input.request.effort !== undefined && !held) {
+    return args.input.resolveEffortSelection(
+      args.model,
+      args.input.request.effort,
+    );
   }
 
   const choice = chooseEffort({
-    model,
-    requested: undefined,
-    storedEffort: storedUsed ? (input.stored?.effort ?? null) : null,
+    model: args.model,
+    requested: held ? undefined : args.input.request.effort,
+    storedEffort:
+      args.effortPolicy === 'preferred' || !args.storedUsed
+        ? null
+        : (args.input.stored?.effort ?? null),
     candidateEffort: undefined,
+    holdEffort:
+      args.hold.kind === 'applied' ? args.hold.hold.effort : undefined,
   });
 
   return choice.kind === 'effort' ? choice.effort : undefined;

@@ -404,13 +404,14 @@ export class ScriptedModelsService implements ModelSelectionValidator {
     stored: ChatModelSelection | null,
     request: SelectionRequest,
     writer: SelectionWriter,
+    now: Date,
   ) {
-    return resolveSelectionFromCatalog(
-      this.selectionCatalog,
+    return resolveSelectionFromCatalog(this.selectionCatalog, {
       stored,
       request,
       writer,
-    );
+      now,
+    });
   }
 
   resolveTitleModelConfig() {

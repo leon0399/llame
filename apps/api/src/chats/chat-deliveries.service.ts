@@ -31,6 +31,7 @@ import {
   type ChatDeliveryView,
 } from './chat-deliveries.repository';
 import { ChatsRepository } from './chats-repository';
+import { storeSelectionUpdate } from './selection-update';
 import { type ChangeableDeliveryMode } from './dto/chat-deliveries.dto';
 import { RunWaitService } from '../runs/run-wait.service';
 import { retryRunTransaction } from '../runs/run-transaction';
@@ -193,12 +194,19 @@ export class ChatDeliveriesService {
     chat: Chat,
     changed: ChatDeliveryView['item'],
   ) {
+    const chats = new ChatsRepository(tx);
+
     const resolved = resolveItemRunSettings({
       models: this.models,
       enabledPermissionModes: this.instanceConfig.config.tools.permissionModes,
       settings: changed.settings,
       stored: chat.modelSelection ?? null,
+      now: await chats.transactionNow(),
     });
+
+    // A derived creator never writes the owner's selector or effort; it clears
+    // a hold this admission dropped.
+    await storeSelectionUpdate(chats, chat, resolved);
 
     const started = await startItemRun(tx, changed, resolved);
 

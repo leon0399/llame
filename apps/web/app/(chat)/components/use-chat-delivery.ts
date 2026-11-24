@@ -11,11 +11,12 @@ import type { ChatStatus, UIMessage } from "ai";
 
 import { toast } from "@workspace/ui/components/sonner";
 
-import { useChatContext } from "@/contexts/chat-context";
+import { useChatContext, type ComposerPicks } from "@/contexts/chat-context";
 import { getApiErrorStatus } from "@/lib/api/errors";
 import type {
   ChatDeliveryResponse,
   ChatLatestRunResponse,
+  ChatModelSelectionResponse,
   PermissionModeResponseValue,
 } from "@/lib/api/generated/models";
 import {
@@ -43,6 +44,7 @@ import { invalidateRenamedChat } from "@/lib/services/chat/management";
 import { cancelRun, runIdToCancel } from "@/lib/services/chat/runs";
 import { useLatestRef } from "@/lib/hooks/use-latest-ref";
 import { safeRandomUUID } from "@/lib/uuid";
+import { useComposerSelection } from "./use-composer-selection";
 import {
   attachmentFileParts,
   revokePreviews,
@@ -224,6 +226,8 @@ type SendComposedInput = {
   ctx: DeliveryContext;
   draft: DraftState;
   selections: Selections;
+  /** The api accepted the send: the composer's picks are spent. */
+  onAccepted: () => void;
   mode: DeliveryMode | undefined;
   setNotice: (notice: DeliveryNotice | null) => void;
 };
@@ -232,6 +236,7 @@ async function sendComposed({
   ctx,
   draft,
   selections,
+  onAccepted,
   mode,
   setNotice,
 }: SendComposedInput) {
@@ -256,6 +261,7 @@ async function sendComposed({
   try {
     const result = await sendDelivery(request);
 
+    onAccepted();
     revokePreviews(sent);
     handleSendResult(ctx, message.id, result, setNotice);
   } catch (error) {
@@ -440,6 +446,129 @@ type UseChatDeliveryArgs = DraftState & {
   handoff: Pick<RunHandoff, "begin" | "skip">;
 };
 
+type DeliveryComposer = {
+  ctx: DeliveryContext;
+  draft: DraftState;
+  selections: Selections;
+  accepted: ChatModelSelectionResponse | null;
+  picks: ComposerPicks;
+  canSend: boolean;
+  accept: (
+    selection: ChatModelSelectionResponse | null,
+    picks: ComposerPicks,
+  ) => void;
+  setNotice: (notice: DeliveryNotice | null) => void;
+};
+
+/** The send action: a delivery of the composer's message, when it may send. */
+function deliveryAction(args: DeliveryComposer) {
+  return (mode?: DeliveryMode) => {
+    if (!args.canSend) return;
+
+    void sendComposed({
+      ctx: args.ctx,
+      draft: args.draft,
+      selections: args.selections,
+      onAccepted: () => args.accept(args.accepted, args.picks),
+      mode,
+      setNotice: args.setNotice,
+    });
+  };
+}
+
+/** The per-item actions: steer it now, drop it, or put it back in the draft. */
+function deliveryItemActions(
+  ctx: DeliveryContext,
+  draft: DraftState & { latestInput: () => string },
+) {
+  return {
+    steerNow: (item: ChatDeliveryResponse) =>
+      void changeItem(ctx, item, "steer"),
+    remove: (item: ChatDeliveryResponse) => void withdrawItem(ctx, item),
+    edit: (item: ChatDeliveryResponse) => void editItem(ctx, draft, item),
+  };
+}
+
+/** The Chat's pending items and the Run state they wait on. */
+function useDeliveryState(
+  chatId: string,
+  exists: boolean,
+  status: ChatStatus,
+  latestRun: ChatLatestRunResponse | null,
+) {
+  const items = useChatDeliveries(chatId, exists);
+  const runActive = isRunActive({ status, latestRun });
+
+  return {
+    items,
+    runActive,
+    /** No live Run, so nothing delivers until the owner acts. */
+    paused: !runActive && items.length > 0,
+    /** Steer now and Interrupt now wait while a compaction Run is live. */
+    hurryable: !isCompactionLive(latestRun),
+  };
+}
+
+/** Interrupt wiring: a steer on `item`, and Stop/Esc for the Run itself. */
+function useDeliveryStop(
+  ctx: DeliveryContext,
+  args: UseChatDeliveryArgs,
+  items: ReadonlyArray<ChatDeliveryResponse>,
+  runActive: boolean,
+) {
+  const interrupt = (item: ChatDeliveryResponse) =>
+    void changeItem(ctx, item, "interrupt");
+
+  const handleStop = () => stopOrInterrupt({ ...args, items, interrupt });
+  useEscapeToStop(runActive, handleStop);
+
+  return { interrupt, handleStop };
+}
+
+/** What this Chat's next delivery names, and what an accepted one stores. */
+function useDeliverySelections(chatId: string) {
+  const { getPermissionMode, picks } = useChatContext();
+  const composer = useComposerSelection();
+
+  return {
+    selections: {
+      selector: composer.send.selector,
+      effort: composer.send.effort,
+      permissionMode: getPermissionMode(chatId),
+    },
+    accepted: composer.accepted,
+    picks,
+  };
+}
+
+/**
+ * The send path: the context item actions share, the notice an accepted send
+ * raises, and the action a send or queue click runs.
+ */
+function useDeliverySend(args: UseChatDeliveryArgs) {
+  const { chatId, exists, attachments } = args;
+  const [notice, setNotice] = useState<DeliveryNotice | null>(null);
+  const ctx = { queryClient: useQueryClient(), chatId, ...args.handoff };
+  const { acceptSend } = useChatContext();
+  const { selections, accepted, picks } = useDeliverySelections(chatId);
+  const canSend = exists && args.modelReadyForSend && !attachments.sendBlocked;
+
+  return {
+    ctx,
+    notice,
+    deliver: deliveryAction({
+      ctx,
+      draft: args,
+      selections,
+      accepted,
+      picks,
+      canSend,
+      accept: acceptSend,
+      setNotice,
+    }),
+  };
+}
+
 /** Edit resolves after a round trip: it reads the composer as it is then. */
 function useLatestInput(input: string): () => string {
   const ref = useRef(input);
@@ -458,48 +587,36 @@ function useLatestInput(input: string): () => string {
  * `GET /deliveries` and live `chat.deliveries` updates.
  */
 export function useChatDelivery(args: UseChatDeliveryArgs) {
-  const { chatId, exists, status, latestRun, attachments } = args;
-  const [notice, setNotice] = useState<DeliveryNotice | null>(null);
-  const ctx = { queryClient: useQueryClient(), chatId, ...args.handoff };
+  const { chatId, exists, status, latestRun } = args;
   const latestInput = useLatestInput(args.input);
-  const { selectedModel, selectedEffort, getPermissionMode } = useChatContext();
-  const items = useChatDeliveries(chatId, exists);
-  const runActive = isRunActive({ status, latestRun });
+  const { ctx, notice, deliver } = useDeliverySend(args);
+
+  const { items, runActive, paused, hurryable } = useDeliveryState(
+    chatId,
+    exists,
+    status,
+    latestRun,
+  );
+
   useDeliveredItems(items, ctx.begin);
 
-  const interrupt = (item: ChatDeliveryResponse) =>
-    void changeItem(ctx, item, "interrupt");
-
-  const handleStop = () => stopOrInterrupt({ ...args, items, interrupt });
-  useEscapeToStop(runActive, handleStop);
-
-  const selections = {
-    selector: selectedModel,
-    effort: selectedEffort,
-    permissionMode: getPermissionMode(chatId),
-  };
-
-  const canSend = exists && args.modelReadyForSend && !attachments.sendBlocked;
+  const { interrupt, handleStop } = useDeliveryStop(
+    ctx,
+    args,
+    items,
+    runActive,
+  );
 
   return {
     items,
     runActive,
-    /** No live Run, so nothing delivers until the owner acts. */
-    paused: !runActive && items.length > 0,
-    /** Steer now and Interrupt now wait while a compaction Run is live. */
-    hurryable: !isCompactionLive(latestRun),
+    paused,
+    hurryable,
     exists,
     notice,
-    deliver: (mode?: DeliveryMode) =>
-      canSend
-        ? sendComposed({ ctx, draft: args, selections, mode, setNotice })
-        : undefined,
+    deliver,
     handleStop,
-    steerNow: (item: ChatDeliveryResponse) =>
-      void changeItem(ctx, item, "steer"),
     interruptNow: interrupt,
-    remove: (item: ChatDeliveryResponse) => void withdrawItem(ctx, item),
-    edit: (item: ChatDeliveryResponse) =>
-      void editItem(ctx, { ...args, latestInput }, item),
+    ...deliveryItemActions(ctx, { ...args, latestInput }),
   };
 }

@@ -58,6 +58,10 @@ import { WorkspaceBindingRepository } from './workspace-binding.repository';
  */
 
 const CREATED_AT = new Date('2026-10-24T00:00:00.000Z');
+
+/** What the Chat row's `transactionNow` answers: no test stores a hold. */
+const ADMISSION_NOW = new Date('2026-11-23T13:00:00.000Z');
+
 const OWNER = 'owner-1';
 const CHAT_ID = '3f9b2ab7-8ba1-4f34-9a4e-0f6e3f6a2b10';
 const PROJECT_ID = '11111111-1111-4111-8111-111111111111';
@@ -241,6 +245,7 @@ function machineView(
  */
 type RepositoryStubs = {
   readonly findChatById: MockInstance<ChatsRepository['findById']>;
+  readonly transactionNow: MockInstance<ChatsRepository['transactionNow']>;
   readonly createIfAbsent: MockInstance<ChatsRepository['createIfAbsent']>;
   readonly hasMessage: MockInstance<MessagesRepository['hasMessage']>;
   readonly findProject: MockInstance<ProjectsRepository['findById']>;
@@ -278,6 +283,9 @@ function stubRepositories(): RepositoryStubs {
     findChatById: vi
       .spyOn(ChatsRepository.prototype, 'findById')
       .mockResolvedValue(undefined),
+    transactionNow: vi
+      .spyOn(ChatsRepository.prototype, 'transactionNow')
+      .mockResolvedValue(ADMISSION_NOW),
     // A created row is readable afterwards through the same spy, which is what
     // the route's closing read does.
     createIfAbsent: vi
@@ -517,6 +525,7 @@ describe('ChatCreationService validation before any write', () => {
       null,
       { selector: '@missing', effort: undefined },
       'owner',
+      ADMISSION_NOW,
     );
     expect(stubs.createIfAbsent).not.toHaveBeenCalled();
   });
@@ -590,6 +599,7 @@ describe('ChatCreationService validation before any write', () => {
       stored,
       { selector: undefined, effort: undefined },
       'owner',
+      ADMISSION_NOW,
     );
   });
 

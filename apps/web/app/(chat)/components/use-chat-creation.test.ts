@@ -40,6 +40,13 @@ function handlerFor(options: {
       permissionMode: "default",
       modelReadyForSend: true,
       modelSendUnavailableReason: null,
+      accepted: { selector: "system:openai:gpt-5.4", effort: null },
+      picks: {
+        selector: "system:openai:gpt-5.4",
+        effort: undefined,
+        selectorRevision: 1,
+        effortRevision: 0,
+      },
     },
     location: {
       isolation: "reuse",
@@ -113,7 +120,16 @@ describe("createSubmitHandler", () => {
 
     handler(formEvent());
 
-    await vi.waitFor(() => expect(onSent).toHaveBeenCalledWith(CHAT_ID));
+    await vi.waitFor(() =>
+      expect(onSent).toHaveBeenCalledWith(
+        CHAT_ID,
+        expect.objectContaining({ selector: "system:openai:gpt-5.4" }),
+        expect.objectContaining({
+          selectorRevision: 1,
+          effortRevision: 0,
+        }),
+      ),
+    );
     expect(onFailure).not.toHaveBeenCalledWith(expect.any(String));
   });
 });

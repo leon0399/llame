@@ -269,6 +269,10 @@ function makeService(options?: {
     .spyOn(ChatsRepository.prototype, 'lock')
     .mockResolvedValue(chat);
 
+  vi.spyOn(ChatsRepository.prototype, 'transactionNow').mockResolvedValue(
+    new Date('2026-11-23T13:00:00.000Z'),
+  );
+
   const setModelSelection = vi
     .spyOn(ChatsRepository.prototype, 'setModelSelection')
     .mockResolvedValue(undefined);

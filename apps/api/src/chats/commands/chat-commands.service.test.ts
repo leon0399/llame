@@ -23,6 +23,9 @@ import {
 import { ChatCommandsService } from './chat-commands.service';
 import * as runControl from '../../runs/run-control';
 
+/** The admission clock the Chat row's `transactionNow` answers with. */
+const NOW = new Date('2026-11-23T13:00:00.000Z');
+
 function makeService() {
   const db: Db = drizzle.mock();
 
@@ -62,6 +65,8 @@ function makeService() {
   const lock = vi
     .spyOn(ChatsRepository.prototype, 'lock')
     .mockResolvedValue(chat);
+
+  vi.spyOn(ChatsRepository.prototype, 'transactionNow').mockResolvedValue(NOW);
 
   const setModelSelection = vi
     .spyOn(ChatsRepository.prototype, 'setModelSelection')
@@ -372,6 +377,7 @@ describe('ChatCommandsService', () => {
       null,
       { selector: 'model-1', effort: undefined },
       'owner',
+      NOW,
     );
     expect(setModelSelection).toHaveBeenCalledWith('chat-1', 'user-1', {
       revision: 1,
@@ -606,6 +612,7 @@ describe('ChatCommandsService', () => {
       null,
       { selector: 'model-1', effort: undefined },
       'owner',
+      NOW,
     );
     expect(createRun).not.toHaveBeenCalled();
   });

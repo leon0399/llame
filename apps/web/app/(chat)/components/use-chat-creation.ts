@@ -3,8 +3,13 @@ import * as React from "react";
 import type { FileUIPart } from "ai";
 import { useRouter } from "next/navigation";
 
-import { useChatContext, type PermissionMode } from "@/contexts/chat-context";
+import {
+  useChatContext,
+  type ComposerPicks,
+  type PermissionMode,
+} from "@/contexts/chat-context";
 import type {
+  ChatModelSelectionResponse,
   CreateChatMessageDto,
   CreateChatRequest,
 } from "@/lib/api/generated/models";
@@ -24,7 +29,7 @@ import {
   revokePreviews,
   type ComposerAttachments,
 } from "./use-composer-attachments";
-import { useChatModelSelection } from "./use-chat-engine";
+import { useComposerSelection } from "./use-composer-selection";
 import {
   useComposerLocation,
   type ComposerLocation,
@@ -39,29 +44,34 @@ import {
  */
 
 type ComposerSelections = {
-  /** The composer's model id or role, as it reaches the request's `selector`. */
+  /** The selector this first send names; a new Chat names the one it shows. */
   selector: string | undefined;
   effort: string | undefined;
   permissionMode: PermissionMode;
   modelReadyForSend: boolean;
   modelSendUnavailableReason: string | null;
+  /** The selection and picks this create request will carry. */
+  accepted: ChatModelSelectionResponse | null;
+  picks: ComposerPicks;
 };
 
 /** The composer's model, effort, and permission mode (keyed by its settings
  *  id until a chat exists). */
 function useComposerSelections(composerChatId: string): ComposerSelections {
-  const { selectedModel, setSelectedModel, selectedEffort, getPermissionMode } =
-    useChatContext();
-
-  const { modelReadyForSend, modelSendUnavailableReason } =
-    useChatModelSelection(selectedModel, setSelectedModel);
+  const { getPermissionMode, picks } = useChatContext();
+  // A create is a new Chat's first send by definition, so it names the
+  // selection the composer shows — even where the page has no draft Chat
+  // registered to say so (a project page's composer).
+  const composer = useComposerSelection({ firstSend: true });
 
   return {
-    selector: selectedModel,
-    effort: selectedEffort,
+    selector: composer.send.selector,
+    effort: composer.send.effort,
     permissionMode: getPermissionMode(composerChatId),
-    modelReadyForSend,
-    modelSendUnavailableReason,
+    modelReadyForSend: composer.modelReadyForSend,
+    modelSendUnavailableReason: composer.modelSendUnavailableReason,
+    accepted: composer.accepted,
+    picks,
   };
 }
 
@@ -124,7 +134,11 @@ type SubmitArgs = {
   onRetain: (chatId: string) => void;
   onFailure: (message: string | null) => void;
   onWorkspaceFailure: (workspace: WorkspaceFailure, chatId: string) => void;
-  onSent: (chatId: string) => void;
+  onSent: (
+    chatId: string,
+    accepted: ChatModelSelectionResponse | null,
+    picks: ComposerSelections["picks"],
+  ) => void;
 };
 
 async function sendCreate(
@@ -137,7 +151,11 @@ async function sendCreate(
     const workspace = workspaceFailure(response.workspace);
 
     if (workspace === null) {
-      args.onSent(response.chat.id);
+      args.onSent(
+        response.chat.id,
+        args.selections.accepted,
+        args.selections.picks,
+      );
 
       return;
     }
@@ -157,7 +175,7 @@ async function sendCreate(
     // request did reach the server: the draft is filed, and a second send would
     // duplicate it.
     if (chatAlreadyHoldsMessage(error)) {
-      args.onSent(chatId);
+      args.onSent(chatId, args.selections.accepted, args.selections.picks);
 
       return;
     }
@@ -267,13 +285,19 @@ function useCreationAttempt(projectId: string | null) {
   };
 }
 
-/** After a create: the draft is the chat now, so the composer empties and the
- *  page opens the chat. */
+/** After a create: the draft is the chat now, so the composer empties, the
+ *  picks that the create carried are spent, and the page opens the chat. */
 function useOpenCreatedChat(args: ChatCreationArgs, forget: () => void) {
   const router = useRouter();
+  const { acceptSend } = useChatContext();
 
-  return (chatId: string) => {
+  return (
+    chatId: string,
+    accepted: ChatModelSelectionResponse | null,
+    picks: ComposerSelections["picks"],
+  ) => {
     const sent = args.attachments.items;
+    acceptSend(accepted, picks);
     forget();
     args.setInput("");
     args.attachments.clear();

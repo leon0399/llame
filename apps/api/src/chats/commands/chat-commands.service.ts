@@ -25,7 +25,7 @@ import { notifyLiveRunSteering, claimActiveRunSlot } from '../chat-admission';
 import { RunWaitService } from '../../runs/run-wait.service';
 import { ChatsRepository, MessagesRepository } from '../chats-repository';
 import { createCompactionRun, runSelectionFields } from '../run-creation';
-import { storeOwnerSelection } from '../owner-selection';
+import { storeSelectionUpdate } from '../selection-update';
 import { retryRunTransaction } from '../../runs/run-transaction';
 import { TitleService } from '../../titles/title.service';
 import type { PermissionMode } from '../../tools/permissions/permission-mode';
@@ -279,6 +279,8 @@ export class ChatCommandsService {
     chat: Chat,
     input: CompactCommandInput,
   ): Promise<ResolvedSendSettings> {
+    const chats = new ChatsRepository(tx);
+
     const resolved = resolveSendSettings(
       this.models,
       this.instanceConfig.config.tools.permissionModes,
@@ -287,10 +289,11 @@ export class ChatCommandsService {
         request: { selector: input.selector, effort: input.effort },
         writer: 'owner',
         permissionMode: input.permissionMode,
+        now: await chats.transactionNow(),
       },
     );
 
-    await storeOwnerSelection(new ChatsRepository(tx), chat, resolved);
+    await storeSelectionUpdate(chats, chat, resolved);
 
     return resolved;
   }

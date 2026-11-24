@@ -60,7 +60,7 @@ import { retryRunTransaction } from '../runs/run-transaction';
 import { type SendableDeliveryMode } from './dto/chat-deliveries.dto';
 import { ChatDeliveriesRepository } from './chat-deliveries.repository';
 import { createRunForMessage, runSelectionFields } from './run-creation';
-import { storeOwnerSelection } from './owner-selection';
+import { storeSelectionUpdate } from './selection-update';
 
 /**
  * A Run that passed admission, and the identity its dispatch needs: what
@@ -453,10 +453,11 @@ export class ChatLoopService {
         request: { selector: input.selector, effort: input.effort },
         writer: 'owner',
         permissionMode: input.permissionMode,
+        now: await chatsRepo.transactionNow(),
       },
     );
 
-    await storeOwnerSelection(chatsRepo, turn.chat, selection);
+    await storeSelectionUpdate(chatsRepo, turn.chat, selection);
 
     return this.persistAcceptedMessageAndRun(
       tx,
