@@ -63,3 +63,18 @@ pub fn job_running() -> Status {
 pub fn internal(message: impl Into<String>) -> Status {
     Status::internal(message)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{decode, path_not_registered, PATH_NOT_REGISTERED_MESSAGE};
+    use machine_protocol::v1::ErrorReason;
+    use tonic::Code;
+
+    #[test]
+    fn path_refusal_has_fixed_message_and_typed_detail() {
+        let refusal = path_not_registered();
+        assert_eq!(refusal.code(), Code::PermissionDenied);
+        assert_eq!(refusal.message(), PATH_NOT_REGISTERED_MESSAGE);
+        assert_eq!(decode(&refusal).map(|detail| detail.reason), Some(ErrorReason::PathNotRegistered as i32));
+    }
+}

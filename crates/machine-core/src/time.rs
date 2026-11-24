@@ -8,16 +8,19 @@ use prost_types::Timestamp;
 pub fn timestamp(time: SystemTime) -> Timestamp {
     match time.duration_since(UNIX_EPOCH) {
         Ok(duration) => Timestamp {
-            seconds: duration.as_secs().min(i64::MAX as u64) as i64,
-            nanos: duration.subsec_nanos() as i32,
+            seconds: i64::try_from(duration.as_secs()).unwrap_or(i64::MAX),
+            nanos: i32::try_from(duration.subsec_nanos()).unwrap_or_default(),
         },
         Err(error) => {
             let duration = error.duration();
-            let seconds = duration.as_secs().min(i64::MAX as u64) as i64;
+            let seconds = i64::try_from(duration.as_secs()).unwrap_or(i64::MAX);
             if duration.subsec_nanos() == 0 {
-                Timestamp { seconds: -seconds, nanos: 0 }
+                Timestamp { seconds: seconds.saturating_neg(), nanos: 0 }
             } else {
-                Timestamp { seconds: -seconds - 1, nanos: 1_000_000_000 - duration.subsec_nanos() as i32 }
+                Timestamp {
+                    seconds: seconds.saturating_neg().saturating_sub(1),
+                    nanos: 1_000_000_000 - i32::try_from(duration.subsec_nanos()).unwrap_or_default(),
+                }
             }
         }
     }
