@@ -213,7 +213,12 @@ export class JobNoticeRunService {
       resolved,
     );
 
-    const runJob = await this.createHostRun(tx, owner, resolved);
+    const runJob = await this.createHostRun(
+      tx,
+      owner,
+      resolved,
+      first.settings.origin ?? 'owner',
+    );
 
     await deliveries.deliverPendingJobNotices(owner.chatId, owner.ownerUserId, {
       messageId: runJob.userMessage.id,
@@ -227,6 +232,7 @@ export class JobNoticeRunService {
     tx: Db,
     owner: ChatOwner,
     resolved: ItemRunResolution,
+    origin: Run['origin'],
   ): Promise<RunJob & { userMessage: RunUserMessage }> {
     const message = await new MessagesRepository(tx).create({
       id: randomUUID(),
@@ -242,6 +248,7 @@ export class JobNoticeRunService {
         userId: owner.ownerUserId,
         chatId: owner.chatId,
         ...runSelectionFields(resolved),
+        origin,
         targetRunId: randomUUID(),
       },
       message,

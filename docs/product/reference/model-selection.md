@@ -109,6 +109,27 @@ The hold is written only when the Chat still stores the selection that the Run
 read at admission, with the same revision. A pick after that read wins, so the
 Chat then keeps your pick and no hold.
 
+## Automatic failover
+
+The operator can let a Run move to the next candidate of its role on its own
+when a request fails, separately for Runs you start and Runs an agent starts,
+and separately for an outage, an access failure, and a usage limit. Nothing
+switches automatically unless the operator turns it on. An automatic switch
+writes the same fallback hold as Continue on next candidate, and the transcript
+shows a boundary that names the failed model and the failure.
+
+For a usage limit, the operator can choose to switch at once, to wait for a
+near reset and switch for a far one, or to always wait. A compaction Run never
+switches.
+
+An automatic switch does not move from a subscription or free model to a
+per-token one unless the operator allows it for that role. Continue on next
+candidate has no such limit: you choose the paid candidate yourself. A title
+on a role walks its candidates in order under the same paid limit, without a
+hold or a wait. The policy is read at each failure, so an operator change
+applies to the next failure and leaves a wait in progress as it is. The
+settings are in [provider routing](../operator/providers/routing.md).
+
 ## Regenerate
 
 A plain Regenerate names no model selector and no effort, so the stored

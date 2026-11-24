@@ -1,5 +1,7 @@
 import { Module } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { InstanceConfigService } from '../instance-config/instance-config.service';
+import { createFailoverDecision } from '../models/model-failover';
 import { PostgresChangeListener } from '../live/change-listener';
 import { CompactionModule } from '../compaction/compaction.module';
 import { DecisionsModule } from '../decisions/decisions.module';
@@ -20,7 +22,6 @@ import { SkillsModule } from '../skills/skills.module';
 import { SystemPromptsModule } from '../system-prompts/system-prompts.module';
 import { TitlesModule } from '../titles/titles.module';
 import {
-  noModelSwitch,
   RunExecutionService,
   RUN_MODEL_SWITCH_DECISION,
 } from './run-execution.service';
@@ -76,7 +77,11 @@ import { CompactionRunService } from './compaction-run.service';
   ],
   providers: [
     RunExecutionService,
-    { provide: RUN_MODEL_SWITCH_DECISION, useValue: noModelSwitch },
+    {
+      provide: RUN_MODEL_SWITCH_DECISION,
+      inject: [InstanceConfigService],
+      useFactory: createFailoverDecision,
+    },
     {
       // Built by factory rather than by Nest's own construction so the Machine
       // connector — which only this provider needs — reaches it: a Workspace

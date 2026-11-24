@@ -132,6 +132,7 @@ const now = new Date('2026-09-02T00:00:00.000Z');
 const run: Run = {
   id: 'run-1',
   kind: 'turn',
+  origin: 'owner',
   chatId: 'chat-1',
   messageId: 'message-1',
   userId: 'owner-1',
@@ -253,10 +254,15 @@ describe('RunsRepository', () => {
     expect(values[0]).toStrictEqual({
       ...input,
       selector: 'model-1',
+      origin: 'owner',
       followUpAction: 'continue',
       sourceRunId: 'run-source',
     });
-    expect(values[1]).toStrictEqual({ ...input, selector: 'model-1' });
+    expect(values[1]).toStrictEqual({
+      ...input,
+      selector: 'model-1',
+      origin: 'owner',
+    });
   });
 
   it('findMostRecentByMessageSequence returns the run and triggering sequence, with a strict message-sequence bound', async () => {

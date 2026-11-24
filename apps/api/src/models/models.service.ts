@@ -27,7 +27,7 @@ import {
   type ModelClient,
   type ModelCredentialResolver,
 } from './model-client';
-import { ROLE_SIGN } from './model-selector';
+import { ROLE_SIGN, parseModelSelector } from './model-selector';
 import {
   chooseEffort,
   chooseSelector,
@@ -44,6 +44,11 @@ import {
   type SelectionWriter,
   type SelectorChoice,
 } from './model-selection';
+
+export type TitleModelCandidates = {
+  readonly models: ReadonlyArray<SystemModelCatalogEntry>;
+  readonly allowPaidFallback: boolean;
+};
 
 /** One candidate of a published role, as a client may present it. */
 export type ModelRoleCandidateAvailability = {
@@ -492,13 +497,34 @@ export class ModelsService {
     return model;
   }
 
-  resolveTitleModelConfig(): SystemModelCatalogEntry | undefined {
+  resolveTitleModelCandidates(): TitleModelCandidates | undefined {
     const selector =
       this.instanceConfig.config.defaults.titleGenerationSelector;
 
-    return selector === null
+    if (selector === null) return undefined;
+
+    const parsed = parseModelSelector(selector);
+
+    if (parsed.kind === 'role') {
+      const role = this.rolesByName.get(parsed.roleName);
+
+      if (role === undefined) return undefined;
+
+      return {
+        models: role.candidates.flatMap((candidate) => {
+          const model = this.modelsById.get(candidate.modelId);
+
+          return model === undefined ? [] : [model];
+        }),
+        allowPaidFallback: role.allowPaidFallback === true,
+      };
+    }
+
+    const model = this.modelsById.get(parsed.modelId);
+
+    return model === undefined
       ? undefined
-      : offerSelector(this.selectionCatalog, selector)?.model;
+      : { models: [model], allowPaidFallback: false };
   }
 
   requireAvailableModel(modelId: string): SystemModelCatalogEntry {

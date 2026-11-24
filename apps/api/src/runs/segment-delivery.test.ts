@@ -39,6 +39,7 @@ const now = new Date('2026-11-08T00:00:00.000Z');
 const run: Run = {
   id: runId,
   kind: 'turn',
+  origin: 'owner',
   chatId,
   messageId,
   userId,

@@ -56,12 +56,13 @@ describe('settled job host Runs', () => {
   const db = <T>(work: (tx: Db) => Promise<T>): Promise<T> =>
     harness.tenantDb.runAs(owner, work);
 
-  async function completedChat() {
+  async function completedChat(origin: 'owner' | 'agent' = 'owner') {
     const seeded = await seedRun({
       tenantDb: harness.tenantDb,
       userId: owner,
       modelId: `baseline-${randomUUID()}`,
-      text: 'owner initiated work',
+      text: `${origin} initiated work`,
+      origin,
     });
 
     await db(async (tx) => {
@@ -197,6 +198,22 @@ describe('settled job host Runs', () => {
       ).toHaveLength(0);
     },
   );
+  it('copies a job Run origin to its notice Run', async () => {
+    const prior = await completedChat('agent');
+
+    const job = await runningJob(prior.chatId, prior.runId, {
+      selector: `job-model-${randomUUID()}`,
+      permissionMode: 'default',
+      origin: 'agent',
+    });
+
+    await settle(job, { state: 'succeeded', result: { exitCode: 0 } });
+
+    const { hostRuns } = await findHostRows(prior.chatId);
+
+    expect(hostRuns).toHaveLength(1);
+    expect(hostRuns[0]?.origin).toBe('agent');
+  });
 
   it('coalesces settlements before pickup into one host trigger and one Run', async () => {
     const prior = await completedChat();

@@ -374,6 +374,10 @@ export const runKinds = ['turn', 'compaction'] as const;
 
 export type RunKind = (typeof runKinds)[number];
 
+export const runOrigin = pgEnum('run_origin', ['owner', 'agent']);
+
+export type RunOrigin = (typeof runOrigin.enumValues)[number];
+
 function runDomainChecks(t: {
   permissionMode: AnyPgColumn;
   followUpAction: AnyPgColumn;
@@ -400,6 +404,7 @@ export const runs = pgTable(
   {
     id: uuid('id').primaryKey().defaultRandom(),
     kind: text('kind').$type<RunKind>().notNull().default('turn'),
+    origin: runOrigin('origin').notNull().default('owner'),
     chatId: uuid('chat_id')
       .notNull()
       .references(() => chats.id, { onDelete: 'cascade' }),
@@ -415,14 +420,10 @@ export const runs = pgTable(
     // Opaque llame model id captured at enqueue time. Required: changing the
     // system default later must not silently alter an already queued run.
     modelId: text('model_id').notNull(),
-    // The model selector the Run was accepted under (model-roles): either a
-    // role (`@fast`) or an exact model id. `model_id` above is what that
-    // selector RESOLVED to at accept time; keeping the selector beside it means
-    // the record of the owner's choice survives a configuration edit that
-    // changes what the role points at.
-    //
-    // No database default: only admission can supply one, and every writer
-    // does. The migration backfills existing rows from `model_id`.
+    // The selector records the role (`@fast`) or exact model id resolved at
+    // admission. It remains stable if the role changes later. No database
+    // default: only admission can supply one, and every writer does. The
+    // migration backfills existing rows from `model_id`.
     selector: text('selector').notNull(),
     status: runStatus('status').notNull().default('queued'),
     // The current queue delivery that may claim or wake this Run.
@@ -462,8 +463,8 @@ export const runs = pgTable(
     // The effort admission resolved for this Run, as opposed to `effort`
     // above, which is what the current segment actually SENT. It equals the
     // first segment's effort; a later model switch changes `effort`, not
-    // `selectedEffort`. Nullable for the same reason as `effort`: a
-    // selection may resolve no effort at all.
+    // `selectedEffort`. A job inherits it. Nullable for the same reason as
+    // `effort`: a selection may resolve no effort at all.
     selectedEffort: text('selected_effort'),
     // The Chat selection revision this Run read (model-roles). NULL for a Run
     // admitted before the Chat stored a selection, and for a writer that reads

@@ -4,6 +4,7 @@ import { toChatLatestRunResponse } from './latest-run.dto';
 const run: Run = {
   id: '11111111-1111-4111-8111-111111111111',
   kind: 'turn',
+  origin: 'owner',
   chatId: '22222222-2222-4222-8222-222222222222',
   messageId: '33333333-3333-4333-8333-333333333333',
   userId: 'owner',

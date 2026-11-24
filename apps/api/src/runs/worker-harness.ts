@@ -46,7 +46,12 @@ import { type PermissionGroup } from '../tools/permissions/types';
 import { type PermissionMode } from '../tools/permissions/permission-mode';
 import { type EnqueueOptions, QUEUE, type Queue } from '../queue/queue';
 import { ChatJobsRepository } from '../jobs/chat-jobs.repository';
-import { workerInstances, type ChatJob } from '../db/schema';
+import {
+  workerInstances,
+  type ChatJob,
+  type RunKind,
+  type RunOrigin,
+} from '../db/schema';
 import { CanonicalSearchCoverageService } from '../search/canonical-search-activation.service';
 import { ChatsRepository, MessagesRepository } from '../chats/chats-repository';
 import { type TextPart } from '../chats/context-builder';
@@ -106,6 +111,12 @@ type HarnessOverrides = {
   runsConcurrency?: number | null;
   /** The operator's step cap per segment; absent keeps the built-in (none). */
   maxStepsPerRun?: number;
+  /** Automatic failover policy used by production decision-provider tests. */
+  failover?: LlameConfig['failover'];
+  /** Role chain used by production decision-provider tests. */
+  modelRoles?: LlameConfig['modelRoles'];
+  /** Candidate billing metadata used by production decision-provider tests. */
+  models?: LlameConfig['models'];
   /** Maximum time a Run may wait for a provider quota reset. */
   quotaWaitMaxSeconds?: number;
   timeoutSeconds?: number;
@@ -157,6 +168,13 @@ function resolveHarnessConfig(overrides: HarnessOverrides = {}): LlameConfig {
 
   return {
     ...BUILT_IN_DEFAULTS,
+    ...(overrides.failover !== undefined && {
+      failover: overrides.failover,
+    }),
+    ...(overrides.modelRoles !== undefined && {
+      modelRoles: overrides.modelRoles,
+    }),
+    ...(overrides.models !== undefined && { models: overrides.models }),
     ...(machines !== undefined && { machines }),
     tools: {
       ...BUILT_IN_DEFAULTS.tools,
@@ -345,6 +363,12 @@ export async function seedRun(input: {
   modelId: string;
   text?: string;
   chatId?: string;
+  /** Optional role selector stored directly on the Run. */
+  selector?: string;
+  /** D10 test support for agent Runs inserted without an agent producer. */
+  origin?: RunOrigin;
+  /** Insert a compaction Run directly for D11 coverage. */
+  kind?: RunKind;
   /** Persisted on the run exactly as the accepting API would have stored it. */
   effort?: string;
   /** Persisted on the run exactly as the accepting API would have stored it. */
@@ -384,6 +408,9 @@ export async function seedRun(input: {
       messageId: message.id,
       userId: input.userId,
       modelId: input.modelId,
+      ...(input.selector !== undefined && { selector: input.selector }),
+      ...(input.kind !== undefined && { kind: input.kind }),
+      ...(input.origin !== undefined && { origin: input.origin }),
       ...(input.effort !== undefined && { effort: input.effort }),
       ...(input.permissionMode !== undefined && {
         permissionMode: input.permissionMode,

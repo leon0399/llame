@@ -25,6 +25,7 @@ describe('quota waits at compaction boundaries', () => {
   const fx = useSegmentsFixture('quota-compaction-boundaries', {
     allowedTools: ['read'],
     localMachine: 'quota-compaction-boundaries-host',
+    failover: { owner: { quota: 'on' } },
   });
 
   const quotaFailure = () =>
@@ -191,6 +192,7 @@ describe('quota waits at compaction boundaries', () => {
       resumeAt: 'boundary',
     });
     expect(await wakeQuota(seeded.runId)).toBe(true);
+    expect(await fx.types(seeded.runId)).not.toContain('model.switched');
 
     const finished = await fx.terminal(seeded.runId);
     const messages = await fx.messages(seeded.chatId);

@@ -11,9 +11,49 @@ export type RawModelRoleCandidate = {
   effort?: string;
 };
 
+/** Matrix cell for automatic model failover. */
+export type RawFailoverCell =
+  | 'on'
+  | 'off'
+  | { switchAfterSeconds: number | string };
+
+export type FailoverOrigin = 'owner' | 'agent';
+
+export type FailureGroup = 'availability' | 'access' | 'quota';
+
+type Matrix<Cell> = Partial<
+  Record<FailoverOrigin, Partial<Record<FailureGroup, Cell>>>
+>;
+
+export type RawFailoverMatrix = Matrix<RawFailoverCell>;
+
+export type FailoverCell =
+  | 'on'
+  | 'off'
+  | { readonly switchAfterSeconds: number };
+
+export type FailoverMatrix = Readonly<
+  Partial<
+    Record<
+      FailoverOrigin,
+      Readonly<Partial<Record<FailureGroup, FailoverCell>>>
+    >
+  >
+>;
+
 /** One still-uninterpolated `modelRoles.<name>` entry once schema-validated. */
 export type RawModelRole = {
   candidates: ReadonlyArray<RawModelRoleCandidate>;
+  allowPaidFallback?: boolean;
+  failover?: RawFailoverMatrix;
+};
+
+/** A resolved named model role: ordered candidates and optional policy overrides. */
+export type ModelRoleConfig = {
+  readonly name: string;
+  readonly candidates: ReadonlyArray<ModelRoleCandidate>;
+  readonly allowPaidFallback?: boolean;
+  readonly failover?: FailoverMatrix;
 };
 
 /**
@@ -24,10 +64,4 @@ export type RawModelRole = {
 export type ModelRoleCandidate = {
   readonly modelId: string;
   readonly effort?: string;
-};
-
-/** A resolved named model role: an ordered candidate list, primary first. */
-export type ModelRoleConfig = {
-  readonly name: string;
-  readonly candidates: ReadonlyArray<ModelRoleCandidate>;
 };

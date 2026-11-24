@@ -413,26 +413,62 @@ describe('ModelsService', () => {
     );
   });
 
-  it('resolves title generation only when it points to a configured model', () => {
+  it('resolves title-generation candidates only when configured', () => {
     expect(
       createService({
         titleGenerationSelector: 'system:openai:gpt-5.4-nano',
-      }).resolveTitleModelConfig(),
+      }).resolveTitleModelCandidates(),
     ).toMatchObject({
-      id: 'system:openai:gpt-5.4-nano',
-      providerModelId: 'gpt-5.4-nano',
+      models: [{ id: 'system:openai:gpt-5.4-nano' }],
     });
 
     expect(
       createService({
         titleGenerationSelector: undefined,
-      }).resolveTitleModelConfig()?.id,
+      }).resolveTitleModelCandidates(),
     ).toBeUndefined();
     expect(
       createService({
         titleGenerationSelector: 'unknown',
-      }).resolveTitleModelConfig()?.id,
+      }).resolveTitleModelCandidates(),
     ).toBeUndefined();
+  });
+
+  it('preserves the role paid-fallback opt-in for title generation', () => {
+    const service = createService({
+      defaultSelector: '@titles',
+      titleGenerationSelector: '@titles',
+      models: [
+        withBilling('system:openai:primary', 'subscription'),
+        withBilling('system:openai:paid', 'usage'),
+      ],
+      modelRoles: [
+        {
+          name: 'titles',
+          candidates: [
+            { modelId: 'system:openai:primary' },
+            { modelId: 'system:openai:paid' },
+          ],
+          allowPaidFallback: true,
+        },
+      ],
+    });
+
+    expect(service.resolveTitleModelCandidates()).toMatchObject({
+      models: [{ id: 'system:openai:primary' }, { id: 'system:openai:paid' }],
+      allowPaidFallback: true,
+    });
+  });
+
+  it('keeps an exact title-model selector from opting into paid fallback', () => {
+    const service = createService({
+      titleGenerationSelector: 'system:openai:gpt-5.4-nano',
+    });
+
+    expect(service.resolveTitleModelCandidates()).toMatchObject({
+      models: [{ id: 'system:openai:gpt-5.4-nano' }],
+      allowPaidFallback: false,
+    });
   });
 
   describe('model roles', () => {
@@ -508,7 +544,7 @@ describe('ModelsService', () => {
       );
     });
 
-    it('resolves a title-generation role to its primary candidate', () => {
+    it('resolves every title-generation role candidate in order', () => {
       const service = createService({
         defaultSelector: '@coding',
         titleGenerationSelector: '@titles',
@@ -531,18 +567,49 @@ describe('ModelsService', () => {
         ],
       });
 
-      expect(service.resolveTitleModelConfig()).toMatchObject({
-        id: 'system:openai:secondary',
+      expect(service.resolveTitleModelCandidates()).toMatchObject({
+        models: [
+          { id: 'system:openai:secondary' },
+          { id: 'system:openai:primary' },
+        ],
       });
     });
 
+    it('resolves all title role candidates in order with the paid fallback gate', () => {
+      const service = createService({
+        defaultSelector: '@coding',
+        titleGenerationSelector: '@titles',
+        models: [
+          withBilling('system:openai:secondary', 'subscription'),
+          withBilling('system:openai:primary', 'usage'),
+        ],
+        modelRoles: [
+          {
+            name: 'titles',
+            candidates: [
+              { modelId: 'system:openai:secondary' },
+              { modelId: 'system:openai:primary' },
+            ],
+            allowPaidFallback: false,
+          },
+        ],
+      });
+
+      expect(service.resolveTitleModelCandidates()).toMatchObject({
+        models: [
+          { id: 'system:openai:secondary' },
+          { id: 'system:openai:primary' },
+        ],
+        allowPaidFallback: false,
+      });
+    });
     it('treats a title-generation role that is not configured as unset', () => {
       const service = createService({
         defaultSelector: 'system:openai:gpt-5.4-mini',
         titleGenerationSelector: '@missing',
       });
 
-      expect(service.resolveTitleModelConfig()).toBeUndefined();
+      expect(service.resolveTitleModelCandidates()).toBeUndefined();
     });
   });
 

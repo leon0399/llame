@@ -3,10 +3,13 @@ import type { ModelMessage as AiModelMessage } from 'ai';
 
 import { TenantDbService } from '../db/tenant-db.service';
 import { type ModelClient } from '../models/model-client';
-import { ModelsService } from '../models/models.service';
+import {
+  ModelsService,
+  type TitleModelCandidates,
+} from '../models/models.service';
 import { ChatsRepository } from '../chats/chats-repository';
-import { queryLatestTitleMessages } from '../chats/title-message-query';
 import { buildTitleExcerpt } from './title-excerpt';
+import { queryLatestTitleMessages } from '../chats/title-message-query';
 import {
   sanitizeTitle,
   titlePromptInput,
@@ -17,6 +20,8 @@ import {
   TITLE_SCHEMA_NAME,
   TITLE_SYSTEM_PROMPT,
 } from './title';
+import { failureGroup, skipsPaidCandidate } from '../models/model-failover';
+import { ProviderFailure } from '../models/provider-failure/provider-failure';
 
 /**
  * TitleService (#78) — names a chat from the user's message after a completed
@@ -63,9 +68,9 @@ export class TitleService {
     | { ok: true; title: string }
     | { ok: false; reason: 'not_configured' | 'empty' | 'failed' }
   > {
-    const titleModel = this.models.resolveTitleModelConfig();
+    const titleConfig = this.models.resolveTitleModelCandidates();
 
-    if (!titleModel) return { ok: false, reason: 'not_configured' };
+    if (!titleConfig) return { ok: false, reason: 'not_configured' };
 
     const newestFirst = await this.tenantDb.runAs(input.userId, (tx) =>
       queryLatestTitleMessages(tx, input.chatId, input.userId),
@@ -76,13 +81,13 @@ export class TitleService {
     if (renderedInput.length === 0) return { ok: false, reason: 'empty' };
 
     try {
-      const client = this.models.createClient(titleModel.id);
-
-      const title = sanitizeTitle(
-        await this.requestTitle(client, input.chatId, renderedInput),
+      const title = await this.requestTitleFromCandidates(
+        titleConfig,
+        input.chatId,
+        renderedInput,
       );
 
-      if (title.length === 0) return { ok: false, reason: 'failed' };
+      if (title === undefined) return { ok: false, reason: 'failed' };
 
       const updated = await this.tenantDb.runAs(input.userId, (tx) =>
         new ChatsRepository(tx).update(input.chatId, input.userId, { title }),
@@ -111,9 +116,9 @@ export class TitleService {
       return;
     }
 
-    const titleModel = this.models.resolveTitleModelConfig();
+    const titleConfig = this.models.resolveTitleModelCandidates();
 
-    if (!titleModel) {
+    if (!titleConfig) {
       this.logger.error(
         'defaults.titleGenerationSelector is missing or does not reference an available model; skipping title generation.',
       );
@@ -121,15 +126,13 @@ export class TitleService {
       return;
     }
 
-    const client = this.models.createClient(titleModel.id);
-
-    const title = sanitizeTitle(
-      await this.requestTitle(client, input.chatId, userText),
+    const title = await this.requestTitleFromCandidates(
+      titleConfig,
+      input.chatId,
+      userText,
     );
 
-    if (title.length === 0) {
-      return;
-    }
+    if (title === undefined) return;
 
     await this.tenantDb.runAs(input.userId, (tx) =>
       new ChatsRepository(tx).setGeneratedTitle(
@@ -138,6 +141,53 @@ export class TitleService {
         title,
       ),
     );
+  }
+
+  private async requestTitleFromCandidates(
+    config: TitleModelCandidates,
+    chatId: string,
+    renderedInput: string,
+  ): Promise<string | undefined> {
+    let previousModel: (typeof config.models)[number] | undefined;
+
+    for (const model of config.models) {
+      if (
+        skipsPaidCandidate(
+          previousModel,
+          model.billing,
+          config.allowPaidFallback,
+        )
+      ) {
+        continue;
+      }
+
+      previousModel = model;
+
+      try {
+        const title = sanitizeTitle(
+          await this.requestTitle(
+            this.models.createClient(model.id),
+            chatId,
+            renderedInput,
+          ),
+        );
+
+        if (title.length > 0) return title;
+      } catch (error) {
+        this.logger.warn(
+          `Title generation failed: ${error instanceof Error ? error.name : 'unknown error'}`,
+        );
+
+        if (
+          !(error instanceof ProviderFailure) ||
+          failureGroup(error) === undefined
+        ) {
+          return undefined;
+        }
+      }
+    }
+
+    return undefined;
   }
 
   /**

@@ -80,6 +80,8 @@ export type RunCreateInput = {
   selectionRevision?: number | undefined;
   /** Accepted at message time; absent lets the database default to `default`. */
   permissionMode?: PermissionMode | undefined;
+  /** Defaults to owner; copied from the originating item for promotion. */
+  origin?: Run['origin'] | undefined;
   /** The follow-up action that started this Run; absent for a chat send. */
   followUpAction?: FollowUpAction | undefined;
   /** The earlier Run this follow-up Run acts on; absent for a chat send. */
@@ -96,6 +98,7 @@ function runInsertValues(input: RunCreateInput): typeof runs.$inferInsert {
     userId: input.userId,
     modelId: input.modelId,
     selector: input.selector ?? input.modelId,
+    origin: input.origin ?? 'owner',
   };
 
   if (input.kind !== undefined) values.kind = input.kind;

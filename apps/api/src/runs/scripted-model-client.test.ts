@@ -214,9 +214,13 @@ describe('ScriptedModelsService', () => {
     });
     expect(service.resolveEffortSelection(selection, undefined)).toBe('low');
     expect(service.resolveEffortSelection(selection, 'high')).toBe('high');
-    expect(service.resolveTitleModelConfig()).toMatchObject({
-      id: 'system:openai:gpt-5.4-nano',
-      providerModelId: 'gpt-5.4-nano',
+    expect(service.resolveTitleModelCandidates()).toMatchObject({
+      models: [
+        {
+          id: 'system:openai:gpt-5.4-nano',
+          providerModelId: 'gpt-5.4-nano',
+        },
+      ],
     });
   });
 
@@ -500,11 +504,17 @@ describe('ScriptedModelsService observable contract', () => {
       systemPromptSource: 'project_default',
       referencesSkills: false,
     });
-    expect(service.resolveTitleModelConfig()).toStrictEqual({
-      id: 'system:openai:gpt-5.4-nano',
-      source: 'system',
-      provider: 'openai',
-      providerModelId: 'gpt-5.4-nano',
+    expect(service.resolveTitleModelCandidates()).toStrictEqual({
+      models: [
+        {
+          id: 'system:openai:gpt-5.4-nano',
+          source: 'system',
+          provider: 'openai',
+          providerModelId: 'gpt-5.4-nano',
+          billing: 'subscription',
+        },
+      ],
+      allowPaidFallback: false,
     });
   });
 

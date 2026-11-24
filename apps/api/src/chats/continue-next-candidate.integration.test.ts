@@ -96,12 +96,15 @@ const CODEX = catalogEntry(
   'high',
 );
 
-const SONNET = catalogEntry(
-  SONNET_ID,
-  'anthropic',
-  [{ value: 'medium' }, { value: 'low' }],
-  'low',
-);
+const SONNET = {
+  ...catalogEntry(
+    SONNET_ID,
+    'anthropic',
+    [{ value: 'medium' }, { value: 'low' }],
+    'low',
+  ),
+  billing: 'usage' as const,
+};
 
 const FAST = catalogEntry(FAST_ID, 'openai');
 
@@ -132,6 +135,7 @@ const CONFIG: LlameConfig = {
         { modelId: CODEX_ID, effort: 'high' },
         { modelId: SONNET_ID, effort: 'low' },
       ],
+      allowPaidFallback: false,
     },
     { name: 'fast', candidates: [{ modelId: FAST_ID }] },
   ],
@@ -426,7 +430,7 @@ describeIfDb('Continue on the next candidate', () => {
     await (result.consumeStream?.() ?? result.text);
   }
 
-  it('Continue on the next candidate', async () => {
+  it('The owner reaches a paid candidate with the automatic gate on', async () => {
     const turn = await seedFailedTurn();
     const admitted = await admit(turn, nextCandidateRequest);
     const runs = await runsOf(turn.chatId);

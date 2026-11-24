@@ -907,6 +907,7 @@ describe('ChatsService message windows, updates and forks', () => {
     const activeRun: Run = {
       id: 'run-1',
       kind: 'turn',
+      origin: 'owner',
       chatId: chat.id,
       messageId: null,
       userId: ownerUserId,

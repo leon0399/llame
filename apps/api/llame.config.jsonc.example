@@ -34,6 +34,13 @@
     "titleGenerationSelector": "{env:TITLE_GENERATION_MODEL_ID:-system:openai:gpt-5.4-nano}",
   },
 
+  // Automatic failover is opt-in per Run origin and failure group. Cells
+  // default to off; quota can use { "switchAfterSeconds": N } to keep a
+  // near reset waiting while switching when the reset is farther away.
+  "failover": {
+    "agent": { "availability": "on" }
+  },
+
   // Named model roles: ordered candidate lists that a selector targets as
   // "@" plus the role name. The first candidate is the role's primary, so a
   // default naming the role resolves to it. Every candidate must reference a
@@ -45,7 +52,9 @@
   //     "candidates": [
   //       { "model": "system:openai:gpt-5.6-sol", "effort": "high" },
   //       { "model": "system:openai:gpt-5.4-mini" }
-  //     ]
+  //     ],
+  //     "allowPaidFallback": false,
+  //     "failover": { "agent": { "quota": { "switchAfterSeconds": 3600 } } },
   //   }
   // },
 

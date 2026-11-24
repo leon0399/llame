@@ -650,7 +650,9 @@ d('a Chat with a fallback hold', () => {
   });
 
   /** A Chat whose latest Run completed, so a settlement starts its notice. */
-  async function chatWithCompletedRun(): Promise<string> {
+  async function chatWithCompletedRun(
+    origin: 'owner' | 'agent' = 'owner',
+  ): Promise<string> {
     const chatId = await createChat();
 
     await tenantDb.runAs(userAId, async (tx) => {
@@ -669,6 +671,7 @@ d('a Chat with a fallback hold', () => {
         messageId: message.id,
         userId: userAId,
         modelId: CODEX.id,
+        origin,
       });
 
       await runs.markStarted(run.id, userAId);
@@ -681,7 +684,11 @@ d('a Chat with a fallback hold', () => {
   async function settleJob(
     chatId: string,
     seq: number,
-    effort?: string,
+    options: {
+      effort?: string;
+      origin?: 'owner' | 'agent';
+      runId?: string;
+    } = {},
   ): Promise<void> {
     const job = await tenantDb.runAs(userAId, (tx) =>
       new ChatJobsRepository(tx).insert(
@@ -690,11 +697,13 @@ d('a Chat with a fallback hold', () => {
           ownerUserId: userAId,
           seq,
           workerInstanceId: crypto.randomUUID(),
+          ...(options.runId !== undefined && { runId: options.runId }),
           artifactReadable: false,
           settings: {
             selector: '@coding',
-            ...(effort !== undefined && { effort }),
+            ...(options.effort !== undefined && { effort: options.effort }),
             permissionMode: 'default',
+            origin: options.origin ?? 'owner',
           },
         }),
       ),
@@ -724,7 +733,7 @@ d('a Chat with a fallback hold', () => {
 
     // The job records the effort of the Run that started it; the hold's effort
     // serves the notice instead.
-    await settleJob(chatId, 7, 'xhigh');
+    await settleJob(chatId, 7, { effort: 'xhigh' });
     await until(
       'the notice Run',
       async () => (await runsOf(chatId)).length >= 2,
@@ -735,6 +744,24 @@ d('a Chat with a fallback hold', () => {
       modelId: SONNET.id,
       effort: 'low',
     });
+  });
+
+  it('A job notice inherits the origin', async () => {
+    const chatId = await chatWithCompletedRun('agent');
+    const originatingRun = await latestRun(chatId);
+
+    if (!originatingRun) throw new Error('Expected the seeded agent Run.');
+
+    await settleJob(chatId, 8, {
+      origin: 'agent',
+      runId: originatingRun.id,
+    });
+    await until(
+      'the agent-origin notice Run',
+      async () => (await runsOf(chatId)).length >= 2,
+    );
+
+    expect(await latestRun(chatId)).toMatchObject({ origin: 'agent' });
   });
 
   it('A fork of a held Chat', async () => {

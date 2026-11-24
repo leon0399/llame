@@ -42,6 +42,7 @@ const userMessage: Message = {
 const failedRun: Run = {
   id: '44444444-4444-4444-8444-444444444444',
   kind: 'turn',
+  origin: 'owner',
   chatId: userMessage.chatId,
   messageId: userMessage.id,
   userId: userMessage.senderUserId ?? '',

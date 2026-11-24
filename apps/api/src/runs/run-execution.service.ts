@@ -89,6 +89,7 @@ import {
   type QuotaResumeAt,
   type SkillCatalogBaseline,
   type TurnToolAvailabilityEntry,
+  type RunOrigin,
 } from '../db/schema';
 import {
   buildContext,
@@ -528,11 +529,11 @@ export const RUN_MODEL_SWITCH_DECISION = Symbol('RUN_MODEL_SWITCH_DECISION');
 export type ModelSwitchDecision = (input: {
   selector: string;
   modelId: string;
+  origin: RunOrigin;
   failure: ProviderFailure;
+  quotaRequest?: QuotaRequestState;
+  afterCut?: boolean;
 }) => Promise<{ toModelId: string; candidateEffort?: string } | undefined>;
-
-export const noModelSwitch: ModelSwitchDecision = () =>
-  Promise.resolve(undefined);
 
 /**
  * The skill-catalog baseline a turn that starts an epoch freezes, with the told
@@ -900,6 +901,8 @@ export type RunClaimResult =
   | {
       /** The selector the Run was admitted under (`runs.selector`). */
       selector: string;
+      /** The Run's stable execution origin. */
+      origin: RunOrigin;
       /** The effort the selection named, frozen on the Run at admission. */
       selectedEffort?: string;
       effort?: string;
@@ -936,9 +939,10 @@ type ExecuteRunInput = {
 type ExecuteAttemptInput = {
   input: ExecuteRunInput;
   nativeAbort: AbortController | undefined;
-  /** The Run's selector, frozen at admission; a job inherits it. */
+  /** The Run's stable execution origin, inherited by jobs it starts. */
+  origin: RunOrigin;
+  /** The Run's resolved selector, frozen at admission. */
   selector: string;
-  /** The selection's effort, frozen at admission; a job inherits it. */
   selectedEffort: string | undefined;
   effort: string | undefined;
   permissionMode: PermissionMode;
@@ -1569,7 +1573,8 @@ export class RunExecutionService {
       'startAfterRunCompletion'
     >,
     @Inject(RUN_MODEL_SWITCH_DECISION)
-    private readonly decideModelSwitch: ModelSwitchDecision = noModelSwitch,
+    private readonly decideModelSwitch: ModelSwitchDecision = () =>
+      Promise.resolve(undefined),
   ) {
     this.webSearch = webSearchEngineItems(this.instanceConfig.config.webSearch);
     this.toolPromptRenderer = createToolPromptRenderer({
@@ -2087,6 +2092,7 @@ export class RunExecutionService {
         // configuration on a retry.
         return {
           selector: started.selector,
+          origin: started.origin,
           selectedEffort: started.selectedEffort ?? undefined,
           effort: started.effort ?? undefined,
           permissionMode: started.permissionMode,
@@ -2156,8 +2162,14 @@ export class RunExecutionService {
       throw new RunNotRunnableError(input.runId);
     }
 
-    const { selector, selectedEffort, effort, permissionMode, attemptId } =
-      claim;
+    const {
+      selector,
+      origin,
+      selectedEffort,
+      effort,
+      permissionMode,
+      attemptId,
+    } = claim;
     // Every attempt, a crash retry included, reads the Run's current message
     // from the Run row, not from the job: a delivery moved it (run-steering D3).
 
@@ -2171,6 +2183,7 @@ export class RunExecutionService {
         : await this.currentSegmentInput(input, claim.messageId),
       nativeAbort,
       selector,
+      origin,
       selectedEffort,
       effort,
       permissionMode,
@@ -2752,6 +2765,7 @@ export class RunExecutionService {
       input,
       nativeAbort,
       selector,
+      origin,
       selectedEffort,
       effort,
       attemptId,
@@ -3282,6 +3296,7 @@ export class RunExecutionService {
         selector,
         effort: selectedEffort,
         permissionMode: effectivePermissionMode,
+        origin,
       },
       allowUnlimitedJobs: this.instanceConfig.config.tools.jobs.allowUnlimited,
       bashBackgroundAfterSeconds:
@@ -4819,17 +4834,20 @@ export class RunExecutionService {
       failure: ProviderFailure,
       parts: Array<MessagePart>,
       superseded?: SupersededModelOutput,
+      afterCut = false,
     ): Promise<AttemptRun | undefined> => {
       const modelId = input.client.model;
 
       const target = await this.decideModelSwitch({
         selector: attempt.selector,
         modelId,
+        origin,
         failure,
+        quotaRequest,
+        afterCut,
       });
 
       if (target === undefined) return undefined;
-
       const toModel = this.models.validateModelSelection(target.toModelId);
 
       const toEffort = effortFor(
@@ -4902,6 +4920,7 @@ export class RunExecutionService {
           failure,
           parts,
           superseded,
+          true,
         );
 
         if (switched === undefined) return false;

@@ -721,6 +721,39 @@
         }
       }
     },
+    "failoverToggle": { "enum": ["on", "off"] },
+    "failoverCell": {
+      "oneOf": [
+        { "$ref": "#/$defs/failoverToggle" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["switchAfterSeconds"],
+          "properties": {
+            "switchAfterSeconds": {
+              "$ref": "#/$defs/positiveSafeIntegerOrToken"
+            }
+          }
+        }
+      ]
+    },
+    "failoverMatrix": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "owner": { "$ref": "#/$defs/failoverOrigin" },
+        "agent": { "$ref": "#/$defs/failoverOrigin" }
+      }
+    },
+    "failoverOrigin": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "availability": { "$ref": "#/$defs/failoverToggle" },
+        "access": { "$ref": "#/$defs/failoverToggle" },
+        "quota": { "$ref": "#/$defs/failoverCell" }
+      }
+    },
     "modelRole": {
       "type": "object",
       "additionalProperties": false,
@@ -748,7 +781,9 @@
               }
             }
           }
-        }
+        },
+        "allowPaidFallback": { "type": "boolean" },
+        "failover": { "$ref": "#/$defs/failoverMatrix" }
       }
     },
     "modelEntry": {
@@ -859,6 +894,10 @@
           "description": "Model selector used to generate chat titles: either a `models[].id` or `@` plus a `modelRoles` key. Must reference a configured model or model role when set (boot failure otherwise); unset means title generation is skipped."
         }
       }
+    },
+    "failover": {
+      "$ref": "#/$defs/failoverMatrix",
+      "description": "Automatic failover policy, keyed by Run origin and failure group. Unset cells are off."
     },
     "providers": {
       "type": "array",

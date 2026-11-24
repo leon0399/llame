@@ -41,6 +41,12 @@ import type {
   ModelRoleCandidate,
   ModelRoleConfig,
   RawModelRoleCandidate,
+  RawFailoverMatrix,
+  RawFailoverCell,
+  FailoverMatrix,
+  FailoverCell,
+  FailoverOrigin,
+  FailureGroup,
 } from './model-roles-config';
 import { resolveModelWire } from './provider-routing';
 import type { VendorProviderConfig } from './provider-routing';
@@ -800,6 +806,7 @@ function buildInstanceConfig(
     providers,
     models,
     modelRoles,
+    failover: resolveFailoverMatrix(raw?.failover, 'failover', env),
     embeddingModels,
     ...(decisionModels !== undefined && { decisionModels }),
     ...(rerankModels !== undefined && { rerankModels }),
@@ -3906,6 +3913,61 @@ function resolveModels(
   return entries.map((entry) => resolveModelEntry(entry, context));
 }
 
+function resolveFailoverCell(
+  cell: RawFailoverCell,
+  configPath: string,
+  env: NodeJS.ProcessEnv,
+): FailoverCell {
+  if (cell === 'on' || cell === 'off') return cell;
+
+  const threshold = requireResolvedNumber(
+    resolveNumeric({
+      configPath,
+      present: true,
+      raw: cell.switchAfterSeconds,
+      builtInDefault: null,
+      nullable: false,
+      min: 1,
+      env,
+    }),
+    configPath,
+  );
+
+  return { switchAfterSeconds: threshold };
+}
+
+function resolveFailoverMatrix(
+  raw: RawFailoverMatrix | undefined,
+  path: string,
+  env: NodeJS.ProcessEnv,
+): FailoverMatrix {
+  const matrix: Partial<
+    Record<FailoverOrigin, Partial<Record<FailureGroup, FailoverCell>>>
+  > = {};
+
+  for (const origin of ['owner', 'agent'] as const) {
+    const groups = raw?.[origin];
+
+    if (groups === undefined) continue;
+    const resolvedGroups: Partial<Record<FailureGroup, FailoverCell>> = {};
+
+    for (const group of ['availability', 'access', 'quota'] as const) {
+      const cell = groups[group];
+
+      if (cell === undefined) continue;
+      resolvedGroups[group] = resolveFailoverCell(
+        cell,
+        `${path}.${origin}.${group}.switchAfterSeconds`,
+        env,
+      );
+    }
+
+    matrix[origin] = resolvedGroups;
+  }
+
+  return matrix;
+}
+
 /**
  * Resolve `modelRoles`, preserving file key order. The schema guarantees each
  * role's shape (a closed object with at least one candidate and non-blank
@@ -3917,6 +3979,7 @@ function resolveModels(
  * (never trimmed) against the catalogue id and declared effort levels. A
  * role's primary is its first candidate.
  */
+
 function resolveModelRoles(
   raw: RawInstanceConfig | undefined,
   env: NodeJS.ProcessEnv,
@@ -3947,6 +4010,16 @@ function resolveModelRoles(
       candidates: role.candidates.map((candidate, index) =>
         resolveRoleCandidate(candidate, index, scope),
       ),
+      ...(role.allowPaidFallback !== undefined && {
+        allowPaidFallback: role.allowPaidFallback,
+      }),
+      ...(role.failover !== undefined && {
+        failover: resolveFailoverMatrix(
+          role.failover,
+          `modelRoles.${name}.failover`,
+          env,
+        ),
+      }),
     };
   });
 }

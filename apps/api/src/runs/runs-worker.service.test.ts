@@ -456,6 +456,7 @@ describe('RunsWorkerService — pickup cancellation and post-drain liveness', ()
   const queuedRun = {
     id: job.runId,
     kind: 'turn' as const,
+    origin: 'owner' as const,
     messageId: job.userMessage.id,
     chatId: job.chatId,
     userId: job.userId,
@@ -1681,6 +1682,7 @@ describe('RunsWorkerService — the per-attempt execution limit (opt-in-run-limi
   const queuedRun = {
     id: job.runId,
     kind: 'turn' as const,
+    origin: 'owner' as const,
     messageId: job.userMessage.id,
     chatId: job.chatId,
     userId: job.userId,
@@ -1785,6 +1787,7 @@ describe('RunsWorkerService — durable run-level failures', () => {
     const run = {
       id: job.runId,
       kind: 'turn' as const,
+      origin: 'owner' as const,
       messageId: job.userMessage.id,
       chatId: job.chatId,
       userId: job.userId,
@@ -1852,6 +1855,7 @@ describe('RunsWorkerService — durable run-level failures', () => {
     const run = {
       id: job.runId,
       kind: 'turn' as const,
+      origin: 'owner' as const,
       chatId: job.chatId,
       messageId: job.userMessage.id,
       userId: job.userId,

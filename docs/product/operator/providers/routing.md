@@ -219,13 +219,45 @@ role, or when the owner picks a selector. [Model
 selection](../../reference/model-selection.md) describes the picker and the
 hold.
 
-This release switches a model only when the owner starts the switch. The owner
-can move a failed Run, or a Run in a quota wait, to the next candidate of its
-model role. The switch writes a fallback hold, and the next model answers after
-a boundary that names the failure. No automatic switching ships: a failed model
-request still fails or parks its Run, as [diagnosing failed model
-requests](#diagnosing-failed-model-requests) describes. Automatic failover per
-role arrives with the failover policy in a later release.
+An owner can also move a failed Run, or a Run in a quota wait, to the next
+candidate of its model role. The switch writes a fallback hold, and the next
+model answers after a boundary that names the failure.
+
+Automatic failover is controlled by `failover`, whose default cells are off.
+The matrix has two Run origins, `owner` and `agent`, and three failure groups:
+`availability` (`overloaded`, `server_error`, `unreachable`,
+`first_token_timeout`, `stream_broken`), `access` (`auth`, `billing`,
+`model_not_found`), and `quota` (`quota_exhausted`, or `rate_limited` with a
+reset time). Other failure classes do not switch.
+
+Each cell is `on`, `off`, or, for `quota`, an object such as
+`{ "switchAfterSeconds": 3600 }`. An `on` quota cell switches instead of
+waiting. A threshold cell waits only when the reset is more than 60 s away and
+within `switchAfterSeconds` and `runs.quotaWaitMaxSeconds`; it
+switches when `quota_exhausted` has no reset time, the reset is farther away,
+or the reset exceeds the wait cap.
+With the cell off, existing quota waits are unchanged.
+Compaction Runs never fail over and keep their existing quota-wait behavior.
+
+A role's `failover` matrix overrides the instance matrix one cell at a time;
+unspecified role cells inherit the corresponding instance cell. This allows a
+role to change one origin/group without replacing the rest. The worker reads
+the live configuration for each new failure: restarting with a changed policy
+affects the next failure, not a Run already waiting for quota.
+
+Automatic switches skip per-token (`usage`) candidates when leaving a
+`subscription` or `free` model unless that role sets `allowPaidFallback: true`.
+The owner-controlled Continue on next candidate action is not subject to this
+gate. A role selector used for title generation also walks its candidates in
+order during failures, subject to the title role's paid-fallback setting; title
+generation does not create a hold or quota wait.
+
+For quota waits that remain enabled, a classified quota or rate limit with an
+authoritative reset more than 60 s away can wait durably within
+`runs.quotaWaitMaxSeconds` (eight days by default), without occupying a worker.
+The deadline sends again after reset plus 60 s and up to 18 s of jitter. Stop
+cancels the wait; other deliveries remain pending. A missing or over-cap reset
+fails the request. Side calls do not park a Run.
 
 `providers[]` and `models[]` entries accept an optional `billing` value. It is
 `"usage"`, `"subscription"`, or `"free"`. `usage` bills a price for each

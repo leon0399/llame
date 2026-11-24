@@ -105,6 +105,7 @@ const run: Run = {
   selectionRevision: null,
   status: 'queued',
   kind: 'turn',
+  origin: 'owner',
   workerId: null,
   activeAttemptId: null,
   completedAttemptId: null,
