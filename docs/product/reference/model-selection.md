@@ -111,25 +111,24 @@ Chat then keeps your pick and no hold.
 
 ## Automatic failover
 
-An operator can enable automatic failover per Run origin (`owner` or `agent`)
-and failure group (`availability`, `access`, or `quota`). Every cell is off by
-default. A role can override individual cells while inheriting the rest of the
-instance matrix. Automatic switches write the same fallback hold as the owner
-action and use a boundary that names the failed model and failure.
+The operator can let a Run move to the next candidate of its role on its own
+when a request fails, separately for Runs you start and Runs an agent starts,
+and separately for an outage, an access failure, and a usage limit. Nothing
+switches automatically unless the operator turns it on. An automatic switch
+writes the same fallback hold as Continue on next candidate, and the transcript
+shows a boundary that names the failed model and the failure.
 
-For quota failures, `on` switches instead of waiting. A
-`switchAfterSeconds` cell waits only when `60 < reset distance <= threshold`
-and the reset is within `runs.quotaWaitMaxSeconds`; a `quota_exhausted` failure
-without a reset, a farther reset, or an over-cap reset switches. An off cell
-retains the existing wait behavior. Compaction Runs never fail over.
+For a usage limit, the operator can choose to switch at once, to wait for a
+near reset and switch for a far one, or to always wait. A compaction Run never
+switches.
 
-Automatic switching skips a per-token candidate when leaving a
-`subscription` or `free` model unless the role enables `allowPaidFallback`.
-This gate does not restrict the owner's Continue on next candidate action.
-Title generation with a role selector walks its candidates in order, with the
-same paid-candidate gate, but creates no hold or quota wait. The worker reads
-the current policy at each failure, so a restart changes the next decision and
-does not alter an existing quota wait.
+An automatic switch does not move from a subscription or free model to a
+per-token one unless the operator allows it for that role. Continue on next
+candidate has no such limit: you choose the paid candidate yourself. A title
+on a role walks its candidates in order under the same paid limit, without a
+hold or a wait. The policy is read at each failure, so an operator change
+applies to the next failure and leaves a wait in progress as it is. The
+settings are in [provider routing](../operator/providers/routing.md).
 
 ## Regenerate
 
