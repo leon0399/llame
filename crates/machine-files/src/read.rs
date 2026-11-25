@@ -300,7 +300,8 @@ pub fn read_lines(
                     line_ends_cr = byte == b'\r';
                     last_was_newline = false;
                     if line_count >= first_requested && !line_too_large && !output_stopped {
-                        if line.len() < bound.saturating_sub(used) {
+                        let remaining = bound.saturating_sub(used);
+                        if line.len() < remaining || (byte == b'\r' && line.len() == remaining) {
                             line.push(byte);
                         } else {
                             line.clear();

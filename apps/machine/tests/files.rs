@@ -43,6 +43,20 @@ async fn reads_windows_crlf_byte_bounds_and_streamed_ranges() {
     assert_eq!(lines.start_line, 2);
     assert_eq!(lines.line_count, 3);
     assert_eq!(lines.line_ending, "\r\n");
+    let response = client
+        .read_lines(ReadLinesRequest {
+            path: path.clone(),
+            start_line: 1,
+            limit: 1,
+            max_bytes: 3,
+        })
+        .await
+        .unwrap()
+        .into_inner();
+    let Some(read_lines_response::Result::Lines(exact_crlf)) = response.result else {
+        panic!("exact-bound CRLF line read failed");
+    };
+    assert_eq!(exact_crlf.lines, ["one"]);
 
     let response = client
         .read_lines(ReadLinesRequest {
@@ -276,7 +290,7 @@ async fn mutations_apply_modes_once_and_report_exact_replacement_results() {
         .unwrap()
         .into_inner();
     assert!(
-        matches!(ambiguous.result, Some(replace_text_response::Result::Failure(failure)) if failure.reason == FileFailureReason::TextAmbiguous as i32)
+        matches!(ambiguous.result, Some(replace_text_response::Result::Failure(failure)) if failure.reason == FileFailureReason::TextAmbiguous as i32 && failure.details.as_ref().is_some_and(|details| matches!(details, file_failure::Details::AmbiguousText(ambiguity) if ambiguity.count == 3 && ambiguity.occurrences.len() == 3 && ambiguity.occurrences.first().is_some_and(|occurrence| occurrence.line >= 1 && !occurrence.excerpt.is_empty()))))
     );
     std::fs::write(&file, "éé").unwrap();
     let unicode_ambiguous = client
@@ -290,7 +304,7 @@ async fn mutations_apply_modes_once_and_report_exact_replacement_results() {
         .unwrap()
         .into_inner();
     assert!(
-        matches!(unicode_ambiguous.result, Some(replace_text_response::Result::Failure(failure)) if failure.reason == FileFailureReason::TextAmbiguous as i32 && matches!(failure.details, Some(file_failure::Details::AmbiguousText(ref ambiguity)) if ambiguity.count == 2 && ambiguity.occurrences.len() == 2))
+        matches!(unicode_ambiguous.result, Some(replace_text_response::Result::Failure(failure)) if failure.reason == FileFailureReason::TextAmbiguous as i32 && failure.details.as_ref().is_some_and(|details| matches!(details, file_failure::Details::AmbiguousText(ambiguity) if ambiguity.count == 2 && ambiguity.occurrences.len() == 2)))
     );
 }
 
