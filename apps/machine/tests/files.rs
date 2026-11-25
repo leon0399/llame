@@ -173,7 +173,13 @@ async fn entries_and_directory_listing_preserve_link_facts_and_order() {
             .iter()
             .map(|e| e.name.as_str())
             .collect::<Vec<_>>(),
-        ["a.txt", "b.txt", "dangling-link", "inside-link", "outside-link"]
+        [
+            "a.txt",
+            "b.txt",
+            "dangling-link",
+            "inside-link",
+            "outside-link"
+        ]
     );
     assert_eq!(
         directory.entries[2].target_kind,
