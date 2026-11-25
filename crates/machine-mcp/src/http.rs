@@ -74,16 +74,18 @@ pub async fn run_http(
         protocol_version: Arc::new(Mutex::new(None)),
         protected_values: Arc::new(Mutex::new(protected.clone())),
     };
-    let mut requests: JoinSet<(bool, Result<(), String>)> = JoinSet::new();
+    let mut requests: JoinSet<(bool, bool, Result<(), String>)> = JoinSet::new();
     let mut cancellation_in_flight = false;
+    let mut response_in_flight = false;
     let mut stream_open = true;
     while stream_open {
         tokio::select! {
             () = tx.closed() => stream_open = false,
             completed = requests.join_next(), if !requests.is_empty() => {
                 match completed {
-                    Some(Ok((is_cancellation, Err(error)))) => {
+                    Some(Ok((is_cancellation, is_response, Err(error)))) => {
                         cancellation_in_flight &= !is_cancellation;
+                        response_in_flight &= !is_response;
                         let values = state.protected_values.lock().await.clone();
                         let _ = tx
                             .send(Ok(failure(
@@ -103,8 +105,9 @@ pub async fn run_http(
                             .await;
                         stream_open = false;
                     }
-                    Some(Ok((is_cancellation, Ok(())))) => {
+                    Some(Ok((is_cancellation, is_response, Ok(())))) => {
                         cancellation_in_flight &= !is_cancellation;
+                        response_in_flight &= !is_response;
                     }
                     None => {}
                 }
@@ -141,10 +144,12 @@ pub async fn run_http(
                 let is_initialized_notification =
                     method.as_deref() == Some("notifications/initialized");
                 let is_cancellation = method.as_deref() == Some("notifications/cancelled");
+                let is_response = method.is_none();
                 if exceeds_request_capacity(
                     method.as_deref(),
                     requests.len(),
                     cancellation_in_flight,
+                    response_in_flight,
                 ) {
                     send_capacity_error(&tx, request_id).await;
                     continue;
@@ -162,9 +167,14 @@ pub async fn run_http(
                     }
                 } else {
                     cancellation_in_flight |= is_cancellation;
+                    response_in_flight |= is_response;
                     let state = state.clone();
                     requests.spawn(async move {
-                        (is_cancellation, relay_request(state, text).await)
+                        (
+                            is_cancellation,
+                            is_response,
+                            relay_request(state, text).await,
+                        )
                     });
                 }
             }
@@ -470,9 +480,11 @@ fn exceeds_request_capacity(
     method: Option<&str>,
     in_flight: usize,
     cancellation_in_flight: bool,
+    response_in_flight: bool,
 ) -> bool {
     match method {
-        None | Some("notifications/initialized") => false,
+        Some("notifications/initialized") => false,
+        None => in_flight >= MAX_IN_FLIGHT_HTTP_REQUESTS && response_in_flight,
         Some("notifications/cancelled") => {
             in_flight >= MAX_IN_FLIGHT_HTTP_REQUESTS && cancellation_in_flight
         }
@@ -567,30 +579,41 @@ mod tests {
     }
 
     #[test]
-    fn request_capacity_preserves_responses_and_cancellation() {
+    fn request_capacity_reserves_one_response_and_one_cancellation() {
         assert!(exceeds_request_capacity(
             Some("tools/list"),
             MAX_IN_FLIGHT_HTTP_REQUESTS,
+            false,
             false
         ));
         assert!(!exceeds_request_capacity(
             None,
             MAX_IN_FLIGHT_HTTP_REQUESTS,
+            false,
             false
+        ));
+        assert!(exceeds_request_capacity(
+            None,
+            MAX_IN_FLIGHT_HTTP_REQUESTS + 1,
+            false,
+            true
         ));
         assert!(!exceeds_request_capacity(
             Some("notifications/cancelled"),
             MAX_IN_FLIGHT_HTTP_REQUESTS,
+            false,
             false
         ));
         assert!(exceeds_request_capacity(
             Some("notifications/cancelled"),
-            MAX_IN_FLIGHT_HTTP_REQUESTS,
-            true
+            MAX_IN_FLIGHT_HTTP_REQUESTS + 1,
+            true,
+            false
         ));
         assert!(!exceeds_request_capacity(
             Some("notifications/initialized"),
             MAX_IN_FLIGHT_HTTP_REQUESTS,
+            false,
             false
         ));
     }
