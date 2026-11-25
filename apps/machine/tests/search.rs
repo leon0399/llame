@@ -418,9 +418,9 @@ async fn byte_bound_skips_zero_budget_and_stops_between_chunks() {
             _ => {}
         }
     }
-    assert_eq!(matches, ["large.txt"]);
+    assert!(matches.is_empty());
     let end = end.unwrap();
     assert_eq!(end.stop, SearchStop::Bytes as i32);
     assert_eq!(end.files, 1);
-    assert_eq!(end.bytes, 65_536);
+    assert_eq!(end.bytes, 1);
 }

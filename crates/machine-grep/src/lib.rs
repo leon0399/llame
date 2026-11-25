@@ -124,6 +124,13 @@ pub async fn search(
     Ok(tokio_stream::wrappers::ReceiverStream::new(receiver))
 }
 
+fn stopped_position(
+    last_match: Option<SearchPosition>,
+    after: Option<&SearchPosition>,
+    fallback: SearchPosition,
+) -> SearchPosition {
+    last_match.or_else(|| after.cloned()).unwrap_or(fallback)
+}
 #[allow(clippy::too_many_arguments, clippy::too_many_lines)]
 fn run_search(
     guard: &machine_core::RootGuard,
@@ -175,10 +182,14 @@ fn run_search(
         }
         if deadline.is_some_and(|deadline| Instant::now() >= deadline) {
             stop = SearchStop::Deadline;
-            position = Some(last_match_position.take().unwrap_or(SearchPosition {
-                path: entry.rel,
-                line: 0,
-            }));
+            position = Some(stopped_position(
+                last_match_position.take(),
+                after,
+                SearchPosition {
+                    path: entry.rel,
+                    line: 0,
+                },
+            ));
             break;
         }
         if entry.is_dir {
@@ -218,10 +229,14 @@ fn run_search(
         }
         if files >= file_limit {
             stop = SearchStop::Files;
-            position = Some(SearchPosition {
-                path: entry.rel,
-                line: 0,
-            });
+            position = Some(stopped_position(
+                last_match_position.take(),
+                after,
+                SearchPosition {
+                    path: entry.rel,
+                    line: 0,
+                },
+            ));
             break;
         }
         let Ok(metadata) = fs::metadata(&entry.path) else {
@@ -267,15 +282,22 @@ fn run_search(
             if sender.is_closed() {
                 return;
             }
-            let Ok(read) = file.read(&mut chunk) else {
+            if deadline.is_some_and(|deadline| Instant::now() >= deadline) {
+                break;
+            }
+            let remaining = byte_limit.saturating_sub(bytes.saturating_add(content.len() as u64));
+            if remaining == 0 {
+                byte_stopped = true;
+                break;
+            }
+            let read_limit = chunk
+                .len()
+                .min(usize::try_from(remaining).unwrap_or(usize::MAX));
+            let Ok(read) = file.read(&mut chunk[..read_limit]) else {
                 read_failed = true;
                 break;
             };
             if read == 0 {
-                break;
-            }
-            if bytes.saturating_add(content.len() as u64) >= byte_limit {
-                byte_stopped = true;
                 break;
             }
             content.extend_from_slice(&chunk[..read]);
@@ -334,14 +356,14 @@ fn run_search(
             }
             if deadline.is_some_and(|deadline| Instant::now() >= deadline) {
                 stop = SearchStop::Deadline;
-                position = Some(
-                    last_match_position
-                        .take()
-                        .unwrap_or_else(|| SearchPosition {
-                            path: entry.rel.clone(),
-                            line: 0,
-                        }),
-                );
+                position = Some(stopped_position(
+                    last_match_position.take(),
+                    after,
+                    SearchPosition {
+                        path: entry.rel.clone(),
+                        line: 0,
+                    },
+                ));
                 break 'walk;
             }
             let ranges = matching_spans(line, patterns);
@@ -350,14 +372,14 @@ fn run_search(
             }
             if matches >= match_limit {
                 stop = SearchStop::Matches;
-                position = Some(
-                    last_match_position
-                        .take()
-                        .unwrap_or_else(|| SearchPosition {
-                            path: entry.rel.clone(),
-                            line: 0,
-                        }),
-                );
+                position = Some(stopped_position(
+                    last_match_position.take(),
+                    after,
+                    SearchPosition {
+                        path: entry.rel.clone(),
+                        line: 0,
+                    },
+                ));
                 break 'walk;
             }
             let first = index.saturating_sub(context_lines);
@@ -396,16 +418,14 @@ fn run_search(
             matches += 1;
         }
         if byte_stopped {
-            position = Some(
-                last_match_position
-                    .as_ref()
-                    .filter(|last| last.path == entry.rel)
-                    .cloned()
-                    .unwrap_or(SearchPosition {
-                        path: entry.rel,
-                        line: 0,
-                    }),
-            );
+            position = Some(stopped_position(
+                last_match_position.take(),
+                after,
+                SearchPosition {
+                    path: entry.rel,
+                    line: 0,
+                },
+            ));
             break 'walk;
         }
     }

@@ -15,6 +15,7 @@ use prost_types::Timestamp;
 use tonic::Status;
 
 const DEFAULT_LINES_BYTES: usize = 4 * 1024 * 1024;
+const MAX_READ_LINES: usize = 50_000;
 const DEFAULT_DIRECTORY_LIMIT: usize = 1000;
 const MAX_DIRECTORY_ENTRIES: usize = 100_000;
 const BYTE_CHUNK: usize = 512 * 1024;
@@ -236,7 +237,10 @@ pub fn read_lines(
                         && line_count >= first_requested
                         && line_count < requested_end
                     {
-                        if line_too_large || source.len() > bound.saturating_sub(used) {
+                        if lines.len() >= MAX_READ_LINES
+                            || line_too_large
+                            || source.len() > bound.saturating_sub(used)
+                        {
                             truncated = true;
                         } else {
                             lines.push(source.to_owned());
@@ -275,7 +279,10 @@ pub fn read_lines(
                         && line_count >= first_requested
                         && line_count < requested_end
                     {
-                        if line_too_large || line.len() > bound.saturating_sub(used) {
+                        if lines.len() >= MAX_READ_LINES
+                            || line_too_large
+                            || line.len() > bound.saturating_sub(used)
+                        {
                             truncated = true;
                             output_stopped = true;
                         } else {

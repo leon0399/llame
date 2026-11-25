@@ -241,10 +241,20 @@ fn publish(
         .map_err(|e| (FileFailureReason::OutcomeUnknown, e.to_string()))
 }
 
-#[allow(clippy::unused_async, clippy::too_many_lines)]
 pub async fn write(
     context: &Context,
     request: WriteFileRequest,
+) -> Result<WriteFileResponse, Status> {
+    let context = context.clone();
+    tokio::task::spawn_blocking(move || write_blocking(&context, &request))
+        .await
+        .map_err(|_| Status::internal("write task panicked"))?
+}
+
+#[allow(clippy::too_many_lines)]
+fn write_blocking(
+    context: &Context,
+    request: &WriteFileRequest,
 ) -> Result<WriteFileResponse, Status> {
     if request.mode != WriteMode::Create as i32
         && request.mode != WriteMode::Replace as i32
@@ -344,10 +354,20 @@ pub async fn write(
     }
 }
 
-#[allow(clippy::unused_async, clippy::too_many_lines)]
 pub async fn replace(
     context: &Context,
     request: ReplaceTextRequest,
+) -> Result<ReplaceTextResponse, Status> {
+    let context = context.clone();
+    tokio::task::spawn_blocking(move || replace_blocking(&context, &request))
+        .await
+        .map_err(|_| Status::internal("replace task panicked"))?
+}
+
+#[allow(clippy::too_many_lines)]
+fn replace_blocking(
+    context: &Context,
+    request: &ReplaceTextRequest,
 ) -> Result<ReplaceTextResponse, Status> {
     if request.old_text.is_empty() {
         return Err(refusal::invalid_argument("old_text must not be empty."));

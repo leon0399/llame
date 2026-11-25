@@ -90,6 +90,24 @@ async fn reads_windows_crlf_byte_bounds_and_streamed_ranges() {
     };
     assert_eq!(lines.lines, ["one"]);
     assert!(lines.truncated);
+    let empty_lines = root.join("empty-lines.txt");
+    std::fs::write(&empty_lines, "\n".repeat(50_001)).unwrap();
+    let response = client
+        .read_lines(ReadLinesRequest {
+            path: empty_lines.to_string_lossy().into_owned(),
+            start_line: 1,
+            limit: 0,
+            max_bytes: 1,
+        })
+        .await
+        .unwrap()
+        .into_inner();
+    let Some(read_lines_response::Result::Lines(empty_lines)) = response.result else {
+        panic!("empty-line bounded read failed");
+    };
+    assert_eq!(empty_lines.lines.len(), 50_000);
+    assert_eq!(empty_lines.line_count, 50_001);
+    assert!(empty_lines.truncated);
     let window_file = root.join("window.txt");
     let mut content = "skip\n".repeat(50_000);
     content.push_str("target\n");
