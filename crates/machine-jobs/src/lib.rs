@@ -24,7 +24,7 @@ use serde::{Deserialize, Serialize};
 use tokio::{
     io::{AsyncRead, AsyncReadExt, AsyncWriteExt},
     process::Command,
-    sync::{Mutex, broadcast, mpsc},
+    sync::{Mutex, broadcast, mpsc, watch},
     time,
 };
 use tonic::{Code, Request, Response, Status};
@@ -77,6 +77,7 @@ struct Entry {
     stdout_truncated: bool,
     stderr_truncated: bool,
     stop_requested: bool,
+    cancel: watch::Sender<bool>,
 }
 
 struct State {
@@ -146,6 +147,7 @@ pub async fn service(context: Context) -> anyhow::Result<JobServiceServer<Jobs>>
                 Some(lost)
             });
         let Some(status) = status else { continue };
+        let (cancel, _) = watch::channel(false);
         entries.insert(
             start.job_id.clone(),
             Entry {
@@ -155,6 +157,7 @@ pub async fn service(context: Context) -> anyhow::Result<JobServiceServer<Jobs>>
                 status: Some(status),
                 directory,
                 stop_requested: false,
+                cancel,
             },
         );
     }
@@ -379,7 +382,7 @@ impl JobService for Jobs {
         let state = Arc::clone(&self.state);
         let job_id = request.job_id;
         let owner = request.owner;
-        let request_id = format!("{}:{}{}", owner.len(), owner, request.request_id);
+        let request_id = owner_scoped_request_id(&owner, &request.request_id);
         let job = self
             .cancels
             .run(&request_id, || async move {
@@ -400,7 +403,7 @@ impl JobService for Jobs {
         let request = request.into_inner();
         let state = Arc::clone(&self.state);
         let owner = request.owner;
-        let request_id = format!("{}:{}{}", owner.len(), owner, request.request_id);
+        let request_id = owner_scoped_request_id(&owner, &request.request_id);
         self.deletes
             .run(&request_id, || async move {
                 delete_job(state, request.job_id, owner).await
@@ -552,6 +555,7 @@ impl Jobs {
             let _ = fs::remove_dir_all(&directory);
             return Err(internal_io(&error));
         }
+        let (cancel, mut cancel_rx) = watch::channel(false);
         let entry = Entry {
             start: start.clone(),
             status: None,
@@ -559,6 +563,7 @@ impl Jobs {
             stdout_truncated: false,
             stderr_truncated: false,
             stop_requested: false,
+            cancel: cancel.clone(),
         };
         state.entries.insert(start.job_id.clone(), entry);
         let job = job_record(
@@ -579,12 +584,15 @@ impl Jobs {
             .stderr
             .take()
             .ok_or_else(|| Status::internal("Job stderr was not captured."))?;
+        let (out_stop, out_stop_rx) = watch::channel(false);
+        let (err_stop, err_stop_rx) = watch::channel(false);
         let out_task = tokio::spawn(copy_output(
             stdout,
             directory.join("stdout"),
             cap,
             Arc::clone(&state),
             start.job_id.clone(),
+            out_stop_rx,
             true,
         ));
         let err_task = tokio::spawn(copy_output(
@@ -593,17 +601,28 @@ impl Jobs {
             cap,
             Arc::clone(&state),
             start.job_id.clone(),
+            err_stop_rx,
             false,
         ));
         tokio::spawn(async move {
-            let wait = child.wait();
-            let status = if start.lifetime_ms == 0 {
-                wait.await.ok()
-            } else if let Ok(result) =
-                time::timeout(Duration::from_millis(start.lifetime_ms), wait).await
-            {
-                result.ok()
+            let (status, timed_out, cancelled) = if start.lifetime_ms == 0 {
+                tokio::select! {
+                    result = child.wait() => (result.ok(), false, false),
+                    _ = cancel_rx.changed() => (None, false, true),
+                }
             } else {
+                tokio::select! {
+                    result = time::timeout(
+                        Duration::from_millis(start.lifetime_ms),
+                        child.wait(),
+                    ) => match result {
+                        Ok(result) => (result.ok(), false, false),
+                        Err(_) => (None, true, false),
+                    },
+                    _ = cancel_rx.changed() => (None, false, true),
+                }
+            };
+            if timed_out || cancelled || status.is_none() {
                 signal_group(start.pid, rustix::process::Signal::KILL);
                 let stopped = time::timeout(STOP_BUDGET, async {
                     if child.wait().await.is_err() {
@@ -613,8 +632,8 @@ impl Jobs {
                 })
                 .await
                 .is_ok_and(|empty| empty);
-                let stdout_drained = finish_output(out_task).await;
-                let stderr_drained = finish_output(err_task).await;
+                let stdout_drained = finish_output(out_task, out_stop).await;
+                let stderr_drained = finish_output(err_task, err_stop).await;
                 if !stdout_drained {
                     mark_truncated(&state, &start.job_id, true).await;
                 }
@@ -626,7 +645,11 @@ impl Jobs {
                     &start.job_id,
                     Settlement {
                         state: if stopped {
-                            JobState::TimedOut
+                            if cancelled {
+                                JobState::Cancelled
+                            } else {
+                                JobState::TimedOut
+                            }
                         } else {
                             JobState::Lost
                         },
@@ -637,8 +660,9 @@ impl Jobs {
                 )
                 .await;
                 return;
-            };
-            let (state_value, exit_code, signal, lost_cause) = if let Some(status) = status {
+            }
+            let Some(status) = status else { return };
+            let (state_value, exit_code, signal, lost_cause) = {
                 let proved = if is_group_empty(start.pid) {
                     true
                 } else {
@@ -666,18 +690,9 @@ impl Jobs {
                         Some(LostCause::CancelUnproved as i32),
                     )
                 }
-            } else {
-                signal_group(start.pid, rustix::process::Signal::KILL);
-                let _ = time::timeout(STOP_BUDGET, wait_group_empty(start.pid)).await;
-                (
-                    JobState::Lost,
-                    None,
-                    None,
-                    Some(LostCause::CancelUnproved as i32),
-                )
             };
-            let stdout_drained = finish_output(out_task).await;
-            let stderr_drained = finish_output(err_task).await;
+            let stdout_drained = finish_output(out_task, out_stop).await;
+            let stderr_drained = finish_output(err_task, err_stop).await;
             if !stdout_drained {
                 mark_truncated(&state, &start.job_id, true).await;
             }
@@ -709,11 +724,7 @@ impl Jobs {
                     } else {
                         signal
                     },
-                    lost_cause: if cancelled {
-                        lost_cause.or(Some(LostCause::CancelUnproved as i32))
-                    } else {
-                        lost_cause
-                    },
+                    lost_cause,
                 },
             )
             .await;
@@ -722,14 +733,17 @@ impl Jobs {
     }
 }
 
-async fn finish_output(mut task: tokio::task::JoinHandle<()>) -> bool {
-    if time::timeout(STOP_BUDGET, &mut task).await.is_err() {
+async fn finish_output(mut task: tokio::task::JoinHandle<()>, stop: watch::Sender<bool>) -> bool {
+    if time::timeout(STOP_BUDGET, &mut task).await.is_ok() {
+        return true;
+    }
+    stop.send_replace(true);
+    let drained = time::timeout(STOP_BUDGET, &mut task).await.is_ok();
+    if !drained {
         task.abort();
         let _ = task.await;
-        false
-    } else {
-        true
     }
+    false
 }
 
 async fn mark_truncated(state: &Arc<Mutex<State>>, id: &str, stdout: bool) {
@@ -757,6 +771,7 @@ async fn copy_output<R: AsyncRead + Unpin>(
     cap: u64,
     state: Arc<Mutex<State>>,
     id: String,
+    mut stop: watch::Receiver<bool>,
     stdout: bool,
 ) {
     let Ok(mut file) = tokio::fs::OpenOptions::new().append(true).open(path).await else {
@@ -765,8 +780,12 @@ async fn copy_output<R: AsyncRead + Unpin>(
     let mut count = 0u64;
     let mut buffer = [0u8; 16 * 1024];
     loop {
-        let Ok(read) = source.read(&mut buffer).await else {
-            return;
+        let read = tokio::select! {
+            _ = stop.changed() => break,
+            result = source.read(&mut buffer) => match result {
+                Ok(read) => read,
+                Err(_) => break,
+            },
         };
         if read == 0 {
             break;
@@ -774,7 +793,7 @@ async fn copy_output<R: AsyncRead + Unpin>(
         let keep = read.min(usize::try_from(cap.saturating_sub(count)).unwrap_or(usize::MAX));
         if keep > 0 {
             if file.write_all(&buffer[..keep]).await.is_err() {
-                return;
+                break;
             }
             count = count.saturating_add(keep as u64);
         }
@@ -798,6 +817,7 @@ async fn copy_output<R: AsyncRead + Unpin>(
             }
         }
     }
+    let _ = file.flush().await;
 }
 async fn settle(state: Arc<Mutex<State>>, id: &str, outcome: Settlement) {
     time::sleep(Duration::from_millis(15)).await;
@@ -829,7 +849,7 @@ async fn settle(state: Arc<Mutex<State>>, id: &str, outcome: Settlement) {
 }
 
 async fn cancel_job(state: Arc<Mutex<State>>, id: String, owner: String) -> Result<Job, Status> {
-    let pid = {
+    let (pid, cancel) = {
         let mut state = state.lock().await;
         let entry = state
             .entries
@@ -839,11 +859,28 @@ async fn cancel_job(state: Arc<Mutex<State>>, id: String, owner: String) -> Resu
         if entry.status.is_some() {
             return Ok(job_record(entry));
         }
-        entry.stop_requested = true;
-        entry.start.pid
+        let pid = entry.start.pid;
+        if is_group_empty(pid) {
+            (pid, None)
+        } else {
+            entry.stop_requested = true;
+            (pid, Some(entry.cancel.clone()))
+        }
     };
-    signal_group(pid, rustix::process::Signal::KILL);
-    time::timeout(Duration::from_secs(2), async {
+    if let Some(cancel) = cancel {
+        cancel.send_replace(true);
+        signal_group(pid, rustix::process::Signal::KILL);
+    }
+    wait_for_cancel_settlement(state, id, owner, Duration::from_secs(1)).await
+}
+
+async fn wait_for_cancel_settlement(
+    state: Arc<Mutex<State>>,
+    id: String,
+    owner: String,
+    budget: Duration,
+) -> Result<Job, Status> {
+    let result = time::timeout(budget, async {
         loop {
             let state = state.lock().await;
             let entry = state
@@ -858,8 +895,35 @@ async fn cancel_job(state: Arc<Mutex<State>>, id: String, owner: String) -> Resu
             time::sleep(Duration::from_millis(5)).await;
         }
     })
-    .await
-    .map_err(|_| Status::internal("Job cancellation did not settle."))?
+    .await;
+    if let Ok(result) = result {
+        return result;
+    }
+    settle(
+        Arc::clone(&state),
+        &id,
+        Settlement {
+            state: JobState::Lost,
+            exit_code: None,
+            signal: Some("SIGKILL".into()),
+            lost_cause: Some(LostCause::CancelUnproved as i32),
+        },
+    )
+    .await;
+    let state = state.lock().await;
+    state
+        .entries
+        .get(&id)
+        .filter(|entry| entry.start.owner == owner)
+        .map(job_record)
+        .ok_or_else(refusal::job_not_found)
+}
+fn owner_scoped_request_id(owner: &str, request_id: &str) -> String {
+    if request_id.is_empty() {
+        String::new()
+    } else {
+        format!("{}:{owner}{request_id}", owner.len())
+    }
 }
 
 async fn delete_job(state: Arc<Mutex<State>>, id: String, owner: String) -> Result<(), Status> {
@@ -1020,4 +1084,56 @@ fn signal_name(signal: i32) -> String {
         _ => return format!("SIG{signal}"),
     };
     format!("SIG{name}")
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn unresolved_cancellation_settles_lost_instead_of_erroring() {
+        let temporary = tempfile::tempdir().unwrap();
+        let directory = temporary.path().join("job");
+        fs::create_dir(&directory).unwrap();
+        File::create(directory.join("stdout")).unwrap();
+        File::create(directory.join("stderr")).unwrap();
+        let id = "d223456789abcdef0123456789abcdef";
+        let (changes, _) = broadcast::channel(4);
+        let (cancel, _) = watch::channel(false);
+        let state = Arc::new(Mutex::new(State {
+            entries: HashMap::from([(
+                id.to_owned(),
+                Entry {
+                    start: StoredJob {
+                        job_id: id.to_owned(),
+                        owner: "owner-a".into(),
+                        command: "sleep".into(),
+                        cwd: directory.to_string_lossy().into_owned(),
+                        pid: u32::MAX,
+                        started_at_ms: now_ms(),
+                        boot_id: String::new(),
+                        lifetime_ms: 0,
+                    },
+                    status: None,
+                    directory,
+                    stdout_truncated: false,
+                    stderr_truncated: false,
+                    stop_requested: true,
+                    cancel,
+                },
+            )]),
+            changes,
+        }));
+
+        let job = wait_for_cancel_settlement(
+            state,
+            id.to_owned(),
+            "owner-a".into(),
+            Duration::from_millis(1),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(job.state, JobState::Lost as i32);
+        assert_eq!(job.lost_cause, LostCause::CancelUnproved as i32);
+    }
 }

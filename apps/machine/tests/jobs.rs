@@ -259,7 +259,15 @@ async fn cancellation_drains_output_before_settlement() {
     create(
         &mut client,
         id,
-        "setsid sh -c 'printf before; sleep 2; printf after' & sleep 30",
+        r#"python3 -c 'import os,time
+child=os.fork()
+if child == 0:
+ os.setsid()
+ os.write(1,b"before")
+ time.sleep(2)
+ os.write(1,b"after")
+ os._exit(0)
+os._exit(0)' & sleep 30"#,
     )
     .await;
     tokio::time::sleep(Duration::from_millis(100)).await;
@@ -489,4 +497,114 @@ async fn daemon_restart_marks_unfinished_jobs_lost_with_persisted_truncation() {
     assert_eq!(lost.state, JobState::Lost as i32);
     assert_eq!(lost.lost_cause, LostCause::DaemonRestarted as i32);
     assert!(lost.stdout.unwrap().truncated);
+}
+#[tokio::test]
+async fn settled_output_bytes_include_the_final_burst() {
+    let machine = common::Machine::new();
+    let (_daemon, channel) = machine.attach().await;
+    let mut client = JobServiceClient::new(channel);
+    let id = "8223456789abcdef0123456789abcdef";
+    create(&mut client, id, "head -c 1048576 /dev/zero").await;
+    let settled = wait_settled(&mut client, id).await;
+    let bytes = std::fs::metadata(machine.state_dir().join("jobs").join(id).join("stdout"))
+        .unwrap()
+        .len();
+    assert_eq!(settled.stdout.unwrap().bytes, bytes);
+    assert_eq!(bytes, 1_048_576);
+}
+#[tokio::test]
+async fn empty_idempotency_keys_do_not_cache_across_job_ids() {
+    let machine = common::Machine::new();
+    let (_daemon, channel) = machine.attach().await;
+    let mut client = JobServiceClient::new(channel);
+    let cancel_ids = [
+        "9223456789abcdef0123456789abcdef",
+        "a223456789abcdef0123456789abcdef",
+    ];
+    for id in cancel_ids {
+        create(&mut client, id, "sleep 30").await;
+    }
+    for id in cancel_ids {
+        let job = client
+            .cancel_job(machine_protocol::v1::CancelJobRequest {
+                request_id: String::new(),
+                job_id: id.into(),
+                owner: "owner-a".into(),
+            })
+            .await
+            .unwrap()
+            .into_inner()
+            .job
+            .unwrap();
+        assert_eq!(job.id, id);
+        assert_eq!(job.state, JobState::Cancelled as i32);
+    }
+
+    let delete_ids = [
+        "b223456789abcdef0123456789abcdef",
+        "c223456789abcdef0123456789abcdef",
+    ];
+    for id in delete_ids {
+        create(&mut client, id, "true").await;
+        wait_settled(&mut client, id).await;
+    }
+    for id in delete_ids {
+        client
+            .delete_job(machine_protocol::v1::DeleteJobRequest {
+                request_id: String::new(),
+                job_id: id.into(),
+                owner: "owner-a".into(),
+            })
+            .await
+            .unwrap();
+        assert!(!machine.state_dir().join("jobs").join(id).exists());
+    }
+}
+#[cfg(target_os = "linux")]
+#[tokio::test]
+async fn cancel_after_group_proof_preserves_the_original_exit() {
+    let machine = common::Machine::new();
+    let (_daemon, channel) = machine.attach().await;
+    let mut client = JobServiceClient::new(channel);
+    let id = "e223456789abcdef0123456789abcdef";
+    create(
+        &mut client,
+        id,
+        "setsid sh -c 'sleep 2; printf late' & exit 0",
+    )
+    .await;
+    let stored: serde_json::Value = serde_json::from_slice(
+        &std::fs::read(machine.state_dir().join("jobs").join(id).join("job.json")).unwrap(),
+    )
+    .unwrap();
+    let pid = stored["pid"].as_u64().unwrap() as u32;
+    timeout(Duration::from_secs(2), async {
+        loop {
+            if rustix::process::test_kill_process_group(
+                rustix::process::Pid::from_raw(pid.cast_signed()).unwrap(),
+            )
+            .is_err_and(|error| error == rustix::io::Errno::SRCH)
+            {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    })
+    .await
+    .unwrap();
+    let job = client
+        .cancel_job(machine_protocol::v1::CancelJobRequest {
+            request_id: "cancel-after-proof".into(),
+            job_id: id.into(),
+            owner: "owner-a".into(),
+        })
+        .await
+        .unwrap()
+        .into_inner()
+        .job
+        .unwrap();
+    assert_eq!(job.state, JobState::Succeeded as i32);
+    assert_eq!(job.exit_code, Some(0));
+    assert_eq!(job.lost_cause, LostCause::Unspecified as i32);
+    assert!(job.signal.is_none());
 }
