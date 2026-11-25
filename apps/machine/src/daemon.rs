@@ -74,12 +74,11 @@ pub fn run() -> ExitCode {
         )
         .with_writer(std::io::stderr)
         .init();
-    match serve() {
-        Ok(()) => ExitCode::SUCCESS,
-        Err(error) => {
-            tracing::error!("daemon stopped: {error:#}");
-            ExitCode::from(1)
-        }
+    if serve().is_ok() {
+        ExitCode::SUCCESS
+    } else {
+        tracing::error!("daemon stopped after an error");
+        ExitCode::from(1)
     }
 }
 
@@ -88,10 +87,7 @@ fn serve() -> anyhow::Result<()> {
     prepare_state_dir(&state_dir)?;
     let socket = socket_path(&state_dir);
     if socket.as_os_str().len() > MAX_SOCKET_PATH {
-        bail!(
-            "socket path {} is longer than {MAX_SOCKET_PATH} bytes",
-            socket.display()
-        );
+        bail!("daemon socket path is longer than {MAX_SOCKET_PATH} bytes");
     }
     let Some(_lock) = try_lock(&state_dir)? else {
         bail!("another daemon already runs for {}", state_dir.display());
@@ -108,7 +104,7 @@ fn serve() -> anyhow::Result<()> {
         let listener = UnixListener::bind(&socket)
             .with_context(|| format!("cannot bind {}", socket.display()))?;
         fs::set_permissions(&socket, fs::Permissions::from_mode(0o600))?;
-        tracing::info!(socket = %socket.display(), build = %identity.build_id, "daemon listening");
+        tracing::info!(build = %identity.build_id, "daemon listening");
         let routes = crate::services::routes(&context, identity).await?;
         let server = tonic::transport::Server::builder()
             .http2_keepalive_interval(Some(Duration::from_secs(15)))
