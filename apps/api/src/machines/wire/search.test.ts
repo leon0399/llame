@@ -231,13 +231,13 @@ describe('wire fs.grep', () => {
     ]);
 
     const first = await searchHandlers['fs.grep']!(session, BASE);
+
     if (!('ok' in first) || !first.ok || first.cursor === undefined)
       throw new Error('Expected a byte-bounded continuation cursor.');
 
-    const encoded = JSON.parse(
-      Buffer.from(first.cursor, 'base64url').toString('utf8'),
-    ) as { after: { byteOffset?: unknown } };
-    expect(encoded.after.byteOffset).toBe('65537');
+    expect(
+      JSON.parse(Buffer.from(first.cursor, 'base64url').toString('utf8')),
+    ).toMatchObject({ after: { byteOffset: '65537' } });
 
     await searchHandlers['fs.grep']!(session, {
       ...BASE,
@@ -249,6 +249,7 @@ describe('wire fs.grep', () => {
       byteOffset: 65_537n,
     });
   });
+
   it('reports a stopped point as unfinished and mints a resumable cursor', async () => {
 
     const { session } = sessionFor([
