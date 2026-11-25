@@ -566,17 +566,28 @@ impl Jobs {
                     Ok(result) => result.ok(),
                     Err(_) => {
                         signal_group(start.pid, rustix::process::Signal::KILL);
-                        let _ = time::timeout(STOP_BUDGET, wait_group_empty(start.pid)).await;
+                        let stopped = time::timeout(STOP_BUDGET, async {
+                            if child.wait().await.is_err() {
+                                return false;
+                            }
+                            wait_group_empty(start.pid).await
+                        })
+                        .await
+                        .is_ok_and(|empty| empty);
                         let _ = out_task.await;
                         let _ = err_task.await;
                         settle(
                             state,
                             &start.job_id,
                             Settlement {
-                                state: JobState::TimedOut,
+                                state: if stopped {
+                                    JobState::TimedOut
+                                } else {
+                                    JobState::Lost
+                                },
                                 exit_code: None,
                                 signal: Some("SIGKILL".into()),
-                                lost_cause: None,
+                                lost_cause: (!stopped).then_some(LostCause::CancelUnproved as i32),
                             },
                         )
                         .await;

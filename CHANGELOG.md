@@ -6,6 +6,8 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   bootstrap and root services, and the versioned gRPC contract.
 - Register generated protocol bindings and the external Rust and protobuf
   build tools in dead-code analysis.
+- Reap a timed-out Machine command and prove its process group empty before
+  reporting `timed_out`. An unproved stop keeps an unknown outcome.
 
 # 2026-11-24
 

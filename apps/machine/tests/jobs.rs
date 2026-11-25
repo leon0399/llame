@@ -172,10 +172,34 @@ async fn cancel_kills_process_group_and_timeout_expires() {
         duration.nanos = 100_000_000;
     }
     client.create_job(timed).await.unwrap();
-    assert_eq!(
-        wait_settled(&mut client, timeout_id).await.state,
-        JobState::TimedOut as i32
-    );
+    let timed = wait_settled(&mut client, timeout_id).await;
+    let stored: serde_json::Value = serde_json::from_slice(
+        &std::fs::read(
+            machine
+                .state_dir()
+                .join("jobs")
+                .join(timeout_id)
+                .join("job.json"),
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    let pid = stored["pid"].as_u64().unwrap() as u32;
+    let pid = rustix::process::Pid::from_raw(pid.cast_signed()).unwrap();
+    let group_empty = rustix::process::test_kill_process_group(pid)
+        .is_err_and(|error| error == rustix::io::Errno::SRCH);
+    match timed.state {
+        state if state == JobState::TimedOut as i32 => {
+            assert!(group_empty, "timed-out job still has a process group");
+            assert_eq!(timed.lost_cause, LostCause::Unspecified as i32);
+        }
+        state if state == JobState::Lost as i32 => {
+            assert_eq!(timed.lost_cause, LostCause::CancelUnproved as i32);
+        }
+        state => panic!("expected a timed-out or unproved job, got {state}"),
+    }
+    #[cfg(target_os = "linux")]
+    assert_eq!(timed.state, JobState::TimedOut as i32);
 }
 
 #[tokio::test]
