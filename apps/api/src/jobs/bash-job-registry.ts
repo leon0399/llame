@@ -13,7 +13,12 @@ import {
   type Job,
   type ProcBashResult,
 } from '@workspace/machine-protocol';
-import { sanitizeKnownResultAtBound } from '@workspace/bash-executor';
+import {
+  type BashKnownResult,
+  type BashTimedOutResult,
+  sanitizeKnownResultAtBound,
+  type ManagedOutput,
+} from '@workspace/bash-executor';
 import { type ChatJob } from '../db/schema';
 import { TenantDbService, type TenantRunner } from '../db/tenant-db.service';
 import {
@@ -35,7 +40,7 @@ import { ChatJobsRepository, type JobSettlement } from './chat-jobs.repository';
 import { settleBashJob } from './bash-job-store';
 import { formatJobLocator } from './job-locator';
 
-const JOB_OUTPUT_LIMIT = BigInt(BASH_BOUNDS.outputBound * 4);
+const JOB_OUTPUT_LIMIT = (maxBytes: number) => BigInt(maxBytes);
 const RECONCILE_INTERVAL_MS = 60_000;
 const FOREGROUND_MAX_MS = 300_000;
 type JobsClient = Client<typeof JobService>;
@@ -204,14 +209,14 @@ export class BashJobRegistry implements OnModuleInit {
       );
     }
 
-    const result = await this.readResult(
+    const { result, output } = await this.readResult(
       client,
       callOptions,
       row,
       outcome.job,
       configuredCredentials(this.config.config),
     );
-    await this.settleDaemonJob(row, outcome.job, result, false);
+    await this.settleDaemonJob(row, outcome.job, output, false);
     this.foregroundJobs.delete(row.id);
     await this.release(client, callOptions, row);
     return spillBashResult(context, result, machine.local);
@@ -348,7 +353,7 @@ export class BashJobRegistry implements OnModuleInit {
       return;
     }
     if (observedJob.state === JobState.RUNNING) return;
-    const result = await this.readResult(
+    const { result, output } = await this.readResult(
       client,
       callOptions,
       row,
@@ -358,7 +363,7 @@ export class BashJobRegistry implements OnModuleInit {
     await this.settleDaemonJob(
       row,
       observedJob,
-      result,
+      output,
       !this.foregroundJobs.has(row.id),
     );
     await this.release(client, callOptions, row).catch(() => undefined);
@@ -444,54 +449,137 @@ export class BashJobRegistry implements OnModuleInit {
     row: ChatJob,
     job: Job,
     credentials: ReadonlyArray<string>,
-  ): Promise<ProcBashResult> {
-    if (job.state === JobState.LOST)
+  ): Promise<{ result: ProcBashResult; output: ManagedOutput | null }> {
+    let stdout: string;
+    let stderr: string;
+    let stdoutTruncated = job.stdout?.truncated === true;
+    let stderrTruncated = job.stderr?.truncated === true;
+    try {
+      const stdoutOutput = await this.readOutput(
+        client,
+        callOptions,
+        row,
+        OutputStream.STDOUT,
+      );
+      const stderrOutput = await this.readOutput(
+        client,
+        callOptions,
+        row,
+        OutputStream.STDERR,
+      );
+      stdout = stdoutOutput.text;
+      stderr = stderrOutput.text;
+      stdoutTruncated ||= stdoutOutput.truncated;
+      stdoutTruncated ||=
+        BigInt(Buffer.byteLength(stdout)) < (job.stdout?.bytes ?? 0n);
+      stderrTruncated ||=
+        BigInt(Buffer.byteLength(stderr)) < (job.stderr?.bytes ?? 0n);
+      stderrTruncated ||= stderrOutput.truncated;
+    } catch (error) {
+      if (
+        !(error instanceof MachineProtocolError) ||
+        error.code !== 'machine_job_not_found'
+      )
+        throw error;
+      if (job.state === JobState.LOST)
+        return {
+          result: {
+            status: 'error',
+            type: 'outcome_unknown',
+            attemptId: row.runId,
+            message: `The Machine daemon lost the job (${lostCauseText(lostCause(job.lostCause))}).`,
+          },
+          output: null,
+        };
+      stdout = '';
+      stderr = '';
+      const result = this.resultFromJob(job, stdout, stderr);
       return {
-        status: 'error',
-        type: 'outcome_unknown',
-        attemptId: row.runId,
-        message: `The Machine daemon lost the job (${lostCauseText(lostCause(job.lostCause))}).`,
+        result: sanitizeKnownResultAtBound(
+          result,
+          { kind: 'code-units', limit: BASH_BOUNDS.outputBound },
+          credentials,
+        ),
+        output: null,
       };
-    const stdout = await this.readOutput(
-      client,
-      callOptions,
-      row,
-      OutputStream.STDOUT,
+    }
+    if (job.state === JobState.LOST) {
+      const sanitized = sanitizeKnownResultAtBound(
+        this.resultFromJob(job, stdout, stderr),
+        { kind: 'code-units', limit: BASH_BOUNDS.outputBound },
+        credentials,
+        {
+          stdout: { endedByLlame: stdoutTruncated },
+          stderr: { endedByLlame: stderrTruncated },
+        },
+      );
+      return {
+        result: {
+          status: 'error',
+          type: 'outcome_unknown',
+          attemptId: row.runId,
+          message: `The Machine daemon lost the job (${lostCauseText(lostCause(job.lostCause))}).`,
+        },
+        output: {
+          stdout: sanitized.stdout,
+          stderr: sanitized.stderr,
+          truncated: sanitized.truncated || stdoutTruncated || stderrTruncated,
+          truncatedStreams: {
+            stdout: stdoutTruncated || job.stdout?.truncated === true,
+            stderr: stderrTruncated || job.stderr?.truncated === true,
+          },
+        },
+      };
+    }
+    const sanitized = sanitizeKnownResultAtBound(
+      this.resultFromJob(job, stdout, stderr),
+      { kind: 'code-units', limit: BASH_BOUNDS.outputBound },
+      credentials,
+      {
+        stdout: { endedByLlame: stdoutTruncated },
+        stderr: { endedByLlame: stderrTruncated },
+      },
     );
-    const stderr = await this.readOutput(
-      client,
-      callOptions,
-      row,
-      OutputStream.STDERR,
-    );
+    return {
+      result: sanitized,
+      output: {
+        stdout: sanitized.stdout,
+        stderr: sanitized.stderr,
+        truncated: sanitized.truncated || stdoutTruncated || stderrTruncated,
+        truncatedStreams: {
+          stdout: stdoutTruncated || job.stdout?.truncated === true,
+          stderr: stderrTruncated || job.stderr?.truncated === true,
+        },
+      },
+    };
+  }
+
+  private resultFromJob(
+    job: Job,
+    stdout: string,
+    stderr: string,
+  ): BashKnownResult | BashTimedOutResult {
     const wallTimeMs = elapsedMs(job);
     const truncated =
       job.stdout?.truncated === true || job.stderr?.truncated === true;
-    const result: ProcBashResult =
-      job.state === JobState.TIMED_OUT
-        ? {
-            status: 'error',
-            type: 'timed_out',
-            durationMs: wallTimeMs,
-            wallTimeMs,
-            stdout,
-            stderr,
-            truncated,
-          }
-        : {
-            status: job.state === JobState.SUCCEEDED ? 'success' : 'error',
-            exitCode:
-              job.exitCode ?? (job.state === JobState.SUCCEEDED ? 0 : 1),
-            stdout,
-            stderr,
-            truncated,
-            wallTimeMs,
-          };
-    return sanitizeKnownResultAtBound(
-      result,
-      { kind: 'code-units', limit: BASH_BOUNDS.outputBound },
-      credentials,
-    );
+    return job.state === JobState.TIMED_OUT
+      ? {
+          status: 'error',
+          type: 'timed_out',
+          durationMs: wallTimeMs,
+          wallTimeMs,
+          stdout,
+          stderr,
+          truncated,
+        }
+      : {
+          status: job.state === JobState.SUCCEEDED ? 'success' : 'error',
+          exitCode: job.exitCode ?? (job.state === JobState.SUCCEEDED ? 0 : 1),
+          stdout,
+          stderr,
+          truncated,
+          wallTimeMs,
+        };
   }
 
   private async readOutput(
@@ -499,26 +587,47 @@ export class BashJobRegistry implements OnModuleInit {
     callOptions: JobsCallOptions,
     row: ChatJob,
     stream: OutputStream,
-  ): Promise<string> {
+  ): Promise<{ text: string; truncated: boolean }> {
+    const maxBytes = this.config.config.tools.artifacts.maxBytes;
     const chunks: Array<Buffer> = [];
+    let bytes = 0;
+    let expectedOffset = 0n;
+    let truncated = false;
     for await (const part of client.readOutput(
       {
         jobId: row.daemonJobId,
         owner: row.ownerUserId,
         stream,
         offset: 0n,
-        limit: JOB_OUTPUT_LIMIT,
+        limit: JOB_OUTPUT_LIMIT(maxBytes),
       },
       callOptions(),
-    ))
-      chunks.push(Buffer.from(part.data));
-    return Buffer.concat(chunks).toString('utf8');
+    )) {
+      if (part.offset !== expectedOffset)
+        throw new Error(
+          'Machine job output contains a gap or overlapping chunk',
+        );
+      expectedOffset += BigInt(part.data.byteLength);
+      const available = maxBytes - bytes;
+      if (available <= 0) {
+        truncated = true;
+        break;
+      }
+      const chunk = Buffer.from(part.data).subarray(0, available);
+      chunks.push(chunk);
+      bytes += chunk.byteLength;
+      truncated ||= part.data.byteLength > available;
+    }
+    return {
+      text: Buffer.concat(chunks).toString('utf8'),
+      truncated,
+    };
   }
 
   private async settleDaemonJob(
     row: ChatJob,
     job: Job,
-    result: ProcBashResult,
+    output: ManagedOutput | null,
     backgrounded: boolean,
   ): Promise<void> {
     const truncatedStreams = {
@@ -558,24 +667,17 @@ export class BashJobRegistry implements OnModuleInit {
                   truncated: truncatedStreams,
                 },
               };
-    const output =
-      'stdout' in result
+    const settled: JobSettlement =
+      output === null
         ? {
-            stdout: result.stdout,
-            stderr: result.stderr,
-            truncated: result.truncated,
-            truncatedStreams,
+            ...settlement,
+            result: { ...settlement.result, outputUnavailable: true },
           }
-        : {
-            stdout: '',
-            stderr: '',
-            truncated: false,
-            truncatedStreams: { stdout: false, stderr: false },
-          };
+        : settlement;
     await settleBashJob(
       this.tenantDb,
       row,
-      { output, settlement },
+      { output, settlement: settled },
       {
         maxBytes: this.config.config.tools.artifacts.maxBytes,
         hostFiles: false,
