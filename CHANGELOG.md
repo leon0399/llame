@@ -5,6 +5,8 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 - Keep retained Machine mutation results replayable when the idempotency cache
   reaches its key limit. Attaching through a different configuration now
   refuses the running daemon before returning its socket.
+- Register generated protocol bindings and the external Rust and protobuf
+  build tools in dead-code analysis.
 
 # 2026-11-24
 
