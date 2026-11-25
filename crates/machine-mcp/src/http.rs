@@ -15,6 +15,7 @@ use tonic::{Status, Streaming};
 
 use crate::{MAX_MESSAGE_BYTES, failure, message_response, redact};
 
+const MAX_IN_FLIGHT_HTTP_REQUESTS: usize = 32;
 #[derive(Clone)]
 struct RelayState {
     client: reqwest::Client,
@@ -73,24 +74,39 @@ pub async fn run_http(
         protocol_version: Arc::new(Mutex::new(None)),
         protected_values: Arc::new(Mutex::new(protected.clone())),
     };
-    let mut requests: JoinSet<Result<(), String>> = JoinSet::new();
+    let mut requests: JoinSet<(bool, Result<(), String>)> = JoinSet::new();
+    let mut cancellation_in_flight = false;
     let mut stream_open = true;
     while stream_open {
         tokio::select! {
             () = tx.closed() => stream_open = false,
             completed = requests.join_next(), if !requests.is_empty() => {
                 match completed {
-                    Some(Ok(Err(error))) => {
+                    Some(Ok((is_cancellation, Err(error)))) => {
+                        cancellation_in_flight &= !is_cancellation;
                         let values = state.protected_values.lock().await.clone();
-                        let _ = tx.send(Ok(failure(McpFailureReason::Unavailable, redact(&error, &values)))).await;
+                        let _ = tx
+                            .send(Ok(failure(
+                                McpFailureReason::Unavailable,
+                                redact(&error, &values),
+                            )))
+                            .await;
                         stream_open = false;
                     }
                     Some(Err(error)) => {
                         let values = state.protected_values.lock().await.clone();
-                        let _ = tx.send(Ok(failure(McpFailureReason::Unavailable, redact(&error.to_string(), &values)))).await;
+                        let _ = tx
+                            .send(Ok(failure(
+                                McpFailureReason::Unavailable,
+                                redact(&error.to_string(), &values),
+                            )))
+                            .await;
                         stream_open = false;
                     }
-                    Some(Ok(Ok(()))) | None => {}
+                    Some(Ok((is_cancellation, Ok(())))) => {
+                        cancellation_in_flight &= !is_cancellation;
+                    }
+                    None => {}
                 }
             },
             message = incoming.message() => {
@@ -121,8 +137,37 @@ pub async fn run_http(
                     stream_open = false;
                     continue;
                 }
-                let state = state.clone();
-                requests.spawn(async move { relay_request(state, text).await });
+                let (method, request_id) = request_metadata(&text);
+                let is_request = method.is_some();
+                let is_initialized_notification =
+                    method.as_deref() == Some("notifications/initialized");
+                let is_cancellation = method.as_deref() == Some("notifications/cancelled");
+                if is_request
+                    && !is_initialized_notification
+                    && requests.len() >= MAX_IN_FLIGHT_HTTP_REQUESTS
+                    && (!is_cancellation || cancellation_in_flight)
+                {
+                    send_capacity_error(&tx, request_id).await;
+                    continue;
+                }
+                if is_initialized_notification {
+                    if let Err(error) = relay_request(state.clone(), text).await {
+                        let values = state.protected_values.lock().await.clone();
+                        let _ = tx
+                            .send(Ok(failure(
+                                McpFailureReason::Unavailable,
+                                redact(&error, &values),
+                            )))
+                            .await;
+                        stream_open = false;
+                    }
+                } else {
+                    cancellation_in_flight |= is_cancellation;
+                    let state = state.clone();
+                    requests.spawn(async move {
+                        (is_cancellation, relay_request(state, text).await)
+                    });
+                }
             }
         }
     }
@@ -166,7 +211,6 @@ async fn relay_request(state: RelayState, text: String) -> Result<(), String> {
         () = state.tx.closed() => return Ok(()),
         response = request.send() => response.map_err(|error| error.to_string())?,
     };
-    capture_session_id(&state, &response).await?;
     if !response.status().is_success() {
         let status = response.status();
         if status_is_call_level(status, established, request_method.as_deref()) {
@@ -174,6 +218,9 @@ async fn relay_request(state: RelayState, text: String) -> Result<(), String> {
             return Ok(());
         }
         return Err(format!("HTTP MCP server returned {status}"));
+    }
+    if should_capture_session_id(request_method.as_deref(), response.status()) {
+        capture_session_id(&state, &response).await?;
     }
     let is_sse = response
         .headers()
@@ -191,7 +238,7 @@ async fn relay_request(state: RelayState, text: String) -> Result<(), String> {
         () = state.tx.closed() => Ok(()),
         result = async {
             if is_sse {
-                forward_sse(response, &state.tx).await
+                forward_sse(response, &state.tx, request_id.as_ref()).await
             } else {
                 forward_json(response, &state.tx).await
             }
@@ -232,6 +279,26 @@ async fn send_call_error(
     tx.send(Ok(message_response(message)))
         .await
         .map_err(|_| "MCP stream closed".to_owned())
+}
+
+async fn send_capacity_error(
+    tx: &mpsc::Sender<Result<OpenSessionResponse, Status>>,
+    id: Option<Value>,
+) {
+    let Some(id) = id else {
+        return;
+    };
+    let message = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": id,
+        "error": {
+            "code": -32002,
+            "message": "MCP HTTP relay is at capacity"
+        }
+    });
+    if let Ok(message) = serde_json::to_string(&message) {
+        let _ = tx.send(Ok(message_response(message))).await;
+    }
 }
 
 async fn capture_session_id(
@@ -292,6 +359,7 @@ async fn forward_json(
 async fn forward_sse(
     response: reqwest::Response,
     tx: &mpsc::Sender<Result<OpenSessionResponse, Status>>,
+    expected_id: Option<&Value>,
 ) -> Result<(), String> {
     let mut stream = response.bytes_stream();
     let mut line = Vec::new();
@@ -299,6 +367,8 @@ async fn forward_sse(
     let mut event = Vec::new();
     let mut event_bytes = 0_usize;
     let mut previous_was_cr = false;
+    let mut first_line = true;
+    let mut reply_seen = expected_id.is_none();
     while let Some(chunk) = stream.next().await {
         for byte in chunk.map_err(|error| error.to_string())? {
             event_bytes = event_bytes.saturating_add(1);
@@ -313,23 +383,14 @@ async fn forward_sse(
                 previous_was_cr = byte == b'\r';
                 if line.is_empty() {
                     if !data.is_empty() {
-                        dispatch_sse_event(&event, &data, tx).await?;
+                        reply_seen |= dispatch_sse_event(&event, &data, tx, expected_id).await?;
                     }
                     data.clear();
                     event.clear();
                     event_bytes = 0;
                 } else {
-                    if let Some(value) = line.strip_prefix(b"data:") {
-                        let value = value.strip_prefix(b" ").unwrap_or(value);
-                        if !data.is_empty() {
-                            data.push(b'\n');
-                        }
-                        data.extend_from_slice(value);
-                    } else if let Some(value) = line.strip_prefix(b"event:") {
-                        let value = value.strip_prefix(b" ").unwrap_or(value);
-                        event.clear();
-                        event.extend_from_slice(value);
-                    }
+                    parse_sse_field_line(&line, &mut event, &mut data, first_line);
+                    first_line = false;
                     line.clear();
                 }
             } else {
@@ -338,28 +399,62 @@ async fn forward_sse(
             }
         }
     }
-    Ok(())
+    if reply_seen {
+        Ok(())
+    } else {
+        Err("MCP SSE response ended before the request reply".to_owned())
+    }
 }
 fn should_forward_sse_event(event: &[u8]) -> bool {
     event.is_empty() || event == b"message"
+}
+
+fn parse_sse_field_line(line: &[u8], event: &mut Vec<u8>, data: &mut Vec<u8>, first_line: bool) {
+    let line = if first_line {
+        line.strip_prefix(b"\xef\xbb\xbf").unwrap_or(line)
+    } else {
+        line
+    };
+    let (field, value) = line
+        .iter()
+        .position(|byte| *byte == b':')
+        .map_or((line, &[][..]), |index| {
+            (&line[..index], &line[index + 1..])
+        });
+    let value = value.strip_prefix(b" ").unwrap_or(value);
+    match field {
+        b"data" => {
+            if !data.is_empty() {
+                data.push(b'\n');
+            }
+            data.extend_from_slice(value);
+        }
+        b"event" => {
+            event.clear();
+            event.extend_from_slice(value);
+        }
+        _ => {}
+    }
 }
 
 async fn dispatch_sse_event(
     event: &[u8],
     data: &[u8],
     tx: &mpsc::Sender<Result<OpenSessionResponse, Status>>,
-) -> Result<(), String> {
+    expected_id: Option<&Value>,
+) -> Result<bool, String> {
     if !should_forward_sse_event(event) {
-        return Ok(());
+        return Ok(false);
     }
     let payload = std::str::from_utf8(data).map_err(|error| error.to_string())?;
     let value: Value = serde_json::from_str(payload).map_err(|error| error.to_string())?;
+    let reply = expected_id.is_some_and(|id| value.get("id") == Some(id));
     let message = serde_json::to_string(&value).map_err(|error| error.to_string())?;
     tx.send(Ok(message_response(message)))
         .await
-        .map_err(|_| "MCP stream closed".to_owned())
+        .map_err(|_| "MCP stream closed".to_owned())?;
+    Ok(reply)
 }
-
 fn status_is_call_level(
     status: reqwest::StatusCode,
     established: bool,
@@ -370,6 +465,10 @@ fn status_is_call_level(
         && status != reqwest::StatusCode::UNAUTHORIZED
         && status != reqwest::StatusCode::FORBIDDEN
         && status != reqwest::StatusCode::NOT_FOUND
+}
+
+fn should_capture_session_id(method: Option<&str>, status: reqwest::StatusCode) -> bool {
+    method == Some("initialize") && status.is_success()
 }
 
 #[cfg(test)]
@@ -383,19 +482,75 @@ mod tests {
         assert!(!should_forward_sse_event(b"ping"));
     }
 
+    #[test]
+    fn sse_parser_strips_initial_bom_and_colonless_event_resets_type() {
+        let mut event = Vec::new();
+        let mut data = Vec::new();
+        parse_sse_field_line(b"\xef\xbb\xbfdata: {\"id\":1}", &mut event, &mut data, true);
+        assert_eq!(data, br#"{"id":1}"#);
+        parse_sse_field_line(b"event: ping", &mut event, &mut data, false);
+        assert_eq!(event, b"ping");
+        parse_sse_field_line(b"event", &mut event, &mut data, false);
+        assert!(event.is_empty());
+    }
+
     #[tokio::test]
     async fn sse_ping_payload_is_ignored_before_valid_message() {
         let (tx, mut rx) = mpsc::channel(4);
-        dispatch_sse_event(b"ping", b"not-json", &tx).await.unwrap();
+        assert!(
+            !dispatch_sse_event(b"ping", b"not-json", &tx, Some(&serde_json::json!(1)))
+                .await
+                .unwrap()
+        );
         assert!(rx.try_recv().is_err());
-        dispatch_sse_event(b"message", br#"{"jsonrpc":"2.0","id":1}"#, &tx)
+        assert!(
+            dispatch_sse_event(
+                b"message",
+                br#"{"jsonrpc":"2.0","id":1}"#,
+                &tx,
+                Some(&serde_json::json!(1))
+            )
             .await
-            .unwrap();
+            .unwrap()
+        );
         let response = rx.try_recv().unwrap().unwrap();
         assert!(matches!(
             response.message.as_ref(),
             Some(ResponseMessage::JsonRpc(text)) if text.contains("\"id\":1")
         ));
+    }
+
+    #[tokio::test]
+    async fn sse_eof_without_matching_response_fails_pending_request() {
+        use tokio::io::AsyncWriteExt;
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let fixture = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let body = "event: message\ndata: {\"jsonrpc\":\"2.0\",\"method\":\"notifications/progress\"}\n\n";
+            let response = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                body.len()
+            );
+            socket.write_all(response.as_bytes()).await.unwrap();
+        });
+        let response = reqwest::Client::new()
+            .get(format!("http://{address}/mcp"))
+            .send()
+            .await
+            .unwrap();
+        let (tx, mut rx) = mpsc::channel(2);
+        assert!(
+            forward_sse(response, &tx, Some(&serde_json::json!(7)))
+                .await
+                .is_err()
+        );
+        let message = rx.try_recv().unwrap().unwrap().message.unwrap();
+        assert!(
+            matches!(message, ResponseMessage::JsonRpc(text) if text.contains("notifications/progress"))
+        );
+        fixture.await.unwrap();
     }
 
     #[test]
@@ -441,6 +596,28 @@ mod tests {
             reqwest::StatusCode::FORBIDDEN,
             true,
             Some("tools/call")
+        ));
+        assert!(!status_is_call_level(
+            reqwest::StatusCode::INTERNAL_SERVER_ERROR,
+            true,
+            None
+        ));
+        assert!(!status_is_call_level(
+            reqwest::StatusCode::NOT_FOUND,
+            false,
+            Some("tools/call")
+        ));
+        assert!(should_capture_session_id(
+            Some("initialize"),
+            reqwest::StatusCode::OK
+        ));
+        assert!(!should_capture_session_id(
+            Some("tools/list"),
+            reqwest::StatusCode::OK
+        ));
+        assert!(!should_capture_session_id(
+            Some("initialize"),
+            reqwest::StatusCode::INTERNAL_SERVER_ERROR
         ));
     }
 

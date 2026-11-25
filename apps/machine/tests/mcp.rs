@@ -20,6 +20,7 @@ async fn lists_resolved_servers_and_relays_stdio_until_stream_close() {
     let machine = common::Machine::new();
     let script = machine.root().join("fixture.sh");
     let pid_file = machine.root().join("fixture.pid");
+    let child_pid_file = machine.root().join("fixture-child.pid");
     std::fs::write(
         &script,
         r#"#!/bin/bash
@@ -28,7 +29,9 @@ echo fixture-stderr >&2
 printf '%70000s\n' '' >&2
 while IFS= read -r line; do
   echo '{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2025-03-26"}}'
-  sleep 30
+  sleep 30 &
+  echo $! > "$MCP_FIXTURE_CHILD_PID"
+  wait
 done
 "#,
     )
@@ -38,7 +41,10 @@ done
             "echo": {
                 "command": "/bin/bash",
                 "args": [script.to_string_lossy()],
-                "env": {"MCP_FIXTURE_PID": pid_file.to_string_lossy()}
+                "env": {
+                    "MCP_FIXTURE_PID": pid_file.to_string_lossy(),
+                    "MCP_FIXTURE_CHILD_PID": child_pid_file.to_string_lossy()
+                }
             },
             "missing": {
                 "command": "/bin/true",
@@ -118,25 +124,97 @@ done
     }
     assert!(got_stderr);
     assert!(got_message);
-    let pid: u32 = tokio::time::timeout(std::time::Duration::from_secs(2), async {
-        loop {
-            if let Ok(pid) = tokio::fs::read_to_string(&pid_file).await {
-                break pid.trim().parse().unwrap();
+    let (pid, child_pid): (u32, u32) =
+        tokio::time::timeout(std::time::Duration::from_secs(2), async {
+            loop {
+                let shell = tokio::fs::read_to_string(&pid_file).await;
+                let child = tokio::fs::read_to_string(&child_pid_file).await;
+                if let (Ok(shell), Ok(child)) = (shell, child) {
+                    break (shell.trim().parse().unwrap(), child.trim().parse().unwrap());
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
             }
-            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-        }
-    })
-    .await
-    .unwrap();
+        })
+        .await
+        .unwrap();
+    assert!(std::path::Path::new(&format!("/proc/{pid}")).exists());
+    assert!(std::path::Path::new(&format!("/proc/{child_pid}")).exists());
     drop(stream);
     drop(sender);
     tokio::time::timeout(std::time::Duration::from_secs(2), async {
-        while std::path::Path::new(&format!("/proc/{pid}")).exists() {
+        while std::path::Path::new(&format!("/proc/{pid}")).exists()
+            || std::path::Path::new(&format!("/proc/{child_pid}")).exists()
+        {
             tokio::time::sleep(std::time::Duration::from_millis(10)).await;
         }
     })
     .await
     .unwrap();
+    assert!(!std::path::Path::new(&format!("/proc/{pid}")).exists());
+    assert!(!std::path::Path::new(&format!("/proc/{child_pid}")).exists());
+}
+
+#[tokio::test]
+async fn stdio_exit_closes_session_while_client_stream_stays_open() {
+    let machine = common::Machine::new();
+    std::fs::write(
+        machine.root().join(".mcp.json"),
+        serde_json::to_vec(&serde_json::json!({
+            "mcpServers": {
+                "exit": {
+                    "command": "/bin/sh",
+                    "args": ["-c", "printf '{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{}}\\n'"]
+                }
+            }
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+    let (_child, channel) = machine.attach().await;
+    let mut client = McpServiceClient::new(channel);
+    let (sender, receiver) = tokio::sync::mpsc::channel(4);
+    sender
+        .send(OpenSessionRequest {
+            message: Some(RequestMessage::Open(Open {
+                workspace: machine.root().to_string_lossy().into_owned(),
+                server: "exit".to_owned(),
+            })),
+        })
+        .await
+        .unwrap();
+    let mut stream = client
+        .open_session(ReceiverStream::new(receiver))
+        .await
+        .unwrap()
+        .into_inner();
+    assert!(matches!(
+        stream.message().await.unwrap().unwrap().message,
+        Some(ResponseMessage::Opened(_))
+    ));
+    let result = tokio::time::timeout(std::time::Duration::from_secs(5), stream.message())
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap()
+        .message
+        .unwrap();
+    assert!(matches!(result, ResponseMessage::JsonRpc(_)));
+    let failure = tokio::time::timeout(std::time::Duration::from_secs(5), stream.message())
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap()
+        .message
+        .unwrap();
+    assert!(matches!(failure, ResponseMessage::Failure(_)));
+    assert!(
+        tokio::time::timeout(std::time::Duration::from_secs(5), stream.message())
+            .await
+            .unwrap()
+            .unwrap()
+            .is_none()
+    );
+    drop(sender);
 }
 
 #[tokio::test]
@@ -145,10 +223,16 @@ async fn streamable_http_forwards_protocol_and_session_headers() {
 
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let address = listener.local_addr().unwrap();
-    let server = tokio::spawn(async move {
+    let mut server = tokio::spawn(async move {
+        let mut early_request_arrived = false;
+        let mut deferred_socket = None;
         let mut requests = Vec::new();
-        for index in 0..3 {
-            let (socket, _) = listener.accept().await.unwrap();
+        for index in 0..4 {
+            let socket = if let Some(socket) = deferred_socket.take() {
+                socket
+            } else {
+                listener.accept().await.unwrap().0
+            };
             let mut reader = tokio::io::BufReader::new(socket);
             let mut headers = String::new();
             loop {
@@ -175,13 +259,22 @@ async fn streamable_http_forwards_protocol_and_session_headers() {
                     "application/json",
                     r#"{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2025-03-26"}}"#,
                 ),
-                1 => (
+                1 => ("202 Accepted", "application/json", ""),
+                2 => (
                     "200 OK",
                     "text/event-stream",
                     "event: message\ndata: {\"jsonrpc\":\"2.0\",\"id\":2,\"result\":{\"tools\":[]}}\n\n",
                 ),
                 _ => ("200 OK", "application/json", ""),
             };
+            if index == 1
+                && let Ok(Ok((socket, _))) =
+                    tokio::time::timeout(std::time::Duration::from_millis(100), listener.accept())
+                        .await
+            {
+                early_request_arrived = true;
+                deferred_socket = Some(socket);
+            }
             let wire = format!(
                 "HTTP/1.1 {status}\r\nContent-Type: {content_type}\r\nMcp-Session-Id: session-secret-abc123\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
                 response.len(),
@@ -190,7 +283,7 @@ async fn streamable_http_forwards_protocol_and_session_headers() {
             reader.get_mut().write_all(wire.as_bytes()).await.unwrap();
             requests.push((headers, String::from_utf8(body).unwrap()));
         }
-        requests
+        (requests, early_request_arrived)
     });
 
     let machine = common::Machine::new();
@@ -269,6 +362,14 @@ async fn streamable_http_forwards_protocol_and_session_headers() {
     sender
         .send(OpenSessionRequest {
             message: Some(RequestMessage::JsonRpc(
+                r#"{"jsonrpc":"2.0","method":"notifications/initialized"}"#.to_owned(),
+            )),
+        })
+        .await
+        .unwrap();
+    sender
+        .send(OpenSessionRequest {
+            message: Some(RequestMessage::JsonRpc(
                 r#"{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}"#.to_owned(),
             )),
         })
@@ -284,7 +385,16 @@ async fn streamable_http_forwards_protocol_and_session_headers() {
     assert!(matches!(message, ResponseMessage::JsonRpc(text) if text.contains("\"tools\":[]")));
     drop(stream);
     drop(sender);
-    let requests = server.await.unwrap();
+    let (requests, early_request_arrived) =
+        match tokio::time::timeout(std::time::Duration::from_secs(5), &mut server).await {
+            Ok(Ok(requests)) => requests,
+            Ok(Err(error)) => panic!("HTTP fixture failed: {error}"),
+            Err(_) => {
+                server.abort();
+                panic!("HTTP fixture did not receive the DELETE request");
+            }
+        };
+    assert!(!early_request_arrived);
     assert!(
         requests[0]
             .0
@@ -300,9 +410,8 @@ async fn streamable_http_forwards_protocol_and_session_headers() {
     assert!(requests[0].1.contains("\"method\":\"initialize\""));
     assert!(
         requests[1]
-            .0
-            .to_ascii_lowercase()
-            .contains("mcp-protocol-version: 2025-03-26")
+            .1
+            .contains("\"method\":\"notifications/initialized\"")
     );
     assert!(
         requests[1]
@@ -310,10 +419,22 @@ async fn streamable_http_forwards_protocol_and_session_headers() {
             .to_ascii_lowercase()
             .contains("mcp-session-id: session-secret-abc123")
     );
-    assert!(requests[1].1.contains("\"method\":\"tools/list\""));
-    assert!(requests[2].0.to_ascii_lowercase().starts_with("delete "));
     assert!(
         requests[2]
+            .0
+            .to_ascii_lowercase()
+            .contains("mcp-protocol-version: 2025-03-26")
+    );
+    assert!(
+        requests[2]
+            .0
+            .to_ascii_lowercase()
+            .contains("mcp-session-id: session-secret-abc123")
+    );
+    assert!(requests[2].1.contains("\"method\":\"tools/list\""));
+    assert!(requests[3].0.to_ascii_lowercase().starts_with("delete "));
+    assert!(
+        requests[3]
             .0
             .to_ascii_lowercase()
             .contains("mcp-session-id: session-secret-abc123")

@@ -10,7 +10,9 @@ use rustix::process::{Pid, Signal, kill_process_group};
 use serde_json::Value;
 use std::{
     collections::BTreeMap,
-    env, io,
+    env,
+    fs::File,
+    io::{self, Read},
     os::unix::process::CommandExt,
     path::{Path, PathBuf},
     process::Stdio,
@@ -162,6 +164,43 @@ fn failure_stream(
     Response::new(ReceiverStream::new(rx))
 }
 
+const MAX_WORKSPACE_CONFIG_BYTES: u64 = 1024 * 1024;
+
+async fn read_regular_file_async(path: &Path) -> io::Result<String> {
+    let path = path.to_path_buf();
+    tokio::task::spawn_blocking(move || read_regular_file(&path))
+        .await
+        .map_err(io::Error::other)?
+}
+
+fn read_regular_file(path: &Path) -> io::Result<String> {
+    let metadata = std::fs::metadata(path)?;
+    if !metadata.is_file() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "expected a regular file",
+        ));
+    }
+    if metadata.len() > MAX_WORKSPACE_CONFIG_BYTES {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "file exceeds the 1048576-byte limit",
+        ));
+    }
+    let mut file = File::open(path)?;
+    let mut contents = Vec::with_capacity(metadata.len() as usize);
+    file.by_ref()
+        .take(MAX_WORKSPACE_CONFIG_BYTES + 1)
+        .read_to_end(&mut contents)?;
+    if contents.len() as u64 > MAX_WORKSPACE_CONFIG_BYTES {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "file exceeds the 1048576-byte limit",
+        ));
+    }
+    String::from_utf8(contents).map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))
+}
+
 async fn read_configs(root: &Path) -> Vec<Configured> {
     let mut merged = BTreeMap::<String, Value>::new();
     let mut unavailable_entries = Vec::new();
@@ -169,7 +208,7 @@ async fn read_configs(root: &Path) -> Vec<Configured> {
         (".mcp.json", root.join(".mcp.json")),
         (".llame/mcp.json", root.join(".llame/mcp.json")),
     ] {
-        let text = match tokio::fs::read_to_string(&file).await {
+        let text = match read_regular_file_async(&file).await {
             Ok(text) => text,
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
             Err(_) => {
@@ -206,10 +245,16 @@ async fn read_configs(root: &Path) -> Vec<Configured> {
             merged.insert(name.clone(), entry.clone());
         }
     }
-    let mut result: Vec<_> = merged
-        .into_iter()
-        .map(|(name, entry)| resolve_entry(name, &entry, root))
-        .collect();
+    let mut result = Vec::with_capacity(merged.len());
+    for (name, entry) in merged {
+        let root = root.to_path_buf();
+        let fallback_name = name.clone();
+        let configured =
+            tokio::task::spawn_blocking(move || resolve_entry(&name, &entry, &root)).await;
+        result.push(configured.unwrap_or_else(|_| {
+            unavailable(&fallback_name, "configuration processing failed".to_owned())
+        }));
+    }
     result.extend(unavailable_entries);
     result
 }
@@ -224,8 +269,7 @@ fn unavailable(name: &str, diagnostic: String) -> Configured {
     }
 }
 
-#[allow(clippy::too_many_lines)]
-fn resolve_entry(name: String, entry: &Value, root: &Path) -> Configured {
+fn resolve_entry(name: &str, entry: &Value, root: &Path) -> Configured {
     if name.is_empty()
         || name.len() > 56
         || name.contains("__")
@@ -233,195 +277,203 @@ fn resolve_entry(name: String, entry: &Value, root: &Path) -> Configured {
             .bytes()
             .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_' || byte == b'-')
     {
-        return unavailable(&name, "invalid server name".to_owned());
+        return unavailable(name, "invalid server name".to_owned());
     }
     let Some(object) = entry.as_object() else {
-        return unavailable(&name, "invalid server entry".to_owned());
+        return unavailable(name, "invalid server entry".to_owned());
     };
+    if object.get("type").is_some_and(|value| !value.is_string()) {
+        return unavailable(name, "type must be a string".to_owned());
+    }
     let kind = object.get("type").and_then(Value::as_str);
-    let is_stdio = kind == Some("stdio") || (kind.is_none() && object.contains_key("command"));
-    if is_stdio {
-        let allowed = ["type", "command", "args", "env", "cwd"];
-        if let Some(key) = object.keys().find(|key| !allowed.contains(&key.as_str())) {
-            return unavailable(&name, format!("unknown field {key}"));
-        }
-        let Some(command) = object
-            .get("command")
-            .and_then(Value::as_str)
-            .filter(|s| !s.is_empty())
-        else {
-            return unavailable(&name, "command must be a non-empty string".to_owned());
-        };
-        let mut protected = Vec::new();
-        let command = match interpolate(command, root, &mut protected, false, false) {
-            Ok(value) => value,
-            Err(error) => {
-                return unavailable(&name, format!("command interpolation failed: {error}"));
-            }
-        };
-        let mut args = Vec::new();
-        if let Some(raw) = object.get("args") {
-            let Some(values) = raw.as_array() else {
-                return unavailable(&name, "args must be an array of strings".to_owned());
-            };
-            for value in values {
-                let Some(value) = value.as_str() else {
-                    return unavailable(&name, "args must be an array of strings".to_owned());
-                };
-                let value = match interpolate(value, root, &mut protected, false, false) {
-                    Ok(value) => value,
-                    Err(error) => {
-                        return unavailable(&name, format!("args interpolation failed: {error}"));
-                    }
-                };
-                args.push(value);
-            }
-        }
-        let mut child_env = BTreeMap::new();
-        if let Some(raw) = object.get("env") {
-            let Some(values) = raw.as_object() else {
-                return unavailable(&name, "env must be an object".to_owned());
-            };
-            for (key, value) in values {
-                let Some(value) = value.as_str() else {
-                    return unavailable(&name, format!("env.{key} must be a string"));
-                };
-                let value = match interpolate(value, root, &mut protected, false, false) {
-                    Ok(value) => value,
-                    Err(error) => {
-                        return unavailable(
-                            &name,
-                            format!("env.{key} interpolation failed: {error}"),
-                        );
-                    }
-                };
-                child_env.insert(key.clone(), value);
-            }
-        }
-        let cwd = match object.get("cwd") {
-            None => root.to_path_buf(),
-            Some(Value::String(value)) => {
-                match interpolate(value, root, &mut protected, false, true) {
-                    Ok(value) => resolve_path(root, &value),
-                    Err(error) => {
-                        return unavailable(&name, format!("cwd interpolation failed: {error}"));
-                    }
-                }
-            }
-            _ => return unavailable(&name, "cwd must be a string".to_owned()),
-        };
-        return Configured {
-            name,
-            definition: Some(Definition::Stdio {
-                command,
-                args,
-                cwd,
-                env: child_env,
-            }),
-            protected,
-            transport: Transport::Stdio,
-            diagnostic: None,
-        };
+    if kind == Some("stdio") || (kind.is_none() && object.contains_key("command")) {
+        return resolve_stdio_entry(name, object, root);
     }
     if matches!(kind, Some("http" | "streamable-http")) {
-        let allowed = ["type", "url", "headers"];
-        if let Some(key) = object.keys().find(|key| !allowed.contains(&key.as_str())) {
-            return unavailable(&name, format!("unknown field {key}"));
-        }
-        let Some(raw_url) = object
-            .get("url")
-            .and_then(Value::as_str)
-            .filter(|s| !s.trim().is_empty())
-        else {
-            return unavailable(&name, "url must be a non-empty string".to_owned());
-        };
-        let mut protected = Vec::new();
-        let url = match interpolate(raw_url, root, &mut protected, false, true) {
-            Ok(value) => value,
-            Err(error) => return unavailable(&name, format!("url interpolation failed: {error}")),
-        };
-        let Ok(parsed_url) = reqwest::Url::parse(&url) else {
-            return unavailable(
-                &name,
-                "url must be an absolute http or https URL".to_owned(),
-            );
-        };
-        if !matches!(parsed_url.scheme(), "http" | "https") {
-            return unavailable(
-                &name,
-                "url must be an absolute http or https URL".to_owned(),
-            );
-        }
-        if !parsed_url.username().is_empty() || parsed_url.password().is_some() {
-            return unavailable(
-                &name,
-                "url must be an absolute http or https URL without userinfo".to_owned(),
-            );
-        }
-        let mut headers = BTreeMap::new();
-        let mut folded = BTreeMap::<String, String>::new();
-        if let Some(raw) = object.get("headers") {
-            let Some(values) = raw.as_object() else {
-                return unavailable(&name, "headers must be an object".to_owned());
-            };
-            for (key, value) in values {
-                if reqwest::header::HeaderName::from_bytes(key.as_bytes()).is_err() {
-                    return unavailable(&name, format!("invalid header {key}"));
-                }
-                let lower = key.to_ascii_lowercase();
-                if let Some(previous) = folded.get(&lower) {
-                    return unavailable(
-                        &name,
-                        format!("header names collide: {previous} and {key}"),
-                    );
-                }
-                if matches!(
-                    lower.as_str(),
-                    "accept"
-                        | "content-type"
-                        | "mcp-protocol-version"
-                        | "mcp-session-id"
-                        | "last-event-id"
-                ) {
-                    return unavailable(&name, format!("transport-owned header {key}"));
-                }
-                let Some(raw_value) = value.as_str() else {
-                    return unavailable(&name, format!("header {key} must be a string"));
-                };
-                let value = match interpolate(raw_value, root, &mut protected, true, false) {
-                    Ok(value) => value,
-                    Err(error) => {
-                        return unavailable(&name, format!("header interpolation failed: {error}"));
-                    }
-                };
-                if value.trim().is_empty() {
-                    return unavailable(&name, format!("header {key} must be non-empty"));
-                }
-                headers.insert(key.clone(), value.clone());
-                if matches!(
-                    lower.as_str(),
-                    "authorization" | "proxy-authorization" | "cookie"
-                ) {
-                    let credential = value.trim().to_owned();
-                    if !credential.is_empty() && !protected.contains(&credential) {
-                        protected.push(credential);
-                    }
-                }
-                folded.insert(lower, key.clone());
-            }
-        }
-        return Configured {
-            name,
-            definition: Some(Definition::Http { url, headers }),
-            protected,
-            transport: Transport::Http,
-            diagnostic: None,
-        };
+        return resolve_http_entry(name, object, root);
     }
     unavailable(
-        &name,
+        name,
         format!("unsupported transport {}", kind.unwrap_or("missing")),
     )
+}
+
+fn resolve_stdio_entry(
+    name: &str,
+    object: &serde_json::Map<String, Value>,
+    root: &Path,
+) -> Configured {
+    let allowed = ["type", "command", "args", "env", "cwd"];
+    if let Some(key) = object.keys().find(|key| !allowed.contains(&key.as_str())) {
+        return unavailable(name, format!("unknown field {key}"));
+    }
+    let Some(command) = object
+        .get("command")
+        .and_then(Value::as_str)
+        .filter(|s| !s.is_empty())
+    else {
+        return unavailable(name, "command must be a non-empty string".to_owned());
+    };
+    let mut protected = Vec::new();
+    let command = match interpolate(command, root, &mut protected, false, false) {
+        Ok(value) => value,
+        Err(error) => return unavailable(name, format!("command interpolation failed: {error}")),
+    };
+    let mut args = Vec::new();
+    if let Some(raw) = object.get("args") {
+        let Some(values) = raw.as_array() else {
+            return unavailable(name, "args must be an array of strings".to_owned());
+        };
+        for value in values {
+            let Some(value) = value.as_str() else {
+                return unavailable(name, "args must be an array of strings".to_owned());
+            };
+            let value = match interpolate(value, root, &mut protected, false, false) {
+                Ok(value) => value,
+                Err(error) => {
+                    return unavailable(name, format!("args interpolation failed: {error}"));
+                }
+            };
+            args.push(value);
+        }
+    }
+    let mut child_env = BTreeMap::new();
+    if let Some(raw) = object.get("env") {
+        let Some(values) = raw.as_object() else {
+            return unavailable(name, "env must be an object".to_owned());
+        };
+        for (key, value) in values {
+            let Some(value) = value.as_str() else {
+                return unavailable(name, format!("env.{key} must be a string"));
+            };
+            let value = match interpolate(value, root, &mut protected, false, false) {
+                Ok(value) => value,
+                Err(error) => {
+                    return unavailable(name, format!("env.{key} interpolation failed: {error}"));
+                }
+            };
+            child_env.insert(key.clone(), value);
+        }
+    }
+    let cwd = match object.get("cwd") {
+        None => root.to_path_buf(),
+        Some(Value::String(value)) => match interpolate(value, root, &mut protected, false, true) {
+            Ok(value) => resolve_path(root, &value),
+            Err(error) => return unavailable(name, format!("cwd interpolation failed: {error}")),
+        },
+        _ => return unavailable(name, "cwd must be a string".to_owned()),
+    };
+    Configured {
+        name: name.to_owned(),
+        definition: Some(Definition::Stdio {
+            command,
+            args,
+            cwd,
+            env: child_env,
+        }),
+        protected,
+        transport: Transport::Stdio,
+        diagnostic: None,
+    }
+}
+
+fn resolve_http_entry(
+    name: &str,
+    object: &serde_json::Map<String, Value>,
+    root: &Path,
+) -> Configured {
+    let allowed = ["type", "url", "headers"];
+    if let Some(key) = object.keys().find(|key| !allowed.contains(&key.as_str())) {
+        return unavailable(name, format!("unknown field {key}"));
+    }
+    let Some(raw_url) = object
+        .get("url")
+        .and_then(Value::as_str)
+        .filter(|s| !s.trim().is_empty())
+    else {
+        return unavailable(name, "url must be a non-empty string".to_owned());
+    };
+    let mut protected = Vec::new();
+    let url = match interpolate(raw_url, root, &mut protected, false, true) {
+        Ok(value) => value,
+        Err(error) => return unavailable(name, format!("url interpolation failed: {error}")),
+    };
+    let Ok(parsed_url) = reqwest::Url::parse(&url) else {
+        return unavailable(name, "url must be an absolute http or https URL".to_owned());
+    };
+    if !matches!(parsed_url.scheme(), "http" | "https") {
+        return unavailable(name, "url must be an absolute http or https URL".to_owned());
+    }
+    if !parsed_url.username().is_empty() || parsed_url.password().is_some() {
+        return unavailable(
+            name,
+            "url must be an absolute http or https URL without userinfo".to_owned(),
+        );
+    }
+    let headers = match resolve_http_headers(object.get("headers"), root, &mut protected) {
+        Ok(headers) => headers,
+        Err(error) => return unavailable(name, error),
+    };
+    Configured {
+        name: name.to_owned(),
+        definition: Some(Definition::Http { url, headers }),
+        protected,
+        transport: Transport::Http,
+        diagnostic: None,
+    }
+}
+
+fn resolve_http_headers(
+    raw: Option<&Value>,
+    root: &Path,
+    protected: &mut Vec<String>,
+) -> Result<BTreeMap<String, String>, String> {
+    let mut headers = BTreeMap::new();
+    let mut folded = BTreeMap::<String, String>::new();
+    let Some(raw) = raw else {
+        return Ok(headers);
+    };
+    let Some(values) = raw.as_object() else {
+        return Err("headers must be an object".to_owned());
+    };
+    for (key, value) in values {
+        if reqwest::header::HeaderName::from_bytes(key.as_bytes()).is_err() {
+            return Err(format!("invalid header {key}"));
+        }
+        let lower = key.to_ascii_lowercase();
+        if let Some(previous) = folded.get(&lower) {
+            return Err(format!("header names collide: {previous} and {key}"));
+        }
+        if matches!(
+            lower.as_str(),
+            "accept" | "content-type" | "mcp-protocol-version" | "mcp-session-id" | "last-event-id"
+        ) {
+            return Err(format!("transport-owned header {key}"));
+        }
+        let Some(raw_value) = value.as_str() else {
+            return Err(format!("header {key} must be a string"));
+        };
+        let value = interpolate(raw_value, root, protected, true, false)
+            .map_err(|error| format!("header interpolation failed: {error}"))?;
+        if value.trim().is_empty() {
+            return Err(format!("header {key} must be non-empty"));
+        }
+        if reqwest::header::HeaderValue::from_str(&value).is_err() {
+            return Err(format!("header {key} has an invalid value"));
+        }
+        headers.insert(key.clone(), value.clone());
+        if matches!(
+            lower.as_str(),
+            "authorization" | "proxy-authorization" | "cookie"
+        ) {
+            let credential = value.trim().to_owned();
+            if !credential.is_empty() && !protected.contains(&credential) {
+                protected.push(credential);
+            }
+        }
+        folded.insert(lower, key.clone());
+    }
+    Ok(headers)
 }
 
 fn interpolate(
@@ -469,7 +521,7 @@ fn interpolate(
             } else {
                 root.join(location)
             };
-            let value = std::fs::read_to_string(path)
+            let value = read_regular_file(&path)
                 .map_err(|_| format!("could not read {body}"))?
                 .trim()
                 .to_owned();
@@ -592,7 +644,7 @@ async fn run_stdio(
     };
     let out_tx = tx.clone();
     let child_pid = child.id();
-    let stdout_task = tokio::spawn(async move {
+    let mut stdout_task = tokio::spawn(async move {
         let mut reader = BufReader::new(stdout);
         loop {
             let line = match read_bounded_line(&mut reader, MAX_MESSAGE_BYTES).await {
@@ -670,14 +722,16 @@ async fn run_stdio(
             }
         }
     });
+    let mut negotiated_protocol = None;
     loop {
         tokio::select! {
+            _ = &mut stdout_task => break,
             incoming_message = incoming.message() => match incoming_message {
                 Ok(Some(message)) => match message.message {
                     Some(machine_protocol::v1::open_session_request::Message::JsonRpc(text)) => {
                         if text.len() > MAX_MESSAGE_BYTES { break; }
                         if let Ok(value) = serde_json::from_str::<Value>(&text) {
-                            if value.get("jsonrpc").and_then(Value::as_str) == Some("2.0") {
+                            if valid_stdio_message(&value, negotiated_protocol.as_deref()) {
                                 let Ok(mut bytes) = serde_json::to_vec(&value) else { break; };
                                 bytes.push(b'\n');
                                 tokio::select! {
@@ -687,7 +741,9 @@ async fn run_stdio(
                             } else { break; }
                         } else { break; }
                     }
-                    Some(machine_protocol::v1::open_session_request::Message::ProtocolVersion(_)) => {},
+                    Some(machine_protocol::v1::open_session_request::Message::ProtocolVersion(version)) => {
+                        negotiated_protocol = Some(version);
+                    },
                     _ => break,
                 },
                 _ => break,
@@ -700,6 +756,23 @@ async fn run_stdio(
     let _ = child.wait().await;
     stdout_task.abort();
     diagnostic_task.abort();
+}
+
+fn valid_stdio_message(value: &Value, protocol_version: Option<&str>) -> bool {
+    let is_request = |message: &Value| {
+        message
+            .as_object()
+            .is_some_and(|object| object.get("jsonrpc").and_then(Value::as_str) == Some("2.0"))
+    };
+    match value {
+        Value::Object(_) => is_request(value),
+        Value::Array(messages) => {
+            protocol_version == Some("2025-03-26")
+                && !messages.is_empty()
+                && messages.iter().all(is_request)
+        }
+        Value::Null | Value::Bool(_) | Value::Number(_) | Value::String(_) => false,
+    }
 }
 
 fn start_child(
@@ -839,6 +912,18 @@ mod tests {
     }
 
     #[test]
+    fn bounded_workspace_file_reads_reject_nonregular_and_oversized_files() {
+        let root = tempfile::tempdir().unwrap();
+        assert!(read_regular_file(root.path()).is_err());
+        let large = root.path().join("large");
+        std::fs::write(&large, vec![b'x'; MAX_WORKSPACE_CONFIG_BYTES as usize + 1]).unwrap();
+        assert!(read_regular_file(&large).is_err());
+        let small = root.path().join("small");
+        std::fs::write(&small, b"small").unwrap();
+        assert_eq!(read_regular_file(&small).unwrap(), "small");
+    }
+
+    #[test]
     fn interpolation_reports_unset_variable_and_unreadable_file() {
         let root = tempfile::tempdir().unwrap();
         assert!(
@@ -908,16 +993,34 @@ mod tests {
     }
 
     #[test]
+    fn stdio_batch_requires_2025_03_26_and_valid_nonempty_elements() {
+        let batch = serde_json::json!([
+            {"jsonrpc": "2.0", "method": "ping"},
+            {"jsonrpc": "2.0", "id": 1, "method": "ping"}
+        ]);
+        assert!(valid_stdio_message(&batch, Some("2025-03-26")));
+        assert!(!valid_stdio_message(&batch, Some("2025-06-18")));
+        assert!(!valid_stdio_message(
+            &serde_json::json!([]),
+            Some("2025-03-26")
+        ));
+        assert!(!valid_stdio_message(
+            &serde_json::json!([{"jsonrpc":"1.0","method":"ping"}]),
+            Some("2025-03-26")
+        ));
+    }
+
+    #[test]
     fn server_name_limit_and_interpolated_empty_header_are_unavailable() {
         let root = Path::new(".");
         let long_name = "a".repeat(57);
         assert!(
-            resolve_entry(long_name, &serde_json::json!({"command":"true"}), root)
+            resolve_entry(&long_name, &serde_json::json!({"command":"true"}), root)
                 .definition
                 .is_none()
         );
         let empty_header = resolve_entry(
-            "remote".to_owned(),
+            "remote",
             &serde_json::json!({
                 "type": "http",
                 "url": "http://localhost",
@@ -926,6 +1029,24 @@ mod tests {
             root,
         );
         assert!(empty_header.definition.is_none());
+
+        let invalid_type = resolve_entry(
+            "invalid-type",
+            &serde_json::json!({"type": false, "command": "true"}),
+            root,
+        );
+        assert!(invalid_type.definition.is_none());
+
+        let invalid_header = resolve_entry(
+            "invalid-header",
+            &serde_json::json!({
+                "type": "http",
+                "url": "http://localhost",
+                "headers": {"X-Api-Key": "valid\ninjected"}
+            }),
+            root,
+        );
+        assert!(invalid_header.definition.is_none());
     }
 
     #[test]
