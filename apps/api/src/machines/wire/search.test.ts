@@ -58,7 +58,7 @@ function skipped(path: string, reason: SkipReason): SearchFilesResponse {
 
 function ended(
   stop = SearchStop.COMPLETE,
-  position?: { path: string; line: number },
+  position?: { path: string; line: number; byteOffset?: bigint },
   files = 2,
 ): SearchFilesResponse {
   return create(SearchFilesResponseSchema, {
@@ -224,7 +224,33 @@ describe('wire fs.grep', () => {
       throw new Error('Expected successful grep results.');
     expect(result.results[19]).toMatchObject({ capped: true });
   });
+  it('round-trips byte offsets through bounded-search cursors', async () => {
+    const { session, requests } = sessionFor([
+      [ended(SearchStop.BYTES, { path: 'large.txt', line: 12, byteOffset: 65_537n }, 1)],
+      [ended()],
+    ]);
+
+    const first = await searchHandlers['fs.grep']!(session, BASE);
+    if (!('ok' in first) || !first.ok || first.cursor === undefined)
+      throw new Error('Expected a byte-bounded continuation cursor.');
+
+    const encoded = JSON.parse(
+      Buffer.from(first.cursor, 'base64url').toString('utf8'),
+    ) as { after: { byteOffset?: unknown } };
+    expect(encoded.after.byteOffset).toBe('65537');
+
+    await searchHandlers['fs.grep']!(session, {
+      ...BASE,
+      cursor: first.cursor,
+    });
+    expect(requests[1]?.after).toMatchObject({
+      path: 'large.txt',
+      line: 12,
+      byteOffset: 65_537n,
+    });
+  });
   it('reports a stopped point as unfinished and mints a resumable cursor', async () => {
+
     const { session } = sessionFor([
       [ended(SearchStop.FILES, { path: 'pending.txt', line: 0 }, 0)],
     ]);

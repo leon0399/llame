@@ -21,7 +21,11 @@ import type {
 } from '../machine-session.js';
 import type { Handler } from './index.js';
 
-type SearchPositionValue = { readonly path: string; readonly line: number };
+type SearchPositionValue = {
+  readonly path: string;
+  readonly line: number;
+  readonly byteOffset?: bigint;
+};
 
 type HubCursor = {
   readonly after: SearchPositionValue;
@@ -32,6 +36,11 @@ const hubCursorSchema = z.object({
   after: z.object({
     path: z.string(),
     line: z.number().int().safe().nonnegative(),
+    byteOffset: z
+      .string()
+      .regex(/^(0|[1-9]\d*)$/u)
+      .transform((value) => BigInt(value))
+      .optional(),
   }),
   inputHash: z.string(),
 });
@@ -50,7 +59,14 @@ type PassageGroup = {
 };
 
 function cursorEncode(cursor: HubCursor): string {
-  return Buffer.from(JSON.stringify(cursor), 'utf8').toString('base64url');
+  const serialized = {
+    ...cursor,
+    after: {
+      ...cursor.after,
+      byteOffset: cursor.after.byteOffset?.toString(),
+    },
+  };
+  return Buffer.from(JSON.stringify(serialized), 'utf8').toString('base64url');
 }
 
 function cursorDecode(
