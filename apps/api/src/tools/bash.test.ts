@@ -2,6 +2,8 @@ import { drizzle } from 'drizzle-orm/postgres-js';
 import { createClient, createRouterTransport } from '@connectrpc/connect';
 import { create } from '@bufbuild/protobuf';
 import {
+  CreateJobFailureReason,
+  CreateJobFailureSchema,
   CreateJobResponseSchema,
   JobSchema,
   JobService,
@@ -12,8 +14,10 @@ import { compileTestPermissionPolicy } from '../testing/tool-permission-policy';
 import { type Db } from '../db/tenant-db.service';
 import type { ChatJob } from '../db/schema';
 import { ArtifactsRepository } from './artifacts/artifacts-repository';
+import { NativeFilesRepository } from '../runs/native-files-repository';
 import { BashJobRegistry } from '../jobs/bash-job-registry';
 import { ChatJobsRepository } from '../jobs/chat-jobs.repository';
+import { BashJobRegistryRunStageService } from '../jobs/bash-job-registry-run-stage.service';
 import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
 import { MachineConnector } from '../machines/machine-connector.service';
 import { bashTool } from './bash';
@@ -43,6 +47,16 @@ function testContext(): ToolContext {
     tenantDb,
   };
 }
+function runStage(
+  tenantDb: ToolContext['tenantDb'],
+): BashJobRegistryRunStageService {
+  return new BashJobRegistryRunStageService(
+    tenantDb,
+    { config: BUILT_IN_DEFAULTS },
+    { startOnSettlement: () => Promise.resolve(undefined) },
+    { wakeForChatInTransaction: () => Promise.resolve(false) },
+  );
+}
 
 describe('bash input validation', () => {
   it.each([
@@ -67,7 +81,7 @@ describe('bash input validation', () => {
 describe('bash daemon job dispatch', () => {
   afterEach(() => vi.restoreAllMocks());
 
-  it('sends a host command through the injected JobService client', async () => {
+  it('records a promoted Bash result after JobService dispatch', async () => {
     const row: ChatJob = {
       id: '00000000-0000-4000-8000-000000000010',
       chatId: 'chat',
@@ -93,11 +107,33 @@ describe('bash daemon job dispatch', () => {
       settings: { selector: 'test-model', permissionMode: 'default' },
     };
 
+    const sequence: Array<string> = [];
+
+    const recordAttempt = vi
+      .spyOn(NativeFilesRepository.prototype, 'begin')
+      .mockImplementation(() => {
+        sequence.push('native.attempt');
+
+        return Promise.resolve(undefined);
+      });
+
+    const recordResult = vi
+      .spyOn(NativeFilesRepository.prototype, 'recoverHostPromotion')
+      .mockImplementation((input) => {
+        sequence.push('native.result');
+
+        return Promise.resolve({
+          disposition: 'recovery_won',
+          result: input.result,
+        });
+      });
+
     const requests: Array<unknown> = [];
 
     const rpc = createRouterTransport((router) => {
       router.service(JobService, {
         createJob(request) {
+          sequence.push('CreateJob');
           requests.push(request);
 
           return create(CreateJobResponseSchema, {
@@ -110,6 +146,10 @@ describe('bash daemon job dispatch', () => {
               }),
             },
           });
+        },
+        async *watchJobs() {
+          await new Promise<never>(() => undefined);
+          yield* [];
         },
       });
     });
@@ -134,7 +174,11 @@ describe('bash daemon job dispatch', () => {
 
     const insert = vi
       .spyOn(ChatJobsRepository.prototype, 'insert')
-      .mockResolvedValue(row);
+      .mockImplementation(() => {
+        sequence.push('binding');
+
+        return Promise.resolve(row);
+      });
 
     const tenantDb = testContext().tenantDb;
 
@@ -142,8 +186,7 @@ describe('bash daemon job dispatch', () => {
       tenantDb,
       connector,
       { config: BUILT_IN_DEFAULTS },
-      { startOnSettlement: () => Promise.resolve(undefined) },
-      { wakeForChatInTransaction: () => Promise.resolve(false) },
+      runStage(tenantDb),
     );
 
     await expect(
@@ -151,18 +194,21 @@ describe('bash daemon job dispatch', () => {
         bashTool,
         {
           command: 'printf queued',
-          async: true,
           cwd: '/srv/work',
           env: { MODE: 'test' },
         },
-        { ...testContext(), bashJobs },
+        {
+          ...testContext(),
+          bashJobs,
+          bashBackgroundAfterSeconds: 0,
+        },
         5,
       ),
     ).resolves.toMatchObject({
       status: 'success',
       backgrounded: true,
       job: 'job://bash-1',
-      cause: 'async',
+      cause: 'time',
     });
     expect(requests).toEqual([
       expect.objectContaining({
@@ -172,6 +218,26 @@ describe('bash daemon job dispatch', () => {
         env: { MODE: 'test' },
       }),
     ]);
+    expect(sequence).toEqual([
+      'native.attempt',
+      'binding',
+      'CreateJob',
+      'native.result',
+    ]);
+    expect(recordAttempt).toHaveBeenCalledWith(
+      expect.objectContaining({
+        runId: 'run',
+        userId: 'owner',
+        operation: 'bash',
+        toolCallId: 'call-1',
+      }),
+    );
+    expect(recordResult).toHaveBeenCalledOnce();
+    expect(recordResult.mock.calls[0]?.[0].result).toMatchObject({
+      status: 'success',
+      backgrounded: true,
+      cause: 'time',
+    });
     expect(reserveSeq).toHaveBeenCalledOnce();
     expect(insert).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -182,6 +248,219 @@ describe('bash daemon job dispatch', () => {
     expect(requests[0]).toMatchObject({
       timeout: { seconds: BigInt(BUILT_IN_DEFAULTS.tools.jobs.maxSeconds) },
     });
+  });
+  it('records a known CreateJob refusal and removes its unstarted binding', async () => {
+    const sequence: Array<string> = [];
+
+    const rpc = createRouterTransport((router) => {
+      router.service(JobService, {
+        createJob() {
+          sequence.push('CreateJob');
+
+          return create(CreateJobResponseSchema, {
+            result: {
+              case: 'failure',
+              value: create(CreateJobFailureSchema, {
+                reason: CreateJobFailureReason.UNAVAILABLE,
+                message: 'working directory is unavailable',
+              }),
+            },
+          });
+        },
+      });
+    });
+
+    const connector = new MachineConnector({
+      machines: undefined,
+      hubVersion: 'test',
+      bindIdentity: () => Promise.resolve('match'),
+    });
+
+    const ended = new Promise<never>(() => undefined);
+    vi.spyOn(connector, 'jobsClient').mockResolvedValue({
+      client: createClient(JobService, rpc),
+      callOptions: () => ({}),
+      ended,
+      instanceId: '00000000-0000-4000-8000-000000000013',
+    });
+    vi.spyOn(ArtifactsRepository.prototype, 'nextSeq').mockResolvedValue(1);
+    vi.spyOn(NativeFilesRepository.prototype, 'begin').mockImplementation(
+      () => {
+        sequence.push('native.attempt');
+
+        return Promise.resolve(undefined);
+      },
+    );
+
+    const insert = vi
+      .spyOn(ChatJobsRepository.prototype, 'insert')
+      .mockImplementation(() => {
+        sequence.push('binding');
+
+        return Promise.resolve({
+          id: '00000000-0000-4000-8000-000000000010',
+          chatId: 'chat',
+          ownerUserId: 'owner',
+          kind: 'bash',
+          seq: 1,
+          state: 'running',
+          stoppedBy: null,
+          runId: 'run',
+          toolCallId: 'call-1',
+          machineName: 'host-a',
+          daemonInstanceId: '00000000-0000-4000-8000-000000000013',
+          daemonJobId: '0123456789abcdef0123456789abcdef',
+          startedAt: new Date(0),
+          settledAt: null,
+          deadlineAt: null,
+          stopRequestedAt: null,
+          stopRequestedBy: null,
+          result: null,
+          outputs: ['stdout', 'stderr'],
+          artifactId: null,
+          artifactReadable: false,
+          settings: {
+            selector: 'test-model',
+            permissionMode: 'default',
+          },
+        });
+      });
+
+    const deleteRunning = vi
+      .spyOn(ChatJobsRepository.prototype, 'deleteRunning')
+      .mockImplementation(() => {
+        sequence.push('delete binding');
+
+        return Promise.resolve();
+      });
+
+    const recordResult = vi
+      .spyOn(NativeFilesRepository.prototype, 'recoverHostPromotion')
+      .mockImplementation((input) => {
+        sequence.push('native.result');
+
+        return Promise.resolve({
+          disposition: 'recovery_won',
+          result: input.result,
+        });
+      });
+
+    const context = testContext();
+
+    const bashJobs = new BashJobRegistry(
+      context.tenantDb,
+      connector,
+      { config: BUILT_IN_DEFAULTS },
+      runStage(context.tenantDb),
+    );
+
+    await expect(
+      runTool(
+        bashTool,
+        { command: 'printf never' },
+        { ...context, bashJobs },
+        5,
+      ),
+    ).resolves.toMatchObject({
+      status: 'error',
+      type: 'executor_unavailable',
+      message: 'working directory is unavailable',
+    });
+    expect(sequence).toEqual([
+      'native.attempt',
+      'binding',
+      'CreateJob',
+      'delete binding',
+      'native.result',
+    ]);
+    expect(insert).toHaveBeenCalledOnce();
+    expect(deleteRunning).toHaveBeenCalledWith(
+      'chat',
+      'owner',
+      '00000000-0000-4000-8000-000000000010',
+    );
+    expect(recordResult).toHaveBeenCalledOnce();
+    expect(recordResult.mock.calls[0]?.[0].result).toMatchObject({
+      status: 'error',
+      type: 'executor_unavailable',
+    });
+
+    expect(sequence).not.toContain('outcome_unknown');
+  });
+
+  it('does not redispatch when the Bash attempt has no recorded result', async () => {
+    const context = testContext();
+
+    const prior = {
+      status: 'error' as const,
+      type: 'outcome_unknown' as const,
+      message: 'A previous host command may have executed.',
+    };
+
+    vi.spyOn(NativeFilesRepository.prototype, 'begin').mockResolvedValue(prior);
+
+    const connector = new MachineConnector({
+      machines: undefined,
+      hubVersion: 'test',
+      bindIdentity: () => Promise.resolve('match'),
+    });
+
+    const createJob = vi.fn(() =>
+      create(CreateJobResponseSchema, {
+        result: {
+          case: 'job',
+          value: create(JobSchema, {
+            id: '0123456789abcdef0123456789abcdef',
+            owner: 'owner',
+            state: JobState.RUNNING,
+          }),
+        },
+      }),
+    );
+
+    const rpc = createRouterTransport((router) => {
+      router.service(JobService, { createJob });
+    });
+
+    const client = createClient(JobService, rpc);
+    const ended = new Promise<never>(() => undefined);
+
+    const jobsClient = vi.spyOn(connector, 'jobsClient').mockResolvedValue({
+      client,
+      callOptions: () => ({}),
+      ended,
+      instanceId: '00000000-0000-4000-8000-000000000013',
+    });
+
+    const insert = vi.spyOn(ChatJobsRepository.prototype, 'insert');
+
+    const deleteRunning = vi.spyOn(
+      ChatJobsRepository.prototype,
+      'deleteRunning',
+    );
+
+    const bashJobs = new BashJobRegistry(
+      context.tenantDb,
+      connector,
+      { config: BUILT_IN_DEFAULTS },
+      runStage(context.tenantDb),
+    );
+
+    await expect(
+      runTool(
+        bashTool,
+        { command: 'printf never' },
+        { ...context, bashJobs },
+        5,
+      ),
+    ).resolves.toMatchObject({
+      status: 'error',
+      type: 'outcome_unknown',
+    });
+    expect(jobsClient).toHaveBeenCalledOnce();
+    expect(createJob).not.toHaveBeenCalled();
+    expect(insert).not.toHaveBeenCalled();
+    expect(deleteRunning).not.toHaveBeenCalled();
   });
   it('fails closed without the admitted Run attempt', async () => {
     const context = testContext();
@@ -198,8 +477,7 @@ describe('bash daemon job dispatch', () => {
       context.tenantDb,
       connector,
       { config: BUILT_IN_DEFAULTS },
-      { startOnSettlement: () => Promise.resolve(undefined) },
-      { wakeForChatInTransaction: () => Promise.resolve(false) },
+      runStage(context.tenantDb),
     );
 
     await expect(

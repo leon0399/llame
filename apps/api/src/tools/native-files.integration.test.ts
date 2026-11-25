@@ -1,13 +1,6 @@
 import { lstatSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
-import {
-  lstat,
-  mkdir,
-  mkdtemp,
-  readFile,
-  rm,
-  writeFile,
-} from 'node:fs/promises';
+import { lstat, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import postgres, { type Sql } from 'postgres';
@@ -218,38 +211,15 @@ describe('native file authority and durable effects', () => {
     expect(await readFile(path, 'utf8')).toBe('independent change');
   });
 
-  it('refuses oversized bash input before recording an attempt or binding the Run', async () => {
-    expect(
-      await runTool(bashTool, { command: 'x'.repeat(8001) }, context, 5),
-    ).toMatchObject({ type: 'unavailable' });
-
-    const events = await tenantDb.runAs(owner, (tx) =>
-      new RunEventsRepository(tx).listByRunId(runId, owner),
-    );
-
-    expect(events.map((event) => event.eventType)).toEqual(['run.started']);
-
-    const run = await tenantDb.runAs(owner, (tx) =>
-      new RunsRepository(tx).findById(runId, owner),
-    );
-
-    expect(run?.workerId).toBeNull();
-  });
-
-  it('records a known bash refusal when the process has no pid', async () => {
-    const emptyPath = join(directory, 'empty-path');
-    await mkdir(emptyPath);
-    vi.stubEnv('BASH_WORKING_DIRECTORY', directory);
-    vi.stubEnv('PATH', emptyPath);
-
+  it('records a daemon result for a large command without legacy process binding', async () => {
     const result = await runTool(
       bashTool,
-      { command: 'printf never' },
+      { command: 'x'.repeat(8001) },
       context,
       5,
     );
 
-    expect(result).toMatchObject({ type: 'unavailable' });
+    expect(result).toMatchObject({ status: 'error', type: 'command_failed' });
 
     const events = await tenantDb.runAs(owner, (tx) =>
       new RunEventsRepository(tx).listByRunId(runId, owner),
@@ -260,15 +230,61 @@ describe('native file authority and durable effects', () => {
       'native.attempt',
       'native.result',
     ]);
-    expect(events[1].payload).toEqual({
-      toolCallId: context.toolCallId,
-      operation: 'bash',
-      path: locatorOf(directory),
-    });
-    expect(events[2].payload).toEqual({
+    expect(events[2].payload).toMatchObject({
       toolCallId: context.toolCallId,
       result,
     });
+  });
+
+  it('records a known daemon start refusal and removes its unstarted binding', async () => {
+    const refusingDaemon = startLocalDaemon({ roots: [] });
+
+    const refusingContext: ToolContext = {
+      ...context,
+      ...hostBashJobs(tenantDb, refusingDaemon.connector, {
+        wakeForChatInTransaction: () => Promise.resolve(false),
+      }),
+    };
+
+    try {
+      const result = await runTool(
+        bashTool,
+        { command: 'printf never', cwd: directory },
+        refusingContext,
+        5,
+      );
+
+      expect(result).toMatchObject({
+        status: 'error',
+        type: 'path_not_registered',
+      });
+      expect(await readFile(path, 'utf8')).toBe('before\nFoo\nafter\n');
+
+      const events = await tenantDb.runAs(owner, (tx) =>
+        new RunEventsRepository(tx).listByRunId(runId, owner),
+      );
+
+      expect(events.map((event) => event.eventType)).toEqual([
+        'run.started',
+        'native.attempt',
+        'native.result',
+      ]);
+      expect(events[2].payload).toMatchObject({
+        toolCallId: context.toolCallId,
+        result,
+      });
+
+      const bindings = await tenantDb.runAs(owner, (tx) =>
+        tx
+          .select()
+          .from(schema.chatJobs)
+          .where(eq(schema.chatJobs.runId, runId)),
+      );
+
+      expect(bindings).toHaveLength(0);
+    } finally {
+      refusingDaemon.dispose();
+    }
   });
 
   it('refuses another tenant before starting bash or recording an attempt', async () => {
