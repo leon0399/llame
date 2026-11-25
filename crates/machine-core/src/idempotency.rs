@@ -16,12 +16,23 @@ use std::{
 
 use tokio::sync::{Notify, OnceCell};
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct WorkPanicked;
+
+impl std::fmt::Display for WorkPanicked {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("idempotent work panicked")
+    }
+}
+
+impl std::error::Error for WorkPanicked {}
+
 const MAX_KEYS: usize = 4096;
 const MAX_AGE: Duration = Duration::from_secs(600);
 
 #[derive(Debug)]
 struct Slot<T> {
-    result: OnceCell<T>,
+    result: OnceCell<Result<T, WorkPanicked>>,
     started: AtomicBool,
     ready: Notify,
 }
@@ -44,21 +55,26 @@ impl<T> Default for IdempotencyCache<T> {
 impl<T: Clone> IdempotencyCache<T> {
     /// Runs `work` once per key; a concurrent or later call with the same key
     /// waits for and returns the first result. An empty key is never cached.
-    pub async fn run<F, Fut>(&self, key: &str, work: F) -> T
+    pub async fn run<F, Fut>(&self, key: &str, work: F) -> Result<T, WorkPanicked>
     where
         T: Send + Sync + 'static,
         F: FnOnce() -> Fut + Send + 'static,
         Fut: Future<Output = T> + Send + 'static,
     {
         if key.is_empty() {
-            return work().await;
+            return Ok(work().await);
         }
         loop {
             if let Some(slot) = self.slot(key) {
                 if !slot.started.swap(true, Ordering::AcqRel) {
                     let work_slot = Arc::clone(&slot);
                     drop(tokio::spawn(async move {
-                        work_slot.result.get_or_init(work).await;
+                        let work = tokio::spawn(async move { work().await });
+                        let result = match work.await {
+                            Ok(value) => Ok(value),
+                            Err(_) => Err(WorkPanicked),
+                        };
+                        work_slot.result.set(result).ok();
                         work_slot.ready.notify_waiters();
                     }));
                 }
@@ -129,6 +145,54 @@ mod tests {
     use super::*;
 
     #[tokio::test]
+    async fn panicked_work_returns_error_to_waiter_and_resend() {
+        let cache = Arc::new(IdempotencyCache::<usize>::default());
+        let (started_tx, started_rx) = tokio::sync::oneshot::channel();
+        let (release_tx, release_rx) = tokio::sync::oneshot::channel();
+
+        let first_cache = Arc::clone(&cache);
+        let first = tokio::spawn(async move {
+            first_cache
+                .run("panic-key", move || async move {
+                    started_tx.send(()).unwrap();
+                    release_rx.await.unwrap();
+                    panic!("expected work panic");
+                })
+                .await
+        });
+        started_rx.await.unwrap();
+
+        let waiter_cache = Arc::clone(&cache);
+        let waiter =
+            tokio::spawn(async move { waiter_cache.run("panic-key", || async { 7 }).await });
+        tokio::task::yield_now().await;
+        release_tx.send(()).unwrap();
+        assert_eq!(
+            tokio::time::timeout(Duration::from_secs(1), first)
+                .await
+                .unwrap()
+                .unwrap(),
+            Err(WorkPanicked)
+        );
+        assert_eq!(
+            tokio::time::timeout(Duration::from_secs(1), waiter)
+                .await
+                .unwrap()
+                .unwrap(),
+            Err(WorkPanicked)
+        );
+        assert_eq!(
+            tokio::time::timeout(
+                Duration::from_secs(1),
+                cache.run("panic-key", || async { 9 }),
+            )
+            .await
+            .unwrap(),
+            Err(WorkPanicked)
+        );
+    }
+
+    #[tokio::test]
     async fn runs_once_per_key() {
         let cache = IdempotencyCache::<u32>::default();
         let calls = Arc::new(AtomicU32::new(0));
@@ -139,7 +203,7 @@ mod tests {
                     first_calls.fetch_add(1, Ordering::SeqCst) + 10
                 })
                 .await,
-            10
+            Ok(10)
         );
         let replay_calls = Arc::clone(&calls);
         assert_eq!(
@@ -148,7 +212,7 @@ mod tests {
                     replay_calls.fetch_add(1, Ordering::SeqCst) + 10
                 })
                 .await,
-            10
+            Ok(10)
         );
         let uncached_calls = Arc::clone(&calls);
         assert_eq!(
@@ -157,7 +221,7 @@ mod tests {
                     uncached_calls.fetch_add(1, Ordering::SeqCst) + 10
                 })
                 .await,
-            11
+            Ok(11)
         );
         assert_eq!(calls.load(Ordering::SeqCst), 2);
     }
@@ -170,11 +234,11 @@ mod tests {
                 cache
                     .run(&index.to_string(), move || async move { index })
                     .await,
-                index
+                Ok(index)
             );
         }
 
-        assert_eq!(cache.run("0", || async { MAX_KEYS }).await, 0);
+        assert_eq!(cache.run("0", || async { MAX_KEYS }).await, Ok(0));
     }
 
     #[tokio::test]
@@ -211,7 +275,7 @@ mod tests {
         });
         release_tx.send(()).unwrap();
 
-        assert_eq!(resend.await.unwrap(), 42);
+        assert_eq!(resend.await.unwrap(), Ok(42));
         assert_eq!(calls.load(Ordering::SeqCst), 1);
     }
 

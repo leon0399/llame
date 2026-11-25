@@ -67,6 +67,7 @@ impl FileService for Files {
                 mutate::write(&context, request).await
             })
             .await
+            .map_err(|_| Status::internal("idempotent work panicked"))?
             .map(Response::new)
     }
     async fn replace_text(
@@ -81,6 +82,7 @@ impl FileService for Files {
                 mutate::replace(&context, request).await
             })
             .await
+            .map_err(|_| Status::internal("idempotent work panicked"))?
             .map(Response::new)
     }
     type SearchFilesStream = Stream<SearchFilesResponse>;
