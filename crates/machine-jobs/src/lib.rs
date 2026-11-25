@@ -392,7 +392,8 @@ impl JobService for Jobs {
                         Status::internal(format!("Job cancellation task failed: {error}"))
                     })?
             })
-            .await?;
+            .await
+            .map_err(|_| Status::internal("idempotent work panicked"))??;
         Ok(Response::new(CancelJobResponse { job: Some(job) }))
     }
 
@@ -408,7 +409,8 @@ impl JobService for Jobs {
             .run(&request_id, || async move {
                 delete_job(state, request.job_id, owner).await
             })
-            .await?;
+            .await
+            .map_err(|_| Status::internal("idempotent work panicked"))??;
         Ok(Response::new(DeleteJobResponse {}))
     }
 }
