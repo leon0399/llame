@@ -649,7 +649,7 @@ mod tests {
             false,
             Some("tools/call")
         ));
-        assert!(status_is_call_level(
+        assert!(!status_is_call_level(
             reqwest::StatusCode::NOT_FOUND,
             true,
             Some("tools/call")
@@ -694,7 +694,7 @@ mod tests {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = listener.local_addr().unwrap();
         let fixture = tokio::spawn(async move {
-            for status in [429, 429, 500, 410, 500] {
+            for status in [429, 429, 500, 410, 404, 404, 500] {
                 let (socket, _) = listener.accept().await.unwrap();
                 let mut reader = BufReader::new(socket);
                 let mut content_length = 0;
@@ -750,14 +750,28 @@ mod tests {
                 r#"{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{}}"#,
                 true,
             ),
-            (r#"{"jsonrpc":"2.0","id":4,"method":"tools/list"}"#, false),
+            (
+                r#"{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{}}"#,
+                true,
+            ),
+            (
+                r#"{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{}}"#,
+                false,
+            ),
+            (r#"{"jsonrpc":"2.0","id":6,"method":"tools/list"}"#, false),
         ];
         for (index, (request, succeeds)) in requests.into_iter().enumerate() {
+            if index == 5 {
+                *state.session_id.lock().await = Some("session".to_owned());
+            }
             let result = relay_request(state.clone(), request.to_owned()).await;
             assert_eq!(result.is_ok(), succeeds, "request {index}");
-            if index == 0 {
-                assert!(rx.try_recv().is_err(), "notification must be dropped");
-            } else if index < 4 {
+            if index == 0 || !succeeds {
+                assert!(
+                    rx.try_recv().is_err(),
+                    "request {index} must not emit a frame"
+                );
+            } else {
                 let response = rx.try_recv().unwrap().unwrap();
                 assert!(matches!(
                     response.message,
