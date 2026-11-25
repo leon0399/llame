@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { PassThrough } from 'node:stream';
 import {
   EntryKind,
@@ -19,6 +19,12 @@ type GitClientStubs = Partial<
 type FileClientStubs = Partial<
   Pick<MachineSession['clients']['files'], 'getEntry'>
 >;
+
+const sessions: Array<MachineSession> = [];
+
+afterEach(() => {
+  for (const session of sessions.splice(0)) session.close();
+});
 
 function sessionWith(
   git: GitClientStubs,
@@ -45,6 +51,8 @@ function sessionWith(
   Object.defineProperty(session, 'hello', { get: () => ({ roots }) });
 
   vi.spyOn(session, 'callOptions').mockReturnValue({});
+
+  sessions.push(session);
 
   return session;
 }
