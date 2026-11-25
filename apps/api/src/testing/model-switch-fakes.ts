@@ -87,12 +87,8 @@ function mockSwitchLocks(
   return { lockRun, lockChat };
 }
 
-function mockBoundaryFakes(input: ModelSwitchFakeInput) {
-  vi.spyOn(
-    ChatJobsRepository.prototype,
-    'settleOnDeadWorkers',
-  ).mockResolvedValue([]);
 
+function mockBoundaryFakes(input: ModelSwitchFakeInput) {
   vi.spyOn(
     SystemPromptReceiptsRepository.prototype,
     'findByOwnedRun',

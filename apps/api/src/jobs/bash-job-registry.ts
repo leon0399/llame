@@ -20,10 +20,8 @@ import {
 } from '../instance-config/instance-config.service';
 import { configuredCredentials } from '../instance-config/configured-credentials';
 import { MachineConnector } from '../machines/machine-connector.service';
-import {
-  MachineUnavailableError,
-  type MachineRequestOptions,
-} from '../machines/machine-session';
+import { MachineUnavailableError } from '../machines/machine-session-errors';
+import type { MachineRequestOptions } from '../machines/machine-session';
 import { JobNoticeRunService } from '../runs/job-notice-run.service';
 import { RunWaitService } from '../runs/run-wait.service';
 import { reserveArtifactSeq } from '../tools/artifacts/artifact-writer';

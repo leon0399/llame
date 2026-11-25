@@ -199,9 +199,6 @@ export function machineProtocolFailureResult(
       message: 'The Machine refused the request as invalid.',
     };
 
-  if (error.code === 'machine_update_required')
-    return machineUnavailableResult(name, 'incompatible_version');
-
   return machineUnavailableResult(name);
 }
 
