@@ -4,8 +4,10 @@ import {
   Injectable,
   NotFoundException,
   Optional,
+  ServiceUnavailableException,
 } from '@nestjs/common';
-import { type Chat, type Message, type Run } from '../db/schema';
+import { JobState, MachineProtocolError } from '@workspace/machine-protocol';
+import { type Chat, type ChatJob, type Message, type Run } from '../db/schema';
 import { TenantDbService, type Db } from '../db/tenant-db.service';
 import { MachineConnector } from '../machines/machine-connector.service';
 import {
@@ -490,17 +492,15 @@ export class ChatsService {
 
     return forked;
   }
-
   async deleteChat(userId: string, chatId: string): Promise<boolean> {
-    const result = await retryRunTransaction(() =>
+    const jobs = await retryRunTransaction(() =>
       this.tenantDb.runAs(userId, async (tx) => {
         const runsRepo = new RunsRepository(tx);
         const active = await runsRepo.findActiveByChatId(chatId, userId);
         if (active) await runsRepo.requestCancel(active.id, userId);
 
         const chats = new ChatsRepository(tx);
-        if (!(await chats.lock(chatId, userId)))
-          return { deleted: false, jobs: [] };
+        if (!(await chats.lock(chatId, userId))) return undefined;
 
         const runningJobs = (
           await new ChatJobsRepository(tx).listByChat(chatId, userId)
@@ -508,24 +508,88 @@ export class ChatsService {
         for (const job of runningJobs)
           await notifyRunControl(tx, { kind: 'job-stop', jobId: job.id });
 
-        const deleted = await chats.deleteById(chatId, userId);
-        return { deleted, jobs: deleted ? runningJobs : [] };
+        return runningJobs;
       }),
     );
+    if (jobs === undefined) return false;
 
-    if (result.deleted && this.machines !== undefined)
-      await Promise.allSettled(
-        result.jobs.map(async (job) => {
-          const { client } = await this.machines!.jobsClient(job.machineName);
-          await client.cancelJob({
-            requestId: job.daemonJobId,
-            jobId: job.daemonJobId,
-            owner: job.ownerUserId,
-          });
-        }),
+    for (const job of jobs) await this.stopAndReleaseJob(job);
+
+    return retryRunTransaction(() =>
+      this.tenantDb.runAs(userId, async (tx) => {
+        const chats = new ChatsRepository(tx);
+        if (!(await chats.lock(chatId, userId))) return false;
+
+        const runningJobs = (
+          await new ChatJobsRepository(tx).listByChat(chatId, userId)
+        ).filter((job) => job.state === 'running');
+        if (
+          runningJobs.some(
+            (job) => !jobs.some((stopped) => stopped.id === job.id),
+          )
+        )
+          throw new ServiceUnavailableException(
+            'A Machine job started while the Chat was being deleted.',
+          );
+
+        return chats.deleteById(chatId, userId);
+      }),
+    );
+  }
+
+  private async stopAndReleaseJob(job: ChatJob): Promise<void> {
+    if (this.machines === undefined)
+      throw new ServiceUnavailableException(
+        'The Chat has running Machine jobs that cannot be stopped right now.',
       );
 
-    return result.deleted;
+    const session = await this.machines
+      .jobsClient(job.machineName)
+      .catch(() => {
+        throw new ServiceUnavailableException(
+          'The Chat has running Machine jobs that cannot be stopped right now.',
+        );
+      });
+    const { client, callOptions } = session;
+    const request = {
+      requestId: job.daemonJobId,
+      jobId: job.daemonJobId,
+      owner: job.ownerUserId,
+    };
+    let missing = false;
+    try {
+      const stopped = await client.cancelJob(request, callOptions());
+      if (stopped.job === undefined || stopped.job.state === JobState.RUNNING)
+        throw new ServiceUnavailableException(
+          'The Machine has not confirmed that the Chat job stopped.',
+        );
+    } catch (error) {
+      if (
+        error instanceof MachineProtocolError &&
+        error.code === 'machine_job_not_found'
+      ) {
+        missing = true;
+      } else if (error instanceof ServiceUnavailableException) {
+        throw error;
+      } else {
+        throw new ServiceUnavailableException(
+          'The Chat has running Machine jobs that cannot be stopped right now.',
+        );
+      }
+    }
+
+    try {
+      await client.deleteJob(request, callOptions());
+    } catch (error) {
+      if (
+        !missing ||
+        !(error instanceof MachineProtocolError) ||
+        error.code !== 'machine_job_not_found'
+      )
+        throw new ServiceUnavailableException(
+          'The Machine has not confirmed that the Chat job was released.',
+        );
+    }
   }
 
   /**

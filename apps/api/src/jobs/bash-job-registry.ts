@@ -44,6 +44,7 @@ type JobsCallOptions = (options?: MachineRequestOptions) => CallOptions;
 export class BashJobRegistry implements OnModuleInit {
   private readonly logger = new Logger(BashJobRegistry.name);
   private readonly loops = new Set<Promise<void>>();
+  private readonly foregroundJobs = new Set<string>();
   private stopping = false;
   private reconcileTimer: ReturnType<typeof setInterval> | undefined;
   private closeWait: Promise<void>;
@@ -69,7 +70,10 @@ export class BashJobRegistry implements OnModuleInit {
       this.loops.add(loop);
       void loop.finally(() => this.loops.delete(loop));
     }
-    this.reconcileTimer = setInterval(() => void this.recheckJobs(), RECONCILE_INTERVAL_MS);
+    this.reconcileTimer = setInterval(
+      () => void this.recheckJobs(),
+      RECONCILE_INTERVAL_MS,
+    );
     this.reconcileTimer.unref?.();
   }
 
@@ -82,13 +86,16 @@ export class BashJobRegistry implements OnModuleInit {
     if (!runId || !attemptId || !toolCallId)
       return unavailable('The Run identity is unavailable.');
     if (input.unlimited === true && context.allowUnlimitedJobs !== true)
-      return unavailable('tools.jobs.allowUnlimited is false; unlimited jobs are not allowed.');
+      return unavailable(
+        'tools.jobs.allowUnlimited is false; unlimited jobs are not allowed.',
+      );
 
     const startedAt = new Date();
     const daemonJobId = randomBytes(16).toString('hex');
-    const lifetimeMs = input.unlimited === true
-      ? 0
-      : this.config.config.tools.jobs.maxSeconds * 1000;
+    const lifetimeMs =
+      input.unlimited === true
+        ? 0
+        : this.config.config.tools.jobs.maxSeconds * 1000;
     const { client, instanceId, ended, callOptions } =
       await this.connector.jobsClient(machine.name);
     const seq = await reserveArtifactSeq(this.tenantDb, {
@@ -96,9 +103,7 @@ export class BashJobRegistry implements OnModuleInit {
       userId: context.userId,
     });
     const deadlineAt =
-      lifetimeMs === 0
-        ? undefined
-        : new Date(startedAt.getTime() + lifetimeMs);
+      lifetimeMs === 0 ? undefined : new Date(startedAt.getTime() + lifetimeMs);
     const row = await this.tenantDb.runAs(context.userId, (db) =>
       new ChatJobsRepository(db).insert({
         chatId: context.chatId,
@@ -163,8 +168,8 @@ export class BashJobRegistry implements OnModuleInit {
     }
     context.onHostCommandStarted?.();
 
-    if (input.async === true)
-      return backgrounded(row, 'async', 0);
+    if (input.async === true) return backgrounded(row, 'async', 0);
+    this.foregroundJobs.add(row.id);
 
     const waitMs = Math.min(
       context.timeoutMs ?? FOREGROUND_MAX_MS,
@@ -182,14 +187,21 @@ export class BashJobRegistry implements OnModuleInit {
       context.moveSignal,
       context.abortSignal,
     );
-    if (outcome.kind === 'moved')
+    if (outcome.kind === 'moved') {
+      this.foregroundJobs.delete(row.id);
       return backgrounded(row, outcome.cause, Date.now() - startedAt.getTime());
-    if (outcome.kind === 'disconnected')
+    }
+    if (outcome.kind === 'disconnected') {
+      this.foregroundJobs.delete(row.id);
       return backgrounded(row, 'disconnect', Date.now() - startedAt.getTime());
+    }
     if (outcome.kind === 'cancelled') {
+      this.foregroundJobs.delete(row.id);
       await this.requestStop(row, 'assistant');
       await this.stopDaemonJob(row.machineName, row);
-      return unavailable('The Run was cancelled; the Machine job stop was requested.');
+      return unavailable(
+        'The Run was cancelled; the Machine job stop was requested.',
+      );
     }
 
     const result = await this.readResult(
@@ -199,12 +211,16 @@ export class BashJobRegistry implements OnModuleInit {
       outcome.job,
       configuredCredentials(this.config.config),
     );
-    await this.settleDaemonJob(row, outcome.job, result);
+    await this.settleDaemonJob(row, outcome.job, result, false);
+    this.foregroundJobs.delete(row.id);
     await this.release(client, callOptions, row);
     return spillBashResult(context, result, machine.local);
   }
 
-  async stop(jobId: string, cause: 'owner' | 'assistant' | 'worker'): Promise<void> {
+  async stop(
+    jobId: string,
+    cause: 'owner' | 'assistant' | 'worker',
+  ): Promise<void> {
     // Stop requests are durable in chat_jobs; the Watch snapshot delivers an
     // offline request as soon as the next session attaches.
     const row = await this.findRunningById(jobId);
@@ -236,7 +252,9 @@ export class BashJobRegistry implements OnModuleInit {
   async recheckJobs(): Promise<void> {
     for (const machineName of this.connector.names())
       await this.listMachine(machineName).catch((error: unknown) =>
-        this.logger.warn(`Machine jobs probe failed for ${machineName}: ${String(error)}`),
+        this.logger.warn(
+          `Machine jobs probe failed for ${machineName}: ${String(error)}`,
+        ),
       );
   }
 
@@ -267,10 +285,15 @@ export class BashJobRegistry implements OnModuleInit {
         if (this.stopping) return;
       } catch (error) {
         if (!(error instanceof MachineUnavailableError) || delayMs === 1000)
-          this.logger.warn(`Machine jobs watch failed for ${machineName}: ${String(error)}`);
+          this.logger.warn(
+            `Machine jobs watch failed for ${machineName}: ${String(error)}`,
+          );
         delayMs = Math.min(delayMs * 2, 60_000);
       }
-      await Promise.race([new Promise((resolve) => setTimeout(resolve, delayMs)), this.closeWait]);
+      await Promise.race([
+        new Promise((resolve) => setTimeout(resolve, delayMs)),
+        this.closeWait,
+      ]);
     }
   }
 
@@ -299,13 +322,17 @@ export class BashJobRegistry implements OnModuleInit {
       observedJob = {
         ...daemonJob,
         state: JobState.LOST,
-        lostCause: row.daemonInstanceId === instanceId
-          ? LostCause.DAEMON_RESTARTED
-          : LostCause.MACHINE_REBOOTED,
+        lostCause:
+          row.daemonInstanceId === instanceId
+            ? LostCause.DAEMON_RESTARTED
+            : LostCause.MACHINE_REBOOTED,
       };
     }
 
-    if (row.stopRequestedAt !== null && observedJob.state === JobState.RUNNING) {
+    if (
+      row.stopRequestedAt !== null &&
+      observedJob.state === JobState.RUNNING
+    ) {
       try {
         await client.cancelJob(
           {
@@ -328,7 +355,12 @@ export class BashJobRegistry implements OnModuleInit {
       observedJob,
       configuredCredentials(this.config.config),
     );
-    await this.settleDaemonJob(row, observedJob, result);
+    await this.settleDaemonJob(
+      row,
+      observedJob,
+      result,
+      !this.foregroundJobs.has(row.id),
+    );
     await this.release(client, callOptions, row).catch(() => undefined);
   }
 
@@ -376,21 +408,17 @@ export class BashJobRegistry implements OnModuleInit {
       moveSignal === undefined
         ? new Promise<never>(() => undefined)
         : new Promise<'message'>((resolve) =>
-            moveSignal.addEventListener(
-              'abort',
-              () => resolve('message'),
-              { once: true },
-            ),
+            moveSignal.addEventListener('abort', () => resolve('message'), {
+              once: true,
+            }),
           );
     const cancel =
       abortSignal === undefined
         ? new Promise<never>(() => undefined)
         : new Promise<'cancelled'>((resolve) =>
-            abortSignal.addEventListener(
-              'abort',
-              () => resolve('cancelled'),
-              { once: true },
-            ),
+            abortSignal.addEventListener('abort', () => resolve('cancelled'), {
+              once: true,
+            }),
           );
     try {
       const outcome = await Promise.race([
@@ -424,8 +452,18 @@ export class BashJobRegistry implements OnModuleInit {
         attemptId: row.runId,
         message: `The Machine daemon lost the job (${lostCauseText(lostCause(job.lostCause))}).`,
       };
-    const stdout = await this.readOutput(client, callOptions, row, OutputStream.STDOUT);
-    const stderr = await this.readOutput(client, callOptions, row, OutputStream.STDERR);
+    const stdout = await this.readOutput(
+      client,
+      callOptions,
+      row,
+      OutputStream.STDOUT,
+    );
+    const stderr = await this.readOutput(
+      client,
+      callOptions,
+      row,
+      OutputStream.STDERR,
+    );
     const wallTimeMs = elapsedMs(job);
     const truncated =
       job.stdout?.truncated === true || job.stderr?.truncated === true;
@@ -442,7 +480,8 @@ export class BashJobRegistry implements OnModuleInit {
           }
         : {
             status: job.state === JobState.SUCCEEDED ? 'success' : 'error',
-            exitCode: job.exitCode ?? (job.state === JobState.SUCCEEDED ? 0 : 1),
+            exitCode:
+              job.exitCode ?? (job.state === JobState.SUCCEEDED ? 0 : 1),
             stdout,
             stderr,
             truncated,
@@ -471,42 +510,80 @@ export class BashJobRegistry implements OnModuleInit {
         limit: JOB_OUTPUT_LIMIT,
       },
       callOptions(),
-    )) chunks.push(Buffer.from(part.data));
+    ))
+      chunks.push(Buffer.from(part.data));
     return Buffer.concat(chunks).toString('utf8');
   }
 
-  private async settleDaemonJob(row: ChatJob, job: Job, result: ProcBashResult): Promise<void> {
+  private async settleDaemonJob(
+    row: ChatJob,
+    job: Job,
+    result: ProcBashResult,
+    backgrounded: boolean,
+  ): Promise<void> {
     const truncatedStreams = {
       stdout: job.stdout?.truncated === true,
       stderr: job.stderr?.truncated === true,
     };
     const settlement: JobSettlement =
       job.state === JobState.LOST
-        ? { state: 'lost', result: { outcomeUnknown: true, cause: lostCause(job.lostCause) } }
+        ? {
+            state: 'lost',
+            result: { outcomeUnknown: true, cause: lostCause(job.lostCause) },
+          }
         : job.state === JobState.TIMED_OUT
-          ? { state: 'timed_out', result: { exitCode: job.exitCode ?? null, signal: job.signal ?? null, truncated: truncatedStreams } }
+          ? {
+              state: 'timed_out',
+              result: {
+                exitCode: job.exitCode ?? null,
+                signal: job.signal ?? null,
+                truncated: truncatedStreams,
+              },
+            }
           : job.state === JobState.CANCELLED
-            ? { state: 'cancelled', stoppedBy: row.stopRequestedBy ?? 'assistant', result: { exitCode: job.exitCode ?? null, signal: job.signal ?? null } }
-            : { state: job.state === JobState.SUCCEEDED ? 'succeeded' : 'failed', result: { exitCode: job.exitCode ?? null, signal: job.signal ?? null, truncated: truncatedStreams } };
-    const output = 'stdout' in result
-      ? {
-          stdout: result.stdout,
-          stderr: result.stderr,
-          truncated: result.truncated,
-          truncatedStreams,
-        }
-      : {
-          stdout: '',
-          stderr: '',
-          truncated: false,
-          truncatedStreams: { stdout: false, stderr: false },
-        };
-    await settleBashJob(this.tenantDb, row, { output, settlement }, {
-      maxBytes: this.config.config.tools.artifacts.maxBytes,
-      hostFiles: false,
-      noticeRuns: this.noticeRuns,
-      wake: this.runWait,
-    });
+            ? {
+                state: 'cancelled',
+                stoppedBy: row.stopRequestedBy ?? 'assistant',
+                result: {
+                  exitCode: job.exitCode ?? null,
+                  signal: job.signal ?? null,
+                },
+              }
+            : {
+                state:
+                  job.state === JobState.SUCCEEDED ? 'succeeded' : 'failed',
+                result: {
+                  exitCode: job.exitCode ?? null,
+                  signal: job.signal ?? null,
+                  truncated: truncatedStreams,
+                },
+              };
+    const output =
+      'stdout' in result
+        ? {
+            stdout: result.stdout,
+            stderr: result.stderr,
+            truncated: result.truncated,
+            truncatedStreams,
+          }
+        : {
+            stdout: '',
+            stderr: '',
+            truncated: false,
+            truncatedStreams: { stdout: false, stderr: false },
+          };
+    await settleBashJob(
+      this.tenantDb,
+      row,
+      { output, settlement },
+      {
+        maxBytes: this.config.config.tools.artifacts.maxBytes,
+        hostFiles: false,
+        backgrounded,
+        noticeRuns: this.noticeRuns,
+        wake: this.runWait,
+      },
+    );
   }
 
   private async release(
@@ -554,24 +631,39 @@ export class BashJobRegistry implements OnModuleInit {
         const list = await client.listJobs({}, callOptions());
         for (const job of list.jobs) {
           const row = await this.tenantDb.runAs(job.owner, (db) =>
-            new ChatJobsRepository(db).findByDaemonJob(job.owner, instanceId, job.id),
+            new ChatJobsRepository(db).findByDaemonJob(
+              job.owner,
+              instanceId,
+              job.id,
+            ),
           );
           if (row?.id === jobId) return row;
         }
-      } catch { /* The request remains in chat_jobs for the next attachment. */ }
+      } catch {
+        /* The request remains in chat_jobs for the next attachment. */
+      }
     }
     return undefined;
   }
 }
 
-function backgrounded(row: ChatJob, cause: 'async' | 'time' | 'message' | 'disconnect', wallTimeMs: number): ToolResult {
-  return { status: 'success', backgrounded: true, job: formatJobLocator(row.kind, row.seq), cause, wallTimeMs };
+function backgrounded(
+  row: ChatJob,
+  cause: 'async' | 'time' | 'message' | 'disconnect',
+  wallTimeMs: number,
+): ToolResult {
+  return {
+    status: 'success',
+    backgrounded: true,
+    job: formatJobLocator(row.kind, row.seq),
+    cause,
+    wallTimeMs,
+  };
 }
 
 function unavailable(message: string): ToolResult {
   return { status: 'error', type: 'executor_unavailable', message };
 }
-
 
 function lostCause(cause: LostCause): string {
   if (cause === LostCause.MACHINE_REBOOTED) return 'machine_rebooted';

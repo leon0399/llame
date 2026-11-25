@@ -27,6 +27,7 @@ type JobArtifact = {
 export type JobSettlementContext = {
   readonly maxBytes: number;
   readonly hostFiles: boolean;
+  readonly backgrounded?: boolean;
   readonly noticeRuns: Pick<JobNoticeRunService, 'startOnSettlement'>;
   readonly wake: Pick<RunWaitService, 'wakeForChatInTransaction'>;
 };
@@ -77,10 +78,17 @@ async function settleInTransaction(
 
   if (settled === undefined) return undefined;
 
-  const artifact = await writeJobArtifact(tx, job, completion, context.maxBytes);
+  const artifact = await writeJobArtifact(
+    tx,
+    job,
+    completion,
+    context.maxBytes,
+  );
 
-  await recordJobSettlementNotice(tx, settled);
-  await context.noticeRuns.startOnSettlement(tx, settled);
+  if (context.backgrounded !== false) {
+    await recordJobSettlementNotice(tx, settled);
+    await context.noticeRuns.startOnSettlement(tx, settled);
+  }
   await context.wake.wakeForChatInTransaction(tx, {
     chatId: settled.chatId,
     userId: settled.ownerUserId,
@@ -103,8 +111,7 @@ function writeJobArtifact(
     toolCallId: job.toolCallId,
     toolName: job.kind,
     complete:
-      completion.settlement.state !== 'lost' &&
-      !completion.output.truncated,
+      completion.settlement.state !== 'lost' && !completion.output.truncated,
     parts: OUTPUTS.map((name) => ({
       name,
       contentType: 'text/plain',
@@ -126,5 +133,3 @@ function writeJobArtifact(
     return written;
   });
 }
-
-
