@@ -79,7 +79,7 @@ master <- rust-machine-daemon/proposal <- rust-machine-daemon/skeleton
 
 ## 6. MCP (`rust-machine-daemon/mcp`)
 
-- [ ] 6.1 Implement `McpService.ListServers` and the `OpenSession` stream; verify
+- [x] 6.1 Implement `McpService.ListServers` and the `OpenSession` stream; verify
       `cargo test -p llame-machine --test mcp`.
 
 ## 7. Connector (`rust-machine-daemon/connector`)
