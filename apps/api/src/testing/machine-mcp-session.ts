@@ -1,5 +1,6 @@
 import {
   create,
+  OpenSessionRequestSchema,
   OpenSessionResponseSchema,
   type JsonValue,
   type OpenSessionRequest,
@@ -7,7 +8,9 @@ import {
 } from '@workspace/machine-protocol';
 import type { MachineSession } from '../machines/machine-session';
 
-type QueueItem = { readonly value?: OpenSessionResponse; readonly done: boolean };
+type QueueItem =
+  | { readonly value: OpenSessionResponse; readonly done: false }
+  | { readonly value: undefined; readonly done: true };
 
 class ResponseQueue implements AsyncIterable<OpenSessionResponse> {
   private readonly values: Array<OpenSessionResponse> = [];
@@ -24,7 +27,8 @@ class ResponseQueue implements AsyncIterable<OpenSessionResponse> {
   close(): void {
     this.ended = true;
 
-    for (const reader of this.readers.splice(0)) reader({ done: true });
+    for (const reader of this.readers.splice(0))
+      reader({ done: true, value: undefined });
   }
 
   [Symbol.asyncIterator](): AsyncIterator<OpenSessionResponse> {
@@ -41,9 +45,7 @@ class ResponseQueue implements AsyncIterable<OpenSessionResponse> {
         const deferred =
           Promise.withResolvers<IteratorResult<OpenSessionResponse>>();
 
-        this.readers.push((item) =>
-          deferred.resolve({ done: item.done, value: item.value }),
-        );
+        this.readers.push((item) => deferred.resolve(item));
 
         return deferred.promise;
       },
@@ -69,7 +71,7 @@ export function installMachineMcpSession(
     void (async () => {
       try {
         for await (const request of input) {
-          const response = handle(request);
+          const response = handle(create(OpenSessionRequestSchema, request));
 
           if (response !== undefined) responses.push(response);
         }
