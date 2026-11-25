@@ -70,13 +70,11 @@ Machine, the host Machine included, runs its git on its daemon, so a result path
 outside that daemon's registered roots is its refusal: the route answers `403`
 `permission_denied` and stores no row.
 
-Every Machine must run a daemon that answers the typed git methods, the host
-Machine's own included; see
-[remote Machines](machines.md#install-the-daemon). Registration on a Machine
-whose daemon predates them answers `503` `machine_update_required` and stores
-no row, while every other Machine operation keeps working. An unavailable host
-daemon answers `503` `machine_unavailable` and starts no git process in the API
-or the worker.
+Every Machine must run the Rust daemon using protocol version 5; see
+[remote Machines](machines.md#install-the-daemon). A daemon with an incompatible
+protocol is refused before repository operations begin. An unavailable host
+daemon answers `503` `machine_unavailable` without starting a repository
+operation.
 
 ## The API
 

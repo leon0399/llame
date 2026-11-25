@@ -20,7 +20,6 @@ const hello: HelloResult = {
   protocolVersion: MACHINE_PROTOCOL_VERSION,
   daemonVersion: '1.0.0',
   roots: ['/srv/workspace'],
-  methods: ['git.inspect'],
   instanceId: '11111111-1111-4111-8111-111111111111',
   buildId: '0123456789ab',
   facts: {

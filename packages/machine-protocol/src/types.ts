@@ -10,8 +10,6 @@ export type JsonValue =
 export type SerializableValue = JsonValue | undefined;
 export type SerializableRecord = Readonly<Record<string, SerializableValue>>;
 
-
-
 /** The hub's active trace, in the `sentry-trace` and `baggage` header
  *  formats, so the daemon's work joins the trace that asked for it. */
 export type RequestTrace = {
@@ -55,9 +53,6 @@ export type HelloResult = {
   readonly protocolVersion: number;
   readonly daemonVersion: string;
   readonly roots: ReadonlyArray<string>;
-  /** The git methods this daemon answers; absent on a daemon that predates
-   *  them, which is how the hub tells that it needs an update. */
-  readonly methods?: ReadonlyArray<string>;
   /** Lowercase UUID v4 text, persisted in this Machine's config directory. */
   readonly instanceId: string;
   /** 12 lowercase hex chars of the shipped bundle's sha256, or "unknown". */

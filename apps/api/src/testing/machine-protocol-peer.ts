@@ -146,9 +146,6 @@ class PeerSessionImpl implements PeerSession {
         protocolVersion: this.options.helloProtocolVersion ?? PROTOCOL_VERSION,
         daemonVersion: this.options.daemonVersion ?? '0.0.1',
         roots,
-        ...(this.options.methods === undefined
-          ? {}
-          : { methods: this.options.methods }),
         instanceId: this.options.instanceId ?? DEFAULT_PEER_INSTANCE_ID,
         buildId: this.options.buildId ?? DEFAULT_PEER_BUILD_ID,
         facts: this.options.facts ?? defaultPeerFacts(roots),

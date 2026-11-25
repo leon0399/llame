@@ -408,14 +408,6 @@ export class MachineSession {
         protocolVersion: Number(info.protocolVersion),
         daemonVersion: info.release,
         roots,
-        methods: [
-          'git.inspect',
-          'git.locate',
-          'git.state',
-          'git.worktreeAdd',
-          'git.worktreeList',
-          'git.worktreeRemove',
-        ],
         instanceId: info.instanceId,
         buildId: info.buildId,
         facts: {
