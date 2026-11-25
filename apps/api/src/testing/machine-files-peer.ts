@@ -271,11 +271,11 @@ async function answerFileMethod(
   params: z.infer<typeof pathParamsSchema>,
 ): Promise<JsonValue> {
   try {
-    if (call.method === 'fs.stat') return answerStat(params);
+    if (call.method === 'fs.stat') return await answerStat(params);
 
-    if (call.method === 'fs.list') return answerList(params);
+    if (call.method === 'fs.list') return await answerList(params);
 
-    if (call.method === 'fs.read') return answerRead(params);
+    if (call.method === 'fs.read') return await answerRead(params);
 
     if (call.method === 'fs.edit') {
       const parsed = editParamsSchema.safeParse(call.params);
@@ -283,7 +283,7 @@ async function answerFileMethod(
       if (!parsed.success)
         return failure('invalid_input', 'Old and new text are required.');
 
-      return answerEdit({ ...parsed.data, path: params.path });
+      return await answerEdit({ ...parsed.data, path: params.path });
     }
 
     if (call.method === 'fs.write') {
@@ -292,7 +292,7 @@ async function answerFileMethod(
       if (!parsed.success)
         return failure('invalid_input', 'File content is required.');
 
-      return answerWrite({ ...parsed.data, path: params.path });
+      return await answerWrite({ ...parsed.data, path: params.path });
     }
 
     return failure(
