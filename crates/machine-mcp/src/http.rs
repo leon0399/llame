@@ -138,7 +138,8 @@ pub async fn run_http(
                     continue;
                 }
                 let (method, request_id) = request_metadata(&text);
-                let is_cancellation = method.as_deref() == Some("notifications/cancelled");
+                let is_initialized_notification =
+                    method.as_deref() == Some("notifications/initialized");
                 if exceeds_request_capacity(
                     method.as_deref(),
                     requests.len(),
