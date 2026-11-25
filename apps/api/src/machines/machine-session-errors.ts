@@ -24,10 +24,13 @@ export function mapMachineRefusal(
 
   const detail = error.findDetails(ErrorDetailSchema)[0];
   const code = detail === undefined ? undefined : ERROR_CODES[detail.reason];
+
   if (code !== undefined && isMachineErrorCode(code))
     return new MachineProtocolError(code, error.rawMessage);
+
   if (error.code === Code.Unimplemented)
     return new MachineUpdateRequiredError(machine, 'requested operation');
+
   if (error.code === Code.DeadlineExceeded)
     return new MachineProtocolError(
       'budget_exhausted',

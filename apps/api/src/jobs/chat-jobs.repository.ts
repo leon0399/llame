@@ -12,7 +12,6 @@ import {
   type ChatJobStopper,
 } from '../db/schema';
 import { type Db } from '../db/tenant-db.service';
-import { ChatsRepository } from '../chats/chats-repository';
 
 export type NewChatJob = {
   readonly id?: string;
@@ -45,7 +44,6 @@ export type JobSettlement =
       readonly artifactId?: string;
     };
 
-
 export class ChatJobsRepository {
   constructor(private readonly db: Db) {}
 
@@ -67,6 +65,7 @@ export class ChatJobsRepository {
       .select()
       .from(chatJobs)
       .where(jobInChat(chatId, ownerUserId, jobId));
+
     return row;
   }
 
@@ -86,6 +85,7 @@ export class ChatJobsRepository {
           eq(chatJobs.seq, seq),
         ),
       );
+
     return row;
   }
 
@@ -104,6 +104,7 @@ export class ChatJobsRepository {
           eq(chatJobs.daemonJobId, daemonJobId),
         ),
       );
+
     return row;
   }
   async findByOwnerDaemonJob(
@@ -119,6 +120,7 @@ export class ChatJobsRepository {
           eq(chatJobs.daemonJobId, daemonJobId),
         ),
       );
+
     return row;
   }
 
@@ -153,6 +155,7 @@ export class ChatJobsRepository {
         ),
       )
       .returning();
+
     return row;
   }
 
@@ -170,7 +173,6 @@ export class ChatJobsRepository {
         ),
       );
   }
-
 
   async requestStop(
     chatId: string,
@@ -191,6 +193,7 @@ export class ChatJobsRepository {
         ),
       )
       .returning();
+
     return row;
   }
 
@@ -202,6 +205,7 @@ export class ChatJobsRepository {
       .select({ id: chatJobs.id })
       .from(chatJobs)
       .where(and(inChat(chatId, ownerUserId), eq(chatJobs.state, 'running')));
+
     return rows.map((row) => row.id);
   }
   async countRunning(ownerUserId: string): Promise<Map<string, number>> {
@@ -215,6 +219,7 @@ export class ChatJobsRepository {
         ),
       )
       .groupBy(chatJobs.chatId);
+
     return new Map(rows.map((row) => [row.chatId, row.running]));
   }
 }
@@ -233,4 +238,3 @@ function jobInChat(
 ): SQL | undefined {
   return and(eq(chatJobs.id, jobId), inChat(chatId, ownerUserId));
 }
-

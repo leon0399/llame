@@ -5,7 +5,14 @@ import {
   splitSelectorSuffix,
 } from '@workspace/native-file-tools';
 
-import { BASH_BOUNDS, BYTES_CHUNK_BYTES, OutputStream } from '@workspace/machine-protocol';
+import {
+  BASH_BOUNDS,
+  BYTES_CHUNK_BYTES,
+  OutputStream,
+} from '@workspace/machine-protocol';
+import { type CallOptions, type Client } from '@connectrpc/connect';
+import { JobService } from '@workspace/machine-protocol';
+
 import { type Db } from '../db/tenant-db.service';
 import { type ChatJob } from '../db/schema';
 import { ArtifactsRepository } from '../tools/artifacts/artifacts-repository';
@@ -27,8 +34,10 @@ import {
   type JobLocator,
 } from './job-locator';
 
+type JobsClient = Client<typeof JobService>;
 
 const BARE_LOCATOR = `${JOB_SCHEME}://`;
+
 /**
  * The `job://` reader (background-jobs). It routes before local path
  * resolution, needs no native executor, and reads one Chat's jobs through the
@@ -61,6 +70,7 @@ export async function readJob(
 
   return context.tenantDb.runAs(context.userId, async (db) => {
     const jobs = new ChatJobsRepository(db);
+
     return locator === undefined
       ? listJobs(context, jobs, selector)
       : readLocator(context, { db, jobs }, locator, selector);
@@ -74,14 +84,20 @@ async function listJobs(
 ): Promise<ToolResult> {
   const rows = await jobs.listByChat(context.chatId, context.userId);
   const machineStatus = await context.machineStatus?.list(context.userId);
+
   const reachable = new Map(
-    machineStatus?.map((machine) => [machine.name, machine.status === 'online']),
+    machineStatus?.map((machine) => [
+      machine.name,
+      machine.status === 'online',
+    ]),
   );
+
   const entries = rows.map((job) => {
     const state =
       job.state === 'running' && reachable.get(job.machineName) === false
         ? 'unknown'
         : job.state;
+
     return `${formatJobLocator(job.kind, job.seq)} (${state}, ${job.startedAt.toISOString()})`;
   });
 
@@ -132,55 +148,89 @@ async function storedOutput(
   job: ChatJob,
   output: string,
 ): Promise<string> {
-  if (job.state !== 'running') {
-    if (job.artifactId === null) return 'output unavailable right now';
-    const part = await new ArtifactsRepository(db).readPart(
-      context.chatId,
-      job.kind,
-      job.seq,
-      output,
-    );
-    return part?.content.toString('utf8') ?? 'output unavailable right now';
-  }
+  if (job.state === 'running') return readRunningOutput(context, job, output);
 
+  if (job.artifactId === null) return 'output unavailable right now';
+
+  const part = await new ArtifactsRepository(db).readPart(
+    context.chatId,
+    job.kind,
+    job.seq,
+    output,
+  );
+
+  return part?.content.toString('utf8') ?? 'output unavailable right now';
+}
+
+async function readRunningOutput(
+  context: ToolContext,
+  job: ChatJob,
+  output: string,
+): Promise<string> {
   if (context.machines === undefined) return 'output unavailable right now';
+
   try {
-    const { client, callOptions } =
-      await context.machines.jobsClient(job.machineName);
-    const chunks: Array<Buffer> = [];
-    let offset = 0n;
-    let remaining = BigInt(BASH_BOUNDS.outputBound * 4);
-    while (remaining > 0n) {
-      let read = 0n;
-      for await (const part of client.readOutput(
-        {
-          jobId: job.daemonJobId,
-          owner: context.userId,
-          stream:
-            output === 'stdout'
-              ? OutputStream.STDOUT
-              : OutputStream.STDERR,
-          offset,
-          limit: remaining < BigInt(BYTES_CHUNK_BYTES)
-            ? remaining
-            : BigInt(BYTES_CHUNK_BYTES),
-        },
-        callOptions(),
-      )) {
-        chunks.push(Buffer.from(part.data));
-        read += BigInt(part.data.length);
-      }
-      if (read === 0n) break;
-      offset += read;
-      remaining -= read;
-    }
-    return Buffer.concat(chunks).toString('utf8');
+    const { client, callOptions } = await context.machines.jobsClient(
+      job.machineName,
+    );
+
+    return await readRunningOutputChunks({
+      client,
+      callOptions: callOptions(),
+      owner: context.userId,
+      jobId: job.daemonJobId,
+      output,
+    });
   } catch {
     return 'output unavailable right now';
   }
 }
 
-/** One `<name>: <value>` line for each field of the record. */
+async function readRunningOutputChunks({
+  client,
+  callOptions,
+  owner,
+  jobId,
+  output,
+}: {
+  readonly client: JobsClient;
+  readonly callOptions: CallOptions;
+  readonly owner: string;
+  readonly jobId: string;
+  readonly output: string;
+}): Promise<string> {
+  const chunks: Array<Buffer> = [];
+  let offset = 0n;
+  let remaining = BigInt(BASH_BOUNDS.outputBound * 4);
+
+  while (remaining > 0n) {
+    let read = 0n;
+
+    for await (const part of client.readOutput(
+      {
+        jobId,
+        owner,
+        stream: output === 'stdout' ? OutputStream.STDOUT : OutputStream.STDERR,
+        offset,
+        limit:
+          remaining < BigInt(BYTES_CHUNK_BYTES)
+            ? remaining
+            : BigInt(BYTES_CHUNK_BYTES),
+      },
+      callOptions,
+    )) {
+      chunks.push(Buffer.from(part.data));
+      read += BigInt(part.data.length);
+    }
+
+    if (read === 0n) break;
+    offset += read;
+    remaining -= read;
+  }
+
+  return Buffer.concat(chunks).toString('utf8');
+}
+
 function recordLines(job: ChatJob): Array<string> {
   const end = job.settledAt ?? new Date();
 
@@ -218,23 +268,30 @@ function recordLines(job: ChatJob): Array<string> {
 
   if (cut.length > 0) lines.push(`truncated: ${cut.join(', ')}`);
 
-  if (result?.outcomeUnknown === true) {
-    const causeText =
-      result.cause === 'daemon_restarted'
-        ? 'the Machine daemon restarted'
-        : result.cause === 'machine_rebooted'
-          ? 'the Machine rebooted'
-          : result.cause === 'stop_unproved'
-            ? 'the stop was not proved'
-            : 'the Machine daemon restarted';
-    lines.push(`outcome: unknown (${causeText})`);
-  }
+  appendJobOutcome(lines, job);
 
   const artifact = jobArtifactLocatorOf(job);
 
   if (artifact !== undefined) lines.push(`artifact: ${artifact}`);
 
   return lines;
+}
+
+function appendJobOutcome(lines: Array<string>, job: ChatJob): void {
+  const { result } = job;
+
+  if (result?.outcomeUnknown !== true) return;
+
+  const causeText =
+    result.cause === 'daemon_restarted'
+      ? 'the Machine daemon restarted'
+      : result.cause === 'machine_rebooted'
+        ? 'the Machine rebooted'
+        : result.cause === 'stop_unproved'
+          ? 'the stop was not proved'
+          : 'the Machine daemon restarted';
+
+  lines.push(`outcome: unknown (${causeText})`);
 }
 
 /** A stored output's text, numbered as the artifact reader numbers it. */

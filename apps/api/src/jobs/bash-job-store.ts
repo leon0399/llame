@@ -31,6 +31,7 @@ export type JobSettlementContext = {
   readonly noticeRuns: Pick<JobNoticeRunService, 'startOnSettlement'>;
   readonly wake: Pick<RunWaitService, 'wakeForChatInTransaction'>;
 };
+
 const OUTPUTS = ['stdout', 'stderr'] as const;
 
 /** Settle once and keep the one bounded artifact copy for every job. */
@@ -79,6 +80,7 @@ async function settleInTransaction(
   if (settled === undefined) return undefined;
 
   const output = completion.output;
+
   const artifact =
     output === null
       ? undefined
@@ -93,12 +95,14 @@ async function settleInTransaction(
     await recordJobSettlementNotice(tx, settled);
     await context.noticeRuns.startOnSettlement(tx, settled);
   }
+
   await context.wake.wakeForChatInTransaction(tx, {
     chatId: settled.chatId,
     userId: settled.ownerUserId,
     jobId: settled.id,
     kind: 'settlement',
   });
+
   return artifact;
 }
 
@@ -130,10 +134,12 @@ function writeJobArtifact(
       job.seq,
       maxBytes,
     );
+
     await savepoint
       .update(chatJobs)
       .set({ artifactId: written.id })
       .where(eq(chatJobs.id, job.id));
+
     return written;
   });
 }

@@ -23,6 +23,7 @@ async function runDaemonBash(
       type: 'executor_unavailable',
       message: 'Machine job authority is unavailable.',
     };
+
   return context.bashJobs.run(context, routed.machine, routed.input);
 }
 
@@ -30,9 +31,16 @@ function backgroundRefusal(
   routed: BashRoute,
   input: BashInput,
 ): ToolResult | undefined {
-  if (input.async === undefined && input.unlimited === undefined) return undefined;
+  if (input.async === undefined && input.unlimited === undefined)
+    return undefined;
+
   if (routed.target !== 'ssh') return undefined;
-  return { status: 'error', type: 'invalid_input', message: REMOTE_BACKGROUND_REFUSAL };
+
+  return {
+    status: 'error',
+    type: 'invalid_input',
+    message: REMOTE_BACKGROUND_REFUSAL,
+  };
 }
 
 export const bashTool: Tool<BashInput> = {
@@ -49,16 +57,22 @@ export const bashTool: Tool<BashInput> = {
   }),
   execute: async (context, input): Promise<ToolResult> => {
     const routed = bashTarget(context, input);
+
     if ('status' in routed) return routed;
     const refused = backgroundRefusal(routed, input);
+
     if (refused !== undefined) return refused;
+
     if (input.unlimited === true && context.allowUnlimitedJobs !== true)
       return {
         status: 'error',
         type: 'invalid_input',
-        message: 'tools.jobs.allowUnlimited is false; unlimited jobs are not allowed.',
+        message:
+          'tools.jobs.allowUnlimited is false; unlimited jobs are not allowed.',
       };
+
     if (routed.target === 'ssh') return executeSshBash(context, routed.input);
+
     return runDaemonBash(context, routed);
   },
 };
@@ -69,6 +83,10 @@ export function isBashTool(tool: Tool): boolean {
 
 /** Native files, alpha host bash, `stop`, and Workspace binding tools. */
 export function isHostCapabilityTool(tool: Tool): boolean {
-  return isNativeFileTool(tool) || isBashTool(tool) || tool === stopTool || isWorkspaceTool(tool);
+  return (
+    isNativeFileTool(tool) ||
+    isBashTool(tool) ||
+    tool === stopTool ||
+    isWorkspaceTool(tool)
+  );
 }
-

@@ -59,7 +59,7 @@ function connector(): MachineConnector {
   return new MachineConnector({
     machines: undefined,
     hubVersion: 'test',
-    bindIdentity: async () => 'match',
+    bindIdentity: () => Promise.resolve('match'),
   });
 }
 
@@ -69,8 +69,8 @@ function registry(
 ): BashJobRegistry {
   return new BashJobRegistry(
     {
-      runAs: async <T>(_userId: string, callback: (tx: Db) => Promise<T>) =>
-        callback(drizzle.mock()),
+      runAs: <T>(_userId: string, callback: (tx: Db) => Promise<T>) =>
+        Promise.resolve(callback(drizzle.mock())),
     },
     machines,
     {
@@ -82,8 +82,8 @@ function registry(
         },
       },
     },
-    { startOnSettlement: async () => undefined },
-    { wakeForChatInTransaction: async () => false },
+    { startOnSettlement: () => Promise.resolve() },
+    { wakeForChatInTransaction: () => Promise.resolve(false) },
   );
 }
 
@@ -102,7 +102,9 @@ describe('BashJobRegistry result retention', () => {
   it('reads retained output for a lost job after a machine reboot', async () => {
     const rpc = createRouterTransport((router) => {
       router.service(JobService, {
-        readOutput: async function* (request) {
+        async *readOutput(request) {
+          await Promise.resolve();
+
           if (request.stream === OutputStream.STDOUT)
             yield create(ReadOutputResponseSchema, {
               offset: 0n,
@@ -111,7 +113,9 @@ describe('BashJobRegistry result retention', () => {
         },
       });
     });
+
     const client = createClient(JobService, rpc);
+
     const result = await registry()['readResult'](
       client,
       () => ({}),
@@ -127,7 +131,9 @@ describe('BashJobRegistry result retention', () => {
   it('settles a known terminal result without output as available state', async () => {
     const rpc = createRouterTransport((router) => {
       router.service(JobService, {
-        readOutput: async function* () {
+        async *readOutput() {
+          await Promise.resolve();
+          yield* [];
           throw new ConnectError('job missing', Code.NotFound, undefined, [
             {
               desc: ErrorDetailSchema,
@@ -137,12 +143,15 @@ describe('BashJobRegistry result retention', () => {
         },
       });
     });
+
     const client = createClient(JobService, rpc);
+
     const succeeded = create(JobSchema, {
       ...lostJob(),
       state: JobState.SUCCEEDED,
       exitCode: 0,
     });
+
     const result = await registry()['readResult'](
       client,
       () => ({}),
@@ -161,11 +170,14 @@ describe('BashJobRegistry result retention', () => {
   it('does not reinterpret a transport failure as a missing job', async () => {
     const rpc = createRouterTransport((router) => {
       router.service(JobService, {
-        readOutput: async function* () {
+        async *readOutput() {
+          await Promise.resolve();
+          yield* [];
           throw new ConnectError('connection reset', Code.Unavailable);
         },
       });
     });
+
     const client = createClient(JobService, rpc);
 
     await expect(
@@ -175,22 +187,30 @@ describe('BashJobRegistry result retention', () => {
 
   it('keeps a terminal daemon job when output transport fails', async () => {
     let released = false;
+
     const rpc = createRouterTransport((router) => {
       router.service(JobService, {
-        readOutput: async function* () {
+        async *readOutput() {
+          await Promise.resolve();
+          yield* [];
           throw new ConnectError('connection reset', Code.Unavailable);
         },
         deleteJob: () => {
           released = true;
+
           return create(DeleteJobResponseSchema, {});
         },
       });
     });
+
     const client = createClient(JobService, rpc);
+
     const find = vi
       .spyOn(ChatJobsRepository.prototype, 'findByDaemonJob')
       .mockResolvedValue(row);
+
     const settle = vi.spyOn(ChatJobsRepository.prototype, 'settle');
+
     const succeeded = create(JobSchema, {
       ...lostJob(),
       state: JobState.SUCCEEDED,
@@ -215,9 +235,12 @@ describe('BashJobRegistry result retention', () => {
     const maxBytes = 131_072;
     const captured = `${'x'.repeat(maxBytes - 3)}secret-token`;
     const readLimits: Array<bigint> = [];
+
     const rpc = createRouterTransport((router) => {
       router.service(JobService, {
-        readOutput: async function* (request) {
+        async *readOutput(request) {
+          await Promise.resolve();
+
           if (request.stream !== OutputStream.STDOUT) return;
           readLimits.push(request.limit);
           yield create(ReadOutputResponseSchema, {
@@ -227,7 +250,9 @@ describe('BashJobRegistry result retention', () => {
         },
       });
     });
+
     const client = createClient(JobService, rpc);
+
     const result = await registry(maxBytes)['readResult'](
       client,
       () => ({}),
@@ -243,9 +268,11 @@ describe('BashJobRegistry result retention', () => {
   });
   it('removes an unstarted row and returns retryable limit_reached for job_limit', async () => {
     const machines = connector();
+
     const rpc = createRouterTransport((router) => {
       router.service(JobService, {
         createJob: async () => {
+          await Promise.resolve();
           throw new ConnectError('limit', Code.ResourceExhausted, undefined, [
             {
               desc: ErrorDetailSchema,
@@ -255,6 +282,7 @@ describe('BashJobRegistry result retention', () => {
         },
       });
     });
+
     const client = createClient(JobService, rpc);
     const ended = new Promise<MachineSessionEnd>(() => undefined);
     vi.spyOn(machines, 'jobsClient').mockResolvedValue({
@@ -265,13 +293,16 @@ describe('BashJobRegistry result retention', () => {
     });
     vi.spyOn(ArtifactsRepository.prototype, 'nextSeq').mockResolvedValue(1);
     vi.spyOn(ChatJobsRepository.prototype, 'insert').mockResolvedValue(row);
+
     const deleteRunning = vi
       .spyOn(ChatJobsRepository.prototype, 'deleteRunning')
       .mockResolvedValue(undefined);
+
     const tenantDb = {
-      runAs: async <T>(_userId: string, callback: (tx: Db) => Promise<T>) =>
-        callback(drizzle.mock()),
+      runAs: <T>(_userId: string, callback: (tx: Db) => Promise<T>) =>
+        Promise.resolve(callback(drizzle.mock())),
     };
+
     const result = await registry(
       BUILT_IN_DEFAULTS.tools.artifacts.maxBytes,
       machines,
@@ -304,13 +335,16 @@ describe('BashJobRegistry result retention', () => {
 
   it('keeps the running row when createJob has a transport failure', async () => {
     const machines = connector();
+
     const rpc = createRouterTransport((router) => {
       router.service(JobService, {
         createJob: async () => {
+          await Promise.resolve();
           throw new ConnectError('connection reset', Code.Unavailable);
         },
       });
     });
+
     const client = createClient(JobService, rpc);
     const ended = new Promise<MachineSessionEnd>(() => undefined);
     vi.spyOn(machines, 'jobsClient').mockResolvedValue({
@@ -321,9 +355,11 @@ describe('BashJobRegistry result retention', () => {
     });
     vi.spyOn(ArtifactsRepository.prototype, 'nextSeq').mockResolvedValue(1);
     vi.spyOn(ChatJobsRepository.prototype, 'insert').mockResolvedValue(row);
+
     const deleteRunning = vi
       .spyOn(ChatJobsRepository.prototype, 'deleteRunning')
       .mockResolvedValue(undefined);
+
     const tenantDb = {
       runAs: async <T>(_userId: string, callback: (tx: Db) => Promise<T>) =>
         callback(drizzle.mock()),

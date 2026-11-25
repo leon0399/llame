@@ -96,5 +96,4 @@ describe('ChatJobsRepository', () => {
       expect.arrayContaining([JOB, CHAT, OWNER, 'running', 'owner']),
     );
   });
-
 });
