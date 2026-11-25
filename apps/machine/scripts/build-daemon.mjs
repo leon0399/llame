@@ -54,7 +54,11 @@ function build(target) {
       "--target",
       target,
     ],
-    { cwd: repo, stdio: "inherit", env: { ...process.env, ...compilerEnv(target) } },
+    {
+      cwd: repo,
+      stdio: "inherit",
+      env: { ...process.env, ...compilerEnv(target) },
+    },
   );
   const built = join(repo, "target", target, "release", "llame-machine");
   const out = join(app, "dist", target);
