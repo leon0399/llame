@@ -4,6 +4,13 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 - Ship the Rust Machine daemon skeleton with `attach --print-socket`, daemon
   bootstrap and root services, and the versioned gRPC contract.
+- Settle Machine jobs only after proving the process group empty. Normal exits
+  kill survivors, output-pipe waits are bounded, and interrupted cancellations
+  continue independently of their RPC.
+
+- Keep retained Machine mutation results replayable when the idempotency cache
+  reaches its key limit. Attaching through a different configuration now
+  refuses the running daemon before returning its socket.
 - Register generated protocol bindings and the external Rust and protobuf
   build tools in dead-code analysis.
 - Reap a timed-out Machine command and prove its process group empty before

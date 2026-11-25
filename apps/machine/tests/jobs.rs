@@ -249,6 +249,39 @@ os.waitpid(child, 0)' & wait"#;
     assert_eq!(timed.lost_cause, LostCause::CancelUnproved as i32);
 }
 
+#[cfg(target_os = "linux")]
+#[tokio::test]
+async fn normal_exit_kills_survivors_and_bounds_held_output_pipes() {
+    let machine = common::Machine::new();
+    let (_daemon, channel) = machine.attach().await;
+    let mut client = JobServiceClient::new(channel);
+
+    for (id, command) in [
+        (
+            "8123456789abcdef0123456789abcdef",
+            "sleep 30 >/dev/null 2>&1 & exit 0",
+        ),
+        ("9123456789abcdef0123456789abcdef", "sleep 30 & exit 0"),
+    ] {
+        create(&mut client, id, command).await;
+        let job = timeout(Duration::from_secs(2), wait_settled(&mut client, id))
+            .await
+            .expect("normal exit should settle promptly");
+        assert_eq!(job.state, JobState::Succeeded as i32);
+        assert_eq!(job.exit_code, Some(0));
+
+        let stored: serde_json::Value = serde_json::from_slice(
+            &std::fs::read(machine.state_dir().join("jobs").join(id).join("job.json")).unwrap(),
+        )
+        .unwrap();
+        let pid = rustix::process::Pid::from_raw(stored["pid"].as_u64().unwrap() as i32).unwrap();
+        assert!(
+            rustix::process::test_kill_process_group(pid)
+                .is_err_and(|error| error == rustix::io::Errno::SRCH),
+            "settled job still has a process-group member"
+        );
+    }
+}
 #[tokio::test]
 async fn enforces_limit_and_truncates_each_output_stream_independently() {
     let machine = common::Machine::new();

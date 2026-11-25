@@ -52,11 +52,8 @@ struct StoredStatus {
     signal: Option<String>,
     stdout_bytes: u64,
     stderr_bytes: u64,
-    truncated: bool,
     wall_time_ms: u64,
-    #[serde(default)]
     stdout_truncated: bool,
-    #[serde(default)]
     stderr_truncated: bool,
     lost_cause: Option<i32>,
 }
@@ -96,7 +93,7 @@ pub async fn service(context: Context) -> anyhow::Result<JobServiceServer<Jobs>>
     let root = context.state_dir.join("jobs");
     fs::create_dir_all(&root)?;
     fs::set_permissions(&root, fs::Permissions::from_mode(0o700))?;
-    let current_boot = boot_id();
+    let current_boot = machine_core::facts::boot_id();
     let (changes, _) = broadcast::channel(1024);
     let mut entries = HashMap::new();
     for item in fs::read_dir(&root)? {
@@ -123,10 +120,11 @@ pub async fn service(context: Context) -> anyhow::Result<JobServiceServer<Jobs>>
                     signal: None,
                     stdout_bytes: file_len(&directory.join("stdout")),
                     stderr_bytes: file_len(&directory.join("stderr")),
-                    truncated: false,
                     wall_time_ms: 0,
-                    stdout_truncated: false,
-                    stderr_truncated: false,
+                    stdout_truncated: file_len(&directory.join("stdout"))
+                        >= context.limits().job_output_bytes,
+                    stderr_truncated: file_len(&directory.join("stderr"))
+                        >= context.limits().job_output_bytes,
                     lost_cause: Some(if start.boot_id == current_boot {
                         LostCause::DaemonRestarted as i32
                     } else {
@@ -136,14 +134,6 @@ pub async fn service(context: Context) -> anyhow::Result<JobServiceServer<Jobs>>
                 write_json_atomic(&status_path, &lost).ok()?;
                 Some(lost)
             });
-        if let Some(status) = &mut status
-            && status.truncated
-            && !status.stdout_truncated
-            && !status.stderr_truncated
-        {
-            status.stdout_truncated = true;
-            status.stderr_truncated = true;
-        }
         let Some(status) = status else { continue };
         entries.insert(
             start.job_id.clone(),
@@ -279,7 +269,14 @@ impl JobService for Jobs {
                             return;
                         }
                     }
-                    Err(broadcast::error::RecvError::Lagged(_)) => {}
+                    Err(broadcast::error::RecvError::Lagged(_)) => {
+                        let _ = sender
+                            .send(Err(Status::data_loss(
+                                "Job updates were lost; reconnect for a fresh snapshot.",
+                            )))
+                            .await;
+                        return;
+                    }
                     Err(broadcast::error::RecvError::Closed) => return,
                 }
             }
@@ -374,10 +371,16 @@ impl JobService for Jobs {
     ) -> Result<Response<CancelJobResponse>, Status> {
         let request = request.into_inner();
         let state = Arc::clone(&self.state);
+        let job_id = request.job_id;
+        let owner = request.owner;
         let job = self
             .cancels
             .run(&request.request_id, || async move {
-                cancel_job(state, request.job_id, request.owner).await
+                tokio::spawn(cancel_job(state, job_id, owner))
+                    .await
+                    .map_err(|error| {
+                        Status::internal(format!("Job cancellation task failed: {error}"))
+                    })?
             })
             .await?;
         Ok(Response::new(CancelJobResponse { job: Some(job) }))
@@ -471,9 +474,16 @@ impl Jobs {
         }
         let directory = self.context.state_dir.join("jobs").join(&request.job_id);
         fs::create_dir(&directory).map_err(internal_io)?;
-        fs::set_permissions(&directory, fs::Permissions::from_mode(0o700)).map_err(internal_io)?;
-        create_empty(&directory.join("stdout"))?;
-        create_empty(&directory.join("stderr"))?;
+        if let Err(error) = fs::set_permissions(&directory, fs::Permissions::from_mode(0o700)) {
+            let _ = fs::remove_dir_all(&directory);
+            return Err(internal_io(error));
+        }
+        for stream in ["stdout", "stderr"] {
+            if let Err(error) = create_empty(&directory.join(stream)) {
+                let _ = fs::remove_dir_all(&directory);
+                return Err(error);
+            }
+        }
         let mut command = Command::new("setsid");
         command
             .args(["bash", "-c", &request.command])
@@ -497,12 +507,21 @@ impl Jobs {
         for (name, value) in &request.env {
             command.env(name, value);
         }
-        let mut child = command.spawn().map_err(|error| {
-            Status::unavailable(format!("Unable to start managed bash: {error}"))
-        })?;
-        let pid = child
-            .id()
-            .ok_or_else(|| Status::internal("The started job has no process id."))?;
+        let mut child = match command.spawn() {
+            Ok(child) => child,
+            Err(error) => {
+                let _ = fs::remove_dir_all(&directory);
+                return Err(Status::unavailable(format!(
+                    "Unable to start managed bash: {error}"
+                )));
+            }
+        };
+        let Some(pid) = child.id() else {
+            let _ = child.start_kill();
+            let _ = child.wait().await;
+            let _ = fs::remove_dir_all(&directory);
+            return Err(Status::internal("The started job has no process id."));
+        };
         let start = StoredJob {
             job_id: request.job_id,
             owner: request.owner,
@@ -510,10 +529,15 @@ impl Jobs {
             cwd,
             pid,
             started_at_ms: now_ms(),
-            boot_id: boot_id(),
+            boot_id: machine_core::facts::boot_id(),
             lifetime_ms,
         };
-        write_json_atomic(&directory.join("job.json"), &start).map_err(internal_io)?;
+        if let Err(error) = write_json_atomic(&directory.join("job.json"), &start) {
+            signal_group(start.pid, rustix::process::Signal::KILL);
+            let _ = child.wait().await;
+            let _ = fs::remove_dir_all(&directory);
+            return Err(internal_io(error));
+        }
         let entry = Entry {
             start: start.clone(),
             status: None,
@@ -574,8 +598,8 @@ impl Jobs {
                         })
                         .await
                         .is_ok_and(|empty| empty);
-                        let _ = out_task.await;
-                        let _ = err_task.await;
+                        finish_output(out_task).await;
+                        finish_output(err_task).await;
                         settle(
                             state,
                             &start.job_id,
@@ -595,17 +619,50 @@ impl Jobs {
                     }
                 }
             };
-            let (state_value, exit_code, signal) = match status {
-                Some(status) if status.success() => (JobState::Succeeded, status.code(), None),
-                Some(status) => (
-                    JobState::Failed,
-                    status.code(),
-                    status.signal().map(signal_name),
-                ),
-                None => (JobState::Lost, None, Some("wait_failed".into())),
+            let (state_value, exit_code, signal, lost_cause) = match status {
+                Some(status) => {
+                    let group_empty = is_group_empty(start.pid);
+                    let proved = if group_empty {
+                        true
+                    } else {
+                        signal_group(start.pid, rustix::process::Signal::KILL);
+                        time::timeout(STOP_BUDGET, wait_group_empty(start.pid))
+                            .await
+                            .is_ok_and(|empty| empty)
+                    };
+                    if proved {
+                        if status.success() {
+                            (JobState::Succeeded, status.code(), None, None)
+                        } else {
+                            (
+                                JobState::Failed,
+                                status.code(),
+                                status.signal().map(signal_name),
+                                None,
+                            )
+                        }
+                    } else {
+                        (
+                            JobState::Lost,
+                            None,
+                            None,
+                            Some(LostCause::CancelUnproved as i32),
+                        )
+                    }
+                }
+                None => {
+                    signal_group(start.pid, rustix::process::Signal::KILL);
+                    let _ = time::timeout(STOP_BUDGET, wait_group_empty(start.pid)).await;
+                    (
+                        JobState::Lost,
+                        None,
+                        None,
+                        Some(LostCause::CancelUnproved as i32),
+                    )
+                }
             };
-            let _ = out_task.await;
-            let _ = err_task.await;
+            finish_output(out_task).await;
+            finish_output(err_task).await;
             if state
                 .lock()
                 .await
@@ -622,7 +679,7 @@ impl Jobs {
                     state: state_value,
                     exit_code,
                     signal,
-                    lost_cause: None,
+                    lost_cause,
                 },
             )
             .await;
@@ -631,6 +688,12 @@ impl Jobs {
     }
 }
 
+async fn finish_output(mut task: tokio::task::JoinHandle<()>) {
+    if time::timeout(STOP_BUDGET, &mut task).await.is_err() {
+        task.abort();
+        let _ = task.await;
+    }
+}
 #[allow(clippy::too_many_arguments)]
 async fn copy_output<R: AsyncRead + Unpin>(
     mut source: R,
@@ -688,14 +751,13 @@ async fn settle(state: Arc<Mutex<State>>, id: &str, outcome: Settlement) {
         signal: outcome.signal,
         stdout_bytes: file_len(&entry.directory.join("stdout")),
         stderr_bytes: file_len(&entry.directory.join("stderr")),
-        truncated: entry.stdout_truncated || entry.stderr_truncated,
         wall_time_ms: now_ms().saturating_sub(entry.start.started_at_ms),
         stdout_truncated: entry.stdout_truncated,
         stderr_truncated: entry.stderr_truncated,
         lost_cause: outcome.lost_cause,
     };
-    if write_json_atomic(&entry.directory.join("status.json"), &status).is_err() {
-        return;
+    if let Err(error) = write_json_atomic(&entry.directory.join("status.json"), &status) {
+        tracing::error!(job_id = id, %error, "Unable to persist Machine job settlement");
     }
     entry.status = Some(status);
     let job = job_record(entry);
@@ -835,20 +897,11 @@ fn now_ms() -> u64 {
         .duration_since(UNIX_EPOCH)
         .map_or(0, |duration| duration.as_millis() as u64)
 }
-fn boot_id() -> String {
-    fs::read_to_string("/proc/sys/kernel/random/boot_id")
-        .unwrap_or_default()
-        .trim()
-        .to_owned()
-}
 fn internal_io(error: std::io::Error) -> Status {
     Status::internal(error.to_string())
 }
 fn timestamp(milliseconds: u64) -> Timestamp {
-    Timestamp {
-        seconds: i64::try_from(milliseconds / 1_000).unwrap_or(i64::MAX),
-        nanos: i32::try_from((milliseconds % 1_000) * 1_000_000).unwrap_or(i32::MAX),
-    }
+    machine_core::time::timestamp(UNIX_EPOCH + Duration::from_millis(milliseconds))
 }
 #[cfg(target_os = "linux")]
 fn signal_group(pid: u32, signal: rustix::process::Signal) {
@@ -858,6 +911,18 @@ fn signal_group(pid: u32, signal: rustix::process::Signal) {
 }
 #[cfg(not(target_os = "linux"))]
 fn signal_group(_: u32, _: rustix::process::Signal) {}
+#[cfg(target_os = "linux")]
+fn is_group_empty(pid: u32) -> bool {
+    let Some(pid) = rustix::process::Pid::from_raw(pid.cast_signed()) else {
+        return false;
+    };
+    rustix::process::test_kill_process_group(pid)
+        .is_err_and(|error| error == rustix::io::Errno::SRCH)
+}
+#[cfg(not(target_os = "linux"))]
+fn is_group_empty(_: u32) -> bool {
+    false
+}
 #[cfg(target_os = "linux")]
 async fn wait_group_empty(pid: u32) -> bool {
     let Some(pid) = rustix::process::Pid::from_raw(pid.cast_signed()) else {
