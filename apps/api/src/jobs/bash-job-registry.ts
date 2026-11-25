@@ -6,8 +6,10 @@ import {
   BASH_BOUNDS,
   JobState,
   LostCause,
+  MachineProtocolError,
   OutputStream,
   JobService,
+  type CreateJobResponse,
   type Job,
   type ProcBashResult,
 } from '@workspace/machine-protocol';
@@ -27,6 +29,7 @@ import { RunWaitService } from '../runs/run-wait.service';
 import { reserveArtifactSeq } from '../tools/artifacts/artifact-writer';
 import { spillBashResult } from '../tools/bash-spill';
 import { type BashInput, type BashMachineTarget } from '../tools/bash-target';
+import { machineProtocolFailureResult } from '../tools/machine-call';
 import { type ToolContext, type ToolResult } from '../tools/types';
 import { ChatJobsRepository, type JobSettlement } from './chat-jobs.repository';
 import { settleBashJob } from './bash-job-store';
@@ -117,32 +120,45 @@ export class BashJobRegistry implements OnModuleInit {
         },
       }),
     );
-    const started = await client.createJob(
-      {
-        jobId: daemonJobId,
-        owner: context.userId,
-        command: input.command,
-        ...(machine.path !== undefined && { cwd: machine.path }),
-        ...(input.env !== undefined && { env: input.env }),
-        ...(lifetimeMs > 0 && {
-          timeout: { seconds: BigInt(lifetimeMs / 1000), nanos: 0 },
-        }),
-      },
-      callOptions({
-        envelope: {
-          toolCallId,
-          budgetMs: context.timeoutMs ?? 30_000,
-        },
-      }),
-    );
-    if (started.result.case === 'failure') {
-      await this.tenantDb.runAs(context.userId, (db) =>
+    const removeUnstartedRow = () =>
+      this.tenantDb.runAs(context.userId, (db) =>
         new ChatJobsRepository(db).deleteRunning(
           row.chatId,
           row.ownerUserId,
           row.id,
         ),
       );
+    let started: CreateJobResponse;
+    try {
+      started = await client.createJob(
+        {
+          jobId: daemonJobId,
+          owner: context.userId,
+          command: input.command,
+          ...(machine.path !== undefined && { cwd: machine.path }),
+          ...(input.env !== undefined && { env: input.env }),
+          ...(lifetimeMs > 0 && {
+            timeout: { seconds: BigInt(lifetimeMs / 1000), nanos: 0 },
+          }),
+        },
+        callOptions({
+          envelope: {
+            toolCallId,
+            budgetMs: context.timeoutMs ?? 30_000,
+          },
+        }),
+      );
+    } catch (error) {
+      if (
+        !(error instanceof MachineProtocolError) ||
+        error.code !== 'machine_job_limit'
+      )
+        throw error;
+      await removeUnstartedRow();
+      return machineProtocolFailureResult(machine.name, error);
+    }
+    if (started.result.case === 'failure') {
+      await removeUnstartedRow();
       return unavailable(started.result.value.message);
     }
     context.onHostCommandStarted?.();

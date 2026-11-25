@@ -190,6 +190,13 @@ export function machineProtocolFailureResult(
       message: BUDGET_EXHAUSTED_MESSAGE,
     };
 
+  if (error.code === 'machine_job_limit')
+    return {
+      status: 'error',
+      type: 'limit_reached',
+      message:
+        'The Machine has reached its running-job limit; a later call can succeed.',
+    };
   if (error.code === 'machine_update_required')
     return machineUnavailableResult(name, 'incompatible_version');
   if (error.code === 'invalid_argument')

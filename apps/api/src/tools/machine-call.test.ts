@@ -287,6 +287,20 @@ describe('machineProtocolFailureResult', () => {
     });
   });
 
+  it('maps a daemon job limit to a retryable model refusal', () => {
+    expect(
+      machineProtocolFailureResult(
+        'devl',
+        new MachineProtocolError('machine_job_limit', 'capacity reached'),
+      ),
+    ).toEqual({
+      status: 'error',
+      type: 'limit_reached',
+      message:
+        'The Machine has reached its running-job limit; a later call can succeed.',
+    });
+  });
+
   it('reports an incompatible version as an unavailable Machine', () => {
     expect(
       machineProtocolFailureResult(
