@@ -58,7 +58,10 @@ const MAX_EXCERPT_LINE_BYTES: usize = 200;
 
 /// Where `old` occurs in `text`, each with its lines and one line of context.
 fn ambiguous_text(text: &str, positions: &[usize], old_len: usize) -> AmbiguousText {
-    let lines: Vec<&str> = text.split('\n').collect();
+    let lines: Vec<&str> = text
+        .split('\n')
+        .map(|line| line.strip_suffix('\r').unwrap_or(line))
+        .collect();
     let line_of = |offset: usize| text[..offset].bytes().filter(|b| *b == b'\n').count();
     let occurrences = positions
         .iter()
@@ -71,11 +74,17 @@ fn ambiguous_text(text: &str, positions: &[usize], old_len: usize) -> AmbiguousT
             let excerpt = lines[start..=end]
                 .iter()
                 .map(|line| {
-                    let cut = line
+                    let end = line
                         .char_indices()
                         .map(|(i, _)| i)
-                        .find(|i| *i > MAX_EXCERPT_LINE_BYTES);
-                    cut.map_or_else(|| (*line).to_owned(), |i| line[..i].to_owned())
+                        .take_while(|i| *i <= MAX_EXCERPT_LINE_BYTES)
+                        .last()
+                        .unwrap_or(0);
+                    if line.len() <= MAX_EXCERPT_LINE_BYTES {
+                        (*line).to_owned()
+                    } else {
+                        line[..end].to_owned()
+                    }
                 })
                 .collect();
             Occurrence {
@@ -117,27 +126,39 @@ fn create_parents(context: &Context, parent: &Path) -> Result<(), Status> {
         .filter(|root| parent.starts_with(root))
         .max_by_key(|root| root.components().count())
         .ok_or_else(refusal::path_not_registered)?;
-    let mut current = root.clone();
-    for component in parent
+    parent
         .strip_prefix(root)
-        .map_err(|_| refusal::path_not_registered())?
-        .components()
-    {
-        current.push(component);
-        match fs::create_dir(&current) {
-            Ok(()) => {
-                guard.resolve(&current.to_string_lossy())?;
+        .map_err(|_| refusal::path_not_registered())?;
+    let mut missing = Vec::new();
+    let mut current = parent.to_path_buf();
+    loop {
+        match fs::metadata(&current) {
+            Ok(metadata) if metadata.is_dir() => break,
+            Ok(_) => {
+                return Err(refusal::invalid_argument(
+                    "A parent component is not a directory.",
+                ));
             }
-            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
-                let meta =
-                    fs::symlink_metadata(&current).map_err(|_| refusal::path_not_registered())?;
-                if !meta.is_dir() || meta.file_type().is_symlink() {
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                if current == *root {
                     return Err(refusal::path_not_registered());
                 }
-                guard.resolve(&current.to_string_lossy())?;
+                missing.push(current.clone());
+                current.pop();
             }
-            Err(error) => return Err(refusal::invalid_argument(error.to_string())),
+            Err(error) => return Err(refusal::internal(error.to_string())),
         }
+    }
+    guard.resolve(&current.to_string_lossy())?;
+    for directory in missing.into_iter().rev() {
+        fs::create_dir(&directory).map_err(|error| {
+            if error.kind() == io::ErrorKind::NotADirectory {
+                refusal::invalid_argument("A parent component is not a directory.")
+            } else {
+                refusal::internal(error.to_string())
+            }
+        })?;
+        guard.resolve(&directory.to_string_lossy())?;
     }
     Ok(())
 }

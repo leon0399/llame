@@ -141,7 +141,13 @@ fn run_search(
     entries.sort_by(|a, b| a.rel.as_bytes().cmp(b.rel.as_bytes()));
     let mut ignore_rules = Vec::new();
     if respect_ignore_files && kind == PathKind::Directory {
-        collect_ignores(&root, &root, &mut ignore_rules);
+        let registered_root = guard
+            .roots()
+            .iter()
+            .filter(|registered| root.starts_with(registered))
+            .max_by_key(|registered| registered.components().count())
+            .unwrap_or(&root);
+        collect_ignores(&root, registered_root, &mut ignore_rules);
     }
     let bounds = bounds.unwrap_or_default();
     let file_limit = bounds.files.unwrap_or(u32::MAX) as u64;
@@ -175,7 +181,7 @@ fn run_search(
             if entry.rel.is_empty() {
                 continue;
             }
-            if respect_ignore_files && ignored(&entry.rel, true, &ignore_rules) {
+            if respect_ignore_files && ignored(&entry.path, true, &ignore_rules) {
                 ignored_dirs.push(entry.rel.clone());
                 if !skip(&sender, &entry.rel, SkipReason::Ignored) {
                     return;
@@ -195,7 +201,7 @@ fn run_search(
             continue;
         }
         if respect_ignore_files
-            && (is_ignore_file(&entry.rel) || ignored(&entry.rel, false, &ignore_rules))
+            && (is_ignore_file(&entry.rel) || ignored(&entry.path, false, &ignore_rules))
         {
             if !skip(&sender, &entry.rel, SkipReason::Ignored) {
                 return;
@@ -228,7 +234,7 @@ fn run_search(
             }
             continue;
         }
-        if bytes.saturating_add(metadata.len()) > byte_limit {
+        if files > 0 && bytes.saturating_add(metadata.len()) > byte_limit {
             stop = SearchStop::Bytes;
             let line = after
                 .as_ref()
@@ -402,11 +408,11 @@ fn skip(
 
 fn collect(root: &Path, dir: &Path, entries: &mut Vec<Entry>) -> Result<(), Status> {
     let iter = fs::read_dir(dir).map_err(|_| Status::internal("directory could not be read"))?;
-    for item in iter {
-        let item = item.map_err(|_| Status::internal("directory could not be read"))?;
+    for item in iter.flatten() {
         let path = item.path();
-        let metadata = fs::symlink_metadata(&path)
-            .map_err(|_| Status::internal("directory could not be read"))?;
+        let Ok(metadata) = fs::symlink_metadata(&path) else {
+            continue;
+        };
         let is_link = metadata.file_type().is_symlink();
         let is_dir = metadata.is_dir() && !is_link;
         let rel = path
@@ -421,7 +427,7 @@ fn collect(root: &Path, dir: &Path, entries: &mut Vec<Entry>) -> Result<(), Stat
             is_link,
         });
         if is_dir && item.file_name() != ".git" {
-            collect(root, &path, entries)?;
+            let _ = collect(root, &path, entries);
         }
     }
     Ok(())
@@ -465,73 +471,72 @@ fn matching_spans(line: &str, patterns: &[Regex]) -> Vec<(usize, usize)> {
     spans
 }
 
-fn collect_ignores(root: &Path, dir: &Path, rules: &mut Vec<(String, bool, bool)>) {
-    let base = dir
-        .strip_prefix(root)
-        .unwrap_or(Path::new(""))
-        .to_string_lossy()
-        .replace('\\', "/");
-    for name in [".gitignore", ".ignore"] {
-        if let Ok(content) = fs::read_to_string(dir.join(name)) {
-            for line in content
-                .lines()
-                .map(str::trim)
-                .filter(|line| !line.is_empty() && !line.starts_with('#'))
-            {
-                let negated = line.starts_with('!');
-                let rule = line
-                    .trim_start_matches('!')
-                    .trim_start_matches('/')
-                    .trim_end_matches('/');
-                rules.push((
-                    if base.is_empty() {
-                        rule.to_owned()
-                    } else {
-                        format!("{base}/{rule}")
-                    },
-                    negated,
-                    line.ends_with('/'),
-                ));
-            }
+fn collect_ignores(
+    root: &Path,
+    registered_root: &Path,
+    rules: &mut Vec<(PathBuf, ignore::gitignore::Gitignore)>,
+) {
+    let mut ancestors = Vec::new();
+    let mut dir = root.to_path_buf();
+    while dir.starts_with(registered_root) {
+        ancestors.push(dir.clone());
+        if dir == registered_root {
+            break;
+        }
+        if !dir.pop() {
+            break;
         }
     }
-    if let Ok(items) = fs::read_dir(dir) {
-        for item in items.flatten() {
-            let path = item.path();
-            if fs::symlink_metadata(&path)
-                .is_ok_and(|meta| meta.is_dir() && !meta.file_type().is_symlink())
-            {
-                collect_ignores(root, &path, rules);
-            }
+    for dir in ancestors.into_iter().rev() {
+        add_ignore_files(&dir, rules);
+    }
+    collect_nested_ignores(root, rules);
+}
+
+fn add_ignore_files(dir: &Path, rules: &mut Vec<(PathBuf, ignore::gitignore::Gitignore)>) {
+    for name in [".gitignore", ".ignore"] {
+        let file = dir.join(name);
+        if !file.is_file() {
+            continue;
+        }
+        let mut builder = ignore::gitignore::GitignoreBuilder::new(dir);
+        if builder.add(&file).is_none()
+            && let Ok(matcher) = builder.build()
+        {
+            rules.push((dir.to_path_buf(), matcher));
         }
     }
 }
 
-fn ignored(path: &str, is_dir: bool, rules: &[(String, bool, bool)]) -> bool {
-    let mut ignored = false;
-    for (rule, negated, dir_only) in rules {
-        let mut prefix = String::new();
-        let mut inherited = false;
-        let mut parts = path.split('/').peekable();
-        while let Some(part) = parts.next() {
-            if !prefix.is_empty() {
-                prefix.push('/');
-            }
-            prefix.push_str(part);
-            if parts.peek().is_some() && glob_for_rule(rule, &prefix) {
-                inherited = true;
-            }
+fn collect_nested_ignores(dir: &Path, rules: &mut Vec<(PathBuf, ignore::gitignore::Gitignore)>) {
+    let Ok(items) = fs::read_dir(dir) else {
+        return;
+    };
+    for item in items.flatten() {
+        let path = item.path();
+        if path.file_name().is_some_and(|name| name == ".git") {
+            continue;
         }
-        if inherited || (glob_for_rule(rule, path) && (!dir_only || is_dir)) {
-            ignored = !negated;
+        if fs::symlink_metadata(&path)
+            .is_ok_and(|metadata| metadata.is_dir() && !metadata.file_type().is_symlink())
+        {
+            add_ignore_files(&path, rules);
+            collect_nested_ignores(&path, rules);
+        }
+    }
+}
+
+fn ignored(path: &Path, is_dir: bool, rules: &[(PathBuf, ignore::gitignore::Gitignore)]) -> bool {
+    let mut ignored = false;
+    for (_, matcher) in rules {
+        let matched = matcher.matched(path, is_dir);
+        if matched.is_ignore() {
+            ignored = true;
+        } else if matched.is_whitelist() {
+            ignored = false;
         }
     }
     ignored
-}
-
-fn glob_for_rule(rule: &str, path: &str) -> bool {
-    let pattern = rule.replace('.', "\\.");
-    Regex::new(&format!("^{}$", pattern.replace('*', ".*"))).is_ok_and(|regex| regex.is_match(path))
 }
 
 fn is_ignore_file(path: &str) -> bool {

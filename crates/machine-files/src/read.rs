@@ -288,7 +288,7 @@ pub async fn read_bytes(
         }
     };
     let size = metadata.len();
-    context.guard().verify_unchanged(&guarded)?;
+    let verify_guard = context.guard();
     tokio::spawn(async move {
         if sender
             .send(Ok(ReadBytesResponse {
@@ -299,8 +299,19 @@ pub async fn read_bytes(
         {
             return;
         }
-        let Ok(mut file) = fs::File::open(&guarded.canonical) else {
-            return;
+        let mut file = match fs::File::open(&guarded.canonical) {
+            Ok(file) => file,
+            Err(error) => {
+                let _ = sender
+                    .send(Ok(ReadBytesResponse {
+                        result: Some(read_bytes_response::Result::Failure(failure(
+                            FileFailureReason::Io,
+                            error.to_string(),
+                        ))),
+                    }))
+                    .await;
+                return;
+            }
         };
         let start = offset.min(size);
         let end = if limit == 0 {
@@ -308,18 +319,45 @@ pub async fn read_bytes(
         } else {
             size.min(start.saturating_add(limit))
         };
-        if file.seek(SeekFrom::Start(start)).is_err() {
+        if let Err(error) = file.seek(SeekFrom::Start(start)) {
+            let _ = sender
+                .send(Ok(ReadBytesResponse {
+                    result: Some(read_bytes_response::Result::Failure(failure(
+                        FileFailureReason::Io,
+                        error.to_string(),
+                    ))),
+                }))
+                .await;
             return;
         }
         let mut remaining = end - start;
         while remaining > 0 {
             let mut buffer = vec![0; BYTE_CHUNK.min(remaining as usize)];
-            let Ok(read) = file.read(&mut buffer) else {
-                return;
+            let read = match file.read(&mut buffer) {
+                Ok(0) => {
+                    let _ = sender
+                        .send(Ok(ReadBytesResponse {
+                            result: Some(read_bytes_response::Result::Failure(failure(
+                                FileFailureReason::OutcomeUnknown,
+                                "The file changed while it was being read.",
+                            ))),
+                        }))
+                        .await;
+                    return;
+                }
+                Ok(read) => read,
+                Err(error) => {
+                    let _ = sender
+                        .send(Ok(ReadBytesResponse {
+                            result: Some(read_bytes_response::Result::Failure(failure(
+                                FileFailureReason::Io,
+                                error.to_string(),
+                            ))),
+                        }))
+                        .await;
+                    return;
+                }
             };
-            if read == 0 {
-                return;
-            }
             buffer.truncate(read);
             remaining -= read as u64;
             if sender
@@ -331,6 +369,9 @@ pub async fn read_bytes(
             {
                 return;
             }
+        }
+        if let Err(status) = verify_guard.verify_unchanged(&guarded) {
+            let _ = sender.send(Err(status)).await;
         }
     });
     Ok(tokio_stream::wrappers::ReceiverStream::new(receiver))

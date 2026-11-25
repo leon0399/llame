@@ -51,6 +51,7 @@ hex = "0.4"
 rand = "0.9"
 regex = "1"
 tempfile = "3"
+ignore = "0.4"
 
 [workspace.lints.rust]
 unsafe_code = "deny"
