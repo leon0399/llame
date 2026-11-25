@@ -118,47 +118,71 @@ fn line_count(bytes: &[u8]) -> u32 {
     (breaks + usize::from(bytes.last() != Some(&b'\n'))) as u32
 }
 
-fn create_parents(context: &Context, parent: &Path) -> Result<(), Status> {
+fn create_parents(context: &Context, parent: &Path) -> Result<(), FileFailure> {
     let guard = context.guard();
-    let root = guard
+    let Some(root) = guard
         .roots()
         .iter()
         .filter(|root| parent.starts_with(root))
         .max_by_key(|root| root.components().count())
-        .ok_or_else(refusal::path_not_registered)?;
-    parent
-        .strip_prefix(root)
-        .map_err(|_| refusal::path_not_registered())?;
+    else {
+        return Err(failure(
+            FileFailureReason::Io,
+            "The parent directory is outside registered roots.",
+            None,
+        ));
+    };
+    parent.strip_prefix(root).map_err(|_| {
+        failure(
+            FileFailureReason::Io,
+            "The parent directory is outside registered roots.",
+            None,
+        )
+    })?;
     let mut missing = Vec::new();
     let mut current = parent.to_path_buf();
     loop {
         match fs::metadata(&current) {
             Ok(metadata) if metadata.is_dir() => break,
             Ok(_) => {
-                return Err(refusal::invalid_argument(
+                return Err(failure(
+                    FileFailureReason::WrongKind,
                     "A parent component is not a directory.",
+                    None,
                 ));
             }
             Err(error) if error.kind() == io::ErrorKind::NotFound => {
                 if current == *root {
-                    return Err(refusal::path_not_registered());
+                    return Err(failure(
+                        FileFailureReason::NotFound,
+                        "The parent directory does not exist.",
+                        None,
+                    ));
                 }
                 missing.push(current.clone());
                 current.pop();
             }
-            Err(error) => return Err(refusal::internal(error.to_string())),
+            Err(error) => return Err(failure(FileFailureReason::Io, error.to_string(), None)),
         }
     }
-    guard.resolve(&current.to_string_lossy())?;
+    guard
+        .resolve(&current.to_string_lossy())
+        .map_err(|error| failure(FileFailureReason::Io, error.message(), None))?;
     for directory in missing.into_iter().rev() {
         fs::create_dir(&directory).map_err(|error| {
             if error.kind() == io::ErrorKind::NotADirectory {
-                refusal::invalid_argument("A parent component is not a directory.")
+                failure(
+                    FileFailureReason::WrongKind,
+                    "A parent component is not a directory.",
+                    None,
+                )
             } else {
-                refusal::internal(error.to_string())
+                failure(FileFailureReason::Io, error.to_string(), None)
             }
         })?;
-        guard.resolve(&directory.to_string_lossy())?;
+        guard
+            .resolve(&directory.to_string_lossy())
+            .map_err(|error| failure(FileFailureReason::Io, error.message(), None))?;
     }
     Ok(())
 }
@@ -225,7 +249,11 @@ pub async fn write(
     if request.create_parents
         && let Some(parent) = target.parent()
     {
-        create_parents(context, parent)?;
+        if let Err(failure) = create_parents(context, parent) {
+            return Ok(WriteFileResponse {
+                result: Some(write_file_response::Result::Failure(failure)),
+            });
+        }
     }
     let exists = match fs::symlink_metadata(target) {
         Ok(_) => true,

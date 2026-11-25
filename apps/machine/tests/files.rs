@@ -293,3 +293,59 @@ async fn refuses_parent_traversal_and_links_outside_roots() {
 
 use std::os::unix::fs::MetadataExt;
 use std::os::unix::fs::PermissionsExt;
+
+#[tokio::test]
+async fn create_parents_reports_wrong_kind_for_a_file_component() {
+    let machine = common::Machine::new();
+    let root = machine.root();
+    std::fs::write(root.join("not-a-directory"), "file").unwrap();
+    let (_child, channel) = machine.attach().await;
+    let mut client = FileServiceClient::new(channel);
+    let response = client
+        .write_file(WriteFileRequest {
+            request_id: "wrong-parent-kind".into(),
+            path: root
+                .join("not-a-directory/child.txt")
+                .to_string_lossy()
+                .into_owned(),
+            content: b"content".to_vec(),
+            mode: WriteMode::Create as i32,
+            create_parents: true,
+        })
+        .await
+        .unwrap()
+        .into_inner();
+    assert!(matches!(
+        response.result,
+        Some(write_file_response::Result::Failure(failure))
+            if failure.reason == FileFailureReason::WrongKind as i32
+    ));
+}
+
+#[tokio::test]
+async fn create_parents_reports_filesystem_errors_as_io_failures() {
+    let machine = common::Machine::new();
+    let root = machine.root();
+    std::os::unix::fs::symlink(root.join("missing-target"), root.join("broken-parent")).unwrap();
+    let (_child, channel) = machine.attach().await;
+    let mut client = FileServiceClient::new(channel);
+    let response = client
+        .write_file(WriteFileRequest {
+            request_id: "parent-create-io".into(),
+            path: root
+                .join("broken-parent/child.txt")
+                .to_string_lossy()
+                .into_owned(),
+            content: b"content".to_vec(),
+            mode: WriteMode::Create as i32,
+            create_parents: true,
+        })
+        .await
+        .unwrap()
+        .into_inner();
+    assert!(matches!(
+        response.result,
+        Some(write_file_response::Result::Failure(failure))
+            if failure.reason == FileFailureReason::Io as i32
+    ));
+}

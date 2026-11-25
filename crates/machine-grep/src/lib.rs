@@ -8,8 +8,9 @@ use std::{
 
 use machine_core::{Context, PathKind, refusal};
 use machine_protocol::v1::{
-    Line, Match, SearchEnd, SearchFilesRequest, SearchFilesResponse, SearchPosition, SearchStop,
-    SkipReason, Skipped, search_files_response::Event,
+    FileFailure, FileFailureReason, Line, Match, SearchEnd, SearchFilesRequest,
+    SearchFilesResponse, SearchPosition, SearchStop, SkipReason, Skipped,
+    search_files_response::Event,
 };
 use regex::{Regex, RegexBuilder};
 use tonic::{Request, Status};
@@ -46,10 +47,21 @@ pub async fn search(
     let request = request.into_inner();
     let guard = context.guard();
     let guarded = guard.resolve(&request.path)?;
-    if !matches!(guarded.kind, PathKind::File | PathKind::Directory) {
-        return Err(refusal::invalid_argument(
-            "search target must be a file or directory",
-        ));
+    if guarded.kind == PathKind::Missing || guarded.kind == PathKind::Other {
+        let reason = if guarded.kind == PathKind::Missing {
+            FileFailureReason::NotFound
+        } else {
+            FileFailureReason::WrongKind
+        };
+        let (sender, receiver) = tokio::sync::mpsc::channel(1);
+        let _ = sender.try_send(Ok(SearchFilesResponse {
+            event: Some(Event::Failure(FileFailure {
+                reason: reason as i32,
+                message: "The search path is missing or has the wrong kind.".to_owned(),
+                details: None,
+            })),
+        }));
+        return Ok(tokio_stream::wrappers::ReceiverStream::new(receiver));
     }
     if request.patterns.is_empty() || request.patterns.len() > MAX_PATTERNS {
         return Err(refusal::invalid_argument(
@@ -126,19 +138,6 @@ fn run_search(
     deadline: Option<Instant>,
     sender: tokio::sync::mpsc::Sender<Result<SearchFilesResponse, Status>>,
 ) {
-    let mut entries = Vec::new();
-    if kind == PathKind::File {
-        entries.push(Entry {
-            rel: String::new(),
-            path: root.clone(),
-            is_dir: false,
-            is_link: false,
-        });
-    } else if let Err(status) = collect(&root, &root, &mut entries) {
-        let _ = sender.blocking_send(Err(status));
-        return;
-    }
-    entries.sort_by(|a, b| a.rel.as_bytes().cmp(b.rel.as_bytes()));
     let mut ignore_rules = Vec::new();
     if respect_ignore_files && kind == PathKind::Directory {
         let registered_root = guard
@@ -149,6 +148,17 @@ fn run_search(
             .unwrap_or(&root);
         collect_ignores(&root, registered_root, &mut ignore_rules);
     }
+    let mut walker = if kind == PathKind::File {
+        Walker::file(root.clone())
+    } else {
+        match Walker::directory(&root, &root) {
+            Ok(walker) => walker,
+            Err(status) => {
+                let _ = sender.blocking_send(Err(status));
+                return;
+            }
+        }
+    };
     let bounds = bounds.unwrap_or_default();
     let file_limit = bounds.files.unwrap_or(u32::MAX) as u64;
     let byte_limit = bounds.bytes.unwrap_or(u64::MAX);
@@ -158,8 +168,7 @@ fn run_search(
     let mut stop = SearchStop::Complete;
     let mut position = None;
     let mut last_match_position = None;
-    let mut ignored_dirs: Vec<String> = Vec::new();
-    'walk: for entry in entries {
+    'walk: while let Some(entry) = walker.next() {
         if sender.is_closed() {
             return;
         }
@@ -171,22 +180,17 @@ fn run_search(
             }));
             break;
         }
-        if ignored_dirs
-            .iter()
-            .any(|directory| entry.rel.starts_with(&format!("{directory}/")))
-        {
-            continue;
-        }
         if entry.is_dir {
-            if entry.rel.is_empty() {
-                continue;
-            }
             if respect_ignore_files && ignored(&entry.path, true, &ignore_rules) {
-                ignored_dirs.push(entry.rel.clone());
                 if !skip(&sender, &entry.rel, SkipReason::Ignored) {
                     return;
                 }
+                continue;
             }
+            if respect_ignore_files {
+                add_ignore_files(&entry.path, &mut ignore_rules);
+            }
+            walker.descend(&entry);
             continue;
         }
         if let Some(after) = &after
@@ -406,31 +410,74 @@ fn skip(
     )
 }
 
-fn collect(root: &Path, dir: &Path, entries: &mut Vec<Entry>) -> Result<(), Status> {
-    let iter = fs::read_dir(dir).map_err(|_| Status::internal("directory could not be read"))?;
-    for item in iter.flatten() {
-        let path = item.path();
-        let Ok(metadata) = fs::symlink_metadata(&path) else {
-            continue;
-        };
-        let is_link = metadata.file_type().is_symlink();
-        let is_dir = metadata.is_dir() && !is_link;
-        let rel = path
-            .strip_prefix(root)
-            .map_err(|_| Status::internal("walk escaped search root"))?
-            .to_string_lossy()
-            .replace('\\', "/");
-        entries.push(Entry {
-            rel,
-            path: path.clone(),
-            is_dir,
-            is_link,
-        });
-        if is_dir && item.file_name() != ".git" {
-            let _ = collect(root, &path, entries);
+struct Walker {
+    root: PathBuf,
+    pending: Vec<Entry>,
+}
+
+impl Walker {
+    fn file(path: PathBuf) -> Self {
+        Self {
+            root: path.clone(),
+            pending: vec![Entry {
+                rel: String::new(),
+                path,
+                is_dir: false,
+                is_link: false,
+            }],
         }
     }
-    Ok(())
+
+    fn directory(root: &Path, dir: &Path) -> Result<Self, Status> {
+        let mut walker = Self {
+            root: root.to_path_buf(),
+            pending: Vec::new(),
+        };
+        walker.push_children(dir, true)?;
+        Ok(walker)
+    }
+
+    fn next(&mut self) -> Option<Entry> {
+        self.pending.pop()
+    }
+
+    fn descend(&mut self, entry: &Entry) {
+        let _ = self.push_children(&entry.path, false);
+    }
+
+    fn push_children(&mut self, dir: &Path, required: bool) -> Result<(), Status> {
+        let iter = match fs::read_dir(dir) {
+            Ok(iter) => iter,
+            Err(_) if !required => return Ok(()),
+            Err(_) => return Err(Status::internal("directory could not be read")),
+        };
+        let mut entries = Vec::new();
+        for item in iter.flatten() {
+            let path = item.path();
+            if path.file_name().is_some_and(|name| name == ".git") {
+                continue;
+            }
+            let Ok(metadata) = fs::symlink_metadata(&path) else {
+                continue;
+            };
+            let is_link = metadata.file_type().is_symlink();
+            let is_dir = metadata.is_dir() && !is_link;
+            let rel = path
+                .strip_prefix(&self.root)
+                .map_err(|_| Status::internal("walk escaped search root"))?
+                .to_string_lossy()
+                .replace('\\', "/");
+            entries.push(Entry {
+                rel,
+                path,
+                is_dir,
+                is_link,
+            });
+        }
+        entries.sort_by(|left, right| left.rel.as_bytes().cmp(right.rel.as_bytes()));
+        self.pending.extend(entries.into_iter().rev());
+        Ok(())
+    }
 }
 
 fn compile_glob(pattern: &str) -> Result<Option<Regex>, Status> {
@@ -490,7 +537,6 @@ fn collect_ignores(
     for dir in ancestors.into_iter().rev() {
         add_ignore_files(&dir, rules);
     }
-    collect_nested_ignores(root, rules);
 }
 
 fn add_ignore_files(dir: &Path, rules: &mut Vec<(PathBuf, ignore::gitignore::Gitignore)>) {
@@ -504,24 +550,6 @@ fn add_ignore_files(dir: &Path, rules: &mut Vec<(PathBuf, ignore::gitignore::Git
             && let Ok(matcher) = builder.build()
         {
             rules.push((dir.to_path_buf(), matcher));
-        }
-    }
-}
-
-fn collect_nested_ignores(dir: &Path, rules: &mut Vec<(PathBuf, ignore::gitignore::Gitignore)>) {
-    let Ok(items) = fs::read_dir(dir) else {
-        return;
-    };
-    for item in items.flatten() {
-        let path = item.path();
-        if path.file_name().is_some_and(|name| name == ".git") {
-            continue;
-        }
-        if fs::symlink_metadata(&path)
-            .is_ok_and(|metadata| metadata.is_dir() && !metadata.file_type().is_symlink())
-        {
-            add_ignore_files(&path, rules);
-            collect_nested_ignores(&path, rules);
         }
     }
 }

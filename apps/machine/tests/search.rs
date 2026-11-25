@@ -191,3 +191,63 @@ async fn search_streams_matches_skips_and_resumes_with_guards() {
     );
     child.kill().await.unwrap();
 }
+
+#[tokio::test]
+async fn missing_and_wrong_kind_search_paths_are_stream_failures() {
+    let machine = common::Machine::new();
+    let root = machine.root();
+    let wrong_kind = root.join("socket");
+    let _listener = std::os::unix::net::UnixListener::bind(&wrong_kind).unwrap();
+    let (mut child, channel) = machine.attach().await;
+    let mut client = FileServiceClient::new(channel);
+
+    for (path, expected) in [
+        (
+            root.join("missing"),
+            machine_protocol::v1::FileFailureReason::NotFound,
+        ),
+        (
+            wrong_kind,
+            machine_protocol::v1::FileFailureReason::WrongKind,
+        ),
+    ] {
+        let mut stream = client
+            .search_files(request(&path, &["needle"]))
+            .await
+            .unwrap()
+            .into_inner();
+        let response = stream.message().await.unwrap().unwrap();
+        assert!(matches!(
+            response.event,
+            Some(Event::Failure(failure)) if failure.reason == expected as i32
+        ));
+        assert!(stream.message().await.unwrap().is_none());
+    }
+    child.kill().await.unwrap();
+}
+
+#[tokio::test]
+async fn ignored_directory_is_not_walked() {
+    let machine = common::Machine::new();
+    let root = machine.root();
+    let ignored = root.join("ignored");
+    std::fs::create_dir_all(&ignored).unwrap();
+    std::fs::write(root.join(".gitignore"), "ignored/\n").unwrap();
+    for index in 0..2000 {
+        std::fs::write(ignored.join(format!("{index:04}.txt")), "needle").unwrap();
+    }
+    let (_child, channel) = machine.attach().await;
+    let mut client = FileServiceClient::new(channel);
+    let mut req = request(root, &["needle"]);
+    req.respect_ignore_files = true;
+    let mut stream = client.search_files(req).await.unwrap().into_inner();
+    let mut skipped = false;
+    while let Some(response) = stream.message().await.unwrap() {
+        if let Some(Event::Skipped(event)) = response.event
+            && event.path == "ignored"
+        {
+            skipped = true;
+        }
+    }
+    assert!(skipped);
+}
