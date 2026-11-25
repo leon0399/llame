@@ -85,12 +85,7 @@
       "project": ["src/**/*.ts"]
     },
     "packages/machine-protocol": {
-      "entry": [
-        "src/index.ts",
-        "src/**/*.test.ts",
-        "src/generated/**/*.ts",
-        "src/protocol-version.ts"
-      ],
+      "entry": ["src/index.ts", "src/**/*.test.ts", "src/generated/**/*.ts"],
       "project": ["src/**/*.ts"],
       "ignoreDependencies": ["@bufbuild/protoc-gen-es"]
     },
