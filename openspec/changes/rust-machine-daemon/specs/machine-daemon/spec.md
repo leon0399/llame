@@ -44,8 +44,9 @@ The answer MUST carry the persistent instance id, the release version, the
 build id, the main-service protocol version, the kernel boot id, the daemon
 start time, static facts, and capabilities as open name and version strings.
 The static facts MUST be the OS, the architecture, the kernel release, the CPU
-count, and the memory size. The installation MUST record the facts at each
-successful handshake. `llame-machine info` MUST print the instance id, the
+count, and the memory size. At each successful handshake the installation MUST
+record those facts, their capture time, and the total disk of each registered
+root that `MachineService.ListRoots` reports. `llame-machine info` MUST print the instance id, the
 release version, the build id, and the protocol version, and
 `llame-machine --version` MUST print the release version. During alpha the
 capabilities are informational: the exact protocol-version match decides what
@@ -57,7 +58,7 @@ exception.
 #### Scenario: Facts refresh at each handshake
 
 - **WHEN** the operator adds memory to `devl` and the installation connects again
-- **THEN** the Machines list shows the new memory size
+- **THEN** the Machines list shows the new memory size, each root's total disk, and the time of that handshake
 
 #### Scenario: An outdated daemon stays identifiable
 

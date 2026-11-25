@@ -47,7 +47,7 @@ answers a git method with UNIMPLEMENTED MUST fail as
 
 #### Scenario: An outdated daemon fails
 
-- **WHEN** the Machine daemon reports another protocol version
+- **WHEN** the Machine daemon reports another protocol version or answers a git method with UNIMPLEMENTED
 - **THEN** the call returns `machine_update_required`
 - **AND** no git call runs, and the bound root and its generation are
   unchanged

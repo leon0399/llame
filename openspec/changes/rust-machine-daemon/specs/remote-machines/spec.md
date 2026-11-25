@@ -29,7 +29,7 @@ reported Unix socket directly for the host or through an SSH socket forward.
 ### Requirement: The handshake reports the static facts of a Machine
 
 **Reason**: Static facts come from the bootstrap service.
-**Migration**: See `machine-daemon` "The bootstrap service never breaks", which lists the facts and the identity output. The handshake no longer carries per-root disk space; `MachineService.ListRoots` reports it.
+**Migration**: See `machine-daemon` "The bootstrap service never breaks", which lists the facts and the identity output. Per-root total disk comes from `MachineService.ListRoots` at the same handshake.
 
 ### Requirement: Bash runs on a Machine through its working directory
 

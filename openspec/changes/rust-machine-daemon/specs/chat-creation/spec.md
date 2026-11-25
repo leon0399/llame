@@ -33,6 +33,6 @@ protocol version or answers a git method with UNIMPLEMENTED MUST answer
 
 #### Scenario: An outdated daemon refuses the start
 
-- **WHEN** the Machine daemon reports another protocol version
+- **WHEN** the Machine daemon reports another protocol version or answers a git method with UNIMPLEMENTED
 - **THEN** the response is 201 with `workspace.status` `machine_update_required`
 - **AND** no git request is sent and the message is not stored
