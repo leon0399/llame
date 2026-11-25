@@ -26,6 +26,7 @@ import type { MachineSessionEnd } from '../machines/machine-session';
 import { MachineConnector } from '../machines/machine-connector.service';
 import { MachineUnavailableError } from '../machines/machine-session-errors';
 import { BashJobRegistry } from './bash-job-registry';
+import { readBashJobResult } from './bash-job-registry-result';
 import { ChatJobsRepository } from './chat-jobs.repository';
 import type { Db } from '../db/tenant-db.service';
 import { NativeFilesRepository } from '../runs/native-files-repository';
@@ -134,13 +135,14 @@ describe('BashJobRegistry result retention', () => {
 
     const client = createClient(JobService, rpc);
 
-    const result = await registry()['readResult'](
+    const result = await readBashJobResult({
+      config: { config: BUILT_IN_DEFAULTS },
       client,
-      () => ({}),
+      callOptions: () => ({}),
       row,
-      lostJob(),
-      [],
-    );
+      job: lostJob(),
+      credentials: [],
+    });
 
     expect(result.output).toMatchObject({ stdout: 'retained', stderr: '' });
     expect(result.result).toMatchObject({ type: 'outcome_unknown' });
@@ -170,13 +172,14 @@ describe('BashJobRegistry result retention', () => {
       exitCode: 0,
     });
 
-    const result = await registry()['readResult'](
+    const result = await readBashJobResult({
+      config: { config: BUILT_IN_DEFAULTS },
       client,
-      () => ({}),
+      callOptions: () => ({}),
       row,
-      succeeded,
-      [],
-    );
+      job: succeeded,
+      credentials: [],
+    });
 
     expect(result.output).toBeNull();
     expect(result.result).toMatchObject({
@@ -199,7 +202,14 @@ describe('BashJobRegistry result retention', () => {
     const client = createClient(JobService, rpc);
 
     await expect(
-      registry()['readResult'](client, () => ({}), row, lostJob(), []),
+      readBashJobResult({
+        config: { config: BUILT_IN_DEFAULTS },
+        client,
+        callOptions: () => ({}),
+        row,
+        job: lostJob(),
+        credentials: [],
+      }),
     ).rejects.toThrow('connection reset');
   });
 
@@ -271,13 +281,22 @@ describe('BashJobRegistry result retention', () => {
 
     const client = createClient(JobService, rpc);
 
-    const result = await registry(maxBytes)['readResult'](
+    const result = await readBashJobResult({
+      config: {
+        config: {
+          ...BUILT_IN_DEFAULTS,
+          tools: {
+            ...BUILT_IN_DEFAULTS.tools,
+            artifacts: { maxBytes },
+          },
+        },
+      },
       client,
-      () => ({}),
+      callOptions: () => ({}),
       row,
-      lostJob(),
-      ['secret-token'],
-    );
+      job: lostJob(),
+      credentials: ['secret-token'],
+    });
 
     expect(readLimits).toEqual([BigInt(maxBytes)]);
     expect(result.output?.truncated).toBe(true);
@@ -321,6 +340,12 @@ describe('BashJobRegistry result retention', () => {
         Promise.resolve(callback(drizzle.mock())),
     };
 
+    const recovery = vi
+      .spyOn(NativeFilesRepository.prototype, 'recoverHostPromotion')
+      .mockImplementation(({ result }) =>
+        Promise.resolve({ disposition: 'recovery_won', result }),
+      );
+
     const result = await registry(
       BUILT_IN_DEFAULTS.tools.artifacts.maxBytes,
       machines,
@@ -350,6 +375,7 @@ describe('BashJobRegistry result retention', () => {
       row.ownerUserId,
       row.id,
     );
+    expect(recovery).toHaveBeenCalled();
   });
 
   it('keeps the running row when createJob has a transport failure', async () => {
