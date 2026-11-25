@@ -31,8 +31,14 @@ export function prepareToolExecution(
 function prepareDaemonJobExecution(
   context: ToolContext,
 ): PreparedToolExecution {
-  const signal = context.abortSignal ?? new AbortController().signal;
-  const composedSignal = context.abortSignal ?? signal;
+  const fallbackSignal = new AbortController().signal;
+
+  const composedSignal =
+    context.abortSignal === undefined
+      ? (context.yieldSignal ?? fallbackSignal)
+      : context.yieldSignal === undefined
+        ? context.abortSignal
+        : AbortSignal.any([context.abortSignal, context.yieldSignal]);
 
   return {
     context: {
@@ -41,7 +47,7 @@ function prepareDaemonJobExecution(
       timeoutSignal: undefined,
       timeoutMs: undefined,
     },
-    timeoutSignal: signal,
+    timeoutSignal: fallbackSignal,
     composedSignal,
   };
 }

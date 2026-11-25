@@ -387,6 +387,7 @@ describe('buildWaitResult', () => {
       settledAt: new Date(startedAt.getTime() + 2500),
       outputs: ['stdout'],
       artifactId: 'artifact-id',
+      artifactReadable: true,
     };
 
     const readPartTail = vi
@@ -439,7 +440,6 @@ describe('buildWaitResult', () => {
       settledAt: startedAt,
     };
 
-
     const result = await buildWaitResult(
       TX,
       { chatId: 'chat-id', userId: 'owner-id' },
@@ -478,6 +478,7 @@ describe('buildWaitResult', () => {
       settledAt: startedAt,
       outputs: ['stdout'],
       artifactId: 'artifact-id',
+      artifactReadable: true,
     };
 
     const readPartTail = vi
@@ -503,6 +504,7 @@ describe('buildWaitResult', () => {
       result: { exitCode: null, signal: null, outcomeUnknown: false },
       outputs: ['stdout'],
       artifactId: 'artifact-id',
+      artifactReadable: true,
     };
 
     vi.spyOn(ArtifactsRepository.prototype, 'readPartTail').mockResolvedValue(
