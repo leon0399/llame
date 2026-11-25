@@ -202,6 +202,53 @@ async fn cancel_kills_process_group_and_timeout_expires() {
     assert_eq!(timed.state, JobState::TimedOut as i32);
 }
 
+#[cfg(target_os = "linux")]
+#[tokio::test]
+async fn timeout_is_lost_when_a_live_parent_keeps_a_group_member_unreaped() {
+    let machine = common::Machine::new();
+    let (_daemon, channel) = machine.attach().await;
+    let mut client = JobServiceClient::new(channel);
+    let id = "4123456789abcdef0123456789abcdef";
+    let command = r#"python3 -c 'import os,time
+child=os.fork()
+if child == 0:
+    while True: time.sleep(1)
+os.setsid()
+open("timeout-helper.pid", "w").write(str(os.getpid()))
+os.close(1)
+os.close(2)
+time.sleep(30)
+os.waitpid(child, 0)' & wait"#;
+    let mut timed = request(id, command);
+    timed.timeout = Some(Default::default());
+    timed.timeout.as_mut().unwrap().seconds = 1;
+    client.create_job(timed).await.unwrap();
+
+    let timed = wait_settled(&mut client, id).await;
+    let helper_pid = std::fs::read_to_string(machine.root().join("timeout-helper.pid"))
+        .unwrap()
+        .trim()
+        .parse::<u32>()
+        .unwrap();
+    let helper_pid = rustix::process::Pid::from_raw(helper_pid.cast_signed()).unwrap();
+    let job: serde_json::Value = serde_json::from_slice(
+        &std::fs::read(machine.state_dir().join("jobs").join(id).join("job.json")).unwrap(),
+    )
+    .unwrap();
+    let pid = job["pid"].as_u64().unwrap() as u32;
+    let pid = rustix::process::Pid::from_raw(pid.cast_signed()).unwrap();
+    let group_empty = rustix::process::test_kill_process_group(pid)
+        .is_err_and(|error| error == rustix::io::Errno::SRCH);
+    let _ = rustix::process::kill_process(helper_pid, rustix::process::Signal::KILL);
+
+    assert!(
+        !group_empty,
+        "fixture did not retain a process-group member"
+    );
+    assert_eq!(timed.state, JobState::Lost as i32);
+    assert_eq!(timed.lost_cause, LostCause::CancelUnproved as i32);
+}
+
 #[tokio::test]
 async fn enforces_limit_and_truncates_each_output_stream_independently() {
     let machine = common::Machine::new();
