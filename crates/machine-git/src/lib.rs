@@ -1259,23 +1259,15 @@ impl GitService for Git {
         }
         let guard = self.context.guard();
         let path = guard.resolve(&input.path)?;
-        let Some(entry) = nearest_git(&path.canonical, guard.roots()) else {
-            return Ok(Response::new(DeleteWorktreeResponse {
-                result: Some(DeleteResult::Failure(failure(
-                    GitFailureReason::NotARepository,
-                    "",
-                ))),
-            }));
-        };
-        if let Err(error) = checked_git_data(&entry, guard.roots()) {
-            return Ok(Response::new(DeleteWorktreeResponse {
-                result: Some(DeleteResult::Failure(error)),
-            }));
-        }
+        let roots = guard.roots().to_vec();
         let p = path.canonical.clone();
         let result = self
             .delete_cache
             .run(&input.request_id, || async move {
+                let Some(entry) = nearest_git(&p, &roots) else {
+                    return Err(failure(GitFailureReason::NotARepository, ""));
+                };
+                checked_git_data(&entry, &roots)?;
                 let value = p.to_string_lossy().into_owned();
                 let out = run(
                     &p,

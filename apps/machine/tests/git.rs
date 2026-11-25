@@ -419,6 +419,18 @@ async fn worktree_create_list_delete_and_invalid_branch() {
         response.result,
         Some(delete_worktree_response::Result::Deleted(_))
     ));
+    let replay = client
+        .delete_worktree(DeleteWorktreeRequest {
+            request_id: "delete-1".into(),
+            path: absolute(&path),
+        })
+        .await
+        .unwrap()
+        .into_inner();
+    assert!(matches!(
+        replay.result,
+        Some(delete_worktree_response::Result::Deleted(_))
+    ));
     child.kill().await.unwrap();
 }
 
