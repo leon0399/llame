@@ -184,57 +184,137 @@ pub fn read_lines(
                 "The path is not a regular file.".into(),
             ));
         }
-        let bytes =
-            fs::read(&guarded.canonical).map_err(|e| (FileFailureReason::Io, e.to_string()))?;
-        let text = std::str::from_utf8(&bytes).map_err(|_| {
-            (
-                FileFailureReason::NotUtf8,
-                "The file is not valid UTF-8.".into(),
-            )
-        })?;
-        let mut source_lines = Vec::new();
-        let mut line_ending = "";
-        let mut from = 0;
-        for (i, byte) in bytes.iter().enumerate() {
-            if *byte == b'\n' {
-                let crlf = i > from && bytes[i - 1] == b'\r';
-                if line_ending.is_empty() {
-                    line_ending = if crlf { "\r\n" } else { "\n" };
-                }
-                let end = if crlf { i - 1 } else { i };
-                source_lines.push(&text[from..end]);
-                from = i + 1;
-            }
-        }
-        if from < bytes.len() {
-            source_lines.push(&text[from..]);
-        }
-        let first = (start_line.max(1) as usize - 1).min(source_lines.len());
+        let first_requested = start_line.max(1) as usize - 1;
         let cap = if limit == 0 {
             usize::MAX
         } else {
             limit as usize
         };
+        let requested_end = first_requested.saturating_add(cap);
         let bound = if max_bytes == 0 {
             DEFAULT_LINES_BYTES
         } else {
             usize::try_from(max_bytes).unwrap_or(usize::MAX)
         };
-        let mut out = Vec::new();
+        let mut file = fs::File::open(&guarded.canonical)
+            .map_err(|e| (FileFailureReason::Io, e.to_string()))?;
+        let mut chunk = [0u8; 8192];
+        let mut utf8_pending = Vec::with_capacity(4);
+        let mut line = Vec::new();
+        let mut lines = Vec::new();
+        let mut line_ending = "";
+        let mut line_count = 0usize;
         let mut used = 0usize;
         let mut truncated = false;
-        for line in source_lines.iter().skip(first).take(cap) {
-            if line.len() > bound.saturating_sub(used) {
-                truncated = true;
+        let mut output_stopped = false;
+        let mut last_was_newline = false;
+        let mut line_too_large = false;
+        let mut line_ends_cr = false;
+        let mut saw_any_byte = false;
+        loop {
+            let read = file
+                .read(&mut chunk)
+                .map_err(|e| (FileFailureReason::Io, e.to_string()))?;
+            if read == 0 {
+                if !saw_any_byte {
+                    break;
+                }
+                if !utf8_pending.is_empty() {
+                    return Err((
+                        FileFailureReason::NotUtf8,
+                        "The file is not valid UTF-8.".into(),
+                    ));
+                }
+                if !last_was_newline {
+                    let source = std::str::from_utf8(&line).map_err(|_| {
+                        (
+                            FileFailureReason::NotUtf8,
+                            "The file is not valid UTF-8.".into(),
+                        )
+                    })?;
+                    let source = source.strip_suffix('\r').unwrap_or(source);
+                    if !output_stopped
+                        && line_count >= first_requested
+                        && line_count < requested_end
+                    {
+                        if line_too_large || source.len() > bound.saturating_sub(used) {
+                            truncated = true;
+                            output_stopped = true;
+                        } else {
+                            used += source.len();
+                            lines.push(source.to_owned());
+                        }
+                    }
+                    line_count += 1;
+                }
                 break;
             }
-            used += line.len();
-            out.push((*line).to_owned());
+            saw_any_byte = true;
+            utf8_pending.extend_from_slice(&chunk[..read]);
+            match std::str::from_utf8(&utf8_pending) {
+                Ok(_) => utf8_pending.clear(),
+                Err(error) => {
+                    let valid = error.valid_up_to();
+                    if error.error_len().is_some() {
+                        return Err((
+                            FileFailureReason::NotUtf8,
+                            "The file is not valid UTF-8.".into(),
+                        ));
+                    }
+                    utf8_pending.drain(..valid);
+                }
+            }
+            for &byte in &chunk[..read] {
+                if byte == b'\n' {
+                    let crlf = line_ends_cr;
+                    if line_ending.is_empty() {
+                        line_ending = if crlf { "\r\n" } else { "\n" };
+                    }
+                    if crlf && !line_too_large {
+                        line.pop();
+                    }
+                    line_ends_cr = false;
+                    if !output_stopped
+                        && line_count >= first_requested
+                        && line_count < requested_end
+                    {
+                        if line_too_large || line.len() > bound.saturating_sub(used) {
+                            truncated = true;
+                            output_stopped = true;
+                        } else {
+                            used += line.len();
+                            lines.push(String::from_utf8(std::mem::take(&mut line)).map_err(
+                                |_| {
+                                    (
+                                        FileFailureReason::NotUtf8,
+                                        "The file is not valid UTF-8.".into(),
+                                    )
+                                },
+                            )?);
+                        }
+                    }
+                    line.clear();
+                    line_too_large = false;
+                    line_count += 1;
+                    last_was_newline = true;
+                } else {
+                    line_ends_cr = byte == b'\r';
+                    last_was_newline = false;
+                    if line_count >= first_requested && !line_too_large && !output_stopped {
+                        if line.len() < bound.saturating_sub(used) {
+                            line.push(byte);
+                        } else {
+                            line.clear();
+                            line_too_large = true;
+                        }
+                    }
+                }
+            }
         }
         Ok(machine_protocol::v1::Lines {
-            lines: out,
-            start_line: (first + 1) as u32,
-            line_count: source_lines.len() as u32,
+            lines,
+            start_line: (first_requested.min(line_count) + 1) as u32,
+            line_count: line_count as u32,
             truncated,
             line_ending: line_ending.into(),
         })
