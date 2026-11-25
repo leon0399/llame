@@ -29,7 +29,7 @@ reported Unix socket directly for the host or through an SSH socket forward.
 ### Requirement: The handshake reports the static facts of a Machine
 
 **Reason**: Static facts come from the bootstrap service.
-**Migration**: See `machine-daemon` "The bootstrap service never breaks".
+**Migration**: See `machine-daemon` "The bootstrap service never breaks", which lists the facts and the identity output. Per-root disk space is no longer reported.
 
 ### Requirement: Bash runs on a Machine through its working directory
 
@@ -84,7 +84,7 @@ Every path field of a git result shown to an owner or model MUST be a Machine lo
 
 ### Requirement: The host is a configured Machine
 
-The host MUST be an ordinary entry in `machines.hosts`. `machines.local` MUST name the entry of the computer that runs the process. The process MUST discover the host daemon with a child that runs `attach --print-socket` and connect to the reported Unix socket. Every other Machine MUST use SSH discovery and Unix-socket forwarding. The command MUST come from `LLAME_MACHINE_COMMAND`, with `llame-machine` on `PATH` as the default.
+The host MUST be an ordinary entry in `machines.hosts`. `machines.local` MUST name the entry of the computer that runs the process. The process MUST discover the host daemon with a child that runs `attach --print-socket` and connect to the reported Unix socket. Every other Machine MUST use SSH discovery and Unix-socket forwarding. The command MUST come from `LLAME_MACHINE_COMMAND`. When it is unset, the process MUST run the repository build at `apps/machine/dist/<target>/llame-machine`, where `LLAME_MACHINE_BIN_DIR` replaces `apps/machine/dist` when set. `attach` MUST exit with status 78 when the running daemon reports another instance id than the one its own configuration directory holds; the installation MUST report that exit as `machine_identity_mismatch`. A discovery command that fails otherwise, such as an SSH forced command that still runs a daemon without `attach --print-socket`, MUST make the Machine unavailable with reason `unreachable`.
 
 #### Scenario: The host is reached through a child process
 
@@ -99,8 +99,8 @@ The host MUST be an ordinary entry in `machines.hosts`. `machines.local` MUST na
 
 #### Scenario: The child and the SSH login share one daemon configuration
 
-- **WHEN** the entry `devl` has a `destination`, and the worker on `devl` starts its child with another configuration directory than the SSH login uses
-- **THEN** the second path to answer for `devl` gets `machine_identity_mismatch`
+- **WHEN** the entry `devl` has a `destination`, and the worker on `devl` starts its child with another configuration directory than the SSH login uses, while both share one state directory
+- **THEN** the `attach` of the second path exits with status 78 and that path gets `machine_identity_mismatch`
 - **AND** the operator documentation requires one configuration directory for both paths
 
 #### Scenario: A crashed child starts again at the next call
@@ -132,15 +132,22 @@ Each Machine daemon MUST create an instance id once and keep it in its configura
 - **WHEN** two daemon processes start at the same time with an empty configuration directory
 - **THEN** both report the same instance id
 
+#### Scenario: A daemon with another protocol version is not used
+
+- **WHEN** `GetInfo` reports a protocol version other than the installation's
+- **THEN** every operation on that Machine fails with `machine_update_required`
+
 #### Scenario: A version 1 daemon is not used
 
-- **WHEN** a Machine daemon reports protocol version 1
-- **THEN** every operation on that Machine fails with `machine_update_required`
+- **WHEN** the SSH forced command of `devl` still runs a protocol version 1 daemon, which has no `attach --print-socket`
+- **THEN** discovery fails and the Machines list shows `devl` offline with reason `unreachable`
+- **AND** no main-service request is sent
 
 #### Scenario: A daemon without unit-letter selectors is not used
 
-- **WHEN** a Machine daemon reports protocol version 2, which has no `L` selector forms or line-and-column suffix
-- **THEN** every operation on that Machine fails with `machine_update_required`
+- **WHEN** the SSH forced command of `devl` still runs a protocol version 2 daemon, which has no `L` selector forms and no `attach --print-socket`
+- **THEN** discovery fails and the Machines list shows `devl` offline with reason `unreachable`
+- **AND** no main-service request is sent
 
 ### Requirement: The installation binds each Machine name to one instance id
 
@@ -192,3 +199,59 @@ This decision bounds the environment only. The daemon still runs as the OS user 
 
 - **WHEN** the worker environment sets `SENTRY_AUTH_TOKEN` and `SENTRY_DSN`
 - **THEN** the daemon environment contains `SENTRY_DSN` and does not contain `SENTRY_AUTH_TOKEN`
+
+### Requirement: Machine daemons answer typed git methods
+
+The installation's git operations MUST map to `stead.machine.v1.GitService`:
+`git.inspect` and `git.locate` to `GetRepository`, `git.state` to `GetStatus`,
+`git.worktreeAdd` to `CreateWorktree`, `git.worktreeList` to `ListWorktrees`,
+and `git.worktreeRemove` to `DeleteWorktree`. Other capabilities name the
+operations. Each method MUST take one typed request. Git MUST get an argument
+array. A caller value that starts with `-` MUST fail before git starts with the
+typed `invalid_input` failure in the response, as the `GitService` response
+defines it. Other
+caller values MUST follow `--end-of-options` or `--` where the subcommand
+accepts one. A path MUST be absolute. A failed command MUST return a typed
+failure with the git standard error.
+
+#### Scenario: Repository is inspected
+
+- **WHEN** the hub calls `git.inspect` on a Machine directory that holds a clone
+- **THEN** the result carries the clone toplevel, `commonDir`, the `linked` flag, and the main worktree path for a linked worktree
+- **AND** the result carries each remote name and URL, the branch, and the head commit
+
+#### Scenario: Linked worktree is inspected
+
+- **WHEN** the hub calls `git.inspect` on a directory that is a linked worktree
+- **THEN** the result reports `linked` as true and the main worktree path
+- **AND** `commonDir` names the git directory that the worktree shares with its main clone
+
+#### Scenario: Input cannot reach a shell
+
+- **WHEN** the hub asks for a branch named `a;touch /tmp/x` and a directory named `$(id)`
+- **THEN** the daemon passes each value as one argument and starts no shell
+- **AND** no file named `/tmp/x` appears
+
+#### Scenario: Option-like value is invalid input
+
+- **WHEN** the hub passes `baseRef` `--force` to `git.worktreeAdd`
+- **THEN** the daemon returns `invalid_input` as a typed failure
+- **AND** it starts no git command
+
+#### Scenario: Git failure carries the standard error
+
+- **WHEN** `git.worktreeAdd` names a branch that another checkout already uses
+- **THEN** the daemon returns a typed failure with the git standard error text
+- **AND** no worktree directory appears
+
+#### Scenario: Locate starts no git process
+
+- **WHEN** the hub calls `git.locate` on a Machine directory inside a clone
+- **THEN** the result names the nearest `.git` entry as a Machine locator
+- **AND** the daemon starts no git process
+
+#### Scenario: State refuses a changed git entry
+
+- **WHEN** the nearest `.git` entry of a path changed after an earlier `git.locate` and the hub calls `git.state` on that path
+- **THEN** `GetStatus` takes no entry and resolves the repository from the path when the call runs
+- **AND** it never reads git state through the entry that the earlier call reported

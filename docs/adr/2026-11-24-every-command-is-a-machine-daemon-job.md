@@ -22,10 +22,13 @@ random, so a resent start returns the running job instead of a second command.
 
 ## Consequences
 
-Job output lives in files on the Machine and is read by byte offset. The
+The installation persists the job id and its owner-scoped binding before it
+sends the start, so every started job has a record that can settle and release
+it. Job output lives in files on the Machine and is read by byte offset. The
 daemon reports every job change on one stream per connection, starting with a
-snapshot. A job is `lost` when its daemon no longer knows it, and its outcome
-is unknown. `chat_job_chunks` is deleted.
+snapshot. A job is `lost` when its outcome is unknown: its daemon restarted,
+could not prove that a stop ended the process group, or no longer knows it.
+`chat_job_chunks` is deleted.
 
 This was decided in
 [Background jobs on every Machine](https://github.com/leon0399/llame/issues/1785).

@@ -101,10 +101,13 @@ reconciliation under "Artifact failure preserves daemon reconciliation".
 Every settled daemon job whose output remains available MUST retain one
 bounded, credential-redacted artifact copy with one part for each output
 stream, regardless of output size. This includes a daemon job that settled
-`lost` but retained its streams. If the daemon definitively no longer has
-the job or its output, the installation MUST settle it as `lost` without an
-artifact and mark its output unavailable; it MUST NOT invent an empty
-capture. An unreachable Machine alone MUST NOT prove the output absent.
+`lost` but retained its streams. Missing output MUST NOT change the job's
+outcome. If the daemon definitively no longer has the job, the installation
+MUST settle it as `lost`. If the daemon reports the job's terminal state but
+definitively no longer has its output, the installation MUST settle that
+reported state. In both cases it MUST store no artifact, mark the output
+unavailable, and MUST NOT invent an empty capture. An unreachable Machine
+alone MUST NOT prove the job or its output absent.
 Explicit owner deletion of its Chat MAY discard stopped output instead, as
 specified in `background-jobs`. The artifact MUST use the number that the job reserved and the tool name of the
 executor. It MUST name the Run and tool call that started the job. The
@@ -127,11 +130,17 @@ job notice merely because it retains an artifact.
 - **WHEN** a restarted daemon reports a job as `lost` and retains its output files
 - **THEN** the committed artifact preserves the bounded, credential-redacted partial output with the unknown outcome
 
-#### Scenario: The daemon no longer has a job's output
+#### Scenario: The daemon no longer has a job
 
-- **WHEN** reconciliation definitively finds that the job or its output is absent
+- **WHEN** reconciliation definitively finds that the daemon no longer has the job
 - **THEN** it settles the job `lost` without an artifact and a read reports unavailable output
 - **AND** it does not report an empty captured stream or start the command again
+
+#### Scenario: A known exit keeps its outcome without output
+
+- **WHEN** the daemon reports that a job exited with code 0 and proved its process group empty, but definitively no longer has its output
+- **THEN** the job settles `succeeded` with exit code 0, without an artifact
+- **AND** `wait`, notices, and reads report that outcome and unavailable output
 
 ### Requirement: Artifact failure preserves daemon reconciliation
 

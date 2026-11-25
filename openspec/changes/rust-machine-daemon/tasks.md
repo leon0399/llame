@@ -28,6 +28,8 @@ master <- rust-machine-daemon/proposal <- rust-machine-daemon/skeleton
 
 - Safe merge boundaries: after each section. Sections 2 to 6 ship a daemon
   that the Cargo tests call; the API keeps the Node daemon until section 7.
+- Each layer checks its own tasks in this file; the proposal layer checks only
+  section 1.
 - Generated churn (`packages/machine-protocol/src/generated`, `Cargo.lock`,
   `pnpm-lock.yaml`, Drizzle snapshots) counts zero.
 
@@ -38,15 +40,15 @@ master <- rust-machine-daemon/proposal <- rust-machine-daemon/skeleton
 
 ## 2. Skeleton (`rust-machine-daemon/skeleton`)
 
-- [x] 2.1 Add the Cargo workspace, `rust-toolchain.toml`, lints, and `rustup`
+- [ ] 2.1 Add the Cargo workspace, `rust-toolchain.toml`, lints, and `rustup`
       in the Nix dev shell.
-- [x] 2.2 Add the proto files, `buf` lint and generation, the generated
+- [ ] 2.2 Add the proto files, `buf` lint and generation, the generated
       TypeScript, and the `machine-protocol` crate.
-- [x] 2.3 Add `machine-core`: configuration, instance id, root guard,
+- [ ] 2.3 Add `machine-core`: configuration, instance id, root guard,
       refusals, idempotency cache, facts.
-- [x] 2.4 Add the daemon, `attach --print-socket`, the bootstrap and roots services;
+- [ ] 2.4 Add the daemon, `attach --print-socket`, the bootstrap and roots services;
       verify `cargo test -p llame-machine --test bootstrap`.
-- [x] 2.5 Remove the experimental Connect-ES-over-stdio smoke when socket
+- [ ] 2.5 Remove the experimental Connect-ES-over-stdio smoke when socket
       transport replaces it; keep generated protocol checks and Cargo bootstrap tests.
 
 ## 3. Files (`rust-machine-daemon/files`)
@@ -66,6 +68,9 @@ master <- rust-machine-daemon/proposal <- rust-machine-daemon/skeleton
 ## 5. Git (`rust-machine-daemon/git`)
 
 - [ ] 5.1 Implement `GitService`; verify `cargo test -p llame-machine --test git`.
+- [ ] 5.2 Check the git directory, common directory, and object alternates
+      against the roots before any git process starts; verify a test whose
+      common directory lies outside every root and that observes no git start.
 
 ## 6. MCP (`rust-machine-daemon/mcp`)
 
@@ -80,13 +85,20 @@ master <- rust-machine-daemon/proposal <- rust-machine-daemon/skeleton
       Playwright, and the integration suite against the Rust binary.
 - [ ] 7.3 Verify the persistent TypeScript client tests over the real socket
       and SSH forward for bootstrap, unary, server-streaming, and bidirectional calls.
+- [ ] 7.4 Report `attach` exit status 78 as `machine_identity_mismatch` and map
+      the `GitService` failures to the installation's git results; verify
+      connector tests for both.
+- [ ] 7.5 Update the Machine, observability, and repositories operator docs
+      for `attach --print-socket` discovery, socket forwarding, and the
+      forced-command migration.
 
 ## 8. Host jobs (`rust-machine-daemon/host-jobs`)
 
 - [ ] 8.1 Run host `bash` and every job through the daemon, bind jobs to the
       Machine, reconcile from `JobService.WatchJobs` and `ListJobs`, and drop
       `chat_job_chunks`, `worker_instance_id`, and `tools.bash.maxProcesses`.
-- [ ] 8.2 Update the operator docs and the CHANGELOG with the breaking changes.
+- [ ] 8.2 Update the job operator docs, SPEC.md §23.1, and the CHANGELOG with
+      the breaking changes.
 
 ## 9. Engine cleanup (`rust-machine-daemon/engine-cleanup`)
 

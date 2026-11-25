@@ -41,10 +41,23 @@ that share a box MUST use separate accounts.
 
 The daemon MUST serve `stead.machine.bootstrap.v1.BootstrapService.GetInfo`.
 The answer MUST carry the persistent instance id, the release version, the
-build id, the main-service protocol version, the kernel boot id, static facts,
-and capabilities as open name and version strings. CI MUST refuse a breaking
-change to the bootstrap package unless the change records a reviewed
+build id, the main-service protocol version, the kernel boot id, the daemon
+start time, static facts, and capabilities as open name and version strings.
+The static facts MUST be the OS, the architecture, the kernel release, the CPU
+count, and the memory size. The installation MUST record the facts at each
+successful handshake. `llame-machine identity` MUST print the instance id, the
+release version, the build id, and the protocol version, and
+`llame-machine --version` MUST print the release version. During alpha the
+capabilities are informational: the exact protocol-version match decides what
+the installation may call, and a main-service method that a daemon answers
+with UNIMPLEMENTED MUST be reported as update required. CI MUST refuse a
+breaking change to the bootstrap package unless the change records a reviewed
 exception.
+
+#### Scenario: Facts refresh at each handshake
+
+- **WHEN** the operator adds memory to `devl` and the installation connects again
+- **THEN** the Machines list shows the new memory size
 
 #### Scenario: An outdated daemon stays identifiable
 
@@ -65,13 +78,23 @@ Every change to the `stead.machine.v1` package MUST increase that version.
 ### Requirement: Refusals before work are status codes with a reason
 
 The daemon MUST refuse a request it does not start with a gRPC status code
-and a `stead.machine.v1.ErrorDetail` carrying an `ErrorReason`. Malformed input
-MUST use INVALID_ARGUMENT, a path outside every registered root MUST use
-PERMISSION_DENIED, and a full running-job limit MUST use RESOURCE_EXHAUSTED.
-An unknown job or another owner's job MUST use NOT_FOUND; releasing a running
-job MUST use FAILED_PRECONDITION. Each status MUST carry its corresponding
-typed reason. A path outside the roots MUST get the same message whether or
-not the path exists. An outcome of started work MUST travel in the response.
+and a `stead.machine.v1.ErrorDetail` carrying an `ErrorReason`. This
+specification writes each reason without its `ERROR_REASON_` prefix, in lower
+case. The reasons and their status codes are:
+
+- `invalid_argument` with INVALID_ARGUMENT, for a malformed request field;
+- `path_not_registered` with PERMISSION_DENIED, for a path that lies or
+  resolves outside every registered root;
+- `job_limit` with RESOURCE_EXHAUSTED, for a full running-job limit;
+- `job_not_found` with NOT_FOUND, for an unknown job or another owner's job;
+- `job_running` with FAILED_PRECONDITION, for releasing a job that has not
+  settled.
+
+A path outside the roots MUST get the same message whether or not the path
+exists. An outcome of started work MUST travel in the response. A failure that
+a service's response type defines, such as the `GitService` failure
+`invalid_input`, MUST also travel in the response, even when the daemon starts
+no work.
 
 #### Scenario: A path outside the roots is refused without revealing it
 
@@ -110,7 +133,7 @@ MUST NOT decide whether a command is foreground or background.
 `JobService.CreateJob` MUST record the opaque owner tag supplied by the
 installation. `GetJob`, `ReadOutput`, `CancelJob`, and `DeleteJob` MUST require
 that tag to match. An unknown job id and an id belonging to another owner
-MUST both answer NOT_FOUND with reason JOB_NOT_FOUND.
+MUST both answer NOT_FOUND with reason `job_not_found`.
 
 `ListJobs` and `WatchJobs` are daemon-wide administrative operations for the
 installation's reconciler. Their records MUST carry owner tags. The
@@ -121,7 +144,7 @@ owner-scoped persisted Chat job and use its recorded daemon job id and tag.
 #### Scenario: Another owner's daemon job is not found
 
 - **WHEN** a read or stop names a job id with another owner's tag
-- **THEN** the daemon answers NOT_FOUND with reason JOB_NOT_FOUND and the job does not change
+- **THEN** the daemon answers NOT_FOUND with reason `job_not_found` and the job does not change
 
 #### Scenario: Administrative reconciliation does not authorize a model read
 
@@ -152,6 +175,21 @@ stored boot id differs. The output of such a job MUST stay readable.
 
 - **WHEN** the daemon stops while a job runs and a new daemon starts
 - **THEN** the job is `lost` with cause `daemon_restarted` and its partial output is readable
+
+### Requirement: An unproved stop settles a job as lost
+
+`JobService.CancelJob` and the end of a job's lifetime MUST kill the job's
+process group and prove within a bounded stop budget that the group is empty.
+When the proof succeeds, the job MUST settle `cancelled` or `timed_out`. When
+it fails, the job MUST settle `lost` with the cause `cancel_unproved`, and the
+daemon MUST NOT report the process group as stopped. A settled job, including
+such a `lost` job, MUST NOT count toward the running-job limit.
+
+#### Scenario: A stop that cannot be proved is lost
+
+- **WHEN** `CancelJob` kills a job's group and a process of that group survives the stop budget
+- **THEN** the job settles `lost` with cause `cancel_unproved`
+- **AND** the job no longer counts toward the running-job limit
 
 ### Requirement: The job stream starts with a snapshot
 

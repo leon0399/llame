@@ -24,10 +24,12 @@ wire with a frozen bootstrap service that every daemon version answers.
 
 ## Consequences
 
-The repository has a Cargo workspace beside pnpm, and [SPEC.md](../../SPEC.md)
-names Rust as the language of the Machine daemon. The API talks to the daemon
-through a generated Connect-ES client. The daemon builds for Linux only until a
-macOS or Windows Machine needs it.
+The repository has a Cargo workspace beside pnpm. This ADR is the record that
+[SPEC.md](../../SPEC.md) requires before the product adds a second backend
+language. The API talks to the daemon through a generated Connect-ES client.
+The daemon builds for Linux only until a macOS or Windows Machine needs it.
+The OpenSpec change [rust-machine-daemon](../../openspec/changes/rust-machine-daemon/proposal.md)
+specifies the contract.
 
 This was decided on the wayfinder map
 [the way to one executor contract with Sandboxes](https://github.com/leon0399/llame/issues/1778),
