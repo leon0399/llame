@@ -204,6 +204,23 @@ describe('wire file handlers', () => {
     expect(renderWriteText(written)).toBe(
       'created machine://test/work/notes.md (1 line)',
     );
+    expect(fake.clients.files.writeFile).toHaveBeenLastCalledWith(
+      expect.objectContaining({ createParents: true }),
+      expect.anything(),
+    );
+
+    await writeHandler(fake, {
+      envelope,
+      path,
+      options: display,
+      content: 'replacement\n',
+      replace: true,
+    });
+
+    expect(fake.clients.files.writeFile).toHaveBeenLastCalledWith(
+      expect.objectContaining({ createParents: false }),
+      expect.anything(),
+    );
     expect(fake.callOptionsSpy).toHaveBeenCalled();
   });
 

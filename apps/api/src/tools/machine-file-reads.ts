@@ -35,6 +35,7 @@ import { type ToolContext, type ToolResult } from './types';
 import { NativeFileError, readMediaBytes } from '@workspace/native-file-tools';
 import {
   canonicalizeMachineResult,
+  hideMalformedMachineFileSpelling,
   type MachinePath,
 } from './machine-file-results';
 
@@ -57,41 +58,126 @@ export async function readMachinePath(
     machineBudgetMs(context, MACHINE_FILE_BUDGET_MS),
   );
 
-  return machineReadResult(machine.name, async () => {
-    const raw = await connector.request(
-      machine.name,
-      'fs.read',
-      {
-        envelope,
-        path: machine.path,
-        options: {
-          displayPrefix: machinePrefix(machine.name),
-          ...(machine.selector !== undefined && {
-            selector: machine.selector,
-          }),
-        },
-      },
-      { signal: context.abortSignal },
-    );
+  const request = {
+    context,
+    connector,
+    machine,
+    submitted,
+    envelope,
+  };
 
-    const result = readFsReadResult(raw);
+  return machineReadResult(machine.name, () =>
+    readMachinePathResult(request),
+  ).then((result) => hideMalformedMachineFileSpelling(machine.path, result));
+}
 
-    if (result === undefined) return machineUnusableResult(machine.name);
+type MachineReadRequest = {
+  readonly context: ToolContext;
+  readonly connector: MachineConnector;
+  readonly machine: MachinePath;
+  readonly submitted: string;
+  readonly envelope: RequestEnvelope;
+};
 
-    if (result.status === 'success')
-      return canonicalizeMachineResult(machine, { ...result });
+/** Read a literal selector-suffixed filename before applying selector syntax. */
+async function readMachinePathResult(
+  request: MachineReadRequest,
+): Promise<ToolResult> {
+  const { machine } = request;
 
-    // The daemon reads text only. Its media probe refuses an image or PDF by
-    // signature before any decode, and bytes that are not UTF-8 refuse too:
-    // the media path streams those bytes instead. Any other refusal is the
-    // read's own result.
-    if (result.type !== 'invalid_utf8' || context.media === undefined)
-      return result;
+  if (machine.selector !== undefined) {
+    const literal = {
+      ...machine,
+      path: `${machine.path}:${machine.selector}`,
+      selector: undefined,
+    };
 
+    const result = await readMachineLiteralPath({
+      ...request,
+      machine: literal,
+    });
+
+    if (result !== undefined) return result;
+  }
+
+  return readMachineSelectedPath(request);
+}
+
+async function readMachineLiteralPath({
+  context,
+  connector,
+  machine,
+  submitted,
+  envelope,
+}: MachineReadRequest): Promise<ToolResult | undefined> {
+  const raw = await connector.request(
+    machine.name,
+    'fs.read',
+    {
+      envelope,
+      path: machine.path,
+      options: { displayPrefix: machinePrefix(machine.name) },
+    },
+    { signal: context.abortSignal },
+  );
+
+  const result = readFsReadResult(raw);
+
+  if (result === undefined) return machineUnusableResult(machine.name);
+
+  const settled = hideMalformedMachineFileSpelling(machine.path, result);
+
+  if (settled.status === 'success')
+    return canonicalizeMachineResult(machine, { ...settled });
+
+  if (settled.type === 'not_found') return undefined;
+
+  if (settled.type === 'invalid_utf8' && context.media !== undefined)
     return (
-      (await readMachineMedia(context, machine, submitted, envelope)) ?? result
+      (await readMachineMedia(context, machine, submitted, envelope)) ?? settled
     );
-  });
+
+  return settled;
+}
+
+async function readMachineSelectedPath({
+  context,
+  connector,
+  machine,
+  submitted,
+  envelope,
+}: MachineReadRequest): Promise<ToolResult> {
+  const raw = await connector.request(
+    machine.name,
+    'fs.read',
+    {
+      envelope,
+      path: machine.path,
+      options: {
+        displayPrefix: machinePrefix(machine.name),
+        ...(machine.selector !== undefined && {
+          selector: machine.selector,
+        }),
+      },
+    },
+    { signal: context.abortSignal },
+  );
+
+  const result = readFsReadResult(raw);
+
+  if (result === undefined) return machineUnusableResult(machine.name);
+
+  const settled = hideMalformedMachineFileSpelling(machine.path, result);
+
+  if (settled.status === 'success')
+    return canonicalizeMachineResult(machine, { ...settled });
+
+  if (settled.type !== 'invalid_utf8' || context.media === undefined)
+    return settled;
+
+  return (
+    (await readMachineMedia(context, machine, submitted, envelope)) ?? settled
+  );
 }
 
 /**

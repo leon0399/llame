@@ -41,6 +41,7 @@ import {
 import { readMachinePath } from './machine-file-reads';
 import {
   canonicalizeMachineResult,
+  hideMalformedMachineFileSpelling,
   machinePathLocator,
   readFsMutateResult,
   type MachinePath,
@@ -253,28 +254,45 @@ async function mutateMachinePath(
     machineBudgetMs(context, MACHINE_FILE_BUDGET_MS),
   );
 
-  return runMachineMutation(
+  const request = { machine, envelope };
+
+  const result = await runMachineMutation(
     context,
     {
       name: machine.name,
       operation: call.operation,
       locator: machinePathLocator(machine),
     },
-    async () => {
-      const raw = await requestMachineMutation(context, connector, call, {
-        machine,
-        envelope,
-      });
+    () => performMachineMutation(context, connector, call, request),
+  );
 
-      const result = readFsMutateResult(
-        raw,
-        call.operation === 'edit' ? call.input : undefined,
-      );
+  return hideMalformedMachineFileSpelling(machine.path, result);
+}
 
-      return result === undefined
-        ? machineUnusableResult(machine.name)
-        : canonicalizeMachineResult(machine, result);
-    },
+async function performMachineMutation(
+  context: ToolContext,
+  connector: MachineConnector,
+  call: Exclude<MachineFileCall, { operation: 'read' }>,
+  request: MachineMutationRequest,
+): Promise<ToolResult> {
+  const { machine } = request;
+  const raw = await requestMachineMutation(context, connector, call, request);
+
+  const result = readFsMutateResult(
+    raw,
+    call.operation === 'edit' ? call.input : undefined,
+    call.operation === 'edit'
+      ? 'edit'
+      : call.input.replace === true
+        ? 'replace'
+        : 'create',
+  );
+
+  if (result === undefined) return machineUnusableResult(machine.name);
+
+  return canonicalizeMachineResult(
+    machine,
+    hideMalformedMachineFileSpelling(machine.path, result),
   );
 }
 

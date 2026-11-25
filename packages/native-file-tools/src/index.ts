@@ -76,6 +76,7 @@ export {
   editFile,
   createFile,
   replaceFile,
+  FILE_EXISTS_MESSAGE,
   REPLACE_TARGET_MISSING_MESSAGE,
 } from "./mutate";
 

@@ -211,7 +211,7 @@ describe('Machine native reads', () => {
     ]);
   });
 
-  it('splits a selector off the locator and sends the decoded path', async () => {
+  it('preserves a selector-shaped suffix as literal path text', async () => {
     const { peer, connector } = fixture({
       answers: { 'fs.read': { value: READ_FILE } },
     });
@@ -224,8 +224,8 @@ describe('Machine native reads', () => {
     );
     const session = await peer.session(0);
     expect(session.calls[0]?.params).toMatchObject({
-      path: '/srv/app/README.md',
-      options: { displayPrefix: 'machine://devl', selector: '1-5' },
+      path: '/srv/app/README.md:1-5',
+      options: { displayPrefix: 'machine://devl' },
     });
   });
 

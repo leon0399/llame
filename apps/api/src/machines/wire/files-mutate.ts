@@ -187,7 +187,7 @@ async function writeFile(
           path: params.path,
           content,
           mode: params.replace === true ? WriteMode.REPLACE : WriteMode.CREATE,
-          createParents: true,
+          createParents: params.replace !== true,
         },
         callOptions,
       ),

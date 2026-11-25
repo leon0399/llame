@@ -120,6 +120,17 @@ impl RootGuard {
         if !is_inside(&self.roots, &lexical) {
             return Err(refusal::path_not_registered());
         }
+        if (path.ends_with('/')
+            || path
+                .split('/')
+                .any(|component| component == "." || component == ".."))
+            && fs::metadata(path).is_err_and(|error| {
+                error.raw_os_error() == Some(rustix::io::Errno::NOTDIR.raw_os_error())
+                    || (path.ends_with('/') && error.kind() == io::ErrorKind::NotFound)
+            })
+        {
+            return Err(refusal::path_not_registered());
+        }
         let canonical = canonical_target(&lexical, 0)?;
         if !is_inside(&self.roots, &canonical) {
             return Err(refusal::path_not_registered());
@@ -233,6 +244,24 @@ mod tests {
         assert!(denied(
             guard.resolve(&root.join("absolute").to_string_lossy())
         ));
+    }
+
+    #[test]
+    fn refuses_file_paths_spelled_as_directories() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().canonicalize().unwrap();
+        let file = root.join(".env");
+        fs::write(&file, "secret").unwrap();
+        let guard = guard(&root);
+
+        for path in [
+            format!("{}/.", file.display()),
+            format!("{}/..", file.display()),
+            format!("{}/", file.display()),
+        ] {
+            assert!(denied(guard.resolve(&path)));
+        }
+        assert!(guard.resolve(&format!("{}/", root.display())).is_ok());
     }
 
     #[test]
