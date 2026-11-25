@@ -110,12 +110,16 @@ fn serve() -> anyhow::Result<()> {
         fs::set_permissions(&socket, fs::Permissions::from_mode(0o600))?;
         tracing::info!(socket = %socket.display(), build = %identity.build_id, "daemon listening");
         let routes = crate::services::routes(&context, identity).await?;
-        tonic::transport::Server::builder()
+        let server = tonic::transport::Server::builder()
             .http2_keepalive_interval(Some(Duration::from_secs(15)))
             .http2_keepalive_timeout(Some(Duration::from_secs(45)))
             .add_routes(routes)
-            .serve_with_incoming_shutdown(UnixListenerStream::new(listener), shutdown_signal())
-            .await?;
+            .serve_with_incoming(UnixListenerStream::new(listener));
+        tokio::pin!(server);
+        tokio::select! {
+            result = &mut server => result?,
+            () = shutdown_signal() => {},
+        }
         let _ = fs::remove_file(&socket);
         tracing::info!("daemon stopped");
         anyhow::Ok(())

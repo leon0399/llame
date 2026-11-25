@@ -16,6 +16,7 @@ use machine_protocol::{
     bootstrap::v1::{GetInfoRequest, bootstrap_service_client::BootstrapServiceClient},
     v1::{ListJobsRequest, job_service_client::JobServiceClient},
 };
+use rustix::fs::{FlockOperation, flock};
 use tokio::{io::AsyncWriteExt, net::UnixStream, time::sleep};
 use tonic::transport::{Channel, Endpoint, Uri};
 
@@ -36,7 +37,9 @@ pub fn run(mode: Mode) -> anyhow::Result<ExitCode> {
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()?;
-    runtime.block_on(attach(mode))
+    let result = runtime.block_on(attach(mode));
+    runtime.shutdown_background();
+    result
 }
 
 async fn attach(mode: Mode) -> anyhow::Result<ExitCode> {
@@ -116,6 +119,13 @@ async fn channel(socket: &Path) -> anyhow::Result<Channel> {
 /// rebuilt or upgraded binary applies on the next attach. A different
 /// configured instance is refused rather than attaching to another machine.
 async fn replace_outdated_daemon(state_dir: &Path) -> anyhow::Result<bool> {
+    let replacement = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(state_dir.join("daemon-replacement.lock"))?;
+    flock(&replacement, FlockOperation::LockExclusive)?;
     let own = crate::identity::Identity::load()?;
     let build_id = own.build_id;
     let socket = socket_path(state_dir);
@@ -197,4 +207,33 @@ async fn relay(stream: UnixStream) -> anyhow::Result<()> {
         () = downstream => {},
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{
+        sync::mpsc,
+        time::{Duration, Instant},
+    };
+
+    #[test]
+    fn runtime_shutdown_does_not_wait_for_blocking_stdin_read() {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let (started_tx, started_rx) = mpsc::channel();
+        let (release_tx, release_rx) = mpsc::channel();
+        runtime.spawn_blocking(move || {
+            started_tx.send(()).unwrap();
+            release_rx.recv().unwrap();
+        });
+        runtime.block_on(async { tokio::task::yield_now().await });
+        started_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+
+        let started = Instant::now();
+        runtime.shutdown_background();
+        assert!(started.elapsed() < Duration::from_secs(1));
+        release_tx.send(()).unwrap();
+    }
 }
