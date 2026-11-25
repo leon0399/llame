@@ -46,13 +46,27 @@ function parseRecord(text) {
   return protocolRecord.parse(JSON.parse(text));
 }
 
-/** @param {string} ref */
+/** @param {string} ref @returns {ProtocolRecord | undefined} */
 function baseRecord(ref) {
-  const text = execFileSync(
+  execFileSync("git", ["rev-parse", "--verify", `${ref}^{commit}`], {
+    cwd: pkg,
+    stdio: "ignore",
+  });
+
+  const path = "packages/machine-protocol/proto/protocol.json";
+
+  const exists = execFileSync(
     "git",
-    ["show", `${ref}:packages/machine-protocol/proto/protocol.json`],
+    ["ls-tree", "--full-tree", "-r", "--name-only", ref, "--", path],
     { cwd: pkg, encoding: "utf8" },
-  );
+  ).trim();
+
+  if (!exists) return undefined;
+
+  const text = execFileSync("git", ["show", `${ref}:${path}`], {
+    cwd: pkg,
+    encoding: "utf8",
+  });
 
   return parseRecord(text);
 }
@@ -63,7 +77,7 @@ const current = fingerprint();
 if (process.argv.includes("--write")) {
   writeFileSync(
     recordFile,
-    `${JSON.stringify({ ...record, fingerprint: current }, null, 2)}\n`,
+    `${JSON.stringify({ version: record.version, fingerprint: current }, null, 2)}\n`,
   );
   process.exit(0);
 }
@@ -79,20 +93,15 @@ const baseIndex = process.argv.indexOf("--base");
 
 if (baseIndex !== -1) {
   const baseRef = process.argv[baseIndex + 1];
-  /** @type {ProtocolRecord | undefined} */
-  let base;
 
   if (baseRef === undefined) {
     throw new Error("Pass a Git ref after --base.");
   }
 
-  try {
-    base = baseRecord(baseRef);
-  } catch {
-    process.exit(0); // The base predates the record.
-  }
+  const base = baseRecord(baseRef);
 
   if (
+    base &&
     base.fingerprint !== record.fingerprint &&
     base.version >= record.version
   ) {

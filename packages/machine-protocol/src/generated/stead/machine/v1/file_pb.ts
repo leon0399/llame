@@ -1008,7 +1008,7 @@ export enum EntryKind {
 
   /**
    * Anything else, such as a device, socket, or pipe. Kept last so a later specific kind slots
-   * in before it; proto3 enums are open, so an unknown value reads as OTHER on an older peer.
+   * in before it. Callers normalize unknown enum numbers to OTHER when displaying them.
    *
    * @generated from enum value: ENTRY_KIND_OTHER = 255;
    */
@@ -1230,9 +1230,10 @@ export const SearchStopSchema: GenEnum<SearchStop> = /*@__PURE__*/
  * two exact mutations. It renders nothing. Selectors, numbering, outlines, suggestions, and page
  * bounds belong to the installation, which composes them from these calls.
  *
- * Every path is absolute. A path outside every root, or one that resolves outside, is refused with
- * PATH_NOT_REGISTERED in the same words whether or not it exists. Every call re-resolves its path
- * after the effect and refuses when it moved. Bounds are in bytes and lines, never in characters.
+ * PATH_NOT_REGISTERED in the same words whether or not it exists. A refusal happens before work
+ * starts. Every call re-resolves its path after the effect. If a mutation starts and its result
+ * cannot be proved, the response reports FILE_FAILURE_REASON_OUTCOME_UNKNOWN. Bounds are in bytes
+ * and lines, never in characters.
  *
  * @generated from service stead.machine.v1.FileService
  */
