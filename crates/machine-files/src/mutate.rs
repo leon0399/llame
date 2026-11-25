@@ -57,7 +57,7 @@ const MAX_OCCURRENCES: usize = 10;
 const MAX_EXCERPT_LINE_BYTES: usize = 200;
 
 /// Where `old` occurs in `text`, each with its lines and one line of context.
-fn ambiguous_text(text: &str, positions: &[usize], old_len: usize) -> AmbiguousText {
+fn ambiguous_text(text: &str, positions: &[usize], old_len: usize, count: usize) -> AmbiguousText {
     let lines: Vec<&str> = text
         .split('\n')
         .map(|line| line.strip_suffix('\r').unwrap_or(line))
@@ -99,7 +99,7 @@ fn ambiguous_text(text: &str, positions: &[usize], old_len: usize) -> AmbiguousT
         })
         .collect();
     AmbiguousText {
-        count: positions.len().min(u32::MAX as usize) as u32,
+        count: count.min(u32::MAX as usize) as u32,
         occurrences,
     }
 }
@@ -434,6 +434,7 @@ fn replace_blocking(
                 text,
                 &positions,
                 old.len(),
+                count,
             ))),
         ));
     }

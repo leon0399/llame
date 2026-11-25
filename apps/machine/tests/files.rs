@@ -348,6 +348,28 @@ async fn mutations_apply_modes_once_and_report_exact_replacement_results() {
     assert!(
         matches!(unicode_ambiguous.result, Some(replace_text_response::Result::Failure(failure)) if failure.reason == FileFailureReason::TextAmbiguous as i32 && failure.details.as_ref().is_some_and(|details| matches!(details, file_failure::Details::AmbiguousText(ambiguity) if ambiguity.count == 2 && ambiguity.occurrences.len() == 2)))
     );
+    std::fs::write(&file, "aaaaaaaaaaaa").unwrap();
+    let many_ambiguous = client
+        .replace_text(ReplaceTextRequest {
+            request_id: "ambiguous-many".into(),
+            path: file.to_string_lossy().into_owned(),
+            old_text: "a".into(),
+            new_text: "x".into(),
+        })
+        .await
+        .unwrap()
+        .into_inner();
+    assert!(matches!(
+        many_ambiguous.result,
+        Some(replace_text_response::Result::Failure(failure))
+            if failure.details.as_ref().is_some_and(
+                |details| matches!(
+                    details,
+                    file_failure::Details::AmbiguousText(ambiguity)
+                        if ambiguity.count == 12 && ambiguity.occurrences.len() == 10
+                )
+            )
+    ));
 }
 
 #[tokio::test]
