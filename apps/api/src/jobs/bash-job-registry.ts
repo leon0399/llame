@@ -42,6 +42,7 @@ import { type ToolContext, type ToolResult } from '../tools/types';
 import { ChatJobsRepository, type JobSettlement } from './chat-jobs.repository';
 import { settleBashJob } from './bash-job-store';
 import { formatJobLocator } from './job-locator';
+import { waitForSettlement as waitForSettlementStage } from './bash-job-registry-wait';
 
 const JOB_OUTPUT_LIMIT = (maxBytes: number) => BigInt(maxBytes);
 const RECONCILE_INTERVAL_MS = 60_000;
@@ -381,7 +382,7 @@ export class BashJobRegistry implements OnModuleInit {
       await this.observe(instanceId, client, callOptions, job);
   }
 
-  private async waitForSettlement(
+  private waitForSettlement(
     client: JobsClient,
     callOptions: JobsCallOptions,
     ended: Promise<unknown>,
@@ -389,62 +390,16 @@ export class BashJobRegistry implements OnModuleInit {
     waitMs: number,
     moveSignal: AbortSignal | undefined,
     abortSignal: AbortSignal | undefined,
-  ): Promise<
-    | { kind: 'settled'; job: Job }
-    | { kind: 'moved'; cause: 'time' | 'message' }
-    | { kind: 'disconnected' }
-    | { kind: 'cancelled' }
-  > {
-    const controller = new AbortController();
-    const watch = async () => {
-      for await (const response of client.watchJobs(
-        {},
-        callOptions({ signal: controller.signal, budgetMs: waitMs }),
-      )) {
-        if (
-          response.event.case === 'job' &&
-          response.event.value.id === jobId &&
-          response.event.value.state !== JobState.RUNNING
-        )
-          return response.event.value;
-      }
-      throw new Error('Jobs.WatchJobs ended');
-    };
-    const timer = new Promise<'time'>((resolve) =>
-      setTimeout(() => resolve('time'), waitMs),
-    );
-    const move =
-      moveSignal === undefined
-        ? new Promise<never>(() => undefined)
-        : new Promise<'message'>((resolve) =>
-            moveSignal.addEventListener('abort', () => resolve('message'), {
-              once: true,
-            }),
-          );
-    const cancel =
-      abortSignal === undefined
-        ? new Promise<never>(() => undefined)
-        : new Promise<'cancelled'>((resolve) =>
-            abortSignal.addEventListener('abort', () => resolve('cancelled'), {
-              once: true,
-            }),
-          );
-    try {
-      const outcome = await Promise.race([
-        watch(),
-        timer,
-        move,
-        cancel,
-        ended.then(() => 'disconnect' as const),
-      ]);
-      if (outcome === 'time') return { kind: 'moved', cause: 'time' };
-      if (outcome === 'message') return { kind: 'moved', cause: 'message' };
-      if (outcome === 'cancelled') return { kind: 'cancelled' };
-      if (outcome === 'disconnect') return { kind: 'disconnected' };
-      return { kind: 'settled', job: outcome };
-    } finally {
-      controller.abort();
-    }
+  ) {
+    return waitForSettlementStage({
+      client,
+      callOptions,
+      ended,
+      jobId,
+      waitMs,
+      moveSignal,
+      abortSignal,
+    });
   }
 
   private async readResult(
