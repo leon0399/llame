@@ -53,30 +53,38 @@ impl BootstrapService for Bootstrap {
             boot_id: facts::boot_id(),
             started_at: Some(machine_core::time::timestamp(crate::daemon::started_at())),
             facts: Some(facts::facts()),
-            capabilities: capabilities(),
+            capabilities: capabilities().await,
         }))
     }
 }
 
 /// What the box can do: `bash` and `git` with their versions, when on `PATH`.
-fn capabilities() -> Vec<machine_protocol::bootstrap::v1::Capability> {
-    ["bash", "git"]
-        .into_iter()
-        .filter(|tool| {
-            std::env::var_os("PATH").is_some_and(|path| {
-                std::env::split_paths(&path).any(|dir| dir.join(tool).is_file())
-            })
-        })
-        .map(|tool| machine_protocol::bootstrap::v1::Capability {
-            name: tool.to_owned(),
-            version: tool_version(tool),
-        })
-        .collect()
+async fn capabilities() -> Vec<machine_protocol::bootstrap::v1::Capability> {
+    let mut capabilities = Vec::new();
+    for tool in ["bash", "git"] {
+        if std::env::var_os("PATH")
+            .is_some_and(|path| std::env::split_paths(&path).any(|dir| dir.join(tool).is_file()))
+        {
+            capabilities.push(machine_protocol::bootstrap::v1::Capability {
+                name: tool.to_owned(),
+                version: tool_version(tool).await,
+            });
+        }
+    }
+    capabilities
 }
 
 /// The first dotted number in `<tool> --version`, as a semantic version.
-fn tool_version(tool: &str) -> String {
-    let Ok(output) = std::process::Command::new(tool).arg("--version").output() else {
+async fn tool_version(tool: &str) -> String {
+    let output = tokio::time::timeout(
+        std::time::Duration::from_secs(3),
+        tokio::process::Command::new(tool)
+            .arg("--version")
+            .kill_on_drop(true)
+            .output(),
+    )
+    .await;
+    let Ok(Ok(output)) = output else {
         return String::new();
     };
     let text = String::from_utf8_lossy(&output.stdout);
@@ -130,5 +138,22 @@ impl MachineService for Machine {
                 max_job_output_bytes: limits.job_output_bytes,
             }),
         }))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{fs, os::unix::fs::PermissionsExt};
+
+    use super::tool_version;
+
+    #[tokio::test]
+    async fn hung_version_probe_times_out() {
+        let dir = tempfile::tempdir().unwrap();
+        let command = dir.path().join("hung-version");
+        fs::write(&command, "#!/bin/sh\nexec sleep 10\n").unwrap();
+        fs::set_permissions(&command, fs::Permissions::from_mode(0o700)).unwrap();
+
+        assert!(tool_version(command.to_str().unwrap()).await.is_empty());
     }
 }
