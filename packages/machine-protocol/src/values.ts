@@ -1,4 +1,4 @@
-import type { SerializableRecord, SerializableValue } from "./types";
+import type { SerializableRecord, SerializableValue } from "./json-types";
 
 /** Whether a parsed value is a JSON object; a JSON array is not one. */
 export function isSerializableRecord(

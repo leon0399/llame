@@ -9,14 +9,18 @@ export const MEDIA_MAX_BYTES = 20 * 1024 * 1024;
 
 export const PATH_NOT_REGISTERED_MESSAGE =
   "The path is outside every root registered on this Machine.";
+
 export const BUDGET_EXHAUSTED_MESSAGE =
   "The request time budget was already spent when the Machine received it.";
+
 export const INCOMPATIBLE_VERSION_MESSAGE =
   "The hub and the Machine daemon speak different protocol versions.";
 
 export const INSTANCE_ID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
+
 export const BUILD_ID_PATTERN = /^(?:[0-9a-f]{12}|unknown)$/u;
+
 export const BUILD_ID_LENGTH = 12;
 
 /** Bounds for the foreground Machine bash tool. */

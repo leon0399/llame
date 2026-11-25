@@ -1,4 +1,4 @@
-import type { JsonValue } from "./types";
+import type { JsonValue } from "./json-types";
 
 /** Error reasons emitted by the Rust daemon. */
 export const MACHINE_ERROR_CODES = [

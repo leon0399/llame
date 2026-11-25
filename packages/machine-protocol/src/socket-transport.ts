@@ -16,7 +16,9 @@ export function connectSocket(socket: Socket): Transport {
     nodeOptions: {
       createConnection: () => {
         if (used) throw new Error("The Machine connection is closed.");
+
         used = true;
+
         return socket;
       },
     },

@@ -1069,7 +1069,9 @@ function fakeMachine(
       }
 
       if (message.case !== 'jsonRpc') return undefined;
+
       const call = jsonRpcCall(wireJson(JSON.parse(message.value)));
+
       const answer =
         call === undefined ? undefined : answerFor(call, toolCalls, state);
 

@@ -28,37 +28,39 @@ export type StdioStreamsOptions = {
   };
 };
 
-/**
- * Starts a daemon (or wraps an already-started local/SSH child) and speaks
- * Connect gRPC over its stdin and stdout. Each call owns one HTTP/2 connection.
- */
-export function connectStdio(
-  options: StdioConnectionOptions | StdioStreamsOptions,
-): StdioConnection {
-  let child: ChildProcess | undefined;
-  let input: Readable;
-  let output: Writable;
-  let closeStreams: (() => void) | undefined;
+type StdioChannels = {
+  readonly child?: ChildProcess;
+  readonly input: Readable;
+  readonly output: Writable;
+  readonly close?: () => void;
+};
 
-  if ("streams" in options) {
-    ({ input, output, close: closeStreams } = options.streams);
-  } else {
-    child = spawn(options.command, [...options.args], {
-      env: options.env,
-      shell: false,
-      stdio: ["pipe", "pipe", "pipe"],
-    });
-    if (child.stdin === null || child.stdout === null || child.stderr === null)
-      throw new Error("The Machine connection has no stdio.");
-    input = child.stdout;
-    output = child.stdin;
-    child.stderr.setEncoding("utf8");
-    child.stderr.on("data", (text: string) => options.onStderr?.(text));
+function spawnStdioChannels(options: StdioConnectionOptions): StdioChannels {
+  const child = spawn(options.command, [...options.args], {
+    env: options.env,
+    shell: false,
+    stdio: ["pipe", "pipe", "pipe"],
+  });
+
+  if (child.stdin === null || child.stdout === null || child.stderr === null) {
+    throw new Error("The Machine connection has no stdio.");
   }
 
+  child.stderr.setEncoding("utf8");
+  child.stderr.on("data", (text: string) => options.onStderr?.(text));
+
+  return {
+    child,
+    input: child.stdout,
+    output: child.stdin,
+  };
+}
+
+function createTransport(input: Readable, output: Writable): Transport {
   const duplex = Duplex.from({ readable: input, writable: output });
   let used = false;
-  const transport = createGrpcTransport({
+
+  return createGrpcTransport({
     baseUrl: "http://machine",
     idleConnectionTimeoutMs: 2 ** 31 - 1,
     pingIntervalMs: 15_000,
@@ -68,23 +70,46 @@ export function connectStdio(
     nodeOptions: {
       createConnection: () => {
         if (used) throw new Error("The Machine connection is closed.");
+
         used = true;
+
         return duplex;
       },
     },
   });
+}
 
-  return {
-    transport,
-    ...(child === undefined ? {} : { child }),
-    close() {
-      closeStreams?.();
-      if (
-        child !== undefined &&
-        child.exitCode === null &&
-        child.signalCode === null
-      )
-        child.kill("SIGTERM");
-    },
+/**
+ * Starts a daemon (or wraps an already-started local/SSH child) and speaks
+ * Connect gRPC over its stdin and stdout. Each call owns one HTTP/2 connection.
+ */
+export function connectStdio(
+  options: StdioConnectionOptions | StdioStreamsOptions,
+): StdioConnection {
+  const channels =
+    "streams" in options
+      ? {
+          input: options.streams.input,
+          output: options.streams.output,
+          close: () => options.streams.close(),
+        }
+      : spawnStdioChannels(options);
+
+  const transport = createTransport(channels.input, channels.output);
+
+  const close = () => {
+    channels.close?.();
+
+    if (
+      channels.child !== undefined &&
+      channels.child.exitCode === null &&
+      channels.child.signalCode === null
+    ) {
+      channels.child.kill("SIGTERM");
+    }
   };
+
+  if (channels.child === undefined) return { transport, close };
+
+  return { transport, child: channels.child, close };
 }

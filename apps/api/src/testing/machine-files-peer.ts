@@ -35,8 +35,6 @@ import {
   wireJson,
 } from './machine-protocol-peer';
 
-export type MachineFilesCall = PeerCall;
-
 export type MachineFilesSession = Pick<PeerSession, 'requests' | 'calls'>;
 
 export type MachineFilesPeer = {
