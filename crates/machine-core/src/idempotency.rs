@@ -43,34 +43,40 @@ impl<T: Clone> IdempotencyCache<T> {
         if key.is_empty() {
             return work().await;
         }
-        let slot = self.slot(key);
-        slot.get_or_init(work).await.clone()
+        loop {
+            if let Some(slot) = self.slot(key) {
+                return slot.get_or_init(work).await.clone();
+            }
+            tokio::time::sleep(Duration::from_millis(1)).await;
+        }
     }
 
-    fn slot(&self, key: &str) -> Slot<T> {
+    fn slot(&self, key: &str) -> Option<Slot<T>> {
         let now = Instant::now();
         let Ok(mut slots) = self.slots.lock() else {
-            return Arc::new(OnceCell::new());
+            return Some(Arc::new(OnceCell::new()));
         };
-        slots.retain(|_, (at, slot)| now.duration_since(*at) < MAX_AGE || !slot.initialized());
+        slots.retain(|_, (at, slot)| {
+            Arc::strong_count(slot) > 1 || (slot.initialized() && now.duration_since(*at) < MAX_AGE)
+        });
         if let Some((_, slot)) = slots.get(key) {
-            return Arc::clone(slot);
+            return Some(Arc::clone(slot));
         }
-        if slots.len() >= MAX_KEYS
-            && let Some(oldest) = slots
+        if slots.len() >= MAX_KEYS {
+            let oldest = slots
                 .iter()
-                .filter(|(_, (_, slot))| slot.initialized())
+                .filter(|(_, (_, slot))| Arc::strong_count(slot) == 1)
                 .min_by_key(|(_, (at, _))| *at)
-                .map(|(key, _)| key.clone())
-        {
+                .map(|(key, _)| key.clone());
+            let oldest = oldest?;
             slots.remove(&oldest);
         }
-        Arc::clone(
+        Some(Arc::clone(
             &slots
                 .entry(key.to_owned())
                 .or_insert_with(|| (now, Arc::new(OnceCell::new())))
                 .1,
-        )
+        ))
     }
 }
 
@@ -102,5 +108,27 @@ mod tests {
         }
 
         assert_eq!(cache.run("0", || async { MAX_KEYS }).await, 0);
+    }
+
+    #[test]
+    fn bounds_uninitialized_slots_and_reclaims_abandoned_slots() {
+        let cache = IdempotencyCache::<usize>::default();
+        let mut held = Vec::new();
+        for index in 0..MAX_KEYS {
+            let slot = Arc::new(OnceCell::new());
+            cache
+                .slots
+                .lock()
+                .unwrap()
+                .insert(index.to_string(), (Instant::now(), Arc::clone(&slot)));
+            held.push(slot);
+        }
+
+        assert!(cache.slot("overflow").is_none());
+        assert_eq!(cache.slots.lock().unwrap().len(), MAX_KEYS);
+
+        drop(held.pop());
+        assert!(cache.slot("overflow").is_some());
+        assert_eq!(cache.slots.lock().unwrap().len(), MAX_KEYS);
     }
 }
