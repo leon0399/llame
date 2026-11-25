@@ -1,5 +1,5 @@
 import { JobState, type Job } from '@workspace/machine-protocol';
-import { type ManagedOutput } from '@workspace/bash-executor';
+import { type ManagedOutput } from '../tools/bash-contract';
 import { type InstanceConfigReader } from '../instance-config/instance-config.service';
 import { type JobNoticeRunService } from '../runs/job-notice-run.service';
 import { type RunWaitService } from '../runs/run-wait.service';

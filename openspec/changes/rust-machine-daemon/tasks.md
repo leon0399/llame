@@ -107,7 +107,7 @@ master <- rust-machine-daemon/proposal <- rust-machine-daemon/skeleton
 
 ## 9. Engine cleanup (`rust-machine-daemon/engine-cleanup`)
 
-- [ ] 9.1 Delete `bash-executor`, `git-executor`, and native-file-tools I/O
+- [x] 9.1 Delete `bash-executor`, `git-executor`, and native-file-tools I/O
       code that only the Node daemon used; verify workspace typecheck.
 
 ## 10. Finalize (`rust-machine-daemon/finalize`)

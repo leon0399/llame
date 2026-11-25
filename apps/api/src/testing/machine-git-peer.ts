@@ -1,3 +1,13 @@
+import { realpath } from 'node:fs/promises';
+import { isAbsolute, relative, resolve, sep } from 'node:path';
+import { z } from 'zod';
+
+import {
+  MachineProtocolError,
+  type JsonValue,
+} from '@workspace/machine-protocol';
+import { isString } from '@workspace/runtime-safety';
+
 import {
   addWorktree,
   inspectRepository,
@@ -5,16 +15,7 @@ import {
   locateRepository,
   removeWorktree,
   stateRepository,
-} from '@workspace/git-executor';
-import {
-  MachineProtocolError,
-  type JsonValue,
-} from '@workspace/machine-protocol';
-import { isString } from '@workspace/runtime-safety';
-import { isAbsolute, relative, resolve, sep } from 'node:path';
-import { realpath } from 'node:fs/promises';
-import { z } from 'zod';
-
+} from './machine-git-operations';
 import type { PeerCall } from './machine-protocol-peer';
 import { wireJson } from './machine-protocol-peer';
 
@@ -172,7 +173,7 @@ async function inspectOrLocate(
 
   const result =
     call.method === 'git.inspect'
-      ? await inspectRepository({ path })
+      ? inspectRepository({ path })
       : await locateRepository({ path });
 
   return mappedGitResult(wireJson(result), params.data.options);
@@ -196,13 +197,8 @@ async function gitState(
 
   if (path === undefined || gitEntry === undefined) pathNotRegistered();
 
-  const result = await stateRepository(
-    {
-      path,
-      gitEntry,
-      limit: params.data.limit,
-      submodules: params.data.submodules,
-    },
+  const result = stateRepository(
+    { path, limit: params.data.limit },
     { timeoutMs: params.data.timeoutMs },
   );
 
@@ -227,16 +223,12 @@ async function gitWorktreeAdd(
 
   if (source === undefined || directory === undefined) pathNotRegistered();
 
-  const input = {
+  const result = addWorktree({
     source,
     branch: params.data.branch,
     directory,
-  };
-
-  const result =
-    params.data.baseRef === undefined
-      ? await addWorktree(input)
-      : await addWorktree({ ...input, baseRef: params.data.baseRef });
+    ...(params.data.baseRef !== undefined && { baseRef: params.data.baseRef }),
+  });
 
   return mappedGitResult(wireJson(result), params.data.options);
 }
@@ -259,7 +251,7 @@ async function gitWorktreeList(
   if (source === undefined) pathNotRegistered();
 
   return mappedGitResult(
-    wireJson(await listWorktrees({ path: source })),
+    wireJson(listWorktrees({ path: source })),
     params.data.options,
   );
 }
@@ -282,7 +274,7 @@ async function gitWorktreeRemove(
   if (path === undefined) pathNotRegistered();
 
   return mappedGitResult(
-    wireJson(await removeWorktree({ path })),
+    wireJson(removeWorktree({ path })),
     params.data.options,
   );
 }

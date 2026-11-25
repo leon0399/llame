@@ -7,6 +7,7 @@ import path from 'node:path';
  */
 // eslint-disable-next-line no-control-regex
 const FORBIDDEN_REF_CHARACTERS = /[\s~^:?*[\\\u0000-\u001f\u007f]/u;
+
 // eslint-disable-next-line no-control-regex
 const FORBIDDEN_BYTES = /[\s\u0000-\u001f\u007f]/u;
 
@@ -14,18 +15,23 @@ function branchName(
   value: string,
 ): { readonly name: string } | { readonly message: string } {
   if (value === '') return { message: 'A branch name must not be empty.' };
+
   if (value.startsWith('-'))
     return { message: 'A branch name must not start with `-`.' };
+
   if (FORBIDDEN_REF_CHARACTERS.test(value))
     return {
       message: 'A branch name must not hold whitespace or ref punctuation.',
     };
+
   if (value.includes('..') || value.includes('@{'))
     return { message: 'A branch name must not hold `..` or `@{`.' };
+
   if (value.endsWith('/') || value.endsWith('.') || value.endsWith('.lock'))
     return {
       message: 'A branch name must not end with `/`, `.`, or `.lock`.',
     };
+
   if (
     value
       .split('/')
@@ -34,6 +40,7 @@ function branchName(
     return {
       message: 'A branch name must not hold an empty or dot-leading segment.',
     };
+
   return { name: value };
 }
 
@@ -41,10 +48,13 @@ function baseReference(
   value: string,
 ): { readonly ref: string } | { readonly message: string } {
   if (value === '') return { message: 'A base ref must not be empty.' };
+
   if (value.startsWith('-'))
     return { message: 'A base ref must not start with `-`.' };
+
   if (FORBIDDEN_BYTES.test(value))
     return { message: 'A base ref must not hold whitespace or control bytes.' };
+
   return { ref: value };
 }
 

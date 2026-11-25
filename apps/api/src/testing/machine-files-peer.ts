@@ -7,8 +7,8 @@ import {
   realpath,
 } from 'node:fs/promises';
 import { dirname, isAbsolute, relative, resolve, sep } from 'node:path';
-
 import { answerGitCall } from './machine-git-peer';
+
 import {
   BYTES_NOTIFICATION,
   MachineProtocolError,

@@ -14,7 +14,7 @@ import {
   type BashTimedOutResult,
   sanitizeKnownResultAtBound,
   type ManagedOutput,
-} from '@workspace/bash-executor';
+} from '../tools/bash-contract';
 import { type ChatJob } from '../db/schema';
 import { type InstanceConfigReader } from '../instance-config/instance-config.service';
 import type { MachineRequestOptions } from '../machines/machine-session';

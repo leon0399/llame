@@ -91,7 +91,6 @@ export {
   renderWriteText,
 } from "./model-text";
 
-
 export { statHostPath } from "./stat";
 
 export type { HostPathStat } from "./stat";

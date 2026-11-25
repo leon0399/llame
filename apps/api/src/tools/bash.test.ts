@@ -9,7 +9,7 @@ import {
   JobService,
   JobState,
 } from '@workspace/machine-protocol';
-import { type BashResult } from '@workspace/bash-executor';
+import { type BashResult } from './bash-contract';
 import { compileTestPermissionPolicy } from '../testing/tool-permission-policy';
 import { type Db } from '../db/tenant-db.service';
 import type { Chat, ChatJob } from '../db/schema';
