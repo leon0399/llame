@@ -1188,7 +1188,8 @@ impl GitService for Git {
                     prunable: false,
                 })
             })
-            .await;
+            .await
+            .map_err(|_| RpcStatus::internal("idempotent work panicked"))?;
         if result.is_ok() {
             guard.verify_unchanged(&directory)?;
         }
@@ -1299,7 +1300,8 @@ impl GitService for Git {
                     Err(process_failure(&out))
                 }
             })
-            .await;
+            .await
+            .map_err(|_| RpcStatus::internal("idempotent work panicked"))?;
         if result.is_ok() {
             guard.verify_unchanged(&path)?;
         }
