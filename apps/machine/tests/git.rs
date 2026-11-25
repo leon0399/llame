@@ -15,7 +15,12 @@ use machine_protocol::v1::{
     get_status_response, git_service_client::GitServiceClient, list_worktrees_response,
     locate_repository_response,
 };
-use std::{os::unix::fs::PermissionsExt, path::Path, process::Command};
+use std::{
+    ffi::OsString,
+    os::unix::{ffi::OsStringExt, fs::PermissionsExt},
+    path::Path,
+    process::Command,
+};
 
 fn git_shim(machine: &common::Machine) -> (std::path::PathBuf, std::path::PathBuf) {
     let bin = machine.home.path().join("shim");
@@ -134,6 +139,34 @@ async fn repository_status_detached_and_not_a_repository() {
         panic!("not-a-repository failure missing")
     };
     assert_eq!(e.reason, GitFailureReason::NotARepository as i32);
+    child.kill().await.unwrap();
+}
+
+#[tokio::test]
+async fn status_counts_non_utf8_filenames_as_changes() {
+    let machine = common::Machine::new();
+    let repo = machine.root().join("repo");
+    repository(&repo);
+    let filename = OsString::from_vec(b"untracked-\xff".to_vec());
+    std::fs::write(repo.join(filename), "contents").unwrap();
+    let (mut child, channel) = machine.attach().await;
+    let mut client = GitServiceClient::new(channel);
+    let response = client
+        .get_status(GetStatusRequest {
+            path: absolute(&repo),
+            git_entry: absolute(&repo.join(".git")),
+            max_entries: 10,
+            submodules: SubmoduleMode::Skip as i32,
+            max_commits: 0,
+        })
+        .await
+        .unwrap()
+        .into_inner();
+    let Some(get_status_response::Result::Status(status)) = response.result else {
+        panic!("status failed for non-UTF-8 filename")
+    };
+    assert_eq!(status.counts.unwrap().untracked, 1);
+    assert_eq!(status.changes.len(), 1);
     child.kill().await.unwrap();
 }
 
@@ -297,7 +330,6 @@ async fn gitdir_outside_root_is_refused() {
     let _ = std::fs::remove_dir_all(external);
 }
 
-
 #[tokio::test]
 async fn common_directory_outside_roots_is_refused_before_git() {
     let machine = common::Machine::new();
@@ -331,7 +363,8 @@ async fn object_alternate_outside_roots_is_refused_before_git() {
     let root = machine.root();
     let repo = root.join("repo");
     repository(&repo);
-    let external = std::env::temp_dir().join(format!("machine-git-alternate-{}", std::process::id()));
+    let external =
+        std::env::temp_dir().join(format!("machine-git-alternate-{}", std::process::id()));
     std::fs::create_dir_all(&external).unwrap();
     let alternates = repo.join(".git/objects/info/alternates");
     std::fs::create_dir_all(alternates.parent().unwrap()).unwrap();

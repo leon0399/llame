@@ -781,7 +781,6 @@ dependencies = [
  "machine-core",
  "machine-protocol",
  "prost-types",
- "regex",
  "rustix",
  "tempfile",
  "tokio",

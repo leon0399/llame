@@ -39,8 +39,8 @@ const DEFAULT_TIMEOUT: Duration = Duration::from_secs(10);
 pub fn service(context: Context) -> GitServiceServer<Git> {
     GitServiceServer::new(Git {
         context,
-        create_cache: Default::default(),
-        delete_cache: Default::default(),
+        create_cache: IdempotencyCache::default(),
+        delete_cache: IdempotencyCache::default(),
     })
 }
 pub struct Git {
@@ -87,9 +87,7 @@ fn text(bytes: &[u8]) -> std::borrow::Cow<'_, str> {
     String::from_utf8_lossy(bytes)
 }
 fn line(out: &Output) -> String {
-    text(&out.stdout)
-        .trim_end_matches(['\r', '\n'])
-        .to_owned()
+    text(&out.stdout).trim_end_matches(['\r', '\n']).to_owned()
 }
 async fn read_capped<R: AsyncRead + Unpin>(mut input: R, limit: usize) -> (Vec<u8>, bool) {
     let mut output = Vec::with_capacity(limit.min(8192));
@@ -121,6 +119,7 @@ async fn run(directory: &Path, args: &[&str], deadline: Instant) -> Output {
 async fn run_pinned(directory: &Path, args: &[&str], deadline: Instant) -> Output {
     run_mode(directory, args, deadline, true).await
 }
+#[allow(clippy::too_many_lines)]
 async fn run_mode(directory: &Path, args: &[&str], deadline: Instant, pinned: bool) -> Output {
     let ceiling = directory.parent();
     if pinned && ceiling.is_some_and(|path| path.to_string_lossy().contains(':')) {
@@ -136,7 +135,12 @@ async fn run_mode(directory: &Path, args: &[&str], deadline: Instant, pinned: bo
     if pinned {
         command
             .arg(format!("--work-tree={}", directory.display()))
-            .args(["-c", "log.showSignature=false", "-c", "safe.bareRepository=explicit"]);
+            .args([
+                "-c",
+                "log.showSignature=false",
+                "-c",
+                "safe.bareRepository=explicit",
+            ]);
     }
     if let Some(ceiling) = ceiling.filter(|_| pinned) {
         command.env("GIT_CEILING_DIRECTORIES", ceiling);
@@ -195,46 +199,39 @@ async fn run_mode(directory: &Path, args: &[&str], deadline: Instant, pinned: bo
         }
     };
     let mut group = ProcessGroup(child.id().and_then(|id| i32::try_from(id).ok()));
-    let stdout = match child.stdout.take() {
-        Some(v) => v,
-        None => {
-            return Output {
-                status: None,
-                stdout: vec![],
-                stderr: b"git stdout unavailable".to_vec(),
-                timed_out: false,
-                bounded: false,
-            };
-        }
+    let Some(stdout) = child.stdout.take() else {
+        return Output {
+            status: None,
+            stdout: vec![],
+            stderr: b"git stdout unavailable".to_vec(),
+            timed_out: false,
+            bounded: false,
+        };
     };
-    let stderr = match child.stderr.take() {
-        Some(v) => v,
-        None => {
-            return Output {
-                status: None,
-                stdout: vec![],
-                stderr: b"git stderr unavailable".to_vec(),
-                timed_out: false,
-                bounded: false,
-            };
-        }
+    let Some(stderr) = child.stderr.take() else {
+        return Output {
+            status: None,
+            stdout: vec![],
+            stderr: b"git stderr unavailable".to_vec(),
+            timed_out: false,
+            bounded: false,
+        };
     };
     let stdout_task = tokio::spawn(read_capped(stdout, OUTPUT_MAX));
     let stderr_task = tokio::spawn(read_capped(stderr, STDERR_MAX));
-    let (timed_out, status) = match timeout(
+    let (timed_out, status) = if let Ok(Ok(status)) = timeout(
         deadline.saturating_duration_since(Instant::now()),
         child.wait(),
     )
     .await
     {
-        Ok(Ok(s)) => (false, s.code()),
-        _ => {
-            if let Some(pid) = group.0.and_then(Pid::from_raw) {
-                let _ = kill_process_group(pid, Signal::KILL);
-            }
-            let _ = child.wait().await;
-            (true, None)
+        (false, status.code())
+    } else {
+        if let Some(pid) = group.0.and_then(Pid::from_raw) {
+            let _ = kill_process_group(pid, Signal::KILL);
         }
+        let _ = child.wait().await;
+        (true, None)
     };
     group.0 = None;
     let (stdout, a) = stdout_task.await.unwrap_or_default();
@@ -382,6 +379,7 @@ fn checked_git_data(entry: &Path, roots: &[PathBuf]) -> Result<(PathBuf, PathBuf
 fn option_like(values: &[&str]) -> bool {
     values.iter().any(|value| value.starts_with('-'))
 }
+#[allow(clippy::too_many_lines)]
 async fn repository(
     directory: &Path,
     guard: &machine_core::RootGuard,
@@ -515,6 +513,7 @@ fn relative(root: &Path, path: &str) -> String {
         .to_string_lossy()
         .replace('\\', "/")
 }
+#[allow(clippy::too_many_lines)]
 fn parse_status(
     data: &str,
     max: usize,
@@ -668,6 +667,7 @@ fn parse_worktrees(value: &str) -> Vec<Worktree> {
     }
     out
 }
+#[allow(clippy::too_many_lines)]
 #[tonic::async_trait]
 impl GitService for Git {
     async fn get_repository(
@@ -718,9 +718,7 @@ impl GitService for Git {
         let result = if !path.canonical.is_dir() {
             LocateResult::Failure(failure(GitFailureReason::RootMissing, ""))
         } else if let Some(entry) = nearest_git(&path.canonical, guard.roots()) {
-            LocateResult::GitEntry(
-                entry.to_string_lossy().into_owned(),
-            )
+            LocateResult::GitEntry(entry.to_string_lossy().into_owned())
         } else {
             LocateResult::Failure(failure(GitFailureReason::NoRepositoryInRoot, ""))
         };
@@ -942,7 +940,8 @@ impl GitService for Git {
                         }
                         let submodules = if let Some(head) = repo.head.as_ref() {
                             let spec = format!("{head}:.gitmodules");
-                            let exists = run_pinned(dir, &["cat-file", "-e", &spec], deadline).await;
+                            let exists =
+                                run_pinned(dir, &["cat-file", "-e", &spec], deadline).await;
                             if succeed(&exists) {
                                 let paths = run_pinned(
                                     dir,
