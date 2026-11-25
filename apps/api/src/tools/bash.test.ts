@@ -183,6 +183,36 @@ describe('bash daemon job dispatch', () => {
       timeout: { seconds: BigInt(BUILT_IN_DEFAULTS.tools.jobs.maxSeconds) },
     });
   });
+  it('fails closed without the admitted Run attempt', async () => {
+    const context = testContext();
+
+    const connector = new MachineConnector({
+      machines: undefined,
+      hubVersion: 'test',
+      bindIdentity: () => Promise.resolve('match'),
+    });
+
+    const jobsClient = vi.spyOn(connector, 'jobsClient');
+
+    const bashJobs = new BashJobRegistry(
+      context.tenantDb,
+      connector,
+      { config: BUILT_IN_DEFAULTS },
+      { startOnSettlement: () => Promise.resolve(undefined) },
+      { wakeForChatInTransaction: () => Promise.resolve(false) },
+    );
+
+    await expect(
+      bashTool.execute(
+        { ...context, attemptId: undefined, bashJobs },
+        { command: 'printf never' },
+      ),
+    ).resolves.toMatchObject({
+      status: 'error',
+      type: 'executor_unavailable',
+    });
+    expect(jobsClient).not.toHaveBeenCalled();
+  });
 });
 
 describe('bash result contract', () => {
