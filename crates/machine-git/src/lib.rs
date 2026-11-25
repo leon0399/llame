@@ -83,11 +83,13 @@ fn process_failure(out: &Output) -> GitFailure {
 fn succeed(out: &Output) -> bool {
     out.status == Some(0) && !out.bounded && !out.timed_out
 }
-fn text(bytes: &[u8]) -> &str {
-    std::str::from_utf8(bytes).unwrap_or("")
+fn text(bytes: &[u8]) -> std::borrow::Cow<'_, str> {
+    String::from_utf8_lossy(bytes)
 }
 fn line(out: &Output) -> String {
-    text(&out.stdout).trim_end_matches(['\r', '\n']).to_owned()
+    text(&out.stdout)
+        .trim_end_matches(['\r', '\n'])
+        .to_owned()
 }
 async fn read_capped<R: AsyncRead + Unpin>(mut input: R, limit: usize) -> (Vec<u8>, bool) {
     let mut output = Vec::with_capacity(limit.min(8192));
@@ -114,6 +116,32 @@ impl Drop for ProcessGroup {
     }
 }
 async fn run(directory: &Path, args: &[&str], deadline: Instant) -> Output {
+    run_mode(directory, args, deadline, false).await
+}
+async fn run_pinned(directory: &Path, args: &[&str], deadline: Instant) -> Output {
+    run_mode(directory, args, deadline, true).await
+}
+async fn run_mode(directory: &Path, args: &[&str], deadline: Instant, pinned: bool) -> Output {
+    let ceiling = directory.parent();
+    if pinned && ceiling.is_some_and(|path| path.to_string_lossy().contains(':')) {
+        return Output {
+            status: None,
+            stdout: vec![],
+            stderr: b"git ceiling path contains ':'".to_vec(),
+            timed_out: false,
+            bounded: false,
+        };
+    }
+    let mut command = Command::new("git");
+    if pinned {
+        command
+            .arg(format!("--work-tree={}", directory.display()))
+            .args(["-c", "log.showSignature=false", "-c", "safe.bareRepository=explicit"]);
+    }
+    if let Some(ceiling) = ceiling.filter(|_| pinned) {
+        command.env("GIT_CEILING_DIRECTORIES", ceiling);
+        command.env("GIT_NO_LAZY_FETCH", "1");
+    }
     let hooks = match tempfile::tempdir() {
         Ok(value) => value,
         Err(e) => {
@@ -126,7 +154,6 @@ async fn run(directory: &Path, args: &[&str], deadline: Instant) -> Output {
             };
         }
     };
-    let mut command = Command::new("git");
     command
         .args([
             "-c",
@@ -145,6 +172,10 @@ async fn run(directory: &Path, args: &[&str], deadline: Instant) -> Output {
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .kill_on_drop(true);
+    if let Some(ceiling) = ceiling.filter(|_| pinned) {
+        command.env("GIT_CEILING_DIRECTORIES", ceiling);
+        command.env("GIT_NO_LAZY_FETCH", "1");
+    }
     for name in ["PATH", "HOME", "TMPDIR"] {
         if let Some(value) = std::env::var_os(name) {
             command.env(name, value);
@@ -354,9 +385,16 @@ fn option_like(values: &[&str]) -> bool {
 async fn repository(
     directory: &Path,
     guard: &machine_core::RootGuard,
+    pinned: bool,
     deadline: Instant,
 ) -> Result<Repository, GitFailure> {
-    let get = |args: &'static [&'static str]| async move { run(directory, args, deadline).await };
+    let get = |args: &'static [&'static str]| async move {
+        if pinned {
+            run_pinned(directory, args, deadline).await
+        } else {
+            run(directory, args, deadline).await
+        }
+    };
     let top = get(&["rev-parse", "--show-toplevel"]).await;
     if !succeed(&top) {
         return Err(process_failure(&top));
@@ -458,7 +496,7 @@ async fn repository(
         git_dir,
         common_dir,
         main_worktree,
-        remotes: parse_remotes(text(&rem.stdout)),
+        remotes: parse_remotes(&text(&rem.stdout)),
         branch: (br.status == Some(0)).then(|| line(&br)),
         head: (hd.status == Some(0)).then(|| line(&hd)),
     })
@@ -651,7 +689,7 @@ impl GitService for Git {
                 Err(e) => RepoResult::Failure(e),
                 Ok(_) => {
                     let dir = entry.parent().unwrap_or(&entry);
-                    match repository(dir, &guard, Instant::now() + DEFAULT_TIMEOUT).await {
+                    match repository(dir, &guard, false, Instant::now() + DEFAULT_TIMEOUT).await {
                         Ok(v) => RepoResult::Repository(v),
                         Err(e) => RepoResult::Failure(e),
                     }
@@ -681,10 +719,7 @@ impl GitService for Git {
             LocateResult::Failure(failure(GitFailureReason::RootMissing, ""))
         } else if let Some(entry) = nearest_git(&path.canonical, guard.roots()) {
             LocateResult::GitEntry(
-                fs::canonicalize(&entry)
-                    .unwrap_or(entry)
-                    .to_string_lossy()
-                    .into_owned(),
+                entry.to_string_lossy().into_owned(),
             )
         } else {
             LocateResult::Failure(failure(GitFailureReason::NoRepositoryInRoot, ""))
@@ -727,10 +762,17 @@ impl GitService for Git {
                 result: Some(StatusResult::Failure(invalid("invalid submodule mode"))),
             }));
         }
+        if !path.canonical.is_dir() {
+            return Ok(Response::new(GetStatusResponse {
+                result: Some(StatusResult::Failure(failure(
+                    GitFailureReason::RootMissing,
+                    "",
+                ))),
+            }));
+        }
         let entry = nearest_git(&path.canonical, guard.roots());
         if let Some(entry) = entry.as_ref() {
-            let admitted = fs::canonicalize(entry).unwrap_or_else(|_| entry.clone());
-            if input.git_entry.is_empty() || Path::new(&input.git_entry) != admitted {
+            if input.git_entry.is_empty() || Path::new(&input.git_entry) != entry {
                 return Ok(Response::new(GetStatusResponse {
                     result: Some(StatusResult::Failure(failure(
                         GitFailureReason::EntryChanged,
@@ -747,7 +789,7 @@ impl GitService for Git {
         let result = if let Some(entry) = entry {
             let dir = entry.parent().unwrap_or(&entry);
             let deadline = Instant::now() + DEFAULT_TIMEOUT;
-            match repository(dir, &guard, deadline).await {
+            match repository(dir, &guard, true, deadline).await {
                 Err(e) => StatusResult::Failure(e),
                 Ok(repo) => {
                     let ignore = if input.submodules == SubmoduleMode::Check as i32 {
@@ -755,7 +797,7 @@ impl GitService for Git {
                     } else {
                         "--ignore-submodules=all"
                     };
-                    let out = run(
+                    let out = run_pinned(
                         dir,
                         &[
                             "status",
@@ -771,8 +813,9 @@ impl GitService for Git {
                     if !succeed(&out) {
                         StatusResult::Failure(process_failure(&out))
                     } else {
+                        let status_text = text(&out.stdout);
                         let (counts, changes, omitted, relative_path, up, head) = parse_status(
-                            text(&out.stdout),
+                            &status_text,
                             max,
                             Path::new(&repo.worktree),
                             &path.canonical,
@@ -780,11 +823,11 @@ impl GitService for Git {
                         let mut upstream = None;
                         let mut op = None;
                         let mut commits = Vec::new();
-                        if let Some(name) = up {
-                            let ab = text(&out.stdout)
+                        if let Some(name) = up.filter(|name| !name.starts_with('-')) {
+                            let ab = status_text
                                 .split('\0')
                                 .find_map(|s| s.strip_prefix("# branch.ab "));
-                            let reflog = run(
+                            let reflog = run_pinned(
                                 dir,
                                 &[
                                     "reflog",
@@ -834,7 +877,7 @@ impl GitService for Git {
                             "REVERT_HEAD",
                             "BISECT_LOG",
                         ] {
-                            let p = run(
+                            let p = run_pinned(
                                 dir,
                                 &["rev-parse", "--path-format=absolute", "--git-path", n],
                                 deadline,
@@ -875,14 +918,15 @@ impl GitService for Git {
                         {
                             let count = input.max_commits.min(100) as usize;
                             let n = count.to_string();
-                            let log = run(
+                            let log = run_pinned(
                                 dir,
                                 &["log", &format!("-{n}"), "--format=%H%x00%s%x00", &head],
                                 deadline,
                             )
                             .await;
                             if succeed(&log) {
-                                let mut f = text(&log.stdout).split('\0');
+                                let log_text = text(&log.stdout);
+                                let mut f = log_text.split('\0');
                                 while let Some(id) = f.next() {
                                     if id.is_empty() {
                                         continue;
@@ -898,9 +942,9 @@ impl GitService for Git {
                         }
                         let submodules = if let Some(head) = repo.head.as_ref() {
                             let spec = format!("{head}:.gitmodules");
-                            let exists = run(dir, &["cat-file", "-e", &spec], deadline).await;
+                            let exists = run_pinned(dir, &["cat-file", "-e", &spec], deadline).await;
                             if succeed(&exists) {
-                                let paths = run(
+                                let paths = run_pinned(
                                     dir,
                                     &[
                                         "config",
@@ -1095,7 +1139,8 @@ impl GitService for Git {
         } else {
             let mut worktrees = Vec::new();
             let mut fail = None;
-            for mut w in parse_worktrees(text(&out.stdout)) {
+            let worktree_text = text(&out.stdout);
+            for mut w in parse_worktrees(worktree_text.as_ref()) {
                 match root_result(&guard, w.path) {
                     Ok(p) => {
                         w.path = p;

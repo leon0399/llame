@@ -383,6 +383,34 @@ async fn status_refuses_changed_admitted_git_entry_without_git() {
 }
 
 #[tokio::test]
+async fn status_does_not_discover_parent_repository_through_empty_nested_git_entry() {
+    let machine = common::Machine::new();
+    let root = machine.root();
+    let parent = root.join("parent");
+    repository(&parent);
+    let nested = parent.join("nested");
+    std::fs::create_dir_all(nested.join(".git")).unwrap();
+    let (mut child, channel) = machine.attach().await;
+    let mut client = GitServiceClient::new(channel);
+    let response = client
+        .get_status(GetStatusRequest {
+            path: absolute(&nested),
+            git_entry: absolute(&nested.join(".git")),
+            max_entries: 0,
+            submodules: SubmoduleMode::Unspecified as i32,
+            max_commits: 0,
+        })
+        .await
+        .unwrap()
+        .into_inner();
+    let Some(get_status_response::Result::Failure(failure)) = response.result else {
+        panic!("nested empty git entry fell back to parent repository")
+    };
+    assert_eq!(failure.reason, GitFailureReason::GitFailed as i32);
+    child.kill().await.unwrap();
+}
+
+#[tokio::test]
 async fn option_like_worktree_base_is_rejected_before_git() {
     let machine = common::Machine::new();
     let repo = machine.root().join("repo");
