@@ -33,13 +33,15 @@ import type {
 import type { BindOutcome } from './machine-bindings.repository';
 import { createLocalChildTransportFactory } from './local-child-transport';
 import {
-  MachineIdentityMismatchError,
   MachineSession,
-  MachineUnavailableError,
   type MachineChannelHandle,
   type MachineRequestOptions,
   type MachineSessionEnd,
 } from './machine-session';
+import {
+  MachineIdentityMismatchError,
+  MachineUnavailableError,
+} from './machine-session-errors';
 import {
   createMachineSshTransportFactory,
   type MachineSshTransportFactory,
@@ -98,7 +100,10 @@ export type MachineConnectorDeps = {
   readonly streamHandler?: (
     method: string,
     params: Record<string, unknown>,
-    notify: (notification: { readonly method: string; readonly params?: JsonValue }) => void,
+    notify: (notification: {
+      readonly method: string;
+      readonly params?: JsonValue;
+    }) => void,
     send: (frame: unknown) => void,
     options: MachineRequestOptions,
   ) => Promise<JsonValue>;
@@ -282,9 +287,7 @@ export class MachineConnector {
     return handle;
   }
   /** The typed Jobs RPC client and lifetime of one established Machine session. */
-  async jobsClient(
-    name: string,
-  ): Promise<{
+  async jobsClient(name: string): Promise<{
     readonly client: MachineSession['jobsClient'];
     readonly callOptions: MachineSession['callOptions'];
     readonly ended: Promise<MachineSessionEnd>;
@@ -292,7 +295,8 @@ export class MachineConnector {
   }> {
     const session = await this.session(name);
     const hello = session.hello;
-    if (hello === undefined) throw new Error('Machine handshake is incomplete.');
+    if (hello === undefined)
+      throw new Error('Machine handshake is incomplete.');
     return {
       client: session.jobsClient,
       callOptions: session.callOptions.bind(session),
@@ -439,11 +443,15 @@ export class MachineConnector {
         'This process cannot reach this Machine.',
       );
 
-    const session = new MachineSession({
+    let session: MachineSession;
+
+    session = new MachineSession({
       name,
       transport: this.factory(name).open({ name, destination }),
       hubVersion: this.hubVersion,
       handshakeTimeoutMs: this.handshakeTimeoutMs,
+      admitIdentity: (instanceId) =>
+        this.verifyIdentity(name, session, instanceId),
       ...(this.requestHandler === undefined
         ? {}
         : { requestHandler: this.requestHandler }),
@@ -455,12 +463,6 @@ export class MachineConnector {
     this.sessions.set(name, { session });
     void session.ended.then((end) => this.onEnded(name, session, end));
     const hello = await session.ready();
-
-    // The bind decides whether this session may ever carry a request. It runs
-    // after the handshake and before anything else: a daemon answering under
-    // another computer's name never sees a request, and a bind that cannot be
-    // read fails the session closed instead of trusting the daemon.
-    await this.verifyIdentity(name, session, hello.instanceId);
 
     this.recordContact(name, { ...helloContact(hello), facts: hello.facts });
     this.armIdle(name);
@@ -606,5 +608,3 @@ export class MachineConnector {
     return this.ssh;
   }
 }
-
-export { MachineUnavailableError } from './machine-session';

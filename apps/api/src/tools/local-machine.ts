@@ -13,7 +13,7 @@
 import {
   MachineIdentityMismatchError,
   MachineUnavailableError,
-} from '../machines/machine-session';
+} from '../machines/machine-session-errors';
 import {
   machineIdentityMismatchResult,
   machineUnavailableResult,

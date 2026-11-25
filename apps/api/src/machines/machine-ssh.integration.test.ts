@@ -47,7 +47,7 @@ import {
 
 import { MachineConnector } from './machine-connector.service';
 import { readFsReadResult } from './machine-results';
-import { MachineUnavailableError } from './machine-session';
+import { MachineUnavailableError } from './machine-session-errors';
 import {
   createMachineSshTransportFactory,
   type MachineTransport,
@@ -423,8 +423,14 @@ async function rawSshBootstrap(
   try {
     const bootstrap = createClient(BootstrapService, stdio.transport);
     const roots = createClient(MachineService, stdio.transport);
-    const info = await bootstrap.getInfo(create(GetInfoRequestSchema, {}), { timeoutMs: HANDSHAKE_POLL_TIMEOUT_MS });
-    const registeredRoots = (await roots.listRoots(create(ListRootsRequestSchema, {}), { timeoutMs: HANDSHAKE_POLL_TIMEOUT_MS })).roots.map((root) => root.path);
+    const info = await bootstrap.getInfo(create(GetInfoRequestSchema, {}), {
+      timeoutMs: HANDSHAKE_POLL_TIMEOUT_MS,
+    });
+    const registeredRoots = (
+      await roots.listRoots(create(ListRootsRequestSchema, {}), {
+        timeoutMs: HANDSHAKE_POLL_TIMEOUT_MS,
+      })
+    ).roots.map((root) => root.path);
     return { info, roots: registeredRoots };
   } finally {
     stdio.close();

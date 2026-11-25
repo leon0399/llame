@@ -4,9 +4,12 @@ import {
   createLocalChildTransportFactory,
   localChildEnvironment,
 } from './local-child-transport';
-import { MachineUnavailableError } from './machine-session';
+import {
+  MachineIdentityMismatchError,
+  MachineUnavailableError,
+} from './machine-session-errors';
 
-function fixture(commandOutput = '/tmp/llame-machine.sock\n') {
+function fixture(commandOutput = '/tmp/llame-machine/daemon.sock\n') {
   const calls: Array<{
     readonly command: string;
     readonly args: ReadonlyArray<string>;
@@ -16,8 +19,7 @@ function fixture(commandOutput = '/tmp/llame-machine.sock\n') {
     [];
 
   const created = createLocalChildTransportFactory({
-    command:
-      '/repo/apps/machine/dist/x86_64-unknown-linux-musl/llame-machine',
+    command: '/repo/apps/machine/dist/x86_64-unknown-linux-musl/llame-machine',
     env: {},
     runCommand: (command, args, options) => {
       calls.push({ command, args, env: options.env });
@@ -50,13 +52,14 @@ describe('createLocalChildTransportFactory', () => {
 
     expect(calls).toEqual([
       {
-        command: '/repo/apps/machine/dist/x86_64-unknown-linux-musl/llame-machine',
+        command:
+          '/repo/apps/machine/dist/x86_64-unknown-linux-musl/llame-machine',
         args: ['attach', '--print-socket'],
         env: { LANG: 'C.UTF-8', TERM: 'dumb' },
       },
     ]);
     expect(connected.map(({ path }) => path)).toEqual([
-      '/tmp/llame-machine.sock',
+      '/tmp/llame-machine/daemon.sock',
     ]);
   });
 
@@ -82,7 +85,7 @@ describe('createLocalChildTransportFactory', () => {
       runCommand: (_command, _args, options) => {
         calls.push({ env: options.env });
 
-        return '/tmp/llame-machine.sock';
+        return '/tmp/llame-machine/daemon.sock';
       },
       connect: () => new Socket(),
     });
@@ -120,7 +123,7 @@ describe('createLocalChildTransportFactory', () => {
     of(connected[0]).socket.destroy();
 
     await expect(transport.ended).resolves.toMatchObject({
-      code: 0,
+      code: null,
       closedByHub: false,
     });
   });
@@ -138,7 +141,7 @@ describe('createLocalChildTransportFactory', () => {
   it('refuses a command that names no program', () => {
     const created = createLocalChildTransportFactory({
       command: '  ',
-      runCommand: () => '/tmp/llame-machine.sock',
+      runCommand: () => '/tmp/llame-machine/daemon.sock',
       connect: () => new Socket(),
     });
 
@@ -154,8 +157,35 @@ describe('createLocalChildTransportFactory', () => {
     const { created, connected } = fixture(' \n');
 
     expect(() => created.open({ name: 'host-a' })).toThrow(
-      'The Machine daemon did not return its socket path.',
+      'The Machine daemon did not return a valid socket path.',
     );
     expect(connected).toHaveLength(0);
+  });
+  it('maps attach exit status 78 to identity mismatch', () => {
+    const created = createLocalChildTransportFactory({
+      command: 'llame-machine',
+      runCommand: () => {
+        throw Object.assign(new Error('identity mismatch'), { status: 78 });
+      },
+      connect: () => new Socket(),
+    });
+
+    expect(() => created.open({ name: 'host-a' })).toThrow(
+      MachineIdentityMismatchError,
+    );
+  });
+
+  it('maps other attach failures to unreachable', () => {
+    const created = createLocalChildTransportFactory({
+      command: 'llame-machine',
+      runCommand: () => {
+        throw Object.assign(new Error('daemon unavailable'), { status: 1 });
+      },
+      connect: () => new Socket(),
+    });
+
+    expect(() => created.open({ name: 'host-a' })).toThrow(
+      MachineUnavailableError,
+    );
   });
 });

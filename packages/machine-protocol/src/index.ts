@@ -34,10 +34,15 @@ export {
   ErrorReasonSchema,
 } from "./generated/stead/machine/v1/errors_pb";
 export { MachineService } from "./generated/stead/machine/v1/machine_pb";
-export { GetInfoRequestSchema } from "./generated/stead/machine/bootstrap/v1/bootstrap_pb";
+export {
+  GetInfoRequestSchema,
+  GetInfoResponseSchema,
+} from "./generated/stead/machine/bootstrap/v1/bootstrap_pb";
 export {
   GetLimitsRequestSchema,
+  GetLimitsResponseSchema,
   ListRootsRequestSchema,
+  ListRootsResponseSchema,
 } from "./generated/stead/machine/v1/machine_pb";
 export * from "./generated/stead/machine/v1/file_pb";
 export * from "./generated/stead/machine/v1/job_pb";

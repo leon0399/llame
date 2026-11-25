@@ -1,9 +1,8 @@
 #!/usr/bin/env node
 /**
- * Prepares the local Machine a `pnpm dev` API serves. The API connects to its
- * own static `llame-machine attach --stdio` binary with a fixed configuration
- * directory, after this helper registers the checkout and temporary directory
- * as roots.
+ * Prepares the local Machine a `pnpm dev` API serves. The API discovers its
+ * own static `llame-machine` binary with `attach --print-socket`, after this
+ * helper registers the checkout and temporary directory as roots.
  *
  * Runs the daemon binary's own `roots add`, so canonicalisation and file format
  * are the daemon's, and registration is idempotent.

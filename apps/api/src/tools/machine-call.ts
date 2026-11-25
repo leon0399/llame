@@ -28,8 +28,9 @@ import type { MachineFailureReason } from '../machines/machines-status';
 import {
   MachineIdentityMismatchError,
   MachineUnavailableError,
-} from '../machines/machine-session';
-import { type MachineConnector } from '../machines/machine-connector.service';
+  MachineUpdateRequiredError,
+} from '../machines/machine-session-errors';
+import type { MachineConnector } from '../machines/machine-connector.service';
 import {
   machineEnvelope,
   machineAttemptKey as attemptKeyFor,
@@ -170,7 +171,7 @@ export function machineUnusableResult(name: string): MachineFailureResult {
   };
 }
 
-/** A Machine's own JSON-RPC refusal, as a settled tool observation. */
+/** A Machine's own gRPC refusal, as a settled tool observation. */
 export function machineProtocolFailureResult(
   name: string,
   error: MachineProtocolError,
@@ -189,15 +190,15 @@ export function machineProtocolFailureResult(
       message: BUDGET_EXHAUSTED_MESSAGE,
     };
 
-  if (error.code === 'incompatible_version')
-    return machineUnavailableResult(name, 'incompatible_version');
-
-  if (error.code === 'invalid_params')
+  if (error.code === 'invalid_argument')
     return {
       status: 'error',
       type: 'invalid_input',
       message: 'The Machine refused the request as invalid.',
     };
+
+  if (error.code === 'machine_update_required')
+    return machineUnavailableResult(name, 'incompatible_version');
 
   return machineUnavailableResult(name);
 }
@@ -219,6 +220,9 @@ async function machineCallResult(
     // operator-facing outcome. `sent` is false, so it is never unknown.
     if (error instanceof MachineIdentityMismatchError)
       return machineIdentityMismatchResult(name);
+
+    if (error instanceof MachineUpdateRequiredError)
+      return machineUnavailableResult(name, 'incompatible_version');
 
     if (error instanceof MachineUnavailableError)
       return error.sent && options.unknownOnSent

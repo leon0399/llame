@@ -7,7 +7,7 @@ import {
   createMachineSshTransportFactory,
   createProcessTransport,
 } from './machine-transport';
-import { MachineUnavailableError } from './machine-session';
+import { MachineUnavailableError } from './machine-session-errors';
 
 type FakeLink = {
   readonly process: SshProcess;
@@ -190,9 +190,7 @@ describe('createMachineSshTransportFactory', () => {
           '--print-socket',
         ],
       });
-      expect(of(commandCalls[1]).args[1]).toBe(
-        of(commandCalls[0]).args[1],
-      );
+      expect(of(commandCalls[1]).args[1]).toBe(of(commandCalls[0]).args[1]);
       expect(of(commandCalls[1]).args[4]).toBe('ssh://me@gpu.lan:2222');
 
       expect(spawnCalls).toHaveLength(2);
@@ -288,7 +286,8 @@ describe('createMachineSshTransportFactory', () => {
 });
 
 function of<T>(value: T | undefined): T {
-  if (value === undefined) throw new Error('the fixture did not create a value');
+  if (value === undefined)
+    throw new Error('the fixture did not create a value');
 
   return value;
 }

@@ -7,11 +7,11 @@ import {
 } from '@workspace/machine-protocol';
 
 import { type Db } from '../db/tenant-db.service';
+import { MachineConnector } from '../machines/machine-connector.service';
 import {
-  MachineConnector,
+  MachineIdentityMismatchError,
   MachineUnavailableError,
-} from '../machines/machine-connector.service';
-import { MachineIdentityMismatchError } from '../machines/machine-session';
+} from '../machines/machine-session-errors';
 import { NativeFilesRepository } from '../runs/native-files-repository';
 import { RunEventsRepository } from '../runs/runs-repository';
 import {
@@ -291,7 +291,7 @@ describe('machineProtocolFailureResult', () => {
     expect(
       machineProtocolFailureResult(
         'devl',
-        new MachineProtocolError('incompatible_version', 'mismatch'),
+        new MachineProtocolError('machine_update_required', 'mismatch'),
       ),
     ).toEqual({
       status: 'error',
@@ -305,7 +305,7 @@ describe('machineProtocolFailureResult', () => {
     expect(
       machineProtocolFailureResult(
         'devl',
-        new MachineProtocolError('invalid_params', 'bad params'),
+        new MachineProtocolError('invalid_argument', 'bad params'),
       ),
     ).toEqual({
       status: 'error',

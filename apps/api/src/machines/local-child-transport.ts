@@ -16,8 +16,15 @@ import { connect as connectNetSocket, type Socket } from 'node:net';
 
 import { processEnvironment } from '../tools/env';
 
-import { machineSocketPath, type MachineLinkEnd, type MachineTransportFactory } from './machine-transport';
-import { MachineUnavailableError } from './machine-session';
+import {
+  machineSocketPath,
+  type MachineLinkEnd,
+  type MachineTransportFactory,
+} from './machine-transport';
+import {
+  MachineIdentityMismatchError,
+  MachineUnavailableError,
+} from './machine-session-errors';
 
 /**
  * The child env's identity and OS variables, copied only when the worker has
@@ -83,7 +90,8 @@ export type LocalChildTransportFactoryOptions = {
  * installation when no override is set.
  */
 export function localMachineCommand(
-  command: string = processEnvironment()['LLAME_MACHINE_COMMAND'] ?? daemonBinary(),
+  command: string = processEnvironment()['LLAME_MACHINE_COMMAND'] ??
+    daemonBinary(),
 ): ReadonlyArray<string> {
   return command
     .trim()
@@ -119,8 +127,10 @@ export function createLocalChildTransportFactory(
   options: LocalChildTransportFactoryOptions = {},
 ): MachineTransportFactory {
   const workerEnvironment = options.env ?? processEnvironment();
-  const runCommand = options.runCommand ?? ((command, args, { env }) =>
-    execFileSync(command, [...args], { env, encoding: 'utf8' }));
+  const runCommand =
+    options.runCommand ??
+    ((command, args, { env }) =>
+      execFileSync(command, [...args], { env, encoding: 'utf8' }));
   const connect = options.connect ?? connectNetSocket;
 
   return {
@@ -136,11 +146,30 @@ export function createLocalChildTransportFactory(
           'LLAME_MACHINE_COMMAND names no program to run.',
         );
 
-      const socketOutput = runCommand(
-        program,
-        [...words.slice(1), 'attach', '--print-socket'],
-        { env: localChildEnvironment(workerEnvironment) },
-      );
+      let socketOutput: string;
+
+      try {
+        socketOutput = runCommand(
+          program,
+          [...words.slice(1), 'attach', '--print-socket'],
+          { env: localChildEnvironment(workerEnvironment) },
+        );
+      } catch (cause) {
+        if (
+          typeof cause === 'object' &&
+          cause !== null &&
+          'status' in cause &&
+          cause.status === 78
+        )
+          throw new MachineIdentityMismatchError(request.name);
+
+        throw new MachineUnavailableError(
+          request.name,
+          'unreachable',
+          false,
+          cause instanceof Error ? cause.message : String(cause),
+        );
+      }
       const socketPath = machineSocketPath(socketOutput);
 
       if (socketPath === undefined)
@@ -153,20 +182,24 @@ export function createLocalChildTransportFactory(
 
       const socket = connect(socketPath);
       let closedByHub = false;
-      const { promise: ended, resolve } = Promise.withResolvers<MachineLinkEnd>();
-      socket.once('close', () => resolve({
-        code: null,
-        signal: null,
-        diagnostic: '',
-        closedByHub,
-      }));
-      socket.once('error', (error) => resolve({
-        code: null,
-        signal: null,
-        diagnostic: error.message,
-        closedByHub,
-      }));
-
+      const { promise: ended, resolve } =
+        Promise.withResolvers<MachineLinkEnd>();
+      socket.once('close', () =>
+        resolve({
+          code: null,
+          signal: null,
+          diagnostic: '',
+          closedByHub,
+        }),
+      );
+      socket.once('error', (error) =>
+        resolve({
+          code: null,
+          signal: null,
+          diagnostic: error.message,
+          closedByHub,
+        }),
+      );
 
       return {
         rpcTransport: connectSocket(socket),

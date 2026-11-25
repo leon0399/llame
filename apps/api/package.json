@@ -17,7 +17,7 @@
     "db:studio": "drizzle-kit studio",
     "db:up": "drizzle-kit up",
     "db:upgrade-recency-digest": "npx tsx src/db/recency-digest-upgrade.cli.ts",
-    "dev": "node scripts/dev-machine-host.mts && LLAME_MACHINE_COMMAND=\"node $PWD/../machine/dist/llame-machine.cjs\" LLAME_MACHINE_CONFIG_DIR=\"$PWD/../../.llame-dev/machine-host\" nest start --watch",
+    "dev": "node scripts/dev-machine-host.mts && LLAME_MACHINE_CONFIG_DIR=\"$PWD/../../.llame-dev/machine-host\" nest start --watch",
     "dev:studio": "drizzle-kit studio",
     "format": "oxfmt src evals",
     "lint": "oxlint --deny-warnings --report-unused-disable-directives",

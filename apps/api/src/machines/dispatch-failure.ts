@@ -9,7 +9,7 @@ import {
   MachineIdentityMismatchError,
   MachineUnavailableError,
   MachineUpdateRequiredError,
-} from './machine-session';
+} from './machine-session-errors';
 
 /** A Machine failure as the code the callers answer. */
 export function dispatchFailure(

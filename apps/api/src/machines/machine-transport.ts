@@ -21,8 +21,6 @@ import type { Readable, Writable } from 'node:stream';
 import type { Transport } from '@connectrpc/connect';
 import type { JsonValue } from '@workspace/machine-protocol';
 
-
-
 import type { ResolvedSshFiles } from '../instance-config/machines-config';
 import {
   createSshConfigFile,
@@ -35,8 +33,11 @@ import {
   type SshProcess,
   type SshSpawn,
 } from '../ssh/ssh-process';
-import { MachineUnavailableError, type MachineRequestOptions } from './machine-session';
-
+import type { MachineRequestOptions } from './machine-session';
+import {
+  MachineIdentityMismatchError,
+  MachineUnavailableError,
+} from './machine-session-errors';
 
 /** How the link ended; `diagnostic` is the link process's own stderr. */
 export type MachineLinkEnd = {
@@ -55,7 +56,6 @@ export function machineSocketPath(output: string): string | undefined {
 
   return matches.length === 1 ? matches[0] : undefined;
 }
-
 
 export type MachineTransport =
   | {
@@ -85,7 +85,10 @@ export type MachineTransportFactory = {
   readonly streamHandler?: (
     method: string,
     params: Record<string, unknown>,
-    notify: (notification: { readonly method: string; readonly params?: JsonValue }) => void,
+    notify: (notification: {
+      readonly method: string;
+      readonly params?: JsonValue;
+    }) => void,
     send: (frame: unknown) => void,
     options: MachineRequestOptions,
   ) => Promise<JsonValue>;
@@ -177,16 +180,35 @@ function openSshSession(
 
   const configPath = deps.path(ssh);
   const destination = sshDestination(request.destination);
-  const remoteSocketOutput = deps.runCommand('ssh', [
-    '-F',
-    configPath,
-    '-T',
-    '--',
-    destination,
-    'llame-machine',
-    'attach',
-    '--print-socket',
-  ]);
+  let remoteSocketOutput: string;
+
+  try {
+    remoteSocketOutput = deps.runCommand('ssh', [
+      '-F',
+      configPath,
+      '-T',
+      '--',
+      destination,
+      'llame-machine',
+      'attach',
+      '--print-socket',
+    ]);
+  } catch (cause) {
+    if (
+      typeof cause === 'object' &&
+      cause !== null &&
+      'status' in cause &&
+      cause.status === 78
+    )
+      throw new MachineIdentityMismatchError(request.name);
+
+    throw new MachineUnavailableError(
+      request.name,
+      'unreachable',
+      false,
+      cause instanceof Error ? cause.message : String(cause),
+    );
+  }
   const remoteSocket = machineSocketPath(remoteSocketOutput);
 
   if (remoteSocket === undefined)
@@ -200,17 +222,19 @@ function openSshSession(
   const socketDirectory = mkdtempSync(join(tmpdir(), 'llame-machine-ssh-'));
   chmodSync(socketDirectory, 0o700);
   const localSocket = join(socketDirectory, 'machine.sock');
-  const link = createProcessTransport(deps.spawnLink('ssh', [
-    '-F',
-    configPath,
-    '-N',
-    '-o',
-    'StreamLocalBindUnlink=yes',
-    '-L',
-    `${localSocket}:${remoteSocket}`,
-    '--',
-    destination,
-  ]));
+  const link = createProcessTransport(
+    deps.spawnLink('ssh', [
+      '-F',
+      configPath,
+      '-N',
+      '-o',
+      'StreamLocalBindUnlink=yes',
+      '-L',
+      `${localSocket}:${remoteSocket}`,
+      '--',
+      destination,
+    ]),
+  );
   const socket = deps.connect(localSocket);
   let closedByHub = false;
   const { promise: ended, resolve } = Promise.withResolvers<MachineLinkEnd>();
@@ -236,7 +260,6 @@ function openSshSession(
   };
 }
 
-
 export type MachineSshTransportFactory = MachineTransportFactory & {
   /** The generated configuration's text, or undefined when none was written. */
   readonly sshConfigText: () => string | undefined;
@@ -254,7 +277,6 @@ function sshDestination(destination: string): string {
   return destination.includes(':') ? `ssh://${destination}` : destination;
 }
 
-
 /**
  * The production factory: one generated SSH configuration per process, written
  * on first use, and one `ssh` process per session.
@@ -263,8 +285,9 @@ export function createMachineSshTransportFactory(
   options: MachineSshTransportFactoryOptions,
 ): MachineSshTransportFactory {
   const spawnLink = options.spawn ?? spawnSshProcess;
-  const runCommand = options.runCommand ?? ((command, args) =>
-    execFileSync(command, [...args], { encoding: 'utf8' }));
+  const runCommand =
+    options.runCommand ??
+    ((command, args) => execFileSync(command, [...args], { encoding: 'utf8' }));
   const connect = options.connect ?? connectNetSocket;
   let configFile = options.configFile;
 
@@ -281,13 +304,16 @@ export function createMachineSshTransportFactory(
   return {
     sshConfigText: () => configFile?.text,
     open: (request) =>
-      openSshSession({
-        ssh: options.ssh,
-        spawnLink,
-        path,
-        runCommand,
-        connect,
-      }, request),
+      openSshSession(
+        {
+          ssh: options.ssh,
+          spawnLink,
+          path,
+          runCommand,
+          connect,
+        },
+        request,
+      ),
     dispose: () => {
       configFile?.dispose();
       configFile = undefined;

@@ -430,9 +430,9 @@ describe('Machine grep', () => {
     });
   });
 
-  it('fails as Machine unusable when the daemon refuses the request shape', async () => {
+  it('fails as Machine unusable when the daemon rejects the request internally', async () => {
     const { connector } = fixture({
-      answers: { 'fs.grep': { error: 'invalid_params' } },
+      answers: { 'fs.grep': { error: 'internal' } },
     });
 
     expect(

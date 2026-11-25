@@ -5,7 +5,7 @@ import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 import { MachineConnector } from '../machines/machine-connector.service';
-import { MachineIdentityMismatchError } from '../machines/machine-session';
+import { MachineIdentityMismatchError } from '../machines/machine-session-errors';
 import { snapshotMachineSkillSources } from '../skills/machine-skill-sources';
 import {
   SkillCatalog,

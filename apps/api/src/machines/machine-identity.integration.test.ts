@@ -29,7 +29,7 @@ import {
   MachineConnector,
   type MachineConnectorDeps,
 } from './machine-connector.service';
-import { MachineIdentityMismatchError } from './machine-session';
+import { MachineIdentityMismatchError } from './machine-session-errors';
 import type { MachineContact } from './machines-status';
 
 type SqlClient = Sql;

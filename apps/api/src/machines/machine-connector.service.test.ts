@@ -19,7 +19,7 @@ import {
 import {
   MachineIdentityMismatchError,
   MachineUnavailableError,
-} from './machine-session';
+} from './machine-session-errors';
 import type { MachineContact } from './machines-status';
 
 /** Every request carries its own budget; the envelope is part of the params. */

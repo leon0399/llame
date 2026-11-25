@@ -19,7 +19,7 @@ import { type Chat } from '../db/schema';
 import { createMachineInstructionProbe } from '../instructions/machine-instruction-scope';
 import { type ReadPage } from '../instructions/instruction-files';
 import { type MachineConnector } from '../machines/machine-connector.service';
-import { MachineUnavailableError } from '../machines/machine-session';
+import { MachineUnavailableError } from '../machines/machine-session-errors';
 import {
   formatMachineLocator,
   parseMachineLocator,

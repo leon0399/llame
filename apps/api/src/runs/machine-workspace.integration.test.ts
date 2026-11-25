@@ -17,7 +17,6 @@ import {
   type FsListResult,
   type FsReadResult,
   type FsStatResult,
-  type JsonRpcNotification,
   type JsonValue,
   type McpServerEntry,
   type RootsListResult,
@@ -1219,7 +1218,7 @@ function readWorkspaceServers(
  */
 function relayMcpTraffic(
   peer: ProtocolPeer,
-  notification: JsonRpcNotification,
+  notification: { readonly method: string; readonly params?: JsonValue },
 ): void {
   if (notification.method !== 'mcp.message') return;
 

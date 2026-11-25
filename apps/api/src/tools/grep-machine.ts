@@ -27,11 +27,12 @@ import {
   type GrepScope,
 } from '@workspace/native-file-tools';
 
+import type { MachineConnector } from '../machines/machine-connector.service';
 import {
+  MachineIdentityMismatchError,
   MachineUnavailableError,
-  type MachineConnector,
-} from '../machines/machine-connector.service';
-import { MachineIdentityMismatchError } from '../machines/machine-session';
+  MachineUpdateRequiredError,
+} from '../machines/machine-session-errors';
 import {
   MACHINE_NAME_PATTERN,
   parseMachineLocator,
@@ -656,12 +657,11 @@ function machineGrepFailure(
   if (error instanceof MachineUnavailableError)
     return machineUnavailableResult(name, error.reason);
 
+  if (error instanceof MachineUpdateRequiredError)
+    return machineUnusableResult(name);
+
   if (error instanceof MachineProtocolError) {
-    // A daemon older than this hub refuses an unknown method as `internal`.
-    // `invalid_params` on `fs.grep` means a build that reads another request
-    // shape: the hub validates the patterns and owns the cursor and the
-    // bounds, so the only cause is a daemon of another build (design D8).
-    return error.code === 'internal' || error.code === 'invalid_params'
+    return error.code === 'internal'
       ? machineUnusableResult(name)
       : machineProtocolFailureResult(name, error);
   }
