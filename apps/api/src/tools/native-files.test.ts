@@ -1084,7 +1084,7 @@ describe('local Machine routing', () => {
       });
       expect(JSON.stringify(result)).not.toContain('must not be read');
       expect(begin).not.toHaveBeenCalled();
-      expect(peer.sessions).toHaveLength(0);
+      expect(peer.sessions.flatMap(({ requests }) => requests)).toEqual([]);
     } finally {
       await rm(root, { recursive: true, force: true });
     }

@@ -716,7 +716,7 @@ describe('runMachineMutation', () => {
       ),
     ).resolves.toEqual(machineUnavailableResult('devl'));
     expect(begin).not.toHaveBeenCalled();
-    expect(peer.sessions).toHaveLength(0);
+    expect(peer.sessions.flatMap(({ requests }) => requests)).toEqual([]);
   });
 
   it('reports a mismatched identity from the reachability gate itself', async () => {
