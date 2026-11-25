@@ -167,6 +167,7 @@ pub fn list_directory(
     })
 }
 
+#[allow(clippy::too_many_lines)]
 pub fn read_lines(
     context: &Context,
     path: &str,
@@ -239,9 +240,7 @@ pub fn read_lines(
                     {
                         if line_too_large || source.len() > bound.saturating_sub(used) {
                             truncated = true;
-                            output_stopped = true;
                         } else {
-                            used += source.len();
                             lines.push(source.to_owned());
                         }
                     }

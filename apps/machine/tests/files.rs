@@ -59,6 +59,25 @@ async fn reads_windows_crlf_byte_bounds_and_streamed_ranges() {
     };
     assert_eq!(lines.lines, ["one"]);
     assert!(lines.truncated);
+    let window_file = root.join("window.txt");
+    let mut content = "skip\n".repeat(50_000);
+    content.push_str("target\n");
+    std::fs::write(&window_file, content).unwrap();
+    let response = client
+        .read_lines(ReadLinesRequest {
+            path: window_file.to_string_lossy().into_owned(),
+            start_line: 50_001,
+            limit: 1,
+            max_bytes: 16,
+        })
+        .await
+        .unwrap()
+        .into_inner();
+    let Some(read_lines_response::Result::Lines(window)) = response.result else {
+        panic!("windowed lines read failed");
+    };
+    assert_eq!(window.lines, ["target"]);
+    assert_eq!(window.line_count, 50_001);
     let invalid = root.join("invalid.txt");
     std::fs::write(&invalid, [0xff, 0xfe]).unwrap();
     let response = client
