@@ -268,7 +268,10 @@ message SearchFilesRequest {
 message SearchPosition {
   // Relative to the request path, `/`-separated.
   string path = 1;
+  // Last fully searched line; zero means before the first line.
   uint32 line = 2;
+  // Absolute byte offset after the fully searched prefix of this file.
+  optional uint64 byte_offset = 3;
 }
 
 // An unset bound is unbounded.

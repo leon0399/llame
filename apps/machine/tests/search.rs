@@ -227,6 +227,53 @@ async fn missing_and_wrong_kind_search_paths_are_stream_failures() {
 }
 
 #[tokio::test]
+async fn stopped_search_positions_advance_past_the_incoming_cursor() {
+    let machine = common::Machine::new();
+    let root = machine.root();
+    std::fs::write(root.join("a.txt"), "needle\n").unwrap();
+    std::fs::write(root.join("b.txt"), "needle\n").unwrap();
+    let (_child, channel) = machine.attach().await;
+    let mut client = FileServiceClient::new(channel);
+
+    let mut bounded = request(root, &["needle"]);
+    bounded.glob = "b.txt".into();
+    bounded.after = Some(machine_protocol::v1::SearchPosition {
+        path: "a.txt".into(),
+        line: 1,
+        byte_offset: None,
+    });
+    bounded.bounds = Some(SearchBounds {
+        files: None,
+        bytes: None,
+        file_bytes: None,
+        matches: Some(0),
+    });
+    let mut stream = client
+        .search_files(bounded.clone())
+        .await
+        .unwrap()
+        .into_inner();
+    let mut position = None;
+    while let Some(response) = stream.message().await.unwrap() {
+        if let Some(Event::End(end)) = response.event {
+            position = end.position;
+        }
+    }
+    let position = position.unwrap();
+    assert_eq!(position.path, "b.txt");
+    bounded.after = Some(position);
+    bounded.bounds = None;
+    let mut stream = client.search_files(bounded).await.unwrap().into_inner();
+    let mut resumed = Vec::new();
+    while let Some(response) = stream.message().await.unwrap() {
+        if let Some(Event::Match(found)) = response.event {
+            resumed.push((found.path, found.line));
+        }
+    }
+    assert_eq!(resumed, [("b.txt".into(), 1)]);
+}
+
+#[tokio::test]
 async fn ignored_directory_is_not_walked() {
     let machine = common::Machine::new();
     let root = machine.root();
@@ -364,6 +411,46 @@ async fn ancestor_gitignore_does_not_cross_repository_boundary() {
     }
     assert_eq!(found, ["secret.txt"]);
 }
+#[tokio::test]
+async fn same_byte_bound_resumes_through_a_large_file() {
+    let machine = common::Machine::new();
+    let root = machine.root();
+    let mut large = String::from("needle\n");
+    large.push_str(&"x\n".repeat(40_000));
+    large.push_str("needle\n");
+    std::fs::write(root.join("large.txt"), large).unwrap();
+    let (_child, channel) = machine.attach().await;
+    let mut client = FileServiceClient::new(channel);
+    let mut req = request(root, &["needle"]);
+    req.bounds = Some(SearchBounds {
+        files: None,
+        bytes: Some(1),
+        file_bytes: None,
+        matches: None,
+    });
+
+    let mut matches = Vec::new();
+    let mut after = None;
+    for _ in 0..3 {
+        req.after = after;
+        let mut stream = client.search_files(req.clone()).await.unwrap().into_inner();
+        let mut end = None;
+        while let Some(response) = stream.message().await.unwrap() {
+            match response.event {
+                Some(Event::Match(found)) => matches.push(found.line),
+                Some(Event::End(search_end)) => end = Some(search_end),
+                _ => {}
+            }
+        }
+        let end = end.unwrap();
+        after = end.position;
+        if end.stop == SearchStop::Complete as i32 {
+            break;
+        }
+    }
+    assert_eq!(matches, [1, 40_002]);
+    assert!(after.is_none());
+}
 
 #[tokio::test]
 async fn byte_bound_skips_zero_budget_and_stops_between_chunks() {
@@ -418,9 +505,9 @@ async fn byte_bound_skips_zero_budget_and_stops_between_chunks() {
             _ => {}
         }
     }
-    assert!(matches.is_empty());
+    assert_eq!(matches, ["large.txt"]);
     let end = end.unwrap();
     assert_eq!(end.stop, SearchStop::Bytes as i32);
     assert_eq!(end.files, 1);
-    assert_eq!(end.bytes, 1);
+    assert_eq!(end.bytes, 65_536);
 }

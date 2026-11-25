@@ -2,7 +2,7 @@
 
 use std::{
     fs,
-    io::Read,
+    io::{Read, Seek, SeekFrom},
     path::{Path, PathBuf},
     time::{Duration, Instant},
 };
@@ -124,12 +124,33 @@ pub async fn search(
     Ok(tokio_stream::wrappers::ReceiverStream::new(receiver))
 }
 
+fn truncate_to_complete_lines(content: &mut Vec<u8>) {
+    let complete_len = content
+        .iter()
+        .rposition(|byte| *byte == b'\n')
+        .map_or(0, |newline| newline + 1);
+    content.truncate(complete_len);
+}
+
+fn compare_positions(left: &SearchPosition, right: &SearchPosition) -> std::cmp::Ordering {
+    compare_rel(&left.path, &right.path)
+        .then_with(|| left.line.cmp(&right.line))
+        .then_with(|| left.byte_offset.cmp(&right.byte_offset))
+}
+
 fn stopped_position(
     last_match: Option<SearchPosition>,
     after: Option<&SearchPosition>,
     fallback: SearchPosition,
 ) -> SearchPosition {
-    last_match.or_else(|| after.cloned()).unwrap_or(fallback)
+    if let Some(last_match) = last_match {
+        return last_match;
+    }
+    if after.is_some_and(|after| compare_positions(after, &fallback).is_gt()) {
+        after.cloned().unwrap_or(fallback)
+    } else {
+        fallback
+    }
 }
 #[allow(clippy::too_many_arguments, clippy::too_many_lines)]
 fn run_search(
@@ -188,6 +209,7 @@ fn run_search(
                 SearchPosition {
                     path: entry.rel,
                     line: 0,
+                    byte_offset: None,
                 },
             ));
             break;
@@ -235,6 +257,7 @@ fn run_search(
                 SearchPosition {
                     path: entry.rel,
                     line: 0,
+                    byte_offset: None,
                 },
             ));
             break;
@@ -265,37 +288,52 @@ fn run_search(
                     .as_ref()
                     .filter(|after| after.path == entry.rel)
                     .map_or(0, |after| after.line),
+                byte_offset: None,
             });
             break;
         }
+        let resume = after.filter(|position| position.path == entry.rel);
+        let resume_line = resume.map_or(0, |position| position.line as usize);
+        let resume_offset = resume.and_then(|position| position.byte_offset);
         let Ok(mut file) = fs::File::open(&entry.path) else {
             if !skip(sender, &entry.rel, SkipReason::Unreadable) {
                 return;
             }
             continue;
         };
+        if let Some(offset) = resume_offset
+            && file.seek(SeekFrom::Start(offset)).is_err()
+        {
+            if !skip(sender, &entry.rel, SkipReason::Unreadable) {
+                return;
+            }
+            continue;
+        }
         let mut content = Vec::new();
         let mut chunk = vec![0; 65_536];
         let mut byte_stopped = false;
+        let mut deadline_stopped = false;
         let mut read_failed = false;
         loop {
             if sender.is_closed() {
                 return;
             }
             if deadline.is_some_and(|deadline| Instant::now() >= deadline) {
+                deadline_stopped = true;
                 break;
             }
             let remaining = byte_limit.saturating_sub(bytes.saturating_add(content.len() as u64));
             if remaining == 0 {
-                if (content.len() as u64) < metadata.len() {
+                if resume_offset
+                    .unwrap_or(0)
+                    .saturating_add(content.len() as u64)
+                    < metadata.len()
+                {
                     byte_stopped = true;
                 }
                 break;
             }
-            let read_limit = chunk
-                .len()
-                .min(usize::try_from(remaining).unwrap_or(usize::MAX));
-            let Ok(read) = file.read(&mut chunk[..read_limit]) else {
+            let Ok(read) = file.read(&mut chunk) else {
                 read_failed = true;
                 break;
             };
@@ -305,6 +343,8 @@ fn run_search(
             content.extend_from_slice(&chunk[..read]);
         }
         if read_failed {
+            files += 1;
+            bytes = bytes.saturating_add(content.len() as u64);
             if !skip(sender, &entry.rel, SkipReason::Unreadable) {
                 return;
             }
@@ -312,23 +352,26 @@ fn run_search(
         }
         files += 1;
         bytes = bytes.saturating_add(content.len() as u64);
-        if byte_stopped {
-            content.truncate(
-                content
-                    .iter()
-                    .rposition(|byte| *byte == b'\n')
-                    .map_or(0, |newline| newline + 1),
-            );
-            stop = SearchStop::Bytes;
+        if byte_stopped || deadline_stopped {
+            truncate_to_complete_lines(&mut content);
+            stop = if deadline_stopped {
+                SearchStop::Deadline
+            } else {
+                SearchStop::Bytes
+            };
         }
+        let searched_offset = resume_offset
+            .unwrap_or(0)
+            .saturating_add(content.len() as u64);
         if content.contains(&0) {
             if !skip(sender, &entry.rel, SkipReason::Binary) {
                 return;
             }
-            if byte_stopped {
+            if byte_stopped || deadline_stopped {
                 position = Some(SearchPosition {
                     path: entry.rel,
-                    line: 0,
+                    line: resume_line as u32,
+                    byte_offset: Some(searched_offset),
                 });
                 break 'walk;
             }
@@ -338,32 +381,40 @@ fn run_search(
             if !skip(sender, &entry.rel, SkipReason::NotUtf8) {
                 return;
             }
-            if byte_stopped {
+            if byte_stopped || deadline_stopped {
                 position = Some(SearchPosition {
                     path: entry.rel,
-                    line: 0,
+                    line: resume_line as u32,
+                    byte_offset: Some(searched_offset),
                 });
                 break 'walk;
             }
             continue;
         };
         let lines: Vec<&str> = text.lines().collect();
-        let start = after
-            .as_ref()
-            .filter(|a| a.path == entry.rel)
-            .map_or(0, |a| a.line as usize);
+        let start = if resume_offset.is_some() {
+            0
+        } else {
+            resume_line
+        };
+        let line_base = if resume_offset.is_some() {
+            resume_line
+        } else {
+            0
+        };
         for (index, line) in lines.iter().enumerate().skip(start) {
             if sender.is_closed() {
                 return;
             }
-            if deadline.is_some_and(|deadline| Instant::now() >= deadline) {
+            if !deadline_stopped && deadline.is_some_and(|deadline| Instant::now() >= deadline) {
                 stop = SearchStop::Deadline;
                 position = Some(stopped_position(
                     last_match_position.take(),
                     after,
                     SearchPosition {
                         path: entry.rel.clone(),
-                        line: 0,
+                        line: (line_base + index) as u32,
+                        byte_offset: None,
                     },
                 ));
                 break 'walk;
@@ -379,7 +430,8 @@ fn run_search(
                     after,
                     SearchPosition {
                         path: entry.rel.clone(),
-                        line: 0,
+                        line: (line_base + index) as u32,
+                        byte_offset: None,
                     },
                 ));
                 break 'walk;
@@ -388,7 +440,7 @@ fn run_search(
             let last = (index + context_lines).min(lines.len().saturating_sub(1));
             let match_lines = (first..=last)
                 .map(|line_index| Line {
-                    number: (line_index + 1) as u32,
+                    number: (line_base + line_index + 1) as u32,
                     text: lines[line_index].to_owned(),
                     spans: if line_index == index {
                         ranges
@@ -406,7 +458,7 @@ fn run_search(
             let event = SearchFilesResponse {
                 event: Some(Event::Match(Match {
                     path: entry.rel.clone(),
-                    line: (index + 1) as u32,
+                    line: (line_base + index + 1) as u32,
                     lines: match_lines,
                 })),
             };
@@ -415,9 +467,22 @@ fn run_search(
             }
             last_match_position = Some(SearchPosition {
                 path: entry.rel.clone(),
-                line: (index + 1) as u32,
+                line: (line_base + index + 1) as u32,
+                byte_offset: None,
             });
             matches += 1;
+        }
+        if deadline_stopped {
+            position = Some(stopped_position(
+                last_match_position.take(),
+                after,
+                SearchPosition {
+                    path: entry.rel.clone(),
+                    line: (line_base + lines.len()) as u32,
+                    byte_offset: Some(searched_offset),
+                },
+            ));
+            break 'walk;
         }
         if byte_stopped {
             position = Some(stopped_position(
@@ -425,7 +490,8 @@ fn run_search(
                 after,
                 SearchPosition {
                     path: entry.rel,
-                    line: 0,
+                    line: (line_base + lines.len()) as u32,
+                    byte_offset: Some(searched_offset),
                 },
             ));
             break 'walk;
@@ -686,4 +752,29 @@ fn is_ignore_file(path: &str) -> bool {
     path.rsplit('/')
         .next()
         .is_some_and(|name| matches!(name, ".gitignore" | ".ignore"))
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn deadline_stop_keeps_the_later_reached_position() {
+        let after = SearchPosition {
+            path: "a.txt".into(),
+            line: 1,
+            byte_offset: None,
+        };
+        let stop = SearchPosition {
+            path: "b.txt".into(),
+            line: 0,
+            byte_offset: None,
+        };
+        assert_eq!(stopped_position(None, Some(&after), stop.clone()), stop);
+    }
+    #[test]
+    fn deadline_stops_discard_an_incomplete_line() {
+        let mut content = b"complete\npartial".to_vec();
+        truncate_to_complete_lines(&mut content);
+        assert_eq!(content, b"complete\n");
+    }
 }
