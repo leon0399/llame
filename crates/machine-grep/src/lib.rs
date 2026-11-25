@@ -2,6 +2,7 @@
 
 use std::{
     fs,
+    io::Read,
     path::{Path, PathBuf},
     time::{Duration, Instant},
 };
@@ -241,35 +242,84 @@ fn run_search(
             }
             continue;
         }
-        if files > 0 && bytes.saturating_add(metadata.len()) > byte_limit {
+        if bytes >= byte_limit {
             stop = SearchStop::Bytes;
-            let line = after
-                .as_ref()
-                .filter(|a| a.path == entry.rel)
-                .map_or(0, |a| a.line);
             position = Some(SearchPosition {
-                path: entry.rel,
-                line,
+                path: entry.rel.clone(),
+                line: after
+                    .as_ref()
+                    .filter(|after| after.path == entry.rel)
+                    .map_or(0, |after| after.line),
             });
             break;
         }
-        let Ok(content) = fs::read(&entry.path) else {
+        let Ok(mut file) = fs::File::open(&entry.path) else {
             if !skip(sender, &entry.rel, SkipReason::Unreadable) {
                 return;
             }
             continue;
         };
+        let mut content = Vec::new();
+        let mut chunk = vec![0; 65_536];
+        let mut byte_stopped = false;
+        let mut read_failed = false;
+        loop {
+            if sender.is_closed() {
+                return;
+            }
+            let Ok(read) = file.read(&mut chunk) else {
+                read_failed = true;
+                break;
+            };
+            if read == 0 {
+                break;
+            }
+            if bytes.saturating_add(content.len() as u64) >= byte_limit {
+                byte_stopped = true;
+                break;
+            }
+            content.extend_from_slice(&chunk[..read]);
+        }
+        if read_failed {
+            if !skip(sender, &entry.rel, SkipReason::Unreadable) {
+                return;
+            }
+            continue;
+        }
         files += 1;
         bytes = bytes.saturating_add(content.len() as u64);
+        if byte_stopped {
+            content.truncate(
+                content
+                    .iter()
+                    .rposition(|byte| *byte == b'\n')
+                    .map_or(0, |newline| newline + 1),
+            );
+            stop = SearchStop::Bytes;
+        }
         if content.contains(&0) {
             if !skip(sender, &entry.rel, SkipReason::Binary) {
                 return;
+            }
+            if byte_stopped {
+                position = Some(SearchPosition {
+                    path: entry.rel,
+                    line: 0,
+                });
+                break 'walk;
             }
             continue;
         }
         let Ok(text) = std::str::from_utf8(&content) else {
             if !skip(sender, &entry.rel, SkipReason::NotUtf8) {
                 return;
+            }
+            if byte_stopped {
+                position = Some(SearchPosition {
+                    path: entry.rel,
+                    line: 0,
+                });
+                break 'walk;
             }
             continue;
         };
@@ -344,6 +394,19 @@ fn run_search(
                 line: (index + 1) as u32,
             });
             matches += 1;
+        }
+        if byte_stopped {
+            position = Some(
+                last_match_position
+                    .as_ref()
+                    .filter(|last| last.path == entry.rel)
+                    .cloned()
+                    .unwrap_or(SearchPosition {
+                        path: entry.rel,
+                        line: 0,
+                    }),
+            );
+            break 'walk;
         }
     }
     if let Err(status) = guard.verify_unchanged(guarded_before) {

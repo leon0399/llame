@@ -333,3 +333,63 @@ async fn ancestor_gitignore_does_not_cross_repository_boundary() {
     }
     assert_eq!(found, ["secret.txt"]);
 }
+
+#[tokio::test]
+async fn byte_bound_skips_zero_budget_and_stops_between_chunks() {
+    let machine = common::Machine::new();
+    let root = machine.root();
+    let zero_root = root.join("zero");
+    let chunk_root = root.join("chunked");
+    std::fs::create_dir_all(&zero_root).unwrap();
+    std::fs::create_dir_all(&chunk_root).unwrap();
+    std::fs::write(zero_root.join("only.txt"), "needle\n").unwrap();
+    let mut large = String::from("needle\n");
+    large.push_str(&"x\n".repeat(40_000));
+    large.push_str("needle\n");
+    std::fs::write(chunk_root.join("large.txt"), large).unwrap();
+    let (_child, channel) = machine.attach().await;
+    let mut client = FileServiceClient::new(channel);
+
+    let mut zero = request(&zero_root, &["needle"]);
+    zero.bounds = Some(SearchBounds {
+        files: None,
+        bytes: Some(0),
+        file_bytes: None,
+        matches: None,
+    });
+    let mut stream = client.search_files(zero).await.unwrap().into_inner();
+    let mut zero_end = None;
+    while let Some(item) = stream.message().await.unwrap() {
+        if let Some(Event::End(end)) = item.event {
+            zero_end = Some(end);
+        }
+    }
+    let zero_end = zero_end.unwrap();
+    assert_eq!(zero_end.stop, SearchStop::Bytes as i32);
+    assert_eq!(zero_end.files, 0);
+    assert_eq!(zero_end.bytes, 0);
+    assert_eq!(zero_end.position.unwrap().path, "only.txt");
+
+    let mut bounded = request(&chunk_root, &["needle"]);
+    bounded.bounds = Some(SearchBounds {
+        files: None,
+        bytes: Some(1),
+        file_bytes: None,
+        matches: None,
+    });
+    let mut stream = client.search_files(bounded).await.unwrap().into_inner();
+    let mut matches = Vec::new();
+    let mut end = None;
+    while let Some(item) = stream.message().await.unwrap() {
+        match item.event {
+            Some(Event::Match(found)) => matches.push(found.path),
+            Some(Event::End(search_end)) => end = Some(search_end),
+            _ => {}
+        }
+    }
+    assert_eq!(matches, ["large.txt"]);
+    let end = end.unwrap();
+    assert_eq!(end.stop, SearchStop::Bytes as i32);
+    assert_eq!(end.files, 1);
+    assert_eq!(end.bytes, 65_536);
+}
