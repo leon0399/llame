@@ -56,4 +56,3 @@ for (const root of [resolve(repoRoot, '..'), tmpdir(), ...extraRoots()]) {
     stdio: ['ignore', 'ignore', 'inherit'],
   });
 }
-console.log(binary);
