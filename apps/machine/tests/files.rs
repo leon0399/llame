@@ -57,6 +57,23 @@ async fn reads_windows_crlf_byte_bounds_and_streamed_ranges() {
         panic!("exact-bound CRLF line read failed");
     };
     assert_eq!(exact_crlf.lines, ["one"]);
+    assert!(!exact_crlf.truncated);
+    let bare_cr = root.join("bare-cr.txt");
+    std::fs::write(&bare_cr, b"a\r").unwrap();
+    let response = client
+        .read_lines(ReadLinesRequest {
+            path: bare_cr.to_string_lossy().into_owned(),
+            start_line: 1,
+            limit: 0,
+            max_bytes: 16,
+        })
+        .await
+        .unwrap()
+        .into_inner();
+    let Some(read_lines_response::Result::Lines(bare_cr_lines)) = response.result else {
+        panic!("unterminated CR line read failed");
+    };
+    assert_eq!(bare_cr_lines.lines, ["a\r"]);
 
     let response = client
         .read_lines(ReadLinesRequest {

@@ -233,7 +233,6 @@ pub fn read_lines(
                             "The file is not valid UTF-8.".into(),
                         )
                     })?;
-                    let source = source.strip_suffix('\r').unwrap_or(source);
                     if !output_stopped
                         && line_count >= first_requested
                         && line_count < requested_end
