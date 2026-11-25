@@ -13,7 +13,6 @@ import {
   type JsonValue,
   type MachineMethod,
   type MachineMethodParams,
-  type MachineMethodResults,
 } from '@workspace/machine-protocol';
 import type { MachineLinkEnd, MachineTransport } from './machine-transport';
 import {
@@ -25,7 +24,7 @@ import {
 } from './machine-session';
 import { MachineIdentityMismatchError } from './machine-session-errors';
 
-const hello: HelloResult = {
+const hello = {
   protocolVersion: MACHINE_PROTOCOL_VERSION,
   daemonVersion: '1.0.0',
   roots: ['/srv/workspace'],
@@ -39,21 +38,24 @@ const hello: HelloResult = {
     totalMemoryBytes: 4096,
     rootDisks: [],
   },
-};
+} satisfies HelloResult;
 
-function requestHandlerFor(fallback: JsonValue): MachineRequestHandler {
+function requestHandlerFor(
+  fallback: JsonValue,
+  helloAnswer: JsonValue = hello,
+): MachineRequestHandler {
   function handler(
     method: 'hello',
     params: { readonly protocolVersion: number; readonly hubVersion: string },
     options: MachineRequestOptions,
-  ): Promise<HelloResult>;
+  ): Promise<JsonValue>;
   function handler<M extends MachineMethod>(
     method: M,
     params: MachineMethodParams[M],
     options: MachineRequestOptions,
-  ): Promise<MachineMethodResults[M]>;
+  ): Promise<JsonValue>;
   function handler(method: string): Promise<JsonValue> {
-    return Promise.resolve(method === 'hello' ? hello : fallback);
+    return Promise.resolve(method === 'hello' ? helloAnswer : fallback);
   }
 
   return handler;
@@ -160,6 +162,36 @@ function routerSession(
 }
 
 describe('MachineSession Connect-ES adapter', () => {
+  it('refuses a hello without an instance id before calling the Machine service', async () => {
+    const helloWithoutInstanceId: JsonValue = {
+      protocolVersion: MACHINE_PROTOCOL_VERSION,
+      daemonVersion: '1.0.0',
+      roots: ['/srv/workspace'],
+      buildId: '0123456789ab',
+      facts: {
+        os: 'linux',
+        arch: 'x64',
+        kernel: 'test',
+        cpuCount: 2,
+        totalMemoryBytes: 4096,
+        rootDisks: [],
+      },
+    };
+
+    const session = makeSession({
+      requestHandler: requestHandlerFor({}, helloWithoutInstanceId),
+    });
+
+    const getInfo = vi.spyOn(session.clients.bootstrap, 'getInfo');
+    const listRoots = vi.spyOn(session.clients.machine, 'listRoots');
+
+    await expect(session.ready()).rejects.toThrow(
+      'The Machine answered an unusable handshake.',
+    );
+    expect(getInfo).not.toHaveBeenCalled();
+    expect(listRoots).not.toHaveBeenCalled();
+  });
+
   it('handshakes with the exact protocol version and exposes identity, facts, and roots', async () => {
     const handler = { request: requestHandlerFor({}) };
     const requestSpy = vi.spyOn(handler, 'request');

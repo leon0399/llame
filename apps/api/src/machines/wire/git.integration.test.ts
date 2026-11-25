@@ -3,6 +3,8 @@ import { mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { PROTOCOL_VERSION } from '@workspace/machine-protocol';
+import { isRecord } from '@workspace/runtime-safety';
+
 import { MACHINE_BINARY } from '../../testing/local-daemon';
 import { createLocalChildTransportFactory } from '../local-child-transport';
 import { MachineSession } from '../machine-session';
@@ -135,13 +137,20 @@ describe('Git wire handlers against the real daemon', () => {
         options: OPTIONS,
       });
 
+      const worktrees =
+        isRecord(listed) &&
+        listed['status'] === 'ok' &&
+        Array.isArray(listed['worktrees'])
+          ? listed['worktrees']
+          : [];
+
       expect(
-        listed.status === 'ok' &&
-          listed.worktrees.some(
-            (worktree) =>
-              worktree.path === `machine://${NAME}${worktreePath}` &&
-              worktree.branch === 'git-wire-branch',
-          ),
+        worktrees.some(
+          (worktree) =>
+            isRecord(worktree) &&
+            worktree['path'] === `machine://${NAME}${worktreePath}` &&
+            worktree['branch'] === 'git-wire-branch',
+        ),
       ).toBe(true);
 
       const removed = await session.call('git.worktreeRemove', {

@@ -82,13 +82,16 @@ describe('wire files against the real Machine daemon', () => {
       path: root,
     });
 
+    const entries =
+      isRecord(listed) && Array.isArray(listed['entries'])
+        ? listed['entries']
+        : [];
+
     expect(
-      'entries' in listed &&
-        listed.entries.some((entry) => entry.name === 'notes.txt'),
+      entries.some((entry) => isRecord(entry) && entry['name'] === 'notes.txt'),
     ).toBe(true);
     expect(
-      'entries' in listed &&
-        listed.entries.some((entry) => entry.name === 'image.png'),
+      entries.some((entry) => isRecord(entry) && entry['name'] === 'image.png'),
     ).toBe(true);
 
     const read = await session.call('fs.read', {
@@ -103,8 +106,8 @@ describe('wire files against the real Machine daemon', () => {
       path: `${PREFIX}${join(root, 'notes.txt')}`,
     });
 
-    if (read.status === 'success' && 'content' in read)
-      expect(read.content).toContain('2: beta');
+    if (isRecord(read) && isString(read['content']))
+      expect(read['content']).toContain('2: beta');
 
     const edited = await session.call('fs.edit', {
       envelope: ENVELOPE,

@@ -3,6 +3,8 @@ import { mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { MACHINE_BINARY } from '../../testing/local-daemon';
+import { isRecord, isString } from '@workspace/runtime-safety';
+
 import { createLocalChildTransportFactory } from '../local-child-transport';
 import { MachineSession } from '../machine-session.js';
 import type { FsGrepParams } from '@workspace/machine-protocol';
@@ -79,17 +81,20 @@ describe('wire fs.grep with the real daemon', () => {
 
     const first = await session.call('fs.grep', params);
 
-    if (!('ok' in first) || !first.ok || first.cursor === undefined)
+    if (!isRecord(first) || first['ok'] !== true || !isString(first['cursor']))
       throw new Error(
         `First grep page did not continue: ${JSON.stringify(first)}`,
       );
-    expect(first.complete).toBe(false);
-    expect(first.results).toHaveLength(1);
-    expect(first.results[0]).toMatchObject({ path: 'a.txt', cut: true });
+
+    const cursor = first['cursor'];
+    const results = Array.isArray(first['results']) ? first['results'] : [];
+    expect(first['complete']).toBe(false);
+    expect(results).toHaveLength(1);
+    expect(results[0]).toMatchObject({ path: 'a.txt', cut: true });
 
     const second = await session.call('fs.grep', {
       ...params,
-      cursor: first.cursor,
+      cursor,
     });
 
     expect(second).toMatchObject({

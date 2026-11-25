@@ -6,6 +6,8 @@ import {
   type Client,
 } from '@connectrpc/connect';
 import { create } from '@bufbuild/protobuf';
+import { z } from 'zod';
+
 import * as Sentry from '@sentry/nestjs';
 import {
   BootstrapService,
@@ -26,7 +28,6 @@ import {
   type JsonValue,
   type MachineMethod,
   type MachineMethodParams,
-  type MachineMethodResults,
   isMachineErrorCode,
 } from '@workspace/machine-protocol';
 import { classifySshLinkFailure } from '../ssh/ssh-process';
@@ -40,6 +41,24 @@ import type { MachineFailureReason } from './machines-status';
 
 export const HANDSHAKE_TIMEOUT_MS = 30_000;
 export const DEFAULT_REQUEST_BUDGET_MS = 30_000;
+
+const helloResultSchema: z.ZodType<HelloResult> = z.object({
+  protocolVersion: z.number(),
+  daemonVersion: z.string(),
+  roots: z.array(z.string()),
+  instanceId: z.string(),
+  buildId: z.string(),
+  facts: z.object({
+    os: z.string(),
+    arch: z.string(),
+    kernel: z.string(),
+    cpuCount: z.number(),
+    totalMemoryBytes: z.number(),
+    rootDisks: z.array(
+      z.object({ root: z.string(), totalBytes: z.number().nullable() }),
+    ),
+  }),
+});
 
 type HandshakeInfo = {
   readonly protocolVersion: number;
@@ -159,12 +178,12 @@ export type MachineRequestHandler = {
     method: 'hello',
     params: { readonly protocolVersion: number; readonly hubVersion: string },
     options: MachineRequestOptions,
-  ): Promise<HelloResult>;
+  ): Promise<JsonValue>;
   <M extends MachineMethod>(
     method: M,
     params: MachineMethodParams[M],
     options: MachineRequestOptions,
-  ): Promise<MachineMethodResults[M]>;
+  ): Promise<JsonValue>;
 };
 
 export type MachineSessionOptions = {
@@ -282,7 +301,7 @@ export class MachineSession {
     method: M,
     params: MachineMethodParams[M],
     options: MachineRequestOptions = {},
-  ): Promise<MachineMethodResults[M]> {
+  ): Promise<JsonValue> {
     options.signal?.throwIfAborted();
 
     if (this.end !== undefined)
@@ -407,21 +426,35 @@ export class MachineSession {
       clearTimeout(timer);
     }
   }
-  private requestHello(
+  private async requestHello(
     signal: AbortSignal,
     timeoutMs: number,
   ): Promise<HelloResult> {
-    if (this.options.requestHandler !== undefined)
-      return this.options.requestHandler(
-        'hello',
-        {
-          protocolVersion: MACHINE_PROTOCOL_VERSION,
-          hubVersion: this.options.hubVersion,
-        },
-        { signal, budgetMs: timeoutMs },
-      );
+    if (this.options.requestHandler === undefined)
+      return this.performWireHandshake(signal, timeoutMs);
 
-    return this.performWireHandshake(signal, timeoutMs);
+    const answer = await this.options.requestHandler(
+      'hello',
+      {
+        protocolVersion: MACHINE_PROTOCOL_VERSION,
+        hubVersion: this.options.hubVersion,
+      },
+      { signal, budgetMs: timeoutMs },
+    );
+
+    const result = helloResultSchema.safeParse(answer);
+
+    if (!result.success) {
+      this.finish({ kind: 'failure', reason: 'incompatible_version' });
+      throw new MachineUnavailableError(
+        this.name,
+        'incompatible_version',
+        false,
+        'The Machine answered an unusable handshake.',
+      );
+    }
+
+    return result.data;
   }
   private handleHandshakeFailure(error: unknown, signal: AbortSignal): never {
     if (error instanceof MachineUnavailableError) throw error;
@@ -508,14 +541,19 @@ export class MachineSession {
     };
   }
   private finish(
-    input: { kind: 'closed' } | { kind: 'link'; end: MachineLinkEnd },
+    input:
+      | { kind: 'closed' }
+      | { kind: 'failure'; reason: MachineFailureReason }
+      | { kind: 'link'; end: MachineLinkEnd },
   ): void {
     if (this.end !== undefined) return;
 
     const reason =
       input.kind === 'closed'
         ? 'closed'
-        : classifySshLinkFailure(this.established, input.end.diagnostic);
+        : input.kind === 'failure'
+          ? input.reason
+          : classifySshLinkFailure(this.established, input.end.diagnostic);
 
     this.end = { reason, established: this.established };
 
