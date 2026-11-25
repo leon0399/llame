@@ -36,18 +36,19 @@ pub fn run(mode: Mode) -> anyhow::Result<ExitCode> {
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()?;
-    runtime.block_on(attach(mode))?;
-    Ok(ExitCode::SUCCESS)
+    runtime.block_on(attach(mode))
 }
 
-async fn attach(mode: Mode) -> anyhow::Result<()> {
+async fn attach(mode: Mode) -> anyhow::Result<ExitCode> {
     let state_dir = paths::state_dir();
     prepare_state_dir(&state_dir)?;
     let socket = socket_path(&state_dir);
     if UnixStream::connect(&socket).await.is_err() {
         start_daemon(&state_dir).await?;
     }
-    replace_outdated_daemon(&state_dir).await?;
+    if !replace_outdated_daemon(&state_dir).await? {
+        return Ok(ExitCode::from(78));
+    }
     match mode {
         Mode::PrintSocket => {
             let mut stdout = tokio::io::stdout();
@@ -55,13 +56,14 @@ async fn attach(mode: Mode) -> anyhow::Result<()> {
                 .write_all(format!("{}\n", socket.display()).as_bytes())
                 .await?;
             stdout.flush().await?;
-            Ok(())
+            Ok(ExitCode::SUCCESS)
         }
         Mode::Stdio => {
             let stream = UnixStream::connect(&socket)
                 .await
                 .context("the Machine daemon is not reachable")?;
-            relay(stream).await
+            relay(stream).await?;
+            Ok(ExitCode::SUCCESS)
         }
     }
 }
@@ -111,18 +113,22 @@ async fn channel(socket: &Path) -> anyhow::Result<Channel> {
 }
 
 /// A daemon built from another binary is replaced when it runs no job, so a
-/// rebuilt or upgraded binary applies on the next attach. With jobs running it
-/// keeps serving, and the mismatch stays visible in its build id.
-async fn replace_outdated_daemon(state_dir: &Path) -> anyhow::Result<()> {
-    let own = crate::identity::build_id();
+/// rebuilt or upgraded binary applies on the next attach. A different
+/// configured instance is refused rather than attaching to another machine.
+async fn replace_outdated_daemon(state_dir: &Path) -> anyhow::Result<bool> {
+    let own = crate::identity::Identity::load()?;
+    let build_id = own.build_id;
     let socket = socket_path(state_dir);
     let channel = channel(&socket).await?;
     let info = BootstrapServiceClient::new(channel.clone())
         .get_info(GetInfoRequest {})
         .await?
         .into_inner();
-    if info.build_id == own || own == "unknown" {
-        return Ok(());
+    if info.instance_id != own.instance_id {
+        return Ok(false);
+    }
+    if info.build_id == build_id || build_id == "unknown" {
+        return Ok(true);
     }
     let running = match JobServiceClient::new(channel)
         .list_jobs(ListJobsRequest {})
@@ -134,13 +140,14 @@ async fn replace_outdated_daemon(state_dir: &Path) -> anyhow::Result<()> {
     };
     if running > 0 {
         tracing_warn(&format!(
-            "the running Machine daemon is build {}, this binary is {own}; it keeps serving while {running} jobs run",
+            "the running Machine daemon is build {}, this binary is {build_id}; it keeps serving while {running} jobs run",
             info.build_id
         ));
-        return Ok(());
+        return Ok(true);
     }
     stop_daemon(state_dir).await?;
-    start_daemon(state_dir).await
+    start_daemon(state_dir).await?;
+    Ok(true)
 }
 
 fn tracing_warn(message: &str) {

@@ -63,6 +63,28 @@ async fn attach_starts_one_daemon_and_reports_identity() {
 }
 
 #[tokio::test]
+async fn attach_refuses_a_different_config_directory_for_the_same_state() {
+    let machine = common::Machine::new();
+    let (_child, _) = machine.attach().await;
+    let alternate_config = machine.home.path().join("alternate-config");
+    let output = std::process::Command::new(env!("CARGO_BIN_EXE_llame-machine"))
+        .env("LLAME_MACHINE_CONFIG_DIR", &alternate_config)
+        .env("LLAME_MACHINE_STATE_DIR", machine.state_dir())
+        .args(["attach", "--print-socket"])
+        .output()
+        .unwrap();
+
+    assert_eq!(
+        output.status.code(),
+        Some(78),
+        "stdout: {:?}, stderr: {:?}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(output.stdout.is_empty());
+}
+
+#[tokio::test]
 async fn roots_added_while_running_apply_to_the_next_call() {
     let machine = common::Machine::new();
     let (_child, channel) = machine.attach().await;
