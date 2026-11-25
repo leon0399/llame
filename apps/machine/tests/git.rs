@@ -297,6 +297,62 @@ async fn gitdir_outside_root_is_refused() {
     let _ = std::fs::remove_dir_all(external);
 }
 
+
+#[tokio::test]
+async fn common_directory_outside_roots_is_refused_before_git() {
+    let machine = common::Machine::new();
+    let root = machine.root();
+    let repo = root.join("repo");
+    repository(&repo);
+    let external = std::env::temp_dir().join(format!("machine-git-common-{}", std::process::id()));
+    std::fs::create_dir_all(&external).unwrap();
+    std::fs::write(repo.join(".git/commondir"), absolute(&external)).unwrap();
+    let (shim, marker) = git_shim(&machine);
+    let (_child, channel) = machine.attach_with_path(Some(&shim)).await;
+    let mut client = GitServiceClient::new(channel);
+    let response = client
+        .get_repository(GetRepositoryRequest {
+            path: absolute(&repo),
+        })
+        .await
+        .unwrap()
+        .into_inner();
+    let Some(get_repository_response::Result::Failure(failure)) = response.result else {
+        panic!("external common directory was accepted")
+    };
+    assert_eq!(failure.reason, GitFailureReason::OutsideRoots as i32);
+    assert!(!marker.exists(), "git started before common-dir refusal");
+    let _ = std::fs::remove_dir_all(external);
+}
+
+#[tokio::test]
+async fn object_alternate_outside_roots_is_refused_before_git() {
+    let machine = common::Machine::new();
+    let root = machine.root();
+    let repo = root.join("repo");
+    repository(&repo);
+    let external = std::env::temp_dir().join(format!("machine-git-alternate-{}", std::process::id()));
+    std::fs::create_dir_all(&external).unwrap();
+    let alternates = repo.join(".git/objects/info/alternates");
+    std::fs::create_dir_all(alternates.parent().unwrap()).unwrap();
+    std::fs::write(&alternates, absolute(&external)).unwrap();
+    let (shim, marker) = git_shim(&machine);
+    let (_child, channel) = machine.attach_with_path(Some(&shim)).await;
+    let mut client = GitServiceClient::new(channel);
+    let response = client
+        .get_repository(GetRepositoryRequest {
+            path: absolute(&repo),
+        })
+        .await
+        .unwrap()
+        .into_inner();
+    let Some(get_repository_response::Result::Failure(failure)) = response.result else {
+        panic!("external object alternate was accepted")
+    };
+    assert_eq!(failure.reason, GitFailureReason::OutsideRoots as i32);
+    assert!(!marker.exists(), "git started before alternate refusal");
+    let _ = std::fs::remove_dir_all(external);
+}
 #[tokio::test]
 async fn locate_repository_is_bounded_and_does_not_start_git() {
     let machine = common::Machine::new();
