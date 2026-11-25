@@ -453,6 +453,7 @@ mod tests {
         assert!(rx.try_recv().is_err());
     }
 
+    #[allow(clippy::too_many_lines)]
     #[tokio::test]
     async fn relay_echoes_padded_header_as_a_redactable_secret() {
         use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
