@@ -138,15 +138,12 @@ pub async fn run_http(
                     continue;
                 }
                 let (method, request_id) = request_metadata(&text);
-                let is_request = method.is_some();
-                let is_initialized_notification =
-                    method.as_deref() == Some("notifications/initialized");
                 let is_cancellation = method.as_deref() == Some("notifications/cancelled");
-                if is_request
-                    && !is_initialized_notification
-                    && requests.len() >= MAX_IN_FLIGHT_HTTP_REQUESTS
-                    && (!is_cancellation || cancellation_in_flight)
-                {
+                if exceeds_request_capacity(
+                    method.as_deref(),
+                    requests.len(),
+                    cancellation_in_flight,
+                ) {
                     send_capacity_error(&tx, request_id).await;
                     continue;
                 }
@@ -467,6 +464,17 @@ fn status_is_call_level(
         && status != reqwest::StatusCode::NOT_FOUND
 }
 
+fn exceeds_request_capacity(
+    method: Option<&str>,
+    in_flight: usize,
+    cancellation_in_flight: bool,
+) -> bool {
+    method.is_some()
+        && method != Some("notifications/initialized")
+        && in_flight >= MAX_IN_FLIGHT_HTTP_REQUESTS
+        && !(method == Some("notifications/cancelled") && !cancellation_in_flight)
+}
+
 fn should_capture_session_id(method: Option<&str>, status: reqwest::StatusCode) -> bool {
     method == Some("initialize") && status.is_success()
 }
@@ -551,6 +559,35 @@ mod tests {
             matches!(message, ResponseMessage::JsonRpc(text) if text.contains("notifications/progress"))
         );
         fixture.await.unwrap();
+    }
+
+    #[test]
+    fn request_capacity_preserves_responses_and_cancellation() {
+        assert!(exceeds_request_capacity(
+            Some("tools/list"),
+            MAX_IN_FLIGHT_HTTP_REQUESTS,
+            false
+        ));
+        assert!(!exceeds_request_capacity(
+            None,
+            MAX_IN_FLIGHT_HTTP_REQUESTS,
+            false
+        ));
+        assert!(!exceeds_request_capacity(
+            Some("notifications/cancelled"),
+            MAX_IN_FLIGHT_HTTP_REQUESTS,
+            false
+        ));
+        assert!(exceeds_request_capacity(
+            Some("notifications/cancelled"),
+            MAX_IN_FLIGHT_HTTP_REQUESTS,
+            true
+        ));
+        assert!(!exceeds_request_capacity(
+            Some("notifications/initialized"),
+            MAX_IN_FLIGHT_HTTP_REQUESTS,
+            false
+        ));
     }
 
     #[test]
