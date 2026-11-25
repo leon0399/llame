@@ -28,6 +28,8 @@ import { MachineUnavailableError } from '../machines/machine-session-errors';
 import { BashJobRegistry } from './bash-job-registry';
 import { ChatJobsRepository } from './chat-jobs.repository';
 import type { Db } from '../db/tenant-db.service';
+import { NativeFilesRepository } from '../runs/native-files-repository';
+import { RunEventsRepository } from '../runs/runs-repository';
 import { ArtifactsRepository } from '../tools/artifacts/artifacts-repository';
 
 const row: ChatJob = {
@@ -97,6 +99,22 @@ function lostJob(): MachineJob {
     stderr: create(OutputSchema, { bytes: 0n }),
   });
 }
+
+beforeEach(() => {
+  vi.spyOn(NativeFilesRepository.prototype, 'begin').mockResolvedValue(
+    undefined,
+  );
+  vi.spyOn(RunEventsRepository.prototype, 'append').mockImplementation(
+    (runId, eventType, payload) =>
+      Promise.resolve({
+        runId,
+        sequence: 1,
+        eventType,
+        payload,
+        createdAt: new Date(),
+      }),
+  );
+});
 
 describe('BashJobRegistry result retention', () => {
   it('reads retained output for a lost job after a machine reboot', async () => {
@@ -311,6 +329,7 @@ describe('BashJobRegistry result retention', () => {
         userId: row.ownerUserId,
         chatId: row.chatId,
         runId: row.runId,
+        nativeDeliverySequence: 1,
         attemptId: 'attempt-1',
         toolCallId: row.toolCallId,
         configuredCredentials: [],
@@ -371,6 +390,7 @@ describe('BashJobRegistry result retention', () => {
           userId: row.ownerUserId,
           chatId: row.chatId,
           runId: row.runId,
+          nativeDeliverySequence: 1,
           attemptId: 'attempt-1',
           toolCallId: row.toolCallId,
           configuredCredentials: [],
