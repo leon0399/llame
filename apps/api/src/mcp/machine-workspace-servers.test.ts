@@ -443,7 +443,6 @@ async function mcpServerFixture(): Promise<McpFixture> {
 
     if (request.message.case !== 'jsonRpc') return undefined;
 
-
     const call = jsonRpcCall(wireJson(JSON.parse(request.message.value)));
 
     if (call === undefined) return undefined;
@@ -468,7 +467,6 @@ async function mcpServerFixture(): Promise<McpFixture> {
           : undefined;
 
     return result === undefined
-
       ? undefined
       : machineMcpJsonRpc({ jsonrpc: '2.0', id: call.id, result });
   });

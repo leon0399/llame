@@ -10,7 +10,6 @@ const SEARCH = {
 };
 
 describe("fs.grep", () => {
-
   it("gives one search the same cursor key on both sides of the wire", () => {
     expect(fsGrepCursorKey({ ...SEARCH })).toBe(
       fsGrepCursorKey({ ...SEARCH, patterns: ["needle"] }),

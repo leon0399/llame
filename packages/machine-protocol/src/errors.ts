@@ -1,17 +1,17 @@
-import type { JsonValue } from './types';
+import type { JsonValue } from "./types";
 
 /** Error reasons emitted by the Rust daemon. */
 export const MACHINE_ERROR_CODES = [
-  'path_not_registered',
-  'invalid_argument',
-  'machine_job_limit',
-  'machine_job_not_found',
-  'machine_job_running',
-  'budget_exhausted',
-  'machine_update_required',
-  'machine_capability_missing',
-  'machine_identity_mismatch',
-  'internal',
+  "path_not_registered",
+  "invalid_argument",
+  "machine_job_limit",
+  "machine_job_not_found",
+  "machine_job_running",
+  "budget_exhausted",
+  "machine_update_required",
+  "machine_capability_missing",
+  "machine_identity_mismatch",
+  "internal",
 ] as const;
 
 export type MachineErrorCode = (typeof MACHINE_ERROR_CODES)[number];
@@ -28,6 +28,6 @@ export class MachineProtocolError extends Error {
     readonly data?: JsonValue,
   ) {
     super(message);
-    this.name = 'MachineProtocolError';
+    this.name = "MachineProtocolError";
   }
 }

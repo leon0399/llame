@@ -36,8 +36,7 @@ class ResponseQueue implements AsyncIterable<OpenSessionResponse> {
       next: () => {
         const value = this.values.shift();
 
-        if (value !== undefined)
-          return Promise.resolve({ done: false, value });
+        if (value !== undefined) return Promise.resolve({ done: false, value });
 
         if (this.ended)
           return Promise.resolve({ done: true, value: undefined });
@@ -100,7 +99,9 @@ export function machineMcpJsonRpc(value: JsonValue): OpenSessionResponse {
   });
 }
 
-export function machineMcpSecrets(values: ReadonlyArray<string>): OpenSessionResponse {
+export function machineMcpSecrets(
+  values: ReadonlyArray<string>,
+): OpenSessionResponse {
   return create(OpenSessionResponseSchema, {
     message: { case: 'secrets', value: { values: [...values] } },
   });

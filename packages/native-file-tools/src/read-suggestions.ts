@@ -77,7 +77,10 @@ function sortedTokens(stem: string): string {
     .join(" ");
 }
 
-export function similarNames(requested: string, names: Array<string>): Array<string> {
+export function similarNames(
+  requested: string,
+  names: Array<string>,
+): Array<string> {
   const request = splitName(normalizedName(requested));
   const entries: Array<{ name: string; stem: string; extension: string }> = [];
   // Every eligible first comparison is mandatory. Refuse an over-budget

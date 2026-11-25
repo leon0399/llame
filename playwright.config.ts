@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { defineConfig, devices } from "@playwright/test";
 
 import { E2E_HOST_ROOTS } from "./e2e/support/host-paths";
-import { daemonBinary } from '@workspace/machine-protocol';
+import { daemonBinary } from "@workspace/machine-protocol";
 
 function readPort(name: string, fallback: string): string {
   const value = process.env[name] ?? fallback;

@@ -88,7 +88,10 @@ function mockSwitchLocks(
 }
 
 function mockBoundaryFakes(input: ModelSwitchFakeInput) {
-  vi.spyOn(ChatJobsRepository.prototype, 'settleOnDeadWorkers').mockResolvedValue([]);
+  vi.spyOn(
+    ChatJobsRepository.prototype,
+    'settleOnDeadWorkers',
+  ).mockResolvedValue([]);
 
   vi.spyOn(
     SystemPromptReceiptsRepository.prototype,

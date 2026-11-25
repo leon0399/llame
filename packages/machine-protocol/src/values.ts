@@ -1,4 +1,4 @@
-import type { SerializableRecord, SerializableValue } from './types';
+import type { SerializableRecord, SerializableValue } from "./types";
 
 /** Whether a parsed value is a JSON object; a JSON array is not one. */
 export function isSerializableRecord(
@@ -14,4 +14,3 @@ export function isStringValue(value: SerializableValue): value is string {
 export function isIntegerValue(value: SerializableValue): value is number {
   return typeof value === "number" && Number.isInteger(value);
 }
-

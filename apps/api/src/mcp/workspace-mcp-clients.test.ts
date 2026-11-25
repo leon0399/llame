@@ -12,10 +12,7 @@ import {
   type McpServerEntry,
   type OpenSessionResponse,
 } from '@workspace/machine-protocol';
-import {
-  createProtocolPeer,
-  wireJson,
-} from '../testing/machine-protocol-peer';
+import { createProtocolPeer, wireJson } from '../testing/machine-protocol-peer';
 import {
   installMachineMcpSession,
   machineMcpJsonRpc,
@@ -1073,14 +1070,14 @@ function fakeMachine(
 
       if (message.case !== 'jsonRpc') return undefined;
       const call = jsonRpcCall(wireJson(JSON.parse(message.value)));
-      const answer = call === undefined ? undefined : answerFor(call, toolCalls, state);
+      const answer =
+        call === undefined ? undefined : answerFor(call, toolCalls, state);
 
       return answer === undefined ? undefined : machineMcpJsonRpc(answer);
     });
   };
 
-  const notify = (response: OpenSessionResponse) =>
-    sendMcpEvent?.(response);
+  const notify = (response: OpenSessionResponse) => sendMcpEvent?.(response);
 
   workspaceConnectors.push(connector);
 
