@@ -1,19 +1,33 @@
 //! Streamable HTTP relay for MCP servers.
 
-use std::{collections::BTreeMap, time::Duration};
-
 use futures::StreamExt;
 use machine_protocol::v1::{
     McpFailureReason, OpenSessionRequest, OpenSessionResponse, Opened, Secrets,
     open_session_response::Message as ResponseMessage,
 };
 use serde_json::Value;
-use tokio::sync::mpsc;
+use std::{collections::BTreeMap, sync::Arc, time::Duration};
+use tokio::{
+    sync::{Mutex, mpsc},
+    task::JoinSet,
+};
 use tonic::{Status, Streaming};
 
 use crate::{MAX_MESSAGE_BYTES, failure, message_response, redact};
 
+#[derive(Clone)]
+struct RelayState {
+    client: reqwest::Client,
+    tx: mpsc::Sender<Result<OpenSessionResponse, Status>>,
+    url: String,
+    declared_headers: BTreeMap<String, String>,
+    session_id: Arc<Mutex<Option<String>>>,
+    protocol_version: Arc<Mutex<Option<String>>>,
+    protected_values: Arc<Mutex<Vec<String>>>,
+}
+
 /// Relays messages over Streamable HTTP until the client closes its stream.
+#[allow(clippy::too_many_lines)]
 pub async fn run_http(
     mut incoming: Streaming<OpenSessionRequest>,
     tx: mpsc::Sender<Result<OpenSessionResponse, Status>>,
@@ -23,7 +37,6 @@ pub async fn run_http(
 ) {
     let client = match reqwest::Client::builder()
         .connect_timeout(Duration::from_secs(10))
-        .timeout(Duration::from_secs(30))
         .redirect(reqwest::redirect::Policy::none())
         .build()
     {
@@ -51,73 +64,121 @@ pub async fn run_http(
     {
         return;
     }
-    let mut protected_values = protected.clone();
-    let mut session_id = None::<String>;
-    let mut protocol_version = None::<String>;
-    loop {
-        let incoming_message = tokio::select! {
-            _ = tx.closed() => break,
-            message = incoming.message() => message,
-        };
-        let Ok(Some(request)) = incoming_message else {
-            break;
-        };
-        let Some(frame) = request.message else {
-            break;
-        };
-        let text = match frame {
-            machine_protocol::v1::open_session_request::Message::ProtocolVersion(version) => {
-                protocol_version = Some(version);
-                continue;
-            }
-            machine_protocol::v1::open_session_request::Message::JsonRpc(text) => text,
-            machine_protocol::v1::open_session_request::Message::Open(_) => break,
-        };
-        if text.len() > MAX_MESSAGE_BYTES {
-            let _ = tx
-                .send(Ok(failure(
-                    McpFailureReason::Unavailable,
-                    "MCP request exceeded the 1048576-byte limit".to_owned(),
-                )))
-                .await;
-            break;
-        }
-        let mut request = client
-            .post(&url)
-            .header("accept", "application/json, text/event-stream")
-            .header("content-type", "application/json")
-            .body(text);
-        for (name, value) in &declared_headers {
-            request = request.header(name, value);
-        }
-        if let Some(id) = &session_id {
-            request = request.header("mcp-session-id", id);
-        }
-        if let Some(version) = &protocol_version {
-            request = request.header("mcp-protocol-version", version);
-        }
-        let response = tokio::select! {
-            _ = tx.closed() => break,
-            response = request.send() => match response {
-                Ok(response) => response,
-                Err(error) => {
-                    let _ = tx.send(Ok(failure(McpFailureReason::Unavailable, redact(&error.to_string(), &protected_values)))).await;
-                    break;
+    let state = RelayState {
+        client,
+        tx: tx.clone(),
+        url,
+        declared_headers,
+        session_id: Arc::new(Mutex::new(None)),
+        protocol_version: Arc::new(Mutex::new(None)),
+        protected_values: Arc::new(Mutex::new(protected.clone())),
+    };
+    let mut requests: JoinSet<Result<(), String>> = JoinSet::new();
+    let mut stream_open = true;
+    while stream_open {
+        tokio::select! {
+            () = tx.closed() => stream_open = false,
+            completed = requests.join_next(), if !requests.is_empty() => {
+                match completed {
+                    Some(Ok(Err(error))) => {
+                        let values = state.protected_values.lock().await.clone();
+                        let _ = tx.send(Ok(failure(McpFailureReason::Unavailable, redact(&error, &values)))).await;
+                        stream_open = false;
+                    }
+                    Some(Err(error)) => {
+                        let values = state.protected_values.lock().await.clone();
+                        let _ = tx.send(Ok(failure(McpFailureReason::Unavailable, redact(&error.to_string(), &values)))).await;
+                        stream_open = false;
+                    }
+                    Some(Ok(Ok(()))) | None => {}
                 }
             },
-        };
-        if let Some(id) = response
-            .headers()
-            .get("mcp-session-id")
-            .and_then(|value| value.to_str().ok())
-            .filter(|id| !id.is_empty())
-            && session_id.as_deref() != Some(id)
-        {
-            session_id = Some(id.to_owned());
-            if !protected_values.iter().any(|value| value == id) {
-                protected_values.push(id.to_owned());
+            message = incoming.message() => {
+                let Ok(Some(request)) = message else {
+                    stream_open = false;
+                    continue;
+                };
+                let Some(frame) = request.message else {
+                    stream_open = false;
+                    continue;
+                };
+                let text = match frame {
+                    machine_protocol::v1::open_session_request::Message::ProtocolVersion(version) => {
+                        *state.protocol_version.lock().await = Some(version);
+                        continue;
+                    }
+                    machine_protocol::v1::open_session_request::Message::JsonRpc(text) => text,
+                    machine_protocol::v1::open_session_request::Message::Open(_) => {
+                        stream_open = false;
+                        continue;
+                    }
+                };
+                if text.len() > MAX_MESSAGE_BYTES {
+                    let _ = tx.send(Ok(failure(
+                        McpFailureReason::Unavailable,
+                        "MCP request exceeded the 1048576-byte limit".to_owned(),
+                    ))).await;
+                    stream_open = false;
+                    continue;
+                }
+                let state = state.clone();
+                requests.spawn(async move { relay_request(state, text).await });
             }
-            if tx
+        }
+    }
+    requests.abort_all();
+    while requests.join_next().await.is_some() {}
+    let session_id = state.session_id.lock().await.clone();
+    if let Some(id) = session_id {
+        let mut request = state.client.delete(&state.url).header("mcp-session-id", id);
+        for (name, value) in &state.declared_headers {
+            request = request.header(name, value);
+        }
+        let protocol_version = state.protocol_version.lock().await.clone();
+        if let Some(version) = protocol_version {
+            request = request.header("mcp-protocol-version", version);
+        }
+        let _ = tokio::time::timeout(Duration::from_secs(2), request.send()).await;
+    }
+}
+
+async fn relay_request(state: RelayState, text: String) -> Result<(), String> {
+    let mut request = state
+        .client
+        .post(&state.url)
+        .header("accept", "application/json, text/event-stream")
+        .header("content-type", "application/json")
+        .body(text);
+    for (name, value) in &state.declared_headers {
+        request = request.header(name, value);
+    }
+    let session_id = state.session_id.lock().await.clone();
+    if let Some(id) = session_id {
+        request = request.header("mcp-session-id", id);
+    }
+    let protocol_version = state.protocol_version.lock().await.clone();
+    if let Some(version) = protocol_version {
+        request = request.header("mcp-protocol-version", version);
+    }
+    let response = tokio::select! {
+        () = state.tx.closed() => return Ok(()),
+        response = request.send() => response.map_err(|error| error.to_string())?,
+    };
+    if let Some(id) = response
+        .headers()
+        .get("mcp-session-id")
+        .and_then(|value| value.to_str().ok())
+        .filter(|id| !id.is_empty())
+    {
+        let mut current = state.session_id.lock().await;
+        if current.as_deref() != Some(id) {
+            *current = Some(id.to_owned());
+            let mut values = state.protected_values.lock().await;
+            if !values.iter().any(|value| value == id) {
+                values.push(id.to_owned());
+            }
+            if state
+                .tx
                 .send(Ok(OpenSessionResponse {
                     message: Some(ResponseMessage::Secrets(Secrets {
                         values: vec![id.to_owned()],
@@ -126,65 +187,34 @@ pub async fn run_http(
                 .await
                 .is_err()
             {
-                break;
+                return Err("MCP stream closed".to_owned());
             }
         }
-        if !response.status().is_success() {
-            let _ = tx
-                .send(Ok(failure(
-                    McpFailureReason::Unavailable,
-                    format!("HTTP MCP server returned {}", response.status()),
-                )))
-                .await;
-            break;
-        }
-        let is_sse = response
-            .headers()
-            .get(reqwest::header::CONTENT_TYPE)
-            .and_then(|value| value.to_str().ok())
-            .is_some_and(|value| value.to_ascii_lowercase().starts_with("text/event-stream"));
-        if !is_sse
-            && response
-                .content_length()
-                .is_some_and(|length| length > MAX_MESSAGE_BYTES as u64)
-        {
-            let _ = tx
-                .send(Ok(failure(
-                    McpFailureReason::Unavailable,
-                    "MCP response exceeded the 1048576-byte transport limit".to_owned(),
-                )))
-                .await;
-            break;
-        }
-        let result = tokio::select! {
-            _ = tx.closed() => break,
-            result = async {
-                if is_sse {
-                    forward_sse(response, &tx).await
-                } else {
-                    forward_json(response, &tx).await
-                }
-            } => result,
-        };
-        if let Err(error) = result {
-            let _ = tx
-                .send(Ok(failure(
-                    McpFailureReason::Unavailable,
-                    redact(&error, &protected),
-                )))
-                .await;
-            break;
-        }
     }
-    if let Some(id) = session_id {
-        let mut request = client.delete(&url).header("mcp-session-id", id);
-        for (name, value) in &declared_headers {
-            request = request.header(name, value);
-        }
-        if let Some(version) = protocol_version {
-            request = request.header("mcp-protocol-version", version);
-        }
-        let _ = tokio::time::timeout(Duration::from_secs(2), request.send()).await;
+    if !response.status().is_success() {
+        return Err(format!("HTTP MCP server returned {}", response.status()));
+    }
+    let is_sse = response
+        .headers()
+        .get(reqwest::header::CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(|value| value.to_ascii_lowercase().starts_with("text/event-stream"));
+    if !is_sse
+        && response
+            .content_length()
+            .is_some_and(|length| length > MAX_MESSAGE_BYTES as u64)
+    {
+        return Err("MCP response exceeded the 1048576-byte transport limit".to_owned());
+    }
+    tokio::select! {
+        () = state.tx.closed() => Ok(()),
+        result = async {
+            if is_sse {
+                forward_sse(response, &state.tx).await
+            } else {
+                forward_json(response, &state.tx).await
+            }
+        } => result,
     }
 }
 

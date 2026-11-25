@@ -1,20 +1,21 @@
 //! `McpService`: workspace MCP servers relayed over one stream per session.
 
-use std::{
-    collections::BTreeMap,
-    env, io,
-    path::{Path, PathBuf},
-    process::Stdio,
-    time::Duration,
-};
-
-use machine_core::{Context, PathKind};
+use machine_core::{Context, PathKind, refusal};
 use machine_protocol::v1::{
     ListServersRequest, ListServersResponse, McpFailure, McpFailureReason, OpenSessionRequest,
     OpenSessionResponse, Opened, Secrets, Server, Transport,
     mcp_service_server::{McpService, McpServiceServer},
 };
+use rustix::process::{Pid, Signal, kill_process_group};
 use serde_json::Value;
+use std::{
+    collections::BTreeMap,
+    env, io,
+    os::unix::process::CommandExt,
+    path::{Path, PathBuf},
+    process::Stdio,
+    time::Duration,
+};
 use tokio::{
     io::{AsyncBufRead, AsyncBufReadExt, AsyncWriteExt, BufReader},
     process::{Child, Command},
@@ -94,10 +95,7 @@ impl McpService for Mcp {
                 "McpService.OpenSession requires an open message first",
             ));
         };
-        let root = match self.workspace_root(&open.workspace) {
-            Ok(root) => root,
-            Err(error) => return Ok(failure_stream(error.message().to_owned())),
-        };
+        let root = self.workspace_root(&open.workspace)?;
         let configs = read_configs(&root).await;
         let Some(config) = configs
             .into_iter()
@@ -148,7 +146,7 @@ impl Mcp {
     fn workspace_root(&self, input: &str) -> Result<PathBuf, Status> {
         let guarded = self.context.guard().resolve(input)?;
         if guarded.kind != PathKind::Directory {
-            return Err(Status::invalid_argument(
+            return Err(refusal::invalid_argument(
                 "the Workspace root is not a directory",
             ));
         }
@@ -182,15 +180,12 @@ async fn read_configs(root: &Path) -> Vec<Configured> {
                 continue;
             }
         };
-        let parsed: Value = match serde_json::from_str(&text) {
-            Ok(value) => value,
-            Err(_) => {
-                unavailable_entries.push(unavailable(
-                    label,
-                    format!("configuration file {label} is malformed"),
-                ));
-                continue;
-            }
+        let Ok(parsed) = serde_json::from_str::<Value>(&text) else {
+            unavailable_entries.push(unavailable(
+                label,
+                format!("configuration file {label} is malformed"),
+            ));
+            continue;
         };
         let Some(object) = parsed.as_object() else {
             unavailable_entries.push(unavailable(
@@ -213,7 +208,7 @@ async fn read_configs(root: &Path) -> Vec<Configured> {
     }
     let mut result: Vec<_> = merged
         .into_iter()
-        .map(|(name, entry)| resolve_entry(name, entry, root))
+        .map(|(name, entry)| resolve_entry(name, &entry, root))
         .collect();
     result.extend(unavailable_entries);
     result
@@ -229,8 +224,10 @@ fn unavailable(name: &str, diagnostic: String) -> Configured {
     }
 }
 
-fn resolve_entry(name: String, entry: Value, root: &Path) -> Configured {
+#[allow(clippy::too_many_lines)]
+fn resolve_entry(name: String, entry: &Value, root: &Path) -> Configured {
     if name.is_empty()
+        || name.len() > 56
         || name.contains("__")
         || !name
             .bytes()
@@ -374,12 +371,12 @@ fn resolve_entry(name: String, entry: Value, root: &Path) -> Configured {
                 let Some(raw_value) = value.as_str() else {
                     return unavailable(&name, format!("header {key} must be a string"));
                 };
-                if raw_value.trim().is_empty() {
-                    return unavailable(&name, format!("header {key} must be non-empty"));
-                }
                 let Some(value) = interpolate(raw_value, root, &mut protected) else {
                     return unavailable(&name, "header interpolation failed".to_owned());
                 };
+                if value.trim().is_empty() {
+                    return unavailable(&name, format!("header {key} must be non-empty"));
+                }
                 headers.insert(key.clone(), value.clone());
                 if matches!(
                     lower.as_str(),
@@ -447,9 +444,7 @@ fn interpolate(input: &str, root: &Path, protected: &mut Vec<String>) -> Option<
             protect = true;
             std::fs::read_to_string(path).ok()?.trim().to_owned()
         } else {
-            let (name, fallback) = if dollar {
-                (body, None)
-            } else if let Some((name, fallback)) = body.split_once(":-") {
+            let (name, fallback) = if let Some((name, fallback)) = body.split_once(":-") {
                 (name, Some(fallback))
             } else {
                 (body, None)
@@ -489,7 +484,7 @@ fn resolve_path(root: &Path, path: &str) -> PathBuf {
     }
 }
 
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, clippy::too_many_lines)]
 async fn run_stdio(
     mut incoming: Streaming<OpenSessionRequest>,
     tx: mpsc::Sender<Result<OpenSessionResponse, Status>>,
@@ -575,13 +570,19 @@ async fn run_stdio(
     let diagnostic_task = tokio::spawn(async move {
         let mut reader = BufReader::new(stderr);
         let mut retained = 0;
+        let mut emitting = true;
         loop {
-            if retained >= MAX_DIAGNOSTIC_CHARS {
-                break;
+            if !emitting || retained >= MAX_DIAGNOSTIC_CHARS {
+                emitting = false;
+                if !discard_line(&mut reader).await {
+                    break;
+                }
+                continue;
             }
             let remaining = MAX_DIAGNOSTIC_CHARS - retained;
             let Ok(Some(line)) = read_bounded_line(&mut reader, remaining).await else {
-                break;
+                emitting = false;
+                continue;
             };
             retained += line.len();
             let text = String::from_utf8_lossy(&line);
@@ -610,8 +611,12 @@ async fn run_stdio(
                         if text.len() > MAX_MESSAGE_BYTES { break; }
                         if let Ok(value) = serde_json::from_str::<Value>(&text) {
                             if value.get("jsonrpc").and_then(Value::as_str) == Some("2.0") {
-                                let mut bytes = text.into_bytes(); bytes.push(b'\n');
-                                if stdin.write_all(&bytes).await.is_err() { break; }
+                                let Ok(mut bytes) = serde_json::to_vec(&value) else { break; };
+                                bytes.push(b'\n');
+                                tokio::select! {
+                                    result = stdin.write_all(&bytes) => if result.is_err() { break; },
+                                    () = tx.closed() => break,
+                                }
                             } else { break; }
                         } else { break; }
                     }
@@ -620,9 +625,10 @@ async fn run_stdio(
                 },
                 _ => break,
             },
-            _ = tx.closed() => break,
+            () = tx.closed() => break,
         }
     }
+    drop(stdin);
     kill_group(child.id()).await;
     let _ = child.wait().await;
     stdout_task.abort();
@@ -635,9 +641,8 @@ fn start_child(
     cwd: &Path,
     env: &BTreeMap<String, String>,
 ) -> std::io::Result<Child> {
-    let mut child = Command::new("setsid");
+    let mut child = Command::new(command);
     child
-        .arg(command)
         .args(args)
         .current_dir(cwd)
         .env_clear()
@@ -646,6 +651,7 @@ fn start_child(
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .kill_on_drop(true);
+    child.as_std_mut().process_group(0);
     child.spawn()
 }
 
@@ -675,37 +681,61 @@ async fn read_bounded_line<R: AsyncBufRead + Unpin>(
     }
 }
 
+async fn discard_line<R: AsyncBufRead + Unpin>(reader: &mut R) -> bool {
+    loop {
+        let Ok(buffer) = reader.fill_buf().await else {
+            return false;
+        };
+        if buffer.is_empty() {
+            return false;
+        }
+        let newline = buffer.iter().position(|byte| *byte == b'\n');
+        let count = newline.map_or(buffer.len(), |index| index + 1);
+        reader.consume(count);
+        if newline.is_some() {
+            return true;
+        }
+    }
+}
+
 async fn kill_group(pid: Option<u32>) {
-    let Some(pid) = pid else {
+    let Some(pid) = pid.and_then(|pid| Pid::from_raw(pid.cast_signed())) else {
         return;
     };
-    let _ = Command::new("kill")
-        .args(["-TERM", "--", &format!("-{pid}")])
-        .status()
-        .await;
+    let _ = kill_process_group(pid, Signal::TERM);
     tokio::time::sleep(Duration::from_millis(100)).await;
-    let _ = Command::new("kill")
-        .args(["-KILL", "--", &format!("-{pid}")])
-        .status()
-        .await;
+    let _ = kill_process_group(pid, Signal::KILL);
 }
 
 fn redact(input: &str, protected: &[String]) -> String {
-    protected
+    let mut values = protected
         .iter()
-        .filter(|value| value.len() >= 8)
-        .fold(input.to_owned(), |text, value| {
-            text.replace(value, "[REDACTED]")
-        })
+        .filter(|value| !value.is_empty())
+        .cloned()
+        .collect::<Vec<_>>();
+    for value in protected.iter().filter(|value| value.contains('\n')) {
+        values.extend(
+            value
+                .lines()
+                .map(str::trim)
+                .filter(|line| line.len() >= 8)
+                .map(str::to_owned),
+        );
+    }
+    values.sort_by_key(|value| std::cmp::Reverse(value.len()));
+    values.dedup();
+    values.iter().fold(input.to_owned(), |text, value| {
+        text.replace(value, "[REDACTED]")
+    })
 }
 
-fn message_response(message: String) -> OpenSessionResponse {
+const fn message_response(message: String) -> OpenSessionResponse {
     OpenSessionResponse {
         message: Some(machine_protocol::v1::open_session_response::Message::JsonRpc(message)),
     }
 }
 
-fn failure(reason: McpFailureReason, message: String) -> OpenSessionResponse {
+const fn failure(reason: McpFailureReason, message: String) -> OpenSessionResponse {
     OpenSessionResponse {
         message: Some(
             machine_protocol::v1::open_session_response::Message::Failure(McpFailure {
@@ -713,5 +743,82 @@ fn failure(reason: McpFailureReason, message: String) -> OpenSessionResponse {
                 message,
             }),
         ),
+    }
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn interpolation_supports_dollar_fallbacks() {
+        assert_eq!(
+            interpolate(
+                "${MCP_TEST_UNSET_7F4C:-fallback}",
+                Path::new("."),
+                &mut Vec::new()
+            )
+            .as_deref(),
+            Some("fallback")
+        );
+    }
+
+    #[test]
+    fn server_name_limit_and_interpolated_empty_header_are_unavailable() {
+        let root = Path::new(".");
+        let long_name = "a".repeat(57);
+        assert!(
+            resolve_entry(long_name, &serde_json::json!({"command":"true"}), root)
+                .definition
+                .is_none()
+        );
+        let empty_header = resolve_entry(
+            "remote".to_owned(),
+            &serde_json::json!({
+                "type": "http",
+                "url": "http://localhost",
+                "headers": {"Authorization": "{env:MCP_TEST_EMPTY_HEADER_7F4C:-}"}
+            }),
+            root,
+        );
+        assert!(empty_header.definition.is_none());
+    }
+
+    #[test]
+    fn redaction_covers_short_values_and_multiline_fragments_longest_first() {
+        let protected = vec![
+            "token".to_owned(),
+            "prefix-long-secret".to_owned(),
+            "-----BEGIN PRIVATE KEY-----\nverylongkeymaterial\n-----END PRIVATE KEY-----"
+                .to_owned(),
+        ];
+        assert_eq!(
+            redact("token prefix-long-secret verylongkeymaterial", &protected),
+            "[REDACTED] [REDACTED] [REDACTED]"
+        );
+    }
+
+    #[test]
+    fn missing_child_fails_during_spawn() {
+        let root = tempfile::tempdir().unwrap();
+        let result = start_child(
+            "mcp-command-that-does-not-exist-7f4c",
+            &[],
+            root.path(),
+            &BTreeMap::new(),
+        );
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn discard_line_drains_overlong_stderr_line_to_its_newline() {
+        let bytes = vec![b'x'; MAX_DIAGNOSTIC_CHARS + 100];
+        let mut input = bytes;
+        input.extend_from_slice(b"\nnext\n");
+        let mut reader = BufReader::new(input.as_slice());
+        assert!(discard_line(&mut reader).await);
+        assert_eq!(
+            read_bounded_line(&mut reader, 8).await.unwrap().unwrap(),
+            b"next\n"
+        );
     }
 }

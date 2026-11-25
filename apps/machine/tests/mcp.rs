@@ -25,6 +25,7 @@ async fn lists_resolved_servers_and_relays_stdio_until_stream_close() {
         r#"#!/bin/bash
 echo $$ > "$MCP_FIXTURE_PID"
 echo fixture-stderr >&2
+printf '%70000s\n' '' >&2
 while IFS= read -r line; do
   echo '{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2025-03-26"}}'
   sleep 30
