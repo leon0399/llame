@@ -222,6 +222,9 @@ async fn relay_request(state: RelayState, text: String) -> Result<(), String> {
     };
     if !response.status().is_success() {
         let status = response.status();
+        if request_id.is_none() && request_method.is_some() {
+            return Ok(());
+        }
         if status_is_call_level(status, established, request_method.as_deref()) {
             send_call_error(&state.tx, request_id, status).await?;
             return Ok(());
@@ -469,11 +472,10 @@ fn status_is_call_level(
     established: bool,
     method: Option<&str>,
 ) -> bool {
-    established
-        && method == Some("tools/call")
+    method == Some("tools/call")
         && status != reqwest::StatusCode::UNAUTHORIZED
         && status != reqwest::StatusCode::FORBIDDEN
-        && status != reqwest::StatusCode::NOT_FOUND
+        && (status != reqwest::StatusCode::NOT_FOUND || !established)
 }
 
 fn exceeds_request_capacity(
@@ -619,7 +621,7 @@ mod tests {
     }
 
     #[test]
-    fn only_established_tool_calls_use_call_level_statuses() {
+    fn call_level_statuses_are_not_session_dependent_except_for_404() {
         assert!(status_is_call_level(
             reqwest::StatusCode::TOO_MANY_REQUESTS,
             true,
@@ -642,12 +644,12 @@ mod tests {
                 Some(method)
             ));
         }
-        assert!(!status_is_call_level(
+        assert!(status_is_call_level(
             reqwest::StatusCode::TOO_MANY_REQUESTS,
             false,
             Some("tools/call")
         ));
-        assert!(!status_is_call_level(
+        assert!(status_is_call_level(
             reqwest::StatusCode::NOT_FOUND,
             true,
             Some("tools/call")
@@ -667,7 +669,7 @@ mod tests {
             true,
             None
         ));
-        assert!(!status_is_call_level(
+        assert!(status_is_call_level(
             reqwest::StatusCode::NOT_FOUND,
             false,
             Some("tools/call")
@@ -684,6 +686,86 @@ mod tests {
             Some("initialize"),
             reqwest::StatusCode::INTERNAL_SERVER_ERROR
         ));
+    }
+    #[tokio::test]
+    async fn relay_drops_failed_notifications_and_keeps_call_errors_without_session() {
+        use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let fixture = tokio::spawn(async move {
+            for status in [429, 429, 500, 410, 500] {
+                let (socket, _) = listener.accept().await.unwrap();
+                let mut reader = BufReader::new(socket);
+                let mut content_length = 0;
+                loop {
+                    let mut line = String::new();
+                    reader.read_line(&mut line).await.unwrap();
+                    if line == "\r\n" || line.is_empty() {
+                        break;
+                    }
+                    if let Some(value) = line
+                        .split_once(':')
+                        .filter(|(name, _)| name.eq_ignore_ascii_case("content-length"))
+                    {
+                        content_length = value.1.trim().parse::<usize>().unwrap();
+                    }
+                }
+                let mut body = vec![0; content_length];
+                reader.read_exact(&mut body).await.unwrap();
+                let response = format!(
+                    "HTTP/1.1 {status} Test\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+                );
+                reader
+                    .get_mut()
+                    .write_all(response.as_bytes())
+                    .await
+                    .unwrap();
+            }
+        });
+        let (tx, mut rx) = mpsc::channel(8);
+        let state = RelayState {
+            client: reqwest::Client::new(),
+            tx,
+            url: format!("http://{address}/mcp"),
+            declared_headers: BTreeMap::new(),
+            session_id: Arc::new(Mutex::new(None)),
+            protocol_version: Arc::new(Mutex::new(None)),
+            protected_values: Arc::new(Mutex::new(Vec::new())),
+        };
+        let requests = [
+            (
+                r#"{"jsonrpc":"2.0","method":"notifications/progress"}"#,
+                true,
+            ),
+            (
+                r#"{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{}}"#,
+                true,
+            ),
+            (
+                r#"{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{}}"#,
+                true,
+            ),
+            (
+                r#"{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{}}"#,
+                true,
+            ),
+            (r#"{"jsonrpc":"2.0","id":4,"method":"tools/list"}"#, false),
+        ];
+        for (index, (request, succeeds)) in requests.into_iter().enumerate() {
+            let result = relay_request(state.clone(), request.to_owned()).await;
+            assert_eq!(result.is_ok(), succeeds, "request {index}");
+            if index == 0 {
+                assert!(rx.try_recv().is_err(), "notification must be dropped");
+            } else if index < 4 {
+                let response = rx.try_recv().unwrap().unwrap();
+                assert!(matches!(
+                    response.message,
+                    Some(ResponseMessage::JsonRpc(text)) if text.contains("\"error\"")
+                ));
+            }
+        }
+        fixture.await.unwrap();
     }
 
     #[tokio::test]
