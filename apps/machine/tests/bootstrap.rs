@@ -66,7 +66,11 @@ async fn attach_starts_one_daemon_and_reports_identity() {
 #[tokio::test]
 async fn attach_refuses_a_different_config_directory_for_the_same_state() {
     let machine = common::Machine::new();
-    let (_child, _) = machine.attach().await;
+    let (_child, channel) = machine.attach().await;
+    BootstrapServiceClient::new(channel)
+        .get_info(GetInfoRequest {})
+        .await
+        .unwrap();
     let alternate_config = machine.home.path().join("alternate-config");
     let output = std::process::Command::new(env!("CARGO_BIN_EXE_llame-machine"))
         .env("LLAME_MACHINE_CONFIG_DIR", &alternate_config)
@@ -115,9 +119,14 @@ async fn a_stale_socket_is_replaced() {
 #[tokio::test]
 async fn the_state_directory_is_private() {
     let machine = common::Machine::new();
-    let (_child, _channel) = machine.attach().await;
-    let state_mode = std::fs::metadata(machine.state_dir()).unwrap().mode() & 0o777;
-    let socket_mode = std::fs::metadata(machine.state_dir().join("daemon.sock"))
+    let (_child, channel) = machine.attach().await;
+    BootstrapServiceClient::new(channel)
+        .get_info(GetInfoRequest {})
+        .await
+        .unwrap();
+    let state_dir = machine.state_dir();
+    let state_mode = std::fs::metadata(&state_dir).unwrap().mode() & 0o777;
+    let socket_mode = std::fs::metadata(state_dir.join("daemon.sock"))
         .unwrap()
         .mode()
         & 0o777;

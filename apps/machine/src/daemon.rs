@@ -100,7 +100,7 @@ fn serve() -> anyhow::Result<()> {
     let config = ConfigHandle::open(config_file(&paths::config_dir()))?;
     let context = Context {
         config: Arc::new(config),
-        state_dir: state_dir.clone(),
+        state_dir,
     };
     let runtime = tokio::runtime::Runtime::new()?;
     runtime.block_on(async move {

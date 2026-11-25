@@ -36,7 +36,7 @@ impl<T: Clone> IdempotencyCache<T> {
     /// waits for and returns the first result. An empty key is never cached.
     pub async fn run<F, Fut>(&self, key: &str, work: F) -> T
     where
-        T: Send,
+        T: Send + Sync,
         F: FnOnce() -> Fut + Send,
         Fut: Future<Output = T> + Send,
     {

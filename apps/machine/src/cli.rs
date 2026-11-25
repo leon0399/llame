@@ -54,7 +54,7 @@ enum RootsAction {
     List,
 }
 
-#[derive(Subcommand)]
+#[derive(Clone, Copy, Subcommand)]
 enum LimitsAction {
     Show,
     Set {
