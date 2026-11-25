@@ -23,7 +23,10 @@ export function daemonBinary(
   env: NodeJS.ProcessEnv = processEnvironment(),
 ): string {
   const configured = env["LLAME_MACHINE_BIN_DIR"];
-  const directory = configured ?? resolve(__dirname, "../../apps/machine/dist");
+
+  // Both src/ and dist/ sit two levels below packages/machine-protocol's parent.
+  const directory =
+    configured ?? resolve(__dirname, "../../../apps/machine/dist");
 
   return resolve(directory, hostTarget(), "llame-machine");
 }
