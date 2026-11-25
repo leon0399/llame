@@ -614,7 +614,7 @@ describe('runTool', () => {
         bashBackgroundAfterSeconds: 5,
       },
       15,
-      true,
+      'promotion',
     );
 
     yieldController.abort();
@@ -641,7 +641,7 @@ describe('runTool', () => {
         bashBackgroundAfterSeconds: 5,
       },
       15,
-      true,
+      'promotion',
     );
 
     prepared.dispose?.();
@@ -752,41 +752,36 @@ describe('runTool', () => {
     }
   });
 
-  it('keeps the abort backstop active before host promotion starts', async () => {
-    vi.useFakeTimers();
+  it('does not cancel a daemon job when its Run yields', async () => {
+    const yieldController = new AbortController();
+    const startedSignal = Promise.withResolvers<void>();
+    const execution = Promise.withResolvers<ToolResult>();
 
-    try {
-      const yieldController = new AbortController();
-      const startedSignal = Promise.withResolvers<void>();
+    vi.spyOn(bashTool, 'execute').mockImplementation(() => {
+      startedSignal.resolve();
 
-      vi.spyOn(bashTool, 'execute').mockImplementation(() => {
-        startedSignal.resolve();
+      return execution.promise;
+    });
 
-        return new Promise<ToolResult>(() => {});
-      });
+    const resultPromise = runTool(
+      bashTool,
+      { command: 'sleep 1', async: true },
+      {
+        ...fakeContext(),
+        permissionPolicy: compileTestPermissionPolicy(['bash']),
+        yieldSignal: yieldController.signal,
+        bashBackgroundAfterSeconds: 5,
+      },
+      0.001,
+    );
 
-      const resultPromise = runTool(
-        bashTool,
-        { command: 'sleep 1', async: true },
-        {
-          ...fakeContext(),
-          permissionPolicy: compileTestPermissionPolicy(['bash']),
-          yieldSignal: yieldController.signal,
-          bashBackgroundAfterSeconds: 5,
-        },
-        15,
-      );
-
-      await startedSignal.promise;
-      yieldController.abort();
-      await vi.advanceTimersByTimeAsync(BASH_SETTLEMENT_GRACE_MS);
-      await expect(resultPromise).resolves.toMatchObject({
-        status: 'error',
-        type: 'cancelled',
-      });
-    } finally {
-      vi.useRealTimers();
-    }
+    await startedSignal.promise;
+    yieldController.abort();
+    execution.resolve({ status: 'success', stdout: 'finished' });
+    await expect(resultPromise).resolves.toMatchObject({
+      status: 'success',
+      stdout: 'finished',
+    });
   });
 
   it('does not apply the bash yield grace to a non-bash cancellation', async () => {
