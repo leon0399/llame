@@ -12,7 +12,7 @@ import type { Message } from "@bufbuild/protobuf";
  * Describes the file stead/machine/v1/git.proto.
  */
 export const file_stead_machine_v1_git: GenFile = /*@__PURE__*/
-  fileDesc("ChpzdGVhZC9tYWNoaW5lL3YxL2dpdC5wcm90bxIQc3RlYWQubWFjaGluZS52MSJhCgpHaXRGYWlsdXJlEjIKBnJlYXNvbhgBIAEoDjIiLnN0ZWFkLm1hY2hpbmUudjEuR2l0RmFpbHVyZVJlYXNvbhIPCgdtZXNzYWdlGAIgASgJEg4KBnN0ZGVychgDIAEoCSIjCgZSZW1vdGUSDAoEbmFtZRgBIAEoCRILCgN1cmwYAiABKAkiJAoUR2V0UmVwb3NpdG9yeVJlcXVlc3QSDAoEcGF0aBgBIAEoCSKGAQoVR2V0UmVwb3NpdG9yeVJlc3BvbnNlEjIKCnJlcG9zaXRvcnkYASABKAsyHC5zdGVhZC5tYWNoaW5lLnYxLlJlcG9zaXRvcnlIABIvCgdmYWlsdXJlGAIgASgLMhwuc3RlYWQubWFjaGluZS52MS5HaXRGYWlsdXJlSABCCAoGcmVzdWx0ItgBCgpSZXBvc2l0b3J5EhAKCHdvcmt0cmVlGAEgASgJEg8KB2dpdF9kaXIYAiABKAkSEgoKY29tbW9uX2RpchgDIAEoCRIaCg1tYWluX3dvcmt0cmVlGAQgASgJSACIAQESKQoHcmVtb3RlcxgFIAMoCzIYLnN0ZWFkLm1hY2hpbmUudjEuUmVtb3RlEhMKBmJyYW5jaBgGIAEoCUgBiAEBEhEKBGhlYWQYByABKAlIAogBAUIQCg5fbWFpbl93b3JrdHJlZUIJCgdfYnJhbmNoQgcKBV9oZWFkIn8KEEdldFN0YXR1c1JlcXVlc3QSDAoEcGF0aBgBIAEoCRITCgttYXhfZW50cmllcxgCIAEoDRIzCgpzdWJtb2R1bGVzGAMgASgOMh8uc3RlYWQubWFjaGluZS52MS5TdWJtb2R1bGVNb2RlEhMKC21heF9jb21taXRzGAQgASgNInoKEUdldFN0YXR1c1Jlc3BvbnNlEioKBnN0YXR1cxgBIAEoCzIYLnN0ZWFkLm1hY2hpbmUudjEuU3RhdHVzSAASLwoHZmFpbHVyZRgCIAEoCzIcLnN0ZWFkLm1hY2hpbmUudjEuR2l0RmFpbHVyZUgAQggKBnJlc3VsdCL/AgoGU3RhdHVzEjAKCnJlcG9zaXRvcnkYASABKAsyHC5zdGVhZC5tYWNoaW5lLnYxLlJlcG9zaXRvcnkSFQoNcmVsYXRpdmVfcGF0aBgCIAEoCRIxCgh1cHN0cmVhbRgDIAEoCzIaLnN0ZWFkLm1hY2hpbmUudjEuVXBzdHJlYW1IAIgBARIzCglvcGVyYXRpb24YBCABKAsyGy5zdGVhZC5tYWNoaW5lLnYxLk9wZXJhdGlvbkgBiAEBEi4KBmNvdW50cxgFIAEoCzIeLnN0ZWFkLm1hY2hpbmUudjEuQ2hhbmdlQ291bnRzEikKB2NoYW5nZXMYBiADKAsyGC5zdGVhZC5tYWNoaW5lLnYxLkNoYW5nZRIPCgdvbWl0dGVkGAcgASgNEhIKCnN1Ym1vZHVsZXMYCCADKAkSKQoHY29tbWl0cxgJIAMoCzIYLnN0ZWFkLm1hY2hpbmUudjEuQ29tbWl0QgsKCV91cHN0cmVhbUIMCgpfb3BlcmF0aW9uIqgBCghVcHN0cmVhbRIMCgRuYW1lGAEgASgJEgwKBGdvbmUYAiABKAgSEgoFYWhlYWQYAyABKA1IAIgBARITCgZiZWhpbmQYBCABKA1IAYgBARIzCgp1cGRhdGVkX2F0GAUgASgLMhouZ29vZ2xlLnByb3RvYnVmLlRpbWVzdGFtcEgCiAEBQggKBl9haGVhZEIJCgdfYmVoaW5kQg0KC191cGRhdGVkX2F0InQKCU9wZXJhdGlvbhItCgRraW5kGAEgASgOMh8uc3RlYWQubWFjaGluZS52MS5PcGVyYXRpb25LaW5kEhEKBHN0ZXAYAiABKA1IAIgBARISCgV0b3RhbBgDIAEoDUgBiAEBQgcKBV9zdGVwQggKBl90b3RhbCJXCgxDaGFuZ2VDb3VudHMSDgoGc3RhZ2VkGAEgASgNEhAKCHVuc3RhZ2VkGAIgASgNEhEKCXVudHJhY2tlZBgDIAEoDRISCgpjb25mbGljdGVkGAQgASgNIkIKBkNoYW5nZRIOCgZzdGF0dXMYASABKAkSDAoEcGF0aBgCIAEoCRIRCgRmcm9tGAMgASgJSACIAQFCBwoFX2Zyb20iJQoGQ29tbWl0EgoKAmlkGAEgASgJEg8KB3N1YmplY3QYAiABKAkieQoVQ3JlYXRlV29ya3RyZWVSZXF1ZXN0EhIKCnJlcXVlc3RfaWQYASABKAkSEgoKcmVwb3NpdG9yeRgCIAEoCRIOCgZicmFuY2gYAyABKAkSEQoEYmFzZRgEIAEoCUgAiAEBEgwKBHBhdGgYBSABKAlCBwoFX2Jhc2UigwEKFkNyZWF0ZVdvcmt0cmVlUmVzcG9uc2USLgoId29ya3RyZWUYASABKAsyGi5zdGVhZC5tYWNoaW5lLnYxLldvcmt0cmVlSAASLwoHZmFpbHVyZRgCIAEoCzIcLnN0ZWFkLm1hY2hpbmUudjEuR2l0RmFpbHVyZUgAQggKBnJlc3VsdCIqChRMaXN0V29ya3RyZWVzUmVxdWVzdBISCgpyZXBvc2l0b3J5GAEgASgJIoQBChVMaXN0V29ya3RyZWVzUmVzcG9uc2USMAoJd29ya3RyZWVzGAEgASgLMhsuc3RlYWQubWFjaGluZS52MS5Xb3JrdHJlZXNIABIvCgdmYWlsdXJlGAIgASgLMhwuc3RlYWQubWFjaGluZS52MS5HaXRGYWlsdXJlSABCCAoGcmVzdWx0IjoKCVdvcmt0cmVlcxItCgl3b3JrdHJlZXMYASADKAsyGi5zdGVhZC5tYWNoaW5lLnYxLldvcmt0cmVlInYKCFdvcmt0cmVlEgwKBHBhdGgYASABKAkSEwoGYnJhbmNoGAIgASgJSACIAQESEQoEaGVhZBgDIAEoCUgBiAEBEg4KBmxvY2tlZBgEIAEoCBIQCghwcnVuYWJsZRgFIAEoCEIJCgdfYnJhbmNoQgcKBV9oZWFkIjkKFURlbGV0ZVdvcmt0cmVlUmVxdWVzdBISCgpyZXF1ZXN0X2lkGAEgASgJEgwKBHBhdGgYAiABKAkigQEKFkRlbGV0ZVdvcmt0cmVlUmVzcG9uc2USLAoHZGVsZXRlZBgBIAEoCzIZLnN0ZWFkLm1hY2hpbmUudjEuRGVsZXRlZEgAEi8KB2ZhaWx1cmUYAiABKAsyHC5zdGVhZC5tYWNoaW5lLnYxLkdpdEZhaWx1cmVIAEIICgZyZXN1bHQiCQoHRGVsZXRlZCqaAgoQR2l0RmFpbHVyZVJlYXNvbhIiCh5HSVRfRkFJTFVSRV9SRUFTT05fVU5TUEVDSUZJRUQQABInCiNHSVRfRkFJTFVSRV9SRUFTT05fTk9UX0FfUkVQT1NJVE9SWRABEiQKIEdJVF9GQUlMVVJFX1JFQVNPTl9PVVRTSURFX1JPT1RTEAISJAogR0lUX0ZBSUxVUkVfUkVBU09OX0lOVkFMSURfSU5QVVQQAxIgChxHSVRfRkFJTFVSRV9SRUFTT05fVElNRURfT1VUEAQSJwojR0lUX0ZBSUxVUkVfUkVBU09OX09VVFBVVF9UT09fTEFSR0UQBRIiCh1HSVRfRkFJTFVSRV9SRUFTT05fR0lUX0ZBSUxFRBD/ASpiCg1TdWJtb2R1bGVNb2RlEh4KGlNVQk1PRFVMRV9NT0RFX1VOU1BFQ0lGSUVEEAASFwoTU1VCTU9EVUxFX01PREVfU0tJUBABEhgKFFNVQk1PRFVMRV9NT0RFX0NIRUNLEAIq0QEKDU9wZXJhdGlvbktpbmQSHgoaT1BFUkFUSU9OX0tJTkRfVU5TUEVDSUZJRUQQABIYChRPUEVSQVRJT05fS0lORF9NRVJHRRABEhkKFU9QRVJBVElPTl9LSU5EX1JFQkFTRRACEhUKEU9QRVJBVElPTl9LSU5EX0FNEAMSHgoaT1BFUkFUSU9OX0tJTkRfQ0hFUlJZX1BJQ0sQBBIZChVPUEVSQVRJT05fS0lORF9SRVZFUlQQBRIZChVPUEVSQVRJT05fS0lORF9CSVNFQ1QQBjKDBAoKR2l0U2VydmljZRJlCg1HZXRSZXBvc2l0b3J5EiYuc3RlYWQubWFjaGluZS52MS5HZXRSZXBvc2l0b3J5UmVxdWVzdBonLnN0ZWFkLm1hY2hpbmUudjEuR2V0UmVwb3NpdG9yeVJlc3BvbnNlIgOQAgESWQoJR2V0U3RhdHVzEiIuc3RlYWQubWFjaGluZS52MS5HZXRTdGF0dXNSZXF1ZXN0GiMuc3RlYWQubWFjaGluZS52MS5HZXRTdGF0dXNSZXNwb25zZSIDkAIBEmUKDkNyZWF0ZVdvcmt0cmVlEicuc3RlYWQubWFjaGluZS52MS5DcmVhdGVXb3JrdHJlZVJlcXVlc3QaKC5zdGVhZC5tYWNoaW5lLnYxLkNyZWF0ZVdvcmt0cmVlUmVzcG9uc2UiABJlCg1MaXN0V29ya3RyZWVzEiYuc3RlYWQubWFjaGluZS52MS5MaXN0V29ya3RyZWVzUmVxdWVzdBonLnN0ZWFkLm1hY2hpbmUudjEuTGlzdFdvcmt0cmVlc1Jlc3BvbnNlIgOQAgESZQoORGVsZXRlV29ya3RyZWUSJy5zdGVhZC5tYWNoaW5lLnYxLkRlbGV0ZVdvcmt0cmVlUmVxdWVzdBooLnN0ZWFkLm1hY2hpbmUudjEuRGVsZXRlV29ya3RyZWVSZXNwb25zZSIAYgZwcm90bzM", [file_google_protobuf_timestamp]);
+  fileDesc("ChpzdGVhZC9tYWNoaW5lL3YxL2dpdC5wcm90bxIQc3RlYWQubWFjaGluZS52MSJhCgpHaXRGYWlsdXJlEjIKBnJlYXNvbhgBIAEoDjIiLnN0ZWFkLm1hY2hpbmUudjEuR2l0RmFpbHVyZVJlYXNvbhIPCgdtZXNzYWdlGAIgASgJEg4KBnN0ZGVychgDIAEoCSIjCgZSZW1vdGUSDAoEbmFtZRgBIAEoCRILCgN1cmwYAiABKAkiJAoUR2V0UmVwb3NpdG9yeVJlcXVlc3QSDAoEcGF0aBgBIAEoCSKGAQoVR2V0UmVwb3NpdG9yeVJlc3BvbnNlEjIKCnJlcG9zaXRvcnkYASABKAsyHC5zdGVhZC5tYWNoaW5lLnYxLlJlcG9zaXRvcnlIABIvCgdmYWlsdXJlGAIgASgLMhwuc3RlYWQubWFjaGluZS52MS5HaXRGYWlsdXJlSABCCAoGcmVzdWx0IicKF0xvY2F0ZVJlcG9zaXRvcnlSZXF1ZXN0EgwKBHBhdGgYASABKAkiagoYTG9jYXRlUmVwb3NpdG9yeVJlc3BvbnNlEhMKCWdpdF9lbnRyeRgBIAEoCUgAEi8KB2ZhaWx1cmUYAiABKAsyHC5zdGVhZC5tYWNoaW5lLnYxLkdpdEZhaWx1cmVIAEIICgZyZXN1bHQi2AEKClJlcG9zaXRvcnkSEAoId29ya3RyZWUYASABKAkSDwoHZ2l0X2RpchgCIAEoCRISCgpjb21tb25fZGlyGAMgASgJEhoKDW1haW5fd29ya3RyZWUYBCABKAlIAIgBARIpCgdyZW1vdGVzGAUgAygLMhguc3RlYWQubWFjaGluZS52MS5SZW1vdGUSEwoGYnJhbmNoGAYgASgJSAGIAQESEQoEaGVhZBgHIAEoCUgCiAEBQhAKDl9tYWluX3dvcmt0cmVlQgkKB19icmFuY2hCBwoFX2hlYWQikgEKEEdldFN0YXR1c1JlcXVlc3QSDAoEcGF0aBgBIAEoCRITCgttYXhfZW50cmllcxgCIAEoDRIzCgpzdWJtb2R1bGVzGAMgASgOMh8uc3RlYWQubWFjaGluZS52MS5TdWJtb2R1bGVNb2RlEhMKC21heF9jb21taXRzGAQgASgNEhEKCWdpdF9lbnRyeRgFIAEoCSJ6ChFHZXRTdGF0dXNSZXNwb25zZRIqCgZzdGF0dXMYASABKAsyGC5zdGVhZC5tYWNoaW5lLnYxLlN0YXR1c0gAEi8KB2ZhaWx1cmUYAiABKAsyHC5zdGVhZC5tYWNoaW5lLnYxLkdpdEZhaWx1cmVIAEIICgZyZXN1bHQi/wIKBlN0YXR1cxIwCgpyZXBvc2l0b3J5GAEgASgLMhwuc3RlYWQubWFjaGluZS52MS5SZXBvc2l0b3J5EhUKDXJlbGF0aXZlX3BhdGgYAiABKAkSMQoIdXBzdHJlYW0YAyABKAsyGi5zdGVhZC5tYWNoaW5lLnYxLlVwc3RyZWFtSACIAQESMwoJb3BlcmF0aW9uGAQgASgLMhsuc3RlYWQubWFjaGluZS52MS5PcGVyYXRpb25IAYgBARIuCgZjb3VudHMYBSABKAsyHi5zdGVhZC5tYWNoaW5lLnYxLkNoYW5nZUNvdW50cxIpCgdjaGFuZ2VzGAYgAygLMhguc3RlYWQubWFjaGluZS52MS5DaGFuZ2USDwoHb21pdHRlZBgHIAEoDRISCgpzdWJtb2R1bGVzGAggAygJEikKB2NvbW1pdHMYCSADKAsyGC5zdGVhZC5tYWNoaW5lLnYxLkNvbW1pdEILCglfdXBzdHJlYW1CDAoKX29wZXJhdGlvbiKoAQoIVXBzdHJlYW0SDAoEbmFtZRgBIAEoCRIMCgRnb25lGAIgASgIEhIKBWFoZWFkGAMgASgNSACIAQESEwoGYmVoaW5kGAQgASgNSAGIAQESMwoKdXBkYXRlZF9hdBgFIAEoCzIaLmdvb2dsZS5wcm90b2J1Zi5UaW1lc3RhbXBIAogBAUIICgZfYWhlYWRCCQoHX2JlaGluZEINCgtfdXBkYXRlZF9hdCJ0CglPcGVyYXRpb24SLQoEa2luZBgBIAEoDjIfLnN0ZWFkLm1hY2hpbmUudjEuT3BlcmF0aW9uS2luZBIRCgRzdGVwGAIgASgNSACIAQESEgoFdG90YWwYAyABKA1IAYgBAUIHCgVfc3RlcEIICgZfdG90YWwiVwoMQ2hhbmdlQ291bnRzEg4KBnN0YWdlZBgBIAEoDRIQCgh1bnN0YWdlZBgCIAEoDRIRCgl1bnRyYWNrZWQYAyABKA0SEgoKY29uZmxpY3RlZBgEIAEoDSJCCgZDaGFuZ2USDgoGc3RhdHVzGAEgASgJEgwKBHBhdGgYAiABKAkSEQoEZnJvbRgDIAEoCUgAiAEBQgcKBV9mcm9tIiUKBkNvbW1pdBIKCgJpZBgBIAEoCRIPCgdzdWJqZWN0GAIgASgJInkKFUNyZWF0ZVdvcmt0cmVlUmVxdWVzdBISCgpyZXF1ZXN0X2lkGAEgASgJEhIKCnJlcG9zaXRvcnkYAiABKAkSDgoGYnJhbmNoGAMgASgJEhEKBGJhc2UYBCABKAlIAIgBARIMCgRwYXRoGAUgASgJQgcKBV9iYXNlIoMBChZDcmVhdGVXb3JrdHJlZVJlc3BvbnNlEi4KCHdvcmt0cmVlGAEgASgLMhouc3RlYWQubWFjaGluZS52MS5Xb3JrdHJlZUgAEi8KB2ZhaWx1cmUYAiABKAsyHC5zdGVhZC5tYWNoaW5lLnYxLkdpdEZhaWx1cmVIAEIICgZyZXN1bHQiKgoUTGlzdFdvcmt0cmVlc1JlcXVlc3QSEgoKcmVwb3NpdG9yeRgBIAEoCSKEAQoVTGlzdFdvcmt0cmVlc1Jlc3BvbnNlEjAKCXdvcmt0cmVlcxgBIAEoCzIbLnN0ZWFkLm1hY2hpbmUudjEuV29ya3RyZWVzSAASLwoHZmFpbHVyZRgCIAEoCzIcLnN0ZWFkLm1hY2hpbmUudjEuR2l0RmFpbHVyZUgAQggKBnJlc3VsdCI6CglXb3JrdHJlZXMSLQoJd29ya3RyZWVzGAEgAygLMhouc3RlYWQubWFjaGluZS52MS5Xb3JrdHJlZSJ2CghXb3JrdHJlZRIMCgRwYXRoGAEgASgJEhMKBmJyYW5jaBgCIAEoCUgAiAEBEhEKBGhlYWQYAyABKAlIAYgBARIOCgZsb2NrZWQYBCABKAgSEAoIcHJ1bmFibGUYBSABKAhCCQoHX2JyYW5jaEIHCgVfaGVhZCI5ChVEZWxldGVXb3JrdHJlZVJlcXVlc3QSEgoKcmVxdWVzdF9pZBgBIAEoCRIMCgRwYXRoGAIgASgJIoEBChZEZWxldGVXb3JrdHJlZVJlc3BvbnNlEiwKB2RlbGV0ZWQYASABKAsyGS5zdGVhZC5tYWNoaW5lLnYxLkRlbGV0ZWRIABIvCgdmYWlsdXJlGAIgASgLMhwuc3RlYWQubWFjaGluZS52MS5HaXRGYWlsdXJlSABCCAoGcmVzdWx0IgkKB0RlbGV0ZWQqkwMKEEdpdEZhaWx1cmVSZWFzb24SIgoeR0lUX0ZBSUxVUkVfUkVBU09OX1VOU1BFQ0lGSUVEEAASJwojR0lUX0ZBSUxVUkVfUkVBU09OX05PVF9BX1JFUE9TSVRPUlkQARIkCiBHSVRfRkFJTFVSRV9SRUFTT05fT1VUU0lERV9ST09UUxACEiQKIEdJVF9GQUlMVVJFX1JFQVNPTl9JTlZBTElEX0lOUFVUEAMSIAocR0lUX0ZBSUxVUkVfUkVBU09OX1RJTUVEX09VVBAEEicKI0dJVF9GQUlMVVJFX1JFQVNPTl9PVVRQVVRfVE9PX0xBUkdFEAUSJAogR0lUX0ZBSUxVUkVfUkVBU09OX0VOVFJZX0NIQU5HRUQQBhIjCh9HSVRfRkFJTFVSRV9SRUFTT05fUk9PVF9NSVNTSU5HEAcSLAooR0lUX0ZBSUxVUkVfUkVBU09OX05PX1JFUE9TSVRPUllfSU5fUk9PVBAIEiIKHUdJVF9GQUlMVVJFX1JFQVNPTl9HSVRfRkFJTEVEEP8BKmIKDVN1Ym1vZHVsZU1vZGUSHgoaU1VCTU9EVUxFX01PREVfVU5TUEVDSUZJRUQQABIXChNTVUJNT0RVTEVfTU9ERV9TS0lQEAESGAoUU1VCTU9EVUxFX01PREVfQ0hFQ0sQAirRAQoNT3BlcmF0aW9uS2luZBIeChpPUEVSQVRJT05fS0lORF9VTlNQRUNJRklFRBAAEhgKFE9QRVJBVElPTl9LSU5EX01FUkdFEAESGQoVT1BFUkFUSU9OX0tJTkRfUkVCQVNFEAISFQoRT1BFUkFUSU9OX0tJTkRfQU0QAxIeChpPUEVSQVRJT05fS0lORF9DSEVSUllfUElDSxAEEhkKFU9QRVJBVElPTl9LSU5EX1JFVkVSVBAFEhkKFU9QRVJBVElPTl9LSU5EX0JJU0VDVBAGMvMECgpHaXRTZXJ2aWNlEmUKDUdldFJlcG9zaXRvcnkSJi5zdGVhZC5tYWNoaW5lLnYxLkdldFJlcG9zaXRvcnlSZXF1ZXN0Gicuc3RlYWQubWFjaGluZS52MS5HZXRSZXBvc2l0b3J5UmVzcG9uc2UiA5ACARJuChBMb2NhdGVSZXBvc2l0b3J5Eikuc3RlYWQubWFjaGluZS52MS5Mb2NhdGVSZXBvc2l0b3J5UmVxdWVzdBoqLnN0ZWFkLm1hY2hpbmUudjEuTG9jYXRlUmVwb3NpdG9yeVJlc3BvbnNlIgOQAgESWQoJR2V0U3RhdHVzEiIuc3RlYWQubWFjaGluZS52MS5HZXRTdGF0dXNSZXF1ZXN0GiMuc3RlYWQubWFjaGluZS52MS5HZXRTdGF0dXNSZXNwb25zZSIDkAIBEmUKDkNyZWF0ZVdvcmt0cmVlEicuc3RlYWQubWFjaGluZS52MS5DcmVhdGVXb3JrdHJlZVJlcXVlc3QaKC5zdGVhZC5tYWNoaW5lLnYxLkNyZWF0ZVdvcmt0cmVlUmVzcG9uc2UiABJlCg1MaXN0V29ya3RyZWVzEiYuc3RlYWQubWFjaGluZS52MS5MaXN0V29ya3RyZWVzUmVxdWVzdBonLnN0ZWFkLm1hY2hpbmUudjEuTGlzdFdvcmt0cmVlc1Jlc3BvbnNlIgOQAgESZQoORGVsZXRlV29ya3RyZWUSJy5zdGVhZC5tYWNoaW5lLnYxLkRlbGV0ZVdvcmt0cmVlUmVxdWVzdBooLnN0ZWFkLm1hY2hpbmUudjEuRGVsZXRlV29ya3RyZWVSZXNwb25zZSIAYgZwcm90bzM", [file_google_protobuf_timestamp]);
 
 /**
  * @generated from message stead.machine.v1.GitFailure
@@ -114,6 +114,52 @@ export const GetRepositoryResponseSchema: GenMessage<GetRepositoryResponse> = /*
   messageDesc(file_stead_machine_v1_git, 3);
 
 /**
+ * @generated from message stead.machine.v1.LocateRepositoryRequest
+ */
+export type LocateRepositoryRequest = Message<"stead.machine.v1.LocateRepositoryRequest"> & {
+  /**
+   * @generated from field: string path = 1;
+   */
+  path: string;
+};
+
+/**
+ * Describes the message stead.machine.v1.LocateRepositoryRequest.
+ * Use `create(LocateRepositoryRequestSchema)` to create a new message.
+ */
+export const LocateRepositoryRequestSchema: GenMessage<LocateRepositoryRequest> = /*@__PURE__*/
+  messageDesc(file_stead_machine_v1_git, 4);
+
+/**
+ * @generated from message stead.machine.v1.LocateRepositoryResponse
+ */
+export type LocateRepositoryResponse = Message<"stead.machine.v1.LocateRepositoryResponse"> & {
+  /**
+   * @generated from oneof stead.machine.v1.LocateRepositoryResponse.result
+   */
+  result: {
+    /**
+     * @generated from field: string git_entry = 1;
+     */
+    value: string;
+    case: "gitEntry";
+  } | {
+    /**
+     * @generated from field: stead.machine.v1.GitFailure failure = 2;
+     */
+    value: GitFailure;
+    case: "failure";
+  } | { case: undefined; value?: undefined };
+};
+
+/**
+ * Describes the message stead.machine.v1.LocateRepositoryResponse.
+ * Use `create(LocateRepositoryResponseSchema)` to create a new message.
+ */
+export const LocateRepositoryResponseSchema: GenMessage<LocateRepositoryResponse> = /*@__PURE__*/
+  messageDesc(file_stead_machine_v1_git, 5);
+
+/**
  * @generated from message stead.machine.v1.Repository
  */
 export type Repository = Message<"stead.machine.v1.Repository"> & {
@@ -170,7 +216,7 @@ export type Repository = Message<"stead.machine.v1.Repository"> & {
  * Use `create(RepositorySchema)` to create a new message.
  */
 export const RepositorySchema: GenMessage<Repository> = /*@__PURE__*/
-  messageDesc(file_stead_machine_v1_git, 4);
+  messageDesc(file_stead_machine_v1_git, 6);
 
 /**
  * @generated from message stead.machine.v1.GetStatusRequest
@@ -199,6 +245,13 @@ export type GetStatusRequest = Message<"stead.machine.v1.GetStatusRequest"> & {
    * @generated from field: uint32 max_commits = 4;
    */
   maxCommits: number;
+
+  /**
+   * Git entry previously admitted by LocateRepository.
+   *
+   * @generated from field: string git_entry = 5;
+   */
+  gitEntry: string;
 };
 
 /**
@@ -206,7 +259,7 @@ export type GetStatusRequest = Message<"stead.machine.v1.GetStatusRequest"> & {
  * Use `create(GetStatusRequestSchema)` to create a new message.
  */
 export const GetStatusRequestSchema: GenMessage<GetStatusRequest> = /*@__PURE__*/
-  messageDesc(file_stead_machine_v1_git, 5);
+  messageDesc(file_stead_machine_v1_git, 7);
 
 /**
  * @generated from message stead.machine.v1.GetStatusResponse
@@ -235,7 +288,7 @@ export type GetStatusResponse = Message<"stead.machine.v1.GetStatusResponse"> & 
  * Use `create(GetStatusResponseSchema)` to create a new message.
  */
 export const GetStatusResponseSchema: GenMessage<GetStatusResponse> = /*@__PURE__*/
-  messageDesc(file_stead_machine_v1_git, 6);
+  messageDesc(file_stead_machine_v1_git, 8);
 
 /**
  * @generated from message stead.machine.v1.Status
@@ -298,7 +351,7 @@ export type Status = Message<"stead.machine.v1.Status"> & {
  * Use `create(StatusSchema)` to create a new message.
  */
 export const StatusSchema: GenMessage<Status> = /*@__PURE__*/
-  messageDesc(file_stead_machine_v1_git, 7);
+  messageDesc(file_stead_machine_v1_git, 9);
 
 /**
  * @generated from message stead.machine.v1.Upstream
@@ -337,7 +390,7 @@ export type Upstream = Message<"stead.machine.v1.Upstream"> & {
  * Use `create(UpstreamSchema)` to create a new message.
  */
 export const UpstreamSchema: GenMessage<Upstream> = /*@__PURE__*/
-  messageDesc(file_stead_machine_v1_git, 8);
+  messageDesc(file_stead_machine_v1_git, 10);
 
 /**
  * An operation in progress, such as a rebase at step 2 of 5.
@@ -366,7 +419,7 @@ export type Operation = Message<"stead.machine.v1.Operation"> & {
  * Use `create(OperationSchema)` to create a new message.
  */
 export const OperationSchema: GenMessage<Operation> = /*@__PURE__*/
-  messageDesc(file_stead_machine_v1_git, 9);
+  messageDesc(file_stead_machine_v1_git, 11);
 
 /**
  * @generated from message stead.machine.v1.ChangeCounts
@@ -398,7 +451,7 @@ export type ChangeCounts = Message<"stead.machine.v1.ChangeCounts"> & {
  * Use `create(ChangeCountsSchema)` to create a new message.
  */
 export const ChangeCountsSchema: GenMessage<ChangeCounts> = /*@__PURE__*/
-  messageDesc(file_stead_machine_v1_git, 10);
+  messageDesc(file_stead_machine_v1_git, 12);
 
 /**
  * @generated from message stead.machine.v1.Change
@@ -431,7 +484,7 @@ export type Change = Message<"stead.machine.v1.Change"> & {
  * Use `create(ChangeSchema)` to create a new message.
  */
 export const ChangeSchema: GenMessage<Change> = /*@__PURE__*/
-  messageDesc(file_stead_machine_v1_git, 11);
+  messageDesc(file_stead_machine_v1_git, 13);
 
 /**
  * @generated from message stead.machine.v1.Commit
@@ -453,7 +506,7 @@ export type Commit = Message<"stead.machine.v1.Commit"> & {
  * Use `create(CommitSchema)` to create a new message.
  */
 export const CommitSchema: GenMessage<Commit> = /*@__PURE__*/
-  messageDesc(file_stead_machine_v1_git, 12);
+  messageDesc(file_stead_machine_v1_git, 14);
 
 /**
  * @generated from message stead.machine.v1.CreateWorktreeRequest
@@ -498,7 +551,7 @@ export type CreateWorktreeRequest = Message<"stead.machine.v1.CreateWorktreeRequ
  * Use `create(CreateWorktreeRequestSchema)` to create a new message.
  */
 export const CreateWorktreeRequestSchema: GenMessage<CreateWorktreeRequest> = /*@__PURE__*/
-  messageDesc(file_stead_machine_v1_git, 13);
+  messageDesc(file_stead_machine_v1_git, 15);
 
 /**
  * @generated from message stead.machine.v1.CreateWorktreeResponse
@@ -527,7 +580,7 @@ export type CreateWorktreeResponse = Message<"stead.machine.v1.CreateWorktreeRes
  * Use `create(CreateWorktreeResponseSchema)` to create a new message.
  */
 export const CreateWorktreeResponseSchema: GenMessage<CreateWorktreeResponse> = /*@__PURE__*/
-  messageDesc(file_stead_machine_v1_git, 14);
+  messageDesc(file_stead_machine_v1_git, 16);
 
 /**
  * @generated from message stead.machine.v1.ListWorktreesRequest
@@ -544,7 +597,7 @@ export type ListWorktreesRequest = Message<"stead.machine.v1.ListWorktreesReques
  * Use `create(ListWorktreesRequestSchema)` to create a new message.
  */
 export const ListWorktreesRequestSchema: GenMessage<ListWorktreesRequest> = /*@__PURE__*/
-  messageDesc(file_stead_machine_v1_git, 15);
+  messageDesc(file_stead_machine_v1_git, 17);
 
 /**
  * @generated from message stead.machine.v1.ListWorktreesResponse
@@ -573,7 +626,7 @@ export type ListWorktreesResponse = Message<"stead.machine.v1.ListWorktreesRespo
  * Use `create(ListWorktreesResponseSchema)` to create a new message.
  */
 export const ListWorktreesResponseSchema: GenMessage<ListWorktreesResponse> = /*@__PURE__*/
-  messageDesc(file_stead_machine_v1_git, 16);
+  messageDesc(file_stead_machine_v1_git, 18);
 
 /**
  * @generated from message stead.machine.v1.Worktrees
@@ -592,7 +645,7 @@ export type Worktrees = Message<"stead.machine.v1.Worktrees"> & {
  * Use `create(WorktreesSchema)` to create a new message.
  */
 export const WorktreesSchema: GenMessage<Worktrees> = /*@__PURE__*/
-  messageDesc(file_stead_machine_v1_git, 17);
+  messageDesc(file_stead_machine_v1_git, 19);
 
 /**
  * @generated from message stead.machine.v1.Worktree
@@ -631,7 +684,7 @@ export type Worktree = Message<"stead.machine.v1.Worktree"> & {
  * Use `create(WorktreeSchema)` to create a new message.
  */
 export const WorktreeSchema: GenMessage<Worktree> = /*@__PURE__*/
-  messageDesc(file_stead_machine_v1_git, 18);
+  messageDesc(file_stead_machine_v1_git, 20);
 
 /**
  * @generated from message stead.machine.v1.DeleteWorktreeRequest
@@ -653,7 +706,7 @@ export type DeleteWorktreeRequest = Message<"stead.machine.v1.DeleteWorktreeRequ
  * Use `create(DeleteWorktreeRequestSchema)` to create a new message.
  */
 export const DeleteWorktreeRequestSchema: GenMessage<DeleteWorktreeRequest> = /*@__PURE__*/
-  messageDesc(file_stead_machine_v1_git, 19);
+  messageDesc(file_stead_machine_v1_git, 21);
 
 /**
  * @generated from message stead.machine.v1.DeleteWorktreeResponse
@@ -682,7 +735,7 @@ export type DeleteWorktreeResponse = Message<"stead.machine.v1.DeleteWorktreeRes
  * Use `create(DeleteWorktreeResponseSchema)` to create a new message.
  */
 export const DeleteWorktreeResponseSchema: GenMessage<DeleteWorktreeResponse> = /*@__PURE__*/
-  messageDesc(file_stead_machine_v1_git, 20);
+  messageDesc(file_stead_machine_v1_git, 22);
 
 /**
  * @generated from message stead.machine.v1.Deleted
@@ -695,7 +748,7 @@ export type Deleted = Message<"stead.machine.v1.Deleted"> & {
  * Use `create(DeletedSchema)` to create a new message.
  */
 export const DeletedSchema: GenMessage<Deleted> = /*@__PURE__*/
-  messageDesc(file_stead_machine_v1_git, 21);
+  messageDesc(file_stead_machine_v1_git, 23);
 
 /**
  * @generated from enum stead.machine.v1.GitFailureReason
@@ -736,6 +789,21 @@ export enum GitFailureReason {
    * @generated from enum value: GIT_FAILURE_REASON_OUTPUT_TOO_LARGE = 5;
    */
   OUTPUT_TOO_LARGE = 5,
+
+  /**
+   * @generated from enum value: GIT_FAILURE_REASON_ENTRY_CHANGED = 6;
+   */
+  ENTRY_CHANGED = 6,
+
+  /**
+   * @generated from enum value: GIT_FAILURE_REASON_ROOT_MISSING = 7;
+   */
+  ROOT_MISSING = 7,
+
+  /**
+   * @generated from enum value: GIT_FAILURE_REASON_NO_REPOSITORY_IN_ROOT = 8;
+   */
+  NO_REPOSITORY_IN_ROOT = 8,
 
   /**
    * git exited non-zero for a reason without its own value; `stderr` says why. Kept last so a
@@ -834,7 +902,7 @@ export const OperationKindSchema: GenEnum<OperationKind> = /*@__PURE__*/
  */
 export const GitService: GenService<{
   /**
-   * GetRepository reports the repository that holds a path, found without starting git.
+   * GetRepository reports the repository that holds a path.
    *
    * @generated from rpc stead.machine.v1.GitService.GetRepository
    */
@@ -844,7 +912,17 @@ export const GitService: GenService<{
     output: typeof GetRepositoryResponseSchema;
   },
   /**
-   * GetStatus reads the working-tree state of the repository that holds a path.
+   * LocateRepository reports the nearest .git entry without starting git.
+   *
+   * @generated from rpc stead.machine.v1.GitService.LocateRepository
+   */
+  locateRepository: {
+    methodKind: "unary";
+    input: typeof LocateRepositoryRequestSchema;
+    output: typeof LocateRepositoryResponseSchema;
+  },
+  /**
+   * GetStatus reads the working-tree state for the admitted git entry.
    *
    * @generated from rpc stead.machine.v1.GitService.GetStatus
    */

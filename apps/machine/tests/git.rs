@@ -10,11 +10,26 @@ mod common;
 
 use machine_protocol::v1::{
     CreateWorktreeRequest, DeleteWorktreeRequest, GetRepositoryRequest, GetStatusRequest,
-    GitFailureReason, ListWorktreesRequest, SubmoduleMode, create_worktree_response,
-    delete_worktree_response, get_repository_response, get_status_response,
-    git_service_client::GitServiceClient, list_worktrees_response,
+    GitFailureReason, ListWorktreesRequest, LocateRepositoryRequest, SubmoduleMode,
+    create_worktree_response, delete_worktree_response, get_repository_response,
+    get_status_response, git_service_client::GitServiceClient, list_worktrees_response,
+    locate_repository_response,
 };
-use std::{path::Path, process::Command};
+use std::{os::unix::fs::PermissionsExt, path::Path, process::Command};
+
+fn git_shim(machine: &common::Machine) -> (std::path::PathBuf, std::path::PathBuf) {
+    let bin = machine.home.path().join("shim");
+    std::fs::create_dir_all(&bin).unwrap();
+    let marker = machine.home.path().join("git-started");
+    let script = format!(
+        "#!/bin/sh\nif [ \"$1\" = --version ]; then echo 'git version 2.39.0'; exit 0; fi\nprintf 'called: %s\\n' \"$*\" >> '{}'\nexit 1\n",
+        marker.display()
+    );
+    let path = bin.join("git");
+    std::fs::write(&path, script).unwrap();
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+    (bin, marker)
+}
 
 fn git(directory: &Path, args: &[&str]) -> String {
     let output = Command::new("git")
@@ -77,6 +92,7 @@ async fn repository_status_detached_and_not_a_repository() {
     let response = client
         .get_status(GetStatusRequest {
             path: absolute(&repo),
+            git_entry: absolute(&repo.join(".git")),
             max_entries: 1,
             submodules: SubmoduleMode::Skip as i32,
             max_commits: 2,
@@ -159,6 +175,7 @@ async fn upstream_ahead_and_behind_are_reported() {
     let response = client
         .get_status(GetStatusRequest {
             path: absolute(&repo),
+            git_entry: absolute(&repo.join(".git")),
             max_entries: 0,
             submodules: SubmoduleMode::Skip as i32,
             max_commits: 0,
@@ -259,7 +276,8 @@ async fn gitdir_outside_root_is_refused() {
         .output()
         .unwrap();
     assert!(out.status.success());
-    let (_child, channel) = machine.attach().await;
+    let (shim, marker) = git_shim(&machine);
+    let (_child, channel) = machine.attach_with_path(Some(&shim)).await;
     let mut client = GitServiceClient::new(channel);
     let response = client
         .get_repository(GetRepositoryRequest {
@@ -272,5 +290,120 @@ async fn gitdir_outside_root_is_refused() {
         panic!("external gitdir accepted")
     };
     assert_eq!(e.reason, GitFailureReason::OutsideRoots as i32);
+    assert!(
+        !marker.exists(),
+        "git process started before outside-root refusal"
+    );
     let _ = std::fs::remove_dir_all(external);
+}
+
+#[tokio::test]
+async fn locate_repository_is_bounded_and_does_not_start_git() {
+    let machine = common::Machine::new();
+    repository(machine.home.path());
+    let local_repo = machine.root().join("local-repo");
+    repository(&local_repo);
+    let inside = machine.root().join("inside");
+    std::fs::create_dir_all(&inside).unwrap();
+    let file = inside.join("file");
+    std::fs::write(&file, "data").unwrap();
+    let (shim, marker) = git_shim(&machine);
+    let (_child, channel) = machine.attach_with_path(Some(&shim)).await;
+    let mut client = GitServiceClient::new(channel);
+    let absent = client
+        .locate_repository(LocateRepositoryRequest {
+            path: absolute(&inside),
+        })
+        .await
+        .unwrap()
+        .into_inner();
+    let Some(locate_repository_response::Result::Failure(failure)) = absent.result else {
+        panic!("repository above the registered root was found")
+    };
+    assert_eq!(failure.reason, GitFailureReason::NoRepositoryInRoot as i32);
+    let found = client
+        .locate_repository(LocateRepositoryRequest {
+            path: absolute(&local_repo),
+        })
+        .await
+        .unwrap()
+        .into_inner();
+    let Some(locate_repository_response::Result::GitEntry(entry)) = found.result else {
+        panic!("repository entry was not found")
+    };
+    assert_eq!(entry, absolute(&local_repo.join(".git")));
+    let missing = client
+        .locate_repository(LocateRepositoryRequest {
+            path: absolute(&file),
+        })
+        .await
+        .unwrap()
+        .into_inner();
+    let Some(locate_repository_response::Result::Failure(failure)) = missing.result else {
+        panic!("file path was accepted as a directory")
+    };
+    assert_eq!(failure.reason, GitFailureReason::RootMissing as i32);
+    assert!(
+        !marker.exists(),
+        "locate started git: {}",
+        std::fs::read_to_string(&marker).unwrap_or_default()
+    );
+}
+
+#[tokio::test]
+async fn status_refuses_changed_admitted_git_entry_without_git() {
+    let machine = common::Machine::new();
+    let root = machine.root();
+    let repo = root.join("repo");
+    repository(&repo);
+    let admitted = absolute(&repo.join(".git"));
+    std::fs::remove_dir_all(repo.join(".git")).unwrap();
+    let (shim, marker) = git_shim(&machine);
+    let (_child, channel) = machine.attach_with_path(Some(&shim)).await;
+    let mut client = GitServiceClient::new(channel);
+    let response = client
+        .get_status(GetStatusRequest {
+            path: absolute(&repo),
+            git_entry: admitted,
+            max_entries: 0,
+            submodules: SubmoduleMode::Unspecified as i32,
+            max_commits: 0,
+        })
+        .await
+        .unwrap()
+        .into_inner();
+    let Some(get_status_response::Result::Failure(failure)) = response.result else {
+        panic!("changed git entry was accepted")
+    };
+    assert_eq!(failure.reason, GitFailureReason::EntryChanged as i32);
+    assert!(
+        !marker.exists(),
+        "status started git after the entry changed"
+    );
+}
+
+#[tokio::test]
+async fn option_like_worktree_base_is_rejected_before_git() {
+    let machine = common::Machine::new();
+    let repo = machine.root().join("repo");
+    repository(&repo);
+    let (shim, marker) = git_shim(&machine);
+    let (_child, channel) = machine.attach_with_path(Some(&shim)).await;
+    let mut client = GitServiceClient::new(channel);
+    let response = client
+        .create_worktree(CreateWorktreeRequest {
+            request_id: "option-like-base".into(),
+            repository: absolute(&repo),
+            branch: "feature".into(),
+            base: Some("--force".into()),
+            path: absolute(&machine.root().join("linked")),
+        })
+        .await
+        .unwrap()
+        .into_inner();
+    let Some(create_worktree_response::Result::Failure(failure)) = response.result else {
+        panic!("option-like base was accepted")
+    };
+    assert_eq!(failure.reason, GitFailureReason::InvalidInput as i32);
+    assert!(!marker.exists(), "worktree operation started git");
 }

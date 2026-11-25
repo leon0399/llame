@@ -9,11 +9,15 @@ import "google/protobuf/timestamp.proto";
 // common dir, objects, alternates): data outside every root is OUTSIDE_ROOTS. Failures carry git's
 // raw standard error; the installation rewrites root prefixes into locators.
 service GitService {
-  // GetRepository reports the repository that holds a path, found without starting git.
+  // GetRepository reports the repository that holds a path.
   rpc GetRepository(GetRepositoryRequest) returns (GetRepositoryResponse) {
     option idempotency_level = NO_SIDE_EFFECTS;
   }
-  // GetStatus reads the working-tree state of the repository that holds a path.
+  // LocateRepository reports the nearest .git entry without starting git.
+  rpc LocateRepository(LocateRepositoryRequest) returns (LocateRepositoryResponse) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+  }
+  // GetStatus reads the working-tree state for the admitted git entry.
   rpc GetStatus(GetStatusRequest) returns (GetStatusResponse) {
     option idempotency_level = NO_SIDE_EFFECTS;
   }
@@ -37,6 +41,9 @@ enum GitFailureReason {
   GIT_FAILURE_REASON_INVALID_INPUT = 3;
   GIT_FAILURE_REASON_TIMED_OUT = 4;
   GIT_FAILURE_REASON_OUTPUT_TOO_LARGE = 5;
+  GIT_FAILURE_REASON_ENTRY_CHANGED = 6;
+  GIT_FAILURE_REASON_ROOT_MISSING = 7;
+  GIT_FAILURE_REASON_NO_REPOSITORY_IN_ROOT = 8;
   // git exited non-zero for a reason without its own value; `stderr` says why. Kept last so a
   // later specific reason slots in before it.
   GIT_FAILURE_REASON_GIT_FAILED = 255;
@@ -65,6 +72,17 @@ message GetRepositoryResponse {
     GitFailure failure = 2;
   }
 }
+message LocateRepositoryRequest {
+  string path = 1;
+}
+
+message LocateRepositoryResponse {
+  oneof result {
+    string git_entry = 1;
+    GitFailure failure = 2;
+  }
+}
+
 
 message Repository {
   // The working tree that holds the path.
@@ -95,6 +113,8 @@ message GetStatusRequest {
   SubmoduleMode submodules = 3;
   // Most recent commits listed; 0 means none.
   uint32 max_commits = 4;
+  // Git entry previously admitted by LocateRepository.
+  string git_entry = 5;
 }
 
 message GetStatusResponse {

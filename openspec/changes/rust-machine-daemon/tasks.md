@@ -69,10 +69,10 @@ master <- rust-machine-daemon/proposal <- rust-machine-daemon/skeleton
 ## 5. Git (`rust-machine-daemon/git`)
 
 - [x] 5.1 Implement `GitService`; verify `cargo test -p llame-machine --test git`.
-- [ ] 5.2 Check the git directory, common directory, and object alternates
+- [x] 5.2 Check the git directory, common directory, and object alternates
       against the roots before any git process starts; verify a test whose
       common directory lies outside every root and that observes no git start.
-- [ ] 5.3 Add `GitService.LocateRepository`, which starts no git process and
+- [x] 5.3 Add `GitService.LocateRepository`, which starts no git process and
       reports a path that is not a directory, and make `GetStatus` take the
       admitted git entry and refuse a changed one; refuse every option-like
       caller value, including `base`; verify each with a Cargo test.

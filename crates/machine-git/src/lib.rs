@@ -5,14 +5,15 @@ use machine_protocol::v1::{
     Change, ChangeCounts, Commit, CreateWorktreeRequest, CreateWorktreeResponse,
     DeleteWorktreeRequest, DeleteWorktreeResponse, GetRepositoryRequest, GetRepositoryResponse,
     GetStatusRequest, GetStatusResponse, GitFailure, GitFailureReason, ListWorktreesRequest,
-    ListWorktreesResponse, Operation, OperationKind, Remote, Repository, Status, SubmoduleMode,
-    Upstream, Worktree, Worktrees,
+    ListWorktreesResponse, LocateRepositoryRequest, LocateRepositoryResponse, Operation,
+    OperationKind, Remote, Repository, Status, SubmoduleMode, Upstream, Worktree, Worktrees,
     create_worktree_response::Result as CreateResult,
     delete_worktree_response::Result as DeleteResult,
     get_repository_response::Result as RepoResult,
     get_status_response::Result as StatusResult,
     git_service_server::{GitService, GitServiceServer},
     list_worktrees_response::Result as ListResult,
+    locate_repository_response::Result as LocateResult,
 };
 use prost_types::Timestamp;
 use std::{
@@ -272,6 +273,83 @@ fn nearest_git(path: &Path, roots: &[PathBuf]) -> Option<PathBuf> {
             return None;
         }
     }
+}
+fn git_directory(entry: &Path) -> Option<PathBuf> {
+    if entry.is_dir() {
+        return Some(fs::canonicalize(entry).unwrap_or_else(|_| entry.to_path_buf()));
+    }
+    let content = fs::read_to_string(entry).ok()?;
+    let target = content.trim().strip_prefix("gitdir: ")?;
+    let target = PathBuf::from(target);
+    let target = if target.is_absolute() {
+        target
+    } else {
+        entry.parent()?.join(target)
+    };
+    Some(fs::canonicalize(&target).unwrap_or(target))
+}
+
+fn read_git_metadata(path: &Path, roots: &[PathBuf]) -> Result<Option<String>, GitFailure> {
+    let resolved = fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    if !machine_core::guard::is_inside(roots, &resolved) {
+        return Err(failure(GitFailureReason::OutsideRoots, ""));
+    }
+    Ok(fs::read_to_string(path).ok())
+}
+
+fn checked_git_data(entry: &Path, roots: &[PathBuf]) -> Result<(PathBuf, PathBuf), GitFailure> {
+    let entry = fs::canonicalize(entry).unwrap_or_else(|_| entry.to_path_buf());
+    if !machine_core::guard::is_inside(roots, &entry) {
+        return Err(failure(GitFailureReason::OutsideRoots, ""));
+    }
+    let Some(git_dir) = git_directory(&entry) else {
+        return Err(failure(GitFailureReason::GitFailed, ""));
+    };
+    let inside = |path: &Path| machine_core::guard::is_inside(roots, path);
+    if !inside(&git_dir) {
+        return Err(failure(GitFailureReason::OutsideRoots, ""));
+    }
+    let common_dir = read_git_metadata(&git_dir.join("commondir"), roots)?
+        .map(|value| {
+            let value = PathBuf::from(value.trim());
+            if value.is_absolute() {
+                value
+            } else {
+                git_dir.join(value)
+            }
+        })
+        .map(|path| fs::canonicalize(&path).unwrap_or(path))
+        .unwrap_or_else(|| git_dir.clone());
+    if !inside(&common_dir) {
+        return Err(failure(GitFailureReason::OutsideRoots, ""));
+    }
+    let mut pending = vec![git_dir.join("objects"), common_dir.join("objects")];
+    let mut checked = Vec::new();
+    while let Some(objects) = pending.pop() {
+        let objects = fs::canonicalize(&objects).unwrap_or(objects);
+        if checked.contains(&objects) {
+            continue;
+        }
+        if !inside(&objects) {
+            return Err(failure(GitFailureReason::OutsideRoots, ""));
+        }
+        checked.push(objects.clone());
+        if let Some(alternates) = read_git_metadata(&objects.join("info/alternates"), roots)? {
+            for alternate in alternates.lines().filter(|value| !value.is_empty()) {
+                let path = PathBuf::from(alternate);
+                pending.push(if path.is_absolute() {
+                    path
+                } else {
+                    objects.join(path)
+                });
+            }
+        }
+    }
+    Ok((git_dir, common_dir))
+}
+
+fn option_like(values: &[&str]) -> bool {
+    values.iter().any(|value| value.starts_with('-'))
 }
 async fn repository(
     directory: &Path,
@@ -559,13 +637,25 @@ impl GitService for Git {
         request: Request<GetRepositoryRequest>,
     ) -> Result<Response<GetRepositoryResponse>, RpcStatus> {
         let guard = self.context.guard();
+        if option_like(&[&request.get_ref().path]) {
+            return Ok(Response::new(GetRepositoryResponse {
+                result: Some(RepoResult::Failure(invalid(
+                    "caller values must not start with '-'",
+                ))),
+            }));
+        }
         let path = guard.resolve(&request.get_ref().path)?;
         let entry = nearest_git(&path.canonical, guard.roots());
         let result = if let Some(entry) = entry {
-            let dir = entry.parent().unwrap_or(&entry);
-            match repository(dir, &guard, Instant::now() + DEFAULT_TIMEOUT).await {
-                Ok(v) => RepoResult::Repository(v),
+            match checked_git_data(&entry, guard.roots()) {
                 Err(e) => RepoResult::Failure(e),
+                Ok(_) => {
+                    let dir = entry.parent().unwrap_or(&entry);
+                    match repository(dir, &guard, Instant::now() + DEFAULT_TIMEOUT).await {
+                        Ok(v) => RepoResult::Repository(v),
+                        Err(e) => RepoResult::Failure(e),
+                    }
+                }
             }
         } else {
             RepoResult::Failure(failure(GitFailureReason::NotARepository, ""))
@@ -574,11 +664,47 @@ impl GitService for Git {
             result: Some(result),
         }))
     }
+    async fn locate_repository(
+        &self,
+        request: Request<LocateRepositoryRequest>,
+    ) -> Result<Response<LocateRepositoryResponse>, RpcStatus> {
+        if option_like(&[&request.get_ref().path]) {
+            return Ok(Response::new(LocateRepositoryResponse {
+                result: Some(LocateResult::Failure(invalid(
+                    "caller values must not start with '-'",
+                ))),
+            }));
+        }
+        let guard = self.context.guard();
+        let path = guard.resolve(&request.get_ref().path)?;
+        let result = if !path.canonical.is_dir() {
+            LocateResult::Failure(failure(GitFailureReason::RootMissing, ""))
+        } else if let Some(entry) = nearest_git(&path.canonical, guard.roots()) {
+            LocateResult::GitEntry(
+                fs::canonicalize(&entry)
+                    .unwrap_or(entry)
+                    .to_string_lossy()
+                    .into_owned(),
+            )
+        } else {
+            LocateResult::Failure(failure(GitFailureReason::NoRepositoryInRoot, ""))
+        };
+        Ok(Response::new(LocateRepositoryResponse {
+            result: Some(result),
+        }))
+    }
     async fn get_status(
         &self,
         request: Request<GetStatusRequest>,
     ) -> Result<Response<GetStatusResponse>, RpcStatus> {
         let input = request.into_inner();
+        if option_like(&[&input.path, &input.git_entry]) {
+            return Ok(Response::new(GetStatusResponse {
+                result: Some(StatusResult::Failure(invalid(
+                    "caller values must not start with '-'",
+                ))),
+            }));
+        }
         let guard = self.context.guard();
         let path = guard.resolve(&input.path)?;
         let max = if input.max_entries == 0 {
@@ -602,6 +728,22 @@ impl GitService for Git {
             }));
         }
         let entry = nearest_git(&path.canonical, guard.roots());
+        if let Some(entry) = entry.as_ref() {
+            let admitted = fs::canonicalize(entry).unwrap_or_else(|_| entry.clone());
+            if input.git_entry.is_empty() || Path::new(&input.git_entry) != admitted {
+                return Ok(Response::new(GetStatusResponse {
+                    result: Some(StatusResult::Failure(failure(
+                        GitFailureReason::EntryChanged,
+                        "",
+                    ))),
+                }));
+            }
+            if let Err(error) = checked_git_data(entry, guard.roots()) {
+                return Ok(Response::new(GetStatusResponse {
+                    result: Some(StatusResult::Failure(error)),
+                }));
+            }
+        }
         let result = if let Some(entry) = entry {
             let dir = entry.parent().unwrap_or(&entry);
             let deadline = Instant::now() + DEFAULT_TIMEOUT;
@@ -805,7 +947,14 @@ impl GitService for Git {
                 }
             }
         } else {
-            StatusResult::Failure(failure(GitFailureReason::NotARepository, ""))
+            StatusResult::Failure(failure(
+                if input.git_entry.is_empty() {
+                    GitFailureReason::NotARepository
+                } else {
+                    GitFailureReason::EntryChanged
+                },
+                "",
+            ))
         };
         Ok(Response::new(GetStatusResponse {
             result: Some(result),
@@ -816,9 +965,34 @@ impl GitService for Git {
         request: Request<CreateWorktreeRequest>,
     ) -> Result<Response<CreateWorktreeResponse>, RpcStatus> {
         let input = request.into_inner();
+        if option_like(&[
+            &input.repository,
+            &input.branch,
+            input.base.as_deref().unwrap_or(""),
+            &input.path,
+        ]) {
+            return Ok(Response::new(CreateWorktreeResponse {
+                result: Some(CreateResult::Failure(invalid(
+                    "caller values must not start with '-'",
+                ))),
+            }));
+        }
         let guard = self.context.guard();
         let source = guard.resolve(&input.repository)?;
         let directory = guard.resolve(&input.path)?;
+        let Some(entry) = nearest_git(&source.canonical, guard.roots()) else {
+            return Ok(Response::new(CreateWorktreeResponse {
+                result: Some(CreateResult::Failure(failure(
+                    GitFailureReason::NotARepository,
+                    "",
+                ))),
+            }));
+        };
+        if let Err(error) = checked_git_data(&entry, guard.roots()) {
+            return Ok(Response::new(CreateWorktreeResponse {
+                result: Some(CreateResult::Failure(error)),
+            }));
+        }
         if !validate_branch(&input.branch) {
             return Ok(Response::new(CreateWorktreeResponse {
                 result: Some(CreateResult::Failure(invalid(
@@ -888,8 +1062,28 @@ impl GitService for Git {
         &self,
         request: Request<ListWorktreesRequest>,
     ) -> Result<Response<ListWorktreesResponse>, RpcStatus> {
+        if option_like(&[&request.get_ref().repository]) {
+            return Ok(Response::new(ListWorktreesResponse {
+                result: Some(ListResult::Failure(invalid(
+                    "caller values must not start with '-'",
+                ))),
+            }));
+        }
         let guard = self.context.guard();
         let source = guard.resolve(&request.get_ref().repository)?;
+        let Some(entry) = nearest_git(&source.canonical, guard.roots()) else {
+            return Ok(Response::new(ListWorktreesResponse {
+                result: Some(ListResult::Failure(failure(
+                    GitFailureReason::NotARepository,
+                    "",
+                ))),
+            }));
+        };
+        if let Err(error) = checked_git_data(&entry, guard.roots()) {
+            return Ok(Response::new(ListWorktreesResponse {
+                result: Some(ListResult::Failure(error)),
+            }));
+        }
         let out = run(
             &source.canonical,
             &["worktree", "list", "--porcelain", "-z"],
@@ -927,8 +1121,28 @@ impl GitService for Git {
         request: Request<DeleteWorktreeRequest>,
     ) -> Result<Response<DeleteWorktreeResponse>, RpcStatus> {
         let input = request.into_inner();
+        if option_like(&[&input.path]) {
+            return Ok(Response::new(DeleteWorktreeResponse {
+                result: Some(DeleteResult::Failure(invalid(
+                    "caller values must not start with '-'",
+                ))),
+            }));
+        }
         let guard = self.context.guard();
         let path = guard.resolve(&input.path)?;
+        let Some(entry) = nearest_git(&path.canonical, guard.roots()) else {
+            return Ok(Response::new(DeleteWorktreeResponse {
+                result: Some(DeleteResult::Failure(failure(
+                    GitFailureReason::NotARepository,
+                    "",
+                ))),
+            }));
+        };
+        if let Err(error) = checked_git_data(&entry, guard.roots()) {
+            return Ok(Response::new(DeleteWorktreeResponse {
+                result: Some(DeleteResult::Failure(error)),
+            }));
+        }
         let p = path.canonical.clone();
         let result = self
             .delete_cache
