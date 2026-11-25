@@ -16,6 +16,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import type { Db, TenantRunner } from '../db/tenant-db.service';
+import { Code, ConnectError } from '@connectrpc/connect';
 import { PATH_NOT_REGISTERED_MESSAGE } from '@workspace/machine-protocol';
 import { WorkspaceBindingRepository } from '../chats/workspace-binding.repository';
 import {
@@ -1319,9 +1320,19 @@ describe('Workspace host tools', () => {
   });
 
   it('reports a local entry unavailable when its daemon cannot answer', async () => {
-    // The handshake succeeds, but this peer refuses every request: the root
-    // check now runs through the local daemon, so the entry cannot bind.
-    const silent = localMachineConnector();
+    // The handshake succeeds, but fs.stat cannot reach the local daemon.
+    const silent = localMachineConnector({
+      answer: (call) => {
+        if (call.method === 'fs.stat') {
+          throw new ConnectError(
+            'The local Machine is unreachable.',
+            Code.Unavailable,
+          );
+        }
+
+        return undefined;
+      },
+    });
 
     connectors.push(silent);
     const enter = vi.spyOn(WorkspaceBindingRepository.prototype, 'enter');
