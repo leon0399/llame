@@ -40,6 +40,7 @@ export type ChatJobResult = {
   signal?: string | null;
   truncated?: Partial<Record<string, boolean>>;
   outcomeUnknown?: boolean;
+  outputUnavailable?: boolean;
   cause?: string;
 };
 
@@ -104,7 +105,6 @@ export const chatJobs = pgTable(
 ).enableRLS();
 
 export type ChatJob = InferSelectModel<typeof chatJobs>;
-
 
 /**
  * One worker process (background-jobs D9): a random id at each start and the

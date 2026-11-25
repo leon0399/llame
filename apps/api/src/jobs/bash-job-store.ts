@@ -14,7 +14,7 @@ import { type RunWaitService } from '../runs/run-wait.service';
 import { retryRunTransaction } from '../runs/run-transaction';
 
 type JobCompletion = {
-  readonly output: ManagedOutput;
+  readonly output: ManagedOutput | null;
   readonly settlement: JobSettlement;
 };
 
@@ -78,12 +78,16 @@ async function settleInTransaction(
 
   if (settled === undefined) return undefined;
 
-  const artifact = await writeJobArtifact(
-    tx,
-    job,
-    completion,
-    context.maxBytes,
-  );
+  const output = completion.output;
+  const artifact =
+    output === null
+      ? undefined
+      : await writeJobArtifact(
+          tx,
+          job,
+          { ...completion, output },
+          context.maxBytes,
+        );
 
   if (context.backgrounded !== false) {
     await recordJobSettlementNotice(tx, settled);
@@ -101,7 +105,7 @@ async function settleInTransaction(
 function writeJobArtifact(
   tx: Db,
   job: ChatJob,
-  completion: JobCompletion,
+  completion: JobCompletion & { readonly output: ManagedOutput },
   maxBytes: number,
 ): Promise<JobArtifact> {
   const request = {
