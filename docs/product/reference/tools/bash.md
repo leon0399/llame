@@ -209,8 +209,8 @@ while the Run continues; inspect the workspace before retrying. See
 [mutation recovery](../mutation-recovery.md) for the durable attempt fence and
 crash-recovery termination.
 
-The Machine daemon accepts at most 32 running jobs by default. A command that
-exceeds its capacity returns `limit_reached` before it runs. See
+The Machine daemon accepts at most 32 running jobs by default. An async request
+that exceeds its capacity returns `limit_reached` before the job runs. See
 [background jobs](../../operator/background-jobs.md) for operator configuration.
 
 A Machine command fails with `machine_not_found` for an unconfigured Machine and
