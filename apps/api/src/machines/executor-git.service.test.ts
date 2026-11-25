@@ -53,8 +53,8 @@ function hub(
   const peer = createProtocolPeer({
     roots: ['/srv'],
     ...options,
-    answer: (call) => {
-      const answered = options.answer?.(call);
+    answer: (call, requestOptions, notify) => {
+      const answered = options.answer?.(call, requestOptions, notify);
 
       if (answered !== undefined) return answered;
 
