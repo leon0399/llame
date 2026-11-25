@@ -10,6 +10,7 @@ use std::{
 use anyhow::{Context as _, bail};
 use clap::{Parser, Subcommand};
 use machine_core::{Config, config::config_file, paths};
+use rustix::fs::{FlockOperation, flock};
 
 #[derive(Parser)]
 #[command(name = "llame-machine", version = crate::identity::RELEASE_VERSION, about = "The llame Machine daemon")]
@@ -98,6 +99,21 @@ fn config_path() -> PathBuf {
     config_file(&paths::config_dir())
 }
 
+fn config_lock(file: &Path) -> anyhow::Result<fs::File> {
+    if let Some(parent) = file.parent() {
+        fs::create_dir_all(parent)?;
+    }
+
+    let lock = fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(file.with_extension("lock"))?;
+    flock(&lock, FlockOperation::LockExclusive)?;
+    Ok(lock)
+}
+
 fn canonical_directory(directory: &Path) -> anyhow::Result<String> {
     let canonical = fs::canonicalize(directory)
         .with_context(|| format!("{} does not exist", directory.display()))?;
@@ -109,6 +125,11 @@ fn canonical_directory(directory: &Path) -> anyhow::Result<String> {
 
 fn roots(action: RootsAction) -> anyhow::Result<ExitCode> {
     let file = config_path();
+    let _lock = if matches!(&action, RootsAction::List) {
+        None
+    } else {
+        Some(config_lock(&file)?)
+    };
     let mut config = Config::load(&file)?;
     match action {
         RootsAction::List => {
@@ -144,6 +165,11 @@ fn roots(action: RootsAction) -> anyhow::Result<ExitCode> {
 
 fn limits(action: LimitsAction) -> anyhow::Result<ExitCode> {
     let file = config_path();
+    let _lock = if matches!(&action, LimitsAction::Set { .. }) {
+        Some(config_lock(&file)?)
+    } else {
+        None
+    };
     let mut config = Config::load(&file)?;
     if let LimitsAction::Set {
         max_running_jobs,
@@ -163,4 +189,31 @@ fn limits(action: LimitsAction) -> anyhow::Result<ExitCode> {
         config.limits.max_running_jobs, config.limits.job_output_bytes
     ))?;
     Ok(ExitCode::SUCCESS)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::{sync::mpsc, thread, time::Duration};
+
+    use super::config_lock;
+
+    #[test]
+    fn settings_commands_share_an_exclusive_lock() {
+        let dir = tempfile::tempdir().unwrap();
+        let config = dir.path().join("config.toml");
+        let first = config_lock(&config).unwrap();
+        let (started_tx, started_rx) = mpsc::channel();
+        let (acquired_tx, acquired_rx) = mpsc::channel();
+        let worker = thread::spawn(move || {
+            started_tx.send(()).unwrap();
+            let _second = config_lock(&config).unwrap();
+            acquired_tx.send(()).unwrap();
+        });
+
+        started_rx.recv().unwrap();
+        assert!(acquired_rx.recv_timeout(Duration::from_millis(50)).is_err());
+        drop(first);
+        acquired_rx.recv_timeout(Duration::from_secs(1)).unwrap();
+        worker.join().unwrap();
+    }
 }
