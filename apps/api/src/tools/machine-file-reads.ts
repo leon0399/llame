@@ -77,6 +77,7 @@ type MachineReadRequest = {
   readonly machine: MachinePath;
   readonly submitted: string;
   readonly envelope: RequestEnvelope;
+  readonly mediaMachine?: MachinePath;
 };
 
 /** Read a literal selector-suffixed filename before applying selector syntax. */
@@ -95,6 +96,7 @@ async function readMachinePathResult(
     const result = await readMachineLiteralPath({
       ...request,
       machine: literal,
+      mediaMachine: machine,
     });
 
     if (result !== undefined) return result;
@@ -109,6 +111,7 @@ async function readMachineLiteralPath({
   machine,
   submitted,
   envelope,
+  mediaMachine,
 }: MachineReadRequest): Promise<ToolResult | undefined> {
   const raw = await connector.request(
     machine.name,
@@ -134,7 +137,12 @@ async function readMachineLiteralPath({
 
   if (settled.type === 'invalid_utf8' && context.media !== undefined)
     return (
-      (await readMachineMedia(context, machine, submitted, envelope)) ?? settled
+      (await readMachineMedia(
+        context,
+        mediaMachine ?? machine,
+        submitted,
+        envelope,
+      )) ?? settled
     );
 
   return settled;

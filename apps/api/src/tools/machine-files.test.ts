@@ -670,7 +670,7 @@ describe('Machine media', () => {
     );
 
     const session = await peer.session(0);
-    await session.awaitRequests(3);
+    await session.awaitRequests(2);
     await flushMicrotasks();
     sendChunks(session, bytes);
     session.release('fs.bytes', {
@@ -722,7 +722,7 @@ describe('Machine media', () => {
     );
 
     const session = await peer.session(0);
-    await session.awaitRequests(3);
+    await session.awaitRequests(2);
     await flushMicrotasks();
     sendChunks(session, bytes);
     session.release('fs.bytes', {
