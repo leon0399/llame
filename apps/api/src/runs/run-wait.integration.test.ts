@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { eq, sql } from 'drizzle-orm';
 import { newChatJob } from '../testing/chat-job-rows';
 import { InstanceConfigService } from '../instance-config/instance-config.service';
-import { chatJobs, runs, type ChatJob } from '../db/schema';
+import { runs, type ChatJob } from '../db/schema';
 import { ChatJobsRepository } from '../jobs/chat-jobs.repository';
 import { RunsRepository } from './runs-repository';
 import { recordJobSettlementNotice } from '../jobs/job-notices';

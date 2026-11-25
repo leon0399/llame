@@ -104,6 +104,7 @@ describe('host-only background fields', () => {
       ...context,
       workspaceRoot: createWorkspaceRootCell('machine://gpu/tmp/project'),
     };
+
     expect(bashTarget(machine, { command: 'true' })).toMatchObject({
       target: 'machine',
       input: { cwd: 'machine://gpu/tmp/project' },

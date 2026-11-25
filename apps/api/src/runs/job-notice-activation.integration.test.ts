@@ -3,7 +3,7 @@ import { newChatJob } from '../testing/chat-job-rows';
 
 import { ChatDeliveriesRepository } from '../chats/chat-deliveries.repository';
 import { ChatsRepository } from '../chats/chats-repository';
-import { chatDeliveries, type ChatJob } from '../db/schema';
+import { type ChatJob } from '../db/schema';
 import { ChatJobsRepository } from '../jobs/chat-jobs.repository';
 import { readJob } from '../jobs/job-reader';
 import { settleBashJob } from '../jobs/bash-job-store';

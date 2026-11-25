@@ -723,6 +723,7 @@ function makeExecutionService(
         });
 
   const instanceConfig = executionInstanceConfig(options, machines);
+
   const machineConnector =
     options.machineConnector ??
     new MachineConnector({
@@ -733,9 +734,11 @@ function makeExecutionService(
         transportFactory: machineFilesTransportFactory(),
       }),
     });
+
   const noticeRuns = asDouble<Pick<JobNoticeRunService, 'startOnSettlement'>>({
     startOnSettlement: vi.fn(),
   });
+
   const registryRunWait =
     options.runWait ??
     asDouble<RunWaitService>({

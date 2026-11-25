@@ -24,7 +24,6 @@ import {
   type RunEvent,
 } from '../db/schema';
 import { type Db } from '../db/tenant-db.service';
-import { ChatJobsRepository } from '../jobs/chat-jobs.repository';
 import {
   type FailureClass,
   type ProviderFailure,

@@ -17,6 +17,7 @@ import { ChatsService } from './chats.service';
 import { ChatJobsRepository } from '../jobs/chat-jobs.repository';
 import { type MachineConnector } from '../machines/machine-connector.service';
 import { localMachineConnector } from '../testing/local-machine';
+
 describe('ChatsService.searchChats', () => {
   it('maps internal ranked candidates to the public web result shape', async () => {
     const db: Db = drizzle.mock();
@@ -1019,6 +1020,7 @@ describe('ChatsService message windows, updates and forks', () => {
         RunsRepository.prototype,
         'findActiveByChatId',
       ).mockResolvedValue(undefined);
+
       const job: ChatJob = {
         id: 'job-1',
         chatId: chat.id,
@@ -1043,13 +1045,16 @@ describe('ChatsService message windows, updates and forks', () => {
         artifactReadable: true,
         settings: { selector: 'test-model', permissionMode: 'default' },
       };
+
       vi.spyOn(ChatJobsRepository.prototype, 'listByChat').mockResolvedValue([
         job,
       ]);
       const connector = localMachineConnector();
+
       const jobsClient = vi
         .spyOn(connector, 'jobsClient')
         .mockRejectedValue(new Error('Machine unreachable'));
+
       const deleteById = vi.spyOn(ChatsRepository.prototype, 'deleteById');
       const { service, db } = makeService(connector);
       vi.spyOn(db, 'execute').mockResolvedValue(

@@ -3,7 +3,6 @@ import { drizzle } from 'drizzle-orm/postgres-js';
 
 import { type Chat, type ChatJob } from '../db/schema';
 import { type TenantRunner } from '../db/tenant-db.service';
-import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
 import { ChatJobsRepository } from '../jobs/chat-jobs.repository';
 import { ChatJobsService } from './chat-jobs.service';
 import { ChatsRepository } from './chats-repository';
@@ -74,6 +73,7 @@ function makeService() {
     }),
   );
   const runAs: TenantRunner['runAs'] = (_user, fn) => fn(db);
+
   return new ChatJobsService({ runAs });
 }
 
@@ -88,7 +88,6 @@ function script() {
     count: vi.spyOn(ChatJobsRepository.prototype, 'countRunning'),
   };
 }
-
 
 describe('ChatJobsService', () => {
   afterEach(() => vi.restoreAllMocks());

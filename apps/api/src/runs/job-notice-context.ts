@@ -109,6 +109,7 @@ export async function readJobNoticeOutputs(input: {
             8000,
           )
         : undefined;
+
     outputs.push({ name, text: part?.toString('utf8') ?? '' });
   }
 

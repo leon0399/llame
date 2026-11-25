@@ -21,9 +21,7 @@ import { MockLanguageModelV3, simulateReadableStream } from 'ai/test';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import postgres, { type Sql } from 'postgres';
 import { isRecord } from '@workspace/runtime-safety';
-import { and, eq } from 'drizzle-orm';
 
-import * as schema from '../db/schema';
 import { type Message } from '../db/schema';
 import {
   fakeResolveSelection,

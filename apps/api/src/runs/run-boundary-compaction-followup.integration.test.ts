@@ -15,6 +15,7 @@ import { RunEventsRepository, RunsRepository } from './runs-repository';
 import { deliverPendingSteering } from './segment-delivery';
 
 import { newChatJob } from '../testing/chat-job-rows';
+
 if (!process.env['TEST_DATABASE_URL']) {
   throw new Error(
     'run-boundary-compaction-followup.integration.test.ts requires TEST_DATABASE_URL.',

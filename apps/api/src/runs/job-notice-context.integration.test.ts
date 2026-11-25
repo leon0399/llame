@@ -35,6 +35,7 @@ describe('job notice context dispatch', () => {
   }): Promise<ChatJob> {
     return fx.harness.tenantDb.runAs(input.ownerUserId, async (tx) => {
       const jobs = new ChatJobsRepository(tx);
+
       const job = await jobs.insert(
         newChatJob({
           chatId: input.chatId,

@@ -74,6 +74,7 @@ describe('run steering segments', () => {
   ) {
     return db(async (tx) => {
       const jobs = new ChatJobsRepository(tx);
+
       const job = await jobs.insert(
         newChatJob({
           chatId: seeded.chatId,
@@ -86,6 +87,7 @@ describe('run steering segments', () => {
           },
         }),
       );
+
       const settled = await jobs.settle(seeded.chatId, fx.userId, job.id, {
         state: 'failed',
         result: { exitCode: 2 },
@@ -97,8 +99,7 @@ describe('run steering segments', () => {
         settled,
       );
 
-      if (!notice)
-        throw new Error('The test job notice did not insert.');
+      if (!notice) throw new Error('The test job notice did not insert.');
 
       return { job: settled, notice };
     });
@@ -481,7 +482,10 @@ describe('run steering segments', () => {
                 ownerUserId: fx.userId,
                 seq: 1,
                 runId: seeded.runId,
-                settings: { selector: seeded.modelId, permissionMode: 'default' },
+                settings: {
+                  selector: seeded.modelId,
+                  permissionMode: 'default',
+                },
               }),
             );
 

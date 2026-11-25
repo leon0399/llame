@@ -1,5 +1,4 @@
 import { isRecord, isString } from '@workspace/runtime-safety';
-import { randomUUID } from 'node:crypto';
 import { writeFile } from 'node:fs/promises';
 
 import { CompactionService } from '../compaction/compaction.service';

@@ -81,14 +81,6 @@ function updateSetSql(queries: Array<LoggedQuery>): string {
   return sql.slice(sql.indexOf(' set ') + 5, sql.indexOf(' where '));
 }
 
-function whereSql(queries: Array<LoggedQuery>): string {
-  const sql = lastQuery(queries).sql;
-  const start = sql.indexOf(' where ');
-  const end = sql.indexOf(' returning ');
-
-  return sql.slice(start, end === -1 ? undefined : end);
-}
-
 describe('ChatsRepository — owner-scoped queries (defense-in-depth)', () => {
   const ownerUserId = 'owner-123';
   const chatId = 'chat-abc';
@@ -946,7 +938,6 @@ describe('RunsRepository / RunEventsRepository — owner-scoped (#48)', () => {
     expect(queryContains(queries, 'running_model')).toBe(true);
     expect(updateSetSql(queries)).toContain('"started_at" = $');
   });
-
 
   it('cancelActiveRunsForMessage scopes by messageId AND userId and skips terminal runs', async () => {
     const { db, queries } = makeMockDb();

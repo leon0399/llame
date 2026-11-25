@@ -177,6 +177,7 @@ describe('deliverPendingSteering', () => {
       SystemPromptReceiptsRepository.prototype,
       'findByOwnedRun',
     ).mockResolvedValue([]);
+
     const lockForDelivery = vi
       .spyOn(RunRowFenceRepository.prototype, 'lockForDelivery')
       .mockResolvedValue(has('locked') ? overrides.locked : run);
