@@ -167,6 +167,13 @@ fn create_parents(context: &Context, parent: &Path) -> Result<(), FileFailure> {
                 missing.push(current.clone());
                 current.pop();
             }
+            Err(error) if error.kind() == io::ErrorKind::NotADirectory => {
+                return Err(failure(
+                    FileFailureReason::WrongKind,
+                    "A parent component is not a directory.",
+                    None,
+                ));
+            }
             Err(error) => return Err(failure(FileFailureReason::Io, error.to_string(), None)),
         }
     }
@@ -380,12 +387,17 @@ pub async fn replace(
         ));
     };
     let old = request.old_text.as_bytes();
-    let positions: Vec<usize> = source
-        .windows(old.len())
-        .enumerate()
-        .filter_map(|(i, window)| (window == old).then_some(i))
-        .collect();
-    if positions.is_empty() {
+    let mut positions = Vec::with_capacity(10);
+    let mut count = 0usize;
+    for (index, window) in source.windows(old.len()).enumerate() {
+        if window == old {
+            count += 1;
+            if positions.len() < 10 {
+                positions.push(index);
+            }
+        }
+    }
+    if count == 0 {
         context.guard().verify_unchanged(&guarded)?;
         return Ok(replace_failure(
             FileFailureReason::TextNotFound,
@@ -393,7 +405,7 @@ pub async fn replace(
             None,
         ));
     }
-    if positions.len() != 1 {
+    if count > 1 {
         context.guard().verify_unchanged(&guarded)?;
         return Ok(replace_failure(
             FileFailureReason::TextAmbiguous,

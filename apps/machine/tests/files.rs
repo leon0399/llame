@@ -157,8 +157,8 @@ async fn entries_and_directory_listing_preserve_link_facts_and_order() {
     let response = client
         .list_directory(ListDirectoryRequest {
             path: root.to_string_lossy().into_owned(),
-            offset: 1,
-            limit: 3,
+            offset: 0,
+            limit: 5,
         })
         .await
         .unwrap()
@@ -173,16 +173,17 @@ async fn entries_and_directory_listing_preserve_link_facts_and_order() {
             .iter()
             .map(|e| e.name.as_str())
             .collect::<Vec<_>>(),
-        ["b.txt", "dangling-link", "inside-link"]
-    );
-    assert_eq!(
-        directory.entries[1].target_kind,
-        Some(EntryKind::Unspecified as i32)
+        ["a.txt", "b.txt", "dangling-link", "inside-link", "outside-link"]
     );
     assert_eq!(
         directory.entries[2].target_kind,
+        Some(EntryKind::Unspecified as i32)
+    );
+    assert_eq!(
+        directory.entries[3].target_kind,
         Some(EntryKind::File as i32)
     );
+    assert_eq!(directory.entries[4].link_target, None);
     let response = client
         .get_entry(GetEntryRequest {
             path: root.join("inside-link").to_string_lossy().into_owned(),

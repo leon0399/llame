@@ -66,13 +66,19 @@ impl FileService for Files {
         request: Request<ReadLinesRequest>,
     ) -> Result<Response<ReadLinesResponse>, Status> {
         let request = request.into_inner();
-        Ok(Response::new(read::read_lines(
-            &self.context,
-            &request.path,
-            request.start_line,
-            request.limit,
-            request.max_bytes,
-        )?))
+        let context = self.context.clone();
+        let response = tokio::task::spawn_blocking(move || {
+            read::read_lines(
+                &context,
+                &request.path,
+                request.start_line,
+                request.limit,
+                request.max_bytes,
+            )
+        })
+        .await
+        .map_err(|_| Status::internal("line read task panicked"))??;
+        Ok(Response::new(response))
     }
     async fn write_file(
         &self,

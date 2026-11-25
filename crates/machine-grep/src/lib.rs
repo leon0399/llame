@@ -564,9 +564,9 @@ fn compile_glob(pattern: &str) -> Result<Option<Regex>, Status> {
                 chars.next();
                 if chars.peek() == Some(&'/') {
                     chars.next();
-                    source.push_str("(?:.*/)?");
+                    source.push_str("(?s:(?:.*/))?");
                 } else {
-                    source.push_str(".*");
+                    source.push_str("(?s:.*)");
                 }
             }
             '*' => source.push_str("[^/]*"),
@@ -630,7 +630,10 @@ fn add_ignore_file(
     rules: &mut Vec<(PathBuf, ignore::gitignore::Gitignore)>,
 ) {
     let file = dir.join(name);
-    if !file.is_file() {
+    let Ok(metadata) = fs::symlink_metadata(&file) else {
+        return;
+    };
+    if !metadata.is_file() {
         return;
     }
     let mut builder = ignore::gitignore::GitignoreBuilder::new(dir);
@@ -643,7 +646,10 @@ fn add_ignore_file(
 
 fn ignored(path: &Path, is_dir: bool, rules: &[(PathBuf, ignore::gitignore::Gitignore)]) -> bool {
     let mut ignored = false;
-    for (_, matcher) in rules {
+    for (dir, matcher) in rules {
+        if !path.starts_with(dir) {
+            continue;
+        }
         let matched = matcher.matched(path, is_dir);
         if matched.is_ignore() {
             ignored = true;

@@ -242,14 +242,45 @@ async fn ignored_directory_is_not_walked() {
     req.respect_ignore_files = true;
     let mut stream = client.search_files(req).await.unwrap().into_inner();
     let mut skipped = false;
+    let mut matches = 0;
+    let mut ended = false;
     while let Some(response) = stream.message().await.unwrap() {
-        if let Some(Event::Skipped(event)) = response.event
-            && event.path == "ignored"
-        {
-            skipped = true;
+        match response.event {
+            Some(Event::Skipped(event)) if event.path == "ignored" => skipped = true,
+            Some(Event::Match(_)) => matches += 1,
+            Some(Event::End(end)) => {
+                assert_eq!(end.files, 0);
+                ended = true;
+            }
+
+            _ => {}
         }
     }
     assert!(skipped);
+    assert_eq!(matches, 0);
+    assert!(ended);
+}
+#[tokio::test]
+async fn ignore_rules_do_not_apply_to_sibling_directories() {
+    let machine = common::Machine::new();
+    let root = machine.root();
+    std::fs::create_dir_all(root.join("left")).unwrap();
+    std::fs::create_dir_all(root.join("right")).unwrap();
+    std::fs::write(root.join("left/.ignore"), "*.txt\n").unwrap();
+    std::fs::write(root.join("left/hidden.txt"), "needle\n").unwrap();
+    std::fs::write(root.join("right/shown.txt"), "needle\n").unwrap();
+    let (_child, channel) = machine.attach().await;
+    let mut client = FileServiceClient::new(channel);
+    let mut req = request(root, &["needle"]);
+    req.respect_ignore_files = true;
+    let mut stream = client.search_files(req).await.unwrap().into_inner();
+    let mut matched = Vec::new();
+    while let Some(response) = stream.message().await.unwrap() {
+        if let Some(Event::Match(found)) = response.event {
+            matched.push(found.path);
+        }
+    }
+    assert_eq!(matched, ["right/shown.txt"]);
 }
 
 #[tokio::test]

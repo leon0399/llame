@@ -51,16 +51,15 @@ fn make_entry(context: &Context, path: &Path, name: String) -> Result<Entry, std
     let metadata = fs::symlink_metadata(path)?;
     let entry_kind = kind(&metadata);
     let (link_target, target_kind) = if metadata.file_type().is_symlink() {
-        let target = fs::read_link(path)
-            .ok()
-            .map(|p| p.to_string_lossy().into_owned());
-        let target_kind = context
-            .guard()
-            .resolve(&path.to_string_lossy())
-            .ok()
-            .and_then(|guarded| fs::metadata(guarded.canonical).ok())
+        let target = context.guard().resolve(&path.to_string_lossy()).ok();
+        let target_kind = target
+            .as_ref()
+            .and_then(|guarded| fs::metadata(&guarded.canonical).ok())
             .map_or(EntryKind::Unspecified as i32, |m| kind(&m) as i32);
-        (target, Some(target_kind))
+        let link_target = target
+            .and_then(|_| fs::read_link(path).ok())
+            .map(|p| p.to_string_lossy().into_owned());
+        (link_target, Some(target_kind))
     } else {
         (None, None)
     };
