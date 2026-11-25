@@ -57,15 +57,30 @@ impl Machine {
         command
     }
 
+    /// Spawns `attach --stdio`. A binary a test just wrote can briefly be busy
+    /// ("Text file busy") while a sibling test's fork still holds the write
+    /// descriptor before its exec, so that error is retried for a short while.
+    async fn spawn_attach(&self, binary: &str) -> Child {
+        for _ in 0..100 {
+            match Command::from(self.command_with_binary(binary))
+                .args(["attach", "--stdio"])
+                .stdin(Stdio::piped())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::inherit())
+                .kill_on_drop(true)
+                .spawn()
+            {
+                Err(error) if error.kind() == std::io::ErrorKind::ExecutableFileBusy => {
+                    tokio::time::sleep(Duration::from_millis(20)).await;
+                }
+                result => return result.unwrap(),
+            }
+        }
+        panic!("{binary} stayed busy for two seconds");
+    }
+
     pub async fn attach_with_binary(&self, binary: &str) -> (Child, Channel) {
-        let mut child = Command::from(self.command_with_binary(binary))
-            .args(["attach", "--stdio"])
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::inherit())
-            .kill_on_drop(true)
-            .spawn()
-            .unwrap();
+        let mut child = self.spawn_attach(binary).await;
         let stdin = child.stdin.take().unwrap();
         let stdout = child.stdout.take().unwrap();
         let io = std::sync::Mutex::new(Some(tokio::io::join(stdout, stdin)));
