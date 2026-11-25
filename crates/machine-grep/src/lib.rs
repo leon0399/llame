@@ -345,7 +345,7 @@ fn run_search(
             }
             content.extend_from_slice(&chunk[..read]);
         }
-        if byte_stopped && !content.is_empty() && !content.contains(&b'\n') {
+        if byte_stopped && !content.is_empty() && content.last() != Some(&b'\n') {
             loop {
                 if sender.is_closed() {
                     return;
@@ -357,9 +357,23 @@ fn run_search(
                 if read == 0 {
                     break;
                 }
-                let completed_line = chunk[..read].contains(&b'\n');
-                content.extend_from_slice(&chunk[..read]);
-                if completed_line {
+                let completed_line = chunk[..read]
+                    .iter()
+                    .position(|byte| *byte == b'\n')
+                    .map(|newline| newline + 1);
+                let consumed = completed_line.unwrap_or(read);
+                content.extend_from_slice(&chunk[..consumed]);
+                if consumed < read {
+                    let Ok(unread) = i64::try_from(read - consumed) else {
+                        read_failed = true;
+                        break;
+                    };
+                    if file.seek(SeekFrom::Current(-unread)).is_err() {
+                        read_failed = true;
+                        break;
+                    }
+                }
+                if completed_line.is_some() {
                     break;
                 }
             }

@@ -9,8 +9,8 @@
 mod common;
 
 use machine_protocol::v1::{
-    SearchBounds, SearchFilesRequest, SearchStop, file_service_client::FileServiceClient,
-    search_files_response::Event,
+    SearchBounds, SearchFilesRequest, SearchPosition, SearchStop,
+    file_service_client::FileServiceClient, search_files_response::Event,
 };
 use tonic::Code;
 
@@ -430,9 +430,12 @@ async fn same_byte_bound_resumes_through_a_large_file() {
     });
 
     let mut matches = Vec::new();
-    let mut after = None;
+    let mut after: Option<SearchPosition> = None;
     let mut page_two_offset = None;
     for page in 0..3 {
+        if page == 1 {
+            page_two_offset = after.as_ref().and_then(|position| position.byte_offset);
+        }
         req.after = after;
         let mut stream = client.search_files(req.clone()).await.unwrap().into_inner();
         let mut end = None;
@@ -445,9 +448,6 @@ async fn same_byte_bound_resumes_through_a_large_file() {
         }
         let end = end.unwrap();
         after = end.position;
-        if page == 1 {
-            page_two_offset = after.as_ref().and_then(|position| position.byte_offset);
-        }
         if end.stop == SearchStop::Complete as i32 {
             break;
         }
@@ -556,5 +556,5 @@ async fn byte_bound_skips_zero_budget_and_stops_between_chunks() {
     let end = end.unwrap();
     assert_eq!(end.stop, SearchStop::Bytes as i32);
     assert_eq!(end.files, 1);
-    assert_eq!(end.bytes, 65_536);
+    assert_eq!(end.bytes, 65_537);
 }
