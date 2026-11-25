@@ -19,6 +19,7 @@ import {
   type ChatListItemResponse,
 } from '../chats/dto/chats.dto';
 import { MessagesRepository } from '../chats/messages-repository';
+import { InstanceConfigService } from '../instance-config/instance-config.service';
 import { ChatJobsRepository } from '../jobs/chat-jobs.repository';
 import { TenantDbService, type TenantRunner } from '../db/tenant-db.service';
 import {
@@ -27,6 +28,7 @@ import {
 } from '../machines/dto/machines.dto';
 import { machineStatusView } from '../machines/machines-status';
 import { MachinesStatusRepository } from '../machines/machines-status.repository';
+import { workerDeadAfterSeconds } from '../jobs/worker-liveness';
 import {
   toPinnedItemResponse,
   type PinnedItemResponse,
@@ -68,6 +70,8 @@ export class TenantLiveRecordLoader implements LiveRecordLoader {
     @Inject(TenantDbService)
     private readonly tenantDb: TenantRunner,
     private readonly machines: MachinesStatusRepository,
+    @Inject(InstanceConfigService)
+    private readonly config: InstanceConfigService,
   ) {}
 
   chat(owner: string, chatId: string) {
@@ -75,7 +79,10 @@ export class TenantLiveRecordLoader implements LiveRecordLoader {
       const [chat, [lastMessage], running] = await Promise.all([
         new ChatsRepository(tx).findById(chatId, owner),
         new MessagesRepository(tx).findLatestPerOwnedChat(owner, chatId),
-        new ChatJobsRepository(tx).countRunning(owner),
+        new ChatJobsRepository(tx).countRunning(
+          owner,
+          workerDeadAfterSeconds(this.config.config),
+        ),
       ]);
 
       return chat
@@ -86,7 +93,10 @@ export class TenantLiveRecordLoader implements LiveRecordLoader {
 
   runningJobs(owner: string) {
     return this.tenantDb.runAs(owner, (tx) =>
-      new ChatJobsRepository(tx).countRunning(owner),
+      new ChatJobsRepository(tx).countRunning(
+        owner,
+        workerDeadAfterSeconds(this.config.config),
+      ),
     );
   }
 

@@ -5,19 +5,14 @@ import { type NewChatJob } from '../jobs/chat-jobs.repository';
  * Chat, and sequence; Machine identity defaults to unique test values.
  */
 export function newChatJob(
-  fields: Pick<
-    NewChatJob,
-    'chatId' | 'ownerUserId' | 'seq'
-  > &
+  fields: Pick<NewChatJob, 'chatId' | 'ownerUserId' | 'seq'> &
     Partial<NewChatJob>,
 ): NewChatJob {
   return {
-    kind: 'bash',
+    executor: 'bash',
     runId: crypto.randomUUID(),
     toolCallId: `call-${fields.seq}`,
-    machineName: `test-machine-${crypto.randomUUID()}`,
-    daemonInstanceId: crypto.randomUUID(),
-    daemonJobId: crypto.randomUUID(),
+    workerInstanceId: crypto.randomUUID(),
     outputs: ['stdout', 'stderr'],
     artifactReadable: true,
     settings: { selector: 'gpt-5.5', permissionMode: 'default' },
