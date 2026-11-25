@@ -121,87 +121,103 @@ export function createLocalChildTransportFactory(
     ((command, args, { env }) =>
       execFileSync(command, [...args], { env, encoding: 'utf8' }));
 
-  const connect = options.connect ?? connectNetSocket;
+  const connect: LocalMachineSocketConnector =
+    options.connect ?? connectNetSocket;
 
   return {
-    open: (request) => {
-      const words = localMachineCommand(options.command);
-      const program = words[0];
-
-      if (program === undefined)
-        throw new MachineUnavailableError(
-          request.name,
-          'unreachable',
-          false,
-          'LLAME_MACHINE_COMMAND names no program to run.',
-        );
-
-      let socketOutput: string;
-
-      try {
-        socketOutput = runCommand(
-          program,
-          [...words.slice(1), 'attach', '--print-socket'],
-          { env: localChildEnvironment(workerEnvironment) },
-        );
-      } catch (error) {
-        if (
-          typeof error === 'object' &&
-          error !== null &&
-          'status' in error &&
-          error.status === 78
-        )
-          throw new MachineIdentityMismatchError(request.name);
-
-        throw new MachineUnavailableError(
-          request.name,
-          'unreachable',
-          false,
-          error instanceof Error ? error.message : String(error),
-        );
-      }
-
-      const socketPath = machineSocketPath(socketOutput);
-
-      if (socketPath === undefined)
-        throw new MachineUnavailableError(
-          request.name,
-          'unreachable',
-          false,
-          'The Machine daemon did not return a valid socket path.',
-        );
-
-      const socket = connect(socketPath);
-      let closedByHub = false;
-
-      const { promise: ended, resolve } =
-        Promise.withResolvers<MachineLinkEnd>();
-
-      socket.once('close', () =>
-        resolve({
-          code: null,
-          signal: null,
-          diagnostic: '',
-          closedByHub,
-        }),
-      );
-      socket.once('error', (error) =>
-        resolve({
-          code: null,
-          signal: null,
-          diagnostic: error.message,
-          closedByHub,
-        }),
+    open: (request): MachineTransport => {
+      const socketPath = discoverLocalSocket(
+        request.name,
+        localMachineCommand(options.command),
+        workerEnvironment,
+        runCommand,
       );
 
-      return {
-        rpcTransport: connectSocket(socket),
-        close: () => {
-          closedByHub = true;
-          socket.destroy();
-        },
-        ended,
-      };
+      return createLocalSocketTransport(connect(socketPath));
     },
+  };
+}
+
+function discoverLocalSocket(
+  name: string,
+  command: ReadonlyArray<string>,
+  workerEnvironment: NodeJS.ProcessEnv,
+  runCommand: LocalMachineCommandRunner,
+): string {
+  const program = command[0];
+
+  if (program === undefined)
+    throw new MachineUnavailableError(
+      name,
+      'unreachable',
+      false,
+      'LLAME_MACHINE_COMMAND names no program to run.',
+    );
+
+  let output: string;
+
+  try {
+    output = runCommand(
+      program,
+      [...command.slice(1), 'attach', '--print-socket'],
+      { env: localChildEnvironment(workerEnvironment) },
+    );
+  } catch (error) {
+    if (error instanceof Error && 'status' in error && error.status === 78)
+      throw new MachineIdentityMismatchError(name);
+
+    throw new MachineUnavailableError(
+      name,
+      'unreachable',
+      false,
+      error instanceof Error ? error.message : String(error),
+    );
+  }
+
+  return requireLocalSocketPath(name, output);
+}
+
+function requireLocalSocketPath(name: string, output: string): string {
+  const socketPath = machineSocketPath(output);
+
+  if (socketPath === undefined)
+    throw new MachineUnavailableError(
+      name,
+      'unreachable',
+      false,
+      'The Machine daemon did not return a valid socket path.',
+    );
+
+  return socketPath;
+}
+
+function createLocalSocketTransport(socket: Socket): MachineTransport {
+  let closedByHub = false;
+  const { promise: ended, resolve } = Promise.withResolvers<MachineLinkEnd>();
+
+  socket.once('close', () =>
+    resolve({
+      code: null,
+      signal: null,
+      diagnostic: '',
+      closedByHub,
+    }),
+  );
+  socket.once('error', (error) =>
+    resolve({
+      code: null,
+      signal: null,
+      diagnostic: error.message,
+      closedByHub,
+    }),
+  );
+
+  return {
+    rpcTransport: connectSocket(socket),
+    close: () => {
+      closedByHub = true;
+      socket.destroy();
+    },
+    ended,
   };
 }

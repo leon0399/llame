@@ -152,7 +152,7 @@ describe('createMachineSshTransportFactory', () => {
       runCommand: (command, args) => {
         commandCalls.push({ command, args });
 
-        return '/run/llame-machine.sock\n';
+        return '/run/llame-machine/daemon.sock\n';
       },
       connect: (path) => {
         const socket = new Socket();
@@ -207,7 +207,7 @@ describe('createMachineSshTransportFactory', () => {
           'StreamLocalBindUnlink=yes',
           '-L',
           expect.stringMatching(
-            /^\/tmp\/llame-machine-ssh-[^/]+\/machine\.sock:\/run\/llame-machine\.sock$/u,
+            /^\/tmp\/llame-machine-ssh-[^/]+\/machine\.sock:\/run\/llame-machine\/daemon\.sock$/u,
           ),
           '--',
           'box',

@@ -18,7 +18,6 @@ import { join } from 'node:path';
 import { connectSocket } from '@workspace/machine-protocol';
 import type { Readable, Writable } from 'node:stream';
 import type { Transport } from '@connectrpc/connect';
-import type { JsonValue } from '@workspace/machine-protocol';
 import type { ResolvedSshFiles } from '../instance-config/machines-config';
 import {
   createSshConfigFile,
@@ -33,7 +32,6 @@ import {
 } from '../ssh/ssh-process';
 import type {
   MachineRequestHandler,
-  MachineRequestOptions,
   MachineStreamHandler,
 } from './machine-session';
 import {
@@ -78,6 +76,7 @@ export type MachineTransportFactory = {
   readonly streamHandler?: MachineStreamHandler;
   open(request: MachineTransportRequest): MachineTransport;
 };
+
 export type MachineTransportRequest = {
   readonly name: string;
   readonly destination?: string;
@@ -169,10 +168,27 @@ function openSshSession(
 
   const configPath = deps.path(ssh);
   const destination = sshDestination(request.destination);
-  let remoteSocketOutput: string;
+
+  const remoteSocket = discoverSshSocket(
+    deps.runCommand,
+    configPath,
+    destination,
+    request.name,
+  );
+
+  return createSshSocketTunnel(deps, configPath, destination, remoteSocket);
+}
+
+function discoverSshSocket(
+  runCommand: SshMachineCommandRunner,
+  configPath: string,
+  destination: string,
+  name: string,
+): string {
+  let output: string;
 
   try {
-    remoteSocketOutput = deps.runCommand('ssh', [
+    output = runCommand('ssh', [
       '-F',
       configPath,
       '-T',
@@ -183,53 +199,61 @@ function openSshSession(
       '--print-socket',
     ]);
   } catch (error) {
-    if (
-      typeof error === 'object' &&
-      error !== null &&
-      'status' in error &&
-      error.status === 78
-    )
-      throw new MachineIdentityMismatchError(request.name);
+    if (error instanceof Error && 'status' in error && error.status === 78)
+      throw new MachineIdentityMismatchError(name);
 
     throw new MachineUnavailableError(
-      request.name,
+      name,
       'unreachable',
       false,
       error instanceof Error ? error.message : String(error),
     );
   }
 
-  const remoteSocket = machineSocketPath(remoteSocketOutput);
+  const remoteSocket = machineSocketPath(output);
 
   if (remoteSocket === undefined)
     throw new MachineUnavailableError(
-      request.name,
+      name,
       'unreachable',
       false,
       'The Machine daemon did not return a valid socket path.',
     );
 
+  return remoteSocket;
+}
+
+function createSshSocketTunnel(
+  deps: {
+    readonly spawnLink: SshSpawn;
+    readonly connect: SshMachineSocketConnector;
+  },
+  configPath: string,
+  destination: string,
+  remoteSocket: string,
+): MachineTransport {
   const socketDirectory = mkdtempSync(join(tmpdir(), 'llame-machine-ssh-'));
   chmodSync(socketDirectory, 0o700);
   const localSocket = join(socketDirectory, 'machine.sock');
 
-  const link = createProcessTransport(
-    deps.spawnLink('ssh', [
-      '-F',
-      configPath,
-      '-N',
-      '-o',
-      'StreamLocalBindUnlink=yes',
-      '-L',
-      `${localSocket}:${remoteSocket}`,
-      '--',
-      destination,
-    ]),
-  );
+  const link = spawnSshTunnel(deps.spawnLink, {
+    configPath,
+    destination,
+    localSocket,
+    remoteSocket,
+  });
 
-  const socket = deps.connect(localSocket);
+  return bindSshTunnel(deps.connect(localSocket), link, socketDirectory);
+}
+
+function bindSshTunnel(
+  socket: Socket,
+  link: MachineTransport,
+  socketDirectory: string,
+): MachineTransport {
   let closedByHub = false;
   const { promise: ended, resolve } = Promise.withResolvers<MachineLinkEnd>();
+
   void link.ended.then((end) => {
     rmSync(socketDirectory, { recursive: true, force: true });
     resolve({ ...end, closedByHub });
@@ -250,6 +274,30 @@ function openSshSession(
     },
     ended,
   };
+}
+
+function spawnSshTunnel(
+  spawnLink: SshSpawn,
+  options: {
+    readonly configPath: string;
+    readonly destination: string;
+    readonly localSocket: string;
+    readonly remoteSocket: string;
+  },
+): MachineTransport {
+  return createProcessTransport(
+    spawnLink('ssh', [
+      '-F',
+      options.configPath,
+      '-N',
+      '-o',
+      'StreamLocalBindUnlink=yes',
+      '-L',
+      `${options.localSocket}:${options.remoteSocket}`,
+      '--',
+      options.destination,
+    ]),
+  );
 }
 
 export type MachineSshTransportFactory = MachineTransportFactory & {
