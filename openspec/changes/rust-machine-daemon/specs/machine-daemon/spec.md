@@ -45,7 +45,7 @@ build id, the main-service protocol version, the kernel boot id, the daemon
 start time, static facts, and capabilities as open name and version strings.
 The static facts MUST be the OS, the architecture, the kernel release, the CPU
 count, and the memory size. The installation MUST record the facts at each
-successful handshake. `llame-machine identity` MUST print the instance id, the
+successful handshake. `llame-machine info` MUST print the instance id, the
 release version, the build id, and the protocol version, and
 `llame-machine --version` MUST print the release version. During alpha the
 capabilities are informational: the exact protocol-version match decides what

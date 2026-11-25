@@ -46,7 +46,7 @@ one static binary per Linux architecture. The decisions are recorded on the
 - `remote-machines`: the handshake uses the bootstrap service; the JSON-RPC
   session and the git method list are removed, and the git operations map to
   `GitService`.
-- `workspace-entry`, `chat-creation`, `workspace-git-state`: an outdated
+- `workspace-entry`, `chat-creation`, `workspace-git-state`, `repositories`: an outdated
   daemon is one with another protocol version or an UNIMPLEMENTED git method.
 - `background-jobs`: jobs bind to a Machine daemon instead of a worker, output
   lives on the Machine, and an unreachable Machine shows its jobs as unknown.

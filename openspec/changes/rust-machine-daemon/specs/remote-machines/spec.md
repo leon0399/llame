@@ -29,7 +29,7 @@ reported Unix socket directly for the host or through an SSH socket forward.
 ### Requirement: The handshake reports the static facts of a Machine
 
 **Reason**: Static facts come from the bootstrap service.
-**Migration**: See `machine-daemon` "The bootstrap service never breaks", which lists the facts and the identity output. Per-root disk space is no longer reported.
+**Migration**: See `machine-daemon` "The bootstrap service never breaks", which lists the facts and the identity output. The handshake no longer carries per-root disk space; `MachineService.ListRoots` reports it.
 
 ### Requirement: Bash runs on a Machine through its working directory
 
@@ -203,10 +203,14 @@ This decision bounds the environment only. The daemon still runs as the OS user 
 ### Requirement: Machine daemons answer typed git methods
 
 The installation's git operations MUST map to `stead.machine.v1.GitService`:
-`git.inspect` and `git.locate` to `GetRepository`, `git.state` to `GetStatus`,
-`git.worktreeAdd` to `CreateWorktree`, `git.worktreeList` to `ListWorktrees`,
-and `git.worktreeRemove` to `DeleteWorktree`. Other capabilities name the
-operations. Each method MUST take one typed request. Git MUST get an argument
+`git.inspect` to `GetRepository`, `git.locate` to `LocateRepository`,
+`git.state` to `GetStatus`, `git.worktreeAdd` to `CreateWorktree`,
+`git.worktreeList` to `ListWorktrees`, and `git.worktreeRemove` to
+`DeleteWorktree`. Other capabilities name the operations, and their results
+keep the names those capabilities define. `LocateRepository` MUST start no git
+process. `GetStatus` MUST take the git entry that the installation admitted and
+MUST fail without starting git when that entry is no longer the nearest `.git`
+entry of the path. Each method MUST take one typed request. Git MUST get an argument
 array. A caller value that starts with `-` MUST fail before git starts with the
 typed `invalid_input` failure in the response, as the `GitService` response
 defines it. Other
@@ -253,5 +257,4 @@ failure with the git standard error.
 #### Scenario: State refuses a changed git entry
 
 - **WHEN** the nearest `.git` entry of a path changed after an earlier `git.locate` and the hub calls `git.state` on that path
-- **THEN** `GetStatus` takes no entry and resolves the repository from the path when the call runs
-- **AND** it never reads git state through the entry that the earlier call reported
+- **THEN** `GetStatus` returns a typed failure and starts no git process

@@ -71,6 +71,10 @@ master <- rust-machine-daemon/proposal <- rust-machine-daemon/skeleton
 - [ ] 5.2 Check the git directory, common directory, and object alternates
       against the roots before any git process starts; verify a test whose
       common directory lies outside every root and that observes no git start.
+- [ ] 5.3 Add `GitService.LocateRepository`, which starts no git process and
+      reports a path that is not a directory, and make `GetStatus` take the
+      admitted git entry and refuse a changed one; refuse every option-like
+      caller value, including `base`; verify each with a Cargo test.
 
 ## 6. MCP (`rust-machine-daemon/mcp`)
 
@@ -97,8 +101,8 @@ master <- rust-machine-daemon/proposal <- rust-machine-daemon/skeleton
 - [ ] 8.1 Run host `bash` and every job through the daemon, bind jobs to the
       Machine, reconcile from `JobService.WatchJobs` and `ListJobs`, and drop
       `chat_job_chunks`, `worker_instance_id`, and `tools.bash.maxProcesses`.
-- [ ] 8.2 Update the job operator docs, SPEC.md §23.1, and the CHANGELOG with
-      the breaking changes.
+- [ ] 8.2 Update the job operator docs, SPEC.md §23.1, and the CHANGELOG
+      entries for the job breaking changes.
 
 ## 9. Engine cleanup (`rust-machine-daemon/engine-cleanup`)
 
