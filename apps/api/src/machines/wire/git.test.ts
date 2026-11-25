@@ -39,9 +39,10 @@ describe('Git wire handlers', () => {
         },
       },
     });
+
     const session = sessionWith({ getRepository });
 
-    const result = await gitHandlers['git.inspect']!(
+    const result = await gitHandlers['git.inspect'](
       session,
       { envelope, path: 'machine://host-a/srv/repo', options },
       {},
@@ -60,12 +61,14 @@ describe('Git wire handlers', () => {
     const locateRepository = vi.fn().mockResolvedValue({
       result: { case: 'gitEntry', value: '/srv/repo/.git' },
     });
+
     const getEntry = vi.fn().mockResolvedValue({
       result: { case: 'entry', value: { kind: EntryKind.DIRECTORY } },
     });
+
     const session = sessionWith({ locateRepository }, ['/srv'], { getEntry });
 
-    const result = await gitHandlers['git.locate']!(
+    const result = await gitHandlers['git.locate'](
       session,
       { envelope, path: '/srv/repo/src', options },
       {},
@@ -87,6 +90,7 @@ describe('Git wire handlers', () => {
     const locateRepository = vi.fn().mockResolvedValue({
       result: { case: 'gitEntry', value: '/srv/repo/.git' },
     });
+
     const getStatus = vi.fn().mockResolvedValue({
       result: {
         case: 'status',
@@ -114,9 +118,10 @@ describe('Git wire handlers', () => {
         },
       },
     });
+
     const session = sessionWith({ locateRepository, getStatus });
 
-    const result = await gitHandlers['git.state']!(
+    const result = await gitHandlers['git.state'](
       session,
       {
         envelope,
@@ -160,9 +165,10 @@ describe('Git wire handlers', () => {
         },
       },
     });
+
     const session = sessionWith({ getRepository }, ['/srv', '/']);
 
-    const result = await gitHandlers['git.inspect']!(
+    const result = await gitHandlers['git.inspect'](
       session,
       { envelope, path: '/srv/repo', options },
       {},
@@ -187,7 +193,8 @@ describe('Git wire handlers', () => {
         },
       },
     });
-    const result = await gitHandlers['git.worktreeAdd']!(
+
+    const result = await gitHandlers['git.worktreeAdd'](
       sessionWith({ createWorktree }),
       {
         envelope,

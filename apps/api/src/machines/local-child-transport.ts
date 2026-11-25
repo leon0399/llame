@@ -115,10 +115,12 @@ export function createLocalChildTransportFactory(
   options: LocalChildTransportFactoryOptions = {},
 ): MachineTransportFactory {
   const workerEnvironment = options.env ?? processEnvironment();
+
   const runCommand =
     options.runCommand ??
     ((command, args, { env }) =>
       execFileSync(command, [...args], { env, encoding: 'utf8' }));
+
   const connect = options.connect ?? connectNetSocket;
 
   return {
@@ -142,12 +144,12 @@ export function createLocalChildTransportFactory(
           [...words.slice(1), 'attach', '--print-socket'],
           { env: localChildEnvironment(workerEnvironment) },
         );
-      } catch (cause) {
+      } catch (error) {
         if (
-          typeof cause === 'object' &&
-          cause !== null &&
-          'status' in cause &&
-          cause.status === 78
+          typeof error === 'object' &&
+          error !== null &&
+          'status' in error &&
+          error.status === 78
         )
           throw new MachineIdentityMismatchError(request.name);
 
@@ -155,9 +157,10 @@ export function createLocalChildTransportFactory(
           request.name,
           'unreachable',
           false,
-          cause instanceof Error ? cause.message : String(cause),
+          error instanceof Error ? error.message : String(error),
         );
       }
+
       const socketPath = machineSocketPath(socketOutput);
 
       if (socketPath === undefined)
@@ -170,8 +173,10 @@ export function createLocalChildTransportFactory(
 
       const socket = connect(socketPath);
       let closedByHub = false;
+
       const { promise: ended, resolve } =
         Promise.withResolvers<MachineLinkEnd>();
+
       socket.once('close', () =>
         resolve({
           code: null,

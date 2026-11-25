@@ -5,10 +5,9 @@
  * link ended (exit status, bounded stderr) so the session can classify them
  * into the one closed set of failure reasons the status column accepts.
  *
- * Production link: `ssh -F <generated> -T -- <destination> llame-machine serve
- * --stdio`. `-F` carries the generated safety block (ssh-config.ts) and the
- * `Include` of the operator's own configuration, and it propagates to jump
- * hosts (the implicit jump command carries it), unlike command-line `-o`/`-i`.
+ * Production link: `ssh -F <generated> -T -- <destination> llame-machine
+ * attach --print-socket`. `-F` carries the generated safety block
+ * (ssh-config.ts) and the `Include` of the operator's own configuration.
  */
 
 import { execFileSync } from 'node:child_process';
@@ -20,7 +19,6 @@ import { connectSocket } from '@workspace/machine-protocol';
 import type { Readable, Writable } from 'node:stream';
 import type { Transport } from '@connectrpc/connect';
 import type { JsonValue } from '@workspace/machine-protocol';
-
 import type { ResolvedSshFiles } from '../instance-config/machines-config';
 import {
   createSshConfigFile,
@@ -33,7 +31,11 @@ import {
   type SshProcess,
   type SshSpawn,
 } from '../ssh/ssh-process';
-import type { MachineRequestOptions } from './machine-session';
+import type {
+  MachineRequestHandler,
+  MachineRequestOptions,
+  MachineStreamHandler,
+} from './machine-session';
 import {
   MachineIdentityMismatchError,
   MachineUnavailableError,
@@ -47,6 +49,7 @@ export type MachineLinkEnd = {
   /** True when llame ended the link itself (idle close or shutdown). */
   readonly closedByHub: boolean;
 };
+
 /** Extracts the daemon's absolute socket path from command output. */
 export function machineSocketPath(output: string): string | undefined {
   const matches = output
@@ -70,29 +73,14 @@ export type MachineTransport =
       readonly ended: Promise<MachineLinkEnd>;
     };
 
+export type MachineTransportFactory = {
+  readonly requestHandler?: MachineRequestHandler;
+  readonly streamHandler?: MachineStreamHandler;
+  open(request: MachineTransportRequest): MachineTransport;
+};
 export type MachineTransportRequest = {
   readonly name: string;
   readonly destination?: string;
-};
-
-/** Session-level test hooks use method/result shapes, not a simulated wire. */
-export type MachineTransportFactory = {
-  readonly requestHandler?: (
-    method: string,
-    params: Record<string, unknown>,
-    options: MachineRequestOptions,
-  ) => Promise<JsonValue>;
-  readonly streamHandler?: (
-    method: string,
-    params: Record<string, unknown>,
-    notify: (notification: {
-      readonly method: string;
-      readonly params?: JsonValue;
-    }) => void,
-    send: (frame: unknown) => void,
-    options: MachineRequestOptions,
-  ) => Promise<JsonValue>;
-  open(request: MachineTransportRequest): MachineTransport;
 };
 
 /** Wrap a spawned link process as a transport. */
@@ -145,6 +133,7 @@ export type MachineSshTransportFactoryOptions = {
   /** Test seam for opening the forwarded Unix socket. */
   readonly connect?: SshMachineSocketConnector;
 };
+
 /**
  * Opens a socket-tunnelled SSH session, after the destination and settings
  * guards: the connector picks this factory only for an entry with a
@@ -193,12 +182,12 @@ function openSshSession(
       'attach',
       '--print-socket',
     ]);
-  } catch (cause) {
+  } catch (error) {
     if (
-      typeof cause === 'object' &&
-      cause !== null &&
-      'status' in cause &&
-      cause.status === 78
+      typeof error === 'object' &&
+      error !== null &&
+      'status' in error &&
+      error.status === 78
     )
       throw new MachineIdentityMismatchError(request.name);
 
@@ -206,9 +195,10 @@ function openSshSession(
       request.name,
       'unreachable',
       false,
-      cause instanceof Error ? cause.message : String(cause),
+      error instanceof Error ? error.message : String(error),
     );
   }
+
   const remoteSocket = machineSocketPath(remoteSocketOutput);
 
   if (remoteSocket === undefined)
@@ -222,6 +212,7 @@ function openSshSession(
   const socketDirectory = mkdtempSync(join(tmpdir(), 'llame-machine-ssh-'));
   chmodSync(socketDirectory, 0o700);
   const localSocket = join(socketDirectory, 'machine.sock');
+
   const link = createProcessTransport(
     deps.spawnLink('ssh', [
       '-F',
@@ -235,6 +226,7 @@ function openSshSession(
       destination,
     ]),
   );
+
   const socket = deps.connect(localSocket);
   let closedByHub = false;
   const { promise: ended, resolve } = Promise.withResolvers<MachineLinkEnd>();
@@ -285,9 +277,11 @@ export function createMachineSshTransportFactory(
   options: MachineSshTransportFactoryOptions,
 ): MachineSshTransportFactory {
   const spawnLink = options.spawn ?? spawnSshProcess;
+
   const runCommand =
     options.runCommand ??
     ((command, args) => execFileSync(command, [...args], { encoding: 'utf8' }));
+
   const connect = options.connect ?? connectNetSocket;
   let configFile = options.configFile;
 

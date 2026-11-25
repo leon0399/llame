@@ -24,19 +24,20 @@ import {
   type MachineMethod,
   type MachineMethodParams,
 } from '@workspace/machine-protocol';
-
 import type {
   MachineHostConfig,
   MachinesConfig,
 } from '../instance-config/machines-config';
-
-import type { BindOutcome } from './machine-bindings.repository';
 import { createLocalChildTransportFactory } from './local-child-transport';
+import type { BindOutcome } from './machine-bindings.repository';
+
 import {
   MachineSession,
   type MachineChannelHandle,
+  type MachineRequestHandler,
   type MachineRequestOptions,
   type MachineSessionEnd,
+  type MachineStreamHandler,
 } from './machine-session';
 import {
   MachineIdentityMismatchError,
@@ -90,23 +91,9 @@ export type MachineConnectorDeps = {
   readonly now?: () => number;
   readonly idleCloseMs?: number;
   readonly handshakeTimeoutMs?: number;
-  /** In-process method handler used by focused connector tests. */
-  readonly requestHandler?: (
-    method: string,
-    params: Record<string, unknown>,
-    options: MachineRequestOptions,
-  ) => Promise<JsonValue>;
+  readonly requestHandler?: MachineRequestHandler;
   /** In-process bidirectional method handler for streaming contract tests. */
-  readonly streamHandler?: (
-    method: string,
-    params: Record<string, unknown>,
-    notify: (notification: {
-      readonly method: string;
-      readonly params?: JsonValue;
-    }) => void,
-    send: (frame: unknown) => void,
-    options: MachineRequestOptions,
-  ) => Promise<JsonValue>;
+  readonly streamHandler?: MachineStreamHandler;
 };
 
 type SessionEntry = {
@@ -295,8 +282,10 @@ export class MachineConnector {
   }> {
     const session = await this.session(name);
     const hello = session.hello;
+
     if (hello === undefined)
       throw new Error('Machine handshake is incomplete.');
+
     return {
       client: session.jobsClient,
       callOptions: session.callOptions.bind(session),
@@ -388,8 +377,10 @@ export class MachineConnector {
   async machineSession(name: string): Promise<MachineSession> {
     const session = await this.session(name);
     const entry = this.sessions.get(name);
+
     if (entry !== undefined) clearTimeout(entry.idleTimer);
     session.retain();
+
     return session;
   }
 

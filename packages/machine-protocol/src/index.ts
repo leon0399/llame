@@ -47,10 +47,17 @@ export {
 export * from "./generated/stead/machine/v1/file_pb";
 export * from "./generated/stead/machine/v1/job_pb";
 export {
+  CreateWorktreeRequestSchema,
   GitService,
   GitFailureReason,
   OperationKind,
   SubmoduleMode,
+} from "./generated/stead/machine/v1/git_pb";
+export type {
+  Change,
+  CreateWorktreeRequest,
+  Operation,
+  Status,
 } from "./generated/stead/machine/v1/git_pb";
 export * from "./generated/stead/machine/v1/mcp_pb";
 export type * from "./types";

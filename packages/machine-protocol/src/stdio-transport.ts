@@ -1,5 +1,7 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { Duplex, type Readable, type Writable } from "node:stream";
+import type { Transport } from "@connectrpc/connect";
+import { createGrpcTransport } from "@connectrpc/connect-node";
 
 /** One HTTP/2 connection carried on a child's stdio. */
 export type StdioConnection = {

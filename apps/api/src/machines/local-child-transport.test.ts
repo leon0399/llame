@@ -15,6 +15,7 @@ function fixture(commandOutput = '/tmp/llame-machine/daemon.sock\n') {
     readonly args: ReadonlyArray<string>;
     readonly env: NodeJS.ProcessEnv;
   }> = [];
+
   const connected: Array<{ readonly path: string; readonly socket: Socket }> =
     [];
 
@@ -126,7 +127,7 @@ describe('createLocalChildTransportFactory', () => {
   });
 
   it('closes the socket when the hub ends the link', async () => {
-    const { created, connected } = fixture();
+    const { created } = fixture();
     const transport = created.open({ name: 'host-a' });
     transport.close();
 

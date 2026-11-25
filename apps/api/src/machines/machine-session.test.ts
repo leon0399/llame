@@ -32,7 +32,8 @@ const hello: HelloResult = {
     rootDisks: [],
   },
 };
-const sessions: MachineSession[] = [];
+
+const sessions: Array<MachineSession> = [];
 
 afterEach(() => {
   for (const session of sessions.splice(0)) session.close();
@@ -40,6 +41,7 @@ afterEach(() => {
 
 function transport(): MachineTransport {
   const ended = Promise.withResolvers<MachineLinkEnd>();
+
   return {
     input: new PassThrough(),
     output: new PassThrough(),
@@ -62,22 +64,24 @@ function makeSession(
     name: 'devl',
     transport: transport(),
     hubVersion: '9.9.9',
-    requestHandler: async (method) =>
-      method === 'hello' ? (hello as unknown as JsonValue) : {},
+    requestHandler: async (method) => (method === 'hello' ? hello : {}),
     ...options,
   });
+
   sessions.push(session);
+
   return session;
 }
 
 function routerSession(
-  calls: string[],
+  calls: Array<string>,
   admitIdentity: (instanceId: string) => Promise<void>,
 ): MachineSession {
   const rpcTransport = createRouterTransport((router) => {
     router.service(BootstrapService, {
       getInfo: () => {
         calls.push('GetInfo');
+
         return create(GetInfoResponseSchema, {
           instanceId: hello.instanceId,
           release: hello.daemonVersion,
@@ -89,17 +93,21 @@ function routerSession(
     router.service(MachineService, {
       listRoots: () => {
         calls.push('ListRoots');
+
         return create(ListRootsResponseSchema, {
           roots: [{ path: '/srv/workspace' }],
         });
       },
       getLimits: () => {
         calls.push('GetLimits');
+
         return create(GetLimitsResponseSchema, {});
       },
     });
   });
+
   const ended = Promise.withResolvers<MachineLinkEnd>();
+
   const session = new MachineSession({
     name: 'devl',
     transport: {
@@ -119,7 +127,9 @@ function routerSession(
       await admitIdentity(instanceId);
     },
   });
+
   sessions.push(session);
+
   return session;
 }
 
@@ -128,6 +138,7 @@ describe('MachineSession Connect-ES adapter', () => {
     const requestHandler = vi.fn(async (method: string) =>
       method === 'hello' ? (hello as unknown as JsonValue) : {},
     );
+
     const session = makeSession({ requestHandler });
 
     await expect(session.ready()).resolves.toEqual(hello);
@@ -142,6 +153,7 @@ describe('MachineSession Connect-ES adapter', () => {
   it('dispatches unary calls with their method, params, and request budget', async () => {
     const requestHandler = vi.fn(async () => ({ kind: 'file', size: 12 }));
     const session = makeSession({ requestHandler });
+
     const params = {
       envelope: { budgetMs: 750 },
       path: '/srv/workspace/readme.txt',
@@ -154,41 +166,42 @@ describe('MachineSession Connect-ES adapter', () => {
   });
 
   it('bridges Connect server-stream notifications through an open channel', async () => {
-    const streamHandler = vi.fn(
-      async (
-        _method: string,
-        _params: Record<string, unknown>,
-        notify: (notification: {
-          readonly method: string;
-          readonly params?: JsonValue;
-        }) => void,
-        _send: (frame: unknown) => void,
-        _options: object,
-      ) => {
-        await Promise.resolve();
-        notify({ method: 'mcp.message', params: { message: 'ready' } });
-        return { protectedValues: [] };
-      },
-    );
+    const streamHandler = vi.fn(async (invocation) => {
+      await Promise.resolve();
+      invocation.notify({
+        method: 'mcp.message',
+        params: { message: 'ready' },
+      });
+
+      return { protectedValues: [] };
+    });
+
     const session = makeSession({ streamHandler });
     const notification = vi.fn();
+
     const handle = session.openChannel({
       method: 'mcp.open',
       params: {
-        envelope: { budgetMs: 5_000 },
+        envelope: { budgetMs: 5000 },
         root: '/srv/workspace',
         server: 'repo',
       },
     });
+
     handle.channel.onNotification(notification);
 
     await expect(handle.result).resolves.toEqual({ protectedValues: [] });
     expect(streamHandler).toHaveBeenCalledWith(
-      'mcp.open',
-      expect.objectContaining({ root: '/srv/workspace', server: 'repo' }),
-      expect.any(Function),
-      expect.any(Function),
-      {},
+      expect.objectContaining({
+        method: 'mcp.open',
+        params: expect.objectContaining({
+          root: '/srv/workspace',
+          server: 'repo',
+        }),
+        notify: expect.any(Function),
+        send: expect.any(Function),
+        options: {},
+      }),
     );
     expect(notification).toHaveBeenCalledWith({
       method: 'mcp.message',
@@ -197,7 +210,7 @@ describe('MachineSession Connect-ES adapter', () => {
     handle.channel.close();
   });
   it('admits identity after GetInfo and before roots and limits on a Connect router', async () => {
-    const calls: string[] = [];
+    const calls: Array<string> = [];
     const session = routerSession(calls, async () => {});
 
     await session.ready();
@@ -211,7 +224,8 @@ describe('MachineSession Connect-ES adapter', () => {
   });
 
   it('does not call roots or limits when identity admission fails', async () => {
-    const calls: string[] = [];
+    const calls: Array<string> = [];
+
     const session = routerSession(calls, async () => {
       throw new MachineIdentityMismatchError('devl');
     });

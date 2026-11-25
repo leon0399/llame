@@ -133,14 +133,17 @@ describe('createMachineSshTransportFactory', () => {
 
   function factory() {
     const links: Array<FakeLink> = [];
+
     const commandCalls: Array<{
       readonly command: string;
       readonly args: ReadonlyArray<string>;
     }> = [];
+
     const spawnCalls: Array<{
       readonly command: string;
       readonly args: ReadonlyArray<string>;
     }> = [];
+
     const connected: Array<{ readonly path: string; readonly socket: Socket }> =
       [];
 
@@ -242,8 +245,8 @@ describe('createMachineSshTransportFactory', () => {
     try {
       created.open({ name: 'devl', destination: 'box' });
       const path = of(commandCalls[0]).args[1];
-      const text = readFileSync(path!, 'utf8');
-      expect(statSync(path!).mode & 0o777).toBe(0o600);
+      const text = readFileSync(path, 'utf8');
+      expect(statSync(path).mode & 0o777).toBe(0o600);
       expect(created.sshConfigText()).toBe(text);
       expect(text).toContain('Host *');
       expect(text).toContain('StrictHostKeyChecking yes');
@@ -262,7 +265,7 @@ describe('createMachineSshTransportFactory', () => {
     const { created, commandCalls } = factory();
     expect(created.sshConfigText()).toBeUndefined();
     created.open({ name: 'devl', destination: 'box' });
-    const path = of(commandCalls[0]).args[1]!;
+    const path = of(commandCalls[0]).args[1];
     created.dispose();
     expect(created.sshConfigText()).toBeUndefined();
     expect(() => statSync(path)).toThrow(/ENOENT/u);

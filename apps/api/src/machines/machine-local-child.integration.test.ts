@@ -11,7 +11,13 @@
  */
 
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
@@ -28,10 +34,12 @@ import { readFsReadResult } from './machine-results';
 import { MachineSession } from './machine-session';
 
 const HUB_VERSION = '0.0.0-local-child-test';
+
 const MCP_FIXTURE = join(
   __dirname,
   '../../../../apps/machine/src/testing/mcp-stdio-server-fixture.mjs',
 );
+
 const NAME = 'host-a';
 const NOTES = 'hello from the host\n';
 const ENVELOPE = { budgetMs: 60_000 };
@@ -49,7 +57,9 @@ async function waitForProcessExit(pid: number): Promise<void> {
     await turn.promise;
   }
 
-  throw new Error(`MCP fixture process ${pid} did not exit after its channel closed.`);
+  throw new Error(
+    `MCP fixture process ${pid} did not exit after its channel closed.`,
+  );
 }
 
 describe('the local Machine link (host-as-machine)', () => {
@@ -65,23 +75,32 @@ describe('the local Machine link (host-as-machine)', () => {
     );
     writeFileSync(join(root, 'notes.txt'), NOTES);
     serverPidFile = join(root, 'mcp-server.pid');
+
     const fixtureConfig = JSON.stringify({
       pidFile: serverPidFile,
       tools: [{ name: 'echo', inputSchema: { type: 'object' } }],
     });
-    writeFileSync(join(root, '.mcp.json'), JSON.stringify({
-      mcpServers: {
-        fixture: {
-          command: process.execPath,
-          args: [MCP_FIXTURE],
-          env: { MACHINE_MCP_FIXTURE: fixtureConfig },
+
+    writeFileSync(
+      join(root, '.mcp.json'),
+      JSON.stringify({
+        mcpServers: {
+          fixture: {
+            command: process.execPath,
+            args: [MCP_FIXTURE],
+            env: { MACHINE_MCP_FIXTURE: fixtureConfig },
+          },
         },
-      },
-    }));
+      }),
+    );
     // Register the root with the daemon's own command, exactly as the dev
     // helper and an operator do.
     execFileSync(MACHINE_BINARY, ['roots', 'add', root], {
-      env: { ...process.env, LLAME_MACHINE_CONFIG_DIR: configDir, LLAME_MACHINE_STATE_DIR: stateDir },
+      env: {
+        ...process.env,
+        LLAME_MACHINE_CONFIG_DIR: configDir,
+        LLAME_MACHINE_STATE_DIR: stateDir,
+      },
       stdio: 'pipe',
     });
   });
@@ -158,7 +177,9 @@ describe('the local Machine link (host-as-machine)', () => {
         read.status !== 'success' ||
         !('kind' in read)
       ) {
-        throw new Error(`fs.read did not answer a file: ${JSON.stringify(answer)}`);
+        throw new Error(
+          `fs.read did not answer a file: ${JSON.stringify(answer)}`,
+        );
       }
 
       expect(read.kind).toBe('file');
@@ -205,19 +226,26 @@ describe('the local Machine link (host-as-machine)', () => {
   });
   it('streams media bytes and a failure through the real daemon', async () => {
     const session = connect();
-    const media = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/6fsAAAAASUVORK5CYII=', 'base64');
+    const media = Buffer.from(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/6fsAAAAASUVORK5CYII=',
+      'base64',
+    );
     const path = join(root, 'image.png');
     writeFileSync(path, media);
 
     try {
       await session.ready();
       const chunks: Array<Buffer> = [];
+
       const bytes = session.openChannel({
         method: 'fs.bytes',
         params: { path, envelope: ENVELOPE },
       });
+
       bytes.channel.onNotification((notification) => {
-        if (notification.method !== 'bytes' || !isRecord(notification.params)) return;
+        if (notification.method !== 'bytes' || !isRecord(notification.params))
+          return;
+
         if (isString(notification.params['data']))
           chunks.push(Buffer.from(notification.params['data'], 'base64'));
       });
@@ -233,6 +261,7 @@ describe('the local Machine link (host-as-machine)', () => {
         method: 'fs.bytes',
         params: { path: join(root, 'notes.txt'), envelope: ENVELOPE },
       });
+
       await expect(refused.result).resolves.toMatchObject({
         status: 'error',
         type: 'unsupported_media_type',
@@ -247,8 +276,12 @@ describe('the local Machine link (host-as-machine)', () => {
 
     try {
       await session.ready();
-      await expect(request(session, 'mcp.servers', { root, envelope: ENVELOPE }))
-        .resolves.toMatchObject({ servers: [{ name: 'fixture', state: 'available' }] });
+      await expect(
+        request(session, 'mcp.servers', { root, envelope: ENVELOPE }),
+      ).resolves.toMatchObject({
+        servers: [{ name: 'fixture', state: 'available' }],
+      });
+
       const handle = session.openChannel({
         method: 'mcp.open',
         params: { root, server: 'fixture', envelope: ENVELOPE },
@@ -257,8 +290,13 @@ describe('the local Machine link (host-as-machine)', () => {
       await expect(handle.result).resolves.toEqual({ protectedValues: [] });
       const response = Promise.withResolvers<JsonValue>();
       handle.channel.onNotification((notification) => {
-        if (notification.method !== 'mcp.message' || !isRecord(notification.params)) return;
+        if (
+          notification.method !== 'mcp.message' ||
+          !isRecord(notification.params)
+        )
+          return;
         const message = notification.params['message'];
+
         if (isRecord(message) && message['id'] === 1) response.resolve(message);
       });
       handle.channel.notify('mcp.message', {
@@ -286,5 +324,4 @@ describe('the local Machine link (host-as-machine)', () => {
       session.close();
     }
   });
-
 });
