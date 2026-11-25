@@ -102,7 +102,7 @@ export async function readJobNoticeOutputs(input: {
 
   for (const name of input.job.outputs) {
     const part =
-      input.job.artifactId !== null
+      input.job.artifactId !== null && input.job.artifactReadable
         ? await input.artifacts.readPartTail(
             input.chatId,
             { toolName: input.job.kind, seq: input.job.seq, part: name },
