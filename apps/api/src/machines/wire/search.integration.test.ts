@@ -27,10 +27,12 @@ describe('wire fs.grep with the real daemon', () => {
       env: { ...process.env, LLAME_MACHINE_CONFIG_DIR: configDir, LLAME_MACHINE_STATE_DIR: stateDir },
       stdio: 'pipe',
     });
+
     const factory = createLocalChildTransportFactory({
       command: MACHINE_BINARY,
       env: { ...process.env, LLAME_MACHINE_CONFIG_DIR: configDir, LLAME_MACHINE_STATE_DIR: stateDir },
     });
+
     session = new MachineSession({ name: NAME, transport: factory.open({ name: NAME }), hubVersion: HUB_VERSION });
   });
 
@@ -43,6 +45,7 @@ describe('wire fs.grep with the real daemon', () => {
 
   it('serves consecutive hub-minted pages across SearchFiles streams', async () => {
     await session.ready();
+
     const params: FsGrepParams = {
       envelope: ENVELOPE,
       path: root,
@@ -52,7 +55,9 @@ describe('wire fs.grep with the real daemon', () => {
       ignoreCase: false,
       bounds: { files: null, entries: null, bytes: null, fileBytes: null, deadlineMs: 60_000, limit: 100, pageUnits: 180, progressed: false },
     };
+
     const first = await session.call('fs.grep', params);
+
     if (!('ok' in first) || !first.ok || first.cursor === undefined) throw new Error(`First grep page did not continue: ${JSON.stringify(first)}`);
     expect(first.complete).toBe(false);
     expect(first.results).toHaveLength(1);

@@ -37,6 +37,7 @@ import {
 } from '@workspace/runtime-safety';
 import type { MachineConnector } from './machine-connector.service';
 import type { MachineRequestEnvelope, MachineSession } from './machine-session';
+
 export type MachineMcpTransportOptions = {
   readonly connector: MachineConnector;
   /** The Machine the Workspace lives on. */
@@ -54,12 +55,13 @@ export type MachineMcpTransportOptions = {
 };
 
 class AsyncQueue<T> implements AsyncIterable<T> {
-  private readonly values: T[] = [];
+  private readonly values: Array<T> = [];
   private readonly readers: Array<(result: IteratorResult<T>) => void> = [];
   private ended = false;
 
   push(value: T): void {
     const reader = this.readers.shift();
+
     if (reader === undefined) this.values.push(value);
     else reader({ done: false, value });
   }
@@ -67,26 +69,36 @@ class AsyncQueue<T> implements AsyncIterable<T> {
   close(): void {
     if (this.ended) return;
     this.ended = true;
-    for (const reader of this.readers.splice(0)) reader({ done: true, value: undefined });
+
+    for (const reader of this.readers.splice(0))
+      reader({ done: true, value: undefined });
   }
 
   [Symbol.asyncIterator](): AsyncIterator<T> {
     return {
       next: () => {
         const value = this.values.shift();
+
         if (value !== undefined) return Promise.resolve({ done: false, value });
-        if (this.ended) return Promise.resolve({ done: true, value: undefined });
+
+        if (this.ended)
+          return Promise.resolve({ done: true, value: undefined });
         const deferred = Promise.withResolvers<IteratorResult<T>>();
         this.readers.push(deferred.resolve);
+
         return deferred.promise;
       },
-      return: async () => {
+      return: () => {
         this.close();
-        return { done: true, value: undefined };
+
+        return Promise.resolve({ done: true, value: undefined });
       },
-      throw: async (error: unknown) => {
+      throw: (error: unknown) => {
         this.close();
-        throw error;
+
+        return Promise.reject(
+          error instanceof Error ? error : new Error(String(error)),
+        );
       },
     };
   }
@@ -121,26 +133,43 @@ export class MachineTransport implements MCPTransport {
 
   async start(): Promise<void> {
     this.starting ??= this.open();
+
     return this.starting;
   }
 
-  send(message: JSONRPCMessage, options?: MCPTransportSendOptions): Promise<void> {
+  send(
+    message: JSONRPCMessage,
+    options?: MCPTransportSendOptions,
+  ): Promise<void> {
     options?.signal?.throwIfAborted();
+
     if (this.input === undefined || this.halted || this.shutdown) {
-      return Promise.reject(new Error('The Machine Workspace MCP stream is closed.'));
+      return Promise.reject(
+        new Error('The Machine Workspace MCP stream is closed.'),
+      );
     }
-    this.input.push(create(OpenSessionRequestSchema, {
-      message: { case: 'jsonRpc', value: JSON.stringify(toJsonValue(message)) },
-    }));
+
+    this.input.push(
+      create(OpenSessionRequestSchema, {
+        message: {
+          case: 'jsonRpc',
+          value: JSON.stringify(toJsonValue(message)),
+        },
+      }),
+    );
+
     return Promise.resolve();
   }
 
   setProtocolVersion(version: string): void {
     this.protocolVersion = version;
+
     if (this.input !== undefined && !this.shutdown && !this.halted) {
-      this.input.push(create(OpenSessionRequestSchema, {
-        message: { case: 'protocolVersion', value: version },
-      }));
+      this.input.push(
+        create(OpenSessionRequestSchema, {
+          message: { case: 'protocolVersion', value: version },
+        }),
+      );
     }
   }
 
@@ -153,47 +182,38 @@ export class MachineTransport implements MCPTransport {
   }
 
   private async open(): Promise<void> {
-    if (this.shutdown) throw new Error('The Machine Workspace MCP transport is closed.');
+    if (this.shutdown)
+      throw new Error('The Machine Workspace MCP transport is closed.');
     this.options.signal?.throwIfAborted();
-    const session = await this.options.connector.machineSession(this.options.machine);
+
+    const session = await this.options.connector.machineSession(
+      this.options.machine,
+    );
+
     this.session = session;
+
     if (this.shutdown) {
       this.releaseSession();
+
       return;
     }
 
     const input = new AsyncQueue<OpenSessionRequest>();
     this.input = input;
-    try {
-      const reader = session.clients.mcp.openSession(input, session.callOptions({
-        signal: this.options.signal,
-        envelope: this.options.envelope,
-      }))[Symbol.asyncIterator]();
-      this.reader = reader;
-      input.push(create(OpenSessionRequestSchema, {
-        message: {
-          case: 'open',
-          value: { workspace: this.options.root, server: this.options.server },
-        },
-      }));
-      if (this.protocolVersion !== undefined) {
-        input.push(create(OpenSessionRequestSchema, {
-          message: { case: 'protocolVersion', value: this.protocolVersion },
-        }));
-      }
 
-      const first = await reader.next();
-      if (first.done) throw new Error('The Machine closed the MCP stream before opening it.');
-      const message = first.value.message;
-      if (message.case === 'failure') {
-        throw new Error(`The Machine MCP server is unavailable: ${message.value.message}`);
-      }
-      if (message.case !== 'opened') {
-        throw new Error('The Machine answered an unusable mcp.open response.');
-      }
-      this.learn(message.value.secrets?.values ?? []);
-      this.published = true;
-      void this.receiveStream(reader);
+    try {
+      const reader = session.clients.mcp
+        .openSession(
+          input,
+          session.callOptions({
+            signal: this.options.signal,
+            envelope: this.options.envelope,
+          }),
+        )
+        [Symbol.asyncIterator]();
+
+      this.reader = reader;
+      await this.openSession(input, reader);
     } catch (error) {
       input.close();
       await this.reader?.return?.();
@@ -201,52 +221,120 @@ export class MachineTransport implements MCPTransport {
     }
   }
 
-  private async receiveStream(reader: AsyncIterator<OpenSessionResponse>): Promise<void> {
+  private async openSession(
+    input: AsyncQueue<OpenSessionRequest>,
+    reader: AsyncIterator<OpenSessionResponse>,
+  ): Promise<void> {
+    input.push(
+      create(OpenSessionRequestSchema, {
+        message: {
+          case: 'open',
+          value: { workspace: this.options.root, server: this.options.server },
+        },
+      }),
+    );
+
+    if (this.protocolVersion !== undefined) {
+      input.push(
+        create(OpenSessionRequestSchema, {
+          message: { case: 'protocolVersion', value: this.protocolVersion },
+        }),
+      );
+    }
+
+    const first = await reader.next();
+
+    if (first.done)
+      throw new Error('The Machine closed the MCP stream before opening it.');
+    const message = first.value.message;
+
+    if (message.case === 'failure') {
+      throw new Error(
+        `The Machine MCP server is unavailable: ${message.value.message}`,
+      );
+    }
+
+    if (message.case !== 'opened') {
+      throw new Error('The Machine answered an unusable mcp.open response.');
+    }
+
+    this.learn(message.value.secrets?.values ?? []);
+    this.published = true;
+    void this.receiveStream(reader);
+  }
+
+  private async receiveStream(
+    reader: AsyncIterator<OpenSessionResponse>,
+  ): Promise<void> {
     try {
       while (true) {
         const next = await reader.next();
+
         if (next.done) {
-          if (this.published && !this.shutdown) this.fail(new Error('The Machine closed this Workspace MCP stream.'));
+          this.handleStreamEnd();
+
           return;
         }
+
         this.receive(next.value);
       }
     } catch (error) {
       let reported = error instanceof Error ? error : new Error(String(error));
+
       try {
         reported = this.session?.mapRefusal(error, true) ?? reported;
       } catch {
         // Preserve the receive error if refusal mapping itself fails.
       }
+
       this.fail(reported);
+    }
+  }
+
+  private handleStreamEnd(): void {
+    if (this.published && !this.shutdown) {
+      this.fail(new Error('The Machine closed this Workspace MCP stream.'));
     }
   }
 
   private receive(response: OpenSessionResponse): void {
     const message = response.message;
+
     switch (message.case) {
       case 'jsonRpc': {
         let decoded: JSONRPCMessage;
+
         try {
           decoded = validateJSONRPCMessage(JSON.parse(message.value));
         } catch {
           this.fail(new Error('The Machine relayed invalid JSON-RPC text.'));
+
           return;
         }
+
         this.onmessage?.(decoded);
+
         return;
       }
+
       case 'stderr':
         this.appendDiagnostic(message.value);
+
         return;
       case 'secrets':
         this.learn(message.value.values);
+
         return;
       case 'failure':
-        this.fail(new Error(`The Machine MCP server failed: ${message.value.message}`));
+        this.fail(
+          new Error(`The Machine MCP server failed: ${message.value.message}`),
+        );
+
         return;
       default:
-        this.fail(new Error('The Machine sent an unexpected mcp.open response.'));
+        this.fail(
+          new Error('The Machine sent an unexpected mcp.open response.'),
+        );
     }
   }
 
@@ -255,22 +343,27 @@ export class MachineTransport implements MCPTransport {
     this.halted = true;
     this.input?.close();
     const closing = this.reader?.return?.();
+
     if (closing !== undefined) void closing.catch(() => undefined);
+
     try {
       this.releaseSession();
     } catch {
       // Preserve the receive failure if session cleanup itself fails.
     }
+
     try {
       this.diagnostics?.flush();
     } catch {
       // Diagnostic consumers must not escape the detached receive loop.
     }
+
     try {
       this.onerror?.(error);
     } catch {
       // A consumer error handler must not escape the detached receive loop.
     }
+
     try {
       this.onclose?.();
     } catch {
@@ -280,6 +373,7 @@ export class MachineTransport implements MCPTransport {
 
   private releaseSession(): void {
     const session = this.session;
+
     if (session === undefined || this.released) return;
     this.released = true;
     this.options.connector.releaseMachineSession(this.options.machine, session);
@@ -292,11 +386,12 @@ export class MachineTransport implements MCPTransport {
   }
 
   private appendDiagnostic(text: string): void {
-    this.diagnostics ??= new DiagnosticBuffer(this.values, (line) => this.options.onDiagnostic?.(line));
+    this.diagnostics ??= new DiagnosticBuffer(this.values, (line) =>
+      this.options.onDiagnostic?.(line),
+    );
     this.diagnostics.append(text);
   }
 }
-
 
 /** Whether JSON can spell this value as a container. */
 function isJsonContainer(

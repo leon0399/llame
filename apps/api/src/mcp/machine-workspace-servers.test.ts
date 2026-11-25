@@ -62,6 +62,8 @@ function fixture(options: ProtocolPeerOptions = {}): Fixture {
     hubVersion: '9.9.9',
     bindIdentity: () => Promise.resolve('match'),
     handshakeTimeoutMs: 2000,
+    requestHandler: peer.factory.requestHandler,
+    streamHandler: peer.factory.streamHandler,
     transportFactory: {
       open: (openOptions) => {
         const transport = peer.factory.open(openOptions);

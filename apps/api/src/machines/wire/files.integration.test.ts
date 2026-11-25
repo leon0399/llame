@@ -27,10 +27,12 @@ describe('wire files against the real Machine daemon', () => {
       env: { ...process.env, LLAME_MACHINE_CONFIG_DIR: configDir, LLAME_MACHINE_STATE_DIR: stateDir },
       stdio: 'pipe',
     });
+
     const factory = createLocalChildTransportFactory({
       command: MACHINE_BINARY,
       env: { ...process.env, LLAME_MACHINE_CONFIG_DIR: configDir, LLAME_MACHINE_STATE_DIR: stateDir },
     });
+
     session = new MachineSession({ name: NAME, transport: factory.open({ name: NAME }), hubVersion: '0.0.0-files-test' });
   });
 
@@ -54,7 +56,9 @@ describe('wire files against the real Machine daemon', () => {
       path: join(root, 'notes.txt'),
       options: { displayPrefix: PREFIX },
     });
+
     expect(read).toMatchObject({ status: 'success', kind: 'file', path: `${PREFIX}${join(root, 'notes.txt')}` });
+
     if (read.status === 'success' && 'content' in read) expect(read.content).toContain('2: beta');
 
     const edited = await session.call('fs.edit', {
@@ -64,6 +68,7 @@ describe('wire files against the real Machine daemon', () => {
       oldText: 'beta',
       newText: 'gamma',
     });
+
     expect(edited).toMatchObject({ status: 'success', operation: 'edit', display: { startLine: 2, oldText: 'beta', newText: 'gamma' } });
     expect(readFileSync(join(root, 'notes.txt'), 'utf8')).toBe('alpha\ngamma\n');
 
@@ -73,16 +78,19 @@ describe('wire files against the real Machine daemon', () => {
       options: { displayPrefix: PREFIX },
       content: 'written\n',
     });
+
     expect(written).toMatchObject({ status: 'success', operation: 'write', created: true });
     expect(readFileSync(join(root, 'created.txt'), 'utf8')).toBe('written\n');
 
-    const chunks: Buffer[] = [];
+    const chunks: Array<Buffer> = [];
+
     const bytes = await session.call('fs.bytes', { envelope: ENVELOPE, path: join(root, 'image.png') }, {
       onNotification: (notification) => {
         if (notification.method === 'bytes' && typeof notification.params === 'object' && notification.params !== null && 'data' in notification.params && typeof notification.params.data === 'string')
           chunks.push(Buffer.from(notification.params.data, 'base64'));
       },
     });
+
     expect(bytes).toEqual({ size: PNG.byteLength, mediaType: 'image/png' });
     expect(Buffer.concat(chunks)).toEqual(PNG);
   });

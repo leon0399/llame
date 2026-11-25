@@ -1048,6 +1048,8 @@ function fakeMachine(
         : MACHINE_HOSTS,
     hubVersion: '9.9.9',
     bindIdentity: options.bindIdentity ?? (() => Promise.resolve('match')),
+    requestHandler: peer.factory.requestHandler,
+    streamHandler: peer.factory.streamHandler,
     transportFactory: {
       open: (transportOptions) => {
         const transport = peer.factory.open(transportOptions);
