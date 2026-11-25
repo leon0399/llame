@@ -687,6 +687,7 @@ mod tests {
             reqwest::StatusCode::INTERNAL_SERVER_ERROR
         ));
     }
+    #[allow(clippy::too_many_lines)]
     #[tokio::test]
     async fn relay_drops_failed_notifications_and_keeps_call_errors_without_session() {
         use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
