@@ -6,10 +6,9 @@
 import { execFileSync } from "node:child_process";
 import { copyFileSync, mkdirSync, renameSync } from "node:fs";
 import { arch } from "node:os";
-import { dirname, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { join, resolve } from "node:path";
 
-const here = dirname(fileURLToPath(import.meta.url));
+const here = import.meta.dirname;
 const app = resolve(here, "..");
 const repo = resolve(app, "../..");
 const SHIPPED = ["x86_64-unknown-linux-musl", "aarch64-unknown-linux-musl"];
@@ -31,6 +30,7 @@ function requireRustup() {
   }
 }
 
+/** @param {string} target */
 function build(target) {
   execFileSync(
     "cargo",
