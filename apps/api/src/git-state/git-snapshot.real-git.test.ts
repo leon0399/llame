@@ -10,14 +10,14 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { ExecutorGit } from '../machines/executor-git.service';
-import { MachineConnector } from '../machines/machine-connector.service';
-import { machineFilesConnector } from '../testing/machine-files-peer';
 import { GitSnapshotService } from './git-snapshot.service';
 import { renderGitObservation } from './git-state-render';
+import { withLocalDaemon } from '../testing/local-daemon';
+import { DEFAULT_LOCAL_MACHINE_NAME } from '../testing/local-machine';
 
 /*
- * The snapshot service over the REAL local executor and a real git: the branch,
- * the counts, the quoted path, and the remote are git's own answers.
+ * The snapshot service over the built Rust Machine daemon and a real git:
+ * the branch, the counts, the quoted path, and the remote are git's own answers.
  */
 
 for (const name of execFileSync('git', ['rev-parse', '--local-env-vars'])
@@ -27,11 +27,9 @@ for (const name of execFileSync('git', ['rev-parse', '--local-env-vars'])
 }
 
 const created: Array<string> = [];
-const connectors: Array<MachineConnector> = [];
+const HOST = DEFAULT_LOCAL_MACHINE_NAME;
 
 afterEach(() => {
-  for (const connector of connectors.splice(0)) connector.onModuleDestroy();
-
   for (const directory of created.splice(0)) {
     rmSync(directory, { recursive: true, force: true });
   }
@@ -62,30 +60,23 @@ function repository(): string {
   return directory;
 }
 
-/** The Machine this test process hosts, configured as `machines.local`. */
-const HOST = 'snapshot-host';
-
-function service(
-  roots: ReadonlyArray<string> = [tmpdir()],
-): GitSnapshotService {
-  const connector = machineFilesConnector({ name: HOST, roots });
-
-  connectors.push(connector);
-
-  return new GitSnapshotService(new ExecutorGit(connector));
-}
-
 async function body(
   root: string,
   admit = () => true,
   roots: ReadonlyArray<string> = [tmpdir()],
 ): Promise<string> {
-  return renderGitObservation(
-    await service(roots).observe({
-      target: { executorId: HOST, machine: HOST, path: root },
-      root,
-      admit,
-    }),
+  return withLocalDaemon(roots, async (daemon) =>
+    renderGitObservation(
+      await new GitSnapshotService(new ExecutorGit(daemon.connector)).observe({
+        target: {
+          executorId: daemon.name,
+          machine: daemon.name,
+          path: root,
+        },
+        root,
+        admit,
+      }),
+    ),
   );
 }
 

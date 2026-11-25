@@ -144,6 +144,7 @@ describe('GitSnapshotService.observe', () => {
 
   it.each([
     ['no_repository_in_root', 'no repository inside the registered root'],
+    ['not_a_repository', 'no repository inside the registered root'],
     ['root_missing', 'Workspace root not found'],
     ['timed_out', 'timeout'],
     ['outside_registered_root', 'repository outside the registered root'],
@@ -168,9 +169,11 @@ describe('GitSnapshotService.observe', () => {
   it.each([
     ['timed_out', 'timeout'],
     ['output_bound', 'too many changes'],
+    ['root_missing', 'Workspace root not found'],
     ['outside_registered_root', 'repository outside the registered root'],
+    ['no_repository_in_root', 'no repository inside the registered root'],
     ['git_entry_changed', 'git failed'],
-    ['not_a_repository', 'git failed'],
+    ['not_a_repository', 'no repository inside the registered root'],
     ['git_failed', 'git failed'],
     ['invalid_input', 'git failed'],
   ] as const)('maps the state failure %s', async (type, label) => {

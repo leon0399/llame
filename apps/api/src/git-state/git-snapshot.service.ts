@@ -41,6 +41,7 @@ function failureObservation(failure: GitFailure): GitObservation {
     case 'root_missing':
       return unavailable('root_not_found');
     case 'no_repository_in_root':
+    case 'not_a_repository':
       return unavailable('no_repository_in_root');
     case 'outside_registered_root':
       return unavailable('outside_registered_root');
