@@ -18,35 +18,35 @@ Windows builds, a production image.
 
 ## Decisions
 
-| Code     | Decision                                                                                                                                                |
-| -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| R1       | No image work. The API finds binaries at `apps/machine/dist/<target>/llame-machine` or under `LLAME_MACHINE_BIN_DIR`.                                   |
-| R2       | The daemon does I/O, guards, the grep scan, bash, and git. Model-text rendering stays in TypeScript on the API.                                         |
-| R3, R4   | Cargo unit tests sit beside the code; behavior tests are cargo integration tests in `apps/machine/tests` that drive the binary over `attach --stdio`.   |
-| R5, R18  | One TypeScript smoke test proves Connect-ES over `attach --stdio`; it is deleted once connector tests cover every call shape.                           |
-| R6       | State lives in `$XDG_STATE_HOME/llame-machine` (mode 0700): `daemon.sock`, `daemon.lock` (held with `flock`), `jobs/`.                                  |
-| R7       | `instance.json` keeps its location and format.                                                                                                          |
-| R8, R9   | Only `attach --stdio` exists. The connector has no special case for an old daemon.                                                                      |
-| R10      | A restarted daemon settles every unfinished job directory as `lost` and keeps its output readable.                                                      |
-| R11      | A job directory is deleted only by `Jobs.Release`. A retention backstop is a follow-up.                                                                 |
-| R12      | Existing chunk output is dropped. Every settled job gets one bounded artifact copy.                                                                     |
-| R13      | `Jobs.Watch` sends a snapshot, a marker, then one full record per change. The Machine probe also calls `Jobs.List`. Settlement is idempotent by job id. |
-| R14      | The daemon knows only jobs. Foreground, background, and their causes are installation records.                                                          |
-| R14a     | The installation draws a 128-bit job id; a resent start returns the same job.                                                                           |
-| R15      | `rust-toolchain.toml` is authoritative. Strict workspace lints now; `cargo-deny`, CodeQL, fuzzing, and mutation testing later.                          |
-| R16      | Linux only; platform code sits behind `cfg(target_os = "linux")`.                                                                                       |
-| R17      | `build` produces the host's static musl target; `build:release` produces x86_64 and aarch64.                                                            |
-| R20      | Services: `Roots`, `Files`, `Git`, `Jobs`, `Mcp`.                                                                                                       |
-| R21      | The daemon returns host paths and raw git stderr; the API renders locators.                                                                             |
-| R22      | Every mutating call carries an idempotency key, kept in memory for 10 minutes or 4,096 keys.                                                            |
-| R23      | Refusals before work are gRPC statuses with an `ErrorInfo` reason; domain outcomes are a `oneof`.                                                       |
-| R24, R25 | `GetInfo` carries identity, versions, the boot id, facts, and open-string capabilities. `buf breaking` guards the bootstrap package.                    |
-| R26      | At the output ceiling the daemon stops recording and keeps the process running.                                                                         |
-| R27      | `attach` replaces a daemon from another build when it runs no job.                                                                                      |
-| R28      | The running-job limit (default 32) and the output ceiling live in the Machine's `config.toml`.                                                          |
-| R29      | The daemon continues the caller's trace when `SENTRY_DSN` is set (deferred in this attempt).                                                            |
-| R30      | The connector switch is three layers: connector, host jobs, engine deletion.                                                                            |
-| R31      | The new `machine-daemon` capability owns the daemon contract.                                                                                           |
+| Code     | Decision                                                                                                                                                                                                |
+| -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| R1       | No image work. The API finds binaries at `apps/machine/dist/<target>/llame-machine` or under `LLAME_MACHINE_BIN_DIR`.                                                                                   |
+| R2       | The daemon does I/O, guards, the grep scan, bash, and git. Model-text rendering stays in TypeScript on the API.                                                                                         |
+| R3, R4   | Cargo unit and binary integration tests replace the earlier TypeScript `node:test` conformance-suite plan. API Vitest integration tests cover the production client boundary.                           |
+| R5, R18  | The temporary Connect-ES-over-stdio smoke is removed. Persistent socket and SSH integration tests cover bootstrap, unary, server-streaming, and bidirectional calls.                                    |
+| R6       | State lives in `LLAME_MACHINE_STATE_DIR` when set, otherwise `$XDG_STATE_HOME/llame-machine` or `~/.local/state/llame-machine` (mode 0700): `daemon.sock`, `daemon.lock` (held with `flock`), `jobs/`.  |
+| R7       | `instance.json` keeps its location and format.                                                                                                                                                          |
+| R8, R9   | `attach --print-socket` discovers the persistent Unix socket. The host connects directly; SSH Machines use socket forwarding. `attach --stdio` is a debugging relay only.                               |
+| R10      | A restarted daemon settles every unfinished job directory as `lost` and keeps its output readable.                                                                                                      |
+| R11      | A job directory is deleted only by `JobService.DeleteJob`. A retention backstop is a follow-up.                                                                                                         |
+| R12      | Existing chunk output is dropped. Every settled job gets one bounded artifact copy.                                                                                                                     |
+| R13      | `JobService.WatchJobs` sends a snapshot, a marker, then one full record per change. The Machine probe also lists jobs. Settlement is idempotent by job id.                                              |
+| R14      | The daemon knows only jobs. Foreground, background, and their causes are installation records.                                                                                                          |
+| R14a     | The installation draws a 128-bit job id; a resent start returns the same job.                                                                                                                           |
+| R15      | `rust-toolchain.toml` is authoritative. Strict workspace lints now; `cargo-deny`, CodeQL, fuzzing, and mutation testing later.                                                                          |
+| R16      | Linux only; platform code sits behind `cfg(target_os = "linux")`.                                                                                                                                       |
+| R17      | `build` produces the host's static musl target; `build:release` produces x86_64 and aarch64.                                                                                                            |
+| R20      | Services: `BootstrapService`, `MachineService`, `FileService`, `GitService`, `JobService`, and `McpService`.                                                                                            |
+| R21      | The daemon returns host paths and raw git stderr; the API renders locators.                                                                                                                             |
+| R22      | Every mutating call carries `request_id`. Completed keys expire after ten minutes or eviction at 4,096 keys; this is not a minimum replay window. The native fence forbids resending an unknown effect. |
+| R23      | Refusals before work are gRPC statuses with a typed `ErrorDetail` reason; domain outcomes are a `oneof`. Trace and tool-call identity use gRPC metadata rather than an envelope.                        |
+| R24, R25 | `GetInfo` carries identity, versions, the boot id, facts, and open-string capabilities. `buf breaking` guards the bootstrap package.                                                                    |
+| R26      | At the output ceiling the daemon stops recording and keeps the process running.                                                                                                                         |
+| R27      | `attach` replaces a daemon from another build when it runs no job.                                                                                                                                      |
+| R28      | The running-job limit (default 32) and the output ceiling live in the Machine's `config.toml`.                                                                                                          |
+| R29      | The daemon continues the caller's trace when `SENTRY_DSN` is set (deferred in this attempt).                                                                                                            |
+| R30      | The connector switch is three layers: connector, host jobs, engine deletion.                                                                                                                            |
+| R31      | The new `machine-daemon` capability owns the daemon contract.                                                                                                                                           |
 
 ## Risks / Trade-offs
 
@@ -60,6 +60,6 @@ Windows builds, a production image.
 ## Migration Plan
 
 Operators copy the static binary to each configured Machine, change the SSH
-forced command to `llame-machine attach --stdio`, and register roots again
-with `llame-machine roots add`. The `chat_job_chunks` migration drops stored
-output of existing jobs.
+forced command to `llame-machine attach --print-socket`, permit the socket
+forward, and register roots with `llame-machine roots add`. The `chat_job_chunks`
+migration drops stored output of existing jobs.

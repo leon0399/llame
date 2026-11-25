@@ -2,21 +2,21 @@
 
 ### Requirement: A connection attaches to the running daemon or starts it
 
-Every connection to a Machine MUST run `llame-machine attach --stdio`. The
-command MUST connect to the daemon of its OS account over the daemon socket,
-or start the daemon first when no daemon holds the daemon lock. It MUST then
-relay gRPC bytes between its standard streams and the socket, and MUST write
-nothing else to its standard output.
+Every connection to a Machine MUST first run `llame-machine attach --print-socket`.
+The command MUST start the daemon of its OS account when no daemon holds the
+daemon lock, wait for its socket, and print that socket's absolute path. The
+installation MUST connect to that Unix socket directly for the host Machine,
+or through an SSH Unix-socket forward for another Machine.
 
 #### Scenario: The first attach starts the daemon
 
-- **WHEN** no daemon runs for the account and `attach --stdio` starts
-- **THEN** the command starts one daemon, waits for its socket, and relays the connection
+- **WHEN** no daemon runs for the account and `attach --print-socket` starts
+- **THEN** the command starts one daemon, waits for its socket, and prints its path
 
 #### Scenario: A second attach reaches the same daemon
 
-- **WHEN** a daemon runs and a second `attach --stdio` starts
-- **THEN** the command connects to that daemon and no second daemon starts
+- **WHEN** a daemon runs and a second `attach --print-socket` starts with the same configuration directory
+- **THEN** the command prints that daemon's socket path and no second daemon starts
 
 #### Scenario: A stale socket is replaced
 
@@ -25,10 +25,12 @@ nothing else to its standard output.
 
 ### Requirement: The daemon state is private to its OS account
 
-The daemon MUST keep its socket, its lock, and its job directories in
-`$XDG_STATE_HOME/llame-machine`, or `~/.local/state/llame-machine` when the
-variable is unset. The directory MUST have mode 0700. One daemon MUST serve
-one OS account, and installations that share a box MUST use separate accounts.
+The daemon MUST keep its socket, its lock, and its job directories under
+`LLAME_MACHINE_STATE_DIR` when that nonempty operator override is set.
+Otherwise it MUST use `$XDG_STATE_HOME/llame-machine`, or
+`~/.local/state/llame-machine` when that variable is unset. The directory
+MUST have mode 0700. One daemon MUST serve one OS account, and installations
+that share a box MUST use separate accounts.
 
 #### Scenario: The state directory is private
 
@@ -63,11 +65,13 @@ Every change to the `stead.machine.v1` package MUST increase that version.
 ### Requirement: Refusals before work are status codes with a reason
 
 The daemon MUST refuse a request it does not start with a gRPC status code
-and a `google.rpc.ErrorInfo` reason: `invalid_argument` for a malformed
-request, `path_not_registered` for a path outside every registered root, and
-`machine_job_limit` for a job over the running-job limit. A path outside the
-roots MUST get the same message whether or not the path exists. An outcome of
-started work MUST travel in the response, never as a status code.
+and a `stead.machine.v1.ErrorDetail` carrying an `ErrorReason`. Malformed input
+MUST use INVALID_ARGUMENT, a path outside every registered root MUST use
+PERMISSION_DENIED, and a full running-job limit MUST use RESOURCE_EXHAUSTED.
+An unknown job or another owner's job MUST use NOT_FOUND; releasing a running
+job MUST use FAILED_PRECONDITION. Each status MUST carry its corresponding
+typed reason. A path outside the roots MUST get the same message whether or
+not the path exists. An outcome of started work MUST travel in the response.
 
 #### Scenario: A path outside the roots is refused without revealing it
 
@@ -76,16 +80,18 @@ started work MUST travel in the response, never as a status code.
 
 ### Requirement: Mutating calls carry an idempotency key
 
-Every mutating call except an MCP session MUST carry a key that the
-installation draws for the call. The daemon MUST return the first result for a
-resent key for at least 10 minutes while it runs, and MUST NOT repeat the
-effect. A key that the daemon no longer knows MUST start the call again only
-when the installation proves no effect happened; otherwise the outcome is
-unknown.
+Every mutating call except an MCP session MUST carry an installation-drawn
+`request_id`, or `job_id` for `JobService.CreateJob`. The daemon MUST retain completed results in
+an in-memory cache bounded by ten minutes or 4,096 keys. A resend while its key
+is retained MUST return the first result without repeating the effect; a
+running key MUST wait for its first result. This is not a minimum replay
+window. The installation MUST NOT resend a mutation with an unknown outcome
+unless it proves that no effect happened. Otherwise it MUST report
+`outcome_unknown` under the durable native effect fence.
 
 #### Scenario: A resent edit returns the first result
 
-- **WHEN** the connection drops after an edit ran and the installation resends the edit with the same key
+- **WHEN** an edit ran and a request with its retained key reaches the daemon again
 - **THEN** the daemon returns the first result and the file holds one edit
 
 ### Requirement: Every command runs as a daemon job
@@ -98,6 +104,30 @@ MUST NOT decide whether a command is foreground or background.
 
 - **WHEN** the installation sends two starts with the same job id
 - **THEN** the command runs once and both answers name the same job
+
+### Requirement: A daemon job carries its owner's tag
+
+`JobService.CreateJob` MUST record the opaque owner tag supplied by the
+installation. `GetJob`, `ReadOutput`, `CancelJob`, and `DeleteJob` MUST require
+that tag to match. An unknown job id and an id belonging to another owner
+MUST both answer NOT_FOUND with reason JOB_NOT_FOUND.
+
+`ListJobs` and `WatchJobs` are daemon-wide administrative operations for the
+installation's reconciler. Their records MUST carry owner tags. The
+installation MUST NOT expose that administrative list directly to an owner or
+model. Every model-facing or owner-facing job operation MUST first resolve an
+owner-scoped persisted Chat job and use its recorded daemon job id and tag.
+
+#### Scenario: Another owner's daemon job is not found
+
+- **WHEN** a read or stop names a job id with another owner's tag
+- **THEN** the daemon answers NOT_FOUND with reason JOB_NOT_FOUND and the job does not change
+
+#### Scenario: Administrative reconciliation does not authorize a model read
+
+- **WHEN** the reconciler observes a daemon job with an owner tag
+- **THEN** it resolves the matching persisted binding under that owner's datastore identity
+- **AND** a Run of another owner cannot use that record to read or stop the job
 
 ### Requirement: Job records live in per-job directories
 
@@ -125,13 +155,15 @@ stored boot id differs. The output of such a job MUST stay readable.
 
 ### Requirement: The job stream starts with a snapshot
 
-`Jobs.Watch` MUST send every job the daemon knows, then a snapshot marker, then
-one full job record for each later change, for as long as the connection
-lasts.
+`JobService.WatchJobs` MUST send every job the daemon knows, each with its
+opaque owner tag, then a snapshot marker, then one full job record for each
+later change, for as long as the connection lasts. The installation MUST
+resolve each record through its owner-scoped persisted job binding before
+reading output, settling the row, or releasing the daemon job.
 
 #### Scenario: A reconnecting installation catches up
 
-- **WHEN** a job settled while no connection was open and the installation opens `Jobs.Watch`
+- **WHEN** a job settled while no connection was open and the installation opens `JobService.WatchJobs`
 - **THEN** the snapshot carries the settled job
 
 ### Requirement: A Machine owns its capacity limits
@@ -144,13 +176,17 @@ keep the process running.
 #### Scenario: The running-job limit refuses a new job
 
 - **WHEN** 32 jobs run and a start arrives
-- **THEN** the daemon answers RESOURCE_EXHAUSTED with reason `machine_job_limit`
+- **THEN** the daemon answers RESOURCE_EXHAUSTED with reason `job_limit`
 
 ### Requirement: An outdated daemon is replaced when it runs no job
 
 `attach` MUST compare the running daemon's build id with its own. When they
 differ and no job runs, `attach` MUST stop the running daemon and start its
 own binary. When jobs run, the running daemon MUST keep serving.
+Replacement ends the old daemon's open calls. A mutation whose result is lost
+MUST settle as `outcome_unknown` under the native effect fence and MUST NOT be
+sent again. An affected MCP session MUST close; a later call may open a new
+session. Draining other open calls before replacement is outside this change.
 
 #### Scenario: A rebuilt binary applies on the next attach
 

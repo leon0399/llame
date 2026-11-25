@@ -29,3 +29,6 @@ A resource limit on the box is not daemon-local call policy, which stays
 excluded until
 [local policy enforced by the Machine daemon](https://github.com/leon0399/llame/issues/1827)
 decides it.
+
+The OpenSpec change [rust-machine-daemon](../../openspec/changes/rust-machine-daemon/proposal.md)
+specifies the capacity limits and removes `tools.bash.maxProcesses`.

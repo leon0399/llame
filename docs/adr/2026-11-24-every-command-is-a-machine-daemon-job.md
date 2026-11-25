@@ -4,8 +4,8 @@ status: accepted
 
 # Every command is a Machine daemon job
 
-The Machine daemon runs every `bash` command as a job and knows nothing of
-foreground, background, or waiting. The installation decides when a call stops
+The Machine daemon runs each command addressed to its Machine as a job and knows
+nothing of foreground, background, or waiting. The installation decides when a call stops
 waiting and becomes a background job, and it records why. A job binds to its
 Machine, the daemon's instance id, and a job id that the installation draws at
 random, so a resent start returns the running job instead of a second command.
@@ -29,3 +29,5 @@ is unknown. `chat_job_chunks` is deleted.
 
 This was decided in
 [Background jobs on every Machine](https://github.com/leon0399/llame/issues/1785).
+The OpenSpec change [rust-machine-daemon](../../openspec/changes/rust-machine-daemon/proposal.md)
+specifies the contract.

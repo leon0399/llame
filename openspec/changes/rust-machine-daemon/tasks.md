@@ -13,22 +13,21 @@ master <- rust-machine-daemon/proposal <- rust-machine-daemon/skeleton
        <- rust-machine-daemon/engine-cleanup <- rust-machine-daemon/finalize
 ```
 
-| Section | Branch                               | Parent         | Owns                                                                                                                             |
-| ------- | ------------------------------------ | -------------- | -------------------------------------------------------------------------------------------------------------------------------- |
-| 1       | `rust-machine-daemon/proposal`       | `master`       | this change and the ADRs                                                                                                         |
-| 2       | `rust-machine-daemon/skeleton`       | proposal       | Cargo workspace, proto, generated code, `machine-core`, attach-or-start, bootstrap and roots services, the Connect-ES smoke test |
-| 3       | `rust-machine-daemon/files`          | skeleton       | `machine-files` and `machine-grep`                                                                                               |
-| 4       | `rust-machine-daemon/jobs`           | files          | `machine-jobs`                                                                                                                   |
-| 5       | `rust-machine-daemon/git`            | jobs           | `machine-git`                                                                                                                    |
-| 6       | `rust-machine-daemon/mcp`            | git            | `machine-mcp`                                                                                                                    |
-| 7       | `rust-machine-daemon/connector`      | mcp            | the Connect-ES connector, deletion of the Node daemon and JSON-RPC                                                               |
-| 8       | `rust-machine-daemon/host-jobs`      | connector      | host `bash` and jobs through the daemon, the job migration                                                                       |
-| 9       | `rust-machine-daemon/engine-cleanup` | host-jobs      | deletion of `bash-executor`, `git-executor`, and dead engine code                                                                |
-| 10      | `rust-machine-daemon/finalize`       | engine-cleanup | spec sync and archive                                                                                                            |
+| Section | Branch                               | Parent         | Owns                                                                                                  |
+| ------- | ------------------------------------ | -------------- | ----------------------------------------------------------------------------------------------------- |
+| 1       | `rust-machine-daemon/proposal`       | `master`       | this change and the ADRs                                                                              |
+| 2       | `rust-machine-daemon/skeleton`       | proposal       | Cargo workspace, proto, generated code, `machine-core`, attach-or-start, bootstrap and roots services |
+| 3       | `rust-machine-daemon/files`          | skeleton       | `machine-files` and `machine-grep`                                                                    |
+| 4       | `rust-machine-daemon/jobs`           | files          | `machine-jobs`                                                                                        |
+| 5       | `rust-machine-daemon/git`            | jobs           | `machine-git`                                                                                         |
+| 6       | `rust-machine-daemon/mcp`            | git            | `machine-mcp`                                                                                         |
+| 7       | `rust-machine-daemon/connector`      | mcp            | the Connect-ES connector, deletion of the Node daemon and JSON-RPC                                    |
+| 8       | `rust-machine-daemon/host-jobs`      | connector      | host `bash` and jobs through the daemon, the job migration                                            |
+| 9       | `rust-machine-daemon/engine-cleanup` | host-jobs      | deletion of `bash-executor`, `git-executor`, and dead engine code                                     |
+| 10      | `rust-machine-daemon/finalize`       | engine-cleanup | spec sync and archive                                                                                 |
 
 - Safe merge boundaries: after each section. Sections 2 to 6 ship a daemon
-  that only the cargo tests and the smoke test call; the API keeps the Node
-  daemon until section 7.
+  that the Cargo tests call; the API keeps the Node daemon until section 7.
 - Generated churn (`packages/machine-protocol/src/generated`, `Cargo.lock`,
   `pnpm-lock.yaml`, Drizzle snapshots) counts zero.
 
@@ -45,31 +44,32 @@ master <- rust-machine-daemon/proposal <- rust-machine-daemon/skeleton
       TypeScript, and the `machine-protocol` crate.
 - [x] 2.3 Add `machine-core`: configuration, instance id, root guard,
       refusals, idempotency cache, facts.
-- [x] 2.4 Add the daemon, `attach --stdio`, the bootstrap and roots services;
+- [x] 2.4 Add the daemon, `attach --print-socket`, the bootstrap and roots services;
       verify `cargo test -p llame-machine --test bootstrap`.
-- [x] 2.5 Add the Connect-ES smoke test over `attach --stdio`.
+- [x] 2.5 Remove the experimental Connect-ES-over-stdio smoke when socket
+      transport replaces it; keep generated protocol checks and Cargo bootstrap tests.
 
 ## 3. Files (`rust-machine-daemon/files`)
 
-- [ ] 3.1 Implement `Files` Stat, List, Read, ReadBytes; verify
+- [ ] 3.1 Implement `FileService.Stat`, `List`, `Read`, and `ReadBytes`; verify
       `cargo test -p llame-machine --test files_read`.
-- [ ] 3.2 Implement `Files` Edit and Write with idempotency keys; verify
+- [ ] 3.2 Implement `FileService.Edit` and `Write` with idempotency keys; verify
       `cargo test -p llame-machine --test files_mutate`.
-- [ ] 3.3 Implement `Files.Grep`; verify `cargo test -p llame-machine --test grep`.
+- [ ] 3.3 Implement `FileService.Grep`; verify `cargo test -p llame-machine --test grep`.
 
 ## 4. Jobs (`rust-machine-daemon/jobs`)
 
-- [ ] 4.1 Implement `Jobs` with per-job directories, the snapshot stream,
+- [ ] 4.1 Implement `JobService` with per-job directories, the snapshot stream,
       limits, stop proof, and restart settlement; verify
       `cargo test -p llame-machine --test jobs`.
 
 ## 5. Git (`rust-machine-daemon/git`)
 
-- [ ] 5.1 Implement `Git`; verify `cargo test -p llame-machine --test git`.
+- [ ] 5.1 Implement `GitService`; verify `cargo test -p llame-machine --test git`.
 
 ## 6. MCP (`rust-machine-daemon/mcp`)
 
-- [ ] 6.1 Implement `Mcp.ListServers` and the `Mcp.Open` stream; verify
+- [ ] 6.1 Implement `McpService.ListServers` and the `OpenSession` stream; verify
       `cargo test -p llame-machine --test mcp`.
 
 ## 7. Connector (`rust-machine-daemon/connector`)
@@ -78,11 +78,13 @@ master <- rust-machine-daemon/proposal <- rust-machine-daemon/skeleton
       locator adapter; verify the API machine unit tests and typecheck.
 - [ ] 7.2 Delete the Node daemon and the JSON-RPC protocol; run `pnpm dev`,
       Playwright, and the integration suite against the Rust binary.
+- [ ] 7.3 Verify the persistent TypeScript client tests over the real socket
+      and SSH forward for bootstrap, unary, server-streaming, and bidirectional calls.
 
 ## 8. Host jobs (`rust-machine-daemon/host-jobs`)
 
 - [ ] 8.1 Run host `bash` and every job through the daemon, bind jobs to the
-      Machine, reconcile from `Jobs.Watch` and `Jobs.List`, and drop
+      Machine, reconcile from `JobService.WatchJobs` and `ListJobs`, and drop
       `chat_job_chunks`, `worker_instance_id`, and `tools.bash.maxProcesses`.
 - [ ] 8.2 Update the operator docs and the CHANGELOG with the breaking changes.
 

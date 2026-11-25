@@ -12,10 +12,12 @@ one static binary per Linux architecture. The decisions are recorded on the
 - Add a Rust Machine daemon (`apps/machine`, crates under `crates/`) that
   serves gRPC from `.proto` files in `packages/machine-protocol/proto`:
   the frozen `stead.machine.bootstrap.v1` service and the
-  `stead.machine.v1` services `Roots`, `Files`, `Git`, `Jobs`, and `Mcp`.
-- Add `llame-machine attach --stdio`, which connects to the account's running
-  daemon or starts it, then relays gRPC bytes. **BREAKING:** `serve --stdio`
-  is deleted; SSH forced commands must run `attach --stdio`.
+  `stead.machine.v1` services `MachineService`, `FileService`, `GitService`,
+  `JobService`, and `McpService`.
+- Add `llame-machine attach --print-socket`, which discovers the account's running
+  daemon or starts it. The API connects through its Unix socket, directly or
+  through SSH forwarding. **BREAKING:** `serve --stdio` is deleted; SSH forced
+  commands must run `attach --print-socket`. `attach --stdio` remains a debugging relay.
 - Run every command as a daemon job with output files read by byte offset. A
   job binds to its Machine, the daemon instance id, and a random job id that
   the installation draws. Jobs run on every configured Machine.
@@ -46,6 +48,10 @@ one static binary per Linux architecture. The decisions are recorded on the
   lives on the Machine, and an unreachable Machine shows its jobs as unknown.
 - `bash-execution`: every command is a daemon job on the current Machine, and
   background commands run on every Machine.
+- `instance-config`: remove `tools.bash.maxProcesses` and apply the foreground
+  promotion bound to every configured Machine while keeping `ssh://` foreground-only.
+- `tool-artifacts`: retain a bounded artifact copy for every settled daemon job
+  and keep failed copies available for later daemon reconciliation.
 
 ## Impact
 
