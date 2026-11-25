@@ -563,7 +563,7 @@ impl Jobs {
             stdout_truncated: false,
             stderr_truncated: false,
             stop_requested: false,
-            cancel: cancel.clone(),
+            cancel,
         };
         state.entries.insert(start.job_id.clone(), entry);
         let job = job_record(
