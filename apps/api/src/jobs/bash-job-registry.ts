@@ -27,7 +27,10 @@ import {
 } from '../instance-config/instance-config.service';
 import { configuredCredentials } from '../instance-config/configured-credentials';
 import { MachineConnector } from '../machines/machine-connector.service';
-import { MachineUnavailableError } from '../machines/machine-session-errors';
+import {
+  MachineUnavailableError,
+  mapMachineRefusal,
+} from '../machines/machine-session-errors';
 import type { MachineRequestOptions } from '../machines/machine-session';
 import { JobNoticeRunService } from '../runs/job-notice-run.service';
 import { RunWaitService } from '../runs/run-wait.service';
@@ -159,13 +162,14 @@ export class BashJobRegistry implements OnModuleInit {
         }),
       );
     } catch (error) {
+      const refusal = mapMachineRefusal(machine.name, error, true);
       if (
-        !(error instanceof MachineProtocolError) ||
-        error.code !== 'machine_job_limit'
+        !(refusal instanceof MachineProtocolError) ||
+        refusal.code !== 'machine_job_limit'
       )
-        throw error;
+        throw refusal;
       await removeUnstartedRow();
-      return machineProtocolFailureResult(machine.name, error);
+      return machineProtocolFailureResult(machine.name, refusal);
     }
     if (started.result.case === 'failure') {
       await removeUnstartedRow();
@@ -353,7 +357,7 @@ export class BashJobRegistry implements OnModuleInit {
       return;
     }
     if (observedJob.state === JobState.RUNNING) return;
-    const { result, output } = await this.readResult(
+    const { output } = await this.readResult(
       client,
       callOptions,
       row,
@@ -476,11 +480,12 @@ export class BashJobRegistry implements OnModuleInit {
         BigInt(Buffer.byteLength(stderr)) < (job.stderr?.bytes ?? 0n);
       stderrTruncated ||= stderrOutput.truncated;
     } catch (error) {
+      const refusal = mapMachineRefusal(row.machineName, error, true);
       if (
-        !(error instanceof MachineProtocolError) ||
-        error.code !== 'machine_job_not_found'
+        !(refusal instanceof MachineProtocolError) ||
+        refusal.code !== 'machine_job_not_found'
       )
-        throw error;
+        throw refusal;
       if (job.state === JobState.LOST)
         return {
           result: {

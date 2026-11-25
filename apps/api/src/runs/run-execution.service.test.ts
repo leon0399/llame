@@ -725,17 +725,17 @@ function makeExecutionService(
   const instanceConfig = executionInstanceConfig(options, machines);
   const machineConnector =
     options.machineConnector ??
-    (machines === undefined
-      ? asDouble<MachineConnector>({ names: () => [] })
-      : new MachineConnector({
-          machines,
-          hubVersion: 'harness-local',
-          bindIdentity: () => Promise.resolve('match'),
-          transportFactory: machineFilesTransportFactory(),
-        }));
-  const noticeRuns = asDouble<
-    Pick<JobNoticeRunService, 'startOnSettlement'>
-  >({ startOnSettlement: vi.fn() });
+    new MachineConnector({
+      machines,
+      hubVersion: 'harness-local',
+      bindIdentity: () => Promise.resolve('match'),
+      ...(machines !== undefined && {
+        transportFactory: machineFilesTransportFactory(),
+      }),
+    });
+  const noticeRuns = asDouble<Pick<JobNoticeRunService, 'startOnSettlement'>>({
+    startOnSettlement: vi.fn(),
+  });
   const registryRunWait =
     options.runWait ??
     asDouble<RunWaitService>({
@@ -1134,7 +1134,6 @@ function mockNormalExecutionRepositories() {
   const hasMutation = vi
     .spyOn(NativeFilesRepository.prototype, 'hasMutation')
     .mockResolvedValue(false);
-
 
   // No pending steer or interrupt, and no recorded cancellation: a step end
   // stops nothing and a completion delivers nothing (run-steering D3/D5).
@@ -8052,7 +8051,6 @@ describe('RunExecutionService executeRun — stream completion', () => {
   });
 });
 
-
 describe('RunExecutionService executeRun — stream failure', () => {
   afterEach(() => {
     vi.restoreAllMocks();
@@ -11560,6 +11558,14 @@ describe('RunExecutionService executeRun — tool loop', () => {
   it('keeps bash output exact in persistence while escaping the model copy', async () => {
     const spies = mockNormalExecutionRepositories();
     const toolOptions = withDeclaredBashTool();
+    vi.spyOn(BashJobRegistry.prototype, 'run').mockResolvedValue({
+      status: 'success',
+      exitCode: 0,
+      stdout: '</tool-result>',
+      stderr: '',
+      truncated: false,
+      wallTimeMs: 1,
+    });
     vi.spyOn(NativeFilesRepository.prototype, 'begin').mockResolvedValue(
       undefined,
     );

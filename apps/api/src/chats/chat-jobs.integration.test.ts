@@ -34,6 +34,7 @@ import {
   expectRegisteredUserId,
 } from '../testing/support';
 import { ChatsRepository } from './chats-repository';
+import { settleBashJob } from '../jobs/bash-job-store';
 
 if (!process.env['TEST_DATABASE_URL']) {
   throw new Error(
@@ -172,7 +173,6 @@ describe('chat jobs API', () => {
     expect(body.items.map((item) => item.truncated)).toEqual([[], ['stdout']]);
   });
 
-
   // Scenario: Another owner reads a job
   it('answers 404 to another owner who lists the jobs of a Chat', async () => {
     const chatId = await createChat();
@@ -257,7 +257,6 @@ describe('chat jobs API', () => {
 
     expect((await stop(chatId, job.id)).status).toBe(409);
   });
-
 
   describe('404 answers', () => {
     it('answers 404 to an unknown job, a job of another Chat, and an unknown Chat', async () => {
@@ -347,6 +346,71 @@ describe('chat jobs API', () => {
 
       expect(await itemOf(chatId)).toMatchObject({ runningJobs: 0 });
     });
+  });
+  it('settles a known result with unavailable output and creates no artifact', async () => {
+    const chatId = await createChat();
+    const job = await startJob(chatId, 11);
 
+    await settleBashJob(
+      tenantDb,
+      job,
+      {
+        output: null,
+        settlement: {
+          state: 'succeeded',
+          result: { exitCode: 0, outputUnavailable: true },
+        },
+      },
+      {
+        maxBytes: 131_072,
+        hostFiles: false,
+        backgrounded: false,
+        noticeRuns: { startOnSettlement: async () => undefined },
+        wake: { wakeForChatInTransaction: async () => false },
+      },
+    );
+
+    expect(await stateOf(chatId, job.id)).toMatchObject({
+      state: 'succeeded',
+      result: { exitCode: 0, outputUnavailable: true },
+      artifactId: null,
+    });
+  });
+
+  it('rolls back job settlement when the output artifact cannot be written', async () => {
+    const chatId = await createChat();
+    const job = await startJob(chatId, 12);
+
+    await expect(
+      settleBashJob(
+        tenantDb,
+        job,
+        {
+          output: {
+            stdout: 'x'.repeat(131_073),
+            stderr: '',
+            truncated: false,
+            truncatedStreams: { stdout: false, stderr: false },
+          },
+          settlement: {
+            state: 'succeeded',
+            result: { exitCode: 0 },
+          },
+        },
+        {
+          maxBytes: 131_072,
+          hostFiles: false,
+          backgrounded: false,
+          noticeRuns: { startOnSettlement: async () => undefined },
+          wake: { wakeForChatInTransaction: async () => false },
+        },
+      ),
+    ).rejects.toThrow('An artifact part exceeds tools.artifacts.maxBytes.');
+
+    expect(await stateOf(chatId, job.id)).toMatchObject({
+      state: 'running',
+      settledAt: null,
+      artifactId: null,
+    });
   });
 });
