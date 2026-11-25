@@ -89,6 +89,7 @@ pub struct Jobs {
 type Stream<T> = tokio_stream::wrappers::ReceiverStream<Result<T, Status>>;
 
 /// Opens the job store and reconciles unfinished records from an earlier daemon.
+#[allow(clippy::unused_async)]
 pub async fn service(context: Context) -> anyhow::Result<JobServiceServer<Jobs>> {
     let root = context.state_dir.join("jobs");
     fs::create_dir_all(&root)?;
@@ -109,7 +110,7 @@ pub async fn service(context: Context) -> anyhow::Result<JobServiceServer<Jobs>>
             continue;
         };
         let status_path = directory.join("status.json");
-        let mut status = fs::read(&status_path)
+        let status = fs::read(&status_path)
             .ok()
             .and_then(|bytes| serde_json::from_slice::<StoredStatus>(&bytes).ok())
             .or_else(|| {
@@ -402,6 +403,7 @@ impl JobService for Jobs {
 }
 
 impl Jobs {
+    #[allow(clippy::too_many_lines)]
     async fn create(&self, request: CreateJobRequest) -> Result<Job, Status> {
         if request.job_id.len() != 32
             || !request
@@ -413,33 +415,30 @@ impl Jobs {
                 "Job id must be 32 lowercase hexadecimal characters.",
             ));
         }
-        let (cwd, guarded) = match request.cwd.as_deref() {
-            Some(path) => {
-                let guarded = self.context.guard().resolve(path)?;
-                (
-                    guarded.canonical.to_string_lossy().into_owned(),
-                    Some(guarded),
-                )
-            }
-            None => {
-                let root = self
-                    .context
-                    .guard()
-                    .roots()
-                    .first()
-                    .ok_or_else(|| {
-                        refusal::invalid_argument(
-                            "No registered root is available as the job working directory.",
-                        )
-                    })?
-                    .to_string_lossy()
-                    .into_owned();
-                let guarded = self.context.guard().resolve(&root)?;
-                (
-                    guarded.canonical.to_string_lossy().into_owned(),
-                    Some(guarded),
-                )
-            }
+        let (cwd, guarded) = if let Some(path) = request.cwd.as_deref() {
+            let guarded = self.context.guard().resolve(path)?;
+            (
+                guarded.canonical.to_string_lossy().into_owned(),
+                Some(guarded),
+            )
+        } else {
+            let root = self
+                .context
+                .guard()
+                .roots()
+                .first()
+                .ok_or_else(|| {
+                    refusal::invalid_argument(
+                        "No registered root is available as the job working directory.",
+                    )
+                })?
+                .to_string_lossy()
+                .into_owned();
+            let guarded = self.context.guard().resolve(&root)?;
+            (
+                guarded.canonical.to_string_lossy().into_owned(),
+                Some(guarded),
+            )
         };
         if let Some(guarded) = &guarded {
             self.context.guard().verify_unchanged(guarded)?;
@@ -473,10 +472,10 @@ impl Jobs {
             }
         }
         let directory = self.context.state_dir.join("jobs").join(&request.job_id);
-        fs::create_dir(&directory).map_err(internal_io)?;
+        fs::create_dir(&directory).map_err(|error| internal_io(&error))?;
         if let Err(error) = fs::set_permissions(&directory, fs::Permissions::from_mode(0o700)) {
             let _ = fs::remove_dir_all(&directory);
-            return Err(internal_io(error));
+            return Err(internal_io(&error));
         }
         for stream in ["stdout", "stderr"] {
             if let Err(error) = create_empty(&directory.join(stream)) {
@@ -536,7 +535,7 @@ impl Jobs {
             signal_group(start.pid, rustix::process::Signal::KILL);
             let _ = child.wait().await;
             let _ = fs::remove_dir_all(&directory);
-            return Err(internal_io(error));
+            return Err(internal_io(&error));
         }
         let entry = Entry {
             start: start.clone(),
@@ -585,74 +584,60 @@ impl Jobs {
             let wait = child.wait();
             let status = if start.lifetime_ms == 0 {
                 wait.await.ok()
+            } else if let Ok(result) =
+                time::timeout(Duration::from_millis(start.lifetime_ms), wait).await
+            {
+                result.ok()
             } else {
-                match time::timeout(Duration::from_millis(start.lifetime_ms), wait).await {
-                    Ok(result) => result.ok(),
-                    Err(_) => {
-                        signal_group(start.pid, rustix::process::Signal::KILL);
-                        let stopped = time::timeout(STOP_BUDGET, async {
-                            if child.wait().await.is_err() {
-                                return false;
-                            }
-                            wait_group_empty(start.pid).await
-                        })
-                        .await
-                        .is_ok_and(|empty| empty);
-                        finish_output(out_task).await;
-                        finish_output(err_task).await;
-                        settle(
-                            state,
-                            &start.job_id,
-                            Settlement {
-                                state: if stopped {
-                                    JobState::TimedOut
-                                } else {
-                                    JobState::Lost
-                                },
-                                exit_code: None,
-                                signal: Some("SIGKILL".into()),
-                                lost_cause: (!stopped).then_some(LostCause::CancelUnproved as i32),
-                            },
-                        )
-                        .await;
-                        return;
+                signal_group(start.pid, rustix::process::Signal::KILL);
+                let stopped = time::timeout(STOP_BUDGET, async {
+                    if child.wait().await.is_err() {
+                        return false;
                     }
-                }
-            };
-            let (state_value, exit_code, signal, lost_cause) = match status {
-                Some(status) => {
-                    let group_empty = is_group_empty(start.pid);
-                    let proved = if group_empty {
-                        true
-                    } else {
-                        signal_group(start.pid, rustix::process::Signal::KILL);
-                        time::timeout(STOP_BUDGET, wait_group_empty(start.pid))
-                            .await
-                            .is_ok_and(|empty| empty)
-                    };
-                    if proved {
-                        if status.success() {
-                            (JobState::Succeeded, status.code(), None, None)
+                    wait_group_empty(start.pid).await
+                })
+                .await
+                .is_ok_and(|empty| empty);
+                finish_output(out_task).await;
+                finish_output(err_task).await;
+                settle(
+                    state,
+                    &start.job_id,
+                    Settlement {
+                        state: if stopped {
+                            JobState::TimedOut
                         } else {
-                            (
-                                JobState::Failed,
-                                status.code(),
-                                status.signal().map(signal_name),
-                                None,
-                            )
-                        }
+                            JobState::Lost
+                        },
+                        exit_code: None,
+                        signal: Some("SIGKILL".into()),
+                        lost_cause: (!stopped).then_some(LostCause::CancelUnproved as i32),
+                    },
+                )
+                .await;
+                return;
+            };
+            let (state_value, exit_code, signal, lost_cause) = if let Some(status) = status {
+                let proved = if is_group_empty(start.pid) {
+                    true
+                } else {
+                    signal_group(start.pid, rustix::process::Signal::KILL);
+                    time::timeout(STOP_BUDGET, wait_group_empty(start.pid))
+                        .await
+                        .is_ok_and(|empty| empty)
+                };
+                if proved {
+                    if status.success() {
+                        (JobState::Succeeded, status.code(), None, None)
                     } else {
                         (
-                            JobState::Lost,
+                            JobState::Failed,
+                            status.code(),
+                            status.signal().map(signal_name),
                             None,
-                            None,
-                            Some(LostCause::CancelUnproved as i32),
                         )
                     }
-                }
-                None => {
-                    signal_group(start.pid, rustix::process::Signal::KILL);
-                    let _ = time::timeout(STOP_BUDGET, wait_group_empty(start.pid)).await;
+                } else {
                     (
                         JobState::Lost,
                         None,
@@ -660,6 +645,15 @@ impl Jobs {
                         Some(LostCause::CancelUnproved as i32),
                     )
                 }
+            } else {
+                signal_group(start.pid, rustix::process::Signal::KILL);
+                let _ = time::timeout(STOP_BUDGET, wait_group_empty(start.pid)).await;
+                (
+                    JobState::Lost,
+                    None,
+                    None,
+                    Some(LostCause::CancelUnproved as i32),
+                )
             };
             finish_output(out_task).await;
             finish_output(err_task).await;
@@ -817,7 +811,7 @@ async fn delete_job(state: Arc<Mutex<State>>, id: String, owner: String) -> Resu
     if entry.status.is_none() {
         return Err(refusal::job_running());
     }
-    fs::remove_dir_all(&entry.directory).map_err(internal_io)?;
+    fs::remove_dir_all(&entry.directory).map_err(|error| internal_io(&error))?;
     state.entries.remove(&id);
     Ok(())
 }
@@ -887,7 +881,9 @@ fn write_json_atomic(path: &Path, value: &impl Serialize) -> std::io::Result<()>
     fs::rename(temporary, path)
 }
 fn create_empty(path: &Path) -> Result<(), Status> {
-    File::create(path).map(|_| ()).map_err(internal_io)
+    File::create(path)
+        .map(|_| ())
+        .map_err(|error| internal_io(&error))
 }
 fn file_len(path: &Path) -> u64 {
     fs::metadata(path).map_or(0, |metadata| metadata.len())
@@ -897,7 +893,7 @@ fn now_ms() -> u64 {
         .duration_since(UNIX_EPOCH)
         .map_or(0, |duration| duration.as_millis() as u64)
 }
-fn internal_io(error: std::io::Error) -> Status {
+fn internal_io(error: &std::io::Error) -> Status {
     Status::internal(error.to_string())
 }
 fn timestamp(milliseconds: u64) -> Timestamp {
