@@ -544,9 +544,12 @@ fn collect_ignores(
         }
     }
     let ordered = ancestors.into_iter().rev().collect::<Vec<_>>();
-    let repository = ordered.iter().rposition(|dir| dir.join(".git").exists());
+    let repository = ordered
+        .iter()
+        .rposition(|dir| dir.join(".git").exists())
+        .unwrap_or(0);
     for (index, dir) in ordered.iter().enumerate() {
-        if repository.is_some_and(|repository| index >= repository) {
+        if index >= repository {
             add_ignore_file(dir, ".gitignore", rules);
         }
         add_ignore_file(dir, ".ignore", rules);

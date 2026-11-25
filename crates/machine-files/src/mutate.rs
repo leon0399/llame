@@ -64,9 +64,9 @@ fn ambiguous_text(text: &str, positions: &[usize], old_len: usize) -> AmbiguousT
         .collect();
     let line_of = |offset: usize| {
         text.as_bytes()[..offset]
-            .iter()
-            .filter(|b| **b == b'\n')
+            .split(|byte| *byte == b'\n')
             .count()
+            - 1
     };
     let occurrences = positions
         .iter()

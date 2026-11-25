@@ -278,6 +278,7 @@ async fn mutations_apply_modes_once_and_report_exact_replacement_results() {
     assert!(
         matches!(ambiguous.result, Some(replace_text_response::Result::Failure(failure)) if failure.reason == FileFailureReason::TextAmbiguous as i32)
     );
+    std::fs::write(&file, "éé").unwrap();
     let unicode_ambiguous = client
         .replace_text(ReplaceTextRequest {
             request_id: "ambiguous-unicode".into(),
