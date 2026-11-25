@@ -7,6 +7,9 @@ use tonic::Status;
 pub type SearchStream = tokio_stream::wrappers::ReceiverStream<Result<SearchFilesResponse, Status>>;
 
 #[allow(clippy::unused_async)]
-pub async fn search(_context: &Context, _request: SearchFilesRequest) -> Result<SearchStream, Status> {
+pub async fn search(
+    _context: &Context,
+    _request: SearchFilesRequest,
+) -> Result<SearchStream, Status> {
     Err(Status::unimplemented("FileService.SearchFiles"))
 }

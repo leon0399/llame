@@ -2,7 +2,7 @@
 
 use machine_core::Context;
 use machine_protocol::v1::{
-    OpenSessionRequest, OpenSessionResponse, ListServersRequest, ListServersResponse,
+    ListServersRequest, ListServersResponse, OpenSessionRequest, OpenSessionResponse,
     mcp_service_server::{McpService, McpServiceServer},
 };
 use tonic::{Request, Response, Status, Streaming};
@@ -17,11 +17,18 @@ pub struct Mcp {
 
 #[tonic::async_trait]
 impl McpService for Mcp {
-    async fn list_servers(&self, _: Request<ListServersRequest>) -> Result<Response<ListServersResponse>, Status> {
+    async fn list_servers(
+        &self,
+        _: Request<ListServersRequest>,
+    ) -> Result<Response<ListServersResponse>, Status> {
         Err(Status::unimplemented("McpService.ListServers"))
     }
-    type OpenSessionStream = tokio_stream::wrappers::ReceiverStream<Result<OpenSessionResponse, Status>>;
-    async fn open_session(&self, _: Request<Streaming<OpenSessionRequest>>) -> Result<Response<Self::OpenSessionStream>, Status> {
+    type OpenSessionStream =
+        tokio_stream::wrappers::ReceiverStream<Result<OpenSessionResponse, Status>>;
+    async fn open_session(
+        &self,
+        _: Request<Streaming<OpenSessionRequest>>,
+    ) -> Result<Response<Self::OpenSessionStream>, Status> {
         Err(Status::unimplemented("McpService.OpenSession"))
     }
 }
