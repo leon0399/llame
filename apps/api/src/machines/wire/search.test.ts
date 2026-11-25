@@ -226,7 +226,13 @@ describe('wire fs.grep', () => {
   });
   it('round-trips byte offsets through bounded-search cursors', async () => {
     const { session, requests } = sessionFor([
-      [ended(SearchStop.BYTES, { path: 'large.txt', line: 12, byteOffset: 65_537n }, 1)],
+      [
+        ended(
+          SearchStop.BYTES,
+          { path: 'large.txt', line: 12, byteOffset: 65_537n },
+          1,
+        ),
+      ],
       [ended()],
     ]);
 
@@ -251,7 +257,6 @@ describe('wire fs.grep', () => {
   });
 
   it('reports a stopped point as unfinished and mints a resumable cursor', async () => {
-
     const { session } = sessionFor([
       [ended(SearchStop.FILES, { path: 'pending.txt', line: 0 }, 0)],
     ]);
