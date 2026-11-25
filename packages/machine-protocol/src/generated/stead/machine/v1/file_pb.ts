@@ -1230,10 +1230,11 @@ export const SearchStopSchema: GenEnum<SearchStop> = /*@__PURE__*/
  * two exact mutations. It renders nothing. Selectors, numbering, outlines, suggestions, and page
  * bounds belong to the installation, which composes them from these calls.
  *
+ * Every path is absolute. A path outside every root, or one that resolves outside, is refused with
  * PATH_NOT_REGISTERED in the same words whether or not it exists. A refusal happens before work
- * starts. Every call re-resolves its path after the effect. If a mutation starts and its result
- * cannot be proved, the response reports FILE_FAILURE_REASON_OUTCOME_UNKNOWN. Bounds are in bytes
- * and lines, never in characters.
+ * starts. Every call re-resolves its path after the effect. A read whose path moved is refused; a
+ * mutation whose path moved after it started reports FILE_FAILURE_REASON_OUTCOME_UNKNOWN. Bounds
+ * are in bytes and lines, never in characters.
  *
  * @generated from service stead.machine.v1.FileService
  */
