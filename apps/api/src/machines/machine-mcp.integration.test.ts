@@ -17,25 +17,30 @@ describe('MCP OpenSession on the local daemon', () => {
     const configDir = mkdtempSync(join(tmpdir(), 'llame-mcp-config-'));
     const stateDir = mkdtempSync(join(tmpdir(), 'llame-mcp-state-'));
     const root = realpathSync(mkdtempSync(join(tmpdir(), 'llame-mcp-root-')));
+
     const fixtureConfig = JSON.stringify({
       tools: [{ name: 'fixture_tool', description: 'A bridge fixture tool.', inputSchema: { type: 'object', properties: {} } }],
     });
+
     writeFileSync(join(root, '.mcp.json'), JSON.stringify({
       mcpServers: { fixture: { command: process.execPath, args: [FIXTURE], env: { MCP_FIXTURE: fixtureConfig } } },
     }));
     const daemonEnv = { ...process.env, LLAME_MACHINE_CONFIG_DIR: configDir, LLAME_MACHINE_STATE_DIR: stateDir };
     execFileSync(MACHINE_BINARY, ['roots', 'add', root], { env: daemonEnv, stdio: 'pipe' });
     const factory = createLocalChildTransportFactory({ command: MACHINE_BINARY, env: daemonEnv });
+
     const session = new MachineSession({
       name: 'mcp-test',
       transport: factory.open({ name: 'mcp-test' }),
       hubVersion: '0.0.0-mcp-integration-test',
       handshakeTimeoutMs: BUDGET_MS,
     });
+
     const connector = {
       machineSession: async () => session,
       releaseMachineSession: () => undefined,
     } as unknown as MachineConnector;
+
     const transport = new MachineTransport({
       connector,
       machine: 'mcp-test',
@@ -43,8 +48,9 @@ describe('MCP OpenSession on the local daemon', () => {
       server: 'fixture',
       envelope: { budgetMs: BUDGET_MS },
     });
-    const sent: JSONRPCMessage[] = [];
-    const received: JSONRPCMessage[] = [];
+
+    const sent: Array<JSONRPCMessage> = [];
+    const received: Array<JSONRPCMessage> = [];
     let onmessage: MachineTransport['onmessage'];
     Object.defineProperty(transport, 'onmessage', {
       configurable: true,
@@ -59,8 +65,10 @@ describe('MCP OpenSession on the local daemon', () => {
     const send = transport.send.bind(transport);
     transport.send = (message, options) => {
       sent.push(message);
+
       return send(message, options);
     };
+
     let client: MCPClient | undefined;
 
     try {
