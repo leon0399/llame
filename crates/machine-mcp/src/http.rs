@@ -222,7 +222,11 @@ async fn relay_request(state: RelayState, text: String) -> Result<(), String> {
     };
     if !response.status().is_success() {
         let status = response.status();
-        if request_id.is_none() && request_method.is_some() {
+        if request_id.is_none()
+            && request_method
+                .as_deref()
+                .is_some_and(|method| method != "notifications/initialized")
+        {
             return Ok(());
         }
         if status_is_call_level(status, established, request_method.as_deref()) {
@@ -695,7 +699,7 @@ mod tests {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = listener.local_addr().unwrap();
         let fixture = tokio::spawn(async move {
-            for status in [429, 429, 500, 410, 404, 404, 500] {
+            for status in [429, 500, 429, 500, 410, 404, 404, 500] {
                 let (socket, _) = listener.accept().await.unwrap();
                 let mut reader = BufReader::new(socket);
                 let mut content_length = 0;
@@ -740,6 +744,10 @@ mod tests {
                 true,
             ),
             (
+                r#"{"jsonrpc":"2.0","method":"notifications/initialized"}"#,
+                false,
+            ),
+            (
                 r#"{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{}}"#,
                 true,
             ),
@@ -762,7 +770,7 @@ mod tests {
             (r#"{"jsonrpc":"2.0","id":6,"method":"tools/list"}"#, false),
         ];
         for (index, (request, succeeds)) in requests.into_iter().enumerate() {
-            if index == 5 {
+            if index == 6 {
                 *state.session_id.lock().await = Some("session".to_owned());
             }
             let result = relay_request(state.clone(), request.to_owned()).await;
