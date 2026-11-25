@@ -253,8 +253,11 @@ fn resolve_entry(name: String, entry: &Value, root: &Path) -> Configured {
             return unavailable(&name, "command must be a non-empty string".to_owned());
         };
         let mut protected = Vec::new();
-        let Some(command) = interpolate(command, root, &mut protected) else {
-            return unavailable(&name, "command interpolation failed".to_owned());
+        let command = match interpolate(command, root, &mut protected, false, false) {
+            Ok(value) => value,
+            Err(error) => {
+                return unavailable(&name, format!("command interpolation failed: {error}"));
+            }
         };
         let mut args = Vec::new();
         if let Some(raw) = object.get("args") {
@@ -265,8 +268,11 @@ fn resolve_entry(name: String, entry: &Value, root: &Path) -> Configured {
                 let Some(value) = value.as_str() else {
                     return unavailable(&name, "args must be an array of strings".to_owned());
                 };
-                let Some(value) = interpolate(value, root, &mut protected) else {
-                    return unavailable(&name, "args interpolation failed".to_owned());
+                let value = match interpolate(value, root, &mut protected, false, false) {
+                    Ok(value) => value,
+                    Err(error) => {
+                        return unavailable(&name, format!("args interpolation failed: {error}"));
+                    }
                 };
                 args.push(value);
             }
@@ -280,18 +286,28 @@ fn resolve_entry(name: String, entry: &Value, root: &Path) -> Configured {
                 let Some(value) = value.as_str() else {
                     return unavailable(&name, format!("env.{key} must be a string"));
                 };
-                let Some(value) = interpolate(value, root, &mut protected) else {
-                    return unavailable(&name, format!("env.{key} interpolation failed"));
+                let value = match interpolate(value, root, &mut protected, false, false) {
+                    Ok(value) => value,
+                    Err(error) => {
+                        return unavailable(
+                            &name,
+                            format!("env.{key} interpolation failed: {error}"),
+                        );
+                    }
                 };
                 child_env.insert(key.clone(), value);
             }
         }
         let cwd = match object.get("cwd") {
             None => root.to_path_buf(),
-            Some(Value::String(value)) => match interpolate(value, root, &mut protected) {
-                Some(value) => resolve_path(root, &value),
-                None => return unavailable(&name, "cwd interpolation failed".to_owned()),
-            },
+            Some(Value::String(value)) => {
+                match interpolate(value, root, &mut protected, false, true) {
+                    Ok(value) => resolve_path(root, &value),
+                    Err(error) => {
+                        return unavailable(&name, format!("cwd interpolation failed: {error}"));
+                    }
+                }
+            }
             _ => return unavailable(&name, "cwd must be a string".to_owned()),
         };
         return Configured {
@@ -320,8 +336,9 @@ fn resolve_entry(name: String, entry: &Value, root: &Path) -> Configured {
             return unavailable(&name, "url must be a non-empty string".to_owned());
         };
         let mut protected = Vec::new();
-        let Some(url) = interpolate(raw_url, root, &mut protected) else {
-            return unavailable(&name, "url interpolation failed".to_owned());
+        let url = match interpolate(raw_url, root, &mut protected, false, true) {
+            Ok(value) => value,
+            Err(error) => return unavailable(&name, format!("url interpolation failed: {error}")),
         };
         let Ok(parsed_url) = reqwest::Url::parse(&url) else {
             return unavailable(
@@ -371,8 +388,11 @@ fn resolve_entry(name: String, entry: &Value, root: &Path) -> Configured {
                 let Some(raw_value) = value.as_str() else {
                     return unavailable(&name, format!("header {key} must be a string"));
                 };
-                let Some(value) = interpolate(raw_value, root, &mut protected) else {
-                    return unavailable(&name, "header interpolation failed".to_owned());
+                let value = match interpolate(raw_value, root, &mut protected, true, false) {
+                    Ok(value) => value,
+                    Err(error) => {
+                        return unavailable(&name, format!("header interpolation failed: {error}"));
+                    }
                 };
                 if value.trim().is_empty() {
                     return unavailable(&name, format!("header {key} must be non-empty"));
@@ -404,7 +424,13 @@ fn resolve_entry(name: String, entry: &Value, root: &Path) -> Configured {
     )
 }
 
-fn interpolate(input: &str, root: &Path, protected: &mut Vec<String>) -> Option<String> {
+fn interpolate(
+    input: &str,
+    root: &Path,
+    protected: &mut Vec<String>,
+    trim_protected: bool,
+    protect_fallbacks: bool,
+) -> Result<String, String> {
     let mut output = String::new();
     let mut index = 0;
     while index < input.len() {
@@ -413,7 +439,10 @@ fn interpolate(input: &str, root: &Path, protected: &mut Vec<String>) -> Option<
         let env_prefix = rest.starts_with("{env:");
         let path_prefix = rest.starts_with("{path:");
         if !dollar && !env_prefix && !path_prefix {
-            let character = rest.chars().next()?;
+            let character = rest
+                .chars()
+                .next()
+                .ok_or_else(|| "invalid interpolation position".to_owned())?;
             output.push(character);
             index += character.len_utf8();
             continue;
@@ -430,10 +459,9 @@ fn interpolate(input: &str, root: &Path, protected: &mut Vec<String>) -> Option<
             break;
         };
         let body = &rest[prefix..prefix + relative_end];
-        let mut protect = false;
-        let value = if path_prefix {
+        let (value, protect) = if path_prefix {
             if body.is_empty() {
-                return None;
+                return Err("empty file location".to_owned());
             }
             let location = Path::new(body);
             let path = if location.is_absolute() {
@@ -441,8 +469,11 @@ fn interpolate(input: &str, root: &Path, protected: &mut Vec<String>) -> Option<
             } else {
                 root.join(location)
             };
-            protect = true;
-            std::fs::read_to_string(path).ok()?.trim().to_owned()
+            let value = std::fs::read_to_string(path)
+                .map_err(|_| format!("could not read {body}"))?
+                .trim()
+                .to_owned();
+            (value, true)
         } else {
             let (name, fallback) = if let Some((name, fallback)) = body.split_once(":-") {
                 (name, Some(fallback))
@@ -459,22 +490,28 @@ fn interpolate(input: &str, root: &Path, protected: &mut Vec<String>) -> Option<
                 continue;
             }
             match env::var(name) {
-                Ok(value) if !value.is_empty() || fallback.is_none() => {
-                    protect = true;
-                    value
-                }
-                Ok(_) | Err(_) => fallback?.to_owned(),
+                Ok(value) if !value.is_empty() || fallback.is_none() => (value, true),
+                Ok(_) | Err(_) => match fallback {
+                    Some(value) => (value.to_owned(), protect_fallbacks),
+                    None => return Err(format!("variable {name} is not set")),
+                },
             }
         };
-        if protect && !value.is_empty() && !protected.contains(&value) {
-            protected.push(value.clone());
+        if protect {
+            register_protected(&value, protected, trim_protected);
         }
         output.push_str(&value);
         index += prefix + relative_end + 1;
     }
-    Some(output)
+    Ok(output)
 }
 
+fn register_protected(value: &str, protected: &mut Vec<String>, trim: bool) {
+    let value = if trim { value.trim() } else { value };
+    if !value.is_empty() && !protected.iter().any(|item| item == value) {
+        protected.push(value.to_owned());
+    }
+}
 fn resolve_path(root: &Path, path: &str) -> PathBuf {
     let path = Path::new(path);
     if path.is_absolute() {
@@ -482,6 +519,22 @@ fn resolve_path(root: &Path, path: &str) -> PathBuf {
     } else {
         root.join(path)
     }
+}
+
+fn base_child_environment(
+    values: impl IntoIterator<Item = (String, String)>,
+) -> BTreeMap<String, String> {
+    let mut child_env = BTreeMap::new();
+    for (key, value) in values {
+        if matches!(
+            key.as_str(),
+            "HOME" | "LOGNAME" | "PATH" | "SHELL" | "TERM" | "USER"
+        ) && !value.starts_with("()")
+        {
+            child_env.insert(key, value);
+        }
+    }
+    child_env
 }
 
 #[allow(clippy::too_many_arguments, clippy::too_many_lines)]
@@ -494,15 +547,7 @@ async fn run_stdio(
     declared_env: BTreeMap<String, String>,
     protected: Vec<String>,
 ) {
-    let mut child_env = BTreeMap::new();
-    for key in [
-        "PATH", "HOME", "USER", "LOGNAME", "SHELL", "TERM", "LANG", "LC_ALL", "TMPDIR", "TMP",
-        "TEMP",
-    ] {
-        if let Ok(value) = env::var(key) {
-            child_env.insert(key.to_owned(), value);
-        }
-    }
+    let mut child_env = base_child_environment(env::vars());
     child_env.extend(declared_env);
     let mut child = match start_child(&command, &args, &cwd, &child_env) {
         Ok(child) => child,
@@ -546,17 +591,39 @@ async fn run_stdio(
         return;
     };
     let out_tx = tx.clone();
+    let child_pid = child.id();
     let stdout_task = tokio::spawn(async move {
         let mut reader = BufReader::new(stdout);
-        while let Ok(Some(line)) = read_bounded_line(&mut reader, MAX_MESSAGE_BYTES).await {
+        loop {
+            let line = match read_bounded_line(&mut reader, MAX_MESSAGE_BYTES).await {
+                Ok(Some(line)) => line,
+                Ok(None) => break,
+                Err(error) => {
+                    let _ = out_tx
+                        .send(Ok(failure(
+                            McpFailureReason::Unavailable,
+                            error.to_string(),
+                        )))
+                        .await;
+                    kill_group(child_pid).await;
+                    return;
+                }
+            };
             let text = String::from_utf8_lossy(&line)
                 .trim_end_matches(['\r', '\n'])
                 .to_owned();
-            if let Ok(value) = serde_json::from_str::<Value>(&text) {
-                let message = serde_json::to_string(&value).unwrap_or_default();
-                if out_tx.send(Ok(message_response(message))).await.is_err() {
-                    break;
-                }
+            let Ok(message) = parse_stdio_message(&text) else {
+                let _ = out_tx
+                    .send(Ok(failure(
+                        McpFailureReason::Unavailable,
+                        "the server sent malformed JSON".to_owned(),
+                    )))
+                    .await;
+                kill_group(child_pid).await;
+                return;
+            };
+            if out_tx.send(Ok(message_response(message))).await.is_err() {
+                return;
             }
         }
         let _ = out_tx
@@ -729,6 +796,11 @@ fn redact(input: &str, protected: &[String]) -> String {
     })
 }
 
+fn parse_stdio_message(text: &str) -> Result<String, serde_json::Error> {
+    let value: Value = serde_json::from_str(text)?;
+    serde_json::to_string(&value)
+}
+
 const fn message_response(message: String) -> OpenSessionResponse {
     OpenSessionResponse {
         message: Some(machine_protocol::v1::open_session_response::Message::JsonRpc(message)),
@@ -751,14 +823,87 @@ mod tests {
 
     #[test]
     fn interpolation_supports_dollar_fallbacks() {
+        let mut protected = Vec::new();
         assert_eq!(
             interpolate(
                 "${MCP_TEST_UNSET_7F4C:-fallback}",
                 Path::new("."),
-                &mut Vec::new()
+                &mut protected,
+                false,
+                false
             )
             .as_deref(),
-            Some("fallback")
+            Ok("fallback")
+        );
+        assert!(protected.is_empty());
+    }
+
+    #[test]
+    fn interpolation_reports_unset_variable_and_unreadable_file() {
+        let root = tempfile::tempdir().unwrap();
+        assert!(
+            interpolate(
+                "${MCP_TEST_UNSET_DIAGNOSTIC_7F4C}",
+                root.path(),
+                &mut Vec::new(),
+                false,
+                false
+            )
+            .unwrap_err()
+            .contains("MCP_TEST_UNSET_DIAGNOSTIC_7F4C")
+        );
+        assert!(
+            interpolate(
+                "{path:missing-location-7f4c}",
+                root.path(),
+                &mut Vec::new(),
+                false,
+                false
+            )
+            .unwrap_err()
+            .contains("missing-location-7f4c")
+        );
+    }
+
+    #[test]
+    fn header_substitutions_register_the_trimmed_value() {
+        let mut protected = Vec::new();
+        register_protected("  padded-token-7f4c  ", &mut protected, true);
+        assert_eq!(protected, ["padded-token-7f4c"]);
+
+        let mut url_protected = Vec::new();
+        interpolate(
+            "http://localhost/${MCP_TEST_URL_DEFAULT_7F4C:-url-default-7f4c}",
+            Path::new("."),
+            &mut url_protected,
+            false,
+            true,
+        )
+        .unwrap();
+        assert!(url_protected.contains(&"url-default-7f4c".to_owned()));
+    }
+
+    #[test]
+    fn base_environment_is_allowlisted_and_skips_shell_functions() {
+        let child_env = base_child_environment([
+            ("HOME".to_owned(), "/home/test".to_owned()),
+            ("PATH".to_owned(), "() { bad; }".to_owned()),
+            ("LANG".to_owned(), "en_US.UTF-8".to_owned()),
+            ("TMPDIR".to_owned(), "/tmp".to_owned()),
+        ]);
+        assert_eq!(child_env.len(), 1);
+        assert_eq!(
+            child_env.get("HOME").map(String::as_str),
+            Some("/home/test")
+        );
+    }
+
+    #[test]
+    fn malformed_stdio_json_is_rejected() {
+        assert!(parse_stdio_message("not json").is_err());
+        assert_eq!(
+            parse_stdio_message("{\"jsonrpc\":\"2.0\"}").unwrap(),
+            "{\"jsonrpc\":\"2.0\"}"
         );
     }
 

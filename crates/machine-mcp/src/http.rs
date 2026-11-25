@@ -143,6 +143,10 @@ pub async fn run_http(
 }
 
 async fn relay_request(state: RelayState, text: String) -> Result<(), String> {
+    let request_id = serde_json::from_str::<Value>(&text)
+        .ok()
+        .and_then(|request| request.get("id").cloned())
+        .unwrap_or(Value::Null);
     let mut request = state
         .client
         .post(&state.url)
@@ -164,35 +168,15 @@ async fn relay_request(state: RelayState, text: String) -> Result<(), String> {
         () = state.tx.closed() => return Ok(()),
         response = request.send() => response.map_err(|error| error.to_string())?,
     };
-    if let Some(id) = response
-        .headers()
-        .get("mcp-session-id")
-        .and_then(|value| value.to_str().ok())
-        .filter(|id| !id.is_empty())
-    {
-        let mut current = state.session_id.lock().await;
-        if current.as_deref() != Some(id) {
-            *current = Some(id.to_owned());
-            let mut values = state.protected_values.lock().await;
-            if !values.iter().any(|value| value == id) {
-                values.push(id.to_owned());
-            }
-            if state
-                .tx
-                .send(Ok(OpenSessionResponse {
-                    message: Some(ResponseMessage::Secrets(Secrets {
-                        values: vec![id.to_owned()],
-                    })),
-                }))
-                .await
-                .is_err()
-            {
-                return Err("MCP stream closed".to_owned());
-            }
-        }
-    }
+    capture_session_id(&state, &response).await?;
     if !response.status().is_success() {
-        return Err(format!("HTTP MCP server returned {}", response.status()));
+        let status = response.status();
+        let established = state.session_id.lock().await.is_some();
+        if status_is_call_level(status, established) {
+            send_call_error(&state.tx, request_id, status).await?;
+            return Ok(());
+        }
+        return Err(format!("HTTP MCP server returned {status}"));
     }
     let is_sse = response
         .headers()
@@ -216,6 +200,57 @@ async fn relay_request(state: RelayState, text: String) -> Result<(), String> {
             }
         } => result,
     }
+}
+
+async fn send_call_error(
+    tx: &mpsc::Sender<Result<OpenSessionResponse, Status>>,
+    id: Value,
+    status: reqwest::StatusCode,
+) -> Result<(), String> {
+    let message = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": id,
+        "error": {
+            "code": -32000,
+            "message": format!("HTTP MCP server returned {status}")
+        }
+    });
+    let message = serde_json::to_string(&message).map_err(|error| error.to_string())?;
+    tx.send(Ok(message_response(message)))
+        .await
+        .map_err(|_| "MCP stream closed".to_owned())
+}
+
+async fn capture_session_id(
+    state: &RelayState,
+    response: &reqwest::Response,
+) -> Result<(), String> {
+    let Some(id) = response
+        .headers()
+        .get("mcp-session-id")
+        .and_then(|value| value.to_str().ok())
+        .filter(|id| !id.is_empty())
+    else {
+        return Ok(());
+    };
+    let mut current = state.session_id.lock().await;
+    if current.as_deref() != Some(id) {
+        *current = Some(id.to_owned());
+        let mut values = state.protected_values.lock().await;
+        if !values.iter().any(|value| value == id) {
+            values.push(id.to_owned());
+        }
+        state
+            .tx
+            .send(Ok(OpenSessionResponse {
+                message: Some(ResponseMessage::Secrets(Secrets {
+                    values: vec![id.to_owned()],
+                })),
+            }))
+            .await
+            .map_err(|_| "MCP stream closed".to_owned())?;
+    }
+    Ok(())
 }
 
 async fn forward_json(
@@ -248,6 +283,7 @@ async fn forward_sse(
     let mut stream = response.bytes_stream();
     let mut line = Vec::new();
     let mut data = Vec::new();
+    let mut event = Vec::new();
     let mut event_bytes = 0_usize;
     let mut previous_was_cr = false;
     while let Some(chunk) = stream.next().await {
@@ -264,17 +300,10 @@ async fn forward_sse(
                 previous_was_cr = byte == b'\r';
                 if line.is_empty() {
                     if !data.is_empty() {
-                        let payload =
-                            std::str::from_utf8(&data).map_err(|error| error.to_string())?;
-                        let value: Value =
-                            serde_json::from_str(payload).map_err(|error| error.to_string())?;
-                        let message =
-                            serde_json::to_string(&value).map_err(|error| error.to_string())?;
-                        tx.send(Ok(message_response(message)))
-                            .await
-                            .map_err(|_| "MCP stream closed".to_owned())?;
-                        data.clear();
+                        dispatch_sse_event(&event, &data, tx).await?;
                     }
+                    data.clear();
+                    event.clear();
                     event_bytes = 0;
                 } else {
                     if let Some(value) = line.strip_prefix(b"data:") {
@@ -283,6 +312,10 @@ async fn forward_sse(
                             data.push(b'\n');
                         }
                         data.extend_from_slice(value);
+                    } else if let Some(value) = line.strip_prefix(b"event:") {
+                        let value = value.strip_prefix(b" ").unwrap_or(value);
+                        event.clear();
+                        event.extend_from_slice(value);
                     }
                     line.clear();
                 }
@@ -293,4 +326,76 @@ async fn forward_sse(
         }
     }
     Ok(())
+}
+fn should_forward_sse_event(event: &[u8]) -> bool {
+    event.is_empty() || event == b"message"
+}
+
+async fn dispatch_sse_event(
+    event: &[u8],
+    data: &[u8],
+    tx: &mpsc::Sender<Result<OpenSessionResponse, Status>>,
+) -> Result<(), String> {
+    if !should_forward_sse_event(event) {
+        return Ok(());
+    }
+    let payload = std::str::from_utf8(data).map_err(|error| error.to_string())?;
+    let value: Value = serde_json::from_str(payload).map_err(|error| error.to_string())?;
+    let message = serde_json::to_string(&value).map_err(|error| error.to_string())?;
+    tx.send(Ok(message_response(message)))
+        .await
+        .map_err(|_| "MCP stream closed".to_owned())
+}
+
+fn status_is_call_level(status: reqwest::StatusCode, established: bool) -> bool {
+    status != reqwest::StatusCode::UNAUTHORIZED
+        && status != reqwest::StatusCode::FORBIDDEN
+        && !(status == reqwest::StatusCode::NOT_FOUND && established)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn only_message_or_untyped_sse_events_are_forwarded() {
+        assert!(should_forward_sse_event(b""));
+        assert!(should_forward_sse_event(b"message"));
+        assert!(!should_forward_sse_event(b"ping"));
+    }
+
+    #[tokio::test]
+    async fn sse_ping_payload_is_ignored_before_valid_message() {
+        let (tx, mut rx) = mpsc::channel(4);
+        dispatch_sse_event(b"ping", b"not-json", &tx).await.unwrap();
+        assert!(rx.try_recv().is_err());
+        dispatch_sse_event(b"message", br#"{"jsonrpc":"2.0","id":1}"#, &tx)
+            .await
+            .unwrap();
+        let response = rx.try_recv().unwrap().unwrap();
+        assert!(matches!(
+            response.message.as_ref(),
+            Some(ResponseMessage::JsonRpc(text)) if text.contains("\"id\":1")
+        ));
+    }
+
+    #[test]
+    fn call_level_http_statuses_do_not_withdraw_a_session() {
+        assert!(status_is_call_level(
+            reqwest::StatusCode::TOO_MANY_REQUESTS,
+            true
+        ));
+        assert!(status_is_call_level(
+            reqwest::StatusCode::INTERNAL_SERVER_ERROR,
+            true
+        ));
+        assert!(status_is_call_level(reqwest::StatusCode::GONE, true));
+        assert!(!status_is_call_level(
+            reqwest::StatusCode::UNAUTHORIZED,
+            true
+        ));
+        assert!(!status_is_call_level(reqwest::StatusCode::FORBIDDEN, true));
+        assert!(!status_is_call_level(reqwest::StatusCode::NOT_FOUND, true));
+        assert!(status_is_call_level(reqwest::StatusCode::NOT_FOUND, false));
+    }
 }
