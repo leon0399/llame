@@ -63,25 +63,23 @@ function createSettlementSignals(
     setTimeout(() => resolve('time'), waitMs),
   );
 
-  const move =
-    moveSignal === undefined
-      ? new Promise<never>(() => undefined)
-      : new Promise<'message'>((resolve) =>
-          moveSignal.addEventListener('abort', () => resolve('message'), {
-            once: true,
-          }),
-        );
-
-  const cancel =
-    abortSignal === undefined
-      ? new Promise<never>(() => undefined)
-      : new Promise<'cancelled'>((resolve) =>
-          abortSignal.addEventListener('abort', () => resolve('cancelled'), {
-            once: true,
-          }),
-        );
+  const move = abortOnSignal(moveSignal, 'message');
+  const cancel = abortOnSignal(abortSignal, 'cancelled');
 
   return { timer, move, cancel };
+}
+
+function abortOnSignal<T extends 'message' | 'cancelled'>(
+  signal: AbortSignal | undefined,
+  outcome: T,
+): Promise<T> | Promise<never> {
+  if (signal === undefined) return new Promise<never>(() => undefined);
+
+  if (signal.aborted) return Promise.resolve(outcome);
+
+  return new Promise<T>((resolve) =>
+    signal.addEventListener('abort', () => resolve(outcome), { once: true }),
+  );
 }
 
 async function watchForSettledJob(input: {
@@ -92,6 +90,7 @@ async function watchForSettledJob(input: {
   signal: AbortSignal;
 }): Promise<Job> {
   const { client, callOptions, jobId, waitMs, signal } = input;
+
   for await (const response of client.watchJobs(
     {},
     callOptions({ signal, budgetMs: waitMs }),
