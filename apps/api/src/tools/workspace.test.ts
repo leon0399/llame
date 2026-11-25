@@ -627,7 +627,7 @@ describe('Workspace host tools', () => {
     controller.abort();
     probe.resolve(root);
 
-    await expect(resultPromise).rejects.toThrow(/was cancelled/u);
+    await expect(resultPromise).rejects.toMatchObject({ name: 'AbortError' });
     expect(enter).not.toHaveBeenCalled();
     cell.beginStep();
     expect(cell.current()).toBeUndefined();
