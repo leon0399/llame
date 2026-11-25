@@ -53,11 +53,11 @@ master <- rust-machine-daemon/proposal <- rust-machine-daemon/skeleton
 
 ## 3. Files (`rust-machine-daemon/files`)
 
-- [ ] 3.1 Implement `FileService.Stat`, `List`, `Read`, and `ReadBytes`; verify
+- [x] 3.1 Implement `FileService.Stat`, `List`, `Read`, and `ReadBytes`; verify
       `cargo test -p llame-machine --test files_read`.
-- [ ] 3.2 Implement `FileService.Edit` and `Write` with idempotency keys; verify
+- [x] 3.2 Implement `FileService.Edit` and `Write` with idempotency keys; verify
       `cargo test -p llame-machine --test files_mutate`.
-- [ ] 3.3 Implement `FileService.Grep`; verify `cargo test -p llame-machine --test grep`.
+- [x] 3.3 Implement `FileService.Grep`; verify `cargo test -p llame-machine --test grep`.
 
 ## 4. Jobs (`rust-machine-daemon/jobs`)
 
