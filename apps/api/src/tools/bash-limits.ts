@@ -45,15 +45,6 @@ export function messageMoveWindow(
   return isMessageMoveWindow(reason) ? reason : undefined;
 }
 
-/** Remaining monotonic time in the shared move/receipt window. */
-export function settlementGraceMs(deadlineAt: number | undefined): number {
-  return deadlineAt === undefined
-    ? BASH_SETTLEMENT_GRACE_MS
-    : Math.max(
-        0,
-        Math.min(BASH_SETTLEMENT_GRACE_MS, deadlineAt - performance.now()),
-      );
-}
 
 /** The foreground bound: the lesser of the operator bound and the call timeout. */
 export function foregroundBoundMs(

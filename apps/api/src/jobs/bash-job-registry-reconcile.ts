@@ -41,14 +41,7 @@ export async function observeDaemonJob(deps: {
     row: ChatJob,
   ) => Promise<void>;
 }): Promise<void> {
-  const {
-    tenantDb,
-    instanceId,
-    client,
-    callOptions,
-    daemonJob,
-    foregroundJobs,
-  } = deps;
+  const { tenantDb, instanceId, client, callOptions, daemonJob } = deps;
 
   const observed = await resolveObservedJob(tenantDb, daemonJob, instanceId);
 
@@ -58,8 +51,10 @@ export async function observeDaemonJob(deps: {
   if (await cancelIfRequested(row, job, client, callOptions)) return;
 
   if (job.state === JobState.RUNNING) return;
+
   return settleObservedJob(deps, row, job);
 }
+
 async function settleObservedJob(
   deps: {
     client: JobsClient;
@@ -211,6 +206,7 @@ async function findRunningOnMachine(
 ): Promise<ChatJob | undefined> {
   const { client, callOptions, instanceId } =
     await deps.connector.jobsClient(name);
+
   const list = await client.listJobs({}, callOptions());
 
   for (const job of list.jobs) {

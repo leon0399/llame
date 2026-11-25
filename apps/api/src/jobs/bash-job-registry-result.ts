@@ -49,6 +49,7 @@ export async function readBashJobResult(deps: {
 
   const { row, job, credentials } = deps;
   const { stdout, stderr, stdoutTruncated, stderrTruncated } = streams;
+
   const sanitized = sanitizeKnownResultAtBound(
     resultFromJob(job, stdout, stderr),
     { kind: 'code-units', limit: BASH_BOUNDS.outputBound },
@@ -58,6 +59,7 @@ export async function readBashJobResult(deps: {
       stderr: { endedByLlame: stderrTruncated },
     },
   );
+
   const output: ManagedOutput = {
     stdout: sanitized.stdout,
     stderr: sanitized.stderr,
@@ -82,35 +84,10 @@ async function readJobStreams(input: {
   job: Job;
   credentials: ReadonlyArray<string>;
 }): Promise<JobStreams> {
-  const { config, client, callOptions, row, job, credentials } = input;
-  let stdout = '';
-  let stderr = '';
-  let stdoutTruncated = job.stdout?.truncated === true;
-  let stderrTruncated = job.stderr?.truncated === true;
+  const { row, job, credentials } = input;
 
   try {
-    const stdoutOutput = await readOutput({
-      config,
-      client,
-      callOptions,
-      row,
-      stream: OutputStream.STDOUT,
-    });
-    const stderrOutput = await readOutput({
-      config,
-      client,
-      callOptions,
-      row,
-      stream: OutputStream.STDERR,
-    });
-    stdout = stdoutOutput.text;
-    stderr = stderrOutput.text;
-    stdoutTruncated ||=
-      stdoutOutput.truncated ||
-      BigInt(Buffer.byteLength(stdout)) < (job.stdout?.bytes ?? 0n);
-    stderrTruncated ||=
-      stderrOutput.truncated ||
-      BigInt(Buffer.byteLength(stderr)) < (job.stderr?.bytes ?? 0n);
+    return { kind: 'complete', ...(await readOutputStreams(input)) };
   } catch (error) {
     const refusal = mapMachineRefusal(row.machineName, error, true);
 
@@ -132,8 +109,48 @@ async function readJobStreams(input: {
       ),
     };
   }
+}
 
-  return { kind: 'complete', stdout, stderr, stdoutTruncated, stderrTruncated };
+async function readOutputStreams(input: {
+  config: InstanceConfigReader;
+  client: JobsClient;
+  callOptions: JobsCallOptions;
+  row: ChatJob;
+  job: Job;
+}) {
+  const { config, client, callOptions, row, job } = input;
+
+  const stdoutOutput = await readOutput({
+    config,
+    client,
+    callOptions,
+    row,
+    stream: OutputStream.STDOUT,
+  });
+
+  const stderrOutput = await readOutput({
+    config,
+    client,
+    callOptions,
+    row,
+    stream: OutputStream.STDERR,
+  });
+
+  const stdout = stdoutOutput.text;
+  const stderr = stderrOutput.text;
+
+  return {
+    stdout,
+    stderr,
+    stdoutTruncated:
+      job.stdout?.truncated === true ||
+      stdoutOutput.truncated ||
+      BigInt(Buffer.byteLength(stdout)) < (job.stdout?.bytes ?? 0n),
+    stderrTruncated:
+      job.stderr?.truncated === true ||
+      stderrOutput.truncated ||
+      BigInt(Buffer.byteLength(stderr)) < (job.stderr?.bytes ?? 0n),
+  };
 }
 
 function unknownResult(row: ChatJob, job: Job): ProcBashResult {
