@@ -287,7 +287,9 @@ fn run_search(
             }
             let remaining = byte_limit.saturating_sub(bytes.saturating_add(content.len() as u64));
             if remaining == 0 {
-                byte_stopped = true;
+                if (content.len() as u64) < metadata.len() {
+                    byte_stopped = true;
+                }
                 break;
             }
             let read_limit = chunk
