@@ -20,7 +20,9 @@ export type Handler<M extends MachineMethod = MachineMethod> = (
   options?: MachineRequestOptions,
 ) => Promise<MachineMethodResults[M]>;
 
-const handlers: Partial<{ [M in MachineMethod]: Handler<M> }> = {
+type WireHandlers = Partial<{ [M in MachineMethod]: Handler<M> }>;
+
+const handlers: WireHandlers = {
   ...filesHandlers,
   ...searchHandlers,
   ...gitHandlers,

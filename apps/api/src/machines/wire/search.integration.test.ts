@@ -24,16 +24,28 @@ describe('wire fs.grep with the real daemon', () => {
     writeFileSync(join(root, 'a.txt'), `needle ${'a'.repeat(300)}\n`);
     writeFileSync(join(root, 'b.txt'), 'needle second\n');
     execFileSync(MACHINE_BINARY, ['roots', 'add', root], {
-      env: { ...process.env, LLAME_MACHINE_CONFIG_DIR: configDir, LLAME_MACHINE_STATE_DIR: stateDir },
+      env: {
+        ...process.env,
+        LLAME_MACHINE_CONFIG_DIR: configDir,
+        LLAME_MACHINE_STATE_DIR: stateDir,
+      },
       stdio: 'pipe',
     });
 
     const factory = createLocalChildTransportFactory({
       command: MACHINE_BINARY,
-      env: { ...process.env, LLAME_MACHINE_CONFIG_DIR: configDir, LLAME_MACHINE_STATE_DIR: stateDir },
+      env: {
+        ...process.env,
+        LLAME_MACHINE_CONFIG_DIR: configDir,
+        LLAME_MACHINE_STATE_DIR: stateDir,
+      },
     });
 
-    session = new MachineSession({ name: NAME, transport: factory.open({ name: NAME }), hubVersion: HUB_VERSION });
+    session = new MachineSession({
+      name: NAME,
+      transport: factory.open({ name: NAME }),
+      hubVersion: HUB_VERSION,
+    });
   });
 
   afterAll(() => {
@@ -53,17 +65,37 @@ describe('wire fs.grep with the real daemon', () => {
       patterns: ['needle'],
       literal: true,
       ignoreCase: false,
-      bounds: { files: null, entries: null, bytes: null, fileBytes: null, deadlineMs: 60_000, limit: 100, pageUnits: 180, progressed: false },
+      bounds: {
+        files: null,
+        entries: null,
+        bytes: null,
+        fileBytes: null,
+        deadlineMs: 60_000,
+        limit: 100,
+        pageUnits: 180,
+        progressed: false,
+      },
     };
 
     const first = await session.call('fs.grep', params);
 
-    if (!('ok' in first) || !first.ok || first.cursor === undefined) throw new Error(`First grep page did not continue: ${JSON.stringify(first)}`);
+    if (!('ok' in first) || !first.ok || first.cursor === undefined)
+      throw new Error(
+        `First grep page did not continue: ${JSON.stringify(first)}`,
+      );
     expect(first.complete).toBe(false);
     expect(first.results).toHaveLength(1);
     expect(first.results[0]).toMatchObject({ path: 'a.txt', cut: true });
 
-    const second = await session.call('fs.grep', { ...params, cursor: first.cursor });
-    expect(second).toMatchObject({ ok: true, complete: true, results: [{ path: 'b.txt' }] });
+    const second = await session.call('fs.grep', {
+      ...params,
+      cursor: first.cursor,
+    });
+
+    expect(second).toMatchObject({
+      ok: true,
+      complete: true,
+      results: [{ path: 'b.txt' }],
+    });
   });
 });

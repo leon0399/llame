@@ -754,6 +754,4 @@ function renderPage(
       continue;
     into.push(keptPassage(passage, locator));
   }
-
-  return undefined;
 }

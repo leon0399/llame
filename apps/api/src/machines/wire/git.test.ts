@@ -1,24 +1,52 @@
 import { describe, expect, it, vi } from 'vitest';
+import { PassThrough } from 'node:stream';
 import {
   EntryKind,
   GitFailureReason,
   OperationKind,
   SubmoduleMode,
 } from '@workspace/machine-protocol';
-import type { MachineSession } from '../machine-session';
+import { MachineSession } from '../machine-session';
 import { gitHandlers } from './git';
 
+type GitClientStubs = Partial<
+  Pick<
+    MachineSession['clients']['git'],
+    'getRepository' | 'locateRepository' | 'getStatus' | 'createWorktree'
+  >
+>;
+
+type FileClientStubs = Partial<
+  Pick<MachineSession['clients']['files'], 'getEntry'>
+>;
+
 function sessionWith(
-  git: Record<string, object>,
+  git: GitClientStubs,
   roots = ['/srv'],
-  files: Record<string, object> = {},
+  files: FileClientStubs = {},
 ): MachineSession {
-  return {
+  const connection = new PassThrough();
+
+  const session = new MachineSession({
     name: 'host-a',
-    hello: { roots },
-    clients: { git, files },
-    callOptions: vi.fn(() => ({})),
-  } as unknown as MachineSession;
+    hubVersion: 'test',
+    transport: {
+      input: connection,
+      output: connection,
+      close: () => connection.end(),
+      ended: new Promise(() => undefined),
+    },
+  });
+
+  Object.assign(session.clients.git, git);
+
+  Object.assign(session.clients.files, files);
+
+  Object.defineProperty(session, 'hello', { get: () => ({ roots }) });
+
+  vi.spyOn(session, 'callOptions').mockReturnValue({});
+
+  return session;
 }
 
 const options = { displayPrefix: 'machine://host-a' };

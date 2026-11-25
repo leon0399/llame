@@ -1,6 +1,12 @@
-import type { MachineMethodParams, MachineMethodResults } from '@workspace/machine-protocol';
+import type {
+  MachineMethodParams,
+  MachineMethodResults,
+} from '@workspace/machine-protocol';
 
-import type { MachineRequestOptions, MachineSession } from '../machine-session.js';
+import type {
+  MachineRequestOptions,
+  MachineSession,
+} from '../machine-session.js';
 
 /** `roots.list`: the Machine's registered roots, as the daemon lists them now. */
 async function rootsList(
@@ -9,7 +15,10 @@ async function rootsList(
   options?: MachineRequestOptions,
 ): Promise<MachineMethodResults['roots.list']> {
   try {
-    const response = await session.clients.machine.listRoots({}, session.callOptions(options));
+    const response = await session.clients.machine.listRoots(
+      {},
+      session.callOptions(options),
+    );
 
     return { roots: response.roots.map((root) => root.path) };
   } catch (error) {

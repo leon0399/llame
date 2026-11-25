@@ -63,11 +63,13 @@ describe('Git wire handlers against the real daemon', () => {
         LLAME_MACHINE_STATE_DIR: stateDir,
       },
     });
+
     const session = new MachineSession({
       name: NAME,
       transport: factory.open({ name: NAME }),
       hubVersion: `0.0.0-${PROTOCOL_VERSION}`,
     });
+
     const path = `machine://${NAME}${repository}`;
     const worktreePath = join(root, 'tree');
 
@@ -77,21 +79,25 @@ describe('Git wire handlers against the real daemon', () => {
         path,
         options: OPTIONS,
       });
+
       expect(inspect).toMatchObject({
         status: 'ok',
         toplevel: path,
         linked: false,
       });
+
       const locate = await session.call('git.locate', {
         envelope: ENVELOPE,
         path,
         options: OPTIONS,
       });
+
       expect(locate).toEqual({
         status: 'ok',
         gitEntry: `${path}/.git`,
         kind: 'directory',
       });
+
       const state = await session.call('git.state', {
         envelope: ENVELOPE,
         path,
@@ -100,6 +106,7 @@ describe('Git wire handlers against the real daemon', () => {
         submodules: 'skip',
         options: OPTIONS,
       });
+
       expect(state).toMatchObject({
         status: 'ok',
         toplevel: path,
@@ -107,6 +114,7 @@ describe('Git wire handlers against the real daemon', () => {
         detached: false,
         commits: [{ subject: 'initial' }],
       });
+
       const added = await session.call('git.worktreeAdd', {
         envelope: ENVELOPE,
         source: path,
@@ -114,30 +122,34 @@ describe('Git wire handlers against the real daemon', () => {
         directory: `machine://${NAME}${worktreePath}`,
         options: OPTIONS,
       });
+
       expect(added).toMatchObject({
         status: 'ok',
         path: `machine://${NAME}${worktreePath}`,
         branch: 'git-wire-branch',
       });
+
       const listed = await session.call('git.worktreeList', {
         envelope: ENVELOPE,
         source: path,
         options: OPTIONS,
       });
-      expect(listed).toMatchObject({
-        status: 'ok',
-        worktrees: expect.arrayContaining([
-          expect.objectContaining({
-            path: `machine://${NAME}${worktreePath}`,
-            branch: 'git-wire-branch',
-          }),
-        ]),
-      });
+
+      expect(
+        listed.status === 'ok' &&
+          listed.worktrees.some(
+            (worktree) =>
+              worktree.path === `machine://${NAME}${worktreePath}` &&
+              worktree.branch === 'git-wire-branch',
+          ),
+      ).toBe(true);
+
       const removed = await session.call('git.worktreeRemove', {
         envelope: ENVELOPE,
         path: `machine://${NAME}${worktreePath}`,
         options: OPTIONS,
       });
+
       expect(removed).toEqual({ status: 'ok' });
     } finally {
       session.close();

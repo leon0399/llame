@@ -97,8 +97,18 @@ async function resultForJob(
     };
   const stdout = await readOutput(session, job, OutputStream.STDOUT, options);
   const stderr = await readOutput(session, job, OutputStream.STDERR, options);
+
+  return resultFromOutput(job, stdout, stderr);
+}
+
+function resultFromOutput(
+  job: Job,
+  stdout: string,
+  stderr: string,
+): ProcBashResult {
   const truncated =
     job.stdout?.truncated === true || job.stderr?.truncated === true;
+
   const wallTimeMs = elapsedMs(job);
 
   const result: ProcBashResult =
@@ -153,6 +163,7 @@ async function readOutput(
 
 function elapsedMs(job: Job): number {
   if (job.createdAt === undefined) return 0;
+
   const start =
     Number(job.createdAt.seconds) * 1000 + job.createdAt.nanos / 1_000_000;
 
