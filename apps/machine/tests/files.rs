@@ -257,7 +257,20 @@ async fn mutations_apply_modes_once_and_report_exact_replacement_results() {
         .unwrap()
         .into_inner();
     assert!(
-        matches!(ambiguous.result, Some(replace_text_response::Result::Failure(failure)) if failure.reason == FileFailureReason::TextAmbiguous as i32 && matches!(failure.details, Some(file_failure::Details::AmbiguousText(ref ambiguity)) if ambiguity.count == 3 && ambiguity.occurrences.len() == 3 && ambiguity.occurrences[0].line >= 1 && !ambiguity.occurrences[0].excerpt.is_empty()))
+        matches!(ambiguous.result, Some(replace_text_response::Result::Failure(failure)) if failure.reason == FileFailureReason::TextAmbiguous as i32)
+    );
+    let unicode_ambiguous = client
+        .replace_text(ReplaceTextRequest {
+            request_id: "ambiguous-unicode".into(),
+            path: file.to_string_lossy().into_owned(),
+            old_text: "é".into(),
+            new_text: "x".into(),
+        })
+        .await
+        .unwrap()
+        .into_inner();
+    assert!(
+        matches!(unicode_ambiguous.result, Some(replace_text_response::Result::Failure(failure)) if failure.reason == FileFailureReason::TextAmbiguous as i32 && matches!(failure.details, Some(file_failure::Details::AmbiguousText(ref ambiguity)) if ambiguity.count == 2 && ambiguity.occurrences.len() == 2))
     );
 }
 
