@@ -1,4 +1,11 @@
-import { lstat, mkdir, readdir, readFile, realpath } from 'node:fs/promises';
+import {
+  lstat,
+  mkdir,
+  open,
+  readdir,
+  readFile,
+  realpath,
+} from 'node:fs/promises';
 import { dirname, isAbsolute, relative, resolve, sep } from 'node:path';
 
 import {
@@ -363,29 +370,31 @@ async function answerList(
 async function answerRead(
   params: z.infer<typeof pathParamsSchema>,
 ): Promise<JsonValue> {
-  const result = await readResolvedFile(params.path, {
-    displayPath: displayPath(params, params.path),
-    ...(params.options?.selector === undefined
-      ? {}
-      : { selector: params.options.selector }),
-    ...(params.options?.reserveCodeUnits === undefined
-      ? {}
-      : { reserveCodeUnits: params.options.reserveCodeUnits }),
-    followSymlinks: true,
-  });
-  if (
-    params.path.toLowerCase().endsWith('.pdf') &&
-    result.status === 'success' &&
-    result.kind === 'file'
-  )
-    return wireJson({
-      status: 'success',
-      kind: 'pdf',
-      mediaType: 'application/pdf',
-      path: displayPath(params, params.path),
-    });
+  const handle = await open(params.path, 'r');
+  const signature = Buffer.alloc(12);
 
-  return wireJson(result);
+  try {
+    const { bytesRead } = await handle.read(signature, 0, signature.length, 0);
+    const mediaType = byteMediaType(signature.subarray(0, bytesRead));
+
+    if (mediaType !== 'application/octet-stream')
+      return failure('invalid_utf8', 'The file contains binary media.');
+  } finally {
+    await handle.close();
+  }
+
+  return wireJson(
+    await readResolvedFile(params.path, {
+      displayPath: displayPath(params, params.path),
+      ...(params.options?.selector === undefined
+        ? {}
+        : { selector: params.options.selector }),
+      ...(params.options?.reserveCodeUnits === undefined
+        ? {}
+        : { reserveCodeUnits: params.options.reserveCodeUnits }),
+      followSymlinks: true,
+    }),
+  );
 }
 
 async function answerEdit(
@@ -482,7 +491,10 @@ function byteMediaType(bytes: Buffer): string {
 
 async function answerBytes(
   params: z.infer<typeof bytesParamsSchema>,
-  onNotification: MachineRequestOptions['onNotification'],
+  notify: (notification: {
+    readonly method: string;
+    readonly params?: JsonValue;
+  }) => void,
 ): Promise<JsonValue> {
   const bytes = await readFile(params.path);
 
@@ -491,7 +503,7 @@ async function answerBytes(
     offset < bytes.length;
     offset += 64 * 1024
   ) {
-    onNotification?.({
+    notify({
       method: BYTES_NOTIFICATION,
       params: {
         seq: sequence,
@@ -526,7 +538,10 @@ async function answerMcpServers(
 async function answerFileCall(
   call: PeerCall,
   options: MachineFilesPeerOptions,
-  requestOptions: MachineRequestOptions,
+  notify: (notification: {
+    readonly method: string;
+    readonly params?: JsonValue;
+  }) => void,
 ): Promise<JsonValue> {
   options.onRequest?.(call.method);
 
@@ -557,7 +572,7 @@ async function answerFileCall(
 
     if (path === undefined) pathNotRegistered();
 
-    return answerBytes({ path }, requestOptions.onNotification);
+    return answerBytes({ path }, notify);
   }
 
   const parsed = pathParamsSchema.safeParse(call.params);
@@ -576,8 +591,8 @@ function createFilePeer(options: MachineFilesPeerOptions): ProtocolPeer {
   return createProtocolPeer({
     roots: options.roots ?? ['/'],
     onNotification: options.onNotification,
-    answer: async (call, requestOptions) => ({
-      value: await answerFileCall(call, options, requestOptions),
+    answer: async (call, _requestOptions, notify) => ({
+      value: await answerFileCall(call, options, notify),
     }),
   });
 }

@@ -40,6 +40,10 @@ export type ProtocolPeerOptions = {
   readonly answer?: (
     call: PeerCall,
     options: MachineRequestOptions,
+    notify: (notification: {
+      readonly method: string;
+      readonly params?: JsonValue;
+    }) => void,
   ) => PeerAnswer | Promise<PeerAnswer | undefined> | undefined;
   readonly onNotification?: (
     method: string,
@@ -157,7 +161,15 @@ class PeerSessionImpl implements PeerSession {
       return wireJson(hello);
     }
     const call = { method, params };
-    const override = await this.options.answer?.(call, options);
+    const override = await this.options.answer?.(
+      call,
+      options,
+      (notification) =>
+        this.notifications.get(method)?.(
+          notification.method,
+          notification.params,
+        ),
+    );
     const answer =
       override ??
       this.options.answers?.[method] ??
