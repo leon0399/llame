@@ -32,6 +32,8 @@ runs:
         components: rustfmt, clippy
         targets: x86_64-unknown-linux-musl, aarch64-unknown-linux-musl
 
+    - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+
     # pnpm/setup@v2 replaces pnpm/action-setup + actions/setup-node (v11+
     # only). install:false because the action's default `pnpm install` is not
     # --frozen-lockfile. runtime comes from .node-version, not a second pin.
