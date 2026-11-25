@@ -151,7 +151,9 @@ pub async fn run_http(
                     cancellation_in_flight,
                     response_in_flight,
                 ) {
-                    send_capacity_error(&tx, request_id).await;
+                    if reject_capacity(&tx, request_id, is_response).await {
+                        stream_open = false;
+                    }
                     continue;
                 }
                 if is_initialized_notification {
@@ -229,7 +231,12 @@ async fn relay_request(state: RelayState, text: String) -> Result<(), String> {
         {
             return Ok(());
         }
-        if status_is_call_level(status, established, request_method.as_deref()) {
+        if status_is_call_level(
+            status,
+            established,
+            request_method.as_deref(),
+            request_id.is_some(),
+        ) {
             send_call_error(&state.tx, request_id, status).await?;
             return Ok(());
         }
@@ -314,6 +321,24 @@ async fn send_capacity_error(
     });
     if let Ok(message) = serde_json::to_string(&message) {
         let _ = tx.send(Ok(message_response(message))).await;
+    }
+}
+async fn reject_capacity(
+    tx: &mpsc::Sender<Result<OpenSessionResponse, Status>>,
+    id: Option<Value>,
+    is_response: bool,
+) -> bool {
+    if is_response {
+        let _ = tx
+            .send(Ok(failure(
+                McpFailureReason::Unavailable,
+                "MCP HTTP relay is at capacity while forwarding a server response".to_owned(),
+            )))
+            .await;
+        true
+    } else {
+        send_capacity_error(tx, id).await;
+        false
     }
 }
 
@@ -475,8 +500,10 @@ fn status_is_call_level(
     status: reqwest::StatusCode,
     established: bool,
     method: Option<&str>,
+    has_request_id: bool,
 ) -> bool {
-    method == Some("tools/call")
+    method.is_some()
+        && has_request_id
         && status != reqwest::StatusCode::UNAUTHORIZED
         && status != reqwest::StatusCode::FORBIDDEN
         && (status != reqwest::StatusCode::NOT_FOUND || !established)
@@ -625,58 +652,56 @@ mod tests {
     }
 
     #[test]
-    fn call_level_statuses_are_not_session_dependent_except_for_404() {
-        assert!(status_is_call_level(
-            reqwest::StatusCode::TOO_MANY_REQUESTS,
-            true,
-            Some("tools/call")
-        ));
-        assert!(status_is_call_level(
-            reqwest::StatusCode::INTERNAL_SERVER_ERROR,
-            true,
-            Some("tools/call")
-        ));
-        assert!(status_is_call_level(
-            reqwest::StatusCode::GONE,
-            true,
-            Some("tools/call")
-        ));
-        for method in ["initialize", "tools/list"] {
-            assert!(!status_is_call_level(
+    fn call_level_statuses_are_request_scoped_except_auth_and_expired_session() {
+        for method in ["tools/call", "tools/list", "resources/read"] {
+            assert!(status_is_call_level(
+                reqwest::StatusCode::TOO_MANY_REQUESTS,
+                true,
+                Some(method),
+                true
+            ));
+            assert!(status_is_call_level(
                 reqwest::StatusCode::INTERNAL_SERVER_ERROR,
                 true,
-                Some(method)
+                Some(method),
+                true
             ));
         }
-        assert!(status_is_call_level(
-            reqwest::StatusCode::TOO_MANY_REQUESTS,
-            false,
-            Some("tools/call")
-        ));
         assert!(!status_is_call_level(
             reqwest::StatusCode::NOT_FOUND,
             true,
-            Some("tools/call")
+            Some("tools/list"),
+            true
         ));
         assert!(!status_is_call_level(
             reqwest::StatusCode::UNAUTHORIZED,
             true,
-            Some("tools/call")
+            Some("tools/call"),
+            true
         ));
         assert!(!status_is_call_level(
             reqwest::StatusCode::FORBIDDEN,
             true,
-            Some("tools/call")
+            Some("tools/call"),
+            true
         ));
         assert!(!status_is_call_level(
             reqwest::StatusCode::INTERNAL_SERVER_ERROR,
             true,
-            None
+            None,
+            true
+        ));
+        assert!(!status_is_call_level(
+            reqwest::StatusCode::INTERNAL_SERVER_ERROR,
+            true,
+            Some("tools/list"),
+            false
         ));
         assert!(status_is_call_level(
             reqwest::StatusCode::NOT_FOUND,
             false,
-            Some("tools/call")
+            Some("tools/list"),
+            true
         ));
         assert!(should_capture_session_id(
             Some("initialize"),
@@ -691,6 +716,30 @@ mod tests {
             reqwest::StatusCode::INTERNAL_SERVER_ERROR
         ));
     }
+
+    #[tokio::test]
+    async fn capacity_rejection_fails_instead_of_replying_to_server_response() {
+        let (tx, mut rx) = mpsc::channel(1);
+        assert!(reject_capacity(&tx, Some(1.into()), true).await);
+        let response = rx.try_recv().unwrap().unwrap();
+        assert!(matches!(
+            response.message,
+            Some(ResponseMessage::Failure(failure))
+                if failure.reason == McpFailureReason::Unavailable as i32
+        ));
+    }
+
+    #[tokio::test]
+    async fn capacity_rejection_returns_error_for_client_request() {
+        let (tx, mut rx) = mpsc::channel(1);
+        assert!(!reject_capacity(&tx, Some(1.into()), false).await);
+        let response = rx.try_recv().unwrap().unwrap();
+        assert!(matches!(
+            response.message,
+            Some(ResponseMessage::JsonRpc(text)) if text.contains("\"error\"")
+        ));
+    }
+
     #[allow(clippy::too_many_lines)]
     #[tokio::test]
     async fn relay_drops_failed_notifications_and_keeps_call_errors_without_session() {
@@ -699,7 +748,7 @@ mod tests {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let address = listener.local_addr().unwrap();
         let fixture = tokio::spawn(async move {
-            for status in [429, 500, 429, 500, 410, 404, 404, 500] {
+            for status in [429, 500, 429, 500, 410, 404, 404, 500, 429, 404] {
                 let (socket, _) = listener.accept().await.unwrap();
                 let mut reader = BufReader::new(socket);
                 let mut content_length = 0;
@@ -767,10 +816,18 @@ mod tests {
                 r#"{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{}}"#,
                 false,
             ),
-            (r#"{"jsonrpc":"2.0","id":6,"method":"tools/list"}"#, false),
+            (r#"{"jsonrpc":"2.0","id":6,"method":"tools/list"}"#, true),
+            (
+                r#"{"jsonrpc":"2.0","id":7,"method":"resources/read"}"#,
+                true,
+            ),
+            (
+                r#"{"jsonrpc":"2.0","method":"notifications/initialized"}"#,
+                false,
+            ),
         ];
         for (index, (request, succeeds)) in requests.into_iter().enumerate() {
-            if index == 6 {
+            if index == 6 || index == 9 {
                 *state.session_id.lock().await = Some("session".to_owned());
             }
             let result = relay_request(state.clone(), request.to_owned()).await;
