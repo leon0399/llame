@@ -68,7 +68,7 @@ master <- rust-machine-daemon/proposal <- rust-machine-daemon/skeleton
 
 ## 5. Git (`rust-machine-daemon/git`)
 
-- [ ] 5.1 Implement `GitService`; verify `cargo test -p llame-machine --test git`.
+- [x] 5.1 Implement `GitService`; verify `cargo test -p llame-machine --test git`.
 - [ ] 5.2 Check the git directory, common directory, and object alternates
       against the roots before any git process starts; verify a test whose
       common directory lies outside every root and that observes no git start.
