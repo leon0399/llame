@@ -7,6 +7,7 @@ import { execFileSync } from "node:child_process";
 import { copyFileSync, mkdirSync, renameSync } from "node:fs";
 import { arch } from "node:os";
 import { join, resolve } from "node:path";
+import { compilerEnv } from "./compiler-env.mjs";
 
 const here = import.meta.dirname;
 const app = resolve(here, "..");
@@ -30,17 +31,6 @@ function requireRustup() {
   }
 }
 
-/** ring's C code is freestanding; the host compiler can build it for the
- * host musl target. Cross-architecture builds need their own CC_<target>.
- * @param {string} target */
-function compilerEnv(target) {
-  const key = `CC_${target.replaceAll("-", "_")}`;
-
-  if (process.env[key] !== undefined || target !== hostTarget()) return {};
-
-  return { [key]: process.env["CC"] ?? "cc" };
-}
-
 /** @param {string} target */
 function build(target) {
   execFileSync(
@@ -57,7 +47,10 @@ function build(target) {
     {
       cwd: repo,
       stdio: "inherit",
-      env: { ...process.env, ...compilerEnv(target) },
+      env: {
+        ...process.env,
+        ...compilerEnv(target, hostTarget(), process.env),
+      },
     },
   );
   const built = join(repo, "target", target, "release", "llame-machine");
