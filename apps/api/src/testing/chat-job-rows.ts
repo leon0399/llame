@@ -9,7 +9,6 @@ export function newChatJob(
     Partial<NewChatJob>,
 ): NewChatJob {
   return {
-    executor: 'bash',
     runId: crypto.randomUUID(),
     toolCallId: `call-${fields.seq}`,
     workerInstanceId: crypto.randomUUID(),
