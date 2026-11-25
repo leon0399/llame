@@ -92,7 +92,6 @@ function mockBoundaryFakes(input: ModelSwitchFakeInput) {
     'findByOwnedRun',
   ).mockResolvedValue([]);
 
-
   const lockPending = vi
     .spyOn(ChatDeliveriesRepository.prototype, 'lockPendingBoundary')
     .mockResolvedValue([...input.pending]);

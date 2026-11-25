@@ -8,14 +8,7 @@ import {
 } from 'node:fs/promises';
 import { dirname, isAbsolute, relative, resolve, sep } from 'node:path';
 
-import {
-  addWorktree,
-  inspectRepository,
-  listWorktrees,
-  locateRepository,
-  removeWorktree,
-  stateRepository,
-} from '@workspace/git-executor';
+import { answerGitCall } from './machine-git-peer';
 import {
   BYTES_NOTIFICATION,
   MachineProtocolError,
@@ -28,16 +21,9 @@ import {
   replaceFile,
   statHostPath,
 } from '@workspace/native-file-tools';
-import {
-  isBoolean,
-  isNumber,
-  isRecord,
-  isString,
-} from '@workspace/runtime-safety';
 import { z } from 'zod';
 
 import { MachineConnector } from '../machines/machine-connector.service';
-import type { MachineRequestOptions } from '../machines/machine-session';
 import type { MachineTransportFactory } from '../machines/machine-transport';
 import { DEFAULT_LOCAL_MACHINE_NAME } from './local-machine';
 import {
@@ -50,6 +36,7 @@ import {
 } from './machine-protocol-peer';
 
 export type MachineFilesCall = PeerCall;
+
 export type MachineFilesSession = Pick<PeerSession, 'requests' | 'calls'>;
 
 export type MachineFilesPeer = {
@@ -74,203 +61,39 @@ const displayOptionsSchema = z.object({
   selector: z.string().optional(),
   reserveCodeUnits: z.number().optional(),
 });
+
 const pathParamsSchema = z.object({
   path: z.string(),
   options: displayOptionsSchema.optional(),
 });
+
 const editParamsSchema = pathParamsSchema.extend({
   oldText: z.string(),
   newText: z.string(),
 });
+
 const writeParamsSchema = pathParamsSchema.extend({
   content: z.string(),
   replace: z.boolean().optional(),
 });
+
 const bytesParamsSchema = z.object({ path: z.string() });
+
 const serverParamsSchema = z.object({ root: z.string() });
+
 const mcpConfigSchema = z.object({
   mcpServers: z.record(
     z.string(),
     z.object({ type: z.enum(['stdio', 'http']).optional() }),
   ),
 });
-const gitOptionsSchema = displayOptionsSchema;
-const gitPathParamsSchema = z.object({
-  path: z.string(),
-  options: gitOptionsSchema.optional(),
-});
-const gitStateParamsSchema = z.object({
-  path: z.string(),
-  gitEntry: z.string(),
-  limit: z.number().int(),
-  submodules: z.enum(['skip', 'check']),
-  timeoutMs: z.number().optional(),
-  options: gitOptionsSchema.optional(),
-});
-const gitAddParamsSchema = z.object({
-  source: z.string(),
-  branch: z.string(),
-  baseRef: z.string().optional(),
-  directory: z.string(),
-  options: gitOptionsSchema.optional(),
-});
-const gitListParamsSchema = z.object({
-  source: z.string(),
-  options: gitOptionsSchema.optional(),
-});
-const pathFields: Record<string, true> = {
-  path: true,
-  toplevel: true,
-  commonDir: true,
-  mainWorktree: true,
-  gitEntry: true,
+
+type MachinePeerReadOptions = {
+  displayPath: string;
+  followSymlinks: true;
+  selector?: string;
+  reserveCodeUnits?: number;
 };
-
-function isJsonValue(value: unknown): value is JsonValue {
-  if (value === null || isBoolean(value) || isNumber(value) || isString(value))
-    return true;
-
-  if (Array.isArray(value)) return value.every(isJsonValue);
-
-  if (!isRecord(value)) return false;
-
-  return Object.values(value).every(
-    (entry) => entry === undefined || isJsonValue(entry),
-  );
-}
-
-function mapGitPaths(value: JsonValue, prefix: string | undefined): JsonValue {
-  if (prefix === undefined) return value;
-
-  if (Array.isArray(value))
-    return value.map((entry) => mapGitPaths(entry, prefix));
-
-  if (!isRecord(value)) return value;
-
-  const mapped: Record<string, JsonValue | undefined> = {};
-
-  for (const [key, entry] of Object.entries(value)) {
-    if (!isJsonValue(entry)) continue;
-
-    if (key in pathFields && isString(entry) && entry.startsWith('/'))
-      mapped[key] = `${prefix}${entry}`;
-    else mapped[key] = mapGitPaths(entry, prefix);
-  }
-
-  return mapped;
-}
-
-function mappedGitResult(
-  result: JsonValue,
-  options: z.infer<typeof gitOptionsSchema> | undefined,
-): JsonValue {
-  return mapGitPaths(result, options?.displayPrefix);
-}
-
-async function answerGitCall(
-  call: PeerCall,
-  roots: ReadonlyArray<string>,
-): Promise<JsonValue | undefined> {
-  if (!call.method.startsWith('git.')) return undefined;
-  if (call.method === 'git.inspect' || call.method === 'git.locate') {
-    const params = gitPathParamsSchema.safeParse(call.params);
-
-    if (!params.success)
-      return failure('invalid_input', 'A host path is required.');
-
-    const path = await guardedPath(params.data.path, roots);
-
-    if (path === undefined) pathNotRegistered();
-
-    const result =
-      call.method === 'git.inspect'
-        ? await inspectRepository({ path })
-        : await locateRepository({ path });
-
-    return mappedGitResult(wireJson(result), params.data.options);
-  }
-
-  if (call.method === 'git.state') {
-    const params = gitStateParamsSchema.safeParse(call.params);
-
-    if (!params.success)
-      return failure('invalid_input', 'Git state parameters are required.');
-
-    const path = await guardedPath(params.data.path, roots);
-    const gitEntry = await guardedPath(params.data.gitEntry, roots);
-
-    if (path === undefined || gitEntry === undefined) pathNotRegistered();
-
-    const result = await stateRepository(
-      {
-        path,
-        gitEntry,
-        limit: params.data.limit,
-        submodules: params.data.submodules,
-      },
-      { timeoutMs: params.data.timeoutMs },
-    );
-
-    return mappedGitResult(wireJson(result), params.data.options);
-  }
-
-  if (call.method === 'git.worktreeAdd') {
-    const params = gitAddParamsSchema.safeParse(call.params);
-
-    if (!params.success)
-      return failure('invalid_input', 'Worktree parameters are required.');
-
-    const source = await guardedPath(params.data.source, roots);
-    const directory = await guardedPath(params.data.directory, roots);
-
-    if (source === undefined || directory === undefined) pathNotRegistered();
-
-    const result = await addWorktree({
-      source,
-      branch: params.data.branch,
-      directory,
-      ...(params.data.baseRef === undefined
-        ? {}
-        : { baseRef: params.data.baseRef }),
-    });
-
-    return mappedGitResult(wireJson(result), params.data.options);
-  }
-
-  if (call.method === 'git.worktreeList') {
-    const params = gitListParamsSchema.safeParse(call.params);
-
-    if (!params.success)
-      return failure('invalid_input', 'A worktree source is required.');
-
-    const source = await guardedPath(params.data.source, roots);
-
-    if (source === undefined) pathNotRegistered();
-
-    return mappedGitResult(
-      wireJson(await listWorktrees({ path: source })),
-      params.data.options,
-    );
-  }
-
-  if (call.method === 'git.worktreeRemove') {
-    const params = gitPathParamsSchema.safeParse(call.params);
-
-    if (!params.success)
-      return failure('invalid_input', 'A worktree path is required.');
-
-    const path = await guardedPath(params.data.path, roots);
-
-    if (path === undefined) pathNotRegistered();
-
-    return mappedGitResult(
-      wireJson(await removeWorktree({ path })),
-      params.data.options,
-    );
-  }
-
-  return undefined;
-}
 
 function displayPath(
   params: z.infer<typeof pathParamsSchema>,
@@ -346,9 +169,11 @@ async function answerList(
   params: z.infer<typeof pathParamsSchema>,
 ): Promise<JsonValue> {
   const entries = await readdir(params.path, { withFileTypes: true });
+
   const sorted = entries.sort((left, right) =>
     left.name.localeCompare(right.name),
   );
+
   const limited = sorted.slice(0, 1000).map((entry) => ({
     name: entry.name,
     kind: entry.isDirectory()
@@ -370,45 +195,54 @@ async function answerList(
 async function answerRead(
   params: z.infer<typeof pathParamsSchema>,
 ): Promise<JsonValue> {
-  const handle = await open(params.path, 'r');
-  const signature = Buffer.alloc(12);
+  const handle = await open(params.path, 'r').catch(() => undefined);
 
-  try {
-    const { bytesRead } = await handle.read(signature, 0, signature.length, 0);
-    const mediaType = byteMediaType(signature.subarray(0, bytesRead));
+  if (handle !== undefined) {
+    const signature = Buffer.alloc(12);
 
-    if (mediaType !== 'application/octet-stream')
-      return failure('invalid_utf8', 'The file contains binary media.');
-  } finally {
-    await handle.close();
+    try {
+      const { bytesRead } = await handle.read(
+        signature,
+        0,
+        signature.length,
+        0,
+      );
+
+      const mediaType = byteMediaType(signature.subarray(0, bytesRead));
+
+      if (mediaType !== 'application/octet-stream')
+        return failure('invalid_utf8', 'The file contains binary media.');
+    } finally {
+      await handle.close();
+    }
   }
 
-  return wireJson(
-    await readResolvedFile(params.path, {
-      displayPath: displayPath(params, params.path),
-      ...(params.options?.selector === undefined
-        ? {}
-        : { selector: params.options.selector }),
-      ...(params.options?.reserveCodeUnits === undefined
-        ? {}
-        : { reserveCodeUnits: params.options.reserveCodeUnits }),
-      followSymlinks: true,
-    }),
-  );
+  const readOptions: MachinePeerReadOptions = {
+    displayPath: displayPath(params, params.path),
+    followSymlinks: true,
+  };
+
+  if (params.options?.selector !== undefined)
+    readOptions.selector = params.options.selector;
+
+  if (params.options?.reserveCodeUnits !== undefined)
+    readOptions.reserveCodeUnits = params.options.reserveCodeUnits;
+
+  return wireJson(await readResolvedFile(params.path, readOptions));
 }
 
 async function answerEdit(
   params: z.infer<typeof editParamsSchema>,
 ): Promise<JsonValue> {
+  const mutationOptions = {
+    displayPath: displayPath(params, params.path),
+    reserveCodeUnits: params.options?.reserveCodeUnits,
+  };
+
   const result = await editFile(
     { path: params.path, oldText: params.oldText, newText: params.newText },
     undefined,
-    {
-      displayPath: displayPath(params, params.path),
-      ...(params.options?.reserveCodeUnits === undefined
-        ? {}
-        : { reserveCodeUnits: params.options.reserveCodeUnits }),
-    },
+    mutationOptions,
   );
 
   return wireJson(result);
@@ -419,10 +253,9 @@ async function answerWrite(
 ): Promise<JsonValue> {
   const mutationOptions = {
     displayPath: displayPath(params, params.path),
-    ...(params.options?.reserveCodeUnits === undefined
-      ? {}
-      : { reserveCodeUnits: params.options.reserveCodeUnits }),
+    reserveCodeUnits: params.options?.reserveCodeUnits,
   };
+
   const input = { path: params.path, content: params.content };
 
   if (params.replace === true)
@@ -481,8 +314,10 @@ function byteMediaType(bytes: Buffer): string {
     bytes.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))
   )
     return 'image/png';
+
   if (bytes.subarray(0, 3).equals(Buffer.from([255, 216, 255])))
     return 'image/jpeg';
+
   if (bytes.subarray(0, 4).toString('ascii') === '%PDF')
     return 'application/pdf';
 
@@ -526,11 +361,12 @@ async function answerMcpServers(
 
   const content = await readFile(resolve(root, '.mcp.json'), 'utf8');
   const config = mcpConfigSchema.parse(JSON.parse(content));
-  const servers = Object.entries(config.mcpServers).map(([name, server]) => ({
-    name,
-    state: 'available',
-    ...(server.type === undefined ? {} : { transport: server.type }),
-  }));
+
+  const servers = Object.entries(config.mcpServers).map(([name, server]) =>
+    server.type === undefined
+      ? { name, state: 'available' }
+      : { name, state: 'available', transport: server.type },
+  );
 
   return wireJson({ servers });
 }
@@ -608,6 +444,7 @@ export function machineFilesConnector(
 ): MachineFilesConnector {
   const name = options.name ?? DEFAULT_LOCAL_MACHINE_NAME;
   const peer = createFilePeer(options);
+
   const connector = new MachineConnector({
     machines: { local: name, default: name, hosts: { [name]: {} } },
     hubVersion: '0.0.0-machine-files-test',

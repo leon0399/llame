@@ -67,8 +67,8 @@ export function localMachineConnector(
   const name = options.name ?? DEFAULT_LOCAL_MACHINE_NAME;
 
   const peer = createProtocolPeer({
-    answer: async (call) => {
-      const override = await options.answer?.(call);
+    answer: async (call, requestOptions, notify) => {
+      const override = await options.answer?.(call, requestOptions, notify);
 
       if (override !== undefined) return override;
 

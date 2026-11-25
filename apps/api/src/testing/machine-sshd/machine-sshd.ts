@@ -53,6 +53,15 @@ import {
   type SshdSshConnection,
 } from './ssh-connections';
 
+import {
+  MACHINE_SSHD_ALIAS,
+  MACHINE_SSHD_NAME,
+  MACHINE_SSHD_ROOT,
+  MACHINE_SSHD_SH_ALIAS,
+} from './constants';
+
+export * from './constants';
+
 export type {
   SshConnectionVariant,
   SshdSshConnection,
@@ -75,13 +84,6 @@ const PLAIN_KEY_COMMENT = 'llame-ssh-locator-sshd-test';
 const REJECTED_KEY_COMMENT = 'llame-ssh-locator-rejected-key';
 const SSHD_HOST_KEY = '/etc/ssh/ssh_host_ed25519_key.pub';
 
-/**
- * The box's login-shell startup file prints through the plain key's
- * `BASH_ENV`, so every `ssh://` session sees text before the read script does.
- * The bytes here are the ones the image writes.
- */
-const LOGIN_SHELL_NOISE = 'llame fixture: login shell startup noise';
-
 /** sshd's readiness line: it runs with `-e`, so its log is the container's. */
 const SSHD_READY = Wait.forLogMessage(
   /Server listening on 0\.0\.0\.0 port 22/u,
@@ -89,33 +91,6 @@ const SSHD_READY = Wait.forLogMessage(
 
 /** A silent drop, so the client waits out its own connect timeout. */
 const DROP_RULE = ['-p', 'tcp', '--dport', '22', '-j', 'DROP'];
-
-/** The Machine the suite declares, and the alias its SSH route resolves. */
-export const MACHINE_SSHD_NAME = 'devl';
-export const MACHINE_SSHD_ALIAS = 'box';
-
-/** The box's registered root (added by the static daemon before test startup). */
-export const MACHINE_SSHD_ROOT = '/home/box/work';
-export const MACHINE_SSHD_NOTES_FILE = `${MACHINE_SSHD_ROOT}/notes.txt`;
-
-/** The root-only read fixtures the image creates (ssh-locator task 4.1). */
-export const MACHINE_SSHD_FIXTURE_ROOT = `${MACHINE_SSHD_ROOT}/fixture`;
-
-/** The text the login shell writes before every `ssh://` script runs. */
-export const MACHINE_SSHD_LOGIN_NOISE = LOGIN_SHELL_NOISE;
-
-/** The `sh`-only container's alias: `/bin/sh` and no `bash`. */
-export const MACHINE_SSHD_SH_ALIAS = 'shbox';
-
-/** The bytes the suite expects back for that file, read from the same fixture
- *  the image copies, so the expectation cannot drift from the container. */
-export const MACHINE_SSHD_NOTES_CONTENT = readFileSync(
-  join(FIXTURES, 'notes.txt'),
-  'utf8',
-);
-
-/** How an `ssh` child of this process names the daemon it was told to run. */
-export const MACHINE_SSHD_REMOTE_COMMAND = 'llame-machine attach --stdio';
 
 /** Which of the four file pairs the suite selects between. */
 type ConnectionVariant = {
@@ -279,7 +254,9 @@ async function startBox(
   authorizedKeys: string,
   daemon: Buffer,
 ): Promise<StartedTestContainer> {
-  const box = await (await builder().build())
+  const box = await (
+    await builder().build()
+  )
     .withNetwork(network)
     .withNetworkAliases(MACHINE_SSHD_ALIAS)
     .withExposedPorts(22)
