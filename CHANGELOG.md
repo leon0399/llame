@@ -1,5 +1,11 @@
 _Reverse-chronological record of shipped work — features, fixes, and chores. Newest first._
 
+# 2026-11-25
+
+- Keep retained Machine mutation results replayable when the idempotency cache
+  reaches its key limit. Attaching through a different configuration now
+  refuses the running daemon before returning its socket.
+
 # 2026-11-24
 
 - Update Schemathesis to 4.32.2 so a negative test that mutates both
