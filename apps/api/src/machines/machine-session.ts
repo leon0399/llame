@@ -19,9 +19,9 @@ import {
   GetInfoRequestSchema,
   GetLimitsRequestSchema,
   ListRootsRequestSchema,
-  MACHINE_PROTOCOL_VERSION,
   MachineProtocolError,
   connectStdio,
+  MACHINE_PROTOCOL_VERSION,
   type HelloResult,
   type JsonValue,
   type MachineMethod,
@@ -40,6 +40,27 @@ import type { MachineFailureReason } from './machines-status';
 
 export const HANDSHAKE_TIMEOUT_MS = 30_000;
 export const DEFAULT_REQUEST_BUDGET_MS = 30_000;
+
+type HandshakeInfo = {
+  readonly protocolVersion: number;
+  readonly release: string;
+  readonly instanceId: string;
+  readonly buildId: string;
+  readonly facts?: {
+    readonly os?: string;
+    readonly arch?: string;
+    readonly kernel?: string;
+    readonly cpuCount?: number;
+    readonly memoryBytes?: bigint;
+  };
+};
+
+type HandshakeRootInfo = {
+  readonly roots: ReadonlyArray<{
+    readonly path: string;
+    readonly filesystemBytes?: bigint;
+  }>;
+};
 
 export type MachineRequestEnvelope = {
   readonly runId?: string;
@@ -115,6 +136,7 @@ function createChannel(release: () => void) {
       listeners.forEach((listener) => listener(notification)),
   };
 }
+
 export type MachineNotification = {
   readonly method: string;
   readonly params?: JsonValue;
@@ -132,11 +154,18 @@ export type MachineStreamHandler = (
   invocation: MachineStreamInvocation,
 ) => Promise<JsonValue>;
 
-export type MachineRequestHandler = (
-  method: string,
-  params: JsonValue,
-  options: MachineRequestOptions,
-) => Promise<JsonValue>;
+export type MachineRequestHandler = {
+  (
+    method: 'hello',
+    params: { readonly protocolVersion: number; readonly hubVersion: string },
+    options: MachineRequestOptions,
+  ): Promise<HelloResult>;
+  <M extends MachineMethod>(
+    method: M,
+    params: MachineMethodParams[M],
+    options: MachineRequestOptions,
+  ): Promise<MachineMethodResults[M]>;
+};
 
 export type MachineSessionOptions = {
   readonly name: string;
@@ -167,8 +196,8 @@ export class MachineSession {
   private helloResult: HelloResult | undefined;
   private handshake: Promise<HelloResult> | undefined;
   private established = false;
+  private readonly channels = new Set<MachineChannel>();
   private active = 0;
-
   constructor(private readonly options: MachineSessionOptions) {
     this.name = options.name;
     this.ended = new Promise((resolve) => {
@@ -266,14 +295,7 @@ export class MachineSession {
 
     if (this.options.requestHandler !== undefined) {
       try {
-        const result = await this.options.requestHandler(
-          method,
-          params,
-          options,
-        );
-
-        // SAFETY: This injectable handler is a typed test seam for a known method.
-        return result as MachineMethodResults[M];
+        return await this.options.requestHandler(method, params, options);
       } catch (error) {
         throw this.mapRefusal(error, true);
       }
@@ -289,7 +311,12 @@ export class MachineSession {
     call: MachineCall<M>,
     options: MachineRequestOptions = {},
   ): MachineChannelHandle {
+    this.retain();
     const { channel, notify } = createChannel(() => this.release());
+    this.channels.add(channel);
+
+    channel.onClose(() => this.channels.delete(channel));
+
     const result =
       this.options.streamHandler === undefined
         ? this.call(call.method, call.params, {
@@ -304,7 +331,7 @@ export class MachineSession {
             options,
           });
 
-    void result.finally(() => channel.close()).catch(() => undefined);
+    void result.catch(() => channel.close());
 
     return { channel, result };
   }
@@ -360,106 +387,125 @@ export class MachineSession {
     timer.unref();
 
     try {
-      if (this.options.requestHandler !== undefined) {
-        const result = await this.options.requestHandler(
-          'hello',
-          {
-            protocolVersion: MACHINE_PROTOCOL_VERSION,
-            hubVersion: this.options.hubVersion,
-          },
-          { signal: controller.signal, budgetMs: timeoutMs },
-        );
+      const hello = await this.requestHello(controller.signal, timeoutMs);
 
-        const hello = result as unknown as HelloResult;
-
-        if (hello.protocolVersion !== MACHINE_PROTOCOL_VERSION)
-          throw new MachineUpdateRequiredError(
-            this.name,
-            `protocol ${String(hello.protocolVersion)} (expected ${MACHINE_PROTOCOL_VERSION})`,
-          );
-        await this.options.admitIdentity?.(hello.instanceId);
-        this.established = true;
-        this.helloResult = hello;
-
-        return hello;
-      }
-
-      const callOptions: CallOptions = { signal: controller.signal, timeoutMs };
-
-      const info = await this.clients.bootstrap.getInfo(
-        create(GetInfoRequestSchema, {}),
-        callOptions,
-      );
-
-      if (info.protocolVersion !== MACHINE_PROTOCOL_VERSION)
+      if (hello.protocolVersion !== MACHINE_PROTOCOL_VERSION)
         throw new MachineUpdateRequiredError(
           this.name,
-          `protocol ${String(info.protocolVersion)} (expected ${MACHINE_PROTOCOL_VERSION})`,
+          `protocol ${String(hello.protocolVersion)} (expected ${MACHINE_PROTOCOL_VERSION})`,
         );
-      await this.options.admitIdentity?.(info.instanceId);
 
-      const [rootInfo, limits] = await Promise.all([
-        this.clients.machine.listRoots(
-          create(ListRootsRequestSchema, {}),
-          callOptions,
-        ),
-        this.clients.machine.getLimits(
-          create(GetLimitsRequestSchema, {}),
-          callOptions,
-        ),
-      ]);
-
-      const roots = rootInfo.roots.map((root) => root.path);
-      const facts = info.facts;
-
-      const hello: HelloResult = {
-        protocolVersion: Number(info.protocolVersion),
-        daemonVersion: info.release,
-        roots,
-        instanceId: info.instanceId,
-        buildId: info.buildId,
-        facts: {
-          os: facts?.os ?? '',
-          arch: facts?.arch ?? '',
-          kernel: facts?.kernel ?? '',
-          cpuCount: facts?.cpuCount ?? 0,
-          totalMemoryBytes: Number(facts?.memoryBytes ?? 0n),
-          rootDisks: rootInfo.roots.map((root) => ({
-            root: root.path,
-            totalBytes:
-              root.filesystemBytes === undefined
-                ? null
-                : Number(root.filesystemBytes),
-          })),
-        },
-      };
-
-      void limits;
+      if (this.options.requestHandler !== undefined)
+        await this.options.admitIdentity?.(hello.instanceId);
       this.established = true;
       this.helloResult = hello;
 
       return hello;
     } catch (error) {
-      if (error instanceof MachineUnavailableError) throw error;
-      if (error instanceof MachineUpdateRequiredError) throw error;
-      if (this.end !== undefined)
-        throw new MachineUnavailableError(
-          this.name,
-          this.end.reason === 'closed' ? 'session_lost' : this.end.reason,
-          false,
-          'The Machine link ended before the handshake completed.',
-        );
-      if (controller.signal.aborted)
-        throw new MachineUnavailableError(
-          this.name,
-          'unreachable',
-          false,
-          'The Machine did not complete its handshake before the deadline.',
-        );
-      throw this.mapRefusal(error);
+      return this.handleHandshakeFailure(error, controller.signal);
     } finally {
       clearTimeout(timer);
     }
+  }
+  private requestHello(
+    signal: AbortSignal,
+    timeoutMs: number,
+  ): Promise<HelloResult> {
+    if (this.options.requestHandler !== undefined)
+      return this.options.requestHandler(
+        'hello',
+        {
+          protocolVersion: MACHINE_PROTOCOL_VERSION,
+          hubVersion: this.options.hubVersion,
+        },
+        { signal, budgetMs: timeoutMs },
+      );
+
+    return this.performWireHandshake(signal, timeoutMs);
+  }
+  private handleHandshakeFailure(error: unknown, signal: AbortSignal): never {
+    if (error instanceof MachineUnavailableError) throw error;
+
+    if (error instanceof MachineUpdateRequiredError) throw error;
+
+    if (this.end !== undefined)
+      throw new MachineUnavailableError(
+        this.name,
+        this.end.reason === 'closed' ? 'session_lost' : this.end.reason,
+        false,
+        'The Machine link ended before the handshake completed.',
+      );
+
+    if (signal.aborted)
+      throw new MachineUnavailableError(
+        this.name,
+        'unreachable',
+        false,
+        'The Machine did not complete its handshake before the deadline.',
+      );
+
+    throw this.mapRefusal(error);
+  }
+  private async performWireHandshake(
+    signal: AbortSignal,
+    timeoutMs: number,
+  ): Promise<HelloResult> {
+    const callOptions: CallOptions = { signal, timeoutMs };
+
+    const info = await this.clients.bootstrap.getInfo(
+      create(GetInfoRequestSchema, {}),
+      callOptions,
+    );
+
+    if (info.protocolVersion !== MACHINE_PROTOCOL_VERSION)
+      throw new MachineUpdateRequiredError(
+        this.name,
+        `protocol ${String(info.protocolVersion)} (expected ${MACHINE_PROTOCOL_VERSION})`,
+      );
+    await this.options.admitIdentity?.(info.instanceId);
+
+    const [rootInfo, limits] = await Promise.all([
+      this.clients.machine.listRoots(
+        create(ListRootsRequestSchema, {}),
+        callOptions,
+      ),
+      this.clients.machine.getLimits(
+        create(GetLimitsRequestSchema, {}),
+        callOptions,
+      ),
+    ]);
+
+    void limits;
+
+    return this.createHelloResult(info, rootInfo);
+  }
+  private createHelloResult(
+    info: HandshakeInfo,
+    rootInfo: HandshakeRootInfo,
+  ): HelloResult {
+    const facts = info.facts;
+
+    return {
+      protocolVersion: Number(info.protocolVersion),
+      daemonVersion: info.release,
+      roots: rootInfo.roots.map((root) => root.path),
+      instanceId: info.instanceId,
+      buildId: info.buildId,
+      facts: {
+        os: facts?.os ?? '',
+        arch: facts?.arch ?? '',
+        kernel: facts?.kernel ?? '',
+        cpuCount: facts?.cpuCount ?? 0,
+        totalMemoryBytes: Number(facts?.memoryBytes ?? 0n),
+        rootDisks: rootInfo.roots.map((root) => ({
+          root: root.path,
+          totalBytes:
+            root.filesystemBytes === undefined
+              ? null
+              : Number(root.filesystemBytes),
+        })),
+      },
+    };
   }
   private finish(
     input: { kind: 'closed' } | { kind: 'link'; end: MachineLinkEnd },
@@ -472,6 +518,9 @@ export class MachineSession {
         : classifySshLinkFailure(this.established, input.end.diagnostic);
 
     this.end = { reason, established: this.established };
+
+    for (const channel of this.channels) channel.close();
+
     this.connection.close();
     this.resolveEnded(this.end);
   }

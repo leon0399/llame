@@ -11,10 +11,19 @@ import {
   MACHINE_PROTOCOL_VERSION,
   type HelloResult,
   type JsonValue,
+  type MachineMethod,
+  type MachineMethodParams,
+  type MachineMethodResults,
 } from '@workspace/machine-protocol';
 import type { MachineLinkEnd, MachineTransport } from './machine-transport';
+import {
+  MachineSession,
+  type MachineRequestHandler,
+  type MachineRequestOptions,
+  type MachineSessionOptions,
+  type MachineStreamInvocation,
+} from './machine-session';
 import { MachineIdentityMismatchError } from './machine-session-errors';
-import { MachineSession, type MachineSessionOptions } from './machine-session';
 
 const hello: HelloResult = {
   protocolVersion: MACHINE_PROTOCOL_VERSION,
@@ -31,6 +40,24 @@ const hello: HelloResult = {
     rootDisks: [],
   },
 };
+
+function requestHandlerFor(fallback: JsonValue): MachineRequestHandler {
+  function handler(
+    method: 'hello',
+    params: { readonly protocolVersion: number; readonly hubVersion: string },
+    options: MachineRequestOptions,
+  ): Promise<HelloResult>;
+  function handler<M extends MachineMethod>(
+    method: M,
+    params: MachineMethodParams[M],
+    options: MachineRequestOptions,
+  ): Promise<MachineMethodResults[M]>;
+  function handler(method: string): Promise<JsonValue> {
+    return Promise.resolve(method === 'hello' ? hello : fallback);
+  }
+
+  return handler;
+}
 
 const sessions: Array<MachineSession> = [];
 
@@ -63,7 +90,7 @@ function makeSession(
     name: 'devl',
     transport: transport(),
     hubVersion: '9.9.9',
-    requestHandler: async (method) => (method === 'hello' ? hello : {}),
+    requestHandler: requestHandlerFor({}),
     ...options,
   });
 
@@ -134,14 +161,12 @@ function routerSession(
 
 describe('MachineSession Connect-ES adapter', () => {
   it('handshakes with the exact protocol version and exposes identity, facts, and roots', async () => {
-    const requestHandler = vi.fn(async (method: string) =>
-      method === 'hello' ? (hello as unknown as JsonValue) : {},
-    );
-
-    const session = makeSession({ requestHandler });
+    const handler = { request: requestHandlerFor({}) };
+    const requestSpy = vi.spyOn(handler, 'request');
+    const session = makeSession({ requestHandler: handler.request });
 
     await expect(session.ready()).resolves.toEqual(hello);
-    expect(requestHandler).toHaveBeenCalledWith(
+    expect(requestSpy).toHaveBeenCalledWith(
       'hello',
       { protocolVersion: MACHINE_PROTOCOL_VERSION, hubVersion: '9.9.9' },
       expect.objectContaining({ budgetMs: 30_000 }),
@@ -150,8 +175,12 @@ describe('MachineSession Connect-ES adapter', () => {
   });
 
   it('dispatches unary calls with their method, params, and request budget', async () => {
-    const requestHandler = vi.fn(async () => ({ kind: 'file', size: 12 }));
-    const session = makeSession({ requestHandler });
+    const handler = {
+      request: requestHandlerFor({ kind: 'file', size: 12 }),
+    };
+
+    const requestSpy = vi.spyOn(handler, 'request');
+    const session = makeSession({ requestHandler: handler.request });
 
     const params = {
       envelope: { budgetMs: 750 },
@@ -161,18 +190,22 @@ describe('MachineSession Connect-ES adapter', () => {
     await expect(
       session.request({ method: 'fs.stat', params }),
     ).resolves.toEqual({ kind: 'file', size: 12 });
-    expect(requestHandler).toHaveBeenCalledWith('fs.stat', params, {});
+    expect(requestSpy).toHaveBeenCalledWith('fs.stat', params, {});
   });
 
   it('bridges Connect server-stream notifications through an open channel', async () => {
-    const streamHandler = vi.fn(async (invocation) => {
-      await Promise.resolve();
-      invocation.notify({
-        method: 'mcp.message',
-        params: { message: 'ready' },
-      });
+    const invocationReady = Promise.withResolvers<MachineStreamInvocation>();
 
-      return { protectedValues: [] };
+    const streamHandler = vi.fn((invocation: MachineStreamInvocation) => {
+      queueMicrotask(() =>
+        invocation.notify({
+          method: 'mcp.message',
+          params: { message: 'ready' },
+        }),
+      );
+      invocationReady.resolve(invocation);
+
+      return Promise.resolve({ protectedValues: [] });
     });
 
     const session = makeSession({ streamHandler });
@@ -190,23 +223,29 @@ describe('MachineSession Connect-ES adapter', () => {
     handle.channel.onNotification(notification);
 
     await expect(handle.result).resolves.toEqual({ protectedValues: [] });
-    expect(streamHandler).toHaveBeenCalledWith(
-      expect.objectContaining({
-        method: 'mcp.open',
-        params: expect.objectContaining({
-          root: '/srv/workspace',
-          server: 'repo',
-        }),
-        notify: expect.any(Function),
-        send: expect.any(Function),
-        options: {},
-      }),
-    );
-    expect(notification).toHaveBeenCalledWith({
+    expect(handle.channel.closed).toBe(false);
+    expect(session.openStreams).toBe(1);
+    const invocation = await invocationReady.promise;
+    invocation.notify({
+      method: 'mcp.message',
+      params: { message: 'after open resolves' },
+    });
+    expect(notification).toHaveBeenNthCalledWith(2, {
+      method: 'mcp.message',
+      params: { message: 'after open resolves' },
+    });
+    handle.channel.close();
+    expect(session.openStreams).toBe(0);
+    expect(invocation.method).toBe('mcp.open');
+    expect(invocation.params).toMatchObject({
+      root: '/srv/workspace',
+      server: 'repo',
+    });
+    expect(notification).toHaveBeenNthCalledWith(1, {
       method: 'mcp.message',
       params: { message: 'ready' },
     });
-    handle.channel.close();
+    expect(handle.channel.closed).toBe(true);
   });
   it('admits identity after GetInfo and before roots and limits on a Connect router', async () => {
     const calls: Array<string> = [];
@@ -225,9 +264,9 @@ describe('MachineSession Connect-ES adapter', () => {
   it('does not call roots or limits when identity admission fails', async () => {
     const calls: Array<string> = [];
 
-    const session = routerSession(calls, async () => {
-      throw new MachineIdentityMismatchError('devl');
-    });
+    const session = routerSession(calls, () =>
+      Promise.reject(new MachineIdentityMismatchError('devl')),
+    );
 
     await expect(session.ready()).rejects.toBeInstanceOf(
       MachineIdentityMismatchError,
