@@ -140,6 +140,7 @@ pub async fn run_http(
                 let (method, request_id) = request_metadata(&text);
                 let is_initialized_notification =
                     method.as_deref() == Some("notifications/initialized");
+                let is_cancellation = method.as_deref() == Some("notifications/cancelled");
                 if exceeds_request_capacity(
                     method.as_deref(),
                     requests.len(),
@@ -470,10 +471,13 @@ fn exceeds_request_capacity(
     in_flight: usize,
     cancellation_in_flight: bool,
 ) -> bool {
-    method.is_some()
-        && method != Some("notifications/initialized")
-        && in_flight >= MAX_IN_FLIGHT_HTTP_REQUESTS
-        && !(method == Some("notifications/cancelled") && !cancellation_in_flight)
+    match method {
+        None | Some("notifications/initialized") => false,
+        Some("notifications/cancelled") => {
+            in_flight >= MAX_IN_FLIGHT_HTTP_REQUESTS && cancellation_in_flight
+        }
+        Some(_) => in_flight >= MAX_IN_FLIGHT_HTTP_REQUESTS,
+    }
 }
 
 fn should_capture_session_id(method: Option<&str>, status: reqwest::StatusCode) -> bool {
