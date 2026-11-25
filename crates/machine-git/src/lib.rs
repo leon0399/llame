@@ -384,6 +384,9 @@ fn checked_git_data(entry: &Path, roots: &[PathBuf]) -> Result<(PathBuf, PathBuf
         checked.push(objects.clone());
         if let Some(alternates) = read_git_metadata(&objects.join("info/alternates"), roots)? {
             for alternate in alternates.lines().filter(|value| !value.is_empty()) {
+                if alternate.starts_with('"') {
+                    return Err(failure(GitFailureReason::OutsideRoots, ""));
+                }
                 let path = PathBuf::from(alternate);
                 pending.push(if path.is_absolute() {
                     path
@@ -451,6 +454,9 @@ async fn repository(
     }
     if let Ok(alts) = fs::read_to_string(objects.join("info/alternates")) {
         for alt in alts.lines().filter(|s| !s.is_empty()) {
+            if alt.starts_with('"') {
+                return Err(failure(GitFailureReason::OutsideRoots, ""));
+            }
             let p = PathBuf::from(alt);
             let p = if p.is_absolute() { p } else { objects.join(p) };
             let p = fs::canonicalize(&p).unwrap_or(p);

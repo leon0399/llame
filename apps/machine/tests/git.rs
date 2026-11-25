@@ -498,7 +498,7 @@ async fn object_alternate_outside_roots_is_refused_before_git() {
     std::fs::create_dir_all(&external).unwrap();
     let alternates = repo.join(".git/objects/info/alternates");
     std::fs::create_dir_all(alternates.parent().unwrap()).unwrap();
-    std::fs::write(&alternates, absolute(&external)).unwrap();
+    std::fs::write(&alternates, format!("\"{}\"", absolute(&external))).unwrap();
     let (shim, marker) = git_shim(&machine);
     let (_child, channel) = machine.attach_with_path(Some(&shim)).await;
     let mut client = GitServiceClient::new(channel);
