@@ -251,3 +251,85 @@ async fn ignored_directory_is_not_walked() {
     }
     assert!(skipped);
 }
+
+#[tokio::test]
+async fn resume_uses_depth_first_path_order_and_skips_fifos() {
+    let machine = common::Machine::new();
+    let root = machine.root();
+    std::fs::create_dir_all(root.join("a")).unwrap();
+    std::fs::write(root.join("a/z.txt"), "needle\n").unwrap();
+    std::fs::write(root.join("a.txt"), "needle\n").unwrap();
+    let fifo = root.join("fifo");
+    assert!(
+        std::process::Command::new("mkfifo")
+            .arg(&fifo)
+            .status()
+            .unwrap()
+            .success()
+    );
+    let (_child, channel) = machine.attach().await;
+    let mut client = FileServiceClient::new(channel);
+    let mut req = request(root, &["needle"]);
+    req.bounds = Some(SearchBounds {
+        files: None,
+        bytes: None,
+        file_bytes: None,
+        matches: Some(1),
+    });
+    let mut stream = client.search_files(req.clone()).await.unwrap().into_inner();
+    let mut first_path = None;
+    let mut resume = None;
+    while let Some(item) = tokio::time::timeout(std::time::Duration::from_secs(3), stream.message())
+        .await
+        .unwrap()
+        .unwrap()
+    {
+        match item.event.unwrap() {
+            Event::Match(found) => first_path = Some(found.path),
+            Event::End(end) => resume = end.position,
+            Event::Skipped(_) | Event::Failure(_) => {}
+        }
+    }
+    assert_eq!(first_path.as_deref(), Some("a/z.txt"));
+    req.after = resume;
+    req.bounds = None;
+    let mut stream = client.search_files(req).await.unwrap().into_inner();
+    let mut paths = Vec::new();
+    let mut fifo_skipped = false;
+    while let Some(item) = tokio::time::timeout(std::time::Duration::from_secs(3), stream.message())
+        .await
+        .unwrap()
+        .unwrap()
+    {
+        match item.event {
+            Some(Event::Match(found)) => paths.push(found.path),
+            Some(Event::Skipped(skipped)) if skipped.path == "fifo" => fifo_skipped = true,
+            _ => {}
+        }
+    }
+    assert_eq!(paths, ["a.txt"]);
+    assert!(fifo_skipped);
+}
+
+#[tokio::test]
+async fn ancestor_gitignore_does_not_cross_repository_boundary() {
+    let machine = common::Machine::new();
+    let root = machine.root();
+    let scope = root.join("app/src");
+    std::fs::create_dir_all(&scope).unwrap();
+    std::fs::write(root.join(".gitignore"), "secret.txt\n").unwrap();
+    std::fs::create_dir_all(root.join("app/.git")).unwrap();
+    std::fs::write(scope.join("secret.txt"), "needle\n").unwrap();
+    let (_child, channel) = machine.attach().await;
+    let mut client = FileServiceClient::new(channel);
+    let mut req = request(&scope, &["needle"]);
+    req.respect_ignore_files = true;
+    let mut stream = client.search_files(req).await.unwrap().into_inner();
+    let mut found = Vec::new();
+    while let Some(item) = stream.message().await.unwrap() {
+        if let Some(Event::Match(found_match)) = item.event {
+            found.push(found_match.path);
+        }
+    }
+    assert_eq!(found, ["secret.txt"]);
+}

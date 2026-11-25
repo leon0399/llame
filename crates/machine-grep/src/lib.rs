@@ -194,7 +194,7 @@ fn run_search(
             continue;
         }
         if let Some(after) = &after
-            && entry.rel.as_bytes() < after.path.as_bytes()
+            && compare_rel(&entry.rel, &after.path).is_lt()
         {
             continue;
         }
@@ -229,6 +229,12 @@ fn run_search(
             }
             continue;
         };
+        if !metadata.is_file() {
+            if !skip(sender, &entry.rel, SkipReason::Unreadable) {
+                return;
+            }
+            continue;
+        }
         if metadata.len() > file_bytes_limit {
             if !skip(sender, &entry.rel, SkipReason::TooLarge) {
                 return;
@@ -479,6 +485,10 @@ impl Walker {
     }
 }
 
+fn compare_rel(left: &str, right: &str) -> std::cmp::Ordering {
+    left.split('/').cmp(right.split('/'))
+}
+
 fn compile_glob(pattern: &str) -> Result<Option<Regex>, Status> {
     if pattern.is_empty() {
         return Ok(None);
@@ -533,23 +543,35 @@ fn collect_ignores(
             break;
         }
     }
-    for dir in ancestors.into_iter().rev() {
-        add_ignore_files(&dir, rules);
+    let ordered = ancestors.into_iter().rev().collect::<Vec<_>>();
+    let repository = ordered.iter().rposition(|dir| dir.join(".git").exists());
+    for (index, dir) in ordered.iter().enumerate() {
+        if repository.is_some_and(|repository| index >= repository) {
+            add_ignore_file(dir, ".gitignore", rules);
+        }
+        add_ignore_file(dir, ".ignore", rules);
     }
 }
 
 fn add_ignore_files(dir: &Path, rules: &mut Vec<(PathBuf, ignore::gitignore::Gitignore)>) {
-    for name in [".gitignore", ".ignore"] {
-        let file = dir.join(name);
-        if !file.is_file() {
-            continue;
-        }
-        let mut builder = ignore::gitignore::GitignoreBuilder::new(dir);
-        if builder.add(&file).is_none()
-            && let Ok(matcher) = builder.build()
-        {
-            rules.push((dir.to_path_buf(), matcher));
-        }
+    add_ignore_file(dir, ".gitignore", rules);
+    add_ignore_file(dir, ".ignore", rules);
+}
+
+fn add_ignore_file(
+    dir: &Path,
+    name: &str,
+    rules: &mut Vec<(PathBuf, ignore::gitignore::Gitignore)>,
+) {
+    let file = dir.join(name);
+    if !file.is_file() {
+        return;
+    }
+    let mut builder = ignore::gitignore::GitignoreBuilder::new(dir);
+    if builder.add(&file).is_none()
+        && let Ok(matcher) = builder.build()
+    {
+        rules.push((dir.to_path_buf(), matcher));
     }
 }
 
