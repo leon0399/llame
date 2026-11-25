@@ -130,8 +130,8 @@ pub struct ConfigHandle {
 
 impl ConfigHandle {
     pub fn open(file: PathBuf) -> Result<Self, ConfigError> {
-        let config = Config::load(&file)?;
         let mtime = modified(&file);
+        let config = Config::load(&file)?;
         Ok(Self {
             file,
             cached: Mutex::new((mtime, Arc::new(config))),
