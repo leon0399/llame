@@ -1,8 +1,5 @@
-import { spawn, type ChildProcess } from 'node:child_process';
-import type { Socket } from 'node:net';
-import { Duplex, type Readable, type Writable } from 'node:stream';
-import type { Transport } from '@connectrpc/connect';
-import { createGrpcTransport } from '@connectrpc/connect-node';
+import { spawn, type ChildProcess } from "node:child_process";
+import { Duplex, type Readable, type Writable } from "node:stream";
 
 /** One HTTP/2 connection carried on a child's stdio. */
 export type StdioConnection = {
@@ -41,26 +38,26 @@ export function connectStdio(
   let output: Writable;
   let closeStreams: (() => void) | undefined;
 
-  if ('streams' in options) {
+  if ("streams" in options) {
     ({ input, output, close: closeStreams } = options.streams);
   } else {
     child = spawn(options.command, [...options.args], {
       env: options.env,
       shell: false,
-      stdio: ['pipe', 'pipe', 'pipe'],
+      stdio: ["pipe", "pipe", "pipe"],
     });
     if (child.stdin === null || child.stdout === null || child.stderr === null)
-      throw new Error('The Machine connection has no stdio.');
+      throw new Error("The Machine connection has no stdio.");
     input = child.stdout;
     output = child.stdin;
-    child.stderr.setEncoding('utf8');
-    child.stderr.on('data', (text: string) => options.onStderr?.(text));
+    child.stderr.setEncoding("utf8");
+    child.stderr.on("data", (text: string) => options.onStderr?.(text));
   }
 
   const duplex = Duplex.from({ readable: input, writable: output });
   let used = false;
   const transport = createGrpcTransport({
-    baseUrl: 'http://machine',
+    baseUrl: "http://machine",
     idleConnectionTimeoutMs: 2 ** 31 - 1,
     pingIntervalMs: 15_000,
     pingTimeoutMs: 45_000,
@@ -68,7 +65,7 @@ export function connectStdio(
     writeMaxBytes: 4 * 1024 * 1024,
     nodeOptions: {
       createConnection: () => {
-        if (used) throw new Error('The Machine connection is closed.');
+        if (used) throw new Error("The Machine connection is closed.");
         used = true;
         return duplex;
       },
@@ -80,29 +77,12 @@ export function connectStdio(
     ...(child === undefined ? {} : { child }),
     close() {
       closeStreams?.();
-      if (child !== undefined && child.exitCode === null && child.signalCode === null)
-        child.kill('SIGTERM');
+      if (
+        child !== undefined &&
+        child.exitCode === null &&
+        child.signalCode === null
+      )
+        child.kill("SIGTERM");
     },
   };
-}
-
-/** Creates an HTTP/2 Connect transport over a real Unix-domain socket. */
-export function connectSocket(socket: Socket): Transport {
-  let used = false;
-
-  return createGrpcTransport({
-    baseUrl: 'http://machine',
-    idleConnectionTimeoutMs: 2 ** 31 - 1,
-    pingIntervalMs: 15_000,
-    pingTimeoutMs: 45_000,
-    readMaxBytes: 4 * 1024 * 1024,
-    writeMaxBytes: 4 * 1024 * 1024,
-    nodeOptions: {
-      createConnection: () => {
-        if (used) throw new Error('The Machine connection is closed.');
-        used = true;
-        return socket;
-      },
-    },
-  });
 }

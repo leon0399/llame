@@ -3,13 +3,9 @@
  * D4). The host serves its own Machine through the same wire, session,
  * identity bind, and failure vocabulary every other Machine uses.
  *
- * The daemon starts from a fixed base environment, never the worker's: a
- * Workspace's `{env:…}` tokens may resolve hub secrets, and a daemon that
- * inherited them would hand them to every process it starts. The allowlist is
- * identity (`PATH`, `HOME`, `TMPDIR`, `USER`, `LOGNAME`), the daemon's own
- * configuration directory, and its Sentry identity; nothing else crosses.
+ * The daemon receives only OS identity and its own configuration directory.
+ * API, worker, and Sentry credentials never cross into its tools.
  */
-
 import { connectSocket, daemonBinary } from '@workspace/machine-protocol';
 import { execFileSync } from 'node:child_process';
 import { connect as connectNetSocket, type Socket } from 'node:net';
@@ -47,13 +43,6 @@ const MACHINE_CONFIGURATION_NAMES = [
   'XDG_CONFIG_HOME',
   'LLAME_MACHINE_STATE_DIR',
   'XDG_STATE_HOME',
-] as const;
-
-/** The daemon's own Sentry identity, for its own errors only. */
-const SENTRY_ENVIRONMENT_NAMES = [
-  'SENTRY_DSN',
-  'SENTRY_ENVIRONMENT',
-  'SENTRY_RELEASE',
 ] as const;
 
 /**
@@ -108,7 +97,6 @@ export function localChildEnvironment(
   for (const name of [
     ...COPIED_ENVIRONMENT_NAMES,
     ...MACHINE_CONFIGURATION_NAMES,
-    ...SENTRY_ENVIRONMENT_NAMES,
   ]) {
     const value = worker[name];
 

@@ -77,8 +77,6 @@ describe('createLocalChildTransportFactory', () => {
         LANG: 'fr_FR.UTF-8',
         LLAME_MACHINE_CONFIG_DIR: '/srv/llame/machine',
         XDG_CONFIG_HOME: '/home/operator/.config',
-        SENTRY_DSN: 'https://dsn.example/1',
-        SENTRY_ENVIRONMENT: 'production',
         POSTGRES_URL: 'postgres://secret@db/llame',
         SENTRY_AUTH_TOKEN: 'release-token',
       },
@@ -100,13 +98,12 @@ describe('createLocalChildTransportFactory', () => {
       LOGNAME: 'operator',
       LLAME_MACHINE_CONFIG_DIR: '/srv/llame/machine',
       XDG_CONFIG_HOME: '/home/operator/.config',
-      SENTRY_DSN: 'https://dsn.example/1',
-      SENTRY_ENVIRONMENT: 'production',
       LANG: 'C.UTF-8',
       TERM: 'dumb',
     });
     expect(of(calls[0]).env).not.toHaveProperty('POSTGRES_URL');
     expect(of(calls[0]).env).not.toHaveProperty('SENTRY_AUTH_TOKEN');
+    expect(of(calls[0]).env).not.toHaveProperty('SENTRY_DSN');
   });
 
   it('keeps an unset identity variable unset rather than empty', () => {
