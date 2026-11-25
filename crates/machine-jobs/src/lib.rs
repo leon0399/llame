@@ -57,6 +57,11 @@ struct StoredStatus {
     stderr_truncated: bool,
     lost_cause: Option<i32>,
 }
+#[derive(Serialize, Deserialize)]
+struct OutputTruncation {
+    stdout: bool,
+    stderr: bool,
+}
 
 struct Settlement {
     state: JobState,
@@ -109,6 +114,13 @@ pub async fn service(context: Context) -> anyhow::Result<JobServiceServer<Jobs>>
         let Ok(start) = serde_json::from_slice::<StoredJob>(&bytes) else {
             continue;
         };
+        let truncation = fs::read(directory.join("truncated.json"))
+            .ok()
+            .and_then(|bytes| serde_json::from_slice::<OutputTruncation>(&bytes).ok())
+            .unwrap_or(OutputTruncation {
+                stdout: false,
+                stderr: false,
+            });
         let status_path = directory.join("status.json");
         let status = fs::read(&status_path)
             .ok()
@@ -122,10 +134,8 @@ pub async fn service(context: Context) -> anyhow::Result<JobServiceServer<Jobs>>
                     stdout_bytes: file_len(&directory.join("stdout")),
                     stderr_bytes: file_len(&directory.join("stderr")),
                     wall_time_ms: 0,
-                    stdout_truncated: file_len(&directory.join("stdout"))
-                        >= context.limits().job_output_bytes,
-                    stderr_truncated: file_len(&directory.join("stderr"))
-                        >= context.limits().job_output_bytes,
+                    stdout_truncated: truncation.stdout,
+                    stderr_truncated: truncation.stderr,
                     lost_cause: Some(if start.boot_id == current_boot {
                         LostCause::DaemonRestarted as i32
                     } else {
@@ -219,18 +229,13 @@ impl JobService for Jobs {
         _: Request<WatchJobsRequest>,
     ) -> Result<Response<Self::WatchJobsStream>, Status> {
         let (sender, receiver) = mpsc::channel(32);
-        let state = Arc::clone(&self.state);
-        let mut changes = self.state.lock().await.changes.subscribe();
+        let (snapshot, mut changes) = {
+            let state = self.state.lock().await;
+            let changes = state.changes.subscribe();
+            let snapshot = state.entries.values().map(job_record).collect::<Vec<_>>();
+            (snapshot, changes)
+        };
         tokio::spawn(async move {
-            let snapshot = {
-                state
-                    .lock()
-                    .await
-                    .entries
-                    .values()
-                    .map(job_record)
-                    .collect::<Vec<_>>()
-            };
             for job in snapshot {
                 if sender
                     .send(Ok(WatchJobsResponse {
@@ -374,9 +379,10 @@ impl JobService for Jobs {
         let state = Arc::clone(&self.state);
         let job_id = request.job_id;
         let owner = request.owner;
+        let request_id = format!("{}:{}{}", owner.len(), owner, request.request_id);
         let job = self
             .cancels
-            .run(&request.request_id, || async move {
+            .run(&request_id, || async move {
                 tokio::spawn(cancel_job(state, job_id, owner))
                     .await
                     .map_err(|error| {
@@ -393,9 +399,11 @@ impl JobService for Jobs {
     ) -> Result<Response<DeleteJobResponse>, Status> {
         let request = request.into_inner();
         let state = Arc::clone(&self.state);
+        let owner = request.owner;
+        let request_id = format!("{}:{}{}", owner.len(), owner, request.request_id);
         self.deletes
-            .run(&request.request_id, || async move {
-                delete_job(state, request.job_id, request.owner).await
+            .run(&request_id, || async move {
+                delete_job(state, request.job_id, owner).await
             })
             .await?;
         Ok(Response::new(DeleteJobResponse {}))
@@ -414,6 +422,13 @@ impl Jobs {
             return Err(refusal::invalid_argument(
                 "Job id must be 32 lowercase hexadecimal characters.",
             ));
+        }
+        let existing = {
+            let state = self.state.lock().await;
+            state.entries.get(&request.job_id).map(job_record)
+        };
+        if let Some(existing) = existing {
+            return Ok(existing);
         }
         let (cwd, guarded) = if let Some(path) = request.cwd.as_deref() {
             let guarded = self.context.guard().resolve(path)?;
@@ -598,8 +613,14 @@ impl Jobs {
                 })
                 .await
                 .is_ok_and(|empty| empty);
-                finish_output(out_task).await;
-                finish_output(err_task).await;
+                let stdout_drained = finish_output(out_task).await;
+                let stderr_drained = finish_output(err_task).await;
+                if !stdout_drained {
+                    mark_truncated(&state, &start.job_id, true).await;
+                }
+                if !stderr_drained {
+                    mark_truncated(&state, &start.job_id, false).await;
+                }
                 settle(
                     state,
                     &start.job_id,
@@ -655,25 +676,44 @@ impl Jobs {
                     Some(LostCause::CancelUnproved as i32),
                 )
             };
-            finish_output(out_task).await;
-            finish_output(err_task).await;
-            if state
+            let stdout_drained = finish_output(out_task).await;
+            let stderr_drained = finish_output(err_task).await;
+            if !stdout_drained {
+                mark_truncated(&state, &start.job_id, true).await;
+            }
+            if !stderr_drained {
+                mark_truncated(&state, &start.job_id, false).await;
+            }
+            let cancelled = state
                 .lock()
                 .await
                 .entries
                 .get(&start.job_id)
-                .is_some_and(|entry| entry.stop_requested)
-            {
-                return;
-            }
+                .is_some_and(|entry| entry.stop_requested);
             settle(
                 state,
                 &start.job_id,
                 Settlement {
-                    state: state_value,
-                    exit_code,
-                    signal,
-                    lost_cause,
+                    state: if cancelled {
+                        if lost_cause.is_some() {
+                            JobState::Lost
+                        } else {
+                            JobState::Cancelled
+                        }
+                    } else {
+                        state_value
+                    },
+                    exit_code: if cancelled { None } else { exit_code },
+                    signal: if cancelled {
+                        Some("SIGKILL".into())
+                    } else {
+                        signal
+                    },
+                    lost_cause: if cancelled {
+                        lost_cause.or(Some(LostCause::CancelUnproved as i32))
+                    } else {
+                        lost_cause
+                    },
                 },
             )
             .await;
@@ -682,10 +722,32 @@ impl Jobs {
     }
 }
 
-async fn finish_output(mut task: tokio::task::JoinHandle<()>) {
+async fn finish_output(mut task: tokio::task::JoinHandle<()>) -> bool {
     if time::timeout(STOP_BUDGET, &mut task).await.is_err() {
         task.abort();
         let _ = task.await;
+        false
+    } else {
+        true
+    }
+}
+
+async fn mark_truncated(state: &Arc<Mutex<State>>, id: &str, stdout: bool) {
+    let mut state = state.lock().await;
+    if let Some(entry) = state.entries.get_mut(id) {
+        if stdout {
+            entry.stdout_truncated = true;
+        } else {
+            entry.stderr_truncated = true;
+        }
+        let truncation = OutputTruncation {
+            stdout: entry.stdout_truncated,
+            stderr: entry.stderr_truncated,
+        };
+        if let Err(error) = write_json_atomic(&entry.directory.join("truncated.json"), &truncation)
+        {
+            tracing::error!(job_id = id, %error, "Unable to persist output truncation");
+        }
     }
 }
 #[allow(clippy::too_many_arguments)]
@@ -724,11 +786,19 @@ async fn copy_output<R: AsyncRead + Unpin>(
                 } else {
                     entry.stderr_truncated = true;
                 }
+                let truncation = OutputTruncation {
+                    stdout: entry.stdout_truncated,
+                    stderr: entry.stderr_truncated,
+                };
+                if let Err(error) =
+                    write_json_atomic(&entry.directory.join("truncated.json"), &truncation)
+                {
+                    tracing::error!(job_id = id, %error, "Unable to persist output truncation");
+                }
             }
         }
     }
 }
-
 async fn settle(state: Arc<Mutex<State>>, id: &str, outcome: Settlement) {
     time::sleep(Duration::from_millis(15)).await;
     let mut state = state.lock().await;
@@ -773,32 +843,23 @@ async fn cancel_job(state: Arc<Mutex<State>>, id: String, owner: String) -> Resu
         entry.start.pid
     };
     signal_group(pid, rustix::process::Signal::KILL);
-    let proved = time::timeout(STOP_BUDGET, wait_group_empty(pid))
-        .await
-        .is_ok_and(|empty| empty);
-    let outcome = if proved {
-        Settlement {
-            state: JobState::Cancelled,
-            exit_code: None,
-            signal: Some("SIGKILL".into()),
-            lost_cause: None,
+    time::timeout(Duration::from_secs(2), async {
+        loop {
+            let state = state.lock().await;
+            let entry = state
+                .entries
+                .get(&id)
+                .filter(|entry| entry.start.owner == owner)
+                .ok_or_else(refusal::job_not_found)?;
+            if entry.status.is_some() {
+                return Ok(job_record(entry));
+            }
+            drop(state);
+            time::sleep(Duration::from_millis(5)).await;
         }
-    } else {
-        Settlement {
-            state: JobState::Lost,
-            exit_code: None,
-            signal: Some("SIGKILL".into()),
-            lost_cause: Some(LostCause::CancelUnproved as i32),
-        }
-    };
-    settle(Arc::clone(&state), &id, outcome).await;
-    state
-        .lock()
-        .await
-        .entries
-        .get(&id)
-        .map(job_record)
-        .ok_or_else(refusal::job_not_found)
+    })
+    .await
+    .map_err(|_| Status::internal("Job cancellation did not settle."))?
 }
 
 async fn delete_job(state: Arc<Mutex<State>>, id: String, owner: String) -> Result<(), Status> {
@@ -856,10 +917,12 @@ fn duration_ms(duration: &ProtoDuration) -> Result<u64, Status> {
             "Job timeout must be a non-negative duration.",
         ));
     }
+    let nanos = u64::try_from(duration.nanos).unwrap_or(u64::MAX);
+    let nanos_ms = nanos.saturating_add(999_999) / 1_000_000;
     let millis = u64::try_from(duration.seconds)
         .unwrap_or(u64::MAX)
         .saturating_mul(1000)
-        .saturating_add(u64::try_from(duration.nanos / 1_000_000).unwrap_or(0));
+        .saturating_add(nanos_ms);
     Ok(millis)
 }
 fn write_json_atomic(path: &Path, value: &impl Serialize) -> std::io::Result<()> {

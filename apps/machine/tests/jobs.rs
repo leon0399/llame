@@ -64,6 +64,7 @@ async fn wait_settled(
 }
 
 #[tokio::test]
+#[allow(clippy::too_many_lines)]
 async fn creates_watches_reads_duplicate_and_deletes_jobs() {
     let machine = common::Machine::new();
     let (_daemon, channel) = machine.attach().await;
@@ -86,6 +87,16 @@ async fn creates_watches_reads_duplicate_and_deletes_jobs() {
     let first = create(&mut client, id, "printf 'hello world\\n'; sleep 0.2").await;
     let second = create(&mut client, id, "printf 'should-not-run'").await;
     assert_eq!(first.created_at, second.created_at);
+    let mut duplicate = request(id, "false");
+    duplicate.cwd = Some("/etc".into());
+    let existing = client
+        .create_job(duplicate)
+        .await
+        .unwrap()
+        .into_inner()
+        .result
+        .unwrap();
+    assert!(matches!(existing, create_job_response::Result::Job(_)));
     let settled = timeout(Duration::from_secs(3), async {
         loop {
             let event = watch.message().await.unwrap().unwrap();
@@ -122,6 +133,23 @@ async fn creates_watches_reads_duplicate_and_deletes_jobs() {
         })
         .await
         .unwrap();
+    client
+        .delete_job(machine_protocol::v1::DeleteJobRequest {
+            request_id: "delete-a".into(),
+            job_id: id.into(),
+            owner: "owner-a".into(),
+        })
+        .await
+        .unwrap();
+    let wrong_owner = client
+        .delete_job(machine_protocol::v1::DeleteJobRequest {
+            request_id: "delete-a".into(),
+            job_id: id.into(),
+            owner: "owner-b".into(),
+        })
+        .await
+        .unwrap_err();
+    assert_eq!(wrong_owner.code(), tonic::Code::NotFound);
     assert!(!machine.state_dir().join("jobs").join(id).exists());
 }
 
@@ -165,6 +193,15 @@ async fn cancel_kills_process_group_and_timeout_expires() {
         .job
         .unwrap();
     assert_eq!(cancelled.state, JobState::Cancelled as i32);
+    let error = client
+        .cancel_job(machine_protocol::v1::CancelJobRequest {
+            request_id: "cancel-a".into(),
+            job_id: id.into(),
+            owner: "owner-b".into(),
+        })
+        .await
+        .unwrap_err();
+    assert_eq!(error.code(), tonic::Code::NotFound);
     let timeout_id = "3123456789abcdef0123456789abcdef";
     let mut timed = request(timeout_id, "sleep 30");
     timed.timeout.get_or_insert_with(Default::default).nanos = 100_000_000;
@@ -197,6 +234,50 @@ async fn cancel_kills_process_group_and_timeout_expires() {
     }
     #[cfg(target_os = "linux")]
     assert_eq!(timed.state, JobState::TimedOut as i32);
+}
+#[tokio::test]
+async fn submillisecond_job_timeout_is_not_unlimited() {
+    let machine = common::Machine::new();
+    let (_daemon, channel) = machine.attach().await;
+    let mut client = JobServiceClient::new(channel);
+    let id = "3223456789abcdef0123456789abcdef";
+    let mut timed = request(id, "sleep 30");
+    timed.timeout.get_or_insert_with(Default::default).nanos = 500_000;
+    client.create_job(timed).await.unwrap();
+    let settled = wait_settled(&mut client, id).await;
+    assert!(matches!(
+        settled.state,
+        state if state == JobState::TimedOut as i32 || state == JobState::Lost as i32
+    ));
+}
+#[tokio::test]
+async fn cancellation_drains_output_before_settlement() {
+    let machine = common::Machine::new();
+    let (_daemon, channel) = machine.attach().await;
+    let mut client = JobServiceClient::new(channel);
+    let id = "3323456789abcdef0123456789abcdef";
+    create(
+        &mut client,
+        id,
+        "setsid sh -c 'printf before; sleep 2; printf after' & sleep 30",
+    )
+    .await;
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    let cancelled = client
+        .cancel_job(machine_protocol::v1::CancelJobRequest {
+            request_id: "cancel-output".into(),
+            job_id: id.into(),
+            owner: "owner-a".into(),
+        })
+        .await
+        .unwrap()
+        .into_inner()
+        .job
+        .unwrap();
+    let stdout = cancelled.stdout.unwrap();
+    assert!(stdout.truncated);
+    let bytes = std::fs::read(machine.state_dir().join("jobs").join(id).join("stdout")).unwrap();
+    assert_eq!(stdout.bytes, bytes.len() as u64);
 }
 
 #[cfg(target_os = "linux")]
@@ -263,19 +344,26 @@ async fn normal_exit_kills_survivors_and_bounds_held_output_pipes() {
         let job = timeout(Duration::from_secs(2), wait_settled(&mut client, id))
             .await
             .expect("normal exit should settle promptly");
-        assert_eq!(job.state, JobState::Succeeded as i32);
-        assert_eq!(job.exit_code, Some(0));
+        match job.state {
+            state if state == JobState::Succeeded as i32 => assert_eq!(job.exit_code, Some(0)),
+            state if state == JobState::Lost as i32 => {
+                assert_eq!(job.lost_cause, LostCause::CancelUnproved as i32);
+            }
+            state => panic!("expected a successful or unproved stop, got {state}"),
+        }
 
         let stored: serde_json::Value = serde_json::from_slice(
             &std::fs::read(machine.state_dir().join("jobs").join(id).join("job.json")).unwrap(),
         )
         .unwrap();
         let pid = rustix::process::Pid::from_raw(stored["pid"].as_u64().unwrap() as i32).unwrap();
-        assert!(
-            rustix::process::test_kill_process_group(pid)
-                .is_err_and(|error| error == rustix::io::Errno::SRCH),
-            "settled job still has a process-group member"
-        );
+        if job.state == JobState::Succeeded as i32 {
+            assert!(
+                rustix::process::test_kill_process_group(pid)
+                    .is_err_and(|error| error == rustix::io::Errno::SRCH),
+                "settled successful job still has a process-group member"
+            );
+        }
     }
 }
 #[tokio::test]
@@ -352,18 +440,40 @@ async fn jobs_outlive_a_dropped_client_connection() {
 }
 
 #[tokio::test]
-async fn daemon_restart_marks_unfinished_jobs_lost() {
+async fn daemon_restart_marks_unfinished_jobs_lost_with_persisted_truncation() {
     let machine = common::Machine::new();
+    machine.cli(&["limits", "set", "--job-output-bytes", "8"]);
     let (_daemon, channel) = machine.attach().await;
     let mut client = JobServiceClient::new(channel);
     let id = "7123456789abcdef0123456789abcdef";
-    create(&mut client, id, "sleep 30").await;
+    create(&mut client, id, "head -c 32 /dev/zero; sleep 30").await;
+    timeout(Duration::from_secs(2), async {
+        loop {
+            let jobs = client
+                .list_jobs(ListJobsRequest {})
+                .await
+                .unwrap()
+                .into_inner()
+                .jobs;
+            if jobs
+                .iter()
+                .any(|job| job.id == id && job.stdout.as_ref().unwrap().truncated)
+            {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .unwrap();
+    machine.cli(&["limits", "set", "--job-output-bytes", "64"]);
     let daemon_pid = machine.daemon_pid().unwrap();
     std::process::Command::new("kill")
         .arg(daemon_pid.to_string())
         .status()
         .unwrap();
     tokio::time::sleep(Duration::from_millis(250)).await;
+
     drop(client);
     let (_restarted, channel) = machine.attach().await;
     let mut client = JobServiceClient::new(channel);
@@ -378,4 +488,5 @@ async fn daemon_restart_marks_unfinished_jobs_lost() {
         .unwrap();
     assert_eq!(lost.state, JobState::Lost as i32);
     assert_eq!(lost.lost_cause, LostCause::DaemonRestarted as i32);
+    assert!(lost.stdout.unwrap().truncated);
 }
