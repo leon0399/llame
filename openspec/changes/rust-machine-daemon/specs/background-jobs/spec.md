@@ -34,8 +34,9 @@ cancellation follows `bash-execution` instead.
 
 ### Requirement: Foreground settlement does not announce background work
 
-A foreground job's result MUST settle its row and retain its bounded artifact
-without creating a job notice, a settlement wake, or a job-notice Run. A
+A foreground job's result MUST settle its row and preserve its available output
+under `tool-artifacts` "Settled jobs preserve available output", without
+creating a job notice, a settlement wake, or a job-notice Run. A
 reconciler MUST NOT settle or release a foreground job while its owning Run
 can still consume that result. When that Run is terminal and no foreground
 consumer remains, reconciliation MUST recover the abandoned job as background
@@ -59,7 +60,7 @@ deliver that request and settle without background promotion or a job notice.
 - **WHEN** a foreground consumer is gone and its Run is terminal
 - **THEN** reconciliation can settle its bound daemon job with one notice and wake
 
-### Requirement: A job is lost only when its daemon does not know it
+### Requirement: Daemon facts determine when a job is lost
 
 A job MUST settle as `lost`, with its outcome unknown, when its daemon reports
 it `lost`, when the daemon does not know the job after the creating attempt
@@ -75,15 +76,17 @@ MUST remove the unstarted binding and return a known refusal, not a lost job.
 ### Requirement: Job output lives on the Machine
 
 A running job's output MUST be read from the Machine by byte offset. At
-settlement the installation MUST store one bounded, credential-redacted copy
-as the job's artifact and then release the job on the Machine. Foreground
+settlement the installation MUST preserve available output under
+`tool-artifacts` "Settled jobs preserve available output", then release the
+daemon record. A definitively missing job or output MUST remain explicitly
+unavailable, not an empty captured result. Foreground
 delivery MUST still obey "Foreground settlement does not announce background work".
 Explicit owner deletion of the Chat MAY discard its stopped job's retained
 output without first creating an artifact, under the deletion requirement.
 
 #### Scenario: Output of a settled job
 
-- **WHEN** a job settles
+- **WHEN** a job settles and its daemon retains the output
 - **THEN** its artifact holds the bounded, credential-redacted output and the daemon deletes the job directory
 
 ### Requirement: A job on an unreachable Machine shows as unknown
@@ -171,7 +174,7 @@ of the owner through the existing live Chat projection.
 ### Requirement: A job on a dead worker settles as lost
 
 **Reason**: Worker liveness no longer decides a job's fate.
-**Migration**: See "A job is lost only when its daemon does not know it".
+**Migration**: See "Daemon facts determine when a job is lost".
 
 ### Requirement: A stop request reaches the worker of the job
 

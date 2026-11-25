@@ -29,7 +29,7 @@ Windows builds, a production image.
 | R8, R9   | `attach --print-socket` discovers the persistent Unix socket. The host connects directly; SSH Machines use socket forwarding. `attach --stdio` is a debugging relay only.                               |
 | R10      | A restarted daemon settles every unfinished job directory as `lost` and keeps its output readable.                                                                                                      |
 | R11      | A job directory is deleted only by `JobService.DeleteJob`. A retention backstop is a follow-up.                                                                                                         |
-| R12      | Existing chunk output is dropped. Every settled job gets one bounded artifact copy.                                                                                                                     |
+| R12      | Existing chunk output is dropped. Settled jobs retain bounded available output as an artifact; a definitively missing daemon output stays explicitly unavailable.                                       |
 | R13      | `JobService.WatchJobs` sends a snapshot, a marker, then one full record per change. The Machine probe also lists jobs. Settlement is idempotent by job id.                                              |
 | R14      | The daemon knows only jobs. Foreground, background, and their causes are installation records.                                                                                                          |
 | R14a     | The installation draws a 128-bit job id; a resent start returns the same job.                                                                                                                           |

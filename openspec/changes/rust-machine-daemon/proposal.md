@@ -22,8 +22,9 @@ one static binary per Linux architecture. The decisions are recorded on the
   job binds to its Machine, the daemon instance id, and a random job id that
   the installation draws. Jobs run on every configured Machine.
 - **BREAKING:** delete `chat_job_chunks`, the 16 KiB / 1 s flush, and the
-  stored output of existing jobs. Every settled job gets one bounded artifact
-  copy.
+  stored output of existing jobs. Every settled job retains one bounded artifact
+  copy when its daemon output remains available; definitively missing output is
+  reported unavailable.
 - **BREAKING:** delete `tools.bash.maxProcesses`. Each Machine sets its own
   running-job limit and output ceiling in `config.toml`.
 - **BREAKING:** the daemon reads roots from `config.toml`; `roots.json` is not
@@ -50,8 +51,10 @@ one static binary per Linux architecture. The decisions are recorded on the
   background commands run on every Machine.
 - `instance-config`: remove `tools.bash.maxProcesses` and apply the foreground
   promotion bound to every configured Machine while keeping `ssh://` foreground-only.
-- `tool-artifacts`: retain a bounded artifact copy for every settled daemon job
+- `tool-artifacts`: retain bounded available output for settled daemon jobs
   and keep failed copies available for later daemon reconciliation.
+- `tool-result-rendering`: keep the inline artifact-failure fallback separate
+  from daemon-job settlement, which retains output for reconciliation.
 
 ## Impact
 

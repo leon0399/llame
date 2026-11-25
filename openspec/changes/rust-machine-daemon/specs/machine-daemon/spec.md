@@ -172,6 +172,10 @@ The Machine MUST read its running-job limit and its per-stream output ceiling
 from `config.toml`, with defaults of 32 running jobs and 64 MiB. At the output
 ceiling the daemon MUST stop recording the stream, mark the job truncated, and
 keep the process running.
+The running-job limit MUST count jobs the current daemon records as running.
+A `lost` outcome MUST NOT claim that an earlier process group stopped; after
+a daemon crash, surviving groups remain outside that count and require
+inspection of the environment. This limit is not an OS process quota.
 
 #### Scenario: The running-job limit refuses a new job
 

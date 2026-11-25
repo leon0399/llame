@@ -53,8 +53,9 @@ starts. Standalone SSH commands MUST stay foreground-only.
 
 ### Requirement: Daemon and SSH command results are bounded and explicit
 
-Each bash call MUST enforce finite input, duration, process, stdout, and
-stderr bounds. Each returned stream
+Each bash call MUST enforce finite input, process, stdout, and stderr bounds.
+Its duration MUST be finite unless the operator authorizes `unlimited: true`
+under `background-jobs`. Each returned stream
 bound MUST be `tools.artifacts.maxBytes` UTF-8 bytes. A configured Machine
 MUST also enforce its own retained-output byte ceiling; the installation MUST
 apply its result bound to the bytes it reads from that retained output. The result MUST
@@ -216,7 +217,8 @@ unsettled until promotion or recovery determines the authoritative result. The
 The installation MUST record the durable native attempt before dispatch and its
 result after. A process that never started MUST be a known refusal, never
 `outcome_unknown`. A known start refusal MUST remove its unstarted job binding.
-A Machine job-limit refusal MUST retain its `machine_job_limit` classification.
+A daemon running-job-limit refusal with reason `job_limit` MUST map to the
+installation's `machine_job_limit` classification.
 Its model-facing result MUST be `limit_reached`, state that a later call can
 succeed, and MUST NOT classify the temporary capacity refusal as unavailable.
 
