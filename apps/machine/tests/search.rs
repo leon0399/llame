@@ -147,7 +147,7 @@ async fn search_streams_matches_skips_and_resumes_with_guards() {
     while let Some(item) = stream.message().await.unwrap() {
         match item.event {
             Some(Event::Match(found_match)) => {
-                byte_matches.push((found_match.path, found_match.line))
+                byte_matches.push((found_match.path, found_match.line));
             }
             Some(Event::End(search_end)) => byte_end = Some(search_end),
             _ => {}
