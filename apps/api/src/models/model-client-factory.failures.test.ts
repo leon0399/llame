@@ -194,8 +194,8 @@ describe('createModelClient failure redaction', () => {
     async (wire) => {
       // A reset in the past changes how the failure is classified, so keep it
       // an hour ahead of the test's clock.
-      const resetsAtText = new Date(Date.now() + 3_600_000).toISOString();
-      const resetsAt = Date.parse(resetsAtText);
+      const resetsAt = Date.now() + 3_600_000;
+      const resetsAtText = new Date(resetsAt).toISOString();
 
       const fetch = serve(() =>
         jsonResponse(
