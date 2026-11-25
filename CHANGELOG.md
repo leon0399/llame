@@ -2,9 +2,8 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 
 # 2026-11-25
 
-- Keep retained Machine mutation results replayable when the idempotency cache
-  reaches its key limit. Attaching through a different configuration now
-  refuses the running daemon before returning its socket.
+- Ship the Rust Machine daemon skeleton with `attach --print-socket`, daemon
+  bootstrap and root services, and the versioned gRPC contract.
 - Register generated protocol bindings and the external Rust and protobuf
   build tools in dead-code analysis.
 

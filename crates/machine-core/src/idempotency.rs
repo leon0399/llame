@@ -1,6 +1,8 @@
-//! Results of mutating calls by idempotency key, so a resend after a dropped
-//! connection returns the first result instead of a second effect. In memory
-//! only: after a daemon restart the key is unknown and the outcome is unknown.
+//! Idempotency cache for Machine mutations.
+//!
+//! A resend after a dropped connection returns the first result instead of a
+//! second effect. The cache is in memory only: after a daemon restart the key is
+//! unknown and the outcome is unknown.
 
 use std::{
     collections::HashMap,
@@ -34,8 +36,9 @@ impl<T: Clone> IdempotencyCache<T> {
     /// waits for and returns the first result. An empty key is never cached.
     pub async fn run<F, Fut>(&self, key: &str, work: F) -> T
     where
-        F: FnOnce() -> Fut,
-        Fut: Future<Output = T>,
+        T: Send,
+        F: FnOnce() -> Fut + Send,
+        Fut: Future<Output = T> + Send,
     {
         if key.is_empty() {
             return work().await;

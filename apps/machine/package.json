@@ -11,7 +11,7 @@
     "lint": "oxlint --deny-warnings --report-unused-disable-directives && cargo fmt --all --check && cargo clippy --locked --workspace --all-targets",
     "lint:fix": "oxlint --deny-warnings --fix",
     "test": "vitest run && cargo test --locked --workspace",
-    "test:coverage": "vitest run --coverage --reporter=default --reporter=junit --outputFile.junit=coverage/junit.xml && crap-typescript --threshold 42 --format none src",
+    "test:coverage": "vitest run --coverage --reporter=default --reporter=junit --outputFile.junit=coverage/junit.xml && crap-typescript --threshold 42 --format none src && cargo test --locked --workspace",
     "typecheck": "tsc --noEmit",
     "build:release": "node scripts/build-daemon.mjs --release-targets"
   },

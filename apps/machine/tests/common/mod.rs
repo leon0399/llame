@@ -46,27 +46,19 @@ impl Machine {
     }
 
     fn command(&self) -> std::process::Command {
-        let mut command = std::process::Command::new(env!("CARGO_BIN_EXE_llame-machine"));
+        self.command_with_binary(env!("CARGO_BIN_EXE_llame-machine"))
+    }
+
+    fn command_with_binary(&self, binary: &str) -> std::process::Command {
+        let mut command = std::process::Command::new(binary);
         command
             .env("LLAME_MACHINE_CONFIG_DIR", self.config_dir())
             .env("LLAME_MACHINE_STATE_DIR", self.state_dir());
         command
     }
 
-    /// Runs a CLI command and returns its standard output.
-    pub fn cli(&self, args: &[&str]) -> String {
-        let output = self.command().args(args).output().unwrap();
-        assert!(
-            output.status.success(),
-            "{}",
-            String::from_utf8_lossy(&output.stderr)
-        );
-        String::from_utf8(output.stdout).unwrap()
-    }
-
-    /// One `attach --stdio` child and a gRPC channel over its stdio.
-    pub async fn attach(&self) -> (Child, Channel) {
-        let mut child = Command::from(self.command())
+    pub async fn attach_with_binary(&self, binary: &str) -> (Child, Channel) {
+        let mut child = Command::from(self.command_with_binary(binary))
             .args(["attach", "--stdio"])
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
@@ -88,6 +80,23 @@ impl Machine {
             .await
             .unwrap();
         (child, channel)
+    }
+
+    /// One `attach --stdio` child and a gRPC channel over its stdio.
+    pub async fn attach(&self) -> (Child, Channel) {
+        self.attach_with_binary(env!("CARGO_BIN_EXE_llame-machine"))
+            .await
+    }
+
+    /// Runs a CLI command and returns its standard output.
+    pub fn cli(&self, args: &[&str]) -> String {
+        let output = self.command().args(args).output().unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        String::from_utf8(output.stdout).unwrap()
     }
 
     pub fn daemon_pid(&self) -> Option<i32> {

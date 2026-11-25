@@ -79,7 +79,7 @@ fn canonical_target(target: &Path, depth: u32) -> Result<PathBuf, Status> {
         return Ok(target.to_path_buf());
     };
     let Some(name) = target.file_name() else {
-        return Ok(target.to_path_buf());
+        return Err(refusal::path_not_registered());
     };
     let is_link = fs::symlink_metadata(target).is_ok_and(|meta| meta.file_type().is_symlink());
     if is_link {
@@ -89,7 +89,7 @@ fn canonical_target(target: &Path, depth: u32) -> Result<PathBuf, Status> {
         } else {
             canonical_target(parent, depth)?.join(hop)
         };
-        return canonical_target(&normalize(&next), depth + 1);
+        return canonical_target(&next, depth + 1);
     }
     Ok(canonical_target(parent, depth)?.join(name))
 }
@@ -213,6 +213,26 @@ mod tests {
         let inner = guard.resolve(&root.join("in").to_string_lossy()).unwrap();
         assert_eq!(inner.kind, PathKind::Missing);
         assert!(inner.is_link);
+    }
+    #[test]
+    fn resolves_parent_components_after_following_links() {
+        let dir = tempfile::tempdir().unwrap();
+        let base = dir.path().canonicalize().unwrap();
+        let root = base.join("root");
+        let outside = base.join("outside");
+        fs::create_dir_all(root.join("sub")).unwrap();
+        fs::create_dir_all(outside.join("dir")).unwrap();
+        symlink(outside.join("dir"), root.join("sub/link")).unwrap();
+        symlink("sub/link/../x", root.join("relative")).unwrap();
+        symlink(root.join("sub/link/../x"), root.join("absolute")).unwrap();
+        let guard = guard(&root);
+
+        assert!(denied(
+            guard.resolve(&root.join("relative").to_string_lossy())
+        ));
+        assert!(denied(
+            guard.resolve(&root.join("absolute").to_string_lossy())
+        ));
     }
 
     #[test]

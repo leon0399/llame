@@ -2,10 +2,58 @@
   "$schema": "https://turbo.dev/schema.json",
   "extends": ["//"],
   "tasks": {
-    "build": { "outputs": ["dist/**"] },
-    "lint": { "dependsOn": ["^build"] },
+    "build": {
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/crates/**",
+        "$TURBO_ROOT$/Cargo.toml",
+        "$TURBO_ROOT$/Cargo.lock",
+        "$TURBO_ROOT$/clippy.toml",
+        "$TURBO_ROOT$/rustfmt.toml",
+        "$TURBO_ROOT$/rust-toolchain.toml",
+        "$TURBO_ROOT$/.cargo/**"
+      ],
+      "outputs": ["dist/**"]
+    },
+    "lint": {
+      "dependsOn": ["^build"],
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/crates/**",
+        "$TURBO_ROOT$/Cargo.toml",
+        "$TURBO_ROOT$/Cargo.lock",
+        "$TURBO_ROOT$/clippy.toml",
+        "$TURBO_ROOT$/rustfmt.toml",
+        "$TURBO_ROOT$/rust-toolchain.toml",
+        "$TURBO_ROOT$/.cargo/**"
+      ]
+    },
     "typecheck": { "dependsOn": ["^build"] },
-    "test": { "dependsOn": ["^build"] },
-    "test:coverage": { "dependsOn": ["^build"] }
+    "test": {
+      "dependsOn": ["^build"],
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/crates/**",
+        "$TURBO_ROOT$/Cargo.toml",
+        "$TURBO_ROOT$/Cargo.lock",
+        "$TURBO_ROOT$/clippy.toml",
+        "$TURBO_ROOT$/rustfmt.toml",
+        "$TURBO_ROOT$/rust-toolchain.toml",
+        "$TURBO_ROOT$/.cargo/**"
+      ]
+    },
+    "test:coverage": {
+      "dependsOn": ["^build"],
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/crates/**",
+        "$TURBO_ROOT$/Cargo.toml",
+        "$TURBO_ROOT$/Cargo.lock",
+        "$TURBO_ROOT$/clippy.toml",
+        "$TURBO_ROOT$/rustfmt.toml",
+        "$TURBO_ROOT$/rust-toolchain.toml",
+        "$TURBO_ROOT$/.cargo/**"
+      ]
+    }
   }
 }

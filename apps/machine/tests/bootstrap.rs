@@ -12,6 +12,7 @@ use machine_protocol::{
     bootstrap::v1::{GetInfoRequest, bootstrap_service_client::BootstrapServiceClient},
     v1::{GetLimitsRequest, ListRootsRequest, machine_service_client::MachineServiceClient},
 };
+use std::{io::Write, os::unix::fs::MetadataExt};
 
 #[tokio::test]
 async fn attach_starts_one_daemon_and_reports_identity() {
@@ -109,4 +110,47 @@ async fn a_stale_socket_is_replaced() {
         .get_info(GetInfoRequest {})
         .await
         .unwrap();
+}
+
+#[tokio::test]
+async fn the_state_directory_is_private() {
+    let machine = common::Machine::new();
+    let (_child, _channel) = machine.attach().await;
+    let state_mode = std::fs::metadata(machine.state_dir()).unwrap().mode() & 0o777;
+    let socket_mode = std::fs::metadata(machine.state_dir().join("daemon.sock"))
+        .unwrap()
+        .mode()
+        & 0o777;
+    assert_eq!(state_mode, 0o700);
+    assert_eq!(socket_mode, 0o600);
+}
+
+#[tokio::test]
+async fn a_rebuilt_binary_applies_on_the_next_attach() {
+    let machine = common::Machine::new();
+    let (_old_child, old_channel) = machine.attach().await;
+    let old_info = BootstrapServiceClient::new(old_channel)
+        .get_info(GetInfoRequest {})
+        .await
+        .unwrap()
+        .into_inner();
+    let old_pid = machine.daemon_pid().unwrap();
+
+    let rebuilt = machine.home.path().join("llame-machine-rebuilt");
+    std::fs::copy(env!("CARGO_BIN_EXE_llame-machine"), &rebuilt).unwrap();
+    std::fs::OpenOptions::new()
+        .append(true)
+        .open(&rebuilt)
+        .unwrap()
+        .write_all(b"rebuilt")
+        .unwrap();
+
+    let (_new_child, new_channel) = machine.attach_with_binary(rebuilt.to_str().unwrap()).await;
+    let new_info = BootstrapServiceClient::new(new_channel)
+        .get_info(GetInfoRequest {})
+        .await
+        .unwrap()
+        .into_inner();
+    assert_ne!(new_info.build_id, old_info.build_id);
+    assert_ne!(machine.daemon_pid(), Some(old_pid));
 }
