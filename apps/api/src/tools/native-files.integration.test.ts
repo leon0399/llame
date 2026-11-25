@@ -124,7 +124,7 @@ describe('native file authority and durable effects', () => {
       nativeDeliverySequence: run.startedSequence,
       toolCallId: randomUUID(),
       ...hostBashJobs(tenantDb, daemon.connector, {
-        wakeForChatInTransaction: async () => false,
+        wakeForChatInTransaction: () => Promise.resolve(false),
       }),
       permissionPolicy: compileTestPermissionPolicy(),
     };

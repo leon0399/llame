@@ -365,8 +365,8 @@ describe('chat jobs API', () => {
         maxBytes: 131_072,
         hostFiles: false,
         backgrounded: false,
-        noticeRuns: { startOnSettlement: async () => undefined },
-        wake: { wakeForChatInTransaction: async () => false },
+        noticeRuns: { startOnSettlement: () => Promise.resolve() },
+        wake: { wakeForChatInTransaction: () => Promise.resolve(false) },
       },
     );
 
@@ -401,8 +401,8 @@ describe('chat jobs API', () => {
           maxBytes: 131_072,
           hostFiles: false,
           backgrounded: false,
-          noticeRuns: { startOnSettlement: async () => undefined },
-          wake: { wakeForChatInTransaction: async () => false },
+          noticeRuns: { startOnSettlement: () => Promise.resolve() },
+          wake: { wakeForChatInTransaction: () => Promise.resolve(false) },
         },
       ),
     ).rejects.toThrow('An artifact part exceeds tools.artifacts.maxBytes.');

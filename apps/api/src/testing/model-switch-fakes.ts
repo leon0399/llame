@@ -1,8 +1,9 @@
 import { vi } from 'vitest';
 
 import { ChatDeliveriesRepository } from '../chats/chat-deliveries.repository';
+
 import { ChatsRepository, MessagesRepository } from '../chats/chats-repository';
-import { ChatJobsRepository } from '../jobs/chat-jobs.repository';
+
 import {
   type Chat,
   type ChatDelivery,
@@ -86,7 +87,6 @@ function mockSwitchLocks(
 
   return { lockRun, lockChat };
 }
-
 
 function mockBoundaryFakes(input: ModelSwitchFakeInput) {
   vi.spyOn(
