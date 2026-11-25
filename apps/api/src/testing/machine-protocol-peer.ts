@@ -1,3 +1,5 @@
+import { Code, ConnectError } from '@connectrpc/connect';
+
 import { PassThrough } from 'node:stream';
 
 import {
@@ -23,7 +25,8 @@ export type PeerCall = { readonly method: string; readonly params?: JsonValue };
 export type PeerAnswer =
   | { readonly value: JsonValue }
   | { readonly error: MachineErrorCode }
-  | { readonly hold: true };
+  | { readonly hold: true }
+  | { readonly unimplemented: true };
 export type ProtocolPeerOptions = {
   readonly roots?: ReadonlyArray<string>;
   readonly daemonVersion?: string;
@@ -36,6 +39,7 @@ export type ProtocolPeerOptions = {
   readonly answers?: Readonly<Record<string, PeerAnswer>>;
   readonly answer?: (
     call: PeerCall,
+    options: MachineRequestOptions,
   ) => PeerAnswer | Promise<PeerAnswer | undefined> | undefined;
   readonly onNotification?: (
     method: string,
@@ -152,22 +156,34 @@ class PeerSessionImpl implements PeerSession {
       };
       return wireJson(hello);
     }
-    this.requests.push(method);
-    this.calls.push({ method, params });
-    for (const waiter of [...this.requestWaiters]) {
-      if (this.requests.length >= waiter.count) {
-        this.requestWaiters.splice(this.requestWaiters.indexOf(waiter), 1);
-        waiter.resolve();
-      }
-    }
     const call = { method, params };
-    const override = await this.options.answer?.(call);
+    const override = await this.options.answer?.(call, options);
     const answer =
       override ??
       this.options.answers?.[method] ??
       (method === 'roots.list'
         ? { value: wireJson({ roots: this.options.roots ?? ['/srv/app'] }) }
         : DEFAULT_ANSWER);
+
+    if (this.halted) throw new Error('peer session stopped');
+
+    this.requests.push(method);
+    this.calls.push(call);
+
+    for (let index = this.requestWaiters.length - 1; index >= 0; index -= 1) {
+      const waiter = this.requestWaiters[index];
+
+      if (waiter !== undefined && this.requests.length >= waiter.count) {
+        this.requestWaiters.splice(index, 1);
+        waiter.resolve();
+      }
+    }
+    if ('unimplemented' in answer)
+      throw new ConnectError(
+        `The Machine does not implement ${method}.`,
+        Code.Unimplemented,
+      );
+
     if ('error' in answer)
       throw new MachineProtocolError(
         answer.error,
@@ -176,8 +192,25 @@ class PeerSessionImpl implements PeerSession {
     if ('hold' in answer) {
       const { promise, resolve, reject } = Promise.withResolvers<JsonValue>();
       const waiting = this.pending.get(method) ?? [];
-      waiting.push({ resolve, reject });
+      const abort = () => {
+        reject(new Error('Machine request was cancelled.'));
+      };
+
+      if (options.signal?.aborted) abort();
+      else options.signal?.addEventListener('abort', abort, { once: true });
+
+      waiting.push({
+        resolve: (value) => {
+          options.signal?.removeEventListener('abort', abort);
+          resolve(value);
+        },
+        reject: (error) => {
+          options.signal?.removeEventListener('abort', abort);
+          reject(error);
+        },
+      });
       this.pending.set(method, waiting);
+
       return promise;
     }
     return answer.value;
@@ -245,7 +278,12 @@ class PeerSessionImpl implements PeerSession {
     this.halted = true;
     for (const waiting of this.pending.values())
       waiting.forEach(({ reject }) =>
-        reject(new Error(options.diagnostic ?? 'peer session stopped')),
+        reject(
+          new ConnectError(
+            options.diagnostic ?? 'peer session stopped',
+            Code.Unavailable,
+          ),
+        ),
       );
     this.pending.clear();
     this.stopSignal.resolve();

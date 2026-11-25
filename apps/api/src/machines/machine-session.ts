@@ -265,10 +265,18 @@ export class MachineSession {
       );
 
     if (this.options.requestHandler !== undefined) {
-      const result = await this.options.requestHandler(method, params, options);
+      try {
+        const result = await this.options.requestHandler(
+          method,
+          params,
+          options,
+        );
 
-      // SAFETY: This injectable handler is a typed test seam for a known method.
-      return result as MachineMethodResults[M];
+        // SAFETY: This injectable handler is a typed test seam for a known method.
+        return result as MachineMethodResults[M];
+      } catch (error) {
+        throw this.mapRefusal(error, true);
+      }
     }
 
     try {

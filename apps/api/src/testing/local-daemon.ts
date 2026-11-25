@@ -64,25 +64,29 @@ function daemonLocator(name: string, path: string): string {
   return locator;
 }
 
+function registerRoots(
+  roots: ReadonlyArray<string>,
+  configDir: string,
+  stateDir: string,
+): void {
+  for (const root of roots) {
+    execFileSync(MACHINE_BINARY, ['roots', 'add', realpathSync(root)], {
+      env: {
+        LLAME_MACHINE_CONFIG_DIR: configDir,
+        LLAME_MACHINE_STATE_DIR: stateDir,
+      },
+      stdio: 'pipe',
+    });
+  }
+}
+
 export function startLocalDaemon(options: LocalDaemonOptions): LocalDaemon {
   assertBuiltBinary(MACHINE_BINARY);
   const name = DEFAULT_LOCAL_MACHINE_NAME;
   const configDir = mkdtempSync(join(tmpdir(), 'llame-machine-test-'));
   const stateDir = mkdtempSync(join(tmpdir(), 'llame-machine-state-test-'));
 
-  for (const root of options.roots) {
-    execFileSync(
-      MACHINE_BINARY,
-      ['roots', 'add', realpathSync(root)],
-      {
-        env: {
-          LLAME_MACHINE_CONFIG_DIR: configDir,
-          LLAME_MACHINE_STATE_DIR: stateDir,
-        },
-        stdio: 'pipe',
-      },
-    );
-  }
+  registerRoots(options.roots, configDir, stateDir);
 
   const connector = new MachineConnector({
     machines: { local: name, default: name, hosts: { [name]: {} } },
