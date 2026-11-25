@@ -36,6 +36,7 @@ import { IN_RUN_CONTEXT_PRODUCER } from './in-run-context-items';
 import { createInstructionsProducer } from '../instructions/instructions-producer';
 import { WorkerHeartbeatService } from '../jobs/worker-heartbeat.service';
 import { BashJobRegistry } from '../jobs/bash-job-registry';
+import { BashJobRegistryRunStageService } from '../jobs/bash-job-registry-run-stage.service';
 import { WorkerShutdownService } from '../jobs/worker-shutdown.service';
 import { JobNoticeRunService } from './job-notice-run.service';
 import { CompactionRunService } from './compaction-run.service';
@@ -95,6 +96,7 @@ import { CompactionRunService } from './compaction-run.service';
     RunsWorkerService,
     WorkerHeartbeatService,
     JobNoticeRunService,
+    BashJobRegistryRunStageService,
     BashJobRegistry,
     WorkerShutdownService,
     RunControlListenerService,

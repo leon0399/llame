@@ -4,6 +4,7 @@ import { type ChatJob } from '../db/schema';
 import type { MachineRequestOptions } from '../machines/machine-session';
 
 type JobsClient = Client<typeof JobService>;
+
 type JobsCallOptions = (options?: MachineRequestOptions) => CallOptions;
 
 export async function releaseDaemonJob(deps: {
@@ -32,6 +33,7 @@ export async function stopDaemonJob(deps: {
   row: ChatJob;
 }): Promise<void> {
   const { connector, machineName, row } = deps;
+
   try {
     const { client, callOptions } = await connector.jobsClient(machineName);
     await client.cancelJob(

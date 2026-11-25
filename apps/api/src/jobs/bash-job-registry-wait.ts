@@ -3,7 +3,9 @@ import { JobState, JobService, type Job } from '@workspace/machine-protocol';
 import type { MachineRequestOptions } from '../machines/machine-session';
 
 type JobsClient = Client<typeof JobService>;
+
 type JobsCallOptions = (options?: MachineRequestOptions) => CallOptions;
+
 export type SettlementWait =
   | { kind: 'settled'; job: Job }
   | { kind: 'moved'; cause: 'time' | 'message' }
@@ -21,24 +23,46 @@ export async function waitForSettlement(deps: {
 }): Promise<SettlementWait> {
   const { client, callOptions, ended, jobId, waitMs, moveSignal, abortSignal } =
     deps;
+
   const controller = new AbortController();
-  const watch = async () => {
-    for await (const response of client.watchJobs(
-      {},
-      callOptions({ signal: controller.signal, budgetMs: waitMs }),
-    )) {
-      if (
-        response.event.case === 'job' &&
-        response.event.value.id === jobId &&
-        response.event.value.state !== JobState.RUNNING
-      )
-        return response.event.value;
-    }
-    throw new Error('Jobs.WatchJobs ended');
-  };
+  const signals = createSettlementSignals(waitMs, moveSignal, abortSignal);
+
+  try {
+    const outcome = await Promise.race([
+      watchForSettledJob({
+        client,
+        callOptions,
+        jobId,
+        waitMs,
+        signal: controller.signal,
+      }),
+      signals.timer,
+      signals.move,
+      signals.cancel,
+      ended.then(() => 'disconnect' as const),
+    ]);
+
+    return asSettlementWait(outcome);
+  } finally {
+    controller.abort();
+  }
+}
+
+type SettlementSignals = {
+  timer: Promise<'time'>;
+  move: Promise<'message'> | Promise<never>;
+  cancel: Promise<'cancelled'> | Promise<never>;
+};
+
+function createSettlementSignals(
+  waitMs: number,
+  moveSignal: AbortSignal | undefined,
+  abortSignal: AbortSignal | undefined,
+): SettlementSignals {
   const timer = new Promise<'time'>((resolve) =>
     setTimeout(() => resolve('time'), waitMs),
   );
+
   const move =
     moveSignal === undefined
       ? new Promise<never>(() => undefined)
@@ -47,6 +71,7 @@ export async function waitForSettlement(deps: {
             once: true,
           }),
         );
+
   const cancel =
     abortSignal === undefined
       ? new Promise<never>(() => undefined)
@@ -55,20 +80,43 @@ export async function waitForSettlement(deps: {
             once: true,
           }),
         );
-  try {
-    const outcome = await Promise.race([
-      watch(),
-      timer,
-      move,
-      cancel,
-      ended.then(() => 'disconnect' as const),
-    ]);
-    if (outcome === 'time') return { kind: 'moved', cause: 'time' };
-    if (outcome === 'message') return { kind: 'moved', cause: 'message' };
-    if (outcome === 'cancelled') return { kind: 'cancelled' };
-    if (outcome === 'disconnect') return { kind: 'disconnected' };
-    return { kind: 'settled', job: outcome };
-  } finally {
-    controller.abort();
+
+  return { timer, move, cancel };
+}
+
+async function watchForSettledJob(input: {
+  client: JobsClient;
+  callOptions: JobsCallOptions;
+  jobId: string;
+  waitMs: number;
+  signal: AbortSignal;
+}): Promise<Job> {
+  const { client, callOptions, jobId, waitMs, signal } = input;
+  for await (const response of client.watchJobs(
+    {},
+    callOptions({ signal, budgetMs: waitMs }),
+  )) {
+    if (
+      response.event.case === 'job' &&
+      response.event.value.id === jobId &&
+      response.event.value.state !== JobState.RUNNING
+    )
+      return response.event.value;
   }
+
+  throw new Error('Jobs.WatchJobs ended');
+}
+
+function asSettlementWait(
+  outcome: Job | 'time' | 'message' | 'cancelled' | 'disconnect',
+): SettlementWait {
+  if (outcome === 'time') return { kind: 'moved', cause: 'time' };
+
+  if (outcome === 'message') return { kind: 'moved', cause: 'message' };
+
+  if (outcome === 'cancelled') return { kind: 'cancelled' };
+
+  if (outcome === 'disconnect') return { kind: 'disconnected' };
+
+  return { kind: 'settled', job: outcome };
 }

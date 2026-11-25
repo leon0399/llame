@@ -9,6 +9,7 @@ import { isRecord } from '@workspace/runtime-safety';
 
 import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
 import { BashJobRegistry } from '../jobs/bash-job-registry';
+import { BashJobRegistryRunStageService } from '../jobs/bash-job-registry-run-stage.service';
 import { type Db } from '../db/tenant-db.service';
 import { MachineConnector } from '../machines/machine-connector.service';
 import { type MachineStatusView } from '../machines/machines-status';
@@ -1512,8 +1513,12 @@ describe('Machine permission matching', () => {
       toolContext.tenantDb,
       connector,
       { config: BUILT_IN_DEFAULTS },
-      { startOnSettlement: () => Promise.resolve(undefined) },
-      { wakeForChatInTransaction: () => Promise.resolve(false) },
+      new BashJobRegistryRunStageService(
+        toolContext.tenantDb,
+        { config: BUILT_IN_DEFAULTS },
+        { startOnSettlement: () => Promise.resolve(undefined) },
+        { wakeForChatInTransaction: () => Promise.resolve(false) },
+      ),
     );
 
     const executeJob = vi.spyOn(bashJobs, 'run').mockResolvedValue({

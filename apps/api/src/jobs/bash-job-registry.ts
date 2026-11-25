@@ -12,8 +12,6 @@ import { configuredCredentials } from '../instance-config/configured-credentials
 import { MachineConnector } from '../machines/machine-connector.service';
 import { MachineUnavailableError } from '../machines/machine-session-errors';
 import type { MachineRequestOptions } from '../machines/machine-session';
-import { JobNoticeRunService } from '../runs/job-notice-run.service';
-import { RunWaitService } from '../runs/run-wait.service';
 import { NativeFilesRepository } from '../runs/native-files-repository';
 import { spillBashResult } from '../tools/bash-spill';
 import { type BashInput, type BashMachineTarget } from '../tools/bash-target';
@@ -33,13 +31,23 @@ import {
   observeDaemonJob,
 } from './bash-job-registry-reconcile';
 import { readBashJobResult } from './bash-job-registry-result';
-import { settleDaemonJob as settleDaemonJobStage } from './bash-job-registry-settlement';
+import { BashJobRegistryRunStageService } from './bash-job-registry-run-stage.service';
 
 const RECONCILE_INTERVAL_MS = 60_000;
 
 type JobsClient = Client<typeof JobService>;
 
 type JobsCallOptions = (options?: MachineRequestOptions) => CallOptions;
+
+type CancelledJobInput = {
+  context: ToolContext;
+  row: ChatJob;
+  client: JobsClient;
+  callOptions: JobsCallOptions;
+  ended: Promise<unknown>;
+  daemonJobId: string;
+  machine: BashMachineTarget;
+};
 
 @Injectable()
 export class BashJobRegistry implements OnModuleInit {
@@ -57,10 +65,8 @@ export class BashJobRegistry implements OnModuleInit {
     private readonly connector: MachineConnector,
     @Inject(InstanceConfigService)
     private readonly config: InstanceConfigReader,
-    @Inject(JobNoticeRunService)
-    private readonly noticeRuns: Pick<JobNoticeRunService, 'startOnSettlement'>,
-    @Inject(RunWaitService)
-    private readonly runWait: Pick<RunWaitService, 'wakeForChatInTransaction'>,
+    @Inject(BashJobRegistryRunStageService)
+    private readonly runStage: BashJobRegistryRunStageService,
   ) {
     this.closeWait = new Promise((resolve) => (this.close = resolve));
   }
@@ -94,25 +100,60 @@ export class BashJobRegistry implements OnModuleInit {
     });
 
     if (started.kind === 'failed') return started.result;
+
+    return this.runStarted(context, machine, input, started);
+  }
+
+  private async runStarted(
+    context: ToolContext,
+    machine: BashMachineTarget,
+    input: BashInput,
+    started: Extract<
+      Awaited<ReturnType<typeof startBashJobStage>>,
+      { kind: 'started' }
+    >,
+  ): Promise<ToolResult> {
     const { row, client, callOptions, ended, daemonJobId, startedAt } = started;
 
     if (input.async === true)
       return this.recordNativeResult(context, backgrounded(row, 'async', 0));
+
     this.foregroundJobs.add(row.id);
 
-    const waitMs =
-      (context.bashBackgroundAfterSeconds ??
-        this.config.config.tools.bash.backgroundAfterSeconds) * 1000;
-
-    const outcome = await this.waitForSettlement(
+    const outcome = await this.waitForSettlement({
       client,
       callOptions,
       ended,
-      daemonJobId,
-      waitMs,
-      context.moveSignal,
-      context.abortSignal,
-    );
+      jobId: daemonJobId,
+      waitMs:
+        (context.bashBackgroundAfterSeconds ??
+          this.config.config.tools.bash.backgroundAfterSeconds) * 1000,
+      moveSignal: context.moveSignal,
+      abortSignal: context.abortSignal,
+    });
+
+    return this.finishRunOutcome({
+      context,
+      machine,
+      row,
+      outcome,
+      startedAt,
+      started,
+    });
+  }
+
+  private async finishRunOutcome(input: {
+    context: ToolContext;
+    machine: BashMachineTarget;
+    row: ChatJob;
+    outcome: Awaited<ReturnType<typeof waitForSettlementStage>>;
+    startedAt: Date;
+    started: Extract<
+      Awaited<ReturnType<typeof startBashJobStage>>,
+      { kind: 'started' }
+    >;
+  }): Promise<ToolResult> {
+    const { context, machine, row, outcome, startedAt, started } = input;
 
     if (outcome.kind === 'moved') {
       const result = backgrounded(
@@ -122,10 +163,11 @@ export class BashJobRegistry implements OnModuleInit {
       );
 
       context.onHostPromotionStarted?.();
-      const settled = await this.recordNativeResult(context, result);
+
+      const finalResult = await this.recordNativeResult(context, result);
       this.foregroundJobs.delete(row.id);
 
-      return settled;
+      return finalResult;
     }
 
     if (outcome.kind === 'disconnected') {
@@ -138,22 +180,36 @@ export class BashJobRegistry implements OnModuleInit {
     }
 
     if (outcome.kind === 'cancelled')
-      return this.settleCancelledJob({
-        context,
-        row,
-        client,
-        callOptions,
-        ended,
-        daemonJobId,
-        machine,
-      });
+      return this.settleCancelledJob({ context, ...started, machine });
+
+    return this.finishSettledRun({
+      context,
+      machine,
+      row,
+      job: outcome.job,
+      started,
+    });
+  }
+
+  private async finishSettledRun(input: {
+    context: ToolContext;
+    machine: BashMachineTarget;
+    row: ChatJob;
+    job: Job;
+    started: Extract<
+      Awaited<ReturnType<typeof startBashJobStage>>,
+      { kind: 'started' }
+    >;
+  }): Promise<ToolResult> {
+    const { context, machine, row, job, started } = input;
+    const { client, callOptions } = started;
 
     const { result, output } = await readBashJobResult({
       config: this.config,
       client,
       callOptions,
       row,
-      job: outcome.job,
+      job,
       credentials: configuredCredentials(this.config.config),
     });
 
@@ -162,60 +218,34 @@ export class BashJobRegistry implements OnModuleInit {
       await spillBashResult(context, result, machine.local),
     );
 
-    await this.settleDaemonJob(row, outcome.job, output, false);
+    await this.settleDaemonJob(row, job, output, false);
     this.foregroundJobs.delete(row.id);
     await this.release(client, callOptions, row);
 
     return finalResult;
   }
 
-  private async settleCancelledJob(input: {
-    context: ToolContext;
-    row: ChatJob;
-    client: JobsClient;
-    callOptions: JobsCallOptions;
-    ended: Promise<unknown>;
-    daemonJobId: string;
-    machine: BashMachineTarget;
-  }): Promise<ToolResult> {
-    const { context, row, client, callOptions, ended, daemonJobId, machine } =
-      input;
+  private async settleCancelledJob(
+    input: CancelledJobInput,
+  ): Promise<ToolResult> {
+    const { context, row, client, callOptions, ended, daemonJobId } = input;
 
     await this.requestStop(row, 'assistant');
     await this.stopDaemonJob(row.machineName, row);
 
     try {
-      const outcome = await this.waitForSettlement(
+      const outcome = await this.waitForSettlement({
         client,
         callOptions,
         ended,
-        daemonJobId,
-        750,
-        undefined,
-        undefined,
-      );
+        jobId: daemonJobId,
+        waitMs: 750,
+        moveSignal: undefined,
+        abortSignal: undefined,
+      });
 
-      if (outcome.kind === 'settled') {
-        const { result, output } = await readBashJobResult({
-          config: this.config,
-          client,
-          callOptions,
-          row,
-          job: outcome.job,
-          credentials: configuredCredentials(this.config.config),
-        });
-
-        const finalResult = await this.recordNativeResult(
-          context,
-          await spillBashResult(context, result, machine.local),
-        );
-
-        await this.settleDaemonJob(row, outcome.job, output, false);
-        await this.release(client, callOptions, row);
-        this.foregroundJobs.delete(row.id);
-
-        return finalResult;
-      }
+      if (outcome.kind === 'settled')
+        return this.recordCancelledResult(input, outcome.job);
     } catch {
       // A stop without a settled daemon result cannot be proved.
     }
@@ -226,6 +256,33 @@ export class BashJobRegistry implements OnModuleInit {
       context,
       machineUnknownResult(row.machineName),
     );
+  }
+
+  private async recordCancelledResult(
+    input: CancelledJobInput,
+    job: Job,
+  ): Promise<ToolResult> {
+    const { context, row, client, callOptions, machine } = input;
+
+    const { result, output } = await readBashJobResult({
+      config: this.config,
+      client,
+      callOptions,
+      row,
+      job,
+      credentials: configuredCredentials(this.config.config),
+    });
+
+    const finalResult = await this.recordNativeResult(
+      context,
+      await spillBashResult(context, result, machine.local),
+    );
+
+    await this.settleDaemonJob(row, job, output, false);
+    await this.release(client, callOptions, row);
+    this.foregroundJobs.delete(row.id);
+
+    return finalResult;
   }
 
   async stop(
@@ -256,9 +313,10 @@ export class BashJobRegistry implements OnModuleInit {
   }
 
   recheckJob(job: string | ChatJob): Promise<void> {
-    if (typeof job === 'string') return this.stop(job, 'worker');
+    if (isChatJob(job))
+      return this.stopDaemonJob(job.machineName, job).catch(() => undefined);
 
-    return this.stopDaemonJob(job.machineName, job).catch(() => undefined);
+    return this.stop(job, 'worker');
   }
 
   async recheckJobs(): Promise<void> {
@@ -353,24 +411,16 @@ export class BashJobRegistry implements OnModuleInit {
     });
   }
 
-  private waitForSettlement(
-    client: JobsClient,
-    callOptions: JobsCallOptions,
-    ended: Promise<unknown>,
-    jobId: string,
-    waitMs: number,
-    moveSignal: AbortSignal | undefined,
-    abortSignal: AbortSignal | undefined,
-  ) {
-    return waitForSettlementStage({
-      client,
-      callOptions,
-      ended,
-      jobId,
-      waitMs,
-      moveSignal,
-      abortSignal,
-    });
+  private waitForSettlement(input: {
+    client: JobsClient;
+    callOptions: JobsCallOptions;
+    ended: Promise<unknown>;
+    jobId: string;
+    waitMs: number;
+    moveSignal: AbortSignal | undefined;
+    abortSignal: AbortSignal | undefined;
+  }) {
+    return waitForSettlementStage(input);
   }
 
   private settleDaemonJob(
@@ -379,16 +429,7 @@ export class BashJobRegistry implements OnModuleInit {
     output: ManagedOutput | null,
     backgrounded: boolean,
   ): Promise<void> {
-    return settleDaemonJobStage({
-      tenantDb: this.tenantDb,
-      config: this.config,
-      noticeRuns: this.noticeRuns,
-      runWait: this.runWait,
-      row,
-      job,
-      output,
-      backgrounded,
-    });
+    return this.runStage.settle(row, job, output, backgrounded);
   }
 
   private release(
@@ -446,6 +487,6 @@ function backgrounded(
   };
 }
 
-function unavailable(message: string): ToolResult {
-  return { status: 'error', type: 'executor_unavailable', message };
+function isChatJob(job: string | ChatJob): job is ChatJob {
+  return typeof job !== 'string';
 }

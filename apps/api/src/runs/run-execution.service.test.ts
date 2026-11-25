@@ -34,6 +34,7 @@ import {
 import { ArtifactsRepository } from '../tools/artifacts/artifacts-repository';
 import { bashTool } from '../tools/bash';
 import { BashJobRegistry } from '../jobs/bash-job-registry';
+import { BashJobRegistryRunStageService } from '../jobs/bash-job-registry-run-stage.service';
 import { BASH_SETTLEMENT_GRACE_MS } from '../tools/bash-limits';
 import { webSearchTool } from '../tools/web-search/tool';
 import { fakeResolveSelection } from '../testing/fake-model-selection';
@@ -859,8 +860,12 @@ function makeExecutionService(
       tenantDb,
       machineConnector,
       instanceConfig,
-      noticeRuns,
-      registryRunWait,
+      new BashJobRegistryRunStageService(
+        tenantDb,
+        instanceConfig,
+        noticeRuns,
+        registryRunWait,
+      ),
     ),
     options.runWait,
     options.jobNoticeRuns,

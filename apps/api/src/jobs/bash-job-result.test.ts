@@ -27,6 +27,7 @@ import { MachineConnector } from '../machines/machine-connector.service';
 import { MachineUnavailableError } from '../machines/machine-session-errors';
 import { BashJobRegistry } from './bash-job-registry';
 import { readBashJobResult } from './bash-job-registry-result';
+import { BashJobRegistryRunStageService } from './bash-job-registry-run-stage.service';
 import { ChatJobsRepository } from './chat-jobs.repository';
 import type { Db } from '../db/tenant-db.service';
 import { NativeFilesRepository } from '../runs/native-files-repository';
@@ -70,23 +71,29 @@ function registry(
   maxBytes = BUILT_IN_DEFAULTS.tools.artifacts.maxBytes,
   machines = connector(),
 ): BashJobRegistry {
-  return new BashJobRegistry(
-    {
-      runAs: <T>(_userId: string, callback: (tx: Db) => Promise<T>) =>
-        Promise.resolve(callback(drizzle.mock())),
-    },
-    machines,
-    {
-      config: {
-        ...BUILT_IN_DEFAULTS,
-        tools: {
-          ...BUILT_IN_DEFAULTS.tools,
-          artifacts: { maxBytes },
-        },
+  const tenantDb = {
+    runAs: <T>(_userId: string, callback: (tx: Db) => Promise<T>) =>
+      Promise.resolve(callback(drizzle.mock())),
+  };
+
+  const config = {
+    config: {
+      ...BUILT_IN_DEFAULTS,
+      tools: {
+        ...BUILT_IN_DEFAULTS.tools,
+        artifacts: { maxBytes },
       },
     },
-    { startOnSettlement: () => Promise.resolve() },
-    { wakeForChatInTransaction: () => Promise.resolve(false) },
+  };
+
+  const noticeRuns = { startOnSettlement: () => Promise.resolve() };
+  const runWait = { wakeForChatInTransaction: () => Promise.resolve(false) };
+
+  return new BashJobRegistry(
+    tenantDb,
+    machines,
+    config,
+    new BashJobRegistryRunStageService(tenantDb, config, noticeRuns, runWait),
   );
 }
 

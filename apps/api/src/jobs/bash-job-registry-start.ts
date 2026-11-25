@@ -1,5 +1,5 @@
 import { randomBytes } from 'node:crypto';
-import { type Client, type CallOptions } from '@connectrpc/connect';
+import { type CallOptions, type Client } from '@connectrpc/connect';
 import {
   JobService,
   MachineProtocolError,
@@ -14,14 +14,30 @@ import { reserveArtifactSeq } from '../tools/artifacts/artifact-writer';
 import { machineProtocolFailureResult } from '../tools/machine-call';
 import { type BashInput, type BashMachineTarget } from '../tools/bash-target';
 import { type ToolContext, type ToolResult } from '../tools/types';
+import { NativeFilesRepository } from '../runs/native-files-repository';
 import { ChatJobsRepository } from './chat-jobs.repository';
+
+type JobsClient = Client<typeof JobService>;
+
+type JobsCallOptions = (options?: MachineRequestOptions) => CallOptions;
+
+type MachineJobsSession = {
+  client: JobsClient;
+  instanceId: string;
+  ended: Promise<unknown>;
+  callOptions: JobsCallOptions;
+};
+
+type Connector = {
+  jobsClient(machineName: string): Promise<MachineJobsSession>;
+};
 
 export type BashJobStart =
   | {
       kind: 'started';
       row: ChatJob;
-      client: Client<typeof JobService>;
-      callOptions: (options?: MachineRequestOptions) => CallOptions;
+      client: JobsClient;
+      callOptions: JobsCallOptions;
       ended: Promise<unknown>;
       daemonJobId: string;
       startedAt: Date;
@@ -31,124 +47,354 @@ export type BashJobStart =
 
 export async function startBashJob(deps: {
   tenantDb: TenantRunner;
-  connector: {
-    jobsClient(machineName: string): Promise<{
-      client: Client<typeof JobService>;
-      instanceId: string;
-      ended: Promise<unknown>;
-      callOptions: (options?: MachineRequestOptions) => CallOptions;
-    }>;
-  };
+  connector: Connector;
+  config: InstanceConfigReader;
+  context: ToolContext;
+  machine: BashMachineTarget;
+  input: BashInput;
+}): Promise<BashJobStart> {
+  const failure = validateStart(deps.context, deps.input);
+
+  if (failure !== undefined) return { kind: 'failed', result: failure };
+
+  return dispatchBashJob(deps);
+}
+
+function validateStart(
+  context: ToolContext,
+  input: BashInput,
+): ToolResult | undefined {
+  if (!context.runId || !context.attemptId || !context.toolCallId)
+    return unavailable('The Run identity is unavailable.');
+
+  if (input.unlimited === true && context.allowUnlimitedJobs !== true)
+    return unavailable(
+      'tools.jobs.allowUnlimited is false; unlimited jobs are not allowed.',
+    );
+
+  return undefined;
+}
+
+async function dispatchBashJob(deps: {
+  tenantDb: TenantRunner;
+  connector: Connector;
   config: InstanceConfigReader;
   context: ToolContext;
   machine: BashMachineTarget;
   input: BashInput;
 }): Promise<BashJobStart> {
   const { tenantDb, connector, config, context, machine, input } = deps;
-  const { runId, toolCallId } = context;
-  if (!runId || !toolCallId)
-    return {
-      kind: 'failed',
-      result: unavailable('The Run identity is unavailable.'),
-    };
-  if (input.unlimited === true && context.allowUnlimitedJobs !== true)
-    return {
-      kind: 'failed',
-      result: unavailable(
-        'tools.jobs.allowUnlimited is false; unlimited jobs are not allowed.',
-      ),
-    };
-
   const startedAt = new Date();
   const daemonJobId = randomBytes(16).toString('hex');
+
   const lifetimeMs =
     input.unlimited === true ? 0 : config.config.tools.jobs.maxSeconds * 1000;
-  const { client, instanceId, ended, callOptions } = await connector.jobsClient(
-    machine.name,
-  );
-  const seq = await reserveArtifactSeq(tenantDb, {
-    chatId: context.chatId,
-    userId: context.userId,
+
+  const machineClient = await connector.jobsClient(machine.name);
+
+  const binding = await bindBashAttempt({
+    tenantDb,
+    context,
+    machine,
+    daemonJobId,
+    startedAt,
+    lifetimeMs,
+    instanceId: machineClient.instanceId,
   });
-  const deadlineAt =
-    lifetimeMs === 0 ? undefined : new Date(startedAt.getTime() + lifetimeMs);
-  const row = await tenantDb.runAs(context.userId, (db) =>
-    new ChatJobsRepository(db).insert({
-      chatId: context.chatId,
-      ownerUserId: context.userId,
-      kind: 'bash',
-      seq,
-      runId,
-      toolCallId,
-      machineName: machine.name,
-      daemonInstanceId: instanceId,
-      daemonJobId,
-      startedAt,
-      ...(deadlineAt !== undefined && { deadlineAt }),
-      outputs: ['stdout', 'stderr'],
-      artifactReadable: context.artifactReadable === true,
-      settings: context.jobSettings ?? {
-        selector: 'unknown',
-        permissionMode: 'default',
-      },
-    }),
-  );
-  const removeUnstartedRow = () =>
-    tenantDb.runAs(context.userId, (db) =>
-      new ChatJobsRepository(db).deleteRunning(
-        row.chatId,
-        row.ownerUserId,
-        row.id,
-      ),
+
+  if ('prior' in binding) return { kind: 'failed', result: binding.prior };
+
+  return createBoundBashJob({
+    deps,
+    binding: binding.row,
+    machineClient,
+    daemonJobId,
+    startedAt,
+    lifetimeMs,
+  });
+}
+
+async function createBoundBashJob(input: {
+  deps: {
+    tenantDb: TenantRunner;
+    context: ToolContext;
+    machine: BashMachineTarget;
+    input: BashInput;
+  };
+  binding: ChatJob;
+  machineClient: MachineJobsSession;
+  daemonJobId: string;
+  startedAt: Date;
+  lifetimeMs: number;
+}): Promise<BashJobStart> {
+  const { deps, binding, machineClient, daemonJobId, startedAt, lifetimeMs } =
+    input;
+
+  const result = await createDaemonJob({
+    client: machineClient.client,
+    callOptions: machineClient.callOptions,
+    context: deps.context,
+    machine: deps.machine,
+    input: deps.input,
+    daemonJobId,
+    lifetimeMs,
+  });
+
+  if (result.kind === 'known-refusal')
+    return settleRefusedStart(
+      deps.tenantDb,
+      deps.context,
+      binding,
+      result.result,
     );
-  let started: CreateJobResponse;
-  try {
-    started = await client.createJob(
-      {
-        jobId: daemonJobId,
-        owner: context.userId,
-        command: input.command,
-        ...(machine.path !== undefined && { cwd: machine.path }),
-        ...(input.env !== undefined && { env: input.env }),
-        ...(lifetimeMs > 0 && {
-          timeout: { seconds: BigInt(lifetimeMs / 1000), nanos: 0 },
-        }),
-      },
-      callOptions({
-        envelope: { toolCallId, budgetMs: context.timeoutMs ?? 30_000 },
-      }),
-    );
-  } catch (error) {
-    const refusal = mapMachineRefusal(machine.name, error, true);
-    if (
-      !(refusal instanceof MachineProtocolError) ||
-      refusal.code !== 'machine_job_limit'
-    )
-      throw refusal;
-    await removeUnstartedRow();
-    return {
-      kind: 'failed',
-      result: machineProtocolFailureResult(machine.name, refusal),
-    };
-  }
-  if (started.result.case === 'failure') {
-    await removeUnstartedRow();
-    return {
-      kind: 'failed',
-      result: unavailable(started.result.value.message),
-    };
-  }
-  context.onHostCommandStarted?.();
+  deps.context.onHostCommandStarted?.();
+
   return {
     kind: 'started',
-    row,
-    client,
-    callOptions,
-    ended,
+    row: binding,
+    client: machineClient.client,
+    callOptions: machineClient.callOptions,
+    ended: machineClient.ended,
     daemonJobId,
     startedAt,
     lifetimeMs,
   };
+}
+
+async function settleRefusedStart(
+  tenantDb: TenantRunner,
+  context: ToolContext,
+  row: ChatJob,
+  result: ToolResult,
+): Promise<BashJobStart> {
+  await removeUnstartedRow(tenantDb, row);
+  const settled = await recordNativeResult(tenantDb, context, result);
+
+  return { kind: 'failed', result: settled };
+}
+
+type BashBinding = { row: ChatJob } | { prior: ToolResult };
+
+type BindBashAttemptInput = {
+  tenantDb: TenantRunner;
+  context: ToolContext;
+  machine: BashMachineTarget;
+  daemonJobId: string;
+  startedAt: Date;
+  lifetimeMs: number;
+  instanceId: string;
+};
+
+async function bindBashAttempt(
+  input: BindBashAttemptInput,
+): Promise<BashBinding> {
+  const {
+    tenantDb,
+    context,
+    machine,
+    daemonJobId,
+    startedAt,
+    lifetimeMs,
+    instanceId,
+  } = input;
+
+  const runId = context.runId;
+  const attemptId = context.attemptId;
+  const toolCallId = context.toolCallId;
+
+  if (!runId || !attemptId || !toolCallId)
+    throw new Error('The Run identity is unavailable.');
+
+  const seq = await reserveArtifactSeq(tenantDb, {
+    chatId: context.chatId,
+    userId: context.userId,
+  });
+
+  const deadlineAt =
+    lifetimeMs === 0 ? undefined : new Date(startedAt.getTime() + lifetimeMs);
+
+  return tenantDb.runAs(context.userId, async (db) => {
+    const prior = await new NativeFilesRepository(db).begin({
+      runId,
+      userId: context.userId,
+      fence: { bound: false },
+      deliverySequence: context.nativeDeliverySequence,
+      attemptId,
+      toolCallId,
+      operation: 'bash',
+      path: machine.locator ?? machine.name,
+    });
+
+    if (prior !== undefined) return { prior };
+
+    const row = await insertBashBinding(new ChatJobsRepository(db), {
+      context,
+      machine,
+      daemonJobId,
+      startedAt,
+      instanceId,
+      seq,
+      deadlineAt,
+      runId,
+      toolCallId,
+    });
+
+    return { row };
+  });
+}
+
+async function insertBashBinding(
+  repository: ChatJobsRepository,
+  input: {
+    context: ToolContext;
+    machine: BashMachineTarget;
+    daemonJobId: string;
+    startedAt: Date;
+    instanceId: string;
+    seq: number;
+    deadlineAt: Date | undefined;
+    runId: string;
+    toolCallId: string;
+  },
+): Promise<ChatJob> {
+  const {
+    context,
+    machine,
+    daemonJobId,
+    startedAt,
+    instanceId,
+    seq,
+    deadlineAt,
+    runId,
+    toolCallId,
+  } = input;
+
+  return repository.insert({
+    chatId: context.chatId,
+    ownerUserId: context.userId,
+    kind: 'bash',
+    seq,
+    runId,
+    toolCallId,
+    machineName: machine.name,
+    daemonInstanceId: instanceId,
+    daemonJobId,
+    startedAt,
+    ...(deadlineAt !== undefined && { deadlineAt }),
+    outputs: ['stdout', 'stderr'],
+    artifactReadable: context.artifactReadable === true,
+    settings: context.jobSettings ?? {
+      selector: 'unknown',
+      permissionMode: 'default',
+    },
+  });
+}
+
+type CreateDaemonJobInput = {
+  client: JobsClient;
+  callOptions: JobsCallOptions;
+  context: ToolContext;
+  machine: BashMachineTarget;
+  input: BashInput;
+  daemonJobId: string;
+  lifetimeMs: number;
+};
+
+async function createDaemonJob(
+  input: CreateDaemonJobInput,
+): Promise<
+  { kind: 'created' } | { kind: 'known-refusal'; result: ToolResult }
+> {
+  try {
+    const response = await sendCreateJob(input);
+
+    if (response.result.case === 'failure')
+      return {
+        kind: 'known-refusal',
+        result: unavailable(response.result.value.message),
+      };
+
+    return { kind: 'created' };
+  } catch (error) {
+    const refusal = mapMachineRefusal(input.machine.name, error, true);
+
+    if (!(refusal instanceof MachineProtocolError)) throw refusal;
+
+    return {
+      kind: 'known-refusal',
+      result: machineProtocolFailureResult(input.machine.name, refusal),
+    };
+  }
+}
+
+async function sendCreateJob(
+  input: CreateDaemonJobInput,
+): Promise<CreateJobResponse> {
+  const {
+    client,
+    callOptions,
+    context,
+    machine,
+    input: bashInput,
+    daemonJobId,
+    lifetimeMs,
+  } = input;
+
+  const toolCallId = context.toolCallId;
+
+  if (!toolCallId) throw new Error('The Run identity is unavailable.');
+
+  return client.createJob(
+    {
+      jobId: daemonJobId,
+      owner: context.userId,
+      command: bashInput.command,
+      ...(machine.path !== undefined && { cwd: machine.path }),
+      ...(bashInput.env !== undefined && { env: bashInput.env }),
+      ...(lifetimeMs > 0 && {
+        timeout: { seconds: BigInt(lifetimeMs / 1000), nanos: 0 },
+      }),
+    },
+    callOptions({
+      envelope: { toolCallId, budgetMs: context.timeoutMs ?? 30_000 },
+    }),
+  );
+}
+
+async function removeUnstartedRow(
+  tenantDb: TenantRunner,
+  row: ChatJob,
+): Promise<void> {
+  await tenantDb.runAs(row.ownerUserId, (db) =>
+    new ChatJobsRepository(db).deleteRunning(
+      row.chatId,
+      row.ownerUserId,
+      row.id,
+    ),
+  );
+}
+
+async function recordNativeResult(
+  tenantDb: TenantRunner,
+  context: ToolContext,
+  result: ToolResult,
+): Promise<ToolResult> {
+  const { runId, attemptId, toolCallId } = context;
+
+  if (!runId || !attemptId || !toolCallId)
+    throw new Error('The Run identity is unavailable.');
+
+  return tenantDb.runAs(context.userId, async (db) => {
+    const receipt = await new NativeFilesRepository(db).recoverHostPromotion({
+      runId,
+      userId: context.userId,
+      attemptId,
+      toolCallId,
+      result,
+    });
+
+    return receipt.result;
+  });
 }
 
 function unavailable(message: string): ToolResult {

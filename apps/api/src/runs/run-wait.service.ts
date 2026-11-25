@@ -17,7 +17,6 @@ import {
   InstanceConfigService,
   type InstanceConfigReader,
 } from '../instance-config/instance-config.service';
-import { ChatJobsRepository } from '../jobs/chat-jobs.repository';
 import { RunDispatchService } from './run-dispatch.service';
 import { RunEventsRepository } from './runs-repository';
 import { retryRunTransaction } from './run-transaction';
@@ -270,7 +269,6 @@ export class RunWaitService {
 
     const run = await this.lockWakeRun(tx, input);
 
-
     if (!run) return false;
     const cause = await this.resolveWakeCause(tx, run, input);
 
@@ -376,7 +374,6 @@ export class RunWaitService {
     if (awaiting?.kind !== 'jobs') return undefined;
 
     if (input.cause === 'timeout') {
-
       if (!(await this.wakeDeadlineIsDue(tx, run.id, awaiting.deadline)))
         return undefined;
     }

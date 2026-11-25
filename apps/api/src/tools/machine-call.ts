@@ -197,8 +197,10 @@ export function machineProtocolFailureResult(
       message:
         'The Machine has reached its running-job limit; a later call can succeed.',
     };
+
   if (error.code === 'machine_update_required')
     return machineUnavailableResult(name, 'incompatible_version');
+
   if (error.code === 'invalid_argument')
     return {
       status: 'error',

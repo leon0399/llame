@@ -62,6 +62,7 @@ import { noopReindexDispatch } from '../search/search-reindex-dispatch.stub';
 import { type ChatReindexDispatcher } from '../search/search-reindex-dispatch.service';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import { BashJobRegistry } from '../jobs/bash-job-registry';
+import { BashJobRegistryRunStageService } from '../jobs/bash-job-registry-run-stage.service';
 import { ChatJobsRepository } from '../jobs/chat-jobs.repository';
 import { type Sql } from 'postgres';
 import { z } from 'zod';
@@ -830,19 +831,21 @@ describeIfDb('executeRun tool-loop persistence', () => {
         resolved.machineConnector ??
           machineFilesConnector({ name: 'test-machine' }),
         resolved.instanceConfig,
-        new JobNoticeRunService(
-          resolved.models,
+        new BashJobRegistryRunStageService(
+          tenantDb,
           resolved.instanceConfig,
-          {
-            enqueueInTransaction: async () => {},
-          },
+          new JobNoticeRunService(
+            resolved.models,
+            resolved.instanceConfig,
+            { enqueueInTransaction: async () => {} },
+            {
+              wakeForChatInTransaction: () => Promise.resolve(false),
+            } satisfies Pick<RunWaitService, 'wakeForChatInTransaction'>,
+          ),
           {
             wakeForChatInTransaction: () => Promise.resolve(false),
-          } satisfies Pick<RunWaitService, 'wakeForChatInTransaction'>,
+          },
         ),
-        {
-          wakeForChatInTransaction: () => Promise.resolve(false),
-        } satisfies Pick<RunWaitService, 'wakeForChatInTransaction'>,
       ),
     );
   }
