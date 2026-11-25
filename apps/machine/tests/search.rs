@@ -431,6 +431,52 @@ async fn same_byte_bound_resumes_through_a_large_file() {
 
     let mut matches = Vec::new();
     let mut after = None;
+    let mut page_two_offset = None;
+    for page in 0..3 {
+        req.after = after;
+        let mut stream = client.search_files(req.clone()).await.unwrap().into_inner();
+        let mut end = None;
+        while let Some(response) = stream.message().await.unwrap() {
+            match response.event {
+                Some(Event::Match(found)) => matches.push(found.line),
+                Some(Event::End(search_end)) => end = Some(search_end),
+                _ => {}
+            }
+        }
+        let end = end.unwrap();
+        after = end.position;
+        if page == 1 {
+            page_two_offset = after.as_ref().and_then(|position| position.byte_offset);
+        }
+        if end.stop == SearchStop::Complete as i32 {
+            break;
+        }
+    }
+    assert_eq!(matches, [1, 40_002]);
+    assert!(page_two_offset.is_some_and(|offset| offset > 65_535));
+    assert!(after.is_none());
+}
+
+#[tokio::test]
+async fn byte_bound_makes_progress_through_a_line_larger_than_a_chunk() {
+    let machine = common::Machine::new();
+    let root = machine.root();
+    let mut contents = "x".repeat(70_000);
+    contents.push_str("\nneedle\n");
+    std::fs::write(root.join("long-line.txt"), contents).unwrap();
+    let (_child, channel) = machine.attach().await;
+    let mut client = FileServiceClient::new(channel);
+    let mut req = request(root, &["needle"]);
+    req.bounds = Some(SearchBounds {
+        files: None,
+        bytes: Some(65_536),
+        file_bytes: None,
+        matches: None,
+    });
+
+    let mut after = None;
+    let mut matches = Vec::new();
+    let mut completed = false;
     for _ in 0..3 {
         req.after = after;
         let mut stream = client.search_files(req.clone()).await.unwrap().into_inner();
@@ -445,11 +491,12 @@ async fn same_byte_bound_resumes_through_a_large_file() {
         let end = end.unwrap();
         after = end.position;
         if end.stop == SearchStop::Complete as i32 {
+            completed = true;
             break;
         }
     }
-    assert_eq!(matches, [1, 40_002]);
-    assert!(after.is_none());
+    assert_eq!(matches, [2]);
+    assert!(completed);
 }
 
 #[tokio::test]

@@ -143,6 +143,9 @@ fn stopped_position(
     after: Option<&SearchPosition>,
     fallback: SearchPosition,
 ) -> SearchPosition {
+    if fallback.byte_offset.is_some() {
+        return fallback;
+    }
     if let Some(last_match) = last_match {
         return last_match;
     }
@@ -341,6 +344,25 @@ fn run_search(
                 break;
             }
             content.extend_from_slice(&chunk[..read]);
+        }
+        if byte_stopped && !content.is_empty() && !content.contains(&b'\n') {
+            loop {
+                if sender.is_closed() {
+                    return;
+                }
+                let Ok(read) = file.read(&mut chunk) else {
+                    read_failed = true;
+                    break;
+                };
+                if read == 0 {
+                    break;
+                }
+                let completed_line = chunk[..read].contains(&b'\n');
+                content.extend_from_slice(&chunk[..read]);
+                if completed_line {
+                    break;
+                }
+            }
         }
         if read_failed {
             files += 1;
