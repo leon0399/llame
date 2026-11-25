@@ -43,6 +43,11 @@ import { ChatJobsRepository, type JobSettlement } from './chat-jobs.repository';
 import { settleBashJob } from './bash-job-store';
 import { formatJobLocator } from './job-locator';
 import { waitForSettlement as waitForSettlementStage } from './bash-job-registry-wait';
+import { startBashJob as startBashJobStage } from './bash-job-registry-start';
+import {
+  releaseDaemonJob,
+  stopDaemonJob as stopDaemonJobStage,
+} from './bash-job-registry-release';
 
 const JOB_OUTPUT_LIMIT = (maxBytes: number) => BigInt(maxBytes);
 const RECONCILE_INTERVAL_MS = 60_000;
@@ -91,96 +96,18 @@ export class BashJobRegistry implements OnModuleInit {
     machine: BashMachineTarget,
     input: BashInput,
   ): Promise<ToolResult> {
-    const { runId, attemptId, toolCallId } = context;
-    if (!runId || !attemptId || !toolCallId)
-      return unavailable('The Run identity is unavailable.');
-    if (input.unlimited === true && context.allowUnlimitedJobs !== true)
-      return unavailable(
-        'tools.jobs.allowUnlimited is false; unlimited jobs are not allowed.',
-      );
-
-    const startedAt = new Date();
-    const daemonJobId = randomBytes(16).toString('hex');
-    const lifetimeMs =
-      input.unlimited === true
-        ? 0
-        : this.config.config.tools.jobs.maxSeconds * 1000;
-    const { client, instanceId, ended, callOptions } =
-      await this.connector.jobsClient(machine.name);
-    const seq = await reserveArtifactSeq(this.tenantDb, {
-      chatId: context.chatId,
-      userId: context.userId,
+    const started = await startBashJobStage({
+      tenantDb: this.tenantDb,
+      connector: this.connector,
+      config: this.config,
+      context,
+      machine,
+      input,
     });
-    const deadlineAt =
-      lifetimeMs === 0 ? undefined : new Date(startedAt.getTime() + lifetimeMs);
-    const row = await this.tenantDb.runAs(context.userId, (db) =>
-      new ChatJobsRepository(db).insert({
-        chatId: context.chatId,
-        ownerUserId: context.userId,
-        kind: 'bash',
-        seq,
-        runId,
-        toolCallId,
-        machineName: machine.name,
-        daemonInstanceId: instanceId,
-        daemonJobId,
-        startedAt,
-        ...(deadlineAt !== undefined && { deadlineAt }),
-        outputs: ['stdout', 'stderr'],
-        artifactReadable: context.artifactReadable === true,
-        settings: context.jobSettings ?? {
-          selector: 'unknown',
-          permissionMode: 'default',
-        },
-      }),
-    );
-    const removeUnstartedRow = () =>
-      this.tenantDb.runAs(context.userId, (db) =>
-        new ChatJobsRepository(db).deleteRunning(
-          row.chatId,
-          row.ownerUserId,
-          row.id,
-        ),
-      );
-    let started: CreateJobResponse;
-    try {
-      started = await client.createJob(
-        {
-          jobId: daemonJobId,
-          owner: context.userId,
-          command: input.command,
-          ...(machine.path !== undefined && { cwd: machine.path }),
-          ...(input.env !== undefined && { env: input.env }),
-          ...(lifetimeMs > 0 && {
-            timeout: { seconds: BigInt(lifetimeMs / 1000), nanos: 0 },
-          }),
-        },
-        callOptions({
-          envelope: {
-            toolCallId,
-            budgetMs: context.timeoutMs ?? 30_000,
-          },
-        }),
-      );
-    } catch (error) {
-      const refusal = mapMachineRefusal(machine.name, error, true);
-      if (
-        !(refusal instanceof MachineProtocolError) ||
-        refusal.code !== 'machine_job_limit'
-      )
-        throw refusal;
-      await removeUnstartedRow();
-      return machineProtocolFailureResult(machine.name, refusal);
-    }
-    if (started.result.case === 'failure') {
-      await removeUnstartedRow();
-      return unavailable(started.result.value.message);
-    }
-    context.onHostCommandStarted?.();
-
+    if (started.kind === 'failed') return started.result;
+    const { row, client, callOptions, ended, daemonJobId, startedAt } = started;
     if (input.async === true) return backgrounded(row, 'async', 0);
     this.foregroundJobs.add(row.id);
-
     const waitMs = Math.min(
       context.timeoutMs ?? FOREGROUND_MAX_MS,
       context.bashBackgroundAfterSeconds === undefined
@@ -213,7 +140,6 @@ export class BashJobRegistry implements OnModuleInit {
         'The Run was cancelled; the Machine job stop was requested.',
       );
     }
-
     const { result, output } = await this.readResult(
       client,
       callOptions,
@@ -648,41 +574,17 @@ export class BashJobRegistry implements OnModuleInit {
     );
   }
 
-  private async release(
+  private release(
     client: JobsClient,
     callOptions: JobsCallOptions,
     row: ChatJob,
   ): Promise<void> {
-    await client.deleteJob(
-      {
-        requestId: row.daemonJobId,
-        jobId: row.daemonJobId,
-        owner: row.ownerUserId,
-      },
-      callOptions(),
-    );
+    return releaseDaemonJob({ client, callOptions, row });
   }
 
-  private async stopDaemonJob(
-    machineName: string,
-    row: ChatJob,
-  ): Promise<void> {
-    try {
-      const { client, callOptions } =
-        await this.connector.jobsClient(machineName);
-      await client.cancelJob(
-        {
-          requestId: row.daemonJobId,
-          jobId: row.daemonJobId,
-          owner: row.ownerUserId,
-        },
-        callOptions(),
-      );
-    } catch {
-      // The committed request is delivered by the next Watch snapshot.
-    }
+  private stopDaemonJob(machineName: string, row: ChatJob): Promise<void> {
+    return stopDaemonJobStage({ connector: this.connector, machineName, row });
   }
-
   private async findRunningById(jobId: string): Promise<ChatJob | undefined> {
     // The run-control notification carries an owner-scoped job id. Search the
     // attached daemon snapshots, whose owner tags supply the RLS identity.
