@@ -61,8 +61,11 @@ impl FileService for Files {
     ) -> Result<Response<WriteFileResponse>, Status> {
         let request = request.into_inner();
         let key = request.request_id.clone();
+        let context = self.context.clone();
         self.writes
-            .run(&key, || mutate::write(&self.context, request))
+            .run(&key, move || async move {
+                mutate::write(&context, request).await
+            })
             .await
             .map(Response::new)
     }
@@ -72,8 +75,11 @@ impl FileService for Files {
     ) -> Result<Response<ReplaceTextResponse>, Status> {
         let request = request.into_inner();
         let key = request.request_id.clone();
+        let context = self.context.clone();
         self.replaces
-            .run(&key, || mutate::replace(&self.context, request))
+            .run(&key, move || async move {
+                mutate::replace(&context, request).await
+            })
             .await
             .map(Response::new)
     }

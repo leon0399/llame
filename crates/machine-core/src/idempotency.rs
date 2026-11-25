@@ -7,20 +7,30 @@
 use std::{
     collections::HashMap,
     future::Future,
-    sync::{Arc, Mutex},
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicBool, Ordering},
+    },
     time::{Duration, Instant},
 };
 
-use tokio::sync::OnceCell;
+use tokio::sync::{Notify, OnceCell};
 
 const MAX_KEYS: usize = 4096;
 const MAX_AGE: Duration = Duration::from_secs(600);
 
-type Slot<T> = Arc<OnceCell<T>>;
+#[derive(Debug)]
+struct Slot<T> {
+    result: OnceCell<T>,
+    started: AtomicBool,
+    ready: Notify,
+}
+
+type CacheSlots<T> = HashMap<String, (Instant, Arc<Slot<T>>)>;
 
 #[derive(Debug)]
 pub struct IdempotencyCache<T> {
-    slots: Mutex<HashMap<String, (Instant, Slot<T>)>>,
+    slots: Mutex<CacheSlots<T>>,
 }
 
 impl<T> Default for IdempotencyCache<T> {
@@ -36,28 +46,48 @@ impl<T: Clone> IdempotencyCache<T> {
     /// waits for and returns the first result. An empty key is never cached.
     pub async fn run<F, Fut>(&self, key: &str, work: F) -> T
     where
-        T: Send + Sync,
-        F: FnOnce() -> Fut + Send,
-        Fut: Future<Output = T> + Send,
+        T: Send + Sync + 'static,
+        F: FnOnce() -> Fut + Send + 'static,
+        Fut: Future<Output = T> + Send + 'static,
     {
         if key.is_empty() {
             return work().await;
         }
         loop {
             if let Some(slot) = self.slot(key) {
-                return slot.get_or_init(work).await.clone();
+                if !slot.started.swap(true, Ordering::AcqRel) {
+                    let work_slot = Arc::clone(&slot);
+                    drop(tokio::spawn(async move {
+                        work_slot.result.get_or_init(work).await;
+                        work_slot.ready.notify_waiters();
+                    }));
+                }
+                loop {
+                    let notified = slot.ready.notified();
+                    tokio::pin!(notified);
+                    notified.as_mut().enable();
+                    if let Some(result) = slot.result.get() {
+                        return result.clone();
+                    }
+                    notified.await;
+                }
             }
             tokio::time::sleep(Duration::from_millis(1)).await;
         }
     }
 
-    fn slot(&self, key: &str) -> Option<Slot<T>> {
+    fn slot(&self, key: &str) -> Option<Arc<Slot<T>>> {
         let now = Instant::now();
         let Ok(mut slots) = self.slots.lock() else {
-            return Some(Arc::new(OnceCell::new()));
+            return Some(Arc::new(Slot {
+                result: OnceCell::new(),
+                started: AtomicBool::new(false),
+                ready: Notify::new(),
+            }));
         };
         slots.retain(|_, (at, slot)| {
-            Arc::strong_count(slot) > 1 || (slot.initialized() && now.duration_since(*at) < MAX_AGE)
+            Arc::strong_count(slot) > 1
+                || (slot.result.initialized() && now.duration_since(*at) < MAX_AGE)
         });
         if let Some((_, slot)) = slots.get(key) {
             return Some(Arc::clone(slot));
@@ -74,7 +104,16 @@ impl<T: Clone> IdempotencyCache<T> {
         Some(Arc::clone(
             &slots
                 .entry(key.to_owned())
-                .or_insert_with(|| (now, Arc::new(OnceCell::new())))
+                .or_insert_with(|| {
+                    (
+                        now,
+                        Arc::new(Slot {
+                            result: OnceCell::new(),
+                            started: AtomicBool::new(false),
+                            ready: Notify::new(),
+                        }),
+                    )
+                })
                 .1,
         ))
     }
@@ -82,18 +121,44 @@ impl<T: Clone> IdempotencyCache<T> {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::atomic::{AtomicU32, Ordering};
+    use std::sync::{
+        Arc,
+        atomic::{AtomicU32, Ordering},
+    };
 
     use super::*;
 
     #[tokio::test]
     async fn runs_once_per_key() {
         let cache = IdempotencyCache::<u32>::default();
-        let calls = AtomicU32::new(0);
-        let run = || async { calls.fetch_add(1, Ordering::SeqCst) + 10 };
-        assert_eq!(cache.run("k", run).await, 10);
-        assert_eq!(cache.run("k", run).await, 10);
-        assert_eq!(cache.run("", run).await, 11);
+        let calls = Arc::new(AtomicU32::new(0));
+        let first_calls = Arc::clone(&calls);
+        assert_eq!(
+            cache
+                .run("k", move || async move {
+                    first_calls.fetch_add(1, Ordering::SeqCst) + 10
+                })
+                .await,
+            10
+        );
+        let replay_calls = Arc::clone(&calls);
+        assert_eq!(
+            cache
+                .run("k", move || async move {
+                    replay_calls.fetch_add(1, Ordering::SeqCst) + 10
+                })
+                .await,
+            10
+        );
+        let uncached_calls = Arc::clone(&calls);
+        assert_eq!(
+            cache
+                .run("", move || async move {
+                    uncached_calls.fetch_add(1, Ordering::SeqCst) + 10
+                })
+                .await,
+            11
+        );
         assert_eq!(calls.load(Ordering::SeqCst), 2);
     }
 
@@ -102,7 +167,9 @@ mod tests {
         let cache = IdempotencyCache::<usize>::default();
         for index in 0..MAX_KEYS {
             assert_eq!(
-                cache.run(&index.to_string(), || async { index }).await,
+                cache
+                    .run(&index.to_string(), move || async move { index })
+                    .await,
                 index
             );
         }
@@ -110,12 +177,54 @@ mod tests {
         assert_eq!(cache.run("0", || async { MAX_KEYS }).await, 0);
     }
 
+    #[tokio::test]
+    async fn cancelled_caller_does_not_cancel_work_for_resend() {
+        let cache = Arc::new(IdempotencyCache::<usize>::default());
+        let calls = Arc::new(AtomicU32::new(0));
+        let (started_tx, started_rx) = tokio::sync::oneshot::channel();
+        let (release_tx, release_rx) = tokio::sync::oneshot::channel();
+
+        let first_cache = Arc::clone(&cache);
+        let first_calls = Arc::clone(&calls);
+        let first = tokio::spawn(async move {
+            first_cache
+                .run("same-key", move || async move {
+                    first_calls.fetch_add(1, Ordering::SeqCst);
+                    started_tx.send(()).unwrap();
+                    release_rx.await.unwrap();
+                    42
+                })
+                .await
+        });
+        started_rx.await.unwrap();
+        first.abort();
+
+        let resend_cache = Arc::clone(&cache);
+        let resend_calls = Arc::clone(&calls);
+        let resend = tokio::spawn(async move {
+            resend_cache
+                .run("same-key", move || async move {
+                    resend_calls.fetch_add(1, Ordering::SeqCst);
+                    99
+                })
+                .await
+        });
+        release_tx.send(()).unwrap();
+
+        assert_eq!(resend.await.unwrap(), 42);
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+    }
+
     #[test]
     fn bounds_uninitialized_slots_and_reclaims_abandoned_slots() {
         let cache = IdempotencyCache::<usize>::default();
         let mut held = Vec::new();
         for index in 0..MAX_KEYS {
-            let slot = Arc::new(OnceCell::new());
+            let slot = Arc::new(Slot {
+                result: OnceCell::new(),
+                started: AtomicBool::new(false),
+                ready: Notify::new(),
+            });
             cache
                 .slots
                 .lock()
