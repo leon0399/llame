@@ -37,11 +37,13 @@ import {
   type MachineRequestHandler,
   type MachineRequestOptions,
   type MachineSessionEnd,
+  type MachineSessionOptions,
   type MachineStreamHandler,
 } from './machine-session';
 import {
   MachineIdentityMismatchError,
   MachineUnavailableError,
+  MachineUpdateRequiredError,
 } from './machine-session-errors';
 import {
   createMachineSshTransportFactory,
@@ -271,7 +273,12 @@ export class MachineConnector {
     const handle = session.openChannel({ method, params }, options);
     handle.channel.onClose(() => this.armIdle(name));
 
-    return handle;
+    return {
+      ...handle,
+      result: handle.result.catch((error: unknown) => {
+        throw session.mapRefusal(error, true);
+      }),
+    };
   }
   /** The typed Jobs RPC client and lifetime of one established Machine session. */
   async jobsClient(name: string): Promise<{
@@ -288,7 +295,7 @@ export class MachineConnector {
 
     return {
       client: session.jobsClient,
-      callOptions: session.callOptions.bind(session),
+      callOptions: (options) => session.callOptions(options),
       ended: session.ended,
       instanceId: hello.instanceId,
     };
@@ -424,8 +431,6 @@ export class MachineConnector {
     const local = name === this.localMachine();
     const destination = this.hosts()[name]?.destination;
 
-    // The local Machine is a child of this process and needs no destination;
-    // every other Machine is only reachable through SSH.
     if (!local && destination === undefined)
       throw new MachineUnavailableError(
         name,
@@ -434,31 +439,76 @@ export class MachineConnector {
         'This process cannot reach this Machine.',
       );
 
-    let session: MachineSession;
-
-    session = new MachineSession({
-      name,
-      transport: this.factory(name).open({ name, destination }),
-      hubVersion: this.hubVersion,
-      handshakeTimeoutMs: this.handshakeTimeoutMs,
-      admitIdentity: (instanceId) =>
-        this.verifyIdentity(name, session, instanceId),
-      ...(this.requestHandler === undefined
-        ? {}
-        : { requestHandler: this.requestHandler }),
-      ...(this.streamHandler === undefined
-        ? {}
-        : { streamHandler: this.streamHandler }),
-    });
+    const session = this.createSession(name, destination);
 
     this.sessions.set(name, { session });
     void session.ended.then((end) => this.onEnded(name, session, end));
-    const hello = await session.ready();
 
-    this.recordContact(name, { ...helloContact(hello), facts: hello.facts });
-    this.armIdle(name);
+    try {
+      const hello = await session.ready();
+
+      this.recordContact(name, { ...helloContact(hello), facts: hello.facts });
+      this.armIdle(name);
+
+      return session;
+    } catch (error) {
+      this.handleStartFailure(name, session, error);
+    }
+  }
+
+  private createSession(
+    name: string,
+    destination: string | undefined,
+  ): MachineSession {
+    let session!: MachineSession;
+
+    const options: MachineSessionOptions = {
+      name,
+      transport: this.factory(name).open({ name, destination }),
+      hubVersion: this.hubVersion,
+      admitIdentity: (instanceId) =>
+        this.verifyIdentity(name, session, instanceId),
+    };
+
+    if (this.handshakeTimeoutMs !== undefined)
+      Object.assign(options, { handshakeTimeoutMs: this.handshakeTimeoutMs });
+
+    if (this.requestHandler !== undefined)
+      Object.assign(options, { requestHandler: this.requestHandler });
+
+    if (this.streamHandler !== undefined)
+      Object.assign(options, { streamHandler: this.streamHandler });
+
+    session = new MachineSession(options);
 
     return session;
+  }
+
+  private handleStartFailure(
+    name: string,
+    session: MachineSession,
+    error: unknown,
+  ): never {
+    const entry = this.sessions.get(name);
+
+    if (entry?.session === session) this.sessions.delete(name);
+    session.close();
+
+    if (error instanceof MachineUpdateRequiredError) {
+      this.recordContact(name, {
+        hubProtocolVersion: PROTOCOL_VERSION,
+        failure: 'incompatible_version',
+      });
+
+      throw new MachineUnavailableError(
+        name,
+        'incompatible_version',
+        false,
+        error.message,
+      );
+    }
+
+    throw error;
   }
 
   /**

@@ -15,6 +15,7 @@ import { processEnvironment } from '../tools/env';
 import {
   machineSocketPath,
   type MachineLinkEnd,
+  type MachineTransport,
   type MachineTransportFactory,
 } from './machine-transport';
 import {
