@@ -143,10 +143,7 @@ pub async fn run_http(
 }
 
 async fn relay_request(state: RelayState, text: String) -> Result<(), String> {
-    let request_id = serde_json::from_str::<Value>(&text)
-        .ok()
-        .and_then(|request| request.get("id").cloned())
-        .unwrap_or(Value::Null);
+    let (request_method, request_id) = request_metadata(&text);
     let mut request = state
         .client
         .post(&state.url)
@@ -157,6 +154,7 @@ async fn relay_request(state: RelayState, text: String) -> Result<(), String> {
         request = request.header(name, value);
     }
     let session_id = state.session_id.lock().await.clone();
+    let established = session_id.is_some();
     if let Some(id) = session_id {
         request = request.header("mcp-session-id", id);
     }
@@ -171,8 +169,7 @@ async fn relay_request(state: RelayState, text: String) -> Result<(), String> {
     capture_session_id(&state, &response).await?;
     if !response.status().is_success() {
         let status = response.status();
-        let established = state.session_id.lock().await.is_some();
-        if status_is_call_level(status, established) {
+        if status_is_call_level(status, established, request_method.as_deref()) {
             send_call_error(&state.tx, request_id, status).await?;
             return Ok(());
         }
@@ -202,11 +199,27 @@ async fn relay_request(state: RelayState, text: String) -> Result<(), String> {
     }
 }
 
+fn request_metadata(text: &str) -> (Option<String>, Option<Value>) {
+    let Ok(request) = serde_json::from_str::<Value>(text) else {
+        return (None, None);
+    };
+    (
+        request
+            .get("method")
+            .and_then(Value::as_str)
+            .map(str::to_owned),
+        request.get("id").cloned(),
+    )
+}
+
 async fn send_call_error(
     tx: &mpsc::Sender<Result<OpenSessionResponse, Status>>,
-    id: Value,
+    id: Option<Value>,
     status: reqwest::StatusCode,
 ) -> Result<(), String> {
+    let Some(id) = id else {
+        return Ok(());
+    };
     let message = serde_json::json!({
         "jsonrpc": "2.0",
         "id": id,
@@ -347,10 +360,16 @@ async fn dispatch_sse_event(
         .map_err(|_| "MCP stream closed".to_owned())
 }
 
-fn status_is_call_level(status: reqwest::StatusCode, established: bool) -> bool {
-    status != reqwest::StatusCode::UNAUTHORIZED
+fn status_is_call_level(
+    status: reqwest::StatusCode,
+    established: bool,
+    method: Option<&str>,
+) -> bool {
+    established
+        && method == Some("tools/call")
+        && status != reqwest::StatusCode::UNAUTHORIZED
         && status != reqwest::StatusCode::FORBIDDEN
-        && !(status == reqwest::StatusCode::NOT_FOUND && established)
+        && status != reqwest::StatusCode::NOT_FOUND
 }
 
 #[cfg(test)]
@@ -380,22 +399,147 @@ mod tests {
     }
 
     #[test]
-    fn call_level_http_statuses_do_not_withdraw_a_session() {
+    fn only_established_tool_calls_use_call_level_statuses() {
         assert!(status_is_call_level(
             reqwest::StatusCode::TOO_MANY_REQUESTS,
-            true
+            true,
+            Some("tools/call")
         ));
         assert!(status_is_call_level(
             reqwest::StatusCode::INTERNAL_SERVER_ERROR,
-            true
+            true,
+            Some("tools/call")
         ));
-        assert!(status_is_call_level(reqwest::StatusCode::GONE, true));
+        assert!(status_is_call_level(
+            reqwest::StatusCode::GONE,
+            true,
+            Some("tools/call")
+        ));
+        for method in ["initialize", "tools/list"] {
+            assert!(!status_is_call_level(
+                reqwest::StatusCode::INTERNAL_SERVER_ERROR,
+                true,
+                Some(method)
+            ));
+        }
+        assert!(!status_is_call_level(
+            reqwest::StatusCode::TOO_MANY_REQUESTS,
+            false,
+            Some("tools/call")
+        ));
+        assert!(!status_is_call_level(
+            reqwest::StatusCode::NOT_FOUND,
+            true,
+            Some("tools/call")
+        ));
         assert!(!status_is_call_level(
             reqwest::StatusCode::UNAUTHORIZED,
-            true
+            true,
+            Some("tools/call")
         ));
-        assert!(!status_is_call_level(reqwest::StatusCode::FORBIDDEN, true));
-        assert!(!status_is_call_level(reqwest::StatusCode::NOT_FOUND, true));
-        assert!(status_is_call_level(reqwest::StatusCode::NOT_FOUND, false));
+        assert!(!status_is_call_level(
+            reqwest::StatusCode::FORBIDDEN,
+            true,
+            Some("tools/call")
+        ));
+    }
+
+    #[tokio::test]
+    async fn failed_notification_does_not_emit_null_id_error() {
+        let (tx, mut rx) = mpsc::channel(1);
+        send_call_error(&tx, None, reqwest::StatusCode::TOO_MANY_REQUESTS)
+            .await
+            .unwrap();
+        assert!(rx.try_recv().is_err());
+    }
+
+    #[tokio::test]
+    async fn relay_echoes_padded_header_as_a_redactable_secret() {
+        use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let fixture = tokio::spawn(async move {
+            let (socket, _) = listener.accept().await.unwrap();
+            let mut reader = BufReader::new(socket);
+            let mut headers = String::new();
+            loop {
+                let mut line = String::new();
+                reader.read_line(&mut line).await.unwrap();
+                if line == "\r\n" || line.is_empty() {
+                    break;
+                }
+                headers.push_str(&line);
+            }
+            let content_length = headers
+                .lines()
+                .find_map(|line| {
+                    line.split_once(':')
+                        .filter(|(name, _)| name.eq_ignore_ascii_case("content-length"))
+                })
+                .map(|(_, value)| value.trim().parse::<usize>().unwrap())
+                .unwrap();
+            let mut body = vec![0; content_length];
+            reader.read_exact(&mut body).await.unwrap();
+            let header = headers
+                .lines()
+                .find_map(|line| {
+                    line.split_once(':')
+                        .filter(|(name, _)| name.eq_ignore_ascii_case("x-api-key"))
+                })
+                .map(|(_, value)| value.trim().to_owned())
+                .unwrap();
+            let response_body = format!(r#"{{"jsonrpc":"2.0","id":7,"result":"{header}"}}"#);
+            let response = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                response_body.len(),
+                response_body
+            );
+            reader
+                .get_mut()
+                .write_all(response.as_bytes())
+                .await
+                .unwrap();
+            (header, String::from_utf8(body).unwrap())
+        });
+
+        let (tx, mut rx) = mpsc::channel(2);
+        let mut protected = Vec::new();
+        crate::register_protected("  padded-header-token-1931  ", &mut protected, true);
+        let state = RelayState {
+            client: reqwest::Client::new(),
+            tx,
+            url: format!("http://{address}/mcp"),
+            declared_headers: BTreeMap::from([(
+                "X-Api-Key".to_owned(),
+                "  padded-header-token-1931  ".to_owned(),
+            )]),
+            session_id: Arc::new(Mutex::new(Some("session".to_owned()))),
+            protocol_version: Arc::new(Mutex::new(None)),
+            protected_values: Arc::new(Mutex::new(protected.clone())),
+        };
+        tokio::time::timeout(
+            Duration::from_secs(5),
+            relay_request(
+                state,
+                r#"{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{}}"#.to_owned(),
+            ),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        let (header, request_body) = tokio::time::timeout(Duration::from_secs(5), fixture)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(header, "padded-header-token-1931");
+        assert!(request_body.contains("\"method\":\"tools/call\""));
+        let response = rx.recv().await.unwrap().unwrap();
+        let Some(ResponseMessage::JsonRpc(response)) = response.message else {
+            panic!("expected relayed JSON-RPC response");
+        };
+        let redacted = crate::redact(&response, &protected);
+        assert!(redacted.contains("[REDACTED]"));
+        assert!(!redacted.contains("padded-header-token-1931"));
     }
 }
