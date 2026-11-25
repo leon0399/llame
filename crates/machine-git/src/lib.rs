@@ -32,6 +32,9 @@ use tokio::{
 };
 use tonic::{Request, Response, Status as RpcStatus};
 
+#[cfg(test)]
+static GIT_PATH_OVERRIDE: std::sync::Mutex<Option<PathBuf>> = std::sync::Mutex::new(None);
+
 const OUTPUT_MAX: usize = 1024 * 1024;
 const STDERR_MAX: usize = 4096;
 const DEFAULT_TIMEOUT: Duration = Duration::from_secs(10);
@@ -185,6 +188,14 @@ async fn run_mode(directory: &Path, args: &[&str], deadline: Instant, pinned: bo
             command.env(name, value);
         }
     }
+    #[cfg(test)]
+    if let Some(path) = GIT_PATH_OVERRIDE
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .as_ref()
+    {
+        command.env("PATH", path);
+    }
     command.as_std_mut().process_group(0);
     let mut child = match command.spawn() {
         Ok(v) => v,
@@ -335,6 +346,13 @@ fn git_directory(entry: &Path) -> Option<PathBuf> {
     Some(fs::canonicalize(&target).unwrap_or(target))
 }
 
+fn alternate_paths(alternates: &str) -> impl Iterator<Item = &str> {
+    alternates
+        .split('\n')
+        .map(|entry| entry.split('\0').next().unwrap_or_default())
+        .filter(|entry| !entry.is_empty())
+}
+
 fn read_git_metadata(path: &Path, roots: &[PathBuf]) -> Result<Option<String>, GitFailure> {
     let resolved = fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
     if !machine_core::guard::is_inside(roots, &resolved) {
@@ -383,7 +401,7 @@ fn checked_git_data(entry: &Path, roots: &[PathBuf]) -> Result<(PathBuf, PathBuf
         }
         checked.push(objects.clone());
         if let Some(alternates) = read_git_metadata(&objects.join("info/alternates"), roots)? {
-            for alternate in alternates.lines().filter(|value| !value.is_empty()) {
+            for alternate in alternate_paths(&alternates) {
                 if alternate.starts_with('"') {
                     return Err(failure(GitFailureReason::OutsideRoots, ""));
                 }
@@ -453,7 +471,7 @@ async fn repository(
         return Err(failure(GitFailureReason::OutsideRoots, ""));
     }
     if let Ok(alts) = fs::read_to_string(objects.join("info/alternates")) {
-        for alt in alts.lines().filter(|s| !s.is_empty()) {
+        for alt in alternate_paths(&alts) {
             if alt.starts_with('"') {
                 return Err(failure(GitFailureReason::OutsideRoots, ""));
             }
@@ -1291,5 +1309,79 @@ impl GitService for Git {
                 Err(e) => DeleteResult::Failure(e),
             }),
         }))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::{os::unix::fs::PermissionsExt, sync::Arc};
+
+    static PATH_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+    async fn assert_alternate_refused_before_git(alternate: impl FnOnce(&Path) -> String + Send) {
+        let _path_lock = PATH_LOCK.lock().await;
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("root");
+        let repository = root.join("repository");
+        let objects = repository.join(".git/objects");
+        fs::create_dir_all(objects.join("info")).unwrap();
+        fs::write(objects.join("info/alternates"), alternate(&root)).unwrap();
+
+        let config_dir = temp.path().join("config");
+        fs::create_dir_all(&config_dir).unwrap();
+        let config_file = config_dir.join("config.toml");
+        fs::write(&config_file, format!("roots = [\"{}\"]\n", root.display())).unwrap();
+        let config = machine_core::ConfigHandle::open(config_file).unwrap();
+        let context = Context {
+            config: Arc::new(config),
+            state_dir: temp.path().join("state"),
+        };
+        let git = Git {
+            context,
+            create_cache: IdempotencyCache::default(),
+            delete_cache: IdempotencyCache::default(),
+        };
+
+        let bin = temp.path().join("bin");
+        fs::create_dir_all(&bin).unwrap();
+        let marker = temp.path().join("git-started");
+        let shim = bin.join("git");
+        fs::write(
+            &shim,
+            format!("#!/bin/sh\ntouch '{}'\nexit 99\n", marker.display()),
+        )
+        .unwrap();
+        fs::set_permissions(&shim, fs::Permissions::from_mode(0o755)).unwrap();
+        *GIT_PATH_OVERRIDE.lock().unwrap() = Some(bin);
+        let response = git
+            .get_repository(Request::new(GetRepositoryRequest {
+                path: repository.to_string_lossy().into_owned(),
+            }))
+            .await
+            .unwrap()
+            .into_inner();
+        *GIT_PATH_OVERRIDE.lock().unwrap() = None;
+
+        let Some(RepoResult::Failure(error)) = response.result else {
+            panic!("expected repository refusal");
+        };
+        assert_eq!(error.reason, GitFailureReason::OutsideRoots as i32);
+        assert!(!marker.exists(), "git shim must not start");
+    }
+
+    #[tokio::test]
+    async fn crlf_object_alternate_outside_roots_is_refused_before_git() {
+        assert_alternate_refused_before_git(|root| format!("{}\r\n", root.display())).await;
+    }
+
+    #[tokio::test]
+    async fn nul_truncated_object_alternate_outside_roots_is_refused_before_git() {
+        assert_alternate_refused_before_git(|root| {
+            let outside = root.parent().unwrap().join("outside");
+            fs::create_dir_all(&outside).unwrap();
+            format!("{}/../outside\0/ignored\n", root.display())
+        })
+        .await;
     }
 }
