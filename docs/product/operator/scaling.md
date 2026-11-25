@@ -75,9 +75,8 @@ no parallel routing layer.
 ## Host commands
 
 A foreground host `bash` command that passes `tools.bash.backgroundAfterSeconds`
-becomes a job on the worker that runs it, and that worker keeps it until it
-ends. Count each such job in `tools.bash.maxProcesses`, and see
-[background jobs](background-jobs.md) before a deploy.
+becomes a job on the host Machine daemon. The daemon owns its lifetime and
+output. See [background jobs](background-jobs.md) before a deploy.
 
 ## Drizzle v1 RC5 migration upgrade
 
@@ -439,37 +438,7 @@ None is justified inside the current self-hosted envelope.
 
 ## Background jobs
 
-Each worker process that consumes runs records a heartbeat every
-`runs.heartbeatSeconds`. A worker with no heartbeat for four intervals is dead,
-and its running jobs settle as `lost` at their next touch. The Chat list and
-the live Chat record count only the jobs on a worker that is not dead.
-
-Job-row changes push the owner's full Chat record after commit. While an owner
-has sockets on an API process, that process also refreshes the job counts on the
-`runs.heartbeatSeconds` cadence. Each period adds one owner-scoped grouped read
-per connected owner with stored running jobs, plus full-record reads for changed
-counts. Several sockets of one owner share that process's loop; connections to
-different API processes each incur their own reads.
-
-The loop starts at subscription, reconnect and a job change. It continues while
-stored running rows remain, even when every worker lease expired and the live
-count is zero, so a late heartbeat restores the count. It stops when no running
-row remains, the last socket leaves, or the API shuts down. These display reads
-settle no job and start no Run.
-
-At each heartbeat the hosting worker retries pending job settlements and then
-checks each hosted job under its owner's identity. A recorded stop request,
-a deleted row, or a row already settled elsewhere ends the hosted command.
-One failed lookup does not delay the checks of other jobs. A completed job's
-stored state and result never change when its old worker resumes.
-
-The owner lists the jobs of a Chat with `GET /api/v1/chats/:chatId/jobs`, the
-running jobs first. `PATCH /api/v1/chats/:chatId/jobs/:jobId` with
-`{ "state": "cancelled" }` records a stop request from the owner. A repeat for a
-job that the owner stopped answers 200, a job in any other settled state answers
-409, and a Chat or job of another owner answers 404. The reader behind these
-rows is documented under [job://](../reference/locators/job.md).
-
-Each job response includes `truncated`, the names of outputs cut by their byte
-bound. An uncut output is absent from that list;
-no cut outputs means `[]`. Both the list and stop response retain this detail.
+Host background jobs run on the host Machine daemon, not on the worker that
+started them. The daemon enforces its running-job and output limits. See
+[background jobs](background-jobs.md) for job configuration, reconciliation,
+settlement, and owner controls.

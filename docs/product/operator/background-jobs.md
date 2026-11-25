@@ -1,8 +1,8 @@
 ---
-summary: "Enable and bound host bash jobs, stop them through owner controls, and understand worker shutdown"
+summary: "Enable and bound host bash jobs, stop them through owner controls, and understand daemon shutdown"
 read_when:
   - you need to configure the lifetime or concurrency of background commands
-  - you need to stop a job or deploy a worker that hosts jobs
+  - you need to stop a job or deploy a Machine daemon that hosts jobs
 behavior:
   - ../reference/tools/bash.md
   - ../reference/locators/job.md
@@ -25,27 +25,21 @@ an omitted working directory in a Machine Workspace.
 ```jsonc
 {
   "tools": {
-    "bash": { "maxProcesses": 64, "backgroundAfterSeconds": 120 },
+    "bash": { "backgroundAfterSeconds": 120 },
     "jobs": { "maxSeconds": 7200, "allowUnlimited": false },
   },
 }
 ```
 
-`tools.bash.maxProcesses` is one worker's shared bound for foreground host
-commands, host jobs, and SSH commands. A slot stays occupied until the command
-settles, not merely until the tool returns its job locator.
-
-`tools.bash.backgroundAfterSeconds` (default 120) is how long a foreground host
-command runs before it moves to the background. The lesser of it and
-`tools.callTimeoutSeconds` applies; with a call timeout of 30 seconds a command
-moves after 30 seconds. The move never stops the command. A failed move stops
-it. If the database takes longer to settle a move, the Run waits for its
-authoritative result; a committed move returns the job. SSH and Machine
-commands do not move.
+`tools.bash.backgroundAfterSeconds` (default 120) is how long a foreground
+host command runs before it moves to the background. The lesser of it and
+`tools.callTimeoutSeconds` applies. The move never stops the command. A failed
+move stops it. If the database takes longer to settle a move, the Run waits for
+its authoritative result. SSH and Machine commands do not move.
 
 `tools.jobs.maxSeconds` is measured from command start. It defaults to 7,200
 seconds and accepts an integer of at least 60 or a whole-value interpolation
-token. The model cannot provide a different duration. The worker stops a job at
+token. The model cannot provide a different duration. The daemon stops a job at
 its deadline; the state is `timed_out` only after proof that its process group is
 empty, and `lost` when that proof fails.
 
@@ -68,10 +62,10 @@ hour). Add `wait` to `tools.allowed` and its own `wait` permission group to
 interruption; jobs continue running after the wait ends.
 
 The [job locator](../reference/locators/job.md) exposes the durable record and
-bounded, redacted stdout and stderr. Increments are stored at 16 KiB or one
-second after the first unflushed byte, so another worker can read them without
-adopting the process. Job output keeps the credential set and artifact policy
-of the starting Run.
+stored stdout and stderr. The daemon keeps output on the Machine while a job
+runs. At settlement the hub stores output as an artifact, capped by
+`tools.artifacts.maxBytes`. A stream above that cap is truncated. If the daemon
+cannot return output or artifact storage fails, settled output is unavailable.
 
 In the Chat, open Session details and select Jobs to inspect live and settled
 jobs. Live jobs appear first. Stop requests cancellation of that job; Stop all
@@ -81,9 +75,8 @@ The composer's Stop remains separate and cancels only the Run.
 The owner lists jobs with `GET /api/v1/chats/:chatId/jobs` and requests a stop
 with `PATCH /api/v1/chats/:chatId/jobs/:jobId` and body
 `{"state":"cancelled"}`. The response may still show `running`: it records a
-request, and the hosting worker proves termination before settlement. Its
-control listener acts after the transaction commits; the heartbeat re-checks
-recorded requests after a lost signal. Deleting the Chat also stops its jobs.
+request, and the daemon proves termination before settlement. Deleting the Chat
+also stops its jobs.
 
 ## Runtime boundary
 
@@ -116,15 +109,21 @@ rows. Owner-history responses identify them with `host: true`; ordinary owner,
 assistant, tool and checkpoint rows carry `host: false`. Host rows remain
 excluded from title, preview, recency, public projection, and shared forks.
 
-## Deploy workers
+## Deploy the Machine daemon
 
-A job belongs to its Chat but runs only on the worker that spawned it. An
-orderly shutdown refuses new commands and promotions, stops hosted work, and
-stores captured output before the queue closes. A proven stop records
-`cancelled` with stopper `worker`; an unproven stop is `lost`. A crash is found
-at the next owner-scoped touch after four missed heartbeat intervals. No other
-worker replays or adopts the command.
+The Machine daemon owns host jobs. It accepts at most 32 running jobs by
+default. Each job's stdout and stderr stream is capped at 64 MiB on the daemon.
+These limits are configured in the Machine's `config.toml`; see
+[Machines](machines.md#machine-limits). At startup, the daemon marks unfinished
+jobs `lost` without replaying their commands. Captured output stays on the
+Machine.
 
-A completed, failed, or cancelled starting Run does not stop its jobs. Settlement
-is stored independently; host startup follows the idle-Chat rules above. Read
-the job record or use the owner jobs API to inspect its terminal state.
+The daemon stores job output on the Machine. At settlement, the hub stores
+available output as an artifact capped by `tools.artifacts.maxBytes`. Output
+above that limit is truncated. If the daemon cannot return output, settled
+output is unavailable.
+
+A completed, failed, or cancelled starting Run does not stop its jobs.
+Settlement is stored independently; host startup follows the idle-Chat rules
+above. Read the job record or use the owner jobs API to inspect its terminal
+state.

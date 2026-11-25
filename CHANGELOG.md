@@ -14,6 +14,13 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   remote Machines. Use the new forced command and configure the daemon with
   `config.toml`; daemon diagnostics are written to `daemon.log`.
 
+- **Breaking:** host bash jobs now run on the Rust Machine daemon. The
+  migration drops `chat_job_chunks` without copying it, deleting existing
+  stored job output. The installation no longer accepts
+  `tools.bash.maxProcesses`; a config that still sets it fails startup. The
+  daemon limits jobs to 32 running at once and each output stream to 64 MiB by
+  default. Settled output is stored as a bounded artifact when available.
+
 - Keep retained Machine mutation results replayable when the idempotency cache
   reaches its key limit. Attaching through a different configuration now
   refuses the running daemon before returning its socket.

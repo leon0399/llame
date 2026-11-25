@@ -67,25 +67,29 @@ locator, and one `<name>: <value>` line follows for each field:
 | `outcome`           | `unknown` for a `lost` job                                            |
 | `artifact`          | the `artifact://` locator, when the output is stored as one           |
 
-A job is `lost` when its worker sent no heartbeat for four heartbeat
-intervals. A read finds that and settles the job as `lost`
-before it answers, and the output that the worker stored stays readable. The
-record never holds the content of an output.
+A daemon reports a job `lost` when the process did not survive daemon restart.
+A read finds this state and settles the job before it answers. Output retained
+by the daemon stays readable while the job runs. If the daemon cannot return
+output, the read says `output unavailable right now`. The hub stores settled
+output in an artifact capped by the configured artifact byte limit. Output above
+that cap is truncated. If settled output is unavailable, the read says
+`output unavailable right now`. The record never holds output content.
 
 ### Output
 
-A `read` of `job://<executor>-<n>/<output>` returns the stored text of that
-output with the ordinary read selectors, so `:-L50` returns its last 50 lines.
-For a running job the text is what the worker stored up to that moment. A job
-whose output did not fit inline keeps it in the artifact, and the read returns
-it from there. An output name that the job does not have is `not_found`. A quiet
-output reads as empty.
+A `read` of `job://<executor>-<n>/<output>` returns stored text with ordinary
+read selectors, so `:-L50` returns its last 50 lines. For a running job, the
+text comes from the daemon's output files. Settled output comes from the
+artifact. If settled output could not be stored, the read says
+`output unavailable right now`. An output name that the job does not have is
+`not_found`. A quiet output reads as empty.
 
 ### Pending notices
 
-A settlement creates one pending `notice` item for that job. The winning
-settlement transaction inserts it, including when a touch finds the worker
-lost; a repeated settlement creates no second item. A live Run receives notices
+Each winning job settlement creates one pending `notice` item for that job. The
+settlement transaction inserts it, including when a touch finds the daemon lost
+the job. A repeated settlement creates no second item. A live Run receives
+notices
 at its next ordered boundary delivery with pending `steer` and `interrupt`
 items. Only the Run executing at that boundary is signalled. A notice by itself
 is a host trigger, not an owner message: its delivered message has user role,
@@ -127,5 +131,5 @@ letter, such as `:L5-10`; `:raw`, `:outline`, and comma lists are
 
 ## Configured by
 
-The worker heartbeat interval and the owner's job API are operator topics; see
-[scaling](../../operator/scaling.md#background-jobs).
+The daemon and the owner's job API are operator topics; see
+[background jobs](../../operator/background-jobs.md).

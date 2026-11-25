@@ -105,7 +105,7 @@ the foreground, and never one that already moved. A command on an `ssh://` or
 
 A background job survives completion, failure, and cancellation of its starting
 Run. The composer's Stop leaves it running. The owner jobs API and Chat deletion
-can stop it, and its hosting worker stops it on orderly shutdown.
+can stop it. The Machine daemon stops it during orderly shutdown.
 
 `bash` accepts an optional literal `cwd` and string-record `env`. An absolute
 `cwd` is used as given; a relative `cwd` resolves from the Workspace root while
@@ -192,15 +192,15 @@ When the Run can read artifacts and the write succeeds, a stream over its inline
 share is stored as one artifact part named `stdout` or `stderr` in one artifact,
 so the model reads the rest through `artifact://bash-<n>/<stream>`. The streams
 that do not fit share the inline budget equally, and a quarter of each share is
-the head. The artifact holds the Machine's captured stream, after redaction, in
-bytes, and is marked incomplete when the byte bound cut it; a stream that parses
-as JSON is stored with the JSON content type.
+the head. The artifact holds captured output after redaction, in bytes, and is
+marked incomplete when the byte bound cuts it. A stream that parses as JSON is
+stored with the JSON content type.
 
 A call is a fresh process with no state carried into the next one. A Machine
 call shares the managed base, input, and time bounds but keeps its own
-32,000-unit stream bound and its own process bound of one. An `ssh://` command
-shares the host bounds: one `bash -s` process per call, the same stream bound,
-the same process bound as a host command, and the call's remaining time.
+32,000-unit stream bound and its own process bound of one. A standalone
+`ssh://` command remains foreground-only. It uses one `bash -s` process per
+call, the host stream bound, and the call's remaining time.
 
 ## Errors
 
@@ -209,13 +209,9 @@ while the Run continues; inspect the workspace before retrying. See
 [mutation recovery](../mutation-recovery.md) for the durable attempt fence and
 crash-recovery termination.
 
-A call past the operator's worker process bound is `limit_reached`. The count
-holds foreground commands this worker runs and `ssh://` commands; see
-[managed command capacity](../../operator/native-files.md#managed-command-capacity).
-The refusal names the bound, says that a later call can succeed, and comes before
-any attempt is recorded, so the command did not run. A Machine command is not
-counted: its daemon has a separate process bound and answers `unavailable` when
-that bound is reached.
+The Machine daemon accepts at most 32 running jobs by default. A command that
+exceeds its capacity returns `limit_reached` before it runs. See
+[background jobs](../../operator/background-jobs.md) for operator configuration.
 
 A Machine command fails with `machine_not_found` for an unconfigured Machine and
 `machine_unavailable` before anything was sent; a command whose session is lost

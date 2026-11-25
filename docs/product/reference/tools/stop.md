@@ -35,12 +35,12 @@ output locator is `invalid_input`.
 
 ## Behavior
 
-The call records one stop request for each running job and signals its hosting
-worker, in one transaction. It then waits up to 5 seconds, shared by all jobs
-of the call: this worker settles a job that it hosts directly, and a job of
-another worker is read every 250 ms. A job still running when the wait ends is
-reported as `running`. Its request is stored, so it ends once its worker proves
-the stop. A worker that is dead settles its jobs as `lost`.
+The call records one stop request for each running job and signals the Machine
+daemon, in one transaction. It then waits up to 5 seconds, shared by all jobs
+of the call. The daemon settles a job it hosts directly; another daemon's job
+is read every 250 ms. A job still running when the wait ends is reported as
+`running`. Its request is stored, so the daemon stops it after it proves
+termination. A daemon that has lost the job settles it as `lost`.
 
 Host termination proof covers the job's managed process group. Detached
 descendants that leave that group are outside the proof.

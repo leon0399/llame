@@ -341,18 +341,23 @@ than reported as a locator.
 ## Machine limits
 
 Each Machine sets its own capacity; the installation sets none per Machine.
+The daemon defaults to 32 running jobs and a 64 MiB output cap for each stream.
+Configure the limits in `config.toml` in the daemon's configuration directory:
 
-```bash
-llame-machine limits show
-llame-machine limits set --max-running-jobs 32 --job-output-bytes 67108864
+```toml
+roots = ["/home/me/work"]
+
+[limits]
+max_running_jobs = 32
+job_output_bytes = 67108864
 ```
 
-`max_running_jobs` (default 32) refuses a new command with `machine_job_limit`
-while that many run. It protects against a Run that starts commands in a loop;
-it does not control load. `job_output_bytes` (default 64 MiB) is the most one
-output stream of a job writes to disk; past it the daemon stops recording and
-the command keeps running. **Breaking:** `tools.bash.maxProcesses` is removed
-from the installation configuration, and startup fails while it remains.
+`max_running_jobs` refuses a new job with `limit_reached` while that many jobs
+run. It protects against a Run that starts commands in a loop; it does not
+control load. `job_output_bytes` is the most each output stream of a job writes
+to disk. Past the cap, the daemon stops recording that stream and the command
+keeps running. **Breaking:** `tools.bash.maxProcesses` is removed from
+installation configuration, and an existing config with that key fails startup.
 
 ## Permissions
 
