@@ -77,7 +77,7 @@ type MachineReadRequest = {
   readonly connector: MachineConnector;
   readonly machine: MachinePath;
   readonly submitted: string;
-  readonly envelope: RequestEnvelope;
+  readonly envelope: MachineRequestEnvelope;
   readonly mediaMachine?: MachinePath;
 };
 
