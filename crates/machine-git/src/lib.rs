@@ -217,8 +217,8 @@ async fn run_mode(directory: &Path, args: &[&str], deadline: Instant, pinned: bo
             bounded: false,
         };
     };
-    let stdout_task = tokio::spawn(read_capped(stdout, OUTPUT_MAX));
-    let stderr_task = tokio::spawn(read_capped(stderr, STDERR_MAX));
+    let mut stdout_task = tokio::spawn(read_capped(stdout, OUTPUT_MAX));
+    let mut stderr_task = tokio::spawn(read_capped(stderr, STDERR_MAX));
     let (timed_out, status) = if let Ok(Ok(status)) = timeout(
         deadline.saturating_duration_since(Instant::now()),
         child.wait(),
@@ -233,15 +233,29 @@ async fn run_mode(directory: &Path, args: &[&str], deadline: Instant, pinned: bo
         let _ = child.wait().await;
         (true, None)
     };
+    let readers = timeout(deadline.saturating_duration_since(Instant::now()), async {
+        tokio::join!(&mut stdout_task, &mut stderr_task)
+    })
+    .await;
+    let (stdout, stderr, reader_timed_out, bounded) = if let Ok((stdout, stderr)) = readers {
+        let (stdout, a) = stdout.unwrap_or_default();
+        let (stderr, b) = stderr.unwrap_or_default();
+        (stdout, stderr, false, a || b)
+    } else {
+        if let Some(pid) = group.0.and_then(Pid::from_raw) {
+            let _ = kill_process_group(pid, Signal::KILL);
+        }
+        stdout_task.abort();
+        stderr_task.abort();
+        (Vec::new(), Vec::new(), true, false)
+    };
     group.0 = None;
-    let (stdout, a) = stdout_task.await.unwrap_or_default();
-    let (stderr, b) = stderr_task.await.unwrap_or_default();
     Output {
         status,
         stdout,
         stderr,
-        timed_out,
-        bounded: a || b,
+        timed_out: timed_out || reader_timed_out,
+        bounded,
     }
 }
 fn parse_remotes(value: &str) -> Vec<Remote> {
@@ -517,7 +531,7 @@ fn relative(root: &Path, path: &str) -> String {
     p.strip_prefix(root)
         .unwrap_or(p)
         .to_string_lossy()
-        .replace('\\', "/")
+        .into_owned()
 }
 #[allow(clippy::too_many_lines)]
 fn parse_status(
@@ -611,7 +625,7 @@ fn parse_status(
     let rel = requested
         .strip_prefix(root)
         .unwrap_or_else(|_| Path::new(""));
-    let rel = rel.to_string_lossy().replace('\\', "/");
+    let rel = rel.to_string_lossy().into_owned();
     (
         ChangeCounts {
             staged: staged as u32,
@@ -672,6 +686,193 @@ fn parse_worktrees(value: &str) -> Vec<Worktree> {
         });
     }
     out
+}
+fn status_failure(error: GitFailure) -> Response<GetStatusResponse> {
+    Response::new(GetStatusResponse {
+        result: Some(StatusResult::Failure(error)),
+    })
+}
+async fn detect_operation(dir: &Path, deadline: Instant) -> Result<Option<Operation>, GitFailure> {
+    for name in [
+        "MERGE_HEAD",
+        "rebase-merge",
+        "rebase-apply",
+        "CHERRY_PICK_HEAD",
+        "REVERT_HEAD",
+        "BISECT_LOG",
+    ] {
+        let path = run_pinned(
+            dir,
+            &["rev-parse", "--path-format=absolute", "--git-path", name],
+            deadline,
+        )
+        .await;
+        if !succeed(&path) {
+            return Err(process_failure(&path));
+        }
+        let state_dir = PathBuf::from(line(&path));
+        if !state_dir.exists() {
+            continue;
+        }
+        let kind = match name {
+            "MERGE_HEAD" => OperationKind::Merge,
+            "rebase-apply" if state_dir.join("applying").exists() => OperationKind::Am,
+            "rebase-merge" | "rebase-apply" => OperationKind::Rebase,
+            "CHERRY_PICK_HEAD" => OperationKind::CherryPick,
+            "REVERT_HEAD" => OperationKind::Revert,
+            _ => OperationKind::Bisect,
+        };
+        let (step, total) = match name {
+            "rebase-merge" => (
+                fs::read_to_string(state_dir.join("msgnum")).ok(),
+                fs::read_to_string(state_dir.join("end")).ok(),
+            ),
+            "rebase-apply" if kind == OperationKind::Rebase => (
+                fs::read_to_string(state_dir.join("next")).ok(),
+                fs::read_to_string(state_dir.join("last")).ok(),
+            ),
+            _ => (None, None),
+        };
+        return Ok(Some(Operation {
+            kind: kind as i32,
+            step: step.and_then(|value| value.trim().parse().ok()),
+            total: total.and_then(|value| value.trim().parse().ok()),
+        }));
+    }
+    Ok(None)
+}
+
+async fn recent_commits(
+    dir: &Path,
+    head: Option<&str>,
+    max_commits: u32,
+    deadline: Instant,
+) -> Result<Vec<Commit>, GitFailure> {
+    let Some(head) = head.filter(|_| max_commits > 0) else {
+        return Ok(Vec::new());
+    };
+    let count = max_commits.min(100);
+    let limit = format!("-{count}");
+    let output = run_pinned(
+        dir,
+        &["log", &limit, "--format=%H%x00%s%x00", head],
+        deadline,
+    )
+    .await;
+    if !succeed(&output) {
+        return Err(process_failure(&output));
+    }
+    let mut commits = Vec::new();
+    let log_text = text(&output.stdout);
+    let mut fields = log_text.split('\0');
+    while let Some(id) = fields.next() {
+        if id.is_empty() {
+            continue;
+        }
+        if let Some(subject) = fields.next() {
+            commits.push(Commit {
+                id: id.trim_start_matches('\n').to_owned(),
+                subject: subject.trim_start_matches('\n').to_owned(),
+            });
+        }
+    }
+    Ok(commits)
+}
+
+async fn submodule_paths(
+    dir: &Path,
+    head: Option<&str>,
+    deadline: Instant,
+) -> Result<Vec<String>, GitFailure> {
+    let Some(head) = head else {
+        return Ok(Vec::new());
+    };
+    let spec = format!("{head}:.gitmodules");
+    let exists = run_pinned(dir, &["cat-file", "-e", &spec], deadline).await;
+    if !succeed(&exists) {
+        if exists.timed_out || exists.bounded || exists.status.is_none() {
+            return Err(process_failure(&exists));
+        }
+        if exists.status == Some(1) || text(&exists.stderr).contains("does not exist") {
+            return Ok(Vec::new());
+        }
+        return Err(process_failure(&exists));
+    }
+    let paths = run_pinned(
+        dir,
+        &[
+            "config",
+            "--null",
+            "--blob",
+            &spec,
+            "--no-includes",
+            "--get-regexp",
+            r"^submodule\..*\.path$",
+        ],
+        deadline,
+    )
+    .await;
+    if paths.status == Some(1) && !paths.timed_out && !paths.bounded {
+        return Ok(Vec::new());
+    }
+    if !succeed(&paths) {
+        return Err(process_failure(&paths));
+    }
+    Ok(text(&paths.stdout)
+        .split('\0')
+        .filter_map(|record| record.split_once('\n').map(|(_, value)| value.to_owned()))
+        .collect())
+}
+
+async fn upstream_status(
+    dir: &Path,
+    name: String,
+    branch_ab: Option<&str>,
+    deadline: Instant,
+) -> Result<Upstream, GitFailure> {
+    let reflog = run_pinned(
+        dir,
+        &[
+            "reflog",
+            "show",
+            "-1",
+            "--date=unix",
+            "--format=%gd",
+            &name,
+            "--",
+        ],
+        deadline,
+    )
+    .await;
+    if reflog.timed_out || reflog.bounded || reflog.status.is_none() {
+        return Err(process_failure(&reflog));
+    }
+    let updated_at = line(&reflog)
+        .rsplit_once("@{")
+        .and_then(|(_, t)| t.strip_suffix('}'))
+        .and_then(|s| s.parse::<i64>().ok())
+        .map(|seconds| Timestamp { seconds, nanos: 0 });
+    let Some(branch_ab) = branch_ab else {
+        return Ok(Upstream {
+            name,
+            gone: true,
+            ahead: None,
+            behind: None,
+            updated_at,
+        });
+    };
+    let mut counts = branch_ab.split_whitespace();
+    Ok(Upstream {
+        name,
+        gone: false,
+        ahead: counts
+            .next()
+            .and_then(|value| value.trim_start_matches('+').parse().ok()),
+        behind: counts
+            .next()
+            .and_then(|value| value.trim_start_matches('-').parse().ok()),
+        updated_at,
+    })
 }
 #[allow(clippy::too_many_lines)]
 #[tonic::async_trait]
@@ -824,168 +1025,39 @@ impl GitService for Git {
                             Path::new(&repo.worktree),
                             &path.canonical,
                         );
-                        let mut upstream = None;
-                        let mut op = None;
-                        let mut commits = Vec::new();
-                        if let Some(name) = up.filter(|name| !name.starts_with('-')) {
-                            let ab = status_text
-                                .split('\0')
-                                .find_map(|s| s.strip_prefix("# branch.ab "));
-                            let reflog = run_pinned(
-                                dir,
-                                &[
-                                    "reflog",
-                                    "show",
-                                    "-1",
-                                    "--date=unix",
-                                    "--format=%gd",
-                                    &name,
-                                    "--",
-                                ],
-                                deadline,
-                            )
-                            .await;
-                            let updated_at = line(&reflog)
-                                .rsplit_once("@{")
-                                .and_then(|(_, t)| t.strip_suffix('}'))
-                                .and_then(|s| s.parse::<i64>().ok())
-                                .map(|seconds| Timestamp { seconds, nanos: 0 });
-                            if let Some(ab) = ab {
-                                let mut p = ab.split_whitespace();
-                                upstream = Some(Upstream {
-                                    name,
-                                    gone: false,
-                                    ahead: p
-                                        .next()
-                                        .and_then(|v| v.trim_start_matches('+').parse().ok()),
-                                    behind: p
-                                        .next()
-                                        .and_then(|v| v.trim_start_matches('-').parse().ok()),
-                                    updated_at,
-                                });
-                            } else {
-                                upstream = Some(Upstream {
-                                    name,
-                                    gone: true,
-                                    ahead: None,
-                                    behind: None,
-                                    updated_at,
-                                });
-                            }
-                        }
-                        for n in [
-                            "MERGE_HEAD",
-                            "rebase-merge",
-                            "rebase-apply",
-                            "CHERRY_PICK_HEAD",
-                            "REVERT_HEAD",
-                            "BISECT_LOG",
-                        ] {
-                            let p = run_pinned(
-                                dir,
-                                &["rev-parse", "--path-format=absolute", "--git-path", n],
-                                deadline,
-                            )
-                            .await;
-                            if succeed(&p) && Path::new(&line(&p)).exists() {
-                                let kind = match n {
-                                    "MERGE_HEAD" => OperationKind::Merge,
-                                    "rebase-merge" | "rebase-apply" => OperationKind::Rebase,
-                                    "CHERRY_PICK_HEAD" => OperationKind::CherryPick,
-                                    "REVERT_HEAD" => OperationKind::Revert,
-                                    _ => OperationKind::Bisect,
-                                };
-                                let state_dir = PathBuf::from(line(&p));
-                                let (step, total) = if n == "rebase-merge" {
-                                    (
-                                        fs::read_to_string(state_dir.join("msgnum")).ok(),
-                                        fs::read_to_string(state_dir.join("end")).ok(),
-                                    )
-                                } else if n == "rebase-apply" {
-                                    (
-                                        fs::read_to_string(state_dir.join("next")).ok(),
-                                        fs::read_to_string(state_dir.join("last")).ok(),
-                                    )
-                                } else {
-                                    (None, None)
-                                };
-                                op = Some(Operation {
-                                    kind: kind as i32,
-                                    step: step.and_then(|value| value.trim().parse().ok()),
-                                    total: total.and_then(|value| value.trim().parse().ok()),
-                                });
-                                break;
-                            }
-                        }
-                        if let Some(head) = head
-                            && input.max_commits > 0
+                        let upstream = if let Some(name) = up.filter(|name| !name.starts_with('-'))
                         {
-                            let count = input.max_commits.min(100) as usize;
-                            let n = count.to_string();
-                            let log = run_pinned(
-                                dir,
-                                &["log", &format!("-{n}"), "--format=%H%x00%s%x00", &head],
-                                deadline,
-                            )
-                            .await;
-                            if succeed(&log) {
-                                let log_text = text(&log.stdout);
-                                let mut f = log_text.split('\0');
-                                while let Some(id) = f.next() {
-                                    if id.is_empty() {
-                                        continue;
-                                    }
-                                    if let Some(subject) = f.next() {
-                                        commits.push(Commit {
-                                            id: id.trim_start_matches('\n').to_owned(),
-                                            subject: subject.trim_start_matches('\n').to_owned(),
-                                        });
-                                    }
-                                }
-                            }
-                        }
-                        let submodules = if let Some(head) = repo.head.as_ref() {
-                            let spec = format!("{head}:.gitmodules");
-                            let exists =
-                                run_pinned(dir, &["cat-file", "-e", &spec], deadline).await;
-                            if succeed(&exists) {
-                                let paths = run_pinned(
-                                    dir,
-                                    &[
-                                        "config",
-                                        "--null",
-                                        "--blob",
-                                        &spec,
-                                        "--no-includes",
-                                        "--get-regexp",
-                                        r"^submodule\..*\.path$",
-                                    ],
-                                    deadline,
-                                )
-                                .await;
-                                if paths.status == Some(0) && !paths.bounded {
-                                    text(&paths.stdout)
-                                        .split('\0')
-                                        .filter_map(|record| {
-                                            record
-                                                .split_once('\n')
-                                                .map(|(_, value)| value.to_owned())
-                                        })
-                                        .collect()
-                                } else {
-                                    Vec::new()
-                                }
-                            } else {
-                                Vec::new()
+                            let branch_ab = status_text
+                                .split('\0')
+                                .find_map(|record| record.strip_prefix("# branch.ab "));
+                            match upstream_status(dir, name, branch_ab, deadline).await {
+                                Ok(upstream) => Some(upstream),
+                                Err(error) => return Ok(status_failure(error)),
                             }
                         } else {
-                            Vec::new()
+                            None
                         };
+                        let operation = match detect_operation(dir, deadline).await {
+                            Ok(operation) => operation,
+                            Err(error) => return Ok(status_failure(error)),
+                        };
+                        let commits =
+                            match recent_commits(dir, head.as_deref(), input.max_commits, deadline)
+                                .await
+                            {
+                                Ok(commits) => commits,
+                                Err(error) => return Ok(status_failure(error)),
+                            };
+                        let submodules =
+                            match submodule_paths(dir, repo.head.as_deref(), deadline).await {
+                                Ok(paths) => paths,
+                                Err(error) => return Ok(status_failure(error)),
+                            };
                         StatusResult::Status(Status {
                             repository: Some(repo),
                             relative_path,
                             upstream,
-                            operation: op,
+                            operation,
                             counts: Some(counts),
                             changes,
                             omitted,

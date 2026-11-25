@@ -10,7 +10,7 @@ mod common;
 
 use machine_protocol::v1::{
     CreateWorktreeRequest, DeleteWorktreeRequest, GetRepositoryRequest, GetStatusRequest,
-    GitFailureReason, ListWorktreesRequest, LocateRepositoryRequest, SubmoduleMode,
+    GitFailureReason, ListWorktreesRequest, LocateRepositoryRequest, OperationKind, SubmoduleMode,
     create_worktree_response, delete_worktree_response, get_repository_response,
     get_status_response, git_service_client::GitServiceClient, list_worktrees_response,
     locate_repository_response,
@@ -34,6 +34,53 @@ fn git_shim(machine: &common::Machine) -> (std::path::PathBuf, std::path::PathBu
     std::fs::write(&path, script).unwrap();
     std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
     (bin, marker)
+}
+
+fn pipe_leaking_git_shim(machine: &common::Machine) -> std::path::PathBuf {
+    let bin = machine.home.path().join("pipe-shim");
+    std::fs::create_dir_all(&bin).unwrap();
+    let path = bin.join("git");
+    let real_path = std::env::var_os("PATH").unwrap();
+    let find_executable = |name: &str| {
+        std::env::split_paths(&real_path)
+            .map(|directory| directory.join(name))
+            .find(|path| path.is_file())
+            .unwrap()
+    };
+    let real_git = find_executable("git");
+    let sleep = find_executable("sleep");
+    std::fs::write(
+        &path,
+        format!(
+            "#!/bin/sh\ncase \" $* \" in *' --show-toplevel '*) '{}' \"$@\"; '{}' 30 & exit 0;; esac\nexec '{}' \"$@\"\n",
+            real_git.display(),
+            sleep.display(),
+            real_git.display()
+        ),
+    )
+    .unwrap();
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+    bin
+}
+
+fn failing_git_log_shim(machine: &common::Machine) -> std::path::PathBuf {
+    let bin = machine.home.path().join("log-shim");
+    std::fs::create_dir_all(&bin).unwrap();
+    let real_git = std::env::split_paths(&std::env::var_os("PATH").unwrap())
+        .map(|directory| directory.join("git"))
+        .find(|path| path.is_file())
+        .unwrap();
+    let path = bin.join("git");
+    std::fs::write(
+        &path,
+        format!(
+            "#!/bin/sh\nif [ \"$1\" = --version ]; then echo 'git version 2.39.0'; exit 0; fi\ncase \" $* \" in *' log '*) exit 1;; esac\nexec '{}' \"$@\"\n",
+            real_git.display()
+        ),
+    )
+    .unwrap();
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+    bin
 }
 
 fn git(directory: &Path, args: &[&str]) -> String {
@@ -149,6 +196,7 @@ async fn status_counts_non_utf8_filenames_as_changes() {
     repository(&repo);
     let filename = OsString::from_vec(b"untracked-\xff".to_vec());
     std::fs::write(repo.join(filename), "contents").unwrap();
+    std::fs::write(repo.join("literal\\name"), "contents").unwrap();
     let (mut child, channel) = machine.attach().await;
     let mut client = GitServiceClient::new(channel);
     let response = client
@@ -165,8 +213,90 @@ async fn status_counts_non_utf8_filenames_as_changes() {
     let Some(get_status_response::Result::Status(status)) = response.result else {
         panic!("status failed for non-UTF-8 filename")
     };
-    assert_eq!(status.counts.unwrap().untracked, 1);
-    assert_eq!(status.changes.len(), 1);
+    assert_eq!(status.counts.as_ref().unwrap().untracked, 2);
+    assert_eq!(status.changes.len(), 2);
+    assert!(
+        status
+            .changes
+            .iter()
+            .any(|change| change.path == "literal\\name")
+    );
+    child.kill().await.unwrap();
+}
+
+#[tokio::test]
+async fn status_reports_interrupted_am_as_am() {
+    let machine = common::Machine::new();
+    let repo = machine.root().join("repo");
+    repository(&repo);
+    let state = repo.join(".git/rebase-apply");
+    std::fs::create_dir_all(&state).unwrap();
+    std::fs::write(state.join("applying"), "").unwrap();
+    let (mut child, channel) = machine.attach().await;
+    let mut client = GitServiceClient::new(channel);
+    let response = client
+        .get_status(GetStatusRequest {
+            path: absolute(&repo),
+            git_entry: absolute(&repo.join(".git")),
+            max_entries: 10,
+            submodules: SubmoduleMode::Skip as i32,
+            max_commits: 0,
+        })
+        .await
+        .unwrap()
+        .into_inner();
+    let Some(get_status_response::Result::Status(status)) = response.result else {
+        panic!("status failed for interrupted am")
+    };
+    assert_eq!(status.operation.unwrap().kind, OperationKind::Am as i32);
+    child.kill().await.unwrap();
+}
+
+#[tokio::test]
+async fn git_reader_wait_obeys_the_request_deadline() {
+    let machine = common::Machine::new();
+    let repo = machine.root().join("repo");
+    repository(&repo);
+    let shim = pipe_leaking_git_shim(&machine);
+    let (mut child, channel) = machine.attach_with_path(Some(&shim)).await;
+    let mut client = GitServiceClient::new(channel);
+    let response = client
+        .get_repository(GetRepositoryRequest {
+            path: absolute(&repo),
+        })
+        .await
+        .unwrap()
+        .into_inner();
+    let Some(get_repository_response::Result::Failure(failure)) = response.result else {
+        panic!("a pipe-leaking Git child was accepted as a repository")
+    };
+    assert_eq!(failure.reason, GitFailureReason::TimedOut as i32);
+    child.kill().await.unwrap();
+}
+
+#[tokio::test]
+async fn status_returns_failure_when_commit_query_fails() {
+    let machine = common::Machine::new();
+    let repo = machine.root().join("repo");
+    repository(&repo);
+    let shim = failing_git_log_shim(&machine);
+    let (mut child, channel) = machine.attach_with_path(Some(&shim)).await;
+    let mut client = GitServiceClient::new(channel);
+    let response = client
+        .get_status(GetStatusRequest {
+            path: absolute(&repo),
+            git_entry: absolute(&repo.join(".git")),
+            max_entries: 10,
+            submodules: SubmoduleMode::Skip as i32,
+            max_commits: 1,
+        })
+        .await
+        .unwrap()
+        .into_inner();
+    let Some(get_status_response::Result::Failure(failure)) = response.result else {
+        panic!("a failed commit query was reported as a successful status")
+    };
+    assert_eq!(failure.reason, GitFailureReason::GitFailed as i32);
     child.kill().await.unwrap();
 }
 
