@@ -551,6 +551,7 @@ describe('ExecutorGit.inspect', () => {
     const { executors } = hub({
       answers: { 'git.inspect': { unimplemented: true } },
     });
+
     const target = executors.locate(LOCATOR);
 
     const error = await rejectionOf(executors.inspect(target, LOCATOR));

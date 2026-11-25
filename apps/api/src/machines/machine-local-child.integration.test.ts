@@ -111,8 +111,8 @@ describe('the local Machine link (host-as-machine)', () => {
     rmSync(stateDir, { recursive: true, force: true });
   });
 
-  /** One local session whose worker environment carries `overrides`. */
-  function connect(overrides: NodeJS.ProcessEnv = {}): MachineSession {
+  /** One local session whose environment can be overridden per test. */
+  function connect(_overrides: NodeJS.ProcessEnv = {}): MachineSession {
     const env: NodeJS.ProcessEnv = {
       ...process.env,
       LLAME_MACHINE_CONFIG_DIR: configDir,
@@ -224,12 +224,15 @@ describe('the local Machine link (host-as-machine)', () => {
       session.close();
     }
   });
+
   it('streams media bytes and a failure through the real daemon', async () => {
     const session = connect();
+
     const media = Buffer.from(
       'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/6fsAAAAASUVORK5CYII=',
       'base64',
     );
+
     const path = join(root, 'image.png');
     writeFileSync(path, media);
 
