@@ -167,10 +167,7 @@ async fn cancel_kills_process_group_and_timeout_expires() {
     assert_eq!(cancelled.state, JobState::Cancelled as i32);
     let timeout_id = "3123456789abcdef0123456789abcdef";
     let mut timed = request(timeout_id, "sleep 30");
-    timed.timeout = Some(Default::default());
-    if let Some(duration) = timed.timeout.as_mut() {
-        duration.nanos = 100_000_000;
-    }
+    timed.timeout.get_or_insert_with(Default::default).nanos = 100_000_000;
     client.create_job(timed).await.unwrap();
     let timed = wait_settled(&mut client, timeout_id).await;
     let stored: serde_json::Value = serde_json::from_slice(
@@ -220,8 +217,7 @@ os.close(2)
 time.sleep(30)
 os.waitpid(child, 0)' & wait"#;
     let mut timed = request(id, command);
-    timed.timeout = Some(Default::default());
-    timed.timeout.as_mut().unwrap().seconds = 1;
+    timed.timeout.get_or_insert_with(Default::default).seconds = 1;
     client.create_job(timed).await.unwrap();
 
     let timed = wait_settled(&mut client, id).await;
