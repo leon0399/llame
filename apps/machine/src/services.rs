@@ -143,9 +143,8 @@ impl MachineService for Machine {
 
 #[cfg(test)]
 mod tests {
-    use std::{fs, os::unix::fs::PermissionsExt};
-
     use super::tool_version;
+    use std::{fs, os::unix::fs::PermissionsExt, time::Instant};
 
     #[tokio::test]
     async fn hung_version_probe_times_out() {
@@ -154,6 +153,8 @@ mod tests {
         fs::write(&command, "#!/bin/sh\nexec sleep 10\n").unwrap();
         fs::set_permissions(&command, fs::Permissions::from_mode(0o700)).unwrap();
 
+        let started = Instant::now();
         assert!(tool_version(command.to_str().unwrap()).await.is_empty());
+        assert!(started.elapsed() < std::time::Duration::from_secs(5));
     }
 }
