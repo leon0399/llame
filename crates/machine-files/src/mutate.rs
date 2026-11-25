@@ -229,7 +229,7 @@ fn publish(
         .map_err(|e| (FileFailureReason::OutcomeUnknown, e.to_string()))
 }
 
-#[allow(clippy::unused_async)]
+#[allow(clippy::unused_async, clippy::too_many_lines)]
 pub async fn write(
     context: &Context,
     request: WriteFileRequest,
@@ -248,12 +248,11 @@ pub async fn write(
     let target = &guarded.path;
     if request.create_parents
         && let Some(parent) = target.parent()
+        && let Err(failure) = create_parents(context, parent)
     {
-        if let Err(failure) = create_parents(context, parent) {
-            return Ok(WriteFileResponse {
-                result: Some(write_file_response::Result::Failure(failure)),
-            });
-        }
+        return Ok(WriteFileResponse {
+            result: Some(write_file_response::Result::Failure(failure)),
+        });
     }
     let exists = match fs::symlink_metadata(target) {
         Ok(_) => true,
@@ -333,7 +332,7 @@ pub async fn write(
     }
 }
 
-#[allow(clippy::unused_async)]
+#[allow(clippy::unused_async, clippy::too_many_lines)]
 pub async fn replace(
     context: &Context,
     request: ReplaceTextRequest,

@@ -249,6 +249,7 @@ pub fn read_lines(
     })
 }
 
+#[allow(clippy::too_many_lines)]
 pub async fn read_bytes(
     context: &Context,
     path: &str,

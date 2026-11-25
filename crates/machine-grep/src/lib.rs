@@ -29,7 +29,7 @@ struct Entry {
     is_link: bool,
 }
 
-#[allow(clippy::too_many_lines)]
+#[allow(clippy::too_many_lines, clippy::unused_async)]
 pub async fn search(
     context: &Context,
     request: Request<SearchFilesRequest>,
@@ -106,18 +106,18 @@ pub async fn search(
     let (sender, receiver) = tokio::sync::mpsc::channel(CHANNEL_CAPACITY);
     tokio::task::spawn_blocking(move || {
         run_search(
-            guard,
-            guarded_before,
-            path,
+            &guard,
+            &guarded_before,
+            &path,
             guarded.kind,
-            patterns,
-            glob,
+            &patterns,
+            glob.as_ref(),
             context_lines,
             respect_ignore_files,
-            after,
+            after.as_ref(),
             bounds,
             deadline,
-            sender,
+            &sender,
         );
     });
     Ok(tokio_stream::wrappers::ReceiverStream::new(receiver))
@@ -125,18 +125,18 @@ pub async fn search(
 
 #[allow(clippy::too_many_arguments, clippy::too_many_lines)]
 fn run_search(
-    guard: machine_core::RootGuard,
-    guarded_before: machine_core::GuardedPath,
-    root: PathBuf,
+    guard: &machine_core::RootGuard,
+    guarded_before: &machine_core::GuardedPath,
+    root: &Path,
     kind: PathKind,
-    patterns: Vec<Regex>,
-    glob: Option<Regex>,
+    patterns: &[Regex],
+    glob: Option<&Regex>,
     context_lines: usize,
     respect_ignore_files: bool,
-    after: Option<SearchPosition>,
+    after: Option<&SearchPosition>,
     bounds: Option<machine_protocol::v1::SearchBounds>,
     deadline: Option<Instant>,
-    sender: tokio::sync::mpsc::Sender<Result<SearchFilesResponse, Status>>,
+    sender: &tokio::sync::mpsc::Sender<Result<SearchFilesResponse, Status>>,
 ) {
     let mut ignore_rules = Vec::new();
     if respect_ignore_files && kind == PathKind::Directory {
@@ -145,13 +145,13 @@ fn run_search(
             .iter()
             .filter(|registered| root.starts_with(registered))
             .max_by_key(|registered| registered.components().count())
-            .unwrap_or(&root);
-        collect_ignores(&root, registered_root, &mut ignore_rules);
+            .map_or(root, PathBuf::as_path);
+        collect_ignores(root, registered_root, &mut ignore_rules);
     }
     let mut walker = if kind == PathKind::File {
-        Walker::file(root.clone())
+        Walker::file(root.to_path_buf())
     } else {
-        match Walker::directory(&root, &root) {
+        match Walker::directory(root, root) {
             Ok(walker) => walker,
             Err(status) => {
                 let _ = sender.blocking_send(Err(status));
@@ -160,10 +160,10 @@ fn run_search(
         }
     };
     let bounds = bounds.unwrap_or_default();
-    let file_limit = bounds.files.unwrap_or(u32::MAX) as u64;
+    let file_limit = u64::from(bounds.files.unwrap_or(u32::MAX));
     let byte_limit = bounds.bytes.unwrap_or(u64::MAX);
     let file_bytes_limit = bounds.file_bytes.unwrap_or(u64::MAX);
-    let match_limit = bounds.matches.unwrap_or(u32::MAX) as u64;
+    let match_limit = u64::from(bounds.matches.unwrap_or(u32::MAX));
     let (mut files, mut bytes, mut matches) = (0u64, 0u64, 0u64);
     let mut stop = SearchStop::Complete;
     let mut position = None;
@@ -174,7 +174,7 @@ fn run_search(
         }
         if deadline.is_some_and(|deadline| Instant::now() >= deadline) {
             stop = SearchStop::Deadline;
-            position = last_match_position.clone().or(Some(SearchPosition {
+            position = Some(last_match_position.take().unwrap_or(SearchPosition {
                 path: entry.rel,
                 line: 0,
             }));
@@ -182,7 +182,7 @@ fn run_search(
         }
         if entry.is_dir {
             if respect_ignore_files && ignored(&entry.path, true, &ignore_rules) {
-                if !skip(&sender, &entry.rel, SkipReason::Ignored) {
+                if !skip(sender, &entry.rel, SkipReason::Ignored) {
                     return;
                 }
                 continue;
@@ -199,7 +199,7 @@ fn run_search(
             continue;
         }
         if entry.is_link {
-            if !skip(&sender, &entry.rel, SkipReason::Symlink) {
+            if !skip(sender, &entry.rel, SkipReason::Symlink) {
                 return;
             }
             continue;
@@ -207,12 +207,12 @@ fn run_search(
         if respect_ignore_files
             && (is_ignore_file(&entry.rel) || ignored(&entry.path, false, &ignore_rules))
         {
-            if !skip(&sender, &entry.rel, SkipReason::Ignored) {
+            if !skip(sender, &entry.rel, SkipReason::Ignored) {
                 return;
             }
             continue;
         }
-        if glob.as_ref().is_some_and(|glob| !glob.is_match(&entry.rel)) {
+        if glob.is_some_and(|glob| !glob.is_match(&entry.rel)) {
             continue;
         }
         if files >= file_limit {
@@ -223,17 +223,14 @@ fn run_search(
             });
             break;
         }
-        let metadata = match fs::metadata(&entry.path) {
-            Ok(metadata) => metadata,
-            Err(_) => {
-                if !skip(&sender, &entry.rel, SkipReason::Unreadable) {
-                    return;
-                }
-                continue;
+        let Ok(metadata) = fs::metadata(&entry.path) else {
+            if !skip(sender, &entry.rel, SkipReason::Unreadable) {
+                return;
             }
+            continue;
         };
         if metadata.len() > file_bytes_limit {
-            if !skip(&sender, &entry.rel, SkipReason::TooLarge) {
+            if !skip(sender, &entry.rel, SkipReason::TooLarge) {
                 return;
             }
             continue;
@@ -250,31 +247,25 @@ fn run_search(
             });
             break;
         }
-        let content = match fs::read(&entry.path) {
-            Ok(content) => content,
-            Err(_) => {
-                if !skip(&sender, &entry.rel, SkipReason::Unreadable) {
-                    return;
-                }
-                continue;
+        let Ok(content) = fs::read(&entry.path) else {
+            if !skip(sender, &entry.rel, SkipReason::Unreadable) {
+                return;
             }
+            continue;
         };
         files += 1;
         bytes = bytes.saturating_add(content.len() as u64);
         if content.contains(&0) {
-            if !skip(&sender, &entry.rel, SkipReason::Binary) {
+            if !skip(sender, &entry.rel, SkipReason::Binary) {
                 return;
             }
             continue;
         }
-        let text = match std::str::from_utf8(&content) {
-            Ok(text) => text,
-            Err(_) => {
-                if !skip(&sender, &entry.rel, SkipReason::NotUtf8) {
-                    return;
-                }
-                continue;
+        let Ok(text) = std::str::from_utf8(&content) else {
+            if !skip(sender, &entry.rel, SkipReason::NotUtf8) {
+                return;
             }
+            continue;
         };
         let lines: Vec<&str> = text.lines().collect();
         let start = after
@@ -287,22 +278,30 @@ fn run_search(
             }
             if deadline.is_some_and(|deadline| Instant::now() >= deadline) {
                 stop = SearchStop::Deadline;
-                position = last_match_position.clone().or(Some(SearchPosition {
-                    path: entry.rel.clone(),
-                    line: 0,
-                }));
+                position = Some(
+                    last_match_position
+                        .take()
+                        .unwrap_or_else(|| SearchPosition {
+                            path: entry.rel.clone(),
+                            line: 0,
+                        }),
+                );
                 break 'walk;
             }
-            let ranges = matching_spans(line, &patterns);
+            let ranges = matching_spans(line, patterns);
             if ranges.is_empty() {
                 continue;
             }
             if matches >= match_limit {
                 stop = SearchStop::Matches;
-                position = last_match_position.clone().or(Some(SearchPosition {
-                    path: entry.rel.clone(),
-                    line: 0,
-                }));
+                position = Some(
+                    last_match_position
+                        .take()
+                        .unwrap_or_else(|| SearchPosition {
+                            path: entry.rel.clone(),
+                            line: 0,
+                        }),
+                );
                 break 'walk;
             }
             let first = index.saturating_sub(context_lines);
@@ -331,7 +330,7 @@ fn run_search(
                     lines: match_lines,
                 })),
             };
-            if !emit(&sender, event) {
+            if !emit(sender, event) {
                 return;
             }
             last_match_position = Some(SearchPosition {
@@ -341,12 +340,12 @@ fn run_search(
             matches += 1;
         }
     }
-    if let Err(status) = guard.verify_unchanged(&guarded_before) {
+    if let Err(status) = guard.verify_unchanged(guarded_before) {
         let _ = sender.blocking_send(Err(status));
         return;
     }
     let _ = emit(
-        &sender,
+        sender,
         SearchFilesResponse {
             event: Some(Event::End(SearchEnd {
                 stop: stop as i32,

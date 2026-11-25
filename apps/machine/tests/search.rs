@@ -232,7 +232,7 @@ async fn ignored_directory_is_not_walked() {
     let root = machine.root();
     let ignored = root.join("ignored");
     std::fs::create_dir_all(&ignored).unwrap();
-    std::fs::write(root.join(".gitignore"), "ignored/\n").unwrap();
+    std::fs::write(root.join(".gitignore"), "ignored\n").unwrap();
     for index in 0..2000 {
         std::fs::write(ignored.join(format!("{index:04}.txt")), "needle").unwrap();
     }
