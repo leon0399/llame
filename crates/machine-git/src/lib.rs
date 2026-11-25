@@ -269,9 +269,13 @@ fn validate_branch(value: &str) -> bool {
         && !value
             .chars()
             .any(|c| c.is_whitespace() || c.is_control() || "~^:?*[\\".contains(c))
-        && value
-            .split('/')
-            .all(|p| !p.is_empty() && !p.starts_with('.') && !p.ends_with(".lock"))
+        && value.split('/').all(|part| {
+            !part.is_empty()
+                && !part.starts_with('.')
+                && Path::new(part)
+                    .extension()
+                    .is_none_or(|extension| extension != "lock")
+        })
 }
 fn root_result(guard: &machine_core::RootGuard, path: String) -> Result<String, RpcStatus> {
     let p = PathBuf::from(&path);
@@ -346,8 +350,10 @@ fn checked_git_data(entry: &Path, roots: &[PathBuf]) -> Result<(PathBuf, PathBuf
                 git_dir.join(value)
             }
         })
-        .map(|path| fs::canonicalize(&path).unwrap_or(path))
-        .unwrap_or_else(|| git_dir.clone());
+        .map_or_else(
+            || git_dir.clone(),
+            |path| fs::canonicalize(&path).unwrap_or(path),
+        );
     if !inside(&common_dir) {
         return Err(failure(GitFailureReason::OutsideRoots, ""));
     }
@@ -529,8 +535,8 @@ fn parse_status(
 ) {
     let mut staged = 0;
     let mut unstaged = 0;
-    let mut untracked = 0;
-    let mut conflicted = 0;
+    let mut untracked: u32 = 0;
+    let mut conflicted: u32 = 0;
     let mut changes = Vec::new();
     let mut omitted = 0;
     let mut head = None;
@@ -610,8 +616,8 @@ fn parse_status(
         ChangeCounts {
             staged: staged as u32,
             unstaged: unstaged as u32,
-            untracked: untracked as u32,
-            conflicted: conflicted as u32,
+            untracked,
+            conflicted,
         },
         changes,
         omitted,
@@ -685,14 +691,13 @@ impl GitService for Git {
         let path = guard.resolve(&request.get_ref().path)?;
         let entry = nearest_git(&path.canonical, guard.roots());
         let result = if let Some(entry) = entry {
-            match checked_git_data(&entry, guard.roots()) {
-                Err(e) => RepoResult::Failure(e),
-                Ok(_) => {
-                    let dir = entry.parent().unwrap_or(&entry);
-                    match repository(dir, &guard, false, Instant::now() + DEFAULT_TIMEOUT).await {
-                        Ok(v) => RepoResult::Repository(v),
-                        Err(e) => RepoResult::Failure(e),
-                    }
+            if let Err(error) = checked_git_data(&entry, guard.roots()) {
+                RepoResult::Failure(error)
+            } else {
+                let dir = entry.parent().unwrap_or(&entry);
+                match repository(dir, &guard, false, Instant::now() + DEFAULT_TIMEOUT).await {
+                    Ok(repo) => RepoResult::Repository(repo),
+                    Err(error) => RepoResult::Failure(error),
                 }
             }
         } else {
@@ -726,6 +731,7 @@ impl GitService for Git {
             result: Some(result),
         }))
     }
+    #[allow(clippy::if_not_else)]
     async fn get_status(
         &self,
         request: Request<GetStatusRequest>,
@@ -1101,6 +1107,7 @@ impl GitService for Git {
             result: Some(result),
         }))
     }
+    #[allow(clippy::if_not_else)]
     async fn list_worktrees(
         &self,
         request: Request<ListWorktreesRequest>,
@@ -1143,7 +1150,7 @@ impl GitService for Git {
                 match root_result(&guard, w.path) {
                     Ok(p) => {
                         w.path = p;
-                        worktrees.push(w)
+                        worktrees.push(w);
                     }
                     Err(e) => {
                         fail = Some(e);
