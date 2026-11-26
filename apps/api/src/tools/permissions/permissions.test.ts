@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import { type UnknownRecord } from '@workspace/runtime-safety';
 
-import { isBashCommandField } from './bash-command-field';
+import { isShellCommandField } from './bash-command-field';
 import { compileToolPermissionMap } from './compile-permissions';
 import {
   declaredStringProperties,
@@ -24,7 +24,7 @@ function decide(map: ToolPermissionMap, toolId: string, args: UnknownRecord) {
   return evaluatePermission(compiled(map), {
     toolId,
     args,
-    isFlexibleWhitespaceField: (field) => isBashCommandField(toolId, field),
+    isFlexibleWhitespaceField: (field) => isShellCommandField(toolId, field),
   });
 }
 

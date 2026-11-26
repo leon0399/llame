@@ -1,7 +1,7 @@
 import { Logger } from '@nestjs/common';
 import { isString, type UnknownRecord } from '@workspace/runtime-safety';
 
-import { isBashTool } from './bash';
+import { isShellTool } from './shell';
 import { bashTarget, isHostBashCall } from './bash-target';
 import { BASH_SETTLEMENT_GRACE_MS } from './bash-limits';
 import { isNativeFileTool } from './native-files';
@@ -27,7 +27,8 @@ export async function executeAdmittedTool(
 ): Promise<ToolResult> {
   if (context.abortSignal?.aborted) return cancelledBeforeExecution(tool.id);
 
-  const isDaemonBash = isBashTool(tool) && isDaemonBashCall(validArgs, context);
+  const isDaemonBash =
+    isShellTool(tool) && isDaemonBashCall(validArgs, context);
 
   const prepared = prepareToolExecution(
     tool,
@@ -96,8 +97,8 @@ function executeUnderAbortFence(
   return withAbort(
     Promise.resolve(tool.execute(executionContext, validArgs)),
     prepared.composedSignal,
-    isBashTool(tool) ? BASH_SETTLEMENT_GRACE_MS : 0,
-    isBashTool(tool) && isDaemonBashCall(validArgs, context)
+    isShellTool(tool) ? BASH_SETTLEMENT_GRACE_MS : 0,
+    isShellTool(tool) && isDaemonBashCall(validArgs, context)
       ? () => markers.hostPromotionStarted
       : undefined,
   );
@@ -120,7 +121,7 @@ function classifyAdmittedFailure(
   },
 ): ToolResult {
   const hostBashCancelledBeforeStart =
-    isBashTool(tool) &&
+    isShellTool(tool) &&
     isHostBashCall(validArgs, context) &&
     !markers.hostCommandStarted &&
     (context.abortSignal?.aborted === true ||
@@ -209,7 +210,7 @@ function unknownNativeExecution(tool: Tool): ToolResult {
   return {
     status: 'error',
     type: 'outcome_unknown',
-    message: isBashTool(tool)
+    message: isShellTool(tool)
       ? 'Command outcome could not be established; inspect the workspace before retrying. The attempt will not be replayed automatically.'
       : 'The host command or mutation did not settle before interruption. Do not repeat it automatically.',
   };
@@ -241,7 +242,7 @@ function classifyToolExecutionError(
     return unknownMcpExecution();
   }
 
-  if (isBashTool(tool) || (isNativeFileTool(tool) && tool.id !== 'read')) {
+  if (isShellTool(tool) || (isNativeFileTool(tool) && tool.id !== 'read')) {
     return unknownNativeExecution(tool);
   }
 

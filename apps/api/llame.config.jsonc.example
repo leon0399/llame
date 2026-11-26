@@ -799,7 +799,7 @@
     // Optional whole-file replacements for llame-owned tool descriptions,
     // keyed by registered tool id (bash, edit, enter_workspace, exit_workspace,
     // grep, knowledge_search, read, search_conversations, stop, wait,
-    // web_search, write); MCP ids are rejected.
+    // web_search, write, zsh); MCP ids are rejected.
     // A models[].toolPromptFiles entry above wins over this one,
     // which wins over the packaged default. Paths are literal, resolve against
     // this file, and are read when an execution process starts — editing one
@@ -1086,7 +1086,7 @@
   // from every worker, so an entry without a destination works only as the
   // local Machine. Startup fails naming the field when either names no entry,
   // when "default" is unreachable here, or when a native tool (read, edit,
-  // write, grep, bash, enter_workspace, exit_workspace, stop) is allowlisted
+  // write, grep, bash, zsh, enter_workspace, exit_workspace, stop) is allowlisted
   // and "default" is absent. Both accept one whole-value {env:...} token,
   // resolved once at startup; configure the same "default" on every worker.
   // See docs/product/operator/machines.md.

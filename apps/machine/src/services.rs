@@ -58,10 +58,10 @@ impl BootstrapService for Bootstrap {
     }
 }
 
-/// What the box can do: `bash` and `git` with their versions, when on `PATH`.
+/// What the box can do: the shells and `git` with their versions, when on `PATH`.
 async fn capabilities() -> Vec<machine_protocol::bootstrap::v1::Capability> {
     let mut capabilities = Vec::new();
-    for tool in ["bash", "git"] {
+    for tool in ["bash", "zsh", "git"] {
         if std::env::var_os("PATH")
             .is_some_and(|path| std::env::split_paths(&path).any(|dir| dir.join(tool).is_file()))
         {

@@ -17,7 +17,8 @@ Allowlisted `bash` runs shell text as `bash -c` on the target Machine. A bare or
 relative `cwd` resolves on the current Machine, whose default directory is the
 trusted bash working directory (defaulting to the API process cwd). A
 `machine://` `cwd` runs the
-command on that Machine instead. It is not tenant isolation.
+command on that Machine instead. It is not tenant isolation. An operator
+allowlists [`zsh`](zsh.md) beside it to offer the Zsh dialect as its own tool.
 
 ## Arguments
 

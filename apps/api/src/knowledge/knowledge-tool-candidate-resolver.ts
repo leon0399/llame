@@ -1,4 +1,4 @@
-import { bashTool } from '../tools/bash';
+import { SHELL_TOOL_IDS } from '../tools/shell';
 import { stopTool } from '../tools/stop';
 import { Inject, Injectable } from '@nestjs/common';
 
@@ -93,15 +93,17 @@ export class KnowledgeToolCandidateResolver {
    * per worker and never affects advertisement, so no worker advertises a
    * different catalog for the same config.
    *
-   * `stop` is advertised with `bash`: it ends the jobs a host `bash` call
-   * starts, so it is offered exactly when the operator allowlists `bash`.
+   * `stop` is advertised with a shell tool: it ends the jobs a shell call
+   * starts, so it is offered exactly when the operator allowlists one.
    */
   private admitsHostCapability(
     tool: Tool,
     allowedToolRules: ReadonlyArray<string>,
   ): boolean {
     if (tool.id === stopTool.id)
-      return matchesCodeOwnedToolId(bashTool.id, allowedToolRules);
+      return SHELL_TOOL_IDS.some((id) =>
+        matchesCodeOwnedToolId(id, allowedToolRules),
+      );
 
     return true;
   }

@@ -401,6 +401,7 @@ describe('BashJobRegistry result retention', () => {
       },
       { name: row.machineName, local: false },
       { command: 'true' },
+      'bash',
     );
 
     expect(result).toMatchObject({
@@ -483,6 +484,7 @@ describe('BashJobRegistry result retention', () => {
         },
         { name: row.machineName, local: false },
         { command: 'true' },
+        'bash',
       ),
     ).resolves.toMatchObject({ type: 'outcome_unknown' });
 
@@ -550,6 +552,7 @@ describe('BashJobRegistry result retention', () => {
         },
         { name: row.machineName, local: false },
         { command: 'true' },
+        'bash',
       ),
     ).resolves.toMatchObject({ type: 'outcome_unknown' });
     const settlement = settle.mock.calls[0]?.[3];

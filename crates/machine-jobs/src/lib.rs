@@ -491,6 +491,7 @@ impl Jobs {
                 )));
             }
         }
+        let shell = Shell::parse(request.shell.as_deref())?;
         let directory = self.context.state_dir.join("jobs").join(&request.job_id);
         fs::create_dir(&directory).map_err(|error| internal_io(&error))?;
         if let Err(error) = fs::set_permissions(&directory, fs::Permissions::from_mode(0o700)) {
@@ -505,7 +506,8 @@ impl Jobs {
         }
         let mut command = Command::new("setsid");
         command
-            .args(["bash", "-c", &request.command])
+            .args(shell.args())
+            .arg(&request.command)
             .current_dir(&cwd)
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
@@ -531,7 +533,8 @@ impl Jobs {
             Err(error) => {
                 let _ = fs::remove_dir_all(&directory);
                 return Err(Status::unavailable(format!(
-                    "Unable to start managed bash: {error}"
+                    "Unable to start managed {}: {error}",
+                    shell.program()
                 )));
             }
         };
@@ -981,6 +984,43 @@ fn job_record(entry: &Entry) -> Job {
     }
 }
 
+/// The shell that runs one job's command. `bash` is the default so a request
+/// that names none keeps its meaning.
+#[derive(Clone, Copy, Eq, PartialEq)]
+enum Shell {
+    Bash,
+    Zsh,
+}
+
+impl Shell {
+    fn parse(name: Option<&str>) -> Result<Self, Status> {
+        match name {
+            None | Some("bash") => Ok(Self::Bash),
+            Some("zsh") => Ok(Self::Zsh),
+            Some(other) => Err(refusal::invalid_argument(format!(
+                "The shell {other} is not supported on this Machine."
+            ))),
+        }
+    }
+
+    fn program(self) -> &'static str {
+        match self {
+            Self::Bash => "bash",
+            Self::Zsh => "zsh",
+        }
+    }
+
+    /// The argv before the command text. `-f` keeps a zsh job off its startup
+    /// files, which `zsh -c` would otherwise read and break the fresh-process
+    /// contract.
+    fn args(self) -> [&'static str; 2] {
+        match self {
+            Self::Bash => ["bash", "-c"],
+            Self::Zsh => ["zsh", "-f", "-c"],
+        }
+    }
+}
+
 fn duration_ms(duration: &ProtoDuration) -> Result<u64, Status> {
     if duration.seconds < 0 || duration.nanos < 0 || duration.nanos >= 1_000_000_000 {
         return Err(refusal::invalid_argument(
@@ -1191,5 +1231,23 @@ mod tests {
         assert_eq!(job.state, JobState::Running as i32);
         assert_eq!(job.signal, None);
         assert_eq!(job.lost_cause, LostCause::Unspecified as i32);
+    }
+
+    #[test]
+    fn a_request_without_a_shell_runs_bash() {
+        assert_eq!(Shell::parse(None).unwrap().args(), ["bash", "-c"]);
+        assert_eq!(Shell::parse(Some("bash")).unwrap().args(), ["bash", "-c"]);
+    }
+
+    #[test]
+    fn a_zsh_request_keeps_the_startup_files_off() {
+        assert_eq!(Shell::parse(Some("zsh")).unwrap().args(), ["zsh", "-f", "-c"]);
+    }
+
+    #[test]
+    fn an_unsupported_shell_is_refused() {
+        let error = Shell::parse(Some("fish")).unwrap_err();
+
+        assert_eq!(error.code(), Code::InvalidArgument);
     }
 }
