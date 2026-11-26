@@ -35,7 +35,12 @@ import {
 } from '../testing/support';
 import { ChatsRepository } from './chats-repository';
 import { settleBashJob } from '../jobs/bash-job-store';
-import { commitArtifactInTransaction } from '../tools/artifacts/artifact-writer';
+import { jobArtifactLocatorOf } from '../jobs/job-locator';
+import { ArtifactsRepository } from '../tools/artifacts/artifacts-repository';
+import {
+  commitArtifactInTransaction,
+  reserveArtifactSeq,
+} from '../tools/artifacts/artifact-writer';
 
 if (!process.env['TEST_DATABASE_URL']) {
   throw new Error(
@@ -377,9 +382,20 @@ describe('chat jobs API', () => {
       artifactId: null,
     });
   });
-  it('reuses an artifact already spilled for the tool call when settling', async () => {
+  it('reuses the spill artifact locator when settling the job', async () => {
     const chatId = await createChat();
-    const job = await startJob(chatId, 12);
+
+    const bindingSeq = await reserveArtifactSeq(tenantDb, {
+      chatId,
+      userId: userAId,
+    });
+
+    const job = await startJob(chatId, bindingSeq);
+
+    const spillSeq = await reserveArtifactSeq(tenantDb, {
+      chatId,
+      userId: userAId,
+    });
 
     const spilled = await tenantDb.runAs(userAId, (tx) =>
       commitArtifactInTransaction(
@@ -399,7 +415,7 @@ describe('chat jobs API', () => {
             },
           ],
         },
-        job.seq,
+        spillSeq,
         131_072,
       ),
     );
@@ -425,10 +441,33 @@ describe('chat jobs API', () => {
       },
     );
 
-    expect(await stateOf(chatId, job.id)).toMatchObject({
+    const settled = await stateOf(chatId, job.id);
+    expect(settled).toMatchObject({
       state: 'succeeded',
       artifactId: spilled.id,
+      seq: spillSeq,
     });
+
+    if (settled === undefined) {
+      throw new Error('Expected the settled job to remain bound.');
+    }
+
+    const locator = jobArtifactLocatorOf(settled);
+    expect(locator).toBe(`artifact://bash-${spillSeq}`);
+
+    const part =
+      locator === undefined
+        ? undefined
+        : await tenantDb.runAs(userAId, (tx) =>
+            new ArtifactsRepository(tx).readPart(
+              chatId,
+              'bash',
+              settled.seq,
+              'stdout',
+            ),
+          );
+
+    expect(part?.content.toString()).toBe('spilled output');
   });
 
   it('rolls back job settlement when the output artifact cannot be written', async () => {

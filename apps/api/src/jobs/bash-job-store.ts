@@ -158,7 +158,7 @@ async function reuseExistingArtifact(tx: Db, job: ChatJob): Promise<boolean> {
 
   await tx
     .update(chatJobs)
-    .set({ artifactId: existing.id })
+    .set({ artifactId: existing.id, seq: existing.seq })
     .where(eq(chatJobs.id, job.id));
 
   return true;

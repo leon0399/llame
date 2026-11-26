@@ -449,9 +449,11 @@ describe('BashJobRegistry result retention', () => {
     });
     vi.spyOn(ArtifactsRepository.prototype, 'nextSeq').mockResolvedValue(1);
     vi.spyOn(ChatJobsRepository.prototype, 'insert').mockResolvedValue(row);
+
     const settle = vi
       .spyOn(ChatJobsRepository.prototype, 'settle')
       .mockResolvedValue(row);
+
     const recordNativeResult = vi
       .spyOn(NativeFilesRepository.prototype, 'recoverHostPromotion')
       .mockImplementation(({ result }) =>

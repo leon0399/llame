@@ -109,9 +109,13 @@ export class ArtifactsRepository {
     chatId: string,
     runId: string,
     toolCallId: string,
-  ): Promise<{ id: string; createdAt: Date } | undefined> {
+  ): Promise<{ id: string; createdAt: Date; seq: number } | undefined> {
     const [row] = await this.db
-      .select({ id: toolArtifacts.id, createdAt: toolArtifacts.createdAt })
+      .select({
+        id: toolArtifacts.id,
+        createdAt: toolArtifacts.createdAt,
+        seq: toolArtifacts.seq,
+      })
       .from(toolArtifacts)
       .where(
         and(
