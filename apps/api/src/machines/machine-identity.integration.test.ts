@@ -50,14 +50,36 @@ function transportOf(
   peers: ReadonlyArray<ProtocolPeer>,
 ): MachineTransportFactory {
   let opened = 0;
+  let active: ProtocolPeer | undefined;
 
   return {
+    requestHandler: (method, params, options) => {
+      const handler = active?.factory.requestHandler;
+
+      if (handler === undefined) {
+        throw new Error('the suite has no active peer request handler');
+      }
+
+      return handler(method, params, options);
+    },
+    streamHandler: (invocation) => {
+      const handler = active?.factory.streamHandler;
+
+      if (handler === undefined) {
+        return Promise.reject(
+          new Error('the suite has no active peer stream handler'),
+        );
+      }
+
+      return handler(invocation);
+    },
     open: (request) => {
       const peer = peers[Math.min(opened, peers.length - 1)];
 
       opened += 1;
 
       if (peer === undefined) throw new Error('the suite has no peer left');
+      active = peer;
 
       return peer.factory.open(request);
     },

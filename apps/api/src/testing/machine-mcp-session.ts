@@ -54,6 +54,7 @@ class ResponseQueue implements AsyncIterable<OpenSessionResponse> {
 
 export type MachineMcpSessionHandler = (
   request: OpenSessionRequest,
+  state: Record<string, unknown>,
 ) => OpenSessionResponse | undefined;
 
 /** Install a Connect MCP service on one established test Machine session. */
@@ -65,12 +66,16 @@ export function installMachineMcpSession(
 
   session.clients.mcp.openSession = (input) => {
     const responses = new ResponseQueue();
+    const state: Record<string, unknown> = {};
     notify = (response) => responses.push(response);
     void session.ended.then(() => responses.close());
     void (async () => {
       try {
         for await (const request of input) {
-          const response = handle(create(OpenSessionRequestSchema, request));
+          const response = handle(
+            create(OpenSessionRequestSchema, request),
+            state,
+          );
 
           if (response !== undefined) responses.push(response);
         }

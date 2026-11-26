@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { readFile } from 'node:fs/promises';
+import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import { RunAbortRegistry } from './run-abort-registry';
@@ -172,6 +172,8 @@ describe('Run segment yield', () => {
   it.each(['read', 'grep'] as const)(
     'a steer waits for the %s result without aborting it',
     async (name) => {
+      const filePath = join(fx.directory, 'lookup.txt');
+      await writeFile(filePath, 'Run\n');
       const entered = Promise.withResolvers<void>();
       const release = Promise.withResolvers<void>();
       const tool: Tool = name === 'read' ? nativeReadTool : nativeGrepTool;
@@ -190,7 +192,7 @@ describe('Run segment yield', () => {
           'lookup',
           name,
           name === 'read'
-            ? { path: fx.directory }
+            ? { path: filePath }
             : { patterns: ['Run'], scopes: [fx.directory] },
         ),
         answer('after lookup'),

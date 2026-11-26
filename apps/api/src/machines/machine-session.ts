@@ -90,6 +90,8 @@ export type MachineRequestEnvelope = {
 };
 
 export type MachineRequestOptions = {
+  /** Present only on the in-process test adapter path. */
+  readonly machineName?: string;
   readonly signal?: AbortSignal;
   readonly budgetMs?: number;
   readonly envelope?: MachineRequestEnvelope;
@@ -314,7 +316,10 @@ export class MachineSession {
 
     if (this.options.requestHandler !== undefined) {
       try {
-        return await this.options.requestHandler(method, params, options);
+        return await this.options.requestHandler(method, params, {
+          ...options,
+          machineName: this.name,
+        });
       } catch (error) {
         throw this.mapRefusal(error, true);
       }
@@ -347,7 +352,7 @@ export class MachineSession {
             params: call.params,
             notify,
             send: () => undefined,
-            options,
+            options: { ...options, machineName: this.name },
           });
 
     void result.catch(() => channel.close());
@@ -439,7 +444,7 @@ export class MachineSession {
         protocolVersion: MACHINE_PROTOCOL_VERSION,
         hubVersion: this.options.hubVersion,
       },
-      { signal, budgetMs: timeoutMs },
+      { signal, budgetMs: timeoutMs, machineName: this.name },
     );
 
     const result = helloResultSchema.safeParse(answer);

@@ -222,7 +222,9 @@ describe('MachineSession Connect-ES adapter', () => {
     await expect(
       session.request({ method: 'fs.stat', params }),
     ).resolves.toEqual({ kind: 'file', size: 12 });
-    expect(requestSpy).toHaveBeenCalledWith('fs.stat', params, {});
+    expect(requestSpy).toHaveBeenCalledWith('fs.stat', params, {
+      machineName: 'devl',
+    });
   });
 
   it('bridges Connect server-stream notifications through an open channel', async () => {

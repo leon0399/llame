@@ -41,6 +41,7 @@ import {
 } from './worker-harness';
 import { RunEventsRepository, RunsRepository } from './runs-repository';
 import { ChatsRepository, MessagesRepository } from '../chats/chats-repository';
+import { MachineConnector } from '../machines/machine-connector.service';
 import { isContextItemPart } from '../chats/context-item';
 import {
   type MachineHostConfig,
@@ -49,10 +50,16 @@ import {
 import { type MachineTransportFactory } from '../machines/machine-transport';
 import {
   createProtocolPeer,
+  wireJson,
   type PeerCall,
   type PeerSession,
   type ProtocolPeer,
 } from '../testing/machine-protocol-peer';
+import {
+  installMachineMcpSession,
+  machineMcpJsonRpc,
+  openedMachineMcpSession,
+} from '../testing/machine-mcp-session';
 import { waitFor } from '../testing/support';
 import { type ScriptedBehavior } from './scripted-model-client';
 import { type DeclarationRecord } from './scripted-model-records';
@@ -116,6 +123,7 @@ describe('Machine Workspaces through the durable worker', () => {
 
   let devl: FakeMachine;
   let gpu: FakeMachine;
+  let machineMcpOpens: Array<{ workspace: string; server: string }> = [];
 
   const allowedTools = [
     'read',
@@ -158,6 +166,40 @@ describe('Machine Workspaces through the durable worker', () => {
       // An MCP tool needs its own exact permission group; the server's name is
       // scripted by the fake Machine, so the id is known here.
       toolPermissions: { mcp__repo__deploy: { allow: true } },
+    });
+    const connector = harness.moduleRef.get(MachineConnector);
+    const session = await connector.machineSession('devl');
+    installMachineMcpSession(session, (request, state) => {
+      const message = request.message;
+
+      if (message.case === 'open') {
+        const { workspace, server } = message.value;
+        state['workspace'] = workspace;
+        state['server'] = server;
+        machineMcpOpens.push({ workspace, server });
+        const declaration = readWorkspaceServers(workspace).find(
+          (candidate) => candidate.name === server,
+        );
+
+        return openedMachineMcpSession(
+          declaration?.token === undefined ? [] : [declaration.token],
+        );
+      }
+
+      if (message.case !== 'jsonRpc') return undefined;
+      const workspace = state['workspace'];
+      const name = state['server'];
+
+      if (!isString(workspace) || !isString(name)) return undefined;
+      const declaration = readWorkspaceServers(workspace).find(
+        (candidate) => candidate.name === name,
+      );
+      const parsed: unknown = JSON.parse(message.value);
+      const call = jsonRpcCall(wireJson(parsed));
+      const answer =
+        call === undefined ? undefined : mcpServerAnswer(call, declaration);
+
+      return answer === undefined ? undefined : machineMcpJsonRpc(answer);
     });
     owner = await createUser(harness.db, 'machine-owner');
     other = await createUser(harness.db, 'machine-other');
@@ -525,13 +567,15 @@ describe('Machine Workspaces through the durable worker', () => {
 
     // The hub sent the Machine a name and nothing that names a process: no
     // command, no URL, no header.
-    const opened = devl.calls().filter((call) => call.method === 'mcp.open');
-    expect(opened).not.toHaveLength(0);
-    expect(Object.keys(opened[0]?.params ?? {})).toEqual([
-      'envelope',
-      'root',
-      'server',
-    ]);
+    const opened = machineMcpOpens.filter(
+      (entry) => entry.workspace === ownRoot || entry.workspace === otherRoot,
+    );
+    expect(opened).toEqual(
+      expect.arrayContaining([
+        { workspace: ownRoot, server: 'repo' },
+        { workspace: otherRoot, server: 'repo' },
+      ]),
+    );
 
     // Results: each call ran against the server of its own binding, and the
     // Machine-resolved value stayed redacted.
@@ -582,9 +626,7 @@ describe('Machine Workspaces through the durable worker', () => {
     await writeWorkspaceServer(root, 'read-only');
     const chatId = await createChat(owner);
 
-    const openedBefore = devl
-      .calls()
-      .filter((call) => call.method === 'mcp.open').length;
+    const openedBefore = machineMcpOpens.length;
 
     const entered = await runScript({
       userId: owner,
@@ -624,9 +666,7 @@ describe('Machine Workspaces through the durable worker', () => {
         expect.objectContaining({ method: 'mcp.servers' }),
       ]),
     );
-    expect(
-      devl.calls().filter((call) => call.method === 'mcp.open'),
-    ).toHaveLength(openedBefore);
+    expect(machineMcpOpens).toHaveLength(openedBefore);
   });
 
   it('detaches a Workspace whose Machine the operator removed', async () => {
@@ -962,6 +1002,32 @@ function createMachineFactory(
   byName: Readonly<Record<string, FakeMachine>>,
 ): MachineTransportFactory {
   return {
+    requestHandler: (method, params, options) => {
+      const machine = byName[options.machineName ?? ''];
+      const handler = machine?.peer.factory.requestHandler;
+
+      if (handler === undefined) {
+        throw new Error(
+          `No fake Machine is named ${String(options.machineName)}.`,
+        );
+      }
+
+      return handler(method, params, options);
+    },
+    streamHandler: (invocation) => {
+      const machine = byName[invocation.options.machineName ?? ''];
+      const handler = machine?.peer.factory.streamHandler;
+
+      if (handler === undefined) {
+        return Promise.reject(
+          new Error(
+            `No fake Machine is named ${String(invocation.options.machineName)}.`,
+          ),
+        );
+      }
+
+      return handler(invocation);
+    },
     open: (request) => {
       const machine = byName[request.name];
 

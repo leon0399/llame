@@ -10,6 +10,7 @@
  * configuration directory must.
  */
 
+import { createMCPClient } from '@ai-sdk/mcp';
 import { execFileSync } from 'node:child_process';
 import {
   mkdtempSync,
@@ -30,15 +31,13 @@ import { isRecord, isString } from '@workspace/runtime-safety';
 
 import { MACHINE_BINARY } from '../testing/local-daemon';
 import { createLocalChildTransportFactory } from './local-child-transport';
+import { MachineConnector } from './machine-connector.service';
 import { readFsReadResult } from './machine-results';
+import { MachineTransport } from './machine-mcp-transport';
 import { MachineSession } from './machine-session';
 
+const MCP_FIXTURE = join(__dirname, '../mcp/mcp-stdio-test-fixture.mjs');
 const HUB_VERSION = '0.0.0-local-child-test';
-
-const MCP_FIXTURE = join(
-  __dirname,
-  '../../../../apps/machine/src/testing/mcp-stdio-server-fixture.mjs',
-);
 
 const NAME = 'host-a';
 const NOTES = 'hello from the host\n';
@@ -88,7 +87,7 @@ describe('the local Machine link (host-as-machine)', () => {
           fixture: {
             command: process.execPath,
             args: [MCP_FIXTURE],
-            env: { MACHINE_MCP_FIXTURE: fixtureConfig },
+            env: { MCP_FIXTURE: fixtureConfig },
           },
         },
       }),
@@ -225,7 +224,7 @@ describe('the local Machine link (host-as-machine)', () => {
     }
   });
 
-  it('streams media bytes and a failure through the real daemon', async () => {
+  it('streams media bytes and arbitrary file bytes through the real daemon', async () => {
     const session = connect();
 
     const media = Buffer.from(
@@ -260,71 +259,79 @@ describe('the local Machine link (host-as-machine)', () => {
       expect(Buffer.concat(chunks)).toEqual(media);
       bytes.channel.close();
 
-      const refused = session.openChannel({
+      const arbitraryChunks: Array<Buffer> = [];
+      const arbitrary = session.openChannel({
         method: 'fs.bytes',
         params: { path: join(root, 'notes.txt'), envelope: ENVELOPE },
       });
 
-      await expect(refused.result).resolves.toMatchObject({
-        status: 'error',
-        type: 'unsupported_media_type',
+      arbitrary.channel.onNotification((notification) => {
+        if (
+          notification.method !== 'bytes' ||
+          !isRecord(notification.params) ||
+          !isString(notification.params['data'])
+        ) {
+          return;
+        }
+
+        arbitraryChunks.push(
+          Buffer.from(notification.params['data'], 'base64'),
+        );
       });
+
+      await expect(arbitrary.result).resolves.toEqual({
+        size: Buffer.byteLength(NOTES),
+        mediaType: 'application/octet-stream',
+      });
+      expect(Buffer.concat(arbitraryChunks)).toEqual(Buffer.from(NOTES));
+      arbitrary.channel.close();
     } finally {
       session.close();
     }
   });
 
   it('lists and opens MCP bidirectionally, then stops the server when closed', async () => {
-    const session = connect();
+    const env: NodeJS.ProcessEnv = {
+      ...process.env,
+      LLAME_MACHINE_CONFIG_DIR: configDir,
+      LLAME_MACHINE_STATE_DIR: stateDir,
+    };
+    const factory = createLocalChildTransportFactory({
+      command: MACHINE_BINARY,
+      env,
+    });
+    const connector = new MachineConnector({
+      machines: { local: NAME, hosts: { [NAME]: {} } },
+      hubVersion: HUB_VERSION,
+      bindIdentity: () => Promise.resolve('bound'),
+      transportFactory: factory,
+    });
+    const transport = new MachineTransport({
+      connector,
+      machine: NAME,
+      root,
+      server: 'fixture',
+      envelope: ENVELOPE,
+    });
+    const client = await createMCPClient({ transport, maxRetries: 0 });
+    let pid: number | undefined;
 
     try {
-      await session.ready();
       await expect(
-        request(session, 'mcp.servers', { root, envelope: ENVELOPE }),
+        connector.request(NAME, 'mcp.servers', { root, envelope: ENVELOPE }),
       ).resolves.toMatchObject({
         servers: [{ name: 'fixture', state: 'available' }],
       });
 
-      const handle = session.openChannel({
-        method: 'mcp.open',
-        params: { root, server: 'fixture', envelope: ENVELOPE },
-      });
-
-      await expect(handle.result).resolves.toEqual({ protectedValues: [] });
-      const response = Promise.withResolvers<JsonValue>();
-      handle.channel.onNotification((notification) => {
-        if (
-          notification.method !== 'mcp.message' ||
-          !isRecord(notification.params)
-        )
-          return;
-        const message = notification.params['message'];
-
-        if (isRecord(message) && message['id'] === 1) response.resolve(message);
-      });
-      handle.channel.notify('mcp.message', {
-        message: {
-          jsonrpc: '2.0',
-          id: 1,
-          method: 'initialize',
-          params: {
-            protocolVersion: '2025-11-25',
-            capabilities: {},
-            clientInfo: { name: 'api-test', version: '1' },
-          },
-        },
-      });
-      await expect(response.promise).resolves.toMatchObject({
-        jsonrpc: '2.0',
-        id: 1,
-        result: { serverInfo: { name: 'machine-stdio-fixture' } },
-      });
-
-      const pid = Number(readFileSync(serverPidFile, 'utf8'));
-      handle.channel.close();
-      await waitForProcessExit(pid);
+      const listed = await client.listTools();
+      expect(listed.tools).toMatchObject([{ name: 'echo' }]);
+      pid = Number(readFileSync(serverPidFile, 'utf8'));
     } finally {
-      session.close();
+      await client.close();
+      await transport.close();
+      connector.onModuleDestroy();
     }
+
+    if (pid !== undefined) await waitForProcessExit(pid);
   });
 });
