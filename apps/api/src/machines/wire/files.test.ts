@@ -66,7 +66,7 @@ const session = () => {
     }),
   );
   vi.spyOn(session.clients.files, 'readLines').mockImplementation(
-    ({ startLine }) => {
+    ({ startLine, limit }) => {
       const firstLine = startLine ?? 1;
 
       return Promise.resolve(
@@ -74,7 +74,7 @@ const session = () => {
           result: {
             case: 'lines',
             value: {
-              lines: lines.slice(firstLine - 1),
+              lines: lines.slice(firstLine - 1, firstLine - 1 + limit),
               startLine: firstLine,
               lineCount: lines.length,
               lineEnding: '\n',
@@ -140,6 +140,21 @@ describe('wire file handlers', () => {
       totalCount: 1,
       truncated: false,
     });
+  });
+
+  it('bounds a selected line read to the selector window', async () => {
+    const fake = session();
+
+    await readHandler(fake, {
+      envelope,
+      path,
+      options: { ...display, selector: 'L1-20' },
+    });
+
+    expect(fake.clients.files.readLines).toHaveBeenCalledTimes(1);
+    const request = vi.mocked(fake.clients.files.readLines).mock.calls[0]?.[0];
+    expect(request).toMatchObject({ startLine: 1 });
+    expect(request?.limit).toBeLessThanOrEqual(22);
   });
 
   it('renders a selected markdown window using the native read renderer', async () => {

@@ -228,32 +228,21 @@ async function suggestMissingPath(
 async function readAllLines(
   session: MachineSession,
   path: string,
+  target: ReadTarget,
   options?: MachineRequestOptions,
 ): Promise<{ lines: Array<string>; ending: string } | NativeFailureResult> {
-  const all: Array<string> = [];
-  let start = 1;
-  let total = -1;
-  let ending = '\n';
+  const start = Math.max(1, target.offset);
+  const limit = Math.min(
+    (target.limit ?? READ_WINDOW_LINES) + (target.offset === 0 ? 1 : 2),
+    READ_WINDOW_LINES,
+  );
+  const window = await readRange(session, { path, start, limit }, options);
 
-  while (total < 0 || start <= total) {
-    const window = await readRange(
-      session,
-      { path, start, limit: READ_WINDOW_LINES },
-      options,
-    );
+  if (isNativeFailure(window)) return window;
 
-    if (isNativeFailure(window)) return window;
-
-    total = window.count;
-    ending = window.ending;
-    all.push(...window.lines);
-
-    if (window.lines.length === 0 || start + window.lines.length > total) break;
-    start += window.lines.length;
-  }
-
-  return { lines: all, ending };
+  return { lines: window.lines, ending: window.ending };
 }
+
 
 async function selectReadContent(
   request: TextReadRequest,
@@ -330,7 +319,7 @@ async function readTextFile(
     };
   }
 
-  const content = await readAllLines(session, params.path, options);
+  const content = await readAllLines(session, params.path, target, options);
 
   if ('status' in content) return content;
 
