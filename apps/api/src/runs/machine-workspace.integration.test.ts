@@ -124,6 +124,13 @@ describe('Machine Workspaces through the durable worker', () => {
   let devl: FakeMachine;
   let gpu: FakeMachine;
   let machineMcpOpens: Array<{ workspace: string; server: string }> = [];
+  let machineMcpHandler: Parameters<typeof installMachineMcpSession>[1];
+
+  async function installMcpSession(): Promise<void> {
+    const connector = harness.moduleRef.get(MachineConnector);
+    const session = await connector.machineSession('devl');
+    installMachineMcpSession(session, machineMcpHandler);
+  }
 
   const allowedTools = [
     'read',
@@ -167,9 +174,7 @@ describe('Machine Workspaces through the durable worker', () => {
       // scripted by the fake Machine, so the id is known here.
       toolPermissions: { mcp__repo__deploy: { allow: true } },
     });
-    const connector = harness.moduleRef.get(MachineConnector);
-    const session = await connector.machineSession('devl');
-    installMachineMcpSession(session, (request, state) => {
+    machineMcpHandler = (request, state) => {
       const message = request.message;
 
       if (message.case === 'open') {
@@ -200,7 +205,8 @@ describe('Machine Workspaces through the durable worker', () => {
         call === undefined ? undefined : mcpServerAnswer(call, declaration);
 
       return answer === undefined ? undefined : machineMcpJsonRpc(answer);
-    });
+    };
+    await installMcpSession();
     owner = await createUser(harness.db, 'machine-owner');
     other = await createUser(harness.db, 'machine-other');
   });
@@ -431,6 +437,7 @@ describe('Machine Workspaces through the durable worker', () => {
     // Recovery: one further transition, and relative paths resolve again with
     // no new entry.
     devl.reconnect();
+    await installMcpSession();
 
     const run3 = await runScript({
       userId: owner,
@@ -497,6 +504,7 @@ describe('Machine Workspaces through the durable worker', () => {
     expect(devl.calls()).toHaveLength(requestsBeforeExit);
     // The outage is over for the tests that follow.
     devl.reconnect();
+    await installMcpSession();
   });
 
   it('serves one Machine to two owners without sharing their hub-held state', async () => {
