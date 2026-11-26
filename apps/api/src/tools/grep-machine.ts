@@ -10,6 +10,7 @@
 import {
   FS_GREP_METHOD,
   type FsGrepConsumed,
+  type FsGrepPassage,
   type FsGrepSuccess,
   type FsGrepWarning,
   type FsGrepWarningKind,
@@ -533,7 +534,6 @@ async function requestPage(
 
   return { page: result };
 }
-
 
 /** Every passage's Machine locator, or undefined when one cannot be spelled. */
 function locatorsOf(

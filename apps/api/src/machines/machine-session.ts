@@ -33,21 +33,6 @@ import {
 } from './machine-session-errors';
 import { dispatchWireHandler } from './wire/index';
 import type { MachineFailureReason } from './machines-status';
-import {
-  createChannel,
-  type MachineChannel,
-  type MachineChannelHandle,
-  type MachineNotification,
-  type MachineSessionEnd,
-} from './machine-session-channel';
-
-export type {
-  MachineChannel,
-  MachineChannelHandle,
-  MachineNotification,
-  MachineSessionEnd,
-} from './machine-session-channel';
-import type { MachineFailureReason } from './machines-status';
 import { createHelloResult } from './machine-session-handshake';
 
 export const HANDSHAKE_TIMEOUT_MS = 30_000;
@@ -94,6 +79,63 @@ export type MachineRequestOptions = {
 export type MachineCall<M extends MachineMethod = MachineMethod> = {
   readonly method: M;
   readonly params: MachineMethodParams[M];
+};
+
+export type MachineSessionEndReason = MachineFailureReason | 'closed';
+
+export type MachineSessionEnd = {
+  readonly reason: MachineSessionEndReason;
+  readonly established: boolean;
+};
+
+export type MachineChannel = {
+  readonly closed: boolean;
+  close(): void;
+  onClose(callback: () => void): void;
+  onNotification(callback: (notification: MachineNotification) => void): void;
+  notify(method: string, params?: JsonValue): void;
+};
+
+export type MachineChannelHandle = {
+  readonly channel: MachineChannel;
+  readonly result: Promise<JsonValue>;
+};
+
+function createChannel(release: () => void) {
+  const listeners: Array<(notification: MachineNotification) => void> = [];
+  const closeListeners: Array<() => void> = [];
+  let closed = false;
+
+  const channel: MachineChannel = {
+    get closed() {
+      return closed;
+    },
+    close: () => {
+      if (closed) return;
+
+      closed = true;
+      release();
+      closeListeners.forEach((listener) => listener());
+    },
+    onClose: (callback) => {
+      closeListeners.push(callback);
+
+      if (closed) callback();
+    },
+    onNotification: (callback) => listeners.push(callback),
+    notify: () => undefined,
+  };
+
+  return {
+    channel,
+    notify: (notification: MachineNotification) =>
+      listeners.forEach((listener) => listener(notification)),
+  };
+}
+
+export type MachineNotification = {
+  readonly method: string;
+  readonly params?: JsonValue;
 };
 
 export type MachineStreamInvocation = {

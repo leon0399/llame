@@ -28,6 +28,7 @@ export function machineGrepFailure(
     return machineUnusableResult(name);
 
   if (error instanceof MachineProtocolError) {
+    // `internal` is the daemon's refusal for an unknown method on older builds.
     return error.code === 'internal'
       ? machineUnusableResult(name)
       : machineProtocolFailureResult(name, error);
