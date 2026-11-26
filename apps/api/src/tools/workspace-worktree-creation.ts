@@ -1,4 +1,4 @@
-import { type GitWorktreeAddResult } from '@workspace/git-executor';
+import { type GitWorktreeAddResult } from '@workspace/machine-protocol';
 
 import { WorkspaceBindingRepository } from '../chats/workspace-binding.repository';
 import { type Checkout, type Repository } from '../db/schema';

@@ -51,8 +51,6 @@ jobs:
             browser: true
           - flag: storybook
             dir: apps/storybook
-          - flag: bash-executor
-            dir: packages/bash-executor
           - flag: config-interpolation
             dir: packages/config-interpolation
           - flag: native-file-tools

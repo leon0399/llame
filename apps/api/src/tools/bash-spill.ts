@@ -27,7 +27,7 @@ import type {
   BashKnownResult,
   BashResult,
   BashTimedOutResult,
-} from '@workspace/bash-executor';
+} from './bash-contract';
 import { loadPackagedTemplate } from '../prompts/template-engine';
 import {
   writeToolArtifact,

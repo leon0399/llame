@@ -7,7 +7,7 @@ import {
   LostCause,
   type Job,
 } from '@workspace/machine-protocol';
-import { type ManagedOutput } from '@workspace/bash-executor';
+import { type ManagedOutput } from '../tools/bash-contract';
 import { type ChatJob } from '../db/schema';
 import { type TenantRunner } from '../db/tenant-db.service';
 import type { MachineRequestOptions } from '../machines/machine-session';

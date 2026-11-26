@@ -1,5 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { type ManagedOutput } from '@workspace/bash-executor';
+import { type ManagedOutput } from '../tools/bash-contract';
 import { type ChatJob } from '../db/schema';
 import { type InstanceConfigReader } from '../instance-config/instance-config.service';
 import { InstanceConfigService } from '../instance-config/instance-config.service';

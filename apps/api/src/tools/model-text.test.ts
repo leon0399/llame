@@ -827,3 +827,33 @@ describe('the cap measure of an edit rendering', () => {
     );
   });
 });
+
+describe('backgrounded bash model text', () => {
+  const job = 'job://bash-7';
+
+  it('tells the model when a command moves to the background for a message', () => {
+    expect(
+      renderToolResultText('bash', {
+        status: 'success',
+        backgrounded: true,
+        job,
+        cause: 'message',
+      }),
+    ).toBe(
+      'Moved to the background to handle an incoming message. The command continues in the background as job://bash-7. You get a notice when it settles. Do not poll it.',
+    );
+  });
+
+  it('renders a time-backgrounded command without the message prefix', () => {
+    expect(
+      renderToolResultText('bash', {
+        status: 'success',
+        backgrounded: true,
+        job,
+        cause: 'time',
+      }),
+    ).toBe(
+      'The command continues in the background as job://bash-7. You get a notice when it settles. Do not poll it.',
+    );
+  });
+});

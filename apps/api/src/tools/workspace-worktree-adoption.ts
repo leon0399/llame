@@ -1,4 +1,4 @@
-import { type GitInspectSuccess } from '@workspace/git-executor';
+import { type GitInspectSuccess } from '@workspace/machine-protocol';
 
 import { type Checkout, type Repository } from '../db/schema';
 import { derivedDisplayName } from '../repositories/display-name';

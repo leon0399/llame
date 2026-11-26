@@ -386,9 +386,9 @@ function isCount(value: unknown): value is number {
 }
 
 /**
- * A `proc.bash` answer, narrowed to the shape `@workspace/bash-executor`
- * returns. A Machine is untrusted input, so every field is rebuilt rather than
- * asserted; an unusable answer narrows to undefined.
+ * A `proc.bash` answer, narrowed to the Machine protocol result. A Machine is
+ * untrusted input, so every field is rebuilt rather than asserted; an unusable
+ * answer narrows to undefined.
  */
 export function readProcBashResult(
   value: JsonValue,

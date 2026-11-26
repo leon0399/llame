@@ -21,7 +21,7 @@ import {
   streamOutputBound,
   unusableWorkingDirectory,
   type BashExecutorContext,
-} from '@workspace/bash-executor';
+} from './bash-contract';
 
 import { NativeFilesRepository } from '../runs/native-files-repository';
 import { RunEventsRepository } from '../runs/runs-repository';

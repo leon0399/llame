@@ -1,5 +1,5 @@
 import { eq } from 'drizzle-orm';
-import { type ManagedOutput } from '@workspace/bash-executor';
+import { type ManagedOutput } from '../tools/bash-contract';
 
 import { chatJobs, type ChatJob } from '../db/schema';
 import { ChatsRepository } from '../chats/chats-repository';

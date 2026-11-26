@@ -433,9 +433,11 @@ sources admit `read` without admitting absolute-path host authority. See
 
 ### 13.9 Managed bash contract
 
-`@workspace/bash-executor` runs the model-facing `bash` tool when `bash` is
-allowlisted and `machines.default` is configured. A command whose working
-directory resolves on the process's `machines.local` Machine runs in the worker,
+The API exposes the model-facing `bash` tool through the Rust Machine daemon's
+`proc.bash`/`JobService` path when `bash` is allowlisted and
+`machines.default` is configured. The shared API contract and model-facing text
+live in `apps/api/src/tools/bash-contract.ts`. A command whose working directory
+resolves on the process's `machines.local` Machine runs in the worker
 as `bash -c` under that Machine's OS user. A `machine://` `cwd` naming another
 Machine runs it through that Machine's daemon, and an `ssh://` `cwd` runs it on
 that host, each under that host's login user and the shared bounds. Host `bash`

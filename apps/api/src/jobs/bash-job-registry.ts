@@ -1,7 +1,7 @@
 import { Inject, Injectable, Logger, type OnModuleInit } from '@nestjs/common';
 import { type CallOptions, type Client } from '@connectrpc/connect';
 import { JobService, type Job } from '@workspace/machine-protocol';
-import { type ManagedOutput } from '@workspace/bash-executor';
+import { type ManagedOutput } from '../tools/bash-contract';
 import { type ChatJob } from '../db/schema';
 import { TenantDbService, type TenantRunner } from '../db/tenant-db.service';
 import {

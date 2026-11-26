@@ -1,4 +1,4 @@
-import { type GitInspectSuccess } from '@workspace/git-executor';
+import { type GitInspectSuccess } from '@workspace/machine-protocol';
 import { drizzle } from 'drizzle-orm/postgres-js';
 
 import { type Checkout, type Repository } from '../db/schema';

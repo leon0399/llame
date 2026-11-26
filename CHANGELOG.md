@@ -26,6 +26,8 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   daemon limits jobs to 32 running at once and each output stream to 64 MiB by
   default. Settled output is stored as a bounded artifact when available.
 
+- Delete the Node bash and Git executor packages after moving the API bash result
+  and sanitization contract and Machine Git test operations into `apps/api`.
 - Keep retained Machine mutation results replayable when the idempotency cache
   reaches its key limit. Attaching through a different configuration now
   refuses the running daemon before returning its socket.

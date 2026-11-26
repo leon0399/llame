@@ -8,7 +8,7 @@ import {
   type GitWorktreeAddResult,
   type GitWorktreeListResult,
   type GitWorktreeRemoveResult,
-} from '@workspace/git-executor';
+} from '@workspace/machine-protocol';
 import {
   GIT_INSPECT_METHOD,
   GIT_LOCATE_METHOD,

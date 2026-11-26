@@ -3,7 +3,7 @@ import { drizzle } from 'drizzle-orm/postgres-js';
 import type {
   GitInspectResult,
   GitWorktreeAddResult,
-} from '@workspace/git-executor';
+} from '@workspace/machine-protocol';
 
 import {
   type Checkout,

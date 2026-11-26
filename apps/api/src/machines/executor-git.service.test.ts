@@ -2,7 +2,7 @@ import {
   type GitInspectSuccess,
   type GitStateSuccess,
   type GitWorktreeListResult,
-} from '@workspace/git-executor';
+} from '@workspace/machine-protocol';
 
 import { type LlameConfig } from '../instance-config/llame-config';
 import {
@@ -18,10 +18,9 @@ import { MachineConnector } from './machine-connector.service';
 
 /**
  * The executor dispatch: which executor a submitted path runs on, how a Machine
- * call carries it, and how a Machine failure maps. The git operations
- * themselves are pinned by `@workspace/git-executor`'s own suite and by the
- * daemon's; this suite covers the derivation, the locator form, the canonical
- * address, and the failure mapping.
+ * call carries it, and how a Machine failure maps. The daemon's suite pins the
+ * git operations themselves; this suite covers the derivation, the locator
+ * form, the canonical address, and the failure mapping.
  */
 const NAS = 'nas';
 const LOCAL_EXECUTOR = 'hub-host';

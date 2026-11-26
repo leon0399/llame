@@ -21,7 +21,7 @@
 
 import { z } from 'zod';
 
-import { renderBashText } from '@workspace/bash-executor';
+import { renderBashText } from './bash-contract';
 import {
   measureReadRendering,
   renderEditText,

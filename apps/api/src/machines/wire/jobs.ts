@@ -8,7 +8,7 @@ import {
   type Job,
   type ProcBashResult,
 } from '@workspace/machine-protocol';
-import { sanitizeKnownResultAtBound } from '@workspace/bash-executor';
+import { sanitizeKnownResultAtBound } from '../../tools/bash-contract';
 
 import { type Handler } from './index';
 
