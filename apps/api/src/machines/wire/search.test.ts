@@ -2,6 +2,7 @@ import { PassThrough } from 'node:stream';
 import { afterEach, vi } from 'vitest';
 import { create } from '@bufbuild/protobuf';
 import {
+  FileFailureReason,
   SearchFilesRequestSchema,
   SearchFilesResponseSchema,
   SearchStop,
@@ -110,6 +111,35 @@ function sessionFor(
 }
 
 describe('wire fs.grep', () => {
+  it.each([
+    [FileFailureReason.NOT_FOUND, 'not_found'],
+    [FileFailureReason.WRONG_KIND, 'not_regular_file'],
+    [FileFailureReason.NOT_UTF8, 'invalid_utf8'],
+    [FileFailureReason.ALREADY_EXISTS, 'file_exists'],
+    [FileFailureReason.TEXT_NOT_FOUND, 'old_text_not_found'],
+    [FileFailureReason.TEXT_AMBIGUOUS, 'old_text_ambiguous'],
+    [FileFailureReason.OUTCOME_UNKNOWN, 'outcome_unknown'],
+    [FileFailureReason.DIRECTORY_TOO_LARGE, 'directory_too_large'],
+    [FileFailureReason.FILE_TOO_LARGE, 'representation_too_large'],
+    [FileFailureReason.IO, 'invalid_path'],
+    [FileFailureReason.UNSPECIFIED, 'invalid_path'],
+  ] as const)('maps search failure reason %s', async (reason, type) => {
+    const response = create(SearchFilesResponseSchema, {
+      event: {
+        case: 'failure',
+        value: { reason, message: 'search failed' },
+      },
+    });
+
+    const { session } = sessionFor([[response]]);
+
+    await expect(searchHandlers['fs.grep']!(session, BASE)).resolves.toEqual({
+      status: 'error',
+      type,
+      message: 'search failed',
+    });
+  });
+
   it('merges overlapping context, returns warning and consumed counters', async () => {
     const { session } = sessionFor([
       [
