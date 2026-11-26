@@ -12,7 +12,8 @@ import {
 import { type BashResult } from '@workspace/bash-executor';
 import { compileTestPermissionPolicy } from '../testing/tool-permission-policy';
 import { type Db } from '../db/tenant-db.service';
-import type { ChatJob } from '../db/schema';
+import type { Chat, ChatJob } from '../db/schema';
+import { ChatsRepository } from '../chats/chats-repository';
 import { ArtifactsRepository } from './artifacts/artifacts-repository';
 import { NativeFilesRepository } from '../runs/native-files-repository';
 import { BashJobRegistry } from '../jobs/bash-job-registry';
@@ -48,6 +49,31 @@ function testContext(): ToolContext {
   };
 }
 
+function lockedChat(): Chat {
+  return {
+    id: 'chat',
+    ownerUserId: 'owner',
+    title: null,
+    visibility: 'private',
+    createdAt: new Date(0),
+    updatedAt: new Date(0),
+    archivedAt: null,
+    projectId: null,
+    skillCatalogBaseline: null,
+    skillCatalogRebakedFrom: null,
+    skillCatalogTold: null,
+    workspaceRoot: null,
+    workspaceExecutorId: null,
+    workspaceGeneration: 0,
+    workspaceTold: null,
+    artifactSeq: 0,
+    workspaceToldAvailable: null,
+    workspaceToldFrom: null,
+    workspaceDetachReason: null,
+    modelSelection: null,
+  };
+}
+
 function runStage(
   tenantDb: ToolContext['tenantDb'],
 ): BashJobRegistryRunStageService {
@@ -80,8 +106,12 @@ describe('bash input validation', () => {
 });
 
 describe('bash daemon job dispatch', () => {
+  beforeEach(() => {
+    vi.spyOn(ChatsRepository.prototype, 'lock').mockResolvedValue(
+      lockedChat(),
+    );
+  });
   afterEach(() => vi.restoreAllMocks());
-
   it('records a promoted Bash result after JobService dispatch', async () => {
     const row: ChatJob = {
       id: '00000000-0000-4000-8000-000000000010',

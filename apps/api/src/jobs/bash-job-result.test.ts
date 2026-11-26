@@ -33,6 +33,8 @@ import type { Db } from '../db/tenant-db.service';
 import { NativeFilesRepository } from '../runs/native-files-repository';
 import { RunEventsRepository } from '../runs/runs-repository';
 import { ArtifactsRepository } from '../tools/artifacts/artifacts-repository';
+import { ChatsRepository } from '../chats/chats-repository';
+import type { Chat } from '../db/schema';
 
 const row: ChatJob = {
   id: '00000000-0000-4000-8000-000000000010',
@@ -58,6 +60,31 @@ const row: ChatJob = {
   artifactReadable: true,
   settings: { selector: 'test-model', permissionMode: 'default' },
 };
+function lockedChat(): Chat {
+  return {
+    id: row.chatId,
+    ownerUserId: row.ownerUserId,
+    title: null,
+    visibility: 'private',
+    createdAt: new Date(0),
+    updatedAt: new Date(0),
+    archivedAt: null,
+    projectId: null,
+    skillCatalogBaseline: null,
+    skillCatalogRebakedFrom: null,
+    skillCatalogTold: null,
+    workspaceRoot: null,
+    workspaceExecutorId: null,
+    workspaceGeneration: 0,
+    workspaceTold: null,
+    artifactSeq: 0,
+    workspaceToldAvailable: null,
+    workspaceToldFrom: null,
+    workspaceDetachReason: null,
+    modelSelection: null,
+  };
+}
+
 
 function connector(): MachineConnector {
   return new MachineConnector({
@@ -109,6 +136,7 @@ function lostJob(): MachineJob {
 }
 
 beforeEach(() => {
+  vi.spyOn(ChatsRepository.prototype, 'lock').mockResolvedValue(lockedChat());
   vi.spyOn(NativeFilesRepository.prototype, 'begin').mockResolvedValue(
     undefined,
   );

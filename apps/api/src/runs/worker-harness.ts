@@ -45,6 +45,7 @@ import { getRegisteredToolIds } from '../tools/registry';
 import { type PermissionGroup } from '../tools/permissions/types';
 import { type PermissionMode } from '../tools/permissions/permission-mode';
 import { type EnqueueOptions, QUEUE, type Queue } from '../queue/queue';
+import { ArtifactsRepository } from '../tools/artifacts/artifacts-repository';
 import { ChatJobsRepository } from '../jobs/chat-jobs.repository';
 import { type ChatJob, type RunKind, type RunOrigin } from '../db/schema';
 import { CanonicalSearchCoverageService } from '../search/canonical-search-activation.service';
@@ -431,6 +432,13 @@ export async function seedLiveChatJob(input: {
   modelId: string;
   run: { chatId: string; runId: string };
 }): Promise<ChatJob> {
+  const seq = await new ArtifactsRepository(input.tx).nextSeq(
+    input.run.chatId,
+    input.userId,
+  );
+
+  if (seq === undefined) throw new Error('The Chat cannot store a job.');
+
   const daemonInstanceId = crypto.randomUUID();
   const daemonJobId = crypto.randomUUID();
 
@@ -438,7 +446,7 @@ export async function seedLiveChatJob(input: {
     chatId: input.run.chatId,
     ownerUserId: input.userId,
     kind: 'bash',
-    seq: 1,
+    seq,
     runId: input.run.runId,
     toolCallId: `wait-${crypto.randomUUID()}`,
     machineName: 'test-machine',

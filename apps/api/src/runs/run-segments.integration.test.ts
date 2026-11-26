@@ -437,7 +437,7 @@ describe('run steering segments', () => {
                   20_000,
                   'the gated model call to start',
                 );
-                noticeId = (await settleNotice(seeded)).notice.id;
+                noticeId = (await settleNotice(seeded, { seq: 2 })).notice.id;
                 await writeFile(gate, '');
                 noticeReady.resolve();
               } catch (error) {
