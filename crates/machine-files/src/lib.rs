@@ -1,6 +1,6 @@
 //! `FileService`: entries, bytes, lines, mutations, and search.
-
 mod mutate;
+mod read;
 
 use machine_core::{Context, IdempotencyCache};
 use machine_protocol::v1::{
@@ -32,28 +32,53 @@ type Stream<T> = tokio_stream::wrappers::ReceiverStream<Result<T, Status>>;
 impl FileService for Files {
     async fn get_entry(
         &self,
-        _: Request<GetEntryRequest>,
+        request: Request<GetEntryRequest>,
     ) -> Result<Response<GetEntryResponse>, Status> {
-        Err(Status::unimplemented("FileService.GetEntry"))
+        Ok(Response::new(read::get_entry(
+            &self.context,
+            &request.into_inner().path,
+        )?))
     }
     async fn list_directory(
         &self,
-        _: Request<ListDirectoryRequest>,
+        request: Request<ListDirectoryRequest>,
     ) -> Result<Response<ListDirectoryResponse>, Status> {
-        Err(Status::unimplemented("FileService.ListDirectory"))
+        let request = request.into_inner();
+        Ok(Response::new(read::list_directory(
+            &self.context,
+            &request.path,
+            request.offset,
+            request.limit,
+        )?))
     }
     type ReadBytesStream = Stream<ReadBytesResponse>;
     async fn read_bytes(
         &self,
-        _: Request<ReadBytesRequest>,
+        request: Request<ReadBytesRequest>,
     ) -> Result<Response<Self::ReadBytesStream>, Status> {
-        Err(Status::unimplemented("FileService.ReadBytes"))
+        let request = request.into_inner();
+        Ok(Response::new(
+            read::read_bytes(&self.context, &request.path, request.offset, request.limit).await?,
+        ))
     }
     async fn read_lines(
         &self,
-        _: Request<ReadLinesRequest>,
+        request: Request<ReadLinesRequest>,
     ) -> Result<Response<ReadLinesResponse>, Status> {
-        Err(Status::unimplemented("FileService.ReadLines"))
+        let request = request.into_inner();
+        let context = self.context.clone();
+        let response = tokio::task::spawn_blocking(move || {
+            read::read_lines(
+                &context,
+                &request.path,
+                request.start_line,
+                request.limit,
+                request.max_bytes,
+            )
+        })
+        .await
+        .map_err(|_| Status::internal("line read task panicked"))??;
+        Ok(Response::new(response))
     }
     async fn write_file(
         &self,
@@ -90,7 +115,7 @@ impl FileService for Files {
         &self,
         request: Request<SearchFilesRequest>,
     ) -> Result<Response<Self::SearchFilesStream>, Status> {
-        machine_grep::search(&self.context, request.into_inner())
+        machine_grep::search(&self.context, request)
             .await
             .map(Response::new)
     }

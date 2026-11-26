@@ -14,7 +14,9 @@ machine-core.workspace = true
 machine-protocol.workspace = true
 tokio.workspace = true
 tokio-stream.workspace = true
+regex.workspace = true
 tonic.workspace = true
+ignore.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true

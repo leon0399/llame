@@ -22,7 +22,8 @@ use tonic::transport::{Channel, Endpoint, Uri};
 
 use crate::daemon::{lock_path, prepare_state_dir, socket_path, try_lock};
 
-const START_WAIT: Duration = Duration::from_secs(10);
+const START_WAIT: Duration = Duration::from_secs(60);
+const STOP_WAIT: Duration = Duration::from_secs(10);
 const POLL: Duration = Duration::from_millis(50);
 
 #[derive(Clone, Copy)]
@@ -176,7 +177,7 @@ async fn stop_daemon(state_dir: &Path) -> anyhow::Result<()> {
         let _ = rustix::process::kill_process(pid, rustix::process::Signal::TERM);
     }
     let mut waited = Duration::ZERO;
-    while waited < START_WAIT {
+    while waited < STOP_WAIT {
         if let Some(lock) = try_lock(state_dir)? {
             drop(lock);
             return Ok(());
