@@ -48,7 +48,12 @@ fn modified(metadata: &fs::Metadata) -> Option<Timestamp> {
     })
 }
 
-fn make_entry(context: &Context, path: &Path, name: String) -> Result<Entry, std::io::Error> {
+fn make_entry(
+    context: &Context,
+    path: &Path,
+    name: String,
+    canonical_path: Option<String>,
+) -> Result<Entry, std::io::Error> {
     let metadata = fs::symlink_metadata(path)?;
     let entry_kind = kind(&metadata);
     let (link_target, target_kind) = if metadata.file_type().is_symlink() {
@@ -73,6 +78,7 @@ fn make_entry(context: &Context, path: &Path, name: String) -> Result<Entry, std
         modified_at: modified(&metadata),
         link_target,
         target_kind,
+        canonical_path,
     })
 }
 
@@ -90,6 +96,7 @@ pub fn get_entry(context: &Context, path: &str) -> Result<GetEntryResponse, Stat
         context,
         &guarded.path,
         guarded.path.to_string_lossy().into_owned(),
+        Some(guarded.canonical.to_string_lossy().into_owned()),
     ) {
         Ok(entry) => GetEntryResponse {
             result: Some(get_entry_response::Result::Entry(entry)),
@@ -148,7 +155,7 @@ pub fn list_directory(
                 .to_string_lossy()
                 .into_owned();
             entries.push(
-                make_entry(context, item, name)
+                make_entry(context, item, name, None)
                     .map_err(|e| (FileFailureReason::Io, e.to_string()))?,
             );
         }

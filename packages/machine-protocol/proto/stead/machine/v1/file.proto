@@ -63,6 +63,8 @@ message Entry {
   optional string link_target = 5;
   // For a symlink: what the target is, or UNSPECIFIED when it dangles or resolves outside the roots.
   optional EntryKind target_kind = 6;
+  // The canonical path resolved by the daemon's root guard.
+  optional string canonical_path = 7;
 }
 
 // Why a file operation that started did not succeed.

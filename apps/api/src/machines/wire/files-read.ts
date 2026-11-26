@@ -154,7 +154,7 @@ export const statHandler: Handler<'fs.stat'> = async (
 
   const stat = {
     kind,
-    realPath: entry.name,
+    realPath: entry.canonicalPath ?? entry.name,
     isLink: entry.kind === EntryKind.SYMLINK,
   };
 

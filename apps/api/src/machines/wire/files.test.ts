@@ -5,6 +5,7 @@ import {
   EntryKind,
   GetEntryResponseSchema,
   ListDirectoryResponseSchema,
+  MEDIA_MAX_BYTES,
   ReadBytesResponseSchema,
   ReadLinesResponseSchema,
   ReplaceTextResponseSchema,
@@ -26,7 +27,12 @@ import {
 } from './files.js';
 
 const path = '/work/notes.md';
-const entry = { name: path, kind: EntryKind.FILE, size: 15n };
+const entry = {
+  name: path,
+  kind: EntryKind.FILE,
+  size: 15n,
+  canonicalPath: path,
+};
 const lines = ['# Title', 'first', 'second', 'third'];
 
 const sessions: Array<MachineSession> = [];
@@ -139,6 +145,30 @@ describe('wire file handlers', () => {
       entries: [{ name: 'notes.md', kind: 'file' }],
       totalCount: 1,
       truncated: false,
+    });
+  });
+
+  it('reports the daemon canonical target for a symlink stat', async () => {
+    const fake = session();
+    vi.mocked(fake.clients.files.getEntry).mockResolvedValue(
+      create(GetEntryResponseSchema, {
+        result: {
+          case: 'entry',
+          value: {
+            name: '/work/link.md',
+            kind: EntryKind.SYMLINK,
+            canonicalPath: '/work/target.md',
+          },
+        },
+      }),
+    );
+
+    await expect(
+      statHandler(fake, { envelope, path: '/work/link.md' }),
+    ).resolves.toEqual({
+      kind: 'other',
+      realPath: '/work/target.md',
+      isLink: true,
     });
   });
 
@@ -255,7 +285,7 @@ describe('wire file handlers', () => {
     const readBytes = vi.mocked(fake.clients.files.readBytes);
     readBytes.mockImplementation(({ limit }) =>
       (async function* () {
-        expect(limit).toBeGreaterThan(0n);
+        expect(limit).toBe(BigInt(MEDIA_MAX_BYTES));
         yield create(ReadBytesResponseSchema, {
           result: { case: 'size', value: 100n * 1024n * 1024n },
         });
@@ -280,7 +310,7 @@ describe('wire file handlers', () => {
     expect(transferred).toEqual([1]);
     expect(onNotification).not.toHaveBeenCalled();
     expect(readBytes).toHaveBeenCalledWith(
-      expect.objectContaining({ limit: expect.any(BigInt) }),
+      expect.objectContaining({ limit: BigInt(MEDIA_MAX_BYTES) }),
       expect.anything(),
     );
   });

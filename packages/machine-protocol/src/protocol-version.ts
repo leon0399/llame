@@ -1,1 +1,1 @@
-export const MACHINE_PROTOCOL_VERSION = 6;
+export const MACHINE_PROTOCOL_VERSION = 7;
