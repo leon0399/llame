@@ -208,8 +208,8 @@ function isJobNotFound(error: unknown): boolean {
 
   return (
     error instanceof ConnectError &&
-    error.findDetails(ErrorDetailSchema).some(
-      (detail) => detail.reason === ErrorReason.JOB_NOT_FOUND,
-    )
+    error
+      .findDetails(ErrorDetailSchema)
+      .some((detail) => detail.reason === ErrorReason.JOB_NOT_FOUND)
   );
 }

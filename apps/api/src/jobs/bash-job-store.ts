@@ -114,20 +114,7 @@ async function writeJobArtifact(
   maxBytes: number,
 ): Promise<JobArtifact | undefined> {
   return tx.transaction(async (savepoint) => {
-    const existing = await new ArtifactsRepository(savepoint).findForToolCall(
-      job.chatId,
-      job.runId,
-      job.toolCallId,
-    );
-
-    if (existing !== undefined) {
-      await savepoint
-        .update(chatJobs)
-        .set({ artifactId: existing.id })
-        .where(eq(chatJobs.id, job.id));
-
-      return undefined;
-    }
+    if (await reuseExistingArtifact(savepoint, job)) return undefined;
 
     const request = {
       chatId: job.chatId,
@@ -143,6 +130,7 @@ async function writeJobArtifact(
         content: Buffer.from(completion.output[name]),
       })),
     };
+
     const written = await commitArtifactInTransaction(
       savepoint,
       request,
@@ -157,4 +145,21 @@ async function writeJobArtifact(
 
     return written;
   });
+}
+
+async function reuseExistingArtifact(tx: Db, job: ChatJob): Promise<boolean> {
+  const existing = await new ArtifactsRepository(tx).findForToolCall(
+    job.chatId,
+    job.runId,
+    job.toolCallId,
+  );
+
+  if (existing === undefined) return false;
+
+  await tx
+    .update(chatJobs)
+    .set({ artifactId: existing.id })
+    .where(eq(chatJobs.id, job.id));
+
+  return true;
 }

@@ -1,6 +1,5 @@
 import { ServiceUnavailableException } from '@nestjs/common';
 import { Code, ConnectError } from '@connectrpc/connect';
-import { create } from '@bufbuild/protobuf';
 import {
   ErrorDetailSchema,
   ErrorReason,
@@ -91,8 +90,10 @@ describe('stopAndReleaseJob', () => {
     expect(cancelJob).not.toHaveBeenCalled();
     expect(deleteJob).toHaveBeenCalledOnce();
   });
+
   it('treats JOB_NOT_FOUND as already released for settled jobs', async () => {
     const cancelJob = vi.fn();
+
     const deleteJob = vi.fn().mockRejectedValue(
       new ConnectError('unknown job', Code.NotFound, undefined, [
         {
@@ -115,6 +116,7 @@ describe('stopAndReleaseJob', () => {
     const cancelJob = vi.fn().mockResolvedValue({
       job: { state: JobState.CANCELLED },
     });
+
     const deleteJob = vi.fn().mockRejectedValue(
       new ConnectError('unknown job', Code.NotFound, undefined, [
         {

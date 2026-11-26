@@ -380,6 +380,7 @@ describe('chat jobs API', () => {
   it('reuses an artifact already spilled for the tool call when settling', async () => {
     const chatId = await createChat();
     const job = await startJob(chatId, 12);
+
     const spilled = await tenantDb.runAs(userAId, (tx) =>
       commitArtifactInTransaction(
         tx,
