@@ -59,6 +59,7 @@ struct Output {
     stderr: Vec<u8>,
     timed_out: bool,
     bounded: bool,
+    stderr_bounded: bool,
 }
 fn failure(reason: GitFailureReason, stderr: impl Into<String>) -> GitFailure {
     GitFailure {
@@ -82,8 +83,13 @@ fn process_failure(out: &Output) -> GitFailure {
     } else {
         GitFailureReason::GitFailed
     };
-    let stderr = String::from_utf8_lossy(&out.stderr);
-    failure(reason, redact_url_credentials(&stderr).into_owned())
+    let stderr = if out.stderr_bounded {
+        "[stderr omitted because it exceeded the output limit]".into()
+    } else {
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        redact_url_credentials(&stderr).into_owned()
+    };
+    failure(reason, stderr)
 }
 fn succeed(out: &Output) -> bool {
     out.status == Some(0) && !out.bounded && !out.timed_out
@@ -134,6 +140,7 @@ async fn run_mode(directory: &Path, args: &[&str], deadline: Instant, pinned: bo
             stderr: b"git ceiling path contains ':'".to_vec(),
             timed_out: false,
             bounded: false,
+            stderr_bounded: false,
         };
     }
     let mut command = Command::new("git");
@@ -160,6 +167,7 @@ async fn run_mode(directory: &Path, args: &[&str], deadline: Instant, pinned: bo
                 stderr: e.to_string().into_bytes(),
                 timed_out: false,
                 bounded: false,
+                stderr_bounded: false,
             };
         }
     };
@@ -208,6 +216,7 @@ async fn run_mode(directory: &Path, args: &[&str], deadline: Instant, pinned: bo
                 stderr: e.to_string().into_bytes(),
                 timed_out: false,
                 bounded: false,
+                stderr_bounded: false,
             };
         }
     };
@@ -219,6 +228,7 @@ async fn run_mode(directory: &Path, args: &[&str], deadline: Instant, pinned: bo
             stderr: b"git stdout unavailable".to_vec(),
             timed_out: false,
             bounded: false,
+            stderr_bounded: false,
         };
     };
     let Some(stderr) = child.stderr.take() else {
@@ -228,6 +238,7 @@ async fn run_mode(directory: &Path, args: &[&str], deadline: Instant, pinned: bo
             stderr: b"git stderr unavailable".to_vec(),
             timed_out: false,
             bounded: false,
+            stderr_bounded: false,
         };
     };
     let mut stdout_task = tokio::spawn(read_capped(stdout, OUTPUT_MAX));
@@ -250,18 +261,25 @@ async fn run_mode(directory: &Path, args: &[&str], deadline: Instant, pinned: bo
         tokio::join!(&mut stdout_task, &mut stderr_task)
     })
     .await;
-    let (stdout, stderr, reader_timed_out, bounded) = if let Ok((stdout, stderr)) = readers {
-        let (stdout, a) = stdout.unwrap_or_default();
-        let (stderr, b) = stderr.unwrap_or_default();
-        (stdout, stderr, false, a || b)
-    } else {
-        if let Some(pid) = group.0.and_then(Pid::from_raw) {
-            let _ = kill_process_group(pid, Signal::KILL);
-        }
-        stdout_task.abort();
-        stderr_task.abort();
-        (Vec::new(), Vec::new(), true, false)
-    };
+    let (stdout, stderr, stderr_bounded, reader_timed_out, bounded) =
+        if let Ok((stdout, stderr)) = readers {
+            let (stdout, stdout_bounded) = stdout.unwrap_or_default();
+            let (stderr, stderr_bounded) = stderr.unwrap_or_default();
+            (
+                stdout,
+                stderr,
+                stderr_bounded,
+                false,
+                stdout_bounded || stderr_bounded,
+            )
+        } else {
+            if let Some(pid) = group.0.and_then(Pid::from_raw) {
+                let _ = kill_process_group(pid, Signal::KILL);
+            }
+            stdout_task.abort();
+            stderr_task.abort();
+            (Vec::new(), Vec::new(), false, true, false)
+        };
     group.0 = None;
     Output {
         status,
@@ -269,6 +287,7 @@ async fn run_mode(directory: &Path, args: &[&str], deadline: Instant, pinned: bo
         stderr,
         timed_out: timed_out || reader_timed_out,
         bounded,
+        stderr_bounded,
     }
 }
 fn redact_url_credentials(text: &str) -> std::borrow::Cow<'_, str> {
@@ -1256,6 +1275,7 @@ impl GitService for Git {
                 };
                 checked_git_data(&entry, cache_guard.roots())?;
                 let deadline = Instant::now() + Duration::from_secs(120);
+                repository(&src, &cache_guard, true, deadline).await?;
                 let mut args = vec![
                     "worktree",
                     "add",
@@ -1536,5 +1556,111 @@ mod tests {
                 .success()
         );
         assert!(read_regular_bytes(&path).is_err());
+    }
+    #[tokio::test]
+    async fn create_worktree_rejects_parent_repository_outside_roots() {
+        let temp = tempfile::tempdir().unwrap();
+        let outside = temp.path().to_path_buf();
+        let root = temp.path().join("root");
+        let repository = root.join("nested");
+        let target = root.join("worktree");
+        fs::create_dir_all(repository.join(".git")).unwrap();
+        fs::create_dir_all(&root).unwrap();
+        assert!(
+            std::process::Command::new("git")
+                .args(["-C"])
+                .arg(&outside)
+                .args(["init", "-q"])
+                .status()
+                .unwrap()
+                .success()
+        );
+        assert!(
+            std::process::Command::new("git")
+                .args(["-C"])
+                .arg(&outside)
+                .args([
+                    "-c",
+                    "user.name=Test",
+                    "-c",
+                    "user.email=test@example.invalid",
+                    "commit",
+                    "--allow-empty",
+                    "-m",
+                    "initial",
+                    "-q",
+                ])
+                .status()
+                .unwrap()
+                .success()
+        );
+        let config_dir = temp.path().join("config");
+        fs::create_dir_all(&config_dir).unwrap();
+        let config_file = config_dir.join("config.toml");
+        fs::write(&config_file, format!("roots = [\"{}\"]\n", root.display())).unwrap();
+        let config = machine_core::ConfigHandle::open(config_file).unwrap();
+        let git = Git {
+            context: Context {
+                config: Arc::new(config),
+                state_dir: temp.path().join("state"),
+            },
+            create_cache: IdempotencyCache::default(),
+            delete_cache: IdempotencyCache::default(),
+        };
+        let response = git
+            .create_worktree(Request::new(CreateWorktreeRequest {
+                request_id: "isolation-test".into(),
+                repository: repository.to_string_lossy().into_owned(),
+                branch: "must-not-exist".into(),
+                base: None,
+                path: target.to_string_lossy().into_owned(),
+            }))
+            .await
+            .unwrap()
+            .into_inner();
+        assert!(
+            matches!(response.result, Some(CreateResult::Failure(_))),
+            "a nested invalid .git entry must not use the parent repository"
+        );
+        assert!(
+            !std::process::Command::new("git")
+                .args(["-C"])
+                .arg(&outside)
+                .args([
+                    "show-ref",
+                    "--verify",
+                    "--quiet",
+                    "refs/heads/must-not-exist",
+                ])
+                .status()
+                .unwrap()
+                .success()
+        );
+    }
+    #[tokio::test]
+    async fn truncated_stderr_does_not_expose_partial_url_credentials() {
+        let secret = "https://user:secret@host.invalid/";
+        let mut stderr = vec![b'x'; STDERR_MAX - "https://user:secret".len()];
+        stderr.extend_from_slice(secret.as_bytes());
+        let (mut writer, reader) = tokio::io::duplex(stderr.len());
+        tokio::spawn(async move {
+            use tokio::io::AsyncWriteExt as _;
+            writer.write_all(&stderr).await.unwrap();
+        });
+        let (stderr, truncated) = read_capped(reader, STDERR_MAX).await;
+        assert!(truncated);
+        let failure = process_failure(&Output {
+            status: Some(1),
+            stdout: Vec::new(),
+            stderr,
+            timed_out: false,
+            bounded: true,
+            stderr_bounded: truncated,
+        });
+
+        assert!(
+            !failure.stderr.contains("user:"),
+            "truncated stderr may end inside URL userinfo"
+        );
     }
 }
