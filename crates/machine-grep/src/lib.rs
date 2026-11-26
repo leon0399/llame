@@ -336,7 +336,9 @@ fn run_search(
                 }
                 break;
             }
-            let Ok(read) = file.read(&mut chunk) else {
+            let read_limit = usize::try_from(remaining.min(chunk.len() as u64))
+                .expect("read limit is bounded by the chunk length");
+            let Ok(read) = file.read(&mut chunk[..read_limit]) else {
                 read_failed = true;
                 break;
             };
@@ -345,38 +347,20 @@ fn run_search(
             }
             content.extend_from_slice(&chunk[..read]);
         }
-        if byte_stopped && !content.is_empty() && content.last() != Some(&b'\n') {
-            loop {
-                if sender.is_closed() {
-                    return;
-                }
-                let Ok(read) = file.read(&mut chunk) else {
-                    read_failed = true;
-                    break;
-                };
-                if read == 0 {
-                    break;
-                }
-                let completed_line = chunk[..read]
-                    .iter()
-                    .position(|byte| *byte == b'\n')
-                    .map(|newline| newline + 1);
-                let consumed = completed_line.unwrap_or(read);
-                content.extend_from_slice(&chunk[..consumed]);
-                if consumed < read {
-                    let Ok(unread) = i64::try_from(read - consumed) else {
-                        read_failed = true;
-                        break;
-                    };
-                    if file.seek(SeekFrom::Current(-unread)).is_err() {
-                        read_failed = true;
-                        break;
-                    }
-                }
-                if completed_line.is_some() {
-                    break;
-                }
-            }
+        let searched_offset = resume_offset
+            .unwrap_or(0)
+            .saturating_add(content.len() as u64);
+        let binary = content.contains(&0);
+        let invalid_utf8 = std::str::from_utf8(&content)
+            .err()
+            .is_some_and(|error| error.error_len().is_some());
+        if byte_stopped || deadline_stopped {
+            truncate_to_complete_lines(&mut content);
+            stop = if deadline_stopped {
+                SearchStop::Deadline
+            } else {
+                SearchStop::Bytes
+            };
         }
         if read_failed {
             files += 1;
@@ -387,19 +371,8 @@ fn run_search(
             continue;
         }
         files += 1;
-        bytes = bytes.saturating_add(content.len() as u64);
-        if byte_stopped || deadline_stopped {
-            truncate_to_complete_lines(&mut content);
-            stop = if deadline_stopped {
-                SearchStop::Deadline
-            } else {
-                SearchStop::Bytes
-            };
-        }
-        let searched_offset = resume_offset
-            .unwrap_or(0)
-            .saturating_add(content.len() as u64);
-        if content.contains(&0) {
+        bytes = bytes.saturating_add(searched_offset.saturating_sub(resume_offset.unwrap_or(0)));
+        if binary {
             if !skip(sender, &entry.rel, SkipReason::Binary) {
                 return;
             }
@@ -407,7 +380,21 @@ fn run_search(
                 position = Some(SearchPosition {
                     path: entry.rel,
                     line: resume_line as u32,
-                    byte_offset: Some(searched_offset),
+                    byte_offset: Some(metadata.len()),
+                });
+                break 'walk;
+            }
+            continue;
+        }
+        if invalid_utf8 {
+            if !skip(sender, &entry.rel, SkipReason::NotUtf8) {
+                return;
+            }
+            if byte_stopped || deadline_stopped {
+                position = Some(SearchPosition {
+                    path: entry.rel,
+                    line: resume_line as u32,
+                    byte_offset: Some(metadata.len()),
                 });
                 break 'walk;
             }
@@ -416,14 +403,6 @@ fn run_search(
         let Ok(text) = std::str::from_utf8(&content) else {
             if !skip(sender, &entry.rel, SkipReason::NotUtf8) {
                 return;
-            }
-            if byte_stopped || deadline_stopped {
-                position = Some(SearchPosition {
-                    path: entry.rel,
-                    line: resume_line as u32,
-                    byte_offset: Some(searched_offset),
-                });
-                break 'walk;
             }
             continue;
         };

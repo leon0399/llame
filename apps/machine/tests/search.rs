@@ -424,7 +424,7 @@ async fn same_byte_bound_resumes_through_a_large_file() {
     let mut req = request(root, &["needle"]);
     req.bounds = Some(SearchBounds {
         files: None,
-        bytes: Some(1),
+        bytes: Some(65_536),
         file_bytes: None,
         matches: None,
     });
@@ -552,9 +552,83 @@ async fn byte_bound_skips_zero_budget_and_stops_between_chunks() {
             _ => {}
         }
     }
-    assert_eq!(matches, ["large.txt"]);
+    assert!(matches.is_empty());
     let end = end.unwrap();
     assert_eq!(end.stop, SearchStop::Bytes as i32);
     assert_eq!(end.files, 1);
-    assert_eq!(end.bytes, 65_537);
+    assert_eq!(end.bytes, 1);
+    assert_eq!(end.position.unwrap().byte_offset, Some(1));
+}
+
+#[tokio::test]
+async fn unterminated_byte_bound_advances_without_overreading() {
+    let machine = common::Machine::new();
+    let root = machine.root();
+    std::fs::write(root.join("unterminated.txt"), "x".repeat(200_000)).unwrap();
+    let (_child, channel) = machine.attach().await;
+    let mut client = FileServiceClient::new(channel);
+    let mut req = request(root, &["x"]);
+    req.bounds = Some(SearchBounds {
+        files: None,
+        bytes: Some(1),
+        file_bytes: None,
+        matches: None,
+    });
+
+    let mut offsets = Vec::new();
+    let mut after = None;
+    for _ in 0..2 {
+        req.after = after;
+        let mut stream = client.search_files(req.clone()).await.unwrap().into_inner();
+        let mut end = None;
+        while let Some(response) = stream.message().await.unwrap() {
+            if let Some(Event::End(search_end)) = response.event {
+                end = Some(search_end);
+            }
+        }
+        let end = end.unwrap();
+        assert_eq!(end.stop, SearchStop::Bytes as i32);
+        assert_eq!(end.bytes, 1);
+        after = end.position;
+        offsets.push(after.as_ref().unwrap().byte_offset.unwrap());
+    }
+    assert_eq!(offsets, [1, 2]);
+}
+
+#[tokio::test]
+async fn binary_file_stays_skipped_after_a_byte_bound_resume() {
+    let machine = common::Machine::new();
+    let root = machine.root();
+    std::fs::write(root.join("binary.txt"), b"\0needle\n").unwrap();
+    let (_child, channel) = machine.attach().await;
+    let mut client = FileServiceClient::new(channel);
+    let mut req = request(root, &["needle"]);
+    req.bounds = Some(SearchBounds {
+        files: None,
+        bytes: Some(1),
+        file_bytes: None,
+        matches: None,
+    });
+    let mut stream = client.search_files(req.clone()).await.unwrap().into_inner();
+    let mut first_end = None;
+    let mut skipped = false;
+    while let Some(response) = stream.message().await.unwrap() {
+        match response.event {
+            Some(Event::Skipped(skip)) => skipped |= skip.path == "binary.txt",
+            Some(Event::End(end)) => first_end = Some(end),
+            _ => {}
+        }
+    }
+    let first_end = first_end.unwrap();
+    assert!(skipped);
+    assert_eq!(first_end.bytes, 1);
+    req.after = first_end.position;
+    let mut stream = client.search_files(req).await.unwrap().into_inner();
+    let mut matches = Vec::new();
+    while let Some(response) = stream.message().await.unwrap() {
+        if let Some(Event::Match(found)) = response.event {
+            matches.push(found.path);
+        }
+    }
+    assert!(matches.is_empty());
 }
