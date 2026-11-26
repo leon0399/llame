@@ -181,12 +181,11 @@ export class ChatJobsRepository {
       .select({
         runId: chatJobs.runId,
         toolCallId: chatJobs.toolCallId,
-        state: chatJobs.state,
       })
       .from(chatJobs)
       .where(jobInChat(chatId, ownerUserId, jobId));
 
-    if (job === undefined || job.state !== 'running') return false;
+    if (job === undefined) return false;
 
     const [result] = await this.db
       .select({ sequence: runEvents.sequence })
