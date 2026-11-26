@@ -15,6 +15,8 @@ machine-protocol.workspace = true
 tokio.workspace = true
 tokio-stream.workspace = true
 tonic.workspace = true
-
-[dev-dependencies]
+prost-types.workspace = true
 tempfile.workspace = true
+rustix.workspace = true
+libc.workspace = true
+
