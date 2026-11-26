@@ -587,6 +587,43 @@ describe('Machine media', () => {
     expect(handed[0]?.bytes.equals(bytes)).toBe(true);
   });
 
+  it('refuses text bytes read through the image media path', async () => {
+    const bytes = Buffer.from('plain text, not an image');
+    const { peer, connector } = fixture({
+      answers: {
+        'fs.read': {
+          value: {
+            status: 'error',
+            type: 'invalid_utf8',
+            message: 'The file is not valid UTF-8.',
+          },
+        },
+        'fs.bytes': { hold: true },
+      },
+    });
+    const { store, handed } = mediaStore();
+    const call = runTool(
+      nativeReadTool,
+      { path: 'machine://devl/srv/notes.txt' },
+      context(connector, { media: store }),
+      5,
+    );
+    const session = await peer.session(0);
+    await session.awaitRequests(2);
+    await flushMicrotasks();
+    sendChunks(session, bytes);
+    session.release('fs.bytes', {
+      size: bytes.byteLength,
+      mediaType: 'application/octet-stream',
+    });
+
+    await expect(call).resolves.toMatchObject({
+      status: 'error',
+      type: 'unsupported_media_type',
+    });
+    expect(handed).toHaveLength(0);
+  });
+
   it('asks the bytes for a literal filename a selector-shaped suffix named', async () => {
     const bytes = Buffer.concat([
       Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
@@ -744,7 +781,7 @@ describe('Machine media', () => {
     expect(session.calls[2]?.params).toMatchObject({ path: '/srv/shot.png' });
   });
 
-  it('keeps the text refusal when the bytes are not media', async () => {
+  it('refuses non-media bytes with unsupported_media_type', async () => {
     const bytes = Buffer.from([0x00, 0x01, 0x02, 0x03]);
 
     const { peer, connector } = fixture({
@@ -773,7 +810,7 @@ describe('Machine media', () => {
     });
     await expect(call).resolves.toMatchObject({
       status: 'error',
-      type: 'invalid_utf8',
+      type: 'unsupported_media_type',
     });
   });
 

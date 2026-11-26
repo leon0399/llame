@@ -33,6 +33,7 @@ import {
 } from './machine-call';
 import { type ToolContext, type ToolResult } from './types';
 import { NativeFileError, readMediaBytes } from '@workspace/native-file-tools';
+import { MEDIA_REFUSAL } from '../media/media-ingest';
 import {
   canonicalizeMachineResult,
   hideMalformedMachineFileSpelling,
@@ -189,11 +190,9 @@ async function readMachineSelectedPath({
 }
 
 /**
- * The media read of a Machine file, through `fs.bytes` and the shared
- * byte-buffer preparation, so the result is the one a local read of the same
- * bytes produces. `undefined` means the bytes are not an image or PDF after
- * all, and the text read's refusal stands.
- *
+ * The Machine media read streams bytes through the shared byte-buffer
+ * preparation. The hub rejects bytes without an image or PDF signature as
+ * unsupported media.
  * A literal filename that ends in a selector-shaped suffix is the target the
  * daemon's text read selected, because the literal-path probe takes precedence
  * over the selector split. Its bytes are asked for first, and the split
@@ -324,7 +323,7 @@ async function handMachineBytes(
   media: MachineMediaBytes,
 ): Promise<ToolResult | undefined> {
   try {
-    return await readMediaBytes(
+    const result = await readMediaBytes(
       media.bytes,
       {
         path: media.locator,
@@ -334,6 +333,14 @@ async function handMachineBytes(
         media: store.readMedia(media.submitted, context.toolCallId),
         signal: context.abortSignal,
       },
+    );
+
+    return (
+      result ?? {
+        status: 'error',
+        type: MEDIA_REFUSAL.unsupportedImage.code,
+        message: MEDIA_REFUSAL.unsupportedImage.message,
+      }
     );
   } catch (error) {
     if (error instanceof NativeFileError)
