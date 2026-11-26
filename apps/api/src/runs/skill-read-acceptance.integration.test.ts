@@ -15,6 +15,7 @@ import {
   seedAndDispatchRun,
   type WorkerHarness,
 } from './worker-harness';
+import { startLocalDaemon, type LocalDaemon } from '../testing/local-daemon';
 import { RunsRepository, RunEventsRepository } from './runs-repository';
 import { waitFor } from '../testing/support';
 
@@ -31,6 +32,7 @@ describe('skill package references and scripts through the model loop', () => {
   let source: string;
   let packageDirectory: string;
   let workDirectory: string;
+  let daemon: LocalDaemon;
   const tools = ['read', 'bash'];
 
   beforeAll(async () => {
@@ -89,16 +91,22 @@ describe('skill package references and scripts through the model loop', () => {
       ].join('\n'),
     );
 
+    daemon = startLocalDaemon({
+      name: 'skill-acceptance-host',
+      roots: [source],
+    });
+
     harness = await bootWorkerHarness({
       allowedTools: tools,
-      localMachine: 'skill-acceptance-host',
+      localMachine: daemon.name,
+      machineConnector: daemon.connector,
       skillDirectories: [source],
     });
     userId = await createUser(harness.db, 'skill-acceptance');
   });
 
   beforeEach(async () => {
-    workDirectory = await mkdtemp(join(tmpdir(), 'skill-work-'));
+    workDirectory = await mkdtemp(join(source, 'work-'));
     await writeFile(join(workDirectory, 'report.pdf'), 'payload\n');
   });
   afterEach(async () => {
@@ -107,6 +115,7 @@ describe('skill package references and scripts through the model loop', () => {
   });
   afterAll(async () => {
     if (harness) await harness.close();
+    if (daemon) daemon.dispose();
     await rm(source, { recursive: true, force: true });
   });
 

@@ -185,7 +185,6 @@ describe('ssh bash over a real sshd', () => {
     );
   }
 
-
   function machineBashRuntime(machines: MachineConnector) {
     const daemonJobId = { value: '' };
 
@@ -223,10 +222,12 @@ describe('ssh bash over a real sshd', () => {
         return Promise.resolve({ ...row, daemonJobId: input.daemonJobId });
       },
     );
-    vi.spyOn(NativeFilesRepository.prototype, 'recoverHostPromotion')
-      .mockImplementation((input) =>
-        Promise.resolve({ disposition: 'recovery_won', result: input.result }),
-      );
+    vi.spyOn(
+      NativeFilesRepository.prototype,
+      'recoverHostPromotion',
+    ).mockImplementation((input) =>
+      Promise.resolve({ disposition: 'recovery_won', result: input.result }),
+    );
 
     return {
       ...hostBashJobs(tenantDb, machines, {
@@ -614,10 +615,12 @@ describe('ssh bash over a real sshd', () => {
         return Promise.resolve({ ...row, daemonJobId: input.daemonJobId });
       },
     );
-    vi.spyOn(NativeFilesRepository.prototype, 'recoverHostPromotion')
-      .mockImplementation((input) =>
-        Promise.resolve({ disposition: 'recovery_won', result: input.result }),
-      );
+    vi.spyOn(
+      NativeFilesRepository.prototype,
+      'recoverHostPromotion',
+    ).mockImplementation((input) =>
+      Promise.resolve({ disposition: 'recovery_won', result: input.result }),
+    );
 
     try {
       const call = runTool(
@@ -638,7 +641,11 @@ describe('ssh bash over a real sshd', () => {
 
       await waitFor(
         async () => {
-          const result = await fixture.execIn(fixture.box, ['ps', '-eo', 'args']);
+          const result = await fixture.execIn(fixture.box, [
+            'ps',
+            '-eo',
+            'args',
+          ]);
 
           return result.stdout.includes(command) ? true : undefined;
         },
@@ -687,7 +694,11 @@ describe('ssh bash over a real sshd', () => {
 
       await waitFor(
         async () => {
-          const result = await fixture.execIn(fixture.box, ['ps', '-eo', 'args']);
+          const result = await fixture.execIn(fixture.box, [
+            'ps',
+            '-eo',
+            'args',
+          ]);
 
           return result.stdout.includes(command) ? undefined : true;
         },
