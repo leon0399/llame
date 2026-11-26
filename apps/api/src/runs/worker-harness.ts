@@ -96,6 +96,11 @@ type HarnessOverrides = {
    */
   machines?: MachinesConfig;
   /**
+   * A real local daemon connector for suites that need Machine jobs, rather
+   * than the file-only scripted peer.
+   */
+  machineConnector?: MachineConnector;
+  /**
    * Test seam for Machine links (the in-process protocol peer), so a suite
    * reaches a scripted daemon without SSH. Absent means real SSH links, which
    * no suite exercises today.
@@ -129,9 +134,7 @@ type HarnessOverrides = {
   /**
    * Extra permission groups merged OVER the permissive allow-all this harness
    * grants every registered tool. Suites that must exercise a real permission
-   * decision (rather than execution or recovery) supply their own group here;
-   * the allow-all default stays, because a harness-oriented suite that forgot to
-   * would silently reject every call.
+   * decision supply their own group here.
    */
   toolPermissions?: Record<string, PermissionGroup>;
 };
@@ -264,7 +267,15 @@ export async function bootWorkerHarness(
   const machines = config.machines;
   let connector: MachineConnector | undefined;
 
-  if (overrides?.machineTransportFactory !== undefined) {
+  if (overrides?.machineConnector !== undefined) {
+    if (overrides.machineTransportFactory !== undefined) {
+      throw new Error(
+        'bootWorkerHarness: machineConnector and machineTransportFactory cannot both be set',
+      );
+    }
+
+    connector = overrides.machineConnector;
+  } else if (overrides?.machineTransportFactory !== undefined) {
     // A Machine suite injects its scripted transport; the production module
     // would otherwise open SSH to a configured destination.
     if (machines === undefined) {

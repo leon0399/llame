@@ -7,9 +7,10 @@ import { isRecord } from '@workspace/runtime-safety';
 
 import { chatDeliveries } from '../db/schema';
 import { MessagesRepository } from '../chats/chats-repository';
+import { startLocalDaemon, type LocalDaemon } from '../testing/local-daemon';
 import { waitFor } from '../testing/support';
-import { RUNS_QUEUE } from './run-queues';
 import { answer, call } from '../testing/run-segments.test-fixture';
+import { RUNS_QUEUE } from './run-queues';
 import { settleBashJob } from '../jobs/bash-job-store';
 import { JobNoticeRunService } from './job-notice-run.service';
 import { PersonalizationService } from '../personalization/personalization.service';
@@ -36,10 +37,12 @@ vi.setConfig({ testTimeout: 90_000 });
 describe('wait tool native-queue recovery', () => {
   let harness: WorkerHarness | undefined;
   const queueSchema = `${process.env.LLAME_TEST_SCHEMA_PREFIX ?? 'llame_t'}_wait_recovery_${randomUUID().replaceAll('-', '').slice(0, 12)}`;
+  const daemons: Array<LocalDaemon> = [];
   const directories: Array<string> = [];
 
   afterAll(async () => {
     await harness?.close();
+    for (const daemon of daemons) daemon.dispose();
     await Promise.all(directories.map((path) => rm(path, { recursive: true })));
   });
 
@@ -48,6 +51,11 @@ describe('wait tool native-queue recovery', () => {
     async (prefixTool) => {
       await harness?.close();
       const directory = await mkdtemp(join(tmpdir(), 'wait-recovery-'));
+      const daemon = startLocalDaemon({
+        roots: [directory],
+        name: 'wait-recovery-host',
+      });
+      daemons.push(daemon);
       directories.push(directory);
       const path = join(directory, 'prefix.txt');
       await writeFile(path, prefixTool === 'read' ? 'original read value' : '');
@@ -58,7 +66,10 @@ describe('wait tool native-queue recovery', () => {
         localMachine: 'wait-recovery-host',
       };
 
-      harness = await bootWorkerHarness(options);
+      harness = await bootWorkerHarness({
+        ...options,
+        machineConnector: daemon.connector,
+      });
       const ownerId = await createUser(harness.db, `recovery-${randomUUID()}`);
       const modelId = `recovery-${randomUUID()}`;
 
@@ -119,7 +130,11 @@ describe('wait tool native-queue recovery', () => {
         'original worker queue acknowledgement',
       );
       await harness.close();
-      harness = await bootWorkerHarness({ ...options, runsConcurrency: null });
+      harness = await bootWorkerHarness({
+        ...options,
+        runsConcurrency: null,
+        machineConnector: daemon.connector,
+      });
       await settleBashJob(
         harness.tenantDb,
         job,
@@ -143,6 +158,7 @@ describe('wait tool native-queue recovery', () => {
       let injected = false;
       harness = await bootWorkerHarness({
         ...options,
+        machineConnector: daemon.connector,
         beforeInit: (models) => {
           models.register(modelId, {
             kind: 'step-script',

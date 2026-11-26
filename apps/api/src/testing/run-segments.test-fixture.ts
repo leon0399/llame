@@ -16,6 +16,8 @@ import {
   type UnknownRecord,
 } from '@workspace/runtime-safety';
 
+import { startLocalDaemon, type LocalDaemon } from './local-daemon';
+
 import { ChatDeliveriesRepository } from '../chats/chat-deliveries.repository';
 import { MessagesRepository } from '../chats/chats-repository';
 import { type ChatDeliveryMode } from '../db/schema';
@@ -81,7 +83,12 @@ export function useSegmentsFixture(
   options: SegmentFixtureOptions,
 ) {
   let booted:
-    | { harness: WorkerHarness; userId: string; directory: string }
+    | {
+        harness: WorkerHarness;
+        userId: string;
+        directory: string;
+        daemon?: LocalDaemon;
+      }
     | undefined;
 
   const state = () => {
@@ -91,17 +98,37 @@ export function useSegmentsFixture(
   };
 
   beforeAll(async () => {
-    const harness = await bootWorkerHarness(options);
-    booted = {
-      harness,
-      userId: await createUser(harness.db, label),
-      directory: await mkdtemp(join(tmpdir(), `${label}-`)),
-    };
+    const directory = await mkdtemp(join(tmpdir(), `${label}-`));
+    const daemon =
+      options.localMachine === undefined
+        ? undefined
+        : startLocalDaemon({
+            roots: [directory],
+            name: options.localMachine,
+          });
+
+    try {
+      const harness = await bootWorkerHarness({
+        ...options,
+        ...(daemon !== undefined && { machineConnector: daemon.connector }),
+      });
+      booted = {
+        harness,
+        userId: await createUser(harness.db, label),
+        directory,
+        ...(daemon !== undefined && { daemon }),
+      };
+    } catch (error) {
+      daemon?.dispose();
+      await rm(directory, { recursive: true, force: true });
+      throw error;
+    }
   });
 
   afterAll(async () => {
     if (!booted) return;
     await booted.harness.close();
+    booted.daemon?.dispose();
     await rm(booted.directory, { recursive: true, force: true });
   });
 
