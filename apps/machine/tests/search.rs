@@ -306,6 +306,61 @@ async fn resumed_line_cursor_spends_only_remaining_file_and_byte_bounds() {
 }
 
 #[tokio::test]
+async fn match_bound_defers_the_unmatched_file_to_the_next_page() {
+    let machine = common::Machine::new();
+    let root = machine.root();
+    for index in 0..21 {
+        std::fs::write(root.join(format!("f{index:03}.txt")), "needle\n").unwrap();
+    }
+    let (_child, channel) = machine.attach().await;
+    let mut client = FileServiceClient::new(channel);
+    let mut req = request(root, &["needle"]);
+    req.bounds = Some(SearchBounds {
+        files: None,
+        bytes: None,
+        file_bytes: None,
+        matches: Some(20),
+    });
+
+    let mut stream = client.search_files(req.clone()).await.unwrap().into_inner();
+    let mut matches = 0;
+    let mut end = None;
+    while let Some(response) = stream.message().await.unwrap() {
+        match response.event.unwrap() {
+            Event::Match(_) => matches += 1,
+            Event::End(search_end) => end = Some(search_end),
+            Event::Failure(failure) => panic!("search failure: {failure:?}"),
+            Event::Skipped(_) => {}
+        }
+    }
+
+    let end = end.unwrap();
+    assert_eq!(matches, 20);
+    assert_eq!(end.stop, SearchStop::Matches as i32);
+    assert_eq!(end.files, 20);
+    assert_eq!(end.bytes, 140);
+    let position = end.position.unwrap();
+    assert_eq!(position.path, "f019.txt");
+    assert_eq!(position.line, 1);
+
+    req.after = Some(position);
+    req.bounds = None;
+    let mut stream = client.search_files(req).await.unwrap().into_inner();
+    let mut resumed = Vec::new();
+    let mut end = None;
+    while let Some(response) = stream.message().await.unwrap() {
+        match response.event.unwrap() {
+            Event::Match(found) => resumed.push(found.path),
+            Event::End(search_end) => end = Some(search_end),
+            Event::Failure(failure) => panic!("search failure: {failure:?}"),
+            Event::Skipped(_) => {}
+        }
+    }
+    assert_eq!(resumed, ["f020.txt"]);
+    assert_eq!(end.unwrap().files, 1);
+}
+
+#[tokio::test]
 async fn stopped_search_positions_advance_past_the_incoming_cursor() {
     let machine = common::Machine::new();
     let root = machine.root();

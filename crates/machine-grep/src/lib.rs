@@ -471,6 +471,16 @@ fn run_search(
                 continue;
             }
             if matches >= match_limit {
+                let deferred_file = last_match_position
+                    .as_ref()
+                    .is_none_or(|position| position.path != entry.rel);
+                if deferred_file {
+                    if !resumed_file {
+                        files = files.saturating_sub(1);
+                    }
+                    bytes = bytes
+                        .saturating_sub(searched_offset.saturating_sub(resume_offset.unwrap_or(0)));
+                }
                 stop = SearchStop::Matches;
                 position = Some(stopped_position(
                     last_match_position.take(),
