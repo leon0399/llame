@@ -15,10 +15,10 @@
  * how a missing one fails loudly instead of skipping.
  */
 
+import { randomBytes } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { readdirSync } from 'node:fs';
 import { setTimeout as delay } from 'node:timers/promises';
-
 import {
   type JsonValue,
   type MachineMethod,
@@ -235,34 +235,35 @@ describe('Machine SSH transport over a jump host (remote-machines)', () => {
     }
   });
 
-  it('kills the remote process group when the session is lost during a long bash', async () => {
-    const harness = connect(fixture.connection());
-    const marker = `sleep ${String(LONG_BASH_SECONDS)}`;
+  it('keeps a daemon job running after its SSH session is lost', async () => {
+    const connection = fixture.connection();
+    const harness = connect(connection);
+    const command = `sleep ${String(LONG_BASH_SECONDS)}`;
+    const jobId = randomBytes(16).toString('hex');
+    const owner = 'hub';
 
     try {
-      const running = request(harness, 'proc.bash', {
-        envelope: ENVELOPE,
-        command: marker,
-      }).catch(rejection);
+      const session = await harness.connector.jobsClient(MACHINE_SSHD_NAME);
+      const created = await session.client.createJob(
+        { jobId, owner, command },
+        session.callOptions(),
+      );
 
-      await waitForBoxProcess(fixture, marker, true);
+      expect(created.result.case).toBe('job');
+      await waitForBoxProcess(fixture, command, true);
 
       const link = harness.transports.at(-1);
 
       if (link === undefined)
         throw new Error('The Machine link was never opened.');
-      // The link is lost, as a network failure would lose it.
       link.close();
-
-      const error = refusal(await running);
-      expect(error).toBeInstanceOf(MachineUnavailableError);
-      expect(error.reason).toBe('session_lost');
-      // The request had gone out, so its effect is unknown rather than absent.
-      expect(error.sent).toBe(true);
-      await waitForBoxProcess(fixture, marker, false);
+      await waitForBoxProcess(fixture, command, true);
     } finally {
       harness.dispose();
+      await stopRemoteJob(connection, jobId, owner);
     }
+
+    await waitForBoxProcess(fixture, command, false);
   });
 
   it('carries two concurrent requests over one SSH process', async () => {
@@ -413,5 +414,24 @@ function sshProcessCount(): number {
     .filter(
       (line) => line.includes(' -L ') && line.includes('/llame-machine-ssh-'),
     ).length;
+}
+
+async function stopRemoteJob(
+  connection: MachineSshdConnection,
+  jobId: string,
+  owner: string,
+): Promise<void> {
+  const harness = connect(connection);
+
+  try {
+    const session = await harness.connector.jobsClient(MACHINE_SSHD_NAME);
+
+    await session.client.cancelJob(
+      { requestId: jobId, jobId, owner },
+      session.callOptions(),
+    );
+  } finally {
+    harness.dispose();
+  }
 }
 
