@@ -416,7 +416,7 @@ describe('BashJobRegistry result retention', () => {
     );
     expect(recovery).toHaveBeenCalled();
   });
-  it('keeps a possibly started job bound when CreateJob times out', async () => {
+  it('records an unknown result and keeps the binding after a CreateJob timeout', async () => {
     const machines = connector();
     let createdId: string | undefined;
 
@@ -449,6 +449,14 @@ describe('BashJobRegistry result retention', () => {
     });
     vi.spyOn(ArtifactsRepository.prototype, 'nextSeq').mockResolvedValue(1);
     vi.spyOn(ChatJobsRepository.prototype, 'insert').mockResolvedValue(row);
+    const settle = vi
+      .spyOn(ChatJobsRepository.prototype, 'settle')
+      .mockResolvedValue(row);
+    const recordNativeResult = vi
+      .spyOn(NativeFilesRepository.prototype, 'recoverHostPromotion')
+      .mockImplementation(({ result }) =>
+        Promise.resolve({ disposition: 'recovery_won', result }),
+      );
 
     const deleteRunning = vi
       .spyOn(ChatJobsRepository.prototype, 'deleteRunning')
@@ -474,8 +482,10 @@ describe('BashJobRegistry result retention', () => {
         { name: row.machineName, local: false },
         { command: 'true' },
       ),
-    ).rejects.toBeInstanceOf(ConnectError);
+    ).resolves.toMatchObject({ type: 'outcome_unknown' });
 
+    expect(recordNativeResult).toHaveBeenCalledOnce();
+    expect(settle).not.toHaveBeenCalled();
     expect(deleteRunning).not.toHaveBeenCalled();
   });
 

@@ -152,12 +152,7 @@ async function createBoundBashJob(
     input: deps.input,
     daemonJobId,
     lifetimeMs,
-  }).catch((error: unknown) =>
-    settleUnknownCreate(
-      input,
-      error instanceof Error ? error : new Error(String(error)),
-    ),
-  );
+  }).catch(() => settleUnknownCreate(input));
 
   if (result.kind === 'failed') return result;
 
@@ -187,7 +182,6 @@ async function createBoundBashJob(
 
 async function settleUnknownCreate(
   input: CreateBoundBashJobInput,
-  createError: Error,
 ): Promise<BashJobStart> {
   const { deps, binding, machineClient, daemonJobId } = input;
 
@@ -195,19 +189,22 @@ async function settleUnknownCreate(
     .listJobs({}, machineClient.callOptions())
     .catch(() => undefined);
 
-  if (listed === undefined || listed.jobs.some((job) => job.id === daemonJobId))
-    throw createError;
-
   const unknown = machineUnknownResult(deps.machine.name);
 
-  const lostJob = create(JobSchema, {
-    id: daemonJobId,
-    owner: deps.context.userId,
-    state: JobState.LOST,
-    lostCause: LostCause.DAEMON_RESTARTED,
-  });
+  if (
+    listed !== undefined &&
+    !listed.jobs.some((job) => job.id === daemonJobId)
+  ) {
+    const lostJob = create(JobSchema, {
+      id: daemonJobId,
+      owner: deps.context.userId,
+      state: JobState.LOST,
+      lostCause: LostCause.DAEMON_RESTARTED,
+    });
 
-  await deps.settleLost(binding, lostJob);
+    await deps.settleLost(binding, lostJob);
+  }
+
   await recordNativeResult(deps.tenantDb, deps.context, unknown);
 
   return { kind: 'failed', result: unknown };
