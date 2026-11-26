@@ -83,8 +83,41 @@ fn failing_git_log_shim(machine: &common::Machine) -> std::path::PathBuf {
     bin
 }
 
+fn failing_git_head_shim(machine: &common::Machine) -> std::path::PathBuf {
+    let bin = machine.home.path().join("head-shim");
+    std::fs::create_dir_all(&bin).unwrap();
+    let real_git = std::env::split_paths(&std::env::var_os("PATH").unwrap())
+        .map(|directory| directory.join("git"))
+        .find(|path| path.is_file())
+        .unwrap();
+    let path = bin.join("git");
+    std::fs::write(
+        &path,
+        format!(
+            "#!/bin/sh\nif [ \"$1\" = --version ]; then echo 'git version 2.39.0'; exit 0; fi\ncase \" $* \" in *' rev-parse --verify HEAD '*) exit 1;; esac\nexec '{}' \"$@\"\n",
+            real_git.display()
+        ),
+    )
+    .unwrap();
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+    bin
+}
+
+fn fixture_git() -> Command {
+    let mut command = Command::new("git");
+    for name in [
+        "GIT_DIR",
+        "GIT_WORK_TREE",
+        "GIT_INDEX_FILE",
+        "GIT_OBJECT_DIRECTORY",
+        "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+    ] {
+        command.env_remove(name);
+    }
+    command
+}
 fn git(directory: &Path, args: &[&str]) -> String {
-    let output = Command::new("git")
+    let output = fixture_git()
         .arg("-C")
         .arg(directory)
         .args(args)
@@ -100,7 +133,7 @@ fn git(directory: &Path, args: &[&str]) -> String {
 }
 fn repository(path: &Path) {
     std::fs::create_dir_all(path).unwrap();
-    let output = Command::new("git")
+    let output = fixture_git()
         .args(["init", "-q"])
         .arg(path)
         .output()
@@ -122,6 +155,15 @@ async fn repository_status_detached_and_not_a_repository() {
     let root = machine.root();
     let repo = root.join("repo");
     repository(&repo);
+    git(
+        &repo,
+        &[
+            "remote",
+            "add",
+            "origin",
+            "https://token:secret@example.invalid/owner/repo.git",
+        ],
+    );
     std::fs::write(repo.join("tracked.txt"), "changed\n").unwrap();
     std::fs::write(repo.join("new.txt"), "new\n").unwrap();
     let (mut child, channel) = machine.attach().await;
@@ -136,6 +178,12 @@ async fn repository_status_detached_and_not_a_repository() {
     let Some(get_repository_response::Result::Repository(facts)) = response.result else {
         panic!("repository facts missing")
     };
+    assert_eq!(facts.remotes.len(), 1);
+    assert_eq!(
+        facts.remotes[0].url,
+        "https://example.invalid/owner/repo.git"
+    );
+    assert!(!format!("{facts:?}").contains("secret"));
     assert_eq!(facts.worktree, absolute(&repo));
     assert_eq!(facts.git_dir, absolute(&repo.join(".git")));
     assert_eq!(facts.common_dir, facts.git_dir);
@@ -155,6 +203,11 @@ async fn repository_status_detached_and_not_a_repository() {
     let Some(get_status_response::Result::Status(status)) = response.result else {
         panic!("status missing")
     };
+    assert_eq!(
+        status.repository.as_ref().unwrap().remotes[0].url,
+        "https://example.invalid/owner/repo.git"
+    );
+    assert!(!format!("{status:?}").contains("secret"));
     assert_eq!(status.counts.as_ref().unwrap().unstaged, 1);
     assert_eq!(status.counts.as_ref().unwrap().untracked, 1);
     assert_eq!(status.changes.len(), 1);
@@ -305,7 +358,7 @@ async fn upstream_ahead_and_behind_are_reported() {
     let machine = common::Machine::new();
     let root = machine.root();
     let bare = root.join("remote.git");
-    let output = Command::new("git")
+    let output = fixture_git()
         .args(["init", "--bare", "-q"])
         .arg(&bare)
         .output()
@@ -319,7 +372,7 @@ async fn upstream_ahead_and_behind_are_reported() {
     git(&repo, &["add", "local.txt"]);
     git(&repo, &["commit", "-m", "local"]);
     let other = root.join("other");
-    let out = Command::new("git")
+    let out = fixture_git()
         .args(["clone", "-q"])
         .arg(&bare)
         .arg(&other)
@@ -396,6 +449,24 @@ async fn worktree_create_list_delete_and_invalid_branch() {
         panic!("worktree creation failed")
     };
     assert_eq!(w.path, absolute(&path));
+    let moved_repo = root.join("repo-moved");
+    std::fs::rename(&repo, &moved_repo).unwrap();
+    let replay = client
+        .create_worktree(CreateWorktreeRequest {
+            request_id: "create-1".into(),
+            repository: absolute(&repo),
+            branch: "feature/test".into(),
+            base: None,
+            path: absolute(&path),
+        })
+        .await
+        .unwrap()
+        .into_inner();
+    let Some(create_worktree_response::Result::Worktree(replayed)) = replay.result else {
+        panic!("replayed create failed after source repository moved")
+    };
+    assert_eq!(replayed.path, absolute(&path));
+    std::fs::rename(moved_repo, &repo).unwrap();
     let response = client
         .list_worktrees(ListWorktreesRequest {
             repository: absolute(&repo),
@@ -435,15 +506,46 @@ async fn worktree_create_list_delete_and_invalid_branch() {
 }
 
 #[tokio::test]
+async fn create_returns_worktree_when_followup_head_query_fails() {
+    let machine = common::Machine::new();
+    let root = machine.root();
+    let repo = root.join("repo");
+    repository(&repo);
+    let path = root.join("linked");
+    let shim = failing_git_head_shim(&machine);
+    let (mut child, channel) = machine.attach_with_path(Some(&shim)).await;
+    let mut client = GitServiceClient::new(channel);
+    let response = client
+        .create_worktree(CreateWorktreeRequest {
+            request_id: "create-head-fails".into(),
+            repository: absolute(&repo),
+            branch: "feature/head-query".into(),
+            base: None,
+            path: absolute(&path),
+        })
+        .await
+        .unwrap()
+        .into_inner();
+    let Some(create_worktree_response::Result::Worktree(worktree)) = response.result else {
+        panic!("created worktree was not returned after HEAD query failed")
+    };
+    assert_eq!(worktree.path, absolute(&path));
+    assert!(worktree.head.is_none());
+    assert!(path.is_dir());
+    child.kill().await.unwrap();
+}
+
+#[tokio::test]
 async fn gitdir_outside_root_is_refused() {
     let machine = common::Machine::new();
     let root = machine.root();
-    let external = std::env::temp_dir().join(format!("machine-git-outside-{}", std::process::id()));
+    let outside_temp = tempfile::tempdir().unwrap();
+    let external = outside_temp.path().to_path_buf();
     let source = external.join("source");
     let git_dir = external.join("linked.git");
     repository(&source);
     let repo = root.join("linked");
-    let out = Command::new("git")
+    let out = fixture_git()
         .args(["clone", "-q", "--separate-git-dir"])
         .arg(&git_dir)
         .arg(&source)
@@ -469,7 +571,6 @@ async fn gitdir_outside_root_is_refused() {
         !marker.exists(),
         "git process started before outside-root refusal"
     );
-    let _ = std::fs::remove_dir_all(external);
 }
 
 #[tokio::test]
@@ -478,8 +579,8 @@ async fn common_directory_outside_roots_is_refused_before_git() {
     let root = machine.root();
     let repo = root.join("repo");
     repository(&repo);
-    let external = std::env::temp_dir().join(format!("machine-git-common-{}", std::process::id()));
-    std::fs::create_dir_all(&external).unwrap();
+    let outside_temp = tempfile::tempdir().unwrap();
+    let external = outside_temp.path().to_path_buf();
     std::fs::write(repo.join(".git/commondir"), absolute(&external)).unwrap();
     let (shim, marker) = git_shim(&machine);
     let (_child, channel) = machine.attach_with_path(Some(&shim)).await;
@@ -496,7 +597,6 @@ async fn common_directory_outside_roots_is_refused_before_git() {
     };
     assert_eq!(failure.reason, GitFailureReason::OutsideRoots as i32);
     assert!(!marker.exists(), "git started before common-dir refusal");
-    let _ = std::fs::remove_dir_all(external);
 }
 
 #[tokio::test]
@@ -505,9 +605,8 @@ async fn object_alternate_outside_roots_is_refused_before_git() {
     let root = machine.root();
     let repo = root.join("repo");
     repository(&repo);
-    let external =
-        std::env::temp_dir().join(format!("machine-git-alternate-{}", std::process::id()));
-    std::fs::create_dir_all(&external).unwrap();
+    let outside_temp = tempfile::tempdir().unwrap();
+    let external = outside_temp.path().to_path_buf();
     let alternates = repo.join(".git/objects/info/alternates");
     std::fs::create_dir_all(alternates.parent().unwrap()).unwrap();
     std::fs::write(&alternates, format!("\"{}\"", absolute(&external))).unwrap();
@@ -526,7 +625,6 @@ async fn object_alternate_outside_roots_is_refused_before_git() {
     };
     assert_eq!(failure.reason, GitFailureReason::OutsideRoots as i32);
     assert!(!marker.exists(), "git started before alternate refusal");
-    let _ = std::fs::remove_dir_all(external);
 }
 #[tokio::test]
 async fn locate_repository_is_bounded_and_does_not_start_git() {

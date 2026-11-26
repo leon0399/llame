@@ -18,7 +18,8 @@ use machine_protocol::v1::{
 use prost_types::Timestamp;
 use std::{
     fs,
-    os::unix::process::CommandExt,
+    io::Read as _,
+    os::unix::{ffi::OsStrExt, fs::OpenOptionsExt, process::CommandExt},
     path::{Path, PathBuf},
     process::Stdio,
     time::{Duration, Instant},
@@ -269,6 +270,18 @@ async fn run_mode(directory: &Path, args: &[&str], deadline: Instant, pinned: bo
         bounded,
     }
 }
+fn redact_remote_url(url: &str) -> String {
+    let Some((scheme, rest)) = url.split_once("://") else {
+        return url.to_owned();
+    };
+    let authority_end = rest.find('/').unwrap_or(rest.len());
+    let authority = &rest[..authority_end];
+    if let Some((_, host)) = authority.rsplit_once('@') {
+        format!("{scheme}://{host}{}", &rest[authority_end..])
+    } else {
+        url.to_owned()
+    }
+}
 fn parse_remotes(value: &str) -> Vec<Remote> {
     value
         .split('\0')
@@ -280,7 +293,7 @@ fn parse_remotes(value: &str) -> Vec<Remote> {
                     .strip_prefix("remote.")?
                     .strip_suffix(".url")?
                     .to_owned(),
-                url: url.to_owned(),
+                url: redact_remote_url(url),
             })
         })
         .collect()
@@ -335,7 +348,7 @@ fn git_directory(entry: &Path) -> Option<PathBuf> {
     if entry.is_dir() {
         return Some(fs::canonicalize(entry).unwrap_or_else(|_| entry.to_path_buf()));
     }
-    let content = fs::read_to_string(entry).ok()?;
+    let content = String::from_utf8(read_regular_bytes(entry).ok()??).ok()?;
     let target = content.trim().strip_prefix("gitdir: ")?;
     let target = PathBuf::from(target);
     let target = if target.is_absolute() {
@@ -346,19 +359,60 @@ fn git_directory(entry: &Path) -> Option<PathBuf> {
     Some(fs::canonicalize(&target).unwrap_or(target))
 }
 
-fn alternate_paths(alternates: &str) -> impl Iterator<Item = &str> {
+fn alternate_paths(alternates: &[u8]) -> impl Iterator<Item = &[u8]> {
     alternates
-        .split('\n')
-        .map(|entry| entry.split('\0').next().unwrap_or_default())
+        .split(|byte| *byte == b'\n')
+        .map(|entry| entry.split(|byte| *byte == 0).next().unwrap_or_default())
         .filter(|entry| !entry.is_empty())
 }
 
-fn read_git_metadata(path: &Path, roots: &[PathBuf]) -> Result<Option<String>, GitFailure> {
+fn read_regular_bytes(path: &Path) -> std::io::Result<Option<Vec<u8>>> {
+    let file = match fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NONBLOCK)
+        .open(path)
+    {
+        Ok(file) => file,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(error),
+    };
+    if !file.metadata()?.is_file() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "Git metadata is not a regular file",
+        ));
+    }
+    let mut value = Vec::new();
+
+    file.take(1024 * 1024 + 1).read_to_end(&mut value)?;
+    if value.len() > 1024 * 1024 {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "Git metadata exceeds the size limit",
+        ));
+    }
+    Ok(Some(value))
+}
+
+fn read_git_metadata_bytes(path: &Path, roots: &[PathBuf]) -> Result<Option<Vec<u8>>, GitFailure> {
     let resolved = fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
     if !machine_core::guard::is_inside(roots, &resolved) {
         return Err(failure(GitFailureReason::OutsideRoots, ""));
     }
-    Ok(fs::read_to_string(path).ok())
+    read_regular_bytes(path).map_err(|_| failure(GitFailureReason::GitFailed, ""))
+}
+
+fn read_git_metadata(path: &Path, roots: &[PathBuf]) -> Result<Option<String>, GitFailure> {
+    read_git_metadata_bytes(path, roots)?
+        .map(|value| String::from_utf8(value).map_err(|_| failure(GitFailureReason::GitFailed, "")))
+        .transpose()
+}
+
+fn read_optional_git_text(path: &Path) -> Result<Option<String>, GitFailure> {
+    read_regular_bytes(path)
+        .map_err(|_| failure(GitFailureReason::GitFailed, ""))?
+        .map(|value| String::from_utf8(value).map_err(|_| failure(GitFailureReason::GitFailed, "")))
+        .transpose()
 }
 
 fn checked_git_data(entry: &Path, roots: &[PathBuf]) -> Result<(PathBuf, PathBuf), GitFailure> {
@@ -400,12 +454,13 @@ fn checked_git_data(entry: &Path, roots: &[PathBuf]) -> Result<(PathBuf, PathBuf
             return Err(failure(GitFailureReason::OutsideRoots, ""));
         }
         checked.push(objects.clone());
-        if let Some(alternates) = read_git_metadata(&objects.join("info/alternates"), roots)? {
+        if let Some(alternates) = read_git_metadata_bytes(&objects.join("info/alternates"), roots)?
+        {
             for alternate in alternate_paths(&alternates) {
-                if alternate.starts_with('"') {
+                if alternate.starts_with(b"\"") {
                     return Err(failure(GitFailureReason::OutsideRoots, ""));
                 }
-                let path = PathBuf::from(alternate);
+                let path = PathBuf::from(std::ffi::OsStr::from_bytes(alternate));
                 pending.push(if path.is_absolute() {
                     path
                 } else {
@@ -470,51 +525,50 @@ async fn repository(
     if !machine_core::guard::is_inside(guard.roots(), &objects) {
         return Err(failure(GitFailureReason::OutsideRoots, ""));
     }
-    if let Ok(alts) = fs::read_to_string(objects.join("info/alternates")) {
-        for alt in alternate_paths(&alts) {
-            if alt.starts_with('"') {
+    if let Some(alternates) =
+        read_git_metadata_bytes(&objects.join("info/alternates"), guard.roots())?
+    {
+        for alternate in alternate_paths(&alternates) {
+            if alternate.starts_with(b"\"") {
                 return Err(failure(GitFailureReason::OutsideRoots, ""));
             }
-            let p = PathBuf::from(alt);
-            let p = if p.is_absolute() { p } else { objects.join(p) };
-            let p = fs::canonicalize(&p).unwrap_or(p);
-            if !machine_core::guard::is_inside(guard.roots(), &p) {
+            let alternate = PathBuf::from(std::ffi::OsStr::from_bytes(alternate));
+            let path = if alternate.is_absolute() {
+                alternate
+            } else {
+                objects.join(alternate)
+            };
+            let path = fs::canonicalize(&path).unwrap_or(path);
+            if !machine_core::guard::is_inside(guard.roots(), &path) {
                 return Err(failure(GitFailureReason::OutsideRoots, ""));
             }
         }
     }
-    let rem = run(
-        directory,
-        &["config", "--null", "--get-regexp", r"^remote\..*\.url$"],
-        deadline,
-    )
-    .await;
+    let rem = get(&["config", "--null", "--get-regexp", r"^remote\..*\.url$"]).await;
     if rem.timed_out || rem.bounded || rem.status.is_some_and(|c| c != 0 && c != 1) {
         return Err(process_failure(&rem));
     }
-    let br = run(
-        directory,
-        &["symbolic-ref", "--short", "--quiet", "HEAD"],
-        deadline,
-    )
-    .await;
-    let hd = run(directory, &["rev-parse", "--verify", "HEAD"], deadline).await;
-    if br.timed_out || hd.timed_out || br.bounded || hd.bounded {
-        return Err(process_failure(if br.timed_out || br.bounded {
-            &br
-        } else {
-            &hd
-        }));
-    }
+    let (branch, head) = if pinned {
+        (None, None)
+    } else {
+        let br = get(&["symbolic-ref", "--short", "--quiet", "HEAD"]).await;
+        let hd = get(&["rev-parse", "--verify", "HEAD"]).await;
+        if br.timed_out || hd.timed_out || br.bounded || hd.bounded {
+            return Err(process_failure(if br.timed_out || br.bounded {
+                &br
+            } else {
+                &hd
+            }));
+        }
+        (
+            (br.status == Some(0)).then(|| line(&br)),
+            (hd.status == Some(0)).then(|| line(&hd)),
+        )
+    };
     let main_worktree = if git_dir == common_dir {
         None
     } else {
-        let wt = run(
-            directory,
-            &["worktree", "list", "--porcelain", "-z"],
-            deadline,
-        )
-        .await;
+        let wt = get(&["worktree", "list", "--porcelain", "-z"]).await;
         if !succeed(&wt) {
             return Err(process_failure(&wt));
         }
@@ -539,8 +593,8 @@ async fn repository(
         common_dir,
         main_worktree,
         remotes: parse_remotes(&text(&rem.stdout)),
-        branch: (br.status == Some(0)).then(|| line(&br)),
-        head: (hd.status == Some(0)).then(|| line(&hd)),
+        branch,
+        head,
     })
 }
 fn status_fields(value: &str, fields: usize) -> Option<(String, String)> {
@@ -557,20 +611,19 @@ fn relative(root: &Path, path: &str) -> String {
         .to_string_lossy()
         .into_owned()
 }
+
+struct ParsedStatus {
+    counts: ChangeCounts,
+    changes: Vec<Change>,
+    omitted: u32,
+    relative_path: String,
+    upstream: Option<String>,
+    head: Option<String>,
+    branch_ab: Option<String>,
+    branch: Option<String>,
+}
 #[allow(clippy::too_many_lines)]
-fn parse_status(
-    data: &str,
-    max: usize,
-    root: &Path,
-    requested: &Path,
-) -> (
-    ChangeCounts,
-    Vec<Change>,
-    u32,
-    String,
-    Option<String>,
-    Option<String>,
-) {
+fn parse_status(data: &str, max: usize, root: &Path, requested: &Path) -> ParsedStatus {
     let mut staged = 0;
     let mut unstaged = 0;
     let mut untracked: u32 = 0;
@@ -579,14 +632,20 @@ fn parse_status(
     let mut omitted = 0;
     let mut head = None;
     let mut up = None;
+    let mut branch = None;
+    let mut branch_ab = None;
     let mut records = data.split('\0');
     while let Some(rec) = records.next() {
         if let Some(v) = rec.strip_prefix("# branch.oid ") {
             if v != "(initial)" {
                 head = Some(v.to_owned());
             }
+        } else if let Some(v) = rec.strip_prefix("# branch.head ") {
+            branch = (v != "(detached)").then(|| v.to_owned());
         } else if let Some(v) = rec.strip_prefix("# branch.upstream ") {
             up = Some(v.to_owned());
+        } else if let Some(v) = rec.strip_prefix("# branch.ab ") {
+            branch_ab = Some(v.to_owned());
         } else if let Some(path) = rec.strip_prefix("? ") {
             untracked += 1;
             push_change(
@@ -650,8 +709,8 @@ fn parse_status(
         .strip_prefix(root)
         .unwrap_or_else(|_| Path::new(""));
     let rel = rel.to_string_lossy().into_owned();
-    (
-        ChangeCounts {
+    ParsedStatus {
+        counts: ChangeCounts {
             staged: staged as u32,
             unstaged: unstaged as u32,
             untracked,
@@ -659,10 +718,12 @@ fn parse_status(
         },
         changes,
         omitted,
-        rel,
-        up,
+        relative_path: rel,
+        upstream: up,
         head,
-    )
+        branch_ab,
+        branch,
+    }
 }
 fn push_change(out: &mut Vec<Change>, omitted: &mut u32, max: usize, change: Change) {
     if out.len() < max {
@@ -748,12 +809,12 @@ async fn detect_operation(dir: &Path, deadline: Instant) -> Result<Option<Operat
         };
         let (step, total) = match name {
             "rebase-merge" => (
-                fs::read_to_string(state_dir.join("msgnum")).ok(),
-                fs::read_to_string(state_dir.join("end")).ok(),
+                read_optional_git_text(&state_dir.join("msgnum"))?,
+                read_optional_git_text(&state_dir.join("end"))?,
             ),
             "rebase-apply" if kind == OperationKind::Rebase => (
-                fs::read_to_string(state_dir.join("next")).ok(),
-                fs::read_to_string(state_dir.join("last")).ok(),
+                read_optional_git_text(&state_dir.join("next"))?,
+                read_optional_git_text(&state_dir.join("last"))?,
             ),
             _ => (None, None),
         };
@@ -1020,7 +1081,7 @@ impl GitService for Git {
             let deadline = Instant::now() + DEFAULT_TIMEOUT;
             match repository(dir, &guard, true, deadline).await {
                 Err(e) => StatusResult::Failure(e),
-                Ok(repo) => {
+                Ok(mut repo) => {
                     let ignore = if input.submodules == SubmoduleMode::Check as i32 {
                         "--ignore-submodules=none"
                     } else {
@@ -1043,18 +1104,26 @@ impl GitService for Git {
                         StatusResult::Failure(process_failure(&out))
                     } else {
                         let status_text = text(&out.stdout);
-                        let (counts, changes, omitted, relative_path, up, head) = parse_status(
+                        let ParsedStatus {
+                            counts,
+                            changes,
+                            omitted,
+                            relative_path,
+                            upstream: up,
+                            head,
+                            branch_ab,
+                            branch,
+                        } = parse_status(
                             &status_text,
                             max,
                             Path::new(&repo.worktree),
                             &path.canonical,
                         );
+                        repo.head.clone_from(&head);
+                        repo.branch = branch;
                         let upstream = if let Some(name) = up.filter(|name| !name.starts_with('-'))
                         {
-                            let branch_ab = status_text
-                                .split('\0')
-                                .find_map(|record| record.strip_prefix("# branch.ab "));
-                            match upstream_status(dir, name, branch_ab, deadline).await {
+                            match upstream_status(dir, name, branch_ab.as_deref(), deadline).await {
                                 Ok(upstream) => Some(upstream),
                                 Err(error) => return Ok(status_failure(error)),
                             }
@@ -1072,11 +1141,11 @@ impl GitService for Git {
                                 Ok(commits) => commits,
                                 Err(error) => return Ok(status_failure(error)),
                             };
-                        let submodules =
-                            match submodule_paths(dir, repo.head.as_deref(), deadline).await {
-                                Ok(paths) => paths,
-                                Err(error) => return Ok(status_failure(error)),
-                            };
+                        let submodules = match submodule_paths(dir, head.as_deref(), deadline).await
+                        {
+                            Ok(paths) => paths,
+                            Err(error) => return Ok(status_failure(error)),
+                        };
                         StatusResult::Status(Status {
                             repository: Some(repo),
                             relative_path,
@@ -1125,19 +1194,6 @@ impl GitService for Git {
         let guard = self.context.guard();
         let source = guard.resolve(&input.repository)?;
         let directory = guard.resolve(&input.path)?;
-        let Some(entry) = nearest_git(&source.canonical, guard.roots()) else {
-            return Ok(Response::new(CreateWorktreeResponse {
-                result: Some(CreateResult::Failure(failure(
-                    GitFailureReason::NotARepository,
-                    "",
-                ))),
-            }));
-        };
-        if let Err(error) = checked_git_data(&entry, guard.roots()) {
-            return Ok(Response::new(CreateWorktreeResponse {
-                result: Some(CreateResult::Failure(error)),
-            }));
-        }
         if !validate_branch(&input.branch) {
             return Ok(Response::new(CreateWorktreeResponse {
                 result: Some(CreateResult::Failure(invalid(
@@ -1149,10 +1205,15 @@ impl GitService for Git {
         let base = input.base;
         let src = source.canonical;
         let dst = directory.canonical.clone();
+        let cache_guard = guard.clone();
         let cache_branch = branch.clone();
         let result = self
             .create_cache
             .run(&input.request_id, || async move {
+                let Some(entry) = nearest_git(&src, cache_guard.roots()) else {
+                    return Err(failure(GitFailureReason::NotARepository, ""));
+                };
+                checked_git_data(&entry, cache_guard.roots())?;
                 let deadline = Instant::now() + Duration::from_secs(120);
                 let mut args = vec![
                     "worktree",
@@ -1177,13 +1238,10 @@ impl GitService for Git {
                     deadline,
                 )
                 .await;
-                if !succeed(&hd) {
-                    return Err(process_failure(&hd));
-                }
                 Ok(Worktree {
                     path: dest,
                     branch: Some(cache_branch),
-                    head: Some(line(&hd)),
+                    head: succeed(&hd).then(|| line(&hd)),
                     locked: false,
                     prunable: false,
                 })
@@ -1317,11 +1375,14 @@ impl GitService for Git {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::{os::unix::fs::PermissionsExt, sync::Arc};
+    use std::{
+        os::unix::{ffi::OsStringExt, fs::PermissionsExt},
+        sync::Arc,
+    };
 
     static PATH_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
-    async fn assert_alternate_refused_before_git(alternate: impl FnOnce(&Path) -> String + Send) {
+    async fn assert_alternate_refused_before_git(alternate: impl FnOnce(&Path) -> Vec<u8> + Send) {
         let _path_lock = PATH_LOCK.lock().await;
         let temp = tempfile::tempdir().unwrap();
         let root = temp.path().join("root");
@@ -1351,7 +1412,7 @@ mod tests {
         let shim = bin.join("git");
         fs::write(
             &shim,
-            format!("#!/bin/sh\ntouch '{}'\nexit 99\n", marker.display()),
+            format!("#!/bin/sh\n: > '{}'\nexit 99\n", marker.display()),
         )
         .unwrap();
         fs::set_permissions(&shim, fs::Permissions::from_mode(0o755)).unwrap();
@@ -1374,7 +1435,8 @@ mod tests {
 
     #[tokio::test]
     async fn crlf_object_alternate_outside_roots_is_refused_before_git() {
-        assert_alternate_refused_before_git(|root| format!("{}\r\n", root.display())).await;
+        assert_alternate_refused_before_git(|root| format!("{}\r\n", root.display()).into_bytes())
+            .await;
     }
 
     #[tokio::test]
@@ -1382,8 +1444,56 @@ mod tests {
         assert_alternate_refused_before_git(|root| {
             let outside = root.parent().unwrap().join("outside");
             fs::create_dir_all(&outside).unwrap();
-            format!("{}/../outside\0/ignored\n", root.display())
+            format!("{}/../outside\0/ignored\n", root.display()).into_bytes()
         })
         .await;
+    }
+
+    #[tokio::test]
+    async fn non_utf8_object_alternate_outside_roots_is_refused_before_git() {
+        assert_alternate_refused_before_git(|root| {
+            let outside = root
+                .parent()
+                .unwrap()
+                .join(std::ffi::OsString::from_vec(b"outside-\xff".to_vec()));
+            fs::create_dir_all(&outside).unwrap();
+            let mut bytes = outside.as_os_str().as_bytes().to_vec();
+            bytes.push(b'\n');
+            bytes
+        })
+        .await;
+    }
+
+    #[test]
+    fn branch_ab_parser_ignores_rename_source_named_like_header() {
+        let root = Path::new("/repo");
+        let data = concat!(
+            "# branch.oid abc123\0",
+            "# branch.head main\0",
+            "# branch.upstream origin/main\0",
+            "2 R. N... 100644 100644 100644 old new R100 file\0",
+            "# branch.ab +4 -2\0",
+        );
+        let parsed = parse_status(data, 10, root, root);
+        let head = parsed.head;
+        let branch_ab = parsed.branch_ab;
+        let branch = parsed.branch;
+        assert_eq!(head.as_deref(), Some("abc123"));
+        assert_eq!(branch_ab, None);
+        assert_eq!(branch.as_deref(), Some("main"));
+    }
+
+    #[test]
+    fn metadata_reader_rejects_fifo_without_blocking() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("metadata");
+        assert!(
+            std::process::Command::new("mkfifo")
+                .arg(&path)
+                .status()
+                .unwrap()
+                .success()
+        );
+        assert!(read_regular_bytes(&path).is_err());
     }
 }
