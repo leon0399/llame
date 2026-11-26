@@ -19,15 +19,7 @@ import { execFileSync } from 'node:child_process';
 import { readdirSync } from 'node:fs';
 import { setTimeout as delay } from 'node:timers/promises';
 
-import { createClient } from '@connectrpc/connect';
-import { create } from '@bufbuild/protobuf';
 import {
-  BootstrapService,
-  MachineService,
-  GetInfoRequestSchema,
-  ListRootsRequestSchema,
-  connectStdio,
-  MACHINE_PROTOCOL_VERSION,
   type JsonValue,
   type MachineMethod,
   type MachineMethodParams,
@@ -38,7 +30,6 @@ import {
   MACHINE_SSHD_NAME,
   MACHINE_SSHD_NOTES_CONTENT,
   MACHINE_SSHD_NOTES_FILE,
-  MACHINE_SSHD_REMOTE_COMMAND,
   MACHINE_SSHD_ROOT,
   startMachineSshd,
   type MachineSshd,
@@ -66,7 +57,6 @@ const LONG_BASH_SECONDS = 300;
 
 const PROCESS_POLL_MS = 200;
 const PROCESS_POLL_TIMEOUT_MS = 15_000;
-const HANDSHAKE_POLL_TIMEOUT_MS = 20_000;
 
 describe('Machine SSH transport over a jump host (remote-machines)', () => {
   let fixture: MachineSshd;
@@ -301,10 +291,30 @@ describe('Machine SSH transport over a jump host (remote-machines)', () => {
     }
   });
 
-  it('holds the forced command: an SSH exec request cannot run an arbitrary command', async () => {
-    const { info, roots } = await rawSshBootstrap(fixture.connection(), 'id');
-    expect(info.protocolVersion).toBe(MACHINE_PROTOCOL_VERSION);
-    expect(roots).toEqual([MACHINE_SSHD_ROOT]);
+  it('holds the forced command: an SSH exec request cannot run an arbitrary command', () => {
+    const connection = fixture.connection();
+
+    expect(() =>
+      execFileSync(
+        'ssh',
+        [
+          '-F',
+          connection.sshConfig.path,
+          '-T',
+          '--',
+          MACHINE_SSHD_ALIAS,
+          'id',
+        ],
+        { encoding: 'utf8' },
+      ),
+    ).toThrow(
+      expect.objectContaining({
+        status: 126,
+        stderr: expect.stringContaining(
+          'machine-sshd: refused an unsupported SSH command',
+        ),
+      }),
+    );
   });
 });
 
@@ -400,42 +410,8 @@ function sshProcessCount(): number {
 
   return listing
     .split('\n')
-    .filter((line) => line.includes(MACHINE_SSHD_REMOTE_COMMAND)).length;
+    .filter(
+      (line) => line.includes(' -L ') && line.includes('/llame-machine-ssh-'),
+    ).length;
 }
 
-/** Speak the generated gRPC bootstrap contract over the SSH forced command. */
-async function rawSshBootstrap(
-  connection: MachineSshdConnection,
-  command: string,
-) {
-  const stdio = connectStdio({
-    command: 'ssh',
-    args: [
-      '-F',
-      connection.sshConfig.path,
-      '-T',
-      '--',
-      MACHINE_SSHD_ALIAS,
-      command,
-    ],
-  });
-
-  try {
-    const bootstrap = createClient(BootstrapService, stdio.transport);
-    const roots = createClient(MachineService, stdio.transport);
-
-    const info = await bootstrap.getInfo(create(GetInfoRequestSchema, {}), {
-      timeoutMs: HANDSHAKE_POLL_TIMEOUT_MS,
-    });
-
-    const registeredRoots = (
-      await roots.listRoots(create(ListRootsRequestSchema, {}), {
-        timeoutMs: HANDSHAKE_POLL_TIMEOUT_MS,
-      })
-    ).roots.map((root) => root.path);
-
-    return { info, roots: registeredRoots };
-  } finally {
-    stdio.close();
-  }
-}
