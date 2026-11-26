@@ -131,7 +131,7 @@ describe('Git wire handlers', () => {
       result: {
         case: 'failure',
         value: {
-          reason: GitFailureReason.GIT_ENTRY_CHANGED,
+          reason: GitFailureReason.ENTRY_CHANGED,
           message: 'Git entry changed.',
           stderr: '',
         },
@@ -139,6 +139,7 @@ describe('Git wire handlers', () => {
     });
 
     const session = sessionWith({ locateRepository, getStatus });
+
     const result = await gitHandlers['git.state'](
       session,
       {
@@ -158,7 +159,7 @@ describe('Git wire handlers', () => {
     );
     expect(result).toEqual({
       status: 'error',
-      type: 'git_failed',
+      type: 'git_entry_changed',
       stderr: '',
     });
   });

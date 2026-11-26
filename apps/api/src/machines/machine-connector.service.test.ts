@@ -448,7 +448,7 @@ describe('MachineConnector failure classification', () => {
 
   it('reports an incompatible daemon when the handshake is refused', async () => {
     const { connector, contacts, awaitContacts } = fixture({
-      helloProtocolVersion: 7,
+      helloProtocolVersion: 6,
       handshakeTimeoutMs: 500,
     });
 
