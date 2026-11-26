@@ -1,5 +1,10 @@
 _Reverse-chronological record of shipped work — features, fixes, and chores. Newest first._
 
+# 2026-11-26
+
+- Admit host Bash attempts before reserving artifact sequence numbers, so a
+  request for another owner's Run is rejected before job setup.
+
 # 2026-11-25
 
 - Ship the Rust Machine daemon skeleton with `attach --print-socket`, daemon

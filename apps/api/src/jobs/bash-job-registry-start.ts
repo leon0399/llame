@@ -5,12 +5,13 @@ import {
   MachineProtocolError,
   type CreateJobResponse,
 } from '@workspace/machine-protocol';
+import { ChatsRepository } from '../chats/chats-repository';
 import { type ChatJob } from '../db/schema';
-import { type TenantRunner } from '../db/tenant-db.service';
+import { type Db, type TenantRunner } from '../db/tenant-db.service';
 import { type InstanceConfigReader } from '../instance-config/instance-config.service';
 import { mapMachineRefusal } from '../machines/machine-session-errors';
 import type { MachineRequestOptions } from '../machines/machine-session';
-import { reserveArtifactSeq } from '../tools/artifacts/artifact-writer';
+import { ArtifactsRepository } from '../tools/artifacts/artifacts-repository';
 import { machineProtocolFailureResult } from '../tools/machine-call';
 import { type BashInput, type BashMachineTarget } from '../tools/bash-target';
 import { type ToolContext, type ToolResult } from '../tools/types';
@@ -32,6 +33,15 @@ type Connector = {
   jobsClient(machineName: string): Promise<MachineJobsSession>;
 };
 
+type BashJobStartDependencies = {
+  tenantDb: TenantRunner;
+  connector: Connector;
+  config: InstanceConfigReader;
+  context: ToolContext;
+  machine: BashMachineTarget;
+  input: BashInput;
+};
+
 export type BashJobStart =
   | {
       kind: 'started';
@@ -45,14 +55,9 @@ export type BashJobStart =
     }
   | { kind: 'failed'; result: ToolResult };
 
-export async function startBashJob(deps: {
-  tenantDb: TenantRunner;
-  connector: Connector;
-  config: InstanceConfigReader;
-  context: ToolContext;
-  machine: BashMachineTarget;
-  input: BashInput;
-}): Promise<BashJobStart> {
+export async function startBashJob(
+  deps: BashJobStartDependencies,
+): Promise<BashJobStart> {
   const failure = validateStart(deps.context, deps.input);
 
   if (failure !== undefined) return { kind: 'failed', result: failure };
@@ -75,14 +80,18 @@ function validateStart(
   return undefined;
 }
 
-async function dispatchBashJob(deps: {
-  tenantDb: TenantRunner;
-  connector: Connector;
-  config: InstanceConfigReader;
-  context: ToolContext;
-  machine: BashMachineTarget;
-  input: BashInput;
-}): Promise<BashJobStart> {
+type CreateBoundBashJobInput = {
+  deps: BashJobStartDependencies;
+  binding: ChatJob;
+  machineClient: MachineJobsSession;
+  daemonJobId: string;
+  startedAt: Date;
+  lifetimeMs: number;
+};
+
+async function dispatchBashJob(
+  deps: BashJobStartDependencies,
+): Promise<BashJobStart> {
   const { tenantDb, connector, config, context, machine, input } = deps;
   const startedAt = new Date();
   const daemonJobId = randomBytes(16).toString('hex');
@@ -114,19 +123,9 @@ async function dispatchBashJob(deps: {
   });
 }
 
-async function createBoundBashJob(input: {
-  deps: {
-    tenantDb: TenantRunner;
-    context: ToolContext;
-    machine: BashMachineTarget;
-    input: BashInput;
-  };
-  binding: ChatJob;
-  machineClient: MachineJobsSession;
-  daemonJobId: string;
-  startedAt: Date;
-  lifetimeMs: number;
-}): Promise<BashJobStart> {
+async function createBoundBashJob(
+  input: CreateBoundBashJobInput,
+): Promise<BashJobStart> {
   const { deps, binding, machineClient, daemonJobId, startedAt, lifetimeMs } =
     input;
 
@@ -185,46 +184,89 @@ type BindBashAttemptInput = {
   instanceId: string;
 };
 
+type NativeBashIdentity = {
+  runId: string;
+  attemptId: string;
+  toolCallId: string;
+};
+
 async function bindBashAttempt(
   input: BindBashAttemptInput,
 ): Promise<BashBinding> {
-  const {
-    tenantDb,
-    context,
-    machine,
-    daemonJobId,
-    startedAt,
-    lifetimeMs,
-    instanceId,
-  } = input;
+  const { context, startedAt, lifetimeMs } = input;
+
   const { runId, attemptId, toolCallId } = context;
 
   if (!runId || !attemptId || !toolCallId)
     throw new Error('The Run identity is unavailable.');
 
-  const seq = await reserveArtifactSeq(tenantDb, {
-    chatId: context.chatId,
-    userId: context.userId,
-  });
-
   const deadlineAt =
     lifetimeMs === 0 ? undefined : new Date(startedAt.getTime() + lifetimeMs);
 
-  return tenantDb.runAs(context.userId, async (db) => {
-    const prior = await new NativeFilesRepository(db).begin({
-      runId,
-      userId: context.userId,
-      fence: { bound: false },
-      deliverySequence: context.nativeDeliverySequence,
-      attemptId,
-      toolCallId,
-      operation: 'bash',
-      path: machine.locator ?? machine.name,
-    });
+  return input.tenantDb.runAs(context.userId, (db) =>
+    bindBashAttemptInTransaction(
+      db,
+      input,
+      { runId, attemptId, toolCallId },
+      deadlineAt,
+    ),
+  );
+}
 
-    if (prior !== undefined) return { prior };
+async function bindBashAttemptInTransaction(
+  db: Db,
+  input: BindBashAttemptInput,
+  identity: NativeBashIdentity,
+  deadlineAt: Date | undefined,
+): Promise<BashBinding> {
+  const { context, machine } = input;
 
-    const row = await insertBashBinding(new ChatJobsRepository(db), {
+  if (
+    (await new ChatsRepository(db).lock(context.chatId, context.userId)) ===
+    undefined
+  ) {
+    return {
+      prior: unavailable('This Run cannot use this native executor.'),
+    };
+  }
+
+  const { runId, attemptId, toolCallId } = identity;
+
+  const prior = await new NativeFilesRepository(db).begin({
+    runId,
+    userId: context.userId,
+    fence: { bound: false },
+    deliverySequence: context.nativeDeliverySequence,
+    attemptId,
+    toolCallId,
+    operation: 'bash',
+    path: machine.locator ?? machine.name,
+  });
+
+  if (prior !== undefined) return { prior };
+
+  return insertChatJobBinding(db, input, identity, deadlineAt);
+}
+
+async function insertChatJobBinding(
+  db: Db,
+  input: BindBashAttemptInput,
+  identity: NativeBashIdentity,
+  deadlineAt: Date | undefined,
+): Promise<BashBinding> {
+  const { context, machine, daemonJobId, startedAt, instanceId } = input;
+  const { runId, toolCallId } = identity;
+
+  const seq = await new ArtifactsRepository(db).nextSeq(
+    context.chatId,
+    context.userId,
+  );
+
+  if (seq === undefined)
+    throw new Error('The Chat cannot store an artifact.');
+
+  return {
+    row: await insertBashBinding(new ChatJobsRepository(db), {
       context,
       machine,
       daemonJobId,
@@ -234,25 +276,25 @@ async function bindBashAttempt(
       deadlineAt,
       runId,
       toolCallId,
-    });
-
-    return { row };
-  });
+    }),
+  };
 }
+
+type InsertBashBindingInput = {
+  context: ToolContext;
+  machine: BashMachineTarget;
+  daemonJobId: string;
+  startedAt: Date;
+  instanceId: string;
+  seq: number;
+  deadlineAt: Date | undefined;
+  runId: string;
+  toolCallId: string;
+};
 
 async function insertBashBinding(
   repository: ChatJobsRepository,
-  input: {
-    context: ToolContext;
-    machine: BashMachineTarget;
-    daemonJobId: string;
-    startedAt: Date;
-    instanceId: string;
-    seq: number;
-    deadlineAt: Date | undefined;
-    runId: string;
-    toolCallId: string;
-  },
+  input: InsertBashBindingInput,
 ): Promise<ChatJob> {
   const {
     context,
