@@ -40,15 +40,15 @@ master <- rust-machine-daemon/proposal <- rust-machine-daemon/skeleton
 
 ## 2. Skeleton (`rust-machine-daemon/skeleton`)
 
-- [ ] 2.1 Add the Cargo workspace, `rust-toolchain.toml`, lints, and `rustup`
+- [x] 2.1 Add the Cargo workspace, `rust-toolchain.toml`, lints, and `rustup`
       in the Nix dev shell.
-- [ ] 2.2 Add the proto files, `buf` lint and generation, the generated
+- [x] 2.2 Add the proto files, `buf` lint and generation, the generated
       TypeScript, and the `machine-protocol` crate.
-- [ ] 2.3 Add `machine-core`: configuration, instance id, root guard,
+- [x] 2.3 Add `machine-core`: configuration, instance id, root guard,
       refusals, idempotency cache, facts.
-- [ ] 2.4 Add the daemon, `attach --print-socket`, the bootstrap and roots services;
+- [x] 2.4 Add the daemon, `attach --print-socket`, the bootstrap and roots services;
       verify `cargo test -p llame-machine --test bootstrap`.
-- [ ] 2.5 Remove the experimental Connect-ES-over-stdio smoke when socket
+- [x] 2.5 Remove the experimental Connect-ES-over-stdio smoke when socket
       transport replaces it; keep generated protocol checks and Cargo bootstrap tests.
 
 ## 3. Files (`rust-machine-daemon/files`)

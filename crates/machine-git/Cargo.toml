@@ -1,0 +1,20 @@
+[package]
+name = "machine-git"
+description = "Machine daemon built-in git operations"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+machine-core.workspace = true
+machine-protocol.workspace = true
+tokio.workspace = true
+tokio-stream.workspace = true
+tonic.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

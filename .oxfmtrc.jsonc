@@ -43,6 +43,8 @@
 
     // Owned by external tools with their own canonical serialization.
     "pnpm-lock.yaml",
+    // Generated protocol clients are canonical protoc output.
+    "packages/machine-protocol/src/generated/",
     // Generated visual-test baselines (baseline.json is written by the addon).
     "**/__screenshots__/",
 

@@ -170,6 +170,7 @@ allowBuilds:
   core-js-pure: false # funding banner
   lefthook: false # binary ships via platform optionalDependencies; prepare script syncs hooks
   sharp: false # native bindings ship via platform optionalDependencies
+  "@bufbuild/buf": false # binary ships via platform optionalDependencies
 
 # Evaluated for the multi-worktree agent workflow (https://pnpm.io/git-worktrees):
 # symlink-only node_modules would make per-worktree installs near-instant.

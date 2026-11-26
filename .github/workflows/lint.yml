@@ -75,3 +75,26 @@ jobs:
       # Whole repo via .oxfmtrc.jsonc's ignorePatterns — the same surface the
       # lefthook pre-commit hook gates per staged file (#175).
       - run: pnpm run format:check
+
+  machine-protocol:
+    name: Machine protocol
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - uses: ./.github/actions/setup
+
+      # buf lint, the fingerprint and version-bump check against master, and a
+      # clean diff after regenerating the committed TypeScript client.
+      - run: pnpm --filter @workspace/machine-protocol proto:check
+
+      # The bootstrap package is frozen: no breaking change against master.
+      - name: Bootstrap service stays compatible
+        run: |
+          if git cat-file -e origin/master:packages/machine-protocol/proto/stead/machine/bootstrap/v1/bootstrap.proto; then
+            pnpm --filter @workspace/machine-protocol proto:breaking
+          fi

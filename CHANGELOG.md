@@ -1,5 +1,12 @@
 _Reverse-chronological record of shipped work — features, fixes, and chores. Newest first._
 
+# 2026-11-25
+
+- Ship the Rust Machine daemon skeleton with `attach --print-socket`, daemon
+  bootstrap and root services, and the versioned gRPC contract.
+- Register generated protocol bindings and the external Rust and protobuf
+  build tools in dead-code analysis.
+
 # 2026-11-24
 
 - Update Schemathesis to 4.32.2 so a negative test that mutates both

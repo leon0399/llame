@@ -8,6 +8,7 @@
 
 # Lockfiles: generated — collapse in diffs and don't count toward language stats.
 pnpm-lock.yaml linguist-generated=true -diff
+Cargo.lock linguist-generated=true -diff
 
 # Drizzle snapshots are generated and remain textually diffable. Migration SQL
 # stays visible because it is the reviewable artifact.
@@ -21,6 +22,10 @@ apps/web/lib/api/generated/** linguist-generated=true
 apps/web/lib/api/live-generated/** linguist-generated=true
 apps/api/src/live/generated/** linguist-generated=true
 apps/api/src/queue/generated/** linguist-generated=true
+
+# TypeScript bindings generated from packages/machine-protocol/proto by buf.
+# `proto:check` regenerates and fails on drift, so review the .proto files instead.
+packages/machine-protocol/src/generated/** linguist-generated=true
 
 # Binary assets (never normalize / diff).
 *.png   binary

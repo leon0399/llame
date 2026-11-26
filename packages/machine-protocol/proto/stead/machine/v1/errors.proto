@@ -1,0 +1,26 @@
+syntax = "proto3";
+
+package stead.machine.v1;
+
+// ErrorReason says why a call was refused before any work started. It is attached to the gRPC
+// status as an ErrorDetail; callers map it and never parse the status message. An outcome of work
+// that started is never a refusal: it travels in the response.
+enum ErrorReason {
+  ERROR_REASON_UNSPECIFIED = 0;
+  // A request field is malformed. INVALID_ARGUMENT.
+  ERROR_REASON_INVALID_ARGUMENT = 1;
+  // The path, or where it resolves, lies outside every root. The message is the same whether or
+  // not the path exists. PERMISSION_DENIED.
+  ERROR_REASON_PATH_NOT_REGISTERED = 2;
+  // The Machine already runs its limit of jobs. RESOURCE_EXHAUSTED.
+  ERROR_REASON_JOB_LIMIT = 3;
+  // The id names no job of the caller; unknown ids and other owners' jobs fail alike. NOT_FOUND.
+  ERROR_REASON_JOB_NOT_FOUND = 4;
+  // The job has not settled, so it cannot be released. FAILED_PRECONDITION.
+  ERROR_REASON_JOB_RUNNING = 5;
+}
+
+// ErrorDetail is attached to every refusal.
+message ErrorDetail {
+  ErrorReason reason = 1;
+}

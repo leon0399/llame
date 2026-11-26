@@ -85,8 +85,9 @@
       "project": ["src/**/*.ts"]
     },
     "packages/machine-protocol": {
-      "entry": ["src/index.ts", "src/**/*.test.ts"],
-      "project": ["src/**/*.ts"]
+      "entry": ["src/index.ts", "src/**/*.test.ts", "src/generated/**/*.ts"],
+      "project": ["src/**/*.ts"],
+      "ignoreDependencies": ["@bufbuild/protoc-gen-es"]
     },
     "packages/git-executor": {
       "entry": ["src/index.ts", "src/**/*.test.ts"],
@@ -98,7 +99,8 @@
     },
     "apps/machine": {
       "entry": ["src/cli.ts", "src/**/*.test.ts"],
-      "project": ["src/**/*.ts"]
+      "project": ["src/**/*.ts"],
+      "ignoreBinaries": ["rustup"]
     }
   },
   "ignore": [

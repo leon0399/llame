@@ -1,0 +1,88 @@
+syntax = "proto3";
+
+package stead.machine.v1;
+
+// McpService lists and runs the MCP servers a Workspace declares in `.mcp.json` and
+// `.llame/mcp.json` under a root, with `{env:...}` and `{path:...}` resolved against the
+// Machine's own environment. One OpenSession stream is one server session: closing the stream ends
+// the server.
+service McpService {
+  rpc ListServers(ListServersRequest) returns (ListServersResponse) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+  }
+  // OpenSession starts a server and relays JSON-RPC both ways. The first client message is `open`;
+  // the first server message is `opened` or `failure`.
+  rpc OpenSession(stream OpenSessionRequest) returns (stream OpenSessionResponse) {}
+}
+
+enum Transport {
+  TRANSPORT_UNSPECIFIED = 0;
+  TRANSPORT_STDIO = 1;
+  // Streamable HTTP.
+  TRANSPORT_HTTP = 2;
+}
+
+message ListServersRequest {
+  // A directory inside a root.
+  string workspace = 1;
+}
+
+message ListServersResponse {
+  repeated Server servers = 1;
+}
+
+message Server {
+  string name = 1;
+  // UNSPECIFIED when the declaration never resolved far enough to name one.
+  Transport transport = 2;
+  bool available = 3;
+  // Why it is unavailable, with secrets redacted.
+  string diagnostic = 4;
+}
+
+message OpenSessionRequest {
+  oneof message {
+    Open open = 1;
+    // One JSON-RPC message as JSON text.
+    string json_rpc = 2;
+    // The negotiated MCP protocol version, which HTTP servers want on later requests.
+    string protocol_version = 3;
+  }
+}
+
+message Open {
+  string workspace = 1;
+  string server = 2;
+}
+
+message OpenSessionResponse {
+  oneof message {
+    Opened opened = 1;
+    string json_rpc = 2;
+    // A line of the server's standard error.
+    string stderr = 3;
+    // Secret values learned after `opened`, which the installation must redact.
+    Secrets secrets = 4;
+    McpFailure failure = 5;
+  }
+}
+
+message Opened {
+  // Secret values the installation must redact from everything it shows.
+  Secrets secrets = 1;
+}
+
+message Secrets {
+  repeated string values = 1;
+}
+
+enum McpFailureReason {
+  MCP_FAILURE_REASON_UNSPECIFIED = 0;
+  // The server is not declared or cannot start.
+  MCP_FAILURE_REASON_UNAVAILABLE = 1;
+}
+
+message McpFailure {
+  McpFailureReason reason = 1;
+  string message = 2;
+}
