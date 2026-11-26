@@ -71,7 +71,7 @@ message Job {
   optional google.protobuf.Duration timeout = 6;
   // Exit status when the process exited; unset when a signal ended it or the job is not settled.
   optional int32 exit_code = 7;
-  // The signal that ended the process, such as "KILL".
+  // The signal that ended the process, using its conventional "SIG" prefix (for example, "SIGKILL").
   optional string signal = 8;
   Output stdout = 9;
   Output stderr = 10;

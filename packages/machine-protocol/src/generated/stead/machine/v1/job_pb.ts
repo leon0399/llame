@@ -60,7 +60,7 @@ export type Job = Message<"stead.machine.v1.Job"> & {
   exitCode?: number | undefined;
 
   /**
-   * The signal that ended the process, such as "KILL".
+   * The signal that ended the process, using its conventional "SIG" prefix (for example, "SIGKILL").
    *
    * @generated from field: optional string signal = 8;
    */

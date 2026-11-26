@@ -62,7 +62,7 @@ master <- rust-machine-daemon/proposal <- rust-machine-daemon/skeleton
 
 ## 4. Jobs (`rust-machine-daemon/jobs`)
 
-- [ ] 4.1 Implement `JobService` with per-job directories, the snapshot stream,
+- [x] 4.1 Implement `JobService` with per-job directories, the snapshot stream,
       limits, stop proof, and restart settlement; verify
       `cargo test -p llame-machine --test jobs`.
 
