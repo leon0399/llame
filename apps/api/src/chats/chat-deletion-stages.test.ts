@@ -64,10 +64,8 @@ describe('stopAndReleaseJob', () => {
     const deleteJob = vi.fn();
 
     await expect(
-      stopAndReleaseJob(
-        job,
-        connector({ cancelJob, deleteJob }),
-        () => Promise.resolve(false),
+      stopAndReleaseJob(job, connector({ cancelJob, deleteJob }), () =>
+        Promise.resolve(false),
       ),
     ).rejects.toBeInstanceOf(ServiceUnavailableException);
 
@@ -133,7 +131,4 @@ describe('stopAndReleaseJob', () => {
     expect(hasCreatingAttempt).toHaveBeenCalledTimes(2);
     expect(deleteJob).not.toHaveBeenCalled();
   });
-
 });
-
-

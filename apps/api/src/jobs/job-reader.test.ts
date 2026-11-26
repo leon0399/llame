@@ -83,7 +83,9 @@ function contextOf(readOutput: ReadOutput): ToolContext {
     settledAt: null,
   };
 
-  vi.spyOn(ChatJobsRepository.prototype, 'findByLocator').mockResolvedValue(job);
+  vi.spyOn(ChatJobsRepository.prototype, 'findByLocator').mockResolvedValue(
+    job,
+  );
 
   return {
     configuredCredentials: [SECRET],

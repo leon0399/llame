@@ -508,11 +508,7 @@ export class ChatsService {
     for (const job of jobs) {
       await stopAndReleaseJob(job, this.machines, () =>
         this.tenantDb.runAs(userId, (tx) =>
-          new ChatJobsRepository(tx).hasCreatingAttempt(
-            chatId,
-            userId,
-            job.id,
-          ),
+          new ChatJobsRepository(tx).hasCreatingAttempt(chatId, userId, job.id),
         ),
       );
     }

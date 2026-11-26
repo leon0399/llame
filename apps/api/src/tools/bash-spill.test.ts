@@ -58,7 +58,9 @@ function textOf(result: ToolResult): string {
 beforeEach(() => {
   vi.clearAllMocks();
   insertWrites = {
-    nextSeq: vi.spyOn(ArtifactsRepository.prototype, 'nextSeq').mockResolvedValue(SEQ),
+    nextSeq: vi
+      .spyOn(ArtifactsRepository.prototype, 'nextSeq')
+      .mockResolvedValue(SEQ),
     insertArtifact: vi
       .spyOn(ArtifactsRepository.prototype, 'insertArtifact')
       .mockResolvedValue({ id: 'artifact-5', createdAt: CREATED_AT }),
@@ -72,8 +74,10 @@ afterEach(() => vi.restoreAllMocks());
 
 describe('bash output spill', () => {
   it('keeps head and tail around the omitted line when a stream spills', async () => {
-    const output = Array.from({ length: 5000 }, (_, index) =>
-      `line ${String(index + 1).padStart(4, '0')} ${'x'.repeat(89)}`,
+    const output = Array.from(
+      { length: 5000 },
+      (_, index) =>
+        `line ${String(index + 1).padStart(4, '0')} ${'x'.repeat(89)}`,
     ).join('\n');
 
     const result = await spillBashResult(testContext(), success(output));

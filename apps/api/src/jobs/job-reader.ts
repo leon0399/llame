@@ -232,7 +232,10 @@ async function readRunningOutputChunks({
     remaining -= read;
   }
 
-  return sanitizeLiveOutput(Buffer.concat(chunks).toString('utf8'), credentials);
+  return sanitizeLiveOutput(
+    Buffer.concat(chunks).toString('utf8'),
+    credentials,
+  );
 }
 
 async function appendOutputChunks(

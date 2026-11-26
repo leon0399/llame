@@ -17,9 +17,7 @@ type JobRpcClient = MachineSession['jobsClient'];
 type JobCallOptions = MachineSession['callOptions'];
 
 type JobDeletionConnector = {
-  jobsClient(
-    machineName: string,
-  ): Promise<{
+  jobsClient(machineName: string): Promise<{
     readonly client: JobRpcClient;
     readonly callOptions: JobCallOptions;
   }>;
@@ -123,7 +121,6 @@ export async function stopAndReleaseJob(
     missing,
   );
 }
-
 
 async function jobSession(
   machines: JobDeletionConnector | undefined,
