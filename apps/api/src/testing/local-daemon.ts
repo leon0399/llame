@@ -10,7 +10,13 @@
  */
 
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdtempSync, realpathSync, rmSync } from 'node:fs';
+import {
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -79,6 +85,45 @@ function registerRoots(
     });
   }
 }
+/** Stop the daemon started for one fixture and wait for its lock to release. */
+export function stopLocalDaemon(stateDir: string): void {
+  const lockPath = join(stateDir, 'daemon.lock');
+
+  if (!existsSync(lockPath)) return;
+
+  const pid = Number(readFileSync(lockPath, 'utf8').trim());
+
+  if (!Number.isSafeInteger(pid) || pid <= 0)
+    throw new Error('The local Machine daemon lock does not contain a pid.');
+
+  try {
+    process.kill(pid, 'SIGTERM');
+  } catch (error) {
+    if (error instanceof Error && 'code' in error && error.code === 'ESRCH')
+      return;
+
+    throw error;
+  }
+
+  const deadline = Date.now() + 2_000;
+  const pause = new Int32Array(new SharedArrayBuffer(Int32Array.BYTES_PER_ELEMENT));
+
+  while (Date.now() < deadline) {
+    try {
+      process.kill(pid, 0);
+    } catch (error) {
+      if (error instanceof Error && 'code' in error && error.code === 'ESRCH')
+        return;
+
+      throw error;
+    }
+
+    Atomics.wait(pause, 0, 0, 20);
+  }
+
+  throw new Error(`Local Machine daemon ${pid} did not exit after SIGTERM.`);
+}
+
 
 export function startLocalDaemon(options: LocalDaemonOptions): LocalDaemon {
   assertBuiltBinary(MACHINE_BINARY);
@@ -109,8 +154,12 @@ export function startLocalDaemon(options: LocalDaemonOptions): LocalDaemon {
     locator: (path) => daemonLocator(name, path),
     dispose() {
       connector.onModuleDestroy();
-      rmSync(configDir, { recursive: true, force: true });
-      rmSync(stateDir, { recursive: true, force: true });
+      try {
+        stopLocalDaemon(stateDir);
+      } finally {
+        rmSync(configDir, { recursive: true, force: true });
+        rmSync(stateDir, { recursive: true, force: true });
+      }
     },
   };
 }

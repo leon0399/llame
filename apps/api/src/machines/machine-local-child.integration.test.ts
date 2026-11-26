@@ -29,7 +29,10 @@ import {
 } from '@workspace/machine-protocol';
 import { isRecord, isString } from '@workspace/runtime-safety';
 
-import { MACHINE_BINARY } from '../testing/local-daemon';
+import {
+  MACHINE_BINARY,
+  stopLocalDaemon,
+} from '../testing/local-daemon';
 import { createLocalChildTransportFactory } from './local-child-transport';
 import { MachineConnector } from './machine-connector.service';
 import { readFsReadResult } from './machine-results';
@@ -108,9 +111,13 @@ describe('the local Machine link (host-as-machine)', () => {
   });
 
   afterAll(() => {
-    rmSync(root, { recursive: true, force: true });
-    rmSync(configDir, { recursive: true, force: true });
-    rmSync(stateDir, { recursive: true, force: true });
+    try {
+      stopLocalDaemon(stateDir);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+      rmSync(configDir, { recursive: true, force: true });
+      rmSync(stateDir, { recursive: true, force: true });
+    }
   });
 
   /** One local session whose environment can be overridden per test. */
