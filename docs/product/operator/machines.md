@@ -177,16 +177,21 @@ Restrict the hub's key to daemon socket attachment in the box user's
 `~/.ssh/authorized_keys`:
 
 ```text
-restrict,command="/usr/local/bin/llame-machine attach --print-socket" ssh-ed25519 AAAA... llame-hub
+restrict,port-forwarding,command="/usr/local/bin/llame-machine attach --print-socket" ssh-ed25519 AAAA... llame-hub
 ```
 
-Use the absolute path; add `from="<hub address>"` when the hub's address is
-stable. To migrate a `serve --stdio` forced command, install the Rust binary
-and `config.toml`, then change the command to `attach --print-socket` and allow
-the hub's SSH connection to forward the daemon's Unix socket. On jump hosts,
-allow forwarding only to the next hop, for example
-`restrict,port-forwarding,permitopen="box:22"`. Set sshd's `ClientAliveInterval`
-so a box notices a vanished hub.
+`port-forwarding` is required because the hub forwards the daemon's Unix socket.
+OpenSSH's `permitopen` option restricts TCP forwarding destinations, not Unix
+socket paths. Keep this key limited to a dedicated account and use `from="<hub
+address>"` when the hub's address is stable.
+
+On jump hosts, allow forwarding only to the next TCP hop, for example
+`restrict,port-forwarding,permitopen="box:22"`. Set sshd's
+`ClientAliveInterval` so a box notices a vanished hub.
+
+To migrate a `serve --stdio` forced command, install the Rust binary and
+`config.toml`, then change the command to `attach --print-socket`.
+
 
 The daemon implements repository inspection and worktree operations through
 the typed GitService. It locates repositories only inside registered roots and

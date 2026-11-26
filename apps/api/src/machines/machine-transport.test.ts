@@ -221,6 +221,38 @@ describe('createMachineSshTransportFactory', () => {
       created.dispose();
     }
   });
+  it.each([
+    ['Host key verification failed.', 'host_key_mismatch'],
+    ['me@box: Permission denied (publickey).', 'auth_failed'],
+  ])('classifies SSH preflight refusal %s as %s', (diagnostic, reason) => {
+    const created = createMachineSshTransportFactory({
+      ssh,
+      runCommand: () => {
+        throw Object.assign(new Error('Command failed'), {
+          status: 255,
+          stderr: Buffer.from(diagnostic),
+        });
+      },
+      spawn: () => {
+        throw new Error('SSH tunnel must not start after a preflight refusal');
+      },
+    });
+
+    try {
+      expect(() => created.open({ name: 'devl', destination: 'box' })).toThrow(
+        expect.objectContaining({
+          name: 'MachineUnavailableError',
+          reason,
+          sent: false,
+          message: diagnostic,
+        }),
+      );
+    } finally {
+      created.dispose();
+    }
+  });
+
+
 
   it('refuses a request with no destination without opening SSH', () => {
     const { created, commandCalls, spawnCalls } = factory();

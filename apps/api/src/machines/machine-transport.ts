@@ -11,13 +11,24 @@
  */
 
 import { execFileSync } from 'node:child_process';
-import { chmodSync, mkdtempSync, rmSync } from 'node:fs';
-import { connect as connectNetSocket, type Socket } from 'node:net';
+import { watch, existsSync, chmodSync, mkdtempSync, rmSync } from 'node:fs';
+import { connect as connectNetSocket, Socket } from 'node:net';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import { connectSocket } from '@workspace/machine-protocol';
 import type { Readable, Writable } from 'node:stream';
-import type { Transport } from '@connectrpc/connect';
+import type {
+  ContextValues,
+  StreamResponse,
+  Transport,
+  UnaryResponse,
+} from '@connectrpc/connect';
+import type {
+  DescMessage,
+  DescMethodStreaming,
+  DescMethodUnary,
+  MessageInitShape,
+} from '@bufbuild/protobuf';
 import type { ResolvedSshFiles } from '../instance-config/machines-config';
 import {
   createSshConfigFile,
@@ -29,6 +40,7 @@ import {
   spawnSshProcess,
   type SshProcess,
   type SshSpawn,
+  classifySshLinkFailure,
 } from '../ssh/ssh-process';
 import type {
   MachineRequestHandler,
@@ -145,7 +157,7 @@ function openSshSession(
     readonly spawnLink: SshSpawn;
     readonly path: (ssh: ResolvedSshFiles) => string;
     readonly runCommand: SshMachineCommandRunner;
-    readonly connect: SshMachineSocketConnector;
+    readonly connect?: SshMachineSocketConnector;
   },
   request: MachineTransportRequest,
 ): MachineTransport {
@@ -176,7 +188,13 @@ function openSshSession(
     request.name,
   );
 
-  return createSshSocketTunnel(deps, configPath, destination, remoteSocket);
+  return createSshSocketTunnel(
+    deps,
+    configPath,
+    destination,
+    remoteSocket,
+    request.name,
+  );
 }
 
 function discoverSshSocket(
@@ -199,14 +217,15 @@ function discoverSshSocket(
       '--print-socket',
     ]);
   } catch (error) {
+    const diagnostic = sshErrorDiagnostic(error);
     if (error instanceof Error && 'status' in error && error.status === 78)
       throw new MachineIdentityMismatchError(name);
 
     throw new MachineUnavailableError(
       name,
-      'unreachable',
+      classifySshLinkFailure(false, diagnostic),
       false,
-      error instanceof Error ? error.message : String(error),
+      diagnostic,
     );
   }
 
@@ -222,15 +241,26 @@ function discoverSshSocket(
 
   return remoteSocket;
 }
+function sshErrorDiagnostic(error: unknown): string {
+  if (error instanceof Error && 'stderr' in error) {
+    const stderr = error.stderr;
+
+    if (Buffer.isBuffer(stderr)) return stderr.toString('utf8');
+    if (typeof stderr === 'string') return stderr;
+  }
+
+  return error instanceof Error ? error.message : String(error);
+}
 
 function createSshSocketTunnel(
   deps: {
     readonly spawnLink: SshSpawn;
-    readonly connect: SshMachineSocketConnector;
+    readonly connect?: SshMachineSocketConnector;
   },
   configPath: string,
   destination: string,
   remoteSocket: string,
+  name: string,
 ): MachineTransport {
   const socketDirectory = mkdtempSync(join(tmpdir(), 'llame-machine-ssh-'));
   chmodSync(socketDirectory, 0o700);
@@ -243,11 +273,30 @@ function createSshSocketTunnel(
     remoteSocket,
   });
 
-  return bindSshTunnel(deps.connect(localSocket), link, socketDirectory);
+  if (deps.connect !== undefined) {
+    const socket = deps.connect(localSocket);
+
+    return bindSshTunnel(
+      connectSocket(socket),
+      () => socket.destroy(),
+      link,
+      socketDirectory,
+    );
+  }
+
+  const lazy = createLazySshSocketTransport(localSocket, name, link);
+
+  return bindSshTunnel(
+    lazy.transport,
+    lazy.close,
+    link,
+    socketDirectory,
+  );
 }
 
 function bindSshTunnel(
-  socket: Socket,
+  rpcTransport: Transport,
+  closeSocket: () => void,
   link: MachineTransport,
   socketDirectory: string,
 ): MachineTransport {
@@ -258,22 +307,130 @@ function bindSshTunnel(
     rmSync(socketDirectory, { recursive: true, force: true });
     resolve({ ...end, closedByHub });
   });
-  socket.once('close', () => {
-    if (closedByHub) return;
-    link.close();
-  });
-  socket.once('error', () => undefined);
 
   return {
-    rpcTransport: connectSocket(socket),
+    rpcTransport,
     close: () => {
       closedByHub = true;
-      socket.destroy();
+      closeSocket();
       link.close();
       rmSync(socketDirectory, { recursive: true, force: true });
     },
     ended,
   };
+}
+
+function createLazySshSocketTransport(
+  localSocket: string,
+  name: string,
+  link: MachineTransport,
+): { readonly transport: Transport; close(): void } {
+  let socket: Socket | undefined;
+  let transport: Promise<Transport> | undefined;
+  let closed = false;
+
+  function open(): Promise<Transport> {
+    transport ??= waitForSshSocket(localSocket, name, link.ended).then(() => {
+      if (closed)
+        throw new MachineUnavailableError(
+          name,
+          'unreachable',
+          false,
+          'The SSH socket tunnel was closed before connecting.',
+        );
+
+      socket = connectNetSocket(localSocket);
+      socket.once('close', () => {
+        if (!closed) link.close();
+      });
+      socket.once('error', () => undefined);
+
+      return connectSocket(socket);
+    });
+
+    return transport;
+  }
+
+  return {
+    transport: {
+      unary<I extends DescMessage, O extends DescMessage>(
+        method: DescMethodUnary<I, O>,
+        signal: AbortSignal | undefined,
+        timeoutMs: number | undefined,
+        header: HeadersInit | undefined,
+        input: MessageInitShape<I>,
+        contextValues?: ContextValues,
+      ): Promise<UnaryResponse<I, O>> {
+        return open().then((ready) =>
+          ready.unary(method, signal, timeoutMs, header, input, contextValues),
+        );
+      },
+      stream<I extends DescMessage, O extends DescMessage>(
+        method: DescMethodStreaming<I, O>,
+        signal: AbortSignal | undefined,
+        timeoutMs: number | undefined,
+        header: HeadersInit | undefined,
+        input: AsyncIterable<MessageInitShape<I>>,
+        contextValues?: ContextValues,
+      ): Promise<StreamResponse<I, O>> {
+        return open().then((ready) =>
+          ready.stream(method, signal, timeoutMs, header, input, contextValues),
+        );
+      },
+    },
+    close: () => {
+      closed = true;
+      socket?.destroy();
+    },
+  };
+}
+
+function waitForSshSocket(
+  localSocket: string,
+  name: string,
+  ended: Promise<MachineLinkEnd>,
+): Promise<void> {
+  if (existsSync(localSocket)) return Promise.resolve();
+
+  const { promise, resolve, reject } = Promise.withResolvers<void>();
+  let settled = false;
+  const watcher = watch(dirname(localSocket), () => {
+    if (existsSync(localSocket)) finish();
+  });
+  const timeout = setTimeout(() => {
+    finish(
+      new MachineUnavailableError(
+        name,
+        'unreachable',
+        false,
+        'The SSH socket tunnel did not create its local socket.',
+      ),
+    );
+  }, 10_000);
+
+  function finish(error?: Error): void {
+    if (settled) return;
+    settled = true;
+    clearTimeout(timeout);
+    watcher.close();
+    if (error === undefined) resolve();
+    else reject(error);
+  }
+
+  void ended.then((end) => {
+    finish(
+      new MachineUnavailableError(
+        name,
+        classifySshLinkFailure(false, end.diagnostic),
+        false,
+        end.diagnostic || 'The SSH tunnel ended before its local socket opened.',
+      ),
+    );
+  });
+
+  if (existsSync(localSocket)) finish();
+
+  return promise;
 }
 
 function spawnSshTunnel(
@@ -330,7 +487,6 @@ export function createMachineSshTransportFactory(
     options.runCommand ??
     ((command, args) => execFileSync(command, [...args], { encoding: 'utf8' }));
 
-  const connect = options.connect ?? connectNetSocket;
   let configFile = options.configFile;
 
   function path(ssh: ResolvedSshFiles): string {
@@ -352,7 +508,7 @@ export function createMachineSshTransportFactory(
           spawnLink,
           path,
           runCommand,
-          connect,
+          connect: options.connect,
         },
         request,
       ),

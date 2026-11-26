@@ -3,8 +3,8 @@
 # task 4.2). One image serves both roles, because the difference between them is
 # only the `authorized_keys` options the suite installs before start — a
 # `restrict,port-forwarding,permitopen="box:22"` entry makes a jump host, and
-# `restrict,command="/usr/local/bin/llame-machine-forced-command"` makes the box
-# (design D1). The dispatcher allows socket discovery and the direct stdio
+# `restrict,port-forwarding,command="/usr/local/bin/llame-machine-forced-command"` makes the box
+# (design D1). The forced command allows socket discovery and the direct stdio
 # protocol test, and rejects every other SSH command.
 # The test copies the static daemon binary into the container.
 #
