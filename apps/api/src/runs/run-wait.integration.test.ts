@@ -384,7 +384,6 @@ describe('Run wait transactions', () => {
     }
   });
 
-
   it('does not expire a resumed Run from its obsolete dead-letter identity', async () => {
     const seeded = await seedWaitingRun();
     const dispatch = fx.harness.dispatch;

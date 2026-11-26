@@ -424,7 +424,6 @@ describe('settled job host Runs', () => {
         .where(eq(chatDeliveries.senderRef, job.id)),
     );
 
-
     expect(stored[0]?.state).toBe('running');
     expect(notice).toEqual([]);
     expect(

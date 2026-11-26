@@ -8,9 +8,7 @@
  * and a file operation never binds the Run to a worker (design D15).
  */
 
-import {
-  type JsonValue,
-} from '@workspace/machine-protocol';
+import { type JsonValue } from '@workspace/machine-protocol';
 import {
   formatMachineLocator,
   machinePrefix,

@@ -156,7 +156,6 @@ async function lockForSwitch(
     throw new Error(`Run ${run.runId} could not lock its Chat to switch.`);
   }
 
-
   const pending = await new ChatDeliveriesRepository(tx).lockPendingBoundary(
     chatId,
     userId,

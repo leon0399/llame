@@ -3,34 +3,21 @@
   "version": "9",
   "dialect": "postgres",
   "id": "df914fec-f29b-418f-a570-b22edbe884fb",
-  "prevIds": [
-    "391a0108-8bd7-4a00-891a-dddfea20bdec"
-  ],
+  "prevIds": ["391a0108-8bd7-4a00-891a-dddfea20bdec"],
   "footprints": [
     {
       "statementType": "drop_policy",
-      "statementTarget": [
-        "table",
-        "public",
-        "chat_job_chunks"
-      ],
+      "statementTarget": ["table", "public", "chat_job_chunks"],
       "writes": [
         "s|pol|public.chat_job_chunks.chat_job_chunks_owner",
         "n|pol|public.chat_job_chunks.chat_job_chunks_owner",
         "e|pol|public.chat_job_chunks.chat_job_chunks_owner"
       ],
-      "reads": [
-        "n|tbl|public.chat_job_chunks",
-        "n|sch|public"
-      ]
+      "reads": ["n|tbl|public.chat_job_chunks", "n|sch|public"]
     },
     {
       "statementType": "drop_table",
-      "statementTarget": [
-        "table",
-        "public",
-        "chat_job_chunks"
-      ],
+      "statementTarget": ["table", "public", "chat_job_chunks"],
       "writes": [
         "s|tbl|public.chat_job_chunks",
         "n|tbl|public.chat_job_chunks",
@@ -38,46 +25,28 @@
         "n|rel|public.chat_job_chunks",
         "n|type|public.chat_job_chunks"
       ],
-      "reads": [
-        "n|sch|public"
-      ]
+      "reads": ["n|sch|public"]
     },
     {
       "statementType": "rename_column",
-      "statementTarget": [
-        "column",
-        "public",
-        "chat_jobs",
-        "executor"
-      ],
+      "statementTarget": ["column", "public", "chat_jobs", "executor"],
       "writes": [
         "s|col|public.chat_jobs.executor",
         "n|col|public.chat_jobs.executor",
         "s|col|public.chat_jobs.kind",
         "n|col|public.chat_jobs.kind"
       ],
-      "reads": [
-        "n|tbl|public.chat_jobs",
-        "n|sch|public"
-      ]
+      "reads": ["n|tbl|public.chat_jobs", "n|sch|public"]
     },
     {
       "statementType": "add_column",
-      "statementTarget": [
-        "column",
-        "public",
-        "chat_jobs",
-        "machine_name"
-      ],
+      "statementTarget": ["column", "public", "chat_jobs", "machine_name"],
       "writes": [
         "s|col|public.chat_jobs.machine_name",
         "n|col|public.chat_jobs.machine_name",
         "e|col|public.chat_jobs.machine_name"
       ],
-      "reads": [
-        "n|tbl|public.chat_jobs",
-        "n|sch|public"
-      ]
+      "reads": ["n|tbl|public.chat_jobs", "n|sch|public"]
     },
     {
       "statementType": "add_column",
@@ -92,28 +61,17 @@
         "n|col|public.chat_jobs.daemon_instance_id",
         "e|col|public.chat_jobs.daemon_instance_id"
       ],
-      "reads": [
-        "n|tbl|public.chat_jobs",
-        "n|sch|public"
-      ]
+      "reads": ["n|tbl|public.chat_jobs", "n|sch|public"]
     },
     {
       "statementType": "add_column",
-      "statementTarget": [
-        "column",
-        "public",
-        "chat_jobs",
-        "daemon_job_id"
-      ],
+      "statementTarget": ["column", "public", "chat_jobs", "daemon_job_id"],
       "writes": [
         "s|col|public.chat_jobs.daemon_job_id",
         "n|col|public.chat_jobs.daemon_job_id",
         "e|col|public.chat_jobs.daemon_job_id"
       ],
-      "reads": [
-        "n|tbl|public.chat_jobs",
-        "n|sch|public"
-      ]
+      "reads": ["n|tbl|public.chat_jobs", "n|sch|public"]
     },
     {
       "statementType": "drop_column",
@@ -128,36 +86,21 @@
         "n|col|public.chat_jobs.worker_instance_id",
         "e|col|public.chat_jobs.worker_instance_id"
       ],
-      "reads": [
-        "n|tbl|public.chat_jobs",
-        "n|sch|public"
-      ]
+      "reads": ["n|tbl|public.chat_jobs", "n|sch|public"]
     },
     {
       "statementType": "drop_column",
-      "statementTarget": [
-        "column",
-        "public",
-        "chat_jobs",
-        "pid"
-      ],
+      "statementTarget": ["column", "public", "chat_jobs", "pid"],
       "writes": [
         "s|col|public.chat_jobs.pid",
         "n|col|public.chat_jobs.pid",
         "e|col|public.chat_jobs.pid"
       ],
-      "reads": [
-        "n|tbl|public.chat_jobs",
-        "n|sch|public"
-      ]
+      "reads": ["n|tbl|public.chat_jobs", "n|sch|public"]
     },
     {
       "statementType": "rename_constraint",
-      "statementTarget": [
-        "table",
-        "public",
-        "chat_jobs"
-      ],
+      "statementTarget": ["table", "public", "chat_jobs"],
       "writes": [
         "s|uq|public.chat_jobs.chat_jobs_chat_executor_seq_unique",
         "n|uq|public.chat_jobs.chat_jobs_chat_executor_seq_unique",
@@ -178,11 +121,7 @@
     },
     {
       "statementType": "add_unique",
-      "statementTarget": [
-        "table",
-        "public",
-        "chat_jobs"
-      ],
+      "statementTarget": ["table", "public", "chat_jobs"],
       "writes": [
         "s|uq|public.chat_jobs.chat_jobs_daemon_instance_job_unique",
         "n|uq|public.chat_jobs.chat_jobs_daemon_instance_job_unique",
@@ -268,10 +207,7 @@
         "table": "chat_jobs",
         "name": "chat_jobs_daemon_instance_job_unique",
         "nameExplicit": true,
-        "columns": [
-          "daemon_instance_id",
-          "daemon_job_id"
-        ],
+        "columns": ["daemon_instance_id", "daemon_job_id"],
         "nullsNotDistinct": false,
         "entityType": "uniques"
       }

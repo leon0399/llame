@@ -83,7 +83,6 @@ describe('Run segment yield', () => {
     },
   );
 
-
   it.each(['read', 'grep'] as const)(
     'a steer waits for the %s result without aborting it',
     async (name) => {

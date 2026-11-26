@@ -157,7 +157,6 @@ describe('job notice producer-to-live-Run activation', () => {
     expect(await notices(followUp.chatId)).toHaveLength(0);
   });
 
-
   it('keeps a produced notice pending when the live Run fails at its provider', async () => {
     const prior = await fx.startRun([answer('completed before failure')]);
     await fx.terminal(prior.runId);

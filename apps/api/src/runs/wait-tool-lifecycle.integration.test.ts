@@ -374,7 +374,6 @@ describe('wait tool lifecycle through real Run streams', () => {
     expect(notice?.state).toBe('delivered');
   });
 
-
   it('returns one of three listed failures and consumes exactly its notice', async () => {
     const seeded = await fx.seed('one listed job settles');
 

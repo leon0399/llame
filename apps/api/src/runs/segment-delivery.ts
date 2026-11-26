@@ -228,7 +228,6 @@ export async function deliverPendingSteering(
     return { kind: 'fenced' };
   }
 
-
   const items = await new ChatDeliveriesRepository(tx).lockPendingBoundary(
     chatId,
     userId,

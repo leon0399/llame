@@ -14,7 +14,6 @@ import { bashWorkingDirectory } from './env';
 import { type ToolContext } from './types';
 import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
 
-
 /**
  * The 750 ms the Bash watcher needs to prove process-group quiescence and the
  * durable `native.result` append a small bounded window, after a Run abort and
@@ -44,7 +43,6 @@ export function messageMoveWindow(
 
   return isMessageMoveWindow(reason) ? reason : undefined;
 }
-
 
 /** The foreground bound: the lesser of the operator bound and the call timeout. */
 export function foregroundBoundMs(

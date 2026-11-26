@@ -145,7 +145,6 @@ function makeFixture(
         : asDouble<Chat>({ id: input.chatId }),
     );
 
-
   const hasPendingSteering = vi
     .spyOn(ChatDeliveriesRepository.prototype, 'hasPendingSteering')
     .mockResolvedValue(options.pendingSteering ?? false);
@@ -452,7 +451,6 @@ describe('RunWaitService.suspend', () => {
     await expect(fixture.service.suspend(input)).resolves.toEqual({
       kind: 'suspended',
     });
-
 
     expect(fixture.updateForAttempt).toHaveBeenCalledTimes(1);
     const update = fixture.updateForAttempt.mock.calls[0]?.[3];

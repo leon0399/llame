@@ -127,12 +127,17 @@ async function createBoundBashJob(input: {
   startedAt: Date;
   lifetimeMs: number;
 }): Promise<BashJobStart> {
-  const { deps, binding, machineClient, daemonJobId, startedAt, lifetimeMs } = input;
+  const { deps, binding, machineClient, daemonJobId, startedAt, lifetimeMs } =
+    input;
 
   const result = await createDaemonJob({
-    client: machineClient.client, callOptions: machineClient.callOptions,
-    context: deps.context, machine: deps.machine, input: deps.input,
-    daemonJobId, lifetimeMs,
+    client: machineClient.client,
+    callOptions: machineClient.callOptions,
+    context: deps.context,
+    machine: deps.machine,
+    input: deps.input,
+    daemonJobId,
+    lifetimeMs,
   });
 
   if (result.kind === 'known-refusal')
@@ -183,7 +188,15 @@ type BindBashAttemptInput = {
 async function bindBashAttempt(
   input: BindBashAttemptInput,
 ): Promise<BashBinding> {
-  const { tenantDb, context, machine, daemonJobId, startedAt, lifetimeMs, instanceId } = input;
+  const {
+    tenantDb,
+    context,
+    machine,
+    daemonJobId,
+    startedAt,
+    lifetimeMs,
+    instanceId,
+  } = input;
   const { runId, attemptId, toolCallId } = context;
 
   if (!runId || !attemptId || !toolCallId)
@@ -242,8 +255,15 @@ async function insertBashBinding(
   },
 ): Promise<ChatJob> {
   const {
-    context, machine, daemonJobId, startedAt, instanceId, seq, deadlineAt,
-    runId, toolCallId,
+    context,
+    machine,
+    daemonJobId,
+    startedAt,
+    instanceId,
+    seq,
+    deadlineAt,
+    runId,
+    toolCallId,
   } = input;
 
   return repository.insert({

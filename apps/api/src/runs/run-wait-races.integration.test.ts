@@ -95,7 +95,12 @@ describe('Run wait wake races', () => {
         },
         settlement: { state: 'succeeded', result: { exitCode: 0 } },
       },
-      { maxBytes: 65_536, hostFiles: false, noticeRuns, wake: fixture.harness.moduleRef.get(RunWaitService) },
+      {
+        maxBytes: 65_536,
+        hostFiles: false,
+        noticeRuns,
+        wake: fixture.harness.moduleRef.get(RunWaitService),
+      },
     );
   }
 

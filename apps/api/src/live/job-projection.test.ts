@@ -103,7 +103,6 @@ describe('owner job projection refresh', () => {
     expect(vi.getTimerCount()).toBe(0);
   });
 
-
   it('retains the heartbeat deadline when the grouped read takes part of the interval', async () => {
     const { state, runningJobs, frames, subscribe } = fixture();
     const first = Promise.withResolvers<Map<string, number>>();

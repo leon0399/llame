@@ -710,7 +710,6 @@ describeIfDb(
       });
     });
 
-
     const writers: ReadonlyArray<TerminalWriter> = [
       {
         name: 'retry exhaustion (dead letter)',

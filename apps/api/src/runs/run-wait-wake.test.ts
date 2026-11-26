@@ -384,7 +384,6 @@ describe('RunWaitService wake transactions', () => {
     expect(fixture.enqueueInTransaction).not.toHaveBeenCalled();
   });
 
-
   it('does not wake a settlement while its listed job remains running', async () => {
     const fixture = makeFixture([
       [waitingRun],

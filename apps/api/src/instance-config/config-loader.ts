@@ -2103,7 +2103,6 @@ function assertValidRaw(
       const extra = (e.params as { additionalProperty?: string })
         .additionalProperty;
 
-
       return `${instancePath}/${extra ?? '?'}: unrecognized key`;
     }
 

@@ -138,7 +138,6 @@ describe('LiveGatewayService', () => {
     return id;
   };
 
-
   beforeAll(async () => {
     const mod = await Test.createTestingModule({ imports: [AppModule] })
       .overrideProvider(CanonicalSearchCoverageService)

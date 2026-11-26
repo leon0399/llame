@@ -1447,7 +1447,6 @@ export class RunExecutionService {
     AttemptSkillCatalog
   >();
 
-
   constructor(
     private readonly tenantDb: TenantDbService,
     @Inject(CompactionService)
@@ -4714,7 +4713,6 @@ export class RunExecutionService {
         this.tenantDb.runAs(input.userId, async (tx) => {
           if (await suspendedByThisAttempt(tx)) return 'suspend';
 
-
           return new ChatDeliveriesRepository(tx).stepEndSignal({
             runId: input.runId,
             chatId: input.chatId,
@@ -7481,7 +7479,6 @@ export class RunExecutionService {
       executorGit: this.executorGit,
     };
   }
-
 
   /**
    * The artifact surface of a Run (tool-result-artifacts "An artifact needs a

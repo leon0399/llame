@@ -1135,7 +1135,6 @@ describe('loadInstanceConfig — tools.bash (machine-daemon)', () => {
     });
   });
 
-
   it('refuses an unknown key, naming the path', () => {
     writeConfig('{ "tools": { "bash": { "timeoutSeconds": 5 } } }');
     expect(() => loadInstanceConfig()).toThrow(

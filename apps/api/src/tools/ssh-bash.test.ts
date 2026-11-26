@@ -1,6 +1,5 @@
 import { drizzle } from 'drizzle-orm/postgres-js';
 
-
 import { type Db } from '../db/tenant-db.service';
 import { NativeFilesRepository } from '../runs/native-files-repository';
 import { RunEventsRepository } from '../runs/runs-repository';
@@ -397,7 +396,6 @@ describe('ssh bash execution', () => {
     expect(remoteClient.runs).toHaveLength(0);
     expect(begin).not.toHaveBeenCalled();
   });
-
 
   it('refuses a call cancelled before it starts', async () => {
     const remoteClient = remote();

@@ -46,11 +46,7 @@ import { type PermissionGroup } from '../tools/permissions/types';
 import { type PermissionMode } from '../tools/permissions/permission-mode';
 import { type EnqueueOptions, QUEUE, type Queue } from '../queue/queue';
 import { ChatJobsRepository } from '../jobs/chat-jobs.repository';
-import {
-  type ChatJob,
-  type RunKind,
-  type RunOrigin,
-} from '../db/schema';
+import { type ChatJob, type RunKind, type RunOrigin } from '../db/schema';
 import { CanonicalSearchCoverageService } from '../search/canonical-search-activation.service';
 import { ChatsRepository, MessagesRepository } from '../chats/chats-repository';
 import { type TextPart } from '../chats/context-builder';
