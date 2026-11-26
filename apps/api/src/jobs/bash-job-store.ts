@@ -5,6 +5,7 @@ import { chatJobs, type ChatJob } from '../db/schema';
 import { ChatsRepository } from '../chats/chats-repository';
 import { type Db, type TenantRunner } from '../db/tenant-db.service';
 import { commitArtifactInTransaction } from '../tools/artifacts/artifact-writer';
+import { ArtifactsRepository } from '../tools/artifacts/artifacts-repository';
 import { writeArtifactHostFiles } from '../tools/artifacts/host-files';
 import { ChatJobsRepository, type JobSettlement } from './chat-jobs.repository';
 import { recordJobSettlementNotice } from './job-notices';
@@ -106,28 +107,42 @@ async function settleInTransaction(
   return artifact;
 }
 
-function writeJobArtifact(
+async function writeJobArtifact(
   tx: Db,
   job: ChatJob,
   completion: JobCompletion & { readonly output: ManagedOutput },
   maxBytes: number,
-): Promise<JobArtifact> {
-  const request = {
-    chatId: job.chatId,
-    userId: job.ownerUserId,
-    runId: job.runId,
-    toolCallId: job.toolCallId,
-    toolName: job.kind,
-    complete:
-      completion.settlement.state !== 'lost' && !completion.output.truncated,
-    parts: OUTPUTS.map((name) => ({
-      name,
-      contentType: 'text/plain',
-      content: Buffer.from(completion.output[name]),
-    })),
-  };
-
+): Promise<JobArtifact | undefined> {
   return tx.transaction(async (savepoint) => {
+    const existing = await new ArtifactsRepository(savepoint).findForToolCall(
+      job.chatId,
+      job.runId,
+      job.toolCallId,
+    );
+
+    if (existing !== undefined) {
+      await savepoint
+        .update(chatJobs)
+        .set({ artifactId: existing.id })
+        .where(eq(chatJobs.id, job.id));
+
+      return undefined;
+    }
+
+    const request = {
+      chatId: job.chatId,
+      userId: job.ownerUserId,
+      runId: job.runId,
+      toolCallId: job.toolCallId,
+      toolName: job.kind,
+      complete:
+        completion.settlement.state !== 'lost' && !completion.output.truncated,
+      parts: OUTPUTS.map((name) => ({
+        name,
+        contentType: 'text/plain',
+        content: Buffer.from(completion.output[name]),
+      })),
+    };
     const written = await commitArtifactInTransaction(
       savepoint,
       request,

@@ -104,6 +104,26 @@ export class ArtifactsRepository {
     return row;
   }
 
+  /** The artifact already written for one tool call, if any. */
+  async findForToolCall(
+    chatId: string,
+    runId: string,
+    toolCallId: string,
+  ): Promise<{ id: string; createdAt: Date } | undefined> {
+    const [row] = await this.db
+      .select({ id: toolArtifacts.id, createdAt: toolArtifacts.createdAt })
+      .from(toolArtifacts)
+      .where(
+        and(
+          eq(toolArtifacts.chatId, chatId),
+          eq(toolArtifacts.runId, runId),
+          eq(toolArtifacts.toolCallId, toolCallId),
+        ),
+      );
+
+    return row;
+  }
+
   /** Every part of one artifact, inserted in the caller's transaction. */
   async insertParts(
     artifactId: string,

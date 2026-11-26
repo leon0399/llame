@@ -35,6 +35,7 @@ import {
 } from '../testing/support';
 import { ChatsRepository } from './chats-repository';
 import { settleBashJob } from '../jobs/bash-job-store';
+import { commitArtifactInTransaction } from '../tools/artifacts/artifact-writer';
 
 if (!process.env['TEST_DATABASE_URL']) {
   throw new Error(
@@ -374,6 +375,58 @@ describe('chat jobs API', () => {
       state: 'succeeded',
       result: { exitCode: 0, outputUnavailable: true },
       artifactId: null,
+    });
+  });
+  it('reuses an artifact already spilled for the tool call when settling', async () => {
+    const chatId = await createChat();
+    const job = await startJob(chatId, 12);
+    const spilled = await tenantDb.runAs(userAId, (tx) =>
+      commitArtifactInTransaction(
+        tx,
+        {
+          chatId,
+          userId: userAId,
+          runId: job.runId,
+          toolCallId: job.toolCallId,
+          toolName: 'bash',
+          complete: true,
+          parts: [
+            {
+              name: 'stdout',
+              contentType: 'text/plain',
+              content: Buffer.from('spilled output'),
+            },
+          ],
+        },
+        job.seq,
+        131_072,
+      ),
+    );
+
+    await settleBashJob(
+      tenantDb,
+      job,
+      {
+        output: {
+          stdout: 'spilled output',
+          stderr: '',
+          truncated: false,
+          truncatedStreams: { stdout: false, stderr: false },
+        },
+        settlement: { state: 'succeeded', result: { exitCode: 0 } },
+      },
+      {
+        maxBytes: 131_072,
+        hostFiles: false,
+        backgrounded: false,
+        noticeRuns: { startOnSettlement: () => Promise.resolve() },
+        wake: { wakeForChatInTransaction: () => Promise.resolve(false) },
+      },
+    );
+
+    expect(await stateOf(chatId, job.id)).toMatchObject({
+      state: 'succeeded',
+      artifactId: spilled.id,
     });
   });
 
