@@ -82,10 +82,7 @@ const session = () => {
           result: {
             case: 'lines',
             value: {
-              lines: lines.slice(
-                firstLine - 1,
-                firstLine - 1 + (limit ?? 0),
-              ),
+              lines: lines.slice(firstLine - 1, firstLine - 1 + (limit ?? 0)),
               startLine: firstLine,
               lineCount: lines.length,
               lineEnding: '\n',
@@ -229,7 +226,6 @@ describe('wire file handlers', () => {
     );
   });
 
-
   it('renders a selected markdown window using the native read renderer', async () => {
     const result = await readHandler(session(), {
       envelope,
@@ -358,5 +354,4 @@ describe('wire file handlers', () => {
       expect.anything(),
     );
   });
-
 });

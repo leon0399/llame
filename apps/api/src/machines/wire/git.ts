@@ -250,7 +250,6 @@ export const gitHandlers: GitHandlers = {
       session.callOptions(options),
     );
 
-
     if (response.result.case === 'failure')
       return failure(response.result.value, session);
 

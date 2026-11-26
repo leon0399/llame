@@ -169,7 +169,6 @@ describe('Git wire handlers', () => {
       result: { case: 'gitEntry', value: '/srv/repo/.git' },
     });
 
-
     const getStatus = vi.fn().mockResolvedValue({
       result: {
         case: 'status',

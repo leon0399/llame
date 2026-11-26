@@ -45,7 +45,6 @@ function updateMediaHead(
 
   state.mediaType = sniffMediaType(state.head);
 
-
   if (state.mediaType === 'application/octet-stream') {
     return {
       status: 'error',
@@ -93,6 +92,7 @@ function updateByteState(
   const refusal = updateMediaHead(state, chunk);
 
   if (refusal) return refusal;
+
   if (state.mediaType === undefined) return undefined;
 
   const chunks = previouslyDetected ? [chunk] : state.pendingChunks.splice(0);

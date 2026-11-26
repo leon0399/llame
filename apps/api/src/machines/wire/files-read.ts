@@ -64,7 +64,6 @@ type SelectedReadWindow = {
   windowTruncated: boolean;
 };
 
-
 async function getEntry(
   session: MachineSession,
   path: string,
@@ -328,8 +327,7 @@ async function readAllLines(
     target: shiftTarget(target, bounds.lineOffset),
     lineOffset: bounds.lineOffset,
     lineCount: window.count,
-    windowTruncated:
-      bounds.requestedLines > bounds.limit || window.truncated,
+    windowTruncated: bounds.requestedLines > bounds.limit || window.truncated,
   };
 }
 
@@ -356,8 +354,8 @@ function rebaseReadRanges(result: ReadSuccess, offset: number): ReadSuccess {
 
   return {
     ...result,
-    requestedRanges: result.requestedRanges.map(
-      (range) => shiftLineRange(range, offset)!,
+    requestedRanges: result.requestedRanges.map((range) =>
+      shiftLineRange(range, offset)!,
     ),
     shownRanges: result.shownRanges.map((range) =>
       shiftLineRange(range, offset)!,
