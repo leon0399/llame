@@ -453,9 +453,15 @@ protocol version or answers a git method with UNIMPLEMENTED MUST answer
 
 #### Scenario: An outdated daemon refuses the start
 
-- **WHEN** the Machine daemon reports another protocol version or answers a git method with UNIMPLEMENTED
+- **WHEN** the Machine daemon reports another protocol version at the handshake
 - **THEN** the response is 201 with `workspace.status` `machine_update_required`
 - **AND** no git request is sent and the message is not stored
+
+#### Scenario: A daemon without the git method refuses the start
+
+- **WHEN** the Machine daemon answers a git request with UNIMPLEMENTED
+- **THEN** the response is 201 with `workspace.status` `machine_update_required`
+- **AND** no further git request is sent and the message is not stored
 
 ### Requirement: A failed workspace leaves the chat filed and unbound
 
