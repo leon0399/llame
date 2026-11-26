@@ -17,21 +17,23 @@ describe("connectSocket", () => {
     const server = createServer((socket) => socket.destroy());
 
     try {
-      const listening = Promise.withResolvers<void>();
-      server.once("error", listening.reject);
-      server.listen(path, listening.resolve);
-      await listening.promise;
-
-      const transport = connectSocket(connectNetSocket(path));
-      const response = createClient(BootstrapService, transport).getInfo(request, {
-        timeoutMs: 2_000,
+      const listening = new Promise<void>((resolve, reject) => {
+        server.once("error", reject);
+        server.listen(path, resolve);
       });
 
-      await expect(response).rejects.toThrow();
+      await listening;
+
+      const transport = connectSocket(connectNetSocket(path));
+
+      const response = createClient(BootstrapService, transport).getInfo(request, {
+        timeoutMs: 2000,
+      });
+
+      await expect(response).rejects.toThrow("unavailable");
     } finally {
-      const closed = Promise.withResolvers<void>();
-      server.close(closed.resolve);
-      await closed.promise;
+      const closed = new Promise<void>((resolve) => server.close(resolve));
+      await closed;
       rmSync(directory, { recursive: true, force: true });
     }
   });

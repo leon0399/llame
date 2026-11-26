@@ -6,10 +6,9 @@
  * a hub key pinned on both the jump host and the box, and the box running the
  * bundled daemon behind the `authorized_keys` forced command.
  *
- * Scenarios come from `openspec/changes/remote-machines`: the safety options
- * override the included configuration (including for a jump host), the session
- * is versioned and multiplexed, bash runs on the Machine, a lost link takes the
- * remote process group with it, and the forced command holds.
+ * Scenarios cover SSH transport and forced-command behavior, including that
+ * daemon-held jobs keep running after a link is lost and can be stopped from
+ * a new session.
  *
  * Requires a Docker daemon and the OpenSSH client tools; see the fixture for
  * how a missing one fails loudly instead of skipping.
