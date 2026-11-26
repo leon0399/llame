@@ -8,6 +8,7 @@ import {
   selectMultiRangeLines,
   selectSourceLines,
   MAX_RESULT_CODE_UNITS,
+  type ReadSuccess,
   type ReadTarget,
 } from '@workspace/native-file-tools';
 import type {
@@ -49,7 +50,20 @@ type TextReadRequest = {
   target: ReadTarget;
   lines: Array<string>;
   ending: string;
+  lineOffset: number;
+  lineCount: number;
+  windowTruncated: boolean;
 };
+
+type SelectedReadWindow = {
+  lines: Array<string>;
+  ending: string;
+  target: ReadTarget;
+  lineOffset: number;
+  lineCount: number;
+  windowTruncated: boolean;
+};
+
 
 async function getEntry(
   session: MachineSession,
@@ -225,24 +239,167 @@ async function suggestMissingPath(
   );
 }
 
-async function readAllLines(
+function shiftTarget(target: ReadTarget, offset: number): ReadTarget {
+  return {
+    ...target,
+    offset: target.offset - offset,
+    ...(target.ranges !== undefined && {
+      ranges: target.ranges.map((range) => ({
+        ...range,
+        offset: range.offset - offset,
+      })),
+    }),
+    ...(target.expandedRanges !== undefined && {
+      expandedRanges: target.expandedRanges.map((range) => ({
+        ...range,
+        offset: range.offset - offset,
+      })),
+    }),
+  };
+}
+
+async function resolveReadTarget(
   session: MachineSession,
   path: string,
   target: ReadTarget,
   options?: MachineRequestOptions,
-): Promise<{ lines: Array<string>; ending: string } | NativeFailureResult> {
-  const start = Math.max(1, target.offset);
-  const limit = Math.min(
-    (target.limit ?? READ_WINDOW_LINES) + (target.offset === 0 ? 1 : 2),
-    READ_WINDOW_LINES,
+): Promise<ReadTarget | NativeFailureResult> {
+  if (target.pending === undefined) return target;
+
+  const count = await readRange(session, { path, start: 1, limit: 1 }, options);
+
+  if (isNativeFailure(count)) return count;
+
+  return resolveEndRelativeSelector(target, count.count);
+}
+
+function readWindowBounds(target: ReadTarget) {
+  const intervals = target.expandedRanges ?? target.ranges;
+  const requestedStart = intervals?.[0]?.offset ?? target.offset;
+
+  const lineOffset = target.raw
+    ? requestedStart
+    : Math.max(0, requestedStart - 1);
+
+  const end = intervals
+    ? Math.max(...intervals.map((range) => range.offset + range.limit))
+    : target.offset + (target.limit ?? READ_WINDOW_LINES);
+
+  const requestedLines =
+    target.limit === undefined && target.ranges === undefined
+      ? READ_WINDOW_LINES
+      : end - lineOffset + (target.raw ? 0 : 1);
+
+  return {
+    lineOffset,
+    requestedLines,
+    limit: Math.min(requestedLines, READ_WINDOW_LINES),
+  };
+}
+
+async function readAllLines(
+  session: MachineSession,
+  path: string,
+  requestedTarget: ReadTarget,
+  options?: MachineRequestOptions,
+): Promise<SelectedReadWindow | NativeFailureResult> {
+  const target = await resolveReadTarget(
+    session,
+    path,
+    requestedTarget,
+    options,
   );
-  const window = await readRange(session, { path, start, limit }, options);
+
+  if (isNativeFailure(target)) return target;
+
+  const bounds = readWindowBounds(target);
+
+  const window = await readRange(
+    session,
+    { path, start: bounds.lineOffset + 1, limit: bounds.limit },
+    options,
+  );
 
   if (isNativeFailure(window)) return window;
 
-  return { lines: window.lines, ending: window.ending };
+  return {
+    lines: window.lines,
+    ending: window.ending,
+    target: shiftTarget(target, bounds.lineOffset),
+    lineOffset: bounds.lineOffset,
+    lineCount: window.count,
+    windowTruncated:
+      bounds.requestedLines > bounds.limit || window.truncated,
+  };
 }
 
+function shiftLineRange(
+  range: { startLine: number; endLine: number } | null,
+  offset: number,
+) {
+  return range === null
+    ? null
+    : {
+        startLine: range.startLine + offset,
+        endLine: range.endLine + offset,
+      };
+}
+
+function rebaseReadRanges(result: ReadSuccess, offset: number): ReadSuccess {
+  if ('shownRange' in result) {
+    return {
+      ...result,
+      requestedRange: shiftLineRange(result.requestedRange, offset),
+      shownRange: shiftLineRange(result.shownRange, offset),
+    };
+  }
+
+  return {
+    ...result,
+    requestedRanges: result.requestedRanges.map((range) =>
+      shiftLineRange(range, offset),
+    ),
+    shownRanges: result.shownRanges.map((range) =>
+      shiftLineRange(range, offset)!,
+    ),
+  };
+}
+
+function rebaseReadResult(
+  result: ReadSuccess,
+  request: TextReadRequest,
+  displayPath: string,
+): ReadSuccess {
+  const { target, lines, lineOffset, lineCount, windowTruncated } = request;
+
+  const content =
+    result.representation === 'raw'
+      ? result.content
+      : result.content.replaceAll(
+          /^(\d+): /gmu,
+          (_match, number: string) => `${Number(number) + lineOffset}: `,
+        );
+
+  const truncated =
+    result.truncated ||
+    windowTruncated ||
+    (target.limit === undefined &&
+      target.ranges === undefined &&
+      lineOffset + lines.length < lineCount);
+
+  const shifted = {
+    ...result,
+    path: displayPath,
+    content,
+    ...(result.representation !== 'outline' && { lineCount }),
+    truncated,
+    ...((result.nextOffset !== undefined || truncated) && {
+      nextOffset: (result.nextOffset ?? lines.length) + lineOffset,
+    }),
+  };
+
+  return rebaseReadRanges(shifted, lineOffset);
+}
 
 async function selectReadContent(
   request: TextReadRequest,
@@ -265,7 +422,7 @@ async function selectReadContent(
       ? selectMultiRangeLines(source, resolved)
       : selectSourceLines(source, resolved, fileMediaType(path));
 
-  return { ...selected, path: displayPath };
+  return rebaseReadResult(selected, request, displayPath);
 }
 
 function exceedsReadLimit(
@@ -326,9 +483,12 @@ async function readTextFile(
   return renderTextRead({
     path: params.path,
     params,
-    target,
+    target: content.target,
     lines: content.lines,
     ending: content.ending,
+    lineOffset: content.lineOffset,
+    lineCount: content.lineCount,
+    windowTruncated: content.windowTruncated,
   });
 }
 

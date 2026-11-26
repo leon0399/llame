@@ -27,12 +27,14 @@ import {
 } from './files.js';
 
 const path = '/work/notes.md';
+
 const entry = {
   name: path,
   kind: EntryKind.FILE,
   size: 15n,
   canonicalPath: path,
 };
+
 const lines = ['# Title', 'first', 'second', 'third'];
 
 const sessions: Array<MachineSession> = [];
@@ -186,6 +188,44 @@ describe('wire file handlers', () => {
     expect(request).toMatchObject({ startLine: 1 });
     expect(request?.limit).toBeLessThanOrEqual(22);
   });
+  it('reads a later absolute selector window with source line numbers', async () => {
+    const fake = session();
+    vi.mocked(fake.clients.files.readLines).mockImplementation(
+      ({ startLine, limit }) =>
+        Promise.resolve(
+          create(ReadLinesResponseSchema, {
+            result: {
+              case: 'lines',
+              value: {
+                lines: Array.from(
+                  { length: limit },
+                  (_, index) => `line ${(startLine ?? 1) + index}`,
+                ),
+                startLine: startLine ?? 1,
+                lineCount: 500,
+                lineEnding: '\n',
+                truncated: false,
+              },
+            },
+          }),
+        ),
+    );
+
+    const result = await readHandler(fake, {
+      envelope,
+      path,
+      options: { ...display, selector: 'L300-302' },
+    });
+
+    expect(fake.clients.files.readLines).toHaveBeenCalledWith(
+      expect.objectContaining({ startLine: 299, limit: 5 }),
+      expect.anything(),
+    );
+    expect(renderReadText(result)).toContain(
+      'machine://test/work/notes.md:L299-303 of 500 lines\n299: line 299\n300: line 300\n301: line 301\n302: line 302\n303: line 303',
+    );
+  });
+
 
   it('renders a selected markdown window using the native read renderer', async () => {
     const result = await readHandler(session(), {
@@ -285,6 +325,7 @@ describe('wire file handlers', () => {
     const readBytes = vi.mocked(fake.clients.files.readBytes);
     readBytes.mockImplementation(({ limit }) =>
       (async function* () {
+        await Promise.resolve();
         expect(limit).toBe(BigInt(MEDIA_MAX_BYTES));
         yield create(ReadBytesResponseSchema, {
           result: { case: 'size', value: 100n * 1024n * 1024n },
