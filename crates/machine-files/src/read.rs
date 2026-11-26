@@ -52,7 +52,9 @@ fn make_entry(context: &Context, path: &Path, name: String) -> Result<Entry, std
     let metadata = fs::symlink_metadata(path)?;
     let entry_kind = kind(&metadata);
     let (link_target, target_kind) = if metadata.file_type().is_symlink() {
-        let target = context.guard().resolve(&path.to_string_lossy()).ok();
+        let target = path
+            .to_str()
+            .and_then(|exact| context.guard().resolve(exact).ok());
         let target_kind = target
             .as_ref()
             .and_then(|guarded| fs::metadata(&guarded.canonical).ok())

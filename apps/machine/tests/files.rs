@@ -226,6 +226,57 @@ async fn entries_and_directory_listing_preserve_link_facts_and_order() {
 }
 
 #[tokio::test]
+async fn non_utf8_symlink_does_not_use_a_lossy_path_for_guarding() {
+    use std::os::unix::{ffi::OsStrExt, fs::symlink};
+
+    let machine = common::Machine::new();
+    let root = machine.root();
+    let collision = root.join("invalid-\u{fffd}");
+    std::fs::write(root.join("inside-target"), "inside").unwrap();
+    symlink(root.join("inside-target"), &collision).unwrap();
+    let mut non_utf8_name = b"invalid-".to_vec();
+    non_utf8_name.push(0xff);
+    let non_utf8_link = root.join(std::ffi::OsStr::from_bytes(&non_utf8_name));
+    symlink("/etc/passwd", non_utf8_link).unwrap();
+
+    let (_child, channel) = machine.attach().await;
+    let mut client = FileServiceClient::new(channel);
+    let response = client
+        .list_directory(ListDirectoryRequest {
+            path: root.to_string_lossy().into_owned(),
+            offset: 0,
+            limit: 10,
+        })
+        .await
+        .unwrap()
+        .into_inner();
+    let Some(list_directory_response::Result::Directory(directory)) = response.result else {
+        panic!("listing failed");
+    };
+    let lossy_entries = directory
+        .entries
+        .iter()
+        .filter(|entry| entry.name.starts_with("invalid-"))
+        .collect::<Vec<_>>();
+    assert_eq!(lossy_entries.len(), 2);
+    assert!(
+        lossy_entries
+            .iter()
+            .all(|entry| entry.kind == EntryKind::Symlink as i32)
+    );
+    assert!(
+        lossy_entries
+            .iter()
+            .any(|entry| entry.link_target.is_none())
+    );
+    assert!(
+        lossy_entries
+            .iter()
+            .all(|entry| entry.link_target.as_deref() != Some("/etc/passwd"))
+    );
+}
+
+#[tokio::test]
 async fn mutations_apply_modes_once_and_report_exact_replacement_results() {
     let machine = common::Machine::new();
     let root = machine.root();
