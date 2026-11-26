@@ -486,7 +486,8 @@ describe('/api/v1/checkouts on a Machine', () => {
       expect(
         harness.peer.sessions.every((machine) =>
           machine.calls.every(
-            (call) => call.method !== 'fs.stat' && call.method !== 'git.inspect',
+            (call) =>
+              call.method !== 'fs.stat' && call.method !== 'git.inspect',
           ),
         ),
       ).toBe(true);
