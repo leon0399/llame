@@ -1,7 +1,7 @@
 ---
 type: Reference
 title: "VectorChord"
-description: "PostgreSQL vector index extension with IVF/RaBitQ and disk graph indexes, prefiltering, and AGPL or Elastic licensing, evaluated as an approximate-index option for llame chat search."
+description: "PostgreSQL vector index extension with IVF/RaBitQ and disk graph indexes, prefiltering, and AGPL-3.0-only licensing in current releases, evaluated as an approximate-index option for llame chat search."
 resource: "https://github.com/pgsty/vchord"
 tags: [postgresql, vector-search, pgvector, ann-index, bm25, licensing]
 status: draft
@@ -88,25 +88,27 @@ lists, stops once the `LIMIT` is satisfied, and can return a closer row in a
 later round, up to `vchordrq.max_probes`. An application that needs a total
 order therefore over-fetches and sorts its own result.[^vchord-release-150]
 
-**Maintenance.** 1.5.0 pairs graph insertion's extended vector page and its
-incoming link in one WAL record, lets graph VACUUM follow a deleted bridge to a
-live region with spare neighbor slots, returns retired pages after publishing
-each list during online RQ VACUUM, and divides keyed RQ compaction sort memory
-across launched workers.[^vchord-release-150] The same release states that an
-older graph VACUUM could disconnect a live region and requires a
-`REINDEX INDEX CONCURRENTLY` for an index built that way. These are correctness
-and repair mechanics for a mutation-heavy corpus. For a continuously rewritten
-table, index maintenance is part of the design rather than an operational
-afterthought.
+**Maintenance.** Version 1.5.0 pairs a graph insertion's extended vector page
+with its incoming link in one WAL record. It lets graph VACUUM follow a deleted
+bridge into a live region that has spare neighbor slots. It returns retired
+pages after publishing each list during online RQ VACUUM. It divides keyed RQ
+compaction sort memory across launched workers.[^vchord-release-150] The same
+release states that an older graph VACUUM could disconnect a live region, and
+that an index built that way needs a `REINDEX INDEX CONCURRENTLY`. These are
+correctness and repair mechanics for a mutation-heavy corpus. For a
+continuously rewritten table, index maintenance is part of the design rather
+than an operational afterthought.
 
 **Dimension requirement.** The documented indexing examples for both extensions
-declare `vector(n)`, and pgvector's own guidance for a dimensionless `vector`
-column is an expression index over a cast to `vector(n)`, guarded by a partial
-predicate on the model column, with the same cast in the query.[^pgvector-readme]
-llame stores its embedding column without a dimension, so any index becomes a
-per-model expression and partial index, or a migration to a dimensioned column.
-Both shapes hard-code a dimension that the operator currently declares in the
-configuration at runtime.
+declare `vector(n)`. pgvector's own guidance for a dimensionless `vector` column
+is an expression index over a cast to `vector(n)`, guarded by a partial
+predicate and with the same cast in the query.[^pgvector-readme] One index
+covers one dimension, so models that share a dimension can share that index,
+and the predicate can select on the dimension instead of on the model.
+llame stores its embedding column without a dimension, so indexing becomes one
+expression and partial index per dimension, or a migration to a dimensioned
+column. Both shapes hard-code a dimension that the operator currently declares
+in the configuration at runtime.
 
 **License and distribution.** The upstream 1.1.0 release is dual-licensed under
 AGPLv3 and the Elastic License v2.[^vchord-pgxn-110] The PGSTY fork is
@@ -118,10 +120,10 @@ extension to every installation.
 
 **Vendor performance claims.** The 1.1.0 README reports up to 5 times the query
 throughput, 16 times the insert throughput, and 16 times faster index build
-against pgvector HNSW, plus 35 ms P50 latency at recall@95 over 100 million
-768-dimensional vectors in 32 GB of memory.[^vchord-pgxn-110] These are vendor
-measurements with the vendor's tuning, and this inspection did not reproduce
-them. The documentation also publishes benchmarks against pgvector,
+against pgvector HNSW. It also reports 35 ms P50 latency at recall@95 over 100
+million 768-dimensional vectors in 32 GB of memory.[^vchord-pgxn-110] These are
+vendor measurements with the vendor's tuning, and this inspection did not
+reproduce them. The documentation also publishes benchmarks against pgvector,
 pgvectorscale, and Elasticsearch.[^vchord-benchmarks]
 
 **Applicability to llame.** The vector leg is an exact cosine scan over
@@ -144,14 +146,21 @@ prune, and retry commands. Index maintenance runs against that churn, and severa
 recent vchord releases are correctness and repair fixes.[^vchord-release-index]
 
 Prefiltering is the mechanism that matches owner-scoped search, because the
-owner predicate is the filter. It is also the mechanism pgvector now covers with
-iterative index scans, which extend an approximate scan until enough rows match
-or the scan bound is reached.[^pgvector-readme] That keeps the escalation order
-inside one extension.
+owner predicate is the filter. pgvector's iterative index scans address the same
+over-fetch from the other side, since they filter after the scan and continue
+until enough rows match or the scan bound is reached. They return more matches
+without pruning the search space.[^pgvector-readme] pgvector also warns that a
+shared approximate index lets one tenant's vectors affect another tenant's
+recall and speed, and recommends list partitioning or separate tables for tenant
+isolation.[^pgvector-readme] llame keeps every owner's rows in one table, so an
+ANN index on `search_chat_documents` would need that partitioning before it could
+claim owner-scoped behavior. The escalation order stays inside one extension
+either way, and its second rung carries a partitioning requirement of its own.
 
-**Decision.** This note recommends no adoption now, and it records the ladder
-instead: exact scan, then pgvector HNSW or `halfvec` with iterative index scans,
-then VectorChord where memory or I/O at large scale justifies a second extension.
+**Decision.** This note recommends no adoption now. It records the ladder
+instead: exact scan, then pgvector HNSW or `halfvec` with iterative index scans
+over per-owner partitions, then VectorChord where memory or I/O at large scale
+justifies a second extension.
 [The implementation review](../chat-search/2026-08-25-episodic-memory-implementation-review.md)
 reaches the same position for partial ANN indexes and names the latency gate.
 
