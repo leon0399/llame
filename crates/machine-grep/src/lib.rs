@@ -336,8 +336,11 @@ fn run_search(
                 }
                 break;
             }
-            let read_limit = usize::try_from(remaining.min(chunk.len() as u64))
-                .expect("read limit is bounded by the chunk length");
+            let read_limit = if remaining < chunk.len() as u64 {
+                remaining as usize
+            } else {
+                chunk.len()
+            };
             let Ok(read) = file.read(&mut chunk[..read_limit]) else {
                 read_failed = true;
                 break;
