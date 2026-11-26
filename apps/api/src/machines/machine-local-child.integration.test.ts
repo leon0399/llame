@@ -263,6 +263,7 @@ describe('the local Machine link (host-as-machine)', () => {
       bytes.channel.close();
 
       const arbitraryChunks: Array<Buffer> = [];
+
       const arbitrary = session.openChannel({
         method: 'fs.bytes',
         params: { path: join(root, 'notes.txt'), envelope: ENVELOPE },
@@ -299,16 +300,19 @@ describe('the local Machine link (host-as-machine)', () => {
       LLAME_MACHINE_CONFIG_DIR: configDir,
       LLAME_MACHINE_STATE_DIR: stateDir,
     };
+
     const factory = createLocalChildTransportFactory({
       command: MACHINE_BINARY,
       env,
     });
+
     const connector = new MachineConnector({
       machines: { local: NAME, hosts: { [NAME]: {} } },
       hubVersion: HUB_VERSION,
       bindIdentity: () => Promise.resolve('bound'),
       transportFactory: factory,
     });
+
     const transport = new MachineTransport({
       connector,
       machine: NAME,
@@ -316,6 +320,7 @@ describe('the local Machine link (host-as-machine)', () => {
       server: 'fixture',
       envelope: ENVELOPE,
     });
+
     const client = await createMCPClient({ transport, maxRetries: 0 });
     let pid: number | undefined;
 
@@ -332,6 +337,7 @@ describe('the local Machine link (host-as-machine)', () => {
     } finally {
       await client.close();
       await transport.close();
+
       if (pid !== undefined) await waitForProcessExit(pid);
       connector.onModuleDestroy();
     }

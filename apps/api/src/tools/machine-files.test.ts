@@ -589,6 +589,7 @@ describe('Machine media', () => {
 
   it('refuses text bytes read through the image media path', async () => {
     const bytes = Buffer.from('plain text, not an image');
+
     const { peer, connector } = fixture({
       answers: {
         'fs.read': {
@@ -601,13 +602,16 @@ describe('Machine media', () => {
         'fs.bytes': { hold: true },
       },
     });
+
     const { store, handed } = mediaStore();
+
     const call = runTool(
       nativeReadTool,
       { path: 'machine://devl/srv/notes.txt' },
       context(connector, { media: store }),
       5,
     );
+
     const session = await peer.session(0);
     await session.awaitRequests(2);
     await flushMicrotasks();

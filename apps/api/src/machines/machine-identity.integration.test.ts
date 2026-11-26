@@ -16,13 +16,18 @@
 import { drizzle } from 'drizzle-orm/postgres-js';
 import postgres, { type Sql } from 'postgres';
 
-import type { JsonValue } from '@workspace/machine-protocol';
+import {
+  type JsonValue,
+  type MachineMethod,
+  type MachineMethodParams,
+} from '@workspace/machine-protocol';
 
 import {
   createProtocolPeer,
   type ProtocolPeer,
 } from '../testing/machine-protocol-peer';
 
+import type { MachineRequestOptions } from './machine-session';
 import type { MachineTransportFactory } from './machine-transport';
 import { MachineBindingsRepository } from './machine-bindings.repository';
 import {
@@ -53,7 +58,11 @@ function transportOf(
   let active: ProtocolPeer | undefined;
 
   return {
-    requestHandler: (method, params, options) => {
+    requestHandler: (
+      method: MachineMethod,
+      params: MachineMethodParams,
+      options: MachineRequestOptions,
+    ) => {
       const handler = active?.factory.requestHandler;
 
       if (handler === undefined) {

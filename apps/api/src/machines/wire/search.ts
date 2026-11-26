@@ -25,6 +25,7 @@ import {
   type HubCursor,
   type SearchPositionValue,
 } from './search-cursor.js';
+import { makeSearchResult } from './search-result.js';
 
 type MatchEvent = Extract<
   SearchFilesResponse['event'],
@@ -448,79 +449,6 @@ function limitPassages(groups: Array<PassageGroup>) {
   return { groups: limitedGroups, cappedGroups };
 }
 
-type SearchSuccessMutable = Omit<
-  Extract<FsGrepResult, { ok: true }>,
-  'cursor' | 'unfinished' | 'ignored'
-> & {
-  cursor?: string;
-  unfinished?: string;
-  ignored?: { paths: Array<string>; atLeast: boolean };
-};
-
-function searchResult(options: {
-  readonly params: FsGrepParams;
-  readonly page: PageGroupsResult;
-  readonly inputHash: string;
-  readonly end?: SearchEnd;
-  readonly warningCounts: Map<FsGrepWarningKind, number>;
-  readonly ignoredPaths: Array<string>;
-  readonly ignoredAtLeast: boolean;
-}): FsGrepResult {
-  const {
-    params,
-    page,
-    inputHash,
-    end,
-    warningCounts,
-    ignoredPaths,
-    ignoredAtLeast,
-  } = options;
-  const daemonPosition = end?.position;
-
-  const complete =
-    end?.stop === SearchStop.COMPLETE && page.cursor === undefined;
-
-  const cursor =
-    page.cursor ??
-    (!complete && daemonPosition
-      ? cursorEncode({ after: daemonPosition, inputHash })
-      : undefined);
-
-  const stoppedInsideUnmatchedFile =
-    end?.stop === SearchStop.BYTES &&
-    end.position?.byteOffset !== undefined &&
-    end.matches === 0 &&
-    !warningCounts.has('binary') &&
-    !warningCounts.has('invalid_utf8');
-  const progressed =
-    params.bounds.progressed ||
-    ((end?.files ?? 0) > 0 && !stoppedInsideUnmatchedFile);
-
-  const result: SearchSuccessMutable = {
-    ok: true,
-    results: page.results,
-    complete,
-    warnings: [...warningCounts].map(([kind, count]) => ({ kind, count })),
-    consumed: {
-      files: end?.files ?? 0,
-      entries: end?.files ?? 0,
-      bytes: Number(end?.bytes ?? 0n),
-    },
-    progressed,
-  };
-
-  if (cursor !== undefined) result.cursor = cursor;
-
-  if (!complete && !progressed && daemonPosition !== undefined) {
-    result.unfinished = daemonPosition.path;
-  }
-
-  if (ignoredPaths.length > 0 || ignoredAtLeast)
-    result.ignored = { paths: ignoredPaths, atLeast: ignoredAtLeast };
-
-  return result;
-}
-
 export const searchHandlers: Partial<Record<'fs.grep', Handler<'fs.grep'>>> = {
   'fs.grep': async (
     session: MachineSession,
@@ -559,7 +487,7 @@ export const searchHandlers: Partial<Record<'fs.grep', Handler<'fs.grep'>>> = {
         collection.end?.position !== undefined,
     });
 
-    return searchResult({
+    return makeSearchResult({
       params,
       page,
       inputHash,

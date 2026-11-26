@@ -18,6 +18,8 @@ import {
   type FsReadResult,
   type FsStatResult,
   type JsonValue,
+  type MachineMethod,
+  type MachineMethodParams,
   type McpServerEntry,
   type RootsListResult,
 } from '@workspace/machine-protocol';
@@ -47,6 +49,7 @@ import {
   type MachineHostConfig,
   type MachinesConfig,
 } from '../instance-config/machines-config';
+import type { MachineRequestOptions } from '../machines/machine-session';
 import { type MachineTransportFactory } from '../machines/machine-transport';
 import {
   createProtocolPeer,
@@ -123,7 +126,7 @@ describe('Machine Workspaces through the durable worker', () => {
 
   let devl: FakeMachine;
   let gpu: FakeMachine;
-  let machineMcpOpens: Array<{ workspace: string; server: string }> = [];
+  const machineMcpOpens: Array<{ workspace: string; server: string }> = [];
   let machineMcpHandler: Parameters<typeof installMachineMcpSession>[1];
 
   async function installMcpSession(): Promise<void> {
@@ -179,9 +182,11 @@ describe('Machine Workspaces through the durable worker', () => {
 
       if (message.case === 'open') {
         const { workspace, server } = message.value;
-        state['workspace'] = workspace;
-        state['server'] = server;
+
+        state.set('workspace', workspace);
+        state.set('server', server);
         machineMcpOpens.push({ workspace, server });
+
         const declaration = readWorkspaceServers(workspace).find(
           (candidate) => candidate.name === server,
         );
@@ -192,20 +197,24 @@ describe('Machine Workspaces through the durable worker', () => {
       }
 
       if (message.case !== 'jsonRpc') return undefined;
-      const workspace = state['workspace'];
-      const name = state['server'];
+      const workspace = state.get('workspace');
+      const name = state.get('server');
 
-      if (!isString(workspace) || !isString(name)) return undefined;
+      if (workspace === undefined || name === undefined) return undefined;
+
       const declaration = readWorkspaceServers(workspace).find(
         (candidate) => candidate.name === name,
       );
+
       const parsed: unknown = JSON.parse(message.value);
       const call = jsonRpcCall(wireJson(parsed));
+
       const answer =
         call === undefined ? undefined : mcpServerAnswer(call, declaration);
 
       return answer === undefined ? undefined : machineMcpJsonRpc(answer);
     };
+
     await installMcpSession();
     owner = await createUser(harness.db, 'machine-owner');
     other = await createUser(harness.db, 'machine-other');
@@ -578,6 +587,7 @@ describe('Machine Workspaces through the durable worker', () => {
     const opened = machineMcpOpens.filter(
       (entry) => entry.workspace === ownRoot || entry.workspace === otherRoot,
     );
+
     expect(opened).toEqual(
       expect.arrayContaining([
         { workspace: ownRoot, server: 'repo' },
@@ -1010,7 +1020,11 @@ function createMachineFactory(
   byName: Readonly<Record<string, FakeMachine>>,
 ): MachineTransportFactory {
   return {
-    requestHandler: (method, params, options) => {
+    requestHandler: (
+      method: MachineMethod,
+      params: MachineMethodParams,
+      options: MachineRequestOptions,
+    ) => {
       const machine = byName[options.machineName ?? ''];
       const handler = machine?.peer.factory.requestHandler;
 

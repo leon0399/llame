@@ -183,12 +183,16 @@ describe('wire fs.grep', () => {
     expect(result).toMatchObject({
       ok: true,
       ignored: {
-        paths: expect.arrayContaining(['ignored-0', 'ignored-999']),
         atLeast: true,
       },
     });
+
     if (!('ok' in result) || !result.ok)
       throw new Error('Expected a successful search result.');
+
+    expect(result.ignored?.paths).toEqual(
+      expect.arrayContaining(['ignored-0', 'ignored-999']),
+    );
     expect(result.ignored?.paths).toHaveLength(1000);
   });
 
