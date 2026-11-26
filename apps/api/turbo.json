@@ -17,11 +17,11 @@
     // into its sshd container, so integration tests build it first.
     "test:integration": {
       "cache": false,
-      "dependsOn": ["machine#build"]
+      "dependsOn": ["^build", "machine#build"]
     },
     "test:coverage": {
       "cache": false,
-      "dependsOn": ["machine#build"]
+      "dependsOn": ["^build", "machine#build"]
     },
     "test:evals": {
       "cache": false
