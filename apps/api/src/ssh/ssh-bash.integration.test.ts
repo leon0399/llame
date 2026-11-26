@@ -160,6 +160,55 @@ describe('ssh bash over a real sshd', () => {
     );
   }
 
+
+  function machineBashRuntime(machines: MachineConnector) {
+    const daemonJobId = { value: '' };
+    const row: ChatJob = {
+      id: randomUUID(),
+      chatId: 'chat',
+      ownerUserId: 'owner',
+      kind: 'bash',
+      seq: 1,
+      state: 'running',
+      stoppedBy: null,
+      runId: 'run',
+      toolCallId: 'call',
+      machineName: MACHINE_SSHD_NAME,
+      daemonInstanceId: '00000000-0000-4000-8000-000000000013',
+      daemonJobId: '',
+      startedAt: new Date(),
+      settledAt: null,
+      deadlineAt: null,
+      stopRequestedAt: null,
+      stopRequestedBy: null,
+      result: null,
+      outputs: ['stdout', 'stderr'],
+      artifactId: null,
+      artifactReadable: false,
+      settings: { selector: 'test-model', permissionMode: 'default' },
+    };
+
+    vi.spyOn(ChatsRepository.prototype, 'lock').mockResolvedValue({} as never);
+    vi.spyOn(ArtifactsRepository.prototype, 'nextSeq').mockResolvedValue(1);
+    vi.spyOn(ChatJobsRepository.prototype, 'insert').mockImplementation(
+      async (input) => {
+        daemonJobId.value = input.daemonJobId;
+
+        return { ...row, daemonJobId: input.daemonJobId };
+      },
+    );
+    vi.spyOn(NativeFilesRepository.prototype, 'recoverHostPromotion')
+      .mockImplementation((input) =>
+        Promise.resolve({ disposition: 'recovery_won', result: input.result }),
+      );
+
+    return {
+      ...hostBashJobs(tenantDb, machines, {
+        wakeForChatInTransaction: () => Promise.resolve(false),
+      }),
+      daemonJobId,
+    };
+  }
   async function hostnameOf(container: StartedTestContainer): Promise<string> {
     const result = await fixture.execIn(container, ['hostname']);
 
@@ -374,7 +423,7 @@ describe('ssh bash over a real sshd', () => {
     });
   }, 60_000);
 
-  it('An interrupt cancels a Machine Workspace command with omitted cwd', async () => {
+  it('An interrupt backgrounds a Machine Workspace command with omitted cwd', async () => {
     const connection = fixture.connection();
 
     const transport = createMachineSshTransportFactory({
@@ -391,6 +440,7 @@ describe('ssh bash over a real sshd', () => {
     const aborts = new RunAbortRegistry();
     aborts.register('run', 'owner');
     const segment = aborts.beginSegment('run', 'attempt');
+    const jobRuntime = machineBashRuntime(machines);
 
     if (segment === undefined) throw new Error('Missing active segment');
     const marker = `${MACHINE_SSHD_ROOT}/yield-${crypto.randomUUID()}`;
@@ -399,15 +449,16 @@ describe('ssh bash over a real sshd', () => {
       const call = runTool(
         bashTool,
         { command: `echo $$ > ${marker}; exec sleep 30` },
-        {
-          ...context(client()),
+        context(client(), {
+          ...jobRuntime,
+          attemptId: 'attempt',
           machines,
           workspaceRoot: createWorkspaceRootCell(
             `machine://devl${MACHINE_SSHD_ROOT}`,
           ),
           abortSignal: segment.abort.signal,
           yieldSignal: segment.yield.signal,
-        },
+        }),
         CALL_TIMEOUT_SECONDS,
       );
 
@@ -425,9 +476,36 @@ describe('ssh bash over a real sshd', () => {
 
       interruptCurrent(aborts, 'run');
       await expect(call).resolves.toMatchObject({
-        status: 'error',
-        type: 'outcome_unknown',
+        status: 'success',
+        backgrounded: true,
+        cause: 'message',
       });
+      const stopFactory = createMachineSshTransportFactory({
+        ssh: connection.machines.ssh,
+      });
+      const stopper = new MachineConnector({
+        machines: connection.machines,
+        hubVersion: '0.0.0-yield-stop-test',
+        bindIdentity: () => Promise.resolve('match'),
+        transportFactory: stopFactory,
+      });
+
+      try {
+        const session = await stopper.jobsClient(MACHINE_SSHD_NAME);
+
+        await session.client.cancelJob(
+          {
+            requestId: jobRuntime.daemonJobId.value,
+            jobId: jobRuntime.daemonJobId.value,
+            owner: 'owner',
+          },
+          session.callOptions(),
+        );
+      } finally {
+        stopper.onModuleDestroy();
+        stopFactory.dispose();
+      }
+
       await waitFor(
         async () => {
           const result = await fixture.box.exec(['kill', '-0', pid]);
