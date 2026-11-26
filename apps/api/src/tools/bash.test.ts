@@ -107,9 +107,7 @@ describe('bash input validation', () => {
 
 describe('bash daemon job dispatch', () => {
   beforeEach(() => {
-    vi.spyOn(ChatsRepository.prototype, 'lock').mockResolvedValue(
-      lockedChat(),
-    );
+    vi.spyOn(ChatsRepository.prototype, 'lock').mockResolvedValue(lockedChat());
   });
   afterEach(() => vi.restoreAllMocks());
   it('records a promoted Bash result after JobService dispatch', async () => {

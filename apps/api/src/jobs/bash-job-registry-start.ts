@@ -262,8 +262,7 @@ async function insertChatJobBinding(
     context.userId,
   );
 
-  if (seq === undefined)
-    throw new Error('The Chat cannot store an artifact.');
+  if (seq === undefined) throw new Error('The Chat cannot store an artifact.');
 
   return {
     row: await insertBashBinding(new ChatJobsRepository(db), {
