@@ -613,7 +613,8 @@ bound root and its generation MUST NOT change. A source that is not a git
 repository MUST fail as `worktree_failed`. A git failure or timeout MUST fail as
 `worktree_failed` with the redacted git standard error. `path_not_registered`
 MUST be its only separate code. An offline Machine MUST fail as
-`machine_unavailable`, and a daemon without the git methods MUST fail as
+`machine_unavailable`, and a daemon that reports another protocol version or
+answers a git method with UNIMPLEMENTED MUST fail as
 `machine_update_required`.
 
 #### Scenario: A failed creation keeps the previous binding
@@ -652,9 +653,16 @@ MUST be its only separate code. An offline Machine MUST fail as
 
 #### Scenario: An outdated daemon fails
 
-- **WHEN** the Machine daemon reports no git methods
+- **WHEN** the Machine daemon reports another protocol version at the handshake
 - **THEN** the call returns `machine_update_required`
 - **AND** no git call runs, and the bound root and its generation are
+  unchanged
+
+#### Scenario: A daemon without the git method fails
+
+- **WHEN** the Machine daemon answers a git request with UNIMPLEMENTED
+- **THEN** the call returns `machine_update_required`
+- **AND** no further git call runs, and the bound root and its generation are
   unchanged
 
 #### Scenario: A timeout fails
