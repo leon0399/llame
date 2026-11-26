@@ -416,6 +416,67 @@ describe('BashJobRegistry result retention', () => {
     );
     expect(recovery).toHaveBeenCalled();
   });
+  it('keeps a possibly started job bound when CreateJob times out', async () => {
+    const machines = connector();
+    let createdId: string | undefined;
+
+    const rpc = createRouterTransport((router) => {
+      router.service(JobService, {
+        createJob: async (request) => {
+          createdId = request.jobId;
+          await Promise.resolve();
+          throw new ConnectError('deadline', Code.DeadlineExceeded);
+        },
+        listJobs: () =>
+          create(ListJobsResponseSchema, {
+            jobs: [
+              create(JobSchema, {
+                id: createdId,
+                owner: row.ownerUserId,
+                state: JobState.RUNNING,
+              }),
+            ],
+          }),
+      });
+    });
+
+    const client = createClient(JobService, rpc);
+    vi.spyOn(machines, 'jobsClient').mockResolvedValue({
+      client,
+      callOptions: () => ({}),
+      ended: new Promise<MachineSessionEnd>(() => undefined),
+      instanceId: row.daemonInstanceId,
+    });
+    vi.spyOn(ArtifactsRepository.prototype, 'nextSeq').mockResolvedValue(1);
+    vi.spyOn(ChatJobsRepository.prototype, 'insert').mockResolvedValue(row);
+    const deleteRunning = vi
+      .spyOn(ChatJobsRepository.prototype, 'deleteRunning')
+      .mockResolvedValue(undefined);
+
+    const tenantDb = {
+      runAs: <T>(_userId: string, callback: (tx: Db) => Promise<T>) =>
+        Promise.resolve(callback(drizzle.mock())),
+    };
+
+    await expect(
+      registry(BUILT_IN_DEFAULTS.tools.artifacts.maxBytes, machines).run(
+        {
+          userId: row.ownerUserId,
+          chatId: row.chatId,
+          runId: row.runId,
+          nativeDeliverySequence: 1,
+          attemptId: 'attempt-1',
+          toolCallId: row.toolCallId,
+          configuredCredentials: [],
+          tenantDb,
+        },
+        { name: row.machineName, local: false },
+        { command: 'true' },
+      ),
+    ).rejects.toBeInstanceOf(ConnectError);
+
+    expect(deleteRunning).not.toHaveBeenCalled();
+  });
 
   it('settles lost when CreateJob fails and ListJobs confirms the id is unknown', async () => {
     const machines = connector();

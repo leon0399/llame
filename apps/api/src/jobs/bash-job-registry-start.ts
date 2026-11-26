@@ -1,5 +1,10 @@
 import { randomBytes } from 'node:crypto';
-import { type CallOptions, type Client } from '@connectrpc/connect';
+import {
+  Code,
+  ConnectError,
+  type CallOptions,
+  type Client,
+} from '@connectrpc/connect';
 import { create } from '@bufbuild/protobuf';
 import {
   JobSchema,
@@ -408,6 +413,9 @@ async function createDaemonJob(
 
     return { kind: 'created' };
   } catch (error) {
+    if (error instanceof ConnectError && error.code === Code.DeadlineExceeded)
+      throw error;
+
     const refusal = mapMachineRefusal(input.machine.name, error, true);
 
     if (!(refusal instanceof MachineProtocolError)) throw refusal;
