@@ -165,6 +165,33 @@ describe('wire fs.grep', () => {
       ],
     });
   });
+  it('caps excluded directory paths while retaining the lower-bound count', async () => {
+    const { session } = sessionFor([
+      [
+        ...Array.from({ length: 1001 }, (_, index) =>
+          skipped(`ignored-${index}`, SkipReason.IGNORED),
+        ),
+        ended(),
+      ],
+    ]);
+
+    const result = await searchHandlers['fs.grep']!(session, {
+      ...BASE,
+      bounds: { ...BASE.bounds, pageUnits: 1000 },
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      ignored: {
+        paths: expect.arrayContaining(['ignored-0', 'ignored-999']),
+        atLeast: true,
+      },
+    });
+    if (!('ok' in result) || !result.ok)
+      throw new Error('Expected a successful search result.');
+    expect(result.ignored?.paths).toHaveLength(1000);
+  });
+
 
   it('mints an input-bound cursor and resumes the second page at the hub position', async () => {
     const { session, requests } = sessionFor([

@@ -336,6 +336,7 @@ type SearchCollection = {
   readonly matches: Array<MatchEvent>;
   readonly warningCounts: Map<FsGrepWarningKind, number>;
   readonly ignoredPaths: Array<string>;
+  readonly ignoredAtLeast: boolean;
   readonly end?: SearchEnd;
 };
 
@@ -343,6 +344,7 @@ type SearchCollectionState = {
   matches: Array<MatchEvent>;
   warningCounts: Map<FsGrepWarningKind, number>;
   ignoredPaths: Array<string>;
+  ignoredAtLeast: boolean;
   end?: SearchEnd;
 };
 
@@ -361,11 +363,10 @@ function consumeResponse(
 
       if (kind !== undefined) {
         state.warningCounts.set(kind, (state.warningCounts.get(kind) ?? 0) + 1);
-      } else if (
-        reason === SkipReason.IGNORED &&
-        state.ignoredPaths.length < GREP_LIMITS.ignoredLocators
-      ) {
-        state.ignoredPaths.push(path);
+      } else if (reason === SkipReason.IGNORED) {
+        if (state.ignoredPaths.length < GREP_LIMITS.ignoredReported)
+          state.ignoredPaths.push(path);
+        else state.ignoredAtLeast = true;
       }
 
       return undefined;
@@ -404,6 +405,7 @@ async function collectSearch(
     matches: [],
     warningCounts: new Map(),
     ignoredPaths: [],
+    ignoredAtLeast: false,
   };
 
   try {
@@ -462,8 +464,17 @@ function searchResult(options: {
   readonly end?: SearchEnd;
   readonly warningCounts: Map<FsGrepWarningKind, number>;
   readonly ignoredPaths: Array<string>;
+  readonly ignoredAtLeast: boolean;
 }): FsGrepResult {
-  const { params, page, inputHash, end, warningCounts, ignoredPaths } = options;
+  const {
+    params,
+    page,
+    inputHash,
+    end,
+    warningCounts,
+    ignoredPaths,
+    ignoredAtLeast,
+  } = options;
   const daemonPosition = end?.position;
 
   const complete =
@@ -475,7 +486,15 @@ function searchResult(options: {
       ? cursorEncode({ after: daemonPosition, inputHash })
       : undefined);
 
-  const progressed = params.bounds.progressed || (end?.files ?? 0) > 0;
+  const stoppedInsideUnmatchedFile =
+    end?.stop === SearchStop.BYTES &&
+    end.position?.byteOffset !== undefined &&
+    end.matches === 0 &&
+    !warningCounts.has('binary') &&
+    !warningCounts.has('invalid_utf8');
+  const progressed =
+    params.bounds.progressed ||
+    ((end?.files ?? 0) > 0 && !stoppedInsideUnmatchedFile);
 
   const result: SearchSuccessMutable = {
     ok: true,
@@ -496,8 +515,8 @@ function searchResult(options: {
     result.unfinished = daemonPosition.path;
   }
 
-  if (ignoredPaths.length > 0)
-    result.ignored = { paths: ignoredPaths, atLeast: false };
+  if (ignoredPaths.length > 0 || ignoredAtLeast)
+    result.ignored = { paths: ignoredPaths, atLeast: ignoredAtLeast };
 
   return result;
 }
@@ -547,6 +566,7 @@ export const searchHandlers: Partial<Record<'fs.grep', Handler<'fs.grep'>>> = {
       end: collection.end,
       warningCounts: collection.warningCounts,
       ignoredPaths: collection.ignoredPaths,
+      ignoredAtLeast: collection.ignoredAtLeast,
     });
   },
 };

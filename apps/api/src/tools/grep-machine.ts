@@ -19,7 +19,9 @@ import {
 } from '@workspace/machine-protocol';
 import {
   formatPassageLocator,
+  GREP_LIMITS,
   normalizeHostScope,
+  parsePassageLocator,
   splitGrepScope,
   type GrepBudget,
   type GrepIgnored,
@@ -410,6 +412,98 @@ type DaemonPage =
  * Progress belongs to the call: a page that got past the start point lets the
  * next request know, so its own stop hides no file behind it.
  */
+type MachinePassageBuffer = {
+  pending: GrepPassage | undefined;
+  readonly passagesByFile: Map<string, number>;
+  readonly truncatedFiles: Set<string>;
+};
+
+function passageFile(passage: GrepPassage): string {
+  return parsePassageLocator(passage.locator)?.file ?? passage.locator;
+}
+
+function mergeMachinePassages(
+  previous: GrepPassage,
+  next: GrepPassage,
+): GrepPassage | undefined {
+  const first = parsePassageLocator(previous.locator);
+  const second = parsePassageLocator(next.locator);
+
+  if (
+    first === undefined ||
+    second === undefined ||
+    first.file !== second.file ||
+    first.endLine !== second.startLine
+  )
+    return undefined;
+
+  const previousLines = previous.content.split('\n');
+  const nextLines = next.content.split('\n');
+
+  return {
+    locator: formatPassageLocator(first.file, first.startLine, second.endLine),
+    content: [...previousLines.slice(0, -1), ...nextLines].join('\n'),
+    matches: [...new Set([...previous.matches, ...next.matches])],
+    ...(next.cut === true && { cut: true as const }),
+    ...((previous.truncated === true || next.truncated === true) && {
+      truncated: true as const,
+    }),
+  };
+}
+
+function keepMachinePassages(
+  search: MachineGrepSearch,
+  buffer: MachinePassageBuffer,
+  passages: ReadonlyArray<GrepPassage>,
+): boolean {
+  const ready: Array<GrepPassage> = [];
+
+  for (const passage of passages) {
+    const file = passageFile(passage);
+
+    if (buffer.truncatedFiles.has(file)) continue;
+
+    if (buffer.pending !== undefined) {
+      const merged = mergeMachinePassages(buffer.pending, passage);
+
+      if (merged !== undefined) {
+        buffer.pending = merged;
+
+        continue;
+      }
+
+      ready.push(buffer.pending);
+      buffer.pending = undefined;
+    }
+
+    const count = buffer.passagesByFile.get(file) ?? 0;
+
+    if (count >= GREP_LIMITS.passagesPerFile) {
+      const previous = ready.at(-1);
+
+      if (previous !== undefined && passageFile(previous) === file)
+        ready[ready.length - 1] = { ...previous, truncated: true };
+
+      buffer.truncatedFiles.add(file);
+
+      continue;
+    }
+
+    buffer.passagesByFile.set(file, count + 1);
+    buffer.pending = passage;
+
+    if (passage.truncated === true) buffer.truncatedFiles.add(file);
+  }
+
+  if (ready.length > 0 && !search.keepPassages(ready)) {
+    buffer.pending = undefined;
+
+    return false;
+  }
+
+  return true;
+}
+
 async function runDaemonPages(
   search: MachineGrepSearch,
   connector: MachineConnector,
@@ -431,6 +525,14 @@ async function runDaemonPages(
     unfinished: undefined,
   };
 
+  const passageBuffer: MachinePassageBuffer = {
+    pending: undefined,
+    passagesByFile: new Map(),
+    truncatedFiles: new Set(),
+  };
+
+  const keepPagePassages = (passages: ReadonlyArray<GrepPassage>) =>
+    keepMachinePassages(search, passageBuffer, passages);
   while (canAskPage(run.budget, search.scope.singleFile === true)) {
     const asked = await requestPage(search, connector, {
       budget: run.budget,
@@ -439,13 +541,15 @@ async function runDaemonPages(
     });
 
     if ('result' in asked) return { status: 'error', result: asked.result };
-    const step = takePage(search, run, asked.page);
+    const step = takePage(search, run, asked.page, keepPagePassages);
 
     if ('result' in step) return { status: 'error', result: step.result };
 
     if (step.ended) break;
   }
 
+  if (passageBuffer.pending !== undefined)
+    search.keepPassages([passageBuffer.pending]);
   return segmentOfPages(search, run);
 }
 
@@ -473,6 +577,7 @@ function takePage(
   search: MachineGrepSearch,
   run: MachineSegmentPage,
   page: FsGrepSuccess,
+  keepPassages: (passages: ReadonlyArray<GrepPassage>) => boolean,
 ): PageStep {
   run.last = page;
   mergePage(run.warnings, run.consumed, run.ignored, page);
@@ -483,7 +588,7 @@ function takePage(
   if (refused !== undefined) return { result: refused };
 
   // The artifact bound can cut a daemon page, so the walk stops asking here.
-  if (!search.keepPassages(kept)) return { ended: true };
+  if (!keepPassages(kept)) return { ended: true };
 
   if (page.unfinished !== undefined) {
     // A second stop inside a file ends the scope at the first one: one call
