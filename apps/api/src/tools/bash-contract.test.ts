@@ -69,7 +69,6 @@ describe('bash result sanitization around transport gaps', () => {
     expect(sanitized.truncated).toBe(true);
     expect(sanitized.stdout).not.toContain(members[0]);
   });
-
 });
 
 describe('bash output bounds', () => {

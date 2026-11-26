@@ -13,7 +13,7 @@ import {
 import {
   sanitizeKnownResultAtBound,
   type BashKnownResult,
-} from '@workspace/bash-executor';
+} from '../tools/bash-contract';
 import { type CallOptions, type Client } from '@connectrpc/connect';
 import { JobService } from '@workspace/machine-protocol';
 

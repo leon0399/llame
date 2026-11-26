@@ -6,7 +6,7 @@ import { compileTestPermissionPolicy } from '../testing/tool-permission-policy';
 import { previewStream, spillBashResult, spillBashStreams } from './bash-spill';
 import { renderToolResultText } from './model-text';
 import type { ToolContext, ToolResult } from './types';
-import type { BashKnownResult } from '@workspace/bash-executor';
+import type { BashKnownResult } from './bash-contract';
 import type { MockInstance } from 'vitest';
 
 const SEQ = 5;
