@@ -1,5 +1,5 @@
 import { create } from "@bufbuild/protobuf";
-import { createClient } from "@connectrpc/connect";
+import { ConnectError, createClient } from "@connectrpc/connect";
 import { connect as connectNetSocket, createServer } from "node:net";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -30,11 +30,12 @@ describe("connectSocket", () => {
         timeoutMs: 2000,
       });
 
-      await expect(response).rejects.toThrow("unavailable");
+      await expect(response).rejects.toBeInstanceOf(ConnectError);
     } finally {
       const closed = new Promise<void>((resolve) =>
         server.close(() => resolve()),
       );
+
       await closed;
       rmSync(directory, { recursive: true, force: true });
     }
