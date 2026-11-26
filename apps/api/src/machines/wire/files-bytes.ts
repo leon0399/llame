@@ -140,9 +140,17 @@ export const bytesHandler: Handler<'fs.bytes'> = async (
     if (error) return error;
   }
 
+  if (state.mediaType === undefined) {
+    return {
+      status: 'error',
+      type: 'unsupported_media_type',
+      message: 'The file is not a supported image or PDF.',
+    };
+  }
+
   return {
     size: Number(state.size),
-    mediaType: state.mediaType ?? 'application/octet-stream',
+    mediaType: state.mediaType,
   } satisfies FsBytesResult;
 };
 
