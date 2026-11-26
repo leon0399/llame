@@ -10,6 +10,10 @@ import {
   BYTES_CHUNK_BYTES,
   OutputStream,
 } from '@workspace/machine-protocol';
+import {
+  sanitizeKnownResultAtBound,
+  type BashKnownResult,
+} from '@workspace/bash-executor';
 import { type CallOptions, type Client } from '@connectrpc/connect';
 import { JobService } from '@workspace/machine-protocol';
 
@@ -180,6 +184,7 @@ async function readRunningOutput(
       owner: context.userId,
       jobId: job.daemonJobId,
       output,
+      credentials: context.configuredCredentials,
     });
   } catch {
     return 'output unavailable right now';
@@ -192,21 +197,23 @@ async function readRunningOutputChunks({
   owner,
   jobId,
   output,
+  credentials,
 }: {
   readonly client: JobsClient;
   readonly callOptions: CallOptions;
   readonly owner: string;
   readonly jobId: string;
   readonly output: string;
+  readonly credentials: ReadonlyArray<string>;
 }): Promise<string> {
   const chunks: Array<Buffer> = [];
   let offset = 0n;
   let remaining = BigInt(BASH_BOUNDS.outputBound * 4);
 
   while (remaining > 0n) {
-    let read = 0n;
-
-    for await (const part of client.readOutput(
+    const read = await appendOutputChunks(
+      client,
+      callOptions,
       {
         jobId,
         owner,
@@ -217,18 +224,55 @@ async function readRunningOutputChunks({
             ? remaining
             : BigInt(BYTES_CHUNK_BYTES),
       },
-      callOptions,
-    )) {
-      chunks.push(Buffer.from(part.data));
-      read += BigInt(part.data.length);
-    }
+      chunks,
+    );
 
     if (read === 0n) break;
     offset += read;
     remaining -= read;
   }
 
-  return Buffer.concat(chunks).toString('utf8');
+  return sanitizeLiveOutput(Buffer.concat(chunks).toString('utf8'), credentials);
+}
+
+async function appendOutputChunks(
+  client: JobsClient,
+  callOptions: CallOptions,
+  request: Parameters<JobsClient['readOutput']>[0],
+  chunks: Array<Buffer>,
+): Promise<bigint> {
+  let read = 0n;
+
+  for await (const part of client.readOutput(request, callOptions)) {
+    chunks.push(Buffer.from(part.data));
+    read += BigInt(part.data.length);
+  }
+
+  return read;
+}
+
+function sanitizeLiveOutput(
+  raw: string,
+  credentials: ReadonlyArray<string>,
+): string {
+  const result: BashKnownResult = {
+    status: 'success',
+    exitCode: 0,
+    stdout: raw,
+    stderr: '',
+    truncated: false,
+    wallTimeMs: 0,
+  };
+
+  return sanitizeKnownResultAtBound(
+    result,
+    { kind: 'code-units', limit: BASH_BOUNDS.outputBound },
+    credentials,
+    {
+      stdout: { endedByLlame: true },
+      stderr: { endedByLlame: true },
+    },
+  ).stdout;
 }
 
 function recordLines(job: ChatJob): Array<string> {
