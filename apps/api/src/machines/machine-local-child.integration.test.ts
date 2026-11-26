@@ -44,16 +44,19 @@ const NOTES = 'hello from the host\n';
 const ENVELOPE = { budgetMs: 60_000 };
 
 async function waitForProcessExit(pid: number): Promise<void> {
-  for (let attempt = 0; attempt < 50; attempt += 1) {
+  // This is a real child process; fake timers cannot advance its exit.
+  const deadline = Date.now() + 2000;
+
+  while (Date.now() < deadline) {
     try {
       process.kill(pid, 0);
     } catch {
       return;
     }
 
-    const turn = Promise.withResolvers<void>();
-    setImmediate(turn.resolve);
-    await turn.promise;
+    const { promise, resolve } = Promise.withResolvers<void>();
+    setTimeout(resolve, 20);
+    await promise;
   }
 
   throw new Error(
@@ -329,9 +332,8 @@ describe('the local Machine link (host-as-machine)', () => {
     } finally {
       await client.close();
       await transport.close();
+      if (pid !== undefined) await waitForProcessExit(pid);
       connector.onModuleDestroy();
     }
-
-    if (pid !== undefined) await waitForProcessExit(pid);
   });
 });
