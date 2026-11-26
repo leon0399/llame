@@ -15,7 +15,7 @@ import { randomUUID } from 'node:crypto';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import { type StartedTestContainer } from 'testcontainers';
 
-import { type ChatJob } from '../db/schema';
+import { type Chat, type ChatJob } from '../db/schema';
 import { type Db, type TenantRunner } from '../db/tenant-db.service';
 import { ChatJobsRepository } from '../jobs/chat-jobs.repository';
 import { NativeFilesRepository } from '../runs/native-files-repository';
@@ -64,6 +64,31 @@ const tenantDb: TenantRunner = {
   runAs: <T>(_userId: string, callback: (tx: Db) => Promise<T>) =>
     callback(drizzle.mock()),
 };
+
+function lockedChat(): Chat {
+  return {
+    id: 'chat',
+    ownerUserId: 'owner',
+    title: null,
+    visibility: 'private',
+    createdAt: new Date(0),
+    updatedAt: new Date(0),
+    archivedAt: null,
+    projectId: null,
+    skillCatalogBaseline: null,
+    skillCatalogRebakedFrom: null,
+    skillCatalogTold: null,
+    workspaceRoot: null,
+    workspaceExecutorId: null,
+    workspaceGeneration: 0,
+    workspaceTold: null,
+    artifactSeq: 0,
+    workspaceToldAvailable: null,
+    workspaceToldFrom: null,
+    workspaceDetachReason: null,
+    modelSelection: null,
+  };
+}
 
 const policy = compileToolPermissionMap(
   { bash: { allow: true }, read: { allow: true } },
@@ -163,6 +188,7 @@ describe('ssh bash over a real sshd', () => {
 
   function machineBashRuntime(machines: MachineConnector) {
     const daemonJobId = { value: '' };
+
     const row: ChatJob = {
       id: randomUUID(),
       chatId: 'chat',
@@ -188,13 +214,13 @@ describe('ssh bash over a real sshd', () => {
       settings: { selector: 'test-model', permissionMode: 'default' },
     };
 
-    vi.spyOn(ChatsRepository.prototype, 'lock').mockResolvedValue({} as never);
+    vi.spyOn(ChatsRepository.prototype, 'lock').mockResolvedValue(lockedChat());
     vi.spyOn(ArtifactsRepository.prototype, 'nextSeq').mockResolvedValue(1);
     vi.spyOn(ChatJobsRepository.prototype, 'insert').mockImplementation(
-      async (input) => {
+      (input) => {
         daemonJobId.value = input.daemonJobId;
 
-        return { ...row, daemonJobId: input.daemonJobId };
+        return Promise.resolve({ ...row, daemonJobId: input.daemonJobId });
       },
     );
     vi.spyOn(NativeFilesRepository.prototype, 'recoverHostPromotion')
@@ -209,6 +235,7 @@ describe('ssh bash over a real sshd', () => {
       daemonJobId,
     };
   }
+
   async function hostnameOf(container: StartedTestContainer): Promise<string> {
     const result = await fixture.execIn(container, ['hostname']);
 
@@ -480,9 +507,11 @@ describe('ssh bash over a real sshd', () => {
         backgrounded: true,
         cause: 'message',
       });
+
       const stopFactory = createMachineSshTransportFactory({
         ssh: connection.machines.ssh,
       });
+
       const stopper = new MachineConnector({
         machines: connection.machines,
         hubVersion: '0.0.0-yield-stop-test',
@@ -523,10 +552,13 @@ describe('ssh bash over a real sshd', () => {
 
   it('backgrounds a Machine job on disconnect and stops it from a new session', async () => {
     const connection = fixture.connection();
+
     const factory = createMachineSshTransportFactory({
       ssh: connection.machines.ssh,
     });
+
     const links: Array<MachineTransport> = [];
+
     const machines = new MachineConnector({
       machines: connection.machines,
       hubVersion: '0.0.0-disconnect-test',
@@ -540,8 +572,10 @@ describe('ssh bash over a real sshd', () => {
         },
       },
     });
+
     const command = 'sleep 300';
     const daemonJobId = { value: '' };
+
     const row: ChatJob = {
       id: randomUUID(),
       chatId: 'chat',
@@ -566,17 +600,18 @@ describe('ssh bash over a real sshd', () => {
       artifactReadable: false,
       settings: { selector: 'test-model', permissionMode: 'default' },
     };
+
     const runtime = hostBashJobs(tenantDb, machines, {
       wakeForChatInTransaction: () => Promise.resolve(false),
     });
 
-    vi.spyOn(ChatsRepository.prototype, 'lock').mockResolvedValue({} as never);
+    vi.spyOn(ChatsRepository.prototype, 'lock').mockResolvedValue(lockedChat());
     vi.spyOn(ArtifactsRepository.prototype, 'nextSeq').mockResolvedValue(1);
     vi.spyOn(ChatJobsRepository.prototype, 'insert').mockImplementation(
-      async (input) => {
+      (input) => {
         daemonJobId.value = input.daemonJobId;
 
-        return { ...row, daemonJobId: input.daemonJobId };
+        return Promise.resolve({ ...row, daemonJobId: input.daemonJobId });
       },
     );
     vi.spyOn(NativeFilesRepository.prototype, 'recoverHostPromotion')
@@ -622,9 +657,11 @@ describe('ssh bash over a real sshd', () => {
         backgrounded: true,
         cause: 'disconnect',
       });
+
       const stopFactory = createMachineSshTransportFactory({
         ssh: connection.machines.ssh,
       });
+
       const stopper = new MachineConnector({
         machines: connection.machines,
         hubVersion: '0.0.0-disconnect-stop-test',
