@@ -51,11 +51,12 @@ export async function rpc<T>(
   session: MachineSession,
   invoke: FileRpc<T>,
   options?: MachineRequestOptions,
+  sent = false,
 ): Promise<T> {
   try {
     return await invoke(session.clients.files, session.callOptions(options));
   } catch (error) {
-    throw session.mapRefusal(error);
+    throw session.mapRefusal(error, sent);
   }
 }
 

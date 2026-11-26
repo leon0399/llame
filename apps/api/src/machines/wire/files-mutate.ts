@@ -58,6 +58,7 @@ async function replaceText(
         callOptions,
       ),
     options,
+    true,
   );
 
   if (response.result.case === 'failure') {
@@ -192,6 +193,7 @@ async function writeFile(
         callOptions,
       ),
     options,
+    true,
   );
 
   if (response.result.case === 'failure') {

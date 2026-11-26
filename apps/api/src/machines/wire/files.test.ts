@@ -1,3 +1,5 @@
+import { Code, ConnectError } from '@connectrpc/connect';
+
 import { PassThrough } from 'node:stream';
 import { afterEach, vi } from 'vitest';
 import { create } from '@bufbuild/protobuf';
@@ -373,6 +375,21 @@ describe('wire file handlers', () => {
       expect.anything(),
     );
     expect(fake.callOptionsSpy).toHaveBeenCalled();
+  });
+  it('marks a lost write reply as an uncertain dispatched mutation', async () => {
+    const fake = session();
+    vi.mocked(fake.clients.files.writeFile).mockRejectedValue(
+      new ConnectError('connection lost', Code.Unavailable),
+    );
+
+    await expect(
+      writeHandler(fake, {
+        envelope,
+        path,
+        options: display,
+        content: 'possibly written\n',
+      }),
+    ).rejects.toMatchObject({ name: 'MachineUnavailableError', sent: true });
   });
 
   it('streams and sniffs fs.bytes chunks', async () => {
