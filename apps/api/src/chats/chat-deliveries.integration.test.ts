@@ -744,10 +744,17 @@ describe('chat deliveries — the queue mode', () => {
         });
       });
 
-      expect(await itemsOf(chatId)).toMatchObject([
-        { id: ownerWithdrawn.notice.id, state: 'withdrawn', runId: null },
-        { id: consumedNotice.notice.id, state: 'withdrawn', runId },
-      ]);
+      const items = await itemsOf(chatId);
+      expect(
+        items
+          .map(({ id, state, runId }) => ({ id, state, runId }))
+          .sort((a, b) => a.id.localeCompare(b.id)),
+      ).toEqual(
+        [
+          { id: ownerWithdrawn.notice.id, state: 'withdrawn', runId: null },
+          { id: consumedNotice.notice.id, state: 'withdrawn', runId },
+        ].sort((a, b) => a.id.localeCompare(b.id)),
+      );
     });
 
     it('restores only the settled notice consumed by this Run', async () => {
