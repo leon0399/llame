@@ -54,7 +54,7 @@ and cosine distance.[^vchord-indexing] The `rabitq8` and `rabitq4` classes
 arrive in 1.1.0, and MaxSim classes over `vector[]` and `halfvec[]` arrive in
 0.3.0.[^vchord-indexing] A build below 100,000 rows usually needs no index
 options. The documented guidance sets `build.internal.lists` from the row count
-and `vchordrq.probes` from the recall target.[^vchord-indexing]
+and `vchordrq.probes` from the chosen `lists`.[^vchord-indexing]
 
 **Filtering.** A filtered scan without prefiltering over-fetches. The index
 returns rows in distance order and PostgreSQL discards non-matching ones, so a
@@ -69,11 +69,11 @@ run before reranking, and PostgreSQL itself evaluates subplans that carry
 aggregates or volatile functions.[^vchord-prefilter]
 
 Version 1.2.0 makes `vchordrq` planner cost estimation account for the `LIMIT`,
-filter selectivity, and the active probes budget.[^vchord-prefilter] Version
-1.5.0 streams candidates from the initial lists for an RQ index with filter
-keys, stops once the `LIMIT` is satisfied, and can return a closer row in a later
-round, up to `vchordrq.max_probes`. An application that needs a total order
-therefore over-fetches and sorts its own result.[^vchord-release-150]
+filter selectivity, and the active probes budget.[^vchord-prefilter] In version
+1.5.0, an RQ index with filter keys streams candidates from its initial IVF
+lists, stops once the `LIMIT` is satisfied, and can return a closer row in a
+later round, up to `vchordrq.max_probes`. An application that needs a total
+order therefore over-fetches and sorts its own result.[^vchord-release-150]
 
 **Maintenance.** 1.5.0 pairs graph insertion's extended vector page and its
 incoming link in one WAL record, lets graph VACUUM follow a deleted bridge to a
@@ -115,7 +115,7 @@ pgvectorscale, and Elasticsearch.[^vchord-site]
 `search_chat_documents` inside one CTE, with predicates for the owner scope,
 `vector_dims` equality, the active model key, the embedded content hash, and the
 input version (`apps/api/src/search/core/fusion.ts`). Its results fuse with the
-FTS and trigram legs by rank, never by raw score. Three consequences follow.
+lexical legs by rank, never by raw score. Three consequences follow.
 
 First, an ANN index changes latency only, and it can only lower recall on its
 own leg. Rank fusion dilutes that loss, but a candidate that never enters the leg
