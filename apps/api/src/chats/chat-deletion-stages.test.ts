@@ -1,15 +1,12 @@
-import { drizzle } from 'drizzle-orm/postgres-js';
 import { ServiceUnavailableException } from '@nestjs/common';
-import { JobState, LostCause } from '@workspace/machine-protocol';
-import type { Chat, ChatJob } from '../db/schema';
-import { ChatJobsRepository } from '../jobs/chat-jobs.repository';
-import type { MachineSession } from '../machines/machine-session';
-import { RunsRepository } from '../runs/runs-repository';
-import { ChatsRepository } from './chats-repository';
 import {
-  prepareChatDeletion,
-  stopAndReleaseJob,
-} from './chat-deletion-stages';
+  JobState,
+  LostCause,
+  MachineProtocolError,
+} from '@workspace/machine-protocol';
+import type { ChatJob } from '../db/schema';
+import type { MachineSession } from '../machines/machine-session';
+import { stopAndReleaseJob } from './chat-deletion-stages';
 
 type DeletionConnector = NonNullable<Parameters<typeof stopAndReleaseJob>[1]>;
 
@@ -58,29 +55,6 @@ function connector(
   };
 }
 
-const chat: Chat = {
-  id: 'chat-1',
-  ownerUserId: 'owner-1',
-  title: null,
-  visibility: 'private',
-  createdAt: new Date(),
-  updatedAt: new Date(),
-  archivedAt: null,
-  projectId: null,
-  skillCatalogBaseline: null,
-  skillCatalogRebakedFrom: null,
-  skillCatalogTold: null,
-  workspaceRoot: null,
-  workspaceExecutorId: null,
-  workspaceGeneration: 0,
-  artifactSeq: 0,
-  workspaceTold: null,
-  workspaceToldFrom: null,
-  workspaceToldAvailable: null,
-  workspaceDetachReason: null,
-  modelSelection: null,
-};
-
 describe('stopAndReleaseJob', () => {
   it('does not release a job when cancellation settles as unproved lost', async () => {
     const cancelJob = vi.fn().mockResolvedValue({
@@ -90,7 +64,11 @@ describe('stopAndReleaseJob', () => {
     const deleteJob = vi.fn();
 
     await expect(
-      stopAndReleaseJob(job, connector({ cancelJob, deleteJob })),
+      stopAndReleaseJob(
+        job,
+        connector({ cancelJob, deleteJob }),
+        () => Promise.resolve(false),
+      ),
     ).rejects.toBeInstanceOf(ServiceUnavailableException);
 
     expect(deleteJob).not.toHaveBeenCalled();
@@ -104,6 +82,7 @@ describe('stopAndReleaseJob', () => {
       stopAndReleaseJob(
         { ...job, state: 'succeeded' },
         connector({ cancelJob, deleteJob }),
+        () => Promise.resolve(false),
       ),
     ).resolves.toBeUndefined();
 
@@ -123,38 +102,38 @@ describe('stopAndReleaseJob', () => {
           result: { outcomeUnknown: true, cause: 'stop_unproved' },
         },
         connector({ cancelJob, deleteJob }),
+        () => Promise.resolve(false),
       ),
     ).rejects.toBeInstanceOf(ServiceUnavailableException);
 
     expect(cancelJob).not.toHaveBeenCalled();
     expect(deleteJob).not.toHaveBeenCalled();
   });
-});
 
-describe('prepareChatDeletion', () => {
-  it('refuses deletion while the durable native attempt can still deliver CreateJob', async () => {
-    vi.spyOn(RunsRepository.prototype, 'findActiveByChatId').mockResolvedValue(
-      undefined,
-    );
-    vi.spyOn(ChatsRepository.prototype, 'lock').mockResolvedValue(chat);
-    vi.spyOn(ChatJobsRepository.prototype, 'listBindingsByChat').mockResolvedValue([
-      job,
-    ]);
+  it('keeps the Chat when CreateJob can still arrive after the daemon says unknown', async () => {
+    const cancelJob = vi
+      .fn()
+      .mockRejectedValue(
+        new MachineProtocolError('machine_job_not_found', 'unknown job'),
+      );
 
-    const hasCreatingAttempt = vi
-      .spyOn(ChatJobsRepository.prototype, 'hasCreatingAttempt')
-      .mockResolvedValue(true);
+    const deleteJob = vi.fn();
 
-    const db = drizzle.mock();
+    const hasCreatingAttempt = vi.fn().mockResolvedValue(true);
 
     await expect(
-      prepareChatDeletion(db, job.ownerUserId, job.chatId),
+      stopAndReleaseJob(
+        job,
+        connector({ cancelJob, deleteJob }),
+        hasCreatingAttempt,
+      ),
     ).rejects.toBeInstanceOf(ServiceUnavailableException);
 
-    expect(hasCreatingAttempt).toHaveBeenCalledWith(
-      job.chatId,
-      job.ownerUserId,
-      job.id,
-    );
+    expect(cancelJob).toHaveBeenCalledOnce();
+    expect(hasCreatingAttempt).toHaveBeenCalledTimes(2);
+    expect(deleteJob).not.toHaveBeenCalled();
   });
+
 });
+
+

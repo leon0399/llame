@@ -47,12 +47,6 @@ export async function prepareChatDeletion(
   const jobs = await jobsRepository.listBindingsByChat(chatId, userId);
 
   for (const job of jobs) {
-    if (await jobsRepository.hasCreatingAttempt(chatId, userId, job.id)) {
-      throw new ServiceUnavailableException(
-        'A Machine job start can still be delivered while the Chat is being deleted.',
-      );
-    }
-
     if (job.state === 'running') {
       await notifyRunControl(tx, { kind: 'job-stop', jobId: job.id });
     }
@@ -93,6 +87,7 @@ export async function finishChatDeletion(
 export async function stopAndReleaseJob(
   job: ChatJob,
   machines: JobDeletionConnector | undefined,
+  hasCreatingAttempt: () => Promise<boolean>,
 ): Promise<void> {
   if (job.result?.cause === 'stop_unproved') {
     throw new ServiceUnavailableException(
@@ -108,10 +103,18 @@ export async function stopAndReleaseJob(
     owner: job.ownerUserId,
   };
 
+  const creatingAttempt = await hasCreatingAttempt();
+
   const missing =
-    job.state === 'running'
+    job.state === 'running' || creatingAttempt
       ? await cancelRemoteJob(session.client, request, session.callOptions())
       : false;
+
+  if (missing && (await hasCreatingAttempt())) {
+    throw new ServiceUnavailableException(
+      'A Machine job start can still be delivered while the Chat is being deleted.',
+    );
+  }
 
   await releaseRemoteJob(
     session.client,

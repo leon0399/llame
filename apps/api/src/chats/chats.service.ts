@@ -32,6 +32,7 @@ import {
   type CopyableMessage,
 } from './fork-copy';
 import { citedArtifacts, copyCitedArtifacts } from './fork-artifacts';
+import { ChatJobsRepository } from '../jobs/chat-jobs.repository';
 import { RunsRepository } from '../runs/runs-repository';
 import { pgErrorCode } from '../db/pg-error';
 import { retryRunTransaction } from '../runs/run-transaction';
@@ -505,7 +506,15 @@ export class ChatsService {
     }
 
     for (const job of jobs) {
-      await stopAndReleaseJob(job, this.machines);
+      await stopAndReleaseJob(job, this.machines, () =>
+        this.tenantDb.runAs(userId, (tx) =>
+          new ChatJobsRepository(tx).hasCreatingAttempt(
+            chatId,
+            userId,
+            job.id,
+          ),
+        ),
+      );
     }
 
     return retryRunTransaction(() =>
