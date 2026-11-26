@@ -206,6 +206,30 @@ async function readRunningOutputChunks({
   readonly output: string;
   readonly credentials: ReadonlyArray<string>;
 }): Promise<string> {
+  const raw = await collectRunningOutputBytes({
+    client,
+    callOptions,
+    owner,
+    jobId,
+    output,
+  });
+
+  return sanitizeLiveOutput(raw.toString('utf8'), credentials);
+}
+
+async function collectRunningOutputBytes({
+  client,
+  callOptions,
+  owner,
+  jobId,
+  output,
+}: {
+  readonly client: JobsClient;
+  readonly callOptions: CallOptions;
+  readonly owner: string;
+  readonly jobId: string;
+  readonly output: string;
+}): Promise<Buffer> {
   const chunks: Array<Buffer> = [];
   let offset = 0n;
   let remaining = BigInt(BASH_BOUNDS.outputBound * 4);
@@ -232,10 +256,7 @@ async function readRunningOutputChunks({
     remaining -= read;
   }
 
-  return sanitizeLiveOutput(
-    Buffer.concat(chunks).toString('utf8'),
-    credentials,
-  );
+  return Buffer.concat(chunks);
 }
 
 async function appendOutputChunks(
