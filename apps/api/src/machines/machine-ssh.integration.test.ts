@@ -15,7 +15,7 @@
  */
 
 import { randomBytes } from 'node:crypto';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { readdirSync } from 'node:fs';
 import { setTimeout as delay } from 'node:timers/promises';
 import {
@@ -38,10 +38,8 @@ import {
 import { MachineConnector } from './machine-connector.service';
 import { readFsReadResult } from './machine-results';
 import { MachineUnavailableError } from './machine-session-errors';
-import {
-  createMachineSshTransportFactory,
-  type MachineTransport,
-} from './machine-transport';
+import type { MachineTransport } from './machine-transport';
+import { createMachineSshTransportFactory } from './machine-ssh-transport';
 
 const HUB_VERSION = '0.0.0-machine-ssh-test';
 const ENVELOPE = { budgetMs: 60_000 };
@@ -243,6 +241,7 @@ describe('Machine SSH transport over a jump host (remote-machines)', () => {
 
     try {
       const session = await harness.connector.jobsClient(MACHINE_SSHD_NAME);
+
       const created = await session.client.createJob(
         { jobId, owner, command },
         session.callOptions(),
@@ -294,26 +293,22 @@ describe('Machine SSH transport over a jump host (remote-machines)', () => {
   it('holds the forced command: an SSH exec request cannot run an arbitrary command', () => {
     const connection = fixture.connection();
 
-    expect(() =>
-      execFileSync(
-        'ssh',
-        [
-          '-F',
-          connection.sshConfig.path,
-          '-T',
-          '--',
-          MACHINE_SSHD_ALIAS,
-          'id',
-        ],
-        { encoding: 'utf8' },
-      ),
-    ).toThrow(
-      expect.objectContaining({
-        status: 126,
-        stderr: expect.stringContaining(
-          'machine-sshd: refused an unsupported SSH command',
-        ),
-      }),
+    const result = spawnSync(
+      'ssh',
+      [
+        '-F',
+        connection.sshConfig.path,
+        '-T',
+        '--',
+        MACHINE_SSHD_ALIAS,
+        'id',
+      ],
+      { encoding: 'utf8' },
+    );
+
+    expect(result.status).toBe(126);
+    expect(result.stderr).toContain(
+      'machine-sshd: refused an unsupported SSH command',
     );
   });
 });

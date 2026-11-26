@@ -20,7 +20,7 @@ import { NativeFilesRepository } from '../runs/native-files-repository';
 import { RunEventsRepository } from '../runs/runs-repository';
 import { RunAbortRegistry } from '../runs/run-abort-registry';
 import { MachineConnector } from '../machines/machine-connector.service';
-import { createMachineSshTransportFactory } from '../machines/machine-transport';
+import { createMachineSshTransportFactory } from '../machines/machine-ssh-transport';
 import { waitFor } from '../testing/support';
 import {
   MACHINE_SSHD_SH_ALIAS,

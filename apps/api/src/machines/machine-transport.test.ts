@@ -3,10 +3,8 @@ import { PassThrough } from 'node:stream';
 import { Socket } from 'node:net';
 
 import { SSH_DIAGNOSTIC_BYTES, type SshProcess } from '../ssh/ssh-process';
-import {
-  createMachineSshTransportFactory,
-  createProcessTransport,
-} from './machine-transport';
+import { createProcessTransport } from './machine-transport';
+import { createMachineSshTransportFactory } from './machine-ssh-transport';
 import { MachineUnavailableError } from './machine-session-errors';
 
 type FakeLink = {

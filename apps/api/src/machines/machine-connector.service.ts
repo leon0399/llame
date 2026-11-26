@@ -45,11 +45,11 @@ import {
   MachineUnavailableError,
   MachineUpdateRequiredError,
 } from './machine-session-errors';
+import type { MachineTransportFactory } from './machine-transport';
 import {
   createMachineSshTransportFactory,
   type MachineSshTransportFactory,
-  type MachineTransportFactory,
-} from './machine-transport';
+} from './machine-ssh-transport';
 import {
   boundMachineRoots,
   boundMachineVersion,
