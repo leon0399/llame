@@ -74,7 +74,7 @@ fn failing_git_log_shim(machine: &common::Machine) -> std::path::PathBuf {
     std::fs::write(
         &path,
         format!(
-            "#!/bin/sh\nif [ \"$1\" = --version ]; then echo 'git version 2.39.0'; exit 0; fi\ncase \" $* \" in *' log '*) exit 1;; esac\nexec '{}' \"$@\"\n",
+            "#!/bin/sh\nif [ \"$1\" = --version ]; then echo 'git version 2.39.0'; exit 0; fi\ncase \" $* \" in *' log '*) printf '%s\\n' \"fatal: unable to access 'https://token:secret@example.invalid/repo.git/': denied\" >&2; exit 1;; esac\nexec '{}' \"$@\"\n",
             real_git.display()
         ),
     )
@@ -350,6 +350,10 @@ async fn status_returns_failure_when_commit_query_fails() {
         panic!("a failed commit query was reported as a successful status")
     };
     assert_eq!(failure.reason, GitFailureReason::GitFailed as i32);
+    assert_eq!(
+        failure.stderr,
+        "fatal: unable to access 'https://example.invalid/repo.git/': denied\n"
+    );
     child.kill().await.unwrap();
 }
 

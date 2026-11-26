@@ -82,7 +82,8 @@ fn process_failure(out: &Output) -> GitFailure {
     } else {
         GitFailureReason::GitFailed
     };
-    failure(reason, String::from_utf8_lossy(&out.stderr).into_owned())
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    failure(reason, redact_url_credentials(&stderr).into_owned())
 }
 fn succeed(out: &Output) -> bool {
     out.status == Some(0) && !out.bounded && !out.timed_out
@@ -270,17 +271,57 @@ async fn run_mode(directory: &Path, args: &[&str], deadline: Instant, pinned: bo
         bounded,
     }
 }
-fn redact_remote_url(url: &str) -> String {
-    let Some((scheme, rest)) = url.split_once("://") else {
-        return url.to_owned();
-    };
-    let authority_end = rest.find('/').unwrap_or(rest.len());
-    let authority = &rest[..authority_end];
-    if let Some((_, host)) = authority.rsplit_once('@') {
-        format!("{scheme}://{host}{}", &rest[authority_end..])
-    } else {
-        url.to_owned()
+fn redact_url_credentials(text: &str) -> std::borrow::Cow<'_, str> {
+    let bytes = text.as_bytes();
+    let mut index = 0;
+    let mut copied_until = 0;
+    let mut redacted = None;
+    while index < bytes.len() {
+        if !bytes[index].is_ascii_alphabetic() {
+            index += 1;
+            continue;
+        }
+        let mut scheme_end = index + 1;
+        while scheme_end < bytes.len()
+            && (bytes[scheme_end].is_ascii_alphanumeric()
+                || matches!(bytes[scheme_end], b'+' | b'.' | b'-'))
+        {
+            scheme_end += 1;
+        }
+        if bytes.get(scheme_end..scheme_end + 3) != Some(b"://") {
+            index = scheme_end;
+            continue;
+        }
+        let userinfo_start = scheme_end + 3;
+        let mut authority_end = userinfo_start;
+        while authority_end < bytes.len() {
+            let Some(ch) = text[authority_end..].chars().next() else {
+                break;
+            };
+            if ch == '/' || ch == '@' || ch.is_whitespace() {
+                break;
+            }
+            authority_end += ch.len_utf8();
+        }
+        if authority_end > userinfo_start && bytes.get(authority_end) == Some(&b'@') {
+            let output = redacted.get_or_insert_with(String::new);
+            output.push_str(&text[copied_until..userinfo_start]);
+            copied_until = authority_end + 1;
+            index = copied_until;
+        } else {
+            index = authority_end;
+        }
     }
+    redacted.map_or_else(
+        || std::borrow::Cow::Borrowed(text),
+        |mut output| {
+            output.push_str(&text[copied_until..]);
+            std::borrow::Cow::Owned(output)
+        },
+    )
+}
+fn redact_remote_url(url: &str) -> String {
+    redact_url_credentials(url).into_owned()
 }
 fn parse_remotes(value: &str) -> Vec<Remote> {
     value
