@@ -149,6 +149,74 @@ describe('wire file handlers', () => {
       truncated: false,
     });
   });
+  it('reads a directory tree and preserves entry and symlink kinds', async () => {
+    const fake = session();
+    vi.mocked(fake.clients.files.getEntry).mockResolvedValue(
+      create(GetEntryResponseSchema, {
+        result: {
+          case: 'entry',
+          value: { name: '/work', kind: EntryKind.DIRECTORY },
+        },
+      }),
+    );
+    vi.mocked(fake.clients.files.listDirectory).mockImplementation(
+      ({ path: directory }) =>
+        Promise.resolve(
+          create(ListDirectoryResponseSchema, {
+            result: {
+              case: 'directory',
+              value:
+                directory === '/work'
+                  ? {
+                      entries: [
+                        { name: 'notes.md', kind: EntryKind.FILE },
+                        { name: 'nested', kind: EntryKind.DIRECTORY },
+                        {
+                          name: 'linked',
+                          kind: EntryKind.SYMLINK,
+                          linkTarget: 'notes.md',
+                          targetKind: EntryKind.FILE,
+                        },
+                        { name: 'socket', kind: EntryKind.OTHER },
+                      ],
+                      total: 4,
+                    }
+                  : {
+                      entries: [
+                        { name: 'child.md', kind: EntryKind.FILE },
+                      ],
+                      total: 1,
+                    },
+            },
+          }),
+        ),
+    );
+
+    const result = await readHandler(fake, {
+      envelope,
+      path: '/work',
+      options: display,
+    });
+
+    expect(result).toMatchObject({
+      status: 'success',
+      kind: 'directory',
+      path: 'machine://test/work',
+      entryCount: 4,
+    });
+    if (result.status === 'success' && result.kind === 'directory') {
+      expect(result.content).toContain('notes.md');
+      expect(result.content).toContain('nested/');
+      expect(result.content).toContain('linked@ -> notes.md');
+      expect(result.content).toContain('socket');
+      expect(result.content).toContain('child.md');
+    }
+    expect(fake.clients.files.listDirectory).toHaveBeenCalledWith(
+      { path: '/work/nested', offset: 0, limit: 1 },
+      expect.anything(),
+    );
+  });
+
 
   it('reports the daemon canonical target for a symlink stat', async () => {
     const fake = session();
