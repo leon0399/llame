@@ -851,7 +851,7 @@ async fn settle(state: Arc<Mutex<State>>, id: &str, outcome: Settlement) {
 }
 
 async fn cancel_job(state: Arc<Mutex<State>>, id: String, owner: String) -> Result<Job, Status> {
-    let (pid, cancel) = {
+    let (pid, cancel, group_was_empty) = {
         let mut state = state.lock().await;
         let entry = state
             .entries
@@ -863,17 +863,17 @@ async fn cancel_job(state: Arc<Mutex<State>>, id: String, owner: String) -> Resu
         }
         let pid = entry.start.pid;
         if is_group_empty(pid) {
-            (pid, None)
+            (pid, None, true)
         } else {
             entry.stop_requested = true;
-            (pid, Some(entry.cancel.clone()))
+            (pid, Some(entry.cancel.clone()), false)
         }
     };
     if let Some(cancel) = cancel {
         cancel.send_replace(true);
         signal_group(pid, rustix::process::Signal::KILL);
     }
-    wait_for_cancel_settlement(state, id, owner, Duration::from_secs(1)).await
+    wait_for_cancel_settlement(state, id, owner, Duration::from_secs(1), group_was_empty).await
 }
 
 async fn wait_for_cancel_settlement(
@@ -881,6 +881,7 @@ async fn wait_for_cancel_settlement(
     id: String,
     owner: String,
     budget: Duration,
+    group_was_empty: bool,
 ) -> Result<Job, Status> {
     let result = time::timeout(budget, async {
         loop {
@@ -901,17 +902,19 @@ async fn wait_for_cancel_settlement(
     if let Ok(result) = result {
         return result;
     }
-    settle(
-        Arc::clone(&state),
-        &id,
-        Settlement {
-            state: JobState::Lost,
-            exit_code: None,
-            signal: Some("SIGKILL".into()),
-            lost_cause: Some(LostCause::CancelUnproved as i32),
-        },
-    )
-    .await;
+    if !group_was_empty {
+        settle(
+            Arc::clone(&state),
+            &id,
+            Settlement {
+                state: JobState::Lost,
+                exit_code: None,
+                signal: Some("SIGKILL".into()),
+                lost_cause: Some(LostCause::CancelUnproved as i32),
+            },
+        )
+        .await;
+    }
     let state = state.lock().await;
     state
         .entries
@@ -920,6 +923,7 @@ async fn wait_for_cancel_settlement(
         .map(job_record)
         .ok_or_else(refusal::job_not_found)
 }
+
 fn owner_scoped_request_id(owner: &str, request_id: &str) -> String {
     if request_id.is_empty() {
         String::new()
@@ -1131,11 +1135,61 @@ mod tests {
             id.to_owned(),
             "owner-a".into(),
             Duration::from_millis(1),
+            false,
         )
         .await
         .unwrap();
 
         assert_eq!(job.state, JobState::Lost as i32);
         assert_eq!(job.lost_cause, LostCause::CancelUnproved as i32);
+    }
+    #[tokio::test]
+    async fn proved_empty_cancellation_does_not_fabricate_an_unproved_stop() {
+        let temporary = tempfile::tempdir().unwrap();
+        let directory = temporary.path().join("job");
+        fs::create_dir(&directory).unwrap();
+        File::create(directory.join("stdout")).unwrap();
+        File::create(directory.join("stderr")).unwrap();
+        let id = "e223456789abcdef0123456789abcdef";
+        let (changes, _) = broadcast::channel(4);
+        let (cancel, _) = watch::channel(false);
+        let state = Arc::new(Mutex::new(State {
+            entries: HashMap::from([(
+                id.to_owned(),
+                Entry {
+                    start: StoredJob {
+                        job_id: id.to_owned(),
+                        owner: "owner-a".into(),
+                        command: "true".into(),
+                        cwd: directory.to_string_lossy().into_owned(),
+                        pid: u32::MAX,
+                        started_at_ms: now_ms(),
+                        boot_id: String::new(),
+                        lifetime_ms: 0,
+                    },
+                    status: None,
+                    directory,
+                    stdout_truncated: false,
+                    stderr_truncated: false,
+                    stop_requested: false,
+                    cancel,
+                },
+            )]),
+            changes,
+        }));
+
+        let job = wait_for_cancel_settlement(
+            state,
+            id.to_owned(),
+            "owner-a".into(),
+            Duration::from_millis(1),
+            true,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(job.state, JobState::Running as i32);
+        assert_eq!(job.signal, None);
+        assert_eq!(job.lost_cause, LostCause::Unspecified as i32);
     }
 }
