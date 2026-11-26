@@ -14,6 +14,7 @@ export function newChatJob(
     daemonInstanceId: crypto.randomUUID(),
     daemonJobId: crypto.randomUUID().replaceAll('-', ''),
     runId: crypto.randomUUID(),
+    delivery: 'background',
     toolCallId: `call-${fields.seq}`,
     outputs: ['stdout', 'stderr'],
     artifactReadable: true,

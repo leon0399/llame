@@ -14,6 +14,7 @@ import {
   JobSchema,
   JobService,
   JobState,
+  ListJobsResponseSchema,
   LostCause,
   OutputSchema,
   OutputStream,
@@ -49,6 +50,7 @@ const row: ChatJob = {
   machineName: 'host',
   daemonInstanceId: '00000000-0000-4000-8000-000000000013',
   daemonJobId: '0123456789abcdef0123456789abcdef',
+  delivery: 'foreground',
   startedAt: new Date(0),
   settledAt: null,
   deadlineAt: null,
@@ -183,7 +185,7 @@ describe('BashJobRegistry result retention', () => {
     expect(result.result).toMatchObject({ type: 'outcome_unknown' });
   });
 
-  it('settles a known terminal result without output as available state', async () => {
+  it('marks missing terminal output unavailable instead of reporting empty output', async () => {
     const rpc = createRouterTransport((router) => {
       router.service(JobService, {
         async *readOutput() {
@@ -218,8 +220,8 @@ describe('BashJobRegistry result retention', () => {
 
     expect(result.output).toBeNull();
     expect(result.result).toMatchObject({
-      status: 'success',
-      exitCode: 0,
+      status: 'error',
+      type: 'unavailable',
     });
   });
 
@@ -270,7 +272,7 @@ describe('BashJobRegistry result retention', () => {
 
     const find = vi
       .spyOn(ChatJobsRepository.prototype, 'findByDaemonJob')
-      .mockResolvedValue(row);
+      .mockResolvedValue({ ...row, delivery: 'background' });
 
     const settle = vi.spyOn(ChatJobsRepository.prototype, 'settle');
 
@@ -334,6 +336,8 @@ describe('BashJobRegistry result retention', () => {
     });
 
     expect(readLimits).toEqual([BigInt(maxBytes)]);
+    expect(result.output?.stdout).toHaveLength(maxBytes - 3);
+    expect(result.result).toMatchObject({ type: 'outcome_unknown' });
     expect(result.output?.truncated).toBe(true);
     expect(result.output?.stdout).not.toContain('secret');
     expect(result.output?.stdout).not.toContain('sec');
@@ -413,7 +417,7 @@ describe('BashJobRegistry result retention', () => {
     expect(recovery).toHaveBeenCalled();
   });
 
-  it('keeps the running row when createJob has a transport failure', async () => {
+  it('settles lost when CreateJob fails and ListJobs confirms the id is unknown', async () => {
     const machines = connector();
 
     const rpc = createRouterTransport((router) => {
@@ -422,6 +426,7 @@ describe('BashJobRegistry result retention', () => {
           await Promise.resolve();
           throw new ConnectError('connection reset', Code.Unavailable);
         },
+        listJobs: () => create(ListJobsResponseSchema, { jobs: [] }),
       });
     });
 
@@ -436,9 +441,21 @@ describe('BashJobRegistry result retention', () => {
     vi.spyOn(ArtifactsRepository.prototype, 'nextSeq').mockResolvedValue(1);
     vi.spyOn(ChatJobsRepository.prototype, 'insert').mockResolvedValue(row);
 
-    const deleteRunning = vi
-      .spyOn(ChatJobsRepository.prototype, 'deleteRunning')
-      .mockResolvedValue(undefined);
+    const settle = vi
+      .spyOn(ChatJobsRepository.prototype, 'settle')
+      .mockResolvedValue(row);
+
+    vi.spyOn(
+      NativeFilesRepository.prototype,
+      'recoverHostPromotion',
+    ).mockResolvedValue({
+      disposition: 'recovery_won',
+      result: {
+        status: 'error',
+        type: 'outcome_unknown',
+        message: 'unknown',
+      },
+    });
 
     const tenantDb = {
       runAs: async <T>(_userId: string, callback: (tx: Db) => Promise<T>) =>
@@ -460,8 +477,10 @@ describe('BashJobRegistry result retention', () => {
         { name: row.machineName, local: false },
         { command: 'true' },
       ),
-    ).rejects.toBeInstanceOf(MachineUnavailableError);
-    expect(deleteRunning).not.toHaveBeenCalled();
+    ).resolves.toMatchObject({ type: 'outcome_unknown' });
+    const settlement = settle.mock.calls[0]?.[3];
+    expect(settlement?.state).toBe('lost');
+    expect(settlement?.result?.outputUnavailable).toBe(true);
   });
 
   afterEach(() => vi.restoreAllMocks());

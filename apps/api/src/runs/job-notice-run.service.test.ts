@@ -30,6 +30,7 @@ function job(state: ChatJob['state']): ChatJob {
     machineName: 'test-machine',
     daemonInstanceId: 'daemon-instance',
     daemonJobId: 'daemon-job',
+    delivery: 'background',
     startedAt: new Date('2026-11-12T12:00:00.000Z'),
     settledAt:
       state === 'running' ? null : new Date('2026-11-12T12:00:03.000Z'),

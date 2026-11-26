@@ -1,3 +1,5 @@
+import { RunsRepository } from '../runs/runs-repository';
+import { isTerminalRunStatus } from '../runs/run-status';
 import { type CallOptions, type Client } from '@connectrpc/connect';
 import {
   JobState,
@@ -40,26 +42,55 @@ export async function observeDaemonJob(deps: {
     callOptions: JobsCallOptions,
     row: ChatJob,
   ) => Promise<void>;
+  promote: (row: ChatJob) => Promise<void>;
 }): Promise<void> {
   const { tenantDb, instanceId, client, callOptions, daemonJob } = deps;
 
   const observed = await resolveObservedJob(tenantDb, daemonJob, instanceId);
 
   if (observed === undefined) return;
-  const { row, job } = observed;
+  const { job } = observed;
 
-  if (await cancelIfRequested(row, job, client, callOptions)) return;
+  if (await cancelIfRequested(observed.row, job, client, callOptions)) return;
 
   if (job.state === JobState.RUNNING) return;
 
+  const row = await settleableForeground(deps, observed.row);
+
+  if (row === undefined) return;
+
   return settleObservedJob(deps, row, job);
+}
+
+async function settleableForeground(
+  deps: {
+    tenantDb: TenantRunner;
+    foregroundJobs: ReadonlySet<string>;
+    promote: (row: ChatJob) => Promise<void>;
+  },
+  row: ChatJob,
+): Promise<ChatJob | undefined> {
+  if (row.delivery !== 'foreground') return row;
+
+  if (deps.foregroundJobs.has(row.id)) return undefined;
+
+  if (row.stopRequestedAt !== null) return row;
+
+  const run = await deps.tenantDb.runAs(row.ownerUserId, (db) =>
+    new RunsRepository(db).findById(row.runId, row.ownerUserId),
+  );
+
+  if (run === undefined || !isTerminalRunStatus(run.status)) return undefined;
+
+  await deps.promote(row);
+
+  return { ...row, delivery: 'background' };
 }
 
 async function settleObservedJob(
   deps: {
     client: JobsClient;
     callOptions: JobsCallOptions;
-    foregroundJobs: ReadonlySet<string>;
     readResult: (
       client: JobsClient,
       callOptions: JobsCallOptions,
@@ -81,10 +112,10 @@ async function settleObservedJob(
   row: ChatJob,
   job: Job,
 ): Promise<void> {
-  const { client, callOptions, foregroundJobs } = deps;
+  const { client, callOptions } = deps;
   const { output } = await deps.readResult(client, callOptions, row, job);
 
-  await deps.settle(row, job, output, !foregroundJobs.has(row.id));
+  await deps.settle(row, job, output, row.delivery === 'background');
   await deps.release(client, callOptions, row).catch(() => undefined);
 }
 

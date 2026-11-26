@@ -6,6 +6,7 @@ import { and, asc, count, eq, sql, type SQL } from 'drizzle-orm';
 
 import {
   chatJobs,
+  runEvents,
   type ChatDeliverySettings,
   type ChatJob,
   type ChatJobResult,
@@ -29,6 +30,7 @@ export type NewChatJob = {
   readonly outputs: ReadonlyArray<string>;
   readonly artifactReadable: boolean;
   readonly settings: ChatDeliverySettings;
+  readonly delivery?: 'foreground' | 'background';
 };
 
 export type JobSettlement =
@@ -64,7 +66,12 @@ export class ChatJobsRepository {
     const [row] = await this.db
       .select()
       .from(chatJobs)
-      .where(jobInChat(chatId, ownerUserId, jobId));
+      .where(
+        and(
+          jobInChat(chatId, ownerUserId, jobId),
+          eq(chatJobs.delivery, 'background'),
+        ),
+      );
 
     return row;
   }
@@ -83,6 +90,7 @@ export class ChatJobsRepository {
           inChat(chatId, ownerUserId),
           eq(chatJobs.kind, kind),
           eq(chatJobs.seq, seq),
+          eq(chatJobs.delivery, 'background'),
         ),
       );
 
@@ -124,12 +132,75 @@ export class ChatJobsRepository {
     return row;
   }
 
-  listByChat(chatId: string, ownerUserId: string): Promise<Array<ChatJob>> {
+  async promoteToBackground(
+    chatId: string,
+    ownerUserId: string,
+    jobId: string,
+  ): Promise<ChatJob | undefined> {
+    const [row] = await this.db
+      .update(chatJobs)
+      .set({ delivery: 'background' })
+      .where(
+        and(
+          jobInChat(chatId, ownerUserId, jobId),
+          eq(chatJobs.state, 'running'),
+          eq(chatJobs.delivery, 'foreground'),
+        ),
+      )
+      .returning();
+
+    return row;
+  }
+
+  listBindingsByChat(
+    chatId: string,
+    ownerUserId: string,
+  ): Promise<Array<ChatJob>> {
     return this.db
       .select()
       .from(chatJobs)
       .where(inChat(chatId, ownerUserId))
       .orderBy(asc(chatJobs.startedAt), asc(chatJobs.seq));
+  }
+  listByChat(chatId: string, ownerUserId: string): Promise<Array<ChatJob>> {
+    return this.db
+      .select()
+      .from(chatJobs)
+      .where(
+        and(inChat(chatId, ownerUserId), eq(chatJobs.delivery, 'background')),
+      )
+      .orderBy(asc(chatJobs.startedAt), asc(chatJobs.seq));
+  }
+
+  async hasCreatingAttempt(
+    chatId: string,
+    ownerUserId: string,
+    jobId: string,
+  ): Promise<boolean> {
+    const [job] = await this.db
+      .select({
+        runId: chatJobs.runId,
+        toolCallId: chatJobs.toolCallId,
+        state: chatJobs.state,
+      })
+      .from(chatJobs)
+      .where(jobInChat(chatId, ownerUserId, jobId));
+
+    if (job === undefined || job.state !== 'running') return false;
+
+    const [result] = await this.db
+      .select({ sequence: runEvents.sequence })
+      .from(runEvents)
+      .where(
+        and(
+          eq(runEvents.runId, job.runId),
+          eq(runEvents.eventType, 'native.result'),
+          sql`${runEvents.payload}->>'toolCallId' = ${job.toolCallId}`,
+        ),
+      )
+      .limit(1);
+
+    return result === undefined;
   }
 
   async settle(
@@ -204,7 +275,13 @@ export class ChatJobsRepository {
     const rows = await this.db
       .select({ id: chatJobs.id })
       .from(chatJobs)
-      .where(and(inChat(chatId, ownerUserId), eq(chatJobs.state, 'running')));
+      .where(
+        and(
+          inChat(chatId, ownerUserId),
+          eq(chatJobs.state, 'running'),
+          eq(chatJobs.delivery, 'background'),
+        ),
+      );
 
     return rows.map((row) => row.id);
   }
@@ -216,6 +293,7 @@ export class ChatJobsRepository {
         and(
           eq(chatJobs.ownerUserId, ownerUserId),
           eq(chatJobs.state, 'running'),
+          eq(chatJobs.delivery, 'background'),
         ),
       )
       .groupBy(chatJobs.chatId);

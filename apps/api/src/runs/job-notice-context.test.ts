@@ -33,6 +33,7 @@ function job(overrides: Partial<ChatJob> = {}): ChatJob {
     toolCallId: 'call-4',
     machineName: 'test-machine',
     daemonInstanceId: 'daemon-instance',
+    delivery: 'background',
     daemonJobId: 'daemon-job',
     startedAt: new Date('2026-11-12T12:00:00.000Z'),
     settledAt: new Date('2026-11-12T12:00:03.000Z'),

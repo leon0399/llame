@@ -37,6 +37,7 @@ function job(id: string, state: ChatJob['state']): ChatJob {
     machineName: 'test-machine',
     daemonInstanceId: 'daemon-instance',
     daemonJobId: `daemon-${id}`,
+    delivery: 'background',
     startedAt,
     settledAt,
     deadlineAt: null,

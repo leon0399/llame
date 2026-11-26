@@ -34,6 +34,11 @@ export const chatJobStoppers = ['owner', 'assistant', 'worker'] as const;
 
 export type ChatJobStopper = (typeof chatJobStoppers)[number];
 
+/** The delivery mode is committed with the binding and before promotion. */
+export const chatJobDeliveries = ['foreground', 'background'] as const;
+
+export type ChatJobDelivery = (typeof chatJobDeliveries)[number];
+
 /** The exit detail of a settled job and its daemon-side unknown-outcome cause. */
 export type ChatJobResult = {
   exitCode?: number | null;
@@ -45,8 +50,8 @@ export type ChatJobResult = {
 };
 
 /**
- * One background job on a Machine daemon. A job belongs to its Chat and owner,
- * not to the Run that started it, so `run_id` carries no foreign key. `seq` is
+ * One job on a Machine daemon. A job belongs to its Chat and owner, not to
+ * the Run that started it, so `run_id` carries no foreign key. `seq` is
  * reserved with `chats.artifact_seq`, so `job://bash-7` and `artifact://bash-7`
  * name one thing. `daemon_job_id` identifies the daemon-side process.
  */
@@ -65,6 +70,10 @@ export const chatJobs = pgTable(
     machineName: text('machine_name').notNull(),
     daemonInstanceId: text('daemon_instance_id').notNull(),
     daemonJobId: text('daemon_job_id').notNull(),
+    delivery: text('delivery')
+      .notNull()
+      .default('background')
+      .$type<ChatJobDelivery>(),
     startedAt: timestamptz('started_at').notNull().defaultNow(),
     settledAt: timestamptz('settled_at'),
     deadlineAt: timestamptz('deadline_at'),
@@ -103,6 +112,7 @@ export const chatJobs = pgTable(
     }),
   ],
 ).enableRLS();
+// Drizzle does not emit FORCE ROW LEVEL SECURITY. Restore it in migrations.
 
 export type ChatJob = InferSelectModel<typeof chatJobs>;
 

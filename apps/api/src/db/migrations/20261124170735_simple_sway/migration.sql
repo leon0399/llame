@@ -1,4 +1,5 @@
 -- Bind legacy rows to a synthetic daemon identity; running work is unknowable after the cutover, and the chunk table is intentionally dropped without copying.
+-- The generator cannot emit FORCE RLS. Disable FORCE only for this owner-run backfill, then restore it before changing constraints; regeneration must retain this NO FORCE/FORCE bracket.
 DROP POLICY "chat_job_chunks_owner" ON "chat_job_chunks";--> statement-breakpoint
 DROP TABLE "chat_job_chunks";--> statement-breakpoint
 ALTER TABLE "chat_jobs" RENAME COLUMN "executor" TO "kind";--> statement-breakpoint

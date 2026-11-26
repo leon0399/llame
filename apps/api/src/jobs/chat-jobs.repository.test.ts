@@ -45,6 +45,69 @@ describe('ChatJobsRepository', () => {
     expect(last().params).toEqual(expect.arrayContaining([CHAT, OWNER]));
   });
 
+  it('exposes only background rows to job listing', async () => {
+    const { repository, last } = make();
+
+    await repository.listByChat(CHAT, OWNER).catch(() => undefined);
+
+    expect(last().sql).toContain('"chat_jobs"."delivery" =');
+    expect(last().params).toContain('background');
+  });
+
+  it('counts only background running jobs', async () => {
+    const { repository, last } = make();
+
+    await repository.countRunning(OWNER).catch(() => undefined);
+
+    expect(last().sql).toContain('"chat_jobs"."delivery" =');
+    expect(last().sql).toContain('"chat_jobs"."state" =');
+    expect(last().params).toEqual(
+      expect.arrayContaining([OWNER, 'running', 'background']),
+    );
+  });
+
+  it('lists all bindings for lifecycle operations', async () => {
+    const { repository, last } = make();
+
+    await repository.listBindingsByChat(CHAT, OWNER).catch(() => undefined);
+
+    expect(last().sql).toContain('"chat_jobs"."chat_id" =');
+    expect(last().sql).toContain('"chat_jobs"."owner_user_id" =');
+    expect(last().sql).not.toContain('"chat_jobs"."delivery" =');
+  });
+
+  it('promotes a running foreground binding to background durably', async () => {
+    const { repository, last } = make();
+
+    await repository
+      .promoteToBackground(CHAT, OWNER, JOB)
+      .catch(() => undefined);
+
+    expect(last().sql).toContain('update "chat_jobs"');
+    expect(last().sql).toContain('"chat_jobs"."delivery" =');
+    expect(last().params).toEqual(
+      expect.arrayContaining([
+        CHAT,
+        OWNER,
+        JOB,
+        'running',
+        'foreground',
+        'background',
+      ]),
+    );
+  });
+
+  it('keeps foreground bindings out of locator lookup', async () => {
+    const { repository, last } = make();
+
+    await repository
+      .findByLocator(CHAT, OWNER, 'bash', 1)
+      .catch(() => undefined);
+
+    expect(last().sql).toContain('"chat_jobs"."delivery" =');
+    expect(last().params).toContain('background');
+  });
+
   it('settles only a running job of the Chat and owner, and sets the end time', async () => {
     const { repository, last } = make();
 

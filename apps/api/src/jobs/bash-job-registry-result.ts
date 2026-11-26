@@ -48,31 +48,18 @@ export async function readBashJobResult(deps: {
     return { result: streams.result, output: null };
 
   const { row, job, credentials } = deps;
-  const { stdout, stderr, stdoutTruncated, stderrTruncated } = streams;
-
-  const sanitized = sanitizeKnownResultAtBound(
-    resultFromJob(job, stdout, stderr),
-    { kind: 'code-units', limit: BASH_BOUNDS.outputBound },
-    credentials,
-    {
-      stdout: { endedByLlame: stdoutTruncated },
-      stderr: { endedByLlame: stderrTruncated },
-    },
-  );
-
-  const output: ManagedOutput = {
-    stdout: sanitized.stdout,
-    stderr: sanitized.stderr,
-    truncated: sanitized.truncated || stdoutTruncated || stderrTruncated,
-    truncatedStreams: {
-      stdout: stdoutTruncated || job.stdout?.truncated === true,
-      stderr: stderrTruncated || job.stderr?.truncated === true,
-    },
-  };
 
   return {
-    result: job.state === JobState.LOST ? unknownResult(row, job) : sanitized,
-    output,
+    result: modelResult(job, streams, row, credentials),
+    output: retainedArtifactOutput({
+      config: deps.config,
+      job,
+      stdout: streams.stdout,
+      stderr: streams.stderr,
+      stdoutTruncated: streams.stdoutTruncated,
+      stderrTruncated: streams.stderrTruncated,
+      credentials,
+    }),
   };
 }
 
@@ -82,9 +69,8 @@ async function readJobStreams(input: {
   callOptions: JobsCallOptions;
   row: ChatJob;
   job: Job;
-  credentials: ReadonlyArray<string>;
 }): Promise<JobStreams> {
-  const { row, job, credentials } = input;
+  const { row, job } = input;
 
   try {
     return { kind: 'complete', ...(await readOutputStreams(input)) };
@@ -98,17 +84,83 @@ async function readJobStreams(input: {
       throw refusal;
 
     if (job.state === JobState.LOST)
-      return { kind: 'missing', result: unknownResult(row, job) };
+      return {
+        kind: 'missing',
+        result: unknownResult(row, job, 'Captured output is unavailable.'),
+      };
 
     return {
       kind: 'missing',
-      result: sanitizeKnownResultAtBound(
-        resultFromJob(job, '', ''),
-        { kind: 'code-units', limit: BASH_BOUNDS.outputBound },
-        credentials,
-      ),
+      result: {
+        status: 'error',
+        type: 'unavailable',
+        message:
+          'The Machine daemon no longer has captured output for this job; its output is unavailable.',
+      },
     };
   }
+}
+
+function modelResult(
+  job: Job,
+  streams: Extract<JobStreams, { kind: 'complete' }>,
+  row: ChatJob,
+  credentials: ReadonlyArray<string>,
+): ProcBashResult {
+  const sanitized = sanitizeKnownResultAtBound(
+    resultFromJob(job, streams.stdout, streams.stderr),
+    { kind: 'code-units', limit: BASH_BOUNDS.outputBound },
+    credentials,
+    {
+      stdout: { endedByLlame: streams.stdoutTruncated },
+      stderr: { endedByLlame: streams.stderrTruncated },
+    },
+  );
+
+  return job.state === JobState.LOST ? unknownResult(row, job) : sanitized;
+}
+
+function retainedArtifactOutput(input: {
+  config: InstanceConfigReader;
+  job: Job;
+  stdout: string;
+  stderr: string;
+  stdoutTruncated: boolean;
+  stderrTruncated: boolean;
+  credentials: ReadonlyArray<string>;
+}): ManagedOutput {
+  const {
+    config,
+    job,
+    stdout,
+    stderr,
+    stdoutTruncated,
+    stderrTruncated,
+    credentials,
+  } = input;
+
+  const sanitized = sanitizeKnownResultAtBound(
+    resultFromJob(job, stdout, stderr),
+    {
+      kind: 'code-units',
+      limit: config.config.tools.artifacts.maxBytes,
+    },
+    credentials,
+    {
+      stdout: { endedByLlame: stdoutTruncated },
+      stderr: { endedByLlame: stderrTruncated },
+    },
+  );
+
+  return {
+    stdout: sanitized.stdout,
+    stderr: sanitized.stderr,
+    truncated: sanitized.truncated || stdoutTruncated || stderrTruncated,
+    truncatedStreams: {
+      stdout: stdoutTruncated || job.stdout?.truncated === true,
+      stderr: stderrTruncated || job.stderr?.truncated === true,
+    },
+  };
 }
 
 async function readOutputStreams(input: {
@@ -153,12 +205,12 @@ async function readOutputStreams(input: {
   };
 }
 
-function unknownResult(row: ChatJob, job: Job): ProcBashResult {
+function unknownResult(row: ChatJob, job: Job, detail = ''): ProcBashResult {
   return {
     status: 'error',
     type: 'outcome_unknown',
     attemptId: row.runId,
-    message: `The Machine daemon lost the job (${lostCauseText(job.lostCause)}).`,
+    message: `The Machine daemon lost the job (${lostCauseText(job.lostCause)}).${detail === '' ? '' : ` ${detail}`}`,
   };
 }
 

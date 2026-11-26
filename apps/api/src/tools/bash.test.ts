@@ -124,6 +124,7 @@ describe('bash daemon job dispatch', () => {
       machineName: 'host-a',
       daemonInstanceId: '00000000-0000-4000-8000-000000000013',
       daemonJobId: '0123456789abcdef0123456789abcdef',
+      delivery: 'foreground',
       startedAt: new Date(0),
       settledAt: null,
       deadlineAt: null,
@@ -208,6 +209,11 @@ describe('bash daemon job dispatch', () => {
 
         return Promise.resolve(row);
       });
+
+    vi.spyOn(
+      ChatJobsRepository.prototype,
+      'promoteToBackground',
+    ).mockResolvedValue({ ...row, delivery: 'background' });
 
     const tenantDb = testContext().tenantDb;
 
@@ -339,6 +345,7 @@ describe('bash daemon job dispatch', () => {
           machineName: 'host-a',
           daemonInstanceId: '00000000-0000-4000-8000-000000000013',
           daemonJobId: '0123456789abcdef0123456789abcdef',
+          delivery: 'foreground',
           startedAt: new Date(0),
           settledAt: null,
           deadlineAt: null,

@@ -54,6 +54,7 @@ export class BashJobRegistry implements OnModuleInit {
   private readonly logger = new Logger(BashJobRegistry.name);
   private readonly loops = new Set<Promise<void>>();
   private readonly foregroundJobs = new Set<string>();
+  private readonly settlements = new Set<Promise<void>>();
   private stopping = false;
   private reconcileTimer: ReturnType<typeof setInterval> | undefined;
   private closeWait: Promise<void>;
@@ -97,6 +98,8 @@ export class BashJobRegistry implements OnModuleInit {
       context,
       machine,
       input,
+      settleLost: (row, job) =>
+        this.settleDaemonJob(row, job, null, row.delivery === 'background'),
     });
 
     if (started.kind === 'failed') return started.result;
@@ -126,8 +129,11 @@ export class BashJobRegistry implements OnModuleInit {
       ended,
       jobId: daemonJobId,
       waitMs:
-        (context.bashBackgroundAfterSeconds ??
-          this.config.config.tools.bash.backgroundAfterSeconds) * 1000,
+        Math.min(
+          context.bashBackgroundAfterSeconds ??
+            this.config.config.tools.bash.backgroundAfterSeconds,
+          this.config.config.tools.callTimeoutSeconds,
+        ) * 1000,
       moveSignal: context.moveSignal,
       abortSignal: context.abortSignal,
     });
@@ -155,20 +161,13 @@ export class BashJobRegistry implements OnModuleInit {
   }): Promise<ToolResult> {
     const { context, machine, row, outcome, startedAt, started } = input;
 
-    if (outcome.kind === 'moved') {
-      const result = backgrounded(
+    if (outcome.kind === 'moved')
+      return this.finishMovedRun(
+        context,
         row,
         outcome.cause,
         Date.now() - startedAt.getTime(),
       );
-
-      context.onHostPromotionStarted?.();
-
-      const finalResult = await this.recordNativeResult(context, result);
-      this.foregroundJobs.delete(row.id);
-
-      return finalResult;
-    }
 
     if (outcome.kind === 'disconnected') {
       this.foregroundJobs.delete(row.id);
@@ -189,6 +188,21 @@ export class BashJobRegistry implements OnModuleInit {
       job: outcome.job,
       started,
     });
+  }
+
+  private async finishMovedRun(
+    context: ToolContext,
+    row: ChatJob,
+    cause: 'time' | 'message',
+    wallTimeMs: number,
+  ): Promise<ToolResult> {
+    await this.promoteBackground(row);
+    const result = backgrounded(row, cause, wallTimeMs);
+    context.onHostPromotionStarted?.();
+    const finalResult = await this.recordNativeResult(context, result);
+    this.foregroundJobs.delete(row.id);
+
+    return finalResult;
   }
 
   private async finishSettledRun(input: {
@@ -331,9 +345,12 @@ export class BashJobRegistry implements OnModuleInit {
   async shutdown(): Promise<void> {
     this.stopping = true;
 
-    if (this.reconcileTimer !== undefined) clearInterval(this.reconcileTimer);
+    clearInterval(this.reconcileTimer);
     this.close();
     await Promise.allSettled(this.loops);
+
+    while (this.settlements.size > 0)
+      await Promise.allSettled(this.settlements);
   }
 
   private async watchMachine(machineName: string): Promise<void> {
@@ -346,8 +363,13 @@ export class BashJobRegistry implements OnModuleInit {
         const { client, callOptions, ended, instanceId } =
           await this.connector.jobsClient(machineName);
 
+        const controller = new AbortController();
+
         const consume = async () => {
-          for await (const response of client.watchJobs({}, callOptions())) {
+          for await (const response of client.watchJobs(
+            {},
+            callOptions({ signal: controller.signal }),
+          )) {
             if (response.event.case !== 'job') continue;
             const job = response.event.value;
             await this.observe(instanceId, client, callOptions, job);
@@ -355,7 +377,14 @@ export class BashJobRegistry implements OnModuleInit {
         };
 
         delayMs = 1000;
-        await Promise.race([consume(), ended, this.closeWait]);
+        const consuming = consume();
+
+        try {
+          await Promise.race([consuming, ended, this.closeWait]);
+        } finally {
+          controller.abort();
+          await consuming.catch(() => undefined);
+        }
 
         if (this.stopping) return;
       } catch (error) {
@@ -379,13 +408,14 @@ export class BashJobRegistry implements OnModuleInit {
     callOptions: JobsCallOptions,
     daemonJob: Job,
   ): Promise<void> {
-    return observeDaemonJob({
+    const settlement = observeDaemonJob({
       tenantDb: this.tenantDb,
       instanceId,
       client,
       callOptions,
       daemonJob,
       foregroundJobs: this.foregroundJobs,
+      promote: (row) => this.promoteBackground(row),
       readResult: (watchClient, watchOptions, row, job) =>
         readBashJobResult({
           config: this.config,
@@ -400,6 +430,14 @@ export class BashJobRegistry implements OnModuleInit {
       release: (watchClient, watchOptions, row) =>
         this.release(watchClient, watchOptions, row),
     });
+
+    this.settlements.add(settlement);
+    void settlement.then(
+      () => this.settlements.delete(settlement),
+      () => this.settlements.delete(settlement),
+    );
+
+    return settlement;
   }
 
   private listMachine(machineName: string): Promise<void> {
@@ -463,6 +501,16 @@ export class BashJobRegistry implements OnModuleInit {
 
       return receipt.result;
     });
+  }
+
+  private async promoteBackground(row: ChatJob): Promise<void> {
+    await this.tenantDb.runAs(row.ownerUserId, (db) =>
+      new ChatJobsRepository(db).promoteToBackground(
+        row.chatId,
+        row.ownerUserId,
+        row.id,
+      ),
+    );
   }
   private findRunningById(jobId: string): Promise<ChatJob | undefined> {
     return findRunningJob({

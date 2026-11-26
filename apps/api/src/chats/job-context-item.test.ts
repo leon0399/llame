@@ -19,6 +19,7 @@ function job(overrides: Partial<ChatJob> = {}): ChatJob {
     machineName: 'test-machine',
     daemonInstanceId: 'd1',
     daemonJobId: 'dj1',
+    delivery: 'background',
     startedAt: new Date('2026-11-12T12:00:00.000Z'),
     settledAt: new Date('2026-11-12T12:00:03.000Z'),
     deadlineAt: null,

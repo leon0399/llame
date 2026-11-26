@@ -27,6 +27,7 @@ function job(id: string, state: ChatJob['state'] = 'running'): ChatJob {
     machineName: 'host',
     daemonInstanceId: 'daemon-id',
     daemonJobId: 'a'.repeat(32),
+    delivery: 'background',
     startedAt: now,
     settledAt: state === 'running' ? null : now,
     deadlineAt: null,

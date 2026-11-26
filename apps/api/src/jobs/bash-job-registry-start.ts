@@ -1,9 +1,14 @@
 import { randomBytes } from 'node:crypto';
 import { type CallOptions, type Client } from '@connectrpc/connect';
+import { create } from '@bufbuild/protobuf';
 import {
+  JobSchema,
+  JobState,
   JobService,
+  LostCause,
   MachineProtocolError,
   type CreateJobResponse,
+  type Job,
 } from '@workspace/machine-protocol';
 import { ChatsRepository } from '../chats/chats-repository';
 import { type ChatJob } from '../db/schema';
@@ -12,7 +17,10 @@ import { type InstanceConfigReader } from '../instance-config/instance-config.se
 import { mapMachineRefusal } from '../machines/machine-session-errors';
 import type { MachineRequestOptions } from '../machines/machine-session';
 import { ArtifactsRepository } from '../tools/artifacts/artifacts-repository';
-import { machineProtocolFailureResult } from '../tools/machine-call';
+import {
+  machineProtocolFailureResult,
+  machineUnknownResult,
+} from '../tools/machine-call';
 import { type BashInput, type BashMachineTarget } from '../tools/bash-target';
 import { type ToolContext, type ToolResult } from '../tools/types';
 import { NativeFilesRepository } from '../runs/native-files-repository';
@@ -40,6 +48,7 @@ type BashJobStartDependencies = {
   context: ToolContext;
   machine: BashMachineTarget;
   input: BashInput;
+  settleLost: (row: ChatJob, job: Job) => Promise<void>;
 };
 
 export type BashJobStart =
@@ -109,6 +118,7 @@ async function dispatchBashJob(
     startedAt,
     lifetimeMs,
     instanceId: machineClient.instanceId,
+    delivery: input.async === true ? 'background' : 'foreground',
   });
 
   if ('prior' in binding) return { kind: 'failed', result: binding.prior };
@@ -137,7 +147,16 @@ async function createBoundBashJob(
     input: deps.input,
     daemonJobId,
     lifetimeMs,
-  });
+  }).catch((error: unknown) =>
+    settleUnknownCreate(
+      input,
+      error instanceof Error ? error : new Error(String(error)),
+    ),
+  );
+
+  if (result.kind === 'failed') return result;
+
+  if (result.kind === 'started') return result;
 
   if (result.kind === 'known-refusal')
     return settleRefusedStart(
@@ -146,6 +165,7 @@ async function createBoundBashJob(
       binding,
       result.result,
     );
+
   deps.context.onHostCommandStarted?.();
 
   return {
@@ -158,6 +178,34 @@ async function createBoundBashJob(
     startedAt,
     lifetimeMs,
   };
+}
+
+async function settleUnknownCreate(
+  input: CreateBoundBashJobInput,
+  createError: Error,
+): Promise<BashJobStart> {
+  const { deps, binding, machineClient, daemonJobId } = input;
+
+  const listed = await machineClient.client
+    .listJobs({}, machineClient.callOptions())
+    .catch(() => undefined);
+
+  if (listed === undefined || listed.jobs.some((job) => job.id === daemonJobId))
+    throw createError;
+
+  const unknown = machineUnknownResult(deps.machine.name);
+
+  const lostJob = create(JobSchema, {
+    id: daemonJobId,
+    owner: deps.context.userId,
+    state: JobState.LOST,
+    lostCause: LostCause.DAEMON_RESTARTED,
+  });
+
+  await deps.settleLost(binding, lostJob);
+  await recordNativeResult(deps.tenantDb, deps.context, unknown);
+
+  return { kind: 'failed', result: unknown };
 }
 
 async function settleRefusedStart(
@@ -182,6 +230,7 @@ type BindBashAttemptInput = {
   startedAt: Date;
   lifetimeMs: number;
   instanceId: string;
+  delivery: 'foreground' | 'background';
 };
 
 type NativeBashIdentity = {
@@ -272,6 +321,7 @@ async function insertChatJobBinding(
       startedAt,
       instanceId,
       seq,
+      delivery: input.delivery,
       deadlineAt,
       runId,
       toolCallId,
@@ -285,6 +335,7 @@ type InsertBashBindingInput = {
   daemonJobId: string;
   startedAt: Date;
   instanceId: string;
+  delivery: 'foreground' | 'background';
   seq: number;
   deadlineAt: Date | undefined;
   runId: string;
@@ -317,6 +368,7 @@ async function insertBashBinding(
     machineName: machine.name,
     daemonInstanceId: instanceId,
     daemonJobId,
+    delivery: input.delivery,
     startedAt,
     ...(deadlineAt !== undefined && { deadlineAt }),
     outputs: ['stdout', 'stderr'],
@@ -338,11 +390,13 @@ type CreateDaemonJobInput = {
   lifetimeMs: number;
 };
 
+type CreateDaemonJobResult =
+  | { kind: 'created' }
+  | { kind: 'known-refusal'; result: ToolResult };
+
 async function createDaemonJob(
   input: CreateDaemonJobInput,
-): Promise<
-  { kind: 'created' } | { kind: 'known-refusal'; result: ToolResult }
-> {
+): Promise<CreateDaemonJobResult> {
   try {
     const response = await sendCreateJob(input);
 
