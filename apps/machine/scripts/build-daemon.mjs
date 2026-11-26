@@ -7,6 +7,7 @@ import { execFileSync } from "node:child_process";
 import { copyFileSync, mkdirSync, renameSync } from "node:fs";
 import { arch } from "node:os";
 import { join, resolve } from "node:path";
+import { compilerEnv } from "./compiler-env.mjs";
 
 const here = import.meta.dirname;
 const app = resolve(here, "..");
@@ -43,7 +44,14 @@ function build(target) {
       "--target",
       target,
     ],
-    { cwd: repo, stdio: "inherit" },
+    {
+      cwd: repo,
+      stdio: "inherit",
+      env: {
+        ...process.env,
+        ...compilerEnv(target, hostTarget(), process.env),
+      },
+    },
   );
   const built = join(repo, "target", target, "release", "llame-machine");
   const out = join(app, "dist", target);

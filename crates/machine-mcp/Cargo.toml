@@ -14,7 +14,11 @@ machine-core.workspace = true
 machine-protocol.workspace = true
 tokio.workspace = true
 tokio-stream.workspace = true
+serde_json.workspace = true
+futures.workspace = true
+reqwest.workspace = true
 tonic.workspace = true
+rustix.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true
