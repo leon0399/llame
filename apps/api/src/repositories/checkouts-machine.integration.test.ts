@@ -250,9 +250,11 @@ describe('/api/v1/checkouts on a Machine', () => {
       const machine = harness.peer.sessions.find((session) =>
         session.calls.some((call) => call.method === 'fs.stat'),
       );
+
       expect(
         machine?.calls.find((call) => call.method === 'fs.stat')?.params,
       ).toMatchObject({ path: PATH });
+
       expect(
         machine?.calls.find((call) => call.method === 'git.inspect')?.params,
       ).toMatchObject({
@@ -324,7 +326,7 @@ describe('/api/v1/checkouts on a Machine', () => {
       expect(failure.code).toBe('machine_update_required');
       expect(failure.message).toContain('Update the daemon on that Machine.');
 
-      const listed = await request(harness.http)
+      await request(harness.http)
         .get('/api/v1/checkouts')
         .set('Cookie', harness.cookie)
         .expect(200);

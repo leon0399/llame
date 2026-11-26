@@ -32,6 +32,7 @@ import {
   mapMachineRefusal,
 } from './machine-session-errors';
 import { dispatchWireHandler } from './wire/index';
+import type { MachineFailureReason } from './machines-status';
 import {
   createChannel,
   type MachineChannel,
@@ -39,6 +40,7 @@ import {
   type MachineNotification,
   type MachineSessionEnd,
 } from './machine-session-channel';
+
 export type {
   MachineChannel,
   MachineChannelHandle,

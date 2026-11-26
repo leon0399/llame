@@ -10,7 +10,6 @@
 import {
   FS_GREP_METHOD,
   type FsGrepConsumed,
-  type FsGrepPassage,
   type FsGrepSuccess,
   type FsGrepWarning,
   type FsGrepWarningKind,
