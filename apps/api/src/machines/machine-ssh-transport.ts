@@ -1,8 +1,8 @@
 import { execFileSync } from 'node:child_process';
-import { watch, existsSync, chmodSync, mkdtempSync, rmSync } from 'node:fs';
+import { chmodSync, mkdtempSync, rmSync } from 'node:fs';
 import { connect as connectNetSocket, Socket } from 'node:net';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { join } from 'node:path';
 import { connectSocket } from '@workspace/machine-protocol';
 import type { Transport } from '@connectrpc/connect';
 import type { ResolvedSshFiles } from '../instance-config/machines-config';
@@ -155,7 +155,6 @@ function sshErrorDiagnostic(error: unknown): string {
     const stderr = error.stderr;
 
     if (Buffer.isBuffer(stderr)) return stderr.toString('utf8');
-
   }
 
   return error instanceof Error ? error.message : String(error);
@@ -250,17 +249,27 @@ function createLazySshSocketTransport(
   let closed = false;
 
   function open(): Promise<Transport> {
-    transport ??= waitForSshSocket(localSocket, name, link.ended).then(() => {
-      if (closed) throw new MachineUnavailableError(name, 'unreachable', false, 'The SSH socket tunnel was closed before connecting.');
+    transport ??= waitForSshSocket(localSocket, name, link.ended).then(
+      (connectedSocket) => {
+        if (closed) {
+          connectedSocket.destroy();
+          throw new MachineUnavailableError(
+            name,
+            'unreachable',
+            false,
+            'The SSH socket tunnel was closed before connecting.',
+          );
+        }
 
-      socket = connectNetSocket(localSocket);
-      socket.once('close', () => {
-        if (!closed) link.close();
-      });
-      socket.once('error', () => undefined);
+        socket = connectedSocket;
+        socket.once('close', () => {
+          if (!closed) link.close();
+        });
+        socket.once('error', () => undefined);
 
-      return connectSocket(socket);
-    });
+        return connectSocket(socket);
+      },
+    );
 
     return transport;
   }
@@ -274,9 +283,7 @@ function createLazySshSocketTransport(
   };
 }
 
-function createDeferredTransport(
-  open: () => Promise<Transport>,
-): Transport {
+function createDeferredTransport(open: () => Promise<Transport>): Transport {
   return {
     unary: (...args) => open().then((ready) => ready.unary(...args)),
     stream: (...args) => open().then((ready) => ready.stream(...args)),
@@ -287,61 +294,66 @@ function waitForSshSocket(
   localSocket: string,
   name: string,
   ended: Promise<MachineLinkEnd>,
-): Promise<void> {
-  if (existsSync(localSocket)) return Promise.resolve();
+): Promise<Socket> {
+  const timeoutAt = Date.now() + 10_000;
 
-  const { promise, resolve, reject } = Promise.withResolvers<void>();
-  let settled = false;
+  const tunnelEnd = ended.then((end) => ({ end }));
 
-  const watcher = watch(dirname(localSocket), () => {
-    if (existsSync(localSocket)) finish();
-  });
+  async function wait(): Promise<Socket> {
+    while (Date.now() < timeoutAt) {
+      const outcome = await Promise.race([
+        connectSshSocket(localSocket).then(
+          (socket) => ({ socket }),
+          () => ({ socket: undefined }),
+        ),
+        tunnelEnd,
+      ]);
 
-  const timeout = sshSocketTimeout(name, finish);
+      if ('end' in outcome) throw sshTunnelEndedError(name, outcome.end);
 
-  function finish(error?: Error): void {
-    if (settled) return;
+      if (outcome.socket !== undefined) return outcome.socket;
 
-    settled = true;
-    clearTimeout(timeout);
-    watcher.close();
+      const { promise, resolve } = Promise.withResolvers<void>();
+      setTimeout(resolve, 50);
+      await promise;
+    }
 
-    if (error === undefined) resolve();
-    else reject(error);
+    throw new MachineUnavailableError(
+      name,
+      'unreachable',
+      false,
+      'The SSH socket tunnel did not start listening on its local socket.',
+    );
   }
 
-  void ended.then((end) => {
-    finish(
-      new MachineUnavailableError(
-        name,
-        classifySshLinkFailure(false, end.diagnostic),
-        false,
-        end.diagnostic || 'The SSH tunnel ended before its local socket opened.',
-      ),
-    );
-  });
-
-  if (existsSync(localSocket)) finish();
-
-  return promise;
+  return wait();
 }
 
-function sshSocketTimeout(
+function sshTunnelEndedError(
   name: string,
-  finish: (error?: Error) => void,
-): NodeJS.Timeout {
-  return setTimeout(
-    () =>
-      finish(
-        new MachineUnavailableError(
-          name,
-          'unreachable',
-          false,
-          'The SSH socket tunnel did not create its local socket.',
-        ),
-      ),
-    10_000,
+  end: MachineLinkEnd,
+): MachineUnavailableError {
+  return new MachineUnavailableError(
+    name,
+    classifySshLinkFailure(false, end.diagnostic),
+    false,
+    end.diagnostic ||
+      `The SSH tunnel ended before its local socket listened (exit ${
+        end.code ?? end.signal ?? 'unknown'
+      }).`,
   );
+}
+
+function connectSshSocket(localSocket: string): Promise<Socket> {
+  const { promise, resolve, reject } = Promise.withResolvers<Socket>();
+  const socket = connectNetSocket(localSocket);
+  socket.once('connect', () => resolve(socket));
+  socket.once('error', (error) => {
+    socket.destroy();
+    reject(error);
+  });
+
+  return promise;
 }
 
 function spawnSshTunnel(

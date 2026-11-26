@@ -1,3 +1,10 @@
+import { createClient } from '@connectrpc/connect';
+import { create } from '@bufbuild/protobuf';
+import {
+  BootstrapService,
+  GetInfoRequestSchema,
+} from '@workspace/machine-protocol';
+
 import { readFileSync, statSync } from 'node:fs';
 import { PassThrough } from 'node:stream';
 import { Socket } from 'node:net';
@@ -250,7 +257,46 @@ describe('createMachineSshTransportFactory', () => {
     }
   });
 
+  it('reports the SSH tunnel exit diagnostic when the local socket never listens', async () => {
+    const links: Array<FakeLink> = [];
 
+    const created = createMachineSshTransportFactory({
+      ssh,
+      runCommand: () => '/run/llame-machine/daemon.sock\n',
+      spawn: () => {
+        const link = fakeLink();
+        links.push(link);
+
+        return link.process;
+      },
+    });
+
+    try {
+      const opened = created.open({ name: 'devl', destination: 'box' });
+
+      if (!('rpcTransport' in opened))
+        throw new Error('Expected SSH RPC transport');
+
+      const response = createClient(
+        BootstrapService,
+        opened.rpcTransport,
+      ).getInfo(create(GetInfoRequestSchema, {}));
+
+      of(links[0]).pairs.stderr.write(
+        'open failed: remote socket unavailable\n',
+      );
+      of(links[0]).close(255, null);
+
+      await expect(response).rejects.toMatchObject({
+        name: 'MachineUnavailableError',
+        message: 'open failed: remote socket unavailable\n',
+        reason: 'unreachable',
+        sent: false,
+      });
+    } finally {
+      created.dispose();
+    }
+  });
 
   it('refuses a request with no destination without opening SSH', () => {
     const { created, commandCalls, spawnCalls } = factory();
