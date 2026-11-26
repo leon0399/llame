@@ -529,25 +529,29 @@ describe('chat deliveries — the steer mode', () => {
         state: 'pending',
       });
 
-      await until('the interrupted Run to resume and consume its delivery', async () => {
-        const [run] = await runsOf(chatId);
-        const [delivery] = await tenantDb.runAs(userAId, (tx) =>
-          tx
-            .select({
-              state: chatDeliveries.state,
-              runId: chatDeliveries.runId,
-            })
-            .from(chatDeliveries)
-            .where(eq(chatDeliveries.id, id)),
-        );
+      await until(
+        'the interrupted Run to resume and consume its delivery',
+        async () => {
+          const [run] = await runsOf(chatId);
 
-        return (
-          run?.id === runId &&
-          ['queued', 'running_model', 'completed'].includes(run.status) &&
-          delivery?.state === 'delivered' &&
-          delivery.runId === runId
-        );
-      });
+          const [delivery] = await tenantDb.runAs(userAId, (tx) =>
+            tx
+              .select({
+                state: chatDeliveries.state,
+                runId: chatDeliveries.runId,
+              })
+              .from(chatDeliveries)
+              .where(eq(chatDeliveries.id, id)),
+          );
+
+          return (
+            run?.id === runId &&
+            ['queued', 'running_model', 'completed'].includes(run.status) &&
+            delivery?.state === 'delivered' &&
+            delivery.runId === runId
+          );
+        },
+      );
 
       const [resumed] = await runsOf(chatId);
       expect(resumed).toMatchObject({ id: runId, wakeGeneration: generation });
