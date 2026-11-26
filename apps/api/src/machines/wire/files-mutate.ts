@@ -153,6 +153,7 @@ export const editHandler: Handler<'fs.edit'> = async (
       limit: splitSourceLines(params.newText).length + 4,
     },
     options,
+    true,
   );
 
   const lines = isNativeFailure(source) ? [] : source.lines;

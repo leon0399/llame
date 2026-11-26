@@ -96,6 +96,7 @@ export async function readRange(
   session: MachineSession,
   request: ReadWindowRequest,
   options?: MachineRequestOptions,
+  sent = false,
 ): Promise<ReadWindow | NativeFailureResult> {
   const { path, start, limit } = request;
 
@@ -107,6 +108,7 @@ export async function readRange(
         callOptions,
       ),
     options,
+    sent,
   );
 
   if (response.result.case === 'failure') {

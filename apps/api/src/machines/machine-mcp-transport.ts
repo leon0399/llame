@@ -203,20 +203,26 @@ export class MachineTransport implements MCPTransport {
     const controller = new AbortController();
     this.input = input;
     this.streamController = controller;
+    await this.openStream(session, input, controller);
+  }
 
+  private async openStream(
+    session: MachineSession,
+    input: AsyncQueue<OpenSessionRequest>,
+    controller: AbortController,
+  ): Promise<void> {
     const openingController = new AbortController();
-    const signal =
-      this.options.signal === undefined
-        ? AbortSignal.any([controller.signal, openingController.signal])
-        : AbortSignal.any([
-            this.options.signal,
-            controller.signal,
-            openingController.signal,
-          ]);
+    const signals = [controller.signal, openingController.signal];
+
+    if (this.options.signal !== undefined) signals.push(this.options.signal);
+
+    const signal = AbortSignal.any(signals);
+
     const openingTimer = setTimeout(
       () => openingController.abort(),
       this.options.envelope.budgetMs,
     );
+
     openingTimer.unref();
 
     try {
@@ -224,6 +230,7 @@ export class MachineTransport implements MCPTransport {
         signal,
         envelope: this.options.envelope,
       });
+
       delete callOptions.timeoutMs;
 
       const reader = session.clients.mcp

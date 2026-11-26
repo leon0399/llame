@@ -391,6 +391,22 @@ describe('wire file handlers', () => {
       }),
     ).rejects.toMatchObject({ name: 'MachineUnavailableError', sent: true });
   });
+  it('marks a lost post-edit read reply as an uncertain mutation', async () => {
+    const fake = session();
+    vi.mocked(fake.clients.files.readLines).mockRejectedValue(
+      new ConnectError('connection lost after replacement', Code.Unavailable),
+    );
+
+    await expect(
+      editHandler(fake, {
+        envelope,
+        path,
+        options: display,
+        oldText: 'second',
+        newText: 'changed',
+      }),
+    ).rejects.toMatchObject({ name: 'MachineUnavailableError', sent: true });
+  });
 
   it('streams and sniffs fs.bytes chunks', async () => {
     const onNotification = vi.fn();
