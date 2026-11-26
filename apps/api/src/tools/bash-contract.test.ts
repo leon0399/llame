@@ -60,6 +60,7 @@ describe('bash result sanitization around transport gaps', () => {
     expect(sanitized.truncated).toBe(true);
     expect(sanitized.stdout).not.toContain(members[0]);
   });
+
   it('redacts a complete member kept after a transport gap', () => {
     const members = ['SECRET-KEY'];
     const sanitized = sanitizeGap('prefix gap SECRET-KEY', members, 10);
