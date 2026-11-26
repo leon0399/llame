@@ -221,6 +221,7 @@ describe('MachineTransport', () => {
     expect(test.transport.protectedValues()).toEqual([START_SECRET]);
     expect(test.options[0]?.timeoutMs).toBe(ENVELOPE.budgetMs);
     await test.transport.close();
+    expect(test.options[0]?.signal?.aborted).toBe(true);
     expect(test.releaseMachineSession).toHaveBeenCalledOnce();
   });
 

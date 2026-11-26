@@ -114,13 +114,13 @@ export class MachineTransport implements MCPTransport {
   private reader: AsyncIterator<OpenSessionResponse> | undefined;
   private session: MachineSession | undefined;
   private released = false;
+  private streamController: AbortController | undefined;
   private starting: Promise<void> | undefined;
   private diagnostics: DiagnosticBuffer | undefined;
   private values: ReadonlyArray<string> = [];
   private shutdown = false;
   private halted = false;
   private published = false;
-
   constructor(private readonly options: MachineMcpTransportOptions) {}
 
   get lost(): boolean {
@@ -176,6 +176,7 @@ export class MachineTransport implements MCPTransport {
   async close(): Promise<void> {
     this.shutdown = true;
     this.diagnostics?.flush();
+    this.streamController?.abort();
     this.input?.close();
     await this.reader?.return?.();
     this.releaseSession();
@@ -199,19 +200,23 @@ export class MachineTransport implements MCPTransport {
     }
 
     const input = new AsyncQueue<OpenSessionRequest>();
+    const controller = new AbortController();
     this.input = input;
-
+    this.streamController = controller;
     try {
+      const signal =
+        this.options.signal === undefined
+          ? controller.signal
+          : AbortSignal.any([this.options.signal, controller.signal]);
       const reader = session.clients.mcp
         .openSession(
           input,
           session.callOptions({
-            signal: this.options.signal,
+            signal,
             envelope: this.options.envelope,
           }),
         )
         [Symbol.asyncIterator]();
-
       this.reader = reader;
       await this.openSession(input, reader);
     } catch (error) {
