@@ -60,6 +60,7 @@ const row: ChatJob = {
   artifactReadable: true,
   settings: { selector: 'test-model', permissionMode: 'default' },
 };
+
 function lockedChat(): Chat {
   return {
     id: row.chatId,
