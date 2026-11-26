@@ -25,7 +25,10 @@ type OutputChunk = { readonly data: Uint8Array };
 
 type ReadOutput = (request: ReadRequest) => AsyncIterable<OutputChunk>;
 
-function contextOf(readOutput: ReadOutput): ToolContext {
+function contextOf(
+  readOutput: ReadOutput,
+  jobOverrides: Partial<ChatJob> = {},
+): ToolContext {
   const db = drizzle.mock();
   const runAs: TenantRunner['runAs'] = (_userId, fn) => fn(db);
   const machines = localMachineConnector();
@@ -83,6 +86,8 @@ function contextOf(readOutput: ReadOutput): ToolContext {
     settledAt: null,
   };
 
+  Object.assign(job, jobOverrides);
+
   vi.spyOn(ChatJobsRepository.prototype, 'findByLocator').mockResolvedValue(
     job,
   );
@@ -135,6 +140,68 @@ function splitOutput(text: string, split: number): ReadOutput {
 }
 
 afterEach(() => vi.restoreAllMocks());
+
+describe('readJob record listing', () => {
+  it('lists a running job without optional result metadata', async () => {
+    const result = await readJob(
+      contextOf(outputAt(''), {
+        startedAt: new Date('2025-01-01T00:00:00.000Z'),
+      }),
+      'read',
+      'job://bash-1',
+    );
+
+    expect(contentOf(result)).toContain('started_at: 2025-01-01T00:00:00.000Z');
+    expect(contentOf(result)).toContain('state: running');
+    expect(contentOf(result)).not.toContain('settled_at:');
+    expect(contentOf(result)).not.toContain('stop_requested_by:');
+    expect(contentOf(result)).not.toContain('exit_code:');
+    expect(contentOf(result)).not.toContain('signal:');
+    expect(contentOf(result)).not.toContain('truncated:');
+    expect(contentOf(result)).not.toContain('artifact:');
+  });
+
+  it('lists requested stop metadata for a running job', async () => {
+    const result = await readJob(
+      contextOf(outputAt(''), { stopRequestedBy: 'owner' }),
+      'read',
+      'job://bash-1',
+    );
+
+    expect(contentOf(result)).toContain('stop_requested_by: owner');
+  });
+
+  it('lists settled result and artifact metadata', async () => {
+    const result = await readJob(
+      contextOf(outputAt(''), {
+        startedAt: new Date('2025-01-01T00:00:00.000Z'),
+        settledAt: new Date('2025-01-01T00:00:05.000Z'),
+        state: 'cancelled',
+        stoppedBy: 'owner',
+        result: {
+          exitCode: 0,
+          signal: 'SIGTERM',
+          truncated: { stdout: true },
+          outcomeUnknown: true,
+          cause: 'stop_unproved',
+        },
+        artifactId: 'artifact-id',
+      }),
+      'read',
+      'job://bash-1',
+    );
+
+    const content = contentOf(result);
+    expect(content).toContain('settled_at: 2025-01-01T00:00:05.000Z');
+    expect(content).toContain('stopped_by: owner');
+    expect(content).not.toContain('stop_requested_by:');
+    expect(content).toContain('exit_code: 0');
+    expect(content).toContain('signal: SIGTERM');
+    expect(content).toContain('truncated: stdout');
+    expect(content).toContain('outcome: unknown (the stop was not proved)');
+    expect(content).toContain('artifact:');
+  });
+});
 
 describe('readJob live output redaction', () => {
   it('redacts credentials split across ReadOutput chunks', async () => {
