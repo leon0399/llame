@@ -8,7 +8,7 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { MACHINE_BINARY } from '../../testing/local-daemon.js';
+import { MACHINE_BINARY, stopLocalDaemon } from '../../testing/local-daemon.js';
 import { createLocalChildTransportFactory } from '../local-child-transport.js';
 import { isRecord, isString } from '@workspace/runtime-safety';
 
@@ -62,9 +62,14 @@ describe('wire files against the real Machine daemon', () => {
 
   afterAll(() => {
     session?.close();
-    rmSync(root, { recursive: true, force: true });
-    rmSync(configDir, { recursive: true, force: true });
-    rmSync(stateDir, { recursive: true, force: true });
+
+    try {
+      stopLocalDaemon(stateDir);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+      rmSync(configDir, { recursive: true, force: true });
+      rmSync(stateDir, { recursive: true, force: true });
+    }
   });
 
   it('calls stat, list, read, edit, write and bytes through the session', async () => {

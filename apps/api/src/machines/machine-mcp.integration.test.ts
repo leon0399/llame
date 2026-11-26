@@ -8,7 +8,7 @@ import { execFileSync } from 'node:child_process';
 import { mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { MACHINE_BINARY } from '../testing/local-daemon';
+import { MACHINE_BINARY, stopLocalDaemon } from '../testing/local-daemon';
 import { createLocalChildTransportFactory } from './local-child-transport';
 import { MachineConnector } from './machine-connector.service';
 import { MachineTransport } from './machine-mcp-transport';
@@ -124,10 +124,17 @@ describe('MCP OpenSession on the local daemon', () => {
         ),
       ).toEqual(['initialize', 'notifications/initialized', 'tools/list']);
     } finally {
-      await client?.close();
-      rmSync(root, { recursive: true, force: true });
-      rmSync(configDir, { recursive: true, force: true });
-      rmSync(stateDir, { recursive: true, force: true });
+      try {
+        await client?.close();
+      } finally {
+        try {
+          stopLocalDaemon(stateDir);
+        } finally {
+          rmSync(root, { recursive: true, force: true });
+          rmSync(configDir, { recursive: true, force: true });
+          rmSync(stateDir, { recursive: true, force: true });
+        }
+      }
     }
   });
 });

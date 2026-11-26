@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { PROTOCOL_VERSION } from '@workspace/machine-protocol';
 import { isRecord } from '@workspace/runtime-safety';
 
-import { MACHINE_BINARY } from '../../testing/local-daemon';
+import { MACHINE_BINARY, stopLocalDaemon } from '../../testing/local-daemon';
 import { createLocalChildTransportFactory } from '../local-child-transport';
 import { MachineSession } from '../machine-session';
 
@@ -51,9 +51,13 @@ describe('Git wire handlers against the real daemon', () => {
     });
   });
   afterAll(() => {
-    rmSync(root, { recursive: true, force: true });
-    rmSync(configDir, { recursive: true, force: true });
-    rmSync(stateDir, { recursive: true, force: true });
+    try {
+      stopLocalDaemon(stateDir);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+      rmSync(configDir, { recursive: true, force: true });
+      rmSync(stateDir, { recursive: true, force: true });
+    }
   });
 
   it('inspects, reads state, and adds/lists/removes a worktree through v3', async () => {

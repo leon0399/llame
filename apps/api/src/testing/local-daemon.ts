@@ -106,26 +106,40 @@ export function stopLocalDaemon(stateDir: string): void {
     throw error;
   }
 
-  const deadline = Date.now() + 2000;
-
   const pause = new Int32Array(
     new SharedArrayBuffer(Int32Array.BYTES_PER_ELEMENT),
   );
 
-  while (Date.now() < deadline) {
-    try {
-      process.kill(pid, 0);
-    } catch (error) {
-      if (error instanceof Error && 'code' in error && error.code === 'ESRCH')
-        return;
+  const waitForExit = (deadline: number): boolean => {
+    while (Date.now() < deadline) {
+      try {
+        process.kill(pid, 0);
+      } catch (error) {
+        if (error instanceof Error && 'code' in error && error.code === 'ESRCH')
+          return true;
 
-      throw error;
+        throw error;
+      }
+
+      Atomics.wait(pause, 0, 0, 20);
     }
 
-    Atomics.wait(pause, 0, 0, 20);
+    return false;
+  };
+
+  if (waitForExit(Date.now() + 2000)) return;
+
+  try {
+    process.kill(pid, 'SIGKILL');
+  } catch (error) {
+    if (error instanceof Error && 'code' in error && error.code === 'ESRCH')
+      return;
+
+    throw error;
   }
 
-  throw new Error(`Local Machine daemon ${pid} did not exit after SIGTERM.`);
+  if (!waitForExit(Date.now() + 2000))
+    throw new Error(`Local Machine daemon ${pid} did not exit after SIGKILL.`);
 }
 
 export function startLocalDaemon(options: LocalDaemonOptions): LocalDaemon {

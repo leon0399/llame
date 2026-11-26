@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process';
 import { mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { MACHINE_BINARY } from '../../testing/local-daemon';
+import { MACHINE_BINARY, stopLocalDaemon } from '../../testing/local-daemon';
 import { isRecord, isString } from '@workspace/runtime-safety';
 
 import { createLocalChildTransportFactory } from '../local-child-transport';
@@ -52,9 +52,14 @@ describe('wire fs.grep with the real daemon', () => {
 
   afterAll(() => {
     session.close();
-    rmSync(root, { recursive: true, force: true });
-    rmSync(configDir, { recursive: true, force: true });
-    rmSync(stateDir, { recursive: true, force: true });
+
+    try {
+      stopLocalDaemon(stateDir);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+      rmSync(configDir, { recursive: true, force: true });
+      rmSync(stateDir, { recursive: true, force: true });
+    }
   });
 
   it('serves consecutive hub-minted pages across SearchFiles streams', async () => {
