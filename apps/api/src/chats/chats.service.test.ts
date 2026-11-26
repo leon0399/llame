@@ -932,9 +932,14 @@ describe('ChatsService message windows, updates and forks', () => {
 
     beforeEach(() => {
       vi.spyOn(ChatsRepository.prototype, 'lock').mockResolvedValue(chat);
-      vi.spyOn(ChatJobsRepository.prototype, 'listByChat').mockResolvedValue(
-        [],
-      );
+      vi.spyOn(
+        ChatJobsRepository.prototype,
+        'listBindingsByChat',
+      ).mockResolvedValue([]);
+      vi.spyOn(
+        ChatJobsRepository.prototype,
+        'hasCreatingAttempt',
+      ).mockResolvedValue(false);
     });
 
     it('cancels the in-flight run before deleting the chat', async () => {
@@ -991,7 +996,10 @@ describe('ChatsService message windows, updates and forks', () => {
 
       const deleteById = vi.spyOn(ChatsRepository.prototype, 'deleteById');
 
-      const listJobs = vi.spyOn(ChatJobsRepository.prototype, 'listByChat');
+      const listJobs = vi.spyOn(
+        ChatJobsRepository.prototype,
+        'listBindingsByChat',
+      );
 
       const { service, db } = makeService();
 
@@ -1028,6 +1036,7 @@ describe('ChatsService message windows, updates and forks', () => {
         kind: 'bash',
         seq: 1,
         state: 'running',
+        delivery: 'background',
         stoppedBy: null,
         runId: activeRun.id,
         toolCallId: 'call-1',
@@ -1046,9 +1055,10 @@ describe('ChatsService message windows, updates and forks', () => {
         settings: { selector: 'test-model', permissionMode: 'default' },
       };
 
-      vi.spyOn(ChatJobsRepository.prototype, 'listByChat').mockResolvedValue([
-        job,
-      ]);
+      vi.spyOn(
+        ChatJobsRepository.prototype,
+        'listBindingsByChat',
+      ).mockResolvedValue([job]);
       const connector = localMachineConnector();
 
       const jobsClient = vi

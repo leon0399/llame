@@ -1,8 +1,11 @@
 import { ServiceUnavailableException } from '@nestjs/common';
-import { JobState, MachineProtocolError } from '@workspace/machine-protocol';
+import {
+  JobState,
+  LostCause,
+  MachineProtocolError,
+} from '@workspace/machine-protocol';
 import type { ChatJob } from '../db/schema';
 import type { Db } from '../db/tenant-db.service';
-import type { MachineConnector } from '../machines/machine-connector.service';
 import type { MachineSession } from '../machines/machine-session';
 import { ChatJobsRepository } from '../jobs/chat-jobs.repository';
 import { notifyRunControl } from '../runs/run-control';
@@ -12,6 +15,15 @@ import { ChatsRepository } from './chats-repository';
 type JobRpcClient = MachineSession['jobsClient'];
 
 type JobCallOptions = MachineSession['callOptions'];
+
+type JobDeletionConnector = {
+  jobsClient(
+    machineName: string,
+  ): Promise<{
+    readonly client: JobRpcClient;
+    readonly callOptions: JobCallOptions;
+  }>;
+};
 
 export async function prepareChatDeletion(
   tx: Db,
@@ -31,15 +43,22 @@ export async function prepareChatDeletion(
     return undefined;
   }
 
-  const runningJobs = (
-    await new ChatJobsRepository(tx).listByChat(chatId, userId)
-  ).filter((job) => job.state === 'running');
+  const jobsRepository = new ChatJobsRepository(tx);
+  const jobs = await jobsRepository.listBindingsByChat(chatId, userId);
 
-  for (const job of runningJobs) {
-    await notifyRunControl(tx, { kind: 'job-stop', jobId: job.id });
+  for (const job of jobs) {
+    if (await jobsRepository.hasCreatingAttempt(chatId, userId, job.id)) {
+      throw new ServiceUnavailableException(
+        'A Machine job start can still be delivered while the Chat is being deleted.',
+      );
+    }
+
+    if (job.state === 'running') {
+      await notifyRunControl(tx, { kind: 'job-stop', jobId: job.id });
+    }
   }
 
-  return runningJobs;
+  return jobs;
 }
 
 export async function finishChatDeletion(
@@ -55,7 +74,7 @@ export async function finishChatDeletion(
   }
 
   const runningJobs = (
-    await new ChatJobsRepository(tx).listByChat(chatId, userId)
+    await new ChatJobsRepository(tx).listBindingsByChat(chatId, userId)
   ).filter((job) => job.state === 'running');
 
   if (
@@ -73,8 +92,14 @@ export async function finishChatDeletion(
 
 export async function stopAndReleaseJob(
   job: ChatJob,
-  machines: MachineConnector | undefined,
+  machines: JobDeletionConnector | undefined,
 ): Promise<void> {
+  if (job.result?.cause === 'stop_unproved') {
+    throw new ServiceUnavailableException(
+      'The Machine has not confirmed that the Chat job stopped.',
+    );
+  }
+
   const session = await jobSession(machines, job.machineName);
 
   const request = {
@@ -83,11 +108,10 @@ export async function stopAndReleaseJob(
     owner: job.ownerUserId,
   };
 
-  const missing = await cancelRemoteJob(
-    session.client,
-    request,
-    session.callOptions(),
-  );
+  const missing =
+    job.state === 'running'
+      ? await cancelRemoteJob(session.client, request, session.callOptions())
+      : false;
 
   await releaseRemoteJob(
     session.client,
@@ -97,8 +121,9 @@ export async function stopAndReleaseJob(
   );
 }
 
+
 async function jobSession(
-  machines: MachineConnector | undefined,
+  machines: JobDeletionConnector | undefined,
   machineName: string,
 ) {
   if (machines === undefined) {
@@ -124,7 +149,12 @@ async function cancelRemoteJob(
   try {
     const stopped = await client.cancelJob(request, callOptions);
 
-    if (stopped.job === undefined || stopped.job.state === JobState.RUNNING) {
+    if (
+      stopped.job === undefined ||
+      stopped.job.state === JobState.RUNNING ||
+      (stopped.job.state === JobState.LOST &&
+        stopped.job.lostCause === LostCause.CANCEL_UNPROVED)
+    ) {
       throw new ServiceUnavailableException(
         'The Machine has not confirmed that the Chat job stopped.',
       );
