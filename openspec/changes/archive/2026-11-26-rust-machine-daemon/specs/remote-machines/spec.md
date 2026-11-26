@@ -187,7 +187,7 @@ An incompatible protocol version or UNIMPLEMENTED method MUST make the installat
 
 The process MUST start the host Machine daemon child with only these variables when they are set: `PATH`, `LANG`, `TERM`, `HOME`, `TMPDIR`, `USER`, `LOGNAME`, `LLAME_MACHINE_CONFIG_DIR`, `LLAME_MACHINE_STATE_DIR`, `XDG_CONFIG_HOME`, `XDG_STATE_HOME`, `SENTRY_DSN`, `SENTRY_ENVIRONMENT`, and `SENTRY_RELEASE`. It MUST NOT pass other variables of the worker environment. A command that `LLAME_MACHINE_COMMAND` names can set more variables for the daemon, under operator control.
 
-This decision bounds the environment only. The daemon still runs as the OS user of the worker, with that user's file access. A stdio server that it starts can read the worker environment through `/proc/<pid>/environ`. An operator who must keep hub credentials out of host Workspaces names a wrapper in `LLAME_MACHINE_COMMAND` that starts the daemon as a separate OS user. The [base-environment decision](../../../../../docs/adr/2026-11-20-host-daemon-child-gets-a-base-environment.md) records this limitation.
+This decision bounds the environment only. The daemon still runs as the OS user of the worker, with that user's file access. A stdio server that it starts can read the worker environment through `/proc/<pid>/environ`. An operator who must keep hub credentials out of host Workspaces names a wrapper in `LLAME_MACHINE_COMMAND` that starts the daemon as a separate OS user. The [base-environment decision](../../../../../../docs/adr/2026-11-20-host-daemon-child-gets-a-base-environment.md) records this limitation.
 
 #### Scenario: A database credential does not reach the daemon
 

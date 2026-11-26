@@ -32,5 +32,5 @@ could not prove that a stop ended the process group, or no longer knows it.
 
 This was decided in
 [Background jobs on every Machine](https://github.com/leon0399/llame/issues/1785).
-The OpenSpec change [rust-machine-daemon](../../openspec/changes/rust-machine-daemon/proposal.md)
+The OpenSpec change [rust-machine-daemon](../../openspec/changes/archive/2026-11-26-rust-machine-daemon/proposal.md)
 specifies the contract.

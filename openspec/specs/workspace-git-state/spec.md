@@ -357,7 +357,7 @@ requirement.
 
 #### Scenario: An outdated daemon is reported
 
-- **WHEN** the Machine daemon does not list `git.state`
+- **WHEN** the Machine daemon reports another protocol version or answers a git method with UNIMPLEMENTED
 - **THEN** the observation gives "git state unavailable: Machine daemon update required"
 
 #### Scenario: A git failure is reported without its error text

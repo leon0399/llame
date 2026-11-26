@@ -104,26 +104,6 @@ The hub SHALL connect with a generated SSH configuration that sets its safety op
 - **WHEN** the included configuration reaches `devl` through `ProxyCommand ssh gateway -W %h:%p`
 - **THEN** that command runs as written, and the safety options govern only the connection ssh makes to `devl` through it
 
-### Requirement: The Machine session is versioned and multiplexed
-
-Each session SHALL begin with a handshake exchanging protocol versions; an incompatible version SHALL end it with reason `incompatible_version`. One session SHALL carry concurrent operations and Workspace MCP channels as independent streams. Stream identifiers SHALL never be reused within a session, and frames for unknown or closed streams SHALL be dropped. Losing liveness for three consecutive heartbeat intervals SHALL end the session on both sides.
-
-#### Scenario: Incompatible daemon is reported, not used
-
-- **WHEN** the daemon on `devl` speaks a protocol version the hub does not support
-- **THEN** every `devl` operation returns `machine_unavailable` with reason `incompatible_version`
-- **AND** the Machines list shows the hub and daemon versions
-
-#### Scenario: Concurrent operations share one session
-
-- **WHEN** a `bash` call is running on `devl` and the model reads a `devl` file in another tool call
-- **THEN** both complete over the same session without waiting for each other
-
-#### Scenario: Late frame cannot answer another stream
-
-- **WHEN** a frame arrives for a stream that has closed
-- **THEN** it is dropped and delivered to no other stream
-
 ### Requirement: Registered roots bound every Machine address
 
 The daemon SHALL accept a path only when it lies within a root registered in the daemon's configuration on that Machine, checked lexically before any probe and again on the canonical form of the path or its nearest existing ancestor, and re-verified after opening. A refusal SHALL return `path_not_registered` with fixed text, whether or not the target exists. Listings SHALL hide link targets outside the roots. Roots bound addressing only: they are not a security boundary.
@@ -207,7 +187,9 @@ Every path that a Machine operation returns MUST be a canonical Machine locator.
 
 ### Requirement: Machine mutations use the native effect fence
 
-`edit`, `write`, and `bash` on a Machine SHALL record the durable native attempt before dispatch and its result after. A failure before dispatch SHALL return `machine_unavailable`; a session lost after dispatch and before a result SHALL settle as `outcome_unknown`. Requests SHALL carry Run, attempt, tool call, delivery sequence, and a relative time budget measured on the Machine's monotonic clock.
+`edit`, `write`, and `bash` on a Machine SHALL record the durable native attempt before dispatch and its result after. A failure before dispatch SHALL return `machine_unavailable`; a file mutation whose session is lost after dispatch and before its result SHALL settle as `outcome_unknown`. A daemon-held bash job SHALL instead follow the binding and reconciliation rules of `background-jobs`.
+
+Each mutating RPC other than `McpService.OpenSession` SHALL carry an installation-drawn idempotency key. The field SHALL be `request_id`, except `JobService.CreateJob`, whose persisted `job_id` SHALL be its key. The tool call id SHALL travel as `x-llame-tool-call-id`, and trace context as `sentry-trace` and `baggage`. The deadline SHALL be the gRPC timeout. Run, attempt, and delivery sequence SHALL stay in the durable native attempt record and SHALL NOT be sent to the daemon.
 
 #### Scenario: Session lost mid-edit is unknown, not retried
 
@@ -223,30 +205,6 @@ Every path that a Machine operation returns MUST be a canonical Machine locator.
 
 - **WHEN** a request reaches the daemon after its time budget is spent
 - **THEN** the daemon refuses it without opening a file or starting a process
-
-### Requirement: Bash runs on a Machine through its working directory
-
-`bash` MUST accept a Machine locator as `cwd` and run on that Machine in that directory. In a Workspace, an omitted or relative `cwd` MUST resolve on the Workspace's Machine. The environment MUST be the managed base environment plus the declared `env` entries. The bounds of `bash-execution` MUST apply. Cancellation, the time budget, a missed heartbeat, or a lost session MUST end the process group of the command. When the Machine is the `machines.local` of this process, `bash-execution` states how the command runs.
-
-#### Scenario: Command runs remotely in the given directory
-
-- **WHEN** the model calls `bash` with `cwd: "machine://devl/home/me/shop"` and `command: "pwd"`
-- **THEN** the output is `/home/me/shop` produced on `devl`
-
-#### Scenario: Lost caller kills the remote process group
-
-- **WHEN** the worker that runs a long `bash` call on `devl` exits or loses its network path
-- **THEN** the daemon ends the process group of that command and the call settles under the native fence rules
-
-#### Scenario: Relative cwd inside a Machine Workspace
-
-- **WHEN** the Chat is bound to `machine://devl/home/me/shop` and the model calls `bash` with `cwd: "packages/ui"`
-- **THEN** the command runs on `devl` in `/home/me/shop/packages/ui`
-
-#### Scenario: The host Machine is a working directory from a Machine Workspace
-
-- **WHEN** the Chat is bound to `machine://gpu/srv/app`, the host Machine is `devl`, and the model calls `bash` with `cwd: "machine://devl/home/me/shop"`
-- **THEN** the command runs on `devl` in `/home/me/shop`
 
 ### Requirement: Workspace entry accepts Machine locators
 
@@ -479,10 +437,18 @@ Workspace bindings, Workspace MCP clients and declarations, native attempts, res
 
 ### Requirement: Machine daemons answer typed git methods
 
-The daemon MUST answer the git methods `git.inspect`, `git.worktreeAdd`,
-`git.worktreeList`, `git.worktreeRemove`, `git.locate`, and `git.state`. Each
-method MUST take one strict object. Git MUST get an argument array. A caller
-value that starts with `-` MUST fail as `invalid_input` before git starts. Other
+The installation's git operations MUST map to `stead.machine.v1.GitService`:
+`git.inspect` to `GetRepository`, `git.locate` to `LocateRepository`,
+`git.state` to `GetStatus`, `git.worktreeAdd` to `CreateWorktree`,
+`git.worktreeList` to `ListWorktrees`, and `git.worktreeRemove` to
+`DeleteWorktree`. Other capabilities name the operations, and their results
+keep the names those capabilities define. `LocateRepository` MUST start no git
+process. `GetStatus` MUST take the git entry that the installation admitted and
+MUST fail without starting git when that entry is no longer the nearest `.git`
+entry of the path. Each method MUST take one typed request. Git MUST get an argument
+array. A caller value that starts with `-` MUST fail before git starts with the
+typed `invalid_input` failure in the response, as the `GitService` response
+defines it. Other
 caller values MUST follow `--end-of-options` or `--` where the subcommand
 accepts one. A path MUST be absolute. A failed command MUST return a typed
 failure with the git standard error.
@@ -525,8 +491,8 @@ failure with the git standard error.
 
 #### Scenario: State refuses a changed git entry
 
-- **WHEN** the hub calls `git.state` with a git entry that is no longer the nearest `.git` entry of the path
-- **THEN** the daemon returns a typed failure and starts no git process
+- **WHEN** the nearest `.git` entry of a path changed after an earlier `git.locate` and the hub calls `git.state` on that path
+- **THEN** `GetStatus` returns a typed failure and starts no git process
 
 ### Requirement: Machine git calls run in a sanitized environment
 
@@ -576,9 +542,7 @@ exist yet. A refusal MUST return `path_not_registered` and start no git command.
 
 ### Requirement: Machine git results report locators and rewritten errors
 
-Every path field of a git result MUST be a Machine locator. Standard error text
-MUST have each registered-root prefix rewritten to the Machine locator form
-before it leaves the daemon. A failure result MUST carry that rewritten text.
+Every path field of a git result shown to an owner or model MUST be a Machine locator. The daemon MUST return absolute host paths and raw standard error. The installation MUST rewrite each registered-root prefix to the Machine locator form before the result leaves the installation for its caller. A failure result MUST carry that rewritten text.
 
 #### Scenario: Results report Machine locators
 
@@ -622,12 +586,12 @@ start no git process. This check does not cover git configuration files.
 
 ### Requirement: The host is a configured Machine
 
-The host MUST be an ordinary entry in `machines.hosts`. `machines.local` MUST name the entry of the computer that runs the process. The process MUST reach that entry through a child process that runs `serve --stdio`, and every other entry through SSH. The command MUST come from `LLAME_MACHINE_COMMAND`, with `llame-machine` on `PATH` as the default.
+The host MUST be an ordinary entry in `machines.hosts`. `machines.local` MUST name the entry of the computer that runs the process. The process MUST discover the host daemon with a child that runs `attach --print-socket` and connect to the reported Unix socket. Every other Machine MUST use SSH discovery and Unix-socket forwarding. The command MUST come from `LLAME_MACHINE_COMMAND`. When it is unset, the process MUST run the repository build at `apps/machine/dist/<target>/llame-machine`, where `LLAME_MACHINE_BIN_DIR` replaces `apps/machine/dist` when set. `attach` MUST exit with status 78 when the running daemon reports another instance id than the one its own configuration directory holds; the installation MUST report that exit as `machine_identity_mismatch`. A discovery command that fails otherwise, such as an SSH forced command that still runs a daemon without `attach --print-socket`, MUST make the Machine unavailable with reason `unreachable`.
 
 #### Scenario: The host is reached through a child process
 
 - **WHEN** `machines.local` is `devl` and the model reads `machine://devl/etc/hostname`
-- **THEN** the process starts `llame-machine serve --stdio` as a child and reads the file through it
+- **THEN** the process starts `llame-machine attach --print-socket` as a child and reads the file through the daemon socket
 - **AND** no SSH process starts
 
 #### Scenario: Another worker reaches the host over SSH
@@ -637,14 +601,14 @@ The host MUST be an ordinary entry in `machines.hosts`. `machines.local` MUST na
 
 #### Scenario: The child and the SSH login share one daemon configuration
 
-- **WHEN** the entry `devl` has a `destination`, and the worker on `devl` starts its child with another configuration directory than the SSH login uses
-- **THEN** the second path to answer for `devl` gets `machine_identity_mismatch`
+- **WHEN** the entry `devl` has a `destination`, and the worker on `devl` starts its child with another configuration directory than the SSH login uses, while both share one state directory
+- **THEN** the `attach` of the second path exits with status 78 and that path gets `machine_identity_mismatch`
 - **AND** the operator documentation requires one configuration directory for both paths
 
 #### Scenario: A crashed child starts again at the next call
 
-- **WHEN** the child process for `devl` exits and the model then reads a file on `devl`
-- **THEN** the process starts a new child for that read
+- **WHEN** the discovery child for `devl` fails before a connection is established and the model then reads a file on `devl`
+- **THEN** the process starts a new discovery child for that read
 
 ### Requirement: The default Machine is the current Machine of an unbound Chat
 
@@ -667,7 +631,7 @@ The host MUST be an ordinary entry in `machines.hosts`. `machines.local` MUST na
 
 ### Requirement: Host operations never fall back to in-process execution
 
-The API MUST start when the host Machine daemon cannot start. Each operation on the host Machine MUST then fail with the existing Machine-unavailable results. The process MUST NOT run that operation in process. `bash-execution` states the one exception, host `bash`.
+The API MUST start when the host Machine daemon cannot start. Each operation on the host Machine MUST then fail with the existing Machine-unavailable results. The process MUST NOT run that operation in process. This includes host `bash`.
 
 #### Scenario: A missing daemon fails the call
 
@@ -682,7 +646,7 @@ The API MUST start when the host Machine daemon cannot start. Each operation on 
 
 ### Requirement: The host Machine daemon receives only a base environment
 
-The process MUST start the host Machine daemon child with only these variables when they are set: `PATH`, `LANG`, `TERM`, `HOME`, `TMPDIR`, `USER`, `LOGNAME`, `LLAME_MACHINE_CONFIG_DIR`, `XDG_CONFIG_HOME`, `SENTRY_DSN`, `SENTRY_ENVIRONMENT`, and `SENTRY_RELEASE`. It MUST NOT pass other variables of the worker environment. A command that `LLAME_MACHINE_COMMAND` names can set more variables for the daemon, under operator control.
+The process MUST start the host Machine daemon child with only these variables when they are set: `PATH`, `LANG`, `TERM`, `HOME`, `TMPDIR`, `USER`, `LOGNAME`, `LLAME_MACHINE_CONFIG_DIR`, `LLAME_MACHINE_STATE_DIR`, `XDG_CONFIG_HOME`, `XDG_STATE_HOME`, `SENTRY_DSN`, `SENTRY_ENVIRONMENT`, and `SENTRY_RELEASE`. It MUST NOT pass other variables of the worker environment. A command that `LLAME_MACHINE_COMMAND` names can set more variables for the daemon, under operator control.
 
 This decision bounds the environment only. The daemon still runs as the OS user of the worker, with that user's file access. A stdio server that it starts can read the worker environment through `/proc/<pid>/environ`. An operator who must keep hub credentials out of host Workspaces names a wrapper in `LLAME_MACHINE_COMMAND` that starts the daemon as a separate OS user. The [base-environment decision](../../../docs/adr/2026-11-20-host-daemon-child-gets-a-base-environment.md) records this limitation.
 
@@ -699,40 +663,40 @@ This decision bounds the environment only. The daemon still runs as the OS user 
 
 ### Requirement: Each Machine daemon reports a persistent instance id
 
-Each Machine daemon MUST create an instance id once and keep it in its configuration directory. Two daemons that start at the same time with one directory MUST report the same id. The handshake MUST report the id, the release version, the build id, and the protocol version. The protocol version MUST be 3, and the hub MUST accept only an exact match.
+Each Machine daemon MUST create an instance id once and keep it in its configuration directory. Two daemons that start at the same time with one directory MUST report the same id. The bootstrap service MUST report the id, the release version, the build id, and the protocol version. The protocol version MUST be the integer in `packages/machine-protocol/proto/protocol.json`, and the hub MUST accept only an exact match.
 
 #### Scenario: Two first starts agree on one id
 
 - **WHEN** two daemon processes start at the same time with an empty configuration directory
 - **THEN** both report the same instance id
 
+#### Scenario: A daemon with another protocol version is not used
+
+- **WHEN** `GetInfo` reports a protocol version other than the installation's
+- **THEN** every operation on that Machine fails with `machine_update_required`
+
 #### Scenario: A version 1 daemon is not used
 
-- **WHEN** a Machine daemon speaks protocol version 1
-- **THEN** every operation on that Machine returns `machine_unavailable` with reason `incompatible_version`
+- **WHEN** the SSH forced command of `devl` still runs a protocol version 1 daemon, which has no `attach --print-socket`
+- **THEN** discovery fails and the Machines list shows `devl` offline with reason `unreachable`
+- **AND** no main-service request is sent
 
 #### Scenario: A daemon without unit-letter selectors is not used
 
-- **WHEN** a Machine daemon speaks protocol version 2, which has no `L` selector forms or line-and-column suffix
-- **THEN** every operation on that Machine returns `machine_unavailable` with reason `incompatible_version`
-
-### Requirement: The handshake reports the static facts of a Machine
-
-The handshake MUST report these facts of the Machine: OS, architecture, kernel, CPU count, total memory, and total disk of each registered root. The hub MUST record the facts and their capture time at each successful handshake. `llame-machine --version` MUST print the release version, the build id, the protocol version, and the instance id.
-
-#### Scenario: Facts refresh at each handshake
-
-- **WHEN** an operator adds memory to `devl` and the hub opens a new session to `devl`
-- **THEN** the Machines list shows the new total memory and the time of that handshake
+- **WHEN** the SSH forced command of `devl` still runs a protocol version 2 daemon, which has no `L` selector forms and no `attach --print-socket`
+- **THEN** discovery fails and the Machines list shows `devl` offline with reason `unreachable`
+- **AND** no main-service request is sent
 
 ### Requirement: The installation binds each Machine name to one instance id
 
-At the first successful handshake for a Machine name, the hub MUST record its instance id before the session accepts a request. When a later handshake reports a different id, the hub MUST end the session before any request. Each operation on that Machine MUST then return `machine_identity_mismatch`. When the hub cannot read or write the binding, the session MUST fail with `machine_unavailable`. The binding MUST stay when the operator removes the entry or the status is pruned.
+At the first successful bootstrap for a Machine name, the hub MUST record its instance id before the session accepts a main-service request. When a later bootstrap reports a different id, the hub MUST end the session before any main-service request. Each operation on that Machine MUST then return `machine_identity_mismatch`. When the hub cannot read or write the binding, the session MUST fail with `machine_unavailable`. The binding MUST stay when the operator removes the entry or the status is pruned.
+
+An incompatible protocol version or UNIMPLEMENTED method MUST make the installation report `machine_update_required`. The daemon MUST NOT send either `machine_update_required` or `machine_identity_mismatch` as an `ErrorReason`; these decisions belong to the installation. `GetInfo` MUST remain callable before those checks, but no main-service call may precede them.
 
 #### Scenario: A second computer under one name is refused
 
 - **WHEN** `devl` is bound to one instance id and a daemon with another id answers for `devl`
-- **THEN** the hub sends no request to that daemon
+- **THEN** the hub sends no main-service request to that daemon
 - **AND** every `devl` operation returns `machine_identity_mismatch`
 - **AND** the Machines list shows `devl` offline with reason `identity_mismatch`
 
@@ -744,16 +708,12 @@ At the first successful handshake for a Machine name, the hub MUST record its in
 #### Scenario: An unreadable binding fails closed
 
 - **WHEN** the database is unreachable at a handshake for `devl`
-- **THEN** the session fails with `machine_unavailable` and no request reaches the daemon
+- **THEN** the session fails with `machine_unavailable` and no main-service request reaches the daemon
 
 #### Scenario: Co-located processes share one host Machine
 
-- **WHEN** an API process and a worker process on one computer both set `machines.local` to `devl` and each starts its own daemon child
-- **THEN** both children report the same instance id and both processes use `devl`
-
-### Requirement: In-process host operations need a verified host Machine daemon
-
-Before a process runs a host operation in process for its `machines.local` Machine, it MUST complete an identity-checked handshake with that daemon in its current session. When the handshake fails, the operation MUST fail with the same result as a daemon operation on that Machine.
+- **WHEN** an API process and a worker process on one computer both set `machines.local` to `devl` and each starts its own discovery child
+- **THEN** both children discover the same daemon socket, both bootstrap handshakes report the same instance id, and both processes use `devl`
 
 #### Scenario: A wrong local name is refused before host bash
 
@@ -794,21 +754,6 @@ A bare absolute path, a relative path, `file:/path`, `file:///path`, and `file:/
 - **WHEN** the Chat is bound to `machine://gpu/srv/app` and the model reads `kb://<space>/index.md`
 - **THEN** the tool reads the Knowledge file as it does in an unbound Chat
 
-### Requirement: The handshake lists the git methods that a daemon answers
-
-The handshake result MUST list the git methods that the daemon answers. The hub MUST fail a call to a git method that the handshake did not list as `machine_update_required`, before any request. File tools and `bash` on that Machine MUST continue to work.
-
-#### Scenario: Outdated daemon asks for an update
-
-- **WHEN** the hub calls `git.state` on a Machine whose handshake listed no git methods
-- **THEN** the call fails as `machine_update_required` and no request reaches the daemon
-- **AND** `read` and `bash` on that Machine continue to work
-
-#### Scenario: A daemon without the state method asks for an update
-
-- **WHEN** the handshake lists `git.inspect` and `git.status` but not `git.state`, and the hub calls `git.state`
-- **THEN** the call fails as `machine_update_required` and no request reaches the daemon
-
 ### Requirement: Host-path wording in tool capabilities names the current Machine
 
 This rule covers `native-file-tools`, `grep-tool`, `bash-execution`, `workspace-entry`, `instruction-files`, `prompt-imports`, and `repositories`. There, "host path" and "local path" for a tool argument mean a path on the current Machine. "Native host", "native executor", and "trusted host executor" MUST mean the current Machine through its daemon. "Local executor" means the `machines.local` Machine.
@@ -837,3 +782,17 @@ A result in the capabilities of the previous requirement that reports an absolut
 - **WHEN** a model entry sets `systemPromptFile` to an absolute path
 - **THEN** the API process reads that file from its own filesystem
 - **AND** no Machine daemon reads it, and no surface discloses the path
+
+### Requirement: The handshake calls the bootstrap service
+
+A Machine connection MUST call `BootstrapService.GetInfo` first, check the
+reported protocol version, and bind the instance id to the Machine name.
+Only after those checks succeed may it call `MachineService.ListRoots`,
+`MachineService.GetLimits`, or another main-service method. Discovery MUST use
+`llame-machine attach --print-socket`; the installation MUST connect to the
+reported Unix socket directly for the host or through an SSH socket forward.
+
+#### Scenario: The host is reached through attach
+
+- **WHEN** the API connects to the host Machine
+- **THEN** it starts `llame-machine attach --print-socket` as a child and calls `GetInfo` first

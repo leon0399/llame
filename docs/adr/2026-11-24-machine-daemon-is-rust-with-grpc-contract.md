@@ -28,7 +28,7 @@ The repository has a Cargo workspace beside pnpm. This ADR is the record that
 [SPEC.md](../../SPEC.md) requires before the product adds a second backend
 language. The API talks to the daemon through a generated Connect-ES client.
 The daemon builds for Linux only until a macOS or Windows Machine needs it.
-The OpenSpec change [rust-machine-daemon](../../openspec/changes/rust-machine-daemon/proposal.md)
+The OpenSpec change [rust-machine-daemon](../../openspec/changes/archive/2026-11-26-rust-machine-daemon/proposal.md)
 specifies the contract.
 
 This was decided on the wayfinder map

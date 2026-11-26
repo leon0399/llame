@@ -427,8 +427,9 @@ A path outside the Machine's registered roots MUST answer `worktree_failed` with
 `worktree_failed` with no `code`. `message` MUST carry the bounded, redacted git
 standard error that the `repositories` change returns. A source that is not a
 directory MUST answer `bind_failed` with `code` `not_found`. A Machine link lost
-after the add MUST answer `outcome_unknown`. A daemon without a git method MUST
-answer `machine_update_required`.
+after the add MUST answer `outcome_unknown`. A daemon that reports another
+protocol version or answers a git method with UNIMPLEMENTED MUST answer
+`machine_update_required`.
 
 #### Scenario: A worktree path outside the registered roots fails
 
@@ -452,7 +453,7 @@ answer `machine_update_required`.
 
 #### Scenario: An outdated daemon refuses the start
 
-- **WHEN** the Machine handshake lists no git method
+- **WHEN** the Machine daemon reports another protocol version or answers a git method with UNIMPLEMENTED
 - **THEN** the response is 201 with `workspace.status` `machine_update_required`
 - **AND** no git request is sent and the message is not stored
 

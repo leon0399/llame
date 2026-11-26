@@ -84,25 +84,25 @@ master <- rust-machine-daemon/proposal <- rust-machine-daemon/skeleton
 
 ## 7. Connector (`rust-machine-daemon/connector`)
 
-- [ ] 7.1 Replace the JSON-RPC session with the Connect-ES connector and the
+- [x] 7.1 Replace the JSON-RPC session with the Connect-ES connector and the
       locator adapter; verify the API machine unit tests and typecheck.
-- [ ] 7.2 Delete the Node daemon and the JSON-RPC protocol; run `pnpm dev`,
+- [x] 7.2 Delete the Node daemon and the JSON-RPC protocol; run `pnpm dev`,
       Playwright, and the integration suite against the Rust binary.
-- [ ] 7.3 Verify the persistent TypeScript client tests over the real socket
+- [x] 7.3 Verify the persistent TypeScript client tests over the real socket
       and SSH forward for bootstrap, unary, server-streaming, and bidirectional calls.
-- [ ] 7.4 Report `attach` exit status 78 as `machine_identity_mismatch` and map
+- [x] 7.4 Report `attach` exit status 78 as `machine_identity_mismatch` and map
       the `GitService` failures to the installation's git results; verify
       connector tests for both.
-- [ ] 7.5 Update the Machine, observability, and repositories operator docs
+- [x] 7.5 Update the Machine, observability, and repositories operator docs
       for `attach --print-socket` discovery, socket forwarding, and the
       forced-command migration.
 
 ## 8. Host jobs (`rust-machine-daemon/host-jobs`)
 
-- [ ] 8.1 Run host `bash` and every job through the daemon, bind jobs to the
+- [x] 8.1 Run host `bash` and every job through the daemon, bind jobs to the
       Machine, reconcile from `JobService.WatchJobs` and `ListJobs`, and drop
       `chat_job_chunks`, `worker_instance_id`, and `tools.bash.maxProcesses`.
-- [ ] 8.2 Update the job operator docs, SPEC.md §23.1, and the CHANGELOG
+- [x] 8.2 Update the job operator docs, SPEC.md §23.1, and the CHANGELOG
       entries for the job breaking changes.
 
 ## 9. Engine cleanup (`rust-machine-daemon/engine-cleanup`)
@@ -112,4 +112,4 @@ master <- rust-machine-daemon/proposal <- rust-machine-daemon/skeleton
 
 ## 10. Finalize (`rust-machine-daemon/finalize`)
 
-- [ ] 10.1 Sync the delta specs and archive the change.
+- [x] 10.1 Sync the delta specs and archive the change.
