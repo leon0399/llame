@@ -32,7 +32,9 @@ describe("connectSocket", () => {
 
       await expect(response).rejects.toThrow("unavailable");
     } finally {
-      const closed = new Promise<void>((resolve) => server.close(resolve));
+      const closed = new Promise<void>((resolve) =>
+        server.close(() => resolve()),
+      );
       await closed;
       rmSync(directory, { recursive: true, force: true });
     }
