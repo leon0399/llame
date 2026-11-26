@@ -4,7 +4,7 @@ import { localMachineConnector } from '../testing/local-machine';
 import {
   MachineIdentityMismatchError,
   MachineUnavailableError,
-} from '../machines/machine-session';
+} from '../machines/machine-session-errors';
 import { verifyLocalMachine } from './local-machine';
 import { type ToolContext } from './types';
 

@@ -296,13 +296,19 @@ describe('/api/v1/checkouts on a Machine', () => {
     }
   });
 
-  it('answers machine_update_required on a daemon that lists no git methods', async () => {
+  it('answers machine_update_required when GitService is unimplemented', async () => {
     const harness = await boot({
       tools: tools({
         allowed: ['enter_workspace'],
         permissions: { enter_workspace: ALLOW_MACHINE },
       }),
-      peer: { roots: ['/srv'], answers: { 'fs.stat': STAT } },
+      peer: {
+        roots: ['/srv'],
+        answers: {
+          'fs.stat': STAT,
+          'git.inspect': { unimplemented: true },
+        },
+      },
     });
 
     try {
@@ -314,9 +320,7 @@ describe('/api/v1/checkouts on a Machine', () => {
 
       const failure = failureSchema.parse(response.body);
       expect(failure.code).toBe('machine_update_required');
-      expect(failure.message).toContain(
-        'Update the daemon on that Machine to use git operations on it.',
-      );
+      expect(failure.message).toContain('Update the daemon on that Machine.');
 
       const listed = await request(harness.http)
         .get('/api/v1/checkouts')
@@ -325,7 +329,7 @@ describe('/api/v1/checkouts on a Machine', () => {
 
       expect(listed.body).toEqual([]);
       const machine = await harness.peer.session(0);
-      expect(machine.requests).not.toContain('git.inspect');
+      expect(machine.requests).toContain('git.inspect');
     } finally {
       await harness.app.close();
     }

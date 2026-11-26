@@ -3,8 +3,8 @@ import { randomUUID } from 'node:crypto';
 import { type TenantRunner } from '../db/tenant-db.service';
 import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
 import { BashJobRegistry } from '../jobs/bash-job-registry';
-import { type ToolContext } from '../tools/types';
 import { type JobNoticeRunService } from '../runs/job-notice-run.service';
+import { type ToolContext } from '../tools/types';
 
 const noticeRuns: Pick<JobNoticeRunService, 'startOnSettlement'> = {
   startOnSettlement: async () => {},
@@ -21,7 +21,7 @@ export function hostBashJobs(
   return {
     bashJobs: new BashJobRegistry(
       tenantDb,
-      { instanceId: randomUUID() },
+      { instanceId: randomUUID(), jobCheck: undefined },
       { config: BUILT_IN_DEFAULTS },
       noticeRuns,
     ),

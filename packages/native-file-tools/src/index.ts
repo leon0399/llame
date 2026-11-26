@@ -42,6 +42,14 @@ export { boundFlatResult, directoryResult } from "./directory-page";
 /** The local entry order: directories first, then by name, as every listing sorts. */
 export { compareEntries } from "./directory-listing";
 
+export { renderCollectedDirectoryParts } from "./directory-listing";
+
+export type {
+  ChildDir,
+  DirEntry,
+  DirectoryListingOptions,
+} from "./directory-listing";
+
 export type {
   NativeReadOptions,
   ReadSuccess,
@@ -68,6 +76,7 @@ export {
   editFile,
   createFile,
   replaceFile,
+  FILE_EXISTS_MESSAGE,
   REPLACE_TARGET_MISSING_MESSAGE,
 } from "./mutate";
 
@@ -97,3 +106,5 @@ export {
 } from "./source-lines";
 
 export * from "./grep";
+
+export { similarNames } from "./read-suggestions";

@@ -1,49 +1,27 @@
-export {
-  BASH_BOUNDS,
-  BUDGET_EXHAUSTED_MESSAGE,
-  BUILD_ID_LENGTH,
-  BUILD_ID_PATTERN,
-  BYTES_CHUNK_BYTES,
-  CONTROL_STREAM_ID,
-  HEARTBEAT_INTERVAL_MS,
-  HEARTBEAT_MISSES,
-  INCOMPATIBLE_VERSION_MESSAGE,
-  INSTANCE_ID_PATTERN,
-  MAX_CONCURRENT_STREAMS,
-  MAX_FRAME_BYTES,
-  MAX_MESSAGE_BYTES,
-  MEDIA_MAX_BYTES,
-  PATH_NOT_REGISTERED_MESSAGE,
-  PROTOCOL_VERSION,
-} from "./constants";
+export { create, toJson } from "@bufbuild/protobuf";
+
+export { daemonBinary, hostTarget } from "./daemon-binary";
+
+export { connectSocket } from "./socket-transport";
+
+export { connectStdio } from "./stdio-transport";
 
 export {
+  MACHINE_PROTOCOL_VERSION,
+  MACHINE_PROTOCOL_VERSION as PROTOCOL_VERSION,
+} from "./protocol-version";
+
+export * from "./constants";
+
+export {
+  MachineProtocolError,
   isMachineErrorCode,
-  JSON_RPC_BUDGET_EXHAUSTED,
-  JSON_RPC_INCOMPATIBLE_VERSION,
-  JSON_RPC_INTERNAL_ERROR,
-  JSON_RPC_INVALID_PARAMS,
-  JSON_RPC_INVALID_REQUEST,
-  JSON_RPC_METHOD_NOT_FOUND,
-  JSON_RPC_PATH_NOT_REGISTERED,
   MACHINE_ERROR_CODES,
-  MACHINE_ERROR_JSON_RPC,
 } from "./errors";
 
 export type { MachineErrorCode } from "./errors";
 
-export {
-  decodeFrame,
-  encodeFrame,
-  FrameSizeError,
-  toJsonRpcMessage,
-} from "./frame";
-
-export type { Frame, FrameDecodeResult } from "./frame";
-
-export { createHeartbeat } from "./heartbeat";
-
-export type { Heartbeat, HeartbeatOptions } from "./heartbeat";
+export { isIntegerValue, isSerializableRecord, isStringValue } from "./values";
 
 export {
   GIT_INSPECT_METHOD,
@@ -62,148 +40,49 @@ export { fsGrepCursorKey } from "./grep";
 
 export type { FsGrepCursorInputs } from "./grep";
 
+export { BootstrapService } from "./generated/stead/machine/bootstrap/v1/bootstrap_pb";
+
 export {
-  isJsonRpcError,
-  isJsonRpcNotification,
-  isJsonRpcRequest,
-  isJsonRpcSuccess,
-} from "./json-rpc";
+  ErrorDetailSchema,
+  ErrorReason,
+  ErrorReasonSchema,
+} from "./generated/stead/machine/v1/errors_pb";
+
+export { MachineService } from "./generated/stead/machine/v1/machine_pb";
+
+export {
+  GetInfoRequestSchema,
+  GetInfoResponseSchema,
+} from "./generated/stead/machine/bootstrap/v1/bootstrap_pb";
+
+export {
+  GetLimitsRequestSchema,
+  GetLimitsResponseSchema,
+  ListRootsRequestSchema,
+  ListRootsResponseSchema,
+} from "./generated/stead/machine/v1/machine_pb";
+
+export * from "./generated/stead/machine/v1/file_pb";
+
+export * from "./generated/stead/machine/v1/job_pb";
+
+export {
+  CreateWorktreeRequestSchema,
+  GitService,
+  GitFailureReason,
+  OperationKind,
+  SubmoduleMode,
+} from "./generated/stead/machine/v1/git_pb";
 
 export type {
-  JsonRpcError,
-  JsonRpcErrorObject,
-  JsonRpcId,
-  JsonRpcMessage,
-  JsonRpcNotification,
-  JsonRpcRequest,
-  JsonRpcSuccess,
-  JsonValue,
-  SerializableRecord,
-  SerializableValue,
-} from "./json-rpc";
+  Change,
+  CreateWorktreeRequest,
+  Operation,
+  Status,
+} from "./generated/stead/machine/v1/git_pb";
 
-export { createLineFramer } from "./framer";
+export * from "./generated/stead/machine/v1/mcp_pb";
 
-export type { FramerEvent, LineFramer } from "./framer";
+export type * from "./json-types";
 
-export {
-  BYTES_NOTIFICATION,
-  CANCEL_NOTIFICATION,
-  FS_BYTES_METHOD,
-  FS_EDIT_METHOD,
-  FS_GREP_METHOD,
-  FS_LIST_METHOD,
-  FS_READ_METHOD,
-  FS_STAT_METHOD,
-  FS_WRITE_METHOD,
-  HELLO_METHOD,
-  MCP_MESSAGE_NOTIFICATION,
-  MCP_OPEN_METHOD,
-  MCP_PROTECTED_NOTIFICATION,
-  MCP_SERVERS_METHOD,
-  MCP_SET_PROTOCOL_VERSION_NOTIFICATION,
-  MCP_STDERR_NOTIFICATION,
-  PING_NOTIFICATION,
-  PROC_BASH_METHOD,
-  PROC_CANCEL_METHOD,
-  ROOTS_LIST_METHOD,
-} from "./methods";
-
-export {
-  createFrameMultiplexer,
-  MachineProtocolError,
-  StreamClosedError,
-} from "./multiplexer";
-
-export type {
-  ChannelRequestOptions,
-  FrameMultiplexer,
-  FrameMultiplexerOptions,
-  MachineChannel,
-} from "./multiplexer";
-
-export type {
-  FsBytesChunk,
-  FsBytesParams,
-  FsBytesResult,
-  FsGrepBounds,
-  FsGrepConsumed,
-  FsGrepIgnored,
-  FsGrepParams,
-  FsGrepPassage,
-  FsGrepResult,
-  FsGrepSuccess,
-  FsGrepWarning,
-  FsGrepWarningKind,
-  FsListEntry,
-  FsListEntryKind,
-  FsListParams,
-  FsListResult,
-  FsMutateParams,
-  FsMutateResult,
-  FsReadParams,
-  FsReadResult,
-  FsStatKind,
-  FsStatParams,
-  FsStatResult,
-  FsWriteParams,
-  GitFailure,
-  GitInspectParams,
-  GitInspectResult,
-  GitInspectSuccess,
-  GitLocateParams,
-  GitLocateResult,
-  GitLocateSuccess,
-  GitRepositoryRemote,
-  GitStateParams,
-  GitStateResult,
-  GitStateSuccess,
-  GitWorktreeAddParams,
-  GitWorktreeAddResult,
-  GitWorktreeAddSuccess,
-  GitWorktreeEntry,
-  GitWorktreeListParams,
-  GitWorktreeListResult,
-  GitWorktreeRemoveParams,
-  GitWorktreeRemoveResult,
-  HelloParams,
-  HelloResult,
-  IncompatibleVersionData,
-  MachineFacts,
-  MachineMethod,
-  MachineMethodParams,
-  MachineMethodResults,
-  MachineRootDisk,
-  McpMessageNotification,
-  McpOpenParams,
-  McpOpenResult,
-  McpProtectedNotification,
-  McpServerEntry,
-  McpServerState,
-  McpServersParams,
-  McpServersResult,
-  McpSetProtocolVersionNotification,
-  McpStderrNotification,
-  McpTransportKind,
-  NativeDisplayOptions,
-  NativeFailureResult,
-  NativeFailureType,
-  NativeFileReadResult,
-  NativeLineRange,
-  NativeMediaReadResult,
-  NativeMutationDisplay,
-  NativeMutationResult,
-  ProcBashParams,
-  ProcBashResult,
-  RequestEnvelope,
-  RequestTrace,
-  RootsListParams,
-  RootsListResult,
-} from "./types";
-
-export {
-  isIdValue,
-  isIntegerValue,
-  isSerializableRecord,
-  isStringValue,
-} from "./values";
+export type * from "./types";

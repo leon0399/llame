@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { defineConfig, devices } from "@playwright/test";
 
 import { E2E_HOST_ROOTS } from "./e2e/support/host-paths";
+import { daemonBinary } from "@workspace/machine-protocol";
 
 function readPort(name: string, fallback: string): string {
   const value = process.env[name] ?? fallback;
@@ -187,6 +188,7 @@ export default defineConfig({
         // (`permission-gate.spec.ts` reads E2E_HOST_READ_PATH) lie outside the
         // checkout and the temp directory, so the Machine must register them
         // or every such read fails `path_not_registered`.
+        LLAME_MACHINE_COMMAND: daemonBinary(),
         LLAME_MACHINE_EXTRA_ROOTS: E2E_HOST_ROOTS.join(path.delimiter),
       }),
       url: apiUrl,

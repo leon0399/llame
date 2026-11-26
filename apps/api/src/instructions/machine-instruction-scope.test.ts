@@ -38,10 +38,8 @@ import {
   instructionsSeenPaths,
   isInstructionsPayload,
 } from '../chats/instructions-item';
-import {
-  MachineConnector,
-  MachineUnavailableError,
-} from '../machines/machine-connector.service';
+import { MachineConnector } from '../machines/machine-connector.service';
+import { MachineUnavailableError } from '../machines/machine-session-errors';
 import { parseMachineLocator } from '../machines/machine-locator';
 import type { MachineRequestOptions } from '../machines/machine-session';
 import { machineEnvelope } from '../runs/machine-attempt';

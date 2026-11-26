@@ -7,6 +7,12 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
 - Settle Machine jobs only after proving the process group empty. Normal exits
   kill survivors, output-pipe waits are bounded, and interrupted cancellations
   continue independently of their RPC.
+- Replace the Node Machine daemon and JSON-RPC connector with the static Rust
+  daemon over Connect gRPC Unix sockets. The API checks protocol compatibility
+  and admits the daemon identity before requesting roots or limits, discovers
+  its socket with `attach --print-socket`, and uses SSH socket forwarding for
+  remote Machines. Use the new forced command and configure the daemon with
+  `config.toml`; daemon diagnostics are written to `daemon.log`.
 
 - Keep retained Machine mutation results replayable when the idempotency cache
   reaches its key limit. Attaching through a different configuration now

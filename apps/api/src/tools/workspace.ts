@@ -12,7 +12,7 @@ import {
 import { readFsStatResult } from '../machines/machine-results';
 import { isSshLocator } from '../ssh/ssh-locator';
 import { type MachineConnector } from '../machines/machine-connector.service';
-import { MachineIdentityMismatchError } from '../machines/machine-session';
+import { MachineIdentityMismatchError } from '../machines/machine-session-errors';
 import {
   MACHINE_FILE_BUDGET_MS,
   machineBudgetMs,

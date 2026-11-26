@@ -11,9 +11,20 @@
  * mutation, never imported by production code.
  */
 
+import { lstat } from 'node:fs/promises';
+
+import { Code, ConnectError } from '@connectrpc/connect';
+import { statHostPath } from '@workspace/native-file-tools';
+import { isRecord, isString } from '@workspace/runtime-safety';
+
 import { MachineConnector } from '../machines/machine-connector.service';
 
-import { createProtocolPeer, type ProtocolPeer } from './machine-protocol-peer';
+import {
+  createProtocolPeer,
+  type ProtocolPeer,
+  type ProtocolPeerOptions,
+  wireJson,
+} from './machine-protocol-peer';
 
 /** The default local Machine name the helper configures. */
 export const DEFAULT_LOCAL_MACHINE_NAME = 'host-a';
@@ -23,7 +34,27 @@ export type LocalMachineConnectorOptions = {
   readonly name?: string;
   /** Replaces the real handshake check, so a test can drive the refusal. */
   readonly verify?: () => Promise<void>;
+  /** Replaces one daemon method answer for a focused refusal test. */
+  readonly answer?: ProtocolPeerOptions['answer'];
 };
+
+async function localStat(path: string) {
+  const result = await statHostPath(path);
+  let isLink = false;
+
+  try {
+    isLink = (await lstat(path)).isSymbolicLink();
+  } catch {}
+
+  if (result.kind === 'missing') return wireJson({ kind: result.kind, isLink });
+
+  return wireJson({
+    kind: result.kind,
+    size: result.size,
+    realPath: result.canonicalPath,
+    isLink,
+  });
+}
 
 export type LocalMachineConnector = MachineConnector & {
   /** The daemon side; its sessions prove nothing but `hello` was sent. */
@@ -36,9 +67,26 @@ export function localMachineConnector(
   const name = options.name ?? DEFAULT_LOCAL_MACHINE_NAME;
 
   const peer = createProtocolPeer({
-    answer: (call) => {
-      throw new Error(
-        `the local Machine connector received a ${call.method} request; only the handshake may reach its daemon`,
+    answer: async (call, requestOptions, notify) => {
+      const override = await options.answer?.(call, requestOptions, notify);
+
+      if (override !== undefined) return override;
+
+      if (call.method === 'fs.stat') {
+        const params = call.params;
+
+        if (!isRecord(params) || !isString(params['path']))
+          throw new ConnectError(
+            'A host path is required.',
+            Code.InvalidArgument,
+          );
+
+        return { value: await localStat(params['path']) };
+      }
+
+      throw new ConnectError(
+        `the local Machine connector received an unexpected ${call.method} request`,
+        Code.Unimplemented,
       );
     },
   });

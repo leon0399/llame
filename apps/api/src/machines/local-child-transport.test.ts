@@ -1,106 +1,70 @@
-import { PassThrough } from 'node:stream';
-
-import type { SshProcess } from '../ssh/ssh-process';
+import { Socket } from 'node:net';
 
 import {
   createLocalChildTransportFactory,
   localChildEnvironment,
 } from './local-child-transport';
-import { MachineUnavailableError } from './machine-session';
+import {
+  MachineIdentityMismatchError,
+  MachineUnavailableError,
+} from './machine-session-errors';
 
-type FakeChild = {
-  readonly process: SshProcess;
-  readonly pairs: {
-    readonly stdout: PassThrough;
-    readonly stdin: PassThrough;
-    readonly stderr: PassThrough;
-  };
-  close(code: number | null, signal: string | null): void;
-  fail(error: Error): void;
-  readonly killCount: () => number;
-};
-
-function fakeChild(): FakeChild {
-  const stdout = new PassThrough();
-  const stdin = new PassThrough();
-  const stderr = new PassThrough();
-
-  let onClose:
-    | ((code: number | null, signal: string | null) => void)
-    | undefined;
-
-  let onError: ((error: Error) => void) | undefined;
-  let kills = 0;
-
-  return {
-    pairs: { stdout, stdin, stderr },
-    process: {
-      stdout,
-      stdin,
-      stderr,
-      kill: () => {
-        kills += 1;
-      },
-      onError: (handler) => {
-        onError = handler;
-      },
-      onClose: (handler) => {
-        onClose = handler;
-      },
-    },
-    close: (code, signal) => onClose?.(code, signal),
-    fail: (error) => onError?.(error),
-    killCount: () => kills,
-  };
-}
-
-/** A factory whose spawn records its argv and environment. */
-function fixture() {
-  const children: Array<FakeChild> = [];
-
+function fixture(commandOutput = '/tmp/llame-machine/daemon.sock\n') {
   const calls: Array<{
     readonly command: string;
     readonly args: ReadonlyArray<string>;
     readonly env: NodeJS.ProcessEnv;
   }> = [];
 
-  const created = createLocalChildTransportFactory({
-    command: 'node /repo/apps/machine/dist/llame-machine.cjs',
-    env: {},
-    spawn: (command, args, options) => {
-      calls.push({ command, args, env: options.env });
-      const child = fakeChild();
-      children.push(child);
+  const connected: Array<{ readonly path: string; readonly socket: Socket }> =
+    [];
 
-      return child.process;
+  const created = createLocalChildTransportFactory({
+    command: '/repo/apps/machine/dist/x86_64-unknown-linux-musl/llame-machine',
+    env: {},
+    runCommand: (command, args, options) => {
+      calls.push({ command, args, env: options.env });
+
+      return commandOutput;
+    },
+    connect: (path) => {
+      const socket = new Socket();
+      connected.push({ path, socket });
+
+      return socket;
     },
   });
 
-  return { created, calls, children };
+  return { created, calls, connected };
 }
 
 /** Index with a clear failure instead of a non-null assertion. */
 function of<T>(value: T | undefined): T {
-  if (value === undefined) throw new Error('the fixture was not spawned');
+  if (value === undefined) throw new Error('the fixture did not connect');
 
   return value;
 }
 
 describe('createLocalChildTransportFactory', () => {
-  it('runs a two-word command as argv with the stdio serve command', () => {
-    const { created, calls } = fixture();
+  it('prints the daemon socket path with the attach command', () => {
+    const { created, calls, connected } = fixture();
 
     created.open({ name: 'host-a' });
+
     expect(calls).toEqual([
       {
-        command: 'node',
-        args: ['/repo/apps/machine/dist/llame-machine.cjs', 'serve', '--stdio'],
+        command:
+          '/repo/apps/machine/dist/x86_64-unknown-linux-musl/llame-machine',
+        args: ['attach', '--print-socket'],
         env: { LANG: 'C.UTF-8', TERM: 'dumb' },
       },
     ]);
+    expect(connected.map(({ path }) => path)).toEqual([
+      '/tmp/llame-machine/daemon.sock',
+    ]);
   });
 
-  it('starts the child with exactly the allowlisted environment', () => {
+  it('starts the daemon with exactly the allowlisted environment', () => {
     const calls: Array<{ readonly env: NodeJS.ProcessEnv }> = [];
 
     const created = createLocalChildTransportFactory({
@@ -114,16 +78,15 @@ describe('createLocalChildTransportFactory', () => {
         LANG: 'fr_FR.UTF-8',
         LLAME_MACHINE_CONFIG_DIR: '/srv/llame/machine',
         XDG_CONFIG_HOME: '/home/operator/.config',
-        SENTRY_DSN: 'https://dsn.example/1',
-        SENTRY_ENVIRONMENT: 'production',
         POSTGRES_URL: 'postgres://secret@db/llame',
         SENTRY_AUTH_TOKEN: 'release-token',
       },
-      spawn: (_command, _args, options) => {
+      runCommand: (_command, _args, options) => {
         calls.push({ env: options.env });
 
-        return fakeChild().process;
+        return '/tmp/llame-machine/daemon.sock';
       },
+      connect: () => new Socket(),
     });
 
     created.open({ name: 'host-a' });
@@ -136,13 +99,12 @@ describe('createLocalChildTransportFactory', () => {
       LOGNAME: 'operator',
       LLAME_MACHINE_CONFIG_DIR: '/srv/llame/machine',
       XDG_CONFIG_HOME: '/home/operator/.config',
-      SENTRY_DSN: 'https://dsn.example/1',
-      SENTRY_ENVIRONMENT: 'production',
       LANG: 'C.UTF-8',
       TERM: 'dumb',
     });
     expect(of(calls[0]).env).not.toHaveProperty('POSTGRES_URL');
     expect(of(calls[0]).env).not.toHaveProperty('SENTRY_AUTH_TOKEN');
+    expect(of(calls[0]).env).not.toHaveProperty('SENTRY_DSN');
   });
 
   it('keeps an unset identity variable unset rather than empty', () => {
@@ -153,42 +115,32 @@ describe('createLocalChildTransportFactory', () => {
     });
   });
 
-  it('ends the link when the child never starts', async () => {
-    const { created, children } = fixture();
+  it('reports an unrequested socket close as a transport end', async () => {
+    const { created, connected } = fixture();
     const transport = created.open({ name: 'host-a' });
-    of(children[0]).fail(new Error('spawn llame-machine ENOENT'));
-
-    await expect(transport.ended).resolves.toEqual({
-      code: null,
-      signal: null,
-      diagnostic: 'spawn llame-machine ENOENT',
-      closedByHub: false,
-    });
-  });
-
-  it('reports a child exit as an end the hub did not cause', async () => {
-    const { created, children } = fixture();
-    const transport = created.open({ name: 'host-a' });
-    of(children[0]).close(1, null);
+    of(connected[0]).socket.destroy();
 
     await expect(transport.ended).resolves.toMatchObject({
-      code: 1,
+      code: null,
       closedByHub: false,
     });
   });
 
-  it('closes the child once when the hub ends the link', () => {
-    const { created, children } = fixture();
+  it('closes the socket when the hub ends the link', async () => {
+    const { created } = fixture();
     const transport = created.open({ name: 'host-a' });
     transport.close();
-    transport.close();
-    expect(of(children[0]).killCount()).toBe(1);
+
+    await expect(transport.ended).resolves.toMatchObject({
+      closedByHub: true,
+    });
   });
 
   it('refuses a command that names no program', () => {
     const created = createLocalChildTransportFactory({
       command: '  ',
-      spawn: () => fakeChild().process,
+      runCommand: () => '/tmp/llame-machine/daemon.sock',
+      connect: () => new Socket(),
     });
 
     expect(() => created.open({ name: 'host-a' })).toThrow(
@@ -196,6 +148,42 @@ describe('createLocalChildTransportFactory', () => {
     );
     expect(() => created.open({ name: 'host-a' })).toThrow(
       'LLAME_MACHINE_COMMAND names no program to run.',
+    );
+  });
+
+  it('refuses an empty socket path before connecting', () => {
+    const { created, connected } = fixture(' \n');
+
+    expect(() => created.open({ name: 'host-a' })).toThrow(
+      'The Machine daemon did not return a valid socket path.',
+    );
+    expect(connected).toHaveLength(0);
+  });
+  it('maps attach exit status 78 to identity mismatch', () => {
+    const created = createLocalChildTransportFactory({
+      command: 'llame-machine',
+      runCommand: () => {
+        throw Object.assign(new Error('identity mismatch'), { status: 78 });
+      },
+      connect: () => new Socket(),
+    });
+
+    expect(() => created.open({ name: 'host-a' })).toThrow(
+      MachineIdentityMismatchError,
+    );
+  });
+
+  it('maps other attach failures to unreachable', () => {
+    const created = createLocalChildTransportFactory({
+      command: 'llame-machine',
+      runCommand: () => {
+        throw Object.assign(new Error('daemon unavailable'), { status: 1 });
+      },
+      connect: () => new Socket(),
+    });
+
+    expect(() => created.open({ name: 'host-a' })).toThrow(
+      MachineUnavailableError,
     );
   });
 });

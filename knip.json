@@ -98,8 +98,8 @@
       "project": ["src/**/*.ts"]
     },
     "apps/machine": {
-      "entry": ["src/cli.ts", "src/**/*.test.ts"],
-      "project": ["src/**/*.ts"],
+      "entry": ["scripts/build-daemon.mjs"],
+      "project": ["scripts/**/*.mjs"],
       "ignoreBinaries": ["rustup"]
     }
   },

@@ -7,23 +7,21 @@ read_when:
 
 # Observability
 
-Each llame process reports to Sentry only when it has a DSN; without one it
-sends nothing. Use one Sentry project per process kind, so each project's
-issues and performance views cover one runtime: the web app, the API and its
-workers, and the Machine daemon.
+The web app, API, and workers report to Sentry only when configured with a DSN.
+The Rust Machine daemon does not send events to Sentry; it writes diagnostics
+to `daemon.log`. Use one Sentry project per instrumented process kind.
 
 | Process                                      | DSN                      | Environment (default `local`)    |
 | -------------------------------------------- | ------------------------ | -------------------------------- |
 | `apps/web`, built                            | `NEXT_PUBLIC_SENTRY_DSN` | `NEXT_PUBLIC_SENTRY_ENVIRONMENT` |
 | API (`dist/main`) and worker (`dist/worker`) | `SENTRY_DSN`             | `SENTRY_ENVIRONMENT`             |
-| `llame-machine` on a box                     | `SENTRY_DSN`             | `SENTRY_ENVIRONMENT`             |
 
 The `NEXT_PUBLIC_*` values are compiled into the web build; set them before
 `next build`. The API reads its variables at process start, from the
-environment or `apps/api/.env.local`. Set `SENTRY_RELEASE` on any process to
-tag its events with a release. Name a deployed environment `production`;
-development checkouts and worktrees use `development`, and anything unset
-reports as `local`.
+environment or `apps/api/.env.local`. Set `SENTRY_RELEASE` on the web app, API,
+or worker to tag its events with a release. Name a deployed environment
+`production`; development checkouts and worktrees use `development`, and
+anything unset reports as `local`.
 
 ## What is reported
 
@@ -99,13 +97,10 @@ masked.
 
 ## Machine daemon
 
-The hub starts the daemon through the forced command in the box user's
-`authorized_keys`, so set the variables there:
-
-```text
-restrict,command="SENTRY_DSN=https://... SENTRY_ENVIRONMENT=production /usr/local/bin/llame-machine serve --stdio" ssh-ed25519 AAAA... llame-hub
-```
-
-sshd runs the command through the user's login shell, which applies the
-assignments. The DSN is a public client key, but it lets anyone send events to
-that project, so treat the line like the rest of `authorized_keys`.
+The daemon does not send events or traces to Sentry. It writes diagnostics to
+`daemon.log` under `$XDG_STATE_HOME/llame-machine`, or
+`~/.local/state/llame-machine` when `XDG_STATE_HOME` is unset. Set
+`LLAME_MACHINE_LOG` to choose the daemon log level. The daemon reads `config.toml`
+from its configured configuration directory. SSH socket forwarding carries the
+hub connection. See [Machines](machines.md#install-the-daemon) for the
+forced-command migration.

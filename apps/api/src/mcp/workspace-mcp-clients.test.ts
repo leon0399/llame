@@ -10,11 +10,16 @@ import {
 import {
   type JsonValue,
   type McpServerEntry,
+  type OpenSessionResponse,
 } from '@workspace/machine-protocol';
+import { createProtocolPeer, wireJson } from '../testing/machine-protocol-peer';
 import {
-  createProtocolPeer,
-  type PeerSession,
-} from '../testing/machine-protocol-peer';
+  installMachineMcpSession,
+  machineMcpJsonRpc,
+  machineMcpSecrets,
+  machineMcpStderr,
+  openedMachineMcpSession,
+} from '../testing/machine-mcp-session';
 import { MachineConnector } from '../machines/machine-connector.service';
 import { drizzle } from 'drizzle-orm/postgres-js';
 
@@ -220,7 +225,7 @@ function workspaceConnector(
       if (call.method !== 'mcp.servers') return undefined;
       const root = field(call.params, 'root');
 
-      if (!isString(root)) return { error: 'invalid_params' };
+      if (!isString(root)) return { error: 'invalid_argument' };
 
       try {
         return { value: { servers: configs(root).map(machineEntry) } };
@@ -970,8 +975,11 @@ type FakeMachine = {
   readonly connector: MachineConnector;
   /** Tool names the hub asked this server to call, in order. */
   readonly toolCalls: Array<string>;
+  readonly opened: Array<{ root: string; server: string }>;
   /** Revisions the hub told the Machine the handshake negotiated. */
   readonly protocolVersions: Array<string>;
+  readonly notify: (response: OpenSessionResponse) => void;
+  install(): Promise<void>;
   setDown(down: boolean): void;
   holdToolCalls(): void;
 };
@@ -1005,7 +1013,6 @@ function fakeMachine(
   const toolCalls: Array<string> = [];
   const protocolVersions: Array<string> = [];
   const state = { down: false, holdCalls: false };
-  let latest: PeerSession | undefined;
 
   const peer = createProtocolPeer({
     roots: ['/srv/work'],
@@ -1013,30 +1020,7 @@ function fakeMachine(
       state.down
         ? 'ssh: connect to host box port 22: Connection refused'
         : undefined,
-    answers: {
-      'mcp.servers': { value: { servers: [...servers] } },
-      'mcp.open': { hold: true },
-    },
-    onNotification: (method, notification) => {
-      if (method !== 'mcp.open' || latest === undefined) return;
-
-      if (notification.method === 'mcp.setProtocolVersion') {
-        const version = field(notification.params, 'version');
-
-        if (isString(version)) protocolVersions.push(version);
-
-        return;
-      }
-
-      if (notification.method !== 'mcp.message') return;
-      const call = jsonRpcCall(field(notification.params, 'message'));
-
-      if (call === undefined) return;
-      const answer = answerFor(call, toolCalls, state);
-
-      if (answer === undefined) return;
-      latest.notify('mcp.open', 'mcp.message', { message: answer });
-    },
+    answers: { 'mcp.servers': { value: { servers: [...servers] } } },
   });
 
   const name = LOCAL_WORKSPACE_MACHINE;
@@ -1048,24 +1032,65 @@ function fakeMachine(
         : MACHINE_HOSTS,
     hubVersion: '9.9.9',
     bindIdentity: options.bindIdentity ?? (() => Promise.resolve('match')),
+    requestHandler: peer.factory.requestHandler,
+    streamHandler: peer.factory.streamHandler,
     transportFactory: {
-      open: (transportOptions) => {
-        const transport = peer.factory.open(transportOptions);
-        latest = peer.sessions.at(-1);
-
-        return transport;
-      },
+      open: (transportOptions) => peer.factory.open(transportOptions),
     },
     handshakeTimeoutMs: 2000,
   });
+
+  const opened: Array<{ root: string; server: string }> = [];
+
+  const machineName =
+    options.local === true ? LOCAL_WORKSPACE_MACHINE : WORKSPACE_MACHINE;
+
+  let sendMcpEvent: ((response: OpenSessionResponse) => void) | undefined;
+
+  const install = async () => {
+    const session = await connector.machineSession(machineName);
+
+    sendMcpEvent = installMachineMcpSession(session, (request) => {
+      const message = request.message;
+
+      if (message.case === 'open') {
+        opened.push({
+          root: message.value.workspace,
+          server: message.value.server,
+        });
+
+        return openedMachineMcpSession([START_SECRET]);
+      }
+
+      if (message.case === 'protocolVersion') {
+        protocolVersions.push(message.value);
+
+        return undefined;
+      }
+
+      if (message.case !== 'jsonRpc') return undefined;
+
+      const call = jsonRpcCall(wireJson(JSON.parse(message.value)));
+
+      const answer =
+        call === undefined ? undefined : answerFor(call, toolCalls, state);
+
+      return answer === undefined ? undefined : machineMcpJsonRpc(answer);
+    });
+  };
+
+  const notify = (response: OpenSessionResponse) => sendMcpEvent?.(response);
 
   workspaceConnectors.push(connector);
 
   return {
     peer,
     connector,
+    notify,
     toolCalls,
+    opened,
     protocolVersions,
+    install,
     setDown: (down) => {
       state.down = down;
     },
@@ -1170,14 +1195,11 @@ async function startMachineWorkspace(
   provider: WorkspaceMcpClients,
   machine: FakeMachine,
   workspace: WorkspaceMcpKey,
-  sessionIndex = 0,
+  _sessionIndex = 0,
 ): Promise<WorkspaceMcpEntryState> {
-  const started = provider.startForChat(workspace);
-  const session = await machine.peer.session(sessionIndex);
-  await session.awaitRequests(2);
-  session.release('mcp.open', { protectedValues: [START_SECRET] }, true);
+  await machine.install();
 
-  return started;
+  return provider.startForChat(workspace);
 }
 
 function availableTool(
@@ -1261,14 +1283,13 @@ describe('WorkspaceMcpClients over a Machine', () => {
 
     const workspace = key('chat-1', MACHINE_ROOT);
     await startMachineWorkspace(provider, machine, workspace);
-    const session = await machine.peer.session(0);
     const warn = vi.spyOn(Logger.prototype, 'warn');
 
     // A value learned after the start is a secret from the moment it arrives.
-    session.notify('mcp.open', 'mcp.protected', { values: [LEARNED_SECRET] });
-    session.notify('mcp.open', 'mcp.stderr', {
-      text: `connected as ${LEARNED_SECRET} with ${START_SECRET}\n`,
-    });
+    machine.notify(machineMcpSecrets([LEARNED_SECRET]));
+    machine.notify(
+      machineMcpStderr(`connected as ${LEARNED_SECRET} with ${START_SECRET}\n`),
+    );
     await vi.waitFor(() => expect(warn).toHaveBeenCalled());
 
     const diagnostics = warn.mock.calls
@@ -1450,9 +1471,9 @@ describe('WorkspaceMcpClients on this process’s Machine', () => {
       expect(state.servers).toEqual([{ id: 'storybook', state: 'available' }]);
       // The host Machine is served by its daemon: the same two requests a
       // remote Machine sees, and no in-process declaration read.
-      const session = await machine.peer.session(0);
-
-      expect([...session.requests]).toEqual(['mcp.servers', 'mcp.open']);
+      expect(machine.opened).toEqual([
+        { root: '/srv/work', server: 'storybook' },
+      ]);
       expect(
         provider
           .snapshotCandidates(workspace)

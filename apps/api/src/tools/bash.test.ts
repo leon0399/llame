@@ -34,7 +34,7 @@ import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
 import { createWorkspaceRootCell } from './workspace-path';
 import { MachineConnector } from '../machines/machine-connector.service';
 import { formatMachineLocator } from '../machines/machine-locator';
-import { MachineIdentityMismatchError } from '../machines/machine-session';
+import { MachineIdentityMismatchError } from '../machines/machine-session-errors';
 import { localMachineConnector } from '../testing/local-machine';
 import { createProtocolPeer } from '../testing/machine-protocol-peer';
 import { compileTestPermissionPolicy } from '../testing/tool-permission-policy';

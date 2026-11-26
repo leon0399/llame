@@ -1,19 +1,24 @@
 /**
- * A real `llame-machine` child for the host file and grep integration suites
- * (host-as-machine design D12): the bundle spawned through the local child
- * transport, with a temporary configuration directory whose roots this helper
- * registers with the daemon's own `roots add`. The connector is the ordinary
- * hub connector, so a test sees exactly the session, identity bind, `fs.*`
- * wire, and failure vocabulary a running process sees.
+ * A real `llame-machine` child for the host file and grep integration suites:
+ * the static binary runs through the local child transport with a temporary
+ * configuration directory whose roots this helper registers via `roots add`.
+ * The ordinary hub connector gives each test the same session, identity bind,
+ * `fs.*` wire, and failure vocabulary as a running process.
  *
  * Deliberately under `src/testing/`: scaffolding, excluded from coverage and
  * mutation, never imported by production code.
  */
 
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdtempSync, realpathSync, rmSync } from 'node:fs';
+import {
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { join } from 'node:path';
 
 import { drizzle } from 'drizzle-orm/postgres-js';
 
@@ -25,23 +30,17 @@ import { processEnvironment } from '../tools/env';
 import { type ToolContext } from '../tools/types';
 import { DEFAULT_LOCAL_MACHINE_NAME } from './local-machine';
 import { compileTestPermissionPolicy } from './tool-permission-policy';
+import { daemonBinary } from '@workspace/machine-protocol';
 
-/** The daemon bundle the suites start; built by `pnpm --filter machine build`. */
-export const MACHINE_BUNDLE = resolve(
-  __dirname,
-  '../../..',
-  'machine/dist/llame-machine.cjs',
-);
+/** The daemon binary the suites start; built by `pnpm --filter machine build`. */
+export const MACHINE_BINARY = daemonBinary();
 
-/**
- * The built daemon bundle, checked before a suite spawns it: a raw spawn error
- * names neither the missing file nor the command that writes it.
- */
-export function assertBuiltBundle(bundle: string): void {
-  if (existsSync(bundle)) return;
+/** Check that the Rust daemon binary exists before a suite spawns it. */
+export function assertBuiltBinary(binary: string): void {
+  if (existsSync(binary)) return;
 
   throw new Error(
-    `The Machine file and grep integration suites need the built daemon at ${bundle}: run \`pnpm --filter machine build\`.`,
+    `The Machine integration suites need the daemon binary at ${binary}: run \`pnpm --filter machine build\`.`,
   );
 }
 
@@ -71,34 +70,96 @@ function daemonLocator(name: string, path: string): string {
   return locator;
 }
 
+function registerRoots(
+  roots: ReadonlyArray<string>,
+  configDir: string,
+  stateDir: string,
+): void {
+  for (const root of roots) {
+    execFileSync(MACHINE_BINARY, ['roots', 'add', realpathSync(root)], {
+      env: {
+        LLAME_MACHINE_CONFIG_DIR: configDir,
+        LLAME_MACHINE_STATE_DIR: stateDir,
+      },
+      stdio: 'pipe',
+    });
+  }
+}
+/** Stop the daemon started for one fixture and wait for its lock to release. */
+
+export function stopLocalDaemon(stateDir: string): void {
+  const lockPath = join(stateDir, 'daemon.lock');
+
+  if (!existsSync(lockPath)) return;
+
+  const pid = Number(readFileSync(lockPath, 'utf8').trim());
+
+  if (!Number.isSafeInteger(pid) || pid <= 0)
+    throw new Error('The local Machine daemon lock does not contain a pid.');
+
+  try {
+    process.kill(pid, 'SIGTERM');
+  } catch (error) {
+    if (error instanceof Error && 'code' in error && error.code === 'ESRCH')
+      return;
+
+    throw error;
+  }
+
+  const pause = new Int32Array(
+    new SharedArrayBuffer(Int32Array.BYTES_PER_ELEMENT),
+  );
+
+  const waitForExit = (deadline: number): boolean => {
+    while (Date.now() < deadline) {
+      try {
+        process.kill(pid, 0);
+      } catch (error) {
+        if (error instanceof Error && 'code' in error && error.code === 'ESRCH')
+          return true;
+
+        throw error;
+      }
+
+      Atomics.wait(pause, 0, 0, 20);
+    }
+
+    return false;
+  };
+
+  if (waitForExit(Date.now() + 2000)) return;
+
+  try {
+    process.kill(pid, 'SIGKILL');
+  } catch (error) {
+    if (error instanceof Error && 'code' in error && error.code === 'ESRCH')
+      return;
+
+    throw error;
+  }
+
+  if (!waitForExit(Date.now() + 2000))
+    throw new Error(`Local Machine daemon ${pid} did not exit after SIGKILL.`);
+}
+
 export function startLocalDaemon(options: LocalDaemonOptions): LocalDaemon {
-  assertBuiltBundle(MACHINE_BUNDLE);
+  assertBuiltBinary(MACHINE_BINARY);
   const name = DEFAULT_LOCAL_MACHINE_NAME;
   const configDir = mkdtempSync(join(tmpdir(), 'llame-machine-test-'));
+  const stateDir = mkdtempSync(join(tmpdir(), 'llame-machine-state-test-'));
 
-  for (const root of options.roots) {
-    execFileSync(
-      process.execPath,
-      [MACHINE_BUNDLE, 'roots', 'add', realpathSync(root)],
-      {
-        env: {
-          ...processEnvironment(),
-          LLAME_MACHINE_CONFIG_DIR: configDir,
-        },
-        stdio: 'pipe',
-      },
-    );
-  }
+  registerRoots(options.roots, configDir, stateDir);
 
   const connector = new MachineConnector({
     machines: { local: name, default: name, hosts: { [name]: {} } },
     hubVersion: '0.0.0-local-daemon-test',
     bindIdentity: () => Promise.resolve('match'),
     localTransportFactory: createLocalChildTransportFactory({
-      command: options.command ?? `${process.execPath} ${MACHINE_BUNDLE}`,
+      command: options.command ?? MACHINE_BINARY,
       env: {
         ...processEnvironment(),
         LLAME_MACHINE_CONFIG_DIR: configDir,
+        LLAME_MACHINE_STATE_DIR: stateDir,
       },
     }),
     handshakeTimeoutMs: 30_000,
@@ -110,7 +171,13 @@ export function startLocalDaemon(options: LocalDaemonOptions): LocalDaemon {
     locator: (path) => daemonLocator(name, path),
     dispose() {
       connector.onModuleDestroy();
-      rmSync(configDir, { recursive: true, force: true });
+
+      try {
+        stopLocalDaemon(stateDir);
+      } finally {
+        rmSync(configDir, { recursive: true, force: true });
+        rmSync(stateDir, { recursive: true, force: true });
+      }
     },
   };
 }

@@ -435,7 +435,7 @@ describe('Workspace MCP production integration', () => {
         {
           id: 'secret',
           state: 'unavailable',
-          reason: `required environment variable ${variable} is not set`,
+          reason: `header interpolation failed: variable ${variable} is not set`,
         },
       ]);
       // The hub's value never travelled: the diagnostic names the variable

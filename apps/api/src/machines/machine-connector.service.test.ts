@@ -19,7 +19,7 @@ import {
 import {
   MachineIdentityMismatchError,
   MachineUnavailableError,
-} from './machine-session';
+} from './machine-session-errors';
 import type { MachineContact } from './machines-status';
 
 /** Every request carries its own budget; the envelope is part of the params. */
@@ -282,7 +282,7 @@ describe('MachineConnector session lifecycle', () => {
     const session = await peer.session(0);
     await session.awaitRequests(2);
     expect(sessionCount()).toBe(1);
-    expect(session.maxOpenStreams).toBe(2);
+    expect(session.requests).toHaveLength(2);
     session.release('roots.list', { roots: ['/a'] });
     session.release('roots.list', { roots: ['/b'] });
     await expect(first).resolves.toEqual({ roots: ['/a'] });
@@ -419,7 +419,8 @@ describe('MachineConnector failure classification', () => {
 
     expect(error.reason).toBe('unreachable');
     expect(error.sent).toBe(false);
-    expect(sessionCount()).toBe(0);
+    // The test transport records the attempted link, even when its hello fails.
+    expect(sessionCount()).toBe(1);
   });
 
   it.each([
@@ -447,7 +448,7 @@ describe('MachineConnector failure classification', () => {
 
   it('reports an incompatible daemon when the handshake is refused', async () => {
     const { connector, contacts, awaitContacts } = fixture({
-      helloProtocolVersion: 7,
+      helloProtocolVersion: 6,
       handshakeTimeoutMs: 500,
     });
 
@@ -561,13 +562,13 @@ describe('MachineConnector reachability', () => {
 
     await expect(connector.reachable('devl', 'attempt-1')).resolves.toBe(false);
     await expect(connector.reachable('devl', 'attempt-1')).resolves.toBe(false);
-    expect(sessionCount()).toBe(0);
+    expect(sessionCount()).toBe(1);
     offline = false;
     // The same attempt keeps its verdict even after the Machine recovered.
     await expect(connector.reachable('devl', 'attempt-1')).resolves.toBe(false);
-    expect(sessionCount()).toBe(0);
-    await expect(connector.reachable('devl', 'attempt-2')).resolves.toBe(true);
     expect(sessionCount()).toBe(1);
+    await expect(connector.reachable('devl', 'attempt-2')).resolves.toBe(true);
+    expect(sessionCount()).toBe(2);
   });
 
   it('does not probe an unconfigured or absent Machine', async () => {
@@ -651,7 +652,7 @@ describe('MachineConnector reachability', () => {
     offline = false;
     // A full cache evicts nothing yet, so the oldest verdict still stands.
     await expect(connector.reachable('devl', 'attempt-0')).resolves.toBe(false);
-    expect(sessionCount()).toBe(0);
+    expect(sessionCount()).toBe(REACHABILITY_CACHE_LIMIT);
   });
 
   it('forgets the oldest verdict once the cache is over its bound', async () => {
@@ -673,7 +674,7 @@ describe('MachineConnector reachability', () => {
     offline = false;
     // One attempt past the bound pushed `attempt-0` out, so it probes afresh.
     await expect(connector.reachable('devl', 'attempt-0')).resolves.toBe(true);
-    expect(sessionCount()).toBe(1);
+    expect(sessionCount()).toBe(REACHABILITY_CACHE_LIMIT + 2);
   });
 });
 
@@ -1021,6 +1022,8 @@ describe('MachineConnector local Machine', () => {
       machines: { local: 'host-a', hosts: { 'host-a': {} } },
       hubVersion: '9.9.9',
       localTransportFactory: {
+        requestHandler: peer.factory.requestHandler,
+        streamHandler: peer.factory.streamHandler,
         open: (request) => {
           opened.push(request.name);
 

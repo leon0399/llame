@@ -22,9 +22,11 @@ PermitEmptyPasswords no
 UsePAM no
 StrictModes yes
 
-# A jump host needs forwarding for `ssh -W box:22`; the authorized_keys
-# `restrict` plus `permitopen` is what narrows that to the one destination.
-AllowTcpForwarding yes
+# The jump host needs local TCP forwarding for `ssh -W box:22`. StreamLocal
+# forwarding is limited to client-to-server (`-L`) direction; authorized_keys
+# does not provide a per-path permitopen equivalent for Unix sockets.
+AllowTcpForwarding local
+AllowStreamLocalForwarding local
 AllowAgentForwarding no
 X11Forwarding no
 PermitTunnel no

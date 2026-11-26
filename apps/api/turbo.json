@@ -13,15 +13,15 @@
     // Never cached: these run against live external state (a real Postgres,
     // a real model endpoint) that turbo's hash cannot see — a stale cached
     // PASS would look identical to a real, current result.
-    // The Machine SSH integration suite copies the built llame-machine bundle
-    // into its sshd container, so the integration-bearing tasks build it first.
+    // The Machine SSH integration suite copies the static llame-machine binary
+    // into its sshd container, so integration tests build it first.
     "test:integration": {
       "cache": false,
-      "dependsOn": ["machine#build"]
+      "dependsOn": ["^build", "machine#build"]
     },
     "test:coverage": {
       "cache": false,
-      "dependsOn": ["machine#build"]
+      "dependsOn": ["^build", "machine#build"]
     },
     "test:evals": {
       "cache": false
@@ -32,8 +32,8 @@
     // Local equivalent: pnpm --filter @workspace/config-interpolation build
     // (bypasses turbo's cache entirely).
     //
-    // `pnpm dev` starts the local Machine daemon from the built bundle, and
-    // the helper registers the tree as a root before Nest boot.
+    // `pnpm dev` starts the local Machine from its static binary, and the
+    // helper registers the tree as a root before Nest boot.
     "dev": { "dependsOn": ["^build", "machine#build"] },
     "lint": { "dependsOn": ["^build"] },
     "typecheck": { "dependsOn": ["^build"] },

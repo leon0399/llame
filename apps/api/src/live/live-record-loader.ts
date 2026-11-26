@@ -19,12 +19,8 @@ import {
   type ChatListItemResponse,
 } from '../chats/dto/chats.dto';
 import { MessagesRepository } from '../chats/messages-repository';
-import {
-  InstanceConfigService,
-  type InstanceConfigReader,
-} from '../instance-config/instance-config.service';
+import { InstanceConfigService } from '../instance-config/instance-config.service';
 import { ChatJobsRepository } from '../jobs/chat-jobs.repository';
-import { workerDeadAfterSeconds } from '../jobs/worker-liveness';
 import { TenantDbService, type TenantRunner } from '../db/tenant-db.service';
 import {
   toMachineResponse,
@@ -32,6 +28,7 @@ import {
 } from '../machines/dto/machines.dto';
 import { machineStatusView } from '../machines/machines-status';
 import { MachinesStatusRepository } from '../machines/machines-status.repository';
+import { workerDeadAfterSeconds } from '../jobs/worker-liveness';
 import {
   toPinnedItemResponse,
   type PinnedItemResponse,
@@ -74,7 +71,7 @@ export class TenantLiveRecordLoader implements LiveRecordLoader {
     private readonly tenantDb: TenantRunner,
     private readonly machines: MachinesStatusRepository,
     @Inject(InstanceConfigService)
-    private readonly instanceConfig: InstanceConfigReader,
+    private readonly config: InstanceConfigService,
   ) {}
 
   chat(owner: string, chatId: string) {
@@ -84,8 +81,7 @@ export class TenantLiveRecordLoader implements LiveRecordLoader {
         new MessagesRepository(tx).findLatestPerOwnedChat(owner, chatId),
         new ChatJobsRepository(tx).countRunning(
           owner,
-          workerDeadAfterSeconds(this.instanceConfig.config),
-          chatId,
+          workerDeadAfterSeconds(this.config.config),
         ),
       ]);
 
@@ -95,12 +91,11 @@ export class TenantLiveRecordLoader implements LiveRecordLoader {
     });
   }
 
-  /** Zero groups retain Chats whose stored running jobs have expired leases. */
   runningJobs(owner: string) {
     return this.tenantDb.runAs(owner, (tx) =>
       new ChatJobsRepository(tx).countRunning(
         owner,
-        workerDeadAfterSeconds(this.instanceConfig.config),
+        workerDeadAfterSeconds(this.config.config),
       ),
     );
   }

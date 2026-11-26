@@ -18,7 +18,13 @@ import {
   type PeerSession,
   type ProtocolPeer,
   type ProtocolPeerOptions,
+  wireJson,
 } from '../testing/machine-protocol-peer';
+import {
+  installMachineMcpSession,
+  machineMcpJsonRpc,
+  openedMachineMcpSession,
+} from '../testing/machine-mcp-session';
 import {
   machineServerClientFactory,
   machineWorkspaceTarget,
@@ -52,6 +58,10 @@ type Fixture = Readonly<{
   latest: () => PeerSession | undefined;
 }>;
 
+type McpFixture = Fixture & {
+  readonly opened: Array<{ workspace: string; server: string }>;
+};
+
 /** A real connector over the protocol peer, so every request is llame's own. */
 function fixture(options: ProtocolPeerOptions = {}): Fixture {
   let latest: PeerSession | undefined;
@@ -62,6 +72,8 @@ function fixture(options: ProtocolPeerOptions = {}): Fixture {
     hubVersion: '9.9.9',
     bindIdentity: () => Promise.resolve('match'),
     handshakeTimeoutMs: 2000,
+    requestHandler: peer.factory.requestHandler,
+    streamHandler: peer.factory.streamHandler,
     transportFactory: {
       open: (openOptions) => {
         const transport = peer.factory.open(openOptions);
@@ -352,8 +364,9 @@ function jsonRpcCall(message: JsonValue | undefined): JsonRpcCall | undefined {
  * A Machine whose Workspace declares one MCP server, answered over the relayed
  * channel exactly as the daemon relays the real server it started.
  */
-function mcpServerFixture(): Fixture {
+async function mcpServerFixture(): Promise<McpFixture> {
   const latestSession: SessionHolder = {};
+  const opened: Array<{ workspace: string; server: string }> = [];
 
   const peer = createProtocolPeer({
     roots: ['/srv/work'],
@@ -405,6 +418,8 @@ function mcpServerFixture(): Fixture {
     hubVersion: '9.9.9',
     bindIdentity: () => Promise.resolve('match'),
     handshakeTimeoutMs: 2000,
+    requestHandler: peer.factory.requestHandler,
+    streamHandler: peer.factory.streamHandler,
     transportFactory: {
       open: (openOptions) => {
         const transport = peer.factory.open(openOptions);
@@ -415,9 +430,50 @@ function mcpServerFixture(): Fixture {
     },
   });
 
+  const session = await connector.machineSession('devl');
+  installMachineMcpSession(session, (request) => {
+    if (request.message.case === 'open') {
+      opened.push({
+        workspace: request.message.value.workspace,
+        server: request.message.value.server,
+      });
+
+      return openedMachineMcpSession(['repo-token']);
+    }
+
+    if (request.message.case !== 'jsonRpc') return undefined;
+
+    const call = jsonRpcCall(wireJson(JSON.parse(request.message.value)));
+
+    if (call === undefined) return undefined;
+
+    const result: JsonValue | undefined =
+      call.method === 'initialize'
+        ? {
+            protocolVersion: '2025-06-18',
+            capabilities: { tools: {} },
+            serverInfo: { name: 'machine-server', version: '1.0.0' },
+          }
+        : call.method === 'tools/list'
+          ? {
+              tools: [
+                {
+                  name: 'deploy',
+                  description: 'Deploy the app.',
+                  inputSchema: { type: 'object', properties: {} },
+                },
+              ],
+            }
+          : undefined;
+
+    return result === undefined
+      ? undefined
+      : machineMcpJsonRpc({ jsonrpc: '2.0', id: call.id, result });
+  });
+
   connectors.push(connector);
 
-  return { connector, peer, latest: () => latestSession.current };
+  return { connector, peer, latest: () => latestSession.current, opened };
 }
 
 describe('machineServerClientFactory', () => {
@@ -437,7 +493,7 @@ describe('machineServerClientFactory', () => {
   });
 
   it('opens the named server on the Machine and discovers its tools', async () => {
-    const machine = mcpServerFixture();
+    const machine = await mcpServerFixture();
     const factory = machineServerClientFactory(machine.connector, TARGET);
 
     const connecting = factory({
@@ -449,21 +505,10 @@ describe('machineServerClientFactory', () => {
       kind: 'stdio',
     });
 
-    const session = await machine.peer.session(0);
-    await session.awaitRequests(1);
-    expect(session.calls).toEqual([
-      {
-        method: 'mcp.open',
-        params: {
-          envelope: { budgetMs: DEFAULT_REQUEST_BUDGET_MS },
-          root: '/srv/work',
-          server: 'storybook',
-        },
-      },
-    ]);
-    session.release('mcp.open', { protectedValues: ['repo-token'] }, true);
-
     const client = await connecting;
+    expect(machine.opened).toEqual([
+      { workspace: '/srv/work', server: 'storybook' },
+    ]);
 
     try {
       const discovery = await client.discover();

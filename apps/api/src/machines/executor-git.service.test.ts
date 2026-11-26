@@ -53,8 +53,8 @@ function hub(
   const peer = createProtocolPeer({
     roots: ['/srv'],
     ...options,
-    answer: (call) => {
-      const answered = options.answer?.(call);
+    answer: (call, requestOptions, notify) => {
+      const answered = options.answer?.(call, requestOptions, notify);
 
       if (answered !== undefined) return answered;
 
@@ -547,8 +547,11 @@ describe('ExecutorGit.inspect', () => {
     });
   });
 
-  it('fails as machine_update_required on a daemon without the method', async () => {
-    const { executors } = hub();
+  it('maps UNIMPLEMENTED to machine_update_required', async () => {
+    const { executors } = hub({
+      answers: { 'git.inspect': { unimplemented: true } },
+    });
+
     const target = executors.locate(LOCATOR);
 
     const error = await rejectionOf(executors.inspect(target, LOCATOR));
@@ -686,7 +689,7 @@ describe('ExecutorGit.inspect', () => {
 
     const invalid = hub({
       methods: ['git.inspect'],
-      answers: { 'git.inspect': { error: 'invalid_params' } },
+      answers: { 'git.inspect': { error: 'invalid_argument' } },
     });
 
     await expect(
@@ -919,15 +922,17 @@ describe('ExecutorGit.state', () => {
     expect(error.message).toContain('unusable');
   });
 
-  it('asks for a daemon update when the state method is not listed', async () => {
-    const { executors, peer } = hub({ methods: ['git.inspect'] });
+  it('maps an UNIMPLEMENTED state method to machine_update_required', async () => {
+    const { executors, peer } = hub({
+      answers: { 'git.state': { unimplemented: true } },
+    });
 
     const error = await rejectionOf(
       executors.state(executors.locate(LOCATOR), LOCATOR, STATE_INPUT),
     );
 
     expect(error.code).toBe('machine_update_required');
-    expect((await peer.session(0)).requests).not.toContain('git.state');
+    expect((await peer.session(0)).requests).toContain('git.state');
   });
 });
 
@@ -1197,7 +1202,7 @@ describe('ExecutorGit refusals', () => {
   it('names the method and the Machine of a refusal', async () => {
     const { executors } = hub({
       methods: ['git.inspect'],
-      answers: { 'fs.stat': { error: 'invalid_params' } },
+      answers: { 'fs.stat': { error: 'invalid_argument' } },
     });
 
     await expect(

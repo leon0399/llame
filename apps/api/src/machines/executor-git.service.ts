@@ -279,15 +279,20 @@ export class ExecutorGit {
     const entry = this.executorPath(target, gitEntry);
 
     return askGit(this.connector, target.machine, GIT_STATE_METHOD, {
-      build: (envelope, display) => ({
-        envelope,
-        options: display,
-        path,
-        gitEntry: entry,
-        limit,
-        submodules,
-        timeoutMs,
-      }),
+      build: (envelope, display) => {
+        const params = {
+          envelope,
+          options: display,
+          path,
+          gitEntry: entry,
+          limit,
+          submodules,
+        };
+
+        if (timeoutMs === undefined) return params;
+
+        return { ...params, timeoutMs };
+      },
       read: readGitStateResult,
       signal: options.signal,
       budgetMs: machineGitBudget(timeoutMs),

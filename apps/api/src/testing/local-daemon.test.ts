@@ -4,24 +4,24 @@ import { join } from 'node:path';
 
 import { describe, expect, it } from 'vitest';
 
-import { assertBuiltBundle } from './local-daemon';
+import { assertBuiltBinary } from './local-daemon';
 
 describe('Machine daemon fixtures', () => {
-  it('names the build command when the daemon bundle is missing', () => {
-    const missing = join(tmpdir(), 'llame-no-such-machine-bundle.cjs');
+  it('names the build command when the daemon binary is missing', () => {
+    const missing = join(tmpdir(), 'llame-no-such-machine-binary');
 
-    expect(() => assertBuiltBundle(missing)).toThrow(
-      `The Machine file and grep integration suites need the built daemon at ${missing}: run \`pnpm --filter machine build\`.`,
+    expect(() => assertBuiltBinary(missing)).toThrow(
+      `The Machine integration suites need the daemon binary at ${missing}: run \`pnpm --filter machine build\`.`,
     );
   });
 
-  it('accepts a bundle that exists', async () => {
-    const directory = await mkdtemp(join(tmpdir(), 'llame-bundle-'));
-    const bundle = join(directory, 'llame-machine.cjs');
+  it('accepts a binary that exists', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'llame-machine-'));
+    const binary = join(directory, 'llame-machine');
 
     try {
-      await writeFile(bundle, '');
-      expect(() => assertBuiltBundle(bundle)).not.toThrow();
+      await writeFile(binary, '');
+      expect(() => assertBuiltBinary(binary)).not.toThrow();
     } finally {
       await rm(directory, { recursive: true, force: true });
     }

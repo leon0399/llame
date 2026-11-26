@@ -1,13 +1,11 @@
 #!/usr/bin/env node
 /**
- * Prepares the local Machine a `pnpm dev` API serves (host-as-machine design
- * D12). The API talks to its own Machine through `llame-machine serve --stdio`
- * with a fixed configuration directory, so a developer's checkout needs that
- * directory to exist and to have the tree it works in registered as a root.
+ * Prepares the local Machine a `pnpm dev` API serves. The API discovers its
+ * own static `llame-machine` binary with `attach --print-socket`, after this
+ * helper registers the checkout and temporary directory as roots.
  *
- * Runs the built bundle's own `roots add`, so the canonicalisation and the file
- * format are the daemon's, and it is idempotent: registering a root twice
- * writes nothing.
+ * Runs the daemon binary's own `roots add`, so canonicalisation and file format
+ * are the daemon's, and registration is idempotent.
  *
  * `LLAME_MACHINE_EXTRA_ROOTS` adds roots a harness needs beyond the checkout
  * and the temp directory — the e2e suite's host-file fixtures live outside
@@ -19,11 +17,12 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { delimiter, resolve } from 'node:path';
+import { daemonBinary } from '@workspace/machine-protocol';
 
 const here = import.meta.dirname;
 const apiRoot = resolve(here, '..');
 const repoRoot = resolve(apiRoot, '../..');
-const bundle = resolve(repoRoot, 'apps/machine/dist/llame-machine.cjs');
+const binary = daemonBinary();
 const configDir = resolve(repoRoot, '.llame-dev/machine-host');
 
 /** Extra roots from the environment, in the order the harness named them. */
@@ -38,9 +37,9 @@ function extraRoots(): ReadonlyArray<string> {
     .filter((root) => root.length > 0);
 }
 
-if (!existsSync(bundle)) {
+if (!existsSync(binary)) {
   console.error(
-    `dev-machine-host: ${bundle} is missing; build it with \`pnpm --filter machine build\` first.`,
+    `dev-machine-host: ${binary} is missing; build it with \`pnpm --filter machine build\` first.`,
   );
   process.exit(1);
 }
@@ -52,8 +51,8 @@ mkdirSync(configDir, { recursive: true });
 writeFileSync(resolve(repoRoot, '.llame-dev/.gitignore'), '*\n', 'utf8');
 
 for (const root of [resolve(repoRoot, '..'), tmpdir(), ...extraRoots()]) {
-  execFileSync(process.execPath, [bundle, 'roots', 'add', root], {
+  execFileSync(binary, ['roots', 'add', root], {
     env: { ...process.env, LLAME_MACHINE_CONFIG_DIR: configDir },
-    stdio: 'inherit',
+    stdio: ['ignore', 'ignore', 'inherit'],
   });
 }

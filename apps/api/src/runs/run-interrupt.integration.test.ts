@@ -9,7 +9,7 @@
  */
 
 import { randomUUID } from 'node:crypto';
-import { readFile } from 'node:fs/promises';
+import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import { sql } from 'drizzle-orm';
@@ -591,6 +591,8 @@ describe('run steering interrupts', () => {
     it('An interrupt yields the host command and retains the completed read', async () => {
       const pidFile = join(fx.directory, `pid-${randomUUID()}`);
       const seeded = await seed();
+      const readPath = join(fx.directory, `read-${randomUUID()}.md`);
+      await writeFile(readPath, 'completed read\n');
       await launch(seeded, [
         [
           {
@@ -603,7 +605,7 @@ describe('run steering interrupts', () => {
             type: 'tool-call',
             toolCallId: 'r1',
             toolName: 'read',
-            input: { path: fx.directory },
+            input: { path: readPath },
           },
         ],
         answer('moved on'),
@@ -826,11 +828,13 @@ describe('run steering interrupts', () => {
         modelId,
       };
 
+      const readPath = join(fx.directory, `compaction-${randomUUID()}.md`);
+      await writeFile(readPath, 'compaction read\n');
       fx.harness.models.register(modelId, {
         kind: 'step-script',
         compactionThresholdTokens: 1,
         steps: [
-          call('r1', 'read', { path: fx.directory }),
+          call('r1', 'read', { path: readPath }),
           answer('after the redirect'),
         ],
       });

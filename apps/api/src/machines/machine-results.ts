@@ -182,7 +182,7 @@ export function isTextList(
 /** An untrusted JSON array, typed for element-wise validation. */
 export function isUntrustedList(
   value: SerializableValue,
-): value is ReadonlyArray<SerializableValue> {
+): value is ReadonlyArray<JsonValue> {
   return Array.isArray(value);
 }
 

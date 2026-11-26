@@ -6,27 +6,19 @@
  * a hub key pinned on both the jump host and the box, and the box running the
  * bundled daemon behind the `authorized_keys` forced command.
  *
- * Scenarios come from `openspec/changes/remote-machines`: the safety options
- * override the included configuration (including for a jump host), the session
- * is versioned and multiplexed, bash runs on the Machine, a lost link takes the
- * remote process group with it, and the forced command holds.
+ * Scenarios cover SSH transport and forced-command behavior, including that
+ * daemon-held jobs keep running after a link is lost and can be stopped from
+ * a new session.
  *
  * Requires a Docker daemon and the OpenSSH client tools; see the fixture for
  * how a missing one fails loudly instead of skipping.
  */
 
-import { execFileSync, spawn } from 'node:child_process';
+import { randomBytes } from 'node:crypto';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { readdirSync } from 'node:fs';
 import { setTimeout as delay } from 'node:timers/promises';
-
 import {
-  CONTROL_STREAM_ID,
-  createLineFramer,
-  decodeFrame,
-  encodeFrame,
-  PROTOCOL_VERSION,
-  type Frame,
-  type HelloResult,
   type JsonValue,
   type MachineMethod,
   type MachineMethodParams,
@@ -37,7 +29,6 @@ import {
   MACHINE_SSHD_NAME,
   MACHINE_SSHD_NOTES_CONTENT,
   MACHINE_SSHD_NOTES_FILE,
-  MACHINE_SSHD_REMOTE_COMMAND,
   MACHINE_SSHD_ROOT,
   startMachineSshd,
   type MachineSshd,
@@ -45,13 +36,10 @@ import {
 } from '../testing/machine-sshd/machine-sshd';
 
 import { MachineConnector } from './machine-connector.service';
-import { readHelloResult } from './machine-hello';
 import { readFsReadResult } from './machine-results';
-import { MachineUnavailableError } from './machine-session';
-import {
-  createMachineSshTransportFactory,
-  type MachineTransport,
-} from './machine-transport';
+import { MachineUnavailableError } from './machine-session-errors';
+import type { MachineTransport } from './machine-transport';
+import { createMachineSshTransportFactory } from './machine-ssh-transport';
 
 const HUB_VERSION = '0.0.0-machine-ssh-test';
 const ENVELOPE = { budgetMs: 60_000 };
@@ -62,11 +50,10 @@ const ENVELOPE = { budgetMs: 60_000 };
  * not.
  */
 const CONNECT_TIMEOUT_ALLOWANCE_MS = 30_000;
-
 const LONG_BASH_SECONDS = 300;
+
 const PROCESS_POLL_MS = 200;
 const PROCESS_POLL_TIMEOUT_MS = 15_000;
-const HANDSHAKE_POLL_TIMEOUT_MS = 20_000;
 
 describe('Machine SSH transport over a jump host (remote-machines)', () => {
   let fixture: MachineSshd;
@@ -245,34 +232,36 @@ describe('Machine SSH transport over a jump host (remote-machines)', () => {
     }
   });
 
-  it('kills the remote process group when the session is lost during a long bash', async () => {
-    const harness = connect(fixture.connection());
-    const marker = `sleep ${String(LONG_BASH_SECONDS)}`;
+  it('keeps a daemon job running after its SSH session is lost', async () => {
+    const connection = fixture.connection();
+    const harness = connect(connection);
+    const command = `sleep ${String(LONG_BASH_SECONDS)}`;
+    const jobId = randomBytes(16).toString('hex');
+    const owner = 'hub';
 
     try {
-      const running = request(harness, 'proc.bash', {
-        envelope: ENVELOPE,
-        command: marker,
-      }).catch(rejection);
+      const session = await harness.connector.jobsClient(MACHINE_SSHD_NAME);
 
-      await waitForBoxProcess(fixture, marker, true);
+      const created = await session.client.createJob(
+        { jobId, owner, command },
+        session.callOptions(),
+      );
+
+      expect(created.result.case).toBe('job');
+      await waitForBoxProcess(fixture, command, true);
 
       const link = harness.transports.at(-1);
 
       if (link === undefined)
         throw new Error('The Machine link was never opened.');
-      // The link is lost, as a network failure would lose it.
       link.close();
-
-      const error = refusal(await running);
-      expect(error).toBeInstanceOf(MachineUnavailableError);
-      expect(error.reason).toBe('session_lost');
-      // The request had gone out, so its effect is unknown rather than absent.
-      expect(error.sent).toBe(true);
-      await waitForBoxProcess(fixture, marker, false);
+      await waitForBoxProcess(fixture, command, true);
     } finally {
       harness.dispose();
+      await stopRemoteJob(connection, jobId, owner);
     }
+
+    await waitForBoxProcess(fixture, command, false);
   });
 
   it('carries two concurrent requests over one SSH process', async () => {
@@ -301,15 +290,19 @@ describe('Machine SSH transport over a jump host (remote-machines)', () => {
     }
   });
 
-  it('holds the forced command: an SSH exec request cannot run an arbitrary command', async () => {
-    const { hello, stdout } = await rawSshHello(fixture.connection(), 'id');
-    // The daemon answered the handshake, so what ran is the forced command.
-    expect(hello).toMatchObject({
-      protocolVersion: PROTOCOL_VERSION,
-      roots: [MACHINE_SSHD_ROOT],
-    });
-    // And `id` did not: its output never happened.
-    expect(stdout).not.toContain('uid=');
+  it('holds the forced command: an SSH exec request cannot run an arbitrary command', () => {
+    const connection = fixture.connection();
+
+    const result = spawnSync(
+      'ssh',
+      ['-F', connection.sshConfig.path, '-T', '--', MACHINE_SSHD_ALIAS, 'id'],
+      { encoding: 'utf8' },
+    );
+
+    expect(result.status).toBe(126);
+    expect(result.stderr).toContain(
+      'machine-sshd: refused an unsupported SSH command',
+    );
   });
 });
 
@@ -405,63 +398,26 @@ function sshProcessCount(): number {
 
   return listing
     .split('\n')
-    .filter((line) => line.includes(MACHINE_SSHD_REMOTE_COMMAND)).length;
+    .filter(
+      (line) => line.includes(' -L ') && line.includes('/llame-machine-ssh-'),
+    ).length;
 }
 
-/**
- * Speak the Machine handshake over `ssh <alias> <command>`. The requested
- * command is the request; what answers is whatever sshd's forced command puts
- * on the wire, which is the whole point of the test that uses this.
- */
-async function rawSshHello(
+async function stopRemoteJob(
   connection: MachineSshdConnection,
-  command: string,
-): Promise<{
-  readonly hello: HelloResult | undefined;
-  readonly stdout: string;
-}> {
-  const child = spawn(
-    'ssh',
-    ['-F', connection.sshConfig.path, '-T', '--', MACHINE_SSHD_ALIAS, command],
-    { stdio: ['pipe', 'pipe', 'pipe'] },
-  );
+  jobId: string,
+  owner: string,
+): Promise<void> {
+  const harness = connect(connection);
 
-  const framer = createLineFramer();
-  const answers: Array<Frame> = [];
-  let stdout = '';
-  child.stdout.on('data', (chunk: Buffer) => {
-    stdout += chunk.toString('utf8');
+  try {
+    const session = await harness.connector.jobsClient(MACHINE_SSHD_NAME);
 
-    for (const event of framer.push(chunk)) {
-      if (event.kind !== 'line') continue;
-      const decoded = decodeFrame(event.line);
-
-      if (decoded.ok) answers.push(decoded.frame);
-    }
-  });
-  child.stdin.write(
-    encodeFrame({
-      s: CONTROL_STREAM_ID,
-      m: {
-        jsonrpc: '2.0',
-        id: 1,
-        method: 'hello',
-        params: { protocolVersion: PROTOCOL_VERSION, hubVersion: HUB_VERSION },
-      },
-    }),
-  );
-  const deadline = Date.now() + HANDSHAKE_POLL_TIMEOUT_MS;
-
-  while (answers.length === 0 && Date.now() < deadline)
-    await delay(PROCESS_POLL_MS);
-  child.kill();
-
-  const first = answers.at(0);
-
-  if (first === undefined) return { hello: undefined, stdout };
-
-  return {
-    hello: 'result' in first.m ? readHelloResult(first.m.result) : undefined,
-    stdout,
-  };
+    await session.client.cancelJob(
+      { requestId: jobId, jobId, owner },
+      session.callOptions(),
+    );
+  } finally {
+    harness.dispose();
+  }
 }

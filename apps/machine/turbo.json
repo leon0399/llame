@@ -12,7 +12,8 @@
         "$TURBO_ROOT$/clippy.toml",
         "$TURBO_ROOT$/rustfmt.toml",
         "$TURBO_ROOT$/rust-toolchain.toml",
-        "$TURBO_ROOT$/.cargo/**"
+        "$TURBO_ROOT$/.cargo/**",
+        "$TURBO_ROOT$/packages/machine-protocol/proto/**"
       ],
       "outputs": ["dist/**"]
     },
@@ -31,7 +32,6 @@
         "$TURBO_ROOT$/.cargo/**"
       ]
     },
-    "typecheck": { "dependsOn": ["^build"] },
     "test": {
       "dependsOn": ["^build"],
       "inputs": [

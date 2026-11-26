@@ -1,1139 +1,311 @@
-/**
- * One Machine session over a real wire: the handshake, the effect fence
- * (`sent`), the refusal paths, and every stream event that ends a session.
- * `createProtocolPeer` answers the wire wherever a peer can; the cases a peer
- * cannot express — an oversize line, an unreadable handshake answer, a write
- * that throws — drive a hand-made pipe pair instead.
- */
-
-import { PassThrough, Readable } from 'node:stream';
-
-import * as Sentry from '@sentry/nestjs';
-
+import { PassThrough } from 'node:stream';
+import { createRouterTransport } from '@connectrpc/connect';
+import { create } from '@bufbuild/protobuf';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
-  CANCEL_NOTIFICATION,
-  CONTROL_STREAM_ID,
-  createLineFramer,
-  decodeFrame,
-  encodeFrame,
-  GIT_METHODS,
-  JSON_RPC_INVALID_PARAMS,
-  MAX_CONCURRENT_STREAMS,
-  MAX_FRAME_BYTES,
-  MAX_MESSAGE_BYTES,
-  MachineProtocolError,
-  PING_NOTIFICATION,
-  PROTOCOL_VERSION,
-  StreamClosedError,
-  isSerializableRecord,
-  type Frame,
-  type JsonRpcError,
-  type JsonRpcRequest,
-  type SerializableValue,
+  BootstrapService,
+  GetInfoResponseSchema,
+  GetLimitsResponseSchema,
+  ListRootsResponseSchema,
+  MachineService,
+  MACHINE_PROTOCOL_VERSION,
+  type HelloResult,
+  type JsonValue,
+  type MachineMethod,
+  type MachineMethodParams,
 } from '@workspace/machine-protocol';
-
-import {
-  createProtocolPeer,
-  type ProtocolPeerOptions,
-} from '../testing/machine-protocol-peer';
-
+import type { MachineLinkEnd, MachineTransport } from './machine-transport';
 import {
   MachineSession,
-  MachineUnavailableError,
-  MachineUpdateRequiredError,
-  type MachineCall,
+  type MachineRequestHandler,
+  type MachineRequestOptions,
   type MachineSessionOptions,
+  type MachineStreamInvocation,
 } from './machine-session';
-import type { MachineLinkEnd, MachineTransport } from './machine-transport';
+import { MachineIdentityMismatchError } from './machine-session-errors';
 
-/** The span a channel's manual span hands to the session. */
-const span = { setStatus: vi.fn(), end: vi.fn() };
-
-type SpanOptions = Parameters<typeof Sentry.startSpanManual>[0];
-
-vi.mock('@sentry/nestjs', () => ({
-  getTraceData: vi.fn(() => ({})),
-  startSpan: vi.fn(<T>(_options: SpanOptions, callback: () => T): T =>
-    callback(),
-  ),
-  startSpanManual: vi.fn(
-    <T>(_options: SpanOptions, callback: (active: typeof span) => T): T =>
-      callback(span),
-  ),
-}));
-
-const NAME = 'devl';
-const HUB_VERSION = '9.9.9';
-
-/** Liveness has its own test; every other test keeps the session quiet. */
-const HEARTBEAT_OFF_MS = 60_000;
-const ENVELOPE = { budgetMs: 30_000 };
-
-const HELLO = {
-  protocolVersion: PROTOCOL_VERSION,
-  daemonVersion: '1.2.3',
-  roots: ['/srv/app'],
-  instanceId: '00000000-0000-4000-8000-000000000001',
+const hello = {
+  protocolVersion: MACHINE_PROTOCOL_VERSION,
+  daemonVersion: '1.0.0',
+  roots: ['/srv/workspace'],
+  instanceId: '11111111-1111-4111-8111-111111111111',
   buildId: '0123456789ab',
   facts: {
     os: 'linux',
     arch: 'x64',
-    kernel: '6.8.0',
-    cpuCount: 8,
-    totalMemoryBytes: 16 * 1024 ** 3,
-    rootDisks: [{ root: '/srv/app', totalBytes: 512 * 1024 ** 3 }],
+    kernel: 'test',
+    cpuCount: 2,
+    totalMemoryBytes: 4096,
+    rootDisks: [],
   },
-};
+} satisfies HelloResult;
 
-const ROOTS_CALL: MachineCall<'roots.list'> = {
-  method: 'roots.list',
-  params: { envelope: ENVELOPE },
-};
-
-const FS_STAT_CALL: MachineCall<'fs.stat'> = {
-  method: 'fs.stat',
-  params: { envelope: ENVELOPE, path: '/srv/app/a.ts' },
-};
-
-const FS_READ_CALL: MachineCall<'fs.read'> = {
-  method: 'fs.read',
-  params: {
-    envelope: ENVELOPE,
-    path: '/srv/app/a.ts',
-    options: { displayPrefix: 'machine://devl' },
-  },
-};
-
-const GIT_STATE_CALL: MachineCall<'git.state'> = {
-  method: 'git.state',
-  params: {
-    envelope: ENVELOPE,
-    path: '/srv/app',
-    gitEntry: '/srv/app/.git',
-    limit: 10,
-    submodules: 'check',
-    options: { displayPrefix: 'machine://devl' },
-  },
-};
-
-const MCP_OPEN_CALL: MachineCall<'mcp.open'> = {
-  method: 'mcp.open',
-  params: { envelope: ENVELOPE, root: '/srv/app', server: 'repo' },
-};
-
-/** Sessions this test opened, closed once it is done with them. */
-const live: Array<MachineSession> = [];
-
-afterEach(() => {
-  for (const session of live.splice(0)) session.close();
-});
-
-type LocalLink = {
-  readonly transport: MachineTransport;
-  /** Every frame the session wrote, decoded as it reached the wire. */
-  readonly frames: ReadonlyArray<Frame>;
-  /** How many times the session asked the link to end. */
-  readonly closes: () => number;
-  /** The next frame the session writes that `match` accepts. */
-  nextFrame(match: (frame: Frame) => boolean): Promise<Frame>;
-  /** One well-formed frame from the Machine. */
-  sendFrame(frame: Frame): void;
-  /** One raw line from the Machine, exactly as it arrived. */
-  sendLine(line: string): void;
-  /** How the link ended: its exit status, its stderr, and who closed it. */
-  resolveEnd(end: MachineLinkEnd): void;
-  /** The Machine's side ended cleanly: EOF and no close. */
-  endInput(): void;
-  /** The link was killed: close and no EOF. */
-  closeInput(): void;
-  /** The input stream itself failed. */
-  failInput(error: Error): void;
-  /** The output stream itself failed. */
-  failOutput(error: Error): void;
-};
-
-/**
- * The hub's side of the wire by hand, for what a peer cannot express. The
- * input is a `Readable` that never destroys itself, so EOF, an abrupt close,
- * and a stream error are each delivered alone — exactly one session event.
- */
-function localLink(
-  options: {
-    readonly inputEmitClose?: boolean;
-    /** Make the link's write side throw, as a broken pipe does. */
-    readonly writeError?: Error;
-  } = {},
-): LocalLink {
-  const input = new Readable({
-    read() {},
-    autoDestroy: false,
-    emitClose: options.inputEmitClose ?? true,
-  });
-
-  const output = new PassThrough();
-
-  if (options.writeError !== undefined) {
-    const { writeError } = options;
-    output.write = () => {
-      throw writeError;
-    };
+function requestHandlerFor(
+  fallback: JsonValue,
+  helloAnswer: JsonValue = hello,
+): MachineRequestHandler {
+  function handler(
+    method: 'hello',
+    params: { readonly protocolVersion: number; readonly hubVersion: string },
+    options: MachineRequestOptions,
+  ): Promise<JsonValue>;
+  function handler<M extends MachineMethod>(
+    method: M,
+    params: MachineMethodParams[M],
+    options: MachineRequestOptions,
+  ): Promise<JsonValue>;
+  function handler(method: string): Promise<JsonValue> {
+    return Promise.resolve(method === 'hello' ? helloAnswer : fallback);
   }
 
-  const end = Promise.withResolvers<MachineLinkEnd>();
-  const frames: Array<Frame> = [];
+  return handler;
+}
 
-  const waiters: Array<{
-    readonly match: (frame: Frame) => boolean;
-    readonly resolve: (frame: Frame) => void;
-  }> = [];
+const sessions: Array<MachineSession> = [];
 
-  const framer = createLineFramer();
-  output.on('data', (chunk: Buffer) => {
-    for (const event of framer.push(chunk)) {
-      if (event.kind !== 'line') continue;
-      const decoded = decodeFrame(event.line);
+afterEach(() => {
+  for (const session of sessions.splice(0)) session.close();
+});
 
-      if (!decoded.ok) continue;
-      frames.push(decoded.frame);
-
-      for (let index = waiters.length - 1; index >= 0; index -= 1) {
-        const waiter = waiters[index];
-
-        if (waiter === undefined || !waiter.match(decoded.frame)) continue;
-        waiters.splice(index, 1);
-        waiter.resolve(decoded.frame);
-      }
-    }
-  });
-  let closes = 0;
+function transport(): MachineTransport {
+  const ended = Promise.withResolvers<MachineLinkEnd>();
 
   return {
-    transport: {
-      input,
-      output,
-      close: () => {
-        closes += 1;
-      },
-      ended: end.promise,
+    input: new PassThrough(),
+    output: new PassThrough(),
+    close() {
+      ended.resolve({
+        code: 0,
+        signal: null,
+        diagnostic: '',
+        closedByHub: true,
+      });
     },
-    frames,
-    closes: () => closes,
-    nextFrame: (match) => {
-      const seen = frames.find(match);
-
-      if (seen !== undefined) return Promise.resolve(seen);
-      const { promise, resolve } = Promise.withResolvers<Frame>();
-      waiters.push({ match, resolve });
-
-      return promise;
-    },
-    sendFrame: (frame) => input.push(encodeFrame(frame)),
-    sendLine: (line) => input.push(`${line}\n`),
-    resolveEnd: (linkEnd) => end.resolve(linkEnd),
-    endInput: () => input.push(null),
-    closeInput: () => input.destroy(),
-    failInput: (error) => input.destroy(error),
-    failOutput: (error) => output.destroy(error),
+    ended: ended.promise,
   };
 }
 
-/** A hub session over a hand-made link. */
-function pipeSession(
-  link: LocalLink,
+function makeSession(
   options: Partial<MachineSessionOptions> = {},
 ): MachineSession {
-  return track(
-    new MachineSession({
-      name: NAME,
-      transport: link.transport,
-      hubVersion: HUB_VERSION,
-      handshakeTimeoutMs: 500,
-      heartbeatIntervalMs: HEARTBEAT_OFF_MS,
-      ...options,
-    }),
-  );
-}
+  const session = new MachineSession({
+    name: 'devl',
+    transport: transport(),
+    hubVersion: '9.9.9',
+    requestHandler: requestHandlerFor({}),
+    ...options,
+  });
 
-/** A hub session over the peer's real wire. */
-function peerSession(options: ProtocolPeerOptions = {}) {
-  const peer = createProtocolPeer(options);
-
-  const session = track(
-    new MachineSession({
-      name: NAME,
-      transport: peer.factory.open({ name: NAME, destination: 'box' }),
-      hubVersion: HUB_VERSION,
-      handshakeTimeoutMs: 2000,
-      heartbeatIntervalMs: HEARTBEAT_OFF_MS,
-    }),
-  );
-
-  return { peer, session };
-}
-
-function track(session: MachineSession): MachineSession {
-  live.push(session);
+  sessions.push(session);
 
   return session;
 }
 
-/** A frame the session wrote, narrowed to the request it carries. */
-function isRequest(
-  method: string,
-): (frame: Frame) => frame is Frame & { readonly m: JsonRpcRequest } {
-  return (frame): frame is Frame & { readonly m: JsonRpcRequest } =>
-    'method' in frame.m && frame.m.method === method && 'id' in frame.m;
-}
+function routerSession(
+  calls: Array<string>,
+  admitIdentity: (instanceId: string) => Promise<void>,
+): MachineSession {
+  const rpcTransport = createRouterTransport((router) => {
+    router.service(BootstrapService, {
+      getInfo: () => {
+        calls.push('GetInfo');
 
-/** A frame the session wrote, narrowed to the refusal on one stream. */
-function isErrorOn(
-  streamId: number,
-): (frame: Frame) => frame is Frame & { readonly m: JsonRpcError } {
-  return (frame): frame is Frame & { readonly m: JsonRpcError } =>
-    frame.s === streamId && 'error' in frame.m;
-}
+        return create(GetInfoResponseSchema, {
+          instanceId: hello.instanceId,
+          release: hello.daemonVersion,
+          buildId: hello.buildId,
+          protocolVersion: MACHINE_PROTOCOL_VERSION,
+        });
+      },
+    });
+    router.service(MachineService, {
+      listRoots: () => {
+        calls.push('ListRoots');
 
-/** A frame the session wrote, narrowed to one notification. */
-function isNotification(method: string): (frame: Frame) => boolean {
-  return (frame) => 'method' in frame.m && frame.m.method === method;
-}
+        return create(ListRootsResponseSchema, {
+          roots: [{ path: '/srv/workspace' }],
+        });
+      },
+      getLimits: () => {
+        calls.push('GetLimits');
 
-/** The next frame the session writes that `match` accepts, narrowed by it. */
-async function awaitFrame<T extends Frame>(
-  link: LocalLink,
-  match: (frame: Frame) => frame is T,
-): Promise<T> {
-  const frame = await within(link.nextFrame(match));
+        return create(GetLimitsResponseSchema, {});
+      },
+    });
+  });
 
-  if (!match(frame))
-    throw new Error('The session wrote a frame this test did not await.');
+  const ended = Promise.withResolvers<MachineLinkEnd>();
 
-  return frame;
-}
-
-/** A promise that must settle within `ms`, so a session that never ends fails a test instead of hanging it. */
-function within<T>(promise: Promise<T>, ms = 2000): Promise<T> {
-  const bounded = Promise.withResolvers<T>();
-
-  const timer = setTimeout(
-    () =>
-      bounded.reject(new Error(`The promise did not settle within ${ms}ms.`)),
-    ms,
-  );
-
-  timer.unref();
-  void promise.then(
-    (value) => {
-      clearTimeout(timer);
-      bounded.resolve(value);
+  const session = new MachineSession({
+    name: 'devl',
+    transport: {
+      rpcTransport,
+      close: () =>
+        ended.resolve({
+          code: 0,
+          signal: null,
+          diagnostic: '',
+          closedByHub: true,
+        }),
+      ended: ended.promise,
     },
-    (error: unknown) => {
-      clearTimeout(timer);
-      bounded.reject(error);
+    hubVersion: '9.9.9',
+    admitIdentity: async (instanceId) => {
+      calls.push('admitIdentity');
+      await admitIdentity(instanceId);
     },
-  );
+  });
 
-  return bounded.promise;
+  sessions.push(session);
+
+  return session;
 }
 
-/** Let the session's own stream and promise callbacks run, with no guessed delay. */
-async function settle(): Promise<void> {
-  const turn = Promise.withResolvers<void>();
-  setImmediate(turn.resolve);
-  await turn.promise;
-  await Promise.resolve();
-}
-
-/** A call that must have failed: its rejection as an Error. */
-async function failedCall(promise: Promise<unknown>): Promise<Error> {
-  try {
-    await promise;
-  } catch (error) {
-    return error instanceof Error ? error : new Error(String(error));
-  }
-
-  throw new Error('The call resolved instead of failing.');
-}
-
-/** A call that must have thrown before it could send: its error as an Error. */
-function thrownCall(call: () => void): Error {
-  try {
-    call();
-  } catch (error) {
-    return error instanceof Error ? error : new Error(String(error));
-  }
-
-  throw new Error('The call returned instead of throwing.');
-}
-
-/** The refusal a call failed with, for the assertions on its fields. */
-function refusal(error: unknown): MachineUnavailableError {
-  if (error instanceof MachineUnavailableError) return error;
-  throw error;
-}
-
-/** The Machine's own refusal, for the assertions on its code. */
-function protocolError(error: unknown): MachineProtocolError {
-  if (error instanceof MachineProtocolError) return error;
-  throw error;
-}
-
-describe('MachineSession link ends', () => {
-  it("ends on the Machine's EOF with the link's own diagnostic", async () => {
-    const link = localLink();
-    const session = pipeSession(link);
-    link.resolveEnd({
-      code: 255,
-      signal: null,
-      diagnostic: 'me@box: Permission denied (publickey).',
-      closedByHub: false,
-    });
-    link.endInput();
-    await expect(within(session.ended)).resolves.toEqual({
-      reason: 'auth_failed',
-      established: false,
-    });
-    expect(session.endReason).toEqual({
-      reason: 'auth_failed',
-      established: false,
-    });
-    expect(session.isReady).toBe(false);
-    expect(link.closes()).toBe(1);
-  });
-
-  it("ends when the link is killed, reading ssh's host key refusal", async () => {
-    const link = localLink();
-    const session = pipeSession(link);
-    link.resolveEnd({
-      code: 255,
-      signal: null,
-      diagnostic: 'Host key verification failed.',
-      closedByHub: false,
-    });
-    link.closeInput();
-    await expect(within(session.ended)).resolves.toEqual({
-      reason: 'host_key_mismatch',
-      established: false,
-    });
-  });
-
-  it('ends when the input stream itself fails', async () => {
-    const link = localLink({ inputEmitClose: false });
-    const session = pipeSession(link);
-    link.resolveEnd({
-      code: 255,
-      signal: null,
-      diagnostic: 'ssh: connect to host box port 22: Connection timed out',
-      closedByHub: false,
-    });
-    link.failInput(new Error('read ECONNRESET'));
-    await expect(within(session.ended)).resolves.toEqual({
-      reason: 'unreachable',
-      established: false,
-    });
-  });
-
-  it('ends when the output stream itself fails', async () => {
-    const link = localLink();
-    const session = pipeSession(link);
-    link.resolveEnd({
-      code: 255,
-      signal: null,
-      diagnostic: '',
-      closedByHub: false,
-    });
-    link.failOutput(new Error('write EPIPE'));
-    await expect(within(session.ended)).resolves.toEqual({
-      reason: 'unreachable',
-      established: false,
-    });
-  });
-
-  it('pings once per interval, then ends the session on its own silence', async () => {
-    const link = localLink();
-
-    // Eight intervals of silence: on a loaded machine a late tick can only
-    // shorten the ping run, never stretch it past the deadline the session
-    // itself measured.
-    const session = pipeSession(link, {
-      heartbeatIntervalMs: 50,
-      heartbeatMisses: 8,
-    });
-
-    const started = Date.now();
-    await expect(within(session.ended)).resolves.toEqual({
-      reason: 'session_lost',
-      established: false,
-    });
-
-    // One ping per interval, and none once the peer stayed silent for the window.
-    const written = link.frames.filter((frame) =>
-      isNotification(PING_NOTIFICATION)(frame),
-    );
-
-    expect(written.length).toBeGreaterThan(1);
-    expect(written.length).toBeLessThanOrEqual(7);
-    // The third of the window would have ended the session far sooner.
-    expect(Date.now() - started).toBeGreaterThanOrEqual(300);
-  });
-
-  it('closes politely, keeps the first reason, and closes the link once', async () => {
-    const link = localLink();
-    const session = pipeSession(link);
-    link.resolveEnd({
-      code: 255,
-      signal: null,
-      diagnostic: 'Host key verification failed.',
-      closedByHub: false,
-    });
-    session.close();
-    await expect(session.ended).resolves.toEqual({
-      reason: 'closed',
-      established: false,
-    });
-    expect(session.endReason).toEqual({
-      reason: 'closed',
-      established: false,
-    });
-    expect(link.closes()).toBe(1);
-    // The input's own close runs the link classifier again; the first reason stands.
-    await settle();
-    expect(session.endReason).toEqual({
-      reason: 'closed',
-      established: false,
-    });
-    expect(link.closes()).toBe(1);
-  });
-});
-
-describe('MachineSession handshake', () => {
-  it('answers the handshake once and remembers it', async () => {
-    const link = localLink();
-    const session = pipeSession(link);
-    const answer = session.ready();
-    const request = await awaitFrame(link, isRequest('hello'));
-    expect(request.s).toBe(CONTROL_STREAM_ID);
-    expect(request.m.params).toEqual({
-      protocolVersion: PROTOCOL_VERSION,
-      hubVersion: HUB_VERSION,
-    });
-    link.sendFrame({
-      s: CONTROL_STREAM_ID,
-      m: { jsonrpc: '2.0', id: request.m.id, result: HELLO },
-    });
-    await expect(session.ready()).resolves.toEqual(HELLO);
-    await expect(answer).resolves.toEqual(HELLO);
-    expect(session.hello).toEqual(HELLO);
-    expect(session.isReady).toBe(true);
-    expect(
-      link.frames.filter((frame) => isRequest('hello')(frame)),
-    ).toHaveLength(1);
-  });
-
-  it('refuses an answer whose protocol version differs', async () => {
-    const link = localLink();
-    const session = pipeSession(link);
-    const answer = session.ready();
-    const request = await awaitFrame(link, isRequest('hello'));
-    link.sendFrame({
-      s: CONTROL_STREAM_ID,
-      m: {
-        jsonrpc: '2.0',
-        id: request.m.id,
-        result: { ...HELLO, protocolVersion: PROTOCOL_VERSION + 1 },
+describe('MachineSession Connect-ES adapter', () => {
+  it('refuses a hello without an instance id before calling the Machine service', async () => {
+    const helloWithoutInstanceId: JsonValue = {
+      protocolVersion: MACHINE_PROTOCOL_VERSION,
+      daemonVersion: '1.0.0',
+      roots: ['/srv/workspace'],
+      buildId: '0123456789ab',
+      facts: {
+        os: 'linux',
+        arch: 'x64',
+        kernel: 'test',
+        cpuCount: 2,
+        totalMemoryBytes: 4096,
+        rootDisks: [],
       },
-    });
-    const error = refusal(await failedCall(answer));
-    expect(error.name).toBe('MachineUnavailableError');
-    expect(error.machine).toBe(NAME);
-    expect(error.reason).toBe('incompatible_version');
-    expect(error.sent).toBe(false);
-    expect(error.message).toBe('The Machine answered an unusable handshake.');
-    expect(session.hello).toBeUndefined();
-    await expect(session.ended).resolves.toEqual({
-      reason: 'incompatible_version',
-      established: false,
-    });
-  });
+    };
 
-  it('refuses a protocol version 2 daemon that has no unit-letter selectors', async () => {
-    const link = localLink();
-    const session = pipeSession(link);
-    const answer = session.ready();
-    const request = await awaitFrame(link, isRequest('hello'));
-    link.sendFrame({
-      s: CONTROL_STREAM_ID,
-      m: {
-        jsonrpc: '2.0',
-        id: request.m.id,
-        result: { ...HELLO, protocolVersion: 2 },
-      },
+    const session = makeSession({
+      requestHandler: requestHandlerFor({}, helloWithoutInstanceId),
     });
-    const error = refusal(await failedCall(answer));
-    expect(error.reason).toBe('incompatible_version');
-    expect(error.sent).toBe(false);
-    expect(session.hello).toBeUndefined();
-    await expect(session.ended).resolves.toEqual({
-      reason: 'incompatible_version',
-      established: false,
-    });
-  });
 
-  it('refuses a version 1 handshake that carries no identity or facts', async () => {
-    const link = localLink();
-    const session = pipeSession(link);
-    const answer = session.ready();
-    const request = await awaitFrame(link, isRequest('hello'));
-    link.sendFrame({
-      s: CONTROL_STREAM_ID,
-      m: {
-        jsonrpc: '2.0',
-        id: request.m.id,
-        result: { protocolVersion: 1, daemonVersion: '0.9.0', roots: [] },
-      },
-    });
-    const error = refusal(await failedCall(answer));
-    expect(error.reason).toBe('incompatible_version');
-    expect(error.sent).toBe(false);
-    expect(session.hello).toBeUndefined();
-  });
+    const getInfo = vi.spyOn(session.clients.bootstrap, 'getInfo');
+    const listRoots = vi.spyOn(session.clients.machine, 'listRoots');
 
-  it('refuses an answer it cannot read', async () => {
-    const link = localLink();
-    const session = pipeSession(link);
-    const answer = session.ready();
-    const request = await awaitFrame(link, isRequest('hello'));
-    link.sendFrame({
-      s: CONTROL_STREAM_ID,
-      m: { jsonrpc: '2.0', id: request.m.id, result: { hello: 'yes' } },
-    });
-    const error = refusal(await failedCall(answer));
-    expect(error.reason).toBe('incompatible_version');
-    expect(error.message).toBe('The Machine answered an unusable handshake.');
-  });
-
-  it("reports the daemon's own refusal with its message", async () => {
-    const { session } = peerSession({ helloProtocolVersion: 99 });
-    const error = refusal(await failedCall(session.ready()));
-    expect(error.reason).toBe('incompatible_version');
-    expect(error.sent).toBe(false);
-    expect(error.message).toBe(
-      'The Machine refused the handshake: version mismatch',
+    await expect(session.ready()).rejects.toThrow(
+      'The Machine answered an unusable handshake.',
     );
-    await expect(session.ended).resolves.toEqual({
-      reason: 'incompatible_version',
-      established: false,
-    });
+    expect(getInfo).not.toHaveBeenCalled();
+    expect(listRoots).not.toHaveBeenCalled();
   });
 
-  it('gives up on a handshake that never answers', async () => {
-    const link = localLink();
-    const session = pipeSession(link, { handshakeTimeoutMs: 30 });
-    const error = refusal(await failedCall(within(session.ready(), 1000)));
-    expect(error.reason).toBe('unreachable');
-    expect(error.sent).toBe(false);
-    await expect(session.ended).resolves.toEqual({
-      reason: 'unreachable',
-      established: false,
-    });
-  });
+  it('handshakes with the exact protocol version and exposes identity, facts, and roots', async () => {
+    const handler = { request: requestHandlerFor({}) };
+    const requestSpy = vi.spyOn(handler, 'request');
+    const session = makeSession({ requestHandler: handler.request });
 
-  it('clears the handshake timer once the handshake answered', async () => {
-    const link = localLink();
-    const session = pipeSession(link, { handshakeTimeoutMs: 40 });
-    const answer = session.ready();
-    const request = await awaitFrame(link, isRequest('hello'));
-    link.sendFrame({
-      s: CONTROL_STREAM_ID,
-      m: { jsonrpc: '2.0', id: request.m.id, result: HELLO },
-    });
-    await expect(answer).resolves.toEqual(HELLO);
-    // A real wait: only the clock can show that the handshake timer is gone.
-    const quiet = Promise.withResolvers<void>();
-    setTimeout(quiet.resolve, 160);
-    await quiet.promise;
-    expect(session.endReason).toBeUndefined();
-    expect(session.isReady).toBe(true);
-  });
-});
-
-describe('MachineSession readiness', () => {
-  it('is ready only between the handshake and the end', async () => {
-    const { peer, session } = peerSession();
-    expect(session.isReady).toBe(false);
-    await expect(session.ready()).resolves.toMatchObject({
-      protocolVersion: PROTOCOL_VERSION,
-    });
-    expect(session.isReady).toBe(true);
-    const machine = await peer.session(0);
-    machine.drop();
-    await expect(within(session.ended)).resolves.toEqual({
-      reason: 'session_lost',
-      established: true,
-    });
-    expect(session.isReady).toBe(false);
-  });
-});
-
-describe('MachineSession git methods', () => {
-  const FS_READ_ANSWER = {
-    value: { status: 'error', type: 'not_found', message: 'no' },
-  };
-
-  it('Outdated daemon asks for an update: a daemon that listed none gets no frame', async () => {
-    const { peer, session } = peerSession({
-      roots: ['/srv/app'],
-      answers: { 'fs.read': FS_READ_ANSWER },
-    });
-
-    await session.ready();
-
-    const error = await failedCall(session.request(GIT_STATE_CALL));
-
-    expect(error).toBeInstanceOf(MachineUpdateRequiredError);
-    expect(error.name).toBe('MachineUpdateRequiredError');
-    expect(error.message).toBe(
-      'The llame-machine daemon on devl answers no git.state. Update the daemon on that Machine to use git operations on it.',
+    await expect(session.ready()).resolves.toEqual(hello);
+    expect(requestSpy).toHaveBeenCalledWith(
+      'hello',
+      { protocolVersion: MACHINE_PROTOCOL_VERSION, hubVersion: '9.9.9' },
+      expect.objectContaining({ budgetMs: 30_000 }),
     );
-    // The same session still runs a file tool: only the git surface is
-    // missing on a daemon that predates it.
-    await expect(session.request(FS_READ_CALL)).resolves.toMatchObject({
-      status: 'error',
-      type: 'not_found',
-    });
-    const machine = await peer.session(0);
-    expect(machine.requests).not.toContain('git.state');
-    expect(machine.requests).toContain('fs.read');
-  });
-
-  it('A daemon without the state method asks for an update', async () => {
-    // The five methods a daemon listed before `git.locate` and `git.state`.
-    const { peer, session } = peerSession({
-      roots: ['/srv/app'],
-      methods: [
-        'git.inspect',
-        'git.worktreeAdd',
-        'git.worktreeList',
-        'git.worktreeRemove',
-        'git.status',
-      ],
-    });
-
-    await expect(session.ready()).resolves.toMatchObject({
-      protocolVersion: PROTOCOL_VERSION,
-    });
-
-    const error = await failedCall(session.request(GIT_STATE_CALL));
-
-    expect(error).toBeInstanceOf(MachineUpdateRequiredError);
-    expect((await peer.session(0)).requests).not.toContain('git.state');
-  });
-
-  it('Handshake with an old daemon still succeeds', async () => {
-    const { session } = peerSession({ roots: ['/srv/app'] });
-    await expect(session.ready()).resolves.toMatchObject({
-      protocolVersion: PROTOCOL_VERSION,
-      roots: ['/srv/app'],
-    });
     expect(session.isReady).toBe(true);
   });
 
-  it('sends a listed git method with its display prefix', async () => {
-    const { peer, session } = peerSession({
-      roots: ['/srv/app'],
-      methods: [...GIT_METHODS],
-      answers: {
-        'git.state': {
-          value: { status: 'error', type: 'timed_out', stderr: '' },
-        },
+  it('dispatches unary calls with their method, params, and request budget', async () => {
+    const handler = {
+      request: requestHandlerFor({ kind: 'file', size: 12 }),
+    };
+
+    const requestSpy = vi.spyOn(handler, 'request');
+    const session = makeSession({ requestHandler: handler.request });
+
+    const params = {
+      envelope: { budgetMs: 750 },
+      path: '/srv/workspace/readme.txt',
+    };
+
+    await expect(
+      session.request({ method: 'fs.stat', params }),
+    ).resolves.toEqual({ kind: 'file', size: 12 });
+    expect(requestSpy).toHaveBeenCalledWith('fs.stat', params, {
+      machineName: 'devl',
+    });
+  });
+
+  it('bridges Connect server-stream notifications through an open channel', async () => {
+    const invocationReady = Promise.withResolvers<MachineStreamInvocation>();
+
+    const streamHandler = vi.fn((invocation: MachineStreamInvocation) => {
+      queueMicrotask(() =>
+        invocation.notify({
+          method: 'mcp.message',
+          params: { message: 'ready' },
+        }),
+      );
+      invocationReady.resolve(invocation);
+
+      return Promise.resolve({ protectedValues: [] });
+    });
+
+    const session = makeSession({ streamHandler });
+    const notification = vi.fn();
+
+    const handle = session.openChannel({
+      method: 'mcp.open',
+      params: {
+        envelope: { budgetMs: 5000 },
+        root: '/srv/workspace',
+        server: 'repo',
       },
     });
 
-    await session.ready();
+    handle.channel.onNotification(notification);
 
-    await expect(session.request(GIT_STATE_CALL)).resolves.toEqual({
-      status: 'error',
-      type: 'timed_out',
-      stderr: '',
-    });
-    const machine = await peer.session(0);
-    expect(
-      machine.calls.find((call) => call.method === 'git.state')?.params,
-    ).toMatchObject({ options: { displayPrefix: 'machine://devl' } });
-  });
-});
-
-describe('MachineSession request fence', () => {
-  it('refuses a request whose signal was already aborted, passing it through', async () => {
-    const link = localLink();
-    const session = pipeSession(link);
-    const given = new Error('the caller gave up');
-
-    const error = await failedCall(
-      session.request(ROOTS_CALL, { signal: AbortSignal.abort(given) }),
-    );
-
-    expect(error).toBe(given);
-    expect(error).not.toBeInstanceOf(MachineUnavailableError);
-    expect(link.frames).toHaveLength(0);
-    expect(session.endReason).toBeUndefined();
-  });
-
-  it('fails a request and a channel on an ended session without sending', async () => {
-    const link = localLink();
-    const session = pipeSession(link);
-    session.close();
-    const error = refusal(await failedCall(session.request(ROOTS_CALL)));
-    expect(error.name).toBe('MachineUnavailableError');
-    expect(error.machine).toBe(NAME);
-    expect(error.reason).toBe('session_lost');
-    expect(error.sent).toBe(false);
-    expect(error.message).toBe('The Machine session has already ended.');
-    expect(() => session.openChannel(MCP_OPEN_CALL)).toThrow(
-      MachineUnavailableError,
-    );
-    expect(link.frames).toHaveLength(0);
-  });
-
-  it('keeps the reason of a session that never started for a later request', async () => {
-    const link = localLink();
-    const session = pipeSession(link);
-    link.resolveEnd({
-      code: 255,
-      signal: null,
-      diagnostic: 'Host key verification failed.',
-      closedByHub: false,
-    });
-    link.closeInput();
-    await expect(within(session.ended)).resolves.toEqual({
-      reason: 'host_key_mismatch',
-      established: false,
-    });
-    const error = refusal(await failedCall(session.request(ROOTS_CALL)));
-    expect(error.reason).toBe('host_key_mismatch');
-    expect(error.sent).toBe(false);
-    expect(error.message).toBe('The Machine session has already ended.');
-    expect(link.frames).toHaveLength(0);
-  });
-
-  it('reports a request in flight when the session closes politely as lost', async () => {
-    const { peer, session } = peerSession({
-      answers: { 'roots.list': { hold: true } },
-    });
-
-    await session.ready();
-    const call = failedCall(session.request(ROOTS_CALL));
-    const machine = await peer.session(0);
-    await machine.awaitRequests(1);
-    session.close();
-    const error = refusal(await call);
-    expect(error.reason).toBe('session_lost');
-    expect(error.sent).toBe(true);
-  });
-
-  it('reports a request lost after its frame was written as sent', async () => {
-    const { peer, session } = peerSession({
-      answers: { 'fs.stat': { hold: true } },
-    });
-
-    await session.ready();
-    const call = failedCall(session.request(FS_STAT_CALL));
-    const machine = await peer.session(0);
-    await machine.awaitRequests(1);
-    machine.drop({ code: 255, diagnostic: 'Connection reset by peer' });
-    const error = refusal(await call);
-    expect(error.reason).toBe('session_lost');
-    expect(error.sent).toBe(true);
-    expect(error.message).toBe('Stream 1 was closed.');
-  });
-
-  it('reports a request whose frame never reached the wire as unsent', async () => {
-    const link = localLink({ writeError: new Error('write EPIPE') });
-    const session = pipeSession(link);
-    const error = refusal(await failedCall(session.request(ROOTS_CALL)));
-    expect(error.reason).toBe('session_lost');
-    expect(error.sent).toBe(false);
-    await expect(within(session.ended)).resolves.toEqual({
-      reason: 'session_lost',
-      established: false,
-    });
-    expect(link.frames).toHaveLength(0);
-  });
-
-  it("passes the Machine's own refusal through unchanged", async () => {
-    const { session } = peerSession({
-      answers: { 'roots.list': { error: 'path_not_registered' } },
-    });
-
-    await session.ready();
-    const error = protocolError(await failedCall(session.request(ROOTS_CALL)));
-    expect(error.name).toBe('MachineProtocolError');
-    expect(error.code).toBe('path_not_registered');
-    expect(error.message).toBe('the peer refused roots.list');
-  });
-
-  it('refuses an answer above the frame byte bound without ending the session', async () => {
-    const link = localLink();
-    const session = pipeSession(link);
-
-    const call = failedCall(
-      session.request({
-        method: 'fs.stat',
-        params: {
-          envelope: ENVELOPE,
-          path: 'p'.repeat(MAX_MESSAGE_BYTES + 100),
-        },
-      }),
-    );
-
-    const refused = await awaitFrame(link, isErrorOn(1));
-    expect(refused.m.error.message).toBe(
-      'The answer exceeds the frame byte bound of this protocol.',
-    );
-    expect(refused.m.error.data).toEqual({ code: 'internal' });
-    expect(refusal(await call).reason).toBe('session_lost');
-    expect(session.endReason).toBeUndefined();
-  });
-});
-
-describe('MachineSession channels', () => {
-  it('refuses a channel past the session stream cap without ending it', async () => {
-    const link = localLink();
-    const session = pipeSession(link);
-
-    const open = Array.from({ length: MAX_CONCURRENT_STREAMS }, () =>
-      session.openChannel(MCP_OPEN_CALL),
-    );
-
-    const error = refusal(thrownCall(() => session.openChannel(MCP_OPEN_CALL)));
-    expect(error.reason).toBe('session_lost');
-    expect(error.sent).toBe(false);
-    expect(error.message).toBe(
-      'The Machine session already carries the maximum number of streams.',
-    );
-    expect(link.frames).toHaveLength(MAX_CONCURRENT_STREAMS);
-    expect(session.openStreams).toBe(MAX_CONCURRENT_STREAMS);
-    expect(session.endReason).toBeUndefined();
-
-    // The cap holds 64 streams; closing them settles the answers they await.
-    for (const handle of open) handle.channel.close();
-    expect(session.openStreams).toBe(0);
-    await Promise.allSettled(open.map((handle) => handle.result));
-  });
-
-  it("cancels a channel's stream when the caller aborts", async () => {
-    const link = localLink();
-    const session = pipeSession(link);
-    const abort = new AbortController();
-
-    const handle = session.openChannel(MCP_OPEN_CALL, {
-      signal: abort.signal,
-    });
-
-    const request = await awaitFrame(link, isRequest('mcp.open'));
-    expect(handle.channel.id).toBe(request.s);
-    abort.abort();
-
-    const cancel = await within(
-      link.nextFrame(isNotification(CANCEL_NOTIFICATION)),
-    );
-
-    expect(cancel).toEqual({
-      s: request.s,
-      m: { jsonrpc: '2.0', method: CANCEL_NOTIFICATION },
-    });
-    await expect(handle.result).rejects.toBeInstanceOf(StreamClosedError);
-    expect(session.endReason).toBeUndefined();
-  });
-
-  it('reports a channel lost with the session as sent', async () => {
-    const { peer, session } = peerSession({
-      answers: { 'mcp.open': { hold: true } },
-    });
-
-    await session.ready();
-    const handle = session.openChannel(MCP_OPEN_CALL);
-    const machine = await peer.session(0);
-    await machine.awaitRequests(1);
-    machine.drop({ diagnostic: 'Connection reset by peer' });
-    const error = refusal(await failedCall(handle.result));
-    expect(error.reason).toBe('session_lost');
-    expect(error.sent).toBe(true);
-  });
-
-  it('reports a channel whose frame never reached the wire as unsent', async () => {
-    const link = localLink({ writeError: new Error('write EPIPE') });
-    const session = pipeSession(link);
-    const handle = session.openChannel(MCP_OPEN_CALL);
-    const error = refusal(await failedCall(handle.result));
-    expect(error.reason).toBe('session_lost');
-    expect(error.sent).toBe(false);
-    expect(link.frames).toHaveLength(0);
-  });
-});
-
-describe('MachineSession unusable inbound lines', () => {
-  it('refuses an oversize message that names a stream', async () => {
-    const link = localLink();
-    const session = pipeSession(link);
-    const call = failedCall(session.request(FS_STAT_CALL));
-    const request = await awaitFrame(link, isRequest('fs.stat'));
-    // A message over the message bound inside a line still under the frame bound.
-    link.sendLine(
-      JSON.stringify({ s: request.s, m: 'x'.repeat(MAX_MESSAGE_BYTES + 64) }),
-    );
-    const refused = await awaitFrame(link, isErrorOn(request.s));
-    expect(refused.m.id).toBe(request.m.id);
-    expect(refused.m.error).toEqual({
-      code: JSON_RPC_INVALID_PARAMS,
-      message: 'The frame exceeds the byte bound of this protocol.',
-      data: { code: 'invalid_params' },
-    });
-    expect(refusal(await call).reason).toBe('session_lost');
-    expect(session.endReason).toBeUndefined();
-  });
-
-  it('refuses a malformed frame that names a stream', async () => {
-    const link = localLink();
-    const session = pipeSession(link);
-    const call = failedCall(session.request(FS_STAT_CALL));
-    const request = await awaitFrame(link, isRequest('fs.stat'));
-    link.sendLine(JSON.stringify({ s: request.s, m: { jsonrpc: '2.0' } }));
-    const refused = await awaitFrame(link, isErrorOn(request.s));
-    expect(refused.m.error.message).toBe(
-      'The frame is not a JSON-RPC message.',
-    );
-    expect(refused.m.error.data).toEqual({ code: 'invalid_params' });
-    expect(refusal(await call).reason).toBe('session_lost');
-    expect(session.endReason).toBeUndefined();
-  });
-
-  it('stays silent for an unusable line that names no stream', async () => {
-    const link = localLink();
-    const session = pipeSession(link);
-    const call = session.request(ROOTS_CALL);
-    const request = await awaitFrame(link, isRequest('roots.list'));
-    link.sendLine('this is not a frame');
-    link.sendLine(JSON.stringify({ s: 'one', m: { jsonrpc: '2.0' } }));
-    link.sendFrame({
-      s: request.s,
-      m: { jsonrpc: '2.0', id: request.m.id, result: { roots: ['/srv/app'] } },
-    });
-    // The open request still answers: the two unusable lines were dropped, not sent back.
-    await expect(call).resolves.toEqual({ roots: ['/srv/app'] });
-    expect(link.frames).toHaveLength(1);
-    expect(session.endReason).toBeUndefined();
-  });
-
-  it('ends the session when a line grows past the frame byte bound', async () => {
-    const link = localLink();
-    const session = pipeSession(link);
-    link.sendLine('x'.repeat(MAX_FRAME_BYTES + 1));
-    await expect(within(session.ended)).resolves.toEqual({
-      reason: 'session_lost',
-      established: false,
-    });
-  });
-});
-
-describe('MachineSession tracing', () => {
-  const SENTRY_TRACE = '0123456789abcdef0123456789abcdef-0123456789abcdef-1';
-  const BAGGAGE = 'sentry-trace_id=0123456789abcdef0123456789abcdef';
-
-  const SPAN = {
-    name: 'llame-machine/fs.stat',
-    op: 'rpc',
-    attributes: {
-      'rpc.system.name': 'jsonrpc',
-      'rpc.service': 'llame-machine',
-      'rpc.method': 'fs.stat',
-      'jsonrpc.protocol.version': '2.0',
-    },
-  };
-
-  afterEach(() => {
-    vi.mocked(Sentry.getTraceData).mockReturnValue({});
-    vi.clearAllMocks();
-  });
-
-  /** The envelope the session wrote for one answered `fs.stat` request. */
-  async function sentEnvelope(): Promise<SerializableValue | undefined> {
-    const link = localLink();
-    const session = pipeSession(link);
-    const call = session.request(FS_STAT_CALL);
-    const request = await awaitFrame(link, isRequest('fs.stat'));
-    link.sendFrame({
-      s: request.s,
-      m: { jsonrpc: '2.0', id: request.m.id, result: { kind: 'missing' } },
-    });
-    await expect(call).resolves.toEqual({ kind: 'missing' });
-    const params = request.m.params;
-
-    return isSerializableRecord(params) ? params['envelope'] : undefined;
-  }
-
-  it('carries the active trace in the envelope inside an rpc span', async () => {
-    vi.mocked(Sentry.getTraceData).mockReturnValue({
-      'sentry-trace': SENTRY_TRACE,
-      baggage: BAGGAGE,
-    });
-
-    await expect(sentEnvelope()).resolves.toEqual({
-      ...ENVELOPE,
-      trace: { sentryTrace: SENTRY_TRACE, baggage: BAGGAGE },
-    });
-    expect(Sentry.startSpan).toHaveBeenCalledWith(SPAN, expect.any(Function));
-  });
-
-  it('carries a trace without baggage as just its sentry-trace', async () => {
-    vi.mocked(Sentry.getTraceData).mockReturnValue({
-      'sentry-trace': SENTRY_TRACE,
-    });
-
-    await expect(sentEnvelope()).resolves.toEqual({
-      ...ENVELOPE,
-      trace: { sentryTrace: SENTRY_TRACE },
-    });
-  });
-
-  it('leaves the envelope unchanged without an active trace', async () => {
-    await expect(sentEnvelope()).resolves.toEqual(ENVELOPE);
-  });
-
-  it("ends a channel's span with its answer, marking a failed one", async () => {
-    const link = localLink({ writeError: new Error('write EPIPE') });
-    const session = pipeSession(link);
-
-    const handle = session.openChannel(MCP_OPEN_CALL);
-    await failedCall(handle.result);
-    await settle();
-
-    expect(Sentry.startSpanManual).toHaveBeenCalledWith(
-      {
-        ...SPAN,
-        name: 'llame-machine/mcp.open',
-        attributes: { ...SPAN.attributes, 'rpc.method': 'mcp.open' },
-      },
-      expect.any(Function),
-    );
-    expect(span.setStatus).toHaveBeenCalledWith({ code: 2 });
-    expect(span.end).toHaveBeenCalledOnce();
-  });
-
-  it("ends an answered channel's span without an error status", async () => {
-    const link = localLink();
-    const session = pipeSession(link);
-
-    const handle = session.openChannel(MCP_OPEN_CALL);
-    const request = await awaitFrame(link, isRequest('mcp.open'));
-    link.sendFrame({
-      s: request.s,
-      m: { jsonrpc: '2.0', id: request.m.id, result: { protectedValues: [] } },
-    });
     await expect(handle.result).resolves.toEqual({ protectedValues: [] });
-    await settle();
+    expect(handle.channel.closed).toBe(false);
+    expect(session.openStreams).toBe(1);
+    const invocation = await invocationReady.promise;
+    invocation.notify({
+      method: 'mcp.message',
+      params: { message: 'after open resolves' },
+    });
+    expect(notification).toHaveBeenNthCalledWith(2, {
+      method: 'mcp.message',
+      params: { message: 'after open resolves' },
+    });
+    handle.channel.close();
+    expect(session.openStreams).toBe(0);
+    expect(invocation.method).toBe('mcp.open');
+    expect(invocation.params).toMatchObject({
+      root: '/srv/workspace',
+      server: 'repo',
+    });
+    expect(notification).toHaveBeenNthCalledWith(1, {
+      method: 'mcp.message',
+      params: { message: 'ready' },
+    });
+    expect(handle.channel.closed).toBe(true);
+  });
+  it('admits identity after GetInfo and before roots and limits on a Connect router', async () => {
+    const calls: Array<string> = [];
+    const session = routerSession(calls, async () => {});
 
-    expect(span.setStatus).not.toHaveBeenCalled();
-    expect(span.end).toHaveBeenCalledOnce();
+    await session.ready();
+
+    expect(calls).toEqual([
+      'GetInfo',
+      'admitIdentity',
+      'ListRoots',
+      'GetLimits',
+    ]);
+  });
+
+  it('does not call roots or limits when identity admission fails', async () => {
+    const calls: Array<string> = [];
+
+    const session = routerSession(calls, () =>
+      Promise.reject(new MachineIdentityMismatchError('devl')),
+    );
+
+    await expect(session.ready()).rejects.toBeInstanceOf(
+      MachineIdentityMismatchError,
+    );
+
+    expect(calls).toEqual(['GetInfo', 'admitIdentity']);
   });
 });

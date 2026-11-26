@@ -70,13 +70,11 @@ Machine, the host Machine included, runs its git on its daemon, so a result path
 outside that daemon's registered roots is its refusal: the route answers `403`
 `permission_denied` and stores no row.
 
-Every Machine must run a daemon that answers the typed git methods, the host
-Machine's own included; see
-[remote Machines](machines.md#install-the-daemon). Registration on a Machine
-whose daemon predates them answers `503` `machine_update_required` and stores
-no row, while every other Machine operation keeps working. An unavailable host
-daemon answers `503` `machine_unavailable` and starts no git process in the API
-or the worker.
+Every Machine must run the Rust daemon using protocol version 5; see
+[remote Machines](machines.md#install-the-daemon). A daemon with an incompatible
+protocol is refused before repository operations begin. An unavailable host
+daemon answers `503` `machine_unavailable` without starting a repository
+operation.
 
 ## The API
 
@@ -177,15 +175,12 @@ has a timeout. A value that starts with `-` is refused as invalid input before
 git starts, and every path must be absolute. A failure is typed and carries the
 bounded, redacted standard error.
 
-On every Machine, the host Machine included, each path in an answer is a
-locator, and each registered-root prefix in a failure's standard error is
-rewritten to the locator form, so a host path for a registered root never
-reaches the hub. The handshake lists the git methods a daemon answers. llame's
-own git calls run on a Machine's daemon, never in the API or a worker: host
-registration, git state, and worktree calls run on the host Machine's own
-daemon, under the same argv, environment, timeout, and root enforcement as a
-remote Machine. Model `bash` commands and background jobs still run git in the
-worker, on the host Machine's files.
+On every Machine, the host included, paths in answers are locators, and
+registered-root prefixes in failure standard error are rewritten to locator
+form, so host paths for registered roots do not reach the hub. Repository
+inspection, status, and worktree operations are handled by the Machine's
+GitService under the same argument, environment, timeout, and root rules for
+local and remote Machines.
 
 ### Hooks, monitors, and filter drivers
 
