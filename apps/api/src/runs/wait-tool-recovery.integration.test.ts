@@ -42,6 +42,7 @@ describe('wait tool native-queue recovery', () => {
 
   afterAll(async () => {
     await harness?.close();
+
     for (const daemon of daemons) daemon.dispose();
     await Promise.all(directories.map((path) => rm(path, { recursive: true })));
   });
@@ -51,12 +52,16 @@ describe('wait tool native-queue recovery', () => {
     async (prefixTool) => {
       await harness?.close();
       const directory = await mkdtemp(join(tmpdir(), 'wait-recovery-'));
+
       const daemon = startLocalDaemon({
         roots: [directory],
         name: 'wait-recovery-host',
       });
+
       daemons.push(daemon);
+
       directories.push(directory);
+
       const path = join(directory, 'prefix.txt');
       await writeFile(path, prefixTool === 'read' ? 'original read value' : '');
 

@@ -99,6 +99,7 @@ export function useSegmentsFixture(
 
   beforeAll(async () => {
     const directory = await mkdtemp(join(tmpdir(), `${label}-`));
+
     const daemon =
       options.localMachine === undefined
         ? undefined
@@ -112,6 +113,7 @@ export function useSegmentsFixture(
         ...options,
         ...(daemon !== undefined && { machineConnector: daemon.connector }),
       });
+
       booted = {
         harness,
         userId: await createUser(harness.db, label),

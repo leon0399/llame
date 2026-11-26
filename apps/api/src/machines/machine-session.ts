@@ -46,7 +46,6 @@ export type {
   MachineChannelHandle,
   MachineNotification,
   MachineSessionEnd,
-  MachineSessionEndReason,
 } from './machine-session-channel';
 import type { MachineFailureReason } from './machines-status';
 import { createHelloResult } from './machine-session-handshake';

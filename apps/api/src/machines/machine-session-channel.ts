@@ -1,7 +1,7 @@
 import { type JsonValue } from '@workspace/machine-protocol';
 import { type MachineFailureReason } from './machines-status';
 
-export type MachineSessionEndReason = MachineFailureReason | 'closed';
+type MachineSessionEndReason = MachineFailureReason | 'closed';
 
 export type MachineSessionEnd = {
   readonly reason: MachineSessionEndReason;
