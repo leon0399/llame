@@ -115,7 +115,9 @@ describe('skill package references and scripts through the model loop', () => {
   });
   afterAll(async () => {
     if (harness) await harness.close();
+
     if (daemon) daemon.dispose();
+
     await rm(source, { recursive: true, force: true });
   });
 
