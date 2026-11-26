@@ -9,7 +9,7 @@
 mod common;
 
 use machine_protocol::v1::{
-    SearchBounds, SearchFilesRequest, SearchPosition, SearchStop,
+    SearchBounds, SearchFilesRequest, SearchPosition, SearchStop, SkipReason,
     file_service_client::FileServiceClient, search_files_response::Event,
 };
 use tonic::Code;
@@ -350,6 +350,36 @@ async fn stopped_search_positions_advance_past_the_incoming_cursor() {
         }
     }
     assert_eq!(resumed, [("b.txt".into(), 1)]);
+}
+
+#[tokio::test]
+async fn ignored_directories_before_a_resume_cursor_are_not_recounted() {
+    let machine = common::Machine::new();
+    let root = machine.root();
+    std::fs::create_dir(root.join("blocked")).unwrap();
+    std::fs::write(root.join(".gitignore"), "blocked/\n").unwrap();
+    std::fs::write(root.join("z.txt"), "needle\n").unwrap();
+    let (_child, channel) = machine.attach().await;
+    let mut client = FileServiceClient::new(channel);
+    let mut req = request(root, &["needle"]);
+    req.respect_ignore_files = true;
+    req.after = Some(SearchPosition {
+        path: "z.txt".into(),
+        line: 1,
+        byte_offset: None,
+    });
+
+    let mut stream = client.search_files(req).await.unwrap().into_inner();
+    let mut ignored = false;
+    while let Some(response) = stream.message().await.unwrap() {
+        if matches!(
+            &response.event,
+            Some(Event::Skipped(skipped)) if skipped.reason == SkipReason::Ignored as i32
+        ) {
+            ignored = true;
+        }
+    }
+    assert!(!ignored);
 }
 
 #[tokio::test]

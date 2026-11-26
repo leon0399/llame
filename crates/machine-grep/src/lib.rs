@@ -232,7 +232,9 @@ fn run_search(
         }
         if entry.is_dir {
             if respect_ignore_files && ignored(&entry.path, true, &ignore_rules) {
-                if !skip(sender, &entry.rel, SkipReason::Ignored) {
+                let before_cursor =
+                    after.is_some_and(|position| compare_rel(&entry.rel, &position.path).is_lt());
+                if !before_cursor && !skip(sender, &entry.rel, SkipReason::Ignored) {
                     return;
                 }
                 continue;
@@ -265,7 +267,9 @@ fn run_search(
             continue;
         }
         let resume = after.filter(|position| position.path == entry.rel);
-        if files >= file_limit && resume.is_none() {
+        let resumed_file =
+            resume.is_some_and(|position| position.line > 0 || position.byte_offset.is_some());
+        if files >= file_limit && !resumed_file {
             stop = SearchStop::Files;
             position = Some(stopped_position(
                 last_match_position.take(),
@@ -387,7 +391,7 @@ fn run_search(
             };
         }
         if read_failed {
-            if resume.is_none() {
+            if !resumed_file {
                 files += 1;
             }
             bytes = bytes.saturating_add(content.len() as u64);
@@ -396,7 +400,7 @@ fn run_search(
             }
             continue;
         }
-        if resume.is_none() {
+        if !resumed_file {
             files += 1;
         }
         bytes = bytes.saturating_add(searched_offset.saturating_sub(resume_offset.unwrap_or(0)));
