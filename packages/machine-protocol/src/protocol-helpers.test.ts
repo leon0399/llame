@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 
 import { daemonBinary, hostTarget } from "./daemon-binary";
-import { MACHINE_ERROR_CODES, MachineProtocolError, isMachineErrorCode } from "./errors";
+import {
+  MACHINE_ERROR_CODES,
+  MachineProtocolError,
+  isMachineErrorCode,
+} from "./errors";
 import { isIntegerValue, isSerializableRecord, isStringValue } from "./values";
 
 describe("protocol error vocabulary", () => {
@@ -28,7 +32,9 @@ describe("protocol error vocabulary", () => {
 
 describe("serializable value guards", () => {
   it("accepts JSON records but not arrays or null", () => {
-    expect(isSerializableRecord({ path: "/root", optional: undefined })).toBe(true);
+    expect(isSerializableRecord({ path: "/root", optional: undefined })).toBe(
+      true,
+    );
     expect(isSerializableRecord([])).toBe(false);
     expect(isSerializableRecord(null)).toBe(false);
     expect(isSerializableRecord("value")).toBe(false);
@@ -52,7 +58,10 @@ describe("daemon binary selection", () => {
   });
 
   it("honours an explicit binary directory", () => {
-    if (process.platform !== "linux" || !["x64", "arm64"].includes(process.arch))
+    if (
+      process.platform !== "linux" ||
+      !["x64", "arm64"].includes(process.arch)
+    )
       return;
 
     expect(daemonBinary({ LLAME_MACHINE_BIN_DIR: "/opt/llame" })).toBe(

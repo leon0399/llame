@@ -12,7 +12,10 @@ const request = create(GetInfoRequestSchema, {});
 
 describe("connectSocket", () => {
   it("uses the supplied Unix socket for the Connect transport", async () => {
-    const directory = mkdtempSync(join(tmpdir(), "machine-protocol-socket-test-"));
+    const directory = mkdtempSync(
+      join(tmpdir(), "machine-protocol-socket-test-"),
+    );
+
     const path = join(directory, "machine.sock");
     const server = createServer((socket) => socket.destroy());
 
@@ -26,9 +29,12 @@ describe("connectSocket", () => {
 
       const transport = connectSocket(connectNetSocket(path));
 
-      const response = createClient(BootstrapService, transport).getInfo(request, {
-        timeoutMs: 2000,
-      });
+      const response = createClient(BootstrapService, transport).getInfo(
+        request,
+        {
+          timeoutMs: 2000,
+        },
+      );
 
       await expect(response).rejects.toBeInstanceOf(ConnectError);
     } finally {

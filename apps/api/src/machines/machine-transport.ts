@@ -12,10 +12,7 @@
 
 import type { Readable, Writable } from 'node:stream';
 import type { Transport } from '@connectrpc/connect';
-import {
-  collectSshDiagnostic,
-  type SshProcess,
-} from '../ssh/ssh-process';
+import { collectSshDiagnostic, type SshProcess } from '../ssh/ssh-process';
 import type {
   MachineRequestHandler,
   MachineStreamHandler,
@@ -95,4 +92,3 @@ export function createProcessTransport(link: SshProcess): MachineTransport {
     ended,
   };
 }
-

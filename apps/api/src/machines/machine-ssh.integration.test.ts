@@ -295,14 +295,7 @@ describe('Machine SSH transport over a jump host (remote-machines)', () => {
 
     const result = spawnSync(
       'ssh',
-      [
-        '-F',
-        connection.sshConfig.path,
-        '-T',
-        '--',
-        MACHINE_SSHD_ALIAS,
-        'id',
-      ],
+      ['-F', connection.sshConfig.path, '-T', '--', MACHINE_SSHD_ALIAS, 'id'],
       { encoding: 'utf8' },
     );
 
@@ -428,4 +421,3 @@ async function stopRemoteJob(
     harness.dispose();
   }
 }
-

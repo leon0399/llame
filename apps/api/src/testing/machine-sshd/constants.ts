@@ -25,4 +25,3 @@ export const MACHINE_SSHD_NOTES_CONTENT = readFileSync(
   join(__dirname, 'notes.txt'),
   'utf8',
 );
-
