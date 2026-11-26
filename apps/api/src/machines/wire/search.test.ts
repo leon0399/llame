@@ -192,7 +192,6 @@ describe('wire fs.grep', () => {
     expect(result.ignored?.paths).toHaveLength(1000);
   });
 
-
   it('mints an input-bound cursor and resumes the second page at the hub position', async () => {
     const { session, requests } = sessionFor([
       [

@@ -31,7 +31,6 @@ if (config.pidFile) {
   writeFileSync(config.pidFile, String(process.pid), 'utf8');
 }
 
-
 if (config.envDumpPath) {
   writeFileSync(config.envDumpPath, JSON.stringify(process.env), 'utf8');
 }
