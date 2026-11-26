@@ -310,6 +310,7 @@ describe('/api/v1/checkouts on a Machine', () => {
         },
       },
     });
+
     try {
       const response = await request(harness.http)
         .post('/api/v1/checkouts')

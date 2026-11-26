@@ -27,6 +27,7 @@
 import { writeFileSync } from 'node:fs';
 
 const config = JSON.parse(process.env.MCP_FIXTURE ?? '{}');
+
 if (config.pidFile) {
   writeFileSync(config.pidFile, String(process.pid), 'utf8');
 }

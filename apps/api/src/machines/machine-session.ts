@@ -38,6 +38,7 @@ import {
 } from './machine-session-errors';
 import { dispatchWireHandler } from './wire/index';
 import type { MachineFailureReason } from './machines-status';
+import { createHelloResult } from './machine-session-handshake';
 
 export const HANDSHAKE_TIMEOUT_MS = 30_000;
 export const DEFAULT_REQUEST_BUDGET_MS = 30_000;
@@ -59,27 +60,6 @@ const helloResultSchema: z.ZodType<HelloResult> = z.object({
     ),
   }),
 });
-
-type HandshakeInfo = {
-  readonly protocolVersion: number;
-  readonly release: string;
-  readonly instanceId: string;
-  readonly buildId: string;
-  readonly facts?: {
-    readonly os?: string;
-    readonly arch?: string;
-    readonly kernel?: string;
-    readonly cpuCount?: number;
-    readonly memoryBytes?: bigint;
-  };
-};
-
-type HandshakeRootInfo = {
-  readonly roots: ReadonlyArray<{
-    readonly path: string;
-    readonly filesystemBytes?: bigint;
-  }>;
-};
 
 export type MachineRequestEnvelope = {
   readonly runId?: string;
@@ -515,35 +495,7 @@ export class MachineSession {
 
     void limits;
 
-    return this.createHelloResult(info, rootInfo);
-  }
-  private createHelloResult(
-    info: HandshakeInfo,
-    rootInfo: HandshakeRootInfo,
-  ): HelloResult {
-    const facts = info.facts;
-
-    return {
-      protocolVersion: Number(info.protocolVersion),
-      daemonVersion: info.release,
-      roots: rootInfo.roots.map((root) => root.path),
-      instanceId: info.instanceId,
-      buildId: info.buildId,
-      facts: {
-        os: facts?.os ?? '',
-        arch: facts?.arch ?? '',
-        kernel: facts?.kernel ?? '',
-        cpuCount: facts?.cpuCount ?? 0,
-        totalMemoryBytes: Number(facts?.memoryBytes ?? 0n),
-        rootDisks: rootInfo.roots.map((root) => ({
-          root: root.path,
-          totalBytes:
-            root.filesystemBytes === undefined
-              ? null
-              : Number(root.filesystemBytes),
-        })),
-      },
-    };
+    return createHelloResult(info, rootInfo);
   }
   private finish(
     input:

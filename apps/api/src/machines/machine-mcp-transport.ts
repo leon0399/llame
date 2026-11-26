@@ -203,11 +203,13 @@ export class MachineTransport implements MCPTransport {
     const controller = new AbortController();
     this.input = input;
     this.streamController = controller;
+
     try {
       const signal =
         this.options.signal === undefined
           ? controller.signal
           : AbortSignal.any([this.options.signal, controller.signal]);
+
       const reader = session.clients.mcp
         .openSession(
           input,
@@ -217,6 +219,7 @@ export class MachineTransport implements MCPTransport {
           }),
         )
         [Symbol.asyncIterator]();
+
       this.reader = reader;
       await this.openSession(input, reader);
     } catch (error) {

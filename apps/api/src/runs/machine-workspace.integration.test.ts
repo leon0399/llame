@@ -1020,9 +1020,9 @@ function createMachineFactory(
   byName: Readonly<Record<string, FakeMachine>>,
 ): MachineTransportFactory {
   return {
-    requestHandler: (
-      method: MachineMethod,
-      params: MachineMethodParams,
+    requestHandler: <M extends MachineMethod>(
+      method: M,
+      params: MachineMethodParams[M],
       options: MachineRequestOptions,
     ) => {
       const machine = byName[options.machineName ?? ''];

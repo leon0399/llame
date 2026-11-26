@@ -264,6 +264,17 @@ async function answerWrite(
   return wireJson(await createFile(input, undefined, mutationOptions));
 }
 
+function emptyGrepResult(): JsonValue {
+  return wireJson({
+    ok: true,
+    results: [],
+    complete: true,
+    warnings: [],
+    consumed: { files: 0, entries: 0, bytes: 0 },
+    progressed: true,
+  });
+}
+
 async function answerFileMethod(
   call: PeerCall,
   params: z.infer<typeof pathParamsSchema>,
@@ -274,15 +285,8 @@ async function answerFileMethod(
     if (call.method === 'fs.list') return await answerList(params);
 
     if (call.method === 'fs.read') return await answerRead(params);
-    if (call.method === 'fs.grep')
-      return wireJson({
-        ok: true,
-        results: [],
-        complete: true,
-        warnings: [],
-        consumed: { files: 0, entries: 0, bytes: 0 },
-        progressed: true,
-      });
+
+    if (call.method === 'fs.grep') return emptyGrepResult();
 
     if (call.method === 'fs.edit') {
       const parsed = editParamsSchema.safeParse(call.params);

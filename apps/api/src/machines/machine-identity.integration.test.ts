@@ -58,9 +58,9 @@ function transportOf(
   let active: ProtocolPeer | undefined;
 
   return {
-    requestHandler: (
-      method: MachineMethod,
-      params: MachineMethodParams,
+    requestHandler: <M extends MachineMethod>(
+      method: M,
+      params: MachineMethodParams[M],
       options: MachineRequestOptions,
     ) => {
       const handler = active?.factory.requestHandler;
