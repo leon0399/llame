@@ -192,7 +192,6 @@ On jump hosts, allow forwarding only to the next TCP hop, for example
 To migrate a `serve --stdio` forced command, install the Rust binary and
 `config.toml`, then change the command to `attach --print-socket`.
 
-
 The daemon implements repository inspection and worktree operations through
 the typed GitService. It locates repositories only inside registered roots and
 uses the located `.git` entry for status requests. Deploy the API and daemon
