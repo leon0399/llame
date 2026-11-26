@@ -29,10 +29,7 @@ import {
 } from '@workspace/machine-protocol';
 import { isRecord, isString } from '@workspace/runtime-safety';
 
-import {
-  MACHINE_BINARY,
-  stopLocalDaemon,
-} from '../testing/local-daemon';
+import { MACHINE_BINARY, stopLocalDaemon } from '../testing/local-daemon';
 import { createLocalChildTransportFactory } from './local-child-transport';
 import { MachineConnector } from './machine-connector.service';
 import { readFsReadResult } from './machine-results';

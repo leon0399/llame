@@ -182,9 +182,7 @@ describe('wire file handlers', () => {
                       total: 4,
                     }
                   : {
-                      entries: [
-                        { name: 'child.md', kind: EntryKind.FILE },
-                      ],
+                      entries: [{ name: 'child.md', kind: EntryKind.FILE }],
                       total: 1,
                     },
             },
@@ -204,6 +202,7 @@ describe('wire file handlers', () => {
       path: 'machine://test/work',
       entryCount: 4,
     });
+
     if (result.status === 'success' && result.kind === 'directory') {
       expect(result.content).toContain('notes.md');
       expect(result.content).toContain('nested/');
@@ -211,12 +210,12 @@ describe('wire file handlers', () => {
       expect(result.content).toContain('socket');
       expect(result.content).toContain('child.md');
     }
+
     expect(fake.clients.files.listDirectory).toHaveBeenCalledWith(
       { path: '/work/nested', offset: 0, limit: 1 },
       expect.anything(),
     );
   });
-
 
   it('reports the daemon canonical target for a symlink stat', async () => {
     const fake = session();

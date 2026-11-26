@@ -86,6 +86,7 @@ function registerRoots(
   }
 }
 /** Stop the daemon started for one fixture and wait for its lock to release. */
+
 export function stopLocalDaemon(stateDir: string): void {
   const lockPath = join(stateDir, 'daemon.lock');
 
@@ -105,8 +106,11 @@ export function stopLocalDaemon(stateDir: string): void {
     throw error;
   }
 
-  const deadline = Date.now() + 2_000;
-  const pause = new Int32Array(new SharedArrayBuffer(Int32Array.BYTES_PER_ELEMENT));
+  const deadline = Date.now() + 2000;
+
+  const pause = new Int32Array(
+    new SharedArrayBuffer(Int32Array.BYTES_PER_ELEMENT),
+  );
 
   while (Date.now() < deadline) {
     try {
@@ -123,7 +127,6 @@ export function stopLocalDaemon(stateDir: string): void {
 
   throw new Error(`Local Machine daemon ${pid} did not exit after SIGTERM.`);
 }
-
 
 export function startLocalDaemon(options: LocalDaemonOptions): LocalDaemon {
   assertBuiltBinary(MACHINE_BINARY);
@@ -154,6 +157,7 @@ export function startLocalDaemon(options: LocalDaemonOptions): LocalDaemon {
     locator: (path) => daemonLocator(name, path),
     dispose() {
       connector.onModuleDestroy();
+
       try {
         stopLocalDaemon(stateDir);
       } finally {
