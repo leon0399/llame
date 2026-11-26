@@ -590,7 +590,7 @@ async function startContainers(
 
   const box = await startBox(
     network,
-    `restrict,command="${DAEMON_TARGET} attach --stdio" ${keys.hubPublic}\n` +
+    `restrict,command="/usr/local/bin/llame-machine-forced-command" ${keys.hubPublic}\n` +
       `restrict,environment="BASH_ENV=/home/box/.bashrc" ${keys.plainPublic}\n`,
     daemon,
   );

@@ -3,11 +3,15 @@
 # task 4.2). One image serves both roles, because the difference between them is
 # only the `authorized_keys` options the suite installs before start — a
 # `restrict,port-forwarding,permitopen="box:22"` entry makes a jump host, and
-# `restrict,command="/usr/local/bin/llame-machine attach --stdio"` makes the box
-# (design D1). The test copies the static daemon binary into the container.
+# `restrict,command="/usr/local/bin/llame-machine-forced-command"` makes the box
+# (design D1). The dispatcher allows socket discovery and the direct stdio
+# protocol test, and rejects every other SSH command.
+# The test copies the static daemon binary into the container.
 #
-# openssh-server is the fixture under test; the image needs no Node.js runtime.
 FROM debian:bookworm-slim
+
+COPY forced-command.sh /usr/local/bin/llame-machine-forced-command
+RUN chmod 0755 /usr/local/bin/llame-machine-forced-command
 
 # openssh-server is the fixture under test. iptables is how the suite makes a
 # hop drop packets silently: the black-hole case needs NET_ADMIN, which the

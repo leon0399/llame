@@ -26,5 +26,6 @@ export const MACHINE_SSHD_NOTES_CONTENT = readFileSync(
   'utf8',
 );
 
-/** How an `ssh` child of this process names the daemon it was told to run. */
-export const MACHINE_SSHD_REMOTE_COMMAND = 'llame-machine attach --stdio';
+/** The discovery command a Machine SSH session uses to print the socket path. */
+export const MACHINE_SSHD_REMOTE_COMMAND =
+  'llame-machine attach --print-socket';
