@@ -12,24 +12,36 @@ sources:
   - id: vchord-pgxn-110
     resource: "https://pgxn.org/dist/vchord/1.1.0/"
     title: "vchord 1.1.0 README: pgvector dependency, feature claims, and dual license"
-  - id: vchord-site
-    resource: "https://vchord.pgsty.com/llms.txt"
-    title: "Documentation site index with per-page summaries"
+  - id: vchord-attribution
+    resource: "https://github.com/pgsty/vchord.pgsty.com/blob/f75624b44a722e7d3c592ec8ea6cdd398a7b0024/content/docs/about/attribution.md"
+    title: "Upstream sources, stewardship transition, and fork maintenance"
   - id: vchord-indexing
-    resource: "https://vchord.pgsty.com/docs/vchord/usage/indexing/"
+    resource: "https://github.com/pgsty/vchord.pgsty.com/blob/f75624b44a722e7d3c592ec8ea6cdd398a7b0024/content/docs/vchord/usage/indexing.md"
     title: "vchordrq indexing, operator classes, and build options"
   - id: vchord-prefilter
-    resource: "https://vchord.pgsty.com/docs/vchord/usage/prefilter/"
+    resource: "https://github.com/pgsty/vchord.pgsty.com/blob/f75624b44a722e7d3c592ec8ea6cdd398a7b0024/content/docs/vchord/usage/prefilter.md"
     title: "Filtered index scans, the vchordrq.prefilter GUC, and selectivity results"
+  - id: vchord-graph-index
+    resource: "https://github.com/pgsty/vchord.pgsty.com/blob/f75624b44a722e7d3c592ec8ea6cdd398a7b0024/content/docs/vchord/usage/graph-index.md"
+    title: "vchordg as a disk-based graph index with low memory consumption"
   - id: vchord-release-150
-    resource: "https://vchord.pgsty.com/blog/release/vchord-1.5.0/"
+    resource: "https://github.com/pgsty/vchord.pgsty.com/blob/f75624b44a722e7d3c592ec8ea6cdd398a7b0024/content/blog/release/vchord-1.5.0.md"
     title: "vchord 1.5.0: streaming filtered searches, parallel builds, and graph repair after deletes"
   - id: vchord-release-index
-    resource: "https://vchord.pgsty.com/blog/release/"
+    resource: "https://github.com/pgsty/vchord.pgsty.com/blob/f75624b44a722e7d3c592ec8ea6cdd398a7b0024/content/blog/release/_index.md"
     title: "Release index naming the first PGSTY release and each feature release"
+  - id: vchord-benchmarks
+    resource: "https://github.com/pgsty/vchord.pgsty.com/tree/f75624b44a722e7d3c592ec8ea6cdd398a7b0024/content/docs/vchord/benchmark"
+    title: "Benchmark pages against pgvector, pgvectorscale, and Elasticsearch"
+  - id: vchord-bm25
+    resource: "https://github.com/pgsty/vchord.pgsty.com/blob/f75624b44a722e7d3c592ec8ea6cdd398a7b0024/content/docs/bm25/getting-started/overview.md"
+    title: "Native Okapi BM25 and Block-WeakAnd top-k search"
+  - id: vchord-tokenizer
+    resource: "https://github.com/pgsty/vchord.pgsty.com/blob/f75624b44a722e7d3c592ec8ea6cdd398a7b0024/content/docs/tokenizer/overview.md"
+    title: "Tokenizer pipeline, analyzers, stemmers, and multilingual models"
   - id: vchord-license
-    resource: "https://vchord.pgsty.com/docs/about/license/"
-    title: "AGPL-3.0-only for the PGSTY vchord and vchord_bm25 forks"
+    resource: "https://github.com/pgsty/vchord/blob/1.5.0/LICENSE"
+    title: "AGPL-3.0-only license of the PGSTY vchord fork"
   - id: pgvector-readme
     resource: "https://github.com/pgvector/pgvector/blob/v0.8.6/README.md"
     title: "Dimensionless vector storage, per-model expression and partial indexes, iterative scans"
@@ -41,20 +53,21 @@ VectorChord is a PostgreSQL extension for vector similarity search and the
 successor to pgvecto.rs.[^vchord-pgxn-110] It depends on pgvector, including the
 `vector` representation and the distance operators, so adopting it adds an
 extension beside one llame already requires.[^vchord-pgxn-110] The original
-project is TensorChord's. Current releases come from PGSTY-maintained forks, and
-vchord 1.2.0 was the first release under that stewardship.[^vchord-site][^vchord-release-index]
+project is TensorChord's, and the current PGSTY repository is a
+community-maintained fork of it.[^vchord-attribution] vchord 1.2.0 was the first
+release under that fork.[^vchord-release-index]
 
 **Index access methods.** `vchordrq` partitions the vector space into Voronoi
 lists through a hierarchical centroid tree, searches only the lists closest to
 the query vector, and stores compressed vectors with RaBitQ compression and
 reranking.[^vchord-indexing][^vchord-pgxn-110] `vchordg` is a disk-based graph
-index and uses less memory.[^vchord-site] Operator classes cover `vector`,
-`halfvec`, and the `rabitq8` and `rabitq4` types, each with L2, inner product,
-and cosine distance.[^vchord-indexing] The `rabitq8` and `rabitq4` classes
-arrive in 1.1.0, and MaxSim classes over `vector[]` and `halfvec[]` arrive in
-0.3.0.[^vchord-indexing] A build below 100,000 rows usually needs no index
-options. The documented guidance sets `build.internal.lists` from the row count
-and `vchordrq.probes` from the chosen `lists`.[^vchord-indexing]
+index with low memory consumption.[^vchord-graph-index] Operator classes cover
+`vector`, `halfvec`, and the `rabitq8` and `rabitq4` types, each with L2, inner
+product, and cosine distance.[^vchord-indexing] The `rabitq8` and `rabitq4`
+classes arrive in 1.1.0, and MaxSim classes over `vector[]` and `halfvec[]`
+arrive in 0.3.0.[^vchord-indexing] A build below 100,000 rows usually needs no
+index options. The documented guidance sets `build.internal.lists` from the row
+count and `vchordrq.probes` from the chosen `lists`.[^vchord-indexing]
 
 **Filtering.** A filtered scan without prefiltering over-fetches. The index
 returns rows in distance order and PostgreSQL discards non-matching ones, so a
@@ -96,20 +109,20 @@ Both shapes hard-code a dimension that the operator currently declares in the
 configuration at runtime.
 
 **License and distribution.** The upstream 1.1.0 release is dual-licensed under
-AGPLv3 and the Elastic License v2.[^vchord-pgxn-110] The PGSTY-maintained
-releases are AGPL-3.0-only.[^vchord-license] A self-hoster installs the
-extension into each PostgreSQL deployment, per major version and architecture,
-and 1.5.0 ships for PostgreSQL 15 through 19 on x86_64 and aarch64.[^vchord-release-150]
-llame's own Postgres image provisions pgvector and `pg_trgm` only, so adoption
-adds an extension to every installation.
+AGPLv3 and the Elastic License v2.[^vchord-pgxn-110] The PGSTY fork is
+AGPL-3.0-only.[^vchord-license] A self-hoster installs the extension into each
+PostgreSQL deployment, per major version and architecture, and 1.5.0 ships for
+PostgreSQL 15 through 19 on x86_64 and aarch64.[^vchord-release-150] llame's own
+Postgres image provisions pgvector and `pg_trgm` only, so adoption adds an
+extension to every installation.
 
 **Vendor performance claims.** The 1.1.0 README reports up to 5 times the query
 throughput, 16 times the insert throughput, and 16 times faster index build
 against pgvector HNSW, plus 35 ms P50 latency at recall@95 over 100 million
 768-dimensional vectors in 32 GB of memory.[^vchord-pgxn-110] These are vendor
 measurements with the vendor's tuning, and this inspection did not reproduce
-them. The documentation site also publishes comparisons against pgvector,
-pgvectorscale, and Elasticsearch.[^vchord-site]
+them. The documentation also publishes benchmarks against pgvector,
+pgvectorscale, and Elasticsearch.[^vchord-benchmarks]
 
 **Applicability to llame.** The vector leg is an exact cosine scan over
 `search_chat_documents` inside one CTE, with predicates for the owner scope,
@@ -150,28 +163,37 @@ change its shape.
 
 **Sibling extensions.** `vchord_bm25` provides an Okapi BM25 index with
 Block-WeakAnd top-k search, and `pg_tokenizer` provides analyzers, stemmers, and
-multilingual tokenization.[^vchord-site] llame's FTS uses the language-neutral
-`simple` configuration and covers its gaps with trigram matching and embeddings.
-A stemmed BM25 index is the more interesting upgrade for a Russian, English, and
-Spanish corpus, and it carries the same licensing and packaging objections. It
-deserves a separate decision and a retrieval-quality measurement, not a swap.
+multilingual tokenization.[^vchord-bm25][^vchord-tokenizer] llame's FTS uses the
+language-neutral `simple` configuration and covers its gaps with trigram matching
+and embeddings. A stemmed BM25 index is the more interesting upgrade for a
+Russian, English, and Spanish corpus, and it carries the same licensing and
+packaging objections. It deserves a separate decision and a retrieval-quality
+measurement, not a swap.
 
 **This inspection.** Documentation, release notes, the pgvector README, and the
-llame source paths named above were read on 2026-11-26. Nothing was installed,
+llame source paths named above were read for this note. Nothing was installed,
 built, benchmarked, or queried, and no recall or latency figure here is local.
 
 [^vchord-pgxn-110]: [vchord 1.1.0 README](https://pgxn.org/dist/vchord/1.1.0/)
 
-[^vchord-site]: [Documentation site index](https://vchord.pgsty.com/llms.txt)
+[^vchord-attribution]: [Attribution and provenance](https://github.com/pgsty/vchord.pgsty.com/blob/f75624b44a722e7d3c592ec8ea6cdd398a7b0024/content/docs/about/attribution.md)
 
-[^vchord-indexing]: [Indexing](https://vchord.pgsty.com/docs/vchord/usage/indexing/)
+[^vchord-indexing]: [Indexing](https://github.com/pgsty/vchord.pgsty.com/blob/f75624b44a722e7d3c592ec8ea6cdd398a7b0024/content/docs/vchord/usage/indexing.md)
 
-[^vchord-prefilter]: [Prefilter](https://vchord.pgsty.com/docs/vchord/usage/prefilter/)
+[^vchord-prefilter]: [Prefilter](https://github.com/pgsty/vchord.pgsty.com/blob/f75624b44a722e7d3c592ec8ea6cdd398a7b0024/content/docs/vchord/usage/prefilter.md)
 
-[^vchord-release-150]: [vchord 1.5.0 release notes](https://vchord.pgsty.com/blog/release/vchord-1.5.0/)
+[^vchord-graph-index]: [Graph index](https://github.com/pgsty/vchord.pgsty.com/blob/f75624b44a722e7d3c592ec8ea6cdd398a7b0024/content/docs/vchord/usage/graph-index.md)
 
-[^vchord-release-index]: [Release index](https://vchord.pgsty.com/blog/release/)
+[^vchord-release-150]: [vchord 1.5.0 release notes](https://github.com/pgsty/vchord.pgsty.com/blob/f75624b44a722e7d3c592ec8ea6cdd398a7b0024/content/blog/release/vchord-1.5.0.md)
 
-[^vchord-license]: [License](https://vchord.pgsty.com/docs/about/license/)
+[^vchord-release-index]: [Release index](https://github.com/pgsty/vchord.pgsty.com/blob/f75624b44a722e7d3c592ec8ea6cdd398a7b0024/content/blog/release/_index.md)
+
+[^vchord-benchmarks]: [Benchmark pages](https://github.com/pgsty/vchord.pgsty.com/tree/f75624b44a722e7d3c592ec8ea6cdd398a7b0024/content/docs/vchord/benchmark)
+
+[^vchord-bm25]: [BM25 overview](https://github.com/pgsty/vchord.pgsty.com/blob/f75624b44a722e7d3c592ec8ea6cdd398a7b0024/content/docs/bm25/getting-started/overview.md)
+
+[^vchord-tokenizer]: [Tokenizer overview](https://github.com/pgsty/vchord.pgsty.com/blob/f75624b44a722e7d3c592ec8ea6cdd398a7b0024/content/docs/tokenizer/overview.md)
+
+[^vchord-license]: [vchord 1.5.0 LICENSE](https://github.com/pgsty/vchord/blob/1.5.0/LICENSE)
 
 [^pgvector-readme]: [pgvector README](https://github.com/pgvector/pgvector/blob/v0.8.6/README.md)
