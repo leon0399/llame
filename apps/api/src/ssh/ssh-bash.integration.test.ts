@@ -11,32 +11,38 @@
  * wire, not the ledger. Requires a Docker daemon and the OpenSSH client tools.
  */
 
+import { randomUUID } from 'node:crypto';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import { type StartedTestContainer } from 'testcontainers';
 
-import { type Db } from '../db/tenant-db.service';
+import { type ChatJob } from '../db/schema';
+import { type Db, type TenantRunner } from '../db/tenant-db.service';
+import { ChatJobsRepository } from '../jobs/chat-jobs.repository';
 import { NativeFilesRepository } from '../runs/native-files-repository';
 import { RunEventsRepository } from '../runs/runs-repository';
 import { RunAbortRegistry } from '../runs/run-abort-registry';
 import { MachineConnector } from '../machines/machine-connector.service';
 import { createMachineSshTransportFactory } from '../machines/machine-ssh-transport';
+import type { MachineTransport } from '../machines/machine-transport';
+import { hostBashJobs } from '../testing/host-bash-jobs';
 import { waitFor } from '../testing/support';
 import {
+  MACHINE_SSHD_NAME,
   MACHINE_SSHD_SH_ALIAS,
   MACHINE_SSHD_ROOT,
   startMachineSshd,
   type MachineSshd,
 } from '../testing/machine-sshd/machine-sshd';
-import { createSshClient, type SshClient } from './ssh-client';
-import { spawnSshProcess, type SshSpawn } from './ssh-process';
-
-import { type TenantRunner } from '../db/tenant-db.service';
+import { ArtifactsRepository } from '../tools/artifacts/artifacts-repository';
+import { ChatsRepository } from '../chats/chats-repository';
 import { bashTool } from '../tools/bash';
 import { nativeReadTool } from '../tools/native-files';
 import { compileToolPermissionMap } from '../tools/permissions/compile-permissions';
 import { runTool } from '../tools/runner';
 import { type ToolContext } from '../tools/types';
 import { createWorkspaceRootCell } from '../tools/workspace-path';
+import { createSshClient, type SshClient } from './ssh-client';
+import { spawnSshProcess, type SshSpawn } from './ssh-process';
 
 function interruptCurrent(aborts: RunAbortRegistry, runId: string): void {
   const segment = aborts.segmentOf(runId);
@@ -437,6 +443,147 @@ describe('ssh bash over a real sshd', () => {
     }
   }, 60_000);
 
+  it('backgrounds a Machine job on disconnect and stops it from a new session', async () => {
+    const connection = fixture.connection();
+    const factory = createMachineSshTransportFactory({
+      ssh: connection.machines.ssh,
+    });
+    const links: Array<MachineTransport> = [];
+    const machines = new MachineConnector({
+      machines: connection.machines,
+      hubVersion: '0.0.0-disconnect-test',
+      bindIdentity: () => Promise.resolve('match'),
+      transportFactory: {
+        open: (request) => {
+          const link = factory.open(request);
+          links.push(link);
+
+          return link;
+        },
+      },
+    });
+    const command = 'sleep 300';
+    const daemonJobId = { value: '' };
+    const row: ChatJob = {
+      id: randomUUID(),
+      chatId: 'chat',
+      ownerUserId: 'owner',
+      kind: 'bash',
+      seq: 1,
+      state: 'running',
+      stoppedBy: null,
+      runId: 'run',
+      toolCallId: 'call',
+      machineName: MACHINE_SSHD_NAME,
+      daemonInstanceId: '00000000-0000-4000-8000-000000000013',
+      daemonJobId: '',
+      startedAt: new Date(),
+      settledAt: null,
+      deadlineAt: null,
+      stopRequestedAt: null,
+      stopRequestedBy: null,
+      result: null,
+      outputs: ['stdout', 'stderr'],
+      artifactId: null,
+      artifactReadable: false,
+      settings: { selector: 'test-model', permissionMode: 'default' },
+    };
+    const runtime = hostBashJobs(tenantDb, machines, {
+      wakeForChatInTransaction: () => Promise.resolve(false),
+    });
+
+    vi.spyOn(ChatsRepository.prototype, 'lock').mockResolvedValue({} as never);
+    vi.spyOn(ArtifactsRepository.prototype, 'nextSeq').mockResolvedValue(1);
+    vi.spyOn(ChatJobsRepository.prototype, 'insert').mockImplementation(
+      async (input) => {
+        daemonJobId.value = input.daemonJobId;
+
+        return { ...row, daemonJobId: input.daemonJobId };
+      },
+    );
+    vi.spyOn(NativeFilesRepository.prototype, 'recoverHostPromotion')
+      .mockImplementation((input) =>
+        Promise.resolve({ disposition: 'recovery_won', result: input.result }),
+      );
+
+    try {
+      const call = runTool(
+        bashTool,
+        { command, cwd: `machine://${MACHINE_SSHD_NAME}${MACHINE_SSHD_ROOT}` },
+        {
+          ...context(client()),
+          ...runtime,
+          attemptId: 'attempt',
+          bashBackgroundAfterSeconds: 60,
+          machines,
+          workspaceRoot: createWorkspaceRootCell(
+            `machine://${MACHINE_SSHD_NAME}${MACHINE_SSHD_ROOT}`,
+          ),
+        },
+        CALL_TIMEOUT_SECONDS,
+      );
+
+      await waitFor(
+        async () => {
+          const result = await fixture.execIn(fixture.box, ['ps', '-eo', 'args']);
+
+          return result.stdout.includes(command) ? true : undefined;
+        },
+        10_000,
+        'the Machine job to start',
+      );
+
+      const link = links.at(-1);
+
+      if (link === undefined)
+        throw new Error('The Machine job session was never opened.');
+      link.close();
+
+      await expect(call).resolves.toMatchObject({
+        status: 'success',
+        backgrounded: true,
+        cause: 'disconnect',
+      });
+      const stopFactory = createMachineSshTransportFactory({
+        ssh: connection.machines.ssh,
+      });
+      const stopper = new MachineConnector({
+        machines: connection.machines,
+        hubVersion: '0.0.0-disconnect-stop-test',
+        bindIdentity: () => Promise.resolve('match'),
+        transportFactory: stopFactory,
+      });
+
+      try {
+        const session = await stopper.jobsClient(MACHINE_SSHD_NAME);
+
+        await session.client.cancelJob(
+          {
+            requestId: daemonJobId.value,
+            jobId: daemonJobId.value,
+            owner: 'owner',
+          },
+          session.callOptions(),
+        );
+      } finally {
+        stopper.onModuleDestroy();
+        stopFactory.dispose();
+      }
+
+      await waitFor(
+        async () => {
+          const result = await fixture.execIn(fixture.box, ['ps', '-eo', 'args']);
+
+          return result.stdout.includes(command) ? undefined : true;
+        },
+        10_000,
+        'the Machine job to stop',
+      );
+    } finally {
+      machines.onModuleDestroy();
+      factory.dispose();
+    }
+  }, 60_000);
   it('reports an unreachable host as a known refusal', async () => {
     const result = await bash(
       { command: 'printf never', cwd: 'ssh://127.0.0.1:1/tmp' },

@@ -28,18 +28,20 @@ export async function waitForSettlement(deps: {
   const signals = createSettlementSignals(waitMs, moveSignal, abortSignal);
 
   try {
+    const disconnected = ended.then(() => 'disconnect' as const);
+    const watch = watchForSettledJob({
+      client,
+      callOptions,
+      jobId,
+      waitMs,
+      signal: controller.signal,
+    }).catch(() => disconnected);
     const outcome = await Promise.race([
-      watchForSettledJob({
-        client,
-        callOptions,
-        jobId,
-        waitMs,
-        signal: controller.signal,
-      }),
+      watch,
       signals.timer,
       signals.move,
       signals.cancel,
-      ended.then(() => 'disconnect' as const),
+      disconnected,
     ]);
 
     return asSettlementWait(outcome);
