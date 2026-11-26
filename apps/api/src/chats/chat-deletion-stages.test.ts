@@ -1,5 +1,9 @@
 import { ServiceUnavailableException } from '@nestjs/common';
+import { Code, ConnectError } from '@connectrpc/connect';
+import { create } from '@bufbuild/protobuf';
 import {
+  ErrorDetailSchema,
+  ErrorReason,
   JobState,
   LostCause,
   MachineProtocolError,
@@ -86,6 +90,45 @@ describe('stopAndReleaseJob', () => {
 
     expect(cancelJob).not.toHaveBeenCalled();
     expect(deleteJob).toHaveBeenCalledOnce();
+  });
+  it('treats JOB_NOT_FOUND as already released for settled jobs', async () => {
+    const cancelJob = vi.fn();
+    const deleteJob = vi.fn().mockRejectedValue(
+      new ConnectError('unknown job', Code.NotFound, undefined, [
+        {
+          desc: ErrorDetailSchema,
+          value: { reason: ErrorReason.JOB_NOT_FOUND },
+        },
+      ]),
+    );
+
+    await expect(
+      stopAndReleaseJob(
+        { ...job, state: 'succeeded' },
+        connector({ cancelJob, deleteJob }),
+        () => Promise.resolve(false),
+      ),
+    ).resolves.toBeUndefined();
+  });
+
+  it('does not treat JOB_NOT_FOUND as released for a running job', async () => {
+    const cancelJob = vi.fn().mockResolvedValue({
+      job: { state: JobState.CANCELLED },
+    });
+    const deleteJob = vi.fn().mockRejectedValue(
+      new ConnectError('unknown job', Code.NotFound, undefined, [
+        {
+          desc: ErrorDetailSchema,
+          value: { reason: ErrorReason.JOB_NOT_FOUND },
+        },
+      ]),
+    );
+
+    await expect(
+      stopAndReleaseJob(job, connector({ cancelJob, deleteJob }), () =>
+        Promise.resolve(false),
+      ),
+    ).rejects.toBeInstanceOf(ServiceUnavailableException);
   });
 
   it('keeps a previously unproved stop blocking later deletion attempts', async () => {

@@ -1,5 +1,8 @@
 import { ServiceUnavailableException } from '@nestjs/common';
+import { ConnectError } from '@connectrpc/connect';
 import {
+  ErrorDetailSchema,
+  ErrorReason,
   JobState,
   LostCause,
   MachineProtocolError,
@@ -118,7 +121,7 @@ export async function stopAndReleaseJob(
     session.client,
     request,
     session.callOptions(),
-    missing,
+    missing || (job.state !== 'running' && !creatingAttempt),
   );
 }
 
@@ -183,19 +186,30 @@ async function releaseRemoteJob(
   client: JobRpcClient,
   request: { requestId: string; jobId: string; owner: string },
   callOptions: ReturnType<JobCallOptions>,
-  missing: boolean,
+  allowMissing: boolean,
 ): Promise<void> {
   try {
     await client.deleteJob(request, callOptions);
   } catch (error) {
-    if (
-      !missing ||
-      !(error instanceof MachineProtocolError) ||
-      error.code !== 'machine_job_not_found'
-    ) {
+    if (!allowMissing || !isJobNotFound(error)) {
       throw new ServiceUnavailableException(
         'The Machine has not confirmed that the Chat job was released.',
       );
     }
   }
+}
+
+function isJobNotFound(error: unknown): boolean {
+  if (
+    error instanceof MachineProtocolError &&
+    error.code === 'machine_job_not_found'
+  )
+    return true;
+
+  return (
+    error instanceof ConnectError &&
+    error.findDetails(ErrorDetailSchema).some(
+      (detail) => detail.reason === ErrorReason.JOB_NOT_FOUND,
+    )
+  );
 }
