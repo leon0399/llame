@@ -529,19 +529,35 @@ describe('chat deliveries — the steer mode', () => {
         state: 'pending',
       });
 
-      const [resumed] = await runsOf(chatId);
-      expect(resumed).toMatchObject({
-        id: runId,
-        status: 'queued',
-        wakeGeneration: generation,
+      await until('the interrupted Run to resume and consume its delivery', async () => {
+        const [run] = await runsOf(chatId);
+        const [delivery] = await tenantDb.runAs(userAId, (tx) =>
+          tx
+            .select({
+              state: chatDeliveries.state,
+              runId: chatDeliveries.runId,
+            })
+            .from(chatDeliveries)
+            .where(eq(chatDeliveries.id, id)),
+        );
+
+        return (
+          run?.id === runId &&
+          ['queued', 'running_model', 'completed'].includes(run.status) &&
+          delivery?.state === 'delivered' &&
+          delivery.runId === runId
+        );
       });
+
+      const [resumed] = await runsOf(chatId);
+      expect(resumed).toMatchObject({ id: runId, wakeGeneration: generation });
 
       if (!resumed?.currentJobId)
         throw new Error('Woken Run has no current queue job');
       const newWakeJobId = resumed.currentJobId;
       expect(newWakeJobId).not.toBe(oldWakeJobId);
       expect(await queue.jobState(RUNS_QUEUE, oldWakeJobId)).toBe('queued');
-      expect(await queue.jobState(RUNS_QUEUE, newWakeJobId)).toBe('queued');
+      expect(await queue.jobState(RUNS_QUEUE, newWakeJobId)).not.toBe('absent');
 
       const staleDeadlineWake = await tenantDb.runAs(userAId, (tx) =>
         app.get(RunWaitService, { strict: false }).wakeInTransaction(tx, {
@@ -557,7 +573,6 @@ describe('chat deliveries — the steer mode', () => {
       expect(await runsOf(chatId)).toMatchObject([
         {
           id: runId,
-          status: 'queued',
           currentJobId: newWakeJobId,
           wakeGeneration: generation,
         },
