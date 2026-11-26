@@ -122,10 +122,52 @@ describe('Git wire handlers', () => {
     });
   });
 
+  it('fails state when the located git entry changed after admission', async () => {
+    const locateRepository = vi.fn().mockResolvedValue({
+      result: { case: 'gitEntry', value: '/srv/repo/replaced.git' },
+    });
+
+    const getStatus = vi.fn().mockResolvedValue({
+      result: {
+        case: 'failure',
+        value: {
+          reason: GitFailureReason.GIT_ENTRY_CHANGED,
+          message: 'Git entry changed.',
+          stderr: '',
+        },
+      },
+    });
+
+    const session = sessionWith({ locateRepository, getStatus });
+    const result = await gitHandlers['git.state'](
+      session,
+      {
+        envelope,
+        path: '/srv/repo/src',
+        gitEntry: 'machine://host-a/srv/repo/.git',
+        limit: 8,
+        submodules: 'check',
+        options,
+      },
+      {},
+    );
+
+    expect(getStatus).toHaveBeenCalledWith(
+      expect.objectContaining({ gitEntry: '/srv/repo/.git' }),
+      {},
+    );
+    expect(result).toEqual({
+      status: 'error',
+      type: 'git_failed',
+      stderr: '',
+    });
+  });
+
   it('maps state to entry-bound GetStatus and maps status fields', async () => {
     const locateRepository = vi.fn().mockResolvedValue({
       result: { case: 'gitEntry', value: '/srv/repo/.git' },
     });
+
 
     const getStatus = vi.fn().mockResolvedValue({
       result: {

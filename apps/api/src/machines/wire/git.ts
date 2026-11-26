@@ -236,21 +236,10 @@ export const gitHandlers: GitHandlers = {
   'git.state': async (session, params, options) => {
     const path = hostPath(session, params.path);
 
-    const located = await session.clients.git.locateRepository(
-      { path },
-      session.callOptions(options),
-    );
-
-    if (located.result.case === 'failure')
-      return failure(located.result.value, session);
-
-    if (located.result.case !== 'gitEntry')
-      throw new Error('GitService.LocateRepository returned no result.');
-
     const response = await session.clients.git.getStatus(
       {
         path,
-        gitEntry: located.result.value,
+        gitEntry: hostPath(session, params.gitEntry),
         maxEntries: params.limit,
         maxCommits: 10,
         submodules:
@@ -260,6 +249,7 @@ export const gitHandlers: GitHandlers = {
       },
       session.callOptions(options),
     );
+
 
     if (response.result.case === 'failure')
       return failure(response.result.value, session);
