@@ -356,8 +356,8 @@ function rebaseReadRanges(result: ReadSuccess, offset: number): ReadSuccess {
 
   return {
     ...result,
-    requestedRanges: result.requestedRanges.map((range) =>
-      shiftLineRange(range, offset),
+    requestedRanges: result.requestedRanges.map(
+      (range) => shiftLineRange(range, offset)!,
     ),
     shownRanges: result.shownRanges.map((range) =>
       shiftLineRange(range, offset)!,

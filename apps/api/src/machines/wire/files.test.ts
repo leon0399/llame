@@ -82,7 +82,10 @@ const session = () => {
           result: {
             case: 'lines',
             value: {
-              lines: lines.slice(firstLine - 1, firstLine - 1 + limit),
+              lines: lines.slice(
+                firstLine - 1,
+                firstLine - 1 + (limit ?? 0),
+              ),
               startLine: firstLine,
               lineCount: lines.length,
               lineEnding: '\n',
@@ -198,7 +201,7 @@ describe('wire file handlers', () => {
               case: 'lines',
               value: {
                 lines: Array.from(
-                  { length: limit },
+                  { length: limit ?? 0 },
                   (_, index) => `line ${(startLine ?? 1) + index}`,
                 ),
                 startLine: startLine ?? 1,
