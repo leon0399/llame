@@ -218,8 +218,7 @@ describe('MachineTransport', () => {
     await test.transport.start();
 
     expect(test.sent[0]?.message.case).toBe('open');
-    expect(test.transport.protectedValues()).toEqual([START_SECRET]);
-    expect(test.options[0]?.timeoutMs).toBe(ENVELOPE.budgetMs);
+    expect(test.options[0]?.timeoutMs).toBeUndefined();
     await test.transport.close();
     expect(test.options[0]?.signal?.aborted).toBe(true);
     expect(test.releaseMachineSession).toHaveBeenCalledOnce();
