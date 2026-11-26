@@ -13,14 +13,21 @@ import { failure, rpc } from './files-common.js';
 
 type ByteResult = ReadBytesResponse['result'];
 
-type ByteState = { size: bigint; head: Uint8Array; sequence: number };
+type ByteState = {
+  size: bigint;
+  head: Uint8Array;
+  pendingChunks: Array<Uint8Array>;
+  mediaType: string | undefined;
+  sequence: number;
+};
 
 function updateMediaHead(
   state: ByteState,
   chunk: Uint8Array,
 ): NativeFailureResult | undefined {
-  if (state.head.length >= 12) return undefined;
+  if (state.mediaType !== undefined) return undefined;
 
+  state.pendingChunks.push(chunk);
   const sample = new Uint8Array(Math.min(12, state.head.length + chunk.length));
   sample.set(state.head);
   sample.set(
@@ -30,10 +37,24 @@ function updateMediaHead(
   state.head = sample;
 
   if (
-    state.size > BigInt(MEDIA_MAX_BYTES) &&
-    state.head.length >= 12 &&
-    sniffMediaType(state.head) !== 'application/octet-stream'
-  ) {
+    state.mediaType === undefined &&
+    state.head.length < 12 &&
+    sniffMediaType(state.head) === 'application/octet-stream'
+  )
+    return undefined;
+
+  state.mediaType = sniffMediaType(state.head);
+
+
+  if (state.mediaType === 'application/octet-stream') {
+    return {
+      status: 'error',
+      type: 'unsupported_media_type',
+      message: 'The file is not a supported image or PDF.',
+    };
+  }
+
+  if (state.size > BigInt(MEDIA_MAX_BYTES)) {
     return {
       status: 'error',
       type: 'media_too_large',
@@ -68,18 +89,24 @@ function updateByteState(
   if (result.case !== 'chunk') return undefined;
 
   const chunk = result.value;
-  const oversizedMedia = updateMediaHead(state, chunk);
+  const previouslyDetected = state.mediaType !== undefined;
+  const refusal = updateMediaHead(state, chunk);
 
-  if (oversizedMedia) return oversizedMedia;
+  if (refusal) return refusal;
+  if (state.mediaType === undefined) return undefined;
 
-  options?.onNotification?.({
-    method: BYTES_NOTIFICATION,
-    params: {
-      seq: state.sequence,
-      data: Buffer.from(chunk).toString('base64'),
-    },
-  });
-  state.sequence += 1;
+  const chunks = previouslyDetected ? [chunk] : state.pendingChunks.splice(0);
+
+  for (const pending of chunks) {
+    options?.onNotification?.({
+      method: BYTES_NOTIFICATION,
+      params: {
+        seq: state.sequence,
+        data: Buffer.from(pending).toString('base64'),
+      },
+    });
+    state.sequence += 1;
+  }
 
   return undefined;
 }
@@ -93,13 +120,19 @@ export const bytesHandler: Handler<'fs.bytes'> = async (
     session,
     (files, callOptions) =>
       files.readBytes(
-        { path: params.path, offset: 0n, limit: 0n },
+        { path: params.path, offset: 0n, limit: BigInt(MEDIA_MAX_BYTES) },
         callOptions,
       ),
     options,
   );
 
-  const state: ByteState = { size: 0n, head: new Uint8Array(), sequence: 0 };
+  const state: ByteState = {
+    size: 0n,
+    head: new Uint8Array(),
+    pendingChunks: [],
+    mediaType: undefined,
+    sequence: 0,
+  };
 
   for await (const frame of stream) {
     const error = updateByteState(frame.result, state, options);
@@ -109,7 +142,7 @@ export const bytesHandler: Handler<'fs.bytes'> = async (
 
   return {
     size: Number(state.size),
-    mediaType: sniffMediaType(state.head),
+    mediaType: state.mediaType ?? 'application/octet-stream',
   } satisfies FsBytesResult;
 };
 

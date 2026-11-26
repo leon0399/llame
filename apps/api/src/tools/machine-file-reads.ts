@@ -276,8 +276,8 @@ async function machineMediaAttempt(
     const noTarget =
       meta.type === 'not_regular_file' || meta.type === 'not_found';
 
-    // The daemon refuses bytes matching no image or PDF signature, so the text
-    // read that asked for them is the read's result and none of them stream.
+    // The wire handler refuses non-media after sniffing its bounded first chunk,
+    // before it emits any bytes; the text read that asked for them stands.
     return noTarget
       ? { status: 'no_target', failure: meta }
       : {

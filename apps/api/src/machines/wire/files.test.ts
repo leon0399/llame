@@ -249,4 +249,40 @@ describe('wire file handlers', () => {
       params: { seq: 0, data: 'iVBORw0KGgo=' },
     });
   });
+  it('refuses a large non-media byte stream before transferring its body', async () => {
+    const fake = session();
+    const transferred: Array<number> = [];
+    const readBytes = vi.mocked(fake.clients.files.readBytes);
+    readBytes.mockImplementation(({ limit }) =>
+      (async function* () {
+        expect(limit).toBeGreaterThan(0n);
+        yield create(ReadBytesResponseSchema, {
+          result: { case: 'size', value: 100n * 1024n * 1024n },
+        });
+        transferred.push(1);
+        yield create(ReadBytesResponseSchema, {
+          result: { case: 'chunk', value: new Uint8Array(8192).fill(0x41) },
+        });
+        transferred.push(2);
+        yield create(ReadBytesResponseSchema, {
+          result: { case: 'chunk', value: new Uint8Array(8192).fill(0x42) },
+        });
+      })(),
+    );
+
+    const onNotification = vi.fn();
+    await expect(
+      bytesHandler(fake, { envelope, path }, { onNotification }),
+    ).resolves.toMatchObject({
+      status: 'error',
+      type: 'unsupported_media_type',
+    });
+    expect(transferred).toEqual([1]);
+    expect(onNotification).not.toHaveBeenCalled();
+    expect(readBytes).toHaveBeenCalledWith(
+      expect.objectContaining({ limit: expect.any(BigInt) }),
+      expect.anything(),
+    );
+  });
+
 });
