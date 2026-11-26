@@ -9,10 +9,13 @@ export function newChatJob(
     Partial<NewChatJob>,
 ): NewChatJob {
   return {
-    executor: 'bash',
+    kind: 'bash',
+    machineName: 'host',
+    daemonInstanceId: crypto.randomUUID(),
+    daemonJobId: crypto.randomUUID().replaceAll('-', ''),
     runId: crypto.randomUUID(),
+    delivery: 'background',
     toolCallId: `call-${fields.seq}`,
-    workerInstanceId: crypto.randomUUID(),
     outputs: ['stdout', 'stderr'],
     artifactReadable: true,
     settings: { selector: 'gpt-5.5', permissionMode: 'default' },

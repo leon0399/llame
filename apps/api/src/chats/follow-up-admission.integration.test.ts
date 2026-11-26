@@ -51,6 +51,7 @@ import { ChatDeliveriesRepository } from './chat-deliveries.repository';
 import { createCompactionCheckpointPart } from './context-item-producers';
 import { ChatJobsRepository } from '../jobs/chat-jobs.repository';
 import { deliverPendingSteering } from '../runs/segment-delivery';
+import { newChatJob } from '../testing/chat-job-rows';
 
 const TEST_DB_URL = process.env['TEST_DATABASE_URL'];
 const describeIfDb = TEST_DB_URL ? describe : describe.skip;
@@ -492,19 +493,15 @@ describeIfDb('follow-up admission', () => {
       const notice = await api.tenantDb.runAs(api.userId, async (tx) => {
         const jobs = new ChatJobsRepository(tx);
 
-        const job = await jobs.insert({
-          chatId: fixture.chatId,
-          ownerUserId: api.userId,
-          executor: 'bash',
-          seq: 73,
-          runId: fixture.runId,
-          toolCallId: crypto.randomUUID(),
-          workerInstanceId: crypto.randomUUID(),
-          startedAt: new Date(),
-          outputs: [],
-          artifactReadable: false,
-          settings: { selector: MODEL_ID, permissionMode: 'default' },
-        });
+        const job = await jobs.insert(
+          newChatJob({
+            chatId: fixture.chatId,
+            ownerUserId: api.userId,
+            seq: 73,
+            runId: fixture.runId,
+            settings: { selector: MODEL_ID, permissionMode: 'default' },
+          }),
+        );
 
         const settled = await jobs.settle(fixture.chatId, api.userId, job.id, {
           state: 'failed',
@@ -576,19 +573,15 @@ describeIfDb('follow-up admission', () => {
       await api.tenantDb.runAs(api.userId, async (tx) => {
         const jobs = new ChatJobsRepository(tx);
 
-        const job = await jobs.insert({
-          chatId: fixture.chatId,
-          ownerUserId: api.userId,
-          executor: 'bash',
-          seq: 74,
-          runId: fixture.runId,
-          toolCallId: crypto.randomUUID(),
-          workerInstanceId: crypto.randomUUID(),
-          startedAt: new Date(),
-          outputs: [],
-          artifactReadable: false,
-          settings: { selector: MODEL_ID, permissionMode: 'default' },
-        });
+        const job = await jobs.insert(
+          newChatJob({
+            chatId: fixture.chatId,
+            ownerUserId: api.userId,
+            seq: 74,
+            runId: fixture.runId,
+            settings: { selector: MODEL_ID, permissionMode: 'default' },
+          }),
+        );
 
         const settled = await jobs.settle(fixture.chatId, api.userId, job.id, {
           state: 'failed',

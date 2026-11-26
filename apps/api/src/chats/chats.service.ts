@@ -3,9 +3,11 @@ import {
   Inject,
   Injectable,
   NotFoundException,
+  Optional,
 } from '@nestjs/common';
 import { type Chat, type Message, type Run } from '../db/schema';
 import { TenantDbService, type Db } from '../db/tenant-db.service';
+import { MachineConnector } from '../machines/machine-connector.service';
 import {
   ChatSearchQueryEmbedder,
   type QueryEmbedderPort,
@@ -30,10 +32,9 @@ import {
   type CopyableMessage,
 } from './fork-copy';
 import { citedArtifacts, copyCitedArtifacts } from './fork-artifacts';
+import { ChatJobsRepository } from '../jobs/chat-jobs.repository';
 import { RunsRepository } from '../runs/runs-repository';
 import { pgErrorCode } from '../db/pg-error';
-import { ChatJobsRepository } from '../jobs/chat-jobs.repository';
-import { notifyRunControl } from '../runs/run-control';
 import { retryRunTransaction } from '../runs/run-transaction';
 import {
   toSharedChatResponse,
@@ -41,6 +42,11 @@ import {
   type SharedChatMessageResponse,
 } from './dto/chats.dto';
 import { fileMediaIds } from '../media/media-descriptors';
+import {
+  finishChatDeletion,
+  prepareChatDeletion,
+  stopAndReleaseJob,
+} from './chat-deletion-stages';
 
 /** Title for a forked chat. */
 export function forkTitle(title: string): string {
@@ -96,6 +102,9 @@ export class ChatsService {
     private readonly embedDispatch: ChatEmbedDispatcher,
     @Inject(ChatSearchQueryEmbedder)
     private readonly queryEmbedder: QueryEmbedderPort,
+    @Optional()
+    @Inject(MachineConnector)
+    private readonly machines?: MachineConnector,
   ) {}
 
   /**
@@ -485,32 +494,29 @@ export class ChatsService {
 
     return forked;
   }
-
   async deleteChat(userId: string, chatId: string): Promise<boolean> {
+    const jobs = await retryRunTransaction(() =>
+      this.tenantDb.runAs(userId, (tx) =>
+        prepareChatDeletion(tx, userId, chatId),
+      ),
+    );
+
+    if (jobs === undefined) {
+      return false;
+    }
+
+    for (const job of jobs) {
+      await stopAndReleaseJob(job, this.machines, () =>
+        this.tenantDb.runAs(userId, (tx) =>
+          new ChatJobsRepository(tx).hasCreatingAttempt(chatId, userId, job.id),
+        ),
+      );
+    }
+
     return retryRunTransaction(() =>
-      this.tenantDb.runAs(userId, async (tx) => {
-        // Cancel before locking the Chat. The cascade removes a waiting Run,
-        // so deletion needs no queue wake.
-        const runsRepo = new RunsRepository(tx);
-        const active = await runsRepo.findActiveByChatId(chatId, userId);
-
-        if (active) {
-          await runsRepo.requestCancel(active.id, userId);
-        }
-
-        const chats = new ChatsRepository(tx);
-
-        if (!(await chats.lock(chatId, userId))) return false;
-
-        for (const jobId of await new ChatJobsRepository(tx).runningIdsInChat(
-          chatId,
-          userId,
-        )) {
-          await notifyRunControl(tx, { kind: 'job-stop', jobId });
-        }
-
-        return chats.deleteById(chatId, userId);
-      }),
+      this.tenantDb.runAs(userId, (tx) =>
+        finishChatDeletion(tx, userId, chatId, jobs),
+      ),
     );
   }
 

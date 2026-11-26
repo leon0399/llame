@@ -20,7 +20,6 @@ import { noopReindexDispatch } from '../search/search-reindex-dispatch.stub';
 import { noopSkillCatalog } from '../skills/skill-catalog.stub';
 
 import { TenantDbService } from '../db/tenant-db.service';
-import { ChatJobsRepository } from '../jobs/chat-jobs.repository';
 import { ChatDeliveriesRepository } from './chat-deliveries.repository';
 import { MediaService } from '../media/media.service';
 import {
@@ -549,10 +548,6 @@ describe('ChatLoopService accept/worker context binding', () => {
         sourceRunId: null,
       });
 
-    vi.spyOn(
-      ChatJobsRepository.prototype,
-      'settleOnDeadWorkers',
-    ).mockResolvedValue([]);
     vi.spyOn(
       ChatDeliveriesRepository.prototype,
       'listDeliveredJobNotices',

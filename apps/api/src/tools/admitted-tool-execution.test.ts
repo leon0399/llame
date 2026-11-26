@@ -6,6 +6,7 @@ import { WAIT_SUSPENSION } from './wait-suspension';
 
 describe('executeAdmittedTool', () => {
   afterEach(() => {
+    vi.useRealTimers();
     vi.restoreAllMocks();
   });
 
@@ -33,6 +34,72 @@ describe('executeAdmittedTool', () => {
       WAIT_SUSPENSION,
     );
     expect(execute).toHaveBeenCalledOnce();
+  });
+  it('does not apply the call timeout to a daemon Bash job', async () => {
+    const { promise: execution, resolve } = Promise.withResolvers<ToolResult>();
+    let executionContext: ToolContext | undefined;
+
+    vi.spyOn(bashTool, 'execute').mockImplementation((context) => {
+      executionContext = context;
+
+      return execution;
+    });
+
+    const result = executeAdmittedTool(
+      bashTool,
+      { command: 'sleep 1' },
+      {
+        userId: 'owner',
+        chatId: 'chat',
+        configuredCredentials: [],
+        localMachine: 'host-a',
+        defaultMachine: 'host-a',
+        tenantDb: {
+          runAs: <T>() => Promise.reject<T>(new Error('unused tenant DB')),
+        } satisfies TenantRunner,
+      },
+      0.001,
+    );
+
+    expect(executionContext?.timeoutSignal).toBeUndefined();
+    expect(executionContext?.timeoutMs).toBeUndefined();
+    resolve({ status: 'success', stdout: 'finished' });
+    await expect(result).resolves.toEqual({
+      status: 'success',
+      stdout: 'finished',
+    });
+  });
+
+  it('keeps the per-call timeout on standalone SSH Bash', async () => {
+    const { promise: execution, resolve } = Promise.withResolvers<ToolResult>();
+    let executionContext: ToolContext | undefined;
+
+    vi.spyOn(bashTool, 'execute').mockImplementation((context) => {
+      executionContext = context;
+
+      return execution;
+    });
+
+    const result = executeAdmittedTool(
+      bashTool,
+      { command: 'sleep 1', cwd: 'ssh://build/tmp' },
+      {
+        userId: 'owner',
+        chatId: 'chat',
+        configuredCredentials: [],
+        tenantDb: {
+          runAs: <T>() => Promise.reject<T>(new Error('unused tenant DB')),
+        } satisfies TenantRunner,
+      },
+      0.001,
+    );
+
+    await expect(result).resolves.toMatchObject({
+      status: 'error',
+      type: 'outcome_unknown',
+    });
+    expect(executionContext?.timeoutSignal?.aborted).toBe(true);
+    resolve({ status: 'success', stdout: 'finished' });
   });
   it('classifies an aborted host bash call before command start as cancelled', async () => {
     const abort = new AbortController();

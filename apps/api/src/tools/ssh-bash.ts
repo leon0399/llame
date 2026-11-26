@@ -42,7 +42,7 @@ import {
   parseSshBashFrames,
   type SshBashFrames,
 } from '../ssh/ssh-script';
-import { acquireBashSlot, managedBashContext } from './bash-limits';
+import { managedBashContext } from './bash-limits';
 import { toToolResult } from './bash-result';
 import { spillBashResult } from './bash-spill';
 import { sshUnavailableResult, sshUnsupportedHostResult } from './ssh-results';
@@ -414,41 +414,34 @@ async function runWithSlot(
   executorContext: BashExecutorContext,
 ): Promise<ToolResult> {
   const budgetMs = bashBudgetMs(context, executorContext);
-  const slot = acquireBashSlot(context);
 
-  if ('status' in slot) return slot;
+  const preStart = preStartResult(context, budgetMs);
 
-  try {
-    const preStart = preStartResult(context, budgetMs);
+  if (preStart !== undefined) return preStart;
+  const identity = attemptIdentity(context);
 
-    if (preStart !== undefined) return preStart;
-    const identity = attemptIdentity(context);
+  if (identity === undefined)
+    return {
+      status: 'error',
+      type: 'executor_unavailable',
+      message: 'Native host authority is unavailable.',
+    };
 
-    if (identity === undefined)
-      return {
-        status: 'error',
-        type: 'executor_unavailable',
-        message: 'Native host authority is unavailable.',
-      };
-
-    return await fencedRemoteCommand(context, identity, {
-      locator: target.binding.locator,
-      preStart: () => preStartResult(context, budgetMs),
-      run: () =>
-        runRemoteCommand({
-          client: target.client,
-          binding: target.binding,
-          cwd: target.path,
-          input,
-          nonce: createSshNonce(),
-          context,
-          executorContext,
-          budgetMs,
-        }),
-    });
-  } finally {
-    slot.release();
-  }
+  return await fencedRemoteCommand(context, identity, {
+    locator: target.binding.locator,
+    preStart: () => preStartResult(context, budgetMs),
+    run: () =>
+      runRemoteCommand({
+        client: target.client,
+        binding: target.binding,
+        cwd: target.path,
+        input,
+        nonce: createSshNonce(),
+        context,
+        executorContext,
+        budgetMs,
+      }),
+  });
 }
 
 /**

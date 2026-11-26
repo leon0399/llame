@@ -1,5 +1,5 @@
 import { eq } from 'drizzle-orm';
-import { chatJobs } from '../db/schema';
+import { newChatJob } from '../testing/chat-job-rows';
 import { FollowUpAdmissionService } from '../chats/follow-up-admission.service';
 import { JobNoticeRunService } from './job-notice-run.service';
 import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
@@ -14,7 +14,7 @@ import { promoteNextQueueItem } from './queue-promotion';
 
 import { ChatDeliveriesRepository } from '../chats/chat-deliveries.repository';
 import { ChatJobsRepository } from '../jobs/chat-jobs.repository';
-import { type ChatJob } from '../db/schema';
+import { chatJobs, type ChatJob } from '../db/schema';
 import {
   useSegmentsFixture,
   type SeededRun,
@@ -36,19 +36,15 @@ describe('held job notices', () => {
     seq = 1,
   ): Promise<ChatJob> {
     const inserted = await fx.db((tx) =>
-      new ChatJobsRepository(tx).insert({
-        chatId,
-        ownerUserId: fx.userId,
-        executor: 'bash',
-        seq,
-        runId,
-        toolCallId: `held-${randomUUID()}`,
-        workerInstanceId: randomUUID(),
-        startedAt: new Date(),
-        outputs: [],
-        artifactReadable: false,
-        settings: { selector: modelId, permissionMode: 'default' },
-      }),
+      new ChatJobsRepository(tx).insert(
+        newChatJob({
+          chatId,
+          ownerUserId: fx.userId,
+          seq,
+          runId,
+          settings: { selector: modelId, permissionMode: 'default' },
+        }),
+      ),
     );
 
     await settleBashJob(
@@ -62,12 +58,12 @@ describe('held job notices', () => {
           truncatedStreams: { stdout: false, stderr: false },
         },
         settlement: { state: 'failed', result: { exitCode: 1 } },
-        offsets: { stdout: 0, stderr: 0 },
       },
       {
         maxBytes: 65_536,
         hostFiles: false,
         noticeRuns: fx.harness.moduleRef.get(JobNoticeRunService),
+        wake: fx.harness.moduleRef.get(RunWaitService),
       },
     );
 

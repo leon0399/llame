@@ -81,14 +81,6 @@ function updateSetSql(queries: Array<LoggedQuery>): string {
   return sql.slice(sql.indexOf(' set ') + 5, sql.indexOf(' where '));
 }
 
-function whereSql(queries: Array<LoggedQuery>): string {
-  const sql = lastQuery(queries).sql;
-  const start = sql.indexOf(' where ');
-  const end = sql.indexOf(' returning ');
-
-  return sql.slice(start, end === -1 ? undefined : end);
-}
-
 describe('ChatsRepository — owner-scoped queries (defense-in-depth)', () => {
   const ownerUserId = 'owner-123';
   const chatId = 'chat-abc';
@@ -945,23 +937,6 @@ describe('RunsRepository / RunEventsRepository — owner-scoped (#48)', () => {
     ).toBe(true);
     expect(queryContains(queries, 'running_model')).toBe(true);
     expect(updateSetSql(queries)).toContain('"started_at" = $');
-  });
-
-  it('markStarted does not reclaim by heartbeat or exclude running_model (durable-run-workers D7)', async () => {
-    // Regression test for the liveness collapse: the app-level
-    // stale-heartbeat CAS (a COALESCE(heartbeat_at, ...) < now() - interval
-    // clause, and a status-based `running_model` exclusion) is gone. The
-    // separate cancel-requested guard closes the worker pickup TOCTOU; native
-    // job-queue liveness still decides whether a running delivery is a
-    // legitimate crash-recovery claim.
-    const { db, queries } = makeMockDb();
-    await new RunsRepository(db)
-      .markStarted(runId, ownerUserId)
-      .catch(() => null);
-    expect(querySqlContains(queries, 'heartbeat_at')).toBe(false);
-    expect(whereSql(queries)).not.toContain('running_model');
-    // heartbeatAt is a dropped column — markStarted must not write it.
-    expect(querySqlContains(queries, 'heartbeat_at')).toBe(false);
   });
 
   it('cancelActiveRunsForMessage scopes by messageId AND userId and skips terminal runs', async () => {

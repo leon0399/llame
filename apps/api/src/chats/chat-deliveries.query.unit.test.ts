@@ -142,7 +142,6 @@ describe('ChatDeliveriesRepository PostgreSQL query', () => {
           chatId: chatA,
           ownerUserId: ownerA,
           seq: 17,
-          workerInstanceId: workerId,
         }),
       );
       await tx.insert(schema.chatDeliveries).values({
@@ -163,7 +162,6 @@ describe('ChatDeliveriesRepository PostgreSQL query', () => {
           chatId: chatB,
           ownerUserId: ownerB,
           seq: 23,
-          workerInstanceId: workerId,
         }),
       );
       await tx.insert(schema.chatDeliveries).values({
@@ -185,7 +183,7 @@ describe('ChatDeliveriesRepository PostgreSQL query', () => {
     expect(visible).toHaveLength(1);
     expect(visible[0]).toMatchObject({
       item: { id: itemA, senderRef: jobId },
-      job: { executor: 'bash', seq: 17, state: 'running' },
+      job: { kind: 'bash', seq: 17, state: 'running' },
     });
 
     const foreign = await tenantDb.runAs(ownerA, (tx) =>

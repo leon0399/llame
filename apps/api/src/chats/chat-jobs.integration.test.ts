@@ -10,8 +10,6 @@ import type { Server } from 'node:http';
 
 import { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
-import { sql } from 'drizzle-orm';
-import { type PostgresJsDatabase } from 'drizzle-orm/postgres-js';
 import request from 'supertest';
 import { z } from 'zod';
 
@@ -23,15 +21,12 @@ import {
   ChatJobsRepository,
   type NewChatJob,
 } from '../jobs/chat-jobs.repository';
-import { workerDeadAfterSeconds } from '../jobs/worker-liveness';
-import { WorkerHeartbeatService } from '../jobs/worker-heartbeat.service';
 import {
   LIVE_RECORD_LOADER,
   type LiveRecordLoader,
 } from '../live/live-record-loader';
 import { ModelsService } from '../models/models.service';
 import { CanonicalSearchCoverageService } from '../search/canonical-search-activation.service';
-import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
 import { newChatJob } from '../testing/chat-job-rows';
 import {
   FakeModelsService,
@@ -39,6 +34,13 @@ import {
   expectRegisteredUserId,
 } from '../testing/support';
 import { ChatsRepository } from './chats-repository';
+import { settleBashJob } from '../jobs/bash-job-store';
+import { jobArtifactLocatorOf } from '../jobs/job-locator';
+import { ArtifactsRepository } from '../tools/artifacts/artifacts-repository';
+import {
+  commitArtifactInTransaction,
+  reserveArtifactSeq,
+} from '../tools/artifacts/artifact-writer';
 
 if (!process.env['TEST_DATABASE_URL']) {
   throw new Error(
@@ -64,15 +66,12 @@ describe('chat jobs API', () => {
   let app: INestApplication<Server>;
   let http: Server;
   let tenantDb: TenantDbService;
-  let db: PostgresJsDatabase;
-  let liveWorker: string;
-  let deadWorker: string;
 
-  const tag = Date.now();
   let cookieA = '';
   let userAId = '';
   let cookieB = '';
   let userBId = '';
+  const tag = Date.now();
 
   async function register(email: string, name: string) {
     const res = await request(http)
@@ -99,14 +98,6 @@ describe('chat jobs API', () => {
     await app.listen(0);
     http = app.getHttpServer();
     tenantDb = app.get(TenantDbService);
-    db = app.get<PostgresJsDatabase>('DB_DEV', {
-      strict: false,
-    });
-    liveWorker = app.get(WorkerHeartbeatService, { strict: false }).instanceId;
-    deadWorker = crypto.randomUUID();
-
-    await db.execute(sql`INSERT INTO worker_instances (id, last_seen_at)
-      VALUES (${deadWorker}, now() - make_interval(secs => ${workerDeadAfterSeconds(BUILT_IN_DEFAULTS) + 5}))`);
 
     const userA = await register(`jobs-a-${tag}@example.com`, 'A');
 
@@ -119,9 +110,6 @@ describe('chat jobs API', () => {
   });
 
   afterAll(async () => {
-    await db?.execute(
-      sql`DELETE FROM worker_instances WHERE id = ${deadWorker}`,
-    );
     await app?.close();
   });
 
@@ -144,7 +132,6 @@ describe('chat jobs API', () => {
           chatId,
           ownerUserId: userAId,
           seq,
-          workerInstanceId: liveWorker,
           ...overrides,
         }),
       ),
@@ -168,7 +155,7 @@ describe('chat jobs API', () => {
     return rows;
   };
 
-  it('lists the jobs of the Chat with the live jobs first', async () => {
+  it('lists the running jobs of the Chat first', async () => {
     const chatId = await createChat();
     const done = await startJob(chatId, 2);
 
@@ -190,16 +177,6 @@ describe('chat jobs API', () => {
       ['job://bash-2', 'succeeded'],
     ]);
     expect(body.items.map((item) => item.truncated)).toEqual([[], ['stdout']]);
-  });
-
-  it('settles the job of a dead worker as lost when it lists', async () => {
-    const chatId = await createChat();
-
-    await startJob(chatId, 1, { workerInstanceId: deadWorker });
-
-    const body = listBody.parse((await list(chatId)).body);
-
-    expect(body.items).toMatchObject([{ state: 'lost', outcomeUnknown: true }]);
   });
 
   // Scenario: Another owner reads a job
@@ -287,14 +264,6 @@ describe('chat jobs API', () => {
     expect((await stop(chatId, job.id)).status).toBe(409);
   });
 
-  it('answers 409 and settles lost when the job sits on a dead worker', async () => {
-    const chatId = await createChat();
-    const job = await startJob(chatId, 1, { workerInstanceId: deadWorker });
-
-    expect((await stop(chatId, job.id)).status).toBe(409);
-    expect(await stateOf(chatId, job.id)).toMatchObject({ state: 'lost' });
-  });
-
   describe('404 answers', () => {
     it('answers 404 to an unknown job, a job of another Chat, and an unknown Chat', async () => {
       const chatId = await createChat();
@@ -353,7 +322,7 @@ describe('chat jobs API', () => {
         .find((item) => item.id === chatId);
     };
 
-    it('counts the running jobs on a live worker in the list and the live record', async () => {
+    it('counts the running jobs in the list and the live record', async () => {
       const chatId = await createChat();
 
       await startJob(chatId, 1);
@@ -383,22 +352,158 @@ describe('chat jobs API', () => {
 
       expect(await itemOf(chatId)).toMatchObject({ runningJobs: 0 });
     });
+  });
+  it('settles a known result with unavailable output and creates no artifact', async () => {
+    const chatId = await createChat();
+    const job = await startJob(chatId, 11);
 
-    // Scenario: A job on a dead worker is not counted
-    it('does not count a job on a dead worker, and settles nothing', async () => {
-      const chatId = await createChat();
-      const job = await startJob(chatId, 1, { workerInstanceId: deadWorker });
+    await settleBashJob(
+      tenantDb,
+      job,
+      {
+        output: null,
+        settlement: {
+          state: 'succeeded',
+          result: { exitCode: 0, outputUnavailable: true },
+        },
+      },
+      {
+        maxBytes: 131_072,
+        hostFiles: false,
+        backgrounded: false,
+        noticeRuns: { startOnSettlement: () => Promise.resolve() },
+        wake: { wakeForChatInTransaction: () => Promise.resolve(false) },
+      },
+    );
 
-      expect(await itemOf(chatId)).toMatchObject({ runningJobs: 0 });
+    expect(await stateOf(chatId, job.id)).toMatchObject({
+      state: 'succeeded',
+      result: { exitCode: 0, outputUnavailable: true },
+      artifactId: null,
+    });
+  });
+  it('reuses the spill artifact locator when settling the job', async () => {
+    const chatId = await createChat();
 
-      const loader = app.get<LiveRecordLoader>(LIVE_RECORD_LOADER, {
-        strict: false,
-      });
+    const bindingSeq = await reserveArtifactSeq(tenantDb, {
+      chatId,
+      userId: userAId,
+    });
 
-      expect(await loader.chat(userAId, chatId)).toMatchObject({
-        runningJobs: 0,
-      });
-      expect(await stateOf(chatId, job.id)).toMatchObject({ state: 'running' });
+    const job = await startJob(chatId, bindingSeq);
+
+    const spillSeq = await reserveArtifactSeq(tenantDb, {
+      chatId,
+      userId: userAId,
+    });
+
+    const spilled = await tenantDb.runAs(userAId, (tx) =>
+      commitArtifactInTransaction(
+        tx,
+        {
+          chatId,
+          userId: userAId,
+          runId: job.runId,
+          toolCallId: job.toolCallId,
+          toolName: 'bash',
+          complete: true,
+          parts: [
+            {
+              name: 'stdout',
+              contentType: 'text/plain',
+              content: Buffer.from('spilled output'),
+            },
+          ],
+        },
+        spillSeq,
+        131_072,
+      ),
+    );
+
+    await settleBashJob(
+      tenantDb,
+      job,
+      {
+        output: {
+          stdout: 'spilled output',
+          stderr: '',
+          truncated: false,
+          truncatedStreams: { stdout: false, stderr: false },
+        },
+        settlement: { state: 'succeeded', result: { exitCode: 0 } },
+      },
+      {
+        maxBytes: 131_072,
+        hostFiles: false,
+        backgrounded: false,
+        noticeRuns: { startOnSettlement: () => Promise.resolve() },
+        wake: { wakeForChatInTransaction: () => Promise.resolve(false) },
+      },
+    );
+
+    const settled = await stateOf(chatId, job.id);
+    expect(settled).toMatchObject({
+      state: 'succeeded',
+      artifactId: spilled.id,
+      seq: spillSeq,
+    });
+
+    if (settled === undefined) {
+      throw new Error('Expected the settled job to remain bound.');
+    }
+
+    const locator = jobArtifactLocatorOf(settled);
+    expect(locator).toBe(`artifact://bash-${spillSeq}`);
+
+    const part =
+      locator === undefined
+        ? undefined
+        : await tenantDb.runAs(userAId, (tx) =>
+            new ArtifactsRepository(tx).readPart(
+              chatId,
+              'bash',
+              settled.seq,
+              'stdout',
+            ),
+          );
+
+    expect(part?.content.toString()).toBe('spilled output');
+  });
+
+  it('rolls back job settlement when the output artifact cannot be written', async () => {
+    const chatId = await createChat();
+    const job = await startJob(chatId, 12);
+
+    await expect(
+      settleBashJob(
+        tenantDb,
+        job,
+        {
+          output: {
+            stdout: 'x'.repeat(131_073),
+            stderr: '',
+            truncated: false,
+            truncatedStreams: { stdout: false, stderr: false },
+          },
+          settlement: {
+            state: 'succeeded',
+            result: { exitCode: 0 },
+          },
+        },
+        {
+          maxBytes: 131_072,
+          hostFiles: false,
+          backgrounded: false,
+          noticeRuns: { startOnSettlement: () => Promise.resolve() },
+          wake: { wakeForChatInTransaction: () => Promise.resolve(false) },
+        },
+      ),
+    ).rejects.toThrow('An artifact part exceeds tools.artifacts.maxBytes.');
+
+    expect(await stateOf(chatId, job.id)).toMatchObject({
+      state: 'running',
+      settledAt: null,
+      artifactId: null,
     });
   });
 });

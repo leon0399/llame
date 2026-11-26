@@ -1,6 +1,4 @@
 import {
-  Code,
-  ConnectError,
   createClient,
   type CallOptions,
   type Client,
@@ -16,25 +14,22 @@ import {
   JobService,
   MachineService,
   McpService,
-  ErrorDetailSchema,
-  ErrorReason,
   GetInfoRequestSchema,
   GetLimitsRequestSchema,
   ListRootsRequestSchema,
-  MachineProtocolError,
   connectStdio,
   MACHINE_PROTOCOL_VERSION,
   type HelloResult,
   type JsonValue,
   type MachineMethod,
   type MachineMethodParams,
-  isMachineErrorCode,
 } from '@workspace/machine-protocol';
 import { classifySshLinkFailure } from '../ssh/ssh-process';
 import type { MachineLinkEnd, MachineTransport } from './machine-transport';
 import {
   MachineUnavailableError,
   MachineUpdateRequiredError,
+  mapMachineRefusal,
 } from './machine-session-errors';
 import { dispatchWireHandler } from './wire/index';
 import type { MachineFailureReason } from './machines-status';
@@ -349,40 +344,7 @@ export class MachineSession {
     this.finish({ kind: 'closed' });
   }
   mapRefusal(error: unknown, sent = false): Error {
-    if (!(error instanceof ConnectError))
-      return error instanceof Error ? error : new Error(String(error));
-    const detail = error.findDetails(ErrorDetailSchema)[0];
-
-    if (detail !== undefined) {
-      const reasonMap: Partial<Record<ErrorReason, string>> = {
-        [ErrorReason.PATH_NOT_REGISTERED]: 'path_not_registered',
-        [ErrorReason.INVALID_ARGUMENT]: 'invalid_argument',
-        [ErrorReason.JOB_LIMIT]: 'machine_job_limit',
-        [ErrorReason.JOB_NOT_FOUND]: 'machine_job_not_found',
-        [ErrorReason.JOB_RUNNING]: 'machine_job_running',
-      };
-
-      const code = reasonMap[detail.reason];
-
-      if (code !== undefined && isMachineErrorCode(code))
-        return new MachineProtocolError(code, error.rawMessage);
-    }
-
-    if (error.code === Code.Unimplemented)
-      return new MachineUpdateRequiredError(this.name, 'requested operation');
-
-    if (error.code === Code.DeadlineExceeded)
-      return new MachineProtocolError(
-        'budget_exhausted',
-        'Machine request budget exhausted.',
-      );
-
-    return new MachineUnavailableError(
-      this.name,
-      'session_lost',
-      sent,
-      error.rawMessage,
-    );
+    return mapMachineRefusal(this.name, error, sent);
   }
   private async performHandshake(): Promise<HelloResult> {
     const timeoutMs = this.options.handshakeTimeoutMs ?? HANDSHAKE_TIMEOUT_MS;

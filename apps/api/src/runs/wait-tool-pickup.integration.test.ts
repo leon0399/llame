@@ -18,6 +18,7 @@ import {
   seedRun,
   type WorkerHarness,
 } from './worker-harness';
+import { RunWaitService } from './run-wait.service';
 
 if (!process.env.TEST_DATABASE_URL) {
   throw new Error(
@@ -161,12 +162,12 @@ describe('wait settlement before cold wake pickup', () => {
             truncatedStreams: { stdout: false, stderr: false },
           },
           settlement: { state: 'failed', result: { exitCode: 1 } },
-          offsets: { stdout: 0, stderr: 0 },
         },
         {
           maxBytes: 65_536,
           hostFiles: false,
           noticeRuns: harness.moduleRef.get(JobNoticeRunService),
+          wake: harness.moduleRef.get(RunWaitService),
         },
       );
 

@@ -11,32 +11,20 @@ import {
   type Db,
   type TenantRunner,
 } from '../db/tenant-db.service';
-import {
-  InstanceConfigService,
-  type InstanceConfigReader,
-} from '../instance-config/instance-config.service';
 import { retryRunTransaction } from '../runs/run-transaction';
-import { ChatJobsRepository } from '../jobs/chat-jobs.repository';
-import { workerDeadAfterSeconds } from '../jobs/worker-liveness';
-import { RunWaitService } from '../runs/run-wait.service';
 import { notifyRunControl } from '../runs/run-control';
+import { ChatJobsRepository } from '../jobs/chat-jobs.repository';
 import { ChatsRepository } from './chats-repository';
 
 /**
- * The owner's view of the jobs of a Chat (background-jobs). Every read and
- * write runs in the owner's tenant scope, so a Chat or a job of another owner
- * is not found. Each request is a touch: a running job of a dead worker settles
- * as `lost` before the request answers.
+ * The owner's view of the jobs of a Chat. Every read and write runs in the
+ * owner's tenant scope, so a Chat or a job of another owner is not found.
  */
 @Injectable()
 export class ChatJobsService {
   constructor(
     @Inject(TenantDbService)
     private readonly tenantDb: TenantRunner,
-    @Inject(InstanceConfigService)
-    private readonly instanceConfig: InstanceConfigReader,
-    @Inject(RunWaitService)
-    private readonly runWait: Pick<RunWaitService, 'wakeForChatInTransaction'>,
   ) {}
 
   /** The jobs of the Chat, the live jobs first, each group oldest first. */
@@ -100,16 +88,10 @@ export class ChatJobsService {
     throw new ConflictException(`The job is already ${job.state}`);
   }
 
-  /**
-   * The running jobs of each owned Chat on a worker that is not dead, for the
-   * chat list. It joins the job to its worker and settles nothing.
-   */
+  /** Running jobs for each owned Chat, independent of worker liveness. */
   runningCounts(userId: string): Promise<Map<string, number>> {
     return this.tenantDb.runAs(userId, (tx) =>
-      new ChatJobsRepository(tx).countRunning(
-        userId,
-        workerDeadAfterSeconds(this.instanceConfig.config),
-      ),
+      new ChatJobsRepository(tx).countRunning(userId),
     );
   }
 
@@ -122,25 +104,6 @@ export class ChatJobsService {
       throw new NotFoundException(`Chat ${chatId} not found`);
     }
 
-    const jobs = new ChatJobsRepository(tx);
-
-    const settled = await jobs.settleOnDeadWorkers(
-      chatId,
-      userId,
-      workerDeadAfterSeconds(this.instanceConfig.config),
-    );
-
-    const job = settled[0];
-
-    if (job) {
-      await this.runWait.wakeForChatInTransaction(tx, {
-        chatId,
-        userId,
-        jobId: job.id,
-        kind: 'settlement',
-      });
-    }
-
-    return jobs;
+    return new ChatJobsRepository(tx);
   }
 }

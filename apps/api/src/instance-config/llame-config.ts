@@ -730,9 +730,8 @@ export type LlameConfig = {
     grep: GrepBoundsConfig;
     /** The one byte bound on every stored tool-result artifact part. */
     artifacts: ArtifactBoundsConfig;
-    /** Operator bounds on host `bash` (background-jobs D7): worker process bound. */
+    /** Operator bound on how long a foreground host `bash` call waits. */
     bash: {
-      readonly maxProcesses: number;
       readonly backgroundAfterSeconds: number;
     };
     /** Maximum command lifetime, measured from spawn (background-jobs D8). */
@@ -873,7 +872,7 @@ export const BUILT_IN_DEFAULTS: LlameConfig = {
       maxFileBytes: null,
     },
     artifacts: { maxBytes: 8_388_608 },
-    bash: { maxProcesses: 64, backgroundAfterSeconds: 120 },
+    bash: { backgroundAfterSeconds: 120 },
     jobs: { maxSeconds: 7200, allowUnlimited: false },
     promptFiles: {},
     webAdapters: [],

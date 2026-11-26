@@ -24,7 +24,6 @@ import {
   type RunEvent,
 } from '../db/schema';
 import { type Db } from '../db/tenant-db.service';
-import { ChatJobsRepository } from '../jobs/chat-jobs.repository';
 import {
   type FailureClass,
   type ProviderFailure,
@@ -156,12 +155,6 @@ async function lockForSwitch(
   if (chat === undefined) {
     throw new Error(`Run ${run.runId} could not lock its Chat to switch.`);
   }
-
-  await new ChatJobsRepository(tx).settleOnDeadWorkers(
-    chatId,
-    userId,
-    delivery.deadWorkerAfterSeconds,
-  );
 
   const pending = await new ChatDeliveriesRepository(tx).lockPendingBoundary(
     chatId,

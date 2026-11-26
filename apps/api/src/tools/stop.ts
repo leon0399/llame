@@ -3,8 +3,6 @@ import { z } from 'zod';
 
 import { type ChatJob } from '../db/schema';
 import { type Db } from '../db/tenant-db.service';
-import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
-import { workerDeadAfterSeconds } from '../jobs/worker-liveness';
 import { ChatJobsRepository } from '../jobs/chat-jobs.repository';
 import { retryRunTransaction } from '../runs/run-transaction';
 import {
@@ -59,21 +57,13 @@ function recordRequests(
   return retryRunTransaction(() =>
     context.tenantDb.runAs(context.userId, async (tx: Db) => {
       const jobs = new ChatJobsRepository(tx);
-
-      await jobs.settleOnDeadWorkers(
-        context.chatId,
-        context.userId,
-        context.workerDeadAfterSeconds ??
-          workerDeadAfterSeconds(BUILT_IN_DEFAULTS),
-      );
-
       const rows: Array<ChatJob> = [];
 
-      for (const { executor, seq } of locators) {
+      for (const { kind, seq } of locators) {
         const row = await jobs.findByLocator(
           context.chatId,
           context.userId,
-          executor,
+          kind,
           seq,
         );
 
@@ -123,9 +113,8 @@ function readRows(
 }
 
 /**
- * Wait for the settlements under one monotonic deadline. A job this worker
- * hosts settles through its own registry; any other job is read every 250 ms.
- * The stop request is durable, so a deadline that passes changes nothing.
+ * Send each committed stop request through its Machine connection, then wait
+ * for the persisted rows to settle under one shared deadline.
  */
 async function awaitSettlement(
   context: ToolContext,
@@ -136,13 +125,13 @@ async function awaitSettlement(
   const remaining = () => Math.max(0, deadline - performance.now());
   const timer = new AbortController();
 
-  // The registry stops a job it hosts with the stopper stored on the row, so
-  // the first request wins; a job it does not host resolves at once.
+  // Machine failures leave the committed stop request for the next attachment;
+  // a connected registry sends Stop and the daemon reconciles its result.
   await Promise.race([
     Promise.all(
       rows.flatMap((row) =>
         row.state === 'running'
-          ? [registry?.recheckJob(row.id) ?? Promise.resolve()]
+          ? [registry?.recheckJob(row) ?? Promise.resolve()]
           : [],
       ),
     ),
@@ -165,7 +154,7 @@ function stopOutput(rows: ReadonlyArray<ChatJob>): ToolResult {
   return {
     status: 'success',
     jobs: rows.map((row) => ({
-      job: formatJobLocator(row.executor, row.seq),
+      job: formatJobLocator(row.kind, row.seq),
       state: row.state,
       ...(row.stoppedBy !== null && { stopped_by: row.stoppedBy }),
     })),

@@ -14,6 +14,8 @@ import {
 import { RunEventsRepository, RunsRepository } from './runs-repository';
 import { deliverPendingSteering } from './segment-delivery';
 
+import { newChatJob } from '../testing/chat-job-rows';
+
 if (!process.env['TEST_DATABASE_URL']) {
   throw new Error(
     'run-boundary-compaction-followup.integration.test.ts requires TEST_DATABASE_URL.',
@@ -32,18 +34,18 @@ describe('step-boundary compaction follow-up', () => {
     await fx.db(async (tx) => {
       const jobs = new ChatJobsRepository(tx);
 
-      const inserted = await jobs.insert({
-        chatId,
-        ownerUserId: fx.userId,
-        executor: 'bash',
-        seq: 1,
-        runId,
-        toolCallId: `job-${crypto.randomUUID()}`,
-        workerInstanceId: crypto.randomUUID(),
-        outputs: [],
-        artifactReadable: false,
-        settings: { selector: 'boundary-job-test', permissionMode: 'default' },
-      });
+      const inserted = await jobs.insert(
+        newChatJob({
+          chatId,
+          ownerUserId: fx.userId,
+          seq: 1,
+          runId,
+          settings: {
+            selector: 'boundary-job-test',
+            permissionMode: 'default',
+          },
+        }),
+      );
 
       const settled = await jobs.settle(chatId, fx.userId, inserted.id, {
         state: 'succeeded',

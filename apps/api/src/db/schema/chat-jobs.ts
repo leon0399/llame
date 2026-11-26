@@ -7,13 +7,12 @@ import {
   jsonb,
   pgPolicy,
   pgTable,
-  primaryKey,
   text,
   unique,
   uuid,
 } from 'drizzle-orm/pg-core';
 
-import { bytea, timestamptz } from '../columns';
+import { timestamptz } from '../columns';
 import { type ChatDeliverySettings } from './chat-deliveries';
 import { chats } from './chats';
 import { toolArtifacts } from './tool-artifacts';
@@ -35,27 +34,26 @@ export const chatJobStoppers = ['owner', 'assistant', 'worker'] as const;
 
 export type ChatJobStopper = (typeof chatJobStoppers)[number];
 
-/** The exit detail of a settled job; a later layer adds the fields it fills. */
+/** The delivery mode is committed with the binding and before promotion. */
+export const chatJobDeliveries = ['foreground', 'background'] as const;
+
+export type ChatJobDelivery = (typeof chatJobDeliveries)[number];
+
+/** The exit detail of a settled job and its daemon-side unknown-outcome cause. */
 export type ChatJobResult = {
   exitCode?: number | null;
   signal?: string | null;
   truncated?: Partial<Record<string, boolean>>;
-  /** Set on a `lost` job: the outcome of the work is not known. */
   outcomeUnknown?: boolean;
+  outputUnavailable?: boolean;
+  cause?: string;
 };
 
 /**
- * One background job (background-jobs D1): work that continues after the tool
- * call that started it. A job belongs to its Chat and owner, not to the Run
- * that started it, so `run_id` carries no foreign key. `seq` is a number that
- * `chats.artifact_seq` reserved, so `job://bash-7` and `artifact://bash-7`
- * name one thing. `worker_instance_id` names the process that hosts the work;
- * it has no foreign key because a worker row can be pruned while the job row
- * stays.
- *
- * NOTE: `.enableRLS()` only emits ENABLE. The migration ALSO issues
- * `FORCE ROW LEVEL SECURITY` (src/db/AGENTS.md P1); re-add FORCE if it is
- * regenerated.
+ * One job on a Machine daemon. A job belongs to its Chat and owner, not to
+ * the Run that started it, so `run_id` carries no foreign key. `seq` is
+ * reserved with `chats.artifact_seq`, so `job://bash-7` and `artifact://bash-7`
+ * name one thing. `daemon_job_id` identifies the daemon-side process.
  */
 export const chatJobs = pgTable(
   'chat_jobs',
@@ -63,14 +61,19 @@ export const chatJobs = pgTable(
     id: uuid('id').primaryKey().defaultRandom(),
     chatId: uuid('chat_id').notNull(),
     ownerUserId: text('owner_user_id').notNull(),
-    executor: text('executor').notNull(),
+    kind: text('kind').notNull(),
     seq: integer('seq').notNull(),
     state: text('state').notNull().default('running').$type<ChatJobState>(),
     stoppedBy: text('stopped_by').$type<ChatJobStopper>(),
     runId: uuid('run_id').notNull(),
     toolCallId: text('tool_call_id').notNull(),
-    workerInstanceId: uuid('worker_instance_id').notNull(),
-    pid: integer('pid'),
+    machineName: text('machine_name').notNull(),
+    daemonInstanceId: text('daemon_instance_id').notNull(),
+    daemonJobId: text('daemon_job_id').notNull(),
+    delivery: text('delivery')
+      .notNull()
+      .default('background')
+      .$type<ChatJobDelivery>(),
     startedAt: timestamptz('started_at').notNull().defaultNow(),
     settledAt: timestamptz('settled_at'),
     deadlineAt: timestamptz('deadline_at'),
@@ -95,14 +98,12 @@ export const chatJobs = pgTable(
       columns: [t.chatId, t.ownerUserId],
       foreignColumns: [chats.id, chats.ownerUserId],
     }).onDelete('cascade'),
-    unique('chat_jobs_chat_executor_seq_unique').on(
-      t.chatId,
-      t.executor,
-      t.seq,
+    unique('chat_jobs_chat_kind_seq_unique').on(t.chatId, t.kind, t.seq),
+    unique('chat_jobs_daemon_instance_job_unique').on(
+      t.daemonInstanceId,
+      t.daemonJobId,
     ),
-    // The target of the chunk table's composite foreign key.
     unique('chat_jobs_id_owner_unique').on(t.id, t.ownerUserId),
-    // The live count of one Chat.
     index('chat_jobs_chat_running_idx')
       .on(t.chatId)
       .where(sql`state = 'running'`),
@@ -111,43 +112,9 @@ export const chatJobs = pgTable(
     }),
   ],
 ).enableRLS();
+// Drizzle does not emit FORCE ROW LEVEL SECURITY. Restore it in migrations.
 
 export type ChatJob = InferSelectModel<typeof chatJobs>;
-
-/**
- * One appended increment of a live job's output (background-jobs D1). The
- * composite foreign key keeps the owner of a chunk equal to the owner of its
- * job, so the owner policy needs no join.
- *
- * NOTE: `.enableRLS()` only emits ENABLE; the migration adds FORCE.
- */
-export const chatJobChunks = pgTable(
-  'chat_job_chunks',
-  {
-    jobId: uuid('job_id').notNull(),
-    ownerUserId: text('owner_user_id').notNull(),
-    /** The output name, such as `stdout`. */
-    output: text('output').notNull(),
-    position: integer('position').notNull(),
-    content: bytea('content').notNull(),
-  },
-  (t) => [
-    primaryKey({
-      name: 'chat_job_chunks_pk',
-      columns: [t.jobId, t.output, t.position],
-    }),
-    foreignKey({
-      name: 'chat_job_chunks_job_id_owner_user_id_fk',
-      columns: [t.jobId, t.ownerUserId],
-      foreignColumns: [chatJobs.id, chatJobs.ownerUserId],
-    }).onDelete('cascade'),
-    pgPolicy('chat_job_chunks_owner', {
-      using: sql`owner_user_id = current_setting('app.current_user_id', true)`,
-    }),
-  ],
-).enableRLS();
-
-export type ChatJobChunk = InferSelectModel<typeof chatJobChunks>;
 
 /**
  * One worker process (background-jobs D9): a random id at each start and the

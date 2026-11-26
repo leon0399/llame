@@ -39,7 +39,7 @@ export function createJobNoticeItem(input: {
   readonly hostDirectory?: string;
 }): AuthoredContextItemPart {
   const { job } = input;
-  const locator = formatJobLocator(job.executor, job.seq);
+  const locator = formatJobLocator(job.kind, job.seq);
 
   const artifactLocator = jobArtifactLocatorOf(job);
 
@@ -84,7 +84,7 @@ function jobNoticePayload(input: {
   return {
     jobId: job.id,
     locator: input.locator,
-    executor: job.executor,
+    executor: job.kind,
     state: job.state,
     elapsedMs: input.elapsedMs,
     ...(job.result?.exitCode !== undefined && {
@@ -124,7 +124,7 @@ function renderJobNoticeBody(input: {
 
   return renderJobNoticeTemplate({
     locator: input.locator,
-    executor: job.executor,
+    executor: job.kind,
     state: job.state,
     elapsed: formatElapsed(input.elapsedMs),
     exitDetail,

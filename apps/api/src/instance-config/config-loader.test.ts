@@ -1127,60 +1127,12 @@ describe('loadInstanceConfig — tools.artifacts bound (tool-result-artifacts D1
   });
 });
 
-describe('loadInstanceConfig — tools.bash.maxProcesses (background-jobs D7)', () => {
-  it('defaults to 64 when the object or the key is absent', () => {
-    writeConfig('{ "tools": { "allowed": [] } }');
-    expect(loadInstanceConfig().tools.bash).toEqual({
-      maxProcesses: 64,
-      backgroundAfterSeconds: 120,
-    });
-    writeConfig('{ "tools": { "bash": null } }');
-    expect(loadInstanceConfig().tools.bash).toEqual({
-      maxProcesses: 64,
-      backgroundAfterSeconds: 120,
-    });
+describe('loadInstanceConfig — tools.bash (machine-daemon)', () => {
+  it('defaults the foreground wait bound', () => {
     writeConfig('{ "tools": { "bash": {} } }');
     expect(loadInstanceConfig().tools.bash).toEqual({
-      maxProcesses: 64,
       backgroundAfterSeconds: 120,
     });
-  });
-
-  it('takes the bound from the file and from an interpolation token', () => {
-    writeConfig('{ "tools": { "bash": { "maxProcesses": 1 } } }');
-    expect(loadInstanceConfig().tools.bash).toEqual({
-      maxProcesses: 1,
-      backgroundAfterSeconds: 120,
-    });
-
-    writeConfig(
-      '{ "tools": { "bash": { "maxProcesses": "{env:IC_PROCS}" } } }',
-    );
-    expect(loadInstanceConfig({ IC_PROCS: '8' }).tools.bash).toEqual({
-      maxProcesses: 8,
-      backgroundAfterSeconds: 120,
-    });
-  });
-
-  it.each([null, 0, -3, 1.5, 9_007_199_254_740_992])(
-    'refuses %s, naming the path',
-    (value) => {
-      writeConfig(`{ "tools": { "bash": { "maxProcesses": ${value} } } }`);
-      expect(() => loadInstanceConfig()).toThrow(
-        /tools[./]bash[./]maxProcesses/,
-      );
-    },
-  );
-
-  it('refuses a token that resolves to an unusable value', () => {
-    writeConfig(
-      '{ "tools": { "bash": { "maxProcesses": "{env:IC_PROCS}" } } }',
-    );
-
-    for (const value of ['', '0', '2.5', '9007199254740993'])
-      expect(() => loadInstanceConfig({ IC_PROCS: value })).toThrow(
-        'tools.bash.maxProcesses',
-      );
   });
 
   it('refuses an unknown key, naming the path', () => {
@@ -1255,7 +1207,7 @@ describe('loadInstanceConfig — tools.jobs.maxSeconds', () => {
 
 describe('loadInstanceConfig — tools.bash.backgroundAfterSeconds', () => {
   it('defaults to 120 and takes a file value or a token', () => {
-    writeConfig('{ "tools": { "bash": { "maxProcesses": 2 } } }');
+    writeConfig('{ "tools": { "bash": {} } }');
     expect(loadInstanceConfig().tools.bash.backgroundAfterSeconds).toBe(120);
     writeConfig('{ "tools": { "bash": { "backgroundAfterSeconds": 30 } } }');
     expect(loadInstanceConfig().tools.bash.backgroundAfterSeconds).toBe(30);

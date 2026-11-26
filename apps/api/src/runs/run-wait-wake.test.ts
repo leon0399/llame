@@ -2,13 +2,11 @@ import {
   type AwaitingJobs,
   type AwaitingQuota,
   type Chat,
-  type ChatJob,
   type Message,
   type Run,
   type RunEvent,
 } from '../db/schema';
 import { ChatsRepository, MessagesRepository } from '../chats/chats-repository';
-import { ChatJobsRepository } from '../jobs/chat-jobs.repository';
 import { type Db, type TenantDbService } from '../db/tenant-db.service';
 import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
 import { type InstanceConfigReader } from '../instance-config/instance-config.service';
@@ -60,7 +58,6 @@ type WakeUpdate = { status?: 'queued'; currentJobId?: string };
 function makeFixture(
   selectRows: Array<Array<unknown>>,
   options: {
-    deadJobs?: Array<ChatJob>;
     updateSucceeds?: boolean;
   } = {},
 ) {
@@ -112,10 +109,6 @@ function makeFixture(
     asDouble<Chat>({ id: 'chat-1' }),
   );
 
-  const settleOnDeadWorkers = vi
-    .spyOn(ChatJobsRepository.prototype, 'settleOnDeadWorkers')
-    .mockResolvedValue(options.deadJobs ?? []);
-
   const append = vi
     .spyOn(RunEventsRepository.prototype, 'append')
     .mockResolvedValue(asDouble<RunEvent>({}));
@@ -135,7 +128,6 @@ function makeFixture(
     tx,
     updates,
     enqueueInTransaction,
-    settleOnDeadWorkers,
     append,
   };
 }
@@ -158,7 +150,6 @@ describe('RunWaitService wake transactions', () => {
     expect(fixture.updates).toHaveLength(0);
     expect(fixture.append).not.toHaveBeenCalled();
     expect(fixture.enqueueInTransaction).not.toHaveBeenCalled();
-    expect(fixture.settleOnDeadWorkers).not.toHaveBeenCalled();
   });
 
   it('rejects a deadline wake with a stale queue identity', async () => {
@@ -179,7 +170,6 @@ describe('RunWaitService wake transactions', () => {
 
     expect(fixture.updates).toHaveLength(0);
     expect(fixture.enqueueInTransaction).not.toHaveBeenCalled();
-    expect(fixture.settleOnDeadWorkers).not.toHaveBeenCalled();
   });
 
   it('rejects a quota deadline wake when the queue identity read finds no row', async () => {
@@ -375,7 +365,6 @@ describe('RunWaitService wake transactions', () => {
       }),
     ).resolves.toBe(true);
 
-    expect(fixture.settleOnDeadWorkers).not.toHaveBeenCalled();
     expect(fixture.updates).toEqual([
       { status: 'queued', currentJobId: 'deadline-1' },
     ]);
@@ -393,35 +382,6 @@ describe('RunWaitService wake transactions', () => {
       expect.any(String),
     );
     expect(fixture.enqueueInTransaction).not.toHaveBeenCalled();
-  });
-
-  it('treats a timed-out wait containing a discovered dead job as settled', async () => {
-    const fixture = makeFixture(
-      [
-        [waitingRun],
-        [{ currentJobId: 'deadline-1' }],
-        [waitingRun],
-        [{ id: 'job-1', state: 'lost' }],
-      ],
-      { deadJobs: [asDouble<ChatJob>({ id: 'job-1' })] },
-    );
-
-    await expect(
-      fixture.service.wakeInTransaction(fixture.tx, {
-        runId: 'run-1',
-        userId: 'user-1',
-        generation: waitingRun.wakeGeneration,
-        cause: 'timeout',
-      }),
-    ).resolves.toBe(true);
-
-    expect(fixture.settleOnDeadWorkers).toHaveBeenCalledOnce();
-    expect(fixture.updates[0]).toMatchObject({ status: 'queued' });
-    expect(fixture.append).toHaveBeenCalledWith(waitingRun.id, 'run.resumed', {
-      generation: waitingRun.wakeGeneration,
-      cause: 'settled',
-    });
-    expect(fixture.enqueueInTransaction).toHaveBeenCalledOnce();
   });
 
   it('does not wake a settlement while its listed job remains running', async () => {

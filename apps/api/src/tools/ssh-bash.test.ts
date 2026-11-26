@@ -1,7 +1,5 @@
 import { drizzle } from 'drizzle-orm/postgres-js';
 
-import { BashProcessLimiter } from '@workspace/bash-executor';
-
 import { type Db } from '../db/tenant-db.service';
 import { NativeFilesRepository } from '../runs/native-files-repository';
 import { RunEventsRepository } from '../runs/runs-repository';
@@ -103,7 +101,6 @@ function context(
     runId: 'run',
     toolCallId: 'call',
     nativeDeliverySequence: 1,
-    bashProcessLimiter: new BashProcessLimiter(64),
     tenantDb: {
       runAs: <T>(_userId: string, callback: (tx: Db) => Promise<T>) =>
         callback(db),
@@ -398,32 +395,6 @@ describe('ssh bash execution', () => {
     });
     expect(remoteClient.runs).toHaveLength(0);
     expect(begin).not.toHaveBeenCalled();
-  });
-
-  it('takes its slot from the limiter of the worker and refuses past the bound', async () => {
-    const remoteClient = remote();
-    const limiter = new BashProcessLimiter(1);
-    const toolContext = context(remoteClient, { bashProcessLimiter: limiter });
-    const { begin } = stubFence();
-    const slot = limiter.tryAcquire();
-
-    if (slot === null) throw new Error('Expected a slot');
-
-    try {
-      const result = await executeSshBash(toolContext, {
-        command: 'true',
-        cwd: CWD,
-      });
-
-      if (result.status !== 'error') throw new Error('Expected a refusal');
-
-      expect(result.type).toBe('limit_reached');
-      expect(result.message).toContain('1 managed commands');
-      expect(remoteClient.runs).toHaveLength(0);
-      expect(begin).not.toHaveBeenCalled();
-    } finally {
-      slot.release();
-    }
   });
 
   it('refuses a call cancelled before it starts', async () => {

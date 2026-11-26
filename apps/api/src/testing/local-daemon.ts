@@ -47,6 +47,8 @@ export function assertBuiltBinary(binary: string): void {
 export type LocalDaemonOptions = {
   /** The roots the daemon serves; each is registered before the first spawn. */
   readonly roots: ReadonlyArray<string>;
+  /** The Machine's configured name. */
+  readonly name?: string;
   /** The program a daemon session starts, for an unreachable-Machine case. */
   readonly command?: string;
 };
@@ -144,7 +146,7 @@ export function stopLocalDaemon(stateDir: string): void {
 
 export function startLocalDaemon(options: LocalDaemonOptions): LocalDaemon {
   assertBuiltBinary(MACHINE_BINARY);
-  const name = DEFAULT_LOCAL_MACHINE_NAME;
+  const name = options.name ?? DEFAULT_LOCAL_MACHINE_NAME;
   const configDir = mkdtempSync(join(tmpdir(), 'llame-machine-test-'));
   const stateDir = mkdtempSync(join(tmpdir(), 'llame-machine-state-test-'));
 

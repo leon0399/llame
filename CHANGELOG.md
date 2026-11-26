@@ -1,5 +1,10 @@
 _Reverse-chronological record of shipped work — features, fixes, and chores. Newest first._
 
+# 2026-11-26
+
+- Admit host Bash attempts before reserving artifact sequence numbers, so a
+  request for another owner's Run is rejected before job setup.
+
 # 2026-11-25
 
 - Ship the Rust Machine daemon skeleton with `attach --print-socket`, daemon
@@ -13,6 +18,13 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   its socket with `attach --print-socket`, and uses SSH socket forwarding for
   remote Machines. Use the new forced command and configure the daemon with
   `config.toml`; daemon diagnostics are written to `daemon.log`.
+
+- **Breaking:** host bash jobs now run on the Rust Machine daemon. The
+  migration drops `chat_job_chunks` without copying it, deleting existing
+  stored job output. The installation no longer accepts
+  `tools.bash.maxProcesses`; a config that still sets it fails startup. The
+  daemon limits jobs to 32 running at once and each output stream to 64 MiB by
+  default. Settled output is stored as a bounded artifact when available.
 
 - Keep retained Machine mutation results replayable when the idempotency cache
   reaches its key limit. Attaching through a different configuration now
@@ -63,6 +75,18 @@ _Reverse-chronological record of shipped work — features, fixes, and chores. N
   enabling is retroactive, and disabling or deleting a source does not erase
   prior disclosure. Digest selection and ratios exclude untitled Chats; each
   newly announced row identifies its pinned or recent membership.
+- **Breaking:** the Machine daemon is a Rust binary serving gRPC
+  (`stead.machine.v1` and the frozen `stead.machine.bootstrap.v1`) instead of
+  the Node JSON-RPC daemon. Every connection runs `llame-machine attach
+  --stdio`, which starts the account's daemon when none runs; `serve --stdio`
+  is removed, so SSH forced commands must change. The daemon reads roots and
+  limits from `config.toml` (run `roots add` again) and keeps
+  `instance.json`. Every `bash` command, on the host and on every configured
+  Machine, runs as a daemon job whose output lives on the Machine; background
+  commands work on every Machine. `chat_job_chunks` and the stored output of
+  existing jobs are dropped, and every settled job keeps one bounded artifact
+  copy. `tools.bash.maxProcesses` is removed; each Machine sets
+  `max_running_jobs` (default 32) and its output ceiling.
 
 # 2026-11-23
 

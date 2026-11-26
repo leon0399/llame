@@ -696,7 +696,6 @@ d('a Chat with a fallback hold', () => {
           chatId,
           ownerUserId: userAId,
           seq,
-          workerInstanceId: crypto.randomUUID(),
           ...(options.runId !== undefined && { runId: options.runId }),
           artifactReadable: false,
           settings: {
@@ -720,9 +719,13 @@ d('a Chat with a fallback hold', () => {
           truncatedStreams: { stdout: false, stderr: false },
         },
         settlement: { state: 'succeeded', result: { exitCode: 0 } },
-        offsets: { stdout: 0, stderr: 0 },
       },
-      { maxBytes: 65_536, hostFiles: false, noticeRuns },
+      {
+        maxBytes: 65_536,
+        hostFiles: false,
+        noticeRuns,
+        wake: { wakeForChatInTransaction: vi.fn().mockResolvedValue(false) },
+      },
     );
   }
 

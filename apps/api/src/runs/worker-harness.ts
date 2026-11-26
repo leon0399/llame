@@ -45,13 +45,9 @@ import { getRegisteredToolIds } from '../tools/registry';
 import { type PermissionGroup } from '../tools/permissions/types';
 import { type PermissionMode } from '../tools/permissions/permission-mode';
 import { type EnqueueOptions, QUEUE, type Queue } from '../queue/queue';
+import { ArtifactsRepository } from '../tools/artifacts/artifacts-repository';
 import { ChatJobsRepository } from '../jobs/chat-jobs.repository';
-import {
-  workerInstances,
-  type ChatJob,
-  type RunKind,
-  type RunOrigin,
-} from '../db/schema';
+import { type ChatJob, type RunKind, type RunOrigin } from '../db/schema';
 import { CanonicalSearchCoverageService } from '../search/canonical-search-activation.service';
 import { ChatsRepository, MessagesRepository } from '../chats/chats-repository';
 import { type TextPart } from '../chats/context-builder';
@@ -100,6 +96,11 @@ type HarnessOverrides = {
    */
   machines?: MachinesConfig;
   /**
+   * A real local daemon connector for suites that need Machine jobs, rather
+   * than the file-only scripted peer.
+   */
+  machineConnector?: MachineConnector;
+  /**
    * Test seam for Machine links (the in-process protocol peer), so a suite
    * reaches a scripted daemon without SSH. Absent means real SSH links, which
    * no suite exercises today.
@@ -133,9 +134,7 @@ type HarnessOverrides = {
   /**
    * Extra permission groups merged OVER the permissive allow-all this harness
    * grants every registered tool. Suites that must exercise a real permission
-   * decision (rather than execution or recovery) supply their own group here;
-   * the allow-all default stays, because a harness-oriented suite that forgot to
-   * would silently reject every call.
+   * decision supply their own group here.
    */
   toolPermissions?: Record<string, PermissionGroup>;
 };
@@ -268,7 +267,15 @@ export async function bootWorkerHarness(
   const machines = config.machines;
   let connector: MachineConnector | undefined;
 
-  if (overrides?.machineTransportFactory !== undefined) {
+  if (overrides?.machineConnector !== undefined) {
+    if (overrides.machineTransportFactory !== undefined) {
+      throw new Error(
+        'bootWorkerHarness: machineConnector and machineTransportFactory cannot both be set',
+      );
+    }
+
+    connector = overrides.machineConnector;
+  } else if (overrides?.machineTransportFactory !== undefined) {
     // A Machine suite injects its scripted transport; the production module
     // would otherwise open SSH to a configured destination.
     if (machines === undefined) {
@@ -436,19 +443,27 @@ export async function seedLiveChatJob(input: {
   modelId: string;
   run: { chatId: string; runId: string };
 }): Promise<ChatJob> {
-  const workerInstanceId = crypto.randomUUID();
-  const toolCallId = `wait-${crypto.randomUUID()}`;
+  const seq = await new ArtifactsRepository(input.tx).nextSeq(
+    input.run.chatId,
+    input.userId,
+  );
 
-  await input.tx.insert(workerInstances).values({ id: workerInstanceId });
+  if (seq === undefined) throw new Error('The Chat cannot store a job.');
+
+  const daemonInstanceId = crypto.randomUUID();
+  const daemonJobId = crypto.randomUUID();
 
   return new ChatJobsRepository(input.tx).insert({
     chatId: input.run.chatId,
     ownerUserId: input.userId,
-    executor: 'bash',
-    seq: 1,
+    kind: 'bash',
+    seq,
     runId: input.run.runId,
-    toolCallId,
-    workerInstanceId,
+    toolCallId: `wait-${crypto.randomUUID()}`,
+    machineName: 'test-machine',
+    daemonInstanceId,
+    daemonJobId,
+    startedAt: new Date(),
     outputs: ['stdout', 'stderr'],
     artifactReadable: false,
     settings: { selector: input.modelId, permissionMode: 'default' },

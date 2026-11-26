@@ -14,6 +14,7 @@ import {
   discardedJobNoticeIds,
   sourceSegmentJobNoticeIds,
 } from './job-notice-recovery';
+import { newChatJob } from '../testing/chat-job-rows';
 
 if (!process.env['TEST_DATABASE_URL']) {
   throw new Error(
@@ -87,18 +88,15 @@ describe('Regenerate restores consumed job notices', () => {
         const notice = await db(async (tx) => {
           const jobs = new ChatJobsRepository(tx);
 
-          const job = await jobs.insert({
-            chatId: seeded.chatId,
-            ownerUserId: fx.userId,
-            executor: 'bash',
-            seq: 1,
-            runId: seeded.runId,
-            toolCallId: randomUUID(),
-            workerInstanceId: randomUUID(),
-            outputs: [],
-            artifactReadable: false,
-            settings: { selector: seeded.modelId, permissionMode: 'default' },
-          });
+          const job = await jobs.insert(
+            newChatJob({
+              chatId: seeded.chatId,
+              ownerUserId: fx.userId,
+              seq: 1,
+              runId: seeded.runId,
+              settings: { selector: seeded.modelId, permissionMode: 'default' },
+            }),
+          );
 
           const settled = await jobs.settle(seeded.chatId, fx.userId, job.id, {
             state: 'succeeded',
@@ -121,18 +119,15 @@ describe('Regenerate restores consumed job notices', () => {
         const withdrawn = await db(async (tx) => {
           const jobs = new ChatJobsRepository(tx);
 
-          const job = await jobs.insert({
-            chatId: seeded.chatId,
-            ownerUserId: fx.userId,
-            executor: 'bash',
-            seq: 2,
-            runId: seeded.runId,
-            toolCallId: randomUUID(),
-            workerInstanceId: randomUUID(),
-            outputs: [],
-            artifactReadable: false,
-            settings: { selector: seeded.modelId, permissionMode: 'default' },
-          });
+          const job = await jobs.insert(
+            newChatJob({
+              chatId: seeded.chatId,
+              ownerUserId: fx.userId,
+              seq: 2,
+              runId: seeded.runId,
+              settings: { selector: seeded.modelId, permissionMode: 'default' },
+            }),
+          );
 
           const settled = await jobs.settle(seeded.chatId, fx.userId, job.id, {
             state: 'succeeded',
@@ -315,18 +310,15 @@ describe('Regenerate restores consumed job notices', () => {
     const { notice, continuedRunId } = await db(async (tx) => {
       const jobs = new ChatJobsRepository(tx);
 
-      const job = await jobs.insert({
-        chatId: source.chatId,
-        ownerUserId: fx.userId,
-        executor: 'bash',
-        seq: 1,
-        runId: source.runId,
-        toolCallId: randomUUID(),
-        workerInstanceId: randomUUID(),
-        outputs: [],
-        artifactReadable: false,
-        settings: { selector: source.modelId, permissionMode: 'default' },
-      });
+      const job = await jobs.insert(
+        newChatJob({
+          chatId: source.chatId,
+          ownerUserId: fx.userId,
+          seq: 1,
+          runId: source.runId,
+          settings: { selector: source.modelId, permissionMode: 'default' },
+        }),
+      );
 
       const settled = await jobs.settle(source.chatId, fx.userId, job.id, {
         state: 'succeeded',

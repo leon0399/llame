@@ -1,8 +1,8 @@
 import { Logger } from '@nestjs/common';
-import { type UnknownRecord } from '@workspace/runtime-safety';
+import { isString, type UnknownRecord } from '@workspace/runtime-safety';
 
 import { isBashTool } from './bash';
-import { isHostBashCall } from './bash-target';
+import { bashTarget, isHostBashCall } from './bash-target';
 import { BASH_SETTLEMENT_GRACE_MS } from './bash-limits';
 import { isNativeFileTool } from './native-files';
 import { capToolResult } from './artifacts/spill';
@@ -27,16 +27,27 @@ export async function executeAdmittedTool(
 ): Promise<ToolResult> {
   if (context.abortSignal?.aborted) return cancelledBeforeExecution(tool.id);
 
-  const isHostBash = isBashTool(tool) && isHostBashCall(validArgs, context);
+  const isDaemonBash = isBashTool(tool) && isDaemonBashCall(validArgs, context);
 
   const prepared = prepareToolExecution(
     tool,
     context,
     callTimeoutSeconds,
-    isHostBash,
+    isDaemonBash ? 'job' : 'call',
   );
 
   return settleAdmittedExecution(tool, validArgs, context, prepared);
+}
+
+function isDaemonBashCall(args: UnknownRecord, context: ToolContext): boolean {
+  if (!isString(args.command)) return false;
+
+  const routed = bashTarget(context, {
+    command: args.command,
+    cwd: isString(args.cwd) ? args.cwd : undefined,
+  });
+
+  return !('status' in routed) && routed.target !== 'ssh';
 }
 
 type ExecutionMarkers = {
@@ -86,7 +97,7 @@ function executeUnderAbortFence(
     Promise.resolve(tool.execute(executionContext, validArgs)),
     prepared.composedSignal,
     isBashTool(tool) ? BASH_SETTLEMENT_GRACE_MS : 0,
-    isBashTool(tool) && isHostBashCall(validArgs, context)
+    isBashTool(tool) && isDaemonBashCall(validArgs, context)
       ? () => markers.hostPromotionStarted
       : undefined,
   );

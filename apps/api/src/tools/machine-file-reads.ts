@@ -9,7 +9,6 @@ import {
   BYTES_NOTIFICATION,
   type JsonValue,
   type NativeFailureResult,
-  type RequestEnvelope,
 } from '@workspace/machine-protocol';
 import {
   formatMachineLocator,
@@ -21,6 +20,7 @@ import {
 } from '../machines/machine-results';
 import { type MachineConnector } from '../machines/machine-connector.service';
 import { type ToolMediaStore } from '../media/tool-media-store';
+import { type MachineRequestEnvelope } from '../machines/machine-session';
 import {
   MACHINE_FILE_BUDGET_MS,
   machineBudgetMs,
@@ -77,7 +77,7 @@ type MachineReadRequest = {
   readonly connector: MachineConnector;
   readonly machine: MachinePath;
   readonly submitted: string;
-  readonly envelope: RequestEnvelope;
+  readonly envelope: MachineRequestEnvelope;
   readonly mediaMachine?: MachinePath;
 };
 
@@ -203,7 +203,7 @@ async function readMachineMedia(
   context: ToolContext,
   machine: MachinePath,
   submitted: string,
-  envelope: RequestEnvelope,
+  envelope: MachineRequestEnvelope,
 ): Promise<ToolResult | undefined> {
   const connector = machineConnector(context);
   const store = context.media;
@@ -241,7 +241,7 @@ type MachineMediaRead = {
   readonly context: ToolContext;
   readonly connector: MachineConnector;
   readonly store: ToolMediaStore;
-  readonly envelope: RequestEnvelope;
+  readonly envelope: MachineRequestEnvelope;
   readonly submitted: string;
 };
 
@@ -358,7 +358,7 @@ async function readMachineBytes(
   context: ToolContext,
   connector: MachineConnector,
   machine: MachinePath,
-  envelope: RequestEnvelope,
+  envelope: MachineRequestEnvelope,
 ): Promise<{ readonly raw: JsonValue; readonly bytes: Buffer }> {
   const handle = await connector.openChannel(
     machine.name,

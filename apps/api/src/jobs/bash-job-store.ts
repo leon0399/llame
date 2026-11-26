@@ -1,22 +1,22 @@
 import { eq } from 'drizzle-orm';
 import { type ManagedOutput } from '@workspace/bash-executor';
 
-import { chatJobChunks, chatJobs, type ChatJob } from '../db/schema';
-import { pgErrorCode } from '../db/pg-error';
+import { chatJobs, type ChatJob } from '../db/schema';
 import { ChatsRepository } from '../chats/chats-repository';
 import { type Db, type TenantRunner } from '../db/tenant-db.service';
 import { commitArtifactInTransaction } from '../tools/artifacts/artifact-writer';
+import { ArtifactsRepository } from '../tools/artifacts/artifacts-repository';
 import { writeArtifactHostFiles } from '../tools/artifacts/host-files';
 import { ChatJobsRepository, type JobSettlement } from './chat-jobs.repository';
 import { recordJobSettlementNotice } from './job-notices';
 import { type NewArtifactPart } from '../tools/artifacts/artifacts-repository';
 import { type JobNoticeRunService } from '../runs/job-notice-run.service';
+import { type RunWaitService } from '../runs/run-wait.service';
 import { retryRunTransaction } from '../runs/run-transaction';
 
 type JobCompletion = {
-  readonly output: ManagedOutput;
+  readonly output: ManagedOutput | null;
   readonly settlement: JobSettlement;
-  readonly offsets: Readonly<Record<'stdout' | 'stderr', number>>;
 };
 
 type JobArtifact = {
@@ -28,33 +28,14 @@ type JobArtifact = {
 export type JobSettlementContext = {
   readonly maxBytes: number;
   readonly hostFiles: boolean;
+  readonly backgrounded?: boolean;
   readonly noticeRuns: Pick<JobNoticeRunService, 'startOnSettlement'>;
+  readonly wake: Pick<RunWaitService, 'wakeForChatInTransaction'>;
 };
 
 const OUTPUTS = ['stdout', 'stderr'] as const;
 
-/** Appends only the suffix not already committed; offsets move after commit. */
-export async function appendJobOutput(
-  db: Db,
-  job: ChatJob,
-  output: ManagedOutput,
-  offsets: Readonly<Record<'stdout' | 'stderr', number>>,
-): Promise<void> {
-  for (const name of OUTPUTS) {
-    const content = output[name].slice(offsets[name]);
-
-    if (content === '') continue;
-    await db.insert(chatJobChunks).values({
-      jobId: job.id,
-      ownerUserId: job.ownerUserId,
-      output: name,
-      position: offsets[name],
-      content: Buffer.from(content),
-    });
-  }
-}
-
-/** Chat first, then job: settlement uses the same fence as admission (D6). */
+/** Settle once and keep the one bounded artifact copy for every job. */
 export async function settleBashJob(
   tenantDb: TenantRunner,
   job: ChatJob,
@@ -70,7 +51,7 @@ export async function settleBashJob(
   if (artifact !== undefined && context.hostFiles) {
     await writeArtifactHostFiles({
       chatId: job.chatId,
-      toolName: 'bash',
+      toolName: job.kind,
       seq: job.seq,
       createdAt: artifact.createdAt,
       parts: artifact.parts,
@@ -84,7 +65,6 @@ async function settleInTransaction(
   completion: JobCompletion,
   context: JobSettlementContext,
 ): Promise<JobArtifact | undefined> {
-  // Chat first (D6); `settle` then locks the job row and only moves a running one.
   if (
     (await new ChatsRepository(tx).lock(job.chatId, job.ownerUserId)) ===
     undefined
@@ -99,50 +79,58 @@ async function settleInTransaction(
   );
 
   if (settled === undefined) return undefined;
-  await appendJobOutput(tx, job, completion.output, completion.offsets);
 
-  let artifact: JobArtifact | undefined;
+  const output = completion.output;
 
-  if (
-    job.artifactReadable &&
-    OUTPUTS.some((name) => completion.output[name].length > 2000)
-  ) {
-    try {
-      artifact = await writeJobArtifact(tx, job, completion, context.maxBytes);
-    } catch (error) {
-      // Deadlocks/serialization failures must retry the whole transaction.
-      if (isRetryableJobError(error)) throw error;
-    }
+  const artifact =
+    output === null
+      ? undefined
+      : await writeJobArtifact(
+          tx,
+          job,
+          { ...completion, output },
+          context.maxBytes,
+        );
+
+  if (context.backgrounded !== false) {
+    await recordJobSettlementNotice(tx, settled);
+    await context.noticeRuns.startOnSettlement(tx, settled);
   }
 
-  await recordJobSettlementNotice(tx, settled);
-  await context.noticeRuns.startOnSettlement(tx, settled);
+  await context.wake.wakeForChatInTransaction(tx, {
+    chatId: settled.chatId,
+    userId: settled.ownerUserId,
+    jobId: settled.id,
+    kind: 'settlement',
+  });
 
   return artifact;
 }
 
-function writeJobArtifact(
+async function writeJobArtifact(
   tx: Db,
   job: ChatJob,
-  completion: JobCompletion,
+  completion: JobCompletion & { readonly output: ManagedOutput },
   maxBytes: number,
-): Promise<JobArtifact> {
-  const request = {
-    chatId: job.chatId,
-    userId: job.ownerUserId,
-    runId: job.runId,
-    toolCallId: job.toolCallId,
-    toolName: 'bash',
-    complete:
-      completion.settlement.state !== 'lost' && !completion.output.truncated,
-    parts: OUTPUTS.map((name) => ({
-      name,
-      contentType: 'text/plain',
-      content: Buffer.from(completion.output[name]),
-    })),
-  };
-
+): Promise<JobArtifact | undefined> {
   return tx.transaction(async (savepoint) => {
+    if (await reuseExistingArtifact(savepoint, job)) return undefined;
+
+    const request = {
+      chatId: job.chatId,
+      userId: job.ownerUserId,
+      runId: job.runId,
+      toolCallId: job.toolCallId,
+      toolName: job.kind,
+      complete:
+        completion.settlement.state !== 'lost' && !completion.output.truncated,
+      parts: OUTPUTS.map((name) => ({
+        name,
+        contentType: 'text/plain',
+        content: Buffer.from(completion.output[name]),
+      })),
+    };
+
     const written = await commitArtifactInTransaction(
       savepoint,
       request,
@@ -154,16 +142,24 @@ function writeJobArtifact(
       .update(chatJobs)
       .set({ artifactId: written.id })
       .where(eq(chatJobs.id, job.id));
-    await savepoint
-      .delete(chatJobChunks)
-      .where(eq(chatJobChunks.jobId, job.id));
 
     return written;
   });
 }
 
-function isRetryableJobError(error: unknown): boolean {
-  const code = pgErrorCode(error);
+async function reuseExistingArtifact(tx: Db, job: ChatJob): Promise<boolean> {
+  const existing = await new ArtifactsRepository(tx).findForToolCall(
+    job.chatId,
+    job.runId,
+    job.toolCallId,
+  );
 
-  return code === '40P01' || code === '40001';
+  if (existing === undefined) return false;
+
+  await tx
+    .update(chatJobs)
+    .set({ artifactId: existing.id, seq: existing.seq })
+    .where(eq(chatJobs.id, job.id));
+
+  return true;
 }

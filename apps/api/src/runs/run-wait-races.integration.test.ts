@@ -1,12 +1,22 @@
 import { randomUUID } from 'node:crypto';
 import { NotFoundException } from '@nestjs/common';
 import { eq } from 'drizzle-orm';
+import { createClient, createRouterTransport } from '@connectrpc/connect';
+import { create } from '@bufbuild/protobuf';
+import {
+  CancelJobResponseSchema,
+  DeleteJobResponseSchema,
+  JobSchema,
+  JobService,
+  JobState,
+} from '@workspace/machine-protocol';
 
 import { ChatDeliveriesService } from '../chats/chat-deliveries.service';
 import { ChatsService } from '../chats/chats.service';
 import { ChatLoopService } from '../chats/chat-loop.service';
 import { chatJobs, runs, type ChatJob } from '../db/schema';
 import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
+import { MachineConnector } from '../machines/machine-connector.service';
 import { JobNoticeRunService } from './job-notice-run.service';
 import { ChatJobsRepository } from '../jobs/chat-jobs.repository';
 import { settleBashJob } from '../jobs/bash-job-store';
@@ -94,9 +104,13 @@ describe('Run wait wake races', () => {
           truncatedStreams: { stdout: false, stderr: false },
         },
         settlement: { state: 'succeeded', result: { exitCode: 0 } },
-        offsets: { stdout: 0, stderr: 0 },
       },
-      { maxBytes: 65_536, hostFiles: false, noticeRuns },
+      {
+        maxBytes: 65_536,
+        hostFiles: false,
+        noticeRuns,
+        wake: fixture.harness.moduleRef.get(RunWaitService),
+      },
     );
   }
 
@@ -200,11 +214,42 @@ describe('Run wait wake races', () => {
     const noticeRuns = deleteFx.harness.moduleRef.get(JobNoticeRunService);
     deleteFx.harness.models.register(seeded.modelId, { kind: 'hang' });
 
+    const machine = new MachineConnector({
+      machines: undefined,
+      hubVersion: 'test',
+      bindIdentity: () => Promise.resolve('match'),
+    });
+
+    const rpc = createRouterTransport((router) => {
+      router.service(JobService, {
+        cancelJob(request) {
+          return create(CancelJobResponseSchema, {
+            job: create(JobSchema, {
+              id: request.jobId,
+              owner: request.owner,
+              state: JobState.CANCELLED,
+            }),
+          });
+        },
+        deleteJob() {
+          return create(DeleteJobResponseSchema, {});
+        },
+      });
+    });
+
+    vi.spyOn(machine, 'jobsClient').mockResolvedValue({
+      client: createClient(JobService, rpc),
+      callOptions: () => ({}),
+      ended: new Promise<never>(() => undefined),
+      instanceId: seeded.job.daemonInstanceId,
+    });
+
     const chats = new ChatsService(
       deleteFx.harness.tenantDb,
       noopReindexDispatch(),
       noopEmbedDispatch(),
       noopQueryEmbedder(),
+      machine,
     );
 
     const waiting = await deleteFx.run(seeded.runId);

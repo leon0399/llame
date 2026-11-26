@@ -1,9 +1,10 @@
-import { randomUUID } from 'node:crypto';
-
 import { type TenantRunner } from '../db/tenant-db.service';
 import { BUILT_IN_DEFAULTS } from '../instance-config/llame-config';
 import { BashJobRegistry } from '../jobs/bash-job-registry';
+import { BashJobRegistryRunStageService } from '../jobs/bash-job-registry-run-stage.service';
+import { type MachineConnector } from '../machines/machine-connector.service';
 import { type JobNoticeRunService } from '../runs/job-notice-run.service';
+import { type RunWaitService } from '../runs/run-wait.service';
 import { type ToolContext } from '../tools/types';
 
 const noticeRuns: Pick<JobNoticeRunService, 'startOnSettlement'> = {
@@ -17,13 +18,20 @@ const noticeRuns: Pick<JobNoticeRunService, 'startOnSettlement'> = {
  */
 export function hostBashJobs(
   tenantDb: TenantRunner,
+  connector: MachineConnector,
+  runWait: Pick<RunWaitService, 'wakeForChatInTransaction'>,
 ): Pick<ToolContext, 'bashJobs' | 'jobSettings'> {
   return {
     bashJobs: new BashJobRegistry(
       tenantDb,
-      { instanceId: randomUUID(), jobCheck: undefined },
+      connector,
       { config: BUILT_IN_DEFAULTS },
-      noticeRuns,
+      new BashJobRegistryRunStageService(
+        tenantDb,
+        { config: BUILT_IN_DEFAULTS },
+        noticeRuns,
+        runWait,
+      ),
     ),
     jobSettings: { selector: 'test-model', permissionMode: 'default' },
   };

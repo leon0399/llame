@@ -1,5 +1,3 @@
-import { randomUUID } from 'node:crypto';
-
 import { ChatDeliveriesRepository } from '../chats/chat-deliveries.repository';
 import { ChatJobsRepository } from '../jobs/chat-jobs.repository';
 import {
@@ -9,6 +7,7 @@ import {
 import { deliverPendingSteering } from './segment-delivery';
 import { RunEventsRepository, RunsRepository } from './runs-repository';
 import { createUser } from './worker-harness';
+import { newChatJob } from '../testing/chat-job-rows';
 
 if (!process.env['TEST_DATABASE_URL']) {
   throw new Error(
@@ -31,18 +30,15 @@ describe('terminal job notice recovery', () => {
     return db(async (tx) => {
       const jobs = new ChatJobsRepository(tx);
 
-      const job = await jobs.insert({
-        chatId: seeded.chatId,
-        ownerUserId: fx.userId,
-        executor: 'bash',
-        seq,
-        runId: seeded.runId,
-        toolCallId: randomUUID(),
-        workerInstanceId: randomUUID(),
-        outputs: [],
-        artifactReadable: false,
-        settings: { selector: seeded.modelId, permissionMode: 'default' },
-      });
+      const job = await jobs.insert(
+        newChatJob({
+          chatId: seeded.chatId,
+          ownerUserId: fx.userId,
+          seq,
+          runId: seeded.runId,
+          settings: { selector: seeded.modelId, permissionMode: 'default' },
+        }),
+      );
 
       const settled = await jobs.settle(seeded.chatId, fx.userId, job.id, {
         state: 'failed',

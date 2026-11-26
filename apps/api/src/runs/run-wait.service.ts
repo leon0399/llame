@@ -17,7 +17,6 @@ import {
   InstanceConfigService,
   type InstanceConfigReader,
 } from '../instance-config/instance-config.service';
-import { ChatJobsRepository } from '../jobs/chat-jobs.repository';
 import { RunDispatchService } from './run-dispatch.service';
 import { RunEventsRepository } from './runs-repository';
 import { retryRunTransaction } from './run-transaction';
@@ -244,7 +243,6 @@ export class RunWaitService {
     const listedIds = new Set(jobs.map((job) => job.id));
 
     if (input.jobIds.some((id) => !listedIds.has(id))) return 'interrupted';
-    await this.settleDeadJobs(tx, input.chatId, input.userId);
 
     const pendingSteering = await new ChatDeliveriesRepository(
       tx,
@@ -269,15 +267,10 @@ export class RunWaitService {
 
     if (!candidate) return false;
 
-    const deadJobIds =
-      candidate.awaiting?.kind === 'jobs'
-        ? await this.settleDeadJobs(tx, candidate.chatId, input.userId)
-        : new Set<string>();
-
     const run = await this.lockWakeRun(tx, input);
 
     if (!run) return false;
-    const cause = await this.resolveWakeCause(tx, run, input, deadJobIds);
+    const cause = await this.resolveWakeCause(tx, run, input);
 
     if (!cause) return false;
     const resumed = await this.persistWake(tx, run, input, cause);
@@ -346,12 +339,11 @@ export class RunWaitService {
     tx: Db,
     run: Run,
     input: WakeRunInput,
-    deadJobIds: Set<string>,
   ): Promise<RunWaitCause | undefined> {
     if (run.awaiting?.kind === 'quota')
       return this.resolveQuotaWakeCause(tx, run, input, run.awaiting);
 
-    return this.resolveJobsWakeCause(tx, run, input, deadJobIds);
+    return this.resolveJobsWakeCause(tx, run, input);
   }
 
   private async resolveQuotaWakeCause(
@@ -376,16 +368,12 @@ export class RunWaitService {
     tx: Db,
     run: Run,
     input: WakeRunInput,
-    deadJobIds: Set<string>,
   ): Promise<RunWaitCause | undefined> {
     const awaiting = run.awaiting;
 
     if (awaiting?.kind !== 'jobs') return undefined;
 
     if (input.cause === 'timeout') {
-      if (awaiting.jobIds.some((jobId) => deadJobIds.has(jobId)))
-        return 'settled';
-
       if (!(await this.wakeDeadlineIsDue(tx, run.id, awaiting.deadline)))
         return undefined;
     }
@@ -531,7 +519,6 @@ export class RunWaitService {
 
     if (!candidate?.awaiting || candidate.awaiting.kind !== 'jobs')
       return undefined;
-    await this.settleDeadJobs(tx, input.chatId, input.userId);
 
     const [run] = await tx
       .select()
@@ -585,18 +572,5 @@ export class RunWaitService {
     if (matched?.state === 'running') return undefined;
 
     return matched ? 'settled' : 'interrupted';
-  }
-  private async settleDeadJobs(
-    tx: Db,
-    chatId: string,
-    userId: string,
-  ): Promise<Set<string>> {
-    const lost = await new ChatJobsRepository(tx).settleOnDeadWorkers(
-      chatId,
-      userId,
-      this.instanceConfig.config.runs.heartbeatSeconds * 4,
-    );
-
-    return new Set(lost.map((job) => job.id));
   }
 }
