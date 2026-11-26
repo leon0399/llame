@@ -55,13 +55,15 @@ async fn search_streams_matches_skips_and_resumes_with_guards() {
     req.respect_ignore_files = true;
     let mut stream = client.search_files(req).await.unwrap().into_inner();
     let mut found = Vec::new();
-    let mut ignored = false;
+    let mut ignored_file_reported = false;
     let mut binary = false;
     let mut end = None;
     while let Some(item) = stream.message().await.unwrap() {
         match item.event.unwrap() {
             Event::Match(found_match) => found.push(found_match),
-            Event::Skipped(skip) if skip.path.ends_with("ignored.txt") => ignored = true,
+            Event::Skipped(skip) if skip.path.ends_with("ignored.txt") => {
+                ignored_file_reported = true;
+            }
             Event::Skipped(skip) if skip.path.ends_with("c.bin") => binary = true,
             Event::Skipped(_) => {}
             Event::End(search_end) => end = Some(search_end),
@@ -72,7 +74,7 @@ async fn search_streams_matches_skips_and_resumes_with_guards() {
     assert_eq!(found[0].line, 2);
     assert_eq!(found[0].lines.len(), 3);
     assert_eq!(found[0].lines[1].spans.len(), 1);
-    assert!(ignored);
+    assert!(!ignored_file_reported);
     assert!(binary);
     assert_eq!(end.unwrap().stop, SearchStop::Complete as i32);
 
@@ -224,6 +226,42 @@ async fn missing_and_wrong_kind_search_paths_are_stream_failures() {
         assert!(stream.message().await.unwrap().is_none());
     }
     child.kill().await.unwrap();
+}
+#[tokio::test]
+async fn search_scope_roots_that_cannot_be_walked_are_not_found() {
+    let machine = common::Machine::new();
+    let root = machine.root();
+    let target = root.join("target");
+    std::fs::create_dir(&target).unwrap();
+    std::fs::write(target.join("a.txt"), "needle\n").unwrap();
+    let file = root.join("file.txt");
+    std::fs::write(&file, "needle\n").unwrap();
+    let link = root.join("linked");
+    std::os::unix::fs::symlink(&target, &link).unwrap();
+    let (_child, channel) = machine.attach().await;
+    let mut client = FileServiceClient::new(channel);
+
+    let mut linked_directory = request(&link, &["needle"]);
+    linked_directory.glob = "**".into();
+    let mut file_glob = request(&file, &["needle"]);
+    file_glob.glob = "**".into();
+    let linked_file = root.join("linked-file.txt");
+    std::os::unix::fs::symlink(&file, &linked_file).unwrap();
+
+    for req in [
+        linked_directory,
+        file_glob,
+        request(&linked_file, &["needle"]),
+    ] {
+        let mut stream = client.search_files(req).await.unwrap().into_inner();
+        let response = stream.message().await.unwrap().unwrap();
+        assert!(matches!(
+            response.event,
+            Some(Event::Failure(failure))
+                if failure.reason == machine_protocol::v1::FileFailureReason::NotFound as i32
+        ));
+        assert!(stream.message().await.unwrap().is_none());
+    }
 }
 
 #[tokio::test]

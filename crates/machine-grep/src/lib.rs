@@ -2,7 +2,7 @@
 
 use std::{
     fs,
-    io::{Read, Seek, SeekFrom},
+    io::{self, BufRead, BufReader, Read, Seek, SeekFrom},
     path::{Path, PathBuf},
     time::{Duration, Instant},
 };
@@ -48,8 +48,10 @@ pub async fn search(
     let request = request.into_inner();
     let guard = context.guard();
     let guarded = guard.resolve(&request.path)?;
-    if guarded.kind == PathKind::Missing || guarded.kind == PathKind::Other {
-        let reason = if guarded.kind == PathKind::Missing {
+    let invalid_scope =
+        guarded.is_link || (!request.glob.is_empty() && guarded.kind != PathKind::Directory);
+    if guarded.kind == PathKind::Missing || guarded.kind == PathKind::Other || invalid_scope {
+        let reason = if guarded.kind == PathKind::Missing || invalid_scope {
             FileFailureReason::NotFound
         } else {
             FileFailureReason::WrongKind
@@ -130,6 +132,17 @@ fn truncate_to_complete_lines(content: &mut Vec<u8>) {
         .rposition(|byte| *byte == b'\n')
         .map_or(0, |newline| newline + 1);
     content.truncate(complete_len);
+}
+fn seek_after_lines(file: &mut fs::File, lines: usize) -> std::io::Result<u64> {
+    let mut reader = BufReader::new(file);
+    let mut line = Vec::new();
+    for _ in 0..lines {
+        line.clear();
+        if reader.read_until(b'\n', &mut line)? == 0 {
+            break;
+        }
+    }
+    reader.stream_position()
 }
 
 fn compare_positions(left: &SearchPosition, right: &SearchPosition) -> std::cmp::Ordering {
@@ -244,15 +257,15 @@ fn run_search(
         if respect_ignore_files
             && (is_ignore_file(&entry.rel) || ignored(&entry.path, false, &ignore_rules))
         {
-            if !skip(sender, &entry.rel, SkipReason::Ignored) {
-                return;
-            }
+            // Only a directory the walker refused to enter belongs in the
+            // excluded-directory report. Ignored files remain silent.
             continue;
         }
         if glob.is_some_and(|glob| !glob.is_match(&entry.rel)) {
             continue;
         }
-        if files >= file_limit {
+        let resume = after.filter(|position| position.path == entry.rel);
+        if files >= file_limit && resume.is_none() {
             stop = SearchStop::Files;
             position = Some(stopped_position(
                 last_match_position.take(),
@@ -295,15 +308,23 @@ fn run_search(
             });
             break;
         }
-        let resume = after.filter(|position| position.path == entry.rel);
         let resume_line = resume.map_or(0, |position| position.line as usize);
-        let resume_offset = resume.and_then(|position| position.byte_offset);
+        let mut resume_offset = resume.and_then(|position| position.byte_offset);
         let Ok(mut file) = fs::File::open(&entry.path) else {
             if !skip(sender, &entry.rel, SkipReason::Unreadable) {
                 return;
             }
             continue;
         };
+        if resume_offset.is_none() && resume_line > 0 {
+            let Ok(offset) = seek_after_lines(&mut file, resume_line) else {
+                if !skip(sender, &entry.rel, SkipReason::Unreadable) {
+                    return;
+                }
+                continue;
+            };
+            resume_offset = Some(offset);
+        }
         if let Some(offset) = resume_offset
             && file.seek(SeekFrom::Start(offset)).is_err()
         {
@@ -366,14 +387,18 @@ fn run_search(
             };
         }
         if read_failed {
-            files += 1;
+            if resume.is_none() {
+                files += 1;
+            }
             bytes = bytes.saturating_add(content.len() as u64);
             if !skip(sender, &entry.rel, SkipReason::Unreadable) {
                 return;
             }
             continue;
         }
-        files += 1;
+        if resume.is_none() {
+            files += 1;
+        }
         bytes = bytes.saturating_add(searched_offset.saturating_sub(resume_offset.unwrap_or(0)));
         if binary {
             if !skip(sender, &entry.rel, SkipReason::Binary) {
