@@ -27,6 +27,8 @@ import { configureApp } from '../app.setup';
 import { ChatDeliveriesRepository } from '../chats/chat-deliveries.repository';
 import { ChatsRepository, MessagesRepository } from '../chats/chats-repository';
 import { TenantDbService } from '../db/tenant-db.service';
+import { ChatJobsRepository } from '../jobs/chat-jobs.repository';
+import { newChatJob } from '../testing/chat-job-rows';
 import { InstanceConfigService } from '../instance-config/instance-config.service';
 import { MachinesStatusRepository } from '../machines/machines-status.repository';
 import { RunEventsRepository, RunsRepository } from '../runs/runs-repository';
@@ -137,6 +139,39 @@ describe('LiveGatewayService', () => {
 
     return id;
   };
+
+  const jobProjection =
+    (chatId: string, count: number) => (message: UnknownRecord) =>
+      message['type'] === 'chat.upserted' &&
+      isRecord(message['chat']) &&
+      message['chat']['id'] === chatId &&
+      message['chat']['runningJobs'] === count;
+
+  function storeJob(
+    chatId: string,
+    seq: number,
+    delivery: 'background' | 'foreground' = 'background',
+  ) {
+    return tenantDb.runAs(users.a.id, (tx) =>
+      new ChatJobsRepository(tx).insert(
+        newChatJob({
+          chatId,
+          ownerUserId: users.a.id,
+          seq,
+          delivery,
+        }),
+      ),
+    );
+  }
+
+  function finishJobs(chatId: string, ids: ReadonlyArray<string>) {
+    return tenantDb.runAs(users.a.id, async (tx) => {
+      const jobs = new ChatJobsRepository(tx);
+
+      for (const id of ids)
+        await jobs.settle(chatId, users.a.id, id, { state: 'succeeded' });
+    });
+  }
 
   beforeAll(async () => {
     const mod = await Test.createTestingModule({ imports: [AppModule] })
@@ -404,5 +439,61 @@ describe('LiveGatewayService', () => {
       type: 'machine.deleted',
       name,
     });
+  });
+
+  it('counts background jobs, updates on daemon settlement and isolates the projection', async () => {
+    const a = await connect(users.a.cookie);
+    const b = await connect(users.b.cookie);
+    const chatId = await newChat(users.a.id);
+    const background = await storeJob(chatId, 1, 'background');
+
+    let foregroundId: string | undefined;
+
+    try {
+      await waitForMessage(a, jobProjection(chatId, 1));
+      a.messages.length = 0;
+
+      const foreground = await storeJob(chatId, 2, 'foreground');
+      foregroundId = foreground.id;
+      const markerA = await newChat(users.a.id);
+      await waitForMessage(
+        a,
+        (message) =>
+          isRecord(message['chat']) && message['chat']['id'] === markerA,
+      );
+      expect(
+        a.messages.some(
+          (message) =>
+            message['type'] === 'chat.upserted' &&
+            isRecord(message['chat']) &&
+            message['chat']['id'] === chatId &&
+            message['chat']['runningJobs'] === 2,
+        ),
+      ).toBe(false);
+
+      await finishJobs(chatId, [background.id]);
+      await waitForMessage(a, jobProjection(chatId, 0));
+
+      const markerB = await newChat(users.b.id);
+      await waitForMessage(
+        b,
+        (message) =>
+          isRecord(message['chat']) && message['chat']['id'] === markerB,
+      );
+      expect(JSON.stringify(b.messages)).not.toContain(chatId);
+
+      const stored = await tenantDb.runAs(users.a.id, (tx) =>
+        new ChatJobsRepository(tx).findByLocator(chatId, users.a.id, 'bash', 2),
+      );
+
+      expect(stored).toBeUndefined();
+    } finally {
+      a.socket.terminate();
+      b.socket.terminate();
+      await finishJobs(chatId, [
+        background.id,
+        ...(foregroundId === undefined ? [] : [foregroundId]),
+      ]);
+    }
   });
 });
