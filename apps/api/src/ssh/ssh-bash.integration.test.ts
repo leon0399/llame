@@ -224,6 +224,17 @@ describe('ssh bash over a real sshd', () => {
       },
     );
     vi.spyOn(
+      ChatJobsRepository.prototype,
+      'promoteToBackground',
+    ).mockImplementation(() => {
+      const { promise, resolve } = Promise.withResolvers<ChatJob | undefined>();
+
+      // Exercise the real 750 ms abort fence while a promotion transaction commits.
+      setTimeout(() => resolve({ ...row, delivery: 'background' }), 800);
+
+      return promise;
+    });
+    vi.spyOn(
       NativeFilesRepository.prototype,
       'recoverHostPromotion',
     ).mockImplementation((input) =>

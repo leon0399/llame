@@ -196,9 +196,9 @@ export class BashJobRegistry implements OnModuleInit {
     cause: 'time' | 'message',
     wallTimeMs: number,
   ): Promise<ToolResult> {
+    context.onHostPromotionStarted?.();
     await this.promoteBackground(row);
     const result = backgrounded(row, cause, wallTimeMs);
-    context.onHostPromotionStarted?.();
     const finalResult = await this.recordNativeResult(context, result);
     this.foregroundJobs.delete(row.id);
 

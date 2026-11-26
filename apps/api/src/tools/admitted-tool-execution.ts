@@ -97,7 +97,7 @@ function executeUnderAbortFence(
     Promise.resolve(tool.execute(executionContext, validArgs)),
     prepared.composedSignal,
     isBashTool(tool) ? BASH_SETTLEMENT_GRACE_MS : 0,
-    isBashTool(tool) && isHostBashCall(validArgs, context)
+    isBashTool(tool) && isDaemonBashCall(validArgs, context)
       ? () => markers.hostPromotionStarted
       : undefined,
   );
