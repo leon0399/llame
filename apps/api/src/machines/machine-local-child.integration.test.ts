@@ -227,7 +227,7 @@ describe('the local Machine link (host-as-machine)', () => {
     }
   });
 
-  it('streams media bytes and arbitrary file bytes through the real daemon', async () => {
+  it('streams media and refuses arbitrary bytes through the real daemon', async () => {
     const session = connect();
 
     const media = Buffer.from(
@@ -283,11 +283,11 @@ describe('the local Machine link (host-as-machine)', () => {
         );
       });
 
-      await expect(arbitrary.result).resolves.toEqual({
-        size: Buffer.byteLength(NOTES),
-        mediaType: 'application/octet-stream',
+      await expect(arbitrary.result).resolves.toMatchObject({
+        status: 'error',
+        type: 'unsupported_media_type',
       });
-      expect(Buffer.concat(arbitraryChunks)).toEqual(Buffer.from(NOTES));
+      expect(arbitraryChunks).toEqual([]);
       arbitrary.channel.close();
     } finally {
       session.close();
