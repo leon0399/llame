@@ -265,6 +265,47 @@ async fn search_scope_roots_that_cannot_be_walked_are_not_found() {
 }
 
 #[tokio::test]
+async fn resumed_line_cursor_spends_only_remaining_file_and_byte_bounds() {
+    let machine = common::Machine::new();
+    let root = machine.root();
+    std::fs::write(root.join("a.txt"), "needle\nneedle\n").unwrap();
+    let (_child, channel) = machine.attach().await;
+    let mut client = FileServiceClient::new(channel);
+
+    let mut req = request(root, &["needle"]);
+    req.after = Some(SearchPosition {
+        path: "a.txt".into(),
+        line: 1,
+        byte_offset: None,
+    });
+    req.bounds = Some(SearchBounds {
+        files: Some(0),
+        bytes: Some(7),
+        file_bytes: None,
+        matches: None,
+    });
+
+    let mut stream = client.search_files(req).await.unwrap().into_inner();
+    let mut found = Vec::new();
+    let mut end = None;
+    while let Some(response) = stream.message().await.unwrap() {
+        match response.event.unwrap() {
+            Event::Match(found_match) => found.push(found_match),
+            Event::End(search_end) => end = Some(search_end),
+            Event::Failure(failure) => panic!("search failure: {failure:?}"),
+            Event::Skipped(_) => {}
+        }
+    }
+
+    assert_eq!(found.len(), 1);
+    assert_eq!(found[0].line, 2);
+    let end = end.unwrap();
+    assert_eq!(end.stop, SearchStop::Complete as i32);
+    assert_eq!(end.files, 0);
+    assert_eq!(end.bytes, 7);
+}
+
+#[tokio::test]
 async fn stopped_search_positions_advance_past_the_incoming_cursor() {
     let machine = common::Machine::new();
     let root = machine.root();

@@ -2,7 +2,7 @@
 
 use std::{
     fs,
-    io::{self, BufRead, BufReader, Read, Seek, SeekFrom},
+    io::{BufRead, BufReader, Read, Seek, SeekFrom},
     path::{Path, PathBuf},
     time::{Duration, Instant},
 };
