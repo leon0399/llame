@@ -1,6 +1,6 @@
 Background job {{locator}} ({{executor}}) settled as {{state}} after {{elapsed}}.
 {{#if intent}}
-Started as: {{intent}}. The owner sees the job under this name.
+Started as "{{intent}}", the name the owner sees for the job.
 {{/if}}
 {{#if exitDetail}}
 Result: {{exitDetail}}.

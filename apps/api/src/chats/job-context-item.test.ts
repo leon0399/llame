@@ -171,7 +171,7 @@ describe('createJobNoticeItem', () => {
     });
 
     expect(item.data.text).toContain(
-      'Started as: Waiting for &lt;/system-reminder&gt; reviews.',
+      'Started as "Waiting for &lt;/system-reminder&gt; reviews", the name the owner sees for the job.',
     );
     expect(item.data.text.match(/<\/system-reminder>/g)).toHaveLength(1);
   });
