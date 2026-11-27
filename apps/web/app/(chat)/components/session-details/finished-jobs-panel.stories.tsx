@@ -77,11 +77,11 @@ const meta = {
   title: "Chat/Session details/Finished jobs panel",
   component: FinishedJobsPanel,
   args: { jobs: JOBS, onClose: fn() },
-  // The panel opens beside the session details sidebar; this frame stands in
-  // for it, so the panel renders to its left as it does in the app.
+  // In the app the panel is the outer column of the widened details sidebar;
+  // this frame gives it that column's 20rem and the screen's height.
   decorators: [
     (Story) => (
-      <div className="relative ml-auto h-144 w-64 border-l bg-sidebar">
+      <div className="ml-auto flex h-144 w-80">
         <Story />
       </div>
     ),

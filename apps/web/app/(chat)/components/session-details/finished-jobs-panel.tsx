@@ -280,8 +280,8 @@ function usePanelFocus(onClose: () => void) {
 }
 
 /**
- * The settled jobs of the open Chat, in a panel that opens beside session
- * details on desktop and over them on mobile.
+ * The settled jobs of the open Chat, on the outer edge of the widened session
+ * details sidebar on desktop, and over the details on mobile.
  */
 export function FinishedJobsPanel({
   jobs,
@@ -298,7 +298,7 @@ export function FinishedJobsPanel({
       ref={ref}
       tabIndex={-1}
       aria-labelledby={headingId}
-      className="absolute inset-y-0 z-10 flex w-full flex-col border-sidebar-border bg-background text-foreground outline-none max-md:inset-x-0 md:right-full md:w-80 md:border-l motion-safe:animate-in motion-safe:fade-in-0 motion-safe:slide-in-from-right-2 motion-safe:duration-200"
+      className="flex min-w-0 flex-1 flex-col border-sidebar-border bg-background text-foreground outline-none max-md:absolute max-md:inset-0 max-md:z-10 md:border-l motion-safe:animate-in motion-safe:fade-in-0 motion-safe:slide-in-from-right-2 motion-safe:duration-200"
     >
       <div className={cn(topBarClasses, "justify-between gap-2 pr-2 pl-4")}>
         <h2 id={headingId} className="flex items-baseline gap-2 text-sm">

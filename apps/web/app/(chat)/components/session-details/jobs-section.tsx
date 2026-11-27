@@ -1,8 +1,9 @@
 "use client";
 
-import { useRef, useState, type ReactNode, type Ref } from "react";
+import { useRef, type ReactNode, type Ref } from "react";
 import {
   ChevronRightIcon,
+  CircleDashedIcon,
   CircleStopIcon,
   HistoryIcon,
   LoaderCircleIcon,
@@ -25,6 +26,7 @@ import {
   useStopChatJobs,
 } from "@/lib/services/jobs/queries";
 
+import { useFinishedJobsPanelState } from "./details-state";
 import { FinishedJobsPanel } from "./finished-jobs-panel";
 import { JobElapsedTime, jobName } from "./job-display";
 import type { SectionView } from "./section-list";
@@ -47,10 +49,11 @@ function jobsSummary(running: number, finished: number): string {
 /**
  * Whether the finished-jobs panel is open. It belongs to the Chat it was
  * opened on, so another Chat starts with it shut, and it is shut while the
- * session details are. Closing it returns focus to its control.
+ * session details are. Closing it returns focus to its control. The state
+ * lives in the details provider, which widens the sidebar while it is open.
  */
 function useFinishedPanel(chatId: string, enabled: boolean) {
-  const [openFor, setOpenFor] = useState<string | null>(null);
+  const { openFor, setOpenFor } = useFinishedJobsPanelState();
   const triggerRef = useRef<HTMLButtonElement>(null);
 
   const close = () => {
@@ -142,15 +145,15 @@ export function JobsSectionView({
   return (
     <div className="flex flex-col gap-1 pb-1">
       {stopError && <JobsStopError error={stopError} />}
-      <StopAllButton jobs={liveJobs} stopping={stopping} onStop={onStop} />
       <SidebarMenu>
         <RunningJobs
           jobs={liveJobs}
-          emptyLabel={finishedCount === 0 ? "No jobs" : "No running jobs"}
+          emptyLabel={finishedCount === 0 ? "No jobs yet" : "Nothing running"}
           stopping={stopping}
           stoppingIds={stoppingIds}
           onStop={onStop}
         />
+        <StopAllRow jobs={liveJobs} stopping={stopping} onStop={onStop} />
         {finishedCount === 0 ? null : (
           <FinishedToggle
             count={finishedCount}
@@ -164,7 +167,8 @@ export function JobsSectionView({
   );
 }
 
-function StopAllButton({
+/** One row that stops every running job, shaped like the Finished row. */
+function StopAllRow({
   jobs,
   stopping,
   onStop,
@@ -176,16 +180,18 @@ function StopAllButton({
   if (jobs.length < 2) return null;
 
   return (
-    <Button
-      variant="outline"
-      size="sm"
-      className="mx-2 self-start"
-      disabled={stopping}
-      onClick={() => onStop(jobs.map(({ id }) => id))}
-    >
-      <CircleStopIcon data-icon="inline-start" />
-      Stop all
-    </Button>
+    <SidebarMenuItem>
+      <SidebarMenuButton
+        disabled={stopping}
+        onClick={() => onStop(jobs.map(({ id }) => id))}
+      >
+        <CircleStopIcon />
+        <span className="flex-1">Stop all</span>
+        <span className="text-muted-foreground tabular-nums">
+          {jobs.length}
+        </span>
+      </SidebarMenuButton>
+    </SidebarMenuItem>
   );
 }
 
@@ -203,8 +209,14 @@ function RunningJobs({
   onStop: (jobIds: Array<string>) => void;
 }) {
   if (jobs.length === 0) {
+    // A muted fact row, the shape the Environment section gives an absence.
     return (
-      <li className="px-2 py-1 text-sm text-muted-foreground">{emptyLabel}</li>
+      <SidebarMenuItem>
+        <span className="flex h-8 min-w-0 items-center gap-2 px-2 text-sm text-muted-foreground [&>svg]:size-4 [&>svg]:shrink-0">
+          <CircleDashedIcon aria-hidden="true" />
+          <span className="truncate">{emptyLabel}</span>
+        </span>
+      </SidebarMenuItem>
     );
   }
 
@@ -234,7 +246,6 @@ function FinishedToggle({
     <SidebarMenuItem>
       <SidebarMenuButton
         ref={triggerRef}
-        size="sm"
         isActive={open}
         aria-expanded={open}
         onClick={() => onOpenChange(!open)}
