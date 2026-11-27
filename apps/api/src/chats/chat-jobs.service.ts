@@ -24,6 +24,8 @@ export type ChatJobOutputPart = {
   readonly name: string;
   readonly content: string;
   readonly cut: boolean;
+  /** Bytes of the stream as stored, before the response bound. */
+  readonly size: number;
 };
 
 /** A settled job's output: its stored streams, or none was stored. */
@@ -36,16 +38,19 @@ export type ChatJobOutput =
 
 /** The last bound of an output, starting on a whole line when it is cut. */
 function outputTail(content: Buffer): Omit<ChatJobOutputPart, 'name'> {
-  if (content.length <= JOB_OUTPUT_RESPONSE_BYTES) {
-    return { content: content.toString('utf8'), cut: false };
+  const size = content.length;
+
+  if (size <= JOB_OUTPUT_RESPONSE_BYTES) {
+    return { content: content.toString('utf8'), cut: false, size };
   }
 
-  const tail = content.subarray(content.length - JOB_OUTPUT_RESPONSE_BYTES);
+  const tail = content.subarray(size - JOB_OUTPUT_RESPONSE_BYTES);
   const lineStart = tail.indexOf(0x0a);
 
   return {
     content: tail.subarray(lineStart + 1).toString('utf8'),
     cut: true,
+    size,
   };
 }
 

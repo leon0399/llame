@@ -12,4 +12,9 @@ export interface ChatJobOutputPart {
   content: string;
   /** True when the stored output is longer than the response bound; `content` then holds its last part. */
   cut: boolean;
+  /**
+   * Bytes of the output as stored, before the response bound. A stream the Machine or the artifact bound already cut is stored cut.
+   * @minimum 0
+   */
+  size: number;
 }

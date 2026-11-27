@@ -130,6 +130,16 @@ export class ChatJobOutputPart {
       '`content` then holds its last part.',
   })
   cut!: boolean;
+
+  @ApiProperty({
+    type: 'integer',
+    minimum: 0,
+    example: 3_355_443,
+    description:
+      'Bytes of the output as stored, before the response bound. A stream ' +
+      'the Machine or the artifact bound already cut is stored cut.',
+  })
+  size!: number;
 }
 
 export class ChatJobStoredOutputResponse {

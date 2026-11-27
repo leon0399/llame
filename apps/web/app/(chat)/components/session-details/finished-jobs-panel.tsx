@@ -30,7 +30,7 @@ import type {
 } from "@/lib/api/generated/models";
 import { useChatJobOutput } from "@/lib/services/jobs/queries";
 
-import { jobName, jobRunTime } from "./job-display";
+import { formatBytes, jobName, jobRunTime } from "./job-display";
 
 const OUTCOME_ICONS: Record<ChatJobResponse["state"], LucideIcon> = {
   running: CircleHelpIcon,
@@ -93,20 +93,27 @@ function JobOutputText({ outputs }: { outputs: Array<ChatJobOutputPart> }) {
 
   return (
     <div className="max-h-64 overflow-auto px-2.5 py-2 font-mono text-xs">
-      {streams.some((part) => part.cut) ? (
-        <p className="pb-1 font-sans text-muted-foreground">
-          Showing the last 64 KiB
-        </p>
-      ) : null}
       {streams.map((part) => (
         <div key={part.name}>
-          {part.name === "stdout" ? null : (
-            <p className="pt-1 font-sans text-muted-foreground">{part.name}</p>
-          )}
+          <StreamCaption part={part} />
           <pre className="whitespace-pre">{part.content}</pre>
         </div>
       ))}
     </div>
+  );
+}
+
+/** stderr is named; a cut stream says how much of it is shown. */
+function StreamCaption({ part }: { part: ChatJobOutputPart }) {
+  const name = part.name === "stdout" ? null : part.name;
+  const cut = part.cut ? `last 64 KiB of ${formatBytes(part.size)}` : null;
+
+  if (name === null && cut === null) return null;
+
+  return (
+    <p className="pt-1 pb-0.5 font-sans text-muted-foreground first:pt-0">
+      {[name, cut].filter((value) => value !== null).join(" · ")}
+    </p>
   );
 }
 

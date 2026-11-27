@@ -525,14 +525,81 @@ describe('chat jobs API', () => {
     expect(res.body).toEqual({
       status: 'stored',
       outputs: [
-        { name: 'stdout', content: 'line one\nline two\n', cut: false },
-        { name: 'stderr', content: 'a warning\n', cut: false },
+        {
+          name: 'stdout',
+          content: 'line one\nline two\n',
+          cut: false,
+          size: 18,
+        },
+        { name: 'stderr', content: 'a warning\n', cut: false, size: 10 },
       ],
     });
     expect(listBody.parse((await list(chatId)).body).items[0]?.command).toBe(
       'pnpm test',
     );
     expect((await output(cookieB)).status).toBe(404);
+  });
+
+  // A stream over the response bound comes back as its last whole lines, with
+  // the stored size beside it.
+  it('cuts a long stored output to its last whole lines and reports its size', async () => {
+    const chatId = await createChat();
+
+    const seq = await reserveArtifactSeq(tenantDb, {
+      chatId,
+      userId: userAId,
+    });
+
+    const job = await startJob(chatId, seq);
+    const line = `${'x'.repeat(99)}\n`;
+    const stdout = `first line\n${line.repeat(700)}last line\n`;
+
+    await settleBashJob(
+      tenantDb,
+      job,
+      {
+        output: {
+          stdout,
+          stderr: '',
+          truncated: false,
+          truncatedStreams: { stdout: false, stderr: false },
+        },
+        settlement: { state: 'succeeded', result: { exitCode: 0 } },
+      },
+      {
+        maxBytes: 131_072,
+        hostFiles: false,
+        backgrounded: false,
+        noticeRuns: { startOnSettlement: () => Promise.resolve() },
+        wake: { wakeForChatInTransaction: () => Promise.resolve(false) },
+      },
+    );
+
+    const res = await request(http)
+      .get(`/api/v1/chats/${chatId}/jobs/${job.id}/output`)
+      .set('Cookie', cookieA);
+
+    const part = z
+      .object({
+        outputs: z.array(
+          z.object({
+            name: z.string(),
+            content: z.string(),
+            cut: z.boolean(),
+            size: z.number(),
+          }),
+        ),
+      })
+      .parse(res.body).outputs[0];
+
+    expect(part).toMatchObject({
+      name: 'stdout',
+      cut: true,
+      size: stdout.length,
+    });
+    expect(part?.content.length).toBeLessThanOrEqual(64 * 1024);
+    expect(part?.content.startsWith('x')).toBe(true);
+    expect(part?.content.endsWith('last line\n')).toBe(true);
   });
 
   it('rolls back job settlement when the output artifact cannot be written', async () => {

@@ -25,6 +25,24 @@ export function formatJobDuration(ms: number): string {
   return `${String(Math.floor(minutes / 60))}h ${String(minutes % 60).padStart(2, "0")}m`;
 }
 
+const BYTE_UNITS = ["B", "KiB", "MiB", "GiB"];
+
+/** A binary byte size with one decimal past KiB: `512 B`, `3.2 MiB`. */
+export function formatBytes(bytes: number): string {
+  let value = bytes;
+  let unit = 0;
+
+  while (value >= 1024 && unit < BYTE_UNITS.length - 1) {
+    value /= 1024;
+    unit += 1;
+  }
+
+  const shown =
+    unit === 0 ? String(value) : value.toFixed(1).replace(/\.0$/, "");
+
+  return `${shown} ${BYTE_UNITS[unit]}`;
+}
+
 /** How long a settled job ran, from its start to its settlement. */
 export function jobRunTime(job: ChatJobResponse): string | null {
   if (job.settledAt === null) return null;
