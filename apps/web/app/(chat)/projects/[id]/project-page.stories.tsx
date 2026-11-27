@@ -564,9 +564,10 @@ export const SavesInstructionsAndReloads: Story = {
 
     const save = dialog.getByRole("button", { name: "Save" });
 
-    await expect(
-      dialog.getByText(/sent to your model provider/i),
-    ).toBeVisible();
+    // The dialog fades in; its text is visible once that settles.
+    await waitFor(() =>
+      expect(dialog.getByText(/sent to your model provider/i)).toBeVisible(),
+    );
     await expect(textarea).toHaveValue("");
     await expect(save).toBeDisabled();
 
