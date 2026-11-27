@@ -163,6 +163,8 @@ describe('readJob record listing', () => {
     expect(contentOf(result)).not.toContain('signal:');
     expect(contentOf(result)).not.toContain('truncated:');
     expect(contentOf(result)).not.toContain('artifact:');
+    expect(contentOf(result)).not.toContain('intent:');
+    expect(contentOf(result)).not.toContain('command:');
   });
 
   it('lists requested stop metadata for a running job', async () => {
@@ -226,7 +228,7 @@ describe('readJob record listing', () => {
 
   it('lists each job with its intent, and a job without one bare', async () => {
     vi.spyOn(ChatJobsRepository.prototype, 'listByChat').mockResolvedValue([
-      { ...baseJob(), seq: 1, intent: 'Waiting for\nreviews' },
+      { ...baseJob(), seq: 1, intent: '  Waiting  for\n reviews ' },
       { ...baseJob(), seq: 2, intent: null },
     ]);
 
@@ -235,7 +237,7 @@ describe('readJob record listing', () => {
     );
 
     expect(lines).toMatch(
-      /job:\/\/bash-1 \(running, [^)]+\): Waiting for reviews/,
+      /job:\/\/bash-1 \(running, [^)]+\): Waiting for reviews$/m,
     );
     expect(lines).toMatch(/job:\/\/bash-2 \(running, [^)]+\)$/m);
   });

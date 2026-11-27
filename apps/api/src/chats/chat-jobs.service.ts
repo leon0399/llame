@@ -32,7 +32,7 @@ export type ChatJobOutputPart = {
 export type ChatJobOutput =
   | {
       readonly status: 'stored';
-      readonly outputs: ReadonlyArray<ChatJobOutputPart>;
+      readonly outputs: Array<ChatJobOutputPart>;
     }
   | { readonly status: 'unavailable' };
 

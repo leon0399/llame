@@ -4,7 +4,13 @@ import { drizzle } from 'drizzle-orm/postgres-js';
 import { type Chat, type ChatJob } from '../db/schema';
 import { type TenantRunner } from '../db/tenant-db.service';
 import { ChatJobsRepository } from '../jobs/chat-jobs.repository';
-import { ChatJobsService } from './chat-jobs.service';
+import { ArtifactsRepository } from '../tools/artifacts/artifacts-repository';
+import {
+  ChatJobsService,
+  JOB_OUTPUT_RESPONSE_BYTES,
+  type ChatJobOutput,
+  type ChatJobOutputPart,
+} from './chat-jobs.service';
 import { ChatsRepository } from './chats-repository';
 
 const CHAT = 'chat-1';
@@ -123,6 +129,99 @@ describe('ChatJobsService', () => {
     expect(s.list).not.toHaveBeenCalled();
   });
 
+  describe('output', () => {
+    const BOUND = JOB_OUTPUT_RESPONSE_BYTES;
+
+    /** A settled job whose stored stdout is `stored`, read through its window. */
+    function stored(content: Buffer) {
+      const s = script();
+
+      s.find.mockResolvedValue(
+        job({ state: 'succeeded', artifactId: 'a1', outputs: ['stdout'] }),
+      );
+      vi.spyOn(
+        ArtifactsRepository.prototype,
+        'readPartWindow',
+      ).mockImplementation((_chat, _locator, maxBytes) =>
+        Promise.resolve({
+          size: content.length,
+          window: content.subarray(Math.max(0, content.length - maxBytes - 1)),
+        }),
+      );
+
+      return makeService().output(CHAT, 'j', USER);
+    }
+
+    it('answers 404 for an unknown job and 409 for a running one', async () => {
+      const s = script();
+
+      s.find.mockResolvedValueOnce(undefined);
+      await expect(makeService().output(CHAT, 'j', USER)).rejects.toThrow(
+        'Job j not found',
+      );
+
+      s.find.mockResolvedValueOnce(job({ state: 'running' }));
+      await expect(makeService().output(CHAT, 'j', USER)).rejects.toThrow(
+        'The job is still running',
+      );
+    });
+
+    it('answers unavailable for a settled job without an artifact', async () => {
+      script().find.mockResolvedValue(job({ state: 'lost', artifactId: null }));
+
+      await expect(makeService().output(CHAT, 'j', USER)).resolves.toEqual({
+        status: 'unavailable',
+      });
+    });
+
+    it('returns an output at the bound whole and uncut', async () => {
+      const content = Buffer.from(`${'a'.repeat(BOUND - 1)}\n`);
+
+      await expect(stored(content)).resolves.toEqual({
+        status: 'stored',
+        outputs: [
+          {
+            name: 'stdout',
+            content: content.toString(),
+            cut: false,
+            size: BOUND,
+          },
+        ],
+      });
+    });
+
+    it('starts a cut output on the first whole line inside the bound', async () => {
+      const first = `${'b'.repeat(99)}\n`;
+
+      const content = Buffer.from(
+        `head\n${'x'.repeat(BOUND - 105)}\n${first}tail\n`,
+      );
+
+      const [part] = await partsOf(stored(content));
+
+      expect(part).toMatchObject({ cut: true, size: content.length });
+      expect(part?.content).toBe(`${first}tail\n`);
+    });
+
+    it('keeps the first line whole when the bound starts right after a newline', async () => {
+      const tail = `${'c'.repeat(BOUND - 1)}\n`;
+      const content = Buffer.from(`head\n${tail}`);
+      const [part] = await partsOf(stored(content));
+
+      expect(part?.content).toBe(tail);
+    });
+
+    it('ignores a final newline and starts a long line on a whole character', async () => {
+      // Two-byte characters with an odd bound start the window mid-character.
+      const content = Buffer.from(`${'é'.repeat(BOUND)}\n`);
+      const [part] = await partsOf(stored(content));
+
+      expect(part?.cut).toBe(true);
+      expect(part?.content.startsWith('é')).toBe(true);
+      expect(part?.content.endsWith('é\n')).toBe(true);
+      expect(Buffer.byteLength(part?.content ?? '')).toBeLessThanOrEqual(BOUND);
+    });
+  });
   it('records an owner stop request on a running job', async () => {
     const s = script();
     const running = job({ stopRequestedBy: 'owner' });
@@ -191,3 +290,13 @@ describe('ChatJobsService', () => {
     expect(s.count).toHaveBeenCalledWith(USER);
   });
 });
+
+async function partsOf(
+  answer: Promise<ChatJobOutput>,
+): Promise<Array<ChatJobOutputPart>> {
+  const output = await answer;
+
+  if (output.status !== 'stored') throw new Error('Expected a stored output');
+
+  return [...output.outputs];
+}

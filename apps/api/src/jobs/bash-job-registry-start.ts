@@ -371,7 +371,7 @@ async function insertBashBinding(
     seq,
     runId,
     toolCallId,
-    ...(context.toolIntent !== undefined && { intent: context.toolIntent }),
+    intent: context.toolIntent,
     machineName: machine.name,
     daemonInstanceId: instanceId,
     daemonJobId,

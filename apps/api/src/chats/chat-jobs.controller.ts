@@ -80,11 +80,7 @@ export class ChatJobsController {
     @Param('chatId', ParseUUIDPipe) chatId: string,
     @Param('jobId', ParseUUIDPipe) jobId: string,
   ): Promise<ChatJobOutputResponse> {
-    const output = await this.jobs.output(chatId, jobId, userId);
-
-    return output.status === 'stored'
-      ? { status: 'stored', outputs: [...output.outputs] }
-      : output;
+    return this.jobs.output(chatId, jobId, userId);
   }
 
   @Patch(':jobId')
