@@ -454,7 +454,8 @@ section or mention agent tooling unless asked.
 
 Start the body from
 [`.github/pull_request_template.md`](.github/pull_request_template.md);
-`$open-pull-request` covers writing it, visuals included, and publishing.
+`$pull-requests` covers writing it, visuals included, publishing, waiting for
+CI and reviews, and answering review bots.
 
 Every layer has two separate review checkpoints:
 
@@ -484,7 +485,7 @@ After every non-draft push:
 3. For at least 15 uninterrupted minutes, poll CI, verdicts, comments, and
    review threads at least every two minutes. Do not replace polling with one
    sleep.
-4. Fetch feedback with `$fetch-pr-reviews`; its script pages GraphQL
+4. Fetch feedback with the `$pull-requests` review script; it pages GraphQL
    `reviewThreads`, reviews, and comments and strips bot markup.
 5. Process each finding:
 
