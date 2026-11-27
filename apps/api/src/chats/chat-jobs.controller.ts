@@ -12,6 +12,7 @@ import {
   ApiBearerAuth,
   ApiConflictResponse,
   ApiCookieAuth,
+  ApiExtraModels,
   ApiNotFoundResponse,
   ApiOkResponse,
   ApiOperation,
@@ -23,7 +24,10 @@ import {
 import { CurrentUser } from '../auth/auth-context';
 import { ChatJobsService } from './chat-jobs.service';
 import {
+  CHAT_JOB_OUTPUT_RESPONSE_MODELS,
+  CHAT_JOB_OUTPUT_RESPONSE_SCHEMA,
   ChangeChatJobDto,
+  type ChatJobOutputResponse,
   ChatJobResponse,
   ChatJobsResponse,
   toChatJobResponse,
@@ -36,7 +40,7 @@ import {
 export class ChatJobsController {
   constructor(
     @Inject(ChatJobsService)
-    private readonly jobs: Pick<ChatJobsService, 'list' | 'stop'>,
+    private readonly jobs: Pick<ChatJobsService, 'list' | 'stop' | 'output'>,
   ) {}
 
   @Get()
@@ -56,6 +60,27 @@ export class ChatJobsController {
     const items = await this.jobs.list(chatId, userId);
 
     return { items: items.map(toChatJobResponse) };
+  }
+
+  @Get(':jobId/output')
+  @ApiOperation({ operationId: 'readChatJobOutput' })
+  @ApiParam({ name: 'chatId', format: 'uuid' })
+  @ApiParam({ name: 'jobId', format: 'uuid' })
+  @ApiExtraModels(...CHAT_JOB_OUTPUT_RESPONSE_MODELS)
+  @ApiOkResponse({
+    schema: CHAT_JOB_OUTPUT_RESPONSE_SCHEMA,
+    description: 'The stored outputs of a settled job, each up to 64 KiB.',
+  })
+  @ApiBadRequestResponse({ description: 'Malformed id' })
+  @ApiNotFoundResponse({ description: 'Chat or job not found, or not owned' })
+  @ApiConflictResponse({ description: 'The job is still running' })
+  @ApiUnauthorizedResponse()
+  async readChatJobOutput(
+    @CurrentUser() userId: string,
+    @Param('chatId', ParseUUIDPipe) chatId: string,
+    @Param('jobId', ParseUUIDPipe) jobId: string,
+  ): Promise<ChatJobOutputResponse> {
+    return this.jobs.output(chatId, jobId, userId);
   }
 
   @Patch(':jobId')

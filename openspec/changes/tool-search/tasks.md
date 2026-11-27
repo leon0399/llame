@@ -1,5 +1,5 @@
 Track [#338](https://github.com/leon0399/llame/issues/338) and its PR layers
-through [Project tracking](../../../CONTRIBUTING.md#project-tracking).
+through [Project tracking](../../../docs/development/project-tracking.md).
 This revision supersedes the approved one and needs Leo's approval of its own revision before any
 implementation layer starts; keep live status in the Project.
 

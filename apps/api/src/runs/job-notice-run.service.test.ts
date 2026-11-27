@@ -27,6 +27,8 @@ function job(state: ChatJob['state']): ChatJob {
     stoppedBy: state === 'cancelled' ? 'owner' : null,
     runId: '11111111-1111-4111-8111-111111111111',
     toolCallId: 'call-4',
+    intent: null,
+    command: null,
     machineName: 'test-machine',
     daemonInstanceId: 'daemon-instance',
     daemonJobId: 'daemon-job',

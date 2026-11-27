@@ -102,7 +102,9 @@ async function listJobs(
         ? 'unknown'
         : job.state;
 
-    return `${formatJobLocator(job.kind, job.seq)} (${state}, ${job.startedAt.toISOString()})`;
+    const entry = `${formatJobLocator(job.kind, job.seq)} (${state}, ${job.startedAt.toISOString()})`;
+
+    return job.intent === null ? entry : `${entry}: ${oneLine(job.intent)}`;
   });
 
   return renderListing(BARE_LOCATOR, entries, selector, {
@@ -304,6 +306,11 @@ function recordLines(job: ChatJob): Array<string> {
 
   const lines = [
     `kind: ${job.kind}`,
+    ...(job.intent === null ? [] : [`intent: ${oneLine(job.intent)}`]),
+    // JSON-quoted so a multi-line command stays one `name: value` line.
+    ...(job.command === null
+      ? []
+      : [`command: ${JSON.stringify(job.command)}`]),
     `state: ${job.state}`,
     `started_at: ${job.startedAt.toISOString()}`,
     `elapsed: ${((end.getTime() - job.startedAt.getTime()) / 1000).toFixed(1)} s`,
@@ -360,6 +367,11 @@ function appendJobOutcome(lines: Array<string>, job: ChatJob): void {
           : 'the Machine daemon restarted';
 
   lines.push(`outcome: unknown (${causeText})`);
+}
+
+/** The intent on one line, so it cannot break a listing or record line. */
+function oneLine(text: string): string {
+  return text.replaceAll(/\s+/g, ' ').trim();
 }
 
 /** A stored output's text, numbered as the artifact reader numbers it. */

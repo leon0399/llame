@@ -5,16 +5,24 @@
  * llame auth and domain API
  * OpenAPI spec version: 0.1
  */
-import type { ChatJobResponseSettledAt } from "./chatJobResponseSettledAt";
 import type { ChatJobResponseState } from "./chatJobResponseState";
 import type { ChatJobResponseStoppedBy } from "./chatJobResponseStoppedBy";
-import type { ChatJobResponseStopRequestedAt } from "./chatJobResponseStopRequestedAt";
 import type { ChatJobResponseStopRequestedBy } from "./chatJobResponseStopRequestedBy";
 
 export interface ChatJobResponse {
   id: string;
   chatId: string;
   locator: string;
+  /**
+   * The intent the model gave the tool call that started the job; null when that call carried none.
+   * @nullable
+   */
+  intent: string | null;
+  /**
+   * The shell text the job runs; null for a job recorded without one.
+   * @nullable
+   */
+  command: string | null;
   executor: string;
   state: ChatJobResponseState;
   /**
@@ -24,9 +32,9 @@ export interface ChatJobResponse {
   stoppedBy: ChatJobResponseStoppedBy;
   startedAt: string;
   /** @nullable */
-  settledAt: ChatJobResponseSettledAt;
+  settledAt: string | null;
   /** @nullable */
-  stopRequestedAt: ChatJobResponseStopRequestedAt;
+  stopRequestedAt: string | null;
   /** @nullable */
   stopRequestedBy: ChatJobResponseStopRequestedBy;
   /** The names of the outputs. */

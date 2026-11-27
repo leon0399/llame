@@ -4287,6 +4287,7 @@ export class RunExecutionService {
         {
           ...toolContext,
           toolCallId,
+          ...(open?.intent !== undefined && { toolIntent: open.intent }),
           yieldSignal: segmentYield,
           abortSignal: callAbortSignal(input.abortSignal, interruptSignal),
           onDerivedDecision: (decision) =>

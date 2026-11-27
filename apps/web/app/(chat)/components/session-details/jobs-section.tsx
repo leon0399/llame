@@ -1,11 +1,30 @@
 "use client";
 
-import { CircleStopIcon } from "lucide-react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  type ReactNode,
+  type Ref,
+} from "react";
+import {
+  ChevronRightIcon,
+  CircleDashedIcon,
+  CircleStopIcon,
+  HistoryIcon,
+  LoaderCircleIcon,
+} from "lucide-react";
 
 import { Alert, AlertDescription } from "@workspace/ui/components/alert";
 import { Button } from "@workspace/ui/components/button";
 import { Skeleton } from "@workspace/ui/components/skeleton";
-import { SidebarMenu, SidebarMenuItem } from "@workspace/ui/components/sidebar";
+import {
+  SidebarMenu,
+  SidebarMenuButton,
+  SidebarMenuItem,
+} from "@workspace/ui/components/sidebar";
+
+import { SidebarRowTitle } from "@/components/sidebar-row-title";
 import type { ChatJobResponse } from "@/lib/api/generated/models";
 import {
   isLiveChatJob,
@@ -13,47 +32,114 @@ import {
   useStopChatJobs,
 } from "@/lib/services/jobs/queries";
 
+import { useFinishedJobsPanelState } from "./details-state";
+import { FinishedJobsPanel } from "./finished-jobs-panel";
+import { JobElapsedTime, jobName } from "./job-display";
 import type { SectionView } from "./section-list";
 
-const JOB_STATES: Record<ChatJobResponse["state"], string> = {
-  running: "Running",
-  succeeded: "Succeeded",
-  failed: "Failed",
-  cancelled: "Cancelled",
-  timed_out: "Timed out",
-  lost: "Lost",
-};
+/** The Jobs section, and the panel of finished jobs it can open. */
+export interface JobsSectionParts {
+  section: SectionView;
+  /** Rendered beside the section list; null while the panel is shut. */
+  finishedPanel: ReactNode;
+}
 
-export function useJobsSection(chatId: string, enabled: boolean): SectionView {
-  const jobsQuery = useChatJobs(chatId, enabled);
-  const stopJobs = useStopChatJobs();
-  const jobs = jobsQuery.data?.items ?? [];
-  const liveCount = jobs.filter(isLiveChatJob).length;
+function jobsSummary(running: number, finished: number): string {
+  if (running > 0) return `${String(running)} running`;
+
+  if (finished > 0) return `${String(finished)} finished`;
+
+  return "No jobs";
+}
+
+/**
+ * Whether the finished-jobs panel is open. It belongs to the Chat it was
+ * opened on, so another Chat starts with it shut. It shuts whenever the
+ * session details close, by the desktop sidebar or the mobile sheet, and
+ * whenever its Finished row leaves the section, so closing it can always
+ * return focus to that row. The state lives in the details provider, which
+ * widens the sidebar while it is open.
+ */
+function useFinishedPanel(chatId: string, enabled: boolean) {
+  const { openFor, setOpenFor } = useFinishedJobsPanelState();
+  const triggerRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    if (!enabled) setOpenFor(null);
+  }, [enabled, setOpenFor]);
+
+  const close = () => {
+    setOpenFor(null);
+    // After the commit: on mobile the trigger's column is inert until then.
+    requestAnimationFrame(() => triggerRef.current?.focus());
+  };
 
   return {
-    title: "Jobs",
-    summary:
-      jobs.length === 0
-        ? "No jobs"
-        : liveCount === 1
-          ? "1 live job"
-          : `${liveCount} live jobs`,
-    content: (
-      <JobsSectionView
-        jobs={jobs}
-        loading={jobsQuery.isPending}
-        error={jobsQuery.error?.message}
-        stopError={stopJobs.error?.message}
-        stoppingIds={
-          stopJobs.isPending ? (stopJobs.variables?.jobIds ?? []) : []
-        }
-        stopping={stopJobs.isPending}
-        onStop={(jobIds) => stopJobs.mutate({ chatId, jobIds })}
-      />
-    ),
+    open: enabled && openFor === chatId,
+    triggerRef,
+    close,
+    retire: useCallback(() => setOpenFor(null), [setOpenFor]),
+    setOpen: (open: boolean) => (open ? setOpenFor(chatId) : close()),
   };
 }
 
+export function useJobsSection(
+  chatId: string,
+  enabled: boolean,
+): JobsSectionParts {
+  const jobsQuery = useChatJobs(chatId, enabled);
+  const stopJobs = useStopChatJobs();
+  const finishedPanel = useFinishedPanel(chatId, enabled);
+  const jobs = jobsQuery.data?.items ?? [];
+  const finished = jobs.filter((job) => !isLiveChatJob(job));
+
+  return {
+    section: {
+      title: "Jobs",
+      summary: jobsSummary(jobs.length - finished.length, finished.length),
+      content: (
+        <JobsSectionView
+          jobs={jobs}
+          loading={jobsQuery.isPending}
+          error={jobsQuery.error?.message}
+          stopError={stopJobs.error?.message}
+          stoppingIds={
+            stopJobs.isPending ? (stopJobs.variables?.jobIds ?? []) : []
+          }
+          stopping={stopJobs.isPending}
+          onStop={(jobIds) => stopJobs.mutate({ chatId, jobIds })}
+          finishedOpen={finishedPanel.open}
+          finishedTriggerRef={finishedPanel.triggerRef}
+          onFinishedOpenChange={finishedPanel.setOpen}
+          onFinishedRetire={finishedPanel.retire}
+        />
+      ),
+    },
+    finishedPanel: finishedPanel.open ? (
+      <FinishedJobsPanel jobs={finished} onClose={finishedPanel.close} />
+    ) : null,
+  };
+}
+
+interface JobsSectionViewProps {
+  jobs: ReadonlyArray<ChatJobResponse>;
+  loading?: boolean;
+  error?: string;
+  stopError?: string;
+  stoppingIds?: ReadonlyArray<string>;
+  stopping?: boolean;
+  onStop: (jobIds: Array<string>) => void;
+  finishedOpen?: boolean;
+  finishedTriggerRef?: Ref<HTMLButtonElement>;
+  onFinishedOpenChange: (open: boolean) => void;
+  /** Called when the Finished row leaves the section. */
+  onFinishedRetire?: () => void;
+}
+
+/**
+ * The running jobs of the Chat, each with its stop control, and one control
+ * that opens the finished jobs in their own panel.
+ */
 export function JobsSectionView({
   jobs,
   loading = false,
@@ -62,37 +148,43 @@ export function JobsSectionView({
   stoppingIds = [],
   stopping = false,
   onStop,
-}: {
-  jobs: ReadonlyArray<ChatJobResponse>;
-  loading?: boolean;
-  error?: string;
-  stopError?: string;
-  stoppingIds?: ReadonlyArray<string>;
-  stopping?: boolean;
-  onStop: (jobIds: Array<string>) => void;
-}) {
-  const liveJobs = jobs.filter(isLiveChatJob);
-  const settledJobs = jobs.filter((job) => !isLiveChatJob(job));
-
+  ...finished
+}: JobsSectionViewProps) {
   if (loading) return <JobsLoading />;
 
   if (error) return <JobsLoadError error={error} />;
 
+  const liveJobs = jobs.filter(isLiveChatJob);
+  const finishedCount = jobs.length - liveJobs.length;
+
   return (
-    <div className="flex flex-col gap-1 px-2 pb-2">
+    <div className="flex flex-col gap-1 pb-1">
       {stopError && <JobsStopError error={stopError} />}
-      <StopAllButton jobs={liveJobs} stopping={stopping} onStop={onStop} />
-      <JobList
-        jobs={[...liveJobs, ...settledJobs]}
-        stopping={stopping}
-        stoppingIds={stoppingIds}
-        onStop={onStop}
-      />
+      <SidebarMenu>
+        <RunningJobs
+          jobs={liveJobs}
+          emptyLabel={finishedCount === 0 ? "No jobs yet" : "Nothing running"}
+          stopping={stopping}
+          stoppingIds={stoppingIds}
+          onStop={onStop}
+        />
+        <StopAllRow jobs={liveJobs} stopping={stopping} onStop={onStop} />
+        {finishedCount === 0 ? null : (
+          <FinishedToggle
+            count={finishedCount}
+            open={finished.finishedOpen ?? false}
+            triggerRef={finished.finishedTriggerRef}
+            onOpenChange={finished.onFinishedOpenChange}
+            onRetire={finished.onFinishedRetire}
+          />
+        )}
+      </SidebarMenu>
     </div>
   );
 }
 
-function StopAllButton({
+/** One row that stops every running job, shaped like the Finished row. */
+function StopAllRow({
   jobs,
   stopping,
   onStop,
@@ -104,46 +196,87 @@ function StopAllButton({
   if (jobs.length < 2) return null;
 
   return (
-    <Button
-      variant="outline"
-      size="sm"
-      className="self-start"
-      disabled={stopping}
-      onClick={() => onStop(jobs.map(({ id }) => id))}
-    >
-      <CircleStopIcon data-icon="inline-start" />
-      Stop all
-    </Button>
+    <SidebarMenuItem>
+      <SidebarMenuButton
+        disabled={stopping}
+        onClick={() => onStop(jobs.map(({ id }) => id))}
+      >
+        <CircleStopIcon />
+        <span className="flex-1">Stop all</span>
+        <span className="text-muted-foreground tabular-nums">
+          {jobs.length}
+        </span>
+      </SidebarMenuButton>
+    </SidebarMenuItem>
   );
 }
 
-function JobList({
+function RunningJobs({
   jobs,
+  emptyLabel,
   stopping,
   stoppingIds,
   onStop,
 }: {
   jobs: ReadonlyArray<ChatJobResponse>;
+  emptyLabel: string;
   stopping: boolean;
   stoppingIds: ReadonlyArray<string>;
   onStop: (jobIds: Array<string>) => void;
 }) {
   if (jobs.length === 0) {
-    return <p className="px-2 py-1 text-sm text-muted-foreground">No jobs</p>;
+    // A muted fact row, the shape the Environment section gives an absence.
+    return (
+      <SidebarMenuItem>
+        <span className="flex h-8 min-w-0 items-center gap-2 px-2 text-sm text-muted-foreground [&>svg]:size-4 [&>svg]:shrink-0">
+          <CircleDashedIcon aria-hidden="true" />
+          <span className="truncate">{emptyLabel}</span>
+        </span>
+      </SidebarMenuItem>
+    );
   }
 
+  return jobs.map((job) => (
+    <RunningJobRow
+      key={job.id}
+      job={job}
+      stopping={stopping}
+      pending={stoppingIds.includes(job.id)}
+      onStop={onStop}
+    />
+  ));
+}
+
+function FinishedToggle({
+  count,
+  open,
+  triggerRef,
+  onOpenChange,
+  onRetire,
+}: {
+  count: number;
+  open: boolean;
+  triggerRef?: Ref<HTMLButtonElement>;
+  onOpenChange: (open: boolean) => void;
+  /** Shuts the panel when this row leaves, folded away or with no jobs. */
+  onRetire?: () => void;
+}) {
+  useEffect(() => onRetire, [onRetire]);
+
   return (
-    <SidebarMenu>
-      {jobs.map((job) => (
-        <JobRow
-          key={job.id}
-          job={job}
-          stopping={stopping}
-          pending={stoppingIds.includes(job.id)}
-          onStop={onStop}
-        />
-      ))}
-    </SidebarMenu>
+    <SidebarMenuItem>
+      <SidebarMenuButton
+        ref={triggerRef}
+        isActive={open}
+        aria-expanded={open}
+        onClick={() => onOpenChange(!open)}
+      >
+        <HistoryIcon />
+        <span className="flex-1">Finished</span>
+        <span className="text-muted-foreground tabular-nums">{count}</span>
+        <ChevronRightIcon />
+      </SidebarMenuButton>
+    </SidebarMenuItem>
   );
 }
 
@@ -172,7 +305,22 @@ function JobsStopError({ error }: { error: string }) {
   );
 }
 
-function JobRow({
+/** The intent fades and scrolls on hover, since all of it is worth reading;
+ *  a call without one leaves the job its locator. */
+function RunningJobTitle({ job }: { job: ChatJobResponse }) {
+  return (
+    <span className="min-w-0 flex-1">
+      {job.intent === null ? (
+        <span className="block truncate font-mono text-xs">{job.locator}</span>
+      ) : (
+        <SidebarRowTitle text={job.intent} />
+      )}
+    </span>
+  );
+}
+
+/** A running job: a spinner, its name, the time it has run, and its stop. */
+function RunningJobRow({
   job,
   stopping,
   pending,
@@ -183,31 +331,32 @@ function JobRow({
   pending: boolean;
   onStop: (jobIds: Array<string>) => void;
 }) {
-  const live = isLiveChatJob(job);
+  const stopRequested = pending || job.stopRequestedAt !== null;
 
   return (
     <SidebarMenuItem>
-      <div className="flex min-w-0 items-center gap-2">
-        <div className="flex min-w-0 flex-1 items-center gap-2 px-2 py-1">
-          <span className="min-w-0 flex-1 truncate font-mono text-xs">
-            {job.locator}
-          </span>
-          <span className="shrink-0 text-xs text-muted-foreground">
-            {JOB_STATES[job.state]}
-          </span>
-        </div>
-        {live && (
-          <Button
-            aria-label={`Stop ${job.locator}`}
-            variant="ghost"
-            size="icon-sm"
-            disabled={stopping}
-            onClick={() => onStop([job.id])}
-          >
-            <CircleStopIcon aria-hidden="true" />
-          </Button>
-        )}
-        {pending && <span className="sr-only">Stopping</span>}
+      <div className="flex h-8 items-center gap-2 pr-1 pl-2 text-sm">
+        <LoaderCircleIcon
+          aria-hidden="true"
+          className="size-4 shrink-0 animate-spin text-muted-foreground motion-reduce:animate-none"
+        />
+        <RunningJobTitle job={job} />
+        <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
+          {stopRequested ? (
+            "Stopping"
+          ) : (
+            <JobElapsedTime startedAt={job.startedAt} />
+          )}
+        </span>
+        <Button
+          aria-label={`Stop ${jobName(job)}`}
+          variant="ghost"
+          size="icon-xs"
+          disabled={stopping || stopRequested}
+          onClick={() => onStop([job.id])}
+        >
+          <CircleStopIcon aria-hidden="true" />
+        </Button>
       </div>
     </SidebarMenuItem>
   );

@@ -139,6 +139,11 @@ export interface ToolContext {
   readonly timeoutMs?: number;
   /** Trusted AI SDK call correlation, never supplied by model arguments. */
   readonly toolCallId?: string;
+  /**
+   * The model's display-only intent for this call (`i`), already removed from
+   * the arguments. Recorded for the owner; never used to admit or run a call.
+   */
+  readonly toolIntent?: string;
   /** Reserves the one wait call allowed in this model step, or returns its first call id. */
   readonly beginWaitCall?: (toolCallId: string) => string | undefined;
   /** Publishes a validated running wait to the Run execution owner. */

@@ -7,7 +7,7 @@ assignees: []
 ---
 
 <!--
-See CONTRIBUTING.md, "Issues and handoff". Add one type:* and one area:* label.
+See docs/development/issues.md. Add one type:* and one area:* label.
 If the change alters a documented contract, it needs a feature issue and a spec instead.
 Delete every comment before submitting.
 -->

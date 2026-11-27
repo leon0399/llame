@@ -54,6 +54,8 @@ locator, and one `<name>: <value>` line follows for each field:
 | Field               | Holds                                                                 |
 | ------------------- | --------------------------------------------------------------------- |
 | `executor`          | the kind of work                                                      |
+| `intent`            | the `i` of the call that started the job, the name the owner sees     |
+| `command`           | the shell text, JSON-quoted so it stays on one line                   |
 | `state`             | `running`, `succeeded`, `failed`, `cancelled`, `timed_out`, or `lost` |
 | `started_at`        | the start time                                                        |
 | `elapsed`           | seconds from the start to the end, or to now for a live job           |
@@ -97,7 +99,7 @@ no sender, and no stored content. The first dispatch authors the job context
 items from the triggering delivery rows. The notice has delete only and
 withdrawing it does not stop the job.
 
-The context item reports the locator, executor, state, exit detail, elapsed
+The context item reports the locator, executor, intent, state, exit detail, elapsed
 time, stopper when cancelled, artifact locator when present, and the last
 2,000 characters of each output. Output is safely neutralized as data before
 it enters the context. A host artifact directory is named only when a verified
@@ -116,7 +118,10 @@ the literal context items and remaps the reply target to the copied host turn.
 ## Listing
 
 `read("job://")` lists the jobs of the Chat, the oldest first, one line each:
-the locator, the state, and the start time. An empty Chat answers
+the locator, the state, the start time, and the intent when the starting call
+carried one, such as `job://bash-4 (running, 2026-11-27T15:12:03.000Z): Watching
+the dev server`. The owner's Jobs section names jobs by that intent, so the list
+maps a job the owner names to its locator. An empty Chat answers
 `job://: empty`. The list takes one line member, with or without the unit
 letter, such as `:L5-10`; `:raw`, `:outline`, and comma lists are
 `invalid_selector`. A fork of a Chat holds no job of its source.

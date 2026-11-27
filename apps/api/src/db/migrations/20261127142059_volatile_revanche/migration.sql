@@ -1,0 +1,1 @@
+ALTER TABLE "chat_jobs" ADD COLUMN "intent" text;

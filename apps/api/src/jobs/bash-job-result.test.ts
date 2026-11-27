@@ -47,6 +47,8 @@ const row: ChatJob = {
   stoppedBy: null,
   runId: '00000000-0000-4000-8000-000000000012',
   toolCallId: 'call-1',
+  intent: null,
+  command: null,
   machineName: 'host',
   daemonInstanceId: '00000000-0000-4000-8000-000000000013',
   daemonJobId: '0123456789abcdef0123456789abcdef',

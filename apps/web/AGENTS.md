@@ -65,3 +65,5 @@ to the API's `WEB_ORIGIN`, and run the API with `NODE_ENV=development`.
   only when the client can compute the complete next state; otherwise
   invalidate after success. The optimistic sequence is cancel, snapshot, patch,
   rollback on error, then always invalidate on settle.
+- Unimplemented UI is a visible, disabled placeholder: never hidden, and never
+  clickable without behavior.

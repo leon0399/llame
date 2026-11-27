@@ -295,6 +295,11 @@ chat-search/search-projection/conversation-read OpenSpecs.
   parameter.
 - Endpoints use resource verbs, class-validator DTOs, and explicit response
   allowlists. IDs use typed pipes. Nullable fields are explicit and required.
+  A streaming endpoint documents its transport contract.
+- A default is a durable contract. A setting that sends owner data to a
+  provider defaults off, and its documentation states, together, that enabling
+  it covers existing data and that a disclosure cannot be taken back.
+- Log at boundaries and failures. Per-request and per-token logs are noise.
 - `apps/api/openapi.json` is generated and committed. Any DTO/controller/Swagger
   change must run API build and commit the result. Lint, types, and tests do not
   regenerate it.

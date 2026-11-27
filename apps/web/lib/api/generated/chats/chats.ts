@@ -12,6 +12,8 @@ import type {
   ChatDeliveriesResponse,
   ChatDeliveryResponse,
   ChatJobResponse,
+  ChatJobStoredOutputResponse,
+  ChatJobUnavailableOutputResponse,
   ChatJobsResponse,
   ChatListItemResponse,
   ChatMessagesResponse,
@@ -544,6 +546,47 @@ export const listChatJobs = async (
     throw err;
   }
   const data: ChatJobsResponse = body ? JSON.parse(body) : {};
+  return data;
+};
+
+export type readChatJobOutputError = void | void | void | void;
+
+export const getReadChatJobOutputUrl = (chatId: string, jobId: string) => {
+  return `/api/v1/chats/${chatId}/jobs/${jobId}/output`;
+};
+
+export const readChatJobOutput = async (
+  chatId: string,
+  jobId: string,
+  options: RequestInit | undefined,
+  fetchFn: typeof globalThis.fetch,
+): Promise<ChatJobStoredOutputResponse | ChatJobUnavailableOutputResponse> => {
+  const res = await fetchFn(getReadChatJobOutputUrl(chatId, jobId), {
+    ...options,
+    method: "GET",
+  });
+
+  const body = [204, 205, 304].includes(res.status) ? null : await res.text();
+  if (!res.ok) {
+    const err: globalThis.Error & {
+      info?: readChatJobOutputError;
+      status?: number;
+    } = new globalThis.Error(
+      `GET ${getReadChatJobOutputUrl(chatId, jobId)} failed (${res.status})`,
+    );
+    const data: readChatJobOutputError = (() => {
+      try {
+        return body ? JSON.parse(body) : {};
+      } catch {
+        return body;
+      }
+    })();
+    err.info = data;
+    err.status = res.status;
+    throw err;
+  }
+  const data: ChatJobStoredOutputResponse | ChatJobUnavailableOutputResponse =
+    body ? JSON.parse(body) : {};
   return data;
 };
 

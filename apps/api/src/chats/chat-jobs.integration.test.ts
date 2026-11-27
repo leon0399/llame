@@ -53,6 +53,8 @@ vi.setConfig({ testTimeout: 60_000 });
 const jobBody = z.object({
   id: z.string(),
   locator: z.string(),
+  intent: z.string().nullable(),
+  command: z.string().nullable(),
   state: z.string(),
   stoppedBy: z.string().nullable(),
   stopRequestedBy: z.string().nullable(),
@@ -165,16 +167,18 @@ describe('chat jobs API', () => {
         result: { truncated: { stdout: true, stderr: false } },
       }),
     );
-    await startJob(chatId, 4);
+    await startJob(chatId, 4, { intent: 'Watching the dev server' });
 
     const res = await list(chatId);
 
     expect(res.status).toBe(200);
     const body = listBody.parse(res.body);
 
-    expect(body.items.map((item) => [item.locator, item.state])).toEqual([
-      ['job://bash-4', 'running'],
-      ['job://bash-2', 'succeeded'],
+    expect(
+      body.items.map((item) => [item.locator, item.state, item.intent]),
+    ).toEqual([
+      ['job://bash-4', 'running', 'Watching the dev server'],
+      ['job://bash-2', 'succeeded', null],
     ]);
     expect(body.items.map((item) => item.truncated)).toEqual([[], ['stdout']]);
   });
@@ -381,6 +385,13 @@ describe('chat jobs API', () => {
       result: { exitCode: 0, outputUnavailable: true },
       artifactId: null,
     });
+
+    const output = await request(http)
+      .get(`/api/v1/chats/${chatId}/jobs/${job.id}/output`)
+      .set('Cookie', cookieA);
+
+    expect(output.status).toBe(200);
+    expect(output.body).toEqual({ status: 'unavailable' });
   });
   it('reuses the spill artifact locator when settling the job', async () => {
     const chatId = await createChat();
@@ -469,6 +480,142 @@ describe('chat jobs API', () => {
 
     expect(part?.content.toString()).toBe('spilled output');
   });
+
+  it("reads a settled job's stored output for its owner only", async () => {
+    const chatId = await createChat();
+
+    const seq = await reserveArtifactSeq(tenantDb, {
+      chatId,
+      userId: userAId,
+    });
+
+    const job = await startJob(chatId, seq, { command: 'pnpm test' });
+
+    const output = (cookie = cookieA) =>
+      request(http)
+        .get(`/api/v1/chats/${chatId}/jobs/${job.id}/output`)
+        .set('Cookie', cookie);
+
+    expect((await output()).status).toBe(409);
+
+    await settleBashJob(
+      tenantDb,
+      job,
+      {
+        output: {
+          stdout: 'line one\nline two\n',
+          stderr: 'a warning\n',
+          truncated: false,
+          truncatedStreams: { stdout: false, stderr: false },
+        },
+        settlement: { state: 'failed', result: { exitCode: 1 } },
+      },
+      {
+        maxBytes: 131_072,
+        hostFiles: false,
+        backgrounded: false,
+        noticeRuns: { startOnSettlement: () => Promise.resolve() },
+        wake: { wakeForChatInTransaction: () => Promise.resolve(false) },
+      },
+    );
+
+    const res = await output();
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({
+      status: 'stored',
+      outputs: [
+        {
+          name: 'stdout',
+          content: 'line one\nline two\n',
+          cut: false,
+          size: 18,
+        },
+        { name: 'stderr', content: 'a warning\n', cut: false, size: 10 },
+      ],
+    });
+    expect(listBody.parse((await list(chatId)).body).items[0]?.command).toBe(
+      'pnpm test',
+    );
+    expect((await output(cookieB)).status).toBe(404);
+  });
+
+  // A stream over the response bound comes back as its last whole lines, or,
+  // for one line longer than the bound, as its last whole characters; never
+  // empty. The stored size comes beside it.
+  it.each([
+    {
+      label: 'many short lines',
+      stdout: `first line\n${`${'x'.repeat(99)}\n`.repeat(700)}last line\n`,
+      starts: 'x',
+    },
+    {
+      label: 'one line longer than the bound',
+      stdout: `${'é'.repeat(50_000)}\n`,
+      starts: 'é',
+    },
+  ])(
+    'cuts $label to the bound and reports its size',
+    async ({ stdout, starts }) => {
+      const chatId = await createChat();
+
+      const seq = await reserveArtifactSeq(tenantDb, {
+        chatId,
+        userId: userAId,
+      });
+
+      const job = await startJob(chatId, seq);
+
+      await settleBashJob(
+        tenantDb,
+        job,
+        {
+          output: {
+            stdout,
+            stderr: '',
+            truncated: false,
+            truncatedStreams: { stdout: false, stderr: false },
+          },
+          settlement: { state: 'succeeded', result: { exitCode: 0 } },
+        },
+        {
+          maxBytes: 131_072,
+          hostFiles: false,
+          backgrounded: false,
+          noticeRuns: { startOnSettlement: () => Promise.resolve() },
+          wake: { wakeForChatInTransaction: () => Promise.resolve(false) },
+        },
+      );
+
+      const res = await request(http)
+        .get(`/api/v1/chats/${chatId}/jobs/${job.id}/output`)
+        .set('Cookie', cookieA);
+
+      const part = z
+        .object({
+          outputs: z.array(
+            z.object({
+              name: z.string(),
+              content: z.string(),
+              cut: z.boolean(),
+              size: z.number(),
+            }),
+          ),
+        })
+        .parse(res.body).outputs[0];
+
+      expect(part).toMatchObject({
+        name: 'stdout',
+        cut: true,
+        size: Buffer.byteLength(stdout),
+      });
+      expect(Buffer.byteLength(part?.content ?? '')).toBeLessThanOrEqual(
+        64 * 1024,
+      );
+      expect(part?.content.startsWith(starts)).toBe(true);
+      expect(part?.content.endsWith(stdout.slice(-10))).toBe(true);
+    },
+  );
 
   it('rolls back job settlement when the output artifact cannot be written', async () => {
     const chatId = await createChat();

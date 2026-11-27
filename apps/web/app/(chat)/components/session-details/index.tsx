@@ -1,7 +1,6 @@
 "use client";
 
 import { PanelRightIcon, XIcon } from "lucide-react";
-import { usePathname } from "next/navigation";
 
 import {
   Sidebar,
@@ -29,6 +28,7 @@ import { useRepositoriesQuery } from "@/lib/services/repositories/queries";
 import { demoChangesView, demoContextView } from "./demo-sections";
 import { useJobsSection } from "./jobs-section";
 import type { SessionDetailsLayout } from "./details-cookie";
+import { useOpenChatId } from "./details-state";
 import {
   EnvironmentSection,
   environmentSummary,
@@ -41,13 +41,6 @@ import { SectionList } from "./section-list";
 const DETAILS_TITLE = "Session details";
 const SHOW_LABEL = "Show session details";
 const HIDE_LABEL = "Hide session details";
-
-/** The open chat's id, or undefined off a `/chat/:id` route. */
-export function useOpenChatId(): string | undefined {
-  const pathname = usePathname();
-
-  return pathname.startsWith("/chat/") ? pathname.split("/")[2] : undefined;
-}
 
 /** Header button that shows or hides session details. Must sit under their
  *  provider, where `useSidebar` is theirs. */
@@ -174,6 +167,26 @@ function useEnvironment(chatId: string): EnvironmentSectionProps {
   };
 }
 
+/** The details column's title row, with the control that hides the sidebar. */
+function DetailsHeader() {
+  const { toggleSidebar } = useSidebar();
+
+  return (
+    <div className={cn(topBarClasses, "justify-between gap-2 pr-2 pl-4")}>
+      <span className="text-sm font-semibold">{DETAILS_TITLE}</span>
+      <IconButtonTooltip
+        label={HIDE_LABEL}
+        size="icon-sm"
+        side="bottom"
+        align="end"
+        onClick={toggleSidebar}
+      >
+        <XIcon aria-hidden="true" />
+      </IconButtonTooltip>
+    </div>
+  );
+}
+
 function SessionDetailsBody({
   chatId,
   layout,
@@ -185,23 +198,38 @@ function SessionDetailsBody({
 }) {
   const environment = useEnvironment(chatId);
   const jobs = useJobsSection(chatId, panelOpen);
+  const { isMobile } = useSidebar();
 
   return (
-    <SidebarContent>
-      <SectionList
-        initialLayout={layout}
-        sections={{
-          environment: {
-            title: "Environment",
-            summary: environmentSummary(environment),
-            content: <EnvironmentSection {...environment} />,
-          },
-          jobs,
-          context: demoContextView,
-          changes: demoChangesView,
-        }}
-      />
-    </SidebarContent>
+    // Both columns keep fixed widths: the details column the sidebar's own
+    // 16rem, the finished-jobs panel its `--finished-jobs-width`. While the
+    // sidebar's width animates, the row is clipped rather than squeezed, so
+    // the panel is revealed from the outer edge and no text rewraps.
+    <div className="relative flex size-full min-h-0 overflow-hidden">
+      {/* On mobile the panel covers this column, so it leaves the tab order. */}
+      <div
+        inert={isMobile && jobs.finishedPanel !== null}
+        className="flex min-w-0 flex-col max-md:w-full md:w-64 md:shrink-0"
+      >
+        <DetailsHeader />
+        <SidebarContent>
+          <SectionList
+            initialLayout={layout}
+            sections={{
+              environment: {
+                title: "Environment",
+                summary: environmentSummary(environment),
+                content: <EnvironmentSection {...environment} />,
+              },
+              jobs: jobs.section,
+              context: demoContextView,
+              changes: demoChangesView,
+            }}
+          />
+        </SidebarContent>
+      </div>
+      {jobs.finishedPanel}
+    </div>
   );
 }
 
@@ -212,25 +240,13 @@ function SessionDetailsBody({
  */
 export function SessionDetails({ layout }: { layout: SessionDetailsLayout }) {
   const chatId = useOpenChatId();
-  const { isMobile, open, openMobile, toggleSidebar } = useSidebar();
+  const { isMobile, open, openMobile } = useSidebar();
   const panelOpen = isMobile ? openMobile : open;
 
   if (chatId === undefined) return null;
 
   return (
     <Sidebar side="right" collapsible="offcanvas" aria-label={DETAILS_TITLE}>
-      <div className={cn(topBarClasses, "justify-between gap-2 pr-2 pl-4")}>
-        <span className="text-sm font-semibold">{DETAILS_TITLE}</span>
-        <IconButtonTooltip
-          label={HIDE_LABEL}
-          size="icon-sm"
-          side="bottom"
-          align="end"
-          onClick={toggleSidebar}
-        >
-          <XIcon aria-hidden="true" />
-        </IconButtonTooltip>
-      </div>
       <SessionDetailsBody
         chatId={chatId}
         layout={layout}

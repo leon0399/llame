@@ -1,9 +1,15 @@
 # Review guide
 
-This file owns reviewer judgment. [CONTRIBUTING.md](CONTRIBUTING.md) owns
-delivery; [CODING_STANDARDS.md](CODING_STANDARDS.md) owns diff shape.
-`.coderabbit.yaml` points here, so every section applies to human and automated
-reviewers.
+This file owns reviewer judgment, for human and automated reviewers alike. It
+says how to weigh a change; the rules it is weighed against live elsewhere:
+
+- [CODING_STANDARDS.md](CODING_STANDARDS.md) owns diff shape.
+- The `AGENTS.md` files from the repository root down to each changed file's
+  directory own that file's conventions and traps. A violated rule there is a
+  finding.
+- The OpenSpec capability that owns the behavior owns what the change must do.
+- [CONTRIBUTING.md](CONTRIBUTING.md) owns delivery: issues, stacks, records,
+  and merge.
 
 ## Merge question
 
@@ -24,8 +30,7 @@ and search.
   prompt-bound owner text as untrusted.
 - Authorization identity comes only from authentication. Caller-supplied IDs
   locate resources; they never define ownership.
-- Tenant tables have policies plus `FORCE ROW LEVEL SECURITY`; request paths set
-  `app.current_user_id`; missing identity fails closed.
+- The datastore enforces tenant isolation, and a missing identity fails closed.
 - Guard a new reachable surface now or omit it.
 - Credentials, resolved secrets, tokens, MCP sessions, and host paths stay out
   of code, logs, errors, model context, receipts, and public responses.
@@ -39,13 +44,12 @@ path and failure.
 
 ### Durable history and Runs
 
-- Preserve `messages.parts`, stored order, and stored context-item text. New
-  replay transforms or omissions require a spec.
-- Every Run stays on pg-boss; `RunExecutionService` remains HTTP-independent.
-- Changes to server-authored data semantics define one API/worker revision
-  boundary with rollout and rollback procedures.
-- Write-capable tools require checkpoint or dedupe semantics before execution;
-  queue recovery may repeat a tool call.
+- Stored history and queued work are durable contracts. A new replay
+  transform, omission, or reordering of stored data requires a spec.
+- A change to the meaning of server-authored data defines one API/worker
+  revision boundary with rollout and rollback procedures.
+- Work that can be retried is safe to repeat: a write-capable step has
+  checkpoint or dedupe semantics before it executes.
 
 ### Existence and scope
 
@@ -58,38 +62,29 @@ path and failure.
 
 ### Ownership and contracts
 
-- `apps/api` alone owns DB access. Queue primitives serve Runs, search workers,
-  and session cleanup; `chats/` dispatches without queue knowledge.
-- OpenSpec owns capability behavior; `SPEC.md` architecture; `docs/` runbooks;
-  closest `AGENTS.md` commands and traps.
-- Shared primitives live in `packages/ui`; app compositions in the app.
-- Never edit generated clients or OpenAPI output by hand.
-- APIs use resources and standard verbs. Structured bodies/queries use DTOs;
-  scalar route parameters use pipes. JSON responses use explicit allowlists;
-  streams document their transport contract. Defaults are durable contracts;
-  provider data sharing defaults off and states retroactivity plus
-  non-erasability together. Config errors fail boot with the bad path.
-- Unimplemented UI is a visible disabled placeholder, never hidden or clickable
-  without behavior. Do not add noisy per-request or per-token logs.
-- TypeScript remains the only web/API/worker language.
+- The change lives in the layer that owns it, as the documentation authority in
+  [AGENTS.md](AGENTS.md#documentation-authority) and the nearest `AGENTS.md`
+  assign it.
+- Generated output is regenerated from its source, never edited by hand.
+- Public contracts (APIs, wire and stream formats, configuration, defaults)
+  are durable: a change to one is deliberate, documented, and specified.
 
 ### Tests and migrations
 
 - A bug fix has a test that fails without it. Use the layer defined in
-  [docs/development/testing.md](docs/development/testing.md); DB suites never skip silently.
+  [docs/development/testing.md](docs/development/testing.md); DB suites never
+  skip silently.
 - Reject tautologies: name an implementation mutation that leaves the test
   green. Tests assert observable behavior, not mock wiring.
 - Tenant changes include datastore and app-layer negative tests.
-- Generate migrations by default. Manual steps explain themselves in the SQL
-  header. Check forced RLS, backfill `NO FORCE` windows, `SECURITY DEFINER`
-  ownership, and journal ordering. See
-  [apps/api/src/db/AGENTS.md](apps/api/src/db/AGENTS.md).
+- A migration or backfill that departs from the generated default explains
+  itself where it is written.
 
 ### Records and dependencies
 
 - Shipping records and feature finalization follow
   [CONTRIBUTING.md](CONTRIBUTING.md); no follow-up bookkeeping PR.
-- Guidance-only changes do not require changelog or roadmap entries.
+- Guidance-only changes do not require changeset or roadmap entries.
 - Markdown lint, conventional commits, and the PR body contract pass.
 - Before adding a dependency: use the platform, installed code, or a small owned
   implementation. If still needed, verify maintenance, license, weight, and
@@ -113,20 +108,23 @@ path and failure.
 
 Name the defect or violated rule, the input/state that triggers it, and whether
 it blocks. A preference without a failure mode is not a finding. Do not restate
-lint output. Review the layer diff.
+what CI already enforces: lint, formatting, dead code, duplication, workflow
+linting, and action pinning all run as gates. Comment only on changed code, and
+review the layer diff. Before asserting a version, an API behavior, or a
+deprecation, check it against the lockfile or the installed package.
 
 ## Checklist
 
 1. Merge question passes.
-2. Trusted identity, forced datastore isolation, closed failure, negative test.
+2. Trusted identity, datastore isolation, closed failure, negative test.
 3. No secret or host-path disclosure.
 4. Stored history and queued Runs remain durable.
 5. The change should exist and contains no churn.
 6. One concern; every file justified; owning layer used.
-7. API/default/generated-code contracts hold.
-8. Tests fail without the change and are non-tautological.
-9. Migration exceptions and backfill windows are documented.
-10. Changelog, roadmap, OpenSpec, commit, and dependency rules pass.
+7. Every applicable `AGENTS.md` rule and the owning spec hold.
+8. Public, default, and generated-code contracts hold.
+9. Tests fail without the change and are non-tautological.
+10. Changeset, roadmap, OpenSpec, commit, and dependency rules pass.
 11. CI/review evidence is current and every thread is disposed.
 
 Merge additionally requires terminal green CI, completed expected automated

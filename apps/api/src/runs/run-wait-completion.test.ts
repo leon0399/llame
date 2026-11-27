@@ -34,6 +34,8 @@ function job(id: string, state: ChatJob['state']): ChatJob {
     stoppedBy: null,
     runId: 'run-id',
     toolCallId: 'call-id',
+    intent: null,
+    command: null,
     machineName: 'test-machine',
     daemonInstanceId: 'daemon-instance',
     daemonJobId: `daemon-${id}`,

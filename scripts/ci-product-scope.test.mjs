@@ -17,6 +17,7 @@ import { needsProductChecks } from "./ci-product-scope.mjs";
 const documentation = [
   "README.md",
   "CHANGELOG.md",
+  ".changeset/tool-search.md",
   "docs/research/harnesses/example.md",
   "docs/research/evidence/results.json",
   "openspec/specs/tool-calling/spec.md",

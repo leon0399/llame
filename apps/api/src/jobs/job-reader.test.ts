@@ -25,6 +25,36 @@ type OutputChunk = { readonly data: Uint8Array };
 
 type ReadOutput = (request: ReadRequest) => AsyncIterable<OutputChunk>;
 
+function baseJob(): ChatJob {
+  return {
+    id: 'job-id',
+    chatId: CHAT_ID,
+    ownerUserId: USER_ID,
+    kind: 'bash',
+    seq: 1,
+    runId: 'run-id',
+    toolCallId: 'call-1',
+    intent: null,
+    command: null,
+    machineName: 'host-a',
+    daemonInstanceId: 'daemon-id',
+    daemonJobId: 'daemon-job-id',
+    delivery: 'background',
+    startedAt: new Date(),
+    deadlineAt: null,
+    stopRequestedAt: null,
+    stopRequestedBy: null,
+    state: 'running',
+    stoppedBy: null,
+    result: null,
+    artifactId: null,
+    outputs: ['stdout', 'stderr'],
+    artifactReadable: true,
+    settings: { selector: 'gpt-5.5', permissionMode: 'default' },
+    settledAt: null,
+  };
+}
+
 function contextOf(
   readOutput: ReadOutput,
   jobOverrides: Partial<ChatJob> = {},
@@ -60,33 +90,7 @@ function contextOf(
     instanceId: 'daemon-id',
   });
 
-  const job: ChatJob = {
-    id: 'job-id',
-    chatId: CHAT_ID,
-    ownerUserId: USER_ID,
-    kind: 'bash',
-    seq: 1,
-    runId: 'run-id',
-    toolCallId: 'call-1',
-    machineName: 'host-a',
-    daemonInstanceId: 'daemon-id',
-    daemonJobId: 'daemon-job-id',
-    delivery: 'background',
-    startedAt: new Date(),
-    deadlineAt: null,
-    stopRequestedAt: null,
-    stopRequestedBy: null,
-    state: 'running',
-    stoppedBy: null,
-    result: null,
-    artifactId: null,
-    outputs: ['stdout', 'stderr'],
-    artifactReadable: true,
-    settings: { selector: 'gpt-5.5', permissionMode: 'default' },
-    settledAt: null,
-  };
-
-  Object.assign(job, jobOverrides);
+  const job: ChatJob = { ...baseJob(), ...jobOverrides };
 
   vi.spyOn(ChatJobsRepository.prototype, 'findByLocator').mockResolvedValue(
     job,
@@ -159,6 +163,8 @@ describe('readJob record listing', () => {
     expect(contentOf(result)).not.toContain('signal:');
     expect(contentOf(result)).not.toContain('truncated:');
     expect(contentOf(result)).not.toContain('artifact:');
+    expect(contentOf(result)).not.toContain('intent:');
+    expect(contentOf(result)).not.toContain('command:');
   });
 
   it('lists requested stop metadata for a running job', async () => {
@@ -200,6 +206,40 @@ describe('readJob record listing', () => {
     expect(content).toContain('truncated: stdout');
     expect(content).toContain('outcome: unknown (the stop was not proved)');
     expect(content).toContain('artifact:');
+  });
+
+  // The owner names jobs by their intent, so the model must find it here
+  // after compaction drops its own earlier call.
+  it('names the intent and the exact command in the record', async () => {
+    const result = await readJob(
+      contextOf(outputAt(''), {
+        intent: 'Writing to both streams',
+        command: 'echo out\necho err >&2',
+      }),
+      'read',
+      'job://bash-1',
+    );
+
+    const content = contentOf(result);
+
+    expect(content).toContain('intent: Writing to both streams');
+    expect(content).toContain(String.raw`command: "echo out\necho err >&2"`);
+  });
+
+  it('lists each job with its intent, and a job without one bare', async () => {
+    vi.spyOn(ChatJobsRepository.prototype, 'listByChat').mockResolvedValue([
+      { ...baseJob(), seq: 1, intent: '  Waiting  for\n reviews ' },
+      { ...baseJob(), seq: 2, intent: null },
+    ]);
+
+    const lines = contentOf(
+      await readJob(contextOf(outputAt('')), 'read', 'job://'),
+    );
+
+    expect(lines).toMatch(
+      /job:\/\/bash-1 \(running, [^)]+\): Waiting for reviews$/m,
+    );
+    expect(lines).toMatch(/job:\/\/bash-2 \(running, [^)]+\)$/m);
   });
 });
 

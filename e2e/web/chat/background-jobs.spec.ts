@@ -10,6 +10,7 @@ const apiUrl =
 type Job = {
   id: string;
   locator: string;
+  intent: string | null;
   state:
     | "running"
     | "succeeded"
@@ -193,8 +194,10 @@ test("a settled background job starts a host Run and the Jobs panel stops a live
 
     if (await showDetails.isVisible()) await showDetails.click();
 
+    // The panel names a job by its starting intent, else by its locator.
     const jobStop = page.getByRole("button", {
-      name: `Stop ${secondJob?.locator}`,
+      name: `Stop ${secondJob?.intent ?? secondJob?.locator}`,
+      exact: true,
     });
 
     const jobsToggle = page.getByRole("button", { name: /^Jobs/u });

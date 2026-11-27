@@ -1,28 +1,10 @@
 # Contributing to llame
 
-This file owns delivery from issue through merge. The closest `AGENTS.md` owns
-implementation details.
-
-`$name` below names an agent skill vendored in
-[`.agents/skills`](.agents/skills). Each harness directory —
-`.claude/skills`, `.opencode/skills`, `.codex/skills` — symlinks the skills it
-loads, so a clone carries every skill this file asks you to run.
-
-OpenSpec injects per-phase delivery reminders from `openspec/config.yaml`
-(`context`, `rules`, `operations`) into its skills. This file owns the
-human-readable policy and the two ordering preconditions that hold regardless
-of that injection: the proposal branch exists before any change artifact is
-written, and the finalize branch exists before spec synchronization writes
-canonical specs.
-
-Use the canonical OpenSpec skills through the harness skill directories;
-separate OpenSpec command files are not maintained. These skills are
-repository-maintained adaptations of OpenSpec 1.13.1. Keep delivery policy in
-`openspec/config.yaml` and preserve the skills' readiness and authorization
-boundaries. For CLI upgrades, generate upstream workflows in a temporary
-project and compare their contracts; do not overwrite the local adaptations.
-Verify instruction delivery before relying on an upgrade. Missing guidance or
-a successful command does not grant approval.
+This file owns delivery policy from issue through merge. The closest
+`AGENTS.md` owns implementation details. Procedures live in agent skills
+vendored in [`.agents/skills`](.agents/skills) (`$name` below; each harness
+directory symlinks the ones it loads) and in the pages linked from each
+section.
 
 ## Gates
 
@@ -44,356 +26,87 @@ implicit.
 Prefer about 2,000 **authored** added-plus-deleted lines per layer, measured
 against its immediate parent, not `master`. This is a review target, not a
 publication limit. Tests, specs, docs, and mechanical codemods count as
-authored. Reproducible generated output counts
-zero — Drizzle metadata snapshots, generated OpenAPI documents and clients,
-lockfiles, and equivalent outputs — but report its churn separately, and still
-verify regeneration, migration safety, and any hand-authored SQL or security
-step. Use rename detection for pure moves.
+authored. Reproducible generated output (Drizzle snapshots, generated OpenAPI
+documents and clients, lockfiles) counts zero, but report its churn separately
+and still verify regeneration, migration safety, and any hand-authored SQL or
+security step. Use rename detection for pure moves.
 
-The target applies to every PR, including proposal, finalize, and chores that
-skip OpenSpec. Re-estimate at each layer boundary and before publication. Split
-a growing concern when it improves review or creates a safe merge point; no
-exception is required to exceed the target. Never split an atomic safety
-invariant or its required tests to satisfy the number.
+The target applies to every PR, including proposal, finalize, and chores.
+Re-estimate at each layer boundary and before publication. Split a growing
+concern when it improves review or creates a safe merge point. Never split an
+atomic safety invariant or its required tests to satisfy the number.
+
+## Issues
+
+An issue is the whole input for whoever picks it up. Hierarchy, the body's
+sections, handoff labels, and pickup/release markers:
+[docs/development/issues.md](docs/development/issues.md); procedure:
+`$issue-handoff`.
 
 ## Project tracking
 
-The [llame delivery Project](https://github.com/users/leon0399/projects/2) owns
-live delivery status. Derive delivery transitions from the corresponding GitHub
-PR's published draft, review, approval, merge, or closure state. Local commits,
-local reviews, and unpublished branch activity do not change Project status or
-advance its Next action. The agent doing the work updates the issue and relevant
-PR items after each GitHub transition and verifies them before handoff.
-
-| Status            | GitHub evidence                                                                                                                                                                                               |
-| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Backlog           | No published delivery PR, or a published PR explicitly marked deferred/experimental without approved scope.                                                                                                   |
-| Design            | An open draft proposal PR, or a proposal PR with requested substantive changes.                                                                                                                               |
-| Awaiting approval | An open, non-draft proposal PR awaiting approval of its published revision, with no outstanding change request.                                                                                               |
-| Ready             | A merged proposal PR or an approved open non-draft proposal PR, with no outstanding change request and no published implementation PR. Native blockers remain in Next action and must clear before execution. |
-| In progress       | An open draft implementation PR or a published implementation PR with outstanding GitHub change requests. Temporary blockers are named in Next action.                                                        |
-| In review         | The implementation or other deliverable has an open non-draft PR without outstanding change requests, ready for review/merge. Proposal review uses Awaiting approval.                                         |
-| Done              | The item's own delivery PR is merged. A closed, unmerged PR is recorded as cancelled or superseded in Next action; a merged proposal PR does not complete its feature issue.                                  |
-
-Apply the explicit deferred/experimental Backlog exception before the active
-phase rules. Draft state takes precedence over an earlier approval.
-When an implementation PR merges without completing the issue's published
-acceptance, mark that PR Done and keep the issue In progress until a later PR
-transition, even if no implementation PR remains open.
-
-`Priority` and `Order` select work independently of readiness. Keep `Workstream`
-and `Next action` current; name the missing decision, native blocker, or next
-concrete step and link the evidence. Preserve intentional deferrals. A parent
-issue reflects its remaining outcome, not the most advanced child or PR. Each PR
-tracks its own layer. Derive the issue status from the published PRs covering
-its outcome; creating or editing an unpublished layer does not change it.
-
-Before implementation, carry forward approval of the actual revision and recheck
-native blockers; do not request the same approval again. Published substantive proposal revisions return to Design when their PR becomes
-draft or receives a GitHub change request; approval of the revised scope is
-required before implementation. Reconcile legacy proposals by their approved
-contract, rather than reopening approval because a review record is absent.
-Bug fixes and chores that skip OpenSpec follow their published PR state directly.
-
-At each GitHub transition, fetch the PR state and current Project fields/items,
-update Status and Next action with the PR link and any changed native dependencies,
-then read them back. Add
-missing issue/PR items with Status, Priority, Workstream, and Next action. Do not
-change priority or native dependencies merely to make a status fit. If Project access
-fails, report the unsynchronized transition in the handoff; do not claim it was
-updated. Keep live status in the Project rather than duplicating it in task
-files or issue bodies. OpenSpec checkboxes continue to record completed tasks.
-
-## Issues and handoff
-
-An issue is the whole input for whoever picks it up, person or agent. The
-procedure lives in `$issue-handoff`; this section owns the policy.
-
-### Hierarchy
-
-| Level   | What it is                                                                       | Labels                    | Children                   |
-| ------- | -------------------------------------------------------------------------------- | ------------------------- | -------------------------- |
-| Tracker | A capability that spans several features, such as subagents                      | `type:tracking`, `area:*` | feature issues             |
-| Feature | One deliverable. It owns at most one OpenSpec change                             | `type:*`, `area:*`        | cutovers, when it has some |
-| Cutover | One slice that merges alone and leaves `master` working without the later slices | `type:*`, `area:*`        | none                       |
-
-Children are native sub-issues. A feature that ships in one merge has no
-cutovers. A slice that cannot merge alone is a layer, not an issue. The layer
-that completes a cutover puts `Closes #<cutover>` on its PR, and the proposal
-PR says `Refs #<feature>`.
-
-One OpenSpec change covers a feature and all of its cutovers. A cutover gets
-its own proposal only when it touches specs that no sibling touches, or when it
-is deferred past its siblings; it then becomes a feature of its own. When two
-open changes modify the same requirement, the one archived second can drop the
-other's scenarios ([research](docs/research/product-vision/2026-11-20-agentic-sdlc-automation.md),
-F7), so a shared requirement keeps one owning change.
-
-Wayfinding maps and their tickets stay outside this tree; see
-[wayfinding](docs/development/wayfinding.md).
-
-### What the body carries
-
-- **Spec brief**, on a feature that needs an OpenSpec change: outcome, decisions
-  with links to the closed tickets or comments that hold them, ADRs, glossary
-  terms, prior art, constraints against parallel changes, and open questions.
-  The brief gists and links. A canonical spec, an ADR, and a ticket resolution
-  each win over it, in that order.
-- **Spec**, added once a proposal is approved: the change name, the proposal PR,
-  and the cutover that each layer closes.
-- **Acceptance**, on work that skips OpenSpec: a reproducer or a test that fails
-  without the fix, or the check that shows a chore is done.
-
-Decision comments stay as the record. The body is the current brief, not a
-status: live status stays in the Project.
-
-### Handoff
-
-An approved spec does not start work. Project Status Ready means nobody holds
-the item. Handing it off is an explicit action:
-
-- assign a person; or
-- add a trigger label for an agent.
-
-| Label             | Goes on                                                     | Requires                                |
-| ----------------- | ----------------------------------------------------------- | --------------------------------------- |
-| `agent:spec`      | a feature that needs a spec                                 | a complete Spec brief                   |
-| `agent:implement` | a cutover, a feature without cutovers, or work with no spec | an approved Spec section, or Acceptance |
-| `needs:human`     | any issue                                                   | a comment that says what is missing     |
-
-Trigger labels start work. Only a trusted person adds `agent:*`. The automation
-that picks a trigger up removes it when it starts, so applying it again is a
-clean retry. An agent never adds or removes `agent:*`. It stops by adding
-`needs:human` with a comment, for example when a brief is incomplete, a spec
-contradicts itself, or a fix turns out to change a documented contract.
-
-Agents often act under the same GitHub identity as the person who runs them, so
-the platform cannot tell their labels apart. Each setup enforces the rule in its
-own way: a separate bot identity, a guard that blocks label edits from agents,
-or none for a contributor who works alone. Do not claim more protection than the
-setup has.
-
-### Pickup and release
-
-Whoever starts work on an issue, person or agent, marks it in two
-machine-readable ways:
-
-- a `working:spec`, `working:implement`, or `working:triage` label for the
-  stage, and an assignee;
-- one comment that opens with a marker, followed by a plain sentence:
-
-  ```html
-  <!-- llame:pickup {"stage":"implement","by":"agent","harness":"omp","session":"w2P:p2","change":"continue-after-broken-send","started":"2026-11-20T21:40Z"} -->
-  ```
-
-  `stage` matches the label. `by` is `person` or `agent`, and an agent adds its
-  `harness` and `session`. `session` is `issue` when the worker has no session
-  interface and talks through issue comments. `change` names the OpenSpec
-  change when there is one.
-
-While the worker waits on a person, for an answer to a grilling round or a
-missing input, it adds `needs:human` and keeps its `working:*` label. That pair
-means "held, waiting on a person", and it pauses the stale clock. The person
-answers where the comment says, and the worker removes `needs:human` when it
-resumes.
-
-A stage ends when the item waits only on a person and the worker has nothing
-left to do. Then the worker removes the `working:*` label and posts a release
-marker: `<!-- llame:release {"stage":"implement","outcome":"handed-back"} -->`.
-
-| Stage     | Release when                                                                                  | Outcome       |
-| --------- | --------------------------------------------------------------------------------------------- | ------------- |
-| spec      | the proposal PR is ready and its [Ready-PR monitoring](#ready-pr-monitoring) loop exits clean | `handed-back` |
-| implement | every PR of the cutover is ready and its monitoring loop exits clean                          | `handed-back` |
-| triage    | the finding is posted on the issue                                                            | `done`        |
-| any       | the worker ends its run without finishing, leaving `needs:human` and its reason               | `stopped`     |
-| any       | a reconciler or a person finds the claim stale                                                | `stale`       |
-
-Work that resumes after a release, such as fixing review feedback, posts a new
-pickup marker. Moving from one stage to the next, such as spec to implement in
-one session, is a release of the first stage with `handed-back` followed by a
-new pickup for the second. A label and marker name only the stage that is
-running. An implement pickup goes on each issue the run will close: every
-cutover it implements, or the feature when it has no cutovers. A claim is stale when the session it names is gone, or when it
-has no `needs:human` and no marker or PR activity for 24 hours. A reconciler,
-or a person, then removes its `working:*` label and posts the `stale` release.
-
-**The claim is the live `working:*` label with its pickup marker**, on the work
-unit: a cutover resolves to its feature's change, and at most one worker holds
-each dependency chain of that change. Branches and PRs left by a released
-worker, including an approved proposal PR that implementation builds on, are
-not claims. Work that finds a live claim stops. `agent:implement` on a cutover
-whose earlier cutovers are neither done nor handed off stops with
-`needs:human`.
-
-### Talking to the worker
-
-Conversation with an agent happens in its own session: a terminal pane, a cloud
-session, or a llame Chat. The pickup marker's `session` field says where to
-find it, and a `needs:human` comment names the session to answer in. Issue
-comments carry the conversation only for an engine that has no session
-interface.
-
-The issue carries the record. When a grilling round settles, the agent writes
-each decision into the issue body, or into one decision comment, as a gist plus
-its reason, so the next worker starts from the issue without the transcript.
+The [delivery Project](https://github.com/users/leon0399/projects/2) owns live
+status, derived only from published GitHub PR state. Update it, and read it
+back, at every GitHub transition:
+[docs/development/project-tracking.md](docs/development/project-tracking.md).
 
 ## Feature delivery
 
-Run stack operations through `$gh-stack`; it owns command syntax and failure
-recovery. OpenSpec injects the per-phase reminders from `openspec/config.yaml`
-into `$openspec-propose`, `$openspec-apply-change`, `$openspec-sync-specs`, and
-`$openspec-archive-change`. This section owns the policy and phase ordering
-those reminders cannot enforce.
-
-### 1. Issue and evidence
-
-Before editing, read the issue body (its Spec brief, Spec, or Acceptance
-section), dependencies, current code, shipped specs, `SPEC.md`, and relevant
-recent commits. Resolve material product/security ambiguity. Data/auth/tenancy
-work states threats and includes a negative test.
-
-Reference the issue from every stack PR. Put `Closes #N` on the PR whose merge
-satisfies that issue's acceptance criteria, even if later implementation or
-finalize layers remain. Earlier partial layers only reference the issue. Do not
-defer issue closure to a later spec-sync or archive-only finalize layer; that
-layer remains required delivery work after the feature issue closes.
-
-### 2. Proposal layer
-
-Create `<change>/proposal` from current `master` with `$gh-stack` **before**
-`$openspec-propose` writes any file: injected artifact rules arrive too late to
-own that ordering. Run `$openspec-propose`; the proposal branch owns only
-`proposal.md`, `design.md`, delta specs, and `tasks.md`.
+The order the OpenSpec skills cannot enforce on their own:
 
 ```text
 master <- <change>/proposal <- <change>/<implementation> <- <change>/finalize
 ```
 
-Split implementation by dependency and reviewable responsibility. Prefer
-independently mergeable layers and identify intermediate merge boundaries;
-keep inseparable behavior together. Give each layer one sentence of ownership
-and an authored size estimate against the [review target](#review-budget).
-A layer's parent is the layer below it. Once the proposal has merged, a layer
-whose files and spec requirements are disjoint from its siblings may start from
-`master` as a parallel branch, in its own `$gh-stack` stack; `tasks.md` states
-why it is independent. Before the proposal merges, every layer stays in one
-linear stack. Finalize starts from `master` after every parallel leaf has
-merged. Confirm, create, or merge the feature's
-cutover sub-issues when the proposal is written; approving the proposal
-approves that split. `tasks.md` must contain:
+- Create the `<change>/proposal` branch with `$gh-stack` **before**
+  `$openspec-propose` writes any file.
+- Create implementation branches only after the proposal is approved: the
+  proposal is on `master`, or its PR has a GitHub Approval from Leo or his
+  named delegate, or, on a proposal Leo authored, a top-level comment from him
+  naming the approved revision. A local commit is not approval.
+- Create `<change>/finalize` **before** `$openspec-sync-specs` writes canonical
+  specs; finalize owns only spec sync, task records, and archive movement.
+- Put `Closes #N` on the PR whose merge satisfies the issue's acceptance, even
+  when later layers remain.
 
-- the delivery graph: each layer's branch, its parent, and the cutover it
-  closes, if any;
-- safe intermediate merge boundaries and any layers that must merge together;
-- `$gh-stack` and `$openspec-apply-change` requirements;
-- every task assigned to one layer with focused verification;
-- `- [ ]` tracking and the issue-closing owner;
-- a self-review-before-ready checkpoint and a GitHub review/CI gate per layer;
-- final-layer spec-sync and archive-readiness tasks, and the `finalize` entry
-  boundary before `$openspec-sync-specs` writes.
+The full phase sequence, `tasks.md` contents, and proposal review rounds:
+[docs/development/feature-delivery.md](docs/development/feature-delivery.md).
+OpenSpec injects per-phase reminders from `openspec/config.yaml` into its
+skills; keep delivery policy there and here, not in the skills.
 
-For finalize, SR and GR are recorded as post-archive gates, not pre-archive
-checkbox tasks. All tracked tasks must be complete before archive movement.
+## Changesets
 
-Do not create implementation branches before proposal approval.
+Only the compile PR below, or a correction to an entry already compiled, edits
+`CHANGELOG.md`. The PR that ships work, a fix, or a chore writes its entry to `.changeset/<name>.md`, so parallel branches never
+touch the same file:
 
-### 3. Proposal review and approval
+```markdown
+---
+"api": minor
+"web": patch
+---
 
-1. Commit the complete initial proposal.
-2. Run `$iterative-review-refinement` or an equivalent adversarial review with
-   at least two independent reviewers per round.
-3. Verify findings against code, specs, primary docs, or executable checks.
-4. Commit each review/user-feedback round separately; do not erase reasoning
-   history with amend/autosquash.
-5. Surface changed decisions, rejected findings, and uncertainty to Leo.
-6. Obtain Leo's explicit approval of the final revision.
+- The entry, written as a `CHANGELOG.md` entry.
+```
 
-Then prove the proposal layer with the [Verification](#verification) rows for
-OpenSpec proposal, Product Markdown, and Any change; commit only proposal-owned
-files.
+The frontmatter lists each workspace package the entry covers: `major` for a
+breaking change, `minor` for a feature, `patch` for a fix, or nothing for a
+repository-only change. Nothing versions packages yet; the bump is recorded for
+a later release tool. A feature has one changeset named after its OpenSpec
+change (`<change>.md`), amended by later layers; a parallel branch uses
+`<change>.<layer>.md`.
 
-After publication approval, publish the draft stack with `$gh-stack`, inspect
-the generated PR, complete self-review (SR) of its actual diff per
-[PR contract](#pr-contract), fix with new commits, and mark it ready for the
-GitHub review (GR) loop.
-
-Publication approval and proposal approval are distinct. A proposal committed
-to `master` is approved; carry that decision forward. Before it lands on
-`master`, approval is a GitHub Approval from Leo or his named delegate. If Leo
-authored the proposal, a top-level comment identifying the approved revision
-suffices. A local commit on a proposal branch alone is not approval.
-
-### 4. Implementation layers
-
-After proposal approval, create only the next layer with `$gh-stack` from the
-top of its stack: the current stack top, or `master` for a parallel branch
-after the proposal merged.
-
-For each layer:
-
-1. Run `$openspec-apply-change`; implement only this layer's assigned tasks.
-2. Verify each task, then change its checkbox to `- [x]` in the same layer.
-3. Commit only the owned concern and task records.
-4. Publish/refresh the draft with `$gh-stack`; new PRs stay draft until SR
-   completes.
-5. Complete SR, update the PR body, mark ready, run the GR/monitoring loop, then
-   add the next layer.
-
-The PR that ships work updates its affected documentation, adds a dated
-`CHANGELOG.md` entry, and removes completed `ROADMAP.md` items in that same
-layer. Unplanned fixes/chores go directly to the changelog.
-
-Fix a lower-layer defect on its owning branch with `$gh-stack` and replay the
-stack upward; never repair a lower concern in the top PR.
-
-### 5. Finalize
-
-After every implementation layer is published, verified, and checked, enter
-`<change>/finalize` with `$gh-stack` from the implementation top, or from
-`master` once every parallel leaf has merged. Do this
-**before** `$openspec-sync-specs` writes canonical specs: a separate sync
-invocation can run before archive guidance is read. The finalize layer owns
-only spec synchronization, task records, and archive movement — never
-application fixes.
-
-1. Run `$openspec-sync-specs`. Inspect
-   `openspec status --change <change> --json` and `tasks.md`, and complete the
-   layer's spec-sync and archive-readiness tasks. Stop on any incomplete
-   artifact or unchecked task.
-2. Run `$openspec-archive-change` only after readiness is proved. Preserve
-   checked task history; check MODIFIED requirements and cross-capability
-   wording for semantic consistency, not just strict validation.
-3. Prove the layer with the Final OpenSpec, Product Markdown, and Any change rows in
-   [Verification](#verification), then publish the finalize PR as draft with
-   `$gh-stack`. Its SR and GR are post-archive gates: after archive movement,
-   self-review the actual diff, mark ready, and run the
-   [Ready-PR monitoring](#ready-pr-monitoring) loop. Readiness gates movement;
-   movement gates publication, review, and merge — never the reverse.
-4. Merge only under [Merge](#merge).
+`pnpm changelog:compile` moves each changeset into `CHANGELOG.md` under the
+date of its last commit and deletes it; a changeset of an active OpenSpec
+change waits until the change is archived. Run it on its own branch from
+`master` and open the result as a `chore: compile changelog` PR.
 
 ## Verification
 
-CI is the ground for full verification. The table below names the evidence a
-change carries; CI owns the full suites and runs the rows it covers on every
-push. Do not reproduce the full sweeps locally — the whole unit or integration
-project, product E2E, component tests, the aggregate build, mutation testing.
-Run the narrowest command that covers the surface you changed: a focused test
-file, the workspace lint and typecheck, `git diff --check`; add
-`pnpm lint:markdown` and the strict OpenSpec validation for Markdown and spec
-edits. Prove each phase with its rows before publishing: OpenSpec proposal for
-the proposal layer, Final OpenSpec for finalize, plus Product Markdown and Any
-change as they apply.
-
-Those narrow local commands are the pre-publication proof for those rows.
-The required `Lint` job also runs strict OpenSpec validation over all active
-changes and canonical specs, using the version pinned in the root package
-manifest. CI's result on the published head gates a merge for the rows CI covers;
-a local green is not a substitute for that result. Run a broader row locally
-only where CI cannot cover it — an environment it does not provide, or a failure
-it cannot attribute.
-
-Narrow evidence cannot support a broader claim.
+CI runs the full suites on every push, and its result on the published head
+gates a merge. Locally, run the narrowest command that covers what you changed,
+and a broader row only where CI cannot cover it. Narrow evidence cannot support
+a broader claim.
 
 | Surface                | Evidence                                                                                     |
 | ---------------------- | -------------------------------------------------------------------------------------------- |
@@ -411,67 +124,37 @@ Narrow evidence cannot support a broader claim.
 | Final OpenSpec         | `pnpm exec openspec validate --specs --strict`; `pnpm exec openspec validate --all --strict` |
 
 Use `pnpm exec turbo run build --concurrency=1` only when aggregate build
-evidence is necessary. Never run unbounded `pnpm build`. Report environment
+evidence is necessary; never run unbounded `pnpm build`. Report environment
 failures separately from repository defects.
 
 ## PR contract
 
-Confirm every PR's immediate base and ownership; a stack layer does so with
-`$gh-stack`. Feature delivery uses a stack. For a fix or chore, choose one PR
-against `master` or a stack based on reviewability and safe merge boundaries.
-The body contains the one concern, issues served, stack position, and commands
-actually run. Use `Closes #N` only for completed issues. Do not add a `Test plan`
-section or mention agent tooling unless asked.
+`$pull-requests` is the procedure: opening, the body, waiting, review bots, and
+stacks. The policy it implements:
 
-Start the body from
-[`.github/pull_request_template.md`](.github/pull_request_template.md);
-`$open-pull-request` covers writing it, visuals included, and publishing.
-
-Every layer has two separate review checkpoints:
-
-- **Self-review (SR), before draft -> ready.** The author reviews the actual
-  parent-relative diff against [REVIEW_GUIDE.md](REVIEW_GUIDE.md) and the
-  approved scope while the PR is draft. Independent subagents may cover
-  nontrivial or high-risk concerns; they never replace GitHub review. Verify
-  every finding independently, fix accepted ones, rerun affected checks, and
-  re-review before marking ready.
-- **GitHub review (GR), after ready.** The configured/requested GitHub review
-  bots and current-head CI power the external loop; a local reviewer or
-  subagent never substitutes for an expected bot. For every non-draft fix push,
-  self-review the changed diff and rerun affected checks locally before
-  pushing, then restart [Ready-PR monitoring](#ready-pr-monitoring). Never
-  toggle draft state to retrigger reviews.
+- Confirm the PR's immediate base and ownership. Feature delivery uses a stack;
+  a fix or chore is one PR or a stack, whichever reviews better.
+- Start the body from
+  [`.github/pull_request_template.md`](.github/pull_request_template.md): one
+  concern, issues served, stack position, and the commands actually run. No
+  `Test plan` section, and no mention of agent tooling unless asked.
+- **Self-review (SR)** while draft: review the parent-relative diff against
+  [REVIEW_GUIDE.md](REVIEW_GUIDE.md), fix with new commits, and mark ready only
+  once CI on the head is green, or red only on checks that are also red on
+  `master` and named in a PR comment.
+- **GitHub review (GR)** after ready: the expected review bots and current-head
+  CI. A local reviewer never substitutes for an expected bot, and draft state
+  is never toggled to retrigger reviews.
 
 ## Ready-PR monitoring
 
-After every non-draft push:
-
-1. List every configured/requested automated reviewer. If a reviewer is
-   quota-exhausted, record it as skipped and continue; quota exhaustion is
-   nonblocking. Unknown reviewer membership is blocking; ask Leo. Do not
-   manually retrigger reviews with comments or draft/ready toggles; automatic
-   review triggers when needed.
-2. Record head commit and push time; any push restarts the loop.
-3. For at least 15 uninterrupted minutes, poll CI, verdicts, comments, and
-   review threads at least every two minutes. Do not replace polling with one
-   sleep.
-4. Fetch feedback with `$fetch-pr-reviews`; its script pages GraphQL
-   `reviewThreads`, reviews, and comments and strips bot markup.
-5. Process each finding:
-
-   ```text
-   fetch -> analyze -> accept or reject -> fix if accepted -> verify -> reply -> resolve
-   ```
-
-   Reply on the originating surface; only inline threads are resolvable.
-
-6. Re-fetch after processing. A fix push restarts monitoring for every affected
-   non-draft stack PR.
-
-Exit only after the 15-minute floor, terminal passing CI, completion from every
-expected automated reviewer except those recorded as quota-exhausted skips, and
-zero actionable unresolved feedback. A quota-exhausted reviewer recorded as
-skipped does not keep the loop open. Pending or unknown state extends the loop.
+After every non-draft push, watch CI and reviews for at least 15 minutes, and
+give every finding a disposition (accepted and fixed, or rejected with
+evidence) and a reply on the surface that raised it. Any push restarts the
+loop for that PR and every stack PR above it. Exit only after the floor,
+terminal passing CI, a finished review from every expected bot (a
+quota-exhausted bot is recorded as skipped; an unknown one is a question for
+Leo), and no actionable unresolved feedback.
 
 ## Merge
 
