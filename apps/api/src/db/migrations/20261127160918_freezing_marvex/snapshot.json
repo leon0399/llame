@@ -2,19 +2,9 @@
   "type": "diff",
   "version": "9",
   "dialect": "postgres",
-  "id": "8ffb6cc8-c554-4d93-a29b-cd46346eb383",
-  "prevIds": ["521ded8a-c282-4f84-a3d3-fc84557f5a8e"],
+  "id": "891590cb-d80b-4e1e-bcee-2e77934bfef5",
+  "prevIds": ["9b5e279f-33b0-4fe2-8b6c-68c5dc96cfce"],
   "footprints": [
-    {
-      "statementType": "add_column",
-      "statementTarget": ["column", "public", "chat_jobs", "intent"],
-      "writes": [
-        "s|col|public.chat_jobs.intent",
-        "n|col|public.chat_jobs.intent",
-        "e|col|public.chat_jobs.intent"
-      ],
-      "reads": ["n|tbl|public.chat_jobs", "n|sch|public"]
-    },
     {
       "statementType": "add_column",
       "statementTarget": ["column", "public", "chat_jobs", "command"],
@@ -27,22 +17,6 @@
     }
   ],
   "deltas": [
-    {
-      "op": "create",
-      "row": {
-        "schema": "public",
-        "table": "chat_jobs",
-        "name": "intent",
-        "type": "text",
-        "typeSchema": null,
-        "notNull": false,
-        "dimensions": 0,
-        "default": null,
-        "generated": null,
-        "identity": null,
-        "entityType": "columns"
-      }
-    },
     {
       "op": "create",
       "row": {
