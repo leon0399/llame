@@ -149,9 +149,19 @@ export default meta;
 
 type Story = StoryObj<typeof meta>;
 
+/**
+ * The panel fades in from opacity 0, and a visibility check reads opacity, so
+ * each play waits until the fade ends before it reads anything.
+ */
+async function panelShown(panel: HTMLElement) {
+  await waitFor(() => expect(getComputedStyle(panel).opacity).toBe("1"));
+}
+
 /** The latest settlement leads; a row opens on its outcome and record. */
 export const Outcomes: Story = {
   play: async ({ canvas }) => {
+    await panelShown(canvas.getByRole("complementary"));
+
     const rows = canvas.getAllByRole("button", { expanded: false });
 
     await expect(rows[0]).toHaveTextContent("Watching the web dev server");
@@ -184,14 +194,13 @@ export const Outcomes: Story = {
 export const StoppedJobWithoutIntent: Story = {
   args: { jobs: JOBS.slice(2, 3) },
   play: async ({ canvas }) => {
-    const row = canvas.getByRole("button", { name: /job:\/\/bash-3/ });
-
-    await userEvent.click(row);
-
-    // The panel fades in from opacity 0, so visibility is awaited, not read.
-    const outcome = await canvas.findByText("Stopped by you · SIGTERM");
-
-    await waitFor(() => expect(outcome).toBeVisible());
+    await panelShown(canvas.getByRole("complementary"));
+    await userEvent.click(
+      canvas.getByRole("button", { name: /job:\/\/bash-3/ }),
+    );
+    await expect(
+      await canvas.findByText("Stopped by you · SIGTERM"),
+    ).toBeVisible();
     await expect(await canvas.findByText("No output")).toBeVisible();
     await expect(canvas.getByText("Command not recorded")).toBeVisible();
   },
@@ -216,6 +225,7 @@ export const Empty: Story = { args: { jobs: [] } };
 export const LostJobWithoutOutput: Story = {
   args: { jobs: JOBS.slice(4, 5) },
   play: async ({ canvas }) => {
+    await panelShown(canvas.getByRole("complementary"));
     await userEvent.click(
       canvas.getByRole("button", { name: /Building the machine bundle/ }),
     );
