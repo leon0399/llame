@@ -1,0 +1,451 @@
+openspec/changes/unified-walk-policy/tasks.md
+  a1e71e0bb766681a 3-6,25-27,30-32,34-36,40-43,50-55,57,59-64,66,68-71
+openspec/changes/unified-walk-policy/proposal.md
+  a1e71e0bb766681a 3,6-17,22-25,28-30,35-46,49-50,59,61,66,68-76,84-85,89-93,99-100,105-112,114-116,123-136,140-142,145,147-148,152-157
+openspec/changes/unified-walk-policy/design.md
+  a1e71e0bb766681a 5-9,11-24,28-32,36-39,43,45-51,56,66-67,69,71,73-104,108-111,114-117,125
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.6",
+  "base_commit_sha": "91e33e5842a116e7e8136d1d3d80fd0630bc5575",
+  "prompts": {
+    "a1e71e0bb766681a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "66a80c5c-f01f-47ad-bfba-959bcbd895db",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Leonid Meleshin <leon.03.99@gmail.com>",
+      "messages": [
+        {
+          "type": "user",
+          "text": "Pick up and implement the #1895, but do not do it for the TS native file tools, it is actually getting dropped in sibling worktree, only the Rust daemon is affected on the machine/FS-side. Implement all as usually and open PRs for the proposal",
+          "timestamp": "2026-11-27T23:34:01.515Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Skill",
+          "input": {
+            "args": "full",
+            "skill": "ponytail"
+          },
+          "timestamp": "2026-11-27T23:34:07.621Z"
+        },
+        {
+          "type": "user",
+          "text": "Base directory for this skill: /home/leon0399/.claude/skills/ponytail\n\n# Ponytail\n\nFavor the smallest correct solution. Efficient means understanding the problem, preserving correctness, and removing work the requirement does not need.\n\n## Persistence\n\nPonytail stays active across responses until the user says \"stop ponytail\" or \"normal mode\". The default intensity is **full**. /ponytail lite|full|ultra changes the intensity and it persists until changed or the session ends.\n\nIts implementation rules apply to coding tasks; unrelated non-coding requests do\nnot inherit the code-first output format.\n\n## Choose the solution\n\nAfter understanding the relevant flow, stop at the first option that satisfies the requirement:\n\n1. Remove unnecessary work.\n2. Reuse an existing helper, type, or pattern in the codebase.\n3. Use the standard library.\n4. Use a native platform feature.\n5. Use an already-installed dependency.\n6. Use one line when it remains clear.\n7. Write the minimum new code.\n\nFor bug fixes, find the shared root cause and fix it where all affected callers pass through. Keep the diff small only after locating the right boundary.\n\n## Rules\n\n- Do not add speculative abstractions, configuration, boilerplate, or scaffolding for later.\n- Prefer deletion and boring code. Keep the fewest files that solve the requirement.\n- A complex request may receive the minimal working version with the deferred upgrade and its trigger stated briefly. Do not stall when a safe default answers the request.\n- When a simplification accepts a known ceiling, mark it with a ponytail: comment that names the ceiling and upgrade trigger.\n- Keep validation at trust boundaries, error handling that prevents data loss, security controls, accessibility basics, hardware calibration, and anything explicitly requested.\n- Non-trivial logic leaves one runnable check, following the project's testing conventions. Trivial one-liners need no additional test.\n\n## Output\n\nReturn code first, followed by at most three short lines describing what was skipped and when to add it. The compact form is \"[code] -> skipped: [X], add when [Y].\" An explicit request for a report, walkthrough, or per-phase notes overrides this brevity. Do not use brevity to hide a tradeoff or omit a required safety or validation detail.\n\n## Intensity\n\n| Level | Behavior |\n| --- | --- |\n| **lite** | Build the request and mention one lazier alternative. |\n| **full** | Apply the solution ladder and keep the diff and explanation short. |\n| **ultra** | Challenge speculative requirements and prefer deletion before addition. |\n\nIf the user explicitly requests the full version, follow that request without re-arguing for a smaller scope.\n\n\nARGUMENTS: full",
+          "timestamp": "2026-11-27T23:34:07.937Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "pwd; git branch --show-current; git fetch -q origin; git log --oneline -1 origin/master; gh issue view 1895 --comments > /tmp/claude-1000/-home-leon0399--herdr-worktrees-llame-worktree-rapid-harbor-7ea6/66a80c5c-f01f-47ad-bfba-959bcbd895db/scratchpad/issue.md 2>&1; wc -l /tmp/claude-1000/-home-leon0399--herdr-worktrees-llame-worktree-rapid-harbor-7ea6/66a80c5c-f01f-47ad-bfba-959bcbd895db/scratchpad/issue.md"
+          },
+          "timestamp": "2026-11-27T23:34:10.265Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "S=/tmp/claude-1000/-home-leon0399--herdr-worktrees-llame-worktree-rapid-harbor-7ea6/66a80c5c-f01f-47ad-bfba-959bcbd895db/scratchpad; cat $S/issue.md; gh issue view 1895 --json title,body,labels,comments,subIssues > $S/issue.json 2>&1; wc -c $S/issue.json"
+          },
+          "timestamp": "2026-11-27T23:34:20.248Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "S=/tmp/claude-1000/-home-leon0399--herdr-worktrees-llame-worktree-rapid-harbor-7ea6/66a80c5c-f01f-47ad-bfba-959bcbd895db/scratchpad; head -c 600 $S/issue.json; echo; gh pr view 1895 --json title,state,body,headRefName,url > $S/pr.json 2>&1; head -c 3000 $S/pr.json"
+          },
+          "timestamp": "2026-11-27T23:34:24.947Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "S=/tmp/claude-1000/-home-leon0399--herdr-worktrees-llame-worktree-rapid-harbor-7ea6/66a80c5c-f01f-47ad-bfba-959bcbd895db/scratchpad; jq -r '.title,.state,.headRefName,.url' $S/pr.json; jq -r .body $S/pr.json | tail -n +45; gh pr view 1895 --json reviews,comments,mergedAt,baseRefName --jq '{merged:.mergedAt,base:.baseRefName,reviews:[.reviews[]|{a:.author.login,s:.state,b:(.body[0:200])}],comments:[.comments[]|{a:.author.login,b:(.body[0:300])}]}'"
+          },
+          "timestamp": "2026-11-27T23:34:30.831Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "git fetch -q origin unified-walk-policy/proposal; git log --oneline origin/master..origin/unified-walk-policy/proposal; git merge-base --is-ancestor origin/master origin/unified-walk-policy/proposal && echo up-to-date || echo behind-master; git diff --stat origin/master...origin/unified-walk-policy/proposal"
+          },
+          "timestamp": "2026-11-27T23:34:34.323Z"
+        },
+        {
+          "type": "assistant",
+          "text": "#1895 is the open `unified-walk-policy` proposal PR; reading its tasks and design now.",
+          "timestamp": "2026-11-27T23:34:40.740Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "git show origin/unified-walk-policy/proposal:openspec/changes/unified-walk-policy/tasks.md; echo =====; git show origin/unified-walk-policy/proposal:openspec/changes/unified-walk-policy/design.md"
+          },
+          "timestamp": "2026-11-27T23:34:41.542Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "git show origin/unified-walk-policy/proposal:openspec/changes/unified-walk-policy/design.md > /tmp/claude-1000/-home-leon0399--herdr-worktrees-llame-worktree-rapid-harbor-7ea6/66a80c5c-f01f-47ad-bfba-959bcbd895db/scratchpad/design.md; cat /tmp/claude-1000/-home-leon0399--herdr-worktrees-llame-worktree-rapid-harbor-7ea6/66a80c5c-f01f-47ad-bfba-959bcbd895db/scratchpad/design.md; echo == worktrees ==; git worktree list; echo == openspec changes on master ==; ls openspec/changes/"
+          },
+          "timestamp": "2026-11-27T23:34:49.062Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "echo \"-- worktrees --\"; git worktree list; echo \"-- changes --\"; ls openspec/changes/; echo \"-- remote branches recent --\"; git for-each-ref --sort=-committerdate --count=25 --format='%(committerdate:short) %(refname:short)' refs/remotes/origin"
+          },
+          "timestamp": "2026-11-27T23:34:52.725Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "git -C /home/leon0399/.herdr/worktrees/llame/worktree-quiet-field-3355 status --short | head -30; echo; ls packages/; ls packages/native-file-tools/src packages/native-file-tools/src/grep 2>/dev/null | head -60; ls crates"
+          },
+          "timestamp": "2026-11-27T23:34:56.185Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "gh issue list --state open --search \"native-file-tools in:title,body\" --limit 15 --json number,title,updatedAt --jq '.[]|\"\\(.number) \\(.updatedAt[0:10]) \\(.title)\"'; echo; gh pr list --state open --limit 30 --json number,title,headRefName --jq '.[]|\"\\(.number) \\(.headRefName) \\(.title)\"'"
+          },
+          "timestamp": "2026-11-27T23:34:59.974Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "for n in 1961 1627 1893 1894; do echo \"#### $n\"; gh issue view $n --json title,body,state --jq '\"\\(.state) \\(.title)\\n\\(.body)\"' | head -60; done"
+          },
+          "timestamp": "2026-11-27T23:35:04.554Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Scope check: #1961 says the in-process TS IO half (incl. `kb://` and the TS grep walk) gets deleted, so I'm mapping which walk-policy pieces live in the Rust daemon.",
+          "timestamp": "2026-11-27T23:35:17.599Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "wc -l crates/*/src/*.rs | sort -n | tail -25; echo; rg -n '\"\\.git\"|\\.git\\b' crates --type rust | head -30; echo; rg -n 'fn list|listing|read_dir' crates --type rust | head -30"
+          },
+          "timestamp": "2026-11-27T23:35:18.776Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "sed -n 600,837p crates/machine-grep/src/lib.rs; echo ------; sed -n 100,200p crates/machine-files/src/read.rs"
+          },
+          "timestamp": "2026-11-27T23:35:22.694Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "wc -l packages/native-file-tools/src/directory-listing.ts; rg -n 'listDirectory|readDirectory|childLimit|child' packages/native-file-tools/src/directory-listing.ts | head -30; echo; rg -ln 'listDirectory\\b' apps/api/src packages --type ts | grep -v test | head; echo; rg -n 'ListDirectory|list_directory' apps/api/src --type ts | grep -v test | head"
+          },
+          "timestamp": "2026-11-27T23:35:28.801Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "rg -ln conformance apps/machine packages/native-file-tools/src apps/api/src 2>/dev/null | head; echo; ls apps/machine apps/machine/tests 2>/dev/null; echo; rg -l 'fs\\.grep|ListDirectory|list_directory|Machine daemon' openspec/specs | head; echo; ls docs/adr* docs/**/adr* 2>/dev/null | head"
+          },
+          "timestamp": "2026-11-27T23:37:41.776Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "AskUserQuestion",
+          "input": {
+            "questions": [
+              {
+                "header": "Listing",
+                "multiSelect": false,
+                "options": [
+                  {
+                    "description": "Daemon omits ignore-ruled entries; directory-listing.ts (presentation, which #1961 keeps) skips the child read for the five fixed names. Smallest change, no protocol bump.",
+                    "label": "Rust filter + TS check (Recommended)"
+                  },
+                  {
+                    "description": "Daemon marks fixed-set entries in the ListDirectory response; TS reads the flag. Pure daemon-side policy, costs a machine-protocol change.",
+                    "label": "Proto field"
+                  },
+                  {
+                    "description": "Only the grep walk changes now; listings wait for the sibling's rework. #1894 stays open.",
+                    "label": "Drop listing layer"
+                  }
+                ],
+                "question": "#1895 listing layer: the Rust daemon's ListDirectory can omit ignore-ruled entries on its own, but \"fixed-set entries (.git, .jj, node_modules…) render without children\" needs the caller to skip the per-child read. The TS presentation in directory-listing.ts makes that child call. Which way?"
+              },
+              {
+                "header": "#1654/#1655",
+                "multiSelect": false,
+                "options": [
+                  {
+                    "description": "Drop the knowledge layer and the knowledge-tools delta here; #1961 (kb:// via the daemon) inherits the policy and closes both. Comment on the issues.",
+                    "label": "Hand to #1961 (Recommended)"
+                  },
+                  {
+                    "description": "Keep #1655 as this change's issue but leave it open until #1961 lands; no knowledge layer here.",
+                    "label": "Keep a dependency"
+                  }
+                ],
+                "question": "Without the TS Knowledge walk, this change can no longer satisfy #1654 (symlink kills knowledge_search) or #1655 (Knowledge search reads infrastructure trees). Who owns them?"
+              }
+            ]
+          },
+          "timestamp": "2026-11-27T23:37:51.569Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Skill",
+          "input": {
+            "skill": "gh-stack"
+          },
+          "timestamp": "2026-11-27T23:41:00.782Z"
+        },
+        {
+          "type": "user",
+          "text": "Base directory for this skill: /home/leon0399/.claude/skills/gh-stack\n\n# gh-stack\n\n`gh stack` manages a linear chain of branches and pull requests. The trunk is on the left and the\ntop branch is on the right:\n\n```\n(main) <- auth <- api <- frontend\n```\n\nUse this skill when a stack is mentioned, when work has dependent review layers, or when an existing\nstack is being navigated, changed, synchronized, or merged. A single concern normally stays in one\nbranch and PR.\n\n## Invocation boundaries\n\n- Create the stack before writing multi-part code. Foundational work belongs below work that depends\n  on it. Read [references/stack-design.md](references/stack-design.md) when choosing layers.\n- For an existing stack, edit on the branch that owns the change, then rebase branches above it.\n  Inspect `gh stack view --json` and repository history when ownership is unclear.\n- Stacks are strictly linear: one parent and at most one child. Use separate stacks for parallel work.\n- There is no non-interactive reorder or removal. Restructure with `unstack` and `init`; do not use\n  the TUI-only `gh stack modify` from an agent.\n\n## Agent-safe commands\n\n`gh stack` changes behavior under a PTY. Use explicit non-interactive forms:\n\n| Use | Avoid |\n| --- | --- |\n| `gh stack view --json` | bare `gh stack view` |\n| `gh stack submit --auto` | bare `gh stack submit` |\n| `gh stack merge <target> --yes` | `gh pr merge` |\n| `gh stack init <branch>...` | bare `gh stack init` |\n| `gh stack add <branch>` | bare `gh stack add` |\n| `gh stack checkout <target>` | bare `gh stack checkout` |\n| `gh stack up`, `down`, `top`, `bottom` | `gh stack switch` |\n\n`view --short` is safe but human-formatted. `modify` has no non-interactive path.\n\nWith multiple remotes, pass `--remote <name>` to commands that support it or configure\n`remote.pushDefault`; `checkout` and `trunk` rely on that configuration. Check the actual remotes\nbefore changing remote state.\n\nFor first-use setup, read the conditional setup section in\n[references/commands.md](references/commands.md). Do not change repository configuration merely to\ninspect a stack.\n\n## Common loop\n\n```bash\ngh stack init auth\ngit add <auth-files> && git commit -m \"Add auth\"\ngh stack add api\ngit add <api-files> && git commit -m \"Add API\"\ngh stack submit --auto\ngh stack view --json\n```\n\nUse `--open` with `submit` when new PRs should be ready for review. Use `gh stack sync` for the normal\nfetch, reconcile, rebase, push, and PR-state refresh cycle. `--prune` is required for non-interactive\nlocal cleanup of merged branches.\n\n`gh stack merge <target> --yes` merges the target and every unmerged PR below it as one all-or-nothing\nset. A merge queue may override the selected method and land PRs in separate groups. Use\n`gh pr edit` to change titles or bodies generated by `submit --auto`.\n\n## State and recovery\n\n`view --json` writes JSON to stdout and status messages to stderr. Its useful fields are\n`trunk`, `currentBranch`, and `branches[]` (`name`, `head`, `base`, `isCurrent`, `isMerged`,\n`isQueued`, `needsRebase`, and optional PR `number`, `url`, `state`).\n\nRead [references/commands.md](references/commands.md) for command preconditions, side effects,\natomicity, and exit codes. Read [references/troubleshooting.md](references/troubleshooting.md) for\nconflicts, divergence, squash merges, restructuring, shared branches, locks, or interrupted TUI state.\n\n`sync` can exit 0 with `Sync aborted` after detecting local/remote divergence; verify the message or\ninspect JSON before treating it as synchronized. A rebase conflict exits 3; resolve and continue, or\nabort to restore the stack. Push and submit use force-with-lease and are not atomic across branches.\nWhen another tool or worktree drives the branches, read the corresponding `link` guidance in\n`references/troubleshooting.md`.\n",
+          "timestamp": "2026-11-27T23:41:01.048Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "git checkout -q -B unified-walk-policy/proposal origin/unified-walk-policy/proposal && git branch --set-upstream-to=origin/unified-walk-policy/proposal >/dev/null; gh stack view --json 2>&1 | head -30"
+          },
+          "timestamp": "2026-11-27T23:41:04.823Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "git rebase -q origin/master && git log --oneline -6 && gh stack init unified-walk-policy/proposal 2>&1 | tail -3; gh stack view --json 2>/dev/null | jq -c '.branches[]|{name,base,number}'"
+          },
+          "timestamp": "2026-11-27T23:41:07.524Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "ls .changeset 2>/dev/null | head; C=openspec/changes/unified-walk-policy; cat $C/specs/walk-policy/spec.md"
+          },
+          "timestamp": "2026-11-27T23:41:13.160Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "C=openspec/changes/unified-walk-policy; cat $C/specs/grep-tool/spec.md $C/specs/tool-call-permissions/spec.md"
+          },
+          "timestamp": "2026-11-27T23:41:17.452Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Revising the proposal deltas to Rust-only scope; checking the canonical grep and listing requirements they modify.",
+          "timestamp": "2026-11-27T23:41:22.472Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "rg -n '^### Requirement: Walk order and links' -A 30 openspec/specs/grep-tool/spec.md | head -45; echo; C=openspec/changes/unified-walk-policy; cat $C/specs/native-file-tools/spec.md"
+          },
+          "timestamp": "2026-11-27T23:41:23.348Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "rg -n 'ignored\\(|collect_ignores|add_ignore_files|SkipReason::|registered_root|fn search_files|is_ignore_file' crates/machine-grep/src/lib.rs | head -30; rg -n '^\\[dependencies\\]' -A 15 crates/machine-files/Cargo.toml crates/machine-grep/Cargo.toml crates/machine-core/Cargo.toml"
+          },
+          "timestamp": "2026-11-27T23:41:33.679Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "sed -n 175,265p crates/machine-grep/src/lib.rs; sed -n 1,40p crates/machine-files/src/read.rs | rg -n 'use|MAX_DIR|DEFAULT_DIR'"
+          },
+          "timestamp": "2026-11-27T23:41:38.303Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "cat openspec/changes/unified-walk-policy/proposal.md"
+          },
+          "timestamp": "2026-11-27T23:41:45.409Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "cat .changeset/project-instructions-editor.md; rg -n 'Walk|^\\*\\*Listing' docs/product/glossary.md | head; rg -n 'listing|\\.git' docs/product/reference/tools/read.md | head -20; rg -n 'readChildDirs' -A 30 packages/native-file-tools/src/directory-listing.ts | sed -n 1,40p"
+          },
+          "timestamp": "2026-11-27T23:42:00.244Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Writing the revised proposal (Rust-daemon scope, knowledge layer handed to #1961).",
+          "timestamp": "2026-11-27T23:42:03.743Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Write",
+          "input": {
+            "content": "# Design: unified-walk-policy\n\n## Context\n\nHost tools run through the Machine daemon\n([ADR](../../../docs/adr/2026-11-20-host-tools-run-through-the-machine-daemon.md)),\nso every host and Machine `grep` walk and every host and Machine directory\nread is served by the Rust daemon. `crates/machine-grep` walks the tree: it\nprunes exactly `.git` (`src/lib.rs:670`), silently, and applies ignore files\nthrough the `ignore` crate, with repository detection keyed on `.git`\n(`collect_ignores`, `src/lib.rs:738-761`). `crates/machine-files` answers\n`ListDirectory` (`src/read.rs:113`) with every entry of one directory and\napplies no policy. The hub-side presentation\n(`packages/native-file-tools/src/directory-listing.ts`) renders the listing and\nasks the daemon for each child directory, so it reads a capped level below\n`.git`, `.jj`, and `node_modules` on every read.\n\n`kb://` file IO still runs in the API worker through the TypeScript half of\n`@workspace/native-file-tools` and `apps/api/src/knowledge`.\n[#1961](https://github.com/leon0399/llame/issues/1961) moves that IO to the\nMachine daemon and deletes the in-process engine. This change does not touch\nthe in-process engine; `kb://` adopts the policy when #1961 routes it through\nthe daemon. See proposal.md for the measured cost on the owner's colocated jj\nSpace.\n\n## Goals\n\n- One policy module in the daemon that answers \"does enumeration enter this\n  entry\" for its walk and its listing, so #1961 and the planned unified search\n  tool bind to it instead of re-inventing a rule.\n- The policy's ignore behavior stays the daemon walk's, so the move is an\n  extraction with its tests, not a redesign.\n\n## Non-Goals\n\n- No change to the in-process TypeScript file engine, `knowledge_search`, or\n  the `kb://` grep leg. #1961 deletes them.\n- No new configuration surface, no change to link resolution on explicit\n  paths, no Machine protocol change. See proposal.md Non-Goals.\n\n## Decisions\n\n### D1. The policy lives in `crates/machine-grep`\n\nA `walk_policy` module in `crates/machine-grep` owns the fixed set, ignore-file\ncollection, and the ignore decision. The grep walk and `machine-files`'s\n`list_directory` use it; `machine-files` already depends on `machine-grep`.\nAlternative: `machine-core`. Rejected: it would add the `ignore` crate to the\ncrate every daemon service links, for two consumers that already share a\ndependency edge. The `walk-policy` requirements are the contract; #1961 binds\nthe Knowledge walk to the same module.\n\n### D2. The fixed set is five names, silent, matched by leaf name\n\n`.git`, `.jj`, `.hg`, `.svn`, `node_modules`, at any depth, directory or file.\nThe walk's `.git` check widens to a set membership test. The set reports\nnothing, keeping `.git`'s precedent, so `ignored` stays reserved for\nignore-rule exclusions. Alternatives: all dot-directories (sweeps `.obsidian`\nand dot-named note folders); honoring `.gitignore` only (misses\ninfrastructure where no ignore file exists). Both were rejected in grilling.\n\n### D3. Ignore semantics move verbatim\n\nThe three `grep-tool` ignore requirements move to `walk-policy` with their\nscenarios. Repository detection stays keyed on `.git`, and it governs only a\n`.gitignore` above the requested root, as the daemon implements it: both\nignore filenames are read inside the walked tree unconditionally. A\n`.gitignore` inside the walked tree therefore applies with no repository at\nall. A symlink or special file is never a policy source. A deeper layer\noutranks a shallower one. Nothing changes in behavior; only the home moves.\nExtending repository detection to `.jj` is a follow-up if a case appears.\n\n### D4. Listings render by entry class, split across the daemon and the presentation\n\nThe daemon's `list_directory` collects ignore files from the registered root\ndown to the listed directory and omits each entry an ignore rule excludes,\nunless the fixed set names it. The total counts only kept entries, so an\nignore-ruled entry neither renders nor counts. The listed directory itself is\nnever filtered: rules decide entries, never the directory the call names.\n\nThe fixed set renders an entry without children. The daemon cannot tell a\nrequested directory from a child read, because the presentation asks for each\nchild through the same `ListDirectory` call. So the presentation skips the\nchild read for a fixed-set name: the entry renders as `- .git/` with no block,\nand `read repo/.git/` still lists it, because the requested directory is never\nchecked. Alternative: a protocol field marking fixed entries. Rejected: it\ncosts a protocol change to carry a five-name constant. The presentation check\nalso applies to `kb://` listings, which share the presentation; their ignore\nomission arrives with #1961.\n\n### D5. No protocol change, and the daemon updates with the release\n\nThe widened set and the listing filter only narrow results. A lagging daemon\nkeeps entering the extra names and listing ignore-ruled entries until the\noperator updates it, which is harmless. No `PROTOCOL_VERSION` increment.\nContrast `name-selector-units` D7, where a lagging daemon would corrupt written\nlocators. The changeset entry tells operators to update every daemon with the\nrelease.\n\n### D6. The unified search tool is a constraint, not a consumer\n\nThe module ships with exactly what grep and listings need. Its shape, a pure\ndecision over entries plus ignore-file collection, is what makes it reusable.\nNo feature ships for the future tool.\n\n## Risks / Trade-offs\n\n- [`kb://` keeps its old rules until #1961 lands] → A `kb://` grep still\n  prunes only `.git`, and `knowledge_search` still enters infrastructure trees\n  and fails on a link. #1961 owns #1654 and #1655; the proposal records the\n  handoff.\n- [Owners who searched ignored trees lose those passages silently] → Explicit\n  reads still work, and every exclusion is fixed or owner-authored. The\n  changeset entry states the narrowing plainly.\n- [Listing ignore evaluation adds reads per call] → At most two ignore files\n  per ancestor up to the registered root, read once per `ListDirectory` call.\n  The walk already pays this cost per call.\n- [Moving three requirements between capabilities] → One change owns both\n  sides of the move, and the strict validator checks the REMOVED names against\n  the canonical spec.\n\n## Migration Plan\n\nNo durable data, no API surface, no protocol change. Deploy is a normal\nrelease; each Machine daemon narrows its walk and listing when it is updated.\nRollback is reverting the merged layers; no state requires repair.\n",
+            "file_path": "/home/leon0399/.herdr/worktrees/llame/worktree-rapid-harbor-7ea6/openspec/changes/unified-walk-policy/design.md"
+          },
+          "timestamp": "2026-11-27T23:42:22.142Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Write",
+          "input": {
+            "content": "## Why\n\nTree walks share one job and disagree on it. `knowledge_search` descends into\n`.git`, `.jj`, and vendored trees, so one colocated jj Space spends 85% of its\nentry budget on infrastructure before a single record is read\n([#1655](https://github.com/leon0399/llame/issues/1655)). The Machine daemon's\n`grep` walk prunes `.git` but nothing prunes `.jj`, `.hg`, `.svn`, or\n`node_modules`. Directory listings render `.git` and `.jj` with a capped level\nof their children on every read, and they show every ignore-ruled entry. Each\nsurface invents its own rule for the same question: what does a walk skip.\n\nThe fix is one policy, not one patch per surface. Host and Machine file IO\nalready runs in the Rust Machine daemon, and\n[#1961](https://github.com/leon0399/llame/issues/1961) moves `kb://` IO there\ntoo, deleting the in-process TypeScript engine. The policy therefore lives in\nthe daemon, where every surface converges, and it prepares the planned unified\nsearch tool, which must not re-invent this rule.\n\n## What Changes\n\n- **One walk policy, three clauses.** A new `walk-policy` capability defines\n  what the daemon's enumeration skips: a fixed set of infrastructure\n  directories, the ignore files of the walked tree, and explicit-addressing\n  precedence. The fixed set is `.git`, `.jj`, `.hg`, `.svn`, and\n  `node_modules`, skipped by leaf name at any depth. The skip is silent.\n- **Ignore semantics move, unchanged.** The three ignore requirements of\n  `grep-tool` move to `walk-policy` with their scenarios. The semantics stay\n  as the daemon implements them today: `.ignore` applies everywhere,\n  `.gitignore` above the requested root only inside a repository detected by\n  `.git`, a deeper layer outranks a shallower one, and no rule decides the\n  requested root or anything above it.\n- **Explicit addressing always wins.** A `read`, a `grep` scope, or a listing\n  that names one exact path reaches it, even when the policy excludes it. The\n  policy binds enumeration, never the path a caller names.\n- **The daemon `grep` walk skips the fixed set.** `crates/machine-grep` widens\n  its `.git` prune to the five names, through a shared `walk_policy` module.\n  No protocol change and no protocol version increment: the widened set only\n  narrows a walk. An operator updates each daemon with the release.\n- **Directory listings adopt the policy.** The daemon's `ListDirectory` omits\n  ignore-ruled entries. The shared listing presentation renders a fixed-set\n  entry without reading below it. The requested directory is never filtered.\n- **Owner-authored ignore files become the exclusion mechanism.** An owner who\n  writes `.agents/` into a `.ignore` removes those vendored trees from host and\n  Machine grep and listings, without a new configuration surface. The matcher\n  reads ignore text without knowing the git index: a tracked tree stays\n  tracked while walks skip it.\n\nCorpus narrowing: files under the fixed set, and files an ignore rule\nexcludes, stop being searched and listed by the daemon's enumeration. Explicit\nreads keep working, and every exclusion is either fixed or owner-authored.\n\n## Assumptions, confirmed with Leo\n\nFrom the grilling rounds of 2026-11-22, recorded on\n[#1655](https://github.com/leon0399/llame/issues/1655):\n\n- The fixed set is the issue's five names. No `.bzr`, `_darcs`, or other\n  speculative names.\n- Ignore semantics are the existing walk's, replicated verbatim. Repository\n  detection stays keyed on `.git` and governs only a `.gitignore` above the\n  requested root; a `.gitignore` inside the walked tree always applies.\n- The skip is silent. Grep's `ignored` report stays reserved for ignore-rule\n  exclusions; the fixed set reports nothing, as `.git` does today.\n- Listings render fixed-set entries without children; ignore-ruled entries\n  disappear. Walks skip both.\n- The planned unified search tool is a design constraint, not a consumer.\n\nFrom the 2026-11-28 scope revision:\n\n- The policy is implemented only in the Rust Machine daemon. The in-process\n  TypeScript file engine is not changed, because #1961 deletes it.\n- `knowledge_search`, the `kb://` grep leg, and the link failure of\n  [#1654](https://github.com/leon0399/llame/issues/1654) move to #1961, which\n  closes #1654 and #1655 by routing `kb://` through this policy.\n- The fixed-set child skip lives in the listing presentation, which #1961\n  keeps; the ignore omission lives in the daemon. No protocol field.\n\nAssumptions that follow but were not asked:\n\n- The glossary gains the term \"Walk policy\" in the first implementation layer.\n- A listing counts an ignore-ruled entry nowhere: it does not render and does\n  not count in the requested level's entry count. A fixed-set entry counts and\n  renders.\n- The `kb://` listing gains the fixed-set child skip through the shared\n  presentation; its ignore omission waits for #1961.\n\n## Constraints against parallel changes\n\n`name-selector-units` and the Rust Machine daemon rewrite archived before this\nrevision; this change touches none of their requirements. #1961 has no\nOpenSpec change yet. When it proposes one, it binds the Knowledge walk to\n`walk-policy` and owns the `knowledge-tools` corpus requirement, which this\nchange no longer modifies.\n\n## Capabilities\n\n### New Capabilities\n\n- `walk-policy`: one enumeration policy for the Machine daemon, consumed by\n  `grep` walks and directory listings. Fixed infrastructure set, ignore-file\n  semantics moved from `grep-tool`, and explicit-addressing precedence.\n\n### Modified Capabilities\n\n- `grep-tool`: MODIFIED `Walk order and links are defined per scheme`. A host\n  or Machine walk skips the fixed set and applies the walk policy's ignore\n  rules; a Knowledge walk keeps its rules. MODIFIED `Excluded directories are\n  reported` and `A reported directory locator is a valid scope`, so no\n  fixed-set directory is reported. REMOVED `Ignore files from the scope and\n  above it apply`, `A gitignore above the scope applies only in its\n  repository`, and `An ignore rule decides an entry by its own path`, moved to\n  `walk-policy`.\n- `native-file-tools`: MODIFIED `Directory reads return a deterministic\n  bounded listing`. Listings render fixed-set entries without children, omit\n  ignore-ruled entries on the host and a Machine, and never filter the\n  requested directory.\n- `tool-call-permissions`: MODIFIED `Grep evaluates excluded directories\n  against the read group`. The bypass exception covers only ignore-ruled\n  directories; a fixed-set directory is evaluated nowhere and named nowhere.\n\n## Impact\n\n- `crates/machine-grep`: a `walk_policy` module holds the fixed set and the\n  ignore machinery; the walk widens its prune, verified by\n  `apps/machine/tests/search.rs`.\n- `crates/machine-files`: `list_directory` omits ignore-ruled entries through\n  `walk_policy`, verified by `apps/machine/tests/files.rs`.\n- `packages/native-file-tools/src/directory-listing.ts`: the presentation\n  skips the child read for a fixed-set name. No other TypeScript engine code\n  changes.\n- Docs: `docs/product/reference/tools/grep.md` and `read.md`;\n  `docs/product/glossary.md` gains \"Walk policy\"; one\n  `.changeset/unified-walk-policy.md` entry.\n- Serves [#1655](https://github.com/leon0399/llame/issues/1655) without closing\n  it; closes the cutovers [#1893](https://github.com/leon0399/llame/issues/1893)\n  and [#1894](https://github.com/leon0399/llame/issues/1894).\n\n## Non-Goals\n\n- Any change to `knowledge_search`, the `kb://` grep leg, or the in-process\n  TypeScript file engine. #1961 replaces them.\n- The unified search tool itself.\n- Honoring ignore files when an explicit path is resolved. `read`, `edit`, and\n  `write` never consulted them and keep that behavior.\n- Any Machine daemon protocol change.\n- Extending repository detection to `.jj`, and adding further fixed names.\n- An exclusion mechanism beyond ignore files.\n- Changing link handling on any walk or listing.\n\n## Acceptance\n\n- `grep` over a host or Machine directory that holds `.jj`, `.hg`, `.svn`, or\n  `node_modules` returns no passage from them and reports none in `ignored`.\n- A host read of a repository root lists `- .git/` and `- node_modules/` with\n  no children beneath them, and lists no `dist/` that a `.gitignore` excludes.\n- `read /home/u/repo/.git/` still lists that directory, and a grep scope of\n  `/home/u/repo/node_modules/react` still searches it.\n",
+            "file_path": "/home/leon0399/.herdr/worktrees/llame/worktree-rapid-harbor-7ea6/openspec/changes/unified-walk-policy/proposal.md"
+          },
+          "timestamp": "2026-11-27T23:42:50.986Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "C=openspec/changes/unified-walk-policy; git rm -q -r $C/specs/knowledge-tools; rg -n '^### Requirement: (Excluded directories are reported|A reported directory locator)' openspec/specs/grep-tool/spec.md"
+          },
+          "timestamp": "2026-11-27T23:42:51.861Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "python3 - <<'EOF'\np='openspec/changes/unified-walk-policy/specs/grep-tool/spec.md'\ns=open(p).read()\nold=\"\"\"A host, Machine, or Knowledge walk MUST include hidden entries. It MUST NOT\nenter a fixed infrastructure directory, as the walk policy states. It MUST\napply the ignore files that the walk policy defines. This includes a Knowledge\nwalk over its Space. A Knowledge walk MUST keep the Knowledge filesystem rules.\nIt MUST refuse a symbolic link at every component, and the path MUST stay in\nthe resolved Space. A scope that names one exact file MUST search that file, as\nthe walk policy states.\"\"\"\nnew=\"\"\"A host or Machine walk MUST include hidden entries. It MUST NOT enter a fixed\ninfrastructure directory, as the walk policy states. It MUST apply the ignore\nfiles that the walk policy defines. A scope that names one exact file MUST\nsearch that file, as the walk policy states. A Knowledge walk MUST include\nhidden entries and MUST NOT enter a directory named `.git`. It applies no\nignore file. A Knowledge walk MUST keep the Knowledge filesystem rules. It\nrefuses a symbolic link at every component, and the path stays in the resolved\nSpace.\"\"\"\nassert old in s; s=s.replace(old,new)\nold2=\"\"\"#### Scenario: The jj directory is never entered\n\n- **WHEN** a scope is `kb://<space>` and `.jj/repo/hidden.md` contains a match\n- **THEN** no passage names `.jj/repo/hidden.md`\n\n#### Scenario: A Knowledge scope applies the ignore files of its Space\n\n- **WHEN** a scope is `kb://<space>`, the Space holds `.gitignore` naming\n  `drafts/`, and `.jj` is absent from the Space\n- **THEN** the walk examines no file below `drafts`\n\"\"\"\nnew2=\"\"\"#### Scenario: The jj directory is never entered\n\n- **WHEN** a scope is `/home/u/repo/**` and `.jj/repo/hidden.md` contains a match\n- **THEN** no passage names `.jj/repo/hidden.md`\n\n#### Scenario: A vendored dependency tree is never entered\n\n- **WHEN** a scope is `machine://build/srv/app` and `node_modules/x/README.md` contains a match\n- **THEN** no passage names `node_modules/x/README.md`\n- **AND** `ignored` names no locator below `node_modules`\n\"\"\"\nassert old2 in s; s=s.replace(old2,new2)\nopen(p,'w').write(s)\n\np='openspec/changes/unified-walk-policy/specs/walk-policy/spec.md'\ns=open(p).read()\nold=\"\"\"A tree enumeration MUST NOT enter a directory named `.git`, `.jj`, `.hg`,\n`.svn`, or `node_modules`.\"\"\"\nnew=\"\"\"This capability governs every tree enumeration that the Machine daemon\nperforms: a `grep` walk and a directory listing, on the host Machine and on a\nremote Machine. A tree enumeration MUST NOT enter a directory named `.git`,\n`.jj`, `.hg`, `.svn`, or `node_modules`.\"\"\"\nassert old in s; s=s.replace(old,new)\nold=\"\"\"- **WHEN** a walked tree holds a `.jj` directory with Markdown files below it\n- **THEN** the enumeration examines no entry below `.jj`\"\"\"\nassert old in s\nold=\"\"\"- **WHEN** a scope is `kb://<space>/.jj`\"\"\"\nnew=\"\"\"- **WHEN** a scope is `machine://build/srv/app/.jj`\"\"\"\nassert old in s; s=s.replace(old,new)\nopen(p,'w').write(s)\nEOF"
+          },
+          "timestamp": "2026-11-27T23:43:05.448Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "python3 - <<'EOF'\np='openspec/changes/unified-walk-policy/specs/native-file-tools/spec.md'\ns=open(p).read()\nold=\"\"\"MUST NOT count in the requested level's entry count. The listing MUST apply\nthe ignore files of the walked tree, as the walk policy defines them. A `kb://`\nlisting applies the ignore files of its Space the same way.\"\"\"\nnew=\"\"\"MUST NOT count in the requested level's entry count. A host or Machine\nlisting MUST apply the ignore files of the walked tree, as the walk policy\ndefines them. A `kb://` listing MUST render a fixed infrastructure entry with\nno entries below it, and it applies no ignore file.\"\"\"\nassert old in s; s=s.replace(old,new)\nold=\"\"\"#### Scenario: A Space listing omits an ignored tree\n\n- **WHEN** a `kb://` Space root holds `.ignore` naming `.agents/`\n- **THEN** the Space listing holds no `.agents` entry\n- **AND** `read kb://<space>/.git/HEAD` still opens that file\"\"\"\nnew=\"\"\"#### Scenario: A Space listing renders its jj directory without entries\n\n- **WHEN** the model reads a `kb://` Space root that holds `.jj` and `.git`\n- **THEN** the listing renders `- .git/` and `- .jj/` with no entries below them\n- **AND** `read kb://<space>/.git/HEAD` still opens that file\n\n#### Scenario: A Machine listing omits an ignored tree\n\n- **WHEN** a Machine directory holds `.ignore` naming `.agents/`\n- **THEN** the listing of that directory holds no `.agents` entry\n- **AND** a read of `.agents/` itself still lists that directory\"\"\"\nassert old in s; s=s.replace(old,new)\nopen(p,'w').write(s)\nEOF"
+          },
+          "timestamp": "2026-11-27T23:43:11.573Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "git show HEAD:openspec/changes/unified-walk-policy/tasks.md | head -8"
+          },
+          "timestamp": "2026-11-27T23:43:15.629Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Write",
+          "input": {
+            "content": "Track [#1655](https://github.com/leon0399/llame/issues/1655), its cutovers\n[#1893](https://github.com/leon0399/llame/issues/1893) and\n[#1894](https://github.com/leon0399/llame/issues/1894), and their PR layers\nthrough [Project tracking](../../../CONTRIBUTING.md#project-tracking). #1655\nand [#1654](https://github.com/leon0399/llame/issues/1654) close with\n[#1961](https://github.com/leon0399/llame/issues/1961), not here. Carry forward\nthe recorded proposal approval and recheck native blockers before you start.\nKeep live status in the Project.\n\n## Delivery stack\n\nUse `$gh-stack` for every branch operation and `$openspec-apply-change` for\neach implementation layer, after proposal approval only.\n\n```text\nmaster\n  <- unified-walk-policy/proposal\n  <- unified-walk-policy/engine\n  <- unified-walk-policy/listing\n  <- unified-walk-policy/finalize\n```\n\n| Layer                          | Parent     | Ownership                                                                                                                                    | Authored estimate | Closes |\n| ------------------------------ | ---------- | -------------------------------------------------------------------------------------------------------------------------------------------- | ----------------- | ------ |\n| `unified-walk-policy/proposal` | `master`   | The approved proposal, design, deltas, and this task list.                                                                                   | ~900              | none   |\n| `unified-walk-policy/engine`   | `proposal` | The daemon `walk_policy` module, the widened fixed set in the daemon grep walk, the glossary term, the grep reference page, and the changeset. | ~400              | #1893  |\n| `unified-walk-policy/listing`  | `engine`   | The daemon listing omits ignore-ruled entries; the listing presentation skips fixed-set child reads; the read reference page and changeset.   | ~400              | #1894  |\n| `unified-walk-policy/finalize` | `listing`  | Spec sync, task records, and archive movement only.                                                                                          | ~300              | none   |\n\nEvery layer is a safe merge point. No layers must merge together. The stack\nstays linear: the listing layer imports the `walk_policy` module that only the\nengine layer creates.\n\nThe in-process TypeScript file engine, `knowledge_search`, and the `kb://`\ngrep leg are out of scope: #1961 deletes them and binds the Knowledge walk to\nthis policy, which closes #1654 and #1655.\n\n## 0. proposal\n\n- [x] 0.1 Run adversarial review with two independent reviewers per round: spec consistency against `openspec/specs/{grep-tool,native-file-tools,tool-call-permissions}/spec.md`, and feasibility against `crates/machine-grep/src/lib.rs`, `crates/machine-files/src/read.rs`, and `packages/native-file-tools/src/directory-listing.ts`. Verify each finding against code or specs. Commit each round separately.\n  - Evidence: round 1 on head `9da00473`, reviewers `chatgpt-codex-connector` and `pullfrog` (Indent skipped, quota-exhausted; CodeRabbit rate-limited, nonblocking). All six findings verified against code and accepted; fixed in the round-1 commit. Round 2 on `d903e87c` (`pullfrog`): one finding, accepted.\n- [x] 0.2 Revise the scope to the Rust Machine daemon (2026-11-28): drop the TypeScript walk-policy module, the knowledge layer, and the `knowledge-tools` delta; hand #1654 and #1655 to #1961. Prove the revision: `pnpm exec openspec validate unified-walk-policy --strict`, `pnpm lint:markdown`, `pnpm format:check`, and `git diff --check`.\n  - Evidence: Leo directed the daemon-only scope, the presentation-side fixed-set check, and the #1961 handoff in session on 2026-11-28; all four rows pass on the revision commit.\n- [x] 0.3 Self-review the proposal diff before the PR is marked ready. Record the review rounds in the PR body.\n  - Evidence: each finding was independently verified against the code, the canonical specs, and the archive convention before the fix; dispositions recorded in the PR body.\n- [ ] 0.4 Pass the GitHub review and CI gate under Ready-PR monitoring.\n\n## 1. engine\n\n- [ ] 1.1 Create `crates/machine-grep/src/walk_policy.rs` (design D1): the fixed set constant and `is_fixed`, and the ignore machinery moved from `src/lib.rs` (`collect_ignores`, `add_ignore_files`, `ignored`, `is_ignore_file`, the registered-root lookup). Verify `cargo test --locked -p machine-grep`.\n- [ ] 1.2 Widen the walk's `.git` check (`Walker::push_children`) to the fixed set, silent, so no fixed-set entry is opened, reported as `ignored`, or skipped as a link. Verify one test per new name in `apps/machine/tests/search.rs`, a test that a gitignored `node_modules` is not reported, and that an explicit scope inside `node_modules` still searches it.\n- [ ] 1.3 Add the glossary term \"Walk policy\" to `docs/product/glossary.md` with its avoid-list, update `docs/product/reference/tools/grep.md` where it names the `.git` prune, and add `.changeset/unified-walk-policy.md` that states the narrowing and tells operators to update every Machine daemon with the release. Verify `pnpm lint:markdown`.\n- [ ] 1.4 Verify the layer: `pnpm --filter machine test`, `pnpm --filter machine lint`, `pnpm format:check`, `git diff --check`. The PR carries `Closes #1893`.\n- [ ] 1.5 Self-review the parent-relative diff before the PR is marked ready. Fix accepted findings with new commits.\n- [ ] 1.6 Pass the GitHub review and CI gate under Ready-PR monitoring.\n\n## 2. listing\n\n- [ ] 2.1 Make `list_directory` (`crates/machine-files/src/read.rs`) collect ignore files from the registered root down to the listed directory and omit each entry an ignore rule excludes, unless the fixed set names it; the total counts only kept entries, and the listed directory is never filtered (design D4). Verify in `apps/machine/tests/files.rs`: an ignored `dist` is absent and uncounted, a gitignored `node_modules` is listed, an ancestor `.ignore` applies, and listing an ignored directory itself returns its entries.\n- [ ] 2.2 Make `readChildDirs` in `packages/native-file-tools/src/directory-listing.ts` skip the child read for a fixed-set name, so the entry renders with no block. Verify `directory-listing.test.ts`: `.git` and `node_modules` render without children, a requested `.git` directory lists its entries, and the existing determinism tests pass.\n- [ ] 2.3 Update `docs/product/reference/tools/read.md` and the locator pages that describe directory listings, and amend `.changeset/unified-walk-policy.md`. Verify `pnpm lint:markdown`.\n- [ ] 2.4 Verify the layer: `pnpm --filter machine test`, `pnpm --filter machine lint`, `pnpm --filter @workspace/native-file-tools test`, its `lint` and `typecheck`, `pnpm format:check`, `git diff --check`. The PR carries `Closes #1894`.\n- [ ] 2.5 Self-review the parent-relative diff before the PR is marked ready. Fix accepted findings with new commits.\n- [ ] 2.6 Pass the GitHub review and CI gate under Ready-PR monitoring.\n\n## 3. finalize\n\n- [ ] 3.1 Enter `unified-walk-policy/finalize` with `$gh-stack` before any spec synchronization writes.\n- [ ] 3.2 Run `$openspec-sync-specs`. Re-read the shipped `grep-tool` and `native-file-tools` requirements before sync, in case another change archived against them first. Verify `pnpm exec openspec validate --specs --strict` and `pnpm exec openspec validate --all --strict`.\n- [ ] 3.3 Run `$openspec-archive-change` after readiness is proved. Preserve checked task history and check MODIFIED requirement wording for semantic consistency.\n- [ ] 3.4 Publish the finalize PR as draft with `$gh-stack`, self-review its actual diff after archive movement, then mark ready and run the Ready-PR monitoring loop. Post-archive gates, not pre-archive checkboxes.\n",
+            "file_path": "/home/leon0399/.herdr/worktrees/llame/worktree-rapid-harbor-7ea6/openspec/changes/unified-walk-policy/tasks.md"
+          },
+          "timestamp": "2026-11-27T23:43:39.904Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "S=/tmp/claude-1000/-home-leon0399--herdr-worktrees-llame-worktree-rapid-harbor-7ea6/66a80c5c-f01f-47ad-bfba-959bcbd895db/scratchpad; ls node_modules >/dev/null 2>&1 || pnpm install --frozen-lockfile > $S/install.log 2>&1; pnpm exec oxfmt openspec/changes/unified-walk-policy > /dev/null 2>&1; pnpm exec openspec validate unified-walk-policy --strict > $S/v.log 2>&1; echo v=$?; tail -5 $S/v.log; pnpm lint:markdown > $S/md.log 2>&1; echo md=$?; tail -5 $S/md.log; pnpm format:check > $S/fmt.log 2>&1; echo fmt=$?; tail -3 $S/fmt.log; git diff --check; echo diffcheck=$?"
+          },
+          "timestamp": "2026-11-27T23:43:43.606Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Proposal revision written; fixing the local toolchain (node_modules) to run validation.",
+          "timestamp": "2026-11-27T23:43:58.065Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "S=/tmp/claude-1000/-home-leon0399--herdr-worktrees-llame-worktree-rapid-harbor-7ea6/66a80c5c-f01f-47ad-bfba-959bcbd895db/scratchpad; head -12 $S/v.log; ls node_modules 2>&1 | head -3"
+          },
+          "timestamp": "2026-11-27T23:43:59.905Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "P=/home/leon0399/.local/share/pnpm/store/v11/links/@/pnpm/12.9.0/fb52ccd6c0b870238cbdef4df588bb7ca2fe48065bb845499e4b56ae428a8585/node_modules/pnpm/pnpm; file $P | cut -c1-120; $P --version; which -a pnpm; ls /home/leon0399/Projects/llame/node_modules >/dev/null && echo main-has-nm"
+          },
+          "timestamp": "2026-11-27T23:44:03.954Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "S=/tmp/claude-1000/-home-leon0399--herdr-worktrees-llame-worktree-rapid-harbor-7ea6/66a80c5c-f01f-47ad-bfba-959bcbd895db/scratchpad; P=/home/leon0399/.local/share/pnpm/store/v11/links/@/pnpm/12.9.0/fb52ccd6c0b870238cbdef4df588bb7ca2fe48065bb845499e4b56ae428a8585/node_modules/pnpm/pnpm; mkdir -p $S/bin; ln -sf $P $S/bin/pnpm; export PATH=$S/bin:$PATH; CI=1 pnpm install --frozen-lockfile > $S/install.log 2>&1; echo install=$?; tail -3 $S/install.log",
+            "timeout": 600000
+          },
+          "timestamp": "2026-11-27T23:44:08.123Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "S=/tmp/claude-1000/-home-leon0399--herdr-worktrees-llame-worktree-rapid-harbor-7ea6/66a80c5c-f01f-47ad-bfba-959bcbd895db/scratchpad; export PATH=$S/bin:$PATH; pnpm exec oxfmt openspec/changes/unified-walk-policy > /dev/null 2>&1; pnpm exec openspec validate unified-walk-policy --strict > $S/v.log 2>&1; echo v=$?; tail -5 $S/v.log; pnpm lint:markdown > $S/md.log 2>&1; echo md=$?; tail -8 $S/md.log; pnpm format:check > $S/fmt.log 2>&1; echo fmt=$?; tail -3 $S/fmt.log; git diff --check; echo dc=$?",
+            "timeout": 300000
+          },
+          "timestamp": "2026-11-27T23:44:23.769Z"
+        },
+        {
+          "type": "assistant",
+          "text": "Proposal revision passes all four checks. Committing and pushing it.",
+          "timestamp": "2026-11-27T23:44:54.716Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "git add -A openspec/changes/unified-walk-policy && git commit -q -F - <<'EOF'\ndocs(openspec): scope unified-walk-policy to the Rust Machine daemon\n\nThe in-process TypeScript file engine and kb:// IO move to the Machine\ndaemon under #1961, so this change implements the walk policy only in\ncrates/machine-grep and crates/machine-files. The knowledge layer and the\nknowledge-tools delta are dropped; #1654 and #1655 close with #1961. The\nlisting's fixed-set child skip stays in the shared presentation, with no\nprotocol field.\n\nRefs #1655\n\nCo-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>\nClaude-Session: https://claude.ai/code/session_01BuTGrdVBXdGkCBmSpKigqy\nEOF\ngit push -q --force-with-lease --force-if-includes origin unified-walk-policy/proposal 2>&1 | tail -3; git log --oneline -1"
+          },
+          "timestamp": "2026-11-27T23:44:58.018Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "git add -A openspec/changes/unified-walk-policy && git commit -q -F - <<'EOF'\ndocs(openspec): scope unified-walk-policy to the Rust Machine daemon\n\nThe in-process TypeScript file engine and kb:// IO move to the Machine\ndaemon under #1961, so this change implements the walk policy only in\ncrates/machine-grep and crates/machine-files. The knowledge layer and the\nknowledge-tools delta are dropped; #1654 and #1655 close with #1961. The\nlisting's fixed-set child skip stays in the shared presentation, with no\nprotocol field.\n\nRefs #1655\n\nCo-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>\nClaude-Session: https://claude.ai/code/session_01BuTGrdVBXdGkCBmSpKigqy\nEOF\ngit log --oneline -1"
+          },
+          "timestamp": "2026-11-27T23:45:09.835Z"
+        },
+        {
+          "type": "tool_use",
+          "name": "Bash",
+          "input": {
+            "command": "S=/tmp/claude-1000/-home-leon0399--herdr-worktrees-llame-worktree-rapid-harbor-7ea6/66a80c5c-f01f-47ad-bfba-959bcbd895db/scratchpad; export PATH=$S/bin:$PATH; git commit -q -F - > $S/commit.log 2>&1 <<'EOF'\ndocs(openspec): scope unified-walk-policy to the Rust Machine daemon\n\nThe in-process TypeScript file engine and kb:// IO move to the Machine\ndaemon under #1961, so this change implements the walk policy only in\ncrates/machine-grep and crates/machine-files. The knowledge layer and the\nknowledge-tools delta are dropped; #1654 and #1655 close with #1961. The\nlisting's fixed-set child skip stays in the shared presentation, with no\nprotocol field.\n\nRefs #1655\n\nCo-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>\nClaude-Session: https://claude.ai/code/session_01BuTGrdVBXdGkCBmSpKigqy\nEOF\necho rc=$?; grep -E 'summary|🥊|✔' $S/commit.log; git log --oneline -1; git push -q --force-with-lease=unified-walk-policy/proposal:9b49f27721 origin unified-walk-policy/proposal > $S/push.log 2>&1; echo push=$?; tail -3 $S/push.log",
+            "timeout": 300000
+          },
+          "timestamp": "2026-11-27T23:45:19.514Z"
+        }
+      ],
+      "total_additions": 231,
+      "total_deletions": 291,
+      "accepted_lines": 216,
+      "overriden_lines": 0
+    }
+  }
+}
