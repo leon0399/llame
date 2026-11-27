@@ -13,12 +13,16 @@ import { SESSION_DETAILS_COOKIE } from "./details-cookie";
 const COOKIE_MAX_AGE_SECONDS = 60 * 60 * 24 * 365;
 
 /**
- * The sidebar width while the finished-jobs panel is open: the details
- * column's own 16rem plus the panel's 20rem.
+ * While the finished-jobs panel is open, the sidebar is the details column's
+ * own 16rem plus the panel. The panel reads `--finished-jobs-width` for its
+ * own width, so this one value sizes both; a resizable panel only changes it.
  */
-// SAFETY: `--sidebar-width` is a CSS custom property, a valid inline style key
-// that CSSProperties does not model; the vendored provider merges it last.
-const WIDE_STYLE = { "--sidebar-width": "36rem" } as CSSProperties;
+// SAFETY: both keys are CSS custom properties, valid inline style keys that
+// CSSProperties does not model; the vendored provider merges them last.
+const WIDE_STYLE = {
+  "--finished-jobs-width": "20rem",
+  "--sidebar-width": "calc(16rem + var(--finished-jobs-width))",
+} as CSSProperties;
 
 /** The open chat's id, or undefined off a `/chat/:id` route. */
 export function useOpenChatId(): string | undefined {

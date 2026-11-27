@@ -1,9 +1,14 @@
+import type { CSSProperties } from "react";
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { expect, fn, userEvent, within } from "storybook/test";
 
 import type { ChatJobResponse } from "@/lib/api/generated/models";
 
 import { FinishedJobsPanel } from "./finished-jobs-panel";
+
+// SAFETY: `--finished-jobs-width` is a CSS custom property, a valid inline
+// style key that CSSProperties does not model; the app's provider sets it too.
+const PANEL_WIDTH = { "--finished-jobs-width": "20rem" } as CSSProperties;
 
 const settled = (
   overrides: Partial<ChatJobResponse> &
@@ -77,11 +82,12 @@ const meta = {
   title: "Chat/Session details/Finished jobs panel",
   component: FinishedJobsPanel,
   args: { jobs: JOBS, onClose: fn() },
-  // In the app the panel is the outer column of the widened details sidebar;
-  // this frame gives it that column's 20rem and the screen's height.
+  // In the app the panel is the outer column of the widened details sidebar,
+  // whose provider sets its width; this frame sets the same width and gives
+  // it the screen's height.
   decorators: [
     (Story) => (
-      <div className="ml-auto flex h-144 w-80">
+      <div className="ml-auto flex h-144" style={PANEL_WIDTH}>
         <Story />
       </div>
     ),

@@ -201,7 +201,7 @@ function SessionDetailsBody({
 
   return (
     // Both columns keep fixed widths: the details column the sidebar's own
-    // 16rem, the finished-jobs panel the 20rem the provider adds. While the
+    // 16rem, the finished-jobs panel its `--finished-jobs-width`. While the
     // sidebar's width animates, the row is clipped rather than squeezed, so
     // the panel is revealed from the outer edge and no text rewraps.
     <div className="relative flex size-full min-h-0 overflow-hidden">

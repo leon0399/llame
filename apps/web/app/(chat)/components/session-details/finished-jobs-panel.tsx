@@ -75,7 +75,9 @@ function outcomeOf(job: ChatJobResponse): string {
 /** The command as the job ran it, prompt-prefixed as a terminal shows it. */
 function JobCommand({ command }: { command: string | null }) {
   return (
-    <pre className="px-2.5 py-2 font-mono text-xs break-all whitespace-pre-wrap text-foreground">
+    // Unwrapped and scrolled sideways like the output, so a token such as
+    // `main..origin/main` is never broken mid-word.
+    <pre className="overflow-x-auto px-2.5 py-2 font-mono text-xs whitespace-pre text-foreground">
       {command === null ? (
         <span className="text-muted-foreground">Command not recorded</span>
       ) : (
@@ -298,7 +300,7 @@ export function FinishedJobsPanel({
       ref={ref}
       tabIndex={-1}
       aria-labelledby={headingId}
-      className="flex min-w-0 flex-col border-sidebar-border bg-background text-foreground outline-none max-md:absolute max-md:inset-0 max-md:z-10 md:w-80 md:shrink-0 md:border-l motion-safe:animate-in motion-safe:fade-in-0 motion-safe:duration-200"
+      className="flex min-w-0 flex-col border-sidebar-border bg-background text-foreground outline-none max-md:absolute max-md:inset-0 max-md:z-10 md:w-(--finished-jobs-width) md:shrink-0 md:border-l motion-safe:animate-in motion-safe:fade-in-0 motion-safe:duration-200"
     >
       <div className={cn(topBarClasses, "justify-between gap-2 pr-2 pl-4")}>
         <h2 id={headingId} className="flex items-baseline gap-2 text-sm">
