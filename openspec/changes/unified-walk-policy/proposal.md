@@ -32,12 +32,13 @@ Chats, and Knowledge Spaces and must not re-invent this rule.
 - **Explicit addressing always wins.** A `read`, a `grep` scope, or a listing
   that names one exact path reaches it, even when the policy excludes it. The
   policy binds enumeration, never the path a caller names.
-- **`grep` gains one policy on every scheme.** The engine's `.git` prune
+- **`grep` gains one policy on every scheme.** The hub engine's `.git` prune
   widens to the fixed set, and the Knowledge walk leg gains the ignore-file
-  support the host and Machine legs already have. The Machine daemon already
-  runs the same engine with full ignore support; no protocol change and no
-  protocol version increment are needed. A daemon rebuild picks up the wider
-  set.
+  support the host leg already has. The Rust Machine daemon implements its own
+  walk and already honors ignore files, so the engine layer widens the fixed
+  set there too, in `crates/machine-grep`. No protocol change and no protocol
+  version increment: the widened set only narrows a walk. An operator updates
+  each daemon with the release.
 - **`knowledge_search` adopts the policy.** The search walk skips fixed
   infrastructure directories, applies the ignore files of its Space, and skips
   a symbolic link instead of failing the Space. A link produces no warning. An
@@ -74,7 +75,8 @@ From the grilling rounds of 2026-11-22, recorded on
 - Listings render fixed-set entries without children; ignore-ruled entries
   disappear. Walks skip both.
 - One OpenSpec change, layered delivery. The Machine leg needs no protocol
-  work: its daemon runs the hub engine with ignore support today.
+  work: its Rust daemon implements the walk natively, with ignore support
+  today, and mirrors the widened fixed set in the engine layer.
 - A symbolic link found by enumeration is skipped silently, folding #1654 into
   this change as the third policy clause.
 - The planned unified search tool is a design constraint, not a consumer. The
@@ -91,12 +93,15 @@ Assumptions that follow but were not asked:
 
 ## Constraints against parallel changes
 
-`name-selector-units` is active and modifies the same `knowledge-tools`
-requirement this change modifies, for selector spelling. Whichever change
-archives second rewrites the merged requirement text; this change's finalize
-layer reconciles the corpus paragraph with the shipped spelling. In
-`grep-tool`, `native-file-tools`, and `tool-call-permissions`, the two changes
-touch disjoint requirements.
+`name-selector-units` archived on 2026-11-23, before this proposal's rebase.
+It rewrote the `knowledge-tools` corpus requirement in STE with the `L`
+selector spelling. This change's knowledge-tools delta is written against that
+archived revision and carries the spelling through, so the shared requirement
+has no live conflict. The two changes touched disjoint requirements in
+`grep-tool`, `native-file-tools`, and `tool-call-permissions`. The Rust
+Machine daemon rewrite also archived (`2026-11-26-rust-machine-daemon`); this
+change adapts to it, and its delta text does not conflict with the Machine
+walk requirements that rewrite shipped.
 
 ## Capabilities
 
@@ -137,8 +142,8 @@ touch disjoint requirements.
 - `apps/api/src/knowledge/knowledge-filesystem.ts`: `processSearchEntry` skips
   fixed-set names, applies ignore layers, and skips a link instead of
   throwing; bounded ignore-file reads join the search walk.
-- `apps/machine`: no change. The daemon links the same shared package and
-  already evaluates ignore files locally.
+- `crates/machine-grep`: the Rust walk widens its fixed set to match the hub
+  engine, verified by `apps/machine/tests/search.rs`.
 - Docs: `docs/product/reference/tools/knowledge_search.md`, `grep.md`, and
   `read.md`; `docs/product/glossary.md` gains "Walk policy"; dated
   `CHANGELOG.md` entries in the shipping layers.

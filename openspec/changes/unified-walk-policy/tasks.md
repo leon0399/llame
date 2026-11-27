@@ -20,13 +20,13 @@ master
   <- unified-walk-policy/finalize
 ```
 
-| Layer                           | Parent      | Ownership                                                                                                                | Authored estimate | Closes       |
-| ------------------------------- | ----------- | ------------------------------------------------------------------------------------------------------------------------ | ----------------- | ------------ |
-| `unified-walk-policy/proposal`  | `master`    | The approved proposal, design, deltas, and this task list.                                                               | ~1,500            | none         |
-| `unified-walk-policy/engine`    | `proposal`  | The shared walk-policy module, the moved ignore machinery, the widened fixed set on every scheme, and the glossary term. | ~700              | #1893        |
-| `unified-walk-policy/knowledge` | `engine`    | The Knowledge search walk adopts the policy; the grep Knowledge leg gains ignore readers; prompts, docs, changelog.      | ~900              | #1654, #1655 |
-| `unified-walk-policy/listing`   | `knowledge` | The shared directory listing applies the policy per entry class, on host and `kb://` listings; docs and changelog.       | ~700              | #1894        |
-| `unified-walk-policy/finalize`  | `listing`   | Spec sync, task records, and archive movement only.                                                                      | ~300              | none         |
+| Layer                           | Parent      | Ownership                                                                                                                                           | Authored estimate | Closes       |
+| ------------------------------- | ----------- | --------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------- | ------------ |
+| `unified-walk-policy/proposal`  | `master`    | The approved proposal, design, deltas, and this task list.                                                                                          | ~1,500            | none         |
+| `unified-walk-policy/engine`    | `proposal`  | The shared walk-policy module, the moved ignore machinery, the widened fixed set in the hub engine and the Rust daemon walk, and the glossary term. | ~900              | #1893        |
+| `unified-walk-policy/knowledge` | `engine`    | The Knowledge search walk adopts the policy; the grep Knowledge leg gains ignore readers; prompts, docs, changelog.                                 | ~900              | #1654, #1655 |
+| `unified-walk-policy/listing`   | `knowledge` | The shared directory listing applies the policy per entry class, on host and `kb://` listings; docs and changelog.                                  | ~700              | #1894        |
+| `unified-walk-policy/finalize`  | `listing`   | Spec sync, task records, and archive movement only.                                                                                                 | ~300              | none         |
 
 Every layer is a safe merge point. No layers must merge together. After the
 engine layer merges into `master`, the listing layer MAY start from `master`
@@ -56,10 +56,11 @@ cutovers without their own acceptance in those issues.
 
 - [ ] 1.1 Create the shared walk-policy module in `packages/native-file-tools` (design D1): the fixed set constant, the fixed-set skip decision, and the ignore machinery moved from `src/grep/ignore-files.ts`, with the moved unit tests. Verify `pnpm --filter @workspace/native-file-tools test`.
 - [ ] 1.2 Widen the engine's `.git` check in `src/grep/walk.ts:194` to the fixed set, silent, and keep the `reach()` resume semantics for every widened name. Verify a walk test per new name and the existing `.git` scenarios, plus the resume-point test for a counted skipped directory.
-- [ ] 1.3 Add the glossary term "Walk policy" to `docs/product/glossary.md` with its avoid-list, and add the dated `CHANGELOG.md` entry. Verify `pnpm lint:markdown`.
-- [ ] 1.4 Verify the layer: `pnpm --filter @workspace/native-file-tools test`, affected `lint` and `typecheck`, `pnpm format:check`, `git diff --check`. The PR carries `Closes #1893`.
-- [ ] 1.5 Self-review the parent-relative diff before the PR is marked ready. Fix accepted findings with new commits.
-- [ ] 1.6 Pass the GitHub review and CI gate under Ready-PR monitoring.
+- [ ] 1.3 Widen the Rust daemon's fixed-set check in `crates/machine-grep/src/lib.rs` (`:670` today), matching the hub set exactly and keeping its silent resume semantics. Verify a walk test per new name in `apps/machine/tests/search.rs`, and run `pnpm --filter machine lint` (`cargo fmt --all --check`, `cargo clippy --locked --workspace --all-targets`).
+- [ ] 1.4 Add the glossary term "Walk policy" to `docs/product/glossary.md` with its avoid-list, and add the dated `CHANGELOG.md` entry that tells operators to update every Machine daemon with the release. Verify `pnpm lint:markdown`.
+- [ ] 1.5 Verify the layer: `pnpm --filter @workspace/native-file-tools test`, `pnpm --filter machine test` (`cargo test --locked --workspace`), affected `lint` and `typecheck`, `pnpm format:check`, `git diff --check`. The PR carries `Closes #1893`.
+- [ ] 1.6 Self-review the parent-relative diff before the PR is marked ready. Fix accepted findings with new commits.
+- [ ] 1.7 Pass the GitHub review and CI gate under Ready-PR monitoring.
 
 ## 2. knowledge
 
@@ -83,6 +84,6 @@ cutovers without their own acceptance in those issues.
 ## 4. finalize
 
 - [ ] 4.1 Enter `unified-walk-policy/finalize` with `$gh-stack` before any spec synchronization writes.
-- [ ] 4.2 Run `$openspec-sync-specs`. Reconcile the `knowledge-tools` corpus requirement with the shipped `name-selector-units` spelling if that change archived first (proposal, Constraints). Verify `pnpm exec openspec validate --specs --strict` and `pnpm exec openspec validate --all --strict`.
+- [ ] 4.2 Run `$openspec-sync-specs`. The `name-selector-units` change is archived and this delta already carries its `L` selector spelling (reconciled in the 2026-11-27 rebase); re-read the shipped `knowledge-tools` corpus requirement before sync, in case another change archived against it first. Verify `pnpm exec openspec validate --specs --strict` and `pnpm exec openspec validate --all --strict`.
 - [ ] 4.3 Run `$openspec-archive-change` after readiness is proved. Preserve checked task history and check MODIFIED requirement wording for semantic consistency.
 - [ ] 4.4 Publish the finalize PR as draft with `$gh-stack`, self-review its actual diff after archive movement, then mark ready and run the Ready-PR monitoring loop. Post-archive gates, not pre-archive checkboxes.

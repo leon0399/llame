@@ -2,18 +2,21 @@
 
 ## Context
 
-Four surfaces enumerate trees with four different skip rules. The shared grep
-engine (`packages/native-file-tools/src/grep/walk.ts:194`) prunes exactly
-`.git`, on every scheme, silently. Its ignore machinery
+Three surfaces enumerate trees with disagreeing skip rules. The hub's shared
+grep engine (`packages/native-file-tools/src/grep/walk.ts:194`) prunes exactly
+`.git`, on every scheme it walks, silently. Its ignore machinery
 (`src/grep/ignore-files.ts`, consumed through optional `GrepWalkPort` methods)
-runs today only on the host and Machine legs: the Machine daemon wires it in
-`apps/machine/src/grep-port.ts:83-91`, while the Knowledge leg
-(`apps/api/src/tools/grep-ports.ts:42`) supplies no ignore reader. The
-Knowledge search walk (`apps/api/src/knowledge/knowledge-filesystem.ts:319`)
-prunes nothing and throws on the first symbolic link. The shared directory
-listing (`packages/native-file-tools/src/directory-listing.ts`) filters
-nothing and reads a capped level of every child directory. See proposal.md for
-the measured cost on the owner's colocated jj Space.
+runs today only on the host leg: the Knowledge leg
+(`apps/api/src/tools/grep-ports.ts:42`) supplies no ignore reader. The Machine
+leg is served since the Rust daemon rewrite by `crates/machine-grep`, which
+implements its own walk: a `.git` prune (`src/lib.rs:670`) and ignore files
+through the `ignore` crate, with repository detection keyed on `.git`
+(`collect_ignores`, `src/lib.rs:738-761`). The Knowledge search walk
+(`apps/api/src/knowledge/knowledge-filesystem.ts:319`) prunes nothing and
+throws on the first symbolic link. The shared directory listing
+(`packages/native-file-tools/src/directory-listing.ts`) filters nothing and
+reads a capped level of every child directory. See proposal.md for the
+measured cost on the owner's colocated jj Space.
 
 ## Goals
 
@@ -31,14 +34,16 @@ the measured cost on the owner's colocated jj Space.
 
 ## Decisions
 
-### D1. The policy lives in `packages/native-file-tools`, beside its consumers
+### D1. The policy lives in `packages/native-file-tools`, mirrored in the Rust daemon
 
 A `walk-policy` module in the shared package owns the fixed set, the ignore
-evaluation, and the explicit-addressing rule. The grep engine, the shared
-`listDirectory`, and the API's Knowledge walk import it. The daemon imports it
-through the same package link. Alternative: a new package. Rejected: three of
-four consumers already live in this package, and a new package adds a
-workspace for one module.
+evaluation, and the explicit-addressing rule. The hub's grep engine, the
+shared `listDirectory`, and the API's Knowledge walk import it. The Rust
+Machine daemon cannot link that package, so `crates/machine-grep` mirrors the
+same policy natively; the `walk-policy` requirements are the shared contract
+both implementations satisfy. Alternative: a new package. Rejected: two of
+three hub-side consumers already live in this package, and a new package adds
+a workspace for one module.
 
 ### D2. The fixed set is five names, silent, matched by leaf name
 
@@ -91,14 +96,19 @@ space-scoped warning keeps its other conditions. Explicit `kb://` reads keep
 refusing links, as the Knowledge resolution rules require. This closes #1654
 inside the policy change rather than beside it.
 
-### D7. The Machine leg needs no protocol work
+### D7. The Machine leg mirrors the policy in Rust, with no protocol change
 
-The daemon executes `fs.grep` locally and runs the hub engine with full ignore
-support today. The widened fixed set reaches a Machine when its daemon is
-rebuilt, because both processes link the shared package. A lagging daemon keeps
-entering `.jj` until rebuilt; that is a silent narrowing lag, not a wire skew,
-so `PROTOCOL_VERSION` stays. Contrast `name-selector-units` D7, where a lagging
-daemon would corrupt written locators.
+The Rust daemon executes `fs.grep` locally and already implements the `.git`
+prune and ignore files. The engine layer widens the fixed set twice: once in
+the hub engine, once in `crates/machine-grep` (`src/lib.rs:670`), with the
+`apps/machine/tests/search.rs` suite pinning the Rust side. Two
+implementations can drift, so the `walk-policy` requirements are the one
+contract both must satisfy, and each side carries its own regression tests for
+the same scenarios. No `PROTOCOL_VERSION` increment: the widened set only
+narrows a walk, and a lagging daemon keeps entering the extra names until the
+operator updates it, which is harmless. Contrast `name-selector-units` D7,
+where a lagging daemon would corrupt written locators. The changelog entry
+tells operators to update every daemon with the release.
 
 ### D8. The unified search tool is a constraint, not a consumer
 
@@ -108,15 +118,19 @@ what makes it reusable. No feature ships for the future tool.
 
 ## Risks / Trade-offs
 
-- [The corpus narrows silently for owners who searched ignored trees] →
+- [Two implementations of one policy can drift] → The `walk-policy`
+  requirements are the shared contract; each side carries regression tests for
+  the same scenarios, and the finalize layer re-checks both before archive.
+- [Owners who searched ignored trees lose those passages silently] →
   Explicit reads still work, and every exclusion is fixed or owner-authored.
   The changelog entry states the narrowing plainly.
 - [A Space whose records all sit behind one link stops returning passages] →
   Same behavior as the host walk, which also never follows links. A warning
   type is an additive follow-up if the case appears.
-- [Two active changes modify the `knowledge-tools` corpus requirement] →
-  Whichever archives second reconciles the merged text; the finalize layer
-  re-reads the shipped requirement before spec sync.
+- [A shared requirement with an archived sibling] → `name-selector-units`
+  archived on 2026-11-23; this change is rebased onto its revision, and the
+  knowledge-tools delta carries its `L` selector spelling, so the conflict is
+  resolved at proposal time rather than left to the finalize layer.
 - [Moving three requirements between capabilities] → One change owns both
   sides of the move, and the strict validator checks the REMOVED names against
   the canonical spec.
