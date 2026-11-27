@@ -1,11 +1,35 @@
 import assert from "node:assert/strict";
+import { execFileSync, spawnSync } from "node:child_process";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { test } from "node:test";
+import { fileURLToPath } from "node:url";
 
 import {
   insertEntries,
   parseChangeset,
   selectChangesets,
 } from "./compile-changelog.mjs";
+
+// A Git hook exports GIT_INDEX_FILE, GIT_DIR and friends; inheriting them would
+// point the temp-repository commands below at the caller's repository.
+for (const variable of execFileSync("git", ["rev-parse", "--local-env-vars"], {
+  encoding: "utf8",
+})
+  .trim()
+  .split("\n"))
+  delete process.env[variable];
+
+const compiler = fileURLToPath(
+  new URL("compile-changelog.mjs", import.meta.url),
+);
 
 const packages = new Set(["api", "web", "@workspace/ui"]);
 const preamble = "_Reverse-chronological record of shipped work._";
@@ -88,4 +112,76 @@ test("a changeset of an active OpenSpec change is deferred", () => {
     ready.map((changeset) => changeset.name),
     ["tool-search-v2.md", "fix-composer.md"],
   );
+});
+
+function git(directory, ...args) {
+  execFileSync("git", ["-c", "core.hooksPath=/dev/null", ...args], {
+    cwd: directory,
+    env: { ...process.env, GIT_COMMITTER_DATE: "2026-11-24T12:00:00Z" },
+  });
+}
+
+function write(directory, file, text) {
+  mkdirSync(path.dirname(path.join(directory, file)), { recursive: true });
+  writeFileSync(path.join(directory, file), text);
+}
+
+function repository() {
+  const directory = mkdtempSync(path.join(tmpdir(), "compile-changelog-"));
+  git(directory, "init", "-q", "--initial-branch=master");
+  git(directory, "config", "user.name", "Changelog test");
+  git(directory, "config", "user.email", "changelog@example.invalid");
+  git(directory, "config", "core.autocrlf", "false");
+  write(directory, "apps/api/package.json", '{ "name": "api" }\n');
+  write(directory, "openspec/changes/active-change/proposal.md", "# P\n");
+  write(directory, "openspec/changes/archive/shipped/proposal.md", "# P\n");
+  write(directory, "CHANGELOG.md", `${changelog}\n`);
+  write(directory, "packages/ui/package.json", '{ "name": "@workspace/ui" }\n');
+  write(
+    directory,
+    ".changeset/fix.md",
+    '---\napi: patch\n"@workspace/ui": patch\n---\n\n- Fix.\n',
+  );
+  write(
+    directory,
+    ".changeset/active-change.md",
+    "---\napi: minor\n---\n\n- Partial feature.\n",
+  );
+  git(directory, "add", "-A");
+  git(directory, "commit", "-qm", "base");
+  return directory;
+}
+
+test("the command compiles committed changesets and keeps active changes", () => {
+  const directory = repository();
+
+  execFileSync("node", [compiler], { cwd: directory });
+
+  assert.equal(
+    readFileSync(path.join(directory, "CHANGELOG.md"), "utf8"),
+    `${[preamble, "# 2026-11-26", "- Newest shipped.", "# 2026-11-24", "- Fix.", "# 2026-11-20", "- Older shipped."].join("\n\n")}\n`,
+  );
+  assert.equal(existsSync(path.join(directory, ".changeset/fix.md")), false);
+  assert.equal(
+    existsSync(path.join(directory, ".changeset/active-change.md")),
+    true,
+  );
+});
+
+test("the command refuses an uncommitted changeset and changes nothing", () => {
+  const directory = repository();
+  write(directory, ".changeset/new.md", "---\n---\n\n- Not merged.\n");
+
+  const run = spawnSync("node", [compiler], {
+    cwd: directory,
+    encoding: "utf8",
+  });
+
+  assert.notEqual(run.status, 0);
+  assert.match(run.stderr, /\.changeset\/new\.md: commit it before compiling/);
+  assert.equal(
+    readFileSync(path.join(directory, "CHANGELOG.md"), "utf8"),
+    `${changelog}\n`,
+  );
+  assert.equal(existsSync(path.join(directory, ".changeset/fix.md")), true);
 });
