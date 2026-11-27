@@ -27,7 +27,8 @@ depend on it.
 - [SPEC.md](SPEC.md), [`openspec/specs`](openspec/specs): architecture and
   shipped behavior. [`openspec/changes`](openspec/changes) owns proposals and
   archives.
-- [CHANGELOG.md](CHANGELOG.md): shipped chronology.
+- [CHANGELOG.md](CHANGELOG.md): shipped chronology, compiled from
+  `.changeset/` entries ([CONTRIBUTING.md](CONTRIBUTING.md)).
 - [DESIGN.md](DESIGN.md): UI language.
 - [docs/product/glossary.md](docs/product/glossary.md) (also at the root as
   `GLOSSARY.md`): domain terms; OpenSpec owns their behavior.

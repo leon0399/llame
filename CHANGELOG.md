@@ -1,4 +1,4 @@
-_Reverse-chronological record of shipped work — features, fixes, and chores. Newest first._
+_Reverse-chronological record of shipped work — features, fixes, and chores. Newest first. Pull requests add entries under `.changeset/`, and `pnpm changelog:compile` moves them here; see [CONTRIBUTING.md](CONTRIBUTING.md)._
 
 # 2026-11-26
 
