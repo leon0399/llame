@@ -1,7 +1,7 @@
 import type { CSSProperties, ReactNode } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
-import { expect, fn, userEvent, within } from "storybook/test";
+import { expect, fn, userEvent, waitFor, within } from "storybook/test";
 
 import type { ChatJobResponse } from "@/lib/api/generated/models";
 
@@ -187,9 +187,11 @@ export const StoppedJobWithoutIntent: Story = {
     const row = canvas.getByRole("button", { name: /job:\/\/bash-3/ });
 
     await userEvent.click(row);
-    await expect(
-      await canvas.findByText("Stopped by you · SIGTERM"),
-    ).toBeVisible();
+
+    // The panel fades in from opacity 0, so visibility is awaited, not read.
+    const outcome = await canvas.findByText("Stopped by you · SIGTERM");
+
+    await waitFor(() => expect(outcome).toBeVisible());
     await expect(await canvas.findByText("No output")).toBeVisible();
     await expect(canvas.getByText("Command not recorded")).toBeVisible();
   },
