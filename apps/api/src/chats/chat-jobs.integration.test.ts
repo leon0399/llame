@@ -540,67 +540,82 @@ describe('chat jobs API', () => {
     expect((await output(cookieB)).status).toBe(404);
   });
 
-  // A stream over the response bound comes back as its last whole lines, with
-  // the stored size beside it.
-  it('cuts a long stored output to its last whole lines and reports its size', async () => {
-    const chatId = await createChat();
+  // A stream over the response bound comes back as its last whole lines, or,
+  // for one line longer than the bound, as its last whole characters; never
+  // empty. The stored size comes beside it.
+  it.each([
+    {
+      label: 'many short lines',
+      stdout: `first line\n${`${'x'.repeat(99)}\n`.repeat(700)}last line\n`,
+      starts: 'x',
+    },
+    {
+      label: 'one line longer than the bound',
+      stdout: `${'é'.repeat(50_000)}\n`,
+      starts: 'é',
+    },
+  ])(
+    'cuts $label to the bound and reports its size',
+    async ({ stdout, starts }) => {
+      const chatId = await createChat();
 
-    const seq = await reserveArtifactSeq(tenantDb, {
-      chatId,
-      userId: userAId,
-    });
+      const seq = await reserveArtifactSeq(tenantDb, {
+        chatId,
+        userId: userAId,
+      });
 
-    const job = await startJob(chatId, seq);
-    const line = `${'x'.repeat(99)}\n`;
-    const stdout = `first line\n${line.repeat(700)}last line\n`;
+      const job = await startJob(chatId, seq);
 
-    await settleBashJob(
-      tenantDb,
-      job,
-      {
-        output: {
-          stdout,
-          stderr: '',
-          truncated: false,
-          truncatedStreams: { stdout: false, stderr: false },
+      await settleBashJob(
+        tenantDb,
+        job,
+        {
+          output: {
+            stdout,
+            stderr: '',
+            truncated: false,
+            truncatedStreams: { stdout: false, stderr: false },
+          },
+          settlement: { state: 'succeeded', result: { exitCode: 0 } },
         },
-        settlement: { state: 'succeeded', result: { exitCode: 0 } },
-      },
-      {
-        maxBytes: 131_072,
-        hostFiles: false,
-        backgrounded: false,
-        noticeRuns: { startOnSettlement: () => Promise.resolve() },
-        wake: { wakeForChatInTransaction: () => Promise.resolve(false) },
-      },
-    );
+        {
+          maxBytes: 131_072,
+          hostFiles: false,
+          backgrounded: false,
+          noticeRuns: { startOnSettlement: () => Promise.resolve() },
+          wake: { wakeForChatInTransaction: () => Promise.resolve(false) },
+        },
+      );
 
-    const res = await request(http)
-      .get(`/api/v1/chats/${chatId}/jobs/${job.id}/output`)
-      .set('Cookie', cookieA);
+      const res = await request(http)
+        .get(`/api/v1/chats/${chatId}/jobs/${job.id}/output`)
+        .set('Cookie', cookieA);
 
-    const part = z
-      .object({
-        outputs: z.array(
-          z.object({
-            name: z.string(),
-            content: z.string(),
-            cut: z.boolean(),
-            size: z.number(),
-          }),
-        ),
-      })
-      .parse(res.body).outputs[0];
+      const part = z
+        .object({
+          outputs: z.array(
+            z.object({
+              name: z.string(),
+              content: z.string(),
+              cut: z.boolean(),
+              size: z.number(),
+            }),
+          ),
+        })
+        .parse(res.body).outputs[0];
 
-    expect(part).toMatchObject({
-      name: 'stdout',
-      cut: true,
-      size: stdout.length,
-    });
-    expect(part?.content.length).toBeLessThanOrEqual(64 * 1024);
-    expect(part?.content.startsWith('x')).toBe(true);
-    expect(part?.content.endsWith('last line\n')).toBe(true);
-  });
+      expect(part).toMatchObject({
+        name: 'stdout',
+        cut: true,
+        size: Buffer.byteLength(stdout),
+      });
+      expect(Buffer.byteLength(part?.content ?? '')).toBeLessThanOrEqual(
+        64 * 1024,
+      );
+      expect(part?.content.startsWith(starts)).toBe(true);
+      expect(part?.content.endsWith(stdout.slice(-10))).toBe(true);
+    },
+  );
 
   it('rolls back job settlement when the output artifact cannot be written', async () => {
     const chatId = await createChat();

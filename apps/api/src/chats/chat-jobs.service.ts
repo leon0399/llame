@@ -36,19 +36,29 @@ export type ChatJobOutput =
     }
   | { readonly status: 'unavailable' };
 
-/** The last bound of an output, starting on a whole line when it is cut. */
-function outputTail(content: Buffer): Omit<ChatJobOutputPart, 'name'> {
-  const size = content.length;
-
+/**
+ * The last bound of an output from its stored window (the bound plus one
+ * byte). A cut window starts on a whole line when one starts inside it, and
+ * otherwise on a whole UTF-8 character, so a long single line is never lost.
+ */
+function outputTail(
+  size: number,
+  window: Buffer,
+): Omit<ChatJobOutputPart, 'name'> {
   if (size <= JOB_OUTPUT_RESPONSE_BYTES) {
-    return { content: content.toString('utf8'), cut: false, size };
+    return { content: window.toString('utf8'), cut: false, size };
   }
 
-  const tail = content.subarray(size - JOB_OUTPUT_RESPONSE_BYTES);
-  const lineStart = tail.indexOf(0x0a);
+  // The first byte precedes the bound; a line starts after each newline.
+  const lineBreak = window.subarray(0, -1).indexOf(0x0a);
+  let start = lineBreak === -1 ? 1 : lineBreak + 1;
+
+  if (lineBreak === -1) {
+    while (((window.at(start) ?? 0) & 0xc0) === 0x80) start += 1;
+  }
 
   return {
-    content: tail.subarray(lineStart + 1).toString('utf8'),
+    content: window.subarray(start).toString('utf8'),
     cut: true,
     size,
   };
@@ -102,10 +112,14 @@ export class ChatJobsService {
       const outputs: Array<ChatJobOutputPart> = [];
 
       for (const name of job.outputs) {
-        const part = await artifacts.readPart(chatId, job.kind, job.seq, name);
+        const part = await artifacts.readPartWindow(
+          chatId,
+          { toolName: job.kind, seq: job.seq, part: name },
+          JOB_OUTPUT_RESPONSE_BYTES,
+        );
 
         if (part !== undefined)
-          outputs.push({ name, ...outputTail(part.content) });
+          outputs.push({ name, ...outputTail(part.size, part.window) });
       }
 
       return { status: 'stored' as const, outputs };
