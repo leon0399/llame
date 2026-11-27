@@ -18,6 +18,9 @@ import { createAuthenticatedBrowserFetch } from "../../api/fetch";
 export const chatJobsQueryKeys = {
   all: ["chat-jobs"] as const,
   chat: (chatId: string) => [...chatJobsQueryKeys.all, chatId] as const,
+  // Outside `chat`, so a job-list refresh never refetches settled output.
+  output: (chatId: string, jobId: string) =>
+    ["chat-job-output", chatId, jobId] as const,
 };
 
 const JOBS_POLL_MS = 4000;
@@ -61,11 +64,11 @@ export function useChatJobOutput(
   enabled: boolean,
 ) {
   return useQuery({
-    queryKey: ["chat-job-output", chatId, jobId] as const,
-    queryFn: ({ signal }) =>
+    queryKey: chatJobsQueryKeys.output(chatId, jobId),
+    queryFn: ({ queryKey: [, keyChatId, keyJobId], signal }) =>
       readChatJobOutput(
-        chatId,
-        jobId,
+        keyChatId,
+        keyJobId,
         { signal },
         createAuthenticatedBrowserFetch(globalThis.fetch),
       ),

@@ -1,6 +1,12 @@
 "use client";
 
-import { useRef, type ReactNode, type Ref } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  type ReactNode,
+  type Ref,
+} from "react";
 import {
   ChevronRightIcon,
   CircleDashedIcon,
@@ -48,13 +54,19 @@ function jobsSummary(running: number, finished: number): string {
 
 /**
  * Whether the finished-jobs panel is open. It belongs to the Chat it was
- * opened on, so another Chat starts with it shut, and it is shut while the
- * session details are. Closing it returns focus to its control. The state
- * lives in the details provider, which widens the sidebar while it is open.
+ * opened on, so another Chat starts with it shut. It shuts whenever the
+ * session details close, by the desktop sidebar or the mobile sheet, and
+ * whenever its Finished row leaves the section, so closing it can always
+ * return focus to that row. The state lives in the details provider, which
+ * widens the sidebar while it is open.
  */
 function useFinishedPanel(chatId: string, enabled: boolean) {
   const { openFor, setOpenFor } = useFinishedJobsPanelState();
   const triggerRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    if (!enabled) setOpenFor(null);
+  }, [enabled, setOpenFor]);
 
   const close = () => {
     setOpenFor(null);
@@ -65,6 +77,7 @@ function useFinishedPanel(chatId: string, enabled: boolean) {
     open: enabled && openFor === chatId,
     triggerRef,
     close,
+    retire: useCallback(() => setOpenFor(null), [setOpenFor]),
     setOpen: (open: boolean) => (open ? setOpenFor(chatId) : close()),
   };
 }
@@ -97,6 +110,7 @@ export function useJobsSection(
           finishedOpen={finishedPanel.open}
           finishedTriggerRef={finishedPanel.triggerRef}
           onFinishedOpenChange={finishedPanel.setOpen}
+          onFinishedRetire={finishedPanel.retire}
         />
       ),
     },
@@ -117,6 +131,8 @@ interface JobsSectionViewProps {
   finishedOpen?: boolean;
   finishedTriggerRef?: Ref<HTMLButtonElement>;
   onFinishedOpenChange: (open: boolean) => void;
+  /** Called when the Finished row leaves the section. */
+  onFinishedRetire?: () => void;
 }
 
 /**
@@ -131,9 +147,7 @@ export function JobsSectionView({
   stoppingIds = [],
   stopping = false,
   onStop,
-  finishedOpen = false,
-  finishedTriggerRef,
-  onFinishedOpenChange,
+  ...finished
 }: JobsSectionViewProps) {
   if (loading) return <JobsLoading />;
 
@@ -157,9 +171,10 @@ export function JobsSectionView({
         {finishedCount === 0 ? null : (
           <FinishedToggle
             count={finishedCount}
-            open={finishedOpen}
-            triggerRef={finishedTriggerRef}
-            onOpenChange={onFinishedOpenChange}
+            open={finished.finishedOpen ?? false}
+            triggerRef={finished.finishedTriggerRef}
+            onOpenChange={finished.onFinishedOpenChange}
+            onRetire={finished.onFinishedRetire}
           />
         )}
       </SidebarMenu>
@@ -236,12 +251,17 @@ function FinishedToggle({
   open,
   triggerRef,
   onOpenChange,
+  onRetire,
 }: {
   count: number;
   open: boolean;
   triggerRef?: Ref<HTMLButtonElement>;
   onOpenChange: (open: boolean) => void;
+  /** Shuts the panel when this row leaves, folded away or with no jobs. */
+  onRetire?: () => void;
 }) {
+  useEffect(() => onRetire, [onRetire]);
+
   return (
     <SidebarMenuItem>
       <SidebarMenuButton

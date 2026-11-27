@@ -75,11 +75,6 @@ export function SessionDetailsProvider({
 
   const setOpen = useCallback((next: boolean) => {
     setOpenState(next);
-
-    // Reopening the details starts with the panel shut, so focus stays on
-    // the control the owner pressed.
-    if (!next) setOpenFor(null);
-
     document.cookie = `${SESSION_DETAILS_COOKIE}=${String(next)}; path=/; max-age=${String(COOKIE_MAX_AGE_SECONDS)}`;
   }, []);
 

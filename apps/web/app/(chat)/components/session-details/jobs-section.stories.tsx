@@ -63,8 +63,13 @@ export default meta;
 
 type Story = StoryObj<typeof meta>;
 
-/** Stop all submits both live job ids without exposing Run controls. */
+/**
+ * Use when two or more jobs run: Stop all submits every live job id and exposes no Run control.
+ *
+ * @summary Stop all stops every live job
+ */
 export const StopAllWithoutLiveRun: Story = {
+  tags: ["ai-generated"],
   args: {
     jobs: [
       job({
@@ -87,10 +92,12 @@ export const StopAllWithoutLiveRun: Story = {
 };
 
 /**
- * A running job goes by the intent of the call that started it, and by its
- * locator when that call carried none. Its stop control carries that name.
+ * The default Jobs section: a running job goes by the intent of its call, and by its locator when the call carried none. Its stop control carries that name.
+ *
+ * @summary running jobs named by intent
  */
-export const RunningJobsByIntent: Story = {
+export const Basic: Story = {
+  tags: ["ai-generated"],
   args: {
     jobs: [
       job({
@@ -121,8 +128,13 @@ export const RunningJobsByIntent: Story = {
   },
 };
 
-/** Settled jobs stay out of the section; one control opens their panel. */
+/**
+ * Settled jobs stay out of the section; one Finished row with their count opens their panel.
+ *
+ * @summary settled jobs behind the Finished row
+ */
 export const FinishedJobsBehindTheirControl: Story = {
+  tags: ["ai-generated"],
   args: {
     jobs: [
       job({
@@ -155,8 +167,13 @@ export const FinishedJobsBehindTheirControl: Story = {
   },
 };
 
-/** With nothing running, the section says so above the Finished control. */
+/**
+ * With nothing running, a muted row says so above the Finished row.
+ *
+ * @summary nothing running, finished jobs present
+ */
 export const OnlyFinishedJobs: Story = {
+  tags: ["ai-generated"],
   args: {
     jobs: [
       job({
@@ -176,8 +193,13 @@ export const OnlyFinishedJobs: Story = {
   },
 };
 
-/** A requested stop shows on the row and disables its control. */
+/**
+ * A requested stop shows on the row and disables its control until the job settles.
+ *
+ * @summary a stop request in progress
+ */
 export const StopRequested: Story = {
+  tags: ["ai-generated"],
   args: {
     jobs: [
       job({
@@ -198,15 +220,40 @@ export const StopRequested: Story = {
   },
 };
 
-export const NoJobs: Story = {};
+/**
+ * A Chat that has not started a job yet.
+ *
+ * @summary no jobs yet
+ */
+export const NoJobs: Story = { tags: ["ai-generated"] };
 
-export const Loading: Story = { args: { loading: true } };
+/**
+ * While the job list loads.
+ *
+ * @summary job list loading
+ */
+export const Loading: Story = {
+  tags: ["ai-generated"],
+  args: { loading: true },
+};
 
+/**
+ * When the job list cannot be read.
+ *
+ * @summary job list read failure
+ */
 export const ReadFailed: Story = {
+  tags: ["ai-generated"],
   args: { error: "The request failed (503)." },
 };
 
+/**
+ * When a stop request fails, the section names the failure above the jobs.
+ *
+ * @summary stop request failure
+ */
 export const StopFailed: Story = {
+  tags: ["ai-generated"],
   args: {
     jobs: [job({ id: "job-1", locator: "job://bash-1", state: "running" })],
     stopError: "The request failed (409).",

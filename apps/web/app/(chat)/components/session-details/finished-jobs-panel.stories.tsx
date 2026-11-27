@@ -4,6 +4,7 @@ import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { expect, fn, userEvent, waitFor, within } from "storybook/test";
 
 import type { ChatJobResponse } from "@/lib/api/generated/models";
+import { chatJobsQueryKeys } from "@/lib/services/jobs/queries";
 
 import { FinishedJobsPanel } from "./finished-jobs-panel";
 
@@ -121,7 +122,7 @@ function SeededOutputs({ children }: { children: ReactNode }) {
   });
 
   for (const [jobId, output] of Object.entries(OUTPUTS)) {
-    client.setQueryData(["chat-job-output", "chat-1", jobId], output);
+    client.setQueryData(chatJobsQueryKeys.output("chat-1", jobId), output);
   }
 
   return <QueryClientProvider client={client}>{children}</QueryClientProvider>;
@@ -157,8 +158,13 @@ async function panelShown(panel: HTMLElement) {
   await waitFor(() => expect(getComputedStyle(panel).opacity).toBe("1"));
 }
 
-/** The latest settlement leads; a row opens on its outcome and record. */
-export const Outcomes: Story = {
+/**
+ * The default panel: the latest settlement leads, and an open row shows its command, its output with cut captions, and its outcome.
+ *
+ * @summary finished jobs with command and output
+ */
+export const Basic: Story = {
+  tags: ["ai-generated"],
   play: async ({ canvas }) => {
     await panelShown(canvas.getByRole("complementary"));
 
@@ -190,8 +196,13 @@ export const Outcomes: Story = {
   },
 };
 
-/** A job whose call carried no intent goes by its locator. */
+/**
+ * A job whose call carried no intent goes by its locator; an empty output reads as No output.
+ *
+ * @summary a stopped job without an intent
+ */
 export const StoppedJobWithoutIntent: Story = {
+  tags: ["ai-generated"],
   args: { jobs: JOBS.slice(2, 3) },
   play: async ({ canvas }) => {
     await panelShown(canvas.getByRole("complementary"));
@@ -206,8 +217,13 @@ export const StoppedJobWithoutIntent: Story = {
   },
 };
 
-/** Escape and the close control both close the panel. */
+/**
+ * Escape and the close control both close the panel.
+ *
+ * @summary closing the panel
+ */
 export const Closes: Story = {
+  tags: ["ai-generated"],
   play: async ({ args, canvas }) => {
     await expect(canvas.getByRole("complementary")).toHaveFocus();
     await userEvent.keyboard("{Escape}");
@@ -219,10 +235,20 @@ export const Closes: Story = {
   },
 };
 
-export const Empty: Story = { args: { jobs: [] } };
+/**
+ * A Chat with no finished jobs.
+ *
+ * @summary no finished jobs
+ */
+export const Empty: Story = { tags: ["ai-generated"], args: { jobs: [] } };
 
-/** A lost job stored no output, and the open row says so. */
+/**
+ * A lost job stored no output, and its open row says so.
+ *
+ * @summary a lost job without stored output
+ */
 export const LostJobWithoutOutput: Story = {
+  tags: ["ai-generated"],
   args: { jobs: JOBS.slice(4, 5) },
   play: async ({ canvas }) => {
     await panelShown(canvas.getByRole("complementary"));
