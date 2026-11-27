@@ -30,7 +30,7 @@ const INSTRUCTIONS_MAX = 16_000;
 const COUNT_SHOWN_FROM = 14_000;
 
 const EDITOR_DESCRIPTION =
-  "The assistant follows these in new chats in this project, and they are sent to your model provider. Chats already running keep the instructions they started with.";
+  "Every chat in this project follows these from its next reply, and they are sent to your model provider. A reply already in progress keeps the instructions it started with.";
 
 const ARCHIVED_DESCRIPTION =
   "This project is archived, so its instructions are read-only until it is unarchived.";
