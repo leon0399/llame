@@ -51,16 +51,31 @@ for git creation. The API derives `copy_source` from `inspection.toplevel` of
 the selected Checkout, never from an unvalidated model field. Preserve it in
 both plans until dispatch.
 
-When inspection discovers a Checkout root different from the admitted submitted
-source, admit that root through the existing Workspace-entry admission helper.
-Use a named derived decision with the selected root as its locator. Do this
-before manifest access or Worktree creation. Main-Checkout admission remains
-separate. This prevents an allowed subdirectory from exposing a rejected root.
+Proto3 has no required fields. An empty `copy_source` is `INVALID_INPUT`, never
+a default to `repository`. It joins the leading-`-` check in `option_like`.
 
-The daemon resolves `copy_source` through its root guard and confirms that it
-belongs to the same git repository as `repository`. It treats the canonical
-selected Checkout root as the boundary for the manifest and candidates. It
+Admit the selected Checkout root before manifest access or Worktree creation.
+When inspection reports a root whose locator differs from both the canonical
+decision and the `main_clone` decision already recorded, record a derived
+decision of kind `copy_source` with that locator, through the same
+Worktree-entry admission helper that records `main_clone`
+(`requireDerivedPermission`). When the root equals either locator, the existing
+decision covers it and no `copy_source` decision exists. In practice the new
+decision appears for a subdirectory of a linked Worktree. Under `bypass` it is
+a bypass decision like the others. This prevents an allowed subdirectory from
+exposing a rejected root.
+
+Before any subprocess for the copy, the daemon resolves `copy_source` with the
+existing `nearest_git` and `checked_git_data` path, which requires the gitfile
+and the git directory to lie inside the registered roots. It then requires the
+canonical common directory of `copy_source` to equal that of `repository`.
+Enumeration runs with pinned discovery. The daemon treats the canonical
+selected Checkout root as the boundary for the manifest and candidates and
 never silently substitutes main. Source identity is not a new base selector.
+
+[#1876](https://github.com/leon0399/llame/issues/1876) and
+[#1877](https://github.com/leon0399/llame/issues/1877) are open. This change
+uses the existing guards for `copy_source` and adds no new admission path.
 
 Alternative: use only `repository`. This loses linked-Checkout environment
 values. Changing `repository` itself also risks changing existing base-ref
@@ -69,24 +84,48 @@ semantics.
 ### D2. Use Git eligibility and the workspace matcher
 
 Reuse the workspace `ignore` crate 0.4, already a dependency of
-`crates/machine-grep`, inside `crates/machine-git`. Git determines source
-eligibility with ignored/untracked enumeration that honors nested ignore
-files, info excludes, and configured global excludes. Use NUL-delimited paths,
-no shell, no interpolation, and the daemon's own hardened git invocation.
-Enumerate descendants of wholly ignored directories rather than accepting a
-collapsed directory as the complete result.
+`crates/machine-grep`, inside `crates/machine-git`, for manifest parsing only.
+Git decides eligibility and the matcher evaluation below decides selection.
 
-Compile the manifest once and apply the matcher to relative source candidates.
-Process directory entries without symlink traversal. Use `lstat` or no-follow
-opens to distinguish regular files, links, and special files before contents
-are read. Prune Git administration and the new destination if it lies beneath
-the source. The latter prevents recursive copies of the output into itself.
+**Candidate source.** The only source of candidates is
+`git ls-files -z --others --ignored --exclude-standard`, without `--directory`,
+run in the copy source. Git then lists the descendants of an ignored directory
+individually and honors nested ignore files, info excludes, and configured
+global excludes. An entry that ends in `/` is a nested repository or Worktree,
+including a destination that lies under the source. Never walk or copy it, and
+skip it silently even when a pattern matches it. A probe confirmed that a nested
+repository and a linked Worktree appear as `nested/` and `wt/x/`, while
+`vendor/pkg/config.json` under an ignored `vendor/` appears as a file. Paths
+under `.git` never appear in Git output.
 
+**Streaming enumeration.** Ignored-path output is unbounded in practice: this
+repository produced 14.7 MB and 122,000 entries, while `OUTPUT_MAX` in
+`crates/machine-git/src/lib.rs` is 1 MiB. `read_capped` would reject it.
+Enumeration therefore uses a streaming reader of NUL-terminated records that
+matches each record as it arrives and holds only the selected paths. It has no
+stdout volume cap. The shared deadline is its bound. It must have the hardening
+of the pinned invocation in `run_mode`: cleared environment, the existing
+config overrides, a process group killed at the deadline, and pinned discovery.
+Share the command construction with `run_pinned` and differ only in how stdout
+is consumed. Add no weaker invocation path.
+
+**Manifest pattern screen.** Before parsing, refuse a manifest line whose
+pattern, after stripping a leading `!` and a leading `/`, contains a path
+segment equal to `..` or `.git`, or contains NUL or invalid UTF-8. Do not
+refuse a wildcard that could match under `.git`: Git output never contains
+those paths. Do not invent a stricter glob grammar, because many odd strings
+are valid literal gitignore patterns. Blank lines, comments, and a valid
+pattern with no match are not errors. Matcher parse failures are refused.
 Root anchoring uses `/name` as gitignore syntax, not an absolute OS path.
-Reject parent-traversal segments, NUL, invalid UTF-8, administrative targets,
-and matcher parse failures. Do not invent a stricter glob grammar: many odd
-strings are valid literal gitignore patterns. Blank lines, comments, and a
-valid pattern with no match are not errors.
+
+**Matcher evaluation.** Compile the manifest once as a `Gitignore` rooted at
+the copy source. For each relative candidate, evaluate top-down. For each
+ancestor directory of the candidate, from the root down, call
+`matched(ancestor, true)`. The first ancestor that returns Ignore selects the
+candidate, and a later negation cannot re-include it, as in Git. Otherwise
+`matched(candidate, false)` decides: Ignore selects, and Whitelist or None does
+not. Do not use `matched_path_or_any_parents`: it returns a leaf negation even
+under an ignored ancestor.
 
 Synthetic probes on the previous Node matcher confirmed these cases:
 
@@ -96,8 +135,14 @@ Synthetic probes on the previous Node matcher confirmed these cases:
   semantics do not re-include a child through a matched parent directory.
 
 These were executable probes, not an upstream compatibility test. The
-implementation must repeat them against the Rust `ignore` crate before the
-behavior ships.
+implementation must repeat all three as Rust tests against the evaluation
+above before the behavior ships.
+
+**Global excludes.** The daemon's cleared environment keeps `HOME`, so
+`core.excludesFile` and `$HOME/.config/git/ignore` apply. `XDG_CONFIG_HOME` and
+`GIT_CONFIG_GLOBAL` do not. This limitation is documented, and no new variable
+is forwarded.
+
 The source Git ignore rules and manifest selection are two separate filters.
 Do not use the manifest to change Git's index or its ignore configuration.
 
@@ -113,22 +158,36 @@ permission groups for each file. Keep the existing entry decisions, modes,
 Machine roots, and OS permissions. A model read-only attempt still cannot create
 a Worktree. An owner read-only Chat creation still can under its existing gates.
 
-The selected source and destination are admitted directory boundaries. The copy
-must not follow source links or destination links. Validate each component and
-use no-follow file access. Reject a selected special file instead of opening a
-FIFO or device. Reject a symlink manifest. Git metadata is never an environment
-input, even under a broad manifest pattern.
+The selected source and destination are admitted directory boundaries. Every
+source and destination operation is relative to a directory handle opened
+component by component without following links: `openat` and `renameat` with
+`O_NOFOLLOW` semantics, or `openat2` with `RESOLVE_BENEATH|RESOLVE_NO_SYMLINKS`
+on Linux. Where the platform cannot provide this, fail with `copy_failed`
+rather than fall back to path-based access. Reject a selected special file
+instead of opening a FIFO or device. Reject a symlink manifest. Git metadata is
+never an environment input.
+
+After `git worktree add` and before any copy, the daemon opens the new Worktree
+root without following links and confirms that its real path equals the
+requested canonical path. On a mismatch the daemon copies nothing and returns
+the Worktree as created. The hub's existing real-path check in the tool entry
+path (`refuseElsewhere` in `apps/api/src/tools/workspace-worktree-entry.ts`)
+then removes it, on an unseeded and clean tree, so the canonical removal rule
+stays unchanged. The daemon's existing `verify_unchanged` stays the final check
+after the operation.
 
 Replacing a regular destination must not truncate its existing inode through a
-hard link. Use a new destination-local file and rename it into place after a
-complete copy. Preserve ordinary mode bits without special ownership or set-id
-privileges. Keep the target Git index unchanged. Do not remove a directory or
-symlink to make a path fit. Recheck the destination before replacement.
+hard link. Write a destination-local temporary file and rename it into place
+after a complete copy. Preserve ordinary mode bits without special ownership or
+set-id privileges. Keep the target Git index unchanged. Do not remove a
+directory or symlink to make a path fit. Recheck the destination before
+replacement.
 
 This is not a Sandbox against an adversarial process with the same OS user.
-Tests must still cover path replacement at the observable copy boundaries.
-Where the platform cannot establish safe file identity, fail rather than
-follow a changed path. No copied contents belong in diagnostics.
+File reads already exceed `read` permission by design, so a hard link in the
+source that points elsewhere is out of scope. Destination hard-link protection
+stays. Tests must still cover path replacement at the observable copy
+boundaries. No copied contents belong in diagnostics.
 
 ### D4. One fenced mutation, one deadline
 
@@ -139,36 +198,56 @@ existing attempt fence.
 
 Use one deadline for checkout, manifest read, eligibility enumeration, and
 copy. The handler's existing 120-second budget remains the limit. Do not
-reset it for each file. Stream candidate paths and file bytes rather than
-accumulating an unbounded list or file buffer. A fixed stdout bound must fail
-explicitly, never silently drop candidates. Prefer incremental enumeration so
-large explicit selections are not refused by an accidental inventory-size cap.
+reset it for each file. Stream file bytes rather than accumulating a file
+buffer, and check the deadline between chunks. Enumeration has no volume cap
+(see D2). Do not fail on a large explicit selection.
 
-Propagate gRPC cancellation to enumeration and copy streams, and kill the git
-process group as the handler already does. Drain or stop active writers before
-a settled result. A timeout must not return success or leave copy writes
-active in the background. Completion does not promise an atomic snapshot
-against concurrent source edits. A selected file that disappears or changes
-type before its copy causes a known failure, not a silent skip.
+`IdempotencyCache::run` in `crates/machine-core/src/idempotency.rs` spawns the
+work detached, so a dropped RPC does not stop it. Do not claim cancellation
+propagation. The shared deadline bounds checkout, enumeration, and copy, and
+the existing process-group kill applies at that deadline. A copy that reaches
+the deadline stops writing, removes its temporary file, and returns `TIMED_OUT`.
+No copy write continues after that result.
 
-For known copy failures return a sanitized typed `GitFailure`. The API maps it
-to the existing `worktree_failed` tool result and Chat workspace status, and
-adds the known `leftDirectory` from its own plan, in the plan's existing
-locator form. The model-facing renderer keeps stripping that field. The
-internal result readers must preserve that locator. Do not expose raw OS
-errors, manifest lines, or file bytes. A bounded relative file path and a
-fixed reason are sufficient. No public success field is needed.
+The hub waits `WORKTREE_ADD_TIMEOUT_MS` (120 s, equal to the daemon budget) plus
+`MACHINE_MARGIN_MS` (15 s) in `executor-git-machine.ts`. The daemon deadline
+therefore expires before the hub stops waiting, and a typed `TIMED_OUT`
+normally arrives. A lost link is `outcome_unknown`. Completion does not promise
+an atomic snapshot against concurrent source edits. A selected file that
+disappears or changes type before its copy causes a known failure, not a silent
+skip.
 
-On any partial failure retain the new directory and branch. Tool entry keeps
-its previous binding. Chat creation keeps its filed Chat but stores no initial
-message or Run. Both leave new catalog and lease rows uncommitted. A lost link
-still yields `outcome_unknown`, not a claim that no effect occurred.
+Remove the temporary file on every failure, including the deadline. A leftover
+temporary file would otherwise make a later non-force removal refuse the
+Worktree as dirty.
 
-The existing recorded attempt covers both effects, and the daemon's
-`request_id` cache returns the first completed result on a retained resend.
-Redelivery or a same-id Chat resend never replays an uncertain copy.
-Inspection and owner recovery, rather than an automatic retry or cleanup,
-resolve leftovers.
+For known copy failures return a sanitized typed `GitFailure` with the new
+reason `GIT_FAILURE_REASON_COPY_FAILED = 9`, kept before the `GIT_FAILED = 255`
+slot and its comment. Add the API wire type `copy_failed` to the closed
+`FAILURE_TYPES` map in `apps/api/src/machines/wire/git.ts`. Unlike the other
+stderr-carrying types, it carries `message`: a fixed reason phrase plus at most
+one bounded relative path, never stderr, OS error text, manifest lines, or
+bytes. Manifest refusals (invalid pattern, symlink manifest) use the same
+reason. The API reads and maps it to the existing `worktree_failed` tool result
+and Chat workspace status, and adds the known `leftDirectory` from its own
+plan, in the plan's existing locator form. The model-facing renderer keeps
+stripping that field. The internal result readers must preserve that locator
+and the `message`. No public success field is needed.
+
+On any partial failure retain the new directory and branch. The one exception
+is the existing real-path-mismatch removal of D3, which acts on a Worktree that
+received no copy. Tool entry keeps its previous binding. Chat creation keeps
+its filed Chat but stores no initial message or Run. Both leave new catalog and
+lease rows uncommitted. A lost link still yields `outcome_unknown`, not a claim
+that no effect occurred.
+
+The hub mints a fresh `request_id` for every call, so the daemon's cache does
+not protect a recorded attempt from a second dispatch. Replay protection on this
+path is the recorded attempt: the tool path records a native attempt before
+the call, and Chat creation records the destination in its creation attempt.
+Redelivery or a same-id Chat resend never replays an uncertain copy. Inspection
+and owner recovery, rather than an automatic retry or cleanup, resolve
+leftovers.
 
 ### D5. Keep removal unchanged
 
@@ -263,10 +342,7 @@ support.
 
 ## Review status
 
-The initial draft is published as draft PR #1913 and rebased onto the master
-that ships the Rust Machine daemon. Executable probes covered matcher
-semantics on the previous Node matcher and ignored-file removal. Independent
-proposal reviewers are unavailable in this Chat's tool catalog and shell PATH.
-Self-review and validation do not satisfy the two-reviewer gate in
-CONTRIBUTING.md. Ready transition, approval, and implementation remain blocked
-on the required review and Leo's approval of the published revision.
+Round 1 ran two independent reviewers, one of them adversarial. Their findings
+were verified against code and probes, and the revision that adds this section
+encodes them. Leo directed implementation of the proposal in the implementation
+session. A further review round follows.

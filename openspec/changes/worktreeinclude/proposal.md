@@ -23,8 +23,11 @@ that copying is part of Worktree creation rather than a file-read operation.
   symlinks, destination symlinks, file/directory conflicts, and path escapes.
 - Run the copy on the same Machine as the Checkouts. Return no copied contents.
   Keep the existing operation deadline without new byte or file-count caps.
+  Enumerate Git's ignored paths as a stream with no volume cap.
 - Retain a partial Worktree on failure, report its location, and preserve the
-  previous binding. Never replay a recorded uncertain creation.
+  previous binding. Never replay a recorded uncertain creation. Report a copy
+  failure as the new typed reason `copy_failed`, with a fixed phrase and at
+  most one bounded relative path.
 - Keep one-time copy semantics and ordinary owner-initiated removal. Ignored
   copies have no inventory or change protection.
 
@@ -37,17 +40,22 @@ that copying is part of Worktree creation rather than a file-read operation.
 
 ### Modified Capabilities
 
-- `tool-call-permissions`: Add the aggregate authorization contract and admission
-  of a selected source Checkout root derived from a submitted subdirectory.
+- `tool-call-permissions`: Add the aggregate authorization contract and the
+  derived `copy_source` decision for a selected source Checkout root derived
+  from a submitted subdirectory, including its bypass record.
 - `workspace-entry`: Require the copy before a Worktree entry commits, with
-  selected-source identity distinct from the main Checkout used by git.
+  selected-source identity distinct from the main Checkout used by git, and
+  define the message of a copy failure.
 - `chat-creation`: Require complete copying before the first binding and message,
-  with the existing recorded-directory recovery behavior on a partial copy.
+  with the existing recorded-directory recovery behavior on a partial copy, and
+  define the message of a copy failure.
 
 ## Impact
 
 The gRPC `CreateWorktree` operation changes in its proto contract under
-`packages/machine-protocol` and in the Rust daemon's `crates/machine-git`.
+`packages/machine-protocol` (a required `copy_source` field and the
+`GIT_FAILURE_REASON_COPY_FAILED` reason) and in the Rust daemon's
+`crates/machine-git`.
 The API must carry the selected source separately through both Worktree
 planners and preserve typed failures. Both host and remote creation use the
 Rust Machine daemon. The proto change must increase the machine protocol
@@ -58,20 +66,24 @@ source of truth for ignored and untracked eligibility. No database migration,
 public configuration key, new tool, or UI control is planned.
 
 The implementation updates the entry tool reference, repository operator guide,
-permission documentation, `SPEC.md`, and `CHANGELOG.md` with the behavior it ships.
+permission documentation, and `SPEC.md` with the behavior it ships, and adds
+`.changeset/worktreeinclude.md`.
 The proposed ADR text is in [design.md](design.md#architecture-decision-record).
 The implementation publishes it under `docs/adr/` with the required links.
 
 ## Acceptance and non-goals
 
 Acceptance includes real-git fixtures for linked sources, wholly ignored trees,
+sources with more than 1 MiB of ignored paths, nested repositories,
 tracked destination overwrites, symlink refusal, partial failures, owner
 isolation, permission modes, and absence of file contents from observations.
 [Tasks](tasks.md) assign the checks to one atomic implementation layer.
 
 No automatic defaults, personal patterns, setup commands, dependency installation,
-file synchronization, symlink support, copy inventory, rollback deletion, or new
-Chat-creation source kinds are included. Manual `git worktree add` is unchanged.
+file synchronization, symlink support, copy inventory, automatic cleanup of a
+failed copy, or new Chat-creation source kinds are included. The shipped
+removal of a Worktree whose real path differs from the decided one is
+unchanged. Manual `git worktree add` is unchanged.
 Base-ref resolution, parenting, naming, placement, and removal guards remain as
 shipped. Copy-source identity does not change the git source or its base commit.
 

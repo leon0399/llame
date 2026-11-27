@@ -9,7 +9,7 @@ Checkout, with explicit selection, copy authority, and failure boundaries.
 
 ### Requirement: The selected source Checkout supplies the manifest
 
-Each Stead-managed Worktree creation MUST read `.worktreeinclude` from the root
+Each llame-created Worktree creation MUST read `.worktreeinclude` from the root
 of its selected source Checkout. The manifest need not be committed. The copy
 MUST NOT substitute the main Checkout for a linked source Checkout. A source
 subdirectory MUST resolve to its Checkout root. Git base-ref and parent rules
@@ -27,6 +27,23 @@ MUST remain unchanged.
 - **WHEN** the selected path is `apps/api` inside a Checkout
 - **THEN** the copy uses that Checkout's root manifest and relative paths
 - **AND** the system admits that derived root before the copy accesses it
+
+#### Scenario: An empty copy source is refused
+
+- **WHEN** a creation request carries an empty `copy_source`
+- **THEN** the daemon fails with `INVALID_INPUT`
+- **AND** it does not default the source to `repository`
+- **AND** a `copy_source` that starts with `-` fails the same way
+
+#### Scenario: A copy source in another repository is refused
+
+- **WHEN** the resolved `copy_source` has a canonical common directory that differs from that of `repository`
+- **THEN** creation fails before any manifest read and before Worktree add
+
+#### Scenario: A copy source whose gitfile leaves the roots is refused
+
+- **WHEN** the `copy_source` gitfile points at a repository outside the registered roots
+- **THEN** creation fails before any manifest read, through the existing git-directory guard
 
 ### Requirement: No manifest means no environment copy
 
@@ -69,11 +86,66 @@ Git does not ignore MUST NOT qualify. Patterns MUST select relative paths only.
 - **AND** the manifest selects those files
 - **THEN** those files qualify without a root `.gitignore` match
 
-### Requirement: Wholly ignored directories do not restrict double-star matches
+#### Scenario: Global excludes follow the daemon's retained environment
 
-The copy MUST apply manifest patterns to eligible entries inside wholly ignored
-directories. A `**/` pattern MUST NOT require its next name to occur in the
-ignored parent path. A pattern with no matches MUST succeed without a copy.
+- **WHEN** a file is ignored only through `core.excludesFile` or `$HOME/.config/git/ignore`
+- **THEN** it qualifies, because the daemon's environment keeps `HOME`
+- **AND** a file ignored only through a non-default `XDG_CONFIG_HOME` or through `GIT_CONFIG_GLOBAL` does not qualify, because the daemon forwards neither
+
+### Requirement: Selection evaluates ignored ancestors before the candidate
+
+The matcher MUST evaluate each candidate top-down. For each ancestor directory of
+the relative candidate, from the root down, it MUST evaluate that directory. The
+first ancestor that the manifest ignores MUST select the candidate, and a later
+negation MUST NOT re-include it. Otherwise the candidate's own match MUST decide:
+an ignore result selects it, and a whitelist or no result does not. The system
+MUST NOT use a match that returns a leaf negation under an ignored ancestor.
+
+#### Scenario: A negation under an ignored ancestor does not re-include
+
+- **WHEN** the manifest contains `secrets/` followed by `!secrets/private.json`
+- **AND** Git ignores `secrets/private.json`
+- **THEN** the ignored ancestor `secrets` selects the file and the negation does not remove it
+
+#### Scenario: A negation of a leaf excludes it when no ancestor is ignored
+
+- **WHEN** the manifest contains `secrets/**` followed by `!secrets/private.json`
+- **THEN** no ancestor `secrets` is ignored and the candidate's own whitelist result excludes it
+
+#### Scenario: The recorded probes run as Rust tests
+
+- **WHEN** the implementation ships
+- **THEN** Rust tests repeat the three recorded matcher probes: `**/config.json` selecting `vendor/pkg/config.json`, the `secrets/**` negation, and the `secrets/` negation
+
+### Requirement: Unsafe manifest patterns are refused before parsing
+
+Before parsing, the system MUST refuse a manifest line whose pattern, after
+stripping a leading `!` and a leading `/`, contains a path segment equal to `..`
+or `.git`, or contains NUL or invalid UTF-8. The refusal MUST fail creation
+with `copy_failed`. The system MUST NOT refuse a wildcard that could match under
+`.git`, because Git output never contains such paths. Blank lines and comments
+MUST NOT be refused.
+
+#### Scenario: A traversal or administrative segment is refused
+
+- **WHEN** a manifest line is `../secret`, `/.git/config`, or `!a/.git/b`
+- **THEN** creation fails with `copy_failed` and reads no target contents
+
+#### Scenario: A wildcard is not refused on its own
+
+- **WHEN** a manifest line is `*`
+- **THEN** the system parses it and no file under `.git` is ever a candidate
+
+### Requirement: Git lists the candidates and nested repositories are skipped
+
+The only source of candidates MUST be Git's ignored, untracked listing of the
+copy source, run without collapsing ignored directories. Git MUST list the
+descendants of an ignored directory individually. The copy MUST apply manifest
+patterns to those entries, and a `**/` pattern MUST NOT require its next name to
+occur in the ignored parent path. An entry that ends in `/` is a nested
+repository or Worktree, including a destination that lies under the source. The
+copy MUST NOT walk or copy it and MUST skip it silently even when a pattern
+matches it. A pattern with no matches MUST succeed without a copy.
 
 #### Scenario: A generic pattern reaches a wholly ignored directory
 
@@ -85,12 +157,43 @@ ignored parent path. A pattern with no matches MUST succeed without a copy.
 - **WHEN** the manifest selects `.env.local` and that file does not exist
 - **THEN** creation succeeds without that file
 
+#### Scenario: A nested repository is skipped
+
+- **WHEN** the source contains an ignored nested repository `nested/` and a linked Worktree `wt/x/` under it, and the manifest is `*`
+- **THEN** Git reports `nested/` and `wt/x/` as entries ending in `/`
+- **AND** the copy neither enters nor copies them and reports no error
+
+#### Scenario: A large ignored listing still seeds the environment
+
+- **WHEN** the source has more than 1 MiB of ignored paths and a manifest that selects `.env`
+- **THEN** creation copies `.env`
+- **AND** no output-size refusal occurs
+
+### Requirement: Eligibility enumeration streams under the shared deadline
+
+Enumeration MUST read Git's NUL-terminated records as a stream, match each record
+as it arrives, and hold only selected paths. It MUST NOT apply a stdout volume
+cap, and the shared deadline MUST bound it. It MUST run with the hardening of
+the pinned Git invocation: a cleared environment, the existing configuration
+overrides, a process group killed at the deadline, and pinned discovery. The
+system MUST NOT add a weaker invocation path.
+
+#### Scenario: The deadline bounds enumeration
+
+- **WHEN** enumeration reaches the shared deadline
+- **THEN** the Git process group is killed
+- **AND** creation fails with `TIMED_OUT` and retains the Worktree
+
 ### Requirement: Copy inputs stay inside the source Checkout
 
 The system MUST reject a selected symlink or special file. It MUST NOT traverse
-a symlink directory. The manifest MUST be a regular file, not a symlink. The
-copy MUST reject parent traversal and access to Git administrative entries. It
-MUST NOT read file contents outside the source Checkout or copy `.git` metadata.
+a symlink directory. The manifest MUST be a regular file, not a symlink. Every
+source and destination operation MUST be relative to a directory handle that is
+opened component by component without following links, and the copy MUST fail
+with `copy_failed` where the platform cannot provide that. Git output never holds
+`.git` paths, and the copy MUST NOT copy `.git` metadata or read file contents
+outside the source Checkout. A hard link in the source is out of scope: the copy
+is not a Sandbox against the same OS user.
 
 #### Scenario: A selected symlink fails without disclosure
 
@@ -105,10 +208,10 @@ MUST NOT read file contents outside the source Checkout or copy `.git` metadata.
 - **THEN** the copy does not enter the linked directory
 - **AND** direct selection of that link fails
 
-#### Scenario: An administrative manifest entry is refused
+#### Scenario: A symlinked manifest is refused
 
-- **WHEN** a manifest entry targets `.git/config` or `../secret`
-- **THEN** creation fails without access to that target's contents
+- **WHEN** `.worktreeinclude` is a symlink
+- **THEN** creation fails with `copy_failed` and reads no target contents
 
 ### Requirement: Regular source files overwrite regular destination files
 
@@ -147,12 +250,33 @@ modify other paths through a pre-existing hard link.
 - **WHEN** the destination path for a selected regular file is a directory
 - **THEN** creation fails and the copy deletes no directory
 
+### Requirement: The destination root is bound before any copy
+
+After Worktree add and before any copy, the daemon MUST open the new Worktree
+root without following links and confirm that its real path equals the requested
+canonical path. On a mismatch the daemon MUST copy nothing and return the
+Worktree as created, so the existing removal of a Worktree whose real path differs
+from the decided one runs on an unseeded, clean tree. That removal rule MUST stay
+unchanged.
+
+#### Scenario: A real-path mismatch copies nothing
+
+- **WHEN** the new Worktree root resolves to a path other than the requested canonical path
+- **THEN** the daemon copies no file
+- **AND** the existing realpath-mismatch removal of tool entry removes the clean Worktree
+
 ### Requirement: A failed copy preserves the partial Worktree without a binding
 
-A manifest read error, invalid entry, copy error, cancellation, or timeout MUST
-fail creation. The system MUST retain any new Worktree and partial files. It
-MUST report the leftover directory when known. It MUST NOT bind the destination,
-record a successful Checkout or lease, or automatically remove the new branch.
+A manifest read error, manifest refusal, invalid entry, copy error, or timeout
+MUST fail creation. A copy, manifest, or entry failure MUST use the typed reason
+`copy_failed`, and a timeout MUST use `TIMED_OUT`. The failure `message` MUST be a
+fixed reason phrase plus at most one bounded relative path. It MUST NOT contain
+standard error, OS error text, manifest lines, or file bytes. The system MUST
+retain any new Worktree and partial files, except for the existing removal of a
+Worktree whose real path differs from the decided one. It MUST report the
+leftover directory when known. It MUST NOT bind the destination, record a
+successful Checkout or lease, or automatically remove the new branch. It MUST
+remove its temporary file on every failure, including the deadline.
 
 #### Scenario: An unreadable manifest does not become an empty manifest
 
@@ -165,18 +289,39 @@ record a successful Checkout or lease, or automatically remove the new branch.
 - **THEN** creation fails and retains the directory and those three files
 - **AND** no successful Checkout, lease, or new bound root exists
 
+#### Scenario: A failure message holds no diagnostics
+
+- **WHEN** a copy fails because an OS error occurs on `config/secret.env`
+- **THEN** the `copy_failed` message is a fixed phrase plus `config/secret.env`
+- **AND** it contains no OS error text, standard error, manifest line, or file bytes
+
+#### Scenario: The deadline leaves no temporary file
+
+- **WHEN** the deadline expires while a selected file is copying
+- **THEN** the daemon stops writing and removes the temporary file
+- **AND** a later non-force removal is not blocked by a temporary file
+
 ### Requirement: The complete creation shares one operation deadline
 
-Git checkout, manifest selection, and file copy MUST share the Worktree creation
-deadline and cancellation. The copy MUST NOT impose a new byte or file-count
-cap. Large explicit selections MUST NOT receive a silent truncation. A timeout
-or cancellation MUST NOT permit further copy writes after the operation stops.
+Git checkout, manifest selection, eligibility enumeration, and file copy MUST
+share the Worktree creation deadline. The system MUST NOT propagate gRPC
+cancellation to them: the shared deadline bounds the operation, and the process
+group kill applies at that deadline. The copy MUST NOT impose a new byte or
+file-count cap. Large explicit selections MUST NOT receive a silent truncation.
+A timeout MUST NOT permit further copy writes after the operation stops. The
+daemon deadline MUST expire before the hub stops waiting, so a typed `TIMED_OUT`
+normally arrives, and a lost link MUST be `outcome_unknown`.
 
 #### Scenario: An explicit dependency directory has no special exclusion
 
 - **WHEN** the manifest selects an ignored `node_modules/` of regular files
 - **AND** the operation completes within its deadline
 - **THEN** all selected files copy without an extra size or count refusal
+
+#### Scenario: A dropped call does not stop the operation
+
+- **WHEN** the caller drops the RPC while the copy runs
+- **THEN** the operation continues to its result or the shared deadline
 
 #### Scenario: Copy exhausts the remaining deadline
 
