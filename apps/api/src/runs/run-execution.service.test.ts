@@ -9489,7 +9489,7 @@ async function executeBoundTool(
 
 async function executeBoundBash(
   options: StreamOptions,
-  args: { command: string; cwd?: string; async?: boolean },
+  args: { command: string; cwd?: string; async?: boolean; i?: string },
   toolCallId: string,
 ): Promise<ToolResult> {
   const bound = options.tools?.bash;
@@ -9776,6 +9776,8 @@ function settledBashJob(seq: number): ChatJob {
     stoppedBy: null,
     runId,
     toolCallId: `bash-call-${seq}`,
+    intent: null,
+    command: null,
     machineName: 'test-machine',
     daemonInstanceId: 'daemon-instance',
     daemonJobId: `daemon-job-${seq}`,
@@ -17911,6 +17913,8 @@ describe('RunExecutionService runtime-context lifecycle', () => {
       stoppedBy: null,
       runId,
       toolCallId: 'bash-call',
+      intent: null,
+      command: null,
       machineName: 'test-machine',
       daemonInstanceId: 'daemon-instance',
       daemonJobId: 'daemon-job',
@@ -18284,6 +18288,8 @@ describe('RunExecutionService runtime-context lifecycle', () => {
         stoppedBy: null,
         runId,
         toolCallId: 'bash-call',
+        intent: null,
+        command: null,
         machineName: 'test-machine',
         daemonInstanceId: 'daemon-instance',
         daemonJobId: 'daemon-job',
@@ -29559,6 +29565,27 @@ describe('RunExecutionService executeRun — owner interrupt settlement', () => 
     expect(payloadOf(appended, 'tool.completed', 'bash-host-1')).toMatchObject({
       output: { status: 'success', stdout: 'command finished' },
     });
+  });
+
+  // The job row stores this as its name; the command never sees it.
+  it('hands a bash call its intent apart from the arguments', async () => {
+    let intent: string | undefined;
+
+    vi.spyOn(bashTool, 'execute').mockImplementation((context) => {
+      intent = context.toolIntent;
+
+      return Promise.resolve({ status: 'success', stdout: '' });
+    });
+    const { start } = interruptRig({ native: ['bash'] });
+    const { options } = await start();
+
+    await executeBoundBash(
+      options,
+      { command: 'sleep 9', async: true, i: 'Watching the dev server' },
+      'bash-intent',
+    );
+
+    expect(intent).toBe('Watching the dev server');
   });
 
   it('cancels a remote bash call that proves its result and names it in the delivery', async () => {

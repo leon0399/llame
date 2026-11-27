@@ -14,7 +14,55 @@ import {
 import { retryRunTransaction } from '../runs/run-transaction';
 import { notifyRunControl } from '../runs/run-control';
 import { ChatJobsRepository } from '../jobs/chat-jobs.repository';
+import { ArtifactsRepository } from '../tools/artifacts/artifacts-repository';
 import { ChatsRepository } from './chats-repository';
+
+/** The most of one output a response carries: its last 64 KiB. */
+export const JOB_OUTPUT_RESPONSE_BYTES = 64 * 1024;
+
+export type ChatJobOutputPart = {
+  readonly name: string;
+  readonly content: string;
+  readonly cut: boolean;
+  /** Bytes of the stream as stored, before the response bound. */
+  readonly size: number;
+};
+
+/** A settled job's output: its stored streams, or none was stored. */
+export type ChatJobOutput =
+  | {
+      readonly status: 'stored';
+      readonly outputs: Array<ChatJobOutputPart>;
+    }
+  | { readonly status: 'unavailable' };
+
+/**
+ * The last bound of an output from its stored window (the bound plus one
+ * byte). A cut window starts on a whole line when one starts inside it, and
+ * otherwise on a whole UTF-8 character, so a long single line is never lost.
+ */
+function outputTail(
+  size: number,
+  window: Buffer,
+): Omit<ChatJobOutputPart, 'name'> {
+  if (size <= JOB_OUTPUT_RESPONSE_BYTES) {
+    return { content: window.toString('utf8'), cut: false, size };
+  }
+
+  // The first byte precedes the bound; a line starts after each newline.
+  const lineBreak = window.subarray(0, -1).indexOf(0x0a);
+  let start = lineBreak === -1 ? 1 : lineBreak + 1;
+
+  if (lineBreak === -1) {
+    while (((window.at(start) ?? 0) & 0xc0) === 0x80) start += 1;
+  }
+
+  return {
+    content: window.subarray(start).toString('utf8'),
+    cut: true,
+    size,
+  };
+}
 
 /**
  * The owner's view of the jobs of a Chat. Every read and write runs in the
@@ -40,6 +88,51 @@ export class ChatJobsService {
         ];
       }),
     );
+  }
+
+  /**
+   * The stored outputs of a settled job, as its artifact holds them. A running
+   * job is a conflict: its output lives on the Machine until it settles.
+   */
+  async output(
+    chatId: string,
+    jobId: string,
+    userId: string,
+  ): Promise<ChatJobOutput> {
+    const answer = await this.tenantDb.runAs(userId, async (tx) => {
+      const job = await (
+        await this.touch(tx, chatId, userId)
+      ).findById(chatId, userId, jobId);
+
+      if (job === undefined || job.state === 'running') return job;
+
+      if (job.artifactId === null) return { status: 'unavailable' as const };
+
+      const artifacts = new ArtifactsRepository(tx);
+      const outputs: Array<ChatJobOutputPart> = [];
+
+      for (const name of job.outputs) {
+        const part = await artifacts.readPartWindow(
+          chatId,
+          { toolName: job.kind, seq: job.seq, part: name },
+          JOB_OUTPUT_RESPONSE_BYTES,
+        );
+
+        if (part !== undefined)
+          outputs.push({ name, ...outputTail(part.size, part.window) });
+      }
+
+      return { status: 'stored' as const, outputs };
+    });
+
+    if (answer === undefined)
+      throw new NotFoundException(`Job ${jobId} not found`);
+
+    if ('state' in answer) {
+      throw new ConflictException('The job is still running');
+    }
+
+    return answer;
   }
 
   /**

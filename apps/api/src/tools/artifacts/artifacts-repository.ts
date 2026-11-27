@@ -273,6 +273,43 @@ export class ArtifactsRepository {
   }
 
   /**
+   * One part's stored size and its last `maxBytes + 1` bytes, without
+   * transferring the prefix. The extra byte tells the caller whether the
+   * window starts on a line.
+   */
+  async readPartWindow(
+    chatId: string,
+    locator: ArtifactLocator & { readonly part: string },
+    maxBytes: number,
+  ): Promise<{ size: number; window: Buffer } | undefined> {
+    const size = sql<number>`octet_length(${toolArtifactParts.content})`;
+    const take = maxBytes + 1;
+
+    const [row] = await this.db
+      .select({
+        size: sql<number>`${size}::int`,
+        window: sql<Buffer>`substring(
+          ${toolArtifactParts.content} from greatest(${size} - ${take} + 1, 1)
+        )`,
+      })
+      .from(toolArtifactParts)
+      .innerJoin(
+        toolArtifacts,
+        eq(toolArtifacts.id, toolArtifactParts.artifactId),
+      )
+      .where(
+        and(
+          eq(toolArtifacts.chatId, chatId),
+          eq(toolArtifacts.toolName, locator.toolName),
+          eq(toolArtifacts.seq, locator.seq),
+          eq(toolArtifactParts.name, locator.part),
+        ),
+      );
+
+    return row;
+  }
+
+  /**
    * Every part of the Chat's artifacts with its size and time but no bytes, so
    * a reconcile fetches only the content of a file it must rewrite (D10).
    */

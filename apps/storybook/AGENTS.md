@@ -25,8 +25,9 @@ pnpm --filter storybook typecheck
 - `.storybook/preview.tsx`, `preview.css`: theme and Tailwind story-source scan.
 - `.storybook/vitest.setup.ts`: browser annotations; a11y failures are errors.
 - `test/`: node-only tooling guards with no co-locatable source owner.
-- Visual testing comes from `storyproof/preset`. Baselines live beside source
-  under `__screenshots__/<story-file>.visual/<story-id>/<environment>/`;
+- Visual testing comes from `storyproof/preset`, which is disabled while its
+  alpha is broken; `.storybook/main.ts` holds the restore steps. Baselines live
+  beside source under `__screenshots__/<story-file>.visual/<story-id>/<environment>/`;
   candidates and diffs are ignored.
 
 ## Traps

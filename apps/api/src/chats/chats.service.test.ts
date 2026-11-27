@@ -1040,6 +1040,8 @@ describe('ChatsService message windows, updates and forks', () => {
         stoppedBy: null,
         runId: activeRun.id,
         toolCallId: 'call-1',
+        intent: null,
+        command: null,
         machineName: 'host-a',
         daemonInstanceId: crypto.randomUUID(),
         daemonJobId: crypto.randomUUID().replaceAll('-', ''),

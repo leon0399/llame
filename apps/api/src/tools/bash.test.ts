@@ -121,6 +121,8 @@ describe('bash daemon job dispatch', () => {
       stoppedBy: null,
       runId: 'run',
       toolCallId: 'call-1',
+      intent: 'Queueing the build',
+      command: null,
       machineName: 'host-a',
       daemonInstanceId: '00000000-0000-4000-8000-000000000013',
       daemonJobId: '0123456789abcdef0123456789abcdef',
@@ -234,6 +236,7 @@ describe('bash daemon job dispatch', () => {
         },
         {
           ...testContext(),
+          toolIntent: 'Queueing the build',
           bashJobs,
           bashBackgroundAfterSeconds: 0,
         },
@@ -277,6 +280,8 @@ describe('bash daemon job dispatch', () => {
     expect(insert).toHaveBeenCalledWith(
       expect.objectContaining({
         machineName: 'host-a',
+        intent: 'Queueing the build',
+        command: 'printf queued',
       }),
     );
     expect(insert.mock.calls[0]?.[0].deadlineAt).toBeInstanceOf(Date);
@@ -342,6 +347,8 @@ describe('bash daemon job dispatch', () => {
           stoppedBy: null,
           runId: 'run',
           toolCallId: 'call-1',
+          intent: null,
+          command: null,
           machineName: 'host-a',
           daemonInstanceId: '00000000-0000-4000-8000-000000000013',
           daemonJobId: '0123456789abcdef0123456789abcdef',

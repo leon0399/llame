@@ -34,15 +34,19 @@ const config: StorybookConfig = {
     "@storybook/addon-a11y",
     "@storybook/addon-vitest",
     "@storybook/addon-mcp",
-    {
-      name: "storyproof/preset",
-      options: {
-        // Both story sources Storybook loads: the component library and the
-        // co-located apps/web page/meta stories. A story outside every root
-        // fails capture, so keep this in step with the `stories` globs above.
-        storyRoots: ["../../packages/ui/src", "../../apps/web"],
-      },
-    },
+    // storyproof is disabled while the alpha addon is broken. Restore this
+    // entry together with test/visual-addon-config.test.ts, removed in the same
+    // commit (`git log --diff-filter=D -- apps/storybook/test` finds it), and
+    // drop "storyproof" from apps/storybook's ignoreDependencies in knip.json.
+    // {
+    //   name: "storyproof/preset",
+    //   options: {
+    //     // Both story sources Storybook loads: the component library and the
+    //     // co-located apps/web page/meta stories. A story outside every root
+    //     // fails capture, so keep this in step with the `stories` globs above.
+    //     storyRoots: ["../../packages/ui/src", "../../apps/web"],
+    //   },
+    // },
   ],
   typescript: {
     reactDocgen: "react-docgen-typescript",

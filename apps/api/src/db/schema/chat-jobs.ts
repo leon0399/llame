@@ -67,6 +67,17 @@ export const chatJobs = pgTable(
     stoppedBy: text('stopped_by').$type<ChatJobStopper>(),
     runId: uuid('run_id').notNull(),
     toolCallId: text('tool_call_id').notNull(),
+    /**
+     * The intent the model gave the call that started the job, shown to the
+     * owner as the job's name; null when the call carried none. Display only:
+     * never part of the command, its admission, or the job's identity.
+     */
+    intent: text('intent'),
+    /**
+     * The shell text the job runs, as the call submitted it, so the owner can
+     * see what a job did. Null for a job recorded before this column existed.
+     */
+    command: text('command'),
     machineName: text('machine_name').notNull(),
     daemonInstanceId: text('daemon_instance_id').notNull(),
     daemonJobId: text('daemon_job_id').notNull(),

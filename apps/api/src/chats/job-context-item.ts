@@ -18,6 +18,7 @@ const renderJobNoticeTemplate = loadPackagedTemplate<{
   readonly locator: string;
   readonly executor: string;
   readonly state: string;
+  readonly intent: string | undefined;
   readonly elapsed: string;
   readonly exitDetail: string | undefined;
   readonly stoppedBy: string | undefined;
@@ -126,6 +127,11 @@ function renderJobNoticeBody(input: {
     locator: input.locator,
     executor: job.kind,
     state: job.state,
+    // Model-authored: neutralized like output, since it sits in the reminder.
+    intent:
+      job.intent === null
+        ? undefined
+        : neutralizeReservedDelimiters(job.intent.replaceAll(/\s+/g, ' ')),
     elapsed: formatElapsed(input.elapsedMs),
     exitDetail,
     stoppedBy:

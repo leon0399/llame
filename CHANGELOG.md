@@ -1,5 +1,15 @@
 _Reverse-chronological record of shipped work — features, fixes, and chores. Newest first. Pull requests add entries under `.changeset/`, and `pnpm changelog:compile` moves them here; see [CONTRIBUTING.md](CONTRIBUTING.md)._
 
+# 2026-11-27
+
+- Session details' Jobs section names each running job by the intent of the
+  `bash` call that started it, with its elapsed time and stop control. Settled
+  jobs move to a Finished jobs panel that opens beside the sidebar and shows
+  each job's command, stored output, and outcome. Jobs record `intent` and
+  `command` when they start; `GET /api/v1/chats/:chatId/jobs/:jobId/output`
+  returns a settled job's stored output, each stream bounded to its last
+  64 KiB.
+
 # 2026-11-26
 
 - Admit host Bash attempts before reserving artifact sequence numbers, so a

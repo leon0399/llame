@@ -24,6 +24,8 @@ const job: ChatJob = {
   stoppedBy: null,
   runId: 'run-1',
   toolCallId: 'call-1',
+  intent: null,
+  command: null,
   machineName: 'host-a',
   daemonInstanceId: crypto.randomUUID(),
   daemonJobId: crypto.randomUUID().replaceAll('-', ''),

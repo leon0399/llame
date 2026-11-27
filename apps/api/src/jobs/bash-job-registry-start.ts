@@ -124,6 +124,7 @@ async function dispatchBashJob(
     lifetimeMs,
     instanceId: machineClient.instanceId,
     delivery: input.async === true ? 'background' : 'foreground',
+    command: input.command,
   });
 
   if ('prior' in binding) return { kind: 'failed', result: binding.prior };
@@ -233,6 +234,7 @@ type BindBashAttemptInput = {
   lifetimeMs: number;
   instanceId: string;
   delivery: 'foreground' | 'background';
+  command: string;
 };
 
 type NativeBashIdentity = {
@@ -324,6 +326,7 @@ async function insertChatJobBinding(
       instanceId,
       seq,
       delivery: input.delivery,
+      command: input.command,
       deadlineAt,
       runId,
       toolCallId,
@@ -338,6 +341,7 @@ type InsertBashBindingInput = {
   startedAt: Date;
   instanceId: string;
   delivery: 'foreground' | 'background';
+  command: string;
   seq: number;
   deadlineAt: Date | undefined;
   runId: string;
@@ -367,10 +371,12 @@ async function insertBashBinding(
     seq,
     runId,
     toolCallId,
+    intent: context.toolIntent,
     machineName: machine.name,
     daemonInstanceId: instanceId,
     daemonJobId,
     delivery: input.delivery,
+    command: input.command,
     startedAt,
     ...(deadlineAt !== undefined && { deadlineAt }),
     outputs: ['stdout', 'stderr'],
