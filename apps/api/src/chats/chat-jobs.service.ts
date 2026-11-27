@@ -14,7 +14,37 @@ import {
 import { retryRunTransaction } from '../runs/run-transaction';
 import { notifyRunControl } from '../runs/run-control';
 import { ChatJobsRepository } from '../jobs/chat-jobs.repository';
+import { ArtifactsRepository } from '../tools/artifacts/artifacts-repository';
 import { ChatsRepository } from './chats-repository';
+
+/** The most of one output a response carries: its last 64 KiB. */
+export const JOB_OUTPUT_RESPONSE_BYTES = 64 * 1024;
+
+export type ChatJobOutputPart = {
+  readonly name: string;
+  readonly content: string;
+  readonly cut: boolean;
+};
+
+export type ChatJobOutput = {
+  readonly available: boolean;
+  readonly outputs: ReadonlyArray<ChatJobOutputPart>;
+};
+
+/** The last bound of an output, starting on a whole line when it is cut. */
+function outputTail(content: Buffer): Omit<ChatJobOutputPart, 'name'> {
+  if (content.length <= JOB_OUTPUT_RESPONSE_BYTES) {
+    return { content: content.toString('utf8'), cut: false };
+  }
+
+  const tail = content.subarray(content.length - JOB_OUTPUT_RESPONSE_BYTES);
+  const lineStart = tail.indexOf(0x0a);
+
+  return {
+    content: tail.subarray(lineStart + 1).toString('utf8'),
+    cut: true,
+  };
+}
 
 /**
  * The owner's view of the jobs of a Chat. Every read and write runs in the
@@ -40,6 +70,47 @@ export class ChatJobsService {
         ];
       }),
     );
+  }
+
+  /**
+   * The stored outputs of a settled job, as its artifact holds them. A running
+   * job is a conflict: its output lives on the Machine until it settles.
+   */
+  async output(
+    chatId: string,
+    jobId: string,
+    userId: string,
+  ): Promise<ChatJobOutput> {
+    const answer = await this.tenantDb.runAs(userId, async (tx) => {
+      const job = await (
+        await this.touch(tx, chatId, userId)
+      ).findById(chatId, userId, jobId);
+
+      if (job === undefined || job.state === 'running') return job;
+
+      if (job.artifactId === null) return { available: false, outputs: [] };
+
+      const artifacts = new ArtifactsRepository(tx);
+      const outputs: Array<ChatJobOutputPart> = [];
+
+      for (const name of job.outputs) {
+        const part = await artifacts.readPart(chatId, job.kind, job.seq, name);
+
+        if (part !== undefined)
+          outputs.push({ name, ...outputTail(part.content) });
+      }
+
+      return { available: true, outputs };
+    });
+
+    if (answer === undefined)
+      throw new NotFoundException(`Job ${jobId} not found`);
+
+    if ('state' in answer) {
+      throw new ConflictException('The job is still running');
+    }
+
+    return answer;
   }
 
   /**

@@ -16,6 +16,8 @@ function job(overrides: Partial<ChatJob> = {}): ChatJob {
     stoppedBy: null,
     runId: RUN_ID,
     toolCallId: 'call-4',
+    intent: null,
+    command: null,
     machineName: 'test-machine',
     daemonInstanceId: 'd1',
     daemonJobId: 'dj1',

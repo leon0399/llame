@@ -5,14 +5,19 @@ import type { ChatJobResponse } from "@/lib/api/generated/models";
 
 import { JobsSectionView } from "./jobs-section";
 
+const secondsAgo = (seconds: number) =>
+  new Date(Date.now() - seconds * 1000).toISOString();
+
 const job = (
   overrides: Partial<ChatJobResponse> &
     Pick<ChatJobResponse, "id" | "locator" | "state">,
 ): ChatJobResponse => ({
   chatId: "chat-1",
+  intent: null,
+  command: null,
   executor: "bash",
   stoppedBy: null,
-  startedAt: "2026-11-12T09:00:00.000Z",
+  startedAt: secondsAgo(64),
   settledAt: null,
   stopRequestedAt: null,
   stopRequestedBy: null,
@@ -31,6 +36,7 @@ const meta = {
   args: {
     jobs: [],
     onStop: () => {},
+    onFinishedOpenChange: () => {},
   },
 } satisfies Meta<typeof JobsSectionView>;
 
@@ -42,7 +48,12 @@ type Story = StoryObj<typeof meta>;
 export const StopAllWithoutLiveRun: Story = {
   args: {
     jobs: [
-      job({ id: "job-1", locator: "job://bash-1", state: "running" }),
+      job({
+        id: "job-1",
+        locator: "job://bash-1",
+        state: "running",
+        intent: "Watching the web dev server",
+      }),
       job({ id: "job-2", locator: "job://bash-2", state: "running" }),
     ],
     onStop: fn(),
@@ -56,34 +67,119 @@ export const StopAllWithoutLiveRun: Story = {
   },
 };
 
-/** Live jobs remain first, followed by settled outcomes in server order. */
-export const LiveAndSettledJobs: Story = {
+/**
+ * A running job goes by the intent of the call that started it, and by its
+ * locator when that call carried none. Its stop control carries that name.
+ */
+export const RunningJobsByIntent: Story = {
   args: {
     jobs: [
-      job({ id: "job-1", locator: "job://bash-1", state: "running" }),
+      job({
+        id: "job-1",
+        locator: "job://bash-1",
+        state: "running",
+        intent: "Running the API integration suite against a fresh database",
+        startedAt: secondsAgo(187),
+      }),
+      job({
+        id: "job-2",
+        locator: "job://bash-2",
+        state: "running",
+        startedAt: secondsAgo(9),
+      }),
+    ],
+    onStop: fn(),
+  },
+  play: async ({ args, canvas }) => {
+    await expect(canvas.getByText("job://bash-2")).toBeVisible();
+    await expect(canvas.queryByText("job://bash-1")).toBeNull();
+    await userEvent.click(
+      canvas.getByRole("button", {
+        name: "Stop Running the API integration suite against a fresh database",
+      }),
+    );
+    await expect(args.onStop).toHaveBeenCalledWith(["job-1"]);
+  },
+};
+
+/** Settled jobs stay out of the section; one control opens their panel. */
+export const FinishedJobsBehindTheirControl: Story = {
+  args: {
+    jobs: [
+      job({
+        id: "job-1",
+        locator: "job://bash-1",
+        state: "running",
+        intent: "Building the web app",
+      }),
       job({
         id: "job-2",
         locator: "job://bash-2",
         state: "succeeded",
+        intent: "Checking lint errors",
         exitCode: 0,
       }),
+      job({ id: "job-3", locator: "job://bash-3", state: "failed" }),
+    ],
+    onFinishedOpenChange: fn(),
+  },
+  play: async ({ args, canvas }) => {
+    await expect(canvas.getByText("Building the web app")).toBeVisible();
+    await expect(canvas.queryByText("Checking lint errors")).toBeNull();
+    await expect(canvas.queryByText("job://bash-3")).toBeNull();
+
+    const finished = canvas.getByRole("button", { name: /Finished/ });
+
+    await expect(finished).toHaveTextContent("2");
+    await userEvent.click(finished);
+    await expect(args.onFinishedOpenChange).toHaveBeenCalledWith(true);
+  },
+};
+
+/** With nothing running, the section says so above the Finished control. */
+export const OnlyFinishedJobs: Story = {
+  args: {
+    jobs: [
       job({
-        id: "job-3",
-        locator: "job://bash-3",
-        state: "failed",
-        exitCode: 1,
+        id: "job-1",
+        locator: "job://bash-1",
+        state: "cancelled",
+        stoppedBy: "owner",
       }),
-      job({ id: "job-4", locator: "job://bash-4", state: "cancelled" }),
-      job({ id: "job-5", locator: "job://bash-5", state: "timed_out" }),
+    ],
+    finishedOpen: true,
+  },
+  play: async ({ canvas }) => {
+    await expect(canvas.getByText("No running jobs")).toBeVisible();
+    await expect(
+      canvas.getByRole("button", { name: /Finished/ }),
+    ).toHaveAttribute("aria-expanded", "true");
+  },
+};
+
+/** A requested stop shows on the row and disables its control. */
+export const StopRequested: Story = {
+  args: {
+    jobs: [
       job({
-        id: "job-6",
-        locator: "job://bash-6",
-        state: "lost",
-        outcomeUnknown: true,
+        id: "job-1",
+        locator: "job://bash-1",
+        state: "running",
+        intent: "Watching the web dev server",
+        stopRequestedAt: secondsAgo(1),
+        stopRequestedBy: "owner",
       }),
     ],
   },
+  play: async ({ canvas }) => {
+    await expect(canvas.getByText("Stopping")).toBeVisible();
+    await expect(
+      canvas.getByRole("button", { name: "Stop Watching the web dev server" }),
+    ).toBeDisabled();
+  },
 };
+
+export const NoJobs: Story = {};
 
 export const Loading: Story = { args: { loading: true } };
 

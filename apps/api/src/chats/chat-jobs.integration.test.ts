@@ -53,6 +53,8 @@ vi.setConfig({ testTimeout: 60_000 });
 const jobBody = z.object({
   id: z.string(),
   locator: z.string(),
+  intent: z.string().nullable(),
+  command: z.string().nullable(),
   state: z.string(),
   stoppedBy: z.string().nullable(),
   stopRequestedBy: z.string().nullable(),
@@ -165,16 +167,18 @@ describe('chat jobs API', () => {
         result: { truncated: { stdout: true, stderr: false } },
       }),
     );
-    await startJob(chatId, 4);
+    await startJob(chatId, 4, { intent: 'Watching the dev server' });
 
     const res = await list(chatId);
 
     expect(res.status).toBe(200);
     const body = listBody.parse(res.body);
 
-    expect(body.items.map((item) => [item.locator, item.state])).toEqual([
-      ['job://bash-4', 'running'],
-      ['job://bash-2', 'succeeded'],
+    expect(
+      body.items.map((item) => [item.locator, item.state, item.intent]),
+    ).toEqual([
+      ['job://bash-4', 'running', 'Watching the dev server'],
+      ['job://bash-2', 'succeeded', null],
     ]);
     expect(body.items.map((item) => item.truncated)).toEqual([[], ['stdout']]);
   });
@@ -468,6 +472,60 @@ describe('chat jobs API', () => {
           );
 
     expect(part?.content.toString()).toBe('spilled output');
+  });
+
+  it("reads a settled job's stored output for its owner only", async () => {
+    const chatId = await createChat();
+
+    const seq = await reserveArtifactSeq(tenantDb, {
+      chatId,
+      userId: userAId,
+    });
+
+    const job = await startJob(chatId, seq, { command: 'pnpm test' });
+
+    const output = (cookie = cookieA) =>
+      request(http)
+        .get(`/api/v1/chats/${chatId}/jobs/${job.id}/output`)
+        .set('Cookie', cookie);
+
+    expect((await output()).status).toBe(409);
+
+    await settleBashJob(
+      tenantDb,
+      job,
+      {
+        output: {
+          stdout: 'line one\nline two\n',
+          stderr: 'a warning\n',
+          truncated: false,
+          truncatedStreams: { stdout: false, stderr: false },
+        },
+        settlement: { state: 'failed', result: { exitCode: 1 } },
+      },
+      {
+        maxBytes: 131_072,
+        hostFiles: false,
+        backgrounded: false,
+        noticeRuns: { startOnSettlement: () => Promise.resolve() },
+        wake: { wakeForChatInTransaction: () => Promise.resolve(false) },
+      },
+    );
+
+    const res = await output();
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({
+      available: true,
+      outputs: [
+        { name: 'stdout', content: 'line one\nline two\n', cut: false },
+        { name: 'stderr', content: 'a warning\n', cut: false },
+      ],
+    });
+    expect(listBody.parse((await list(chatId)).body).items[0]?.command).toBe(
+      'pnpm test',
+    );
+    expect((await output(cookieB)).status).toBe(404);
   });
 
   it('rolls back job settlement when the output artifact cannot be written', async () => {

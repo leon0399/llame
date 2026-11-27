@@ -1360,6 +1360,65 @@
         "tags": ["chats"]
       }
     },
+    "/api/v1/chats/{chatId}/jobs/{jobId}/output": {
+      "get": {
+        "operationId": "readChatJobOutput",
+        "parameters": [
+          {
+            "name": "chatId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "name": "jobId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The stored outputs of a settled job, each up to 64 KiB.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChatJobOutputResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed id"
+          },
+          "401": {
+            "description": ""
+          },
+          "404": {
+            "description": "Chat or job not found, or not owned"
+          },
+          "409": {
+            "description": "The job is still running"
+          }
+        },
+        "security": [
+          {
+            "cookie": []
+          },
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "",
+        "tags": ["chats"]
+      }
+    },
     "/api/v1/chats/{chatId}/jobs/{jobId}": {
       "patch": {
         "operationId": "stopChatJob",
@@ -5983,6 +6042,18 @@
             "type": "string",
             "example": "job://bash-4"
           },
+          "intent": {
+            "type": "string",
+            "nullable": true,
+            "example": "Running the test suite",
+            "description": "The intent the model gave the tool call that started the job; null when that call carried none."
+          },
+          "command": {
+            "type": "string",
+            "nullable": true,
+            "example": "pnpm --filter api test",
+            "description": "The shell text the job runs; null for a job recorded without one."
+          },
           "executor": {
             "type": "string",
             "example": "bash"
@@ -6009,12 +6080,12 @@
             "type": "string"
           },
           "settledAt": {
-            "type": "object",
+            "type": "string",
             "format": "date-time",
             "nullable": true
           },
           "stopRequestedAt": {
-            "type": "object",
+            "type": "string",
             "format": "date-time",
             "nullable": true
           },
@@ -6059,6 +6130,8 @@
           "id",
           "chatId",
           "locator",
+          "intent",
+          "command",
           "executor",
           "state",
           "stoppedBy",
@@ -6086,6 +6159,40 @@
           }
         },
         "required": ["items"]
+      },
+      "ChatJobOutputPart": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "example": "stdout"
+          },
+          "content": {
+            "type": "string",
+            "description": "The stored text of the output."
+          },
+          "cut": {
+            "type": "boolean",
+            "description": "True when the stored output is longer than the response bound; `content` then holds its last part."
+          }
+        },
+        "required": ["name", "content", "cut"]
+      },
+      "ChatJobOutputResponse": {
+        "type": "object",
+        "properties": {
+          "available": {
+            "type": "boolean",
+            "description": "False when the job settled without a stored output, such as a lost job."
+          },
+          "outputs": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ChatJobOutputPart"
+            }
+          }
+        },
+        "required": ["available", "outputs"]
       },
       "ChangeChatJobDto": {
         "type": "object",

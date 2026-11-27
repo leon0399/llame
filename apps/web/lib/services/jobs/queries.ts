@@ -6,7 +6,11 @@ import {
 } from "@tanstack/react-query";
 
 import { useOptionalLiveUpdates } from "@/contexts/live-updates-context";
-import { listChatJobs, stopChatJob } from "../../api/generated/chats/chats";
+import {
+  listChatJobs,
+  readChatJobOutput,
+  stopChatJob,
+} from "../../api/generated/chats/chats";
 import { ChangeChatJobDtoState } from "../../api/generated/models";
 import type { ChatJobResponse } from "../../api/generated/models";
 import { createAuthenticatedBrowserFetch } from "../../api/fetch";
@@ -44,6 +48,29 @@ export function useChatJobs(chatId: string, enabled: boolean) {
     ...chatJobsQueryOptions(chatId, liveConnected),
     enabled,
     refetchIntervalInBackground: true,
+  });
+}
+
+/**
+ * A settled job's stored output. It never changes once the job settles, so
+ * it is read once, when the owner first opens the job, and kept.
+ */
+export function useChatJobOutput(
+  chatId: string,
+  jobId: string,
+  enabled: boolean,
+) {
+  return useQuery({
+    queryKey: ["chat-job-output", chatId, jobId] as const,
+    queryFn: ({ signal }) =>
+      readChatJobOutput(
+        chatId,
+        jobId,
+        { signal },
+        createAuthenticatedBrowserFetch(globalThis.fetch),
+      ),
+    enabled,
+    staleTime: Number.POSITIVE_INFINITY,
   });
 }
 

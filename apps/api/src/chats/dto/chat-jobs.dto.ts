@@ -36,6 +36,25 @@ export class ChatJobResponse {
   @ApiProperty({ example: 'job://bash-4' })
   locator!: string;
 
+  @ApiProperty({
+    type: String,
+    nullable: true,
+    example: 'Running the test suite',
+    description:
+      'The intent the model gave the tool call that started the job; null ' +
+      'when that call carried none.',
+  })
+  intent!: string | null;
+
+  @ApiProperty({
+    type: String,
+    nullable: true,
+    example: 'pnpm --filter api test',
+    description:
+      'The shell text the job runs; null for a job recorded without one.',
+  })
+  command!: string | null;
+
   @ApiProperty({ example: 'bash' })
   executor!: string;
 
@@ -52,10 +71,10 @@ export class ChatJobResponse {
   @ApiProperty({ format: 'date-time' })
   startedAt!: Date;
 
-  @ApiProperty({ format: 'date-time', nullable: true })
+  @ApiProperty({ type: String, format: 'date-time', nullable: true })
   settledAt!: Date | null;
 
-  @ApiProperty({ format: 'date-time', nullable: true })
+  @ApiProperty({ type: String, format: 'date-time', nullable: true })
   stopRequestedAt!: Date | null;
 
   @ApiProperty({ enum: chatJobStoppers, nullable: true })
@@ -98,11 +117,39 @@ export class ChatJobsResponse {
   items!: Array<ChatJobResponse>;
 }
 
+export class ChatJobOutputPart {
+  @ApiProperty({ example: 'stdout' })
+  name!: string;
+
+  @ApiProperty({ description: 'The stored text of the output.' })
+  content!: string;
+
+  @ApiProperty({
+    description:
+      'True when the stored output is longer than the response bound; ' +
+      '`content` then holds its last part.',
+  })
+  cut!: boolean;
+}
+
+export class ChatJobOutputResponse {
+  @ApiProperty({
+    description:
+      'False when the job settled without a stored output, such as a lost job.',
+  })
+  available!: boolean;
+
+  @ApiProperty({ type: () => [ChatJobOutputPart] })
+  outputs!: Array<ChatJobOutputPart>;
+}
+
 export function toChatJobResponse(job: ChatJob): ChatJobResponse {
   return {
     id: job.id,
     chatId: job.chatId,
     locator: formatJobLocator(job.kind, job.seq),
+    intent: job.intent,
+    command: job.command,
     executor: job.kind,
     state: job.state,
     stoppedBy: job.stoppedBy,

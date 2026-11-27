@@ -22,6 +22,8 @@ export type NewChatJob = {
   readonly seq: number;
   readonly runId: string;
   readonly toolCallId: string;
+  readonly intent?: string;
+  readonly command?: string;
   readonly machineName: string;
   readonly daemonInstanceId: string;
   readonly daemonJobId: string;

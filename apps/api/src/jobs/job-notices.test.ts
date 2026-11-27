@@ -23,6 +23,8 @@ function job(): ChatJob {
     stoppedBy: null,
     runId: '11111111-1111-4111-8111-111111111111',
     toolCallId: 'call-4',
+    intent: null,
+    command: null,
     machineName: 'test-machine',
     daemonInstanceId: 'd1',
     daemonJobId: 'dj1',

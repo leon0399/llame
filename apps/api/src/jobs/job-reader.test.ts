@@ -68,6 +68,8 @@ function contextOf(
     seq: 1,
     runId: 'run-id',
     toolCallId: 'call-1',
+    intent: null,
+    command: null,
     machineName: 'host-a',
     daemonInstanceId: 'daemon-id',
     daemonJobId: 'daemon-job-id',

@@ -187,21 +187,24 @@ function SessionDetailsBody({
   const jobs = useJobsSection(chatId, panelOpen);
 
   return (
-    <SidebarContent>
-      <SectionList
-        initialLayout={layout}
-        sections={{
-          environment: {
-            title: "Environment",
-            summary: environmentSummary(environment),
-            content: <EnvironmentSection {...environment} />,
-          },
-          jobs,
-          context: demoContextView,
-          changes: demoChangesView,
-        }}
-      />
-    </SidebarContent>
+    <>
+      <SidebarContent>
+        <SectionList
+          initialLayout={layout}
+          sections={{
+            environment: {
+              title: "Environment",
+              summary: environmentSummary(environment),
+              content: <EnvironmentSection {...environment} />,
+            },
+            jobs: jobs.section,
+            context: demoContextView,
+            changes: demoChangesView,
+          }}
+        />
+      </SidebarContent>
+      {jobs.finishedPanel}
+    </>
   );
 }
 

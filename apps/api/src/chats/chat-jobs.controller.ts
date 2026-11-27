@@ -24,6 +24,7 @@ import { CurrentUser } from '../auth/auth-context';
 import { ChatJobsService } from './chat-jobs.service';
 import {
   ChangeChatJobDto,
+  ChatJobOutputResponse,
   ChatJobResponse,
   ChatJobsResponse,
   toChatJobResponse,
@@ -36,7 +37,7 @@ import {
 export class ChatJobsController {
   constructor(
     @Inject(ChatJobsService)
-    private readonly jobs: Pick<ChatJobsService, 'list' | 'stop'>,
+    private readonly jobs: Pick<ChatJobsService, 'list' | 'stop' | 'output'>,
   ) {}
 
   @Get()
@@ -56,6 +57,32 @@ export class ChatJobsController {
     const items = await this.jobs.list(chatId, userId);
 
     return { items: items.map(toChatJobResponse) };
+  }
+
+  @Get(':jobId/output')
+  @ApiOperation({ operationId: 'readChatJobOutput' })
+  @ApiParam({ name: 'chatId', format: 'uuid' })
+  @ApiParam({ name: 'jobId', format: 'uuid' })
+  @ApiOkResponse({
+    type: ChatJobOutputResponse,
+    description: 'The stored outputs of a settled job, each up to 64 KiB.',
+  })
+  @ApiBadRequestResponse({ description: 'Malformed id' })
+  @ApiNotFoundResponse({ description: 'Chat or job not found, or not owned' })
+  @ApiConflictResponse({ description: 'The job is still running' })
+  @ApiUnauthorizedResponse()
+  async readChatJobOutput(
+    @CurrentUser() userId: string,
+    @Param('chatId', ParseUUIDPipe) chatId: string,
+    @Param('jobId', ParseUUIDPipe) jobId: string,
+  ): Promise<ChatJobOutputResponse> {
+    const { available, outputs } = await this.jobs.output(
+      chatId,
+      jobId,
+      userId,
+    );
+
+    return { available, outputs: [...outputs] };
   }
 
   @Patch(':jobId')
