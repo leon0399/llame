@@ -40,6 +40,7 @@ const USAGE = `Usage: node .agents/skills/pull-requests/scripts/watch-pr.mjs [op
 a whole stack, are watched together and settle together.
 
   --once                 exit after the first poll that prints a change
+  --lines                one line per change, for a watcher that wakes per line
   --floor <age>          review floor after a push (default 15m; 0 on a draft)
   --interval <age>       time between polls (default 60s)
   --wait-for <logins>    also wait until each bot has reviewed or commented
@@ -66,6 +67,7 @@ function parseOptions(argv) {
     allowPositionals: true,
     options: {
       once: { type: "boolean", default: false },
+      lines: { type: "boolean", default: false },
       floor: { type: "string" },
       interval: { type: "string", default: "60s" },
       state: { type: "string" },
@@ -232,8 +234,25 @@ function countBuckets(checks) {
   return counts;
 }
 
-export function formatChanges(pr, sections) {
+export function formatChanges(pr, sections, lines = false) {
   const order = ["head", "checks", "threads", "reviews", "comments"];
+  if (lines) {
+    // One event per line, for a harness that delivers each output line as an
+    // event: the entry's first lines, flattened; fetch-pr-reviews has the rest.
+    const events = order.flatMap((name) =>
+      sections[name].map((entry) => {
+        const text = entry
+          .split("\n")
+          .map((line) => line.trim().replace(/^- /, ""))
+          .filter(Boolean)
+          .slice(0, 3)
+          .join(" · ");
+        const event = `${pr.repo}#${pr.number} ${name}: ${text}`;
+        return event.length > 240 ? `${event.slice(0, 239)}…` : event;
+      }),
+    );
+    return events.length > 0 ? events.join("\n") : null;
+  }
   const parts = order
     .filter((name) => sections[name].length > 0)
     .flatMap((name) => [`## ${name} +${sections[name].length}`, ...sections[name]]);
@@ -261,6 +280,11 @@ export function postedSince(pr, bot, since) {
 // --------------------------------------------------------------------- run
 
 const out = (line) => process.stdout.write(`${line}\n`);
+// A reader that stops early, such as `head`, is not an error.
+process.stdout.on("error", (error) => {
+  if (error.code === "EPIPE") process.exit(0);
+  throw error;
+});
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 function statePath(options, refs) {
@@ -292,7 +316,7 @@ async function run(argv) {
       const checks = readChecks(ref);
       const { sections, state } = diffPull(saved[key] ?? { seen: {} }, pr, checks, now);
       saved[key] = state;
-      const text = formatChanges(pr, sections);
+      const text = formatChanges(pr, sections, options.lines);
       if (text) {
         out(text);
         printed = true;

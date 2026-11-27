@@ -22,14 +22,28 @@ of the head, comments since the push. `--reset` prints that again.
 
 ## Running it
 
-Wake on its output; act on each block as it arrives.
+Wake on its output; act on each change as it arrives. Pick the form your
+harness supports, in this order:
 
-- **A harness that wakes on output** (Claude Code's `Monitor`): run the
-  watcher under it; every block it prints wakes you, and `# settled:` ends it.
-- **A harness that wakes when a background command finishes** (omp `bash`
-  with `async`): run it with `--once`. It exits after the first poll that
-  prints a change, ending with `# waiting: …; run again to continue`; act,
-  then start it again with the same arguments.
+- **Per-line events** (Claude Code's `Monitor` tool): start a monitor on
+
+  ```bash
+  node .agents/skills/pull-requests/scripts/watch-pr.mjs --lines <pr>...
+  ```
+
+  `--lines` prints one line per change (`<repo>#<N> <kind>: <headline>`), so
+  each change arrives as one event. Read the full text of a thread or review
+  with `fetch-pr-reviews.mjs` before answering it. A monitor ends at its
+  deadline (5 minutes by default, 30 at most; set the longest the harness
+  allows): when it ends before `# settled:`, start it again with the same
+  arguments. The state file carries over, so nothing is printed twice.
+- **Completion wake-ups** (omp `bash` with `async`, or any background command
+  that reports when it exits): run the watcher with `--once`. It exits after
+  the first poll that prints a change, ending with
+  `# waiting: …; run again to continue`; act, then start it again with the
+  same arguments.
+- **Neither**: run it in the foreground without `--once`; it returns at
+  `# settled:`. Use this only when there is nothing else to work on.
 
 While it runs, keep working: fix the findings already printed, prepare the
 next layer, update the body. A blocked wait is the watcher running with
