@@ -61,8 +61,10 @@ split required safety tests away from their behavior to meet the review target.
 Use the inline tests of `crates/machine-git` and `apps/machine/tests/git.rs`
 for the daemon wire, root guards, typed failures, deadline, idempotency, and
 the absence of file bytes in protocol results. Run them with a narrow
-`cargo test --locked -p machine-git` or the workspace script behind
-`pnpm --filter machine test`. Pure matcher tests alone cannot prove
+`cargo test --locked -p machine-git` for the `machine-git` inline tests and
+`cargo test --locked -p llame-machine --test git` for the daemon integration
+tests, or the workspace script behind `pnpm --filter machine test`, which runs
+both. Pure matcher tests alone cannot prove
 filesystem or Git eligibility behavior. Use real temporary git fixtures for
 bytes, status, modes, links, failures, and removal.
 

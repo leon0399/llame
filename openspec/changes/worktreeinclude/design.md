@@ -11,11 +11,12 @@ depends on the `ignore` crate 0.4 for search in `crates/machine-grep`.
 
 `crates/machine-git` implements the gRPC `GitService` of the Rust Machine
 daemon. Its `create_worktree` handler runs an argv-only
-`git worktree add --no-track` under a 120-second deadline, with a pinned,
-environment-cleared git process and process-group kill. Every mutating call
-carries a `request_id`; the daemon retains completed results in its
-idempotency cache, and the bootstrap handshake requires an exact protocol
-version match.
+`git worktree add --no-track` under a 120-second deadline. The repository
+check before the add runs pinned; the add itself runs through the crate's
+shared invocation with a cleared environment and process-group kill, without
+pinning. Every mutating call carries a `request_id`; the daemon retains
+completed results in its idempotency cache, and the bootstrap handshake
+requires an exact protocol version match.
 
 The API reaches that handler through `apps/api/src/machines/wire/git.ts` and
 `apps/api/src/machines/executor-git.service.ts`. Both Worktree planners
@@ -152,10 +153,11 @@ type before its copy causes a known failure, not a silent skip.
 
 For known copy failures return a sanitized typed `GitFailure`. The API maps it
 to the existing `worktree_failed` tool result and Chat workspace status, and
-adds the known `leftDirectory` from its own plan. The internal result readers
-must preserve that locator. Do not expose raw OS errors, manifest lines, or
-file bytes. A bounded relative file path and a fixed reason are sufficient. No
-public success field is needed.
+adds the known `leftDirectory` from its own plan, in the plan's existing
+locator form. The model-facing renderer keeps stripping that field. The
+internal result readers must preserve that locator. Do not expose raw OS
+errors, manifest lines, or file bytes. A bounded relative file path and a
+fixed reason are sufficient. No public success field is needed.
 
 On any partial failure retain the new directory and branch. Tool entry keeps
 its previous binding. Chat creation keeps its filed Chat but stores no initial
@@ -215,17 +217,24 @@ files, including tracked files. Otherwise, creation could report success while
 silently running against the target branch's different environment. Git exposes
 any resulting tracked differences through its ordinary change state.
 
-Copying does not carry a read rejection to the destination. Operators must cover
-each relevant destination when they restrict later reads. The copy still obeys
-its source and destination boundaries and cannot follow symlinks outside them.
+Copying does not carry a read rejection to the destination. A later admitted
+read of a copied file can return its contents to model context; the read
+groups at the destination govern that, and the copy's own no-disclosure rule
+does not. Operators must cover each relevant destination when they restrict
+later reads. The copy still obeys its source and destination boundaries and
+cannot follow symlinks outside them.
 The implementation ADR links the canonical `worktree-includes` specification
 and this change's recorded decisions.
 
 ## Risks / Trade-offs
 
 - Broader copy authority can place a source-read-rejected file at a readable
-  destination. This is an approved consequence. Explain it in operator and
-  permission documentation, with positive and negative destination-read tests.
+  destination, and a later admitted read there can return its contents to
+  model context. The owner confirmed this trade-off in the
+  [decision record](https://github.com/leon0399/llame/issues/1910#issuecomment-7111200259);
+  approval of the published revision must accept it with the ADR in view.
+  Explain it in operator and permission documentation, with positive and
+  negative destination-read tests.
 - Overwrites can make a new Worktree dirty immediately. Preserve the Git index
   and show the real status rather than hiding the differences.
 - Broad patterns can copy expensive trees. Honor explicit intent, stream the
