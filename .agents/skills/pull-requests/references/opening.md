@@ -25,7 +25,7 @@ Split a concern when the split improves review or creates a safe merge point.
   generated churn counted separately
   ([review budget](../../../../CONTRIBUTING.md#review-budget)).
 - Add or amend the PR's `.changeset/` entry when it ships work
-  ([CONTRIBUTING.md](../../../../CONTRIBUTING.md#4-implementation-layers)).
+  ([CONTRIBUTING.md](../../../../CONTRIBUTING.md#changesets)).
 - Run the narrow evidence for the touched surface
   ([verification table](../../../../CONTRIBUTING.md#verification)) and keep the
   exact commands and results for the body.
@@ -46,7 +46,7 @@ A stack layer publishes with `gh stack push` instead.
 
 Add the PR to the delivery Project with Status, Priority, Workstream, and Next
 action, then read the fields back
-([Project tracking](../../../../CONTRIBUTING.md#project-tracking) maps PR
+([Project tracking](../../../../docs/development/project-tracking.md) maps PR
 states to Status). A draft implementation or chore PR is `In progress`; a draft
 proposal is `Design`. Repeat the update and read-back at every later GitHub
 transition: ready, merged, or closed.

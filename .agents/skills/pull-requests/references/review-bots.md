@@ -27,7 +27,7 @@ unknown membership: ask Leo. Pass the expected logins to the watcher with
 |Codex|`chatgpt-codex-connector`|Reviews when the PR is marked ready; inline threads labelled `[P1]`/`[P2]`. A quota failure is a skip.|
 |Greptile|`greptile-apps`|A confidence-score summary comment plus `P1`/`P2` threads. It reads the body's Decisions to review and records those limits as intentional.|
 |CodeRabbit|`coderabbitai`|Path filters in [`.coderabbit.yaml`](../../../../.coderabbit.yaml). Rate-limits after several pushes: a skip. Its `CHANGES_REQUESTED` stays after the fix until Leo dismisses it.|
-|Cubic|`cubic-dev-ai`|Rules in [`cubic.yaml`](../../../../cubic.yaml) and `.cubic/`. May submit a real approval on a low-risk change and resolves its own threads once it judges them addressed; an approval is a signal, not a merge gate, and a thread it resolved still needs your disposition. Ultrareview runs only when triggered by hand. It has posted on none of the latest 60 PRs: when absent, record it as a skip.|
+|Cubic|`cubic-dev-ai`|Rules in [`cubic.yaml`](../../../../cubic.yaml), which links `REVIEW_GUIDE.md` and `CODING_STANDARDS.md`. May submit a real approval on a low-risk change and resolves its own threads once it judges them addressed; an approval is a signal, not a merge gate, and a thread it resolved still needs your disposition. Ultrareview runs only when triggered by hand. It has posted on none of the latest 60 PRs: when absent, record it as a skip.|
 |Cursor Bugbot|`cursor`|Occasional inline findings; same rules as the others.|
 |Indent|`indent`|Out of credits: a skip.|
 |Codecov, Vercel|`codecov`, `vercel`|Status and deployment bots, not reviewers; their checks are CI.|

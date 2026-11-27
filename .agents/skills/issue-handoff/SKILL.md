@@ -5,7 +5,7 @@ description: Issue handoff in llame. Use to write an issue brief, hand an issue 
 
 # Issue handoff
 
-[CONTRIBUTING.md, "Issues and handoff"](../../../CONTRIBUTING.md#issues-and-handoff) owns the policy: the hierarchy, what the body carries, trigger labels, pickup markers, and claims. [Wayfinding](../../../docs/development/wayfinding.md#maps-and-delivery-issues) owns the step from a map to a brief. Read both before any branch. This skill is the procedure.
+[Issues and handoff](../../../docs/development/issues.md) owns the policy: the hierarchy, what the body carries, trigger labels, pickup markers, and claims. [Wayfinding](../../../docs/development/wayfinding.md#maps-and-delivery-issues) owns the step from a map to a brief. Read both before any branch. This skill is the procedure.
 
 Every branch serves one test, the **stranger test**: someone with no chat history can start the next step from the issue body and the links it gives.
 
