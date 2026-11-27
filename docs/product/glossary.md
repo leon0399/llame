@@ -264,6 +264,13 @@ The letter before a number in a selector that names what the number counts.
 are reserved for pages and messages, and no source accepts them yet.
 _Avoid_: unit, suffix letter
 
+**Walk policy**:
+The rule for what a tree enumeration skips: the fixed set `.git`, `.jj`,
+`.hg`, `.svn`, and `node_modules`, and the entries that `.ignore` and
+`.gitignore` files exclude. A path that a caller names exactly is never
+skipped.
+_Avoid_: exclude list, skip rules
+
 **Listing**:
 What `read` returns for a locator that names a collection rather than one
 file, such as a directory or a Knowledge Space root.

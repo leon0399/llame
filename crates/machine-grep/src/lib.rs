@@ -15,6 +15,11 @@ use machine_protocol::v1::{
 };
 use regex::{Regex, RegexBuilder};
 use tonic::{Request, Status};
+use walk_policy::{
+    add_ignore_files, collect_ignores, ignored, is_fixed, is_ignore_file, registered_root,
+};
+
+pub mod walk_policy;
 
 pub type SearchStream = tokio_stream::wrappers::ReceiverStream<Result<SearchFilesResponse, Status>>;
 
@@ -185,13 +190,11 @@ fn run_search(
 ) {
     let mut ignore_rules = Vec::new();
     if respect_ignore_files && kind == PathKind::Directory {
-        let registered_root = guard
-            .roots()
-            .iter()
-            .filter(|registered| root.starts_with(registered))
-            .max_by_key(|registered| registered.components().count())
-            .map_or(root, PathBuf::as_path);
-        collect_ignores(root, registered_root, &mut ignore_rules);
+        collect_ignores(
+            root,
+            registered_root(guard.roots(), root),
+            &mut ignore_rules,
+        );
     }
     let mut walker = if kind == PathKind::File {
         Walker::file(root.to_path_buf())
@@ -667,7 +670,7 @@ impl Walker {
         let mut entries = Vec::new();
         for item in iter.flatten() {
             let path = item.path();
-            if path.file_name().is_some_and(|name| name == ".git") {
+            if is_fixed(&path) {
                 continue;
             }
             let Ok(metadata) = fs::symlink_metadata(&path) else {
@@ -735,81 +738,6 @@ fn matching_spans(line: &str, patterns: &[Regex]) -> Vec<(usize, usize)> {
     spans
 }
 
-fn collect_ignores(
-    root: &Path,
-    registered_root: &Path,
-    rules: &mut Vec<(PathBuf, ignore::gitignore::Gitignore)>,
-) {
-    let mut ancestors = Vec::new();
-    let mut dir = root.to_path_buf();
-    while dir.starts_with(registered_root) {
-        ancestors.push(dir.clone());
-        if dir == registered_root {
-            break;
-        }
-        if !dir.pop() {
-            break;
-        }
-    }
-    let ordered = ancestors.into_iter().rev().collect::<Vec<_>>();
-    let repository = ordered
-        .iter()
-        .rposition(|dir| dir.join(".git").exists())
-        .unwrap_or(0);
-    for (index, dir) in ordered.iter().enumerate() {
-        if index >= repository {
-            add_ignore_file(dir, ".gitignore", rules);
-        }
-        add_ignore_file(dir, ".ignore", rules);
-    }
-}
-
-fn add_ignore_files(dir: &Path, rules: &mut Vec<(PathBuf, ignore::gitignore::Gitignore)>) {
-    add_ignore_file(dir, ".gitignore", rules);
-    add_ignore_file(dir, ".ignore", rules);
-}
-
-fn add_ignore_file(
-    dir: &Path,
-    name: &str,
-    rules: &mut Vec<(PathBuf, ignore::gitignore::Gitignore)>,
-) {
-    let file = dir.join(name);
-    let Ok(metadata) = fs::symlink_metadata(&file) else {
-        return;
-    };
-    if !metadata.is_file() {
-        return;
-    }
-    let mut builder = ignore::gitignore::GitignoreBuilder::new(dir);
-    if builder.add(&file).is_none()
-        && let Ok(matcher) = builder.build()
-    {
-        rules.push((dir.to_path_buf(), matcher));
-    }
-}
-
-fn ignored(path: &Path, is_dir: bool, rules: &[(PathBuf, ignore::gitignore::Gitignore)]) -> bool {
-    let mut ignored = false;
-    for (dir, matcher) in rules {
-        if !path.starts_with(dir) {
-            continue;
-        }
-        let matched = matcher.matched(path, is_dir);
-        if matched.is_ignore() {
-            ignored = true;
-        } else if matched.is_whitelist() {
-            ignored = false;
-        }
-    }
-    ignored
-}
-
-fn is_ignore_file(path: &str) -> bool {
-    path.rsplit('/')
-        .next()
-        .is_some_and(|name| matches!(name, ".gitignore" | ".ignore"))
-}
 #[cfg(test)]
 mod tests {
     use super::*;
