@@ -305,21 +305,60 @@ function RemountableProjectPage() {
   );
 }
 
-/** The project's instruction editor once its page has settled. */
-async function instructionsEditor(root: HTMLElement) {
-  const canvas = within(root);
-
-  const panel = within(
-    await canvas.findByRole("complementary", { name: "Project settings" }),
+/** The page's settings panel once the page has settled. */
+async function settingsPanel(root: HTMLElement) {
+  return within(
+    await within(root).findByRole("complementary", {
+      name: "Project settings",
+    }),
   );
+}
+
+/** Open the instruction editor from the Instructions section: its card when
+ *  instructions are stored, otherwise its call to add some. */
+async function openInstructionsEditor(root: HTMLElement) {
+  const panel = await settingsPanel(root);
+
+  await userEvent.click(
+    await panel.findByRole("button", {
+      name: /^(Edit|View|Add) instructions/,
+    }),
+  );
+
+  const element = await screen.findByRole("dialog", {
+    name: "Project instructions",
+  });
+
+  // The dialog fades and zooms in; its contents only count as visible once
+  // that animation has finished. One frame lets the animation start.
+  await new Promise((resolve) => requestAnimationFrame(resolve));
+  await Promise.all(
+    element
+      .getAnimations({ subtree: true })
+      .map((animation) => animation.finished),
+  );
+
+  const dialog = within(element);
 
   return {
     panel,
-    textarea: await panel.findByRole("textbox", {
-      name: "Project instructions",
-    }),
-    save: panel.getByRole("button", { name: "Save instructions" }),
+    dialog,
+    textarea: dialog.getByRole("textbox", { name: "Project instructions" }),
   };
+}
+
+/** The editor closes once its save lands. */
+async function editorClosed() {
+  await waitFor(() =>
+    expect(
+      screen.queryByRole("dialog", { name: "Project instructions" }),
+    ).not.toBeInTheDocument(),
+  );
+}
+
+/** How many instruction updates have been sent so far. */
+function updateCount() {
+  return sentRoutes().filter((route) => route === PROJECT_UPDATE_ROUTE).length;
 }
 
 /** Remount the page and wait for its fresh project-list read. */
@@ -522,21 +561,29 @@ export const NoChats: Story = {
 
 /**
  * Typing guidance and saving persists it: the PATCH carries the literal text,
- * and after a remount — the query cache dropped, the page reloaded — the
- * editor still shows the stored text.
+ * the editor closes, and the section's card shows the stored text. After a
+ * remount — the query cache dropped, the page reloaded — the editor opens on
+ * the stored text with nothing to save.
  *
  * @summary saved instructions are literal and survive a remount
  */
 export const SavesInstructionsAndReloads: Story = {
   tags: ["ai-generated"],
   play: async ({ canvasElement }) => {
-    const { panel, textarea, save } = await instructionsEditor(canvasElement);
+    const { panel, dialog, textarea } =
+      await openInstructionsEditor(canvasElement);
 
-    await expect(panel.getByText(/sent to your model provider/i)).toBeVisible();
+    const save = dialog.getByRole("button", { name: "Save" });
+
+    await expect(
+      dialog.getByText(/sent to your model provider/i),
+    ).toBeVisible();
     await expect(textarea).toHaveValue("");
     await expect(save).toBeDisabled();
 
     await userEvent.type(textarea, "Prefer small, reversible changes.");
+    // The count stays hidden until the text nears the cap.
+    await expect(dialog.queryByText(/characters$/)).not.toBeInTheDocument();
     await expect(save).toBeEnabled();
     await userEvent.click(save);
 
@@ -544,22 +591,26 @@ export const SavesInstructionsAndReloads: Story = {
     await expect(lastUpdateBody()).resolves.toEqual({
       instructions: "Prefer small, reversible changes.",
     });
-    await waitFor(() => expect(save).toBeDisabled());
-    await expect(textarea).toHaveValue("Prefer small, reversible changes.");
+    await editorClosed();
+    await expect(
+      await panel.findByRole("button", { name: "Edit instructions" }),
+    ).toHaveAccessibleDescription("Prefer small, reversible changes.");
 
     await reloadProjectPage(canvasElement);
 
-    const reloaded = await instructionsEditor(canvasElement);
+    const reloaded = await openInstructionsEditor(canvasElement);
     await expect(reloaded.textarea).toHaveValue(
       "Prefer small, reversible changes.",
     );
-    await expect(reloaded.save).toBeDisabled();
+    await expect(
+      reloaded.dialog.getByRole("button", { name: "Save" }),
+    ).toBeDisabled();
   },
 };
 
 /**
- * Clearing the editor and saving sends `null`; after a remount the stored
- * instructions are gone and Save stays disabled because both sides are empty.
+ * Emptying the editor and saving sends `null`; the section falls back to its
+ * call to add instructions, and stays there after a remount.
  *
  * @summary cleared instructions persist as absent through a remount
  */
@@ -572,35 +623,39 @@ export const ClearsInstructionsAndReloads: Story = {
     ];
   },
   play: async ({ canvasElement }) => {
-    const { panel, textarea, save } = await instructionsEditor(canvasElement);
+    const { panel, dialog, textarea } =
+      await openInstructionsEditor(canvasElement);
+
+    const save = dialog.getByRole("button", { name: "Save" });
 
     await expect(textarea).toHaveValue("Keep replies short.");
     await expect(save).toBeDisabled();
 
     await userEvent.clear(textarea);
-    await waitFor(() =>
-      expect(panel.getByText("0 / 16000 Unicode code points")).toBeVisible(),
-    );
     await expect(save).toBeEnabled();
     await userEvent.click(save);
 
     await waitFor(() => expect(sentRoutes()).toContain(PROJECT_UPDATE_ROUTE));
     await expect(lastUpdateBody()).resolves.toEqual({ instructions: null });
-    await waitFor(() => expect(save).toBeDisabled());
-    await expect(textarea).toHaveValue("");
+    await editorClosed();
+    await expect(
+      await panel.findByRole("button", { name: /^Add instructions/ }),
+    ).toBeVisible();
 
     await reloadProjectPage(canvasElement);
 
-    const reloaded = await instructionsEditor(canvasElement);
-    await expect(reloaded.textarea).toHaveValue("");
-    await expect(reloaded.save).toBeDisabled();
+    await expect(
+      await (
+        await settingsPanel(canvasElement)
+      ).findByRole("button", { name: /^Add instructions/ }),
+    ).toBeVisible();
   },
 };
 
 /**
  * A successful save followed by a failed archive-inclusive list read must not
- * fall back to the pre-save text: the stored text stays in the editor while
- * the page cannot reload its list.
+ * fall back to the pre-save text: the section and the reopened editor keep
+ * the stored text while the page cannot reload its list.
  *
  * @summary saved instructions stay fresh when the list reload fails
  */
@@ -614,28 +669,34 @@ export const KeepsSavedTextWhenReloadFails: Story = {
     failProjectsAfterPatch = true;
   },
   play: async ({ canvasElement }) => {
-    const { textarea, save } = await instructionsEditor(canvasElement);
+    const { panel, dialog, textarea } =
+      await openInstructionsEditor(canvasElement);
 
     await expect(textarea).toHaveValue("Old guidance.");
     await userEvent.clear(textarea);
     await userEvent.type(textarea, "New guidance.");
-    await userEvent.click(save);
+    await userEvent.click(dialog.getByRole("button", { name: "Save" }));
 
     await waitFor(() => expect(sentRoutes()).toContain(PROJECT_UPDATE_ROUTE));
     await expect(lastUpdateBody()).resolves.toEqual({
       instructions: "New guidance.",
     });
     await waitFor(() => expect(failedProjectsReads).toBeGreaterThan(0));
-    await waitFor(() => expect(textarea).toBeEnabled());
-    await waitFor(() => expect(textarea).toHaveValue("New guidance."));
-    await expect(textarea).not.toHaveValue("Old guidance.");
+    await editorClosed();
+    await expect(
+      panel.getByRole("button", { name: "Edit instructions" }),
+    ).toHaveAccessibleDescription("New guidance.");
+
+    const reopened = await openInstructionsEditor(canvasElement);
+    await expect(reopened.textarea).toHaveValue("New guidance.");
   },
 };
 
 /**
- * A failed save reports a generic failure, keeps the literal draft in the
- * editor, and never echoes the server's own message. The retry re-sends the
- * same draft and succeeds.
+ * A failed save reports a generic failure, keeps the editor open on the
+ * literal draft, and never echoes the server's own message. The retry —
+ * through Ctrl+Enter — re-sends the same draft, succeeds and closes the
+ * editor.
  *
  * @summary a failed save keeps the draft and a retry saves it
  */
@@ -648,41 +709,39 @@ export const KeepsDraftAfterFailedSave: Story = {
     };
   },
   play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement);
-    const { textarea, save } = await instructionsEditor(canvasElement);
+    const { panel, dialog, textarea } =
+      await openInstructionsEditor(canvasElement);
+
+    const save = dialog.getByRole("button", { name: "Save" });
     const draft = "Review the trade-offs first.";
 
     await userEvent.type(textarea, draft);
     await userEvent.click(save);
 
-    const failure = await canvas.findByRole("alert");
+    const failure = await dialog.findByRole("alert");
     await expect(failure).toBeVisible();
     await expect(failure).not.toHaveTextContent(draft);
     await expect(textarea).toHaveValue(draft);
-    await expect(canvas.queryByText("Internal")).not.toBeInTheDocument();
+    await expect(screen.queryByText("Internal")).not.toBeInTheDocument();
     await expect(save).toBeEnabled();
-    await expect(
-      sentRoutes().filter((route) => route === PROJECT_UPDATE_ROUTE),
-    ).toHaveLength(1);
+    await expect(updateCount()).toBe(1);
 
     saveFailure = null;
-    await userEvent.click(save);
+    await userEvent.type(textarea, "{Control>}{Enter}{/Control}");
 
-    await waitFor(() =>
-      expect(
-        sentRoutes().filter((route) => route === PROJECT_UPDATE_ROUTE),
-      ).toHaveLength(2),
-    );
-    await expect(canvas.queryByRole("alert")).not.toBeInTheDocument();
-    await waitFor(() => expect(save).toBeDisabled());
+    await waitFor(() => expect(updateCount()).toBe(2));
     await expect(lastUpdateBody()).resolves.toEqual({ instructions: draft });
-    await expect(textarea).toHaveValue(draft);
+    await editorClosed();
+    await expect(
+      panel.getByRole("button", { name: "Edit instructions" }),
+    ).toHaveAccessibleDescription(draft);
   },
 };
 
 /**
- * An archived Project keeps its instructions readable, but the editor is
- * disabled and no update leaves the page.
+ * An archived Project keeps its instructions readable: the section's card
+ * opens them read-only with only Close, and neither typing nor the save
+ * shortcut sends an update.
  *
  * @summary an archived project shows instructions read-only
  */
@@ -699,75 +758,30 @@ export const ArchivedInstructionsAreReadOnly: Story = {
     ];
   },
   play: async ({ canvasElement }) => {
-    const { textarea, save } = await instructionsEditor(canvasElement);
+    const panel = await settingsPanel(canvasElement);
+
+    await expect(
+      await panel.findByRole("button", { name: "View instructions" }),
+    ).toBeVisible();
+    await expect(
+      panel.queryByRole("button", { name: "Edit instructions" }),
+    ).not.toBeInTheDocument();
+
+    const { dialog, textarea } = await openInstructionsEditor(canvasElement);
 
     await expect(textarea).toHaveValue("Read-only guidance.");
-    await expect(textarea).toBeDisabled();
-    await expect(save).toBeDisabled();
-
-    await fireEvent.click(save);
-
-    await waitFor(() =>
-      expect(sentRoutes()).not.toContain(PROJECT_UPDATE_ROUTE),
-    );
-  },
-};
-
-/**
- * Writing an unsaved draft and then archiving from the page header must leave
- * the now-disabled editor showing the stored text, not the draft: an archived
- * Project cannot accept that draft, so its editor may not present it as
- * current.
- *
- * @summary archiving shows stored guidance while retaining the editable draft
- */
-export const ArchivingShowsStoredTextInsteadOfDraft: Story = {
-  tags: ["ai-generated"],
-  beforeEach: () => {
-    projects = [
-      otherProject,
-      { ...tripPlanning, instructions: "Stored guidance." },
-    ];
-    failProjectsAfterPatch = true;
-  },
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement);
-    const { textarea, save } = await instructionsEditor(canvasElement);
-
-    await expect(textarea).toHaveValue("Stored guidance.");
-    await userEvent.clear(textarea);
-    await userEvent.type(textarea, "Unsaved draft.");
-    await expect(save).toBeEnabled();
-
-    await userEvent.click(canvas.getByRole("button", { name: "More" }));
-    await userEvent.click(
-      await screen.findByRole("menuitem", { name: "Archive" }),
+    await expect(textarea).toHaveAttribute("readonly");
+    await expect(
+      dialog.queryByRole("button", { name: "Save" }),
+    ).not.toBeInTheDocument();
+    await expect(dialog.getAllByRole("button", { name: "Close" })).not.toEqual(
+      [],
     );
 
-    await waitFor(() => expect(sentRoutes()).toContain(PROJECT_UPDATE_ROUTE));
-    await expect(lastUpdateBody()).resolves.toEqual({ archived: true });
-    await waitFor(() => expect(textarea).toBeDisabled());
-    await expect(textarea).toHaveValue("Stored guidance.");
-    await expect(textarea).not.toHaveValue("Unsaved draft.");
-    await expect(save).toBeDisabled();
-    await waitFor(() =>
-      expect(
-        screen.queryByRole("menu", { hidden: true }),
-      ).not.toBeInTheDocument(),
-    );
+    await userEvent.type(textarea, " edited{Control>}{Enter}{/Control}");
 
-    await userEvent.click(canvas.getByRole("button", { name: "More" }));
-    await userEvent.click(
-      await screen.findByRole("menuitem", { name: "Unarchive" }),
-    );
-    await waitFor(() => expect(textarea).toBeEnabled());
-    await expect(textarea).toHaveValue("Unsaved draft.");
-    await expect(save).toBeEnabled();
-    await waitFor(() =>
-      expect(
-        screen.queryByRole("menu", { hidden: true }),
-      ).not.toBeInTheDocument(),
-    );
+    await expect(textarea).toHaveValue("Read-only guidance.");
+    await expect(sentRoutes()).not.toContain(PROJECT_UPDATE_ROUTE);
   },
 };
 
@@ -782,40 +796,35 @@ export const ArchivingShowsStoredTextInsteadOfDraft: Story = {
 export const AstralCharactersCountAsCodePoints: Story = {
   tags: ["ai-generated"],
   play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement);
-    const { textarea, save } = await instructionsEditor(canvasElement);
+    const first = await openInstructionsEditor(canvasElement);
 
-    await expect(textarea).not.toHaveAttribute("maxlength");
+    await expect(first.textarea).not.toHaveAttribute("maxlength");
 
     const atLimit = "😀".repeat(16_000);
-    await fireEvent.input(textarea, { target: { value: atLimit } });
-    await waitFor(() =>
-      expect(
-        canvas.getByText("16000 / 16000 Unicode code points"),
-      ).toBeVisible(),
-    );
-    await expect(textarea).toHaveValue(atLimit);
-    await expect(canvas.queryByRole("alert")).not.toBeInTheDocument();
-    await expect(save).toBeEnabled();
+    await fireEvent.input(first.textarea, { target: { value: atLimit } });
+    await expect(
+      await first.dialog.findByText("16,000 / 16,000 characters"),
+    ).toBeVisible();
+    await expect(first.textarea).toHaveValue(atLimit);
+    await expect(first.dialog.queryByRole("alert")).not.toBeInTheDocument();
 
-    await userEvent.click(save);
+    await userEvent.click(first.dialog.getByRole("button", { name: "Save" }));
 
     await waitFor(() => expect(sentRoutes()).toContain(PROJECT_UPDATE_ROUTE));
     await expect(lastUpdateBody()).resolves.toEqual({ instructions: atLimit });
-    await waitFor(() => expect(save).toBeDisabled());
+    await editorClosed();
 
+    const { dialog, textarea } = await openInstructionsEditor(canvasElement);
     const overLimit = "😀".repeat(16_001);
     await fireEvent.input(textarea, { target: { value: overLimit } });
     await expect(
-      await canvas.findByText("16001 / 16000 Unicode code points"),
+      await dialog.findByText("16,001 / 16,000 characters"),
     ).toBeVisible();
     await expect(textarea).toHaveAttribute("aria-invalid", "true");
-    await expect(canvas.getByRole("alert")).toBeVisible();
+    await expect(dialog.getByRole("alert")).toBeVisible();
     await expect(textarea).toHaveValue(overLimit);
-    await expect(save).toBeDisabled();
-    await expect(
-      sentRoutes().filter((route) => route === PROJECT_UPDATE_ROUTE),
-    ).toHaveLength(1);
+    await expect(dialog.getByRole("button", { name: "Save" })).toBeDisabled();
+    await expect(updateCount()).toBe(1);
   },
 };
 
@@ -830,25 +839,25 @@ export const AstralCharactersCountAsCodePoints: Story = {
 export const VariationSelectorsCountAsCodePoints: Story = {
   tags: ["ai-generated"],
   play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement);
-    const { textarea, save } = await instructionsEditor(canvasElement);
+    const { dialog, textarea } = await openInstructionsEditor(canvasElement);
+    const save = dialog.getByRole("button", { name: "Save" });
 
     const paired = "a\uFE0F".repeat(16_000);
     await fireEvent.input(textarea, { target: { value: paired } });
     await expect(
-      await canvas.findByText("32000 / 16000 Unicode code points"),
+      await dialog.findByText("32,000 / 16,000 characters"),
     ).toBeVisible();
     await expect(textarea).toHaveAttribute("aria-invalid", "true");
-    await expect(canvas.getByRole("alert")).toBeVisible();
+    await expect(dialog.getByRole("alert")).toBeVisible();
     await expect(save).toBeDisabled();
     await expect(sentRoutes()).not.toContain(PROJECT_UPDATE_ROUTE);
 
     const atLimit = "a\uFE0F".repeat(8000);
     await fireEvent.input(textarea, { target: { value: atLimit } });
     await expect(
-      await canvas.findByText("16000 / 16000 Unicode code points"),
+      await dialog.findByText("16,000 / 16,000 characters"),
     ).toBeVisible();
-    await expect(canvas.queryByRole("alert")).not.toBeInTheDocument();
+    await expect(dialog.queryByRole("alert")).not.toBeInTheDocument();
     await expect(save).toBeEnabled();
 
     await userEvent.click(save);
@@ -859,25 +868,19 @@ export const VariationSelectorsCountAsCodePoints: Story = {
 };
 
 /**
- * The instruction editor is real: no add/edit toggle and no fake Context or
- * sample-file controls remain in the Project settings panel.
+ * The Instructions section is real: no fake Context or sample-file controls
+ * remain in the Project settings panel.
  *
  * @summary no fake Context controls remain beside the real editor
  */
 export const NoFakeContextControls: Story = {
   tags: ["ai-generated"],
   play: async ({ canvasElement }) => {
-    const { panel } = await instructionsEditor(canvasElement);
+    const panel = await settingsPanel(canvasElement);
 
     await expect(
-      panel.getByRole("heading", { name: "Instructions" }),
+      await panel.findByRole("heading", { name: "Instructions" }),
     ).toBeVisible();
-    await expect(
-      panel.queryByRole("button", { name: "Add instructions" }),
-    ).not.toBeInTheDocument();
-    await expect(
-      panel.queryByRole("button", { name: "Edit instructions" }),
-    ).not.toBeInTheDocument();
     await expect(
       panel.queryByRole("button", { name: "Add context" }),
     ).not.toBeInTheDocument();
