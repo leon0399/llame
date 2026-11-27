@@ -66,13 +66,14 @@ canonical identity is already on the current path. It MUST count such a
 directory as a `link` skip. It MUST also count a link that the operating system
 reports as a loop as a `link` skip.
 
-A host, Machine, or Knowledge walk MUST include hidden entries. It MUST NOT
-enter a fixed infrastructure directory, as the walk policy states. It MUST
-apply the ignore files that the walk policy defines. This includes a Knowledge
-walk over its Space. A Knowledge walk MUST keep the Knowledge filesystem rules.
-It MUST refuse a symbolic link at every component, and the path MUST stay in
-the resolved Space. A scope that names one exact file MUST search that file, as
-the walk policy states.
+A host or Machine walk MUST include hidden entries. It MUST NOT enter a fixed
+infrastructure directory, as the walk policy states. It MUST apply the ignore
+files that the walk policy defines. A scope that names one exact file MUST
+search that file, as the walk policy states. A Knowledge walk MUST include
+hidden entries and MUST NOT enter a directory named `.git`. It applies no
+ignore file. A Knowledge walk MUST keep the Knowledge filesystem rules. It
+refuses a symbolic link at every component, and the path stays in the resolved
+Space.
 
 #### Scenario: gitignored directory is not entered
 
@@ -91,14 +92,14 @@ the walk policy states.
 
 #### Scenario: The jj directory is never entered
 
-- **WHEN** a scope is `kb://<space>` and `.jj/repo/hidden.md` contains a match
+- **WHEN** a scope is `/home/u/repo/**` and `.jj/repo/hidden.md` contains a match
 - **THEN** no passage names `.jj/repo/hidden.md`
 
-#### Scenario: A Knowledge scope applies the ignore files of its Space
+#### Scenario: A vendored dependency tree is never entered
 
-- **WHEN** a scope is `kb://<space>`, the Space holds `.gitignore` naming
-  `drafts/`, and `.jj` is absent from the Space
-- **THEN** the walk examines no file below `drafts`
+- **WHEN** a scope is `machine://build/srv/app` and `node_modules/x/README.md` contains a match
+- **THEN** no passage names `node_modules/x/README.md`
+- **AND** `ignored` names no locator below `node_modules`
 
 #### Scenario: Hidden file is searched
 

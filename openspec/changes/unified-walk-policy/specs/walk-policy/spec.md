@@ -2,8 +2,10 @@
 
 ### Requirement: Enumeration skips fixed infrastructure directories
 
-A tree enumeration MUST NOT enter a directory named `.git`, `.jj`, `.hg`,
-`.svn`, or `node_modules`. The rule applies by leaf name, at any depth, to a
+This capability governs every tree enumeration that the Machine daemon
+performs: a `grep` walk and a directory listing, on the host Machine and on a
+remote Machine. A tree enumeration MUST NOT enter a directory named `.git`,
+`.jj`, `.hg`, `.svn`, or `node_modules`. The rule applies by leaf name, at any depth, to a
 directory or a file. The enumeration MUST NOT open an entry that this rule
 skips. An ignore rule MUST NOT decide an entry that the fixed set names. Each
 surface keeps its own rendering of a skipped entry.
@@ -47,7 +49,7 @@ MUST NOT apply the policy to the path that a caller names.
 
 #### Scenario: An explicitly named infrastructure tree is searched
 
-- **WHEN** a scope is `kb://<space>/.jj`
+- **WHEN** a scope is `machine://build/srv/app/.jj`
 - **THEN** the walk enters that directory and searches its files
 
 ### Requirement: Ignore files from the requested root and above it apply

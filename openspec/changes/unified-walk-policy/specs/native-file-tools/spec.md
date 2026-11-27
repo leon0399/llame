@@ -34,9 +34,10 @@ A fixed infrastructure entry MUST render as an entry, with no entries below
 it. This holds when an ignore rule also names that entry, because the fixed
 set decides first, as the walk policy states. An entry that an ignore rule
 excludes, and that the fixed set does not name, MUST NOT render. Such an entry
-MUST NOT count in the requested level's entry count. The listing MUST apply
-the ignore files of the walked tree, as the walk policy defines them. A `kb://`
-listing applies the ignore files of its Space the same way.
+MUST NOT count in the requested level's entry count. A host or Machine
+listing MUST apply the ignore files of the walked tree, as the walk policy
+defines them. A `kb://` listing MUST render a fixed infrastructure entry with
+no entries below it, and it applies no ignore file.
 
 The listing MUST count entries below the second level, and it MUST NOT render
 them. A directory with no entries MUST render `(empty directory)` as its only
@@ -78,11 +79,17 @@ directory kind. Listing lines MUST carry no generated line-number prefixes.
 - **THEN** the listing shows the entries of that directory, header and children
 - **AND** the policy does not apply to the requested path
 
-#### Scenario: A Space listing omits an ignored tree
+#### Scenario: A Space listing renders its jj directory without entries
 
-- **WHEN** a `kb://` Space root holds `.ignore` naming `.agents/`
-- **THEN** the Space listing holds no `.agents` entry
+- **WHEN** the model reads a `kb://` Space root that holds `.jj` and `.git`
+- **THEN** the listing renders `- .git/` and `- .jj/` with no entries below them
 - **AND** `read kb://<space>/.git/HEAD` still opens that file
+
+#### Scenario: A Machine listing omits an ignored tree
+
+- **WHEN** a Machine directory holds `.ignore` naming `.agents/`
+- **THEN** the listing of that directory holds no `.agents` entry
+- **AND** a read of `.agents/` itself still lists that directory
 
 #### Scenario: Special entry is marked and never opened
 
