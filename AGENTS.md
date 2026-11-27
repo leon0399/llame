@@ -13,12 +13,21 @@ behavior. `CLAUDE.md` and `GEMINI.md` link here.
 
 @CODING_STANDARDS.md
 
-@docs/research/harnesses/index.md
-
 @CLAUDE.local.md
 
 `CLAUDE.local.md` is optional and gitignored; tracked instructions must not
 depend on it.
+
+## Prior art
+
+Research, design, proposals, and reviews of agent or product behavior start
+from prior art: [OMP (oh-my-pi)](docs/research/harnesses/oh-my-pi.md) first for
+the agent loop, tool contracts, and coding capabilities;
+[OpenClaw](docs/research/harnesses/openclaw.md) first for broader product
+behavior such as channels, memory, and transcript search; then the ranked
+[harness index](docs/research/harnesses/index.md) for targeted alternatives.
+Adapt what you find to llame's ownership, lifecycle, provenance, and isolation
+contracts; llame's specs stay authoritative.
 
 ## Documentation authority
 
@@ -37,8 +46,6 @@ depend on it.
   [docs/product/operator/scaling.md](docs/product/operator/scaling.md): test
   placement and runtime topology.
 - [`docs/research`](docs/research): noncanonical evidence.
-- [docs/research/harnesses/index.md](docs/research/harnesses/index.md):
-  prior-art index for peer harnesses and protocols.
 
 Put commands and traps in the closest `AGENTS.md`, capability behavior in
 OpenSpec, architecture in `SPEC.md`, owner-visible tool and locator behavior in

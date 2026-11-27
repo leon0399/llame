@@ -17,3 +17,12 @@
 - Shorten `CONTRIBUTING.md` to delivery policy. Issue handoff, Project
   tracking, and the feature delivery phases move to pages under
   `docs/development/`.
+- Rewrite `README.md` as a short overview. Provider options, `store: false`,
+  output limits, Anthropic defaults, and cache-write pricing move to a new
+  [model request settings](../docs/product/operator/providers/model-settings.md)
+  runbook, provider headers to
+  [provider routing](../docs/product/operator/providers/routing.md#provider-headers),
+  and the Postgres extension requirement to
+  [scaling](../docs/product/operator/scaling.md#postgres-prerequisites).
+- Root `AGENTS.md` states the prior-art rule and links the harness index
+  instead of inlining it.
