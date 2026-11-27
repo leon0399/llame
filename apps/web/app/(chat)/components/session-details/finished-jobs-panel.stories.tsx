@@ -1,4 +1,5 @@
-import type { CSSProperties } from "react";
+import type { CSSProperties, ReactNode } from "react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { expect, fn, userEvent, within } from "storybook/test";
 
@@ -78,6 +79,54 @@ const JOBS = [
   }),
 ];
 
+const part = (name: string, content: string, size = content.length) => ({
+  name,
+  content,
+  cut: size > content.length,
+  size,
+});
+
+/** What the output route answers for each job, keyed by job id. */
+const OUTPUTS = {
+  "job-1": {
+    status: "stored",
+    outputs: [
+      part("stdout", "abc1234 Update the README\n"),
+      part("stderr", ""),
+    ],
+  },
+  "job-2": {
+    status: "stored",
+    outputs: [
+      part(
+        "stdout",
+        " ✓ chat-jobs (15 tests)\n ✗ job output (1 failed)\n",
+        3_355_443,
+      ),
+      part("stderr", "AssertionError: expected 409 to be 200\n"),
+    ],
+  },
+  "job-3": {
+    status: "stored",
+    outputs: [part("stdout", ""), part("stderr", "")],
+  },
+  "job-4": { status: "stored", outputs: [part("stdout", "ready on :3000\n")] },
+  "job-5": { status: "unavailable" },
+} as const;
+
+/** A client seeded with each job's output, so rows open without a backend. */
+function SeededOutputs({ children }: { children: ReactNode }) {
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
+
+  for (const [jobId, output] of Object.entries(OUTPUTS)) {
+    client.setQueryData(["chat-job-output", "chat-1", jobId], output);
+  }
+
+  return <QueryClientProvider client={client}>{children}</QueryClientProvider>;
+}
+
 const meta = {
   title: "Chat/Session details/Finished jobs panel",
   component: FinishedJobsPanel,
@@ -87,9 +136,11 @@ const meta = {
   // it the screen's height.
   decorators: [
     (Story) => (
-      <div className="ml-auto flex h-144" style={PANEL_WIDTH}>
-        <Story />
-      </div>
+      <SeededOutputs>
+        <div className="ml-auto flex h-144" style={PANEL_WIDTH}>
+          <Story />
+        </div>
+      </SeededOutputs>
     ),
   ],
 } satisfies Meta<typeof FinishedJobsPanel>;
@@ -116,8 +167,16 @@ export const Outcomes: Story = {
     const record = within(failed.parentElement ?? canvas.getByRole("list"));
 
     await expect(await record.findByText("Failed · exit 1")).toBeVisible();
-    await expect(record.getByText("job://bash-2")).toBeVisible();
-    await expect(record.getByText("stdout")).toBeVisible();
+    await expect(
+      record.getByText("$ pnpm --filter api test:integration"),
+    ).toBeVisible();
+    await expect(
+      await record.findByText("last 64 KiB of 3.2 MiB"),
+    ).toBeVisible();
+    await expect(record.getByText("stderr")).toBeVisible();
+    await expect(
+      record.getByText("stdout cut at the output bound"),
+    ).toBeVisible();
   },
 };
 
@@ -131,6 +190,8 @@ export const StoppedJobWithoutIntent: Story = {
     await expect(
       await canvas.findByText("Stopped by you · SIGTERM"),
     ).toBeVisible();
+    await expect(await canvas.findByText("No output")).toBeVisible();
+    await expect(canvas.getByText("Command not recorded")).toBeVisible();
   },
 };
 
@@ -148,3 +209,16 @@ export const Closes: Story = {
 };
 
 export const Empty: Story = { args: { jobs: [] } };
+
+/** A lost job stored no output, and the open row says so. */
+export const LostJobWithoutOutput: Story = {
+  args: { jobs: JOBS.slice(4, 5) },
+  play: async ({ canvas }) => {
+    await userEvent.click(
+      canvas.getByRole("button", { name: /Building the machine bundle/ }),
+    );
+    await expect(
+      await canvas.findByText("Output was not stored"),
+    ).toBeVisible();
+  },
+};

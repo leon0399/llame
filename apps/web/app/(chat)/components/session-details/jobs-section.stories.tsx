@@ -1,6 +1,12 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { expect, fn, userEvent } from "storybook/test";
 
+import {
+  Sidebar,
+  SidebarContent,
+  SidebarProvider,
+} from "@workspace/ui/components/sidebar";
+
 import type { ChatJobResponse } from "@/lib/api/generated/models";
 
 import { JobsSectionView } from "./jobs-section";
@@ -38,6 +44,19 @@ const meta = {
     onStop: () => {},
     onFinishedOpenChange: () => {},
   },
+  parameters: { layout: "fullscreen" },
+  // The section's rows are sidebar menu rows, as in the details sidebar.
+  decorators: [
+    (Story) => (
+      <SidebarProvider keyboardShortcut={null}>
+        <Sidebar collapsible="none">
+          <SidebarContent>
+            <Story />
+          </SidebarContent>
+        </Sidebar>
+      </SidebarProvider>
+    ),
+  ],
 } satisfies Meta<typeof JobsSectionView>;
 
 export default meta;

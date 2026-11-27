@@ -202,7 +202,7 @@ function FinishedJobRow({ job }: { job: ChatJobResponse }) {
   const [open, setOpen] = useState(false);
 
   return (
-    <li className="rounded-lg bg-muted">
+    <li className="rounded-lg border bg-background">
       <Collapsible open={open} onOpenChange={setOpen}>
         <CollapsibleTrigger
           render={(props) => (
