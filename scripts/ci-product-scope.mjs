@@ -5,7 +5,7 @@ import { readFileSync } from "node:fs";
 export function needsProductChecks(paths) {
   return paths.some(
     (file) =>
-      !/^(?:docs|openspec|\.agents|\.claude|\.codex|\.opencode|\.omp)\//u.test(
+      !/^(?:docs|openspec|\.changeset|\.agents|\.claude|\.codex|\.opencode|\.omp)\//u.test(
         file,
       ) &&
       !/^[^/]+\.md$/u.test(file) &&

@@ -65,7 +65,7 @@ Before opening this PR (CONTRIBUTING.md, "PR contract"):
 ### Product contract
 
 - [ ] OpenSpec proposal approved; this layer's `tasks.md` boxes ticked
-- [ ] Operator docs, `CHANGELOG.md` entry, and `ROADMAP.md` removals included
+- [ ] Operator docs, `.changeset/` entry, and `ROADMAP.md` removals included
 
 ### General
 

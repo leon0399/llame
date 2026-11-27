@@ -340,9 +340,38 @@ For each layer:
 5. Complete SR, update the PR body, mark ready, run the GR/monitoring loop, then
    add the next layer.
 
-The PR that ships work updates its affected documentation, adds a dated
-`CHANGELOG.md` entry, and removes completed `ROADMAP.md` items in that same
-layer. Unplanned fixes/chores go directly to the changelog.
+The PR that ships work updates its affected documentation, adds or amends its
+changeset, and removes completed `ROADMAP.md` items in that same layer.
+Unplanned fixes/chores add a changeset too.
+
+A pull request never edits `CHANGELOG.md`. It writes its entry to
+`.changeset/<name>.md`, so parallel branches never touch the same file:
+
+```markdown
+---
+"api": minor
+"web": patch
+---
+
+- The entry, written as a `CHANGELOG.md` entry.
+```
+
+The frontmatter lists each workspace package the entry covers, with `major`
+for a breaking change, `minor` for a feature, or `patch` for a fix; leave it
+empty for a repository-only change. Nothing versions packages yet; the bump is
+recorded for a later release tool.
+
+A feature has one entry, not one per layer. Name it after its OpenSpec change
+(`<change>.md`): the first layer that ships behavior creates it, and later
+layers amend it. A parallel branch uses `<change>.<layer>.md`, so siblings do
+not edit one file.
+
+`pnpm changelog:compile` moves each changeset into `CHANGELOG.md` under the
+date of the last commit that touched it, then deletes the file. A changeset of
+an active OpenSpec change waits until that change is archived. Run it on its
+own branch from `master` and open the result as a separate
+`chore: compile changelog` PR; only that PR edits `CHANGELOG.md`, apart from a
+correction to an entry already compiled.
 
 Fix a lower-layer defect on its owning branch with `$gh-stack` and replay the
 stack upward; never repair a lower concern in the top PR.
