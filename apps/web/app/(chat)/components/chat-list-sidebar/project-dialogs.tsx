@@ -91,6 +91,9 @@ function ProjectDescriptionField({
         value={description}
         onChange={(e) => onDescriptionChange(e.target.value)}
         onKeyDown={(e) => {
+          // Enter that confirms an IME composition is not a submit.
+          if (e.nativeEvent.isComposing) return;
+
           if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
             e.preventDefault();
             onSubmit();
@@ -98,7 +101,9 @@ function ProjectDescriptionField({
         }}
         maxLength={DESCRIPTION_MAX}
         placeholder="What this project is for"
-        className="min-h-48 max-h-96"
+        // A centered dialog grows both ways, so a dragged resize handle would
+        // trail the cursor at half speed; the field grows with its text.
+        className="min-h-48 max-h-96 resize-none"
       />
     </div>
   );
@@ -162,7 +167,7 @@ export function NewProjectDialog({
       open={open}
       onOpenChange={onOpenChange}
       title="New project"
-      className="sm:max-w-2xl"
+      className="max-h-11/12 overflow-y-auto sm:max-w-2xl"
     >
       <NewProjectForm
         onClose={() => onOpenChange(false)}
@@ -297,7 +302,7 @@ export function EditProjectDialog({
       open={open}
       onOpenChange={onOpenChange}
       title="Edit details"
-      className="sm:max-w-2xl"
+      className="max-h-11/12 overflow-y-auto sm:max-w-2xl"
     >
       {description === undefined ? (
         <ProjectDetailsPending failed={readFailed} />

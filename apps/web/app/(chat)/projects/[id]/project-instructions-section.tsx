@@ -3,7 +3,6 @@
 import { useId, useState, type KeyboardEvent } from "react";
 import { PencilIcon, PlusIcon } from "lucide-react";
 
-import { Alert, AlertDescription } from "@workspace/ui/components/alert";
 import { Button } from "@workspace/ui/components/button";
 import {
   Dialog,
@@ -14,6 +13,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@workspace/ui/components/dialog";
+import { FieldError } from "@workspace/ui/components/field";
 import { Kbd } from "@workspace/ui/components/kbd";
 import { usePrimaryModifierKey } from "@workspace/ui/hooks/use-modifier-key";
 import { Spinner } from "@workspace/ui/components/spinner";
@@ -133,7 +133,7 @@ function EditorCount({ count }: { count: number }) {
 }
 
 export interface InstructionsEditorProps {
-  /** The stored instructions, the editor's starting text. */
+  /** The stored instructions, shown until the owner edits them. */
   stored: string | null;
   /** An archived project shows its instructions read-only. */
   archived: boolean;
@@ -144,26 +144,37 @@ export interface InstructionsEditorProps {
   onClose: () => void;
 }
 
-/** The editor's draft: what saving would store, and whether it can. */
+/**
+ * The editor's draft: what saving would store, and whether it can. The draft
+ * stays undefined until the owner edits, so the editor follows the stored
+ * text through a background refetch and an untouched editor can never save
+ * stale text over newer instructions. An archived project shows only what is
+ * stored, so a hidden draft is neither shown nor validated.
+ */
 function useEditorDraft(props: InstructionsEditorProps) {
-  const [draft, setDraft] = useState(props.stored ?? "");
-  const count = Array.from(draft).length;
+  const [draft, setDraft] = useState<string | undefined>(undefined);
+  const stored = props.stored ?? "";
+  const value = props.archived ? stored : (draft ?? stored);
+  const count = Array.from(value).length;
   const tooLong = count > INSTRUCTIONS_MAX;
-  const unchanged = savedForm(draft) === props.stored;
+  const unchanged = savedForm(value) === props.stored;
   const canSave = !props.archived && !props.pending && !tooLong && !unchanged;
 
   const save = () => {
-    if (canSave) props.onSave(savedForm(draft));
+    if (canSave) props.onSave(savedForm(value));
   };
 
   return {
-    draft,
+    value,
     setDraft,
     count,
     tooLong,
     canSave,
     save,
     onKeyDown: (event: KeyboardEvent<HTMLTextAreaElement>) => {
+      // Enter that confirms an IME composition is not a save.
+      if (event.nativeEvent.isComposing) return;
+
       if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
         event.preventDefault();
         save();
@@ -172,32 +183,25 @@ function useEditorDraft(props: InstructionsEditorProps) {
   };
 }
 
-/** Why the draft cannot be saved, or why it was not. */
-function EditorAlerts({
+/** Why the draft cannot be saved, or why it was not. `id` names the message
+ *  for the textarea's `aria-describedby`. */
+function EditorErrors({
+  id,
   tooLong,
   failed,
 }: {
+  id: string;
   tooLong: boolean;
   failed: boolean;
 }) {
+  if (!tooLong && !failed) return null;
+
   return (
-    <>
-      {tooLong ? (
-        <Alert variant="destructive">
-          <AlertDescription>
-            Shorten the instructions to{" "}
-            {INSTRUCTIONS_MAX.toLocaleString("en-US")} characters or fewer.
-          </AlertDescription>
-        </Alert>
-      ) : null}
-      {failed ? (
-        <Alert variant="destructive">
-          <AlertDescription>
-            Couldn't save the instructions. Your text is still here; try again.
-          </AlertDescription>
-        </Alert>
-      ) : null}
-    </>
+    <FieldError id={id}>
+      {tooLong
+        ? `Shorten the instructions to ${INSTRUCTIONS_MAX.toLocaleString("en-US")} characters or fewer.`
+        : "Couldn't save the instructions. Your text is still here; try again."}
+    </FieldError>
   );
 }
 
@@ -269,14 +273,17 @@ function EditorActions({
 /**
  * The instructions editor, opened from the section. It holds its own draft,
  * so closing it without saving discards the edit, and a failed save keeps the
- * draft and says so.
+ * draft and says so. It renders inside a `Dialog`, which shows it only while
+ * open, and is bounded to the viewport and scrollable so its footer stays
+ * reachable on a short screen.
  */
 export function InstructionsEditor(props: InstructionsEditorProps) {
   const { archived, pending } = props;
   const editor = useEditorDraft(props);
+  const errorId = useId();
 
   return (
-    <DialogContent className="sm:max-w-2xl">
+    <DialogContent className="max-h-11/12 overflow-y-auto sm:max-w-2xl">
       <DialogHeader>
         <DialogTitle>Project instructions</DialogTitle>
         <DialogDescription>
@@ -286,17 +293,22 @@ export function InstructionsEditor(props: InstructionsEditorProps) {
       <Textarea
         aria-label="Project instructions"
         aria-invalid={editor.tooLong}
-        // An editor open when the project is archived shows what is stored,
-        // not a draft the project can no longer take.
-        value={archived ? (props.stored ?? "") : editor.draft}
+        aria-describedby={editor.tooLong || props.failed ? errorId : undefined}
+        value={editor.value}
         onChange={(event) => editor.setDraft(event.target.value)}
         onKeyDown={editor.onKeyDown}
         readOnly={archived}
         disabled={pending}
         placeholder={EMPTY_HINT}
-        className="max-h-96 min-h-48"
+        // A centered dialog grows both ways, so a dragged resize handle would
+        // trail the cursor at half speed; the field grows with its text.
+        className="max-h-96 min-h-48 resize-none"
       />
-      <EditorAlerts tooLong={editor.tooLong} failed={props.failed} />
+      <EditorErrors
+        id={errorId}
+        tooLong={editor.tooLong}
+        failed={props.failed}
+      />
       <EditorActions
         archived={archived}
         pending={pending}
@@ -310,19 +322,30 @@ export function InstructionsEditor(props: InstructionsEditorProps) {
 }
 
 /** The editor's open state and the save, wired to the project mutation. A
- *  successful save closes the editor; a failed one leaves it open. */
+ *  successful save closes the editor; a failed one leaves it open. While a
+ *  save is in flight the editor stays open, so a second save cannot overlap
+ *  the first. */
 function useInstructionsEditor(project: ProjectResponse) {
   const [open, setOpen] = useState(false);
+  // Each opening is a new editor session with a fresh draft; the editor
+  // stays mounted across a close so the dialog's exit animation plays.
+  const [session, setSession] = useState(0);
   const update = useUpdateProject();
 
   const setEditorOpen = (next: boolean) => {
-    // Each opening starts from the stored text, with no stale failure.
-    if (next) update.reset();
+    if (!next && update.isPending) return;
+
+    if (next) {
+      update.reset();
+      setSession((current) => current + 1);
+    }
+
     setOpen(next);
   };
 
   return {
     open,
+    session,
     setOpen: setEditorOpen,
     pending: update.isPending,
     failed: update.isError,
@@ -377,16 +400,15 @@ export function ProjectInstructionsSection({
         onOpen={openEditor}
       />
       <Dialog open={editor.open} onOpenChange={editor.setOpen}>
-        {editor.open ? (
-          <InstructionsEditor
-            stored={stored}
-            archived={archived}
-            pending={editor.pending}
-            failed={editor.failed}
-            onSave={editor.save}
-            onClose={() => editor.setOpen(false)}
-          />
-        ) : null}
+        <InstructionsEditor
+          key={editor.session}
+          stored={stored}
+          archived={archived}
+          pending={editor.pending}
+          failed={editor.failed}
+          onSave={editor.save}
+          onClose={() => editor.setOpen(false)}
+        />
       </Dialog>
     </section>
   );

@@ -1,5 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
-import { expect, fn, userEvent, within } from "storybook/test";
+import { useState } from "react";
+import { expect, fireEvent, fn, userEvent, within } from "storybook/test";
 
 import { Dialog } from "@workspace/ui/components/dialog";
 
@@ -179,3 +180,51 @@ export const EditorSavesWithShortcut: StoryObj<typeof InstructionsEditor> = {
     );
   },
 };
+
+/** The editor open while the stored text changes, the way a refetch delivers
+ *  an edit made in another tab. */
+function EditorWithRemoteEdit(args: InstructionsEditorProps) {
+  const [stored, setStored] = useState(args.stored);
+
+  return (
+    <>
+      <button type="button" onClick={() => setStored("Edited in another tab.")}>
+        Edit in another tab
+      </button>
+      <Dialog open>
+        <InstructionsEditor {...args} stored={stored} />
+      </Dialog>
+    </>
+  );
+}
+
+/**
+ * An untouched editor follows newer stored text, so Save stays off and cannot
+ * write the stale opening text over it. An edited draft survives the refetch.
+ *
+ * @summary an untouched editor follows a refetch; a draft survives it
+ */
+export const EditorFollowsNewerStoredText: StoryObj<typeof InstructionsEditor> =
+  {
+    tags: ["ai-generated"],
+    args: editorArgs,
+    render: (args) => <EditorWithRemoteEdit {...args} />,
+    play: async ({ canvasElement }) => {
+      const editor = await page().findByRole("textbox", {
+        name: "Project instructions",
+      });
+
+      const remoteEdit = within(canvasElement).getByRole("button", {
+        name: "Edit in another tab",
+        hidden: true,
+      });
+
+      await fireEvent.click(remoteEdit);
+      await expect(editor).toHaveValue("Edited in another tab.");
+      await expect(page().getByRole("button", { name: "Save" })).toBeDisabled();
+
+      await userEvent.type(editor, " Mine.");
+      await expect(editor).toHaveValue("Edited in another tab. Mine.");
+      await expect(page().getByRole("button", { name: "Save" })).toBeEnabled();
+    },
+  };

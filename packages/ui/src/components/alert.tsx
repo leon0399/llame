@@ -9,10 +9,8 @@ const alertVariants = cva(
     variants: {
       variant: {
         default: "bg-card text-card-foreground",
-        // Description text at full strength: at 90% it falls just below the
-        // 4.5:1 AA contrast on a light card.
         destructive:
-          "bg-card text-destructive *:data-[slot=alert-description]:text-destructive *:[svg]:text-current",
+          "bg-card text-destructive *:data-[slot=alert-description]:text-destructive/90 *:[svg]:text-current",
       },
     },
     defaultVariants: {
