@@ -70,7 +70,8 @@ function useFinishedPanel(chatId: string, enabled: boolean) {
 
   const close = () => {
     setOpenFor(null);
-    triggerRef.current?.focus();
+    // After the commit: on mobile the trigger's column is inert until then.
+    requestAnimationFrame(() => triggerRef.current?.focus());
   };
 
   return {
