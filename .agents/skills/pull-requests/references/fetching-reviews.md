@@ -3,7 +3,9 @@
 [`scripts/fetch-pr-reviews.mjs`](../scripts/fetch-pr-reviews.mjs) reads review
 threads, review verdicts, and conversation comments through `gh api graphql`,
 filters them, and prints compact text. It is read-only. Use it for every
-review lookup in place of hand-written `gh` or GraphQL queries.
+review lookup in place of hand-written `gh` or GraphQL queries. The watcher
+([waiting.md](waiting.md)) reuses its reading, cleaning, and output format and
+prints only what changed; use this script for a full or filtered view.
 
 Bot comments are mostly markup: HTML comment markers and encoded state, icons
 and badges, analysis transcripts, "Prompt for AI Agents" restatements,

@@ -1,32 +1,41 @@
 # Waiting for CI and reviews
 
-Two different waits, with different commands. Run each with `async: true` (or
-in the background) and keep working; read the result when it arrives.
-
-## Waiting for CI
+One watcher covers both waits:
+[`scripts/watch-pr.mjs`](../scripts/watch-pr.mjs). It polls every 60 s and
+prints each change in the format of `fetch-pr-reviews.mjs`
+([fetching-reviews.md](fetching-reviews.md)): new or edited threads, reviews,
+and comments, each failed check, a head change, and a `terminal:` line when
+every check has finished. It exits with `# settled:` once every PR it watches
+is closed, or has terminal checks and the review floor elapsed since its head
+was pushed. The floor is 15 minutes on a ready PR and 0 on a draft, so on a
+draft the watcher is the CI wait.
 
 ```bash
-gh pr checks <N> --repo leon0399/llame --watch --fail-fast=false
+# one PR, or every PR of a stack in one watcher
+node .agents/skills/pull-requests/scripts/watch-pr.mjs 1955
+node .agents/skills/pull-requests/scripts/watch-pr.mjs 1935 1936 1937
 ```
 
-It exits once every check is terminal. Then list what is left:
+Seen items persist in a state file, so a rerun prints only what is new.
+The first run prints the current head's open state: unresolved threads, reviews
+of the head, comments since the push. `--reset` prints that again.
 
-```bash
-gh pr checks <N> --repo leon0399/llame --json name,state \
-  --jq 'map(select(.state != "SUCCESS" and .state != "SKIPPED"))'
-```
+## Running it
 
-An empty list is green. A watcher still running after the checks went terminal
-is a stalled wait: read the state directly and move on.
+Wake on its output; act on each block as it arrives.
 
-If a new head has no CI or Lint run at all, check
-`gh pr view <N> --json mergeable`: GitHub skips `pull_request` workflows for a
-PR that conflicts with its base, and a stack layer conflicts when `master`
-moved under files it touches. Rebase, then confirm
-`gh api "repos/leon0399/llame/actions/runs?branch=<branch>"` lists a run for
-the new head.
+- **A harness that wakes on output** (Claude Code's `Monitor`): run the
+  watcher under it; every block it prints wakes you, and `# settled:` ends it.
+- **A harness that wakes when a background command finishes** (omp `bash`
+  with `async`): run it with `--once`. It exits after the first poll that
+  prints a change, ending with `# waiting: …; run again to continue`; act,
+  then start it again with the same arguments.
 
-### A red check
+While it runs, keep working: fix the findings already printed, prepare the
+next layer, update the body. A blocked wait is the watcher running with
+nothing else to do.
+
+## A red check
 
 1. Find the failing step and its error:
 
@@ -35,10 +44,13 @@ the new head.
    gh run view --repo leon0399/llame --job <job-id> --log > /tmp/job-<job-id>.log
    ```
 
-2. A failure the PR caused: fix it, push, and wait again.
+   The watcher's `fail` line carries the job link; its last path segment is the
+   job id.
+
+2. A failure the PR caused: fix it, push, and keep watching.
 3. A failure also red on `master`, or a known flake below: name it in a PR
    comment with the evidence, rerun the job (`gh run rerun --job <job-id>`),
-   and continue.
+   and keep watching.
 
 Known flakes and master-red checks, as of late 2026; drop a line once it stops
 recurring:
@@ -57,40 +69,26 @@ recurring:
 command entry point no test runs fails it; cover the command, for example in a
 temporary repository.
 
+A new head with no CI or Lint run at all is a conflicting PR: GitHub skips
+`pull_request` workflows for it. See [stacks.md](stacks.md#conflicts-with-master).
+
 ## Monitoring after ready
 
-Start the loop immediately after every non-draft push and record the head
-commit and the push time. The floor is 15 minutes from the last head change.
-
-```bash
-timeout 960 npx -y pullfrog watch leon0399/llame --pr <N> > /tmp/pf-<N>.jsonl
-```
-
-`pullfrog watch` never exits on its own, so the `timeout` is what bounds it.
-Each line is `{cursor, repo, pr, kind, createdAt, data}` with `kind` one of
-`check`, `pr`, `comment`, `review`, `review_comment`, `review_thread`;
-`--once` prints one batch and `--since <cursor>` resumes. Check events name
-only the app, not the job, so confirm the end state with the direct reads
-above and in [fetching-reviews.md](fetching-reviews.md).
-
-While the floor runs, read new feedback at least every two minutes
-(`fetch-pr-reviews.mjs <N> --since 5m`) and process each finding as it
-arrives ([review-bots.md](review-bots.md)). Batch the accepted fixes into one
-push: every push restarts CI and the floor for that PR and every stack PR
-above it.
+Start the watcher right after every non-draft push. Process each finding as
+it arrives ([review-bots.md](review-bots.md)), and batch the accepted fixes
+into one push: every push restarts CI and the floor for that PR and every stack
+PR above it.
 
 ### Exit
 
-Stop only when all of these hold:
+`# settled:` covers the floor and terminal CI. Stop only when, in addition:
 
-- 15 minutes have passed since the last head change;
-- CI on the current head is terminal and green, or red only on named
-  master-red checks;
+- CI is green, or red only on named master-red checks;
 - every expected bot has finished on the current head, or is recorded as
   skipped ([review-bots.md](review-bots.md#roster));
 - every finding has a disposition and a reply, and the only unresolved threads
   await Leo's decision.
 
-Then update the Project item and read it back. Leo may end monitoring early
-and merge; offer that when the floor or a master-red check is all that
-remains.
+A bot still missing at `# settled:` extends the wait: run the watcher again.
+Then update the Project item and read it back. Leo may end monitoring early and
+merge; offer that when the floor or a master-red check is all that remains.
