@@ -59,7 +59,7 @@ export const StopAllWithoutLiveRun: Story = {
     onStop: fn(),
   },
   play: async ({ args, canvas }) => {
-    await userEvent.click(canvas.getByRole("button", { name: "Stop all" }));
+    await userEvent.click(canvas.getByRole("button", { name: /^Stop all/ }));
     await expect(args.onStop).toHaveBeenCalledWith(["job-1", "job-2"]);
     await expect(
       canvas.queryByRole("button", { name: /run|generation/i }),
@@ -150,7 +150,7 @@ export const OnlyFinishedJobs: Story = {
     finishedOpen: true,
   },
   play: async ({ canvas }) => {
-    await expect(canvas.getByText("No running jobs")).toBeVisible();
+    await expect(canvas.getByText("Nothing running")).toBeVisible();
     await expect(
       canvas.getByRole("button", { name: /Finished/ }),
     ).toHaveAttribute("aria-expanded", "true");
