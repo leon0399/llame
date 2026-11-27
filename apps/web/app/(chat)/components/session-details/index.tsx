@@ -198,6 +198,7 @@ function SessionDetailsBody({
 }) {
   const environment = useEnvironment(chatId);
   const jobs = useJobsSection(chatId, panelOpen);
+  const { isMobile } = useSidebar();
 
   return (
     // Both columns keep fixed widths: the details column the sidebar's own
@@ -205,7 +206,11 @@ function SessionDetailsBody({
     // sidebar's width animates, the row is clipped rather than squeezed, so
     // the panel is revealed from the outer edge and no text rewraps.
     <div className="relative flex size-full min-h-0 overflow-hidden">
-      <div className="flex min-w-0 flex-col max-md:w-full md:w-64 md:shrink-0">
+      {/* On mobile the panel covers this column, so it leaves the tab order. */}
+      <div
+        inert={isMobile && jobs.finishedPanel !== null}
+        className="flex min-w-0 flex-col max-md:w-full md:w-64 md:shrink-0"
+      >
         <DetailsHeader />
         <SidebarContent>
           <SectionList
