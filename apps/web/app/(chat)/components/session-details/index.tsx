@@ -200,9 +200,11 @@ function SessionDetailsBody({
   const jobs = useJobsSection(chatId, panelOpen);
 
   return (
-    // The details column keeps the sidebar's own width; the finished-jobs
-    // panel takes the width the provider adds, on the outer edge.
-    <div className="relative flex size-full min-h-0">
+    // Both columns keep fixed widths: the details column the sidebar's own
+    // 16rem, the finished-jobs panel the 20rem the provider adds. While the
+    // sidebar's width animates, the row is clipped rather than squeezed, so
+    // the panel is revealed from the outer edge and no text rewraps.
+    <div className="relative flex size-full min-h-0 overflow-hidden">
       <div className="flex min-w-0 flex-col max-md:w-full md:w-64 md:shrink-0">
         <DetailsHeader />
         <SidebarContent>
