@@ -71,13 +71,15 @@ function ProjectNameField({
 }
 
 /** The description field: multi-line, since a project description is prose.
- *  Enter inserts a newline here rather than saving. */
+ *  Enter inserts a newline here; Ctrl/⌘+Enter submits. */
 function ProjectDescriptionField({
   description,
   onDescriptionChange,
+  onSubmit,
 }: {
   description: string;
   onDescriptionChange: (description: string) => void;
+  onSubmit: () => void;
 }) {
   const id = useId();
 
@@ -88,9 +90,15 @@ function ProjectDescriptionField({
         id={id}
         value={description}
         onChange={(e) => onDescriptionChange(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+            e.preventDefault();
+            onSubmit();
+          }
+        }}
         maxLength={DESCRIPTION_MAX}
-        rows={4}
         placeholder="What this project is for"
+        className="min-h-48 max-h-96"
       />
     </div>
   );
@@ -126,12 +134,14 @@ function ProjectDetailsFields({
       <ProjectDescriptionField
         description={description}
         onDescriptionChange={setDescription}
+        onSubmit={submit}
       />
       <DialogSubmitFooter
         onCancel={onClose}
         onSubmit={submit}
         submitLabel={submitLabel}
         submitDisabled={!name.trim() || pending}
+        submitShortcut
       />
     </>
   );
@@ -148,7 +158,12 @@ export function NewProjectDialog({
   onCreated?: (project: ProjectResponse) => void;
 }) {
   return (
-    <DialogFrame open={open} onOpenChange={onOpenChange} title="New project">
+    <DialogFrame
+      open={open}
+      onOpenChange={onOpenChange}
+      title="New project"
+      className="sm:max-w-2xl"
+    >
       <NewProjectForm
         onClose={() => onOpenChange(false)}
         onCreated={onCreated}
@@ -278,7 +293,12 @@ export function EditProjectDialog({
   const { description } = project;
 
   return (
-    <DialogFrame open={open} onOpenChange={onOpenChange} title="Edit details">
+    <DialogFrame
+      open={open}
+      onOpenChange={onOpenChange}
+      title="Edit details"
+      className="sm:max-w-2xl"
+    >
       {description === undefined ? (
         <ProjectDetailsPending failed={readFailed} />
       ) : (

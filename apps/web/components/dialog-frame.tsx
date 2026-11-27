@@ -21,16 +21,19 @@ export function DialogFrame({
   open,
   onOpenChange,
   title,
+  className,
   children,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   title: string;
+  /** Sizing for the dialog itself, such as a wider `sm:max-w-*`. */
+  className?: string;
   children: ReactNode;
 }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
+      <DialogContent className={className}>
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
         </DialogHeader>
