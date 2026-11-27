@@ -40,7 +40,7 @@ sources:
   - id: mesh-workspace
     resource: "https://github.com/baptiste0928/jj-mesh/blob/eb271cb63dd57e8125fa6debd1b63c26d997dbe1/src/daemon/repos/workspace.rs"
   - id: syncthing
-    resource: "https://docs.syncthing.net/users/syncing.html"
+    resource: "https://github.com/syncthing/docs/blob/a86f6a1c2c6bf73e2817e3f045d292d9f26b840b/users/syncing.rst"
   - id: livesync
     resource: "https://github.com/vrtmrz/obsidian-livesync/blob/2eb38f9e37c67c5df75db01aa6b6cbe964193a1e/README.md"
   - id: executor-map
@@ -381,7 +381,7 @@ safe VM teardown.
 
 [^mesh-workspace]: [jj-mesh workspace task](https://github.com/baptiste0928/jj-mesh/blob/eb271cb63dd57e8125fa6debd1b63c26d997dbe1/src/daemon/repos/workspace.rs).
 
-[^syncthing]: [Syncthing documentation](https://docs.syncthing.net/users/syncing.html), inspected 2026-11-21.
+[^syncthing]: [Syncthing synchronization documentation](https://github.com/syncthing/docs/blob/a86f6a1c2c6bf73e2817e3f045d292d9f26b840b/users/syncing.rst), inspected 2026-11-21 at docs.syncthing.net/users/syncing.html.
 
 [^livesync]: [Obsidian LiveSync README](https://github.com/vrtmrz/obsidian-livesync/blob/2eb38f9e37c67c5df75db01aa6b6cbe964193a1e/README.md).
 

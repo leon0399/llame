@@ -86,7 +86,7 @@
   "inspection_depth": {
     "jj_musubi": "README, mechanics, safety, protocol, changelog, hub, workspace naming, and snapshot source",
     "jj_mesh": "README, settings, and workspace task source",
-    "syncthing": "primary synchronization documentation",
+    "syncthing": "primary synchronization documentation, pinned to syncthing/docs a86f6a1c2c6bf73e2817e3f045d292d9f26b840b",
     "obsidian_livesync": "README only"
   },
   "not_performed": [
