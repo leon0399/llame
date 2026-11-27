@@ -168,20 +168,53 @@ test("the command compiles committed changesets and keeps active changes", () =>
   );
 });
 
-test("the command refuses an uncommitted changeset and changes nothing", () => {
-  const directory = repository();
-  write(directory, ".changeset/new.md", "---\n---\n\n- Not merged.\n");
+test("the command refuses any uncommitted changeset and changes nothing", () => {
+  const cases = [
+    ["a new file", "new.md", () => {}],
+    ["an unstaged edit", "fix.md", () => {}],
+    ["a staged edit", "fix.md", (directory) => git(directory, "add", "-A")],
+  ];
+  for (const [label, name, stage] of cases) {
+    const directory = repository();
+    write(directory, `.changeset/${name}`, "---\n---\n\n- Not merged.\n");
+    stage(directory);
 
-  const run = spawnSync("node", [compiler], {
-    cwd: directory,
-    encoding: "utf8",
-  });
+    const run = spawnSync("node", [compiler], {
+      cwd: directory,
+      encoding: "utf8",
+    });
 
-  assert.notEqual(run.status, 0);
-  assert.match(run.stderr, /\.changeset\/new\.md: commit it before compiling/);
-  assert.equal(
-    readFileSync(path.join(directory, "CHANGELOG.md"), "utf8"),
-    `${changelog}\n`,
-  );
-  assert.equal(existsSync(path.join(directory, ".changeset/fix.md")), true);
+    assert.notEqual(run.status, 0, label);
+    assert.match(
+      run.stderr,
+      new RegExp(
+        `\\.changeset/${name.replace(".", "\\.")}: commit it before compiling`,
+      ),
+      label,
+    );
+    assert.equal(
+      readFileSync(path.join(directory, "CHANGELOG.md"), "utf8"),
+      `${changelog}\n`,
+      label,
+    );
+    assert.equal(existsSync(path.join(directory, ".changeset/fix.md")), true);
+  }
+});
+
+test("relative links are rebased from .changeset/ to the root", () => {
+  const body = [
+    "- See [the guide](../docs/guide.md#setup), [CONTRIBUTING](<../CONTRIBUTING.md>),",
+    "  [the site](https://example.com/../x), and [ref].",
+    "",
+    "  [ref]: ../SPEC.md",
+  ].join("\n");
+
+  const merged = insertEntries(changelog, [
+    { name: "a.md", body, date: "2026-11-26", time: 1 },
+  ]);
+
+  assert.match(merged, /\[the guide\]\(docs\/guide\.md#setup\)/);
+  assert.match(merged, /\[CONTRIBUTING\]\(<CONTRIBUTING\.md>\)/);
+  assert.match(merged, /\(https:\/\/example\.com\/\.\.\/x\)/);
+  assert.match(merged, /^ {2}\[ref\]: SPEC\.md$/m);
 });

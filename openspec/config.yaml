@@ -113,8 +113,9 @@ rules:
       even when later implementation or finalize layers remain. Earlier partial
       layers reference the issue without closing it. Each layer that ships work
       updates its affected documentation, its change's .changeset/<change>.md
-      entry (created by the first such layer, amended by later ones; never
-      CHANGELOG.md), and completed ROADMAP.md removals. Finalize owns spec
+      entry (created by the first such layer, amended by later ones; a parallel
+      leaf writes .changeset/<change>.<layer>.md instead; never CHANGELOG.md),
+      and completed ROADMAP.md removals. Finalize owns spec
       synchronization, task records, and archive movement, not deferred
       documentation or issue closure.
     - >-

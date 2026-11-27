@@ -55,6 +55,14 @@ function changeOf(name) {
 }
 
 /**
+ * A changeset sits one directory below the root, so its relative links start
+ * with `../`; drop that prefix so they resolve from CHANGELOG.md.
+ */
+function rootRelativeLinks(body) {
+  return body.replace(/(\]\(<?|^ *\[[^\]\n]+\]: *<?)\.\.\//gm, "$1");
+}
+
+/**
  * Inserts entries into the changelog text. Each entry is `{ name, body, date,
  * time }`; entries of one date go on top of that date's section, newest first.
  */
@@ -65,7 +73,7 @@ export function insertEntries(changelog, entries) {
     (entry) => entry.date,
   );
   for (const [date, dated] of byDate) {
-    const bodies = dated.map((entry) => entry.body);
+    const bodies = dated.map((entry) => rootRelativeLinks(entry.body));
     const existing = blocks.findIndex((block) => block === `# ${date}`);
     if (existing >= 0) {
       blocks.splice(existing + 1, 0, ...bodies);
@@ -117,14 +125,17 @@ function activeChangeNames(root) {
   );
 }
 
-/** The date and time of the last commit that touched the file. */
+/**
+ * The date and time of the last commit that touched the file, which must
+ * match the working tree: an uncommitted edit has no merge date.
+ */
 function lastCommit(root, file) {
-  const stamp = execFileSync(
-    "git",
-    ["log", "-1", "--format=%cs %ct", "--", file],
-    { cwd: root, encoding: "utf8" },
-  ).trim();
-  if (!stamp) throw new Error(`${file}: commit it before compiling`);
+  const git = (...args) =>
+    execFileSync("git", args, { cwd: root, encoding: "utf8" }).trim();
+  const stamp = git("log", "-1", "--format=%cs %ct", "--", file);
+  if (!stamp || git("status", "--porcelain", "--", file)) {
+    throw new Error(`${file}: commit it before compiling`);
+  }
   const [date, time] = stamp.split(" ");
   return { date, time: Number(time) };
 }
