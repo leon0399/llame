@@ -1,8 +1,8 @@
 # Issues and handoff
 
-An issue is the whole input for whoever picks it up, person or agent. The
-procedure lives in `$issue-handoff`; this page owns the policy. Delivery from
-the issue onward follows [CONTRIBUTING.md](../../CONTRIBUTING.md).
+An issue is the whole input for whoever picks it up, person or agent.
+The procedure lives in `$issue-handoff`. This page owns the policy.
+Delivery from the issue onward follows [CONTRIBUTING.md](../../CONTRIBUTING.md).
 
 ## Hierarchy
 
@@ -17,15 +17,9 @@ cutovers. A slice that cannot merge alone is a layer, not an issue. The layer
 that completes a cutover puts `Closes #<cutover>` on its PR, and the proposal
 PR says `Refs #<feature>`.
 
-One OpenSpec change covers a feature and all of its cutovers. A cutover gets
-its own proposal only when it touches specs that no sibling touches, or when it
-is deferred past its siblings; it then becomes a feature of its own. When two
-open changes modify the same requirement, the one archived second can drop the
-other's scenarios ([research](../../docs/research/product-vision/2026-11-20-agentic-sdlc-automation.md),
-F7), so a shared requirement keeps one owning change.
+One OpenSpec change covers a feature and all of its cutovers. A cutover gets its own proposal only when it touches specs that no sibling touches or when it is deferred past its siblings. In either case, it then becomes a feature of its own. When two open changes modify the same requirement, the one archived second can drop the other's scenarios ([research](../../docs/research/product-vision/2026-11-20-agentic-sdlc-automation.md), F7). A shared requirement therefore keeps one owning change.
 
-Wayfinding maps and their tickets stay outside this tree; see
-[wayfinding](wayfinding.md).
+Wayfinding maps and their tickets stay outside this tree. See [wayfinding](wayfinding.md).
 
 ## What the body carries
 
@@ -47,7 +41,7 @@ status: live status stays in the Project.
 An approved spec does not start work. Project Status Ready means nobody holds
 the item. Handing it off is an explicit action:
 
-- assign a person; or
+- assign a person.
 - add a trigger label for an agent.
 
 | Label             | Goes on                                                     | Requires                                |
@@ -73,8 +67,7 @@ setup has.
 Whoever starts work on an issue, person or agent, marks it in two
 machine-readable ways:
 
-- a `working:spec`, `working:implement`, or `working:triage` label for the
-  stage, and an assignee;
+- a `working:spec`, `working:implement`, or `working:triage` label for the stage, and an assignee.
 - one comment that opens with a marker, followed by a plain sentence:
 
   ```html
@@ -129,6 +122,4 @@ find it, and a `needs:human` comment names the session to answer in. Issue
 comments carry the conversation only for an engine that has no session
 interface.
 
-The issue carries the record. When a grilling round settles, the agent writes
-each decision into the issue body, or into one decision comment, as a gist plus
-its reason, so the next worker starts from the issue without the transcript.
+When a grilling round settles, the agent writes each decision into the issue body or into one decision comment. The agent includes a gist and its reason, so the next worker starts from the issue without the transcript.

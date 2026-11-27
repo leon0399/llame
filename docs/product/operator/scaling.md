@@ -33,9 +33,9 @@ both.
 ## Postgres prerequisites
 
 Embeddings-backed search needs the `vector` (pgvector) and `pg_trgm`
-extensions; `pnpm db:up` provides both. An installation on its own Postgres
-switches to a pgvector-capable image before upgrading, or the extension
-migration fails.
+extensions. `pnpm db:up` provides both. An installation on its own Postgres
+must switch to a pgvector-capable image before upgrading. Otherwise, the
+extension migration fails.
 
 ## Worker profiles
 

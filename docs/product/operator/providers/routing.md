@@ -336,20 +336,23 @@ limit can supply a reset through `Retry-After` on any of its supported wires.
 
 ## Provider headers
 
-Every provider entry may also set `headers` to a map of header names to
-strings or `null`. `{env:...}` and `{path:...}` resolve once at startup;
+Every provider entry may set `headers` to a map of header names to strings or
+`null`. `{env:...}` and `{path:...}` resolve once at startup.
 `{session:id}` resolves per request to the Chat id on the main turn and
-compaction, or `title:<chatId>` for title generation. The
-vendor profiles, `openai-responses`, `openai-completions`,
+compaction. For title generation, it resolves to `title:<chatId>`.
+
+The vendor profiles, `openai-responses`, `openai-completions`,
 `anthropic-messages`, and `opencode-go` default to
-`X-Session-Id: {session:id}`, and OpenCode Go also sets its own
-`x-opencode-*` headers ([OpenCode Go](opencode-go.md)); `openai-codex` has no
-default. Non-chat calls omit
-session-templated headers. Set a default entry to `null` to remove
-it — for example, a strict proxy that rejects unknown headers can use
-`"X-Session-Id": null`. Operator values overlay llame's own headers, including
-`User-Agent`, credentials, and OpenCode Go's `x-opencode-*`; that override is
-the operator's responsibility. Use `{env:...}` or `{path:...}` for secrets.
-The `@ai-sdk/anthropic` adapter merges an operator `anthropic-beta` with its
-own beta values only when the key is spelled in lowercase; another casing is
+`X-Session-Id: {session:id}`. OpenCode Go also sets its own `x-opencode-*`
+headers ([OpenCode Go](opencode-go.md)). `openai-codex` has no default.
+Non-chat calls omit session-templated headers. Set a default entry to `null` to
+remove it. For example, a strict proxy that rejects unknown headers can use
+`"X-Session-Id": null`.
+
+Operator values overlay llame's own headers, including `User-Agent`,
+credentials, and OpenCode Go's `x-opencode-*`. The operator is responsible for
+these overrides. Use `{env:...}` or `{path:...}` for secrets.
+
+The `@ai-sdk/anthropic` adapter merges an operator `anthropic-beta` with its own
+beta values only when the key is spelled in lowercase. Another casing is
 discarded whenever the adapter adds a beta of its own for that request.

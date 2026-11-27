@@ -23,25 +23,21 @@ When an implementation PR merges without completing the issue's published
 acceptance, mark that PR Done and keep the issue In progress until a later PR
 transition, even if no implementation PR remains open.
 
-`Priority` and `Order` select work independently of readiness. Keep `Workstream`
-and `Next action` current; name the missing decision, native blocker, or next
-concrete step and link the evidence. Preserve intentional deferrals. A parent
-issue reflects its remaining outcome, not the most advanced child or PR. Each PR
-tracks its own layer. Derive the issue status from the published PRs covering
-its outcome; creating or editing an unpublished layer does not change it.
+`Priority` and `Order` select work independently of readiness. Keep `Workstream` and `Next action` current.
+Name the missing decision, native blocker, or next concrete step, and link the evidence. Preserve intentional deferrals.
+A parent issue reflects its remaining outcome, not the most advanced child or PR. Each PR tracks its own layer.
+Derive the issue status from the published PRs covering its outcome. Creating or editing an unpublished layer does not change it.
 
-Before implementation, carry forward approval of the actual revision and recheck
-native blockers; do not request the same approval again. Published substantive proposal revisions return to Design when their PR becomes
-draft or receives a GitHub change request; approval of the revised scope is
-required before implementation. Reconcile legacy proposals by their approved
-contract, rather than reopening approval because a review record is absent.
+Before implementation, carry forward approval of the actual revision and recheck native blockers. Do not request the same approval again.
+Published substantive proposal revisions return to Design when their PR becomes draft or receives a GitHub change request.
+Approval of the revised scope is required before implementation.
+Reconcile legacy proposals by their approved contract, rather than reopening approval because a review record is absent.
 Bug fixes and chores that skip OpenSpec follow their published PR state directly.
 
-At each GitHub transition, fetch the PR state and current Project fields/items,
-update Status and Next action with the PR link and any changed native dependencies,
-then read them back. Add
-missing issue/PR items with Status, Priority, Workstream, and Next action. Do not
-change priority or native dependencies merely to make a status fit. If Project access
-fails, report the unsynchronized transition in the handoff; do not claim it was
-updated. Keep live status in the Project rather than duplicating it in task
-files or issue bodies. OpenSpec checkboxes continue to record completed tasks.
+At each GitHub transition, fetch the PR state and current Project fields/items.
+Update Status and Next action with the PR link and any changed native dependencies, then read them back.
+Add missing issue/PR items with Status, Priority, Workstream, and Next action.
+Do not change priority or native dependencies merely to make a status fit.
+If Project access fails, report the unsynchronized transition in the handoff. Do not claim it was updated.
+Keep live status in the Project rather than duplicating it in task files or issue bodies.
+OpenSpec checkboxes continue to record completed tasks.
