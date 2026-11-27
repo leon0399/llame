@@ -325,9 +325,20 @@ async function openInstructionsEditor(root: HTMLElement) {
     }),
   );
 
-  const dialog = within(
-    await screen.findByRole("dialog", { name: "Project instructions" }),
+  const element = await screen.findByRole("dialog", {
+    name: "Project instructions",
+  });
+
+  // The dialog fades and zooms in; its contents only count as visible once
+  // that animation has finished. One frame lets the animation start.
+  await new Promise((resolve) => requestAnimationFrame(resolve));
+  await Promise.all(
+    element
+      .getAnimations({ subtree: true })
+      .map((animation) => animation.finished),
   );
+
+  const dialog = within(element);
 
   return {
     panel,
@@ -564,10 +575,9 @@ export const SavesInstructionsAndReloads: Story = {
 
     const save = dialog.getByRole("button", { name: "Save" });
 
-    // The dialog fades in; its text is visible once that settles.
-    await waitFor(() =>
-      expect(dialog.getByText(/sent to your model provider/i)).toBeVisible(),
-    );
+    await expect(
+      dialog.getByText(/sent to your model provider/i),
+    ).toBeVisible();
     await expect(textarea).toHaveValue("");
     await expect(save).toBeDisabled();
 
