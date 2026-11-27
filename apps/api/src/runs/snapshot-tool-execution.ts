@@ -1,4 +1,4 @@
-import { isHostCapabilityTool } from '../tools/bash';
+import { isHostCapabilityTool } from '../tools/shell';
 import { type ModelToolDeclaration } from '../db/schema';
 import { isRecord, isString } from '@workspace/runtime-safety';
 import { TOOL_REGISTRY } from '../tools/registry';

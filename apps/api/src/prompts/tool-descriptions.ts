@@ -7,6 +7,7 @@ export const TOOL_PROMPT_IDS = [
   'edit',
   'write',
   'bash',
+  'zsh',
   'stop',
   'enter_workspace',
   'exit_workspace',

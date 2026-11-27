@@ -10,8 +10,9 @@ import "google/protobuf/timestamp.proto";
 // the Watch stream. Each job carries an opaque owner, and a call on a job whose owner differs fails
 // as JOB_NOT_FOUND, like an unknown id.
 service JobService {
-  // CreateJob starts `bash -c command`. The job id is the request id: a resend returns the running
-  // job. At the running-job limit the call is refused with JOB_LIMIT.
+  // CreateJob starts `command` in the shell `shell` names, `bash` by default. The job id is the
+  // request id: a resend returns the running job. At the running-job limit the call is refused
+  // with JOB_LIMIT.
   rpc CreateJob(CreateJobRequest) returns (CreateJobResponse) {}
   rpc GetJob(GetJobRequest) returns (GetJobResponse) {
     option idempotency_level = NO_SIDE_EFFECTS;
@@ -95,6 +96,9 @@ message CreateJobRequest {
   // Added to the daemon's base environment.
   map<string, string> env = 5;
   optional google.protobuf.Duration timeout = 6;
+  // The shell that runs `command`: `bash` (unset) or `zsh`. An unsupported
+  // value is refused with INVALID_ARGUMENT.
+  optional string shell = 7;
 }
 
 message CreateJobResponse {

@@ -159,7 +159,9 @@ class ClauseSelection {
     this.project = options.projectFieldValue ?? ((_field, value) => value);
     this.isFlexibleField =
       options.isFlexibleWhitespaceField ??
-      ((field) => options.toolId === 'bash' && field === 'command');
+      ((field) =>
+        (options.toolId === 'bash' || options.toolId === 'zsh') &&
+        field === 'command');
 
     const usesAllFields = clauses.some(
       (clause) => 'allFields' in clause.target,

@@ -7,7 +7,7 @@ import { parse as parseJsonc } from 'jsonc-parser';
 import { beforeEach, describe, expect, it } from 'vitest';
 
 import { decidePermission } from '../tools/permissions/admit';
-import { isBashCommandField } from '../tools/permissions/bash-command-field';
+import { isShellCommandField } from '../tools/permissions/bash-command-field';
 import {
   projectNativeFilePath,
   withoutReadSelector,
@@ -384,7 +384,7 @@ describe('shipped example configuration', () => {
         toolId,
         args,
         isFlexibleWhitespaceField: (field: string) =>
-          isBashCommandField(toolId, field),
+          isShellCommandField(toolId, field),
         projectFieldValue: projectionFor(toolId),
       };
 

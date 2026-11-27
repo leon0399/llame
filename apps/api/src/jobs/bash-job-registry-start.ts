@@ -27,6 +27,7 @@ import {
   machineUnknownResult,
 } from '../tools/machine-call';
 import { type BashInput, type BashMachineTarget } from '../tools/bash-target';
+import { type ShellId } from '../tools/shell';
 import { type ToolContext, type ToolResult } from '../tools/types';
 import { NativeFilesRepository } from '../runs/native-files-repository';
 import { ChatJobsRepository } from './chat-jobs.repository';
@@ -53,6 +54,7 @@ type BashJobStartDependencies = {
   context: ToolContext;
   machine: BashMachineTarget;
   input: BashInput;
+  shell: ShellId;
   settleLost: (row: ChatJob, job: Job) => Promise<void>;
 };
 
@@ -151,6 +153,7 @@ async function createBoundBashJob(
     context: deps.context,
     machine: deps.machine,
     input: deps.input,
+    shell: deps.shell,
     daemonJobId,
     lifetimeMs,
   }).catch(() => settleUnknownCreate(input));
@@ -394,6 +397,7 @@ type CreateDaemonJobInput = {
   context: ToolContext;
   machine: BashMachineTarget;
   input: BashInput;
+  shell: ShellId;
   daemonJobId: string;
   lifetimeMs: number;
 };
@@ -439,6 +443,7 @@ async function sendCreateJob(
     context,
     machine,
     input: bashInput,
+    shell,
     daemonJobId,
     lifetimeMs,
   } = input;
@@ -454,6 +459,7 @@ async function sendCreateJob(
       command: bashInput.command,
       ...(machine.path !== undefined && { cwd: machine.path }),
       ...(bashInput.env !== undefined && { env: bashInput.env }),
+      ...(shell === 'zsh' && { shell: 'zsh' as const }),
       ...(lifetimeMs > 0 && {
         timeout: { seconds: BigInt(lifetimeMs / 1000), nanos: 0 },
       }),

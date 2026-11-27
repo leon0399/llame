@@ -1,4 +1,4 @@
-import { isBashTool } from './bash';
+import { isShellTool } from './shell';
 import { isNativeFileTool } from './native-files';
 
 import {
@@ -18,7 +18,7 @@ import {
   evaluateSubmittedThenProjected,
   readOnlyCeiling,
 } from './permissions/admit';
-import { isBashCommandField } from './permissions/bash-command-field';
+import { isShellCommandField } from './permissions/bash-command-field';
 import { declaredStringProperties } from './permissions/declared-fields';
 import {
   NATIVE_FILE_PERMISSION_TOOL_IDS,
@@ -104,7 +104,7 @@ function projectWorkspaceArguments(
   if (isNativeFileTool(tool) || tool.id === 'enter_workspace')
     return projectNativeFileArguments(args, locator);
 
-  if (isBashTool(tool)) return projectBashArguments(args, bashCwd);
+  if (isShellTool(tool)) return projectBashArguments(args, bashCwd);
 
   return args;
 }
@@ -296,7 +296,7 @@ function permissionOptionsFor(
     toolId: tool.id,
     args: callArgs,
     isFlexibleWhitespaceField: (field: string) =>
-      isBashCommandField(tool.id, field),
+      isShellCommandField(tool.id, field),
     validFields: mcpDeclaredStringFields(tool),
   });
 }
@@ -327,7 +327,7 @@ function prepareLocatorEvaluation(
 ): LocatorEvaluation {
   const locator = locatorContext(context);
 
-  const bashCwd = isBashTool(tool)
+  const bashCwd = isShellTool(tool)
     ? projectBashCwd(isString(args.cwd) ? args.cwd : undefined, locator)
     : {};
 
@@ -447,7 +447,7 @@ function decideLocatorPermission(
   if (NATIVE_FILE_PERMISSION_TOOL_IDS.has(evaluation.tool.id))
     return nativePathDecision(context, evaluation);
 
-  return isBashTool(evaluation.tool)
+  return isShellTool(evaluation.tool)
     ? bashPermissionDecision(context, evaluation)
     : submittedPermissionDecision(context, evaluation);
 }

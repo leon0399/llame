@@ -3,6 +3,7 @@ export type ToolTerminationStatus = 'cancelled' | 'expired' | 'failed';
 import { type ToolResult } from '@workspace/runtime-safety';
 
 import { unknownMcpExecution } from '../tools/runner';
+import { isShellId } from '../tools/shell';
 
 const MESSAGES = {
   cancelled: 'The run was cancelled before this tool finished.',
@@ -18,7 +19,7 @@ export function toolTerminationResult(
   status: ToolTerminationStatus,
   toolName: string,
 ): ToolResult {
-  if (toolName === 'bash') {
+  if (isShellId(toolName)) {
     return {
       status: 'error',
       type: 'outcome_unknown',
@@ -75,9 +76,9 @@ export function interruptSettlementOf(
 
   if (!call.started) return { result: notRun, stopped: false };
 
-  if (call.toolName === 'bash') {
+  if (isShellId(call.toolName)) {
     return {
-      result: toolTerminationResult('cancelled', 'bash'),
+      result: toolTerminationResult('cancelled', call.toolName),
       stopped: true,
     };
   }

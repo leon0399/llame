@@ -1,4 +1,4 @@
-import { isHostCapabilityTool } from './bash';
+import { isHostCapabilityTool } from './shell';
 import { Logger } from '@nestjs/common';
 
 import {

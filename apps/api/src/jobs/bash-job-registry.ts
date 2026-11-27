@@ -15,6 +15,7 @@ import type { MachineRequestOptions } from '../machines/machine-session';
 import { NativeFilesRepository } from '../runs/native-files-repository';
 import { spillBashResult } from '../tools/bash-spill';
 import { type BashInput, type BashMachineTarget } from '../tools/bash-target';
+import { type ShellId } from '../tools/shell';
 import { machineUnknownResult } from '../tools/machine-call';
 import { type ToolContext, type ToolResult } from '../tools/types';
 import { ChatJobsRepository } from './chat-jobs.repository';
@@ -90,6 +91,7 @@ export class BashJobRegistry implements OnModuleInit {
     context: ToolContext,
     machine: BashMachineTarget,
     input: BashInput,
+    shell: ShellId,
   ): Promise<ToolResult> {
     const started = await startBashJobStage({
       tenantDb: this.tenantDb,
@@ -98,6 +100,7 @@ export class BashJobRegistry implements OnModuleInit {
       context,
       machine,
       input,
+      shell,
       settleLost: (row, job) =>
         this.settleDaemonJob(row, job, null, row.delivery === 'background'),
     });

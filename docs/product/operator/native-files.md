@@ -40,14 +40,15 @@ imports, host `bash`, and its background jobs run through the daemon.
 This page covers enabling and policy only. What each tool does is documented in
 [read](../reference/tools/read.md),
 [edit](../reference/tools/edit.md),
-[write](../reference/tools/write.md), and
-[bash](../reference/tools/bash.md); the authority each locator scheme reaches
+[write](../reference/tools/write.md),
+[bash](../reference/tools/bash.md), and
+[zsh](../reference/tools/zsh.md); the authority each locator scheme reaches
 is summarized in [locators](../reference/locators/index.md), and line and
 representation selectors in [selectors](../reference/selectors.md).
 
 ## Enabling
 
-Absolute-path access and `bash` need a configured Machine, named in the
+Absolute-path access, `bash`, and `zsh` need a configured Machine, named in the
 [operator index](index.md#operator), then a restart of the API and worker:
 
 ```jsonc

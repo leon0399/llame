@@ -83,6 +83,7 @@ const PATH_FIELDS = {
   enter_workspace: 'path',
   grep: GREP_SCOPES_FIELD,
   bash: 'cwd',
+  zsh: 'cwd',
 } satisfies Readonly<Record<string, string>>;
 
 /** Whether a tool id names a tool whose path parameter is decided on. */

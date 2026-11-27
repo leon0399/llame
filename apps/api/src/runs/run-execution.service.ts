@@ -7,7 +7,7 @@ import {
   reconcileArtifactFiles,
   sweepArtifactDirectories,
 } from '../tools/artifacts/host-files';
-import { isBashTool } from '../tools/bash';
+import { isShellId, isShellTool } from '../tools/shell';
 import { isHostBashCall } from '../tools/bash-target';
 import { BASH_SETTLEMENT_GRACE_MS } from '../tools/bash-limits';
 import { isCancelledBeforeExecution } from '../tools/cancelled-before-execution';
@@ -3792,7 +3792,7 @@ export class RunExecutionService {
         let result = toolTerminationResult(status, toolName);
 
         if (
-          toolName === 'bash' &&
+          isShellId(toolName) &&
           classification !== undefined &&
           isRecord(toolInput) &&
           isHostBashCall(toolInput, toolContext)
@@ -4216,7 +4216,7 @@ export class RunExecutionService {
         settleInterrupted(
           (call) =>
             (call.fate ?? 'cancel') === 'cancel' &&
-            (call.toolName !== 'bash' || !call.started),
+            (!isShellId(call.toolName) || !call.started),
           mcpWrites,
         );
         await Promise.all(
@@ -4366,11 +4366,11 @@ export class RunExecutionService {
         const neverRan = isCancelledBeforeExecution(result, declaration.id);
 
         const provenBash =
-          isBashTool(executor) &&
+          isShellTool(executor) &&
           !neverRan &&
           !(result.status === 'error' && result.type === 'outcome_unknown');
 
-        if (neverRan && isBashTool(executor)) {
+        if (neverRan && isShellTool(executor)) {
           recordToolCompleted(
             toolCallId,
             declaration.id,
@@ -4400,7 +4400,7 @@ export class RunExecutionService {
         // parent-abort listener. An unknown bash result remains owned by
         // that listener's synthetic settlement.
         const settledAfterAbort =
-          isBashTool(executor) &&
+          isShellTool(executor) &&
           !(result.status === 'error' && result.type === 'outcome_unknown');
 
         if (settledAfterAbort) {
@@ -4572,12 +4572,12 @@ export class RunExecutionService {
           ? expiredRunMessage(input.abortSignal)
           : toolTerminationMessage(status);
 
-      const hasBashCall = [...openToolCalls.values()].some(
-        ({ toolName }) => toolName === 'bash',
+      const hasBashCall = [...openToolCalls.values()].some(({ toolName }) =>
+        isShellId(toolName),
       );
 
       parentAbortSettlement = (async () => {
-        await settleOpenToolCalls(status, (toolName) => toolName !== 'bash');
+        await settleOpenToolCalls(status, (toolName) => !isShellId(toolName));
 
         if (hasBashCall) {
           await new Promise<void>((resolve) => {

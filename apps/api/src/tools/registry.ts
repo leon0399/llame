@@ -3,7 +3,9 @@ import {
   nativeEditTool,
   nativeWriteTool,
 } from './native-files';
-import { bashTool, isBashTool, isHostCapabilityTool } from './bash';
+import { bashTool } from './bash';
+import { zshTool } from './zsh';
+import { isShellTool, isHostCapabilityTool } from './shell';
 import { enterWorkspaceTool, exitWorkspaceTool } from './workspace';
 import { knowledgeSearchTool } from '../knowledge/knowledge-tools';
 import { nativeGrepTool } from './grep';
@@ -32,6 +34,7 @@ export const TOOLS: ReadonlyArray<Tool> = [
   nativeWriteTool,
   nativeGrepTool,
   bashTool,
+  zshTool,
   stopTool,
   waitTool,
   enterWorkspaceTool,
@@ -53,7 +56,7 @@ export function interruptFateOf(
   args: unknown,
   context: ToolContext,
 ): InterruptFate {
-  if (isBashTool(tool))
+  if (isShellTool(tool))
     return isRecord(args) && isHostBashCall(args, context)
       ? 'background'
       : 'cancel';

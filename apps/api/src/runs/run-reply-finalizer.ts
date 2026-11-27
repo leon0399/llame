@@ -32,6 +32,7 @@ import { NativeFilesRepository } from './native-files-repository';
 import { RunEventsRepository, RunsRepository } from './runs-repository';
 import { type TerminalRunStatus } from './run-status';
 import { toolTerminationResult } from './tool-settlement';
+import { isShellId } from '../tools/shell';
 import { attemptWindow, wakeStateFromEvents } from './wake-projection';
 import {
   quotaPendingReplyFromEvents,
@@ -283,7 +284,7 @@ async function settleOpenToolCalls(
     const nativeResult =
       toolName === 'edit' ||
       toolName === 'write' ||
-      toolName === 'bash' ||
+      isShellId(toolName) ||
       toolName.startsWith('mcp__')
         ? await new NativeFilesRepository(tx).priorOutcome(run.id, toolCallId)
         : undefined;
