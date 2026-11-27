@@ -12,6 +12,7 @@ import {
   ApiBearerAuth,
   ApiConflictResponse,
   ApiCookieAuth,
+  ApiExtraModels,
   ApiNotFoundResponse,
   ApiOkResponse,
   ApiOperation,
@@ -23,8 +24,10 @@ import {
 import { CurrentUser } from '../auth/auth-context';
 import { ChatJobsService } from './chat-jobs.service';
 import {
+  CHAT_JOB_OUTPUT_RESPONSE_MODELS,
+  CHAT_JOB_OUTPUT_RESPONSE_SCHEMA,
   ChangeChatJobDto,
-  ChatJobOutputResponse,
+  type ChatJobOutputResponse,
   ChatJobResponse,
   ChatJobsResponse,
   toChatJobResponse,
@@ -63,8 +66,9 @@ export class ChatJobsController {
   @ApiOperation({ operationId: 'readChatJobOutput' })
   @ApiParam({ name: 'chatId', format: 'uuid' })
   @ApiParam({ name: 'jobId', format: 'uuid' })
+  @ApiExtraModels(...CHAT_JOB_OUTPUT_RESPONSE_MODELS)
   @ApiOkResponse({
-    type: ChatJobOutputResponse,
+    schema: CHAT_JOB_OUTPUT_RESPONSE_SCHEMA,
     description: 'The stored outputs of a settled job, each up to 64 KiB.',
   })
   @ApiBadRequestResponse({ description: 'Malformed id' })
@@ -76,13 +80,11 @@ export class ChatJobsController {
     @Param('chatId', ParseUUIDPipe) chatId: string,
     @Param('jobId', ParseUUIDPipe) jobId: string,
   ): Promise<ChatJobOutputResponse> {
-    const { available, outputs } = await this.jobs.output(
-      chatId,
-      jobId,
-      userId,
-    );
+    const output = await this.jobs.output(chatId, jobId, userId);
 
-    return { available, outputs: [...outputs] };
+    return output.status === 'stored'
+      ? { status: 'stored', outputs: [...output.outputs] }
+      : output;
   }
 
   @Patch(':jobId')

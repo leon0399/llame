@@ -11,8 +11,9 @@ import type {
   ChatCreationRecordResponse,
   ChatDeliveriesResponse,
   ChatDeliveryResponse,
-  ChatJobOutputResponse,
   ChatJobResponse,
+  ChatJobStoredOutputResponse,
+  ChatJobUnavailableOutputResponse,
   ChatJobsResponse,
   ChatListItemResponse,
   ChatMessagesResponse,
@@ -559,7 +560,7 @@ export const readChatJobOutput = async (
   jobId: string,
   options: RequestInit | undefined,
   fetchFn: typeof globalThis.fetch,
-): Promise<ChatJobOutputResponse> => {
+): Promise<ChatJobStoredOutputResponse | ChatJobUnavailableOutputResponse> => {
   const res = await fetchFn(getReadChatJobOutputUrl(chatId, jobId), {
     ...options,
     method: "GET",
@@ -584,7 +585,8 @@ export const readChatJobOutput = async (
     err.status = res.status;
     throw err;
   }
-  const data: ChatJobOutputResponse = body ? JSON.parse(body) : {};
+  const data: ChatJobStoredOutputResponse | ChatJobUnavailableOutputResponse =
+    body ? JSON.parse(body) : {};
   return data;
 };
 

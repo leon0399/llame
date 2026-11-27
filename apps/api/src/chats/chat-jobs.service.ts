@@ -26,10 +26,13 @@ export type ChatJobOutputPart = {
   readonly cut: boolean;
 };
 
-export type ChatJobOutput = {
-  readonly available: boolean;
-  readonly outputs: ReadonlyArray<ChatJobOutputPart>;
-};
+/** A settled job's output: its stored streams, or none was stored. */
+export type ChatJobOutput =
+  | {
+      readonly status: 'stored';
+      readonly outputs: ReadonlyArray<ChatJobOutputPart>;
+    }
+  | { readonly status: 'unavailable' };
 
 /** The last bound of an output, starting on a whole line when it is cut. */
 function outputTail(content: Buffer): Omit<ChatJobOutputPart, 'name'> {
@@ -88,7 +91,7 @@ export class ChatJobsService {
 
       if (job === undefined || job.state === 'running') return job;
 
-      if (job.artifactId === null) return { available: false, outputs: [] };
+      if (job.artifactId === null) return { status: 'unavailable' as const };
 
       const artifacts = new ArtifactsRepository(tx);
       const outputs: Array<ChatJobOutputPart> = [];
@@ -100,7 +103,7 @@ export class ChatJobsService {
           outputs.push({ name, ...outputTail(part.content) });
       }
 
-      return { available: true, outputs };
+      return { status: 'stored' as const, outputs };
     });
 
     if (answer === undefined)

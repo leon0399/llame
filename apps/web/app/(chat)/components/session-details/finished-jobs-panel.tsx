@@ -24,7 +24,7 @@ import { cn } from "@workspace/ui/lib/utils";
 import { topBarClasses } from "@/app/shell/top-bar";
 import { IconButtonTooltip } from "@/components/icon-button-tooltip";
 import type {
-  ChatJobOutputResponse,
+  ChatJobOutputPart,
   ChatJobResponse,
   ChatJobResponseStoppedBy,
 } from "@/lib/api/generated/models";
@@ -86,10 +86,8 @@ function JobCommand({ command }: { command: string | null }) {
 }
 
 /** stdout first, then stderr under its own caption; empty streams drop out. */
-function JobOutputText({ output }: { output: ChatJobOutputResponse }) {
-  const streams = output.outputs.filter((part) => part.content.length > 0);
-
-  if (!output.available) return <OutputNote>Output was not stored</OutputNote>;
+function JobOutputText({ outputs }: { outputs: Array<ChatJobOutputPart> }) {
+  const streams = outputs.filter((part) => part.content.length > 0);
 
   if (streams.length === 0) return <OutputNote>No output</OutputNote>;
 
@@ -136,7 +134,11 @@ function JobOutput({ job, open }: { job: ChatJobResponse; open: boolean }) {
 
   if (query.isError) return <OutputNote>Couldn't load the output</OutputNote>;
 
-  return <JobOutputText output={query.data} />;
+  if (query.data.status === "unavailable") {
+    return <OutputNote>Output was not stored</OutputNote>;
+  }
+
+  return <JobOutputText outputs={query.data.outputs} />;
 }
 
 /** Outcome, start time, locator, and any stream cut when it was stored. */

@@ -1389,7 +1389,21 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ChatJobOutputResponse"
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/ChatJobStoredOutputResponse"
+                    },
+                    {
+                      "$ref": "#/components/schemas/ChatJobUnavailableOutputResponse"
+                    }
+                  ],
+                  "discriminator": {
+                    "propertyName": "status",
+                    "mapping": {
+                      "stored": "#/components/schemas/ChatJobStoredOutputResponse",
+                      "unavailable": "#/components/schemas/ChatJobUnavailableOutputResponse"
+                    }
+                  }
                 }
               }
             }
@@ -6178,21 +6192,32 @@
         },
         "required": ["name", "content", "cut"]
       },
-      "ChatJobOutputResponse": {
+      "ChatJobStoredOutputResponse": {
         "type": "object",
         "properties": {
-          "available": {
-            "type": "boolean",
-            "description": "False when the job settled without a stored output, such as a lost job."
+          "status": {
+            "type": "string",
+            "enum": ["stored"]
           },
           "outputs": {
+            "description": "Each declared output the job stored, empty ones included.",
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/ChatJobOutputPart"
             }
           }
         },
-        "required": ["available", "outputs"]
+        "required": ["status", "outputs"]
+      },
+      "ChatJobUnavailableOutputResponse": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": ["unavailable"]
+          }
+        },
+        "required": ["status"]
       },
       "ChangeChatJobDto": {
         "type": "object",

@@ -1,4 +1,4 @@
-import { ApiProperty } from '@nestjs/swagger';
+import { ApiProperty, getSchemaPath } from '@nestjs/swagger';
 import { IsIn } from 'class-validator';
 
 import {
@@ -132,16 +132,45 @@ export class ChatJobOutputPart {
   cut!: boolean;
 }
 
-export class ChatJobOutputResponse {
-  @ApiProperty({
-    description:
-      'False when the job settled without a stored output, such as a lost job.',
-  })
-  available!: boolean;
+export class ChatJobStoredOutputResponse {
+  @ApiProperty({ enum: ['stored'] })
+  status!: 'stored';
 
-  @ApiProperty({ type: () => [ChatJobOutputPart] })
+  @ApiProperty({
+    type: () => [ChatJobOutputPart],
+    description: 'Each declared output the job stored, empty ones included.',
+  })
   outputs!: Array<ChatJobOutputPart>;
 }
+
+/** A settled job with no stored output, such as a lost job. */
+export class ChatJobUnavailableOutputResponse {
+  @ApiProperty({ enum: ['unavailable'] })
+  status!: 'unavailable';
+}
+
+export type ChatJobOutputResponse =
+  | ChatJobStoredOutputResponse
+  | ChatJobUnavailableOutputResponse;
+
+export const CHAT_JOB_OUTPUT_RESPONSE_MODELS = [
+  ChatJobStoredOutputResponse,
+  ChatJobUnavailableOutputResponse,
+];
+
+/** The output route's body: a union on `status`. */
+export const CHAT_JOB_OUTPUT_RESPONSE_SCHEMA = {
+  oneOf: CHAT_JOB_OUTPUT_RESPONSE_MODELS.map((model) => ({
+    $ref: getSchemaPath(model),
+  })),
+  discriminator: {
+    propertyName: 'status',
+    mapping: {
+      stored: getSchemaPath(ChatJobStoredOutputResponse),
+      unavailable: getSchemaPath(ChatJobUnavailableOutputResponse),
+    },
+  },
+};
 
 export function toChatJobResponse(job: ChatJob): ChatJobResponse {
   return {

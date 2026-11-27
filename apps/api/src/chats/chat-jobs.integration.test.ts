@@ -385,6 +385,13 @@ describe('chat jobs API', () => {
       result: { exitCode: 0, outputUnavailable: true },
       artifactId: null,
     });
+
+    const output = await request(http)
+      .get(`/api/v1/chats/${chatId}/jobs/${job.id}/output`)
+      .set('Cookie', cookieA);
+
+    expect(output.status).toBe(200);
+    expect(output.body).toEqual({ status: 'unavailable' });
   });
   it('reuses the spill artifact locator when settling the job', async () => {
     const chatId = await createChat();
@@ -516,7 +523,7 @@ describe('chat jobs API', () => {
 
     expect(res.status).toBe(200);
     expect(res.body).toEqual({
-      available: true,
+      status: 'stored',
       outputs: [
         { name: 'stdout', content: 'line one\nline two\n', cut: false },
         { name: 'stderr', content: 'a warning\n', cut: false },
