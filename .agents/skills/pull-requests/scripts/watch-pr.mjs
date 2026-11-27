@@ -108,7 +108,7 @@ function readChecks(ref) {
       "--repo",
       ref.repo,
       "--json",
-      "name,bucket,link,startedAt",
+      "name,bucket,link",
     ],
     { encoding: "utf8" },
   );
@@ -135,6 +135,21 @@ function readDraft(ref) {
   );
 }
 
+/**
+ * When the head commit was pushed: GitHub creates the commit's check suites at
+ * push time, before any job is queued or started. Null when none exist yet.
+ */
+function readPushedAt(ref, head) {
+  const created = gh([
+    "api",
+    `repos/${ref.repo}/commits/${head}/check-suites?per_page=100`,
+    "--jq",
+    "[.check_suites[].created_at] | min",
+  ]).trim();
+  const time = Date.parse(created);
+  return Number.isFinite(time) ? time : null;
+}
+
 const fingerprint = (text) =>
   createHash("sha1").update(text).digest("hex").slice(0, 12);
 
@@ -146,7 +161,7 @@ const reviewer = (author) => !STATUS_BOTS.has(author);
  * The printable changes of one poll, and the state they leave. `seen` maps an
  * item id to a fingerprint of what was last printed for it.
  */
-export function diffPull(previous, pr, checks, now) {
+export function diffPull(previous, pr, checks, now, pushedAtOfHead = null) {
   const seen = { ...previous.seen };
   const sections = { head: [], checks: [], threads: [], reviews: [], comments: [] };
 
@@ -158,18 +173,10 @@ export function diffPull(previous, pr, checks, now) {
     );
   }
 
-  // The head was pushed when its first check started; a new head without
-  // checks yet counts from now. Commit statuses (Vercel, Codecov, review apps)
-  // report a zero start time, 0001-01-01, which says nothing about the push.
-  const started = checks
-    .map((check) => Date.parse(check.startedAt))
-    .filter((time) => Number.isFinite(time) && time > 0);
+  // A new head is timed from its push, read by the caller; a head without
+  // check suites yet counts from now.
   const pushedAt =
-    headChanged || first
-      ? started.length > 0
-        ? Math.min(...started)
-        : now
-      : previous.pushedAt;
+    headChanged || first ? (pushedAtOfHead ?? now) : previous.pushedAt;
   // The first poll prints the open review state of the current head only:
   // unresolved threads, reviews of the head, and comments since its push.
   const current = (at, commit) =>
@@ -323,7 +330,10 @@ async function run(argv) {
       const key = `${ref.repo}#${ref.number}`;
       const pr = readPull(ref, ["threads", "reviews", "comments"]);
       const checks = readChecks(ref);
-      const { sections, state } = diffPull(saved[key] ?? { seen: {} }, pr, checks, now);
+      const previous = saved[key] ?? { seen: {} };
+      const pushedAtOfHead =
+        previous.head === pr.head ? null : readPushedAt(ref, pr.head);
+      const { sections, state } = diffPull(previous, pr, checks, now, pushedAtOfHead);
       saved[key] = state;
       const text = formatChanges(pr, sections, options.lines);
       if (text) {
