@@ -9,12 +9,13 @@ Create only the next authorized branch. Planning readiness is not approval.
   design with the ADR draft, and tasks. Estimate 750 authored lines, no generated
   churn. Exit evidence is strict validation, Markdown and formatting checks,
   independent proposal review, SR, and published-head GR/CI. Use `Refs #1910`.
-- `worktreeinclude/copy`, parent `worktreeinclude/proposal`: owns the complete
-  protocol, daemon, both API callers, negative tests, shipped docs, and ADR.
-  Estimate 1,800 to 2,400 authored added-plus-deleted lines. Report generated
-  lockfile churn separately. Exit evidence is focused filesystem, protocol,
-  permission, and creation tests plus affected workspace lint/typecheck, SR, and
-  published-head GR/CI. This PR uses `Closes #1910`.
+- `worktreeinclude/copy`, parent `worktreeinclude/proposal`: owns the proto
+  contract, Rust daemon copy, both API callers, negative tests, shipped docs,
+  and ADR. Estimate 2,000 to 3,000 authored added-plus-deleted lines. Report
+  generated lockfile and codegen churn separately. Exit evidence is focused
+  filesystem, protocol, permission, and creation tests plus affected workspace
+  lint/typecheck, Rust fmt/clippy, SR, and published-head GR/CI. This PR uses
+  `Closes #1910`.
 - `worktreeinclude/finalize`, parent `worktreeinclude/copy`: owns canonical spec
   synchronization, completed task records, and archive movement only. Estimate
   450 to 750 authored changed lines, with rename detection for archive moves.
@@ -39,9 +40,9 @@ split required safety tests away from their behavior to meet the review target.
 ## 2. Implementation layer: `worktreeinclude/copy`
 
 - [ ] 2.1 Recheck approved scope, native blockers, and #1876/#1877; create only this layer with `$gh-stack` and start `$openspec-apply-change`. Verify no conflicting live claim or incompatible pending contract.
-- [ ] 2.2 Carry the selected Checkout root as `copySource` through both planners, distinct from main Checkout and base-ref logic. Verify a linked-source fixture copies its own environment and a subdirectory fixture uses its admitted Checkout root.
-- [ ] 2.3 Extend the typed add request and failure projection, advance the Machine protocol revision, and update daemon handling. Verify incompatible versions fail before mutation and both host and remote fixtures use daemon-side copying.
-- [ ] 2.4 Implement Git ignored/untracked eligibility and manifest matching using `ignore` 7.0.12. Verify comments, escapes, root anchors, directory patterns, ordered negation, `**`, nested/global ignores, no manifest, empty manifest, and unmatched patterns with real-git fixtures.
+- [ ] 2.2 Carry the selected Checkout root as the copy source through both planners, distinct from main Checkout and base-ref logic. Verify a linked-source fixture copies its own environment and a subdirectory fixture uses its admitted Checkout root.
+- [ ] 2.3 Extend `CreateWorktreeRequest` with `copy_source`, regenerate the TypeScript client, increase the machine protocol version, and update `crates/machine-git`. Verify a mismatched version fails the handshake before mutation and both host and remote fixtures use daemon-side copying.
+- [ ] 2.4 Implement Git ignored/untracked eligibility and manifest matching with the workspace Rust `ignore` crate. Verify comments, escapes, root anchors, directory patterns, ordered negation, `**`, nested/global ignores, no manifest, empty manifest, and unmatched patterns with real-git fixtures, and repeat the recorded matcher probes against the Rust matcher.
 - [ ] 2.5 Implement regular-file copying with no-follow source and destination checks, safe file replacement, and ordinary mode preservation. Verify selected links, link parents, special files, Git metadata, path escapes, hard links, and file/directory conflicts cannot redirect reads or writes.
 - [ ] 2.6 Preserve the destination index while allowing tracked regular-file overwrites. Verify source bytes replace a differing tracked destination, Git reports the difference, identical files remain clean, and source files remain unchanged.
 - [ ] 2.7 Cover checkout, enumeration, and copy with one deadline and cancellation. Verify large explicit selections do not silently truncate, cancellation stops writers, and an injected later-file failure retains earlier copies and reports the leftover locator.
@@ -51,27 +52,30 @@ split required safety tests away from their behavior to meet the review target.
 - [ ] 2.11 Verify lifecycle behavior with real git. Source edits do not propagate, an edited ignored copy does not add a removal guard, a tracked overwrite blocks removal as dirty, and plain Workspace entry does not process the manifest.
 - [ ] 2.12 Publish the ADR drafted in `design.md` under `docs/adr/` with its acceptance date and status. Link it from the shipped architecture and owning spec. Verify Markdown links and ADR prose rules.
 - [ ] 2.13 Update `docs/product/reference/tools/enter-workspace.md`, the existing repository and permission operator pages, tool-description behavior, and `SPEC.md`. Explain aggregate authority, tracked overwrites, leftovers, matching, and ignored-file removal. Add the dated `CHANGELOG.md` entry and remove completed roadmap text if present. Verify the exact existing page names before editing and run Markdown checks.
-- [ ] 2.14 Run the focused checks below, affected workspace lint/typecheck, formatting, Markdown checks, and `git diff --check`. Record exact commands and distinguish local evidence from full CI.
+- [ ] 2.14 Run the focused checks below, affected workspace lint/typecheck, Rust fmt and clippy through `pnpm --filter machine lint`, formatting, Markdown checks, and `git diff --check`. Record exact commands and distinguish local evidence from full CI.
 - [ ] 2.15 Publish the authorized draft with `Closes #1910`, complete SR of the actual parent-relative diff before ready, and resolve verified findings with focused checks.
 - [ ] 2.16 Complete GR, current-head CI, and the required monitoring loop. Verify Project readback where authorized and obtain explicit merge permission.
 
 ### Focused proof surfaces
 
-Use existing `packages/git-executor/src/worktrees.test.ts` plus a focused
-manifest/copy test file if needed. Use real temporary git fixtures for bytes,
-status, modes, links, failures, and removal. Pure matcher tests alone cannot
-prove filesystem or Git eligibility behavior.
+Use the inline tests of `crates/machine-git` and `apps/machine/tests/git.rs`
+for the daemon wire, root guards, typed failures, deadline, idempotency, and
+the absence of file bytes in protocol results. Run them with a narrow
+`cargo test --locked -p machine-git` or the workspace script behind
+`pnpm --filter machine test`. Pure matcher tests alone cannot prove
+filesystem or Git eligibility behavior. Use real temporary git fixtures for
+bytes, status, modes, links, failures, and removal.
 
-Use `packages/machine-protocol` git/framing tests and
-`apps/machine/src/git.test.ts` for the changed wire, root guards, typed failures,
-and absence of file bytes in protocol results. Keep the version update atomic.
-
-Use `apps/api/src/tools/workspace-worktree-entry.test.ts`,
-`workspace-worktree-creation.test.ts`, and the executor-git tests for source
-identity and failure projection. Use focused API integration files for durable
-attempts, previous binding/generation, same-id Chat resend, message admission,
-and owner isolation. Follow `docs/development/testing.md` for test placement.
-Build the Machine bundle sequentially when the integration fixture requires it.
+Use `apps/api/src/machines/wire/git.test.ts`,
+`apps/api/src/machines/wire/git.integration.test.ts`, and
+`apps/api/src/machines/executor-git.service.test.ts` for the changed wire,
+source identity, and failure projection. Use
+`apps/api/src/tools/workspace-worktree-entry.test.ts`,
+`workspace-worktree-creation.test.ts`, and focused API integration files for
+durable attempts, previous binding/generation, same-id Chat resend, message
+admission, and owner isolation. Follow `docs/development/testing.md` for test
+placement, including its Rust daemon build requirement. Build the daemon and
+generated client sequentially when an integration fixture requires it.
 
 Run only the relevant test files locally, not the full unit/integration sweeps,
 product E2E, or mutation suites. CI owns those published-head checks. No model

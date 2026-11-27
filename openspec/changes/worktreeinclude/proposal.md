@@ -46,15 +46,16 @@ that copying is part of Worktree creation rather than a file-read operation.
 
 ## Impact
 
-The shared `git.worktreeAdd` operation changes in `packages/git-executor`,
-`packages/machine-protocol`, and `apps/machine`. The API must carry the selected
-source separately through both Worktree planners and preserve typed failures.
-Both host and remote creation use a Machine daemon. The protocol revision must
-prevent an old daemon from silently creating an unseeded Worktree.
+The gRPC `CreateWorktree` operation changes in its proto contract under
+`packages/machine-protocol` and in the Rust daemon's `crates/machine-git`.
+The API must carry the selected source separately through both Worktree
+planners and preserve typed failures. Both host and remote creation use the
+Rust Machine daemon. The proto change must increase the machine protocol
+version so an old daemon cannot silently create an unseeded Worktree.
 
-Reuse the repository's `ignore` dependency version for manifest matching. Git
-remains the source of truth for ignored and untracked eligibility. No database
-migration, public configuration key, new tool, or UI control is planned.
+Reuse the workspace Rust `ignore` crate for manifest matching. Git remains the
+source of truth for ignored and untracked eligibility. No database migration,
+public configuration key, new tool, or UI control is planned.
 
 The implementation updates the entry tool reference, repository operator guide,
 permission documentation, `SPEC.md`, and `CHANGELOG.md` with the behavior it ships.

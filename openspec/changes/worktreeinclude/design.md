@@ -4,17 +4,24 @@
 
 See [proposal.md](proposal.md#why) and the
 [confirmed decisions](https://github.com/leon0399/llame/issues/1910#issuecomment-7111200259).
-The inspected base is `a39a42ff`, with Machine protocol version 3 and
-`ignore` 7.0.12 already used by `packages/native-file-tools`.
+The inspected base is current `master` after the Rust Machine daemon change,
+with main-service protocol version 7 in
+`packages/machine-protocol/proto/protocol.json`. The Rust workspace already
+depends on the `ignore` crate 0.4 for search in `crates/machine-grep`.
 
-`packages/git-executor/src/worktrees.ts` implements an argv-only
-`git worktree add`, with a 120-second budget. The Machine daemon calls it from
-`apps/machine/src/git.ts`. All Checkouts, including host Checkouts, now use the
-Machine protocol. There is no API-process git fallback.
+`crates/machine-git` implements the gRPC `GitService` of the Rust Machine
+daemon. Its `create_worktree` handler runs an argv-only
+`git worktree add --no-track` under a 120-second deadline, with a pinned,
+environment-cleared git process and process-group kill. Every mutating call
+carries a `request_id`; the daemon retains completed results in its
+idempotency cache, and the bootstrap handshake requires an exact protocol
+version match.
 
-Both API planners currently send their inspected main Checkout as `source`.
-The tool path can accept a linked Worktree or a source subdirectory. Chat
-creation currently rejects linked Checkout records in
+The API reaches that handler through `apps/api/src/machines/wire/git.ts` and
+`apps/api/src/machines/executor-git.service.ts`. Both Worktree planners
+currently send their inspected main Checkout as `repository`. The tool path
+can accept a linked Worktree or a source subdirectory. Chat creation still
+refuses a linked Checkout record in
 `apps/api/src/chats/chat-creation-workspace-step.ts`. That restriction stays.
 
 The tool path records a native attempt before the daemon call. Chat creation
@@ -36,10 +43,12 @@ settings precedence, recovery queue, or general-purpose file-transfer protocol.
 
 ### D1. Separate git source and copy source
 
-Add a required `copySource` to the internal Worktree-add input and Machine RPC.
-`source` remains the existing main Checkout for git creation. The API derives
-`copySource` from `inspection.toplevel` of the selected Checkout, never from an
-unvalidated model field. Preserve it in both plans until dispatch.
+Add a required `copy_source` field to `CreateWorktreeRequest` in
+`packages/machine-protocol/proto/stead/machine/v1/git.proto` and to the
+internal Worktree-add input. `repository` remains the existing main Checkout
+for git creation. The API derives `copy_source` from `inspection.toplevel` of
+the selected Checkout, never from an unvalidated model field. Preserve it in
+both plans until dispatch.
 
 When inspection discovers a Checkout root different from the admitted submitted
 source, admit that root through the existing Workspace-entry admission helper.
@@ -47,23 +56,24 @@ Use a named derived decision with the selected root as its locator. Do this
 before manifest access or Worktree creation. Main-Checkout admission remains
 separate. This prevents an allowed subdirectory from exposing a rejected root.
 
-The daemon validates `copySource` through its root guard and confirms that it
-belongs to the same git repository as `source`. It treats the canonical selected
-Checkout root as the boundary for the manifest and candidates. It never silently
-substitutes main. Source identity is not a new base-ref selector.
+The daemon resolves `copy_source` through its root guard and confirms that it
+belongs to the same git repository as `repository`. It treats the canonical
+selected Checkout root as the boundary for the manifest and candidates. It
+never silently substitutes main. Source identity is not a new base selector.
 
-Alternative: use only `source`. This loses linked-Checkout environment values.
-Changing `source` itself also risks changing existing base-ref semantics.
+Alternative: use only `repository`. This loses linked-Checkout environment
+values. Changing `repository` itself also risks changing existing base-ref
+semantics.
 
-### D2. Use Git eligibility and the existing matcher
+### D2. Use Git eligibility and the workspace matcher
 
-Reuse `ignore` 7.0.12 through a direct dependency on the same version in
-`packages/git-executor`. Do not import the entire native-file-tools package.
-Git determines source eligibility with ignored/untracked enumeration that
-honors nested ignore files, info excludes, and configured global excludes.
-Use NUL-delimited paths, no shell, no interpolation, and the shared hardened git
-invocation policy. Enumerate descendants of wholly ignored directories rather
-than accepting a collapsed directory as the complete result.
+Reuse the workspace `ignore` crate 0.4, already a dependency of
+`crates/machine-grep`, inside `crates/machine-git`. Git determines source
+eligibility with ignored/untracked enumeration that honors nested ignore
+files, info excludes, and configured global excludes. Use NUL-delimited paths,
+no shell, no interpolation, and the daemon's own hardened git invocation.
+Enumerate descendants of wholly ignored directories rather than accepting a
+collapsed directory as the complete result.
 
 Compile the manifest once and apply the matcher to relative source candidates.
 Process directory entries without symlink traversal. Use `lstat` or no-follow
@@ -77,14 +87,16 @@ and matcher parse failures. Do not invent a stricter glob grammar: many odd
 strings are valid literal gitignore patterns. Blank lines, comments, and a
 valid pattern with no match are not errors.
 
-The inspected matcher confirms these cases:
+Synthetic probes on the previous Node matcher confirmed these cases:
 
 - `**/config.json` selects `vendor/pkg/config.json` directly.
 - `secrets/**` followed by `!secrets/private.json` excludes that one file.
 - `secrets/` followed by the same negation keeps it selected, because gitignore
   semantics do not re-include a child through a matched parent directory.
 
-These were executable synthetic probes, not an upstream compatibility test.
+These were executable probes, not an upstream compatibility test. The
+implementation must repeat them against the Rust `ignore` crate before the
+behavior ships.
 The source Git ignore rules and manifest selection are two separate filters.
 Do not use the manifest to change Git's index or its ignore configuration.
 
@@ -119,37 +131,42 @@ follow a changed path. No copied contents belong in diagnostics.
 
 ### D4. One fenced mutation, one deadline
 
-Keep checkout and copy inside `git.worktreeAdd`. The API does not receive a
-successful add until the copy completes. Do not add a second RPC that could
-succeed after an incomplete binding or escape the existing attempt fence.
+Keep checkout and copy inside the daemon's `create_worktree` handler. The API
+does not receive a successful add until the copy completes. Do not add a
+second RPC that could succeed after an incomplete binding or escape the
+existing attempt fence.
 
-Use one deadline for checkout, manifest read, eligibility enumeration, and copy.
-The existing 120-second daemon operation budget remains the limit. Do not reset
-it for each file. Stream candidate paths and file bytes rather than accumulating
-an unbounded list or file buffer. A fixed stdout bound must fail explicitly,
-never silently drop candidates. Prefer incremental enumeration so large explicit
-selections are not refused by an accidental inventory-size cap.
+Use one deadline for checkout, manifest read, eligibility enumeration, and
+copy. The handler's existing 120-second budget remains the limit. Do not
+reset it for each file. Stream candidate paths and file bytes rather than
+accumulating an unbounded list or file buffer. A fixed stdout bound must fail
+explicitly, never silently drop candidates. Prefer incremental enumeration so
+large explicit selections are not refused by an accidental inventory-size cap.
 
-Propagate cancellation to enumeration and copy streams. Drain or stop active
-writers before a settled result. A timeout must not return success or leave
-copy writes active in the background. Completion does not promise an atomic
-snapshot against concurrent source edits. A selected file that disappears or
-changes type before its copy causes a known failure, not a silent skip.
+Propagate gRPC cancellation to enumeration and copy streams, and kill the git
+process group as the handler already does. Drain or stop active writers before
+a settled result. A timeout must not return success or leave copy writes
+active in the background. Completion does not promise an atomic snapshot
+against concurrent source edits. A selected file that disappears or changes
+type before its copy causes a known failure, not a silent skip.
 
-For known copy failures return a sanitized typed git failure with the optional
-known `leftDirectory`. Map it to the existing `worktree_failed` tool result and
-Chat workspace status. The internal result readers must preserve that locator.
-Do not expose raw OS errors, manifest lines, or file bytes. A bounded relative
-file path and a fixed reason are sufficient. No public success field is needed.
+For known copy failures return a sanitized typed `GitFailure`. The API maps it
+to the existing `worktree_failed` tool result and Chat workspace status, and
+adds the known `leftDirectory` from its own plan. The internal result readers
+must preserve that locator. Do not expose raw OS errors, manifest lines, or
+file bytes. A bounded relative file path and a fixed reason are sufficient. No
+public success field is needed.
 
 On any partial failure retain the new directory and branch. Tool entry keeps
 its previous binding. Chat creation keeps its filed Chat but stores no initial
 message or Run. Both leave new catalog and lease rows uncommitted. A lost link
 still yields `outcome_unknown`, not a claim that no effect occurred.
 
-The existing recorded attempt covers both effects. Redelivery or a same-id Chat
-resend never replays an uncertain copy. Inspection and owner recovery, rather
-than an automatic retry or cleanup, resolve leftovers.
+The existing recorded attempt covers both effects, and the daemon's
+`request_id` cache returns the first completed result on a retained resend.
+Redelivery or a same-id Chat resend never replays an uncertain copy.
+Inspection and owner recovery, rather than an automatic retry or cleanup,
+resolve leftovers.
 
 ### D5. Keep removal unchanged
 
@@ -159,18 +176,21 @@ change before removal. Document this consequence rather than creating a hidden
 copy inventory. A tracked destination overwrite remains an ordinary dirty
 change, which the existing removal guard protects.
 
-### D6. Ship the protocol and both callers atomically
+### D6. Ship the proto change and both callers atomically
 
-The required `copySource` changes the internal RPC contract. Advance the current
-protocol revision in the implementation. Both hub and daemon must agree before
-any Worktree mutation. Do not allow a daemon that only understands the old add
-shape to silently omit environment files. Old/new mixed sessions fail through
-the existing incompatible-version behavior, not a new fallback.
+The required `copy_source` changes the `stead.machine.v1` git contract. The
+canonical machine-daemon rule already requires every `stead.machine.v1`
+change to increase the protocol version in
+`packages/machine-protocol/proto/protocol.json`, and the bootstrap handshake
+refuses any mismatch. Increase the version with the proto change so a daemon
+that would silently ignore `copy_source` cannot pass the handshake and create
+an unseeded Worktree.
 
-The implementation is one layer with protocol types, daemon handler, filesystem
-copy, both API callers, regression tests, and shipped documentation. A daemon-
-only or caller-only slice has no useful independently shippable contract here.
-There are no cutover sub-issues and no parallel implementation branch.
+The implementation is one layer with the proto, the regenerated TypeScript
+client, the Rust daemon handler, the filesystem copy, both API callers,
+regression tests, and shipped documentation. A daemon-only or caller-only
+slice has no useful independently shippable contract here. There are no
+cutover sub-issues and no parallel implementation branch.
 
 ## Architecture decision record
 
@@ -222,18 +242,22 @@ and this change's recorded decisions.
 
 ## Migration plan
 
-No database or owner-data migration is required. Upgrade hub and Machine daemon
-bundles together for the protocol revision. Mixed versions refuse handshake.
-No operator enables a separate file-copy tool or permission group.
+No database or owner-data migration is required. Release the hub and the Rust
+Machine daemon together for the protocol version bump. The existing bootstrap
+equality gate refuses mixed versions. No operator enables a separate
+file-copy tool or permission group.
 
-Rollback requires matching hub and daemon versions. Existing copied files remain
-ordinary Worktree files after rollback. Do not remove them or revert tracked
-changes automatically. The manifest becomes inert on a version without support.
+Rollback requires matching hub and daemon versions. Existing copied files
+remain ordinary Worktree files after rollback. Do not remove them or revert
+tracked changes automatically. The manifest becomes inert on a version without
+support.
 
 ## Review status
 
-This is the initial draft. Executable probes covered matcher semantics and
-ignored-file removal. Independent proposal reviewers are unavailable in this
-Chat's tool catalog and shell PATH. Self-review and validation do not satisfy
-the two-reviewer gate in CONTRIBUTING.md. Publication and implementation remain
-blocked on the required review, revision approval, and publication permission.
+The initial draft is published as draft PR #1913 and rebased onto the master
+that ships the Rust Machine daemon. Executable probes covered matcher
+semantics on the previous Node matcher and ignored-file removal. Independent
+proposal reviewers are unavailable in this Chat's tool catalog and shell PATH.
+Self-review and validation do not satisfy the two-reviewer gate in
+CONTRIBUTING.md. Ready transition, approval, and implementation remain blocked
+on the required review and Leo's approval of the published revision.
