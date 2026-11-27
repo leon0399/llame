@@ -55,7 +55,8 @@ add it to the glossary when it ships.
 
 ## Repository
 
-pnpm 12 + Turborepo; TypeScript throughout; Node >=22.19 (`.node-version` pins
+pnpm 12 + Turborepo; TypeScript for web, API, and workers, and Rust for the
+Machine daemon (`apps/machine`, `crates/`); Node >=22.19 (`.node-version` pins
 22.23.1).
 
 | Path                         | Owner                                                     |
