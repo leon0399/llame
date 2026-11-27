@@ -71,8 +71,8 @@ gh api graphql -f query='mutation($id: ID!, $body: String!) {
 }' -f id=PRRT_... -f body='Fixed in <sha>: <what changed and how it was verified>.'
 ```
 
-A rejection gets the same reply mutation without `resolveReviewThread`, unless
-the evidence is conclusive. Take thread ids from the watcher or fetch output
+A rejection gets the same reply and resolve: the reply carries the evidence.
+Only a thread waiting on Leo's decision stays unresolved. Take thread ids from the watcher or fetch output
 ([fetching-reviews.md](fetching-reviews.md)), never from memory. A finding in a
 review body or conversation comment has no thread: answer it with
 `gh pr comment <N> --body ...`. Bots re-review the new push and may open a few

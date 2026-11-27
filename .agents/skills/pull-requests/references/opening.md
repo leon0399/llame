@@ -19,8 +19,9 @@ Split a concern when the split improves review or creates a safe merge point.
   to someone else. Commit only owned paths: `git commit -- <paths>`.
 - Confirm the base is current:
   `git fetch origin && git merge-base --is-ancestor origin/<base> HEAD`.
-  Mergeability is judged against the PR's own base; rebase a layer that
-  conflicts with its parent.
+  Rebase a layer that conflicts with its parent. GitHub also judges a stack
+  layer against `master` and skips its CI while it conflicts
+  ([stacks.md](stacks.md#conflicts-with-master)).
 - Size the layer against its parent: authored added plus deleted lines, with
   generated churn counted separately
   ([review budget](../../../../CONTRIBUTING.md#review-budget)).

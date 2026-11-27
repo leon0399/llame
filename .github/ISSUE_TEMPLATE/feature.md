@@ -7,7 +7,7 @@ assignees: []
 ---
 
 <!--
-See CONTRIBUTING.md, "Issues and handoff", and the issue-handoff skill.
+See docs/development/issues.md and the issue-handoff skill.
 Add one area:* label. Delete every comment and unused section before submitting.
 Add `agent:spec` only when the Spec brief is complete. Add `agent:implement`
 only when the Spec section links an approved proposal.

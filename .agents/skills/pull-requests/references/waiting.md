@@ -95,7 +95,10 @@ PR above it.
 
 ### Exit
 
-`# settled:` covers the floor and terminal CI. Stop only when, in addition:
+`# settled:` covers the floor, terminal CI, and, with
+`--wait-for pullfrog,greptile-apps,chatgpt-codex-connector` (the expected bot
+logins from [review-bots.md](review-bots.md#roster)), a post from each listed
+bot on the current head. Stop only when, in addition:
 
 - CI is green, or red only on named master-red checks;
 - every expected bot has finished on the current head, or is recorded as

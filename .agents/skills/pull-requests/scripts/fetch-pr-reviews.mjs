@@ -13,9 +13,9 @@
  * Run with --help for the options.
  */
 import { execFileSync } from "node:child_process";
-import path from "node:path";
+import { realpathSync } from "node:fs";
 import { parseArgs } from "node:util";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath } from "node:url";
 
 const USAGE = `Usage: node .agents/skills/pull-requests/scripts/fetch-pr-reviews.mjs [options] <pr>...
 
@@ -582,9 +582,11 @@ function run(argv) {
   return 0;
 }
 
+// Compare real paths: the `.claude/skills` symlink keeps its own path in
+// `process.argv[1]` while `import.meta.url` resolves to the target.
 if (
   process.argv[1] &&
-  import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href
+  realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)
 ) {
   try {
     process.exitCode = run(process.argv.slice(2));

@@ -60,8 +60,10 @@ master <- <change>/proposal <- <change>/<implementation> <- <change>/finalize
 
 - Create the `<change>/proposal` branch with `$gh-stack` **before**
   `$openspec-propose` writes any file.
-- Create implementation branches only after the proposal is approved: a GitHub
-  Approval from Leo or his named delegate, or the proposal on `master`.
+- Create implementation branches only after the proposal is approved: the
+  proposal is on `master`, or its PR has a GitHub Approval from Leo or his
+  named delegate, or, on a proposal Leo authored, a top-level comment from him
+  naming the approved revision. A local commit is not approval.
 - Create `<change>/finalize` **before** `$openspec-sync-specs` writes canonical
   specs; finalize owns only spec sync, task records, and archive movement.
 - Put `Closes #N` on the PR whose merge satisfies the issue's acceptance, even
@@ -74,8 +76,8 @@ skills; keep delivery policy there and here, not in the skills.
 
 ## Changesets
 
-A pull request never edits `CHANGELOG.md`. The PR that ships work, a fix, or a
-chore writes its entry to `.changeset/<name>.md`, so parallel branches never
+Only the compile PR below, or a correction to an entry already compiled, edits
+`CHANGELOG.md`. The PR that ships work, a fix, or a chore writes its entry to `.changeset/<name>.md`, so parallel branches never
 touch the same file:
 
 ```markdown
@@ -138,7 +140,8 @@ stacks. The policy it implements:
   `Test plan` section, and no mention of agent tooling unless asked.
 - **Self-review (SR)** while draft: review the parent-relative diff against
   [REVIEW_GUIDE.md](REVIEW_GUIDE.md), fix with new commits, and mark ready only
-  once CI on the head is green.
+  once CI on the head is green, or red only on checks that are also red on
+  `master` and named in a PR comment.
 - **GitHub review (GR)** after ready: the expected review bots and current-head
   CI. A local reviewer never substitutes for an expected bot, and draft state
   is never toggled to retrigger reviews.

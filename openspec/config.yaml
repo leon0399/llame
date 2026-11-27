@@ -86,7 +86,7 @@ rules:
       after their parents. Identify safe intermediate merge boundaries and any
       inseparable layers. Give each layer its exact branch, parent,
       one-sentence ownership, estimated changed lines, exit evidence, and the
-      cutover sub-issue it closes (CONTRIBUTING.md, "Issues and handoff").
+      cutover sub-issue it closes (docs/development/issues.md).
     - >-
       Prefer about 2,000 authored added-plus-deleted lines per layer against
       its immediate parent, not master; this is a review target, not a limit.

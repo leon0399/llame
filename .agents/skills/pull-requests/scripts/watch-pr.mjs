@@ -14,10 +14,16 @@
  */
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 
 import {
@@ -153,10 +159,11 @@ export function diffPull(previous, pr, checks, now) {
   }
 
   // The head was pushed when its first check started; a new head without
-  // checks yet counts from now.
+  // checks yet counts from now. Commit statuses (Vercel, Codecov, review apps)
+  // report a zero start time, 0001-01-01, which says nothing about the push.
   const started = checks
     .map((check) => Date.parse(check.startedAt))
-    .filter(Number.isFinite);
+    .filter((time) => Number.isFinite(time) && time > 0);
   const pushedAt =
     headChanged || first
       ? started.length > 0
@@ -169,12 +176,14 @@ export function diffPull(previous, pr, checks, now) {
     !first || (commit === undefined ? Date.parse(at) >= pushedAt : commit === pr.head);
 
   for (const thread of pr.threads) {
+    // One fingerprint per comment, so a reply and an in-place edit both print.
     const known = seen[thread.id];
-    const count = thread.comments.length;
-    seen[thread.id] = String(count);
+    const marks = thread.comments.map((item) => fingerprint(item.body ?? ""));
+    seen[thread.id] = marks;
     if (known === undefined && thread.resolved) continue;
+    const before = Array.isArray(known) ? known : [];
     const fresh = thread.comments
-      .slice(known === undefined ? 0 : Number(known))
+      .filter((item, index) => before[index] !== marks[index])
       .filter((item) => reviewer(item.author))
       .map((item) => ({ ...item, body: cleanBody(item.body) }));
     if (fresh.length > 0) sections.threads.push(threadText({ ...thread, comments: fresh }));
@@ -359,9 +368,11 @@ async function run(argv) {
   }
 }
 
+// Compare real paths: run through the `.claude/skills` symlink, Node resolves
+// `import.meta.url` to the target while `process.argv[1]` keeps the link.
 if (
   process.argv[1] &&
-  import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href
+  realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)
 ) {
   try {
     process.exitCode = await run(process.argv.slice(2));

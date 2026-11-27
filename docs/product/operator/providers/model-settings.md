@@ -7,8 +7,9 @@ read_when:
 
 # Model request settings
 
-Settings on a `models[]` entry that shape each provider request. They are
-server-only and never returned by `GET /api/v1/models`. Wire selection itself
+Settings on a `models[]` entry that shape each provider request.
+`providerOptions` and `maxOutputTokens` are server-only and never returned by
+`GET /api/v1/models`; the declared pricing rates, `cacheWrite` included, are. Wire selection itself
 is in [provider routing](routing.md).
 
 ## Provider options
@@ -130,7 +131,7 @@ that ignores it simply serves the request without caching.
 
 `models[].pricingUsdPer1M.cacheWrite` is an optional per-million rate for the
 provider's cache-creation tokens. On a wire whose usage reports cache creation
-(Anthropic Messages), the adapter's input total already includes them, so cost prices them at that rate when the entry declares one and at the
+(Anthropic Messages and OpenAI Responses; Chat Completions reports none), the adapter's input total already includes them, so cost prices them at that rate when the entry declares one and at the
 entry's input rate when it does not, which leaves the computed cost identical
 to the result before the field existed. The count is provider-reported and
 never inferred or backfilled: a turn that reports none records zero, an
