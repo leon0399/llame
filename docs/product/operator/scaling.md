@@ -30,6 +30,13 @@ clients -> api x N ----+
 `dist/worker.js` starts a no-HTTP application context. One build/image emits
 both.
 
+## Postgres prerequisites
+
+Embeddings-backed search needs the `vector` (pgvector) and `pg_trgm`
+extensions. `pnpm db:up` provides both. An installation on its own Postgres
+must switch to a pgvector-capable image before upgrading. Otherwise, the
+extension migration fails.
+
 ## Worker profiles
 
 `workers` in `llame.config.jsonc` maps profile names to consumer-group

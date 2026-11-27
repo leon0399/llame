@@ -8,14 +8,16 @@
  *
  * Read-only: it never replies to, resolves, or edits anything.
  *
- *   node .agents/skills/fetch-pr-reviews/scripts/fetch-pr-reviews.mjs [options] <pr>...
+ *   node .agents/skills/pull-requests/scripts/fetch-pr-reviews.mjs [options] <pr>...
  *
  * Run with --help for the options.
  */
 import { execFileSync } from "node:child_process";
+import { realpathSync } from "node:fs";
 import { parseArgs } from "node:util";
+import { fileURLToPath } from "node:url";
 
-const USAGE = `Usage: node .agents/skills/fetch-pr-reviews/scripts/fetch-pr-reviews.mjs [options] <pr>...
+const USAGE = `Usage: node .agents/skills/pull-requests/scripts/fetch-pr-reviews.mjs [options] <pr>...
 
 <pr> is 123, #123, owner/repo#123, or a pull request URL.
 
@@ -37,7 +39,7 @@ const USAGE = `Usage: node .agents/skills/fetch-pr-reviews/scripts/fetch-pr-revi
 
 /** Bots whose comments report deployments, coverage, or CI status rather than
  *  review findings. Kept out unless --all-bots. */
-const STATUS_BOTS = new Set([
+export const STATUS_BOTS = new Set([
   "codecov",
   "vercel",
   "netlify",
@@ -74,7 +76,7 @@ const TAG =
 // ---------------------------------------------------------------- arguments
 
 /** Reads a pull request reference; a bare number takes `defaultRepo`. */
-function parsePrRef(text, defaultRepo) {
+export function parsePrRef(text, defaultRepo) {
   const url = /github\.com\/([\w.-]+\/[\w.-]+)\/pull\/(\d+)/.exec(text);
   if (url) return { repo: url[1], number: Number(url[2]) };
   const qualified = /^([\w.-]+\/[\w.-]+)#(\d+)$/.exec(text);
@@ -284,7 +286,7 @@ function cleanMarkup(text) {
  *  normalized while code is still masked, so code keeps its blank lines and
  *  trailing spaces. Rule lines that end a body, or repeat, separate nothing
  *  once the noise between them is gone. */
-function cleanBody(body) {
+export function cleanBody(body) {
   return outsideCode(body ?? "", (text) =>
     cleanMarkup(text)
       .replaceAll(/[ \t]+$/gm, "")
@@ -360,7 +362,7 @@ const comment = (node) => ({
 });
 
 /** One pull request as plain data: only the kinds asked for are read. */
-function readPull(ref, kinds) {
+export function readPull(ref, kinds) {
   const pr = {
     repo: ref.repo,
     number: ref.number,
@@ -475,12 +477,13 @@ function selectItems(pr, options) {
 
 // ------------------------------------------------------------------- output
 
-const minute = (at) => (at ? at.slice(0, 16).replace("T", " ") + "Z" : "");
+export const minute = (at) =>
+  at ? at.slice(0, 16).replace("T", " ") + "Z" : "";
 // Blank lines stay empty: trailing indentation is tokens with no content.
-const indent = (text) => text.replaceAll(/^(?=.)/gm, "    ");
-const short = (oid) => (oid ? oid.slice(0, 8) : "");
+export const indent = (text) => text.replaceAll(/^(?=.)/gm, "    ");
+export const short = (oid) => (oid ? oid.slice(0, 8) : "");
 
-function threadText(thread) {
+export function threadText(thread) {
   const flags = [
     thread.resolved ? `resolved by @${thread.resolvedBy}` : "unresolved",
   ];
@@ -494,13 +497,13 @@ function threadText(thread) {
   return lines.join("\n");
 }
 
-function reviewText(review, head) {
+export function reviewText(review, head) {
   const commit = review.commit === head ? "head" : short(review.commit);
   const header = `- @${review.author} ${review.state} ${minute(review.at)} on ${commit}`;
   return review.body ? `${header}\n${indent(review.body)}` : header;
 }
 
-const commentText = (item) =>
+export const commentText = (item) =>
   `- @${item.author} ${minute(item.at)} ${item.url}\n${indent(item.body)}`;
 
 /** One selected pull request as compact text for an agent. */
@@ -535,10 +538,10 @@ function rawSize(pr) {
   return bodies.reduce((sum, item) => sum + item.body.length, 0);
 }
 
-const gh = (args) =>
+export const gh = (args) =>
   execFileSync("gh", args, { encoding: "utf8", maxBuffer: 256 * 1024 * 1024 });
 
-function currentRepo() {
+export function currentRepo() {
   return gh([
     "repo",
     "view",
@@ -579,9 +582,16 @@ function run(argv) {
   return 0;
 }
 
-try {
-  process.exitCode = run(process.argv.slice(2));
-} catch (error) {
-  console.error(error.message);
-  process.exitCode = 1;
+// Compare real paths: the `.claude/skills` symlink keeps its own path in
+// `process.argv[1]` while `import.meta.url` resolves to the target.
+if (
+  process.argv[1] &&
+  realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)
+) {
+  try {
+    process.exitCode = run(process.argv.slice(2));
+  } catch (error) {
+    console.error(error.message);
+    process.exitCode = 1;
+  }
 }

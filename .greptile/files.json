@@ -1,0 +1,81 @@
+{
+  "files": [
+    {
+      "path": "REVIEW_GUIDE.md",
+      "description": "Reviewer judgment: priorities, blocking checks, and how to write a finding"
+    },
+    {
+      "path": "CODING_STANDARDS.md",
+      "description": "Diff-shape rules every change follows"
+    },
+    {
+      "path": "AGENTS.md",
+      "description": "Repository-wide conventions, security rules, and documentation authority"
+    },
+    {
+      "path": "apps/api/AGENTS.md",
+      "description": "API conventions and traps",
+      "scope": ["apps/api/**"]
+    },
+    {
+      "path": "apps/api/src/db/AGENTS.md",
+      "description": "Schema, migration, and row-level security rules",
+      "scope": ["apps/api/src/db/**"]
+    },
+    {
+      "path": "apps/web/AGENTS.md",
+      "description": "Web client conventions and traps",
+      "scope": ["apps/web/**"]
+    },
+    {
+      "path": "apps/web/lib/api/AGENTS.md",
+      "description": "Generated API client boundary",
+      "scope": ["apps/web/lib/api/**"]
+    },
+    {
+      "path": "apps/storybook/AGENTS.md",
+      "description": "Storybook runtime conventions",
+      "scope": ["apps/storybook/**"]
+    },
+    {
+      "path": "packages/ui/AGENTS.md",
+      "description": "Shared UI library conventions",
+      "scope": ["packages/ui/**"]
+    },
+    {
+      "path": "packages/config-interpolation/AGENTS.md",
+      "description": "Configuration interpolation package rules",
+      "scope": ["packages/config-interpolation/**"]
+    },
+    {
+      "path": "packages/config-typescript/AGENTS.md",
+      "description": "Shared tsconfig preset rules",
+      "scope": ["packages/config-typescript/**"]
+    },
+    {
+      "path": ".claude/rules/stories.md",
+      "description": "Story structure, provenance, and accessibility rules",
+      "scope": ["**/*.stories.{ts,tsx}"]
+    },
+    {
+      "path": "docs/development/testing.md",
+      "description": "Test placement and test-quality rules",
+      "scope": ["**/*.test.{ts,tsx,mjs}", "e2e/**"]
+    },
+    {
+      "path": "docs/AGENTS.md",
+      "description": "Documentation authoring rules",
+      "scope": ["docs/**"]
+    },
+    {
+      "path": "docs/adr/AGENTS.md",
+      "description": "Architecture decision record rules",
+      "scope": ["docs/adr/**"]
+    },
+    {
+      "path": "docs/research/AGENTS.md",
+      "description": "Research note rules",
+      "scope": ["docs/research/**"]
+    }
+  ]
+}

@@ -28,7 +28,9 @@ SQL needs its header rationale and a matching snapshot.
 ## Migration traps
 
 P1 - Drizzle emits `ENABLE ROW LEVEL SECURITY`, not `FORCE`. Append `FORCE` to
-every tenant table and restore it after regeneration.
+every tenant table and restore it after regeneration. Owner policies compare
+against `current_setting('app.current_user_id', true)`, which each request
+transaction sets from the authenticated user; without it they match no rows.
 
 P2 - Migrations run as owner `app` without tenant identity. Backfills under
 forced RLS silently update zero rows. Wrap them:
