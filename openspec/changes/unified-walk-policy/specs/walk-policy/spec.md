@@ -59,8 +59,15 @@ each candidate entry. It MUST apply `.gitignore` files in the same way, under
 the repository limit of the next requirement. On a Machine, the enumeration
 starts at the registered root that holds the requested path. A deeper ignore
 file outranks a shallower one. In one directory, `.ignore` outranks
-`.gitignore`. A search MUST NOT take either file as a candidate. A listing
-MUST NOT omit either file only because it is an ignore file.
+`.gitignore`. A search of a directory MUST NOT take either file as a
+candidate. A scope that names one of these files searches it, as the explicit
+addressing requirement states. A listing MUST NOT omit either file only because
+it is an ignore file.
+
+#### Scenario: An explicitly named ignore file is searched
+
+- **WHEN** a scope is `/home/u/repo/.ignore` and that file contains a match
+- **THEN** a passage names `/home/u/repo/.ignore`
 
 #### Scenario: A rule at the repository root applies to a narrower scope
 

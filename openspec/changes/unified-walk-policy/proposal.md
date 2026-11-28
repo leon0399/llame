@@ -26,8 +26,9 @@ search tool, which must not re-invent this rule.
 - **Ignore semantics move, unchanged.** The three ignore requirements of
   `grep-tool` move to `walk-policy` with their scenarios. The semantics stay
   as the daemon implements them today: `.ignore` applies everywhere,
-  `.gitignore` above the requested root only inside a repository detected by
-  `.git`, a deeper layer outranks a shallower one, and no rule decides the
+  `.gitignore` above the requested root only inside the repository, which is
+  the nearest `.git` up to the registered root, or the registered root itself
+  when none exists. A deeper layer outranks a shallower one, and no rule decides the
   requested root or anything above it.
 - **Explicit addressing always wins.** A `read`, a `grep` scope, or a listing
   that names one exact path reaches it, even when the policy excludes it. The
@@ -57,8 +58,9 @@ From the grilling rounds of 2026-11-22, recorded on
 - The fixed set is the issue's five names. No `.bzr`, `_darcs`, or other
   speculative names.
 - Ignore semantics are the existing walk's, replicated verbatim. Repository
-  detection stays keyed on `.git` and governs only a `.gitignore` above the
-  requested root; a `.gitignore` inside the walked tree always applies.
+  detection stays keyed on `.git`, falls back to the registered root, and
+  governs only a `.gitignore` above the requested root; a `.gitignore` inside
+  the walked tree always applies.
 - The skip is silent. Grep's `ignored` report stays reserved for ignore-rule
   exclusions; the fixed set reports nothing, as `.git` does today.
 - Listings render fixed-set entries without children; ignore-ruled entries
