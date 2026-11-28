@@ -33,7 +33,7 @@ import {
   useChatMarkdownReady,
 } from "./use-chat-markdown-ready";
 import { ChatTranscript } from "./chat-transcript";
-import { ChatComposer, ChatComposerBody } from "./chat-composer";
+import { type ChatComposer, ChatComposerBody } from "./chat-composer";
 import { PendingDeliveries } from "./pending-deliveries";
 import { QuotaWaitNotice } from "./quota-wait-notice";
 import { useChatPageProject } from "./composer-project";
@@ -432,10 +432,10 @@ function ChatSessionComposer({
   );
 
   const feedback = composerFeedback(creates, creation.failure, composer);
-  const Placement = start ? NewChatStart : ChatComposer;
 
   return (
-    <Placement
+    <ComposerPlacement
+      start={start}
       chatId={chatId}
       input={composer.input}
       onInputChange={composer.setInput}
@@ -458,16 +458,31 @@ function ChatSessionComposer({
   );
 }
 
-/** The new-chat page's centred column: the greeting over the composer, held
- *  a little above the middle, where the eye lands on an empty page. */
-function NewChatStart({
+/** Where the composer sits: on a page with nothing sent yet, a centred
+ *  column with the greeting above it, held a little above the middle where
+ *  the eye lands; otherwise docked under the transcript. Both are one element
+ *  tree with different classes, so the first send (start to docked) and a
+ *  refused one (back again) never remount the composer: the input keeps its
+ *  focus and its state. */
+function ComposerPlacement({
+  start,
   pending,
   ...props
-}: ComponentProps<typeof ChatComposer>) {
+}: ComponentProps<typeof ChatComposer> & { start: boolean }) {
   return (
-    <div className="flex flex-1 flex-col items-center justify-center overflow-y-auto px-3 pb-24 md:px-5">
-      <div className="flex w-full max-w-3xl flex-col gap-6">
-        <NewChatGreeting />
+    <div
+      className={
+        start
+          ? "flex flex-1 flex-col items-center justify-center overflow-y-auto px-3 pb-24 md:px-5"
+          : "bg-background z-10 shrink-0 px-3 pb-1.5 md:px-5"
+      }
+    >
+      <div
+        className={
+          start ? "flex w-full max-w-3xl flex-col gap-6" : "mx-auto max-w-3xl"
+        }
+      >
+        {start ? <NewChatGreeting /> : null}
         <div>
           {pending}
           <ChatComposerBody {...props} />

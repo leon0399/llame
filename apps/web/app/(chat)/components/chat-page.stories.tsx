@@ -35,6 +35,8 @@ import type {
   ChatListItemResponse,
   ChatModelSelectionResponse,
   GitStateOkResponse,
+  PersonalizationResponse,
+  PublicUserResponse,
 } from "@/lib/api/generated/models";
 import { listPermissionModes } from "@/lib/api/generated/permission-modes/permission-modes";
 import type { ChatLatestRunResponse } from "@/lib/api/generated/models";
@@ -215,6 +217,35 @@ const DRAFT_CATALOG_ROUTES = [
   "GET /api/v1/repositories",
 ];
 
+// A draft's greeting reads the owner's name: their personalization, then
+// their account. They answer here, and `sentRoutes` leaves them out like the
+// catalog.
+const GREETING_READS = new Map<
+  string,
+  PersonalizationResponse | PublicUserResponse
+>([
+  [
+    "GET /api/v1/me/personalization",
+    {
+      preferredName: null,
+      about: null,
+      responsePreferences: null,
+      enabled: true,
+      shareAccountIdentity: false,
+    },
+  ],
+  [
+    "GET /auth/v1/me",
+    {
+      id: "user-1",
+      name: "Leo",
+      email: "leo@example.com",
+      emailVerified: null,
+      image: null,
+    },
+  ],
+]);
+
 function routeOpenChat(
   history: Array<ChatMessageResponse>,
   latestRun: ChatLatestRunResponse | null,
@@ -247,6 +278,12 @@ function routeOpenChat(
       return Promise.resolve(jsonResponse([]));
     }
 
+    const greetingRead = GREETING_READS.get(key);
+
+    if (greetingRead !== undefined) {
+      return Promise.resolve(jsonResponse(greetingRead));
+    }
+
     unrouted.push(key);
     throw new Error(`unrouted fetch in story: ${key}`);
   });
@@ -276,12 +313,13 @@ function everyRoute() {
 }
 
 /** "METHOD /path" of every request the chat sent so far, in order. The
- *  pending-item and jobs reads are left out like the catalog: these stories
- *  are about chat behavior, not background activity polling. */
+ *  pending-item, jobs and greeting reads are left out like the catalog: these
+ *  stories are about chat behavior, not background reads. */
 function sentRoutes() {
   return everyRoute().filter(
     (route) =>
       !DRAFT_CATALOG_ROUTES.includes(route) &&
+      !GREETING_READS.has(route) &&
       route !== JOBS_ROUTE &&
       !route.endsWith("/deliveries"),
   );
@@ -498,9 +536,10 @@ export const MarkdownUnavailable: Story = {
 };
 
 /**
- * A fresh draft has no history to wait for, yet still holds the composer
- * behind the spinner until the chunks load, so its first message never lands
- * in an empty bubble. Nothing is requested from the api.
+ * A fresh draft has no history to wait for and no transcript to hold a
+ * spinner: the start screen shows the composer at once but keeps it disabled
+ * until the chunks load, so its first message never lands in an empty
+ * bubble. Nothing but the greeting's reads is requested from the api.
  *
  * @summary a fresh draft's composer unlocks only once markdown is ready
  */
@@ -509,17 +548,12 @@ export const DraftMarkdownLoading: Story = {
   tags: ["ai-generated"],
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
-    await expect(
-      await canvas.findByRole("status", { name: "Loading" }),
-    ).toBeVisible();
-    await expect(composer(canvasElement)).toBeDisabled();
+    await waitFor(() => expect(composer(canvasElement)).toBeDisabled());
+    await expect(canvas.queryByRole("log")).toBeNull();
 
     (await chunkLoad(1)).resolve(RENDERERS);
 
-    await waitFor(() =>
-      expect(canvas.queryByRole("status", { name: "Loading" })).toBeNull(),
-    );
-    await expect(composer(canvasElement)).toBeEnabled();
+    await waitFor(() => expect(composer(canvasElement)).toBeEnabled());
     await expect(sentRoutes()).toEqual([]);
   },
 };
@@ -592,6 +626,34 @@ export const SendsWithDefaultModel: Story = {
       selector: GPT_5_4_MINI.id,
       message: { parts: [{ type: "text", text: "Hello" }] },
     });
+  },
+};
+
+/**
+ * The first send moves the composer from the centred start column to its
+ * dock under the transcript without rebuilding it: the same input keeps the
+ * focus, so the owner can type the next message at once.
+ *
+ * @summary the first send keeps the composer and its focus
+ */
+export const FirstSendKeepsComposerFocus: Story = {
+  args: { initialChatExists: false, initialDraftPhase: "fresh" },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    const input = await readyComposer(canvasElement);
+
+    await userEvent.type(input, "Hello");
+    await waitFor(() =>
+      expect(
+        canvas.getByRole("button", { name: "Send message" }),
+      ).toBeEnabled(),
+    );
+    await userEvent.keyboard("{Enter}");
+
+    await waitFor(() => expect(sentRoutes()).toEqual([SEND_ROUTE]));
+    await canvas.findByRole("log");
+    await expect(composer(canvasElement)).toBe(input);
+    await expect(input).toHaveFocus();
   },
 };
 
