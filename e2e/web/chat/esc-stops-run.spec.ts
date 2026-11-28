@@ -81,7 +81,9 @@ test.describe("Esc during a Run", () => {
       })
       .toBe(true);
     await expect(page).toHaveURL(/\/chat\/[0-9a-f-]{36}/, { timeout: 15_000 });
-    await expect(page.getByRole("status", { name: "Thinking" })).toBeVisible({
+    await expect(
+      page.getByRole("status", { name: "Thinking", exact: true }),
+    ).toBeVisible({
       timeout: 15_000,
     });
 
