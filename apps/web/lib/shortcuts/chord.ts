@@ -93,8 +93,12 @@ const KEY_LABELS = new Map([
   [" ", "Space"],
 ]);
 
-/** The chord as the app's Kbd hints print it: `⌘+Shift+O`, `Ctrl+K`, `Esc`. */
-export function formatChord(chord: Chord, modifierKey: "⌘" | "Ctrl"): string {
+/** The chord's keys in pressing order, as key caps print them:
+ *  `["⌘", "Shift", "O"]`, `["Esc"]`. */
+export function chordKeys(
+  chord: Chord,
+  modifierKey: "⌘" | "Ctrl",
+): Array<string> {
   const key = chord.key.toLowerCase();
 
   const keyLabel =
@@ -105,9 +109,12 @@ export function formatChord(chord: Chord, modifierKey: "⌘" | "Ctrl"): string {
     chord.alt === true ? (modifierKey === "⌘" ? "⌥" : "Alt") : null,
     chord.shift === true ? "Shift" : null,
     keyLabel,
-  ]
-    .filter((part) => part !== null)
-    .join("+");
+  ].filter((part) => part !== null);
+}
+
+/** The chord as the app's Kbd hints print it: `⌘+Shift+O`, `Ctrl+K`, `Esc`. */
+export function formatChord(chord: Chord, modifierKey: "⌘" | "Ctrl"): string {
+  return chordKeys(chord, modifierKey).join("+");
 }
 
 /** `aria-keyshortcuts` names modifiers by their DOM key values. */

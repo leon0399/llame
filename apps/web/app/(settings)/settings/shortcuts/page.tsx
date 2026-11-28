@@ -6,7 +6,7 @@ export default function ShortcutsSettingsPage() {
   return (
     <SectionPage
       title="Keyboard shortcuts"
-      description="Click a shortcut and press the new keys; Esc cancels. Bindings and usage counts are kept in this browser."
+      description="Change a shortcut with its pencil, then press the new keys. Bindings and usage counts are kept in this browser."
     >
       <ShortcutsSection />
     </SectionPage>
