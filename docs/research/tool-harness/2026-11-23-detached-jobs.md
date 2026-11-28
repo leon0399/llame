@@ -131,11 +131,9 @@ transient service and an existing tmux server do not inherit the caller's
 Landlock or seccomp restrictions. The recommendation is an inference from the
 study record, not a tested llame implementation.
 
-## What the inspected pre-rewrite daemon did
+## Machine daemon process lifecycle
 
-The following repository behavior was inspected at revision
-`852b663d869897ac948f3e67dbbdc8028f54d07c`, before the Rust daemon replaced
-the Node daemon on 2026-11-26. It is historical evidence, not current behavior.
+The following repository behavior is pinned by `observed.revisions.llame`.
 
 The Machine protocol had `proc.bash` and `proc.cancel` and no job methods. The
 daemon ran a command through `bash-executor` with `detached: true`, so the
