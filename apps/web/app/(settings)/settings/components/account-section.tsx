@@ -3,6 +3,7 @@
 import { useState } from "react";
 import type { ReactNode } from "react";
 
+import { Alert, AlertAction, AlertTitle } from "@workspace/ui/components/alert";
 import { Button } from "@workspace/ui/components/button";
 import { Card, CardContent } from "@workspace/ui/components/card";
 import { Skeleton } from "@workspace/ui/components/skeleton";
@@ -44,6 +45,21 @@ function Profile() {
         <Skeleton className="h-5 w-48" />
         <Skeleton className="h-5 w-64" />
       </div>
+    );
+  }
+
+  // Without this, a failed read would show "Not set" for both lines, as if
+  // the account had no name or email.
+  if (me.isError) {
+    return (
+      <Alert variant="destructive">
+        <AlertTitle>Could not load your account.</AlertTitle>
+        <AlertAction>
+          <Button variant="outline" size="sm" onClick={() => void me.refetch()}>
+            Try again
+          </Button>
+        </AlertAction>
+      </Alert>
     );
   }
 

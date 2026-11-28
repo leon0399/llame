@@ -12,6 +12,7 @@ const ME_ROUTE = "GET /auth/v1/me";
 
 let fetchMock: Mock<typeof fetch>;
 let name: string | null;
+let failMe: boolean;
 
 function routeOf(input: RequestInfo | URL) {
   const request = input instanceof Request ? input : new Request(input);
@@ -25,11 +26,14 @@ const meta = {
   parameters: { layout: "padded" },
   beforeEach: () => {
     name = "Leo";
+    failMe = false;
     fetchMock = stubFetch();
     fetchMock.mockImplementation(async (input) => {
       const key = routeOf(input);
 
       if (key === ME_ROUTE) {
+        if (failMe) return new Response(null, { status: 500 });
+
         return jsonResponse({
           id: "user-1",
           name,
@@ -94,6 +98,32 @@ export const NoName: Story = {
 
     await expect(await canvas.findByText("leo@example.com")).toBeVisible();
     await expect(canvas.getByText("Not set")).toBeVisible();
+  },
+};
+
+/**
+ * A failed account read says so and offers a retry, instead of "Not set" for
+ * a name and email the account may well have.
+ *
+ * @summary a failed account read, with a retry
+ */
+export const LoadFailed: Story = {
+  tags: ["ai-generated"],
+  beforeEach: () => {
+    failMe = true;
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+
+    await expect(await canvas.findByRole("alert")).toHaveTextContent(
+      "Could not load your account.",
+    );
+    await expect(canvas.queryByText("Not set")).not.toBeInTheDocument();
+
+    failMe = false;
+    await userEvent.click(canvas.getByRole("button", { name: "Try again" }));
+
+    await expect(await canvas.findByText("Leo")).toBeVisible();
   },
 };
 

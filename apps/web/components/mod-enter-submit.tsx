@@ -12,13 +12,16 @@ import { usePrimaryModifierKey } from "@workspace/ui/hooks/use-modifier-key";
  */
 
 /** A keydown handler that submits on Ctrl/⌘+Enter. Enter that confirms an
- *  IME composition is not a submit. */
+ *  IME composition is not a submit. It stops the key there, so a form can
+ *  bind it in the capture phase (`onKeyDownCapture`) and submit before a
+ *  control inside acts on the Enter itself, such as a switch toggling. */
 export function submitOnModEnter(onSubmit: () => void) {
   return (event: KeyboardEvent<HTMLElement>) => {
     if (event.nativeEvent.isComposing) return;
 
     if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
       event.preventDefault();
+      event.stopPropagation();
       onSubmit();
     }
   };

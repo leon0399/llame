@@ -161,7 +161,6 @@ function PersonalizationFieldControl({
     <Textarea
       {...shared}
       onChange={(event) => onChange(event.target.value)}
-      onKeyDown={submitOnModEnter(onSubmit)}
       rows={4}
     />
   );
@@ -367,7 +366,10 @@ function PersonalizationProfileCard({
   const { canSave, submit } = usePersonalizationSubmit(enabled, state);
 
   return (
-    <Card>
+    // Ctrl/⌘+Enter saves from anywhere in the card, the switch and Save
+    // included. Capture phase, so the switch never sees the Enter and a
+    // one-line field's own Enter handler does not submit a second time.
+    <Card onKeyDownCapture={submitOnModEnter(submit)}>
       <PersonalizationCardHeader
         enabled={enabled}
         onEnabledChange={(checked) => state.update.mutate({ enabled: checked })}

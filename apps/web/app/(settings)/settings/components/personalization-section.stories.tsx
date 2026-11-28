@@ -324,6 +324,31 @@ export const EditAndSave: Story = {
 };
 
 /**
+ * Ctrl/⌘+Enter saves from anywhere in the profile card, not only from inside
+ * a field: with focus moved to the on/off switch, it saves the edit and
+ * leaves the switch as it was.
+ *
+ * @summary saving from the keyboard outside a field
+ */
+export const SaveShortcutOutsideAField: Story = {
+  tags: ["ai-generated"],
+  play: async ({ canvasElement }) => {
+    const { name, master } = await formControls(canvasElement);
+
+    await userEvent.type(name, "Leo");
+    master.focus();
+    await userEvent.keyboard("{Control>}{Enter}{/Control}");
+
+    await waitFor(() => expect(sentRoutes()).toContain(SAVE_ROUTE));
+    // One PATCH, the edit: the switch was not toggled on the way.
+    await expect(savedBodies()).resolves.toEqual([
+      { preferredName: "Leo", about: null, responsePreferences: null },
+    ]);
+    await expect(master).toBeChecked();
+  },
+};
+
+/**
  * Near its cap a field counts down what is left; one character over, the
  * field is marked invalid, the counter reads how far over it is, and Save is
  * blocked with a message to trim the marked fields.
