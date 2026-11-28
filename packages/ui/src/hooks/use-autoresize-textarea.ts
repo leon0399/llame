@@ -3,6 +3,9 @@ import { useLayoutEffect, useRef, useCallback } from "react";
 interface UseAutoResizeTextareaOptions {
   minHeight?: number; // optional min height in px
   maxHeight?: number; // optional max height in px
+  /** The controlled value. A value set from code (cleared after a send)
+   *  fires no `input` event, so the box re-measures when this changes. */
+  value?: unknown;
 }
 
 function applyAutoResize(
@@ -35,6 +38,7 @@ function applyAutoResize(
 export function useAutoResizeTextarea({
   minHeight,
   maxHeight,
+  value,
 }: UseAutoResizeTextareaOptions = {}) {
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const frameId = useRef<number | null>(null);
@@ -64,22 +68,22 @@ export function useAutoResizeTextarea({
 
     resize();
 
-    const onInput = () => {
-      scheduleResize();
-    };
-
     window.addEventListener("resize", scheduleResize);
-    ta.addEventListener("input", onInput);
+    ta.addEventListener("input", scheduleResize);
 
     return () => {
       window.removeEventListener("resize", scheduleResize);
-      ta.removeEventListener("input", onInput);
+      ta.removeEventListener("input", scheduleResize);
 
       if (frameId.current !== null) {
         cancelAnimationFrame(frameId.current);
       }
     };
   }, [resize, scheduleResize]);
+
+  useLayoutEffect(() => {
+    resize();
+  }, [value, resize]);
 
   return textareaRef;
 }
