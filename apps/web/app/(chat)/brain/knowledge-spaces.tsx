@@ -143,7 +143,9 @@ function KnowledgeSpacesBody({
 }) {
   if (isPending) return <KnowledgeSpacesSkeleton />;
 
-  if (isError) return <KnowledgeSpacesError onRetry={onRetry} />;
+  if (isError && spaces.length === 0) {
+    return <KnowledgeSpacesError onRetry={onRetry} />;
+  }
 
   if (spaces.length === 0) {
     return <KnowledgeSpacesEmpty show={show} onCreate={onCreate} />;

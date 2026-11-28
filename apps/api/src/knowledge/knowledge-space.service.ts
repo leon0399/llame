@@ -217,39 +217,37 @@ export class KnowledgeSpaceService {
 
   /**
    * Apply a name, an archive flag, both, or neither. An empty patch returns
-   * the current row. Unarchive happens before a rename so a restored Space
-   * can take a new name in the same request. Archive happens after a rename.
-   * A missing or other-owner id returns undefined. A rename of a Space that
-   * stays archived throws 409.
+   * the current row. A name and an archive flag share one transaction: a
+   * failed rename rolls the archive flag back. The row is locked before its
+   * state is checked. A missing or other-owner id returns undefined. A rename
+   * of a Space that stays archived throws 409.
    */
   async updateForOwner(
     ownerUserId: string,
     knowledgeSpaceId: string,
     input: { name?: string; archived?: boolean },
   ): Promise<KnowledgeSpaceApiProjection | undefined> {
-    if (input.archived === false) {
-      const restored = await this.setArchiveForOwner(
+    if (input.name === undefined && input.archived === undefined) {
+      return this.getForOwner(ownerUserId, knowledgeSpaceId);
+    }
+
+    const name =
+      input.name === undefined
+        ? undefined
+        : normalizeKnowledgeSpaceName(input.name);
+
+    const space = await this.tenantDb.runAs(ownerUserId, (tx) =>
+      applyOwnerKnowledgeSpacePatch(
+        new KnowledgeSpaceRepository(tx),
         ownerUserId,
         knowledgeSpaceId,
-        false,
-      );
+        { name, archived: input.archived },
+      ),
+    );
 
-      if (restored === undefined) return undefined;
-    }
-
-    if (input.name !== undefined) {
-      const renamed = await this.renameForOwner(ownerUserId, knowledgeSpaceId, {
-        name: input.name,
-      });
-
-      if (renamed === undefined) return undefined;
-    }
-
-    if (input.archived === true) {
-      return this.setArchiveForOwner(ownerUserId, knowledgeSpaceId, true);
-    }
-
-    return this.getForOwner(ownerUserId, knowledgeSpaceId);
+    return space === undefined
+      ? undefined
+      : toKnowledgeSpaceApiProjection(space);
   }
 
   /**
@@ -336,6 +334,56 @@ export class KnowledgeSpaceService {
       ),
     );
   }
+}
+
+async function applyOwnerKnowledgeSpacePatch(
+  repository: KnowledgeSpaceRepository,
+  ownerUserId: string,
+  knowledgeSpaceId: string,
+  input: { name?: string; archived?: boolean },
+): Promise<KnowledgeSpace | undefined> {
+  const current = await repository.findByIdForOwnerForUpdate(
+    knowledgeSpaceId,
+    ownerUserId,
+  );
+
+  if (current === undefined) return undefined;
+
+  let row = current;
+
+  if (input.archived === false) {
+    const restored = await repository.setArchived(
+      knowledgeSpaceId,
+      ownerUserId,
+      false,
+    );
+
+    if (restored === undefined) return undefined;
+
+    row = restored;
+  }
+
+  if (input.name !== undefined) {
+    if (row.archivedAt !== null) {
+      throw new ConflictException(ARCHIVED_KNOWLEDGE_SPACE_RENAME);
+    }
+
+    const renamed = await repository.updateName(
+      knowledgeSpaceId,
+      ownerUserId,
+      input.name,
+    );
+
+    if (renamed === undefined) {
+      throw new ConflictException(ARCHIVED_KNOWLEDGE_SPACE_RENAME);
+    }
+
+    row = renamed;
+  }
+
+  if (input.archived !== true) return row;
+
+  return repository.setArchived(knowledgeSpaceId, ownerUserId, true);
 }
 
 function archiveScope(

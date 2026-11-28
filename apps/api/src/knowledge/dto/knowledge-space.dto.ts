@@ -156,11 +156,6 @@ export class KnowledgeSpaceCollectionResponse {
   nextCursor!: string | null;
 }
 
-/**
- * A rename or an archive flag, never both and never neither. Schemathesis
- * treats every schema-valid body as acceptable, so the operation schema must
- * match the runtime rule.
- */
 export class KnowledgeSpaceUnavailableResponse {
   @ApiProperty()
   statusCode!: number;

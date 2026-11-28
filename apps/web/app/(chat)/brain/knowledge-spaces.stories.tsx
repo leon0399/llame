@@ -131,6 +131,27 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 
 /**
+ * The working list shows each Space name and its stable id. Archived Spaces
+ * stay off this list.
+ *
+ * @summary two active Knowledge Spaces
+ */
+export const Basic: Story = {
+  tags: ["ai-generated"],
+  beforeEach: () => {
+    spaces = [space(NOTES_ID, "Notes"), space(SECOND_ID, "Notes")];
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    const list = await canvas.findByRole("list", { name: "Knowledge Spaces" });
+
+    await expect(within(list).getAllByText("Notes")).toHaveLength(2);
+    await expect(within(list).getByText(NOTES_ID)).toBeVisible();
+    await expect(within(list).getByText(SECOND_ID)).toBeVisible();
+  },
+};
+
+/**
  * A new owner has no Spaces. The page says so and offers a way to create one.
  *
  * @summary empty working list
@@ -151,27 +172,6 @@ export const Empty: Story = {
     await expect(
       canvas.getAllByRole("button", { name: "New Space" }).length,
     ).toBeGreaterThan(0);
-  },
-};
-
-/**
- * The working list shows each Space name and its stable id. Archived Spaces
- * stay off this list.
- *
- * @summary two active Knowledge Spaces
- */
-export const List: Story = {
-  tags: ["ai-generated"],
-  beforeEach: () => {
-    spaces = [space(NOTES_ID, "Notes"), space(SECOND_ID, "Notes")];
-  },
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement);
-    const list = await canvas.findByRole("list", { name: "Knowledge Spaces" });
-
-    await expect(within(list).getAllByText("Notes")).toHaveLength(2);
-    await expect(within(list).getByText(NOTES_ID)).toBeVisible();
-    await expect(within(list).getByText(SECOND_ID)).toBeVisible();
   },
 };
 

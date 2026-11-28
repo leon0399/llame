@@ -14,4 +14,10 @@ describe("knowledgeSpaceNameError", () => {
       "Use 100 characters or fewer.",
     );
   });
+
+  it("rejects a zero-width space the API would refuse", () => {
+    expect(knowledgeSpaceNameError("Notes\u200B")).toBe(
+      "Remove hidden or control characters.",
+    );
+  });
 });
