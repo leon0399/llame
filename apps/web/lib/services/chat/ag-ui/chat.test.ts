@@ -218,6 +218,41 @@ describe("AgUiChat", () => {
     });
   });
 
+  it.each([
+    ["Chromium", "Failed to fetch"],
+    ["Firefox", "NetworkError when attempting to fetch resource."],
+    ["WebKit", "Load failed"],
+  ])(
+    "reports %s's dropped connection mid-stream as a disconnect",
+    async (_browser, message) => {
+      async function* dropped() {
+        yield* eventsOf([started("run-1"), ...answer("run-1", "par")]);
+        throw new TypeError(message);
+      }
+
+      const { chat, finishes } = chatWith({
+        sendMessages: () => Promise.resolve(dropped()),
+      });
+
+      await chat.sendMessage({ text: "hi" });
+
+      expect(finishes[0]).toMatchObject({
+        isError: true,
+        isDisconnect: true,
+      });
+    },
+  );
+
+  it("reports WebKit's failed re-attach as a disconnect, so repair retries it", async () => {
+    const { chat, finishes } = chatWith({
+      reconnectToStream: () => Promise.reject(new TypeError("Load failed")),
+    });
+
+    await chat.resumeStream();
+
+    expect(finishes[0]).toMatchObject({ isError: true, isDisconnect: true });
+  });
+
   it("fails the request on the Run's own failure, keeping the parts it streamed", async () => {
     const { chat, finishes, errors } = chatWith({
       sendMessages: () =>
