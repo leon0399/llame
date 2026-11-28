@@ -872,7 +872,7 @@ async fn manifest_selects_only_git_ignored_untracked_files() {
     let machine = common::Machine::new();
     let root = machine.root();
     let repo = root.join("repo");
-    source_repository(&repo, ".env\nvendor/\nsecrets/\nlinked-dir/\n");
+    source_repository(&repo, ".env\nvendor/\nsecrets/\n");
     write(&repo.join(".git/info/exclude"), "local.cfg\n");
     write(&repo.join("pkg/.gitignore"), "pkg.env\n");
     git(&repo, &["add", "pkg/.gitignore"]);
@@ -1257,6 +1257,168 @@ async fn a_symlink_among_selected_candidates_fails_and_keeps_earlier_copies() {
     assert!(!path.join("node_modules/c").exists());
     assert!(temporaries(&path).is_empty());
     child.kill().await.unwrap();
+}
+
+#[tokio::test]
+async fn an_unusable_manifest_fails_creation_and_keeps_the_worktree() {
+    use std::os::unix::fs::{PermissionsExt, symlink};
+    let machine = common::Machine::new();
+    let root = machine.root();
+    let outside = root.join("outside-manifest");
+    write(&outside, ".env\n");
+    let unreadable_possible = {
+        write(&root.join("probe"), "");
+        std::fs::set_permissions(root.join("probe"), std::fs::Permissions::from_mode(0o000))
+            .unwrap();
+        std::fs::File::open(root.join("probe")).is_err()
+    };
+    type Prepare = Box<dyn Fn(&Path)>;
+    let mut cases: Vec<(&str, &str, Prepare)> = vec![
+        (
+            "symlink",
+            "manifest is a symbolic link",
+            Box::new(move |manifest| symlink(&outside, manifest).unwrap()),
+        ),
+        (
+            "directory",
+            "manifest is not a regular file",
+            Box::new(|manifest| std::fs::create_dir(manifest).unwrap()),
+        ),
+        (
+            "fifo",
+            "manifest is not a regular file",
+            Box::new(|manifest| {
+                assert!(
+                    Command::new("mkfifo")
+                        .arg(manifest)
+                        .status()
+                        .unwrap()
+                        .success()
+                );
+            }),
+        ),
+        (
+            "oversized",
+            "manifest is too large",
+            Box::new(|manifest| {
+                std::fs::write(manifest, "#".repeat(1024 * 1024 + 1)).unwrap();
+            }),
+        ),
+        (
+            "invalid-utf8",
+            "manifest is not valid UTF-8",
+            Box::new(|manifest| std::fs::write(manifest, [0xff, 0xfe, b'\n']).unwrap()),
+        ),
+        (
+            "nul",
+            "manifest pattern is refused",
+            Box::new(|manifest| std::fs::write(manifest, b".env\0\n").unwrap()),
+        ),
+    ];
+    if unreadable_possible {
+        cases.push((
+            "unreadable",
+            "manifest cannot be read",
+            Box::new(|manifest| {
+                write(manifest, ".env\n");
+                std::fs::set_permissions(manifest, std::fs::Permissions::from_mode(0o000)).unwrap();
+            }),
+        ));
+    } else {
+        eprintln!("skipping the unreadable manifest case: this user can read mode 000 files");
+    }
+    let (mut child, channel) = machine.attach().await;
+    let mut client = GitServiceClient::new(channel);
+    for (name, message, prepare) in &cases {
+        let repo = root.join(format!("repo-{name}"));
+        source_repository(&repo, ".env\n");
+        write(&repo.join(".env"), "SECRET=1\n");
+        prepare(&repo.join(".worktreeinclude"));
+        let path = root.join(format!("wt-{name}"));
+        let failure = failed(&mut client, &repo, &absolute(&repo), &path).await;
+        assert_eq!(
+            failure.reason,
+            GitFailureReason::CopyFailed as i32,
+            "{name}"
+        );
+        assert_eq!(failure.message, *message, "{name}");
+        assert!(path.is_dir(), "{name}: the worktree is retained");
+        assert!(!path.join(".env").exists(), "{name}");
+    }
+    child.kill().await.unwrap();
+}
+
+#[tokio::test]
+async fn a_selected_symlink_to_a_directory_fails_without_reading_the_target() {
+    let machine = common::Machine::new();
+    let root = machine.root();
+    let repo = root.join("repo");
+    source_repository(&repo, "linked-dir\n");
+    let marker = "SYNTHETIC-MARKER-5c1d";
+    write(&root.join("outside-dir/secret"), marker);
+    std::os::unix::fs::symlink(root.join("outside-dir"), repo.join("linked-dir")).unwrap();
+    write(&repo.join(".worktreeinclude"), "linked-dir\n");
+    let (mut child, channel) = machine.attach().await;
+    let mut client = GitServiceClient::new(channel);
+    let path = root.join("linked");
+    let failure = failed(&mut client, &repo, &absolute(&repo), &path).await;
+    assert_eq!(failure.reason, GitFailureReason::CopyFailed as i32);
+    assert_eq!(failure.message, "source is a symbolic link: linked-dir");
+    assert!(!format!("{failure:?}").contains(marker));
+    assert!(path.is_dir() && !path.join("linked-dir").exists());
+    child.kill().await.unwrap();
+}
+
+/// Seeds `file` (untracked, named by no `.gitignore`) from a daemon started with `env`, and says
+/// whether it was copied.
+async fn seeds_a_globally_ignored_file(
+    machine: &common::Machine,
+    file: &str,
+    env: &[(&str, &Path)],
+) -> bool {
+    let root = machine.root();
+    let repo = root.join("repo");
+    source_repository(&repo, "");
+    write(&repo.join(file), "VALUE=1\n");
+    write(&repo.join(".worktreeinclude"), &format!("{file}\n"));
+    let (mut child, channel) = machine.attach_with_env(env).await;
+    let mut client = GitServiceClient::new(channel);
+    let path = root.join("seeded");
+    created(&mut client, &repo, &path).await;
+    child.kill().await.unwrap();
+    path.join(file).exists()
+}
+
+#[tokio::test]
+async fn core_excludes_file_in_the_daemon_home_qualifies_a_file() {
+    let machine = common::Machine::new();
+    let home = machine.home.path().join("daemon-home");
+    write(
+        &home.join(".gitconfig"),
+        &format!(
+            "[core]\n\texcludesFile = {}\n",
+            home.join("global-ignore").display()
+        ),
+    );
+    write(&home.join("global-ignore"), "global.env\n");
+    assert!(seeds_a_globally_ignored_file(&machine, "global.env", &[("HOME", &home)]).await);
+}
+
+#[tokio::test]
+async fn xdg_config_home_ignore_does_not_qualify_a_file() {
+    let machine = common::Machine::new();
+    let home = machine.home.path().join("daemon-home");
+    let xdg = machine.home.path().join("daemon-xdg");
+    std::fs::create_dir_all(&home).unwrap();
+    write(&xdg.join("git/ignore"), "xdg.env\n");
+    assert!(
+        !seeds_a_globally_ignored_file(
+            &machine,
+            "xdg.env",
+            &[("HOME", &home), ("XDG_CONFIG_HOME", &xdg)]
+        )
+        .await
+    );
 }
 
 async fn delete(client: &mut Client, path: &Path) -> delete_worktree_response::Result {
