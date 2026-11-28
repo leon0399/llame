@@ -78,8 +78,9 @@ reach the source.
 - **Matching.** Patterns apply to the ignored files that git lists for the
   source, including files inside an ignored directory. Git's own ignore rules
   decide eligibility: nested ignore files, `.git/info/exclude`, and the
-  global excludes that the daemon can see. The daemon keeps only `HOME`, so it
-  reads `core.excludesFile` and `$HOME/.config/git/ignore`. It does not read
+  global excludes that the daemon can see. The daemon passes git only `PATH`,
+  `HOME`, and `TMPDIR`, so global excludes come from HOME-based config alone:
+  `core.excludesFile` and `$HOME/.config/git/ignore`. It does not read
   `XDG_CONFIG_HOME` or `GIT_CONFIG_GLOBAL`.
 - **Ancestor rule.** Evaluation runs from the root down. The first ignored
   ancestor directory selects its descendants, and a later `!` pattern cannot
@@ -112,9 +113,10 @@ A failed copy fails the call as `worktree_failed`. The worktree directory, its
 branch, and the files copied before the failure remain, and the call binds
 nothing. The failure records the directory as `leftDirectory` for recovery, and
 the model-facing text omits it. A timeout records that directory as well,
-because the call cannot tell whether the checkout or the copy timed out. A new worktree root whose real path differs from the requested
-path also fails the call, with the message "worktree root moved", and the
-directory stays. A message holds a fixed phrase and at most one relative path,
+because the call cannot tell whether the checkout or the copy timed out. A new
+worktree root whose real path differs from the requested path also fails the
+call, with the message "worktree root moved", and the directory stays. A
+message holds a fixed phrase and at most one relative path,
 never file bytes or an OS error. One deadline covers the checkout, the
 enumeration, and the copy.
 
@@ -235,11 +237,14 @@ A worktree call adds `invalid_input` for a name or base ref git would refuse,
 `permission_denied` for a refused decision, and `worktree_failed` for a failed
 creation — including a name whose directory or branch exists, a source that is
 not a repository, a timeout, a failed [environment copy](#environment-files),
-and the redacted git standard error. A failure
-records no row and leaves the previous binding and its generation unchanged. A
-fence lost after the directory was created answers `executor_unavailable` with
-`leftDirectory`, and a failed copy or a timeout carries it too, and a Machine link that dropped after the request was sent
-answers `outcome_unknown`; the directory can remain on disk in both cases.
+and the redacted git standard error. A failure records no row and leaves the
+previous binding and its generation unchanged.
+
+A fence lost after the directory was created answers `executor_unavailable`
+with `leftDirectory`. A failed copy or a timeout answers `worktree_failed`, and
+it also carries `leftDirectory`. A Machine link that dropped after the request
+was sent answers `outcome_unknown`. In each case the directory can remain on
+disk.
 
 ## Configured by
 
