@@ -44,12 +44,12 @@ import { invalidateRenamedChat } from "@/lib/services/chat/management";
 import { cancelRun, runIdToCancel } from "@/lib/services/chat/runs";
 import { useShortcut } from "@/lib/shortcuts/shortcuts-context";
 import { safeRandomUUID } from "@/lib/uuid";
-import { useComposerSelection } from "./use-composer-selection";
+import { useComposerSelection } from "./composer/use-composer-selection";
 import {
   attachmentFileParts,
   revokePreviews,
   type ComposerAttachments,
-} from "./use-composer-attachments";
+} from "./composer/use-composer-attachments";
 import type { RunHandoff } from "./use-run-handoff";
 
 /** What an action on a pending item needs of its Chat. */

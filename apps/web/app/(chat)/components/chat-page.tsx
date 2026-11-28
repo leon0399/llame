@@ -33,10 +33,10 @@ import {
   useChatMarkdownReady,
 } from "./use-chat-markdown-ready";
 import { ChatTranscript } from "./chat-transcript";
-import { type ChatComposer, ChatComposerBody } from "./chat-composer";
-import { PendingDeliveries } from "./pending-deliveries";
-import { QuotaWaitNotice } from "./quota-wait-notice";
-import { useChatPageProject } from "./composer-project";
+import { type ChatComposer, ChatComposerBody } from "./composer/chat-composer";
+import { PendingDeliveries } from "./composer/pending-deliveries";
+import { QuotaWaitNotice } from "./composer/quota-wait-notice";
+import { useChatPageProject } from "./composer/composer-project";
 import { useChatCreation } from "./use-chat-creation";
 import {
   ArchivedChatBanner,

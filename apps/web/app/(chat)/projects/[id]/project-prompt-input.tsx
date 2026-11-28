@@ -4,9 +4,9 @@ import * as React from "react";
 
 import type { StartLocationPrefill } from "@/lib/services/project/start-location-link";
 
-import { ChatComposerBody } from "../../components/chat-composer";
+import { ChatComposerBody } from "../../components/composer/chat-composer";
 import { useChatCreation } from "../../components/use-chat-creation";
-import { useComposerAttachments } from "../../components/use-composer-attachments";
+import { useComposerAttachments } from "../../components/composer/use-composer-attachments";
 import { useDraftChatSelection } from "../../components/use-chat-displayed-selection";
 
 /**

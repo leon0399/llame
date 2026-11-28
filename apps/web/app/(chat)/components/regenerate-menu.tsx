@@ -23,10 +23,10 @@ import { useChatContext, type PermissionMode } from "@/contexts/chat-context";
 import type { FollowUpRunRequest } from "@/lib/services/chat/transport";
 import type { SendSelection } from "@/lib/services/models/selection";
 
-import { useComposerSelection } from "./use-composer-selection";
-import { EffortSelector } from "./effort-selector";
-import { ModelSelector } from "./model-selector";
-import { PermissionModeSelector } from "./permission-mode-selector";
+import { useComposerSelection } from "./composer/use-composer-selection";
+import { EffortSelector } from "./composer/effort-selector";
+import { ModelSelector } from "./composer/model-selector";
+import { PermissionModeSelector } from "./composer/permission-mode-selector";
 
 type RegenerateMenuProps = {
   chatId: string;
