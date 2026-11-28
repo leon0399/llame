@@ -18,6 +18,9 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@workspace/ui/components/collapsible";
+import { Drawer, DrawerContent } from "@workspace/ui/components/custom/drawer";
+import { Sheet, SheetContent } from "@workspace/ui/components/sheet";
+import { useSidebar } from "@workspace/ui/components/sidebar";
 import { Skeleton } from "@workspace/ui/components/skeleton";
 import { cn } from "@workspace/ui/lib/utils";
 
@@ -32,6 +35,7 @@ import { useChatJobOutput } from "@/lib/services/jobs/queries";
 
 import { formatBytes } from "@/lib/format-bytes";
 
+import { useWideViewport } from "./details-state";
 import { jobName, jobRunTime } from "./job-display";
 
 const OUTCOME_ICONS: Record<ChatJobResponse["state"], LucideIcon> = {
@@ -283,11 +287,37 @@ function usePanelFocus(onClose: () => void) {
   return ref;
 }
 
-/**
- * The settled jobs of the open Chat, on the outer edge of the widened session
- * details sidebar on desktop, and over the details on mobile.
- */
-export function FinishedJobsPanel({
+/** The panel's title row: the heading, the count and the close control. */
+function FinishedJobsHeader({
+  headingId,
+  count,
+  onClose,
+}: {
+  headingId?: string;
+  count: number;
+  onClose: () => void;
+}) {
+  return (
+    <div className={cn(topBarClasses, "justify-between gap-2 pr-2 pl-4")}>
+      <h2 id={headingId} className="flex items-baseline gap-2 text-sm">
+        <span className="font-semibold">Finished jobs</span>
+        <span className="text-muted-foreground tabular-nums">{count}</span>
+      </h2>
+      <IconButtonTooltip
+        label="Close finished jobs"
+        size="icon-sm"
+        side="bottom"
+        align="end"
+        onClick={onClose}
+      >
+        <XIcon aria-hidden="true" />
+      </IconButtonTooltip>
+    </div>
+  );
+}
+
+/** The panel docked on the outer edge of the widened desktop sidebar. */
+function DockedFinishedJobs({
   jobs,
   onClose,
 }: {
@@ -302,28 +332,82 @@ export function FinishedJobsPanel({
       ref={ref}
       tabIndex={-1}
       aria-labelledby={headingId}
-      className="flex min-w-0 flex-col border-sidebar-border bg-background text-foreground outline-none @max-md:absolute @max-md:inset-0 @max-md:z-10 @md:w-(--finished-jobs-width) @md:shrink-0 @md:border-l motion-safe:animate-in motion-safe:fade-in-0 motion-safe:duration-200"
+      className="flex w-(--finished-jobs-width) min-w-0 shrink-0 flex-col border-l border-sidebar-border bg-background text-foreground outline-none motion-safe:animate-in motion-safe:fade-in-0 motion-safe:duration-200"
     >
-      <div className={cn(topBarClasses, "justify-between gap-2 pr-2 pl-4")}>
-        <h2 id={headingId} className="flex items-baseline gap-2 text-sm">
-          <span className="font-semibold">Finished jobs</span>
-          <span className="text-muted-foreground tabular-nums">
-            {jobs.length}
-          </span>
-        </h2>
-        <IconButtonTooltip
-          label="Close finished jobs"
-          size="icon-sm"
-          side="bottom"
-          align="end"
-          onClick={onClose}
-        >
-          <XIcon aria-hidden="true" />
-        </IconButtonTooltip>
-      </div>
+      <FinishedJobsHeader
+        headingId={headingId}
+        count={jobs.length}
+        onClose={onClose}
+      />
       <div className="min-h-0 flex-1 overflow-y-auto p-2">
         <FinishedJobList jobs={jobs} />
       </div>
     </aside>
+  );
+}
+
+/** The header and the scrolling list, as one block inside a drawer or sheet. */
+function FinishedJobsBody({
+  jobs,
+  onClose,
+}: {
+  jobs: ReadonlyArray<ChatJobResponse>;
+  onClose: () => void;
+}) {
+  return (
+    <div className="flex min-h-0 flex-1 flex-col">
+      <FinishedJobsHeader count={jobs.length} onClose={onClose} />
+      <div className="min-h-0 flex-1 overflow-y-auto p-2">
+        <FinishedJobList jobs={jobs} />
+      </div>
+    </div>
+  );
+}
+
+/**
+ * The settled jobs of the open Chat. Logs need width, so where they cannot
+ * sit beside the details they get the screen's: a bottom drawer on a phone,
+ * swiped down to close, and a side sheet up to 80rem. From there they dock
+ * on the outer edge of the widened details sidebar.
+ */
+export function FinishedJobsPanel({
+  jobs,
+  onClose,
+}: {
+  jobs: ReadonlyArray<ChatJobResponse>;
+  onClose: () => void;
+}) {
+  const { isMobile } = useSidebar();
+  const wideViewport = useWideViewport();
+
+  if (!isMobile && wideViewport) {
+    return <DockedFinishedJobs jobs={jobs} onClose={onClose} />;
+  }
+
+  const body = <FinishedJobsBody jobs={jobs} onClose={onClose} />;
+
+  const onOpenChange = (open: boolean) => {
+    if (!open) onClose();
+  };
+
+  if (isMobile) {
+    return (
+      <Drawer open onOpenChange={onOpenChange}>
+        <DrawerContent aria-label="Finished jobs">{body}</DrawerContent>
+      </Drawer>
+    );
+  }
+
+  return (
+    <Sheet open onOpenChange={onOpenChange}>
+      <SheetContent
+        side="right"
+        showCloseButton={false}
+        aria-label="Finished jobs"
+        className="sm:max-w-xl"
+      >
+        {body}
+      </SheetContent>
+    </Sheet>
   );
 }

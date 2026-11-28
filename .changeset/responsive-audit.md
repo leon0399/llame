@@ -1,5 +1,6 @@
 ---
 "web": patch
+"@workspace/ui": minor
 ---
 
 - Projects are reachable on a phone: the rail's Projects entry is enabled,
@@ -11,3 +12,7 @@
 - Administration opens on a phone: the rail entry is enabled and its pages
   switch sections from the breadcrumb. Keyboard hints in the rail are
   hidden on touch screens.
+- On a phone, finished jobs open in a full-width bottom drawer that swipes
+  down to close, so their logs get the screen's width; below 1280px they
+  open in a wider side sheet of their own. Project, Organizations and the
+  Settings and Administration pages use the new-chat page's side padding.

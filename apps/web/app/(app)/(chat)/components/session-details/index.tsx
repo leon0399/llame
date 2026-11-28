@@ -192,15 +192,6 @@ function DetailsHeader() {
   );
 }
 
-/** In the phone or tablet sheet the finished-jobs panel covers the details
- *  column (a container query in both) instead of sitting beside it. */
-function usePanelCoversColumn(): boolean {
-  const { isMobile } = useSidebar();
-  const wideViewport = useWideViewport();
-
-  return isMobile || !wideViewport;
-}
-
 function SessionDetailsBody({
   chatId,
   layout,
@@ -212,7 +203,6 @@ function SessionDetailsBody({
 }) {
   const environment = useEnvironment(chatId);
   const jobs = useJobsSection(chatId, panelOpen);
-  const narrow = usePanelCoversColumn();
 
   return (
     // Both columns keep fixed widths: the details column the sidebar's own
@@ -220,11 +210,7 @@ function SessionDetailsBody({
     // sidebar's width animates, the row is clipped rather than squeezed, so
     // the panel is revealed from the outer edge and no text rewraps.
     <div className="@container relative flex size-full min-h-0 overflow-hidden">
-      {/* Where the panel covers this column, it leaves the tab order. */}
-      <div
-        inert={narrow && jobs.finishedPanel !== null}
-        className="flex min-w-0 flex-col @max-md:w-full @md:w-64 @md:shrink-0"
-      >
+      <div className="flex min-w-0 flex-col @max-md:w-full @md:w-64 @md:shrink-0">
         <DetailsHeader />
         <SidebarContent>
           <SectionList
