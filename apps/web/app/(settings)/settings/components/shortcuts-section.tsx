@@ -13,7 +13,12 @@ import {
 
 import { IconButtonTooltip } from "@/components/icon-button-tooltip";
 import { RelativeTime } from "@/components/relative-time";
-import { chordFromEvent, formatChord, type Chord } from "@/lib/shortcuts/chord";
+import {
+  chordFromEvent,
+  formatChord,
+  isBindableChord,
+  type Chord,
+} from "@/lib/shortcuts/chord";
 import type { ShortcutDefinition } from "@/lib/shortcuts/definitions";
 import {
   useShortcutSettings,
@@ -51,13 +56,23 @@ function useChordRecorder(
   }, [active, onChord, onCancel]);
 }
 
+/** A row's recording state: listening for keys, or listening after keys
+ *  that cannot be a binding. */
+type RowRecording = "listening" | "rejected" | null;
+
+function recordingLabel(recording: RowRecording, modifierKey: string) {
+  return recording === "rejected"
+    ? `Hold ${modifierKey} with a key`
+    : "Press keys…";
+}
+
 function ChordButton({
   row,
   recording,
   onRecord,
 }: {
   row: ShortcutRow;
-  recording: boolean;
+  recording: RowRecording;
   onRecord: () => void;
 }) {
   const modifierKey = usePrimaryModifierKey();
@@ -77,14 +92,18 @@ function ChordButton({
       variant="outline"
       size="sm"
       aria-label={
-        recording
+        recording !== null
           ? `Recording a new shortcut for ${row.def.label}`
           : `Change shortcut for ${row.def.label}, now ${label}`
       }
       aria-invalid={row.conflicts.length > 0}
       onClick={onRecord}
     >
-      {recording ? "Press keys…" : <Kbd>{label}</Kbd>}
+      {recording === null ? (
+        <Kbd>{label}</Kbd>
+      ) : (
+        recordingLabel(recording, modifierKey)
+      )}
     </Button>
   );
 }
@@ -118,7 +137,7 @@ function ShortcutLine({
   onReset,
 }: {
   row: ShortcutRow;
-  recording: boolean;
+  recording: RowRecording;
   onRecord: () => void;
   onReset: () => void;
 }) {
@@ -150,13 +169,13 @@ function ShortcutLine({
 function ShortcutGroup({
   group,
   rows,
-  recordingId,
+  recordingOf,
   onRecord,
   onReset,
 }: {
   group: ShortcutDefinition["group"];
   rows: Array<ShortcutRow>;
-  recordingId: string | null;
+  recordingOf: (id: ShortcutRow["def"]["id"]) => RowRecording;
   onRecord: (id: ShortcutRow["def"]["id"]) => void;
   onReset: (id: ShortcutRow["def"]["id"]) => void;
 }) {
@@ -170,7 +189,7 @@ function ShortcutGroup({
               <ShortcutLine
                 key={row.def.id}
                 row={row}
-                recording={row.def.id === recordingId}
+                recording={recordingOf(row.def.id)}
                 onRecord={() => onRecord(row.def.id)}
                 onReset={() => onReset(row.def.id)}
               />
@@ -188,6 +207,43 @@ const GROUPS: Array<ShortcutDefinition["group"]> = [
   "Composer",
 ];
 
+/** Which row records, and whether its last keys were refused. Recording
+ *  goes on until the keys can be a binding; Esc stops it. */
+function useShortcutRecording(
+  settings: ReturnType<typeof useShortcutSettings>,
+) {
+  const [recording, setRecording] = useState<{
+    id: ShortcutRow["def"]["id"];
+    rejected: boolean;
+  } | null>(null);
+
+  useChordRecorder(
+    recording !== null,
+    (chord) => {
+      if (recording === null) return;
+
+      if (!isBindableChord(chord)) {
+        return setRecording({ ...recording, rejected: true });
+      }
+
+      settings.setBinding(recording.id, chord);
+      setRecording(null);
+    },
+    () => setRecording(null),
+  );
+
+  return {
+    recordingOf: (id: ShortcutRow["def"]["id"]): RowRecording =>
+      recording?.id !== id
+        ? null
+        : recording.rejected
+          ? "rejected"
+          : "listening",
+    start: (id: ShortcutRow["def"]["id"]) =>
+      setRecording({ id, rejected: false }),
+  };
+}
+
 /**
  * Every shortcut, by where it applies: its chord, how often this browser
  * used it, and any other shortcut on the same keys. A rebindable chord is a
@@ -197,20 +253,7 @@ const GROUPS: Array<ShortcutDefinition["group"]> = [
  */
 export function ShortcutsSection() {
   const settings = useShortcutSettings();
-  const [recordingId, setRecordingId] = useState<string | null>(null);
-  const recordingRow = settings.rows.find((row) => row.def.id === recordingId);
-
-  useChordRecorder(
-    recordingRow !== undefined,
-    (chord) => {
-      if (recordingRow !== undefined) {
-        settings.setBinding(recordingRow.def.id, chord);
-      }
-
-      setRecordingId(null);
-    },
-    () => setRecordingId(null),
-  );
+  const recording = useShortcutRecording(settings);
 
   return (
     <>
@@ -219,8 +262,8 @@ export function ShortcutsSection() {
           key={group}
           group={group}
           rows={settings.rows.filter((row) => row.def.group === group)}
-          recordingId={recordingId}
-          onRecord={setRecordingId}
+          recordingOf={recording.recordingOf}
+          onRecord={recording.start}
           onReset={settings.resetBinding}
         />
       ))}

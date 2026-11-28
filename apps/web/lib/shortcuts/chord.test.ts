@@ -5,6 +5,7 @@ import {
   chordFromEvent,
   chordId,
   formatChord,
+  isBindableChord,
   matchChord,
 } from "./chord";
 import { findConflicts } from "./definitions";
@@ -76,6 +77,17 @@ describe("chordFromEvent", () => {
     expect(chordFromEvent(key("Shift", { shiftKey: true }), false)).toBeNull();
     expect(chordFromEvent(key("k", { ctrlKey: true }), true)).toBeNull();
     expect(chordFromEvent(key("k", { metaKey: true }), false)).toBeNull();
+  });
+});
+
+describe("isBindableChord", () => {
+  it("needs the primary modifier, or a function key", () => {
+    expect(isBindableChord({ key: "k", mod: true })).toBe(true);
+    expect(isBindableChord({ key: "F2" })).toBe(true);
+    expect(isBindableChord({ key: "k" })).toBe(false);
+    expect(isBindableChord({ key: "k", shift: true })).toBe(false);
+    expect(isBindableChord({ key: "k", alt: true })).toBe(false);
+    expect(isBindableChord({ key: "F13" })).toBe(false);
   });
 });
 
