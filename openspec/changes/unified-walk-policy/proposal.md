@@ -125,9 +125,10 @@ change no longer modifies.
   `apps/machine/tests/search.rs`.
 - `crates/machine-files`: `list_directory` omits ignore-ruled entries through
   `walk_policy`, verified by `apps/machine/tests/files.rs`.
-- `packages/native-file-tools/src/directory-listing.ts`: the presentation
-  skips the child read for a fixed-set name. No other TypeScript engine code
-  changes.
+- `packages/native-file-tools` (`walk-policy.ts`, `directory-listing.ts`) and
+  `apps/api/src/machines/wire/files-read-directory.ts`: both listing
+  presentations skip the child read for a fixed-set name. No TypeScript walk or
+  Knowledge code changes.
 - Docs: `docs/product/reference/tools/grep.md` and `read.md`;
   `docs/product/glossary.md` gains "Walk policy"; one
   `.changeset/unified-walk-policy.md` entry.
