@@ -30,7 +30,9 @@ import type {
 } from "@/lib/api/generated/models";
 import { useChatJobOutput } from "@/lib/services/jobs/queries";
 
-import { formatBytes, jobName, jobRunTime } from "./job-display";
+import { formatBytes } from "@/lib/format-bytes";
+
+import { jobName, jobRunTime } from "./job-display";
 
 const OUTCOME_ICONS: Record<ChatJobResponse["state"], LucideIcon> = {
   running: CircleHelpIcon,
