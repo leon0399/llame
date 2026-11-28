@@ -1,8 +1,10 @@
 import {
   Building2Icon,
+  CloudIcon,
   CpuIcon,
   PlugIcon,
   ScrollTextIcon,
+  ServerIcon,
   ShieldIcon,
   UserCogIcon,
 } from "lucide-react";
@@ -24,8 +26,20 @@ export const ADMIN_AREA: SectionArea = {
           icon: Building2Icon,
           href: "/admin/organizations",
         },
+        {
+          key: "machines",
+          label: "Machines",
+          icon: ServerIcon,
+          href: "/admin/machines",
+        },
+        {
+          key: "models",
+          label: "Models",
+          icon: CpuIcon,
+          href: "/admin/models",
+        },
+        { key: "providers", label: "Model providers", icon: CloudIcon },
         { key: "users", label: "Users & accounts", icon: UserCogIcon },
-        { key: "models", label: "Model providers", icon: CpuIcon },
         { key: "connectors", label: "Connectors", icon: PlugIcon },
         { key: "policies", label: "Policies", icon: ShieldIcon },
         { key: "audit", label: "Audit log", icon: ScrollTextIcon },
