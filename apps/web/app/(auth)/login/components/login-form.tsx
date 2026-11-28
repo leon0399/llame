@@ -10,13 +10,6 @@ import * as z from "zod";
 import { Button } from "@workspace/ui/components/button";
 import { Input } from "@workspace/ui/components/input";
 import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@workspace/ui/components/card";
-import {
   Form,
   FormControl,
   FormField,
@@ -151,8 +144,7 @@ function PasswordField({
   );
 }
 
-/** The form's actual field set — kept separate from the `Card` chrome around
- *  it in `LoginForm`, so each stays a legible, single-purpose piece. */
+/** The form; the page around it gives the heading (see `AuthPage`). */
 function LoginFormFields({
   form,
   isLoading,
@@ -192,18 +184,6 @@ export function LoginForm() {
   const { isLoading, onSubmit } = useLoginSubmit(form);
 
   return (
-    <Card className="w-full max-w-sm">
-      <CardHeader>
-        <CardTitle>Sign in</CardTitle>
-        <CardDescription>Use your account on this instance.</CardDescription>
-      </CardHeader>
-      <CardContent>
-        <LoginFormFields
-          form={form}
-          isLoading={isLoading}
-          onSubmit={onSubmit}
-        />
-      </CardContent>
-    </Card>
+    <LoginFormFields form={form} isLoading={isLoading} onSubmit={onSubmit} />
   );
 }
