@@ -64,12 +64,13 @@ Before opening this PR (CONTRIBUTING.md, "PR contract"):
 
 ### Product contract
 
-- [ ] OpenSpec proposal approved; this layer's `tasks.md` boxes ticked
+- [ ] OpenSpec proposal approved; this layer's tasks ticked
 - [ ] Operator docs, `.changeset/` entry, and `ROADMAP.md` removals included
 
 ### General
 
 - [ ] Self-reviewed the parent-relative diff against `REVIEW_GUIDE.md`
 - [ ] CI green on the current head (or only `master`-red checks, named in a comment) before marking ready
+- [ ] Ready-PR monitoring exit met on the current head: 15-minute floor elapsed, CI terminal green, every expected bot finished, every finding dispositioned and replied to
 - [ ] No debug, scratch, or unrelated code in the diff
 - [ ] Delivery Project item added and its Status / Next action set

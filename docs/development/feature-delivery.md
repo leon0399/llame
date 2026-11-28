@@ -46,11 +46,11 @@ Confirm, create, or merge the feature's cutover sub-issues when the proposal is 
 - `$gh-stack` requirements and `$openspec-apply-change` requirements.
 - every task assigned to one layer with focused verification.
 - `- [ ]` tracking and the issue-closing owner.
-- a self-review-before-ready checkpoint and a GitHub review/CI gate per layer.
 - final-layer spec-sync and archive-readiness tasks, and the `finalize` entry boundary before `$openspec-sync-specs` writes.
 
-For finalize, SR and GR are recorded as post-archive gates, not pre-archive
-checkbox tasks. All tracked tasks must be complete before archive movement.
+`tasks.md` holds no SR or GR checkbox for any layer: the PR checklist tracks both.
+Archive movement and the gates after it (publishing the finalize draft, SR, GR) are prose, because
+all tracked tasks must be complete before archive movement.
 
 Do not create implementation branches before proposal approval.
 
@@ -68,7 +68,7 @@ Commit only proposal-owned files.
 
 After publication approval, publish the draft stack with `$gh-stack` and inspect the generated PR.
 Complete self-review (SR) of its actual diff per [PR contract](../../CONTRIBUTING.md#pr-contract).
-Fix with new commits and mark it ready for the GitHub review (GR) loop.
+Fix with new commits and mark it ready for the GitHub review (GR) loop. The PR checklist records both.
 
 Publication approval and proposal approval are distinct. A proposal committed to `master` is approved, so carry that decision forward.
 Before the proposal lands on `master`, approval must be a GitHub Approval from Leo or his named delegate.
@@ -105,10 +105,11 @@ The finalize layer owns only spec synchronization, task records, and archive mov
    `openspec status --change <change> --json` and `tasks.md`, and complete the
    layer's spec-sync and archive-readiness tasks. Stop on any incomplete
    artifact or unchecked task.
-2. Run `$openspec-archive-change` only after readiness is proved. Preserve checked task history.
+2. Run `$openspec-archive-change` only after readiness is proved. Prove it from GitHub: each layer PR's head CI, bot reviews, unresolved threads, and proposal approval.
+   Record that evidence once, as prose, in the finalize commit's `tasks.md`. Preserve checked task history.
    Check MODIFIED requirements and cross-capability wording for semantic consistency, not just strict validation.
 3. Prove the layer with the Final OpenSpec, Product Markdown, and Any change rows in [Verification](../../CONTRIBUTING.md#verification).
    Then publish the finalize PR as draft with `$gh-stack`.
-   Its SR and GR are post-archive gates. After archive movement, self-review the actual diff, mark ready, and run the [Ready-PR monitoring](../../CONTRIBUTING.md#ready-pr-monitoring) loop.
+   After archive movement, self-review the actual diff, mark ready, and run the [Ready-PR monitoring](../../CONTRIBUTING.md#ready-pr-monitoring) loop.
    Readiness gates movement. Movement gates publication, review, and merge, never the reverse.
 4. Merge only under [Merge](../../CONTRIBUTING.md#merge).
