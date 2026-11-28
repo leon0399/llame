@@ -120,6 +120,13 @@ No feature ships for the future tool.
 - [Owners who searched ignored trees lose those passages silently] → Explicit
   reads still work, and every exclusion is fixed or owner-authored. The
   changeset entry states the narrowing plainly.
+- [A child block can differ from a grep walk in a nested repository] → Each
+  child read is its own `ListDirectory` call, so its repository boundary is the
+  child's nearest `.git`. When `/r/sub` holds its own `.git`, the child block of
+  `/r/sub` drops `/r/.gitignore`, which a grep walk rooted at `/r` applies. The
+  block shows at most 20 entries and the requested level is unaffected.
+  Carrying the requested root to child reads is a protocol change, deferred
+  until a nested-repository case appears.
 - [Listing ignore evaluation adds reads per call] → At most two ignore files
   per ancestor up to the registered root, read once per `ListDirectory` call.
   The walk already pays this cost per call.
