@@ -12,10 +12,10 @@ import { type PermissionRejectionReason } from './types';
  */
 
 const EXPLICIT_REJECT =
-  'Tool call rejected before execution by operator permissions. A reject rule matched. Do not retry this call, disguise the same action through different commands or tools, delegate it to another agent, or change permission settings to bypass the rejection. In-run approval is unavailable. Continue with other permitted work; if this action is required, explain the blocked step to the user.';
+  'Tool call rejected before execution by operator permissions. A reject rule matched. Do not retry this call, delegate it to another agent, or change permission settings to bypass the rejection. You may pursue the same goal through other permitted tools in reasonable ways that respect the intent of this denial, but do not misuse a permitted tool to carry out the rejected action. In-run approval is unavailable. Continue with other permitted work; if this action is essential, finish what remains, then stop and explain the blocked step to the user, who can adjust the permission rules.';
 
 const NO_ALLOW =
-  'Tool call rejected before execution by operator permissions. No allow rule permits this call. Do not retry this call, disguise the same action through different commands or tools, delegate it to another agent, or change permission settings to bypass the rejection. In-run approval is unavailable. Continue with other permitted work; if this action is required, explain the blocked step to the user.';
+  'Tool call rejected before execution by operator permissions. No allow rule permits this call. Do not retry this call, delegate it to another agent, or change permission settings to bypass the rejection. You may pursue the same goal through other permitted tools in reasonable ways that respect the intent of this denial, but do not misuse a permitted tool to carry out the rejected action. In-run approval is unavailable. Continue with other permitted work; if this action is essential, finish what remains, then stop and explain the blocked step to the user, who can adjust the permission rules.';
 
 const INVALID_FIELD =
   'Tool call rejected before execution by operator permissions. The configured permission rule is incompatible with this tool. Do not retry this call or change permission settings yourself. Report the configuration problem to the user and continue with other permitted work. In-run approval is unavailable.';
@@ -27,17 +27,17 @@ const INPUT_LIMIT =
  *  setting, and offers no way out (openspec/changes/read-only-permission-mode
  *  "A read-only rejection uses a fixed message"). */
 export const READ_ONLY_REJECTION =
-  'Tool call rejected before execution. This Run permits only reads and Workspace entry or exit without a worktree. Do not retry this call, disguise the same action through different commands or tools, or delegate it to another agent. In-run approval is unavailable. Continue with other permitted work; if this action is required, explain the blocked step to the user.';
+  'Tool call rejected before execution. This Run permits only reads and Workspace entry or exit without a worktree. Do not retry this call, delegate it to another agent, or misuse a permitted read to cause the rejected effect. You may complete everything that permitted reads allow and report what remains blocked. In-run approval is unavailable. Continue with other permitted work; if this action is essential, finish what remains, then stop and explain the blocked step to the user.';
 
 /** The fixed hop-rejection template: never interpolated, so it is exported
  *  as-is for the client-side failure the web read builds. */
 export const REJECTED_HOP_MESSAGE =
-  'Tool call stopped by operator permissions. A redirect target was refused before its content was read; the refused target is in rejectedUrl. Do not retry this call, disguise the same target through another tool, or delegate it to another agent. In-run approval is unavailable. Continue with other permitted work; if this content is required, explain the blocked target to the user.';
+  'Tool call stopped by operator permissions. A redirect target was refused before its content was read; the refused target is in rejectedUrl. Do not retry this call, ask another tool to read the same refused target, or delegate it to another agent. You may continue the same goal from other permitted sources. In-run approval is unavailable. Continue with other permitted work; if this content is essential, explain the blocked target to the user, who can adjust the permission rules.';
 
 /** The fixed address-rejection message: it names neither a resolved address
  *  nor the rule that refused it. */
 export const REJECTED_ADDRESS_MESSAGE =
-  'Tool call stopped by operator permissions. Every address of the target host was refused before a connection was opened; when the target was a redirect, it is in rejectedUrl. Do not retry this call, disguise the same target through another tool, or delegate it to another agent. In-run approval is unavailable. Continue with other permitted work; if this content is required, explain the blocked target to the user.';
+  'Tool call stopped by operator permissions. Every address of the target host was refused before a connection was opened; when the target was a redirect, it is in rejectedUrl. Do not retry this call, ask another tool to reach the same refused host, or delegate it to another agent. You may continue the same goal from other permitted sources. In-run approval is unavailable. Continue with other permitted work; if this content is essential, explain the blocked target to the user, who can adjust the permission rules.';
 
 /** The bound {@link rejectedHopUrl} applies to a refused hop locator before it
  *  is stored, and the bound every reader of a stored one re-checks. */

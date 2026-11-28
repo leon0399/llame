@@ -1184,10 +1184,10 @@ describe('runTool permission gate', () => {
   };
 
   const EXPLICIT_REJECT =
-    'Tool call rejected before execution by operator permissions. A reject rule matched. Do not retry this call, disguise the same action through different commands or tools, delegate it to another agent, or change permission settings to bypass the rejection. In-run approval is unavailable. Continue with other permitted work; if this action is required, explain the blocked step to the user.';
+    'Tool call rejected before execution by operator permissions. A reject rule matched. Do not retry this call, delegate it to another agent, or change permission settings to bypass the rejection. You may pursue the same goal through other permitted tools in reasonable ways that respect the intent of this denial, but do not misuse a permitted tool to carry out the rejected action. In-run approval is unavailable. Continue with other permitted work; if this action is essential, finish what remains, then stop and explain the blocked step to the user, who can adjust the permission rules.';
 
   const NO_ALLOW =
-    'Tool call rejected before execution by operator permissions. No allow rule permits this call. Do not retry this call, disguise the same action through different commands or tools, delegate it to another agent, or change permission settings to bypass the rejection. In-run approval is unavailable. Continue with other permitted work; if this action is required, explain the blocked step to the user.';
+    'Tool call rejected before execution by operator permissions. No allow rule permits this call. Do not retry this call, delegate it to another agent, or change permission settings to bypass the rejection. You may pursue the same goal through other permitted tools in reasonable ways that respect the intent of this denial, but do not misuse a permitted tool to carry out the rejected action. In-run approval is unavailable. Continue with other permitted work; if this action is essential, finish what remains, then stop and explain the blocked step to the user, who can adjust the permission rules.';
 
   const INVALID_FIELD =
     'Tool call rejected before execution by operator permissions. The configured permission rule is incompatible with this tool. Do not retry this call or change permission settings yourself. Report the configuration problem to the user and continue with other permitted work. In-run approval is unavailable.';

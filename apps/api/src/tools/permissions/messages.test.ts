@@ -21,7 +21,7 @@ describe('rejectedHopUrl', () => {
 describe('permissionDeniedResult', () => {
   it('returns the exact fixed read-only text', () => {
     expect(permissionDeniedResult('permission_mode_read_only').message).toBe(
-      'Tool call rejected before execution. This Run permits only reads and Workspace entry or exit without a worktree. Do not retry this call, disguise the same action through different commands or tools, or delegate it to another agent. In-run approval is unavailable. Continue with other permitted work; if this action is required, explain the blocked step to the user.',
+      'Tool call rejected before execution. This Run permits only reads and Workspace entry or exit without a worktree. Do not retry this call, delegate it to another agent, or misuse a permitted read to cause the rejected effect. You may complete everything that permitted reads allow and report what remains blocked. In-run approval is unavailable. Continue with other permitted work; if this action is essential, finish what remains, then stop and explain the blocked step to the user.',
     );
   });
 

@@ -596,13 +596,13 @@ never inside the message. The static reason explanation is deliberately model-vi
 #### Message for `explicit_reject`
 
 ```text
-Tool call rejected before execution by operator permissions. A reject rule matched. Do not retry this call, disguise the same action through different commands or tools, delegate it to another agent, or change permission settings to bypass the rejection. In-run approval is unavailable. Continue with other permitted work; if this action is required, explain the blocked step to the user.
+Tool call rejected before execution by operator permissions. A reject rule matched. Do not retry this call, delegate it to another agent, or change permission settings to bypass the rejection. You may pursue the same goal through other permitted tools in reasonable ways that respect the intent of this denial, but do not misuse a permitted tool to carry out the rejected action. In-run approval is unavailable. Continue with other permitted work; if this action is essential, finish what remains, then stop and explain the blocked step to the user, who can adjust the permission rules.
 ```
 
 #### Message for `no_allow`
 
 ```text
-Tool call rejected before execution by operator permissions. No allow rule permits this call. Do not retry this call, disguise the same action through different commands or tools, delegate it to another agent, or change permission settings to bypass the rejection. In-run approval is unavailable. Continue with other permitted work; if this action is required, explain the blocked step to the user.
+Tool call rejected before execution by operator permissions. No allow rule permits this call. Do not retry this call, delegate it to another agent, or change permission settings to bypass the rejection. You may pursue the same goal through other permitted tools in reasonable ways that respect the intent of this denial, but do not misuse a permitted tool to carry out the rejected action. In-run approval is unavailable. Continue with other permitted work; if this action is essential, finish what remains, then stop and explain the blocked step to the user, who can adjust the permission rules.
 ```
 
 #### Message for `invalid_field`
@@ -620,19 +620,20 @@ Tool call rejected before execution by operator permissions. The submitted input
 #### Message for a rejected redirect hop
 
 ```text
-Tool call stopped by operator permissions. A redirect target was refused before its content was read; the refused target is in rejectedUrl. Do not retry this call, disguise the same target through another tool, or delegate it to another agent. In-run approval is unavailable. Continue with other permitted work; if this content is required, explain the blocked target to the user.
+Tool call stopped by operator permissions. A redirect target was refused before its content was read; the refused target is in rejectedUrl. Do not retry this call, ask another tool to read the same refused target, or delegate it to another agent. You may continue the same goal from other permitted sources. In-run approval is unavailable. Continue with other permitted work; if this content is essential, explain the blocked target to the user, who can adjust the permission rules.
 ```
 
 #### Message for refused resolved addresses
 
 ```text
-Tool call stopped by operator permissions. Every address of the target host was refused before a connection was opened; when the target was a redirect, it is in rejectedUrl. Do not retry this call, disguise the same target through another tool, or delegate it to another agent. In-run approval is unavailable. Continue with other permitted work; if this content is required, explain the blocked target to the user.
+Tool call stopped by operator permissions. Every address of the target host was refused before a connection was opened; when the target was a redirect, it is in rejectedUrl. Do not retry this call, ask another tool to reach the same refused host, or delegate it to another agent. You may continue the same goal from other permitted sources. In-run approval is unavailable. Continue with other permitted work; if this content is essential, explain the blocked target to the user, who can adjust the permission rules.
 ```
 
 #### Scenario: Reject explains its effect without revealing policy
 
 - **WHEN** a reject rule blocks a call
-- **THEN** the result identifies rejection before execution, gives the fixed matching-reject reason, and instructs the model against retrying or bypassing it through other tools or agents
+- **THEN** the result identifies rejection before execution, gives the fixed matching-reject reason, and instructs the model against retry, delegation, and misuse of other tools
+- **AND** the message permits the model to pursue the same goal through other permitted tools in reasonable ways
 - **AND** neither interpolated private rule text nor matched input appears in the message
 - **AND** other permitted work may continue without claiming that this call ran
 
@@ -1349,7 +1350,7 @@ After the system validates the call arguments, it MUST decide the read-only ceil
 
 ### Requirement: A read-only rejection uses a fixed message
 
-A `permission_mode_read_only` rejection MUST return a `permission_denied` result with exactly this message: `Tool call rejected before execution. This Run permits only reads and Workspace entry or exit without a worktree. Do not retry this call, disguise the same action through different commands or tools, or delegate it to another agent. In-run approval is unavailable. Continue with other permitted work; if this action is required, explain the blocked step to the user.`
+A `permission_mode_read_only` rejection MUST return a `permission_denied` result with exactly this message: `Tool call rejected before execution. This Run permits only reads and Workspace entry or exit without a worktree. Do not retry this call, delegate it to another agent, or misuse a permitted read to cause the rejected effect. You may complete everything that permitted reads allow and report what remains blocked. In-run approval is unavailable. Continue with other permitted work; if this action is essential, finish what remains, then stop and explain the blocked step to the user.`
 
 #### Scenario: The rejection text is fixed
 

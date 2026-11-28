@@ -223,7 +223,7 @@ If every address is refused on the submitted locator or a redirect hop, the
 call ends with `permission_denied` and this fixed message (a refused redirect
 also has its hostname-form locator in `rejectedUrl`):
 
-> Tool call stopped by operator permissions. Every address of the target host was refused before a connection was opened; when the target was a redirect, it is in rejectedUrl. Do not retry this call, disguise the same target through another tool, or delegate it to another agent. In-run approval is unavailable. Continue with other permitted work; if this content is required, explain the blocked target to the user.
+> Tool call stopped by operator permissions. Every address of the target host was refused before a connection was opened; when the target was a redirect, it is in rejectedUrl. Do not retry this call, ask another tool to reach the same refused host, or delegate it to another agent. You may continue the same goal from other permitted sources. In-run approval is unavailable. Continue with other permitted work; if this content is essential, explain the blocked target to the user, who can adjust the permission rules.
 
 If every address of a probe is refused, only that candidate is disqualified.
 Refused addresses are recorded privately as derived-locator decisions of kind

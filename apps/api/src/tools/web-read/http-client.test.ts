@@ -2147,7 +2147,7 @@ describe('web fetch address admission', () => {
     expect(result).toStrictEqual({
       type: 'permission_denied',
       message:
-        'Tool call stopped by operator permissions. Every address of the target host was refused before a connection was opened; when the target was a redirect, it is in rejectedUrl. Do not retry this call, disguise the same target through another tool, or delegate it to another agent. In-run approval is unavailable. Continue with other permitted work; if this content is required, explain the blocked target to the user.',
+        'Tool call stopped by operator permissions. Every address of the target host was refused before a connection was opened; when the target was a redirect, it is in rejectedUrl. Do not retry this call, ask another tool to reach the same refused host, or delegate it to another agent. You may continue the same goal from other permitted sources. In-run approval is unavailable. Continue with other permitted work; if this content is essential, explain the blocked target to the user, who can adjust the permission rules.',
     });
     expect(judged).toEqual([
       ['93.184.216.34', 'https://93.184.216.34/guides/adapter-pipelines.html'],
