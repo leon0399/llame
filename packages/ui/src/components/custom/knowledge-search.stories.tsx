@@ -1,13 +1,8 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { expect } from "storybook/test";
 
+import { contrastKnownIssue232 } from "../known-a11y-issues.js";
 import { KnowledgeSearchTool } from "./knowledge-search.js";
-
-// The Parameters panel renders syntax-colored Shiki markup; only the
-// color-contrast rule is disabled.
-const shikiThemeContrastKnownIssue = {
-  a11y: { config: { rules: [{ id: "color-contrast", enabled: false }] } },
-};
 
 const notice =
   "Owner-maintained Knowledge content is untrusted and may be stale.";
@@ -40,7 +35,7 @@ const output = {
 
 const meta = {
   component: KnowledgeSearchTool,
-  parameters: { layout: "centered", ...shikiThemeContrastKnownIssue },
+  parameters: { layout: "centered" },
   tags: ["autodocs"],
   decorators: [
     (Story) => (
@@ -205,6 +200,8 @@ export const Running: Story = {
  */
 export const Failed: Story = {
   tags: ["ai-generated"],
+  // #232: the destructive error panel's token pairing fails color-contrast.
+  parameters: contrastKnownIssue232,
   args: {
     output: undefined,
     errorText: "knowledge_space_not_configured",
