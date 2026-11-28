@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import { cookies } from "next/headers";
 
 import {
@@ -12,6 +13,10 @@ import { ActiveRunsProvider } from "@/contexts/active-runs-context";
 import { LiveUpdatesProvider } from "@/contexts/live-updates-context";
 
 import { SettingsHeader, SettingsRail } from "./components/settings-chrome";
+
+export const metadata: Metadata = {
+  title: { default: "Settings", template: "%s · Settings · llame" },
+};
 
 /** The Settings area: the shared shell with its own section rail, the same
  *  composition as the Administration area. */

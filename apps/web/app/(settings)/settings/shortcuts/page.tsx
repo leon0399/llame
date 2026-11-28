@@ -1,6 +1,9 @@
+import type { Metadata } from "next";
 import { SectionPage } from "@/app/shell/section-rail";
 
 import { ShortcutsSection } from "../components/shortcuts-section";
+
+export const metadata: Metadata = { title: "Keyboard shortcuts" };
 
 export default function ShortcutsSettingsPage() {
   return (

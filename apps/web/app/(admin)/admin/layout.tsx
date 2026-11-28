@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import { cookies, headers } from "next/headers";
 
 import {
@@ -12,6 +13,10 @@ import { ActiveRunsProvider } from "@/contexts/active-runs-context";
 import { LiveUpdatesProvider } from "@/contexts/live-updates-context";
 import { AdminHeader } from "./components/admin-header";
 import { AdminSectionNav } from "./components/admin-section-nav";
+
+export const metadata: Metadata = {
+  title: { default: "Administration", template: "%s · Administration · llame" },
+};
 
 /**
  * The Administration area's own layout (D1): composes the SAME shared shell

@@ -1,6 +1,9 @@
+import type { Metadata } from "next";
 import { SectionPage } from "@/app/shell/section-rail";
 
 import { AccountSection } from "../components/account-section";
+
+export const metadata: Metadata = { title: "Account & security" };
 
 export default function AccountSettingsPage() {
   return (

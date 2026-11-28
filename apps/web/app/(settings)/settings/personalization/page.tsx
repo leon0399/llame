@@ -1,6 +1,9 @@
+import type { Metadata } from "next";
 import { SectionPage } from "@/app/shell/section-rail";
 
 import { PersonalizationSection } from "../components/personalization-section";
+
+export const metadata: Metadata = { title: "Personalization" };
 
 export default function PersonalizationSettingsPage() {
   return (
