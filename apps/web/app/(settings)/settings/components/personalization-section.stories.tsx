@@ -470,8 +470,10 @@ export const LeavingWithUnsavedEditsAsks: Story = {
     });
 
     await userEvent.click(within(dialog).getByRole("button", { name: "Stay" }));
-    await waitFor(() =>
-      expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument(),
+    // The dialog fades out before it leaves the document.
+    await waitFor(
+      () => expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument(),
+      { timeout: 5000 },
     );
     await expect(name).toHaveValue("Leo");
     await expect(push).not.toHaveBeenCalled();

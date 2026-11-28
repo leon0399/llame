@@ -1,5 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { expect, screen, userEvent, waitFor, within } from "storybook/test";
+import { ThemeProvider } from "next-themes";
 import { vi, type Mock } from "vitest";
 
 import { AppearanceProvider } from "@/contexts/appearance-context";
@@ -13,6 +14,9 @@ import AppearanceSettingsPage from "./page";
 // The Appearance page reads nothing from the API: the theme lives in
 // next-themes and the fonts in cookies. Any request fails the story.
 let fetchMock: Mock<typeof fetch>;
+
+/** Its own key, so a story's theme never reaches the app's stored one. */
+const THEME_STORAGE_KEY = "appearance-story-theme";
 
 /** Drops a font cookie so each story starts from the default. */
 function clearCookie(name: string) {
@@ -44,12 +48,22 @@ const meta = {
       clearCookie(MONO_FONT_STYLE_COOKIE);
       document.documentElement.style.removeProperty("--font-sans");
       document.documentElement.style.removeProperty("--font-mono");
+      document.documentElement.classList.remove("dark", "light");
+      localStorage.removeItem(THEME_STORAGE_KEY);
     };
   },
   render: () => (
-    <AppearanceProvider>
-      <AppearanceSettingsPage />
-    </AppearanceProvider>
+    // The app's ThemeProvider sits in its root providers, which stories do
+    // not mount; this one lets the theme picker take effect.
+    <ThemeProvider
+      attribute="class"
+      defaultTheme="system"
+      storageKey={THEME_STORAGE_KEY}
+    >
+      <AppearanceProvider>
+        <AppearanceSettingsPage />
+      </AppearanceProvider>
+    </ThemeProvider>
   ),
 } satisfies Meta<typeof AppearanceSettingsPage>;
 
@@ -110,6 +124,26 @@ export const ThemeMenu: Story = {
     await expect(
       screen.getAllByRole("menuitemradio").map((item) => item.textContent),
     ).toEqual(["Light", "Dark", "System"]);
+  },
+};
+
+/**
+ * Choosing Dark applies it to the page and names it on the picker.
+ *
+ * @summary choosing a theme applies it
+ */
+export const ChoosingAThemeAppliesIt: Story = {
+  tags: ["ai-generated"],
+  play: async ({ canvasElement }) => {
+    await userEvent.click(fieldControl(canvasElement, "Theme"));
+    await userEvent.click(
+      await screen.findByRole("menuitemradio", { name: "Dark" }),
+    );
+
+    await waitFor(() => expect(document.documentElement).toHaveClass("dark"));
+    await expect(fieldControl(canvasElement, "Theme")).toHaveTextContent(
+      "Dark",
+    );
   },
 };
 
