@@ -3,7 +3,7 @@
 ## Context
 
 Host tools run through the Machine daemon
-([ADR](../../../docs/adr/2026-11-20-host-tools-run-through-the-machine-daemon.md)),
+([ADR](../../../../docs/adr/2026-11-20-host-tools-run-through-the-machine-daemon.md)),
 so every host and Machine `grep` walk and every host and Machine directory
 read is served by the Rust daemon. `crates/machine-grep` walks the tree: it
 prunes exactly `.git` (`src/lib.rs:670`), silently, and applies ignore files
