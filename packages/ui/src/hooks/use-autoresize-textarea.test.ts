@@ -3,7 +3,7 @@ import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { useAutoResizeTextarea } from "./use-autoresize-textarea";
+import { useAutoResizeTextarea } from "./use-autoresize-textarea.js";
 
 // jsdom has no layout: every textarea reports this as its content height.
 let contentHeight = 0;
