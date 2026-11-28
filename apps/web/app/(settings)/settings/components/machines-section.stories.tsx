@@ -182,8 +182,8 @@ export const NeverConnected: Story = {
 };
 
 /**
- * Details opens under the row: each root with the size of its disk, then
- * both protocol versions.
+ * Details opens under the row: each root with the size of its disk, both
+ * protocol versions, and when the Machine last reported its facts.
  *
  * @summary roots and protocol versions under a row
  */
@@ -200,6 +200,12 @@ export const DetailsOpen: Story = {
     await expect(
       within(gpu).getByText("daemon protocol v7 · hub protocol v8"),
     ).toBeVisible();
+    // The spec asks for the facts' capture time beside them.
+    await expect(
+      within(gpu)
+        .getByText(/^Facts reported/)
+        .closest("p"),
+    ).toHaveTextContent("Facts reported 3 minutes ago");
   },
 };
 

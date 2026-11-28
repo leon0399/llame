@@ -131,8 +131,8 @@ function versionsText(machine: MachineResponse): string {
   return `daemon protocol v${String(machine.daemonProtocolVersion)} · ${hub}`;
 }
 
-/** Roots and versions, which a reader needs only when choosing a folder or
- *  when something does not connect. */
+/** Roots, versions and when the facts were reported, which a reader needs
+ *  only when choosing a folder or when something does not connect. */
 function MachineDetails({ machine }: { machine: MachineResponse }) {
   return (
     <Collapsible>
@@ -152,6 +152,12 @@ function MachineDetails({ machine }: { machine: MachineResponse }) {
           <p className="font-mono text-muted-foreground">
             {versionsText(machine)}
           </p>
+          {/* Facts are measured at a handshake, so they say when. */}
+          {machine.factsCapturedAt === null ? null : (
+            <p className="text-muted-foreground">
+              Facts reported <RelativeTime date={machine.factsCapturedAt} />
+            </p>
+          )}
         </div>
       </CollapsibleContent>
     </Collapsible>
