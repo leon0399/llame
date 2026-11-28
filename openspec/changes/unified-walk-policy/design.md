@@ -80,8 +80,12 @@ never filtered: rules decide entries, never the directory the call names.
 
 The fixed set renders an entry without children. The daemon cannot tell a
 requested directory from a child read, because the presentation asks for each
-child through the same `ListDirectory` call. So the presentation skips the
-child read for a fixed-set name: the entry renders as `- .git/` with no block,
+child through the same `ListDirectory` call. So both listing presentations skip
+the child read for a fixed-set name, through one `isWalkFixedName` in
+`packages/native-file-tools`: `collectChildDirectories`
+(`apps/api/src/machines/wire/files-read-directory.ts`) for host and Machine
+reads, and `readChildDirs` (`directory-listing.ts`) for the in-process `kb://`
+listing. The entry renders as `- .git/` with no block,
 and `read repo/.git/` still lists it, because the requested directory is never
 checked. Alternative: a protocol field marking fixed entries. Rejected: it
 costs a protocol change to carry a five-name constant. The presentation check
