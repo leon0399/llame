@@ -24,7 +24,7 @@ import {
 } from "@/components/search-list";
 import { machinePathFromRoot } from "@/lib/services/machines/locator";
 
-import { NewProjectDialog } from "./chat-list-sidebar/project-dialogs";
+import { NewProjectDialog } from "../chat-list-sidebar/project-dialogs";
 import { ComposerTooltip } from "./composer-tooltip";
 import type { ComposerProject } from "./composer-project";
 import { folderName } from "./composer-working-directory";

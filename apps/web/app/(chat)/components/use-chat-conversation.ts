@@ -24,7 +24,7 @@ import {
   useChatRefresh,
   useChatSendTransport,
 } from "./use-chat-engine";
-import { useComposerSelection } from "./use-composer-selection";
+import { useComposerSelection } from "./composer/use-composer-selection";
 import { useChatHistorySync } from "./use-chat-history-sync";
 import { hiddenFollowUpReplyIndex } from "./turn-action-rules";
 import {
@@ -49,7 +49,7 @@ import {
   type ComposerAttachments,
   revokePreviews,
   useComposerAttachments,
-} from "./use-composer-attachments";
+} from "./composer/use-composer-attachments";
 
 type ChatSubmitHandlersArgs = {
   sendMessage: AgUiChatState["sendMessage"];
