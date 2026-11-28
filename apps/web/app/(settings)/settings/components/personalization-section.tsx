@@ -6,8 +6,10 @@ import { EyeIcon, EyeOffIcon } from "lucide-react";
 import { Button } from "@workspace/ui/components/button";
 import {
   Card,
+  CardAction,
   CardContent,
   CardDescription,
+  CardFooter,
   CardHeader,
   CardTitle,
 } from "@workspace/ui/components/card";
@@ -15,6 +17,7 @@ import {
   Field,
   FieldContent,
   FieldDescription,
+  FieldGroup,
   FieldLabel,
 } from "@workspace/ui/components/field";
 import { Input } from "@workspace/ui/components/input";
@@ -39,11 +42,31 @@ import {
 /** Below this much headroom the counter appears; above it, it stays out of the way. */
 const COUNTER_VISIBLE_WITHIN = 0.15;
 
-function PersonalizationCardHeader({ description }: { description: string }) {
+/** The profile's title, and the switch that gates all of it: turning it off
+ *  sends none of the profile, account details included, and keeps the text. */
+function PersonalizationCardHeader({
+  enabled,
+  onEnabledChange,
+}: {
+  enabled?: boolean;
+  onEnabledChange?: (enabled: boolean) => void;
+}) {
   return (
     <CardHeader>
       <CardTitle>Your profile</CardTitle>
-      <CardDescription>{description}</CardDescription>
+      <CardDescription>
+        Sent with every message you write. Turn it off to send none of it,
+        without deleting what you wrote.
+      </CardDescription>
+      {enabled === undefined ? null : (
+        <CardAction>
+          <Switch
+            aria-label="Use my personalization"
+            checked={enabled}
+            onCheckedChange={onEnabledChange}
+          />
+        </CardAction>
+      )}
     </CardHeader>
   );
 }
@@ -166,22 +189,26 @@ function PersonalizationTextFieldRow({
   const invalid = value.length > cap;
 
   return (
-    <Field data-disabled={!enabled}>
-      <FieldLabel htmlFor={field.id}>{field.label}</FieldLabel>
-      <PersonalizationFieldControl
-        field={field}
-        value={value}
-        enabled={enabled}
-        invalid={invalid}
-        onChange={onChange}
-        onSubmit={onSubmit}
-      />
-      <FieldDescription>
-        <span className="flex min-w-0 justify-between gap-4">
-          <span className="min-w-0">{field.description}</span>
+    <Field orientation="responsive" data-disabled={!enabled}>
+      <FieldContent>
+        <FieldLabel htmlFor={field.id}>{field.label}</FieldLabel>
+        <FieldDescription>{field.description}</FieldDescription>
+        <FieldDescription>
           <CharacterCount value={value} cap={cap} />
-        </span>
-      </FieldDescription>
+        </FieldDescription>
+      </FieldContent>
+      {/* The control takes the wider column: what the owner types matters
+          more than the label it answers. */}
+      <div className="@md/field-group:shrink-0 @md/field-group:basis-3/5">
+        <PersonalizationFieldControl
+          field={field}
+          value={value}
+          enabled={enabled}
+          invalid={invalid}
+          onChange={onChange}
+          onSubmit={onSubmit}
+        />
+      </div>
     </Field>
   );
 }
@@ -307,7 +334,7 @@ function PersonalizationPreviewPanel({
 function PersonalizationSkeleton() {
   return (
     <Card>
-      <PersonalizationCardHeader description="What the assistant knows about you, and how you want it to answer." />
+      <PersonalizationCardHeader />
       <CardContent>
         <div className="space-y-4">
           <Skeleton className="h-9 w-full" />
@@ -344,7 +371,8 @@ function usePersonalizationSubmit(
   };
 }
 
-function PersonalizationFieldsSection({
+/** The profile: the switch that gates it, its fields, and Save. */
+function PersonalizationProfileCard({
   enabled,
   draft,
   setField,
@@ -353,39 +381,70 @@ function PersonalizationFieldsSection({
   const { canSave, submit } = usePersonalizationSubmit(enabled, state);
 
   return (
-    <>
-      {/* The master switch sits directly on the fields it gates, with no rule
-          between them: it is the on/off for THIS group, not a page-level
-          preference. Account identity is a separate concern and lives below
-          the content it supplements. */}
-      <PersonalizationToggleField
-        id="personalization-enabled"
-        label="Use my personalization"
-        description="Turn this off to send none of it — including your account details — without deleting what you wrote."
-        checked={enabled}
-        onCheckedChange={(checked) => state.update.mutate({ enabled: checked })}
+    <Card>
+      <PersonalizationCardHeader
+        enabled={enabled}
+        onEnabledChange={(checked) => state.update.mutate({ enabled: checked })}
       />
-
-      {TEXT_FIELDS.map((field) => (
-        <PersonalizationTextFieldRow
-          key={field.key}
-          field={field}
-          value={draft[field.key] ?? ""}
-          enabled={enabled}
-          onChange={(value) => setField(field.key, value)}
-          onSubmit={submit}
+      <CardContent>
+        <FieldGroup>
+          {TEXT_FIELDS.map((field) => (
+            <PersonalizationTextFieldRow
+              key={field.key}
+              field={field}
+              value={draft[field.key] ?? ""}
+              enabled={enabled}
+              onChange={(value) => setField(field.key, value)}
+              onSubmit={submit}
+            />
+          ))}
+        </FieldGroup>
+      </CardContent>
+      <CardFooter>
+        <PersonalizationSaveRow
+          canSave={canSave}
+          dirty={state.dirty}
+          overCap={state.overCap}
+          isSaving={state.isSaving}
+          isError={state.update.isError}
+          onSave={submit}
         />
-      ))}
+      </CardFooter>
+    </Card>
+  );
+}
 
-      <PersonalizationSaveRow
-        canSave={canSave}
-        dirty={state.dirty}
-        overCap={state.overCap}
-        isSaving={state.isSaving}
-        isError={state.update.isError}
-        onSave={submit}
-      />
-    </>
+function IdentityCardHeader() {
+  return (
+    <CardHeader>
+      <CardTitle>What the model provider sees</CardTitle>
+      <CardDescription>
+        Your account details, and the exact text your profile adds.
+      </CardDescription>
+    </CardHeader>
+  );
+}
+
+/** The spec requires saying where the value goes: the provider may be a
+ *  third party the reader has no relationship with. */
+function ShareIdentityField({
+  enabled,
+  checked,
+  update,
+}: {
+  enabled: boolean;
+  checked: boolean;
+  update: ReturnType<typeof useUpdatePersonalizationMutation>;
+}) {
+  return (
+    <PersonalizationToggleField
+      id="personalization-share-identity"
+      label="Share my account name and email"
+      description="Sends them to the model provider this instance is configured to use — which may be a third party. Off by default."
+      checked={checked}
+      disabled={!enabled}
+      onCheckedChange={(next) => update.mutate({ shareAccountIdentity: next })}
+    />
   );
 }
 
@@ -405,29 +464,24 @@ function PersonalizationIdentitySection({
   setPreviewOpen: Dispatch<SetStateAction<boolean>>;
 }) {
   return (
-    <>
-      {/* The spec requires this control to say where the value goes. A
-          self-hosted instance may be pointed at a third-party provider
-          that has no relationship with the person reading this. */}
-      <PersonalizationToggleField
-        id="personalization-share-identity"
-        label="Share my account name and email"
-        description="Sends them to the model provider this instance is configured to use — which may be a third party. Off by default."
-        checked={shareAccountIdentity}
-        disabled={!enabled}
-        onCheckedChange={(checked) =>
-          update.mutate({ shareAccountIdentity: checked })
-        }
-      />
-
-      <Separator />
-
-      <PersonalizationPreviewPanel
-        open={previewOpen}
-        onToggle={() => setPreviewOpen((open) => !open)}
-        preview={preview}
-      />
-    </>
+    <Card>
+      <IdentityCardHeader />
+      <CardContent>
+        <div className="space-y-6">
+          <ShareIdentityField
+            enabled={enabled}
+            checked={shareAccountIdentity}
+            update={update}
+          />
+          <Separator />
+          <PersonalizationPreviewPanel
+            open={previewOpen}
+            onToggle={() => setPreviewOpen((open) => !open)}
+            preview={preview}
+          />
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 
@@ -445,33 +499,17 @@ function PersonalizationForm({
   const enabled = data.enabled;
 
   return (
-    <Card>
-      <PersonalizationCardHeader description="What the assistant knows about you, and how you want it to answer. Everything here is sent with every message you write." />
-
-      {/* The wrapper carries the section rhythm and the extra bottom padding
-          the closing footnote needs (12px type would otherwise sit right
-          against the card edge): CardContent owns its own spacing. */}
-      <CardContent>
-        <div className="space-y-6 pb-2">
-          <PersonalizationFieldsSection
-            enabled={enabled}
-            draft={draft}
-            {...state}
-          />
-
-          <Separator />
-
-          <PersonalizationIdentitySection
-            enabled={enabled}
-            shareAccountIdentity={data.shareAccountIdentity}
-            update={state.update}
-            preview={state.preview}
-            previewOpen={state.previewOpen}
-            setPreviewOpen={state.setPreviewOpen}
-          />
-        </div>
-      </CardContent>
-    </Card>
+    <div className="space-y-6">
+      <PersonalizationProfileCard enabled={enabled} draft={draft} {...state} />
+      <PersonalizationIdentitySection
+        enabled={enabled}
+        shareAccountIdentity={data.shareAccountIdentity}
+        update={state.update}
+        preview={state.preview}
+        previewOpen={state.previewOpen}
+        setPreviewOpen={state.setPreviewOpen}
+      />
+    </div>
   );
 }
 
