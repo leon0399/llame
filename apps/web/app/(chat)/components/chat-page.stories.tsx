@@ -1,5 +1,6 @@
 import { EventType } from "@ag-ui/core";
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
+import { getRouter } from "@storybook/nextjs-vite/navigation.mock";
 import { MessageResponse } from "@workspace/ui/components/ai-elements/message-response";
 import { ReasoningContent } from "@workspace/ui/components/ai-elements/reasoning-content";
 import { contrastKnownIssue232 } from "@workspace/ui/components/known-a11y-issues";
@@ -69,6 +70,7 @@ import { SessionDetailsProvider } from "./session-details/details-state";
 import { SessionDetails } from "./session-details";
 import { parseSessionDetailsLayout } from "./session-details/details-cookie";
 import { ChatPage } from "./chat-page";
+import { NewChatHome } from "./new-chat-home";
 import {
   setChatMarkdownLoadForTests,
   type ChatMarkdownRenderers,
@@ -654,6 +656,59 @@ export const FirstSendKeepsComposerFocus: Story = {
     await canvas.findByRole("log");
     await expect(composer(canvasElement)).toBe(input);
     await expect(input).toHaveFocus();
+  },
+};
+
+/**
+ * `/` is the new-chat page: a draft whose id stays in the browser, shown as
+ * the greeting over a composer that unlocks once markdown is ready, without
+ * a request about the chat itself.
+ *
+ * @summary the home page opens a fresh draft under the greeting
+ */
+export const NewChatHomeOpensDraft: Story = {
+  parameters: { nextjs: { appDirectory: true, navigation: { pathname: "/" } } },
+  render: () => <NewChatHome />,
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await readyComposer(canvasElement);
+
+    await expect(
+      await canvas.findByRole("heading", {
+        name: /^Good (morning|afternoon|evening), Leo$/,
+      }),
+    ).toBeVisible();
+    await expect(canvas.queryByRole("log")).toBeNull();
+    await expect(sentRoutes()).toEqual([]);
+    await expect(getRouter().replace).not.toHaveBeenCalled();
+  },
+};
+
+/**
+ * History can land the home page on another chat's address (Back or Forward
+ * to an entry a home send rewrote). The page renders nothing there and routes
+ * the address again, so that chat's own page renders.
+ *
+ * @summary another chat's address is routed again instead of drafted over
+ */
+export const NewChatHomeReroutesOtherChat: Story = {
+  parameters: {
+    nextjs: {
+      appDirectory: true,
+      // Not this story's chat: the page itself sits on `/chat/${CHAT_ID}`.
+      navigation: { pathname: "/chat/c3a1f1e2-5d6b-4f7a-8c9d-0e1f2a3b4c5d" },
+    },
+  },
+  render: () => <NewChatHome />,
+  play: async ({ canvasElement }) => {
+    await waitFor(() =>
+      expect(getRouter().replace).toHaveBeenCalledWith(`/chat/${CHAT_ID}`),
+    );
+    await expect(
+      within(canvasElement).queryByPlaceholderText(
+        "Describe a task or ask a question",
+      ),
+    ).toBeNull();
   },
 };
 
