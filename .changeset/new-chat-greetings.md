@@ -11,4 +11,6 @@
 - Now and then the greeting is a rare one, from 1 in 100 up to 1 in
   100,000, labelled with its odds; the rarest shimmer. Clicking the
   greeting draws another. Under it, a short question invites the first
-  message unless the greeting already asks one.
+  message unless the greeting already asks one; it takes the owner's name
+  only when the greeting did not, varies by weekday, and is themed on
+  special days.

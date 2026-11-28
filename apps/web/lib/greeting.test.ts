@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   drawGreeting,
   greetingLines,
+  greetingQuestions,
   greetingName,
   type GreetingRolls,
 } from "./greeting";
@@ -133,6 +134,44 @@ describe("drawGreeting", () => {
 
       expect(drawn.question === null).toBe(line.endsWith("?"));
     }
+  });
+
+  it("names the owner in the question only when the greeting does not", () => {
+    // Tuesday 10:00: "Good morning, {name}" is first, "Let's noodle"-style
+    // nameless lines follow; the question pool starts with a named one.
+    const date = at(11, 24, 10);
+    const lines = greetingLines(date);
+
+    for (const [index, line] of lines.entries()) {
+      const drawn = drawGreeting(date, "Leo", {
+        line: (index + 0.5) / lines.length,
+        rarity: 0.5,
+        question: 0,
+      });
+
+      if (drawn.question === null) continue;
+
+      expect(drawn.question.includes("Leo")).toBe(!line.includes("{name}"));
+    }
+  });
+
+  it("asks a themed question on a special day", () => {
+    expect(greetingQuestions(at(5, 25, 10))).toEqual([
+      "Got your towel, {name}?",
+    ]);
+    expect(
+      drawGreeting(at(10, 22, 10), "Leo", { line: 0, rarity: 0.5, question: 0 })
+        .question,
+    ).toBe("WHAT ARE WE BUILDING?");
+  });
+
+  it("adds the weekday's questions on that day only", () => {
+    expect(greetingQuestions(at(11, 27, 14))).toContain(
+      "What should ship before the weekend?",
+    );
+    expect(greetingQuestions(at(11, 24, 14))).not.toContain(
+      "What should ship before the weekend?",
+    );
   });
 
   it("names the owner where a line does, and reads cleanly without a name", () => {
