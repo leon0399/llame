@@ -753,6 +753,16 @@ export const ProjectMenuFilter: Story = {
       );
     });
 
+    await step(
+      "ArrowLeft moves the cursor, not out of the submenu",
+      async () => {
+        await userEvent.keyboard("{ArrowLeft}");
+        await expect(filter).toBeInTheDocument();
+        await expect(filter).toHaveFocus();
+        await userEvent.keyboard("{End}");
+      },
+    );
+
     await step("a query matching nothing says so", async () => {
       await userEvent.type(filter, "zzz");
       await expect(await screen.findByText("No matches.")).toBeInTheDocument();

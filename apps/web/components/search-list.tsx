@@ -21,18 +21,13 @@ import {
  */
 
 /** Keys typed into the list stay in it: a menu around it would otherwise
- *  move its own highlight on arrows and jump on typed letters. Escape and
- *  ArrowLeft still reach the menu, to close it or step back out of a
- *  submenu. */
+ *  move its own highlight on arrows, jump on typed letters, and close a
+ *  submenu on ArrowLeft, which the search field needs to move its cursor.
+ *  Escape alone still reaches the menu, to close it. */
 function keepKeysInside(event: KeyboardEvent<HTMLDivElement>) {
-  if (event.key !== "Escape" && event.key !== "ArrowLeft") {
-    event.stopPropagation();
-  }
+  if (event.key !== "Escape") event.stopPropagation();
 }
 
-/** The list's three parts, in order: `first` (the "none" option), the
- *  searchable `children`, then `last` (actions such as "New project"). With
- *  no match, "No matches." takes the children's place, between the two. */
 export function SearchList({
   placeholder,
   first,
