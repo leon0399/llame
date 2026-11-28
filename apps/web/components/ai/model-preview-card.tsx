@@ -39,7 +39,7 @@ export function formatDate(iso: string): string {
 
 /** Context window + the three per-million-token prices — grouped since they
  *  share the same currency/number formatting. */
-function ModelPricingRows({ model }: { model: AvailableModel }) {
+export function ModelPricingRows({ model }: { model: AvailableModel }) {
   const priceInputPerMillion = model.pricingUsdPer1M?.input;
   const priceCachedInputPerMillion = model.pricingUsdPer1M?.cachedInput;
   const priceOutputPerMillion = model.pricingUsdPer1M?.output;
@@ -85,7 +85,7 @@ function ModelPricingRows({ model }: { model: AvailableModel }) {
 
 /** Dates + identity — grouped separately from pricing since they don't share
  *  its formatting or its "only if priced" gating. */
-function ModelMetaRows({ model }: { model: AvailableModel }) {
+export function ModelMetaRows({ model }: { model: AvailableModel }) {
   return (
     <>
       {model.knowledgeCutoff && (
@@ -114,7 +114,7 @@ function ModelMetaRows({ model }: { model: AvailableModel }) {
 
 /** The card's external-link footer — a distinct concern (outbound links,
  *  its own conditional visibility) from the `<dl>` details above it. */
-function ModelPreviewLinks({ model }: { model: AvailableModel }) {
+export function ModelPreviewLinks({ model }: { model: AvailableModel }) {
   if (!model.apiDocs && !model.modelPage) return null;
 
   return (
