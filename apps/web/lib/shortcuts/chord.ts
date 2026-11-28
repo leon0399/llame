@@ -117,13 +117,21 @@ export function formatChord(chord: Chord, modifierKey: "⌘" | "Ctrl"): string {
   return chordKeys(chord, modifierKey).join("+");
 }
 
+/** `aria-keyshortcuts` names modifiers by their DOM key values, and the two
+ *  keys that collide with its syntax by name. */
+const ARIA_KEY_NAMES = new Map([
+  [" ", "Space"],
+  ["+", "Plus"],
+]);
+
 /** `aria-keyshortcuts` names modifiers by their DOM key values. */
 export function ariaKeyShortcut(chord: Chord, isMac: boolean): string {
   return [
     chord.mod === true ? (isMac ? "Meta" : "Control") : null,
     chord.alt === true ? "Alt" : null,
     chord.shift === true ? "Shift" : null,
-    chord.key.length === 1 ? chord.key.toUpperCase() : chord.key,
+    ARIA_KEY_NAMES.get(chord.key) ??
+      (chord.key.length === 1 ? chord.key.toUpperCase() : chord.key),
   ]
     .filter((part) => part !== null)
     .join("+");

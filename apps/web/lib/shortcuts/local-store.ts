@@ -53,22 +53,32 @@ export function createLocalStore<T>(
     notify();
   };
 
+  // Attached once and kept: the stores are module singletons, and the cache
+  // must hear other tabs even while nothing subscribes (usage is recorded
+  // without a subscriber).
+  let listening = false;
+
+  const listen = () => {
+    if (listening) return;
+
+    listening = true;
+    window.addEventListener("storage", onStorage);
+  };
+
   return {
     subscribe(onChange) {
-      // One shared listener, attached for the first subscriber and removed
-      // with the last, so one subscriber leaving does not deafen the rest.
-      if (listeners.size === 0) window.addEventListener("storage", onStorage);
+      listen();
       listeners.add(onChange);
 
       return () => {
         listeners.delete(onChange);
-
-        if (listeners.size === 0) {
-          window.removeEventListener("storage", onStorage);
-        }
       };
     },
-    getSnapshot: () => (cache ??= readStored(key, schema, fallback)),
+    getSnapshot: () => {
+      listen();
+
+      return (cache ??= readStored(key, schema, fallback));
+    },
     getServerSnapshot: () => fallback,
     set(next) {
       cache = next;

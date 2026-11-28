@@ -78,6 +78,22 @@ function useChordRecorder(
   }, [active, onChord, onCancel]);
 }
 
+/** While a swap waits for an answer, Esc still cancels the change; other
+ *  keys stay free for the Swap and Keep buttons. */
+function useEscapeCancels(active: boolean, onCancel: () => void) {
+  useEffect(() => {
+    if (!active) return;
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onCancel();
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [active, onCancel]);
+}
+
 /** What recording does with a chord: refuse it, take it, or hold it for a
  *  swap with the shortcut that has it. */
 function recordChord(
@@ -119,6 +135,7 @@ function useShortcutRecording(settings: Settings) {
   const [recording, setRecording] = useState<Recording | null>(null);
   const modifierKey = usePrimaryModifierKey();
 
+  useEscapeCancels(recording?.phase === "taken", () => setRecording(null));
   useChordRecorder(
     recording?.phase === "listening",
     (chord) => {
@@ -344,7 +361,10 @@ function ShortcutLine({
       <div className="min-w-0 flex-1 space-y-1">
         <p className="text-sm font-medium">{row.def.label}</p>
         <RowMeta row={row} onReset={onReset} />
-        <RowStatus row={row} recording={recording} controls={controls} />
+        {/* Announced: a refusal or a pending swap is otherwise visual only. */}
+        <div aria-live="polite">
+          <RowStatus row={row} recording={recording} controls={controls} />
+        </div>
       </div>
       <RowKeys row={row} recording={recording} controls={controls} />
     </li>

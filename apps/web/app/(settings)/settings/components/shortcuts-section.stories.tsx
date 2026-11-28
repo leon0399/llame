@@ -18,6 +18,11 @@ const meta = {
   tags: ["autodocs"],
   // Kbd's muted ink on its muted fill is the tracked #232 contrast defect.
   parameters: { layout: "padded", ...contrastKnownIssue232 },
+  // Bindings persist in localStorage, which later story files share: leave
+  // the defaults behind.
+  afterEach: async ({ canvasElement }) => {
+    await startFresh(canvasElement);
+  },
 } satisfies Meta<typeof ShortcutsSection>;
 
 export default meta;

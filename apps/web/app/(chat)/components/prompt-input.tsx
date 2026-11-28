@@ -58,12 +58,13 @@ export const PromptInputTextarea = ({
   });
 
   const handleKeyDown: KeyboardEventHandler<HTMLTextAreaElement> = (e) => {
-    if (e.key !== "Enter") return;
+    // Alt+Enter chords are never the composer's: a recorded shortcut may own one.
+    if (e.key !== "Enter" || e.altKey) return;
 
     // Exactly Mod+Enter, the fixed chord it is declared as: with Shift or
     // Alt added the keys may be a recorded shortcut, which the dispatcher
     // must still see.
-    if (onModEnter && (e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey) {
+    if (onModEnter && (e.metaKey || e.ctrlKey) && !e.shiftKey) {
       e.preventDefault();
       onModEnter();
 
