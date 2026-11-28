@@ -121,7 +121,10 @@ export function FontSwitcher({
       <DropdownMenuContent align="end" className="w-48">
         <DropdownMenuRadioGroup
           value={currentValue}
-          onValueChange={onValueChange}
+          // Only the value: Base UI also passes its event details, which a
+          // setter with an options parameter (the font cookie's) would take
+          // as cookie attributes and fail on.
+          onValueChange={(value: string) => onValueChange(value)}
         >
           {options.map((option) => (
             <FontOptionItem
