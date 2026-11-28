@@ -1,0 +1,558 @@
+"use client";
+
+import {
+  memo,
+  useCallback,
+  useLayoutEffect,
+  useRef,
+  type RefObject,
+} from "react";
+import { useRouter } from "next/navigation";
+
+import type { ChatStatus, UIMessage } from "ai";
+import type { StickToBottomContext } from "use-stick-to-bottom";
+
+import {
+  Conversation,
+  ConversationContent,
+  ConversationScrollButton,
+} from "@workspace/ui/components/ai-elements/conversation";
+import {
+  Alert,
+  AlertAction,
+  AlertDescription,
+  AlertTitle,
+} from "@workspace/ui/components/alert";
+import { Shimmer } from "@workspace/ui/components/ai-elements/shimmer";
+import { Button } from "@workspace/ui/components/button";
+import { toast } from "@workspace/ui/components/sonner";
+import { StopCircleIcon } from "lucide-react";
+
+import { cancelRun } from "@/lib/services/chat/runs";
+import { ChatLoadOlder } from "./chat-load-older";
+import { CompactionBoundary } from "./compaction-boundary";
+import { ChatMessageRow } from "./chat-message-row";
+import { messageBoundaries } from "./message-boundaries";
+import { carriesTurnActions, needsFailedTurnRow } from "./turn-action-rules";
+import { TurnActions } from "./turn-actions";
+import { QuotaResetTime } from "../composer/quota-wait-notice";
+import {
+  messageRenderKey,
+  messageSeqFromMetadata,
+  type Compaction,
+} from "@/lib/services/chat/history";
+import type {
+  ChatLatestRunResponse,
+  ModelRoleResponse,
+} from "@/lib/api/generated/models";
+import type { FollowUpRunRequest } from "@/lib/services/chat/transport";
+import type { AvailableModel } from "@/lib/services/models/queries";
+
+type ChatTranscriptMessageProps = {
+  chatId: string;
+  message: UIMessage;
+  index: number;
+  isLast: boolean;
+  compaction: Compaction | null;
+  compactionIndex: number;
+  availableModels: ReadonlyArray<AvailableModel>;
+  roles: ReadonlyArray<ModelRoleResponse>;
+  status: ChatStatus;
+  latestRun: ChatLatestRunResponse | null;
+  onFollowUp: (request: FollowUpRunRequest) => void;
+  onInspectContext: (runId: string) => void;
+  onForked: (forkedChatId: string) => void;
+};
+
+/** Test-only render probe — fires when a memoized transcript row actually
+ *  renders (not when memo bails). Used by the stream-tick harness. Counts
+ *  render-phase invocations, including ones React may discard. */
+let transcriptMessageRenderProbe: ((renderKey: string) => void) | null = null;
+
+export function setTranscriptMessageRenderProbe(
+  probe: ((renderKey: string) => void) | null,
+): void {
+  transcriptMessageRenderProbe = probe;
+}
+
+/** One row's boundary computation plus its `ChatMessageRow` — split out of
+ *  `ChatTranscriptMessages` as its own self-contained region. Memoized so a
+ *  streaming token on the live tail does not reconcile idle fat turns (80+
+ *  tool headers) when `mergeTrustedModelContextParts` preserved their
+ *  message identity. Default shallow compare is enough once parent props
+ *  (`onForked`, `availableModels`, message refs) stay stable across ticks. */
+const ChatTranscriptMessage = memo(function ChatTranscriptMessage({
+  message,
+  index,
+  compaction,
+  compactionIndex,
+  availableModels,
+  ...rowProps
+}: ChatTranscriptMessageProps) {
+  const renderKey = messageRenderKey(message);
+  transcriptMessageRenderProbe?.(renderKey);
+
+  const { boundary, modelBoundary } = messageBoundaries({
+    message,
+    index,
+    compaction,
+    compactionIndex,
+    availableModels,
+    onInspectContext: rowProps.onInspectContext,
+  });
+
+  return (
+    <ChatMessageRow
+      {...rowProps}
+      renderKey={renderKey}
+      message={message}
+      availableModels={availableModels}
+      boundary={boundary}
+      modelBoundary={modelBoundary}
+    />
+  );
+});
+
+type ChatTranscriptCompactionBoundaryProps = {
+  compaction: Compaction;
+  availableModels: ReadonlyArray<AvailableModel>;
+};
+
+/** The trailing checkpoint boundary, shown when it lands after the last
+ * loaded conversation row. Split out of `ChatTranscriptMessages` as its own
+ * self-contained region. */
+function ChatTranscriptCompactionBoundary({
+  compaction,
+  availableModels,
+}: ChatTranscriptCompactionBoundaryProps) {
+  return (
+    <div className="mx-auto w-full max-w-3xl md:px-6">
+      <CompactionBoundary compaction={compaction} models={availableModels} />
+    </div>
+  );
+}
+
+type ChatTranscriptMessagesProps = {
+  chatId: string;
+  displayMessages: Array<UIMessage>;
+  compaction: Compaction | null;
+  compactionIndex: number;
+  availableModels: ReadonlyArray<AvailableModel>;
+  roles: ReadonlyArray<ModelRoleResponse>;
+  status: ChatStatus;
+  latestRun: ChatLatestRunResponse | null;
+  onFollowUp: (request: FollowUpRunRequest) => void;
+  onInspectContext: (runId: string) => void;
+};
+
+type ChatTranscriptMessageListProps = ChatTranscriptMessagesProps & {
+  onForked: (forkedChatId: string) => void;
+};
+
+/** The mapped message rows only — kept separate so the parent stays under
+ *  the per-function line budget after the stable `onForked` callback.
+ *  Exported for the memo regression harness (stream-tick idle-row commits). */
+export function ChatTranscriptMessageList({
+  chatId,
+  displayMessages,
+  compaction,
+  compactionIndex,
+  availableModels,
+  roles,
+  status,
+  latestRun,
+  onFollowUp,
+  onInspectContext,
+  onForked,
+}: ChatTranscriptMessageListProps) {
+  // Only the latest turn's reply row may read the Run (turn-actions D13): the
+  // other rows get a stable null, so a refetched Run cannot break their memo.
+  const actions = carriesTurnActions({
+    messages: displayMessages,
+    latestRun,
+    status,
+    absorbedThroughSeq: compaction?.absorbedThroughSeq ?? null,
+  });
+
+  return displayMessages.map((message, index) => (
+    <ChatTranscriptMessage
+      key={`message-${messageRenderKey(message)}`}
+      chatId={chatId}
+      message={message}
+      index={index}
+      isLast={index === displayMessages.length - 1}
+      compaction={compaction}
+      compactionIndex={compactionIndex}
+      availableModels={availableModels}
+      roles={roles}
+      status={status}
+      latestRun={
+        actions && index === displayMessages.length - 1 ? latestRun : null
+      }
+      onFollowUp={onFollowUp}
+      onInspectContext={onInspectContext}
+      onForked={onForked}
+    />
+  ));
+}
+
+/** Every message row, plus the trailing compaction boundary when it lands
+ *  after the last loaded message. Split out of `ChatTranscript` as its own
+ *  self-contained region. */
+function ChatTranscriptMessages(props: ChatTranscriptMessagesProps) {
+  const { displayMessages, compaction, compactionIndex } = props;
+  const onForked = useForkedChatNavigation();
+
+  return (
+    <>
+      <ChatTranscriptMessageList {...props} onForked={onForked} />
+      <ChatTranscriptFailedTurn {...props} />
+      {/* All loaded messages are within the summarized span → boundary sits
+          after the last one. */}
+      {compaction && compactionIndex === displayMessages.length && (
+        <ChatTranscriptCompactionBoundary
+          compaction={compaction}
+          availableModels={props.availableModels}
+        />
+      )}
+    </>
+  );
+}
+
+/** Lands a fork on the new Chat. Split out of `ChatTranscriptMessages` so that
+ *  component composes only regions. */
+function useForkedChatNavigation(): (forkedChatId: string) => void {
+  const router = useRouter();
+
+  return useCallback(
+    (forkedChatId: string) => {
+      router.push(`/chat/${forkedChatId}`);
+    },
+    [router],
+  );
+}
+
+/** The failed-turn row's heading, from how the Run ended. */
+function failedTurnTitle(latestRun: ChatLatestRunResponse): string {
+  if (latestRun.status === "cancelled") return "This turn was stopped";
+
+  return latestRun.error === null
+    ? "This turn ended without an answer"
+    : "This turn failed";
+}
+
+/** The latest turn's Regenerate when its Run left nothing an answer row could
+ *  show (turn-actions D13): no reply at all, or a reply whose parts paint
+ *  nothing — the one a Run persists when its provider call fails. This row
+ *  carries the action and names the turn's cause without hover. Render-nothing
+ *  for every other transcript. */
+function ChatTranscriptFailedTurn(props: ChatTranscriptMessagesProps) {
+  const { chatId, status, latestRun, onFollowUp } = props;
+
+  if (latestRun === null) return null;
+
+  if (latestRun.kind === "compaction") {
+    return <CompactionRunRow latestRun={latestRun} />;
+  }
+
+  if (!showsFailedTurnRow(props)) return null;
+
+  const title = failedTurnTitle(latestRun);
+
+  return (
+    <div className="mx-auto w-full max-w-3xl md:px-6">
+      <Alert>
+        <AlertTitle>{title}</AlertTitle>
+        {(latestRun.error !== null || latestRun.errorResetsAt !== null) && (
+          <AlertDescription>
+            {latestRun.error !== null && <p>{latestRun.error}</p>}
+            {latestRun.errorResetsAt !== null && (
+              <p>
+                <QuotaResetTime resetsAt={latestRun.errorResetsAt} />
+              </p>
+            )}
+          </AlertDescription>
+        )}
+        <AlertAction>
+          <TurnActions
+            chatId={chatId}
+            latestRun={latestRun}
+            reply={null}
+            status={status}
+            roles={props.roles}
+            availableModels={props.availableModels}
+            onFollowUp={onFollowUp}
+          />
+        </AlertAction>
+      </Alert>
+    </div>
+  );
+}
+
+/** Whether the transcript ends on the failed-turn row of its latest turn. */
+function showsFailedTurnRow(
+  props: Pick<
+    ChatTranscriptMessagesProps,
+    "displayMessages" | "latestRun" | "status" | "compaction"
+  >,
+): boolean {
+  return needsFailedTurnRow({
+    messages: props.displayMessages,
+    latestRun: props.latestRun,
+    status: props.status,
+    absorbedThroughSeq: props.compaction?.absorbedThroughSeq ?? null,
+  });
+}
+
+/** A compaction Run that ended without a checkpoint and shows an error row. */
+function isFailedCompaction(latestRun: ChatLatestRunResponse | null): boolean {
+  return (
+    latestRun?.kind === "compaction" &&
+    (latestRun.status === "failed" || latestRun.status === "expired")
+  );
+}
+
+function CompactionFailure({
+  latestRun,
+}: {
+  latestRun: ChatLatestRunResponse;
+}) {
+  return (
+    <div className="mx-auto w-full max-w-3xl md:px-6">
+      <Alert>
+        <AlertTitle>Compaction failed</AlertTitle>
+        <AlertDescription>
+          <p>{latestRun.error ?? "Compaction failed."}</p>
+          {latestRun.errorResetsAt !== null && (
+            <p>
+              <QuotaResetTime resetsAt={latestRun.errorResetsAt} />
+            </p>
+          )}
+        </AlertDescription>
+      </Alert>
+    </div>
+  );
+}
+
+function CompactionRunRow({ latestRun }: { latestRun: ChatLatestRunResponse }) {
+  if (
+    latestRun.status === "completed" ||
+    latestRun.status === "cancelled" ||
+    latestRun.status === "awaiting_quota"
+  ) {
+    return null;
+  }
+
+  if (isFailedCompaction(latestRun))
+    return <CompactionFailure latestRun={latestRun} />;
+
+  return (
+    <div className="mx-auto flex w-full max-w-3xl items-center justify-between md:px-6">
+      <Shimmer>Compacting context…</Shimmer>
+      <Button
+        variant="ghost"
+        size="sm"
+        onClick={() =>
+          cancelRun(latestRun.id).catch(() =>
+            toast.error("Couldn't stop the compaction. Try again."),
+          )
+        }
+      >
+        <StopCircleIcon />
+        Stop
+      </Button>
+    </div>
+  );
+}
+
+/** The send/stream error alert. Split out of `ChatTranscriptBody` as its
+ *  own self-contained region. */
+function ChatTranscriptErrorAlert({
+  name,
+  message,
+  resetsAt,
+}: {
+  name: string;
+  message: string;
+  resetsAt: number | null;
+}) {
+  return (
+    <div className="max-w-3xl mx-auto">
+      <Alert className="w-full">
+        <AlertTitle>Error: {name}</AlertTitle>
+        <AlertDescription>
+          <p>{message}</p>
+          {resetsAt !== null && (
+            <p>
+              <QuotaResetTime resetsAt={resetsAt} />
+            </p>
+          )}
+        </AlertDescription>
+      </Alert>
+    </div>
+  );
+}
+
+type ChatTranscriptProps = {
+  chatId: string;
+  displayMessages: Array<UIMessage>;
+  compaction: Compaction | null;
+  compactionIndex: number;
+  hasOlderMessages: boolean;
+  isLoadingOlderMessages: boolean;
+  onLoadOlderMessages: () => void;
+  availableModels: ReadonlyArray<AvailableModel>;
+  roles: ReadonlyArray<ModelRoleResponse>;
+  status: ChatStatus;
+  latestRun: ChatLatestRunResponse | null;
+  onFollowUp: (request: FollowUpRunRequest) => void;
+  displayedError: Error | undefined;
+  onInspectContext: (runId: string) => void;
+};
+
+function TranscriptFailure(props: ChatTranscriptProps) {
+  const { latestRun, displayedError } = props;
+
+  const storedFailure =
+    latestRun?.status === "failed" &&
+    (props.status === "ready" || props.status === "error")
+      ? latestRun.error
+      : null;
+
+  const errorMessage = displayedError?.message ?? storedFailure;
+
+  const shownByFailedTurn =
+    latestRun !== null &&
+    latestRun.error === errorMessage &&
+    (isFailedCompaction(latestRun) || showsFailedTurnRow(props));
+
+  if (errorMessage === null || shownByFailedTurn) return null;
+
+  return (
+    <ChatTranscriptErrorAlert
+      name={displayedError?.name ?? "Error"}
+      message={errorMessage}
+      resetsAt={
+        latestRun?.status === "failed" && latestRun.error === errorMessage
+          ? latestRun.errorResetsAt
+          : null
+      }
+    />
+  );
+}
+
+/** The scrollable region's content: older-page loading, every message row,
+ *  and a send/stream error. Split out of `ChatTranscript` as its own
+ *  self-contained region — reuses its parent's full prop set. */
+function ChatTranscriptBody(props: ChatTranscriptProps) {
+  const {
+    displayMessages,
+    hasOlderMessages,
+    isLoadingOlderMessages,
+    onLoadOlderMessages,
+  } = props;
+
+  return (
+    <>
+      <ChatLoadOlder
+        hasOlder={hasOlderMessages}
+        isLoading={isLoadingOlderMessages}
+        onLoadOlder={onLoadOlderMessages}
+        oldestMessageKey={
+          displayMessages.length > 0
+            ? messageRenderKey(displayMessages[0])
+            : null
+        }
+      />
+      <ChatTranscriptMessages {...props} />
+      <TranscriptFailure {...props} />
+    </>
+  );
+}
+
+/**
+ * Lands a `#msg-N` open on its target row (#1237). Runs from the component
+ * that owns the `Conversation`, so it fires on the commit that first mounts
+ * the transcript — which waits for the Markdown renderers, so the row exists —
+ * after the stick-to-bottom context has attached. Layout effects run child
+ * first, so `ChatLoadOlder`'s pre-paint bottom pin has already run (and
+ * latched) by then; this scroll simply overrides it. What pulls the reader
+ * back afterwards is every writer that runs on LATER frames while the lock
+ * holds: the library's content ResizeObserver (its initial bottom snap and
+ * each growth catch-up, a `scrollToBottom` whose rAF loop continues only
+ * while `state.isAtBottom`) and `ChatLoadOlder`'s synchronous re-pin on
+ * resize (gated on `isAtBottom` / `escapedFromLock`). `stopScroll` — the
+ * library's own escape, what its wheel handler calls when the reader scrolls
+ * up — clears `isAtBottom` and sets `escapedFromLock`, which disarms all of
+ * them. Ordinary opens (no target) keep the bottom pin.
+ */
+function useTargetScroll(
+  conversationRef: RefObject<StickToBottomContext | null>,
+  displayMessages: Array<UIMessage>,
+  targetSeq: number | null,
+) {
+  const targetLoaded =
+    targetSeq !== null &&
+    displayMessages.some(
+      (message) => messageSeqFromMetadata(message.metadata) === targetSeq,
+    );
+
+  const scrolledTargetRef = useRef<number | null>(null);
+  useLayoutEffect(() => {
+    if (!targetLoaded || scrolledTargetRef.current === targetSeq) return;
+    const target = document.getElementById(`msg-${targetSeq}`);
+
+    if (!target) return;
+    conversationRef.current?.stopScroll();
+    target.scrollIntoView({ block: "center" });
+    scrolledTargetRef.current = targetSeq;
+  }, [conversationRef, targetLoaded, targetSeq]);
+}
+
+/** The scrollable message log. Split out of `ChatSessionContent` as its own
+ *  self-contained region. */
+export function ChatTranscript({
+  targetSeq,
+  ...props
+}: ChatTranscriptProps & { targetSeq: number | null }) {
+  const conversationRef = useRef<StickToBottomContext>(null);
+  useTargetScroll(conversationRef, props.displayMessages, targetSeq);
+
+  return (
+    <div className="relative flex-1 overflow-hidden">
+      {/* initial="instant": the reader must LAND at the newest message, not
+          watch the page scroll from the top to it — with SSR-rendered
+          history the smooth initial animation reads as a jump to the top
+          and back down once hydration finishes.
+          resize="instant": markdown/reasoning bodies are client-loaded
+          through ChatMarkdownProvider before the transcript mounts, so on a
+          hard reload growth should not come from empty shells filling in.
+          Instant still covers streaming growth and older-page prepends. */}
+      <Conversation
+        className="h-full"
+        initial="instant"
+        resize="instant"
+        contextRef={conversationRef}
+      >
+        {/* #187: tool/reasoning chrome uses content-visibility:auto
+            (globals.css); message rows do not — they own scroll-anchor
+            geometry. True list virtualization remains deferred until a
+            several-thousand-message walk still measures heavy after that. */}
+        <ConversationContent className="mx-auto w-full max-w-3xl">
+          {/* The message column's own rhythm: 20px gutters, 48px of air above
+              and below, and 10px between rows: the gap `MessageContent` puts
+              between a message and its actions, repeated between the actions
+              and the next message. A row ends in its action row, invisible
+              until the row is hovered or focused, so the air between two
+              messages is that row plus both gaps. The negative margin cancels
+              the primitive's p-4 so the wrapper, not the component, sets the
+              inset. */}
+          <div className="-m-4 flex flex-col gap-2.5 px-5 py-12">
+            <ChatTranscriptBody {...props} />
+          </div>
+        </ConversationContent>
+        <ConversationScrollButton />
+      </Conversation>
+    </div>
+  );
+}

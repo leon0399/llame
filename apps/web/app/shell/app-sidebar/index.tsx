@@ -112,13 +112,12 @@ function useCloseSheetOnLink() {
 }
 
 /**
- * The primary rail, shared by every route group ((chat) and (admin)) — D1's
- * shell extraction. This component owns only presentation-agnostic pieces
- * (toggle, nav, user menu); route-group-specific header actions (e.g. the
- * chat area's New Chat/Search buttons) and mobile-only extra content (e.g.
- * the chat list) are passed in by the caller via `topActions`/`children`
- * rather than imported here, so this file has zero dependency on
- * ChatProvider/CommandPaletteProvider — the (admin) layout mounts neither.
+ * The primary rail, mounted once by the signed-in layout
+ * (`app/(app)/layout.tsx`) for Chats, Settings and Administration alike. This
+ * component owns only presentation-agnostic pieces (toggle, nav, user menu);
+ * the New chat and Search actions and the mobile-only chat list are passed in
+ * by the caller via `topActions`/`children` rather than imported here, so
+ * this file has zero dependency on ChatProvider/CommandPaletteProvider.
  */
 export function AppSidebar({
   topActions,

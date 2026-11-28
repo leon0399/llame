@@ -20,16 +20,16 @@ import { ChevronRightIcon, FolderIcon, PencilIcon } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
-import { ChatItem } from "@/app/(chat)/components/chat-list-sidebar/chat-item";
+import { ChatItem } from "@/app/(app)/(chat)/components/chat-list-sidebar/chat-item";
 import {
   useProjectDialogs,
   ProjectDialogs,
-} from "@/app/(chat)/components/project-list-sidebar/project-actions";
+} from "@/app/(app)/(chat)/components/project-list-sidebar/project-actions";
 import { ArchivedBadge } from "@/components/archived-badge";
 import { SidebarRowTitle } from "@/components/sidebar-row-title";
 import { useChatsQuery } from "@/lib/services/chat/queries";
 import { useUnpinItem } from "@/lib/services/pins/mutations";
-import { chatListFilters } from "@/app/(chat)/components/chat-list-view";
+import { chatListFilters } from "@/app/(app)/(chat)/components/chat-list-view";
 import type { PinnedItem } from "@/lib/services/pins/types";
 import { useProjectQuery, useProjects } from "@/lib/services/project/queries";
 import { useSetProjectArchive } from "@/lib/services/project/mutations";
