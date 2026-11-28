@@ -1,8 +1,13 @@
 "use client";
 
-import { GaugeIcon, ServerIcon } from "lucide-react";
+import { ArrowUpCircleIcon, GaugeIcon, ServerIcon } from "lucide-react";
 import Link from "next/link";
 
+import {
+  HoverCard,
+  HoverCardContent,
+  HoverCardTrigger,
+} from "@workspace/ui/components/hover-card";
 import {
   StatusBar,
   StatusBarGroup,
@@ -13,9 +18,14 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@workspace/ui/components/tooltip";
-import { cn } from "@workspace/ui/lib/utils";
 
 import { DemoChip } from "@/app/shell/soon-chip";
+import {
+  MachineContact,
+  MachineStatusDot,
+  machineFactsText,
+  machineOutdated,
+} from "@/components/machines/machine-list";
 import type { MachineResponse } from "@/lib/services/machines/queries";
 import { useMachinesQuery } from "@/lib/services/machines/queries";
 
@@ -47,22 +57,63 @@ function DemoUsage() {
   );
 }
 
-function MachineDot({ status }: { status: MachineResponse["status"] }) {
+/** A Machine at a glance; hovering or focusing it shows the rest of its row
+ *  from the Machines page, and it opens that page. */
+function MachineItem({ machine }: { machine: MachineResponse }) {
+  const facts = machineFactsText(machine);
+
   return (
-    <span
-      aria-hidden="true"
-      className={cn(
-        "size-1.5 shrink-0 rounded-full",
-        status === "online" ? "bg-success" : "bg-destructive",
-      )}
-    />
+    <HoverCard>
+      <HoverCardTrigger
+        render={<StatusBarItem render={<Link href="/settings/machines" />} />}
+      >
+        <MachineStatusDot status={machine.status} />
+        {/* Names run to 63 characters; three of them must not crowd out
+            the online count. */}
+        <span className="max-w-32 truncate">{machine.name}</span>
+        {/* The dot is decorative; the state is text a screen reader reads. */}
+        <span className="sr-only">, {machine.status}</span>
+      </HoverCardTrigger>
+      <HoverCardContent side="top" align="end" className="w-72">
+        <div className="space-y-1 text-xs text-muted-foreground">
+          <p className="flex items-center gap-2 text-sm font-medium text-foreground">
+            <MachineStatusDot status={machine.status} />
+            <span className="min-w-0 truncate">{machine.name}</span>
+          </p>
+          <p>
+            <MachineContact machine={machine} />
+          </p>
+          {facts === null ? null : <p>{facts}</p>}
+          {machineOutdated(machine) ? (
+            <p className="text-foreground">Runs an older daemon.</p>
+          ) : null}
+        </div>
+      </HoverCardContent>
+    </HoverCard>
+  );
+}
+
+/** Daemons older than the hub, named once in the bar so an update is not
+ *  found only by opening the Machines page. */
+function OutdatedItem({ machines }: { machines: Array<MachineResponse> }) {
+  const outdated = machines.filter(machineOutdated);
+
+  if (outdated.length === 0) return null;
+
+  return (
+    <StatusBarItem render={<Link href="/settings/machines" />}>
+      <ArrowUpCircleIcon aria-hidden="true" />
+      {outdated.length === 1
+        ? `${outdated[0]!.name} runs an older daemon`
+        : `${String(outdated.length)} Machines run an older daemon`}
+    </StatusBarItem>
   );
 }
 
 /**
- * The configured Machines at a glance: the first few by name with their
- * state, and how many are online. Kept current by live updates; nothing is
- * shown on an instance without Machines.
+ * The configured Machines at a glance: any that need a daemon update, the
+ * first few by name with their state, and how many are online. Kept current
+ * by live updates; nothing is shown on an instance without Machines.
  */
 function MachinesOverview() {
   const { data: machines } = useMachinesQuery();
@@ -73,17 +124,9 @@ function MachinesOverview() {
 
   return (
     <StatusBarGroup>
+      <OutdatedItem machines={machines} />
       {machines.slice(0, NAMED_MACHINES).map((machine) => (
-        <StatusBarItem key={machine.name}>
-          <MachineDot status={machine.status} />
-          {/* Names run to 63 characters; three of them must not crowd out
-              the online count. */}
-          <span className="max-w-32 truncate" title={machine.name}>
-            {machine.name}
-          </span>
-          {/* The dot is decorative; the state is text a screen reader reads. */}
-          <span className="sr-only">, {machine.status}</span>
-        </StatusBarItem>
+        <MachineItem key={machine.name} machine={machine} />
       ))}
       <Tooltip>
         <TooltipTrigger

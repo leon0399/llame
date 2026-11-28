@@ -4,7 +4,7 @@ import { Alert, AlertAction, AlertTitle } from "@workspace/ui/components/alert";
 import { Button } from "@workspace/ui/components/button";
 import { Skeleton } from "@workspace/ui/components/skeleton";
 
-import { MachineCardGrid } from "@/components/machines/machine-card";
+import { MachineList } from "@/components/machines/machine-list";
 import { useMachinesQuery } from "@/lib/services/machines/queries";
 
 function MachinesLoadErrorAlert({ onRetry }: { onRetry: () => void }) {
@@ -21,7 +21,7 @@ function MachinesLoadErrorAlert({ onRetry }: { onRetry: () => void }) {
 }
 
 /**
- * Read-only Machines, one card each. An instance whose operator configured
+ * The shared Machines, one row each. An instance whose operator configured
  * none answers 404 or an empty list, which `fetchMachines` folds into one
  * empty state: the page says so instead of standing blank.
  *
@@ -31,12 +31,7 @@ export function MachinesSection() {
   const { data, isPending, isError, refetch } = useMachinesQuery();
 
   if (isPending) {
-    return (
-      <div className="grid gap-4 lg:grid-cols-2">
-        <Skeleton className="h-44" />
-        <Skeleton className="h-44" />
-      </div>
-    );
+    return <Skeleton className="h-44" />;
   }
 
   if (isError) {
@@ -51,5 +46,5 @@ export function MachinesSection() {
     );
   }
 
-  return <MachineCardGrid machines={data} />;
+  return <MachineList machines={data} choosable />;
 }
