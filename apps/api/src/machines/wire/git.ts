@@ -32,6 +32,7 @@ const FAILURE_TYPES: Record<GitFailureReason, GitFailure['type']> = {
   [GitFailureReason.ENTRY_CHANGED]: 'git_entry_changed',
   [GitFailureReason.ROOT_MISSING]: 'root_missing',
   [GitFailureReason.NO_REPOSITORY_IN_ROOT]: 'no_repository_in_root',
+  [GitFailureReason.COPY_FAILED]: 'copy_failed',
 };
 
 const OPERATION_KINDS: Record<
@@ -100,7 +101,7 @@ function failure(
 ): GitFailure {
   const type = FAILURE_TYPES[value.reason] ?? 'git_failed';
 
-  return type === 'invalid_input'
+  return type === 'invalid_input' || type === 'copy_failed'
     ? { status: 'error', type, message: rewriteRoots(value.message, session) }
     : { status: 'error', type, stderr: rewriteRoots(value.stderr, session) };
 }
@@ -264,6 +265,7 @@ export const gitHandlers: GitHandlers = {
       repository: hostPath(session, params.source),
       branch: params.branch,
       path: hostPath(session, params.directory),
+      copySource: hostPath(session, params.copySource),
     });
 
     if (params.baseRef !== undefined) request.base = params.baseRef;

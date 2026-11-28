@@ -7,6 +7,7 @@ import {
   evaluateCanonicalWithRejectTexts,
   evaluatesPermission,
   OWNER_ROUTE,
+  readOnlyCeiling,
 } from './admit';
 import { compileToolPermissionMap } from './compile-permissions';
 import { evaluatePermission } from './evaluator';
@@ -187,5 +188,28 @@ describe('evaluateCanonicalWithRejectTexts', () => {
     );
 
     expect(decision).toMatchObject({ decision: 'reject', reason: 'no_allow' });
+  });
+});
+
+describe('readOnlyCeiling for Worktree creation', () => {
+  const enter = {
+    id: 'enter_workspace',
+    classification: 'write_low_risk',
+  } as const;
+
+  it('refuses a model worktree request in read-only mode, before any copy', () => {
+    expect(
+      readOnlyCeiling(context('read-only'), enter, { worktree: {} }),
+    ).toMatchObject({
+      decision: 'reject',
+      reason: 'permission_mode_read_only',
+    });
+  });
+
+  it('admits plain entry in read-only mode and a worktree request otherwise', () => {
+    expect(readOnlyCeiling(context('read-only'), enter, {})).toBeUndefined();
+    expect(
+      readOnlyCeiling(context('default'), enter, { worktree: {} }),
+    ).toBeUndefined();
   });
 });

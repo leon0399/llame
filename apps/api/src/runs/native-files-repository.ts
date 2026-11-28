@@ -415,13 +415,14 @@ function recordedResult(result: UnknownRecord): ToolResult | undefined {
   if (result.status !== 'error') return undefined;
 
   if (!isString(result.type) || !isString(result.message)) return undefined;
-  const artifact = result.artifact;
+  const { artifact, leftDirectory } = result;
 
   return {
     status: 'error',
     type: result.type,
     message: result.message,
     ...(isArtifactLocator(artifact) && { artifact }),
+    ...(isString(leftDirectory) && { leftDirectory }),
   };
 }
 

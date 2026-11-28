@@ -60,12 +60,18 @@ impl Machine {
     /// Spawns `attach --stdio`. A binary a test just wrote can briefly be busy
     /// ("Text file busy") while a sibling test's fork still holds the write
     /// descriptor before its exec, so that error is retried for a short while.
-    async fn spawn_attach(&self, binary: &str, path: Option<&Path>) -> Child {
+    async fn spawn_attach(
+        &self,
+        binary: &str,
+        path: Option<&Path>,
+        env: &[(&str, &Path)],
+    ) -> Child {
         for _ in 0..100 {
             let mut command = Command::from(self.command_with_binary(binary));
             if let Some(path) = path {
                 command.env("PATH", path);
             }
+            command.envs(env.iter().copied());
             match command
                 .args(["attach", "--stdio"])
                 .stdin(Stdio::piped())
@@ -99,7 +105,22 @@ impl Machine {
         binary: &str,
         path: Option<&Path>,
     ) -> (Child, Channel) {
-        let mut child = self.spawn_attach(binary, path).await;
+        self.attach_with_environment(binary, path, &[]).await
+    }
+
+    /// One `attach --stdio` child that also receives the given environment variables.
+    pub async fn attach_with_env(&self, env: &[(&str, &Path)]) -> (Child, Channel) {
+        self.attach_with_environment(env!("CARGO_BIN_EXE_llame-machine"), None, env)
+            .await
+    }
+
+    async fn attach_with_environment(
+        &self,
+        binary: &str,
+        path: Option<&Path>,
+        env: &[(&str, &Path)],
+    ) -> (Child, Channel) {
+        let mut child = self.spawn_attach(binary, path, env).await;
         let stdin = child.stdin.take().unwrap();
         let stdout = child.stdout.take().unwrap();
         let io = std::sync::Mutex::new(Some(tokio::io::join(stdout, stdin)));

@@ -61,6 +61,71 @@ and the call runs one read-only inspection of it.
 - Removing a worktree is an owner action, not a tool: see
   [repositories](../../operator/repositories.md#worktrees-a-chat-creates).
 
+### Environment files
+
+A new worktree starts from the source checkout's `.worktreeinclude` file, when
+that file exists at the checkout root. The source is the checkout that the call
+selected, not always the main clone. A subdirectory of a checkout uses that
+checkout's root. The file need not be committed. Without it, the call creates a
+plain checkout and copies nothing.
+
+The file uses gitignore syntax and selects files that git ignores and does not
+track. A file that is tracked, or untracked and not ignored, never qualifies.
+The Machine copies each selected file once, at creation. A later edit of the
+source file does not reach the worktree, and a later edit of the copy does not
+reach the source.
+
+- **Matching.** Patterns apply to the ignored files that git lists for the
+  source, including files inside an ignored directory. Git's own ignore rules
+  decide eligibility: nested ignore files, `.git/info/exclude`, and the
+  global excludes that the daemon can see. The daemon passes git only `PATH`,
+  `HOME`, and `TMPDIR`, so global excludes come from HOME-based config alone:
+  `core.excludesFile` and `$HOME/.config/git/ignore`. It does not read
+  `XDG_CONFIG_HOME` or `GIT_CONFIG_GLOBAL`.
+- **Ancestor rule.** Evaluation runs from the root down. The first ignored
+  ancestor directory selects its descendants, and a later `!` pattern cannot
+  re-include a child. With `secrets/` followed by `!secrets/private.json`, the
+  file is copied. With `secrets/**` in place of `secrets/`, it is not.
+- **Refused patterns.** A pattern with a `..` or `.git` path segment fails
+  creation, as does a manifest that is a symlink, larger than 1 MiB, not valid
+  UTF-8, or unreadable. An unreadable file never counts as an empty one. A
+  pattern that matches no file is not an error.
+- **Skipped.** A nested repository or linked worktree is skipped, even when a
+  pattern matches it.
+- **Symlinks.** A selected symlink or special file fails creation. This includes
+  one inside a selected directory. A pattern that selects a package tree with
+  links, such as `node_modules/` with its `.bin` entries, therefore fails.
+  Select the files that the worktree needs, such as `.env*`, instead.
+- **Overwrite.** A copy replaces a regular file at the destination, including a
+  file that the base ref tracks. The copy does not stage it, so git reports the
+  difference as a change and the new worktree can be dirty from the start.
+  Identical bytes leave no change.
+
+The copy is not a read. It runs on the Machine as the Machine's OS user, and
+copied bytes never cross the Machine protocol or enter a tool result. A file
+that a `read` reject refuses at the source can still be copied. A later `read`
+of the copy is decided by the permission groups for its destination path. The
+operator configures those groups as
+[Worktree creation and environment files](../../operator/tool-call-permissions.md#worktree-creation-and-environment-files)
+describes. See [Worktree creation authorizes environment
+copying](../../../adr/2026-11-28-worktree-creation-authorizes-environment-copying.md).
+
+A failed copy fails the call as `worktree_failed`. The worktree directory, its
+branch, and the files copied before the failure remain, and the call binds
+nothing. The failure records the directory as `leftDirectory` for recovery, and
+the model-facing text omits it. A timeout records that directory as well,
+because the call cannot tell whether the checkout or the copy timed out. A new
+worktree root whose real path differs from the requested path also fails the
+call, with the message "worktree root moved", and the directory stays. A
+message holds a fixed phrase and at most one relative path,
+never file bytes or an OS error. One deadline covers the checkout, the
+enumeration, and the copy.
+
+Plain `git worktree remove` deletes ignored copies with the worktree, and
+nothing records which files came from the source. The owner removal route in
+[repositories](../../operator/repositories.md#worktrees-a-chat-creates) refuses
+only a dirty or unpublished tree, so an edited ignored copy does not stop it.
+
 ## Locators
 
 An absolute path on the current Machine, or a
@@ -172,11 +237,15 @@ canonicalization.
 A worktree call adds `invalid_input` for a name or base ref git would refuse,
 `permission_denied` for a refused decision, and `worktree_failed` for a failed
 creation — including a name whose directory or branch exists, a source that is
-not a repository, a timeout, and the redacted git standard error. A failure
-records no row and leaves the previous binding and its generation unchanged. A
-fence lost after the directory was created answers `executor_unavailable` with
-`leftDirectory`, and a Machine link that dropped after the request was sent
-answers `outcome_unknown`; the directory can remain on disk in both cases.
+not a repository, a timeout, a failed [environment copy](#environment-files),
+and the redacted git standard error. A failure records no row and leaves the
+previous binding and its generation unchanged.
+
+A fence lost after the directory was created answers `executor_unavailable`
+with `leftDirectory`. A failed copy or a timeout answers `worktree_failed`, and
+it also carries `leftDirectory`. A Machine link that dropped after the request
+was sent answers `outcome_unknown`. In each case the directory can remain on
+disk.
 
 ## Configured by
 

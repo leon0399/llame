@@ -166,6 +166,30 @@ file a read selects into, because the selector is gone before the clause sees
 the text: `read /srv/.env:raw` on `devl` is matched as
 `machine://devl/srv/.env`.
 
+## Worktree creation and environment files
+
+A worktree entry that creates a worktree copies the files that the source
+checkout's `.worktreeinclude` file selects. The creation decisions authorize
+that copy. The daemon does not call the `read` or `write` groups for each file,
+and the allowlist needs no extra entry. A `read` reject on the source path
+therefore does not stop the copy. A file such as `.env` can land in the new
+worktree even when `read` rejects it at the source.
+
+A copy does not carry a read reject to its destination. A later `read` of the
+copied file is decided by the groups for its destination path, and an allow
+there returns the contents to model context. Cover each destination when you
+restrict reads: the `.llame-worktrees` directory beside each clone, or the
+`worktree_base` of a main checkout. A reject such as F4 in the portable policy
+below matches the copied `.env` only when its clause also matches the
+destination path.
+
+A read-only model Run still cannot create a worktree. An owner who creates a
+Chat in a worktree passes the same decisions as before. See [environment
+files](../reference/tools/enter-workspace.md#environment-files) for matching and
+failures, and [Worktree creation authorizes environment
+copying](../../adr/2026-11-28-worktree-creation-authorizes-environment-copying.md)
+for the reason.
+
 ## Bypass
 
 An effective `bypass` mode also admits an instruction import's canonical-path

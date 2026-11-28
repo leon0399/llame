@@ -39,6 +39,7 @@ const gitAddParamsSchema = z.object({
   source: z.string(),
   branch: z.string(),
   baseRef: z.string().optional(),
+  copySource: z.string(),
   directory: z.string(),
   options: gitOptionsSchema.optional(),
 });
