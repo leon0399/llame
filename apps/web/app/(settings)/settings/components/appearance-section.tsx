@@ -9,13 +9,7 @@ import {
   type Theme,
 } from "@/contexts/appearance-context";
 import { Button } from "@workspace/ui/components/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@workspace/ui/components/card";
+import { Card, CardContent } from "@workspace/ui/components/card";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -34,9 +28,6 @@ import {
   InterfaceFontSwitcher,
   CodeFontSwitcher,
 } from "@/components/font-switcher";
-import { MachinesSection } from "./components/machines-section";
-import { MemorySection } from "./components/memory-section";
-import { PersonalizationSection } from "./components/personalization-section";
 
 function themeIcon(theme: Theme) {
   switch (theme) {
@@ -108,7 +99,7 @@ function SettingRow({
   children: ReactNode;
 }) {
   return (
-    <div className="flex items-center justify-between">
+    <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-6">
       <div className="space-y-1">
         <p className="text-sm font-medium leading-none">{label}</p>
         <p className="text-sm text-muted-foreground">{description}</p>
@@ -141,17 +132,7 @@ function FontSettingRow({
   );
 }
 
-// Static (no props/state), so it's hoisted rather than rebuilt every render.
-const appearanceCardHeader = (
-  <CardHeader>
-    <CardTitle>Appearance</CardTitle>
-    <CardDescription>
-      Choose your preferred theme and font styles.
-    </CardDescription>
-  </CardHeader>
-);
-
-function AppearanceSection() {
+export function AppearanceSection() {
   const {
     theme,
     setTheme,
@@ -162,24 +143,26 @@ function AppearanceSection() {
   } = useAppearance();
 
   return (
-    <Card className="lg:max-w-2xl">
-      {appearanceCardHeader}
+    <Card>
       <CardContent>
         <div className="space-y-6">
-          <SettingRow label="Theme" description="Select the theme for the app.">
+          <SettingRow
+            label="Theme"
+            description="Light, dark, or follow the system."
+          >
             <ThemeDropdown theme={theme} setTheme={setTheme} />
           </SettingRow>
           <FontSettingRow
-            label="Interface Font"
-            description="Select the font for the interface."
+            label="Interface font"
+            description="The face for text and controls."
             Switcher={InterfaceFontSwitcher}
             options={fontStyleOptions}
             currentValue={fontStyle}
             onValueChange={setFontStyle}
           />
           <FontSettingRow
-            label="Code Font"
-            description="Select the font for code blocks."
+            label="Code font"
+            description="The face for code, paths and commands."
             Switcher={CodeFontSwitcher}
             options={monoFontStyleOptions}
             currentValue={monoFontStyle}
@@ -188,38 +171,5 @@ function AppearanceSection() {
         </div>
       </CardContent>
     </Card>
-  );
-}
-
-export default function SettingsPage() {
-  return (
-    // ONE scroll container: `h-full` + `overflow-y-auto` on the same element.
-    // The overflow is what resolves this flex child's `min-height: auto` to 0,
-    // so it shrinks past ChatHeader instead of overflowing SidebarInset.
-    //
-    // Deliberately BLOCK flow (`space-y-6`), not a flex column. `Card` sets
-    // `overflow-hidden`, which zeroes its own `min-height: auto` — as a flex
-    // item it then shrinks to fit this bounded height instead of overflowing
-    // it, and clips its content rather than scrolling the page. Block children
-    // cannot shrink, so they stack at natural height and the overflow lands
-    // here, where it belongs.
-    //
-    // The padding is not decorative either. A `ring` paints OUTSIDE the border
-    // box, so a card flush against this element's clip edge loses its ring top
-    // and bottom. `py-12` is the room it paints into.
-    <div className="h-full w-full space-y-6 overflow-y-auto px-5 py-12">
-      <div className="space-y-0.5">
-        <h2 className="text-2xl font-bold tracking-tight">Settings</h2>
-        <p className="text-muted-foreground">
-          Manage your account settings and set e-mail preferences.
-        </p>
-      </div>
-      <AppearanceSection />
-      <PersonalizationSection />
-      <MemorySection />
-      {/* Read-only and operator-owned: renders nothing on an instance whose
-          operator configured no Machines, so it can sit permanently last. */}
-      <MachinesSection />
-    </div>
   );
 }
