@@ -2,14 +2,14 @@ import { cookies } from "next/headers";
 import { ChatProvider } from "@/contexts/chat-context";
 import { ActiveRunsProvider } from "@/contexts/active-runs-context";
 import { LiveUpdatesProvider } from "@/contexts/live-updates-context";
-import { CommandPaletteProvider } from "./components/command-palette";
+import { CommandPaletteProvider } from "@/app/shell/command-palette";
 import {
   SidebarInset,
   SidebarProvider,
   AppSidebar,
 } from "@/app/shell/app-sidebar";
 import { AppShellFrame } from "@/app/shell/app-shell-frame";
-import { AppSidebarActions } from "./components/app-sidebar/app-sidebar-actions";
+import { AppSidebarActions } from "@/app/shell/app-sidebar/app-sidebar-actions";
 import { ChatList } from "./components/chat-list-sidebar/chat-list";
 import { ChatListSidebar } from "./components/chat-list-sidebar";
 import { ProjectListSidebar } from "./components/project-list-sidebar";
