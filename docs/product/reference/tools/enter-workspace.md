@@ -104,9 +104,10 @@ reach the source.
 The copy is not a read. It runs on the Machine as the Machine's OS user, and
 copied bytes never cross the Machine protocol or enter a tool result. A file
 that a `read` reject refuses at the source can still be copied. A later `read`
-of the copy is decided by the permission groups for its destination path, so an
-operator who restricts reads must cover the worktree directories. See
-[Worktree creation authorizes environment
+of the copy is decided by the permission groups for its destination path. The
+operator configures those groups as
+[Worktree creation and environment files](../../operator/tool-call-permissions.md#worktree-creation-and-environment-files)
+describes. See [Worktree creation authorizes environment
 copying](../../../adr/2026-11-28-worktree-creation-authorizes-environment-copying.md).
 
 A failed copy fails the call as `worktree_failed`. The worktree directory, its
