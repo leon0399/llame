@@ -506,7 +506,10 @@ function ChatSessionBody({
 
   return (
     <>
-      {exists && (
+      {/* A new chat's start screen has no transcript, but a failed markdown
+          load still needs its alert and Try again: the composer stays
+          disabled until markdown is ready. */}
+      {(exists || markdown.failed) && (
         <ChatSessionMain
           {...session}
           markdown={markdown}

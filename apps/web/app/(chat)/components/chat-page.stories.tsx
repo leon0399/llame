@@ -560,6 +560,31 @@ export const DraftMarkdownLoading: Story = {
   },
 };
 
+/**
+ * A fresh draft whose chunk import fails shows the same "Messages
+ * unavailable" alert as a stored chat, above the start screen's disabled
+ * composer; Try again loads the chunks and unlocks the composer.
+ *
+ * @summary a new chat recovers from a failed markdown load
+ */
+export const DraftMarkdownUnavailable: Story = {
+  args: { initialChatExists: false, initialDraftPhase: "fresh" },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    (await chunkLoad(1)).reject(new Error("chunk failed"));
+
+    await expect(await canvas.findByText("Messages unavailable")).toBeVisible();
+    await expect(composer(canvasElement)).toBeDisabled();
+
+    await userEvent.click(canvas.getByRole("button", { name: "Try again" }));
+    await expect(canvas.queryByText("Messages unavailable")).toBeNull();
+
+    (await chunkLoad(2)).resolve(RENDERERS);
+    await waitFor(() => expect(composer(canvasElement)).toBeEnabled());
+    await expect(sentRoutes()).toEqual([]);
+  },
+};
+
 /** Loads the markdown chunks and waits for the composer they unlock. */
 async function readyComposer(canvasElement: HTMLElement) {
   (await chunkLoad(1)).resolve(RENDERERS);
@@ -955,6 +980,8 @@ export const RefusedSendRestoresTextAndImage: Story = {
     await expect(
       within(canvas.getByRole("log")).queryByText("Inspect this draft"),
     ).not.toBeInTheDocument();
+    // The refusal's reason stays on screen beside the restored draft.
+    await expect(canvas.getByText(/Send was refused/)).toBeVisible();
   },
 };
 
