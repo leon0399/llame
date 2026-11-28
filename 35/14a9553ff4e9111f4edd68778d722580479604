@@ -1,0 +1,11 @@
+apps/web/app/(app)/signed-in-layout.test.ts
+  83a574157e2c33d7 1-19,21-27,29-79
+apps/web/app/(app)/layout.tsx
+  83a574157e2c33d7 1-51
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.1.6",
+  "base_commit_sha": "3514a9553ff4e9111f4edd68778d722580479604",
+  "prompts": {}
+}
