@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import type { ReactNode } from "react";
 
 import { Alert, AlertAction, AlertTitle } from "@workspace/ui/components/alert";
 import { Button } from "@workspace/ui/components/button";
@@ -10,29 +9,26 @@ import { Skeleton } from "@workspace/ui/components/skeleton";
 
 import { ConfirmDeleteDialog } from "@/components/confirm-delete-dialog";
 import { SoonChip } from "@/app/shell/soon-chip";
+import { SettingField } from "@/components/setting-field";
 import { logoutAllSessions, useMe } from "@/lib/services/auth/queries";
 
-/** One labelled line of a settings card: what it is on the left, its value
- *  or control on the right. */
-function SettingLine({
+/** A read-only account value at the end of its label's line. */
+function ProfileValue({
   label,
-  description,
-  children,
+  value,
 }: {
   label: string;
-  description?: string;
-  children: ReactNode;
+  value: string | null | undefined;
 }) {
   return (
-    <div className="flex flex-col gap-2 py-4 first:pt-0 last:pb-0 sm:flex-row sm:items-center sm:justify-between sm:gap-6">
-      <div className="min-w-0 space-y-1">
-        <p className="text-sm font-medium">{label}</p>
-        {description === undefined ? null : (
-          <p className="text-sm text-muted-foreground">{description}</p>
-        )}
-      </div>
-      <div className="min-w-0 shrink-0 text-sm">{children}</div>
-    </div>
+    <SettingField
+      label={label}
+      action={
+        <span className="text-sm break-all text-muted-foreground">
+          {value ?? "Not set"}
+        </span>
+      }
+    />
   );
 }
 
@@ -64,17 +60,9 @@ function Profile() {
   }
 
   return (
-    <div className="divide-y">
-      <SettingLine label="Name">
-        <span className="text-muted-foreground">
-          {me.data?.name ?? "Not set"}
-        </span>
-      </SettingLine>
-      <SettingLine label="Email">
-        <span className="break-all text-muted-foreground">
-          {me.data?.email ?? "Not set"}
-        </span>
-      </SettingLine>
+    <div className="flex flex-col gap-6">
+      <ProfileValue label="Name" value={me.data?.name} />
+      <ProfileValue label="Email" value={me.data?.email} />
     </div>
   );
 }
@@ -99,7 +87,9 @@ function SignOutEverywhere() {
         isPending={pending}
         onConfirm={() => {
           setPending(true);
-          void logoutAllSessions();
+          // A failed revoke still signs this browser out and redirects to the
+          // login page, so the rejection has nothing left to report.
+          logoutAllSessions().catch(() => undefined);
         }}
       />
     </>
@@ -120,19 +110,17 @@ export function AccountSection() {
         <h2 className="text-base font-semibold">Security</h2>
         <Card>
           <CardContent>
-            <div className="divide-y">
-              <SettingLine
+            <div className="flex flex-col gap-6">
+              <SettingField
                 label="Password"
                 description="Change the password you sign in with."
-              >
-                <SoonChip />
-              </SettingLine>
-              <SettingLine
+                action={<SoonChip />}
+              />
+              <SettingField
                 label="Sessions"
                 description="Sign out of every browser and device at once."
-              >
-                <SignOutEverywhere />
-              </SettingLine>
+                action={<SignOutEverywhere />}
+              />
             </div>
           </CardContent>
         </Card>
