@@ -75,12 +75,13 @@ fn failed_at(phrase: &'static str, path: &[u8]) -> SeedError {
 }
 
 /// Copies the selected files of `source` into `destination`, the literal requested path, within
-/// `deadline`. A destination whose real path differs from it receives nothing and is not an error.
+/// `deadline`. A destination whose real path differs from it receives nothing and fails, so no
+/// caller binds an unseeded Worktree.
 pub async fn seed(source: &Path, destination: &Path, deadline: Instant) -> Result<(), SeedError> {
     let source_root = rustix::fs::open(source, directory_flags(), Mode::empty())
         .map_err(|_| failed("copy source cannot be opened"))?;
     let Some(destination_root) = bind_root(destination)? else {
-        return Ok(());
+        return Err(failed("worktree root moved"));
     };
     let Some(matcher) = read_manifest(&source_root, source)? else {
         return Ok(());
@@ -680,5 +681,21 @@ mod tests {
                 .is_none(),
             "a link in the path makes the real path differ"
         );
+    }
+
+    #[tokio::test]
+    async fn a_moved_root_fails_and_receives_nothing() {
+        let f = fixture();
+        fs::write(f.source.join(".worktreeinclude"), ".env\n").unwrap();
+        fs::write(f.source.join(".env"), "SECRET=1\n").unwrap();
+        let alias = f.outside.join("alias");
+        symlink(&f.destination, &alias).unwrap();
+        let deadline = Instant::now() + std::time::Duration::from_secs(30);
+        let result = seed(&f.source, &alias, deadline).await;
+        assert!(matches!(
+            result,
+            Err(SeedError::Failed("worktree root moved", None))
+        ));
+        assert!(!f.destination.join(".env").exists());
     }
 }
