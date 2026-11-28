@@ -308,10 +308,10 @@ function OrgTreeToolbar({
   onCreateRoot: () => void;
 }) {
   return (
-    <CardHeader className="flex flex-row items-center">
+    <CardHeader className="flex flex-row flex-wrap items-center">
       <div className="flex items-center gap-2">
         <CardTitle>Organization units</CardTitle>
-        <span className="rounded-md bg-secondary px-1.75 py-px text-xs text-muted-foreground">
+        <span className="rounded-md bg-secondary px-1.75 py-px text-xs whitespace-nowrap text-muted-foreground">
           {unitCount} {unitCount === 1 ? "unit" : "units"}
         </span>
       </div>
