@@ -183,14 +183,13 @@ never an environment input.
 After `git worktree add` and before any copy, the daemon opens the new Worktree
 root without following links and confirms that its real path equals the
 literal request `path` field, which is the hub's decided canonical path, not
-the daemon's re-resolved directory. On a mismatch the daemon copies nothing and
-the existing handling is unchanged. Today `guard.verify_unchanged`
-(`crates/machine-core/src/guard.rs`) fails the call as `path_not_registered`
-with the Worktree retained (`dispatch-failure.ts`,
-`workspace-worktree-failure.ts`). The tool path's `refuseElsewhere` in
-`apps/api/src/tools/workspace-worktree-entry.ts` removes the Worktree only when
-the daemon's own resolve already saw the moved path. Chat creation has no
-removal path. This change adds no new mismatch handling.
+the daemon's re-resolved directory. On a mismatch the daemon copies nothing and fails
+with the typed `COPY_FAILED` reason ("worktree root moved"), keeping the
+Worktree. Both callers handle it like any `copy_failed`. Chat creation has no
+realpath removal, so a success there would bind an unseeded Worktree. The tool
+path's `refuseElsewhere` in `apps/api/src/tools/workspace-worktree-entry.ts`
+stays in code and spec, but a moved root now fails as `copy_failed` before it
+is reached.
 
 Replacing a regular destination must not truncate its existing inode through a
 hard link. Write a destination-local temporary file and rename it into place
@@ -255,8 +254,8 @@ redelivered Run keeps the locator. The model-facing renderer keeps
 stripping that field. The internal result readers must preserve that locator
 and the `message`. No public success field is needed.
 
-On any partial failure retain the new directory and branch, except where the
-existing mismatch handling of D3 removes a Worktree that received no copy. Tool entry keeps its previous binding. Chat creation keeps
+On any partial failure, including a moved root, retain the new directory and
+branch. Tool entry keeps its previous binding. Chat creation keeps
 its filed Chat but stores no initial message or Run. Both leave new catalog and
 lease rows uncommitted. A lost link still yields `outcome_unknown`, not a claim
 that no effect occurred.
@@ -367,5 +366,7 @@ were verified against code and probes and encoded. Round 2 ran one adversarial
 reviewer. Its findings are encoded here: the input-validation order, the
 corrected real-path mismatch handling, the timeout leftover, the durable
 `leftDirectory`, the `remote-machines` delta, the symlink-in-directory rule, and
-the fingerprint step. Leo directed implementation of the proposal in the
-implementation session. A further review round follows.
+the fingerprint step. Round 3 ran one independent reviewer. Its one P1 is
+encoded here: a root-binding mismatch fails as `copy_failed` and keeps the
+Worktree. The three rounds converged. Leo directed implementation of the
+proposal in the implementation session.

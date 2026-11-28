@@ -13,7 +13,8 @@ Each llame-created Worktree creation MUST read `.worktreeinclude` from the root
 of its selected source Checkout. The manifest need not be committed. The copy
 MUST NOT substitute the main Checkout for a linked source Checkout. A source
 subdirectory MUST resolve to its Checkout root. Git base-ref and parent rules
-MUST remain unchanged.
+MUST remain unchanged. Input validation MUST finish before Worktree add, so every
+`copy_failed` occurs after the Worktree exists.
 
 #### Scenario: A linked source supplies its own environment
 
@@ -39,7 +40,6 @@ MUST remain unchanged.
 
 - **WHEN** the resolved `copy_source` has a canonical common directory that differs from that of `repository`
 - **THEN** creation fails with typed `INVALID_INPUT` before any manifest read and before Worktree add
-- **AND** every `copy_failed` therefore occurs after the Worktree exists
 
 #### Scenario: A copy source whose gitfile leaves the roots is refused
 
@@ -263,14 +263,15 @@ modify other paths through a pre-existing hard link.
 After Worktree add and before any copy, the daemon MUST open the new Worktree
 root without following links and confirm that its real path equals the literal
 request `path` field, which is the hub's decided canonical path, not the daemon's
-re-resolved directory. On a mismatch the daemon MUST copy nothing, and the
-existing mismatch handling MUST stay unchanged.
+re-resolved directory. On a mismatch the daemon MUST copy nothing and MUST
+fail with the typed `COPY_FAILED` reason ("worktree root moved"), keeping the
+Worktree. Both callers MUST handle it like any `copy_failed`.
 
-#### Scenario: A real-path mismatch copies nothing
+#### Scenario: A real-path mismatch fails the copy
 
 - **WHEN** the new Worktree root resolves to a path other than the requested canonical path
-- **THEN** the daemon copies no file
-- **AND** the existing mismatch handling applies unchanged
+- **THEN** the daemon copies no file and fails with `COPY_FAILED`
+- **AND** the Worktree is retained and no binding is made
 
 ### Requirement: A failed copy preserves the partial Worktree without a binding
 
@@ -279,8 +280,7 @@ MUST fail creation. A copy, manifest, or entry failure MUST use the typed reason
 `copy_failed`, and a timeout MUST use `TIMED_OUT`. The failure `message` MUST be a
 fixed reason phrase plus at most one bounded relative path. It MUST NOT contain
 standard error, OS error text, manifest lines, or file bytes. The system MUST
-retain any new Worktree and partial files, except where the existing mismatch
-handling removes a Worktree that received no copy. It MUST report the leftover
+retain any new Worktree and partial files, including after a moved root. It MUST report the leftover
 directory when known. Because the API cannot tell an add timeout from a copy
 timeout, every `worktreeAdd` `timed_out` MUST carry the plan directory as a
 possible leftover. It MUST NOT bind the destination, record a

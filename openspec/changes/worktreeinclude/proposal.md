@@ -89,8 +89,9 @@ isolation, permission modes, and absence of file contents from observations.
 No automatic defaults, personal patterns, setup commands, dependency installation,
 file synchronization, symlink support, copy inventory, automatic cleanup of a
 failed copy, or new Chat-creation source kinds are included. The shipped
-removal of a Worktree whose real path differs from the decided one is
-unchanged. Manual `git worktree add` is unchanged.
+removal of a Worktree whose real path differs from the decided one remains only
+on the tool path, and a moved root now fails as `copy_failed` before it.
+Manual `git worktree add` is unchanged.
 Base-ref resolution, parenting, naming, placement, and removal guards remain as
 shipped. Copy-source identity does not change the git source or its base commit.
 
