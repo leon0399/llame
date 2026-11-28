@@ -6,3 +6,4 @@
   the server has stored the chat.
 - Sign-in and sign-up show the product's name, use the phone's width, and
   drop template copy (a "Login" title, a sample Gmail address, masked placeholders).
+- Search (⌘/Ctrl+K) offers Keyboard shortcuts beside Settings.
