@@ -60,7 +60,10 @@ export const PromptInputTextarea = ({
   const handleKeyDown: KeyboardEventHandler<HTMLTextAreaElement> = (e) => {
     if (e.key !== "Enter") return;
 
-    if (onModEnter && (e.metaKey || e.ctrlKey)) {
+    // Exactly Mod+Enter, the fixed chord it is declared as: with Shift or
+    // Alt added the keys may be a recorded shortcut, which the dispatcher
+    // must still see.
+    if (onModEnter && (e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey) {
       e.preventDefault();
       onModEnter();
 

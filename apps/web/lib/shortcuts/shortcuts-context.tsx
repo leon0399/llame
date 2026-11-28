@@ -21,6 +21,7 @@ import { useLatestRef } from "@/lib/hooks/use-latest-ref";
 
 import {
   ariaKeyShortcut,
+  chordId,
   formatChord,
   isBindableChord,
   matchChord,
@@ -109,6 +110,25 @@ const ShortcutsContext = createContext<HandlerRegistry | null>(null);
 
 function chordFor(bindings: Bindings, id: ShortcutId): Chord {
   return bindings[id] ?? SHORTCUTS_BY_ID.get(id)!.defaultChord;
+}
+
+/** Restores a shortcut's default keys. When another shortcut holds them
+ *  (after a swap), that one takes the keys being given up, as recording
+ *  does, so a reset never leaves two shortcuts on one chord. */
+function resetBinding(id: ShortcutId) {
+  const bindings = bindingsStore.getSnapshot();
+  const { [id]: _removed, ...rest } = bindings;
+  const defaultId = chordId(SHORTCUTS_BY_ID.get(id)!.defaultChord);
+
+  const holder = SHORTCUTS.find(
+    (def) => def.id !== id && chordId(chordFor(bindings, def.id)) === defaultId,
+  );
+
+  bindingsStore.set(
+    holder === undefined
+      ? rest
+      : { ...rest, [holder.id]: chordFor(bindings, id) },
+  );
 }
 
 function recordUse(id: ShortcutId) {
@@ -250,11 +270,7 @@ export function useShortcutSettings() {
     rows,
     setBinding: (id: ShortcutId, chord: Chord) =>
       bindingsStore.set({ ...bindingsStore.getSnapshot(), [id]: chord }),
-    resetBinding: (id: ShortcutId) => {
-      const { [id]: _removed, ...rest } = bindingsStore.getSnapshot();
-
-      bindingsStore.set(rest);
-    },
+    resetBinding: (id: ShortcutId) => resetBinding(id),
     resetAll: () => bindingsStore.set(NO_BINDINGS),
     clearUsage: () => usageStore.set(NO_USAGE),
   };

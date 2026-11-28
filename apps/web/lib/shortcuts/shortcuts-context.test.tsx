@@ -129,4 +129,28 @@ describe("ShortcutsProvider", () => {
     press({ key: "k", ctrlKey: true });
     expect(handler).toHaveBeenCalledOnce();
   });
+
+  it("gives a swapped default back on reset instead of sharing it", () => {
+    const { result } = renderHook(useShortcutSettings, { wrapper });
+
+    // A swap: New chat took Search's Ctrl+K, Search took Ctrl+Shift+O.
+    act(() => {
+      result.current.setBinding("chat.new", { key: "k", mod: true });
+      result.current.setBinding("palette.toggle", {
+        key: "o",
+        mod: true,
+        shift: true,
+      });
+    });
+    act(() => result.current.resetBinding("chat.new"));
+
+    const chordOf = (id: string) =>
+      result.current.rows.find((row) => row.def.id === id)?.chord;
+
+    expect(chordOf("chat.new")).toEqual({ key: "o", mod: true, shift: true });
+    expect(chordOf("palette.toggle")).toEqual({ key: "k", mod: true });
+    expect(result.current.rows.every((row) => row.conflicts.length === 0)).toBe(
+      true,
+    );
+  });
 });

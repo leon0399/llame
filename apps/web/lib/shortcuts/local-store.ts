@@ -55,12 +55,17 @@ export function createLocalStore<T>(
 
   return {
     subscribe(onChange) {
+      // One shared listener, attached for the first subscriber and removed
+      // with the last, so one subscriber leaving does not deafen the rest.
+      if (listeners.size === 0) window.addEventListener("storage", onStorage);
       listeners.add(onChange);
-      window.addEventListener("storage", onStorage);
 
       return () => {
         listeners.delete(onChange);
-        window.removeEventListener("storage", onStorage);
+
+        if (listeners.size === 0) {
+          window.removeEventListener("storage", onStorage);
+        }
       };
     },
     getSnapshot: () => (cache ??= readStored(key, schema, fallback)),
