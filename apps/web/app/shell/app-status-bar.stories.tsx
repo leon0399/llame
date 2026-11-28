@@ -136,7 +136,8 @@ export const MachinePreview: Story = {
     const preview = within(card);
 
     await expect(preview.getByText("Older daemon")).toBeVisible();
-    await expect(preview.getByText(/seen 2 minutes ago/)).toBeVisible();
+    // The contact line splits across a <time>, so read the card's text.
+    await expect(card).toHaveTextContent(/Online · seen 2 minutes ago/);
     await expect(preview.getByText("4 cores")).toBeVisible();
     await expect(preview.getByText("8 GiB")).toBeVisible();
     await expect(preview.getByText("256 GiB")).toBeVisible();
