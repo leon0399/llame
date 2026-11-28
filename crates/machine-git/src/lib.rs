@@ -1,5 +1,7 @@
 //! `GitService`: repository facts, status, and worktree management.
 
+mod include;
+
 use machine_core::{Context, IdempotencyCache};
 use machine_protocol::v1::{
     Change, ChangeCounts, Commit, CreateWorktreeRequest, CreateWorktreeResponse,
@@ -130,18 +132,17 @@ async fn run(directory: &Path, args: &[&str], deadline: Instant) -> Output {
 async fn run_pinned(directory: &Path, args: &[&str], deadline: Instant) -> Output {
     run_mode(directory, args, deadline, true).await
 }
-#[allow(clippy::too_many_lines)]
-async fn run_mode(directory: &Path, args: &[&str], deadline: Instant, pinned: bool) -> Output {
+/// The hardened git invocation shared by every runner: argv-only, cleared environment, hooks and
+/// fsmonitor off, and a process group. The returned directory holds the empty hooks path and must
+/// outlive the child.
+fn git_command(
+    directory: &Path,
+    args: &[&str],
+    pinned: bool,
+) -> Result<(Command, tempfile::TempDir), String> {
     let ceiling = directory.parent();
     if pinned && ceiling.is_some_and(|path| path.to_string_lossy().contains(':')) {
-        return Output {
-            status: None,
-            stdout: vec![],
-            stderr: b"git ceiling path contains ':'".to_vec(),
-            timed_out: false,
-            bounded: false,
-            stderr_bounded: false,
-        };
+        return Err("git ceiling path contains ':'".into());
     }
     let mut command = Command::new("git");
     if pinned {
@@ -158,19 +159,7 @@ async fn run_mode(directory: &Path, args: &[&str], deadline: Instant, pinned: bo
         command.env("GIT_CEILING_DIRECTORIES", ceiling);
         command.env("GIT_NO_LAZY_FETCH", "1");
     }
-    let hooks = match tempfile::tempdir() {
-        Ok(value) => value,
-        Err(e) => {
-            return Output {
-                status: None,
-                stdout: vec![],
-                stderr: e.to_string().into_bytes(),
-                timed_out: false,
-                bounded: false,
-                stderr_bounded: false,
-            };
-        }
-    };
+    let hooks = tempfile::tempdir().map_err(|e| e.to_string())?;
     command
         .args([
             "-c",
@@ -207,6 +196,23 @@ async fn run_mode(directory: &Path, args: &[&str], deadline: Instant, pinned: bo
         command.env("PATH", path);
     }
     command.as_std_mut().process_group(0);
+    Ok((command, hooks))
+}
+#[allow(clippy::too_many_lines)]
+async fn run_mode(directory: &Path, args: &[&str], deadline: Instant, pinned: bool) -> Output {
+    let (mut command, _hooks) = match git_command(directory, args, pinned) {
+        Ok(value) => value,
+        Err(message) => {
+            return Output {
+                status: None,
+                stdout: vec![],
+                stderr: message.into_bytes(),
+                timed_out: false,
+                bounded: false,
+                stderr_bounded: false,
+            };
+        }
+    };
     let mut child = match command.spawn() {
         Ok(v) => v,
         Err(e) => {
@@ -532,6 +538,24 @@ fn checked_git_data(entry: &Path, roots: &[PathBuf]) -> Result<(PathBuf, PathBuf
     Ok((git_dir, common_dir))
 }
 
+/// The copy source must be the root of a checkout of the same repository as `repository`, with
+/// its git data inside the registered roots. Runs before anything is read or created.
+fn check_copy_source(
+    copy_source: &Path,
+    common_dir: &Path,
+    roots: &[PathBuf],
+) -> Result<(), GitFailure> {
+    let entry = copy_source.join(".git");
+    if fs::symlink_metadata(&entry).is_err() {
+        return Err(invalid("copy_source must be a checkout root"));
+    }
+    let (_, source_common_dir) = checked_git_data(&entry, roots)?;
+    if source_common_dir == common_dir {
+        Ok(())
+    } else {
+        Err(invalid("copy_source must belong to the repository"))
+    }
+}
 fn option_like(values: &[&str]) -> bool {
     values.iter().any(|value| value.starts_with('-'))
 }
@@ -1244,6 +1268,7 @@ impl GitService for Git {
             &input.branch,
             input.base.as_deref().unwrap_or(""),
             &input.path,
+            &input.copy_source,
         ]) {
             return Ok(Response::new(CreateWorktreeResponse {
                 result: Some(CreateResult::Failure(invalid(
@@ -1251,8 +1276,14 @@ impl GitService for Git {
                 ))),
             }));
         }
+        if input.copy_source.is_empty() {
+            return Ok(Response::new(CreateWorktreeResponse {
+                result: Some(CreateResult::Failure(invalid("copy_source is required"))),
+            }));
+        }
         let guard = self.context.guard();
         let source = guard.resolve(&input.repository)?;
+        let copy_source = guard.resolve(&input.copy_source)?;
         let directory = guard.resolve(&input.path)?;
         if !validate_branch(&input.branch) {
             return Ok(Response::new(CreateWorktreeResponse {
@@ -1264,7 +1295,9 @@ impl GitService for Git {
         let branch = input.branch;
         let base = input.base;
         let src = source.canonical;
+        let copy = copy_source.canonical;
         let dst = directory.canonical.clone();
+        let requested = PathBuf::from(&input.path);
         let cache_guard = guard.clone();
         let cache_branch = branch.clone();
         let result = self
@@ -1273,7 +1306,8 @@ impl GitService for Git {
                 let Some(entry) = nearest_git(&src, cache_guard.roots()) else {
                     return Err(failure(GitFailureReason::NotARepository, ""));
                 };
-                checked_git_data(&entry, cache_guard.roots())?;
+                let (_, common_dir) = checked_git_data(&entry, cache_guard.roots())?;
+                check_copy_source(&copy, &common_dir, cache_guard.roots())?;
                 let deadline = Instant::now() + Duration::from_secs(120);
                 repository(&src, &cache_guard, true, deadline).await?;
                 let mut args = vec![
@@ -1293,6 +1327,9 @@ impl GitService for Git {
                 if !succeed(&out) {
                     return Err(process_failure(&out));
                 }
+                include::seed(&copy, &requested, deadline)
+                    .await
+                    .map_err(include::SeedError::into_failure)?;
                 let hd = run(
                     &src,
                     &["-C", &dest, "rev-parse", "--verify", "HEAD"],
@@ -1614,6 +1651,7 @@ mod tests {
                 branch: "must-not-exist".into(),
                 base: None,
                 path: target.to_string_lossy().into_owned(),
+                copy_source: repository.to_string_lossy().into_owned(),
             }))
             .await
             .unwrap()

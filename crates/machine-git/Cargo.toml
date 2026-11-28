@@ -18,5 +18,6 @@ tonic.workspace = true
 prost-types.workspace = true
 tempfile.workspace = true
 rustix.workspace = true
+ignore.workspace = true
 libc.workspace = true
 

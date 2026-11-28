@@ -1003,6 +1003,7 @@ dependencies = [
 name = "machine-git"
 version = "0.1.0"
 dependencies = [
+ "ignore",
  "libc",
  "machine-core",
  "machine-protocol",
