@@ -29,7 +29,7 @@ function useNewChatShortcut() {
 
 function ShortcutKeyLabel({ children }: { children: React.ReactNode }) {
   return (
-    <Kbd className="ml-auto group-data-[collapsible=icon]:hidden">
+    <Kbd className="ml-auto group-data-[collapsible=icon]:hidden pointer-coarse:hidden">
       {children}
     </Kbd>
   );

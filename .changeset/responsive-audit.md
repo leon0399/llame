@@ -8,3 +8,6 @@
 - Below 1280px, session details start closed, so on a tablet the chat is
   not squeezed between the chats rail and the details. They still open on
   demand, without changing the saved desktop preference.
+- Administration opens on a phone: the rail entry is enabled and its pages
+  switch sections from the breadcrumb. Keyboard hints in the rail are
+  hidden on touch screens.
