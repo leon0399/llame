@@ -28,12 +28,12 @@ import {
   attachmentFileParts,
   revokePreviews,
   type ComposerAttachments,
-} from "./composer/use-composer-attachments";
-import { useComposerSelection } from "./composer/use-composer-selection";
+} from "../composer/use-composer-attachments";
+import { useComposerSelection } from "../composer/use-composer-selection";
 import {
   useComposerLocation,
   type ComposerLocation,
-} from "./composer/use-composer-location";
+} from "../composer/use-composer-location";
 
 /*
  * The send of a chat filed into a project (openspec `chat-start-location`,

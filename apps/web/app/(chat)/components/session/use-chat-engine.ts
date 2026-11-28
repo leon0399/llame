@@ -35,7 +35,7 @@ import type {
   SendSelection,
 } from "@/lib/services/models/selection";
 
-import { parseTurnUsage } from "./transcript/message-usage";
+import { parseTurnUsage } from "../transcript/message-usage";
 import {
   permissionModesQueryKey,
   type PermissionModesResponse,

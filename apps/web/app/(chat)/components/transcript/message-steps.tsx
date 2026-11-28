@@ -25,7 +25,7 @@ import { z } from "zod";
 
 import { dedicatedToolRow } from "./dedicated-tool-row";
 import type { GroupedSteps, StepSegment } from "./group-assistant-parts";
-import type { ChatMarkdownRenderers } from "../use-chat-markdown-ready";
+import type { ChatMarkdownRenderers } from "../session/use-chat-markdown-ready";
 
 // The steps of a reply: its thinking and its tool calls, as trace lines.
 // Markdown/reasoning bodies come from `ChatMarkdownProvider` — never

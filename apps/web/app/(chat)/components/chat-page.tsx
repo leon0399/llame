@@ -24,20 +24,20 @@ import type { DraftPhase } from "@/lib/services/chat/draft-route";
 
 import { Spinner } from "@workspace/ui/components/spinner";
 
-import { useChatSessionState } from "./use-chat-session-state";
-import { useChatConversation } from "./use-chat-conversation";
-import { useChatPermissionRestore } from "./use-chat-engine";
-import { useChatDisplayedSelection } from "./use-chat-displayed-selection";
+import { useChatSessionState } from "./session/use-chat-session-state";
+import { useChatConversation } from "./session/use-chat-conversation";
+import { useChatPermissionRestore } from "./session/use-chat-engine";
+import { useChatDisplayedSelection } from "./session/use-chat-displayed-selection";
 import {
   ChatMarkdownProvider,
   useChatMarkdownReady,
-} from "./use-chat-markdown-ready";
+} from "./session/use-chat-markdown-ready";
 import { ChatTranscript } from "./transcript/chat-transcript";
 import { type ChatComposer, ChatComposerBody } from "./composer/chat-composer";
 import { PendingDeliveries } from "./composer/pending-deliveries";
 import { QuotaWaitNotice } from "./composer/quota-wait-notice";
 import { useChatPageProject } from "./composer/composer-project";
-import { useChatCreation } from "./use-chat-creation";
+import { useChatCreation } from "./session/use-chat-creation";
 import {
   ArchivedChatBanner,
   useOpenChatArchived,
