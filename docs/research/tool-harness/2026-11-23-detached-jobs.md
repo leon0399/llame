@@ -75,12 +75,9 @@ sources:
   - id: claude-background
     resource: "https://code.claude.com/docs/en/interactive-mode"
     title: "Claude Code background Bash commands and cleanup at exit"
-  - id: codex-config
-    resource: "https://developers.openai.com/codex/config-file/config-basic"
-    title: "Codex unified_exec feature: resumable command execution"
   - id: codex-app-server
-    resource: "https://developers.openai.com/codex/app-server"
-    title: "Codex app-server background terminal list, terminate and clean methods"
+    resource: "https://github.com/openai/codex/blob/22c1681aec46de3667e4b03786e9d2c9ae6e1066/codex-rs/app-server-protocol/src/protocol/common.rs"
+    title: "Codex background terminal API at the inspected revision"
   - id: codex-process-manager
     resource: "https://github.com/openai/codex/blob/22c1681aec46de3667e4b03786e9d2c9ae6e1066/codex-rs/core/src/unified_exec/process_manager.rs"
     title: "Codex process store and exit watcher for background terminals"
@@ -91,8 +88,8 @@ sources:
     resource: "https://github.com/coder/coder/blob/v2.36.6/agent/reconnectingpty/server.go"
     title: "Coder agent reconnecting PTY server holds the process in the agent"
   - id: devpod-agent
-    resource: "https://devpod.sh/docs/developing-providers/agent"
-    title: "DevPod agent: ssh server and inactivity stop of container pid 1"
+    resource: "https://github.com/loft-sh/devpod/blob/5a0efcbff6610ab114b421f68a890739a452e66b/docs/pages/developing-providers/agent.mdx"
+    title: "DevPod provider agent at the inspected commit"
   - id: openhands-terminal
     resource: "https://github.com/OpenHands/software-agent-sdk/blob/66af27073fb2838734574f33349761777c3b9e0d/openhands-tools/openhands/tools/terminal/README.md"
     title: "OpenHands terminal tool: tmux pane pool or subprocess PTY"
@@ -629,7 +626,7 @@ moderate for the holder model and low for exact exit-status behavior. [Inference
 - **Codex:** `unified_exec` keeps background terminals in the app-server, with
   `thread/backgroundTerminals/list`, `terminate` and `clean`, and the returned
   `processId` is the app-server's own id. The process store and exit watcher are
-  in the app-server process, so an app-server exit loses the jobs. [^codex-config][^codex-app-server][^codex-process-manager]
+  in the app-server process, so an app-server exit loses the jobs. [^codex-app-server][^codex-process-manager]
 - **Claude Code:** background Bash writes output to a file and is "automatically
   cleaned up when Claude Code exits". On macOS and Linux that cleanup also stops
   processes that detached under `setsid` or `timeout`, which is a deliberate
@@ -728,9 +725,7 @@ current background-job contract.
 
 [^claude-background]: [Claude Code interactive mode](https://code.claude.com/docs/en/interactive-mode) documents background Bash output files, cleanup at exit, and the stop of `setsid` descendants.
 
-[^codex-config]: [Codex config basics](https://developers.openai.com/codex/config-file/config-basic) lists `unified_exec` as resumable command execution.
-
-[^codex-app-server]: [Codex app server](https://developers.openai.com/codex/app-server) documents `thread/backgroundTerminals/list`, `terminate` and `clean`, with an app-server `processId`.
+[^codex-app-server]: The protocol at the inspected revision defines `thread/backgroundTerminals/list`, `terminate` and `clean`. [Codex app-server protocol](https://github.com/openai/codex/blob/22c1681aec46de3667e4b03786e9d2c9ae6e1066/codex-rs/app-server-protocol/src/protocol/common.rs).
 
 [^codex-process-manager]: [Codex process manager at the inspected revision](https://github.com/openai/codex/blob/22c1681aec46de3667e4b03786e9d2c9ae6e1066/codex-rs/core/src/unified_exec/process_manager.rs) holds the process store and exit watcher in the app-server.
 
@@ -738,7 +733,7 @@ current background-job contract.
 
 [^coder-reconnectingpty]: [Coder reconnecting PTY server at v2.36.6](https://github.com/coder/coder/blob/v2.36.6/agent/reconnectingpty/server.go) keeps the PTY and process in the agent.
 
-[^devpod-agent]: [DevPod provider agent](https://devpod.sh/docs/developing-providers/agent) describes the injected ssh server and the inactivity stop that terminates the container pid 1.
+[^devpod-agent]: [DevPod provider agent at the inspected commit](https://github.com/loft-sh/devpod/blob/5a0efcbff6610ab114b421f68a890739a452e66b/docs/pages/developing-providers/agent.mdx) describes the injected ssh server and the inactivity stop that terminates the container pid 1.
 
 [^openhands-terminal]: [OpenHands terminal tool](https://github.com/OpenHands/software-agent-sdk/blob/66af27073fb2838734574f33349761777c3b9e0d/openhands-tools/openhands/tools/terminal/README.md) describes the persistent session in a tmux pane pool or a subprocess PTY.
 
